@@ -232,11 +232,11 @@ func withoutDeploymentKey(provider string) func(*proxy.Service, *goldenHarness) 
 }
 
 var (
-	goldenOpenAIDecision     = decision(providers.ProviderOpenAI, goldenCodexChatModel)
-	goldenOpenAIOnlyDecision = decision(providers.ProviderOpenAI, goldenOpenAIOnlyModel)
-	goldenModelDeniedBody    = `{"type":"error","error":{"type":"not_found_error","message":"model: claude-haiku-4-5"}}`
-	goldenUnauthorizedBody   = `{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`
-	errGoldenCredential      = errors.New("golden: stored credential could not be decrypted")
+	goldenOpenAIDecision           = decision(providers.ProviderOpenAI, goldenCodexChatModel)
+	goldenOpenAIOnlyDecision       = decision(providers.ProviderOpenAI, goldenOpenAIOnlyModel)
+	goldenAnthropicModelDeniedBody = `{"type":"error","error":{"type":"not_found_error","message":"model: claude-haiku-4-5"}}`
+	goldenUnauthorizedBody         = `{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`
+	errGoldenCredential            = errors.New("golden: stored credential could not be decrypted")
 )
 
 type credentialCase struct {
@@ -340,7 +340,7 @@ func goldenCredentialScenarios() []goldenScenario {
 				providers.ProviderFireworks: {compatOK(false, "rescued")}},
 			ctx: goldenSubscriptionCtx},
 		{name: "subscription_model_denied", supplies: []string{goldenSubscription}, decisions: anthropicDecisions, turns: 2,
-			upstreams: anthropicUp(goldenUpstreamError(404, goldenModelDeniedBody), ok, ok), ctx: goldenSubscriptionCtx},
+			upstreams: anthropicUp(goldenUpstreamError(404, goldenAnthropicModelDeniedBody), ok, ok), ctx: goldenSubscriptionCtx},
 		{name: "subscription_unauthorized", supplies: []string{goldenSubscription}, decisions: anthropicDecisions, turns: 2,
 			upstreams: anthropicUp(goldenUpstreamError(401, goldenUnauthorizedBody), ok, ok), ctx: goldenSubscriptionCtx},
 
