@@ -15,12 +15,15 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 )
 
 // goldenEpoch anchors the fake clock; pins and cooldowns compare against it.
 var errGoldenAllExcluded = errors.New("golden router: every candidate excluded")
+
+var errGoldenUpstreamReset = errors.New("golden upstream: connection reset")
 
 var goldenEpoch = time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
 
@@ -71,8 +74,11 @@ type goldenAttempt struct {
 	Provider string `json:"provider"`
 	Model    string `json:"wire_model"`
 	Endpoint string `json:"endpoint,omitempty"`
-	Body     any    `json:"outbound_body,omitempty"`
-	Outcome  string `json:"outcome"`
+	// Credential names a subscription credential's source; deployment and
+	// BYOK keys stay unlabelled.
+	Credential string `json:"credential_source,omitempty"`
+	Body       any    `json:"outbound_body,omitempty"`
+	Outcome    string `json:"outcome"`
 }
 
 type goldenProvider struct {
@@ -103,11 +109,12 @@ func (p *goldenProvider) Proxy(ctx context.Context, decision router.Decision, pr
 		err = ctx.Err()
 	}
 	p.rec.recordAttempt(goldenAttempt{
-		Provider: p.name,
-		Model:    decision.Model,
-		Endpoint: goldenEndpoint(prep.Endpoint),
-		Body:     goldenJSON(prep.Body),
-		Outcome:  goldenOutcome(err),
+		Provider:   p.name,
+		Model:      decision.Model,
+		Endpoint:   goldenEndpoint(prep.Endpoint),
+		Credential: goldenCredentialSource(ctx),
+		Body:       goldenJSON(prep.Body),
+		Outcome:    goldenOutcome(err),
 	})
 	return err
 }
@@ -404,6 +411,28 @@ func (s *goldenPinStore) ExpireAndCoolDownModel(_ context.Context, expired sessi
 	return nil
 }
 
+func (s *goldenPinStore) StrikeTurnModel(_ context.Context, key [sessionpin.SessionKeyLen]byte, role, model string) error {
+	s.rec.mu.Lock()
+	defer s.rec.mu.Unlock()
+	if p, ok := s.pins[pinKey(key, role)]; ok && !slices.Contains(p.TurnStrikes, model) {
+		p.TurnStrikes = append(slices.Clone(p.TurnStrikes), model)
+		s.pins[pinKey(key, role)] = p
+	}
+	s.event("strike_turn_model", role, model)
+	return nil
+}
+
+func (s *goldenPinStore) ClearTurnStrikes(_ context.Context, key [sessionpin.SessionKeyLen]byte, role string) error {
+	s.rec.mu.Lock()
+	defer s.rec.mu.Unlock()
+	if p, ok := s.pins[pinKey(key, role)]; ok {
+		p.TurnStrikes = nil
+		s.pins[pinKey(key, role)] = p
+	}
+	s.event("clear_turn_strikes", role, nil)
+	return nil
+}
+
 func (s *goldenPinStore) SweepExpired(context.Context) error { return nil }
 
 // goldenTelemetry records request rows and inference attempts; request rows
@@ -461,3 +490,10 @@ func (b *goldenBilling) GetAutopayConfig(context.Context, billing.Owner) (bool, 
 }
 
 func (b *goldenBilling) BillingTablesExist(context.Context) (bool, error) { return true, nil }
+
+func goldenCredentialSource(ctx context.Context) string {
+	if creds := requestcontext.CredentialsFromContext(ctx); creds != nil && creds.OAuth {
+		return creds.Source
+	}
+	return ""
+}
