@@ -78,7 +78,6 @@ func (o *chatRescue) armCyberRetry(ctx context.Context) {
 		!strings.HasPrefix(o.decision.Reason, translate.ReasonUserForceModel) &&
 		!s.isHardPinnedTurn(ctx, routeRes.TurnType) &&
 		!billing.SubscriptionOnlyFromContext(ctx)
-	o.cyberRetryViable = false
 	if cyberRetryEligible {
 		target, found := s.cyberRefusalRetryTarget(ctx, o.decision, routeRes.SessionKey, stickyStateRole(routeRes),
 			o.overflowEstimate, env.SignatureTokenSavings(), o.outputReserve)
@@ -173,8 +172,6 @@ func (o *chatRescue) codexRetry(ctx context.Context) {
 	routeRes := o.routeRes
 	opts := o.opts
 	preludeBuf := o.preludeBuf
-	o.codexFailoverUsed = false
-	o.codexRetryRan = false
 	if o.codexRetryViable && !paidFallbackForbiddenForModel(ctx, o.decision.Model) && o.proxyErr != nil && !preludeBuf.Committed() &&
 		(providers.IsRetryable(o.proxyErr) || codexOAuthCredentialRejected(o.proxyErr) || codexSubscriptionModelRejected(o.proxyErr)) {
 		// Remember the plan is spent so later turns suppress the token pre-dispatch
@@ -237,8 +234,6 @@ func (o *chatRescue) claudeRetry(ctx context.Context) {
 	routeRes := o.routeRes
 	opts := o.opts
 	preludeBuf := o.preludeBuf
-	o.claudeFailoverUsed = false
-	o.claudeRetryRan = false
 	if o.claudeRetryViable && !paidFallbackForbiddenForModel(ctx, o.decision.Model) && o.proxyErr != nil && !preludeBuf.Committed() && (anthropicSubscriptionModelRejected(o.proxyErr) || anthropicSubscriptionThirdPartyRefused(o.proxyErr)) {
 		subCtx := subscriptionStatePaidRescueContext(withSuppressedClaudeSubscription(ctx), o.decision.Model)
 		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderAnthropic, o.decision.Model, r.Header)
@@ -294,7 +289,6 @@ func (o *chatRescue) cyberRetry(ctx context.Context) {
 	routeRes := o.routeRes
 	opts := o.opts
 	preludeBuf := o.preludeBuf
-	o.cyberRetryRan = false
 	if o.cyberRetryViable && o.proxyErr != nil && !preludeBuf.Committed() &&
 		providers.IsUpstreamCyberPolicyRefusal(o.proxyErr) {
 		retryOpts := opts

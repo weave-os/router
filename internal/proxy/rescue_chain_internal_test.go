@@ -105,3 +105,21 @@ func TestRescueChainSiblingRescueSkipsAfterTheDeferredErrorFlushed(t *testing.T)
 		t.Fatalf("dispatched = %v, owed = %v; a flushed error forecloses the sibling walk", svc.dispatched, c.siblingRescueOwed)
 	}
 }
+
+func TestRescueChainSiblingRescueRunsTheEntrypointHookWithoutRequestStats(t *testing.T) {
+	svc := &fakeRescueServices{}
+	sibling := router.Decision{Model: "first-sibling", Provider: providers.ProviderAnthropic}
+	c := newSiblingRescueChain(svc, &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests}, sibling)
+	c.reqStats = nil
+	var built []string
+	c.onSiblingBuilt = func(target router.Decision) { built = append(built, target.Model) }
+
+	c.siblingRescue(context.Background())
+
+	if !slices.Equal(built, []string{"first-sibling"}) || !slices.Equal(svc.dispatched, built) {
+		t.Fatalf("built = %v, dispatched = %v; the hook runs for each sibling before it is dispatched", built, svc.dispatched)
+	}
+	if c.servedProvider("unserved") != providers.ProviderAnthropic {
+		t.Fatalf("servedProvider = %q, want the binding that served", c.servedProvider("unserved"))
+	}
+}
