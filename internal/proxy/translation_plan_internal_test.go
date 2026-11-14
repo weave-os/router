@@ -8,6 +8,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -109,9 +110,9 @@ func TestTranslationPlan_CustomToolsExcludeUnsupportedModelsInEveryMode(t *testi
 				},
 			})
 
-			assert.Contains(t, plan.ExcludedModels, "xiaomi/mimo-v2.6-pro")
-			assert.NotContains(t, plan.ExcludedModels, "xiaomi/mimo-v2.6-flash")
-			requireModelExclusion(t, plan, "custom_tool_unsupported", "xiaomi/mimo-v2.6-pro", true)
+			assert.Contains(t, plan.ExcludedModels, catalog.ModelMiMoV26Pro)
+			assert.NotContains(t, plan.ExcludedModels, catalog.ModelMiMoV26Flash)
+			requireModelExclusion(t, plan, "custom_tool_unsupported", catalog.ModelMiMoV26Pro, true)
 		})
 	}
 }
@@ -125,7 +126,7 @@ func TestTranslationPlan_FunctionToolsKeepCustomToolUnsupportedModels(t *testing
 		},
 	})
 
-	assert.NotContains(t, plan.ExcludedModels, "xiaomi/mimo-v2.6-pro")
+	assert.NotContains(t, plan.ExcludedModels, catalog.ModelMiMoV26Pro)
 }
 
 func TestTranslationPlan_OffRestoresNativeFamilyEligibility(t *testing.T) {
