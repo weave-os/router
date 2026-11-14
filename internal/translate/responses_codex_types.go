@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -42,15 +45,30 @@ func customToolInput(arguments string) (string, error) {
 		return "", fmt.Errorf("%w: %w", ErrCustomToolArguments, err)
 	}
 	if len(wrapper) != 1 {
-		return "", fmt.Errorf("%w: expected exactly one input field", ErrCustomToolArguments)
+		return "", fmt.Errorf("%w: expected exactly one input field, got keys %v", ErrCustomToolArguments, argumentKeyNames(wrapper))
 	}
 	raw, ok := wrapper["input"]
 	if !ok {
-		return "", fmt.Errorf("%w: required string field input is missing", ErrCustomToolArguments)
+		return "", fmt.Errorf("%w: required string field input is missing, got keys %v", ErrCustomToolArguments, argumentKeyNames(wrapper))
 	}
 	var input string
 	if err := json.Unmarshal(raw, &input); err != nil {
 		return "", fmt.Errorf("%w: input must be a string: %w", ErrCustomToolArguments, err)
 	}
 	return input, nil
+}
+
+var argumentKeyName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,31}$`)
+
+// argumentKeyNames lists the wrapper's keys for diagnostics. Model output can
+// put arbitrary text in a key, so only short identifiers are named.
+func argumentKeyNames(wrapper map[string]json.RawMessage) []string {
+	names := make([]string, 0, len(wrapper))
+	for _, key := range slices.Sorted(maps.Keys(wrapper)) {
+		if !argumentKeyName.MatchString(key) {
+			key = "<redacted>"
+		}
+		names = append(names, key)
+	}
+	return names
 }
