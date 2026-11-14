@@ -6462,29 +6462,29 @@ func (s *Service) requestUsesNonDeploymentCreds(ctx context.Context, headers htt
 }
 
 // enabledProvidersForRequest returns providers with resolvable credentials
-// for this request. surfaceProvider is the inbound wire-format's natural provider.
+// for this request.
 func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvider string, headers http.Header) map[string]struct{} {
-	lanes := make(map[string]struct{}, 2)
+	subscriptionLanes := make(map[string]struct{}, 2)
 	// Linked subscription pools provide credentials independently of the
 	// inbound harness's native bearer.
 	if subscriptionCredsFromToken(anthropicSubscriptionFromContext(ctx)) != nil ||
 		managedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude) && s.supportsSubscriptionTransport(providers.ProviderAnthropic) {
-		lanes[providers.ProviderAnthropic] = struct{}{}
+		subscriptionLanes[providers.ProviderAnthropic] = struct{}{}
 	}
 	if codexSubscriptionFromContext(ctx) != nil ||
 		managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) && !codexChatEndpoint(ctx) && s.supportsSubscriptionTransport(providers.ProviderOpenAI) {
-		lanes[providers.ProviderOpenAI] = struct{}{}
+		subscriptionLanes[providers.ProviderOpenAI] = struct{}{}
 	}
-	return s.credentials.Eligibility(ctx, credentials.EligibilityRequest{
+	return s.credentials.EnabledProviders(credentials.EligibilityRequest{
 		Registered:                    s.clients.NameSet(),
 		SurfaceProvider:               surfaceProvider,
 		Headers:                       headers,
 		ExternalKeys:                  externalKeysFromContext(ctx),
 		RouterKeyAuthed:               installationIDFromContext(ctx) != (uuid.UUID{}),
-		SubscriptionLanes:             lanes,
+		SubscriptionLanes:             subscriptionLanes,
 		InstallationExcludedProviders: installationExcludedProvidersFromContext(ctx),
 		SessionDisabledProviders:      sessionDisabledProvidersFromContext(ctx),
-	}).EnabledProviders
+	})
 }
 
 // hasOpenAIInfrastructureCredential reports whether an OpenAI model can be
