@@ -50,6 +50,13 @@ async function runInstallerAt(home, args, { cwd, envOverrides = {} } = {}) {
   return processResult.stdout;
 }
 
+function runWrapper(modules, processStub) {
+  const source = fs.readFileSync(path.join(packageDirectory, "bin.js"), "utf8");
+  const context = vm.createContext({ process: processStub, console });
+  const wrapper = vm.compileFunction(source, ["exports", "require", "module", "__filename", "__dirname"], { parsingContext: context });
+  return wrapper({}, (name) => modules[name], { exports: {} }, "C:\\package\\bin.js", "C:\\package");
+}
+
 test("the native installer writes each client's config and keeps existing settings", async () => {
   const claudeSettings = path.join(temporaryHome, ".claude", "settings.json");
   fs.mkdirSync(path.dirname(claudeSettings), { recursive: true });
@@ -256,7 +263,7 @@ test("the Windows wrapper bypasses WSL and forwards uninstall to the native inst
     "node:fs": { readFileSync: () => '{"name":"@weave-os/router"}', existsSync: (filePath) => filePath.startsWith("C:\\package") || filePath === "C:\\Windows\\System32\\bash.exe" },
     "node:path": path.win32,
   };
-  assert.throws(() => vm.runInNewContext(fs.readFileSync(path.join(packageDirectory, "bin.js"), "utf8"), { require: (module) => modules[module], __dirname: "C:\\package", process: processStub, console }), (error) => error === exitSignal);
+  assert.throws(() => runWrapper(modules, processStub), (error) => error === exitSignal);
   const nativeCall = spawnCalls.find((call) => call.executable === processStub.execPath);
   assert.deepEqual(Array.from(nativeCall.args), ["C:\\package\\windows.js", "--uninstall", "--claude"]);
   assert.equal(spawnCalls.some((call) => call.args.includes("C:\\package\\uninstall.sh")), false);
@@ -276,10 +283,25 @@ test("the Windows wrapper probes Git Bash without profile or BASH_ENV banners", 
     "node:fs": { readFileSync: () => '{"name":"@weave-os/router"}', existsSync: (filePath) => filePath.startsWith("C:\\package") || filePath === gitBash },
     "node:path": path.win32,
   };
-  assert.throws(() => vm.runInNewContext(fs.readFileSync(path.join(packageDirectory, "bin.js"), "utf8"), { require: (module) => modules[module], __dirname: "C:\\package", process: processStub, console }), (error) => error === exitSignal);
+  assert.throws(() => runWrapper(modules, processStub), (error) => error === exitSignal);
   const installerCall = spawnCalls.find((call) => call.args.includes("C:\\package\\uninstall.sh"));
   assert.equal(installerCall.executable, gitBash);
   assert.deepEqual(Array.from(installerCall.args), ["C:\\package\\uninstall.sh", "--claude"]);
+});
+
+test("client launch does not fall through to the installer", async () => {
+  const calls = [];
+  const processStub = { platform: "win32", argv: ["node", "bin.js", "codex", "--model", "fixture"], env: {} };
+  const modules = {
+    "node:child_process": { spawnSync: () => { throw new Error("installer should not run"); } },
+    "node:fs": { readFileSync: () => '{"name":"@weave-os/router"}', existsSync: () => false },
+    "node:path": path.win32,
+    "./upstream-wait/launch.cjs": { main: (client, args) => { calls.push([client, Array.from(args)]); return Promise.resolve(7); } },
+  };
+  runWrapper(modules, processStub);
+  await Promise.resolve();
+  assert.deepEqual(calls, [["codex", ["--model", "fixture"]]]);
+  assert.equal(processStub.exitCode, 7);
 });
 
 function readClaudeSettings(home) {

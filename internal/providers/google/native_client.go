@@ -111,6 +111,7 @@ func (c *NativeClient) Proxy(ctx context.Context, decision router.Decision, prep
 
 	t := timing.TimingFrom(ctx)
 	t.StampUpstreamRequest()
+	defer timing.BeginProviderWait(ctx)()
 	resp, err := c.http.Do(upstream)
 	if err != nil {
 		return fmt.Errorf("upstream call: %w", err)
