@@ -2329,6 +2329,11 @@ else
       settings_base="$HOME"
       ;;
     project)
+      # Updates must stay with an interactive install selected below or outside a git root.
+      if [ "$mode" = "update" ] && [ "$target" = "claude" ] && [ -z "${project_dir:-}" ] \
+        && [ -f .claude/cc-statusline.sh ] && grep -q 'X-Weave-Router-Key' .claude/settings.local.json 2>/dev/null; then
+        project_dir="$(pwd)"
+      fi
       # If the interactive prompt collected a project directory, use it.
       # Otherwise fall back to the git root of CWD (the original behavior,
       # preserved for --scope project passed on the command line).

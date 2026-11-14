@@ -1024,5 +1024,51 @@ check_contains "user-scope custom directory config repair" "$out" "update --clau
 out="$(render_nudge "$nudge/home/.weave" 0)"
 check_not_contains "home installation repair has no directory override" "$out" '--dir'
 
+mkdir -p "$nudge/bin" "$nudge/git root/nested project/.claude" "$nudge/standalone project/.claude"
+git -C "$nudge/git root" init -q
+cat >"$nudge/bin/npx" <<'SHIM'
+#!/usr/bin/env bash
+shift
+exec bash "$WEAVE_TEST_INSTALLER" "$@" --quiet --non-interactive --base-url http://127.0.0.1:9
+SHIM
+printf '#!/usr/bin/env bash\nexit 22\n' >"$nudge/bin/curl"
+chmod +x "$nudge/bin/npx" "$nudge/bin/curl"
+for project in "$nudge/git root/nested project" "$nudge/standalone project"; do
+  cp "$statusline" "$project/.claude/cc-statusline.sh"
+  printf '{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:9"}}' >"$project/.claude/settings.json"
+  printf '{"env":{"ANTHROPIC_CUSTOM_HEADERS":"X-Weave-Router-Key: rk_test"}}' >"$project/.claude/settings.local.json"
+  out="$(render_nudge "$project/.claude" 1)"
+  repair_command="${out#*router config is out of date: }"
+  check_contains "${project##*/} repair retains project scope" "$repair_command" '--scope project'
+  check_not_contains "${project##*/} repair avoids dir override" "$repair_command" '--dir'
+  HOME="$nudge/home" XDG_CACHE_HOME="$nudge/cache" PATH="$nudge/bin:$PATH" WEAVE_ROUTER_KEY=rk_test \
+    WEAVE_TEST_INSTALLER="$script_dir/../install.sh" bash -c "$repair_command" >"$nudge/repair.log" 2>&1
+  repair_status=$?
+  if [ "$repair_status" -gt 1 ]; then
+    no "${project##*/} repair runs installer" "exit 0 or offline validation exit 1" "$(cat "$nudge/repair.log")"
+  fi
+  check "${project##*/} repair stamps the selected install" \
+    "$(jq -r '.env.WEAVE_ROUTER_CONFIG_VERSION' "$project/.claude/settings.local.json")" "1"
+  check_contains "${project##*/} repair keeps the key local" \
+    "$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS' "$project/.claude/settings.local.json")" "X-Weave-Router-Key: rk_test"
+  check "${project##*/} repair never writes a key to shared settings" \
+    "$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS // ""' "$project/.claude/settings.json")" ""
+done
+if [ -e "$nudge/git root/.claude/settings.json" ]; then
+  no "nested repair leaves Git root untouched" "no root install" "root settings created"
+else
+  ok "nested repair leaves Git root untouched"
+fi
+mkdir -p "$nudge/git root/uninstalled child" "$nudge/uninstalled standalone"
+for directory in "$nudge/git root/uninstalled child" "$nudge/uninstalled standalone"; do
+  (cd "$directory" && HOME="$nudge/home" XDG_CACHE_HOME="$nudge/cache" PATH="$nudge/bin:$PATH" \
+    WEAVE_ROUTER_KEY=rk_test WEAVE_TEST_INSTALLER="$script_dir/../install.sh" \
+    npx @weave-os/router update --claude --scope project) >"$nudge/fallback.log" 2>&1
+done
+check "without a CWD install project update still uses Git root" \
+  "$(jq -r '.env.WEAVE_ROUTER_CONFIG_VERSION' "$nudge/git root/.claude/settings.local.json")" "1"
+check_contains "outside Git without an install still reports scope error" "$(cat "$nudge/fallback.log")" \
+  '--scope project must be run inside a git repo'
+
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
