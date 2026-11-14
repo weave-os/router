@@ -7575,7 +7575,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// resolution falls through to the deployment/BYOK OpenAI key and the turn
 	// runs on Weave credits instead of hard-failing.
 	if s.codexSubscriptionExhausted(ctx, r.Header) {
-		nudge := s.codexSubscriptionReconnectNudge(ctx, r.Header)
+		nudge := codexSubscriptionReconnectNudge(ctx, r.Header, s.usageObserver)
 		ctx = withSuppressedCodexSubscription(ctx)
 		if s.linkedSeatCanCover(ctx, decision.Provider, decision.Model) {
 			ctx = withDeferredReconnectNudge(ctx, nudge)
@@ -8065,7 +8065,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					return err
 				}
 				if surface == surfaceResponsesNative {
-					if !promotedToResponses || !isResponses || responseSwitch.translated() != nil {
+					if !promotedToResponses || !isResponses || responseSwitch.leavePassthrough() != nil {
 						return err
 					}
 					responsesPassthrough = false

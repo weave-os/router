@@ -173,7 +173,7 @@ func TestTurnFailureOwnerAfterUpstreamFinish(t *testing.T) {
 func TestLeaveResponsesPassthrough(t *testing.T) {
 	clean := translate.NewResponsesWriter(httptest.NewRecorder(), "synthetic")
 	clean.SetPassthrough()
-	require.NoError(t, (responseProtocolSwitch{writer: clean}).translated())
+	require.NoError(t, (responseProtocolSwitch{writer: clean}).leavePassthrough())
 	assert.False(t, clean.Passthrough(), "a writer with nothing forwarded translates the next attempt")
 
 	forwarded := translate.NewResponsesWriter(httptest.NewRecorder(), "synthetic")
@@ -181,6 +181,6 @@ func TestLeaveResponsesPassthrough(t *testing.T) {
 	forwarded.Header().Set("Content-Type", "text/event-stream")
 	_, err := forwarded.Write([]byte(`data: {"type":"response.created","response":{"id":"resp_synthetic"}}` + "\n\n"))
 	require.NoError(t, err)
-	assert.ErrorIs(t, (responseProtocolSwitch{writer: forwarded}).translated(), errResponsesPassthroughStuck)
+	assert.ErrorIs(t, (responseProtocolSwitch{writer: forwarded}).leavePassthrough(), errResponsesPassthroughStuck)
 	assert.True(t, forwarded.Passthrough())
 }

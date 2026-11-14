@@ -27,7 +27,7 @@ func (s responseProtocolSwitch) native(badge bool) {
 	}
 }
 
-func (s responseProtocolSwitch) translated() error {
+func (s responseProtocolSwitch) leavePassthrough() error {
 	if s.writer == nil {
 		return nil
 	}
@@ -48,7 +48,7 @@ func (s responseProtocolSwitch) selectTarget(target router.Decision) error {
 		return nil
 	}
 	if target.Provider != providers.ProviderOpenAI {
-		if err := s.translated(); err != nil {
+		if err := s.leavePassthrough(); err != nil {
 			return err
 		}
 	}

@@ -122,10 +122,10 @@ func TestClearWithheldPassthrough_KeepsDeliveredHeaders(t *testing.T) {
 	}
 
 	withheld := newPreludeBuffer(httptest.NewRecorder())
-	assert.NoError(t, (responseProtocolSwitch{writer: newPassthroughWriter(withheld), buffer: withheld}).translated(), "a withheld header is not a commitment")
+	assert.NoError(t, (responseProtocolSwitch{writer: newPassthroughWriter(withheld), buffer: withheld}).leavePassthrough(), "a withheld header is not a commitment")
 
 	delivered := newPreludeBuffer(httptest.NewRecorder())
 	rw := newPassthroughWriter(delivered)
 	require.NoError(t, delivered.CommitPrelude())
-	assert.ErrorIs(t, (responseProtocolSwitch{writer: rw, buffer: delivered}).translated(), errResponsesPassthroughStuck, "a header the client received must keep the stream native")
+	assert.ErrorIs(t, (responseProtocolSwitch{writer: rw, buffer: delivered}).leavePassthrough(), errResponsesPassthroughStuck, "a header the client received must keep the stream native")
 }

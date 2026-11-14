@@ -93,14 +93,6 @@ func (s *Service) codexSubscriptionExhausted(ctx context.Context, headers http.H
 	return ok && snap.BillableOrExhausted()
 }
 
-func (s *Service) codexSubscriptionReconnectNudge(ctx context.Context, headers http.Header) string {
-	token, _ := presentSubscriptionTokens(ctx, headers)
-	if s.usageObserver.Rejected(s.usageObserver.Key([]byte(token))) {
-		return ownCodexCredentialRejectedNudge
-	}
-	return ownCodexPlanSpentNudge
-}
-
 // codexSubscriptionModelRejected reports an explicit model-availability
 // rejection from the Codex backend. Generic 400/403 responses can reflect
 // request or account policy and must not trigger paid fallback.

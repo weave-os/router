@@ -172,7 +172,7 @@ func TestCodexReconnectNudgeDistinguishesRejectedCredentialsFromSpentQuota(t *te
 				Status: status, Body: []byte(`{"error":{"type":"usage_limit_reached"}}`),
 			})
 			require.True(t, svc.codexSubscriptionExhausted(ctx, http.Header{}))
-			nudge := svc.codexSubscriptionReconnectNudge(ctx, http.Header{})
+			nudge := codexSubscriptionReconnectNudge(ctx, http.Header{}, svc.usageObserver)
 			if status == http.StatusTooManyRequests {
 				assert.Contains(t, nudge, "plan is out of usage")
 				assert.NotContains(t, nudge, "login was rejected")
