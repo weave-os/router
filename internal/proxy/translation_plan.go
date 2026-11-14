@@ -78,6 +78,15 @@ func translationRequirementsFromContext(ctx context.Context) (router.Translation
 	return req, ok && !req.IsZero()
 }
 
+// customToolExcludedModels re-applies the custom-tool exclusion for rescue
+// paths that rebuild their exclusions outside the scored request.
+func customToolExcludedModels(ctx context.Context) map[string]struct{} {
+	if requirements, ok := translationRequirementsFromContext(ctx); ok && requirements.CustomTools {
+		return catalog.CustomToolUnsupportedSet()
+	}
+	return nil
+}
+
 func responseTransformationsFromContext(ctx context.Context) []providers.RequestTransformation {
 	transforms, _ := ctx.Value(responsesTransformsContextKey{}).([]translate.ResponseTransform)
 	if len(transforms) == 0 {
