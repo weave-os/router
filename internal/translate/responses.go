@@ -2508,7 +2508,7 @@ func (t *ResponsesWriter) emitFunctionArgsDelta(item *responsesToolItem, delta s
 
 func (t *ResponsesWriter) emitFunctionArgsDone(item *responsesToolItem) error {
 	if item.mapping.Custom {
-		input, err := t.customToolInput(item.call.Arguments)
+		input, err := truncationAwareCustomToolInput(item.call.Arguments, t.finishReason)
 		if err != nil {
 			return err
 		}
@@ -2533,7 +2533,7 @@ func (t *ResponsesWriter) emitFunctionArgsDone(item *responsesToolItem) error {
 
 func (t *ResponsesWriter) emitFunctionCallItemDone(item *responsesToolItem) error {
 	if item.mapping.Custom {
-		input, err := t.customToolInput(item.call.Arguments)
+		input, err := truncationAwareCustomToolInput(item.call.Arguments, t.finishReason)
 		if err != nil {
 			return err
 		}
@@ -2706,7 +2706,7 @@ func chatCompletionToResponse(body []byte, responseID, model string, createdAt i
 			item["namespace"] = mapping.Namespace
 		}
 		if mapping.Custom {
-			input, err := customToolInput(call.Arguments)
+			input, err := truncationAwareCustomToolInput(call.Arguments, root.Get("choices.0.finish_reason").Str)
 			if err != nil {
 				return nil, err
 			}

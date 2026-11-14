@@ -1572,7 +1572,7 @@ func defaultAnthropicOutputTokens(model string, capabilities router.ModelSpec) i
 	if !capabilities.Supports(router.CapAdaptiveThinking) || !capabilities.Reasoning().AlwaysOn {
 		return defaultTokens
 	}
-	floored := max(defaultTokens, anthropicAdaptiveDefaultOutputTokens)
+	floored := int64(anthropicAdaptiveDefaultOutputTokens)
 	if tokenCap, ok := modelMaxOutputTokens[model]; ok && int64(tokenCap) < floored {
 		return int64(tokenCap)
 	}

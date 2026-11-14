@@ -423,3 +423,25 @@ func TestResponsesWriter_CustomToolCutOffByOutputLimitIsTruncation(t *testing.T)
 	require.ErrorIs(t, err, translate.ErrToolCallTruncated)
 	require.ErrorIs(t, err, translate.ErrCustomToolArguments)
 }
+
+func TestResponsesWriter_NonStreamingCustomToolCutOffByOutputLimitIsTruncation(t *testing.T) {
+	w := translate.NewResponsesWriter(httptest.NewRecorder(), "synthetic-model")
+	w.SetToolMappings(customExecToolMappings(t))
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	raw, err := json.Marshal(map[string]any{
+		"choices": []any{map[string]any{
+			"finish_reason": "length",
+			"message": map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{
+				"id": "call_exec", "type": "function",
+				"function": map[string]any{"name": "exec", "arguments": "{}"},
+			}}},
+		}},
+	})
+	require.NoError(t, err)
+	_, err = w.Write(raw)
+	require.NoError(t, err)
+	err = w.Finalize()
+	require.ErrorIs(t, err, translate.ErrToolCallTruncated)
+	require.ErrorIs(t, err, translate.ErrCustomToolArguments)
+}
