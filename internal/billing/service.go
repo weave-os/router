@@ -147,6 +147,10 @@ const EntryTypeInference = "inference"
 // router.organization_credit_ledger.entry_type.
 const EntryTypeByokFee = "byok_fee"
 
+// EntryTypeUnfunded records a served charge held for reconciliation because
+// applying it would cross the organization balance floor.
+const EntryTypeUnfunded = "unfunded"
+
 // DefaultByokFeeRate is the BYOK platform fee fraction; zero means no fee unless BYOK_FEE_RATE opts a deployment in.
 const DefaultByokFeeRate = 0.0
 
@@ -154,6 +158,10 @@ const DefaultByokFeeRate = 0.0
 // OpenAI/Anthropic prepaid semantics — block at zero, let in-flight
 // debits settle.
 const MinBalanceMicros int64 = 0
+
+// OrganizationBalanceFloorMicros bounds post-dispatch organization credit
+// exposure while allowing ordinary in-flight debits to settle below zero.
+const OrganizationBalanceFloorMicros int64 = -1_000_000_000
 
 // Service orchestrates balance reads and debits. No I/O of its own — all
 // persistence flows through the Repo interface.

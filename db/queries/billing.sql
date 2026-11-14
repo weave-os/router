@@ -28,10 +28,11 @@ SELECT EXISTS (
 -- is always the would-be charge, populated for both override and real
 -- debits so we keep a shadow billing trail.
 --
--- No `balance >= amount` guard: concurrent requests can both pass the
--- preflight balance check and both debit; both debits must be recorded
--- even if the resulting balance is briefly negative. The min-balance
--- threshold on the middleware bounds the typical dip.
+-- Concurrent requests can both pass the preflight balance check and debit, so
+-- there is no `balance >= amount` guard. A fixed negative floor bounds burst
+-- exposure; zero/positive movements stay allowed below it so legacy debt can
+-- recover. A rejected charge writes one `unfunded` ledger row and every spend
+-- counter, but leaves the balance unchanged for reconciliation.
 --
 -- Returns the post-debit balance so middleware/log lines can report the
 -- new value without a follow-up read.
@@ -48,12 +49,30 @@ SELECT EXISTS (
 -- the fee row holds Weave's platform charge. Both rows must land together or a
 -- crash between them would serve inference with no fee, so they share one CTE.
 -- name: DebitOrgCredits :one
-WITH updated AS (
-    UPDATE router.organization_credit_balance
-    SET balance_usd_micros = balance_usd_micros + @charged_usd_micros::bigint,
-        updated_at = NOW()
+WITH current_balance AS (
+    SELECT balance_usd_micros
+    FROM router.organization_credit_balance
     WHERE organization_id = @organization_id::varchar
-    RETURNING balance_usd_micros
+    FOR UPDATE
+),
+updated AS (
+    UPDATE router.organization_credit_balance AS balance
+    SET balance_usd_micros = current_balance.balance_usd_micros + @charged_usd_micros::bigint,
+        updated_at = NOW()
+    FROM current_balance
+    WHERE balance.organization_id = @organization_id::varchar
+      AND (
+          @charged_usd_micros::bigint >= 0
+          OR current_balance.balance_usd_micros + @charged_usd_micros::bigint >= @balance_floor_usd_micros::bigint
+      )
+    RETURNING balance.balance_usd_micros
+),
+outcome AS (
+    SELECT
+        COALESCE(updated.balance_usd_micros, current_balance.balance_usd_micros) AS balance_after_micros,
+        (updated.balance_usd_micros IS NOT NULL)::boolean AS applied
+    FROM current_balance
+    LEFT JOIN updated ON TRUE
 ),
 ledger AS (
     INSERT INTO router.organization_credit_ledger (
@@ -67,15 +86,16 @@ ledger AS (
     )
     SELECT
         @organization_id::varchar,
-        @delta_usd_micros::bigint,
+        CASE WHEN outcome.applied THEN @delta_usd_micros::bigint ELSE @charged_usd_micros::bigint END,
         @notional_cost_micros::bigint,
-        -- The fee row is logically second, so this row records the balance as of
-        -- before the fee landed: final minus the fee's signed value.
-        updated.balance_usd_micros - @fee_usd_micros::bigint,
-        @entry_type::varchar,
+        CASE
+            WHEN outcome.applied THEN outcome.balance_after_micros - @fee_usd_micros::bigint
+            ELSE outcome.balance_after_micros
+        END,
+        CASE WHEN outcome.applied THEN @entry_type::varchar ELSE @unfunded_entry_type::varchar END,
         sqlc.narg('router_request_id')::varchar,
         sqlc.narg('router_model')::varchar
-    FROM updated
+    FROM outcome
     RETURNING balance_after_micros
 ),
 fee_ledger AS (
@@ -94,12 +114,12 @@ fee_ledger AS (
         @organization_id::varchar,
         @fee_usd_micros::bigint,
         0,
-        updated.balance_usd_micros,
+        outcome.balance_after_micros,
         @fee_entry_type::varchar,
         sqlc.narg('router_request_id')::varchar,
         sqlc.narg('router_model')::varchar
-    FROM updated
-    WHERE @fee_usd_micros::bigint <> 0
+    FROM outcome
+    WHERE outcome.applied AND @fee_usd_micros::bigint <> 0
 ),
 key_spend AS (
     -- charged_usd_micros is the signed total the balance moved (delta + fee),
@@ -110,14 +130,14 @@ key_spend AS (
     -- pass-throughs leaves it flat. The BYOK fee is included, else a capped key
     -- would never trip its cap on BYOK traffic (delta 0, fee is the whole
     -- charge).
-    -- Gated on `updated` producing a row: if the org balance row was missing
+    -- Gated on `outcome` producing a row: if the org balance row was missing
     -- (the debit no-ops and the app sees ErrBalanceRowMissing) we must NOT bump
     -- the key's lifetime spend, or a capped key could trip its cap with no
-    -- matching ledger debit.
+    -- matching ledger row. Unfunded charges still count as served spend.
     UPDATE router.model_router_api_keys
     SET spent_usd_micros = spent_usd_micros - @charged_usd_micros::bigint
     WHERE id = sqlc.narg('api_key_id')::uuid
-      AND EXISTS (SELECT 1 FROM updated)
+      AND EXISTS (SELECT 1 FROM outcome)
 ),
 delegated_spend AS (
     -- Per-session and per-task spend of a delegated session token, attributed
@@ -134,7 +154,7 @@ delegated_spend AS (
     ) AS delegated (scope_kind, scope_id)
     WHERE delegated.scope_id IS NOT NULL
       AND sqlc.narg('api_key_id')::uuid IS NOT NULL
-      AND EXISTS (SELECT 1 FROM updated)
+      AND EXISTS (SELECT 1 FROM outcome)
       AND EXISTS (
           SELECT 1 FROM router.model_router_api_keys
           WHERE id = sqlc.narg('api_key_id')::uuid
@@ -157,7 +177,7 @@ user_month_spend AS (
         -(@charged_usd_micros::bigint),
         NOW()
     WHERE sqlc.narg('router_user_id')::uuid IS NOT NULL
-      AND EXISTS (SELECT 1 FROM updated)
+      AND EXISTS (SELECT 1 FROM outcome)
       AND EXISTS (
           SELECT 1 FROM router.model_router_users
           WHERE id = sqlc.narg('router_user_id')::uuid
@@ -174,19 +194,14 @@ org_month_spend AS (
         DATE_TRUNC('month', NOW() AT TIME ZONE 'utc')::date,
         -(@charged_usd_micros::bigint),
         NOW()
-    WHERE EXISTS (SELECT 1 FROM updated)
+    WHERE EXISTS (SELECT 1 FROM outcome)
     ON CONFLICT (organization_id, month) DO UPDATE
     SET spent_usd_micros = router.organization_monthly_spend.spent_usd_micros + EXCLUDED.spent_usd_micros,
         updated_at = NOW()
 )
--- Returns the TRUE post-debit balance (from `updated`, after both delta and
--- fee), not a ledger row's balance_after. The inference row deliberately
--- records the pre-fee balance for audit ordering, so returning it here would
--- hand callers a balance the org never actually had -- and
--- maybeSignalRecharge would reconstruct a bogus pre-debit balance from it and
--- miss autopay threshold crossings on BYOK fee turns.
-SELECT (SELECT balance_usd_micros FROM updated) AS balance_after_micros
-FROM ledger;
+SELECT outcome.balance_after_micros, outcome.applied
+FROM outcome
+JOIN ledger ON TRUE;
 
 -- Paginated read for the dashboard ledger panel. Sorted newest-first so the
 -- UI can render without an extra ORDER BY in Go.

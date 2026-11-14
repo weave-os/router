@@ -61,12 +61,30 @@ func (q *Queries) CheckBillingTablesExist(ctx context.Context) (bool, error) {
 }
 
 const debitOrgCredits = `-- name: DebitOrgCredits :one
-WITH updated AS (
-    UPDATE router.organization_credit_balance
-    SET balance_usd_micros = balance_usd_micros + $1::bigint,
+WITH current_balance AS (
+    SELECT balance_usd_micros
+    FROM router.organization_credit_balance
+    WHERE organization_id = $1::varchar
+    FOR UPDATE
+),
+updated AS (
+    UPDATE router.organization_credit_balance AS balance
+    SET balance_usd_micros = current_balance.balance_usd_micros + $2::bigint,
         updated_at = NOW()
-    WHERE organization_id = $2::varchar
-    RETURNING balance_usd_micros
+    FROM current_balance
+    WHERE balance.organization_id = $1::varchar
+      AND (
+          $2::bigint >= 0
+          OR current_balance.balance_usd_micros + $2::bigint >= $3::bigint
+      )
+    RETURNING balance.balance_usd_micros
+),
+outcome AS (
+    SELECT
+        COALESCE(updated.balance_usd_micros, current_balance.balance_usd_micros) AS balance_after_micros,
+        (updated.balance_usd_micros IS NOT NULL)::boolean AS applied
+    FROM current_balance
+    LEFT JOIN updated ON TRUE
 ),
 ledger AS (
     INSERT INTO router.organization_credit_ledger (
@@ -79,16 +97,17 @@ ledger AS (
         router_model
     )
     SELECT
-        $2::varchar,
-        $3::bigint,
-        $4::bigint,
-        -- The fee row is logically second, so this row records the balance as of
-        -- before the fee landed: final minus the fee's signed value.
-        updated.balance_usd_micros - $5::bigint,
-        $6::varchar,
-        $7::varchar,
-        $8::varchar
-    FROM updated
+        $1::varchar,
+        CASE WHEN outcome.applied THEN $4::bigint ELSE $2::bigint END,
+        $5::bigint,
+        CASE
+            WHEN outcome.applied THEN outcome.balance_after_micros - $6::bigint
+            ELSE outcome.balance_after_micros
+        END,
+        CASE WHEN outcome.applied THEN $7::varchar ELSE $8::varchar END,
+        $9::varchar,
+        $10::varchar
+    FROM outcome
     RETURNING balance_after_micros
 ),
 fee_ledger AS (
@@ -104,15 +123,15 @@ fee_ledger AS (
         router_model
     )
     SELECT
-        $2::varchar,
-        $5::bigint,
+        $1::varchar,
+        $6::bigint,
         0,
-        updated.balance_usd_micros,
+        outcome.balance_after_micros,
+        $11::varchar,
         $9::varchar,
-        $7::varchar,
-        $8::varchar
-    FROM updated
-    WHERE $5::bigint <> 0
+        $10::varchar
+    FROM outcome
+    WHERE outcome.applied AND $6::bigint <> 0
 ),
 key_spend AS (
     -- charged_usd_micros is the signed total the balance moved (delta + fee),
@@ -123,14 +142,14 @@ key_spend AS (
     -- pass-throughs leaves it flat. The BYOK fee is included, else a capped key
     -- would never trip its cap on BYOK traffic (delta 0, fee is the whole
     -- charge).
-    -- Gated on ` + "`" + `updated` + "`" + ` producing a row: if the org balance row was missing
+    -- Gated on ` + "`" + `outcome` + "`" + ` producing a row: if the org balance row was missing
     -- (the debit no-ops and the app sees ErrBalanceRowMissing) we must NOT bump
     -- the key's lifetime spend, or a capped key could trip its cap with no
-    -- matching ledger debit.
+    -- matching ledger row. Unfunded charges still count as served spend.
     UPDATE router.model_router_api_keys
-    SET spent_usd_micros = spent_usd_micros - $1::bigint
-    WHERE id = $10::uuid
-      AND EXISTS (SELECT 1 FROM updated)
+    SET spent_usd_micros = spent_usd_micros - $2::bigint
+    WHERE id = $12::uuid
+      AND EXISTS (SELECT 1 FROM outcome)
 ),
 delegated_spend AS (
     -- Per-session and per-task spend of a delegated session token, attributed
@@ -139,18 +158,18 @@ delegated_spend AS (
     -- when the issuer key was deleted mid-request, so its FK cannot roll back
     -- a debit for inference already served.
     INSERT INTO router.delegated_token_spend (issuer_key_id, scope_kind, scope_id, spent_usd_micros, updated_at)
-    SELECT $10::uuid, delegated.scope_kind, delegated.scope_id, -($1::bigint), NOW()
+    SELECT $12::uuid, delegated.scope_kind, delegated.scope_id, -($2::bigint), NOW()
     FROM (
         VALUES
-            ('session', $11::varchar),
-            ('task', $12::varchar)
+            ('session', $13::varchar),
+            ('task', $14::varchar)
     ) AS delegated (scope_kind, scope_id)
     WHERE delegated.scope_id IS NOT NULL
-      AND $10::uuid IS NOT NULL
-      AND EXISTS (SELECT 1 FROM updated)
+      AND $12::uuid IS NOT NULL
+      AND EXISTS (SELECT 1 FROM outcome)
       AND EXISTS (
           SELECT 1 FROM router.model_router_api_keys
-          WHERE id = $10::uuid
+          WHERE id = $12::uuid
       )
     ON CONFLICT (issuer_key_id, scope_kind, scope_id) DO UPDATE
     SET spent_usd_micros = router.delegated_token_spend.spent_usd_micros + EXCLUDED.spent_usd_micros,
@@ -165,15 +184,15 @@ user_month_spend AS (
     -- after inference was already served.
     INSERT INTO router.model_router_user_monthly_spend (router_user_id, month, spent_usd_micros, updated_at)
     SELECT
-        $13::uuid,
+        $15::uuid,
         DATE_TRUNC('month', NOW() AT TIME ZONE 'utc')::date,
-        -($1::bigint),
+        -($2::bigint),
         NOW()
-    WHERE $13::uuid IS NOT NULL
-      AND EXISTS (SELECT 1 FROM updated)
+    WHERE $15::uuid IS NOT NULL
+      AND EXISTS (SELECT 1 FROM outcome)
       AND EXISTS (
           SELECT 1 FROM router.model_router_users
-          WHERE id = $13::uuid
+          WHERE id = $15::uuid
       )
     ON CONFLICT (router_user_id, month) DO UPDATE
     SET spent_usd_micros = router.model_router_user_monthly_spend.spent_usd_micros + EXCLUDED.spent_usd_micros,
@@ -183,33 +202,41 @@ org_month_spend AS (
     -- Month-bucketed org spend counter for the org-wide monthly cap.
     INSERT INTO router.organization_monthly_spend (organization_id, month, spent_usd_micros, updated_at)
     SELECT
-        $2::varchar,
+        $1::varchar,
         DATE_TRUNC('month', NOW() AT TIME ZONE 'utc')::date,
-        -($1::bigint),
+        -($2::bigint),
         NOW()
-    WHERE EXISTS (SELECT 1 FROM updated)
+    WHERE EXISTS (SELECT 1 FROM outcome)
     ON CONFLICT (organization_id, month) DO UPDATE
     SET spent_usd_micros = router.organization_monthly_spend.spent_usd_micros + EXCLUDED.spent_usd_micros,
         updated_at = NOW()
 )
-SELECT (SELECT balance_usd_micros FROM updated) AS balance_after_micros
-FROM ledger
+SELECT outcome.balance_after_micros, outcome.applied
+FROM outcome
+JOIN ledger ON TRUE
 `
 
 type DebitOrgCreditsParams struct {
-	ChargedUsdMicros   int64
-	OrganizationID     string
-	DeltaUsdMicros     int64
-	NotionalCostMicros int64
-	FeeUsdMicros       int64
-	EntryType          string
-	RouterRequestID    *string
-	RouterModel        *string
-	FeeEntryType       string
-	APIKeyID           pgtype.UUID
-	DelegatedSessionID *string
-	DelegatedTaskID    *string
-	RouterUserID       pgtype.UUID
+	OrganizationID        string
+	ChargedUsdMicros      int64
+	BalanceFloorUsdMicros int64
+	DeltaUsdMicros        int64
+	NotionalCostMicros    int64
+	FeeUsdMicros          int64
+	EntryType             string
+	UnfundedEntryType     string
+	RouterRequestID       *string
+	RouterModel           *string
+	FeeEntryType          string
+	APIKeyID              pgtype.UUID
+	DelegatedSessionID    *string
+	DelegatedTaskID       *string
+	RouterUserID          pgtype.UUID
+}
+
+type DebitOrgCreditsRow struct {
+	BalanceAfterMicros int64
+	Applied            bool
 }
 
 // Atomic debit: decrement the balance and append a matching ledger row in a
@@ -220,10 +247,11 @@ type DebitOrgCreditsParams struct {
 // is always the would-be charge, populated for both override and real
 // debits so we keep a shadow billing trail.
 //
-// No `balance >= amount` guard: concurrent requests can both pass the
-// preflight balance check and both debit; both debits must be recorded
-// even if the resulting balance is briefly negative. The min-balance
-// threshold on the middleware bounds the typical dip.
+// Concurrent requests can both pass the preflight balance check and debit, so
+// there is no `balance >= amount` guard. A fixed negative floor bounds burst
+// exposure; zero/positive movements stay allowed below it so legacy debt can
+// recover. A rejected charge writes one `unfunded` ledger row and every spend
+// counter, but leaves the balance unchanged for reconciliation.
 //
 // Returns the post-debit balance so middleware/log lines can report the
 // new value without a follow-up read.
@@ -239,19 +267,31 @@ type DebitOrgCreditsParams struct {
 // notional upstream cost at delta 0 (the customer paid their own provider) and
 // the fee row holds Weave's platform charge. Both rows must land together or a
 // crash between them would serve inference with no fee, so they share one CTE.
-// Returns the TRUE post-debit balance (from `updated`, after both delta and
-// fee), not a ledger row's balance_after. The inference row deliberately
-// records the pre-fee balance for audit ordering, so returning it here would
-// hand callers a balance the org never actually had -- and
-// maybeSignalRecharge would reconstruct a bogus pre-debit balance from it and
-// miss autopay threshold crossings on BYOK fee turns.
 //
-//	WITH updated AS (
-//	    UPDATE router.organization_credit_balance
-//	    SET balance_usd_micros = balance_usd_micros + $1::bigint,
+//	WITH current_balance AS (
+//	    SELECT balance_usd_micros
+//	    FROM router.organization_credit_balance
+//	    WHERE organization_id = $1::varchar
+//	    FOR UPDATE
+//	),
+//	updated AS (
+//	    UPDATE router.organization_credit_balance AS balance
+//	    SET balance_usd_micros = current_balance.balance_usd_micros + $2::bigint,
 //	        updated_at = NOW()
-//	    WHERE organization_id = $2::varchar
-//	    RETURNING balance_usd_micros
+//	    FROM current_balance
+//	    WHERE balance.organization_id = $1::varchar
+//	      AND (
+//	          $2::bigint >= 0
+//	          OR current_balance.balance_usd_micros + $2::bigint >= $3::bigint
+//	      )
+//	    RETURNING balance.balance_usd_micros
+//	),
+//	outcome AS (
+//	    SELECT
+//	        COALESCE(updated.balance_usd_micros, current_balance.balance_usd_micros) AS balance_after_micros,
+//	        (updated.balance_usd_micros IS NOT NULL)::boolean AS applied
+//	    FROM current_balance
+//	    LEFT JOIN updated ON TRUE
 //	),
 //	ledger AS (
 //	    INSERT INTO router.organization_credit_ledger (
@@ -264,16 +304,17 @@ type DebitOrgCreditsParams struct {
 //	        router_model
 //	    )
 //	    SELECT
-//	        $2::varchar,
-//	        $3::bigint,
-//	        $4::bigint,
-//	        -- The fee row is logically second, so this row records the balance as of
-//	        -- before the fee landed: final minus the fee's signed value.
-//	        updated.balance_usd_micros - $5::bigint,
-//	        $6::varchar,
-//	        $7::varchar,
-//	        $8::varchar
-//	    FROM updated
+//	        $1::varchar,
+//	        CASE WHEN outcome.applied THEN $4::bigint ELSE $2::bigint END,
+//	        $5::bigint,
+//	        CASE
+//	            WHEN outcome.applied THEN outcome.balance_after_micros - $6::bigint
+//	            ELSE outcome.balance_after_micros
+//	        END,
+//	        CASE WHEN outcome.applied THEN $7::varchar ELSE $8::varchar END,
+//	        $9::varchar,
+//	        $10::varchar
+//	    FROM outcome
 //	    RETURNING balance_after_micros
 //	),
 //	fee_ledger AS (
@@ -289,15 +330,15 @@ type DebitOrgCreditsParams struct {
 //	        router_model
 //	    )
 //	    SELECT
-//	        $2::varchar,
-//	        $5::bigint,
+//	        $1::varchar,
+//	        $6::bigint,
 //	        0,
-//	        updated.balance_usd_micros,
+//	        outcome.balance_after_micros,
+//	        $11::varchar,
 //	        $9::varchar,
-//	        $7::varchar,
-//	        $8::varchar
-//	    FROM updated
-//	    WHERE $5::bigint <> 0
+//	        $10::varchar
+//	    FROM outcome
+//	    WHERE outcome.applied AND $6::bigint <> 0
 //	),
 //	key_spend AS (
 //	    -- charged_usd_micros is the signed total the balance moved (delta + fee),
@@ -308,14 +349,14 @@ type DebitOrgCreditsParams struct {
 //	    -- pass-throughs leaves it flat. The BYOK fee is included, else a capped key
 //	    -- would never trip its cap on BYOK traffic (delta 0, fee is the whole
 //	    -- charge).
-//	    -- Gated on `updated` producing a row: if the org balance row was missing
+//	    -- Gated on `outcome` producing a row: if the org balance row was missing
 //	    -- (the debit no-ops and the app sees ErrBalanceRowMissing) we must NOT bump
 //	    -- the key's lifetime spend, or a capped key could trip its cap with no
-//	    -- matching ledger debit.
+//	    -- matching ledger row. Unfunded charges still count as served spend.
 //	    UPDATE router.model_router_api_keys
-//	    SET spent_usd_micros = spent_usd_micros - $1::bigint
-//	    WHERE id = $10::uuid
-//	      AND EXISTS (SELECT 1 FROM updated)
+//	    SET spent_usd_micros = spent_usd_micros - $2::bigint
+//	    WHERE id = $12::uuid
+//	      AND EXISTS (SELECT 1 FROM outcome)
 //	),
 //	delegated_spend AS (
 //	    -- Per-session and per-task spend of a delegated session token, attributed
@@ -324,18 +365,18 @@ type DebitOrgCreditsParams struct {
 //	    -- when the issuer key was deleted mid-request, so its FK cannot roll back
 //	    -- a debit for inference already served.
 //	    INSERT INTO router.delegated_token_spend (issuer_key_id, scope_kind, scope_id, spent_usd_micros, updated_at)
-//	    SELECT $10::uuid, delegated.scope_kind, delegated.scope_id, -($1::bigint), NOW()
+//	    SELECT $12::uuid, delegated.scope_kind, delegated.scope_id, -($2::bigint), NOW()
 //	    FROM (
 //	        VALUES
-//	            ('session', $11::varchar),
-//	            ('task', $12::varchar)
+//	            ('session', $13::varchar),
+//	            ('task', $14::varchar)
 //	    ) AS delegated (scope_kind, scope_id)
 //	    WHERE delegated.scope_id IS NOT NULL
-//	      AND $10::uuid IS NOT NULL
-//	      AND EXISTS (SELECT 1 FROM updated)
+//	      AND $12::uuid IS NOT NULL
+//	      AND EXISTS (SELECT 1 FROM outcome)
 //	      AND EXISTS (
 //	          SELECT 1 FROM router.model_router_api_keys
-//	          WHERE id = $10::uuid
+//	          WHERE id = $12::uuid
 //	      )
 //	    ON CONFLICT (issuer_key_id, scope_kind, scope_id) DO UPDATE
 //	    SET spent_usd_micros = router.delegated_token_spend.spent_usd_micros + EXCLUDED.spent_usd_micros,
@@ -350,15 +391,15 @@ type DebitOrgCreditsParams struct {
 //	    -- after inference was already served.
 //	    INSERT INTO router.model_router_user_monthly_spend (router_user_id, month, spent_usd_micros, updated_at)
 //	    SELECT
-//	        $13::uuid,
+//	        $15::uuid,
 //	        DATE_TRUNC('month', NOW() AT TIME ZONE 'utc')::date,
-//	        -($1::bigint),
+//	        -($2::bigint),
 //	        NOW()
-//	    WHERE $13::uuid IS NOT NULL
-//	      AND EXISTS (SELECT 1 FROM updated)
+//	    WHERE $15::uuid IS NOT NULL
+//	      AND EXISTS (SELECT 1 FROM outcome)
 //	      AND EXISTS (
 //	          SELECT 1 FROM router.model_router_users
-//	          WHERE id = $13::uuid
+//	          WHERE id = $15::uuid
 //	      )
 //	    ON CONFLICT (router_user_id, month) DO UPDATE
 //	    SET spent_usd_micros = router.model_router_user_monthly_spend.spent_usd_micros + EXCLUDED.spent_usd_micros,
@@ -368,25 +409,28 @@ type DebitOrgCreditsParams struct {
 //	    -- Month-bucketed org spend counter for the org-wide monthly cap.
 //	    INSERT INTO router.organization_monthly_spend (organization_id, month, spent_usd_micros, updated_at)
 //	    SELECT
-//	        $2::varchar,
+//	        $1::varchar,
 //	        DATE_TRUNC('month', NOW() AT TIME ZONE 'utc')::date,
-//	        -($1::bigint),
+//	        -($2::bigint),
 //	        NOW()
-//	    WHERE EXISTS (SELECT 1 FROM updated)
+//	    WHERE EXISTS (SELECT 1 FROM outcome)
 //	    ON CONFLICT (organization_id, month) DO UPDATE
 //	    SET spent_usd_micros = router.organization_monthly_spend.spent_usd_micros + EXCLUDED.spent_usd_micros,
 //	        updated_at = NOW()
 //	)
-//	SELECT (SELECT balance_usd_micros FROM updated) AS balance_after_micros
-//	FROM ledger
-func (q *Queries) DebitOrgCredits(ctx context.Context, arg DebitOrgCreditsParams) (int64, error) {
+//	SELECT outcome.balance_after_micros, outcome.applied
+//	FROM outcome
+//	JOIN ledger ON TRUE
+func (q *Queries) DebitOrgCredits(ctx context.Context, arg DebitOrgCreditsParams) (DebitOrgCreditsRow, error) {
 	row := q.db.QueryRow(ctx, debitOrgCredits,
-		arg.ChargedUsdMicros,
 		arg.OrganizationID,
+		arg.ChargedUsdMicros,
+		arg.BalanceFloorUsdMicros,
 		arg.DeltaUsdMicros,
 		arg.NotionalCostMicros,
 		arg.FeeUsdMicros,
 		arg.EntryType,
+		arg.UnfundedEntryType,
 		arg.RouterRequestID,
 		arg.RouterModel,
 		arg.FeeEntryType,
@@ -395,9 +439,9 @@ func (q *Queries) DebitOrgCredits(ctx context.Context, arg DebitOrgCreditsParams
 		arg.DelegatedTaskID,
 		arg.RouterUserID,
 	)
-	var balance_after_micros int64
-	err := row.Scan(&balance_after_micros)
-	return balance_after_micros, err
+	var i DebitOrgCreditsRow
+	err := row.Scan(&i.BalanceAfterMicros, &i.Applied)
+	return i, err
 }
 
 const getActiveBillingOverride = `-- name: GetActiveBillingOverride :one
