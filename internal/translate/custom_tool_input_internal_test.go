@@ -42,6 +42,7 @@ func TestCustomToolInput_ErrorNamesKeysNotValues(t *testing.T) {
 		{arguments: `{}`, want: "expected exactly one input field, got keys []"},
 		{arguments: `{"timeout":5,"code":"secret()"}`, want: "expected exactly one input field, got keys [code timeout]"},
 		{arguments: `{"code":"secret()"}`, want: "required string field input is missing, got keys [code]"},
+		{arguments: `{"secret token":"x","code":"y"}`, want: "expected exactly one input field, got keys [code <redacted>]"},
 	} {
 		_, err := customToolInput(test.arguments)
 		assert.ErrorIs(t, err, ErrCustomToolArguments)
