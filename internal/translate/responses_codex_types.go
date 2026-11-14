@@ -76,3 +76,14 @@ func argumentKeyNames(wrapper map[string]json.RawMessage) []string {
 	}
 	return names
 }
+
+// customToolInput attributes an unwrap failure on a length-finished turn to
+// truncation: Anthropic sends no argument deltas for a tool_use block that
+// max_tokens cuts off, leaving only its "{}" placeholder.
+func (t *ResponsesWriter) customToolInput(arguments string) (string, error) {
+	input, err := customToolInput(arguments)
+	if err != nil && t.finishReason == "length" {
+		return "", fmt.Errorf("%w: %w", ErrToolCallTruncated, err)
+	}
+	return input, err
+}

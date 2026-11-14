@@ -1548,13 +1548,6 @@ var modelMaxOutputTokens = map[string]int{
 
 const defaultMaxOutputTokenCap = 8192
 
-// anthropicAdaptiveDefaultOutputTokens is the omitted-max_tokens default for
-// always-on adaptive Anthropic targets. Codex never sends max_output_tokens,
-// and thinking plus a long code-mode exec script overran 16k, cutting the
-// tool call off with no arguments. Matches Claude Code's own request size;
-// Anthropic estimates output rate limits from max_tokens, so not the 128k cap.
-const anthropicAdaptiveDefaultOutputTokens = 64000
-
 // defaultOutputTokens returns the default max output tokens for a model,
 // floored by the model's own cap and globally at defaultMaxOutputTokenCap.
 func defaultOutputTokens(model string) int64 {
@@ -1564,9 +1557,9 @@ func defaultOutputTokens(model string) int64 {
 	return defaultMaxOutputTokenCap
 }
 
-// defaultAnthropicOutputTokens leaves enough room for hidden reasoning and
-// long tool calls on always-on adaptive targets while respecting a documented model cap below the
-// reasoning floor. Explicit caller max_tokens values are handled separately
+// defaultAnthropicOutputTokens leaves room for hidden reasoning and long tool
+// calls on always-on adaptive targets while respecting a documented model cap
+// below anthropicAdaptiveDefaultOutputTokens. Explicit caller max_tokens values are handled separately
 // and are intentionally not changed here.
 func defaultAnthropicOutputTokens(model string, capabilities router.ModelSpec) int64 {
 	if !capabilities.Supports(router.CapAdaptiveThinking) {
