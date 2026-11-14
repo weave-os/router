@@ -1,0 +1,627 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages",
+      "stream": true,
+      "routing_decisions": [
+        {
+          "requested_model": "gpt-5.4-mini",
+          "model": "gpt-5.4-mini",
+          "provider": "openai_gateway",
+          "reason": "golden_route"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "openai_gateway",
+          "wire_model": "gpt-5.4-mini",
+          "endpoint": "responses",
+          "outbound_body": {
+            "input": [
+              {
+                "content": [
+                  {
+                    "text": "list files",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "max_output_tokens": 16000,
+            "model": "gpt-5.4-mini",
+            "prompt_cache_key": "414681fc48490ffcc782a3ca3c1be763",
+            "store": false,
+            "stream": true,
+            "tools": [
+              {
+                "name": "read_file",
+                "parameters": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "description": "(Optional; pass null to omit.)",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "strict": true,
+                "type": "function"
+              }
+            ]
+          },
+          "outcome": "upstream_status_404"
+        },
+        {
+          "provider": "openai_gateway",
+          "wire_model": "gpt-5.4-mini",
+          "outbound_body": {
+            "max_completion_tokens": 16000,
+            "messages": [
+              {
+                "content": "list files",
+                "role": "user"
+              }
+            ],
+            "model": "gpt-5.4-mini",
+            "prompt_cache_key": "414681fc48490ffcc782a3ca3c1be763",
+            "stream": true,
+            "stream_options": {
+              "include_usage": true
+            },
+            "tools": [
+              {
+                "function": {
+                  "name": "read_file",
+                  "parameters": {
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "function"
+              }
+            ]
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Diagnosis": {
+            "BodyTranslated": true
+          },
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-anthropic-messages",
+            "PolicyRevision": "3",
+            "Purpose": "anthropic_messages",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "BindingIndex": -1,
+            "CatalogID": "gpt-5.4-mini",
+            "Provider": "openai_gateway",
+            "UpstreamID": "gpt-5.4-mini"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "text/event-stream",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "53",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "400000",
+          "X-Router-Decision": "golden_route",
+          "X-Router-Model": "gpt-5.4-mini",
+          "X-Router-Provider": "openai_gateway"
+        },
+        "events": [
+          {
+            "event": "message_start",
+            "data": {
+              "message": {
+                "content": [],
+                "id": "\u003cid\u003e",
+                "model": "gpt-5.4-mini",
+                "role": "assistant",
+                "stop_reason": null,
+                "stop_sequence": null,
+                "type": "message",
+                "usage": {
+                  "input_tokens": 0,
+                  "output_tokens": 0
+                }
+              },
+              "type": "message_start"
+            }
+          },
+          {
+            "event": "content_block_start",
+            "data": {
+              "content_block": {
+                "text": "",
+                "type": "text"
+              },
+              "index": 0,
+              "type": "content_block_start"
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "delta": {
+                "text": "✦ **Weave Router** → gpt-5.4-mini · best pick for this turn\n\n",
+                "type": "text_delta"
+              },
+              "index": 0,
+              "type": "content_block_delta"
+            }
+          },
+          {
+            "event": "content_block_stop",
+            "data": {
+              "index": 0,
+              "type": "content_block_stop"
+            }
+          },
+          {
+            "event": "content_block_start",
+            "data": {
+              "content_block": {
+                "text": "",
+                "type": "text"
+              },
+              "index": 1,
+              "type": "content_block_start"
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "delta": {
+                "text": "chat",
+                "type": "text_delta"
+              },
+              "index": 1,
+              "type": "content_block_delta"
+            }
+          },
+          {
+            "event": "content_block_stop",
+            "data": {
+              "index": 1,
+              "type": "content_block_stop"
+            }
+          },
+          {
+            "event": "message_delta",
+            "data": {
+              "delta": {
+                "stop_reason": "end_turn",
+                "stop_sequence": null
+              },
+              "type": "message_delta",
+              "usage": {
+                "input_tokens": 12,
+                "output_tokens": 7,
+                "weave_cost": {
+                  "cache_creation_tokens": 0,
+                  "cache_read_tokens": 0,
+                  "input_usd": 0.000009,
+                  "output_usd": 0.0000315,
+                  "usd": 0.0000405
+                }
+              }
+            }
+          },
+          {
+            "event": "message_stop",
+            "data": {
+              "type": "message_stop"
+            }
+          }
+        ]
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "default_mid",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "Model": "gpt-5.4-mini",
+            "Provider": "openai_gateway",
+            "Reason": "golden_route",
+            "Role": "default_mid",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "update_usage",
+          "role": "default_mid",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "ServedModel": "gpt-5.4-mini",
+            "ServedProvider": "openai_gateway",
+            "Strategy": "hmm_embedding"
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -41,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 41,
+          "OrganizationID": "golden-org",
+          "RouterModel": "gpt-5.4-mini"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.000009,
+          "ActualOutputCostUSD": 0.0000315,
+          "CaptureMode": "off",
+          "CrossFormat": true,
+          "DecisionModel": "gpt-5.4-mini",
+          "DecisionProvider": "openai_gateway",
+          "DecisionReason": "golden_route",
+          "DegenerateShadow": true,
+          "EmbedInput": "only_user_message",
+          "EstimatedInputTokens": 2,
+          "FinalModelFamily": "gpt-mini",
+          "FreshDecisionModel": "gpt-5.4-mini",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "gpt-mini",
+          "LatestToolCallCounts": {},
+          "OutputTokens": 7,
+          "PinTier": "miss",
+          "PlannerOutcome": "switch",
+          "PlannerReason": "no_pin",
+          "RequestedInputCostUSD": 0.000009,
+          "RequestedModel": "gpt-5.4-mini",
+          "RequestedOutputCostUSD": 0.0000315,
+          "Role": "default_mid",
+          "SelectionTrace": {
+            "served_group": ""
+          },
+          "SpanType": "router.upstream",
+          "StopReason": "end_turn",
+          "Strategy": "hmm_embedding",
+          "TurnType": "main_loop",
+          "UpstreamFinishReason": "stop",
+          "UpstreamStatusCode": 200,
+          "UserPrompt": true
+        }
+      ]
+    },
+    {
+      "ingress": "anthropic_messages",
+      "stream": true,
+      "routing_decisions": [
+        {
+          "requested_model": "gpt-5.4-mini",
+          "model": "gpt-5.4-mini",
+          "provider": "openai_gateway",
+          "reason": "golden_route"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "openai_gateway",
+          "wire_model": "gpt-5.4-mini",
+          "outbound_body": {
+            "max_completion_tokens": 16000,
+            "messages": [
+              {
+                "content": "list files",
+                "role": "user"
+              }
+            ],
+            "model": "gpt-5.4-mini",
+            "prompt_cache_key": "414681fc48490ffcc782a3ca3c1be763",
+            "stream": true,
+            "stream_options": {
+              "include_usage": true
+            },
+            "tools": [
+              {
+                "function": {
+                  "name": "read_file",
+                  "parameters": {
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "function"
+              }
+            ]
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Diagnosis": {
+            "BodyTranslated": true
+          },
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-anthropic-messages",
+            "PolicyRevision": "3",
+            "Purpose": "anthropic_messages",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "BindingIndex": -1,
+            "CatalogID": "gpt-5.4-mini",
+            "Provider": "openai_gateway",
+            "UpstreamID": "gpt-5.4-mini"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "text/event-stream",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "53",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "400000",
+          "X-Router-Decision": "golden_route",
+          "X-Router-Model": "gpt-5.4-mini",
+          "X-Router-Provider": "openai_gateway"
+        },
+        "events": [
+          {
+            "event": "message_start",
+            "data": {
+              "message": {
+                "content": [],
+                "id": "\u003cid\u003e",
+                "model": "gpt-5.4-mini",
+                "role": "assistant",
+                "stop_reason": null,
+                "stop_sequence": null,
+                "type": "message",
+                "usage": {
+                  "input_tokens": 2,
+                  "output_tokens": 0
+                }
+              },
+              "type": "message_start"
+            }
+          },
+          {
+            "event": "content_block_start",
+            "data": {
+              "content_block": {
+                "text": "",
+                "type": "text"
+              },
+              "index": 0,
+              "type": "content_block_start"
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "delta": {
+                "text": "chat again",
+                "type": "text_delta"
+              },
+              "index": 0,
+              "type": "content_block_delta"
+            }
+          },
+          {
+            "event": "content_block_stop",
+            "data": {
+              "index": 0,
+              "type": "content_block_stop"
+            }
+          },
+          {
+            "event": "message_delta",
+            "data": {
+              "delta": {
+                "stop_reason": "end_turn",
+                "stop_sequence": null
+              },
+              "type": "message_delta",
+              "usage": {
+                "input_tokens": 12,
+                "output_tokens": 7,
+                "weave_cost": {
+                  "cache_creation_tokens": 0,
+                  "cache_read_tokens": 0,
+                  "input_usd": 0.000009,
+                  "output_usd": 0.0000315,
+                  "usd": 0.0000405
+                }
+              }
+            }
+          },
+          {
+            "event": "message_stop",
+            "data": {
+              "type": "message_stop"
+            }
+          }
+        ]
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "default_mid",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "LastInputTokens": 12,
+            "LastOutputTokens": 7,
+            "LastServedModel": "gpt-5.4-mini",
+            "Model": "gpt-5.4-mini",
+            "Provider": "openai_gateway",
+            "Reason": "golden_route",
+            "Role": "default_mid",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "update_usage",
+          "role": "default_mid",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "PriorServedModel": "gpt-5.4-mini",
+            "ServedModel": "gpt-5.4-mini",
+            "ServedProvider": "openai_gateway",
+            "Strategy": "hmm_embedding"
+          }
+        },
+        {
+          "op": "upsert",
+          "role": "default_mid",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "LastInputTokens": 12,
+            "LastOutputTokens": 7,
+            "LastServedModel": "gpt-5.4-mini",
+            "Reason": "degenerate_response",
+            "Role": "default_mid",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -41,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 41,
+          "OrganizationID": "golden-org",
+          "RouterModel": "gpt-5.4-mini"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.000009,
+          "ActualOutputCostUSD": 0.0000315,
+          "CaptureMode": "off",
+          "CrossFormat": true,
+          "DecisionModel": "gpt-5.4-mini",
+          "DecisionProvider": "openai_gateway",
+          "DecisionReason": "golden_route",
+          "DegenerateShadow": true,
+          "EmbedInput": "only_user_message",
+          "EstimatedInputTokens": 2,
+          "FinalModelFamily": "gpt-mini",
+          "FreshDecisionModel": "gpt-5.4-mini",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "gpt-mini",
+          "LatestToolCallCounts": {},
+          "OutputTokens": 7,
+          "PinTier": "postgres_stay_same_model",
+          "PlannerOutcome": "stay",
+          "PlannerPinModel": "gpt-5.4-mini",
+          "PlannerPinProvider": "openai_gateway",
+          "PlannerReason": "same_model",
+          "RequestedInputCostUSD": 0.000009,
+          "RequestedModel": "gpt-5.4-mini",
+          "RequestedOutputCostUSD": 0.0000315,
+          "Role": "default_mid",
+          "SelectionTrace": {
+            "served_group": ""
+          },
+          "SpanType": "router.upstream",
+          "StickyHit": true,
+          "StopReason": "end_turn",
+          "Strategy": "hmm_embedding",
+          "TurnType": "main_loop",
+          "UpstreamFinishReason": "stop",
+          "UpstreamStatusCode": 200,
+          "UserPrompt": true
+        }
+      ]
+    }
+  ],
+  "scenario": "anthropic_messages_stream_gateway_without_responses_remembered"
+}

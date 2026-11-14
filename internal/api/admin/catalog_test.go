@@ -145,12 +145,23 @@ func TestCatalogModelsHandler_WireShapeContract(t *testing.T) {
 	rows := body["models"]
 	require.Len(t, rows, 2)
 	for _, row := range rows {
-		require.Len(t, row, 5, "each row is exactly {model, provider, fast_mode, input_usd_per_1m, output_usd_per_1m}: %v", row)
+		require.Contains(t, row, "model")
+		require.Contains(t, row, "provider")
+		require.Contains(t, row, "fast_mode")
+		require.Contains(t, row, "input_usd_per_1m")
+		require.Contains(t, row, "output_usd_per_1m")
 		assert.IsType(t, "", row["model"])
 		assert.IsType(t, "", row["provider"])
 		assert.IsType(t, false, row["fast_mode"])
 		assert.IsType(t, float64(0), row["input_usd_per_1m"])
 		assert.IsType(t, float64(0), row["output_usd_per_1m"])
+		if row["fast_mode"] == true {
+			require.Len(t, row, 7, "fast-tier rows also carry exact fast prices: %v", row)
+			assert.IsType(t, float64(0), row["fast_input_usd_per_1m"])
+			assert.IsType(t, float64(0), row["fast_output_usd_per_1m"])
+		} else {
+			require.Len(t, row, 5, "each row is exactly {model, provider, fast_mode, input_usd_per_1m, output_usd_per_1m}: %v", row)
+		}
 	}
 	assert.Equal(t, "claude-opus-4-6", rows[0]["model"])
 	assert.Equal(t, "anthropic", rows[0]["provider"])
