@@ -33,19 +33,19 @@ func ensureClaudeCodeIdentity(body []byte) []byte {
 	switch {
 	case system.IsArray() && len(system.Array()) > 0:
 		blocks := system.Array()
-		at := 0
+		insertAt := 0
 		if strings.HasPrefix(blocks[0].Get("text").String(), claudeCodeBillingHeaderPrefix) {
-			at = 1
+			insertAt = 1
 		}
-		if at < len(blocks) && identifiesAsClaudeCode(blocks[at].Get("text").String()) {
+		if insertAt < len(blocks) && identifiesAsClaudeCode(blocks[insertAt].Get("text").String()) {
 			return body
 		}
 		raws := make([]string, 0, len(blocks)+1)
-		for _, block := range blocks[:at] {
+		for _, block := range blocks[:insertAt] {
 			raws = append(raws, block.Raw)
 		}
 		raws = append(raws, textBlock(claudeCodeIdentity))
-		for _, block := range blocks[at:] {
+		for _, block := range blocks[insertAt:] {
 			raws = append(raws, block.Raw)
 		}
 		return setSystem(body, "["+strings.Join(raws, ",")+"]")
