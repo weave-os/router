@@ -144,7 +144,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 		// transient error on it still gets the same-binding retries.
 		Bound: func(dispatch.Attempt, error) bool { return managedBinding },
 		// Nil unless transient_rate_limit is on for this request.
-		RetryDelay: s.throttleRetryDelay(ctx),
+		RetryDelay: dispatch.ThrottleLedgerFromContext(ctx).RetryDelay(s.clockNow),
 	}
 	transport.Attempt = func(attemptCtx context.Context, attempt dispatch.Attempt, client providers.Client) error {
 		decision := in.initialDecision
