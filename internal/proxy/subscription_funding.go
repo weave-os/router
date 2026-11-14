@@ -163,7 +163,7 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 		token = codexToken
 	}
 	if throttledBlocker {
-		if token != "" && !s.callerQuotaSpent(ctx, pool, token, now) {
+		if token != "" && !s.callerQuotaSpent(ctx, pool, token, now) && !callerPlanThrottled(ctx, pool, now) {
 			return fmt.Errorf("%w: caller subscription quota is available or unknown", ErrSubscriptionPoolUnavailable)
 		}
 		return ErrSubscriptionPoolThrottled
@@ -175,9 +175,19 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 		}
 	}
 	if token != "" && !s.callerQuotaSpent(ctx, pool, token, now) {
+		if callerPlanThrottled(ctx, pool, now) {
+			return ErrSubscriptionPoolThrottled
+		}
 		return fmt.Errorf("%w: caller subscription quota is available or unknown", ErrSubscriptionPoolUnavailable)
 	}
 	return nil
+}
+
+// callerPlanThrottled reports a live rate limit on the caller's own plan. It
+// keeps paid fallback blocked but makes the refusal a retryable 429.
+func callerPlanThrottled(ctx context.Context, pool subscriptions.Provider, now time.Time) bool {
+	state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	return state != nil && state.ThrottledProviders[pool].After(now)
 }
 
 func (s *Service) callerQuotaSpent(ctx context.Context, pool subscriptions.Provider, token string, now time.Time) bool {
