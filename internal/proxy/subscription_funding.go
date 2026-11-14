@@ -162,9 +162,10 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 	if pool == subscriptions.ProviderCodex {
 		token = codexToken
 	}
+	callerQuotaUnproven := token != "" && !s.callerQuotaSpent(ctx, pool, token, now)
 	if throttledBlocker {
-		if token != "" && !s.callerQuotaSpent(ctx, pool, token, now) {
-			return fmt.Errorf("%w: caller subscription quota is available or unknown", ErrSubscriptionPoolUnavailable)
+		if err := callerPlanRefusal(ctx, pool, callerQuotaUnproven, now); err != nil {
+			return err
 		}
 		return ErrSubscriptionPoolThrottled
 	}
@@ -174,10 +175,19 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 			return fmt.Errorf("%w: enrolled pool has no quota snapshot", ErrSubscriptionPoolUnavailable)
 		}
 	}
-	if token != "" && !s.callerQuotaSpent(ctx, pool, token, now) {
-		return fmt.Errorf("%w: caller subscription quota is available or unknown", ErrSubscriptionPoolUnavailable)
+	return callerPlanRefusal(ctx, pool, callerQuotaUnproven, now)
+}
+
+// callerPlanRefusal blocks paid fallback while the caller's own plan may still
+// serve; a live rate limit on that plan makes the refusal a retryable 429.
+func callerPlanRefusal(ctx context.Context, pool subscriptions.Provider, callerQuotaUnproven bool, now time.Time) error {
+	if !callerQuotaUnproven {
+		return nil
 	}
-	return nil
+	if callerPlanThrottled(ctx, pool, now) {
+		return errCallerPlanThrottled
+	}
+	return fmt.Errorf("%w: caller subscription quota is available or unknown", ErrSubscriptionPoolUnavailable)
 }
 
 func (s *Service) callerQuotaSpent(ctx context.Context, pool subscriptions.Provider, token string, now time.Time) bool {
