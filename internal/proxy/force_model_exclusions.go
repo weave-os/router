@@ -57,7 +57,7 @@ func (s *Service) forcedModelBinding(ctx context.Context, model, provider string
 	if len(gateways) > 0 {
 		return gatewayForcedBinding(model, gateways, s.customBindingsForRequest(ctx))
 	}
-	excluded := s.credentialBroker().PolicyExcludedProviders(installationExcludedProvidersFromContext(ctx))
+	excluded := s.credentials.PolicyExcludedProviders(installationExcludedProvidersFromContext(ctx))
 	bindings := s.servableBindings(model, provider)
 	if funded, denied := weaveCreditsFundedProviders(ctx); denied {
 		bindings = slices.DeleteFunc(slices.Clone(bindings), func(b string) bool {
@@ -139,8 +139,8 @@ func (s *Service) servableBindings(model, provider string) []string {
 	}
 	out := make([]string, 0, len(m.Providers))
 	for _, b := range catalog.RoutableBindings(m) {
-		if s.deploymentKeyedProviders != nil {
-			if _, keyed := s.deploymentKeyedProviders[b.Provider]; !keyed {
+		if s.credentials.KeyedProviders != nil {
+			if _, keyed := s.credentials.KeyedProviders[b.Provider]; !keyed {
 				continue
 			}
 		}

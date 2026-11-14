@@ -55,8 +55,8 @@ func (s *Service) openaiFallbackKeyAvailable(ctx context.Context) bool {
 			return true
 		}
 	}
-	if s.deploymentKeyedProviders != nil {
-		if _, ok := s.deploymentKeyedProviders[providers.ProviderOpenAI]; ok {
+	if s.credentials.KeyedProviders != nil {
+		if _, ok := s.credentials.KeyedProviders[providers.ProviderOpenAI]; ok {
 			return true
 		}
 	}

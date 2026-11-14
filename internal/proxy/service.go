@@ -167,9 +167,6 @@ type Service struct {
 	captureMaxBytes int
 	// redactor scrubs captured content before export. Nil passes through.
 	redactor Redactor
-	// byokOnly disables deployment-level credential fallback so customer
-	// requests never silently consume the platform's API key budget.
-	byokOnly bool
 	// gatewayCaps memoizes gateway endpoints that rejected the Responses API
 	// or prompt_cache_key. Keyed by gatewayResponsesKey.
 	gatewayCaps dispatch.GatewayCapabilities
@@ -179,24 +176,12 @@ type Service struct {
 	// excludedModelsOverride, when non-nil, replaces the per-installation
 	// exclusion list on every request. Set from ROUTER_EXCLUDED_MODELS at boot.
 	excludedModelsOverride map[string]struct{}
-	// excludedProvidersOverride, when non-nil, replaces the per-installation
-	// provider exclusion list on every request. Set from
-	// ROUTER_EXCLUDED_PROVIDERS at boot.
-	excludedProvidersOverride map[string]struct{}
 	// globalAutomaticExclusions caches the deployment-wide models the control
 	// plane withdrew from automatic routing. Nil leaves every model automatically
 	// selectable.
 	globalAutomaticExclusions *globalAutomaticExclusionCache
-	// deploymentKeyedProviders is the subset of registered providers whose
-	// upstream API key is configured at the deployment level. When nil, all
-	// registered providers are treated as deployment-keyed (legacy behavior).
-	deploymentKeyedProviders map[string]struct{}
-	// passthroughEligibleProviders is the subset of registered providers
-	// reachable via client-supplied auth headers (no deployment key, no
-	// BYOK). Surface-scoped: only enabled when the inbound surface matches,
-	// otherwise an Anthropic-surface `x-api-key` could forward to
-	// api.openai.com (and vice versa) — a cross-provider credential leak.
-	passthroughEligibleProviders map[string]struct{}
+	// credentials is the deployment's Credential Brokerage configuration.
+	credentials credentials.Brokerage
 	// planner parameterizes the Prism-style EV policy for stay-vs-switch.
 	planner planner.EVConfig
 	// hmmUpgradeConfidenceThreshold is the minimum classifier confidence needed
@@ -1297,7 +1282,7 @@ func sessionCooldownModelsFromContext(ctx context.Context) map[string]time.Time 
 }
 
 func (s *Service) excludedProvidersForRequest(ctx context.Context) map[string]struct{} {
-	return s.credentialBroker().ExcludedProviders(installationExcludedProvidersFromContext(ctx), sessionDisabledProvidersFromContext(ctx))
+	return s.credentials.ExcludedProviders(installationExcludedProvidersFromContext(ctx), sessionDisabledProvidersFromContext(ctx))
 }
 
 // installationPreferredModelsFromContext returns the per-installation model
@@ -2676,7 +2661,7 @@ func (s *Service) InferenceExecutor() *dispatch.Executor {
 // WithByokOnly enables BYOK-only credential resolution: providers without
 // caller-supplied credentials are ineligible.
 func (s *Service) WithByokOnly(byokOnly bool) *Service {
-	s.byokOnly = byokOnly
+	s.credentials.BYOKOnly = byokOnly
 	return s
 }
 
@@ -2746,29 +2731,29 @@ func (s *Service) ExcludedModelsOverride() []string {
 // to a deployment-wide set. Pass nil or empty slice to clear the override.
 func (s *Service) WithExcludedProvidersOverride(providerNames []string) *Service {
 	if len(providerNames) == 0 {
-		s.excludedProvidersOverride = nil
+		s.credentials.ExcludedProvidersOverride = nil
 		return s
 	}
 	set := make(map[string]struct{}, len(providerNames))
 	for _, p := range providerNames {
 		set[p] = struct{}{}
 	}
-	s.excludedProvidersOverride = set
+	s.credentials.ExcludedProvidersOverride = set
 	return s
 }
 
 // HasExcludedProvidersOverride reports whether an excluded-providers override is active.
 func (s *Service) HasExcludedProvidersOverride() bool {
-	return s.excludedProvidersOverride != nil
+	return s.credentials.ExcludedProvidersOverride != nil
 }
 
 // ExcludedProvidersOverride returns a sorted copy of the override list.
 func (s *Service) ExcludedProvidersOverride() []string {
-	if s.excludedProvidersOverride == nil {
+	if s.credentials.ExcludedProvidersOverride == nil {
 		return nil
 	}
-	out := make([]string, 0, len(s.excludedProvidersOverride))
-	for p := range s.excludedProvidersOverride {
+	out := make([]string, 0, len(s.credentials.ExcludedProvidersOverride))
+	for p := range s.credentials.ExcludedProvidersOverride {
 		out = append(out, p)
 	}
 	sort.Strings(out)
@@ -2875,14 +2860,14 @@ func (s *Service) WithManagedSubscriptions(pool subscriptions.Leaser) *Service {
 // (all registered providers eligible).
 func (s *Service) WithDeploymentKeyedProviders(set map[string]struct{}) *Service {
 	if set == nil {
-		s.deploymentKeyedProviders = nil
+		s.credentials.KeyedProviders = nil
 		return s
 	}
 	copied := make(map[string]struct{}, len(set))
 	for p := range set {
 		copied[p] = struct{}{}
 	}
-	s.deploymentKeyedProviders = copied
+	s.credentials.KeyedProviders = copied
 	return s
 }
 
@@ -2894,14 +2879,14 @@ func (s *Service) WithDeploymentKeyedProviders(set map[string]struct{}) *Service
 // wrong credential type to a third-party API.
 func (s *Service) WithPassthroughEligibleProviders(set map[string]struct{}) *Service {
 	if set == nil {
-		s.passthroughEligibleProviders = nil
+		s.credentials.PassthroughEligible = nil
 		return s
 	}
 	copied := make(map[string]struct{}, len(set))
 	for p := range set {
 		copied[p] = struct{}{}
 	}
-	s.passthroughEligibleProviders = copied
+	s.credentials.PassthroughEligible = copied
 	return s
 }
 
@@ -3323,7 +3308,7 @@ func (s *Service) anthropicCredentialReachable(ctx context.Context, headers http
 	}
 	// nil deploymentKeyedProviders means every registered provider is
 	// deployment-keyed (legacy behavior, mirrors enabledProvidersForRequest).
-	if s.deploymentKeyedProviders == nil && !s.byokOnly {
+	if s.credentials.KeyedProviders == nil && !s.credentials.BYOKOnly {
 		if s.clients.Has(providers.ProviderAnthropic) {
 			return true
 		}
@@ -6473,17 +6458,7 @@ func externalKeysFromContext(ctx context.Context) []*auth.ExternalAPIKey {
 }
 
 func (s *Service) requestUsesNonDeploymentCreds(ctx context.Context, headers http.Header) bool {
-	return s.credentialBroker().UsesNonDeploymentCreds(externalKeysFromContext(ctx), headers)
-}
-
-// credentialBroker is the deployment's Credential Brokerage configuration.
-func (s *Service) credentialBroker() credentials.Brokerage {
-	return credentials.Brokerage{
-		BYOKOnly:                  s.byokOnly,
-		KeyedProviders:            s.deploymentKeyedProviders,
-		PassthroughEligible:       s.passthroughEligibleProviders,
-		ExcludedProvidersOverride: s.excludedProvidersOverride,
-	}
+	return s.credentials.UsesNonDeploymentCreds(externalKeysFromContext(ctx), headers)
 }
 
 // enabledProvidersForRequest returns providers with resolvable credentials
@@ -6500,7 +6475,7 @@ func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvide
 		managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) && !codexChatEndpoint(ctx) && s.supportsSubscriptionTransport(providers.ProviderOpenAI) {
 		lanes[providers.ProviderOpenAI] = struct{}{}
 	}
-	return s.credentialBroker().Eligibility(ctx, credentials.EligibilityRequest{
+	return s.credentials.Eligibility(ctx, credentials.EligibilityRequest{
 		Registered:                    s.clients.NameSet(),
 		SurfaceProvider:               surfaceProvider,
 		Headers:                       headers,
@@ -6519,12 +6494,12 @@ func (s *Service) hasOpenAIInfrastructureCredential(ctx context.Context, headers
 	if byokServedForProvider(ctx, providers.ProviderOpenAI) {
 		return true
 	}
-	if !s.byokOnly {
-		if s.deploymentKeyedProviders == nil {
+	if !s.credentials.BYOKOnly {
+		if s.credentials.KeyedProviders == nil {
 			if s.clients.Has(providers.ProviderOpenAI) {
 				return true
 			}
-		} else if _, keyed := s.deploymentKeyedProviders[providers.ProviderOpenAI]; keyed {
+		} else if _, keyed := s.credentials.KeyedProviders[providers.ProviderOpenAI]; keyed {
 			return true
 		}
 	}

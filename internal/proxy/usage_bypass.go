@@ -289,8 +289,8 @@ func (s *Service) anthropicFallbackKeyAvailable(ctx context.Context) bool {
 			return true
 		}
 	}
-	if s.deploymentKeyedProviders != nil {
-		if _, ok := s.deploymentKeyedProviders[providers.ProviderAnthropic]; ok {
+	if s.credentials.KeyedProviders != nil {
+		if _, ok := s.credentials.KeyedProviders[providers.ProviderAnthropic]; ok {
 			return true
 		}
 	}

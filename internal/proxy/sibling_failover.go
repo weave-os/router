@@ -84,7 +84,7 @@ func (s *Service) rescueDecisions(ctx context.Context, failed router.Decision, c
 	if gw := s.gatewayProvidersForRequest(ctx); len(gw) > 0 {
 		return s.gatewayRescueDecisions(ctx, failed, candidates, reason, gw, est, sigSavings, outputReserve)
 	}
-	if s.deploymentKeyedProviders == nil {
+	if s.credentials.KeyedProviders == nil {
 		return nil
 	}
 	available := s.keyedProvidersExcluding(s.excludedProvidersForRequest(ctx))
@@ -364,7 +364,7 @@ func (s *Service) gatewayRescueDecisions(ctx context.Context, failed router.Deci
 // re-resolves its own credential, so an overloaded plan-served model can still
 // hand the turn to the next scored candidate. BYOK keys keep the generic rule.
 func (s *Service) subscriptionSiblingAllowed(ctx context.Context) bool {
-	if s.byokOnly || len(externalKeysFromContext(ctx)) > 0 {
+	if s.credentials.BYOKOnly || len(externalKeysFromContext(ctx)) > 0 {
 		return false
 	}
 	creds := CredentialsFromContext(ctx)
@@ -505,11 +505,11 @@ func rescueDecisionFor(failed router.Decision, model, provider, reason string) r
 // keyedProvidersExcluding returns the deployment-keyed providers minus the
 // installation's excluded ones, or nil in legacy (unset) mode.
 func (s *Service) keyedProvidersExcluding(excluded map[string]struct{}) map[string]struct{} {
-	if s.deploymentKeyedProviders == nil {
+	if s.credentials.KeyedProviders == nil {
 		return nil
 	}
-	out := make(map[string]struct{}, len(s.deploymentKeyedProviders))
-	for p := range s.deploymentKeyedProviders {
+	out := make(map[string]struct{}, len(s.credentials.KeyedProviders))
+	for p := range s.credentials.KeyedProviders {
 		if _, drop := excluded[p]; drop {
 			continue
 		}

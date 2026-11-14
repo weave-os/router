@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 	"time"
+	"weave-os/router/internal/credentials"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
@@ -16,9 +17,9 @@ import (
 )
 
 func siblingService(keyed ...string) *Service {
-	s := &Service{deploymentKeyedProviders: map[string]struct{}{}}
+	s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{}}}
 	for _, p := range keyed {
-		s.deploymentKeyedProviders[p] = struct{}{}
+		s.credentials.KeyedProviders[p] = struct{}{}
 	}
 	return s
 }
@@ -372,7 +373,7 @@ func TestSiblingFailoverDecision(t *testing.T) {
 	})
 
 	t.Run("gateway BYOK never rescues onto a provider without a held gateway key", func(t *testing.T) {
-		s := &Service{deploymentKeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}
+		s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}}
 		gwCtx := context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 			{
 				Provider:     providers.ProviderOpenAIGateway,
