@@ -52,6 +52,14 @@ func customerOwnedCredential(ctx context.Context) bool {
 	return false
 }
 
+// observeAttemptSent records each prepared body with whether the attempt
+// authenticated with a customer-owned credential.
+func observeAttemptSent(trace *dispatch.AttemptTrace) func(context.Context, []byte) {
+	return func(ctx context.Context, body []byte) {
+		trace.ObserveSent(ctx, body, customerOwnedCredential(ctx))
+	}
+}
+
 // describeAttempt diagnoses the attempt dispatch just recorded and logs a
 // failure with its owner; an unowned failure is logged loudly so a rule can be
 // added.
