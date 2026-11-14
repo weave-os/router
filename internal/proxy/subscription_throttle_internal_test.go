@@ -130,3 +130,39 @@ func TestAuthorizeSubscriptionAPI_CredentialRejectedCooldownDoesNotBlockPaidFall
 	err := svc.authorizeSubscriptionAPI(throttleTestContext(deadToken, spent, reconnect), subscriptions.ProviderCodex, "", "", clientAppRefusalFunding{})
 	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable, "once the credential cooldown lapses the seat may refresh and serve again")
 }
+
+// Incident 2026-11-13: the caller's own ChatGPT plan answered a generic 429
+// while every shared seat was throttled. Paid fallback stays blocked, but the
+// refusal must be a retryable 429 so Codex backs off instead of hot-retrying
+// a 503.
+func TestAuthorizeSubscriptionAPI_RateLimitedCallerPlanRefusesAs429(t *testing.T) {
+	now := time.Now()
+	svc := &Service{now: func() time.Time { return now }}
+	callerCreds := &Credentials{APIKey: []byte("caller-codex-token"), OAuth: true}
+	authorize := func(ctx context.Context) error {
+		return svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, "caller-codex-token", "", clientAppRefusalFunding{})
+	}
+
+	pooled := throttleTestContext(activeCodexAccount("seat-1"))
+	recordManagedThrottle(pooled, "seat-1", now.Add(time.Hour))
+	svc.recordDirectSubscriptionQuota(pooled, providers.ProviderOpenAI, codexCoveredModel, callerCreds, codexRateLimitedErr())
+	requireThrottledRefusal(t, authorize(pooled))
+
+	unpooled := throttleTestContext()
+	svc.recordDirectSubscriptionQuota(unpooled, providers.ProviderOpenAI, codexCoveredModel, callerCreds, codexRateLimitedErr())
+	requireThrottledRefusal(t, authorize(unpooled))
+
+	now = now.Add(2 * time.Minute)
+	err := authorize(pooled)
+	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)
+	require.NotErrorIs(t, err, ErrSubscriptionPoolThrottled, "an expired caller rate limit no longer explains the refusal")
+}
+
+func TestAuthorizeSubscriptionAPI_CallerQuotaExhaustionStillAuthorizesPaidFallback(t *testing.T) {
+	now := time.Now()
+	svc := &Service{now: func() time.Time { return now }}
+	ctx := throttleTestContext()
+	quotaExhaustedErr := &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"error":{"type":"usage_limit_reached","message":"limit"}}`)}
+	svc.recordDirectSubscriptionQuota(ctx, providers.ProviderOpenAI, codexCoveredModel, &Credentials{APIKey: []byte("caller-codex-token"), OAuth: true}, quotaExhaustedErr)
+	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, "caller-codex-token", "", clientAppRefusalFunding{}))
+}
