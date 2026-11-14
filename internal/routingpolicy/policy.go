@@ -1,14 +1,12 @@
 // Package routingpolicy is the Routing Policy bounded context: it decides
 // which models a request may route to and authorizes the routed decision as
 // an immutable execution plan. It knows nothing of HTTP, billing or provider
-// clients; credential reach arrives through credentials.Broker.
+// clients; credential reach arrives as a credentials.Eligibility.
 package routingpolicy
 
 import (
-	"context"
 	"errors"
 
-	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/router/policy"
 )
 
@@ -20,10 +18,8 @@ type Planner interface {
 	Plan(request policy.RoutedResolutionRequest) (policy.ResolvedPlan, error)
 }
 
-// Policy owns request-time eligibility and plan authorization; credential
-// reach comes only from the broker.
+// Policy owns request-time model exclusions and plan authorization.
 type Policy struct {
-	broker                 credentials.Broker
 	plans                  *policy.PlanResolver
 	excludedModelsOverride map[string]struct{}
 }
@@ -32,8 +28,8 @@ var _ Planner = (*Policy)(nil)
 
 // New builds a Policy; a nil plans makes Plan fail closed with
 // ErrNoPlanResolver.
-func New(broker credentials.Broker, plans *policy.PlanResolver) *Policy {
-	return &Policy{broker: broker, plans: plans}
+func New(plans *policy.PlanResolver) *Policy {
+	return &Policy{plans: plans}
 }
 
 // Plan fails closed with ErrNoPlanResolver when no plan resolver is wired.
@@ -42,12 +38,6 @@ func (p *Policy) Plan(request policy.RoutedResolutionRequest) (policy.ResolvedPl
 		return policy.ResolvedPlan{}, ErrNoPlanResolver
 	}
 	return p.plans.ResolveRouted(request)
-}
-
-// Eligibility delegates credential reach to the broker; Policy adds no
-// filtering of its own.
-func (p *Policy) Eligibility(ctx context.Context, req credentials.EligibilityRequest) (credentials.Eligibility, error) {
-	return p.broker.Eligibility(ctx, req)
 }
 
 // WithExcludedModelsOverride returns a copy of p whose per-request model

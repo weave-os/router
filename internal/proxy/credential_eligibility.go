@@ -2,26 +2,21 @@ package proxy
 
 import (
 	"context"
+	"net/http"
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 )
 
-type serviceCredentialBroker struct{ s *Service }
-
-// NewCredentialBroker adapts the Service's credential resolution to the
-// credentials.Broker port until Credential Brokerage owns it.
-func NewCredentialBroker(s *Service) credentials.Broker {
-	return serviceCredentialBroker{s: s}
-}
-
-func (b serviceCredentialBroker) Eligibility(ctx context.Context, req credentials.EligibilityRequest) (credentials.Eligibility, error) {
-	enabled := b.s.enabledProvidersForRequest(ctx, req.Surface, req.Headers)
+// requestEligibility narrows the credential broker's provider reach by the
+// request's funding: subscription-only capacity and Weave credits.
+func requestEligibility(ctx context.Context, s *Service, surface string, headers http.Header) (credentials.Eligibility, error) {
+	enabled := s.enabledProvidersForRequest(ctx, surface, headers)
 	// Linked-first is a funding preference; only depleted capacity restricts
 	// selection to providers the caller's subscription can serve.
-	if req.Surface != providers.ProviderGoogle && billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
-		enabled = restrictToSubscriptionProviders(ctx, req.Headers, enabled)
+	if surface != providers.ProviderGoogle && billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
+		enabled = restrictToSubscriptionProviders(ctx, headers, enabled)
 	}
 	enabled, err := applyWeaveCreditsPolicy(ctx, enabled)
 	if err != nil {
@@ -29,7 +24,7 @@ func (b serviceCredentialBroker) Eligibility(ctx context.Context, req credential
 	}
 	return credentials.Eligibility{
 		EnabledProviders: enabled,
-		CustomBindings:   b.s.customBindingsForRequest(ctx),
-		GatewayProviders: b.s.gatewayProvidersForRequest(ctx),
+		CustomBindings:   s.customBindingsForRequest(ctx),
+		GatewayProviders: s.gatewayProvidersForRequest(ctx),
 	}, nil
 }

@@ -7,5 +7,5 @@ import (
 )
 
 func withRoutingPolicy(svc *proxy.Service, plans *policy.PlanResolver) *proxy.Service {
-	return svc.WithRoutingPolicy(routingpolicy.New(proxy.NewCredentialBroker(svc), plans))
+	return svc.WithRoutingPolicy(routingpolicy.New(plans))
 }

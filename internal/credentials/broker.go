@@ -1,41 +1,51 @@
-// Package credentials declares the Credential Brokerage port: which providers,
-// bindings and subscription lanes a request's credentials can reach.
+// Package credentials is the Credential Brokerage bounded context: which
+// upstream providers a request holds credentials for, and which credential
+// kinds (deployment key, BYOK, client-supplied, subscription) it may spend.
 package credentials
 
 import (
 	"context"
 	"net/http"
 
-	"github.com/google/uuid"
+	"weave-os/router/internal/auth"
 )
 
-// Broker resolves the provider eligibility a request's credentials grant.
+// Broker resolves a request's provider eligibility from its credentials.
 type Broker interface {
-	Eligibility(ctx context.Context, req EligibilityRequest) (Eligibility, error)
+	Eligibility(ctx context.Context, req EligibilityRequest) Eligibility
 }
 
-// EligibilityRequest carries what a broker needs to resolve one inbound
-// request's credentials.
+// EligibilityRequest carries the request-scoped credential facts the
+// orchestrator has already authenticated.
 type EligibilityRequest struct {
-	// Surface is the wire-format provider: anthropic, openai or google.
-	Surface string
-	// Headers carries the inbound bearer used for OAuth enrollment.
-	Headers        http.Header
-	InstallationID uuid.UUID
+	// Registered names every provider with a client; it stands in for
+	// deployment keys when Brokerage.KeyedProviders is nil.
+	Registered map[string]struct{}
+	// SurfaceProvider is the inbound wire format's natural provider. A
+	// client-supplied credential only ever enables this provider.
+	SurfaceProvider string
+	Headers         http.Header
+	ExternalKeys    []*auth.ExternalAPIKey
+	RouterKeyAuthed bool
+	// SubscriptionLanes are providers a presented or linked subscription
+	// enrolls regardless of the inbound bearer.
+	SubscriptionLanes             map[string]struct{}
+	InstallationExcludedProviders []string
+	SessionDisabledProviders      []string
+	SubscriptionProviders         map[string]struct{}
+	ExcludedModels                map[string]struct{}
 }
 
-// Eligibility is the provider reach of one request's credentials.
+// Eligibility is the credential-derived input to routing.
 type Eligibility struct {
-	// EnabledProviders is the narrowed provider set routing may choose from.
 	EnabledProviders  map[string]struct{}
 	ExcludedProviders map[string]struct{}
-	// CustomBindings maps a model to the BYOK providers aliasing it.
-	CustomBindings map[string][]string
-	// GatewayProviders are the BYOK gateways that exclusively serve a tenant.
+	// GatewayProviders, when non-empty, displace every other upstream.
 	GatewayProviders      map[string]struct{}
 	SubscriptionProviders map[string]struct{}
-	// ExcludedModels are models the credentials cannot reach at all.
-	ExcludedModels map[string]struct{}
-	// UsesNonDeploymentCreds reports a request served on tenant credentials.
+	CustomBindings        map[string][]string
+	ExcludedModels        map[string]struct{}
+	// UsesNonDeploymentCreds keeps deployment-credentialed side calls (the
+	// handover summarizer) off requests served on someone else's credential.
 	UsesNonDeploymentCreds bool
 }

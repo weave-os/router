@@ -1272,40 +1272,8 @@ func sessionCooldownModelsFromContext(ctx context.Context) map[string]time.Time 
 	return out
 }
 
-// policyExcludedProviders returns configured exclusions only. Session
-// strike-outs are omitted — transient 529 evidence must not veto a force
-// the operator permits.
-func (s *Service) policyExcludedProviders(ctx context.Context) map[string]struct{} {
-	if s.excludedProvidersOverride != nil {
-		return s.excludedProvidersOverride
-	}
-	excluded := installationExcludedProvidersFromContext(ctx)
-	if len(excluded) == 0 {
-		return nil
-	}
-	out := make(map[string]struct{}, len(excluded))
-	for _, p := range excluded {
-		out[p] = struct{}{}
-	}
-	return out
-}
-
-// excludedProvidersForRequest merges the deployment/installation exclusion list
-// with any providers this session has struck out for repeated 529 exhaustion.
 func (s *Service) excludedProvidersForRequest(ctx context.Context) map[string]struct{} {
-	base := s.policyExcludedProviders(ctx)
-	sessionDisabled := sessionDisabledProvidersFromContext(ctx)
-	if len(sessionDisabled) == 0 {
-		return base
-	}
-	out := make(map[string]struct{}, len(base))
-	for p := range base {
-		out[p] = struct{}{}
-	}
-	for _, p := range sessionDisabled {
-		out[p] = struct{}{}
-	}
-	return out
+	return s.credentialBroker().ExcludedProviders(installationExcludedProvidersFromContext(ctx), sessionDisabledProvidersFromContext(ctx))
 }
 
 // installationPreferredModelsFromContext returns the per-installation model
@@ -1728,7 +1696,7 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		nativeOpenAIResponseSignals:    true,
 		cyberRefusalFallbackModel:      "claude-sonnet-5",
 	}
-	s.routing = routingpolicy.New(NewCredentialBroker(s), nil)
+	s.routing = routingpolicy.New(nil)
 	if r == nil {
 		return s
 	}
@@ -3733,7 +3701,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	// Anthropic packs sub-agent identity into metadata.user_id; the
 	// x-weave-subagent-type header is for non-Anthropic ingress only.
-	eligibility, eligibilityErr := s.routing.Eligibility(ctx, credentials.EligibilityRequest{Surface: providers.ProviderAnthropic, Headers: r.Header, InstallationID: installationIDFromContext(ctx)})
+	eligibility, eligibilityErr := requestEligibility(ctx, s, providers.ProviderAnthropic, r.Header)
 	if eligibilityErr != nil {
 		return eligibilityErr
 	}
@@ -6209,127 +6177,44 @@ func externalKeysFromContext(ctx context.Context) []*auth.ExternalAPIKey {
 	return keys
 }
 
-// requestUsesNonDeploymentCreds reports whether the request would use BYOK
-// or client-supplied creds. The summarizer is wired with deployment-level
-// creds, so calling it on a BYOK request would route conversation context
-// through the platform account — the orchestrator skips the summarizer here.
 func (s *Service) requestUsesNonDeploymentCreds(ctx context.Context, headers http.Header) bool {
-	if s.byokOnly {
-		return true
+	return s.credentialBroker().UsesNonDeploymentCreds(externalKeysFromContext(ctx), headers)
+}
+
+// credentialBroker maps this deployment's boot-time configuration onto a credentials.Brokerage.
+func (s *Service) credentialBroker() credentials.Brokerage {
+	return credentials.Brokerage{
+		BYOKOnly:                  s.byokOnly,
+		KeyedProviders:            s.deploymentKeyedProviders,
+		PassthroughEligible:       s.passthroughEligibleProviders,
+		ExcludedProvidersOverride: s.excludedProvidersOverride,
 	}
-	if len(externalKeysFromContext(ctx)) > 0 {
-		return true
-	}
-	// Scan every known provider (not a hand-maintained subset) so a newly-added
-	// provider's client-supplied credential can't slip past the BYOK guard.
-	for _, p := range providers.AllProviders() {
-		if ExtractClientCredentials(p, headers) != nil {
-			return true
-		}
-	}
-	return false
 }
 
 // enabledProvidersForRequest returns providers with resolvable credentials
-// for this request (deployment key, BYOK, client header, or linked subscription).
-// surfaceProvider is the inbound wire-format's natural provider. A
-// client-supplied bearer header is treated as creds for that surface only —
-// never a licence to enable other OpenAI-compat upstreams sharing the same
-// Authorization format.
+// for this request.
 func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvider string, headers http.Header) map[string]struct{} {
-	out := make(map[string]struct{}, s.clients.Len())
-	if !s.byokOnly {
-		if s.deploymentKeyedProviders != nil {
-			for p := range s.deploymentKeyedProviders {
-				out[p] = struct{}{}
-			}
-		} else {
-			for p := range s.clients.NameSet() {
-				out[p] = struct{}{}
-			}
-		}
-	}
-	for _, k := range externalKeysFromContext(ctx) {
-		// Explicit failures stay eligible so selecting that provider returns
-		// its credential error instead of using a deployment key.
-		if len(k.Plaintext) == 0 && k.CredentialError == nil {
-			continue
-		}
-		out[k.Provider] = struct{}{}
-	}
-	// A Claude subscription bearer (sk-ant-oat-) in the inbound
-	// Authorization enrolls Anthropic even on router-keyed requests — Claude
-	// Code keeps its OAuth token there while the router key rides in
-	// X-Weave-Router-Key. OAuth-subset only: a general API key still can't
-	// enroll a provider on the router-key path.
-	if c := ExtractClientCredentials(providers.ProviderAnthropic, headers); c != nil && c.OAuth {
-		out[providers.ProviderAnthropic] = struct{}{}
-	}
-	// A Codex subscription bearer
-	// in Authorization (paired with ChatGPT-Account-ID) enrolls OpenAI even on
-	// router-keyed requests. OAuth-subset only: a plain API key still can't
-	// enroll OpenAI on the router-key path.
-	if c := ExtractClientCredentials(providers.ProviderOpenAI, headers); c != nil && c.OAuth {
-		out[providers.ProviderOpenAI] = struct{}{}
-	}
-	// Passthrough-eligible providers are surface-scoped: a provider without a
-	// deployment key joins the eligible set only when the inbound surface
-	// matches, else an Anthropic-surface `x-api-key` could leak to
-	// api.openai.com (and vice versa). Skipped for router-key-authed requests
-	// not already BYOK-enrolled: the inbound auth header IS the router key
-	// there (stripped by setAuth), so dispatch would 401 unauthenticated
-	// instead of failing fast with a 503.
-	if surfaceProvider != "" {
-		if _, ok := s.passthroughEligibleProviders[surfaceProvider]; ok {
-			_, alreadyByok := out[surfaceProvider]
-			routerKeyAuthed := installationIDFromContext(ctx) != (uuid.UUID{})
-			if !routerKeyAuthed || alreadyByok {
-				out[surfaceProvider] = struct{}{}
-			}
-		}
-	}
-	if subscriptionCredsFromToken(anthropicSubscriptionFromContext(ctx)) != nil {
-		out[providers.ProviderAnthropic] = struct{}{}
-	}
-	if codexSubscriptionFromContext(ctx) != nil {
-		out[providers.ProviderOpenAI] = struct{}{}
-	}
-	// Client-supplied headers are only consulted when NOT authed via a
-	// router key. A router-key-authed request carrying an inbound bearer
-	// must not enable OpenAI-compat upstreams that share the Authorization
-	// header format.
-	if installationIDFromContext(ctx) == (uuid.UUID{}) && surfaceProvider != "" {
-		if _, already := out[surfaceProvider]; !already {
-			if ExtractClientCredentials(surfaceProvider, headers) != nil {
-				out[surfaceProvider] = struct{}{}
-			}
-		}
-	}
+	subscriptionLanes := make(map[string]struct{}, 2)
 	// Linked subscription pools provide credentials independently of the
-	// inbound harness's native bearer. Enroll their native provider lanes
-	// before applying installation exclusions and gateway exclusivity.
-	if managedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude) && s.supportsSubscriptionTransport(providers.ProviderAnthropic) {
-		out[providers.ProviderAnthropic] = struct{}{}
+	// inbound harness's native bearer.
+	if subscriptionCredsFromToken(anthropicSubscriptionFromContext(ctx)) != nil ||
+		managedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude) && s.supportsSubscriptionTransport(providers.ProviderAnthropic) {
+		subscriptionLanes[providers.ProviderAnthropic] = struct{}{}
 	}
-	if managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) && !codexChatEndpoint(ctx) && s.supportsSubscriptionTransport(providers.ProviderOpenAI) {
-		out[providers.ProviderOpenAI] = struct{}{}
+	if codexSubscriptionFromContext(ctx) != nil ||
+		managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) && !codexChatEndpoint(ctx) && s.supportsSubscriptionTransport(providers.ProviderOpenAI) {
+		subscriptionLanes[providers.ProviderOpenAI] = struct{}{}
 	}
-	// Provider exclusions trump every enrollment path above: an excluded
-	// provider must not be served even when credentials exist for it. The
-	// scorer, hard-pin resolver, session pins, and tier clamp all consume
-	// this set, so subtracting here enforces the exclusion everywhere a
-	// routing decision is made.
-	for p := range s.excludedProvidersForRequest(ctx) {
-		delete(out, p)
-	}
-	// A BYOK gateway is the tenant's own endpoint and displaces every other
-	// upstream: routing through a vendor would send their traffic outside the
-	// gateway they mandated. Applied last so no enrollment path above can
-	// re-admit a vendor, and their provider exclusions become moot.
-	if gateways := s.gatewayProvidersForRequest(ctx); len(gateways) > 0 {
-		return gateways
-	}
-	return out
+	return s.credentialBroker().EnabledProviders(credentials.EligibilityRequest{
+		Registered:                    s.clients.NameSet(),
+		SurfaceProvider:               surfaceProvider,
+		Headers:                       headers,
+		ExternalKeys:                  externalKeysFromContext(ctx),
+		RouterKeyAuthed:               installationIDFromContext(ctx) != (uuid.UUID{}),
+		SubscriptionLanes:             subscriptionLanes,
+		InstallationExcludedProviders: installationExcludedProvidersFromContext(ctx),
+		SessionDisabledProviders:      sessionDisabledProvidersFromContext(ctx),
+	})
 }
 
 // hasOpenAIInfrastructureCredential reports whether an OpenAI model can be
@@ -7040,7 +6925,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// OpenAI signals sub-agent identity via x-weave-subagent-type (no metadata.user_id).
 	subAgentHint := r.Header.Get("x-weave-subagent-type")
 
-	eligibility, eligibilityErr := s.routing.Eligibility(ctx, credentials.EligibilityRequest{Surface: providers.ProviderOpenAI, Headers: r.Header, InstallationID: installationIDFromContext(ctx)})
+	eligibility, eligibilityErr := requestEligibility(ctx, s, providers.ProviderOpenAI, r.Header)
 	if eligibilityErr != nil {
 		return eligibilityErr
 	}

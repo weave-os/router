@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -135,7 +134,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		return forceErr
 	}
 
-	eligibility, eligibilityErr := s.routing.Eligibility(ctx, credentials.EligibilityRequest{Surface: providers.ProviderGoogle, Headers: r.Header, InstallationID: installationIDFromContext(ctx)})
+	eligibility, eligibilityErr := requestEligibility(ctx, s, providers.ProviderGoogle, r.Header)
 	if eligibilityErr != nil {
 		return eligibilityErr
 	}
