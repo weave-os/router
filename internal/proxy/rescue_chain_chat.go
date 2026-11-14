@@ -16,7 +16,6 @@ import (
 // sibling rescue.
 type chatRescue struct {
 	*rescueChain
-	requestID           string
 	isResponses         bool
 	responsesPreludeBuf *preludeBuffer
 	// Shared with the entrypoint's attempt closures, which read or write them too.
@@ -190,8 +189,7 @@ func (o *chatRescue) codexRetry(ctx context.Context) {
 			log.Warn("Codex subscription failover: ChatGPT plan rejected the turn, retrying on Weave credits",
 				"model", o.decision.Model,
 				"err", o.proxyErr,
-				"upstream_status", upstreamStatus(o.proxyErr),
-				"request_id", o.requestID)
+				"upstream_status", upstreamStatus(o.proxyErr))
 			o.codexRetryRan = true
 			*o.respSummary = translate.ResponseSummary{}
 			subscriptionErr := o.proxyErr
@@ -244,8 +242,7 @@ func (o *chatRescue) claudeRetry(ctx context.Context) {
 			log.Warn("Claude subscription failover: subscription rejected the turn, retrying on Weave credits",
 				"model", o.decision.Model,
 				"err", o.proxyErr,
-				"upstream_status", upstreamStatus(o.proxyErr),
-				"request_id", o.requestID)
+				"upstream_status", upstreamStatus(o.proxyErr))
 			o.claudeRetryRan = true
 			*o.respSummary = translate.ResponseSummary{}
 			o.winnerIdx, o.proxyErr = s.dispatchWithFallback(subCtx, failoverInputs{
@@ -310,8 +307,7 @@ func (o *chatRescue) cyberRetry(ctx context.Context) {
 				"failed_model", o.primaryModel,
 				"failed_provider", o.primaryProvider,
 				"fallback_model", o.cyberRetryTarget.Model,
-				"fallback_provider", o.cyberRetryTarget.Provider,
-				"request_id", o.requestID)
+				"fallback_provider", o.cyberRetryTarget.Provider)
 			if *o.verbatimPassthrough {
 				*o.verbatimPassthrough = false
 				*o.responsesPassthrough = false

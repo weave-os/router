@@ -7684,7 +7684,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			proxyErr:         proxyErr,
 			effortServed:     effortServed,
 		},
-		requestID:            requestID,
 		isResponses:          isResponses,
 		responsesPreludeBuf:  responsesPreludeBuf,
 		verbatimPassthrough:  &verbatimPassthrough,
