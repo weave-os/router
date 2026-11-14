@@ -1,0 +1,19 @@
+internal/translate/responses_collaboration_test.go
+  s_37ad595f097112::t_3f6c5a339c17df 59-61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "53f0c88a9701f2d6789f2dfe2fdf6b790287b5d9",
+  "prompts": {},
+  "sessions": {
+    "s_37ad595f097112": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11d73-e2ff-7990-896e-f702d9f5bcab",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

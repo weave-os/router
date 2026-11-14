@@ -1,0 +1,23 @@
+docs/LLM_CLASSIFIER_CONTEXT.md
+  s_28cd21861bf905::t_3ec1a0e9e0ff72 95-96,135-148
+internal/policyclient/atomic_classifier.go
+  s_28cd21861bf905::t_c6b00eb462bf41 19,92
+internal/policyclient/atomic_classifier_test.go
+  s_28cd21861bf905::t_01661b9bb1a25d 27,58-59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "be73753ed47742d685afc02c77249fb60c2d1913",
+  "prompts": {},
+  "sessions": {
+    "s_28cd21861bf905": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c610-6dd3-7693-822d-206b16e99abe",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

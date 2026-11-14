@@ -1,0 +1,53 @@
+CLAUDE.md
+  s_f1929ee44adfce::t_a066c67cba40d0 143
+  s_f1929ee44adfce::t_4422157048879a 148-156
+docs/ROUTE_DECISION_API.md
+  s_f1929ee44adfce::t_80931d071c7766 1-102,105,110-126,134-141
+  s_f1929ee44adfce::t_8712824245e085 103-104,106-109
+  s_f1929ee44adfce::t_ad32e5a9ec018e 127-133
+docs/README.md
+  s_f1929ee44adfce::t_00b5db54249894 10
+clients/python/pyproject.toml
+  s_f1929ee44adfce::t_5d9c8e47074253 1-31
+README.md
+  s_f1929ee44adfce::t_ca84fa97ea7b83 174
+clients/python/weave_router_client/__init__.py
+  s_f1929ee44adfce::t_39211e644d2643 1-48
+internal/api/anthropic/route.go
+  s_f1929ee44adfce::t_91ad07cee9667f 63-66
+  s_f1929ee44adfce::t_94c09267ffede0 16-21
+  s_f1929ee44adfce::t_a2a2474455a8d1 55-58
+internal/api/anthropic/messages_test.go
+  s_f1929ee44adfce::t_2c6bc1d968dcd7 406,410,417-418,423,425,440
+  s_f1929ee44adfce::t_cab74d13146ee4 384
+clients/python/weave_router_client/client.py
+  s_f1929ee44adfce::t_8f6cc19bb81aa8 1-431
+clients/python/tests/test_client.py
+  s_f1929ee44adfce::t_a74d3dc29a659d 210-212,228-230,338-340,351-353,375-377
+  s_f1929ee44adfce::t_fb268b68799b5e 1-209,213-227,231-337,341-350,354-374,378-414
+clients/python/README.md
+  s_f1929ee44adfce::t_89a361fb9c685b 1-129
+.github/workflows/test.yml
+  s_f1929ee44adfce::t_88a8f92bb83be3 122-150
+AGENTS.md
+  s_f1929ee44adfce::t_cc5c06a4af33f3 143
+  s_f1929ee44adfce::t_893a1d2ace7e3b 148-156
+clients/python/poetry.lock
+  s_f1929ee44adfce::t_6810a4f3b0190b 1-565
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "0975a1a0a430f76614bd2caddf76e00756cdb63e",
+  "prompts": {},
+  "sessions": {
+    "s_f1929ee44adfce": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7b9c796f-2c8e-433a-a836-220f5b2f761d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

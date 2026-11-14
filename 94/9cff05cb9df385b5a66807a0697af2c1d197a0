@@ -1,0 +1,53 @@
+db/migrations/0146_session-sibling-preferences.up.sql
+  s_66434e2133ecee::t_a9328845aa014a 3-5
+internal/proxy/sibling_preference.go
+  s_66434e2133ecee::t_a9328845aa014a 57
+internal/proxy/sibling_preference_internal_test.go
+  s_66434e2133ecee::t_a9328845aa014a 24-25,60
+  s_66434e2133ecee::t_13822794cc2b88 32,36,226-283
+db/migrations/0146_session-sibling-preferences.down.sql
+  s_66434e2133ecee::t_a9328845aa014a 5-6
+internal/postgres/session_pin_repo.go
+  s_66434e2133ecee::t_a9328845aa014a 65-66
+internal/router/sessionpin/sibling_preference.go
+  s_66434e2133ecee::t_a9328845aa014a 17
+internal/proxy/CLAUDE.md
+  s_66434e2133ecee::t_a9328845aa014a 131-135
+internal/router/policy/sidecar_router.go
+  s_66434e2133ecee::t_a9328845aa014a 394-396,587-589,591
+internal/router/policy/policy_pin_test.go
+  s_66434e2133ecee::t_44aaf6b236126c 15,78-91
+  s_66434e2133ecee::t_12ddd02e717265 92-93
+internal/sqlc/models.go
+  s_66434e2133ecee::t_91719e9191da51 1053
+internal/postgres/session_pin_sibling_preference_test.go
+  s_66434e2133ecee::t_a9328845aa014a 39,43,48,51-52,89-95
+internal/sqlc/session_pins.sql.go
+  s_66434e2133ecee::t_91719e9191da51 23,31,35-36,45,52,66,87,125,247,253-254,266,294,300-301,313,336,342-343,355,391,397-398,410,432,450,491,714-718,734-738,1047-1051,1247-1250
+  s_66434e2133ecee::t_997ed1344cab28 1251
+internal/proxy/AGENTS.md
+  s_66434e2133ecee::t_91719e9191da51 131-135
+internal/router/policy/sibling_preference_test.go
+  s_66434e2133ecee::t_44aaf6b236126c 116-127
+internal/proxy/turnloop.go
+  s_66434e2133ecee::t_a9328845aa014a 1625-1632
+  s_66434e2133ecee::t_43109a65d91174 1633-1634
+db/queries/session_pins.sql
+  s_66434e2133ecee::t_a9328845aa014a 196-200,399,405-406,418,438,444-445,457,479-483,485,504-505,513-514
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "949cff05cb9df385b5a66807a0697af2c1d197a0",
+  "prompts": {},
+  "sessions": {
+    "s_66434e2133ecee": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a8c9-c6b5-7623-9b18-98533fc1ae6c",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
