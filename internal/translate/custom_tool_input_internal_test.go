@@ -33,3 +33,19 @@ func TestCustomToolInput_PreservesNonObjectArguments(t *testing.T) {
 		assert.Equal(t, test.want, input)
 	}
 }
+
+func TestCustomToolInput_ErrorNamesKeysNotValues(t *testing.T) {
+	for _, test := range []struct {
+		arguments string
+		want      string
+	}{
+		{arguments: `{}`, want: "expected exactly one input field, got keys []"},
+		{arguments: `{"timeout":5,"code":"secret()"}`, want: "expected exactly one input field, got keys [code timeout]"},
+		{arguments: `{"code":"secret()"}`, want: "required string field input is missing, got keys [code]"},
+	} {
+		_, err := customToolInput(test.arguments)
+		assert.ErrorIs(t, err, ErrCustomToolArguments)
+		assert.ErrorContains(t, err, test.want)
+		assert.NotContains(t, err.Error(), "secret")
+	}
+}

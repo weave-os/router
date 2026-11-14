@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 )
 
@@ -42,11 +44,11 @@ func customToolInput(arguments string) (string, error) {
 		return "", fmt.Errorf("%w: %w", ErrCustomToolArguments, err)
 	}
 	if len(wrapper) != 1 {
-		return "", fmt.Errorf("%w: expected exactly one input field", ErrCustomToolArguments)
+		return "", fmt.Errorf("%w: expected exactly one input field, got keys %v", ErrCustomToolArguments, slices.Sorted(maps.Keys(wrapper)))
 	}
 	raw, ok := wrapper["input"]
 	if !ok {
-		return "", fmt.Errorf("%w: required string field input is missing", ErrCustomToolArguments)
+		return "", fmt.Errorf("%w: required string field input is missing, got keys %v", ErrCustomToolArguments, slices.Sorted(maps.Keys(wrapper)))
 	}
 	var input string
 	if err := json.Unmarshal(raw, &input); err != nil {
