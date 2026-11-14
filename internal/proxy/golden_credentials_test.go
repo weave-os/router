@@ -28,7 +28,7 @@ const (
 	goldenClientOpenAI    = "sk-proj-golden-client-openai-secret"
 	goldenCodexToken      = "golden-codex-access-token-secret"
 	goldenCodexAccount    = "golden-chatgpt-account"
-	goldenCodexModel      = "gpt-5.5"
+	goldenCodexChatModel  = "gpt-5.5"
 	goldenOpenAIOnlyModel = "gpt-4.1"
 	// goldenCodexAttemptModel is the Codex-subscription model the OAuth-only scenarios route to after goldenOpenAIOnlyModel is excluded.
 	goldenCodexAttemptModel = "gpt-5.6-sol"
@@ -196,7 +196,7 @@ func withBYOK(keys ...*auth.ExternalAPIKey) func(context.Context) context.Contex
 	}
 }
 
-func goldenCodexCtx(ctx context.Context) context.Context {
+func goldenCodexCredentialCtx(ctx context.Context) context.Context {
 	ctx = context.WithValue(ctx, proxy.OpenAISubscriptionContextKey{}, goldenCodexToken)
 	return context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, goldenCodexAccount)
 }
@@ -232,7 +232,7 @@ func withoutDeploymentKey(provider string) func(*proxy.Service, *goldenHarness) 
 }
 
 var (
-	goldenOpenAIDecision     = decision(providers.ProviderOpenAI, goldenCodexModel)
+	goldenOpenAIDecision     = decision(providers.ProviderOpenAI, goldenCodexChatModel)
 	goldenOpenAIOnlyDecision = decision(providers.ProviderOpenAI, goldenOpenAIOnlyModel)
 	goldenModelDeniedBody    = `{"type":"error","error":{"type":"not_found_error","message":"model: claude-haiku-4-5"}}`
 	goldenUnauthorizedBody   = `{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`
@@ -374,21 +374,21 @@ func goldenCredentialScenarios() []goldenScenario {
 			upstreams: map[string][]goldenStep{providers.ProviderOpenAI: {openaiOK}},
 			headers:   map[string]string{"Authorization": "Bearer " + goldenClientOpenAI}},
 		{name: "codex_subscription_not_used_on_chat", supplies: []string{goldenCodexToken}, ingress: ingressOpenAI, decisions: openaiDecisions,
-			upstreams: map[string][]goldenStep{providers.ProviderOpenAI: {openaiOK}}, ctx: goldenCodexCtx},
+			upstreams: map[string][]goldenStep{providers.ProviderOpenAI: {openaiOK}}, ctx: goldenCodexCredentialCtx},
 		{name: "codex_oauth_only_excludes_api_models", supplies: []string{goldenCodexToken},
 			decisions: []router.Decision{goldenOpenAIOnlyDecision, decision(providers.ProviderOpenAI, goldenCodexAttemptModel)},
-			upstreams: map[string][]goldenStep{providers.ProviderOpenAI: {openaiOK}}, ctx: goldenCodexCtx,
+			upstreams: map[string][]goldenStep{providers.ProviderOpenAI: {openaiOK}}, ctx: goldenCodexCredentialCtx,
 			configure: func(svc *proxy.Service, h *goldenHarness) *proxy.Service {
 				return withoutDeploymentKey(providers.ProviderOpenAI)(svc, h).WithByokOnly(true)
 			}},
 		{name: "codex_oauth_only_on_chat_serves_codex_model", supplies: []string{goldenCodexToken}, ingress: ingressOpenAI,
 			decisions: []router.Decision{goldenOpenAIOnlyDecision, decision(providers.ProviderOpenAI, goldenCodexAttemptModel)},
 			upstreams: map[string][]goldenStep{providers.ProviderOpenAI: {openaiOK}},
-			ctx:       goldenCodexCtx, configure: withoutDeploymentKey(providers.ProviderOpenAI)},
+			ctx:       goldenCodexCredentialCtx, configure: withoutDeploymentKey(providers.ProviderOpenAI)},
 		{name: "codex_oauth_with_byok_keeps_api_models", supplies: []string{goldenCodexToken, goldenBYOKOpenAI}, ingress: ingressOpenAI,
 			decisions: []router.Decision{goldenOpenAIOnlyDecision, goldenOpenAIDecision},
 			upstreams: map[string][]goldenStep{providers.ProviderOpenAI: {openaiOK}},
-			ctx:       chainCtx(goldenCodexCtx, withBYOK(byokKey(providers.ProviderOpenAI, goldenBYOKOpenAI, auth.FundingPriorityPlanFirst))),
+			ctx:       chainCtx(goldenCodexCredentialCtx, withBYOK(byokKey(providers.ProviderOpenAI, goldenBYOKOpenAI, auth.FundingPriorityPlanFirst))),
 			configure: withoutDeploymentKey(providers.ProviderOpenAI)},
 		{name: "anthropic_subscription_cross_format", supplies: []string{goldenSubscription}, ingress: ingressOpenAI, decisions: anthropicDecisions,
 			upstreams: anthropicUp(ok), ctx: goldenSubscriptionCtx},

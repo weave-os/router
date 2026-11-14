@@ -1,0 +1,670 @@
+{
+  "requests": [
+    {
+      "ingress": "openai_chat",
+      "stream": true,
+      "routing_decisions": [
+        {
+          "requested_model": "gpt-5",
+          "model": "claude-opus-4-7",
+          "provider": "anthropic",
+          "reason": "golden_route"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "anthropic",
+          "wire_model": "claude-opus-4-7",
+          "outbound_body": {
+            "max_tokens": 16000,
+            "messages": [
+              {
+                "content": [
+                  {
+                    "cache_control": {
+                      "type": "ephemeral"
+                    },
+                    "text": "Say hi",
+                    "type": "text"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "model": "claude-opus-4-7",
+            "stream": true
+          },
+          "outcome": "upstream_status_429"
+        },
+        {
+          "provider": "anthropic",
+          "wire_model": "claude-opus-4-7",
+          "outbound_body": {
+            "max_tokens": 16000,
+            "messages": [
+              {
+                "content": [
+                  {
+                    "cache_control": {
+                      "type": "ephemeral"
+                    },
+                    "text": "Say hi",
+                    "type": "text"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "model": "claude-opus-4-7",
+            "stream": true
+          },
+          "outcome": "upstream_status_429"
+        },
+        {
+          "provider": "anthropic",
+          "wire_model": "claude-opus-4-7",
+          "outbound_body": {
+            "max_tokens": 16000,
+            "messages": [
+              {
+                "content": [
+                  {
+                    "cache_control": {
+                      "type": "ephemeral"
+                    },
+                    "text": "Say hi",
+                    "type": "text"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "model": "claude-opus-4-7",
+            "stream": true
+          },
+          "outcome": "upstream_status_429"
+        },
+        {
+          "provider": "fireworks",
+          "wire_model": "deepseek/deepseek-v4-pro",
+          "outbound_body": {
+            "max_tokens": 8192,
+            "messages": [
+              {
+                "content": "Say hi",
+                "role": "user"
+              }
+            ],
+            "model": "deepseek/deepseek-v4-pro",
+            "stream": true,
+            "stream_options": {
+              "include_usage": true
+            }
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Diagnosis": {
+            "BodyTranslated": true,
+            "ErrorClass": "rate_limited",
+            "FailureOwner": "provider"
+          },
+          "FailureReason": "upstream_status",
+          "Outcome": "failed",
+          "Provenance": {
+            "PolicyID": "main-openai-chat-completions",
+            "PolicyRevision": "3",
+            "Purpose": "openai_chat_completions",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "claude-opus-4-7",
+            "Provider": "anthropic",
+            "UpstreamID": "claude-opus-4-7"
+          },
+          "UpstreamStatusCode": 429
+        },
+        {
+          "AttemptIndex": 1,
+          "Diagnosis": {
+            "BodyTranslated": true,
+            "ErrorClass": "rate_limited",
+            "FailureOwner": "provider"
+          },
+          "FailureReason": "upstream_status",
+          "Outcome": "failed",
+          "Provenance": {
+            "PolicyID": "main-openai-chat-completions",
+            "PolicyRevision": "3",
+            "Purpose": "openai_chat_completions",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "claude-opus-4-7",
+            "Provider": "anthropic",
+            "UpstreamID": "claude-opus-4-7"
+          },
+          "UpstreamStatusCode": 429
+        },
+        {
+          "AttemptIndex": 2,
+          "Diagnosis": {
+            "BodyTranslated": true,
+            "ErrorClass": "rate_limited",
+            "FailureOwner": "provider"
+          },
+          "FailureReason": "upstream_status",
+          "Outcome": "failed",
+          "Provenance": {
+            "PolicyID": "main-openai-chat-completions",
+            "PolicyRevision": "3",
+            "Purpose": "openai_chat_completions",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "claude-opus-4-7",
+            "Provider": "anthropic",
+            "UpstreamID": "claude-opus-4-7"
+          },
+          "UpstreamStatusCode": 429
+        },
+        {
+          "Diagnosis": {
+            "BodyTranslated": true
+          },
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-openai-chat-completions",
+            "PolicyRevision": "3",
+            "Purpose": "openai_chat_completions",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "deepseek/deepseek-v4-pro",
+            "Provider": "fireworks",
+            "UpstreamID": "accounts/fireworks/models/deepseek-v4-pro"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "text/event-stream",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "19",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "1000000",
+          "X-Router-Decision": "golden_route",
+          "X-Router-Model": "claude-opus-4-7",
+          "X-Router-Provider": "anthropic"
+        },
+        "events": [
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {
+                    "content": "✦ **Weave Router** → claude-opus-4-7 · best pick for this turn\n\n",
+                    "role": "assistant"
+                  },
+                  "finish_reason": null,
+                  "index": 0
+                }
+              ],
+              "id": "chatcmpl-\u003cid\u003e",
+              "model": "claude-opus-4-7",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {
+                    "content": "",
+                    "role": "assistant"
+                  },
+                  "finish_reason": null,
+                  "index": 0
+                }
+              ],
+              "id": "chatcmpl-up",
+              "model": "accounts/fireworks/models/deepseek-v4-pro",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {
+                    "content": "✦ **Weave Router** → deepseek/deepseek-v4-pro · switched after claude-opus-4-7 was rate-limited\n\n↳ switched: Anthropic was rate-limited (provider issue)\n\n",
+                    "role": "assistant"
+                  },
+                  "finish_reason": null,
+                  "index": 0
+                }
+              ],
+              "id": "chatcmpl-\u003cid\u003e",
+              "model": "deepseek/deepseek-v4-pro",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {
+                    "content": "rescued"
+                  },
+                  "finish_reason": null,
+                  "index": 0
+                }
+              ],
+              "id": "chatcmpl-up",
+              "model": "accounts/fireworks/models/deepseek-v4-pro",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {},
+                  "finish_reason": "stop",
+                  "index": 0
+                }
+              ],
+              "id": "chatcmpl-up",
+              "model": "accounts/fireworks/models/deepseek-v4-pro",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "data": {
+              "choices": [],
+              "id": "chatcmpl-up",
+              "model": "accounts/fireworks/models/deepseek-v4-pro",
+              "object": "chat.completion.chunk",
+              "usage": {
+                "completion_tokens": 7,
+                "prompt_tokens": 12,
+                "total_tokens": 19
+              }
+            }
+          },
+          {
+            "data": "[DONE]"
+          }
+        ]
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "default_high",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "Model": "claude-opus-4-7",
+            "PolicyGroup": "golden-group",
+            "Provider": "anthropic",
+            "Reason": "golden_route",
+            "Role": "default_high",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "update_usage",
+          "role": "default_high",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "ServedModel": "deepseek/deepseek-v4-pro",
+            "ServedProvider": "fireworks",
+            "Strategy": "hmm_embedding"
+          }
+        },
+        {
+          "op": "expire_and_demote",
+          "role": "default_high",
+          "detail": {
+            "model": "claude-opus-4-7",
+            "reason": "rescued_failure"
+          }
+        },
+        {
+          "op": "expire_and_demote",
+          "role": "default_high_hmm_history",
+          "detail": {
+            "model": "claude-opus-4-7",
+            "reason": "rescued_failure"
+          }
+        },
+        {
+          "op": "strike_turn_model",
+          "role": "default_high",
+          "detail": "claude-opus-4-7"
+        },
+        {
+          "op": "strike_turn_model",
+          "role": "default_high_hmm_history",
+          "detail": "claude-opus-4-7"
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -45,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 45,
+          "OrganizationID": "golden-org",
+          "RouterModel": "deepseek/deepseek-v4-pro"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.00002088,
+          "ActualOutputCostUSD": 0.00002436,
+          "CandidateModels": [
+            "claude-opus-4-7",
+            "deepseek/deepseek-v4-pro"
+          ],
+          "CaptureMode": "off",
+          "CrossFormat": true,
+          "DecisionModel": "deepseek/deepseek-v4-pro",
+          "DecisionProvider": "fireworks",
+          "DecisionReason": "sibling_failover",
+          "EmbedInput": "only_user_message",
+          "EstimatedInputTokens": 1,
+          "FailoverAttempted": true,
+          "FailoverUsed": true,
+          "FinalModelFamily": "deepseek/deepseek-v-pro",
+          "FreshDecisionModel": "claude-opus-4-7",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "claude-opus",
+          "OutputTokens": 7,
+          "PinTier": "miss",
+          "PlannerOutcome": "switch",
+          "PlannerReason": "no_pin",
+          "RequestedInputCostUSD": 0.00003,
+          "RequestedModel": "gpt-5",
+          "RequestedOutputCostUSD": 0.00007,
+          "Role": "default_high",
+          "SelectionTrace": {
+            "served_group": ""
+          },
+          "SpanType": "router.upstream",
+          "StopReason": "stop",
+          "Strategy": "hmm_embedding",
+          "TurnType": "main_loop",
+          "UpstreamFinishReason": "stop",
+          "UpstreamStatusCode": 200,
+          "UserPrompt": true
+        }
+      ]
+    },
+    {
+      "ingress": "openai_chat",
+      "stream": true,
+      "routing_decisions": [
+        {
+          "requested_model": "gpt-5",
+          "automatic_excluded": [
+            "claude-opus-4-7"
+          ],
+          "model": "deepseek/deepseek-v4-pro",
+          "provider": "fireworks",
+          "reason": "golden_route"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "fireworks",
+          "wire_model": "deepseek/deepseek-v4-pro",
+          "outbound_body": {
+            "max_tokens": 8192,
+            "messages": [
+              {
+                "content": "Say hi",
+                "role": "user"
+              }
+            ],
+            "model": "deepseek/deepseek-v4-pro",
+            "stream": true,
+            "stream_options": {
+              "include_usage": true
+            }
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Diagnosis": {
+            "BodyTranslated": true
+          },
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-openai-chat-completions",
+            "PolicyRevision": "3",
+            "Purpose": "openai_chat_completions",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "deepseek/deepseek-v4-pro",
+            "Provider": "fireworks",
+            "UpstreamID": "accounts/fireworks/models/deepseek-v4-pro"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "text/event-stream",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "19",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "1048576",
+          "X-Router-Decision": "golden_route",
+          "X-Router-Model": "deepseek/deepseek-v4-pro",
+          "X-Router-Provider": "fireworks"
+        },
+        "events": [
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {
+                    "content": "",
+                    "role": "assistant"
+                  },
+                  "finish_reason": null,
+                  "index": 0
+                }
+              ],
+              "id": "chatcmpl-up",
+              "model": "accounts/fireworks/models/deepseek-v4-pro",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {
+                    "content": "rescued"
+                  },
+                  "finish_reason": null,
+                  "index": 0
+                }
+              ],
+              "id": "chatcmpl-up",
+              "model": "accounts/fireworks/models/deepseek-v4-pro",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {},
+                  "finish_reason": "stop",
+                  "index": 0
+                }
+              ],
+              "id": "chatcmpl-up",
+              "model": "accounts/fireworks/models/deepseek-v4-pro",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "data": {
+              "choices": [],
+              "id": "chatcmpl-up",
+              "model": "accounts/fireworks/models/deepseek-v4-pro",
+              "object": "chat.completion.chunk",
+              "usage": {
+                "completion_tokens": 7,
+                "prompt_tokens": 12,
+                "total_tokens": 19
+              }
+            }
+          },
+          {
+            "data": "[DONE]"
+          }
+        ]
+      },
+      "pin_events": [
+        {
+          "op": "clear_turn_strikes",
+          "role": "default_high"
+        },
+        {
+          "op": "clear_turn_strikes",
+          "role": "default_high_hmm_history"
+        },
+        {
+          "op": "upsert",
+          "role": "default_high",
+          "detail": {
+            "DemotedModels": [
+              "claude-opus-4-7"
+            ],
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "LastInputTokens": 12,
+            "LastOutputTokens": 7,
+            "LastServedModel": "deepseek/deepseek-v4-pro",
+            "Model": "deepseek/deepseek-v4-pro",
+            "Provider": "fireworks",
+            "Reason": "golden_route",
+            "Role": "default_high",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "update_usage",
+          "role": "default_high",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "PriorServedModel": "deepseek/deepseek-v4-pro",
+            "ServedModel": "deepseek/deepseek-v4-pro",
+            "ServedProvider": "fireworks",
+            "Strategy": "hmm_embedding"
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -45,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 45,
+          "OrganizationID": "golden-org",
+          "RouterModel": "deepseek/deepseek-v4-pro"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.00002088,
+          "ActualOutputCostUSD": 0.00002436,
+          "CaptureMode": "off",
+          "DecisionModel": "deepseek/deepseek-v4-pro",
+          "DecisionProvider": "fireworks",
+          "DecisionReason": "golden_route",
+          "EmbedInput": "only_user_message",
+          "EstimatedInputTokens": 1,
+          "FinalModelFamily": "deepseek/deepseek-v-pro",
+          "FreshDecisionModel": "deepseek/deepseek-v4-pro",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "deepseek/deepseek-v-pro",
+          "OutputTokens": 7,
+          "PinTier": "miss",
+          "PlannerOutcome": "switch",
+          "PlannerReason": "no_pin",
+          "RequestedInputCostUSD": 0.00003,
+          "RequestedModel": "gpt-5",
+          "RequestedOutputCostUSD": 0.00007,
+          "Role": "default_high",
+          "SelectionTrace": {
+            "served_group": ""
+          },
+          "SpanType": "router.upstream",
+          "StopReason": "stop",
+          "Strategy": "hmm_embedding",
+          "TurnType": "main_loop",
+          "UpstreamFinishReason": "stop",
+          "UpstreamStatusCode": 200,
+          "UserPrompt": true
+        }
+      ]
+    }
+  ],
+  "scenario": "openai_chat_stream_rescued_rate_limit_demotes_without_cooldown"
+}

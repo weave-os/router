@@ -47,6 +47,7 @@ func (r *assignedTestRoutingPolicyRepo) HasAssignment(context.Context, string, s
 
 func TestDirectTestAuthSkipsEmailSubscriptionsAndProviderSecrets(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	t.Setenv(inferenceOrganizationAllowlistEnv, "org-not-the-test-installation")
 	const credential = "rk_synthetic_test"
 	subject, session, launch := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	key := &auth.APIKey{ID: "test-key", InstallationID: "test-installation", CredentialSubjectID: subject}
