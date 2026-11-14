@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/subscriptions"
 )
@@ -165,4 +167,31 @@ func TestAuthorizeSubscriptionAPI_CallerQuotaExhaustionStillAuthorizesPaidFallba
 	quotaExhaustedErr := &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"error":{"type":"usage_limit_reached","message":"limit"}}`)}
 	svc.recordDirectSubscriptionQuota(ctx, providers.ProviderOpenAI, codexCoveredModel, &Credentials{APIKey: []byte("caller-codex-token"), OAuth: true}, quotaExhaustedErr)
 	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, "caller-codex-token", "", clientAppRefusalFunding{}))
+}
+
+// A rate limit on the caller's own plan is the customer's capacity, so the
+// refused turn must not count against router or provider reliability.
+func TestCallerPlanRateLimitRefusalIsClientOwned(t *testing.T) {
+	now := time.Now()
+	svc := &Service{now: func() time.Time { return now }}
+	resetAt := now.Add(5 * 24 * time.Hour)
+	spentSeat := func(id string) *auth.SubscriptionAccount {
+		seat := activeCodexAccount(id)
+		seat.State = auth.SubscriptionAccountStateExhausted
+		seat.CooldownUntil = &resetAt
+		return seat
+	}
+	ctx := throttleTestContext(spentSeat("seat-1"), spentSeat("seat-2"))
+	svc.recordDirectSubscriptionQuota(ctx, providers.ProviderOpenAI, codexCoveredModel, &Credentials{APIKey: []byte("caller-codex-token"), OAuth: true}, codexRateLimitedErr())
+
+	refusal := svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, "caller-codex-token", "", clientAppRefusalFunding{})
+	requireThrottledRefusal(t, refusal)
+	turnErr := fmt.Errorf("%w: %w", dispatch.ErrAuthorizationDenied, refusal)
+	require.Equal(t, FailureOwnerClient, turnFailureOwnerFor(ctx, turnErr, TurnErrorOther))
+
+	pooled := throttleTestContext(activeCodexAccount("seat-1"))
+	recordManagedThrottle(pooled, "seat-1", now.Add(time.Minute))
+	managedRefusal := svc.authorizeSubscriptionAPI(pooled, subscriptions.ProviderCodex, "", "", clientAppRefusalFunding{})
+	requireThrottledRefusal(t, managedRefusal)
+	require.Equal(t, FailureOwnerRouter, turnFailureOwnerFor(pooled, fmt.Errorf("%w: %w", dispatch.ErrAuthorizationDenied, managedRefusal), TurnErrorOther), "a throttled managed pool is still the router's capacity")
 }

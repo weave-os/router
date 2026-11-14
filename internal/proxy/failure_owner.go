@@ -55,6 +55,9 @@ func classifyFailureOwner(in failureOwnerInput) FailureOwner {
 	if errors.Is(err, errResponsesPassthroughStuck) {
 		return FailureOwnerRouter
 	}
+	if errors.Is(err, errCallerPlanThrottled) {
+		return FailureOwnerClient
+	}
 	if cls, ok := ClassifyDispatchError(err); ok && cls.Kind != DispatchErrorUpstreamStatus {
 		if cls.Kind == DispatchErrorHandoff && errors.Is(err, ErrHandoffUnavailable) {
 			return FailureOwnerRouter
