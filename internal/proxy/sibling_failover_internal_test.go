@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -537,14 +538,14 @@ func TestRescueDecisions_StruckOutReadmissionKeepsGlobalExclusion(t *testing.T) 
 func TestNoteRescueReadmission_RecordsStruckOutArm(t *testing.T) {
 	s := siblingService(providers.ProviderAnthropic)
 	ctx := context.WithValue(context.Background(), SessionStrikeReadmitModelsContextKey{}, []string{"claude-sonnet-5"})
-	ctx, turn := withRateLimitTurn(ctx)
+	ctx, turn := dispatch.WithThrottleLedger(ctx)
 	failed := overloadedDecision(&router.RoutingMetadata{})
 
 	s.noteRescueReadmission(ctx, failed, router.Decision{Model: "claude-haiku-4-5"})
-	assert.NotContains(t, turn.completionLogFields(), true)
+	assert.NotContains(t, turn.CompletionLogFields(), true)
 
 	s.noteRescueReadmission(ctx, failed, router.Decision{Model: "claude-sonnet-5"})
-	fields := turn.completionLogFields()
+	fields := turn.CompletionLogFields()
 	assert.Contains(t, fields, "rescue_pool_exhausted")
 	assert.Contains(t, fields, true)
 	assert.Contains(t, fields, []string{"claude-sonnet-5"})

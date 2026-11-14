@@ -28,7 +28,8 @@ func goldenInferenceExecutionScenarios() []goldenScenario {
 		out = append(out, goldenArmScenarios(ingress)...)
 	}
 	out = append(out, goldenNativeCommitScenarios()...)
-	return append(out, goldenCapabilityScenarios()...)
+	out = append(out, goldenCapabilityScenarios()...)
+	return append(out, goldenSubscriptionAlternativeScenarios()...)
 }
 
 // goldenRetryScenarios pin same-binding retries and the single billing row
