@@ -972,5 +972,103 @@ check_not_contains "display-settings refresh drops unsafe identity values" "$hea
 check_not_contains "display-settings refresh drops unrelated headers" "$headers" "X-Other"
 
 echo
+nudge="$work/config-nudge"
+mkdir -p "$nudge/home/.weave" "$nudge/project root/.claude" "$nudge/custom dir/.claude" "$nudge/custom dir/.weave"
+printf '{"hide_terminal_surfaces":false}' >"$nudge/display.json"
+for location in "$nudge/home/.weave" "$nudge/project root/.claude" "$nudge/custom dir/.claude" "$nudge/custom dir/.weave"; do
+  cp "$statusline" "$location/cc-statusline.sh"
+done
+printf '{"env":{"ANTHROPIC_CUSTOM_HEADERS":"X-Weave-Router-Key: rk_test"}}' >"$nudge/project root/.claude/settings.local.json"
+render_nudge() {
+  printf '{}' | HOME="$nudge/home" XDG_CACHE_HOME="$nudge/cache" \
+    WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 WEAVE_STATUSLINE_CONTEXT=0 \
+    ANTHROPIC_BASE_URL="${3:-file://$nudge/display.json}" ANTHROPIC_CUSTOM_HEADERS="${4-X-Weave-Router-Key: rk_test}" \
+    WEAVE_ROUTER_CONFIG_VERSION="$2" bash "$1/cc-statusline.sh"
+}
+for version in '' 0 bad; do
+  out="$(render_nudge "$nudge/home/.weave" "$version")"
+  check_contains "config version '$version' needs update" "$out" 'router config is out of date: npx @weave-os/router update --claude'
+done
+for version in 1 2; do
+  out="$(render_nudge "$nudge/home/.weave" "$version")"
+  check_not_contains "config version $version needs no update" "$out" 'config is out of date'
+done
+out="$(render_nudge "$nudge/home/.weave" 0 https://api.anthropic.com)"
+check_not_contains "direct routing has no config hint" "$out" 'config is out of date'
+out="$(render_nudge "$nudge/home/.weave" 0 http://router.invalid '')"
+check_not_contains "no router key has no config hint" "$out" 'config is out of date'
+out="$(render_nudge "$nudge/project root/.claude" 0)"
+check_contains "project config repair uses explicit cwd" "$out" "cd $(printf '%q' "$nudge/project root") && npx @weave-os/router update --claude --scope project"
+check_not_contains "project config repair never uses dir" "$out" '--dir'
+out="$(render_nudge "$nudge/project root/.claude" 1)"
+check_contains "inherited current stamp cannot mask unstamped project" "$out" 'config is out of date'
+for version in 0 bad 1 2; do
+  jq -n --arg version "$version" '{env:{ANTHROPIC_CUSTOM_HEADERS:"X-Weave-Router-Key: rk_test",WEAVE_ROUTER_CONFIG_VERSION:$version}}' \
+    >"$nudge/project root/.claude/settings.local.json"
+  out="$(render_nudge "$nudge/project root/.claude" 1)"
+  case "$version" in
+    0|bad) check_contains "project stamp '$version' overrides inherited current stamp" "$out" 'config is out of date' ;;
+    *) check_not_contains "project stamp $version needs no update" "$out" 'config is out of date' ;;
+  esac
+done
+out="$(render_nudge "$nudge/project root/.claude" 0)"
+check_not_contains "current project stamp overrides inherited stale stamp" "$out" 'config is out of date'
+printf '{"env":{"ANTHROPIC_CUSTOM_HEADERS":"X-Weave-Router-Key: rk_test","WEAVE_ROUTER_CONFIG_VERSION":{"invalid":true}}}' >"$nudge/project root/.claude/settings.local.json"
+out="$(render_nudge "$nudge/project root/.claude" 1)"
+check_contains "non-scalar project stamp needs update" "$out" 'config is out of date'
+out="$(render_nudge "$nudge/custom dir/.claude" 0)"
+check_contains "custom directory config repair" "$out" "update --claude --dir $(printf '%q' "$nudge/custom dir")"
+
+out="$(render_nudge "$nudge/custom dir/.weave" 0)"
+check_contains "user-scope custom directory config repair" "$out" "update --claude --dir $(printf '%q' "$nudge/custom dir")"
+out="$(render_nudge "$nudge/home/.weave" 0)"
+check_not_contains "home installation repair has no directory override" "$out" '--dir'
+
+mkdir -p "$nudge/bin" "$nudge/git root/nested project/.claude" "$nudge/standalone project/.claude"
+git -C "$nudge/git root" init -q
+cat >"$nudge/bin/npx" <<'SHIM'
+#!/usr/bin/env bash
+shift
+exec bash "$WEAVE_TEST_INSTALLER" "$@" --quiet --non-interactive --base-url http://127.0.0.1:9
+SHIM
+printf '#!/usr/bin/env bash\nexit 22\n' >"$nudge/bin/curl"
+chmod +x "$nudge/bin/npx" "$nudge/bin/curl"
+for project in "$nudge/git root/nested project" "$nudge/standalone project"; do
+  cp "$statusline" "$project/.claude/cc-statusline.sh"
+  printf '{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:9"}}' >"$project/.claude/settings.json"
+  printf '{"env":{"ANTHROPIC_CUSTOM_HEADERS":"X-Weave-Router-Key: rk_test"}}' >"$project/.claude/settings.local.json"
+  out="$(render_nudge "$project/.claude" 1)"
+  repair_command="${out#*router config is out of date: }"
+  check_contains "${project##*/} repair retains project scope" "$repair_command" '--scope project'
+  check_not_contains "${project##*/} repair avoids dir override" "$repair_command" '--dir'
+  HOME="$nudge/home" XDG_CACHE_HOME="$nudge/cache" PATH="$nudge/bin:$PATH" WEAVE_ROUTER_KEY=rk_test \
+    WEAVE_TEST_INSTALLER="$script_dir/../install.sh" bash -c "$repair_command" >"$nudge/repair.log" 2>&1
+  repair_status=$?
+  if [ "$repair_status" -gt 1 ]; then
+    no "${project##*/} repair runs installer" "exit 0 or offline validation exit 1" "$(cat "$nudge/repair.log")"
+  fi
+  check "${project##*/} repair stamps the selected install" \
+    "$(jq -r '.env.WEAVE_ROUTER_CONFIG_VERSION' "$project/.claude/settings.local.json")" "1"
+  check_contains "${project##*/} repair keeps the key local" \
+    "$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS' "$project/.claude/settings.local.json")" "X-Weave-Router-Key: rk_test"
+  check "${project##*/} repair never writes a key to shared settings" \
+    "$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS // ""' "$project/.claude/settings.json")" ""
+done
+if [ -e "$nudge/git root/.claude/settings.json" ]; then
+  no "nested repair leaves Git root untouched" "no root install" "root settings created"
+else
+  ok "nested repair leaves Git root untouched"
+fi
+mkdir -p "$nudge/git root/uninstalled child" "$nudge/uninstalled standalone"
+for directory in "$nudge/git root/uninstalled child" "$nudge/uninstalled standalone"; do
+  (cd "$directory" && HOME="$nudge/home" XDG_CACHE_HOME="$nudge/cache" PATH="$nudge/bin:$PATH" \
+    WEAVE_ROUTER_KEY=rk_test WEAVE_TEST_INSTALLER="$script_dir/../install.sh" \
+    npx @weave-os/router update --claude --scope project) >"$nudge/fallback.log" 2>&1
+done
+check "without a CWD install project update still uses Git root" \
+  "$(jq -r '.env.WEAVE_ROUTER_CONFIG_VERSION' "$nudge/git root/.claude/settings.local.json")" "1"
+check_contains "outside Git without an install still reports scope error" "$(cat "$nudge/fallback.log")" \
+  '--scope project must be run inside a git repo'
+
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

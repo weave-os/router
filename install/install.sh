@@ -919,7 +919,7 @@ write_codex_config() {
   # No strategy header: pinning one here freezes installed clients on whatever
   # policy was current at install time, so a deployment-default change never
   # reaches them. Every endpoint, hosted or self-hosted, uses its own default.
-  local headers_line="http_headers = { ${headers_parts} }"
+  local headers_line='http_headers = { "X-Weave-Router-Config-Version" = "1", '"${headers_parts} }"
   local codex_model_line='model = "weave-auto"' codex_effort_line="" saved_option
   saved_option="$(codex_existing_option "$config_file" model)"
   case "${saved_option:0:1}" in
@@ -2329,6 +2329,11 @@ else
       settings_base="$HOME"
       ;;
     project)
+      # Updates must stay with an interactive install selected below or outside a git root.
+      if [ "$mode" = "update" ] && [ "$target" = "claude" ] && [ -z "${project_dir:-}" ] \
+        && [ -f .claude/cc-statusline.sh ] && grep -q 'X-Weave-Router-Key' .claude/settings.local.json 2>/dev/null; then
+        project_dir="$(pwd)"
+      fi
       # If the interactive prompt collected a project directory, use it.
       # Otherwise fall back to the git root of CWD (the original behavior,
       # preserved for --scope project passed on the command line).
@@ -3163,7 +3168,7 @@ toggle_claude() {
         # is never touched, so this stays out of `git diff`.
         if [ -f "$local_settings_file" ]; then
           jq '{env: (.env // {}), weave_auto_selected: (.model == "weave-auto" or .model == "weave-auto[1m]")}' "$local_settings_file" >"$parked"
-          merged="$(jq '.env = ((.env // {} | del(.ANTHROPIC_CUSTOM_HEADERS, .CLAUDE_CODE_AUTO_MODE_SERVER)) + {ANTHROPIC_BASE_URL: "https://api.anthropic.com"}) | '"$CLAUDE_WEAVE_AUTO_STRIP_JQ" "$local_settings_file")"
+          merged="$(jq '.env = ((.env // {} | del(.ANTHROPIC_CUSTOM_HEADERS, .CLAUDE_CODE_AUTO_MODE_SERVER, .WEAVE_ROUTER_CONFIG_VERSION)) + {ANTHROPIC_BASE_URL: "https://api.anthropic.com"}) | '"$CLAUDE_WEAVE_AUTO_STRIP_JQ" "$local_settings_file")"
         else
           printf '{"env":{}}\n' >"$parked"
           merged='{"env":{"ANTHROPIC_BASE_URL":"https://api.anthropic.com"}}'
@@ -3185,9 +3190,9 @@ toggle_claude() {
       else
         # Park just the router-owned env keys, then strip them so Claude Code
         # falls back to its own Anthropic login.
-        jq '{env: ((.env // {}) | {ANTHROPIC_BASE_URL, ANTHROPIC_CUSTOM_HEADERS, ENABLE_TOOL_SEARCH, CLAUDE_CODE_AUTO_MODE_SERVER} | with_entries(select(.value != null))), weave_auto_selected: (.model == "weave-auto" or .model == "weave-auto[1m]")}' "$settings_file" >"$parked"
+        jq '{env: ((.env // {}) | {ANTHROPIC_BASE_URL, ANTHROPIC_CUSTOM_HEADERS, ENABLE_TOOL_SEARCH, CLAUDE_CODE_AUTO_MODE_SERVER, WEAVE_ROUTER_CONFIG_VERSION} | with_entries(select(.value != null))), weave_auto_selected: (.model == "weave-auto" or .model == "weave-auto[1m]")}' "$settings_file" >"$parked"
         chmod 600 "$parked"
-        merged="$(jq '(.env // {}) |= del(.ANTHROPIC_BASE_URL, .ANTHROPIC_CUSTOM_HEADERS, .ENABLE_TOOL_SEARCH, .CLAUDE_CODE_AUTO_MODE_SERVER)
+        merged="$(jq '(.env // {}) |= del(.ANTHROPIC_BASE_URL, .ANTHROPIC_CUSTOM_HEADERS, .ENABLE_TOOL_SEARCH, .CLAUDE_CODE_AUTO_MODE_SERVER, .WEAVE_ROUTER_CONFIG_VERSION)
                       | (if (.env // {} | length) == 0 then del(.env) else . end) | '"$CLAUDE_WEAVE_AUTO_STRIP_JQ" "$settings_file")"
         printf '%s\n' "$merged" >"$settings_file"
       fi
@@ -5415,6 +5420,9 @@ install_codex_status_script() {
 set -euo pipefail
 export PATH="$PATH:$HOME/.weave/bin"
 
+# Bump only when existing installs need config repairs, not on every release.
+WEAVE_REQUIRED_CONFIG_VERSION=1
+
 # ---------- background self-refresh ----------
 #
 # Codex runs this helper on SessionStart and after every turn. Once per
@@ -5581,7 +5589,9 @@ codex_surfaces_hidden() {
 emit_title() {
   local title="$1"
   case "$title" in
-    "Weave Router"*) if codex_surfaces_hidden; then title="Codex"; fi ;;
+    "Weave Router"*)
+      if codex_surfaces_hidden; then title="Codex"
+      else title="$title$(config_update_clause)"; fi ;;
   esac
   if [ -n "${WEAVE_CODEX_STATUS_TITLE_FILE:-}" ]; then
     printf '%s\n' "$title" >"$WEAVE_CODEX_STATUS_TITLE_FILE"
@@ -5589,6 +5599,28 @@ emit_title() {
     printf '\033]0;%s\007' "$title" >/dev/tty
   fi
   return 0
+}
+
+config_update_clause() {
+  local config="$HOME/.codex/config.toml" version command="npx @weave-os/router update --codex"
+  if [ -f "$helper_dir/config.toml" ]; then
+    config="$helper_dir/config.toml"
+    command="$command --dir $(printf '%q' "${helper_dir%/.codex}")"
+  elif [ "$(basename "$0")" = "weave-status.sh" ]; then
+    return 0
+  fi
+  [ -f "$config" ] || return 0
+  awk '
+    /^[[:space:]]*\[/ { exit }
+    /^[[:space:]]*model_provider[[:space:]]*=[[:space:]]*"weave"[[:space:]]*(#.*)?$/ { found = 1; exit }
+    END { exit !found }
+  ' "$config" || return 0
+  [ -n "$(read_codex_endpoint)" ] || return 0
+  version="$(read_codex_endpoint version)"
+  case "$version" in ''|*[!0-9]*) version=0 ;; esac
+  if [ "$version" -lt "$WEAVE_REQUIRED_CONFIG_VERSION" ]; then
+    printf ' · router config is out of date: %s' "$command"
+  fi
 }
 
 safe_session_id() {
@@ -5760,7 +5792,7 @@ read_codex_endpoint() {
     config="$HOME/.codex/config.toml"
   fi
   [ -n "$config" ] || return 0
-  awk '
+  awk -v field="${1:-endpoint}" '
     # Cut a TOML comment, honouring quoted strings so a # inside a value stays.
     # A full-line comment reduces to empty and matches nothing below, so this
     # replaces a separate skip rule -- and unlike one, it also catches a comment
@@ -5805,7 +5837,15 @@ read_codex_endpoint() {
       sub(/^.*=[[:space:]]*"/, "", v); sub(/"$/, "", v)
       if (email == "") email = v
     }
-    END { if (url != "" && key != "") printf "%s\n%s\n%s\n", url, key, email }
+    match($0, /"?X-Weave-Router-Config-Version"?[[:space:]]*=[[:space:]]*"[^"]*"/) {
+      v = substr($0, RSTART, RLENGTH)
+      sub(/^.*=[[:space:]]*"/, "", v); sub(/"$/, "", v)
+      version = v
+    }
+    END {
+      if (field == "version") print version
+      else if (url != "" && key != "") printf "%s\n%s\n%s\n", url, key, email
+    }
   ' "$config" 2>/dev/null || true
 }
 
@@ -6976,6 +7016,9 @@ cat > "$statusline_file" << 'STATUSLINE_EOF'
 set -euo pipefail
 export PATH="$PATH:$HOME/.weave/bin"
 
+# Bump only when existing installs need config repairs, not on every release.
+WEAVE_REQUIRED_CONFIG_VERSION=1
+
 # ---------- /router-status prompt hook ----------
 #
 # Registered as a UserPromptSubmit hook with --prompt-hook. Every other prompt
@@ -8128,19 +8171,32 @@ if [[ "$has_pin_record" == "true" ]]; then
   status_text="$status_text · last pin: $last_pin_model"
 fi
 
-# Point the reconnect command at this install: a bare login reads the
-# user-scope config, which a project or --dir install doesn't use.
+# Bare login and update commands would target the wrong config outside user scope.
 weave_login_scope=""
-if [ -n "${weave_disconnected_plans:-}" ]; then
-  weave_sl_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
-  case "$weave_sl_dir" in
-    */.claude)
-      weave_login_scope=" --dir $(printf '%q' "${weave_sl_dir%/.claude}")"
-      if grep -q 'X-Weave-Router-Key' "$weave_sl_dir/settings.local.json" 2>/dev/null; then
-        weave_login_scope=" --scope project$weave_login_scope"
-      fi
-      ;;
-  esac
+weave_update_command="npx @weave-os/router update --claude"
+weave_config_version="${WEAVE_ROUTER_CONFIG_VERSION:-0}"
+weave_sl_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
+case "$weave_sl_dir" in
+  */.weave)
+    if [ "$weave_sl_dir" != "$HOME/.weave" ]; then
+      weave_login_scope=" --dir $(printf '%q' "${weave_sl_dir%/.weave}")"
+      weave_update_command="$weave_update_command$weave_login_scope"
+    fi
+    ;;
+  */.claude)
+    weave_login_scope=" --dir $(printf '%q' "${weave_sl_dir%/.claude}")"
+    weave_update_command="$weave_update_command$weave_login_scope"
+    if grep -q 'X-Weave-Router-Key' "$weave_sl_dir/settings.local.json" 2>/dev/null; then
+      weave_config_version="$(jq -r '.env.WEAVE_ROUTER_CONFIG_VERSION // 0' "$weave_sl_dir/settings.local.json" 2>/dev/null)"
+      weave_login_scope=" --scope project$weave_login_scope"
+      weave_update_command="cd $(printf '%q' "${weave_sl_dir%/.claude}") && npx @weave-os/router update --claude --scope project"
+    fi
+    ;;
+esac
+case "$weave_config_version" in ''|*[!0-9]*) weave_config_version=0 ;; esac
+if [[ -n "${ANTHROPIC_BASE_URL:-}" && "${ANTHROPIC_BASE_URL:-}" != https://api.anthropic.com* && "${ANTHROPIC_CUSTOM_HEADERS:-}" == *"X-Weave-Router-Key:"* ]] \
+  && [ "$weave_config_version" -lt "$WEAVE_REQUIRED_CONFIG_VERSION" ]; then
+  status_text="$status_text · router config is out of date: $weave_update_command"
 fi
 for weave_plan in ${weave_disconnected_plans:-}; do
   case "$weave_plan" in
@@ -8240,7 +8296,7 @@ write_claude_settings() {
         hooks: {UserPromptSubmit: [{hooks: [{type: "command", command: ("[ ! -x \"" + $sl + "\" ] || \"" + $sl + "\" --prompt-hook" + $prompt_hook_scope)}]}]}} else {} end)' >"$tmp_patch"
   else
     jq -n --arg attribution "$attribution" --arg url "$base_url" --arg header "$custom_headers" --arg sl "$statusline_path_for_settings" --arg prompt_hook_scope "$prompt_hook_scope" --arg statusline_install "$statusline_install" '{
-      env: { ANTHROPIC_BASE_URL: $url, ANTHROPIC_CUSTOM_HEADERS: $header, ENABLE_TOOL_SEARCH: "true", CLAUDE_CODE_AUTO_MODE_SERVER: "0" }
+      env: { ANTHROPIC_BASE_URL: $url, ANTHROPIC_CUSTOM_HEADERS: $header, ENABLE_TOOL_SEARCH: "true", CLAUDE_CODE_AUTO_MODE_SERVER: "0", WEAVE_ROUTER_CONFIG_VERSION: "1" }
     } + (if $attribution == "true" then {attribution: {
         commit: "Co-Authored-By: Weave Router <router@weaveos.com>",
         pr: "🤖 Generated with [Weave Router](https://router.weaveos.com)"
@@ -8289,7 +8345,7 @@ write_claude_settings() {
 
   if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
     jq -n --arg header "$custom_headers" --arg router_url "$base_url" '{
-      env: { ANTHROPIC_CUSTOM_HEADERS: $header, WEAVE_ROUTER_BASE_URL: $router_url, CLAUDE_CODE_AUTO_MODE_SERVER: "0" }
+      env: { ANTHROPIC_CUSTOM_HEADERS: $header, WEAVE_ROUTER_BASE_URL: $router_url, CLAUDE_CODE_AUTO_MODE_SERVER: "0", WEAVE_ROUTER_CONFIG_VERSION: "1" }
     }' >"$tmp_patch"
     if [ -f "$local_settings_file" ]; then
       # Also strip ANTHROPIC_BASE_URL: `off` in project scope points this file
