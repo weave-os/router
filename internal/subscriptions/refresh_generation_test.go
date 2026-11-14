@@ -18,9 +18,9 @@ func TestManualRefreshReplacesPeerReplicaCachedCredential(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, oldAccess, warm.AccessToken)
 	warm.Release()
-	result, err := f.runtime.RefreshAccount(context.Background(), testOwner, "synthetic-seat")
+	refreshResult, err := f.runtime.RefreshAccount(context.Background(), testOwner, "synthetic-seat")
 	require.NoError(t, err)
-	require.Equal(t, int64(2), result.TokenRefreshVersion)
+	require.Equal(t, int64(2), refreshResult.TokenRefreshVersion)
 	adopted, _, err := peer.Lease(context.Background(), testOwner, subscriptions.ProviderCodex, "peer-session")
 	require.NoError(t, err)
 	defer adopted.Release()
@@ -69,10 +69,10 @@ func TestEarlyRefreshLostLeaseReloadsReplacementGeneration(t *testing.T) {
 	f.store.refreshedAt["synthetic-seat"] = clock()
 	f.store.accessExpiry["synthetic-seat"] = clock().Add(10 * simulatedDay)
 	f.store.mu.Unlock()
-	result := <-completed
-	require.NoError(t, result.err)
-	defer result.lease.Release()
-	require.Equal(t, "synthetic-peer-access", result.lease.AccessToken, "lease loss must not enter the stale-access fallback")
+	leaseOutcome := <-completed
+	require.NoError(t, leaseOutcome.err)
+	defer leaseOutcome.lease.Release()
+	require.Equal(t, "synthetic-peer-access", leaseOutcome.lease.AccessToken, "lease loss must not enter the stale-access fallback")
 	require.Empty(t, f.store.cooldowns)
 	require.Empty(t, f.store.enabledUpdates)
 }

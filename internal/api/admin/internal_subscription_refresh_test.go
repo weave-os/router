@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -68,6 +69,30 @@ func TestInternalSubscriptionRefreshAuthenticatesAndScopesSeat(t *testing.T) {
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
 			require.NotContains(t, response, "access_token")
 			require.NotContains(t, response, "refresh_token")
+		})
+	}
+}
+
+func TestInternalSubscriptionRefreshCanonicalizesValidUUIDForms(t *testing.T) {
+	const subscriber = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	const seat = "abcdefab-cdef-abcd-efab-cdefabcdefab"
+	for _, scenario := range []struct{ name, subscriber, seat string }{
+		{name: "canonical", subscriber: subscriber, seat: seat},
+		{name: "uppercase", subscriber: strings.ToUpper(subscriber), seat: strings.ToUpper(seat)},
+		{name: "hyphenless", subscriber: strings.ReplaceAll(subscriber, "-", ""), seat: strings.ReplaceAll(seat, "-", "")},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			stub := &accountRefreshStub{}
+			engine := gin.New()
+			group := engine.Group("/internal/v1", middleware.WithInternalServiceAuth(internalAccountsToken))
+			group.POST("/subscription-accounts/:subscriberID/:accountID/refresh", admin.InternalRefreshSubscriptionAccountHandler(stub))
+			request := httptest.NewRequest(http.MethodPost, "/internal/v1/subscription-accounts/"+scenario.subscriber+"/"+scenario.seat+"/refresh", nil)
+			request.Header.Set("X-Weave-Internal-Token", internalAccountsToken)
+			rec := httptest.NewRecorder()
+			engine.ServeHTTP(rec, request)
+			require.Equal(t, http.StatusOK, rec.Code)
+			require.Equal(t, subscriber, stub.owner.SubscriberID)
+			require.Equal(t, seat, stub.id)
 		})
 	}
 }

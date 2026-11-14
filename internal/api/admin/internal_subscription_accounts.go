@@ -120,10 +120,10 @@ func InternalDeleteSubscriptionAccountHandler(authSvc *auth.Service) gin.Handler
 }
 
 func internalSubscriptionOwner(c *gin.Context) (auth.SubscriptionOwner, bool) {
-	subscriberID := c.Param("subscriberID")
-	if _, err := uuid.Parse(subscriberID); err != nil {
+	subscriberID, err := uuid.Parse(c.Param("subscriberID"))
+	if err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_subscriber"})
 		return auth.SubscriptionOwner{}, false
 	}
-	return auth.SubscriptionOwner{SubscriberID: subscriberID}, true
+	return auth.SubscriptionOwner{SubscriberID: subscriberID.String()}, true
 }

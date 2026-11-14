@@ -26,12 +26,12 @@ func InternalRefreshSubscriptionAccountHandler(refresher subscriptions.AccountRe
 		if !ok {
 			return
 		}
-		accountID := c.Param("accountID")
-		if _, err := uuid.Parse(accountID); err != nil {
+		accountID, err := uuid.Parse(c.Param("accountID"))
+		if err != nil {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": refreshInvalidAccount})
 			return
 		}
-		refreshResult, err := refresher.RefreshAccount(c.Request.Context(), owner, accountID)
+		refreshResult, err := refresher.RefreshAccount(c.Request.Context(), owner, accountID.String())
 		if errors.Is(err, auth.ErrSubscriptionAccountNotFound) {
 			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": refreshAccountNotFound})
 			return
