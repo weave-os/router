@@ -32,8 +32,9 @@ const earlyStopHoldMax = 60 * time.Second
 // the client has seen any of it. Shadow, it only observes.
 type EarlyStopGate struct {
 	inner http.ResponseWriter
-	// body is inner's write half, kept separate for the same CodeQL reason as
-	// cyberRefusalGate.body.
+	// body is inner's write half. Forwarding through io.Writer keeps upstream
+	// SSE bytes out of CodeQL's reflected-XSS sink model, which reads every
+	// ResponseWriter.Write in a proxy chain as an HTML response.
 	body io.Writer
 	// mu serializes the attempt's writes with the hold timer's release.
 	mu      sync.Mutex
@@ -194,7 +195,8 @@ func (g *EarlyStopGate) flushLocked() {
 	}
 }
 
-// ArmOutputProgress forwards the stall-watchdog hook; see cyberRefusalGate.
+// ArmOutputProgress forwards the stall-watchdog hook to the writer below, so
+// withheld bytes do not count as client-visible progress.
 func (g *EarlyStopGate) ArmOutputProgress(mark func()) (armed bool) {
 	arm, ok := g.inner.(interface{ ArmOutputProgress(func()) bool })
 	if !ok {
