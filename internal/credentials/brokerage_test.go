@@ -113,5 +113,7 @@ func TestEnabledProviders_MatchesEligibility(t *testing.T) {
 		Registered:        set(providers.ProviderAnthropic, providers.ProviderOpenAI),
 		SubscriptionLanes: set(providers.ProviderAnthropic),
 	}
-	assert.Equal(t, b.Eligibility(context.Background(), req).EnabledProviders, b.EnabledProviders(req))
+	want := set(providers.ProviderAnthropic)
+	assert.Equal(t, want, b.EnabledProviders(req))
+	assert.Equal(t, want, b.Eligibility(context.Background(), req).EnabledProviders)
 }
