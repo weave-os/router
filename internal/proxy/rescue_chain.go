@@ -92,8 +92,10 @@ type rescueChain struct {
 	siblingFailoverUsed bool
 	siblingRescueRan    bool
 	siblingRescueOwed   bool
-	rescuedPrimary      router.Decision
-	rescuedPrimaryErr   error
+	// The decision and error the rescue replaced; the post-turn demotion hook
+	// strikes the primary, never the rescuer.
+	rescuedPrimary    router.Decision
+	rescuedPrimaryErr error
 
 	finalProvider     string
 	failoverUsed      bool
@@ -109,7 +111,6 @@ func (c *rescueChain) holdPrimary() {
 	// The routed badge, kept for subscription-state targets that land back on
 	// the original pick after a sibling failed.
 	c.pickedMarker = c.marker
-	c.subscriptionPoolFailure = false
 }
 
 func (c *rescueChain) dispatchPrimaryAttempt(ctx context.Context, deferFlush bool, onPaidTarget func(router.Decision)) {
@@ -179,16 +180,13 @@ func (c *rescueChain) notePrimaryFailure(ctx context.Context) {
 	}
 }
 
+// siblingRescue is same-cluster failover: all bindings exhausted pre-commit —
+// re-dispatch the policy candidates in order until one serves. Last in the
+// rescue chain.
 func (c *rescueChain) siblingRescue(ctx context.Context) {
 	s := c.svc
 	routeRes := c.routeRes
 	preludeBuf := c.preludeBuf
-	// Same-cluster failover: all bindings exhausted pre-commit — re-dispatch
-	// the policy candidates in order until one serves. Last in the rescue chain.
-	c.siblingFailoverUsed = false
-	c.siblingRescueRan = false
-	// The decision and error the rescue replaced; the post-turn demotion hook
-	// strikes the primary, never the rescuer.
 	// Keyed off the flush, not off whether an earlier rescue ran: a failed
 	// subscription retry keeps the same dark model, so a cluster peer can still
 	// serve — but only before the deferred error reaches the wire.

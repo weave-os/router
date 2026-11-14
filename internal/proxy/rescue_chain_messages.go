@@ -228,7 +228,6 @@ func (m *messagesRescue) redoIfStoppedEarly(ctx context.Context) {
 	routeRes := m.routeRes
 	opts := m.opts
 	preludeBuf := m.preludeBuf
-	m.earlyStopRedone = false
 	if m.earlyStopMode != flags.EarlyStopRedoOff {
 		stopped := m.proxyErr == nil && m.earlyStop.EarlyStop()
 		if releaseCause := m.earlyStop.ReleaseReason(); !stopped && releaseCause != "" {
@@ -337,12 +336,6 @@ func (m *messagesRescue) flushDeferredErr() {
 func (m *messagesRescue) classifyPrimaryFailure() {
 	log := m.log
 	feats := m.feats
-	// The routed model's bindings all failed with a fault another model could
-	// satisfy, pre-commit — re-dispatch the requested model on Anthropic.
-	// crossFormat/respSummary/reqStats reset to Anthropic-native values so
-	// telemetry reflects the binding that actually served.
-	m.baselineFailoverUsed = false
-	m.baselineAttempted = false
 	// Capability rejection means the routed model cannot serve this shape at all —
 	// rescue via baseline even when the policy owns per-turn selection.
 	m.capabilityRejected = providers.IsUpstreamCapabilityRejection(m.proxyErr)

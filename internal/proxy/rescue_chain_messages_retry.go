@@ -9,6 +9,11 @@ import (
 	"weave-os/router/internal/translate"
 )
 
+// baseline handles a routed model whose bindings all failed with a fault
+// another model could satisfy, pre-commit: it re-dispatches the requested
+// model on Anthropic. crossFormat/respSummary/reqStats reset to
+// Anthropic-native values so telemetry reflects the binding that actually
+// served.
 func (m *messagesRescue) baseline(ctx context.Context) context.Context {
 	preludeBuf := m.preludeBuf
 	if m.proxyErr != nil && !preludeBuf.Committed() &&
@@ -108,6 +113,13 @@ func (m *messagesRescue) dispatchBaseline(ctx context.Context) context.Context {
 	return ctx
 }
 
+// subscriptionRetry is subscription-credit failover: suppress the OAuth token
+// and retry the SAME model once on the Weave/BYOK key when a
+// subscription-served Anthropic turn hit a transient fault (429/timeout), an
+// OAuth rejection (401/403), a model-access 404 (subscription token cannot use
+// that Claude model), or a third-party-client refusal (400: plan limits serve
+// only Claude Code), pre-commit. Skipped when baseline failover already ran
+// (non-Anthropic).
 func (m *messagesRescue) subscriptionRetry(ctx context.Context) {
 	s := m.svc
 	r := m.r
@@ -117,15 +129,6 @@ func (m *messagesRescue) subscriptionRetry(ctx context.Context) {
 	opts := m.opts
 	preludeBuf := m.preludeBuf
 	feats := m.feats
-	// Subscription-credit failover: suppress the OAuth token and retry the SAME
-	// model once on the Weave/BYOK key when a subscription-served Anthropic turn
-	// hit a transient fault (429/timeout), an OAuth rejection (401/403), a
-	// model-access 404 (subscription token cannot use that Claude model), or a
-	// third-party-client refusal (400: plan limits serve only Claude Code),
-	// pre-commit. Skipped when baseline failover already ran (non-Anthropic).
-	m.subscriptionFailoverUsed = false
-	m.subscriptionRetryRan = false
-	m.subscriptionFailoverAttempted = false
 	if m.subscriptionRetryEligible && !paidFallbackForbiddenForModel(ctx, m.decision.Model) && !m.baselineAttempted && m.proxyErr != nil &&
 		!preludeBuf.Committed() &&
 		(providers.IsRetryable(m.proxyErr) || anthropicOAuthCredentialRejected(m.proxyErr) || anthropicSubscriptionModelRejected(m.proxyErr) || anthropicSubscriptionThirdPartyRefused(m.proxyErr)) {
