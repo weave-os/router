@@ -1,0 +1,25 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages",
+      "stream": false,
+      "routing_decisions": [
+        {
+          "requested_model": "claude-sonnet-4-5",
+          "model": "claude-haiku-4-5",
+          "provider": "anthropic",
+          "reason": "golden_route"
+        }
+      ],
+      "dispatch_attempts": [],
+      "response": {},
+      "dispatch_error": {
+        "outcome": "error: strategy \"hmm_embedding\" cannot serve policy pin aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb: router: policy_pin_unavailable",
+        "kind": 36,
+        "status": 503,
+        "message": "policy_pin_unavailable: the pinned policy artifact or roster is not loaded on this router."
+      }
+    }
+  ],
+  "scenario": "routing_policy_policy_pin_not_honoured_fails_closed"
+}
