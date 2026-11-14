@@ -68,9 +68,7 @@ type ManagedSubscriptionUsage struct {
 	QuotaExhaustedAccounts  map[string]time.Time
 	QuotaExhaustedProviders map[subscriptions.Provider]time.Time
 	ThrottledAccounts       map[string]time.Time
-	// ThrottledProviders records, per pool, until when the caller's own plan
-	// is rate-limited this turn: a 429 that did not prove quota exhaustion.
-	ThrottledProviders map[subscriptions.Provider]time.Time
+	ThrottledProviders      map[subscriptions.Provider]time.Time
 	// UnavailableProviders records, per pool, until when this turn's
 	// subscription attempts are known to have failed on provider capacity
 	// (5xx), which authorizes a paid rescue without proving quota exhaustion.
@@ -509,15 +507,6 @@ func recordManagedThrottle(ctx context.Context, accountID string, cooldownUntil 
 	}
 }
 
-func recordCallerPlanThrottle(ctx context.Context, pool subscriptions.Provider, until time.Time) {
-	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
-		if state.ThrottledProviders == nil {
-			state.ThrottledProviders = make(map[subscriptions.Provider]time.Time)
-		}
-		state.ThrottledProviders[pool] = until
-	}
-}
-
 func (s *Service) subscriptionQuotaExhaustion(pool subscriptions.Provider, lease subscriptions.Lease, attemptErr error) (time.Time, bool) {
 	now := s.clockNow()
 	if pool == subscriptions.ProviderCodex {
@@ -546,26 +535,6 @@ func (s *Service) subscriptionQuotaExhaustion(pool subscriptions.Provider, lease
 		return linkedSubscriptionResetAt(snapshot, now), true
 	}
 	return time.Time{}, false
-}
-
-func (s *Service) recordDirectSubscriptionQuota(ctx context.Context, provider, model string, creds *Credentials, attemptErr error) {
-	pool, compatible := managedSubscriptionProviderFromUpstream(provider, model)
-	if !compatible {
-		return
-	}
-	resetAt, exhausted := s.subscriptionQuotaExhaustion(pool, subscriptions.Lease{AccessToken: string(creds.APIKey)}, attemptErr)
-	if !exhausted {
-		if upstreamStatus(attemptErr) == http.StatusTooManyRequests {
-			recordCallerPlanThrottle(ctx, pool, managedSubscriptionResetAt(attemptErr, s.clockNow()))
-		}
-		return
-	}
-	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
-		if state.QuotaExhaustedProviders == nil {
-			state.QuotaExhaustedProviders = make(map[subscriptions.Provider]time.Time)
-		}
-		state.QuotaExhaustedProviders[pool] = resetAt
-	}
 }
 
 func (s *Service) recordManagedSubscriptionSuccess(ctx context.Context, provider, model string, lease subscriptions.Lease) {
