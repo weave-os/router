@@ -18,6 +18,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/flags"
@@ -176,9 +177,7 @@ type Service struct {
 	// unservedGatewayModels memos (endpoint, model) pairs a gateway answered
 	// model-not-found for. Keyed by gatewayModelKey.
 	unservedGatewayModels sync.Map
-	// excludedModelsOverride, when non-nil, replaces the per-installation
-	// exclusion list on every request. Set from ROUTER_EXCLUDED_MODELS at boot.
-	excludedModelsOverride map[string]struct{}
+	routing               *routingpolicy.Policy
 	// excludedProvidersOverride, when non-nil, replaces the per-installation
 	// provider exclusion list on every request. Set from
 	// ROUTER_EXCLUDED_PROVIDERS at boot.
@@ -1182,8 +1181,8 @@ func (s *Service) excludedModelsFor(ctx context.Context, allowed map[string]stru
 	// product boundary is what the caller bought, so no installation-side
 	// override may widen it back out.
 	ineligible := s.productIneligibleModels(ctx)
-	if s.excludedModelsOverride != nil {
-		return mergeExcludedModels(s.excludedModelsOverride, ineligible)
+	if override := s.routing.ExcludedModelsOverride(); override != nil {
+		return mergeExcludedModels(override, ineligible)
 	}
 	// Plan-owned serving drops the installation's positive routing controls,
 	// but an explicit exclusion is the customer's hard opt-out and always applies.
@@ -1729,6 +1728,7 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		nativeOpenAIResponseSignals:    true,
 		cyberRefusalFallbackModel:      "claude-sonnet-5",
 	}
+	s.routing = routingpolicy.New(NewCredentialBroker(s), nil)
 	if r == nil {
 		return s
 	}
@@ -2457,21 +2457,20 @@ func (s *Service) WithByokOnly(byokOnly bool) *Service {
 // WithExcludedModelsOverride pins the per-request model exclusion list to a
 // deployment-wide set. Pass nil or empty slice to clear the override.
 func (s *Service) WithExcludedModelsOverride(models []string) *Service {
-	if len(models) == 0 {
-		s.excludedModelsOverride = nil
-		return s
-	}
-	set := make(map[string]struct{}, len(models))
-	for _, m := range models {
-		set[m] = struct{}{}
-	}
-	s.excludedModelsOverride = set
+	s.routing = s.routing.WithExcludedModelsOverride(models)
+	return s
+}
+
+// WithRoutingPolicy wires the Routing Policy collaborator, keeping any
+// excluded-models override already set.
+func (s *Service) WithRoutingPolicy(p *routingpolicy.Policy) *Service {
+	s.routing = p.WithExcludedModelsOverride(s.ExcludedModelsOverride())
 	return s
 }
 
 // HasExcludedModelsOverride reports whether an excluded-models override is active.
 func (s *Service) HasExcludedModelsOverride() bool {
-	return s.excludedModelsOverride != nil
+	return s.routing.ExcludedModelsOverride() != nil
 }
 
 // WithGlobalAutomaticExclusions wires the deployment-wide soft exclusion list
@@ -2505,11 +2504,12 @@ func (s *Service) RoutableModels() map[string]struct{} {
 
 // ExcludedModelsOverride returns a sorted copy of the override list.
 func (s *Service) ExcludedModelsOverride() []string {
-	if s.excludedModelsOverride == nil {
+	override := s.routing.ExcludedModelsOverride()
+	if override == nil {
 		return nil
 	}
-	out := make([]string, 0, len(s.excludedModelsOverride))
-	for m := range s.excludedModelsOverride {
+	out := make([]string, 0, len(override))
+	for m := range override {
 		out = append(out, m)
 	}
 	sort.Strings(out)
@@ -3733,17 +3733,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	// Anthropic packs sub-agent identity into metadata.user_id; the
 	// x-weave-subagent-type header is for non-Anthropic ingress only.
-	enabledProviders := s.enabledProvidersForRequest(ctx, providers.ProviderAnthropic, r.Header)
-
-	// Linked-first is a funding preference; only depleted capacity restricts
-	// selection to providers the caller's subscription can serve.
-	if billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
-		enabledProviders = restrictToSubscriptionProviders(ctx, r.Header, enabledProviders)
+	eligibility, eligibilityErr := s.routing.Eligibility(ctx, credentials.EligibilityRequest{Surface: providers.ProviderAnthropic, Headers: r.Header, InstallationID: installationIDFromContext(ctx)})
+	if eligibilityErr != nil {
+		return eligibilityErr
 	}
-	var creditsErr error
-	if enabledProviders, creditsErr = applyWeaveCreditsPolicy(ctx, enabledProviders); creditsErr != nil {
-		return creditsErr
-	}
+	enabledProviders := eligibility.EnabledProviders
 
 	// Anthropic's native web-search server tool, when no enabled provider runs
 	// it. Served before routing: the scorer's only lever is picking a model,
@@ -3776,48 +3770,16 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	inboundUserPrompt := routingEndsWithUserPrompt(ctx, env)
 	inboundLatestToolCalls := latestToolCallCountsJSON(env)
 
-	// Hard exclusions run first so a model the request can never use does not
-	// count as fitting and suppress the total-overflow admission below.
-	excluded, geminiUnsigned := routingpolicy.ExcludeGemini3xOnUnsignedHistory(env, baseExcluded, s.availableModels)
-	if len(geminiUnsigned) > 0 {
-		log.Info("gemini pre-filter: excluded gemini-3.x for unsigned tool-call history",
-			"excluded_models", strings.Join(geminiUnsigned, ","),
-		)
-	}
-	excluded, advisorOutranking := excludeAdvisorOutrankingModels(env, excluded, s.routableUniverse())
-	if len(advisorOutranking) > 0 {
-		log.Info("advisor pre-filter: excluded models the advisor tool cannot advise",
-			"advisor_model", env.AdvisorToolModel(),
-			"excluded_models", strings.Join(advisorOutranking, ","),
-		)
-	}
-	customBindings := s.customBindingsForRequest(ctx)
-	excluded, imageLimitExcluded := routingpolicy.ExcludeImageLimitModels(feats.ImageCount, enabledProviders, customBindings, excluded, s.availableModels)
-	if len(imageLimitExcluded) > 0 {
-		log.Info("image limit pre-filter: excluded models whose bindings cap images below the request count",
-			"image_count", feats.ImageCount,
-			"excluded_models", strings.Join(imageLimitExcluded, ","),
-		)
-	}
-	overflowEstimate := env.ContextOverflowTokenEstimate()
-	gatewayProviders := s.gatewayProvidersForRequest(ctx)
-	excluded, ctxOverflowed := routingpolicy.ExcludeContextOverflowModels(overflowEstimate, env.SignatureTokenSavings(), outputReserve, enabledProviders, excluded, s.availableModels)
-	overflowAdmitted := routingpolicy.AdmitWidestOnTotalOverflow(excluded, ctxOverflowed, s.availableModels, enabledProviders, router.RequestBindings{Custom: customBindings, Gateways: gatewayProviders})
-	excluded = withoutModels(excluded, overflowAdmitted)
-	if len(ctxOverflowed) > 0 {
-		log.Info("context window pre-filter: excluded over-capacity models",
-			"overflow_token_estimate", overflowEstimate,
-			"output_reserve", outputReserve,
-			"excluded_count", len(ctxOverflowed)-len(overflowAdmitted),
-			"excluded_models", strings.Join(ctxOverflowed, ","),
-			"admitted_for_upstream", strings.Join(overflowAdmitted, ","),
-		)
-	}
-	hardExcluded := append(append(append([]string(nil), geminiUnsigned...), advisorOutranking...), imageLimitExcluded...)
+	pre := routingpolicy.Prefilter(routingpolicy.PrefilterRequest{
+		Envelope: env, ImageCount: feats.ImageCount, OutputReserve: outputReserve, Eligibility: eligibility,
+		Excluded: baseExcluded, Available: s.availableModels,
+		AdvisorExclusions: advisorExclusions(env, s.routableUniverse()), ExcludeAdvisorOutranking: true,
+	})
+	logPrefilter(log, env, feats.ImageCount, outputReserve, pre)
+	excluded, overflowEstimate := pre.Excluded, pre.OverflowEstimate
 
 	routeStart := time.Now()
 	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText)
-	_, safetyAdvisorOutranking := excludeAdvisorOutrankingModels(env, nil, s.routableUniverse())
 	req := router.Request{
 		RequestedModel:               feats.Model,
 		ClientBudget:                 clientBudget,
@@ -3841,16 +3803,16 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		FeedbackRole:                  roleForTier(catalog.TierFor(feats.Model)),
 		ClientSessionID:               clientSessionIDForRequest(ctx, env),
 		EnabledProviders:              enabledProviders,
-		CustomBindings:                customBindings,
-		GatewayProviders:              gatewayProviders,
+		CustomBindings:                eligibility.CustomBindings,
+		GatewayProviders:              eligibility.GatewayProviders,
 		SubscriptionProviders:         s.selectableSubscriptionProviders(ctx, r.Header),
 		ExcludedModels:                excluded,
 		AllowedModels:                 allowedModelsForRequest(ctx),
-		SafetyExcludedModels:          routingpolicy.WithoutModelsKeep(routingpolicy.SafetyExcludedModels(env, outputReserve, enabledProviders, customBindings, s.availableModels, safetyAdvisorOutranking), overflowAdmitted, hardExcluded),
-		ContextWindowExcludedModels:   routingpolicy.ContextWindowOnlyExclusions(ctxOverflowed, overflowAdmitted, hardExcluded),
-		ImageLimitExcludedModels:      modelSet(imageLimitExcluded),
-		UnsignedHistoryExcludedModels: modelSet(geminiUnsigned),
-		OverflowAdmittedModels:        modelSet(overflowAdmitted),
+		SafetyExcludedModels:          pre.Safety,
+		ContextWindowExcludedModels:   pre.ContextWindowOnly,
+		ImageLimitExcludedModels:      modelSet(pre.ImageLimited),
+		UnsignedHistoryExcludedModels: modelSet(pre.UnsignedHistory),
+		OverflowAdmittedModels:        modelSet(pre.OverflowAdmitted),
 		PreferredModels:               s.preferredModelsForRequest(ctx),
 		RoutingKnobs:                  routingKnobsForRequest(ctx),
 		ClusterArmOverrides:           clusterArmOverridesForRequest(ctx),
@@ -7078,17 +7040,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// OpenAI signals sub-agent identity via x-weave-subagent-type (no metadata.user_id).
 	subAgentHint := r.Header.Get("x-weave-subagent-type")
 
-	enabledProviders := s.enabledProvidersForRequest(ctx, providers.ProviderOpenAI, r.Header)
-
-	// Linked-first is a funding preference; only depleted capacity restricts
-	// selection to providers the caller's subscription can serve.
-	if billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
-		enabledProviders = restrictToSubscriptionProviders(ctx, r.Header, enabledProviders)
+	eligibility, eligibilityErr := s.routing.Eligibility(ctx, credentials.EligibilityRequest{Surface: providers.ProviderOpenAI, Headers: r.Header, InstallationID: installationIDFromContext(ctx)})
+	if eligibilityErr != nil {
+		return eligibilityErr
 	}
-	var creditsErr error
-	if enabledProviders, creditsErr = applyWeaveCreditsPolicy(ctx, enabledProviders); creditsErr != nil {
-		return creditsErr
-	}
+	enabledProviders := eligibility.EnabledProviders
 
 	// Codex (ChatGPT) subscription passthrough: ProxyOpenAIResponses stashed the
 	// caller's original Responses body. Such turns skip the routing marker +
@@ -7123,37 +7079,15 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	inboundLastUser := env.LastUserMessage()
 	inboundUserPromptOAI := routingEndsWithUserPrompt(ctx, env)
 
-	excludedOAI, geminiUnsignedOAI := routingpolicy.ExcludeGemini3xOnUnsignedHistory(env, baseExcludedOAI, s.availableModels)
-	if len(geminiUnsignedOAI) > 0 {
-		log.Info("gemini pre-filter: excluded gemini-3.x for unsigned tool-call history",
-			"excluded_models", strings.Join(geminiUnsignedOAI, ","),
-		)
-	}
-	customBindingsOAI := s.customBindingsForRequest(ctx)
-	excludedOAI, imageLimitExcludedOAI := routingpolicy.ExcludeImageLimitModels(feats.ImageCount, enabledProviders, customBindingsOAI, excludedOAI, s.availableModels)
-	if len(imageLimitExcludedOAI) > 0 {
-		log.Info("image limit pre-filter: excluded models whose bindings cap images below the request count",
-			"image_count", feats.ImageCount,
-			"excluded_models", strings.Join(imageLimitExcludedOAI, ","),
-		)
-	}
-	hardExcludedOAI := append(append([]string(nil), geminiUnsignedOAI...), imageLimitExcludedOAI...)
-	overflowEstimateOAI := env.ContextOverflowTokenEstimate()
-	excludedOAI, ctxOverflowedOAI := routingpolicy.ExcludeContextOverflowModels(overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI, enabledProviders, excludedOAI, s.availableModels)
-	overflowAdmittedOAI := routingpolicy.AdmitWidestOnTotalOverflow(excludedOAI, ctxOverflowedOAI, s.availableModels, enabledProviders, router.RequestBindings{Custom: s.customBindingsForRequest(ctx), Gateways: s.gatewayProvidersForRequest(ctx)})
-	excludedOAI = withoutModels(excludedOAI, overflowAdmittedOAI)
-	if len(ctxOverflowedOAI) > 0 {
-		log.Info("context window pre-filter: excluded over-capacity models",
-			"overflow_token_estimate", overflowEstimateOAI,
-			"output_reserve", outputReserveOAI,
-			"excluded_count", len(ctxOverflowedOAI)-len(overflowAdmittedOAI),
-			"excluded_models", strings.Join(ctxOverflowedOAI, ","),
-			"admitted_for_upstream", strings.Join(overflowAdmittedOAI, ","),
-		)
-	}
+	pre := routingpolicy.Prefilter(routingpolicy.PrefilterRequest{
+		Envelope: env, ImageCount: feats.ImageCount, OutputReserve: outputReserveOAI, Eligibility: eligibility,
+		Excluded: baseExcludedOAI, Available: s.availableModels,
+		AdvisorExclusions: advisorExclusions(env, s.routableUniverse()),
+	})
+	logPrefilter(log, env, feats.ImageCount, outputReserveOAI, pre)
+	excludedOAI, overflowEstimateOAI := pre.Excluded, pre.OverflowEstimate
 
 	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText)
-	_, safetyAdvisorOutranking := excludeAdvisorOutrankingModels(env, nil, s.routableUniverse())
 	routeRequest := router.Request{
 		RequestedModel:               feats.Model,
 		ForceModel:                   forceModel,
@@ -7175,16 +7109,16 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		FeedbackRole:                  roleForTier(catalog.TierFor(feats.Model)),
 		ClientSessionID:               clientSessionIDForRequest(ctx, env),
 		EnabledProviders:              enabledProviders,
-		CustomBindings:                customBindingsOAI,
+		CustomBindings:                eligibility.CustomBindings,
 		GatewayProviders:              s.gatewayProvidersForRequest(ctx),
 		SubscriptionProviders:         s.selectableSubscriptionProviders(ctx, r.Header),
 		ExcludedModels:                excludedOAI,
 		AllowedModels:                 allowedModelsForRequest(ctx),
-		SafetyExcludedModels:          routingpolicy.WithoutModelsKeep(routingpolicy.SafetyExcludedModels(env, outputReserveOAI, enabledProviders, customBindingsOAI, s.availableModels, safetyAdvisorOutranking), overflowAdmittedOAI, hardExcludedOAI),
-		ContextWindowExcludedModels:   routingpolicy.ContextWindowOnlyExclusions(ctxOverflowedOAI, overflowAdmittedOAI, hardExcludedOAI),
-		ImageLimitExcludedModels:      modelSet(imageLimitExcludedOAI),
-		UnsignedHistoryExcludedModels: modelSet(geminiUnsignedOAI),
-		OverflowAdmittedModels:        modelSet(overflowAdmittedOAI),
+		SafetyExcludedModels:          pre.Safety,
+		ContextWindowExcludedModels:   pre.ContextWindowOnly,
+		ImageLimitExcludedModels:      modelSet(pre.ImageLimited),
+		UnsignedHistoryExcludedModels: modelSet(pre.UnsignedHistory),
+		OverflowAdmittedModels:        modelSet(pre.OverflowAdmitted),
 		PreferredModels:               s.preferredModelsForRequest(ctx),
 		RoutingKnobs:                  routingKnobsForRequest(ctx),
 		ClusterArmOverrides:           clusterArmOverridesForRequest(ctx),

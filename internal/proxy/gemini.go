@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -135,47 +135,25 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		return forceErr
 	}
 
-	enabledProviders := s.enabledProvidersForRequest(ctx, providers.ProviderGoogle, r.Header)
-	var creditsErr error
-	if enabledProviders, creditsErr = applyWeaveCreditsPolicy(ctx, enabledProviders); creditsErr != nil {
-		return creditsErr
+	eligibility, eligibilityErr := s.routing.Eligibility(ctx, credentials.EligibilityRequest{Surface: providers.ProviderGoogle, Headers: r.Header, InstallationID: installationIDFromContext(ctx)})
+	if eligibilityErr != nil {
+		return eligibilityErr
 	}
+	enabledProviders := eligibility.EnabledProviders
 	excluded := s.excludedModelsForRequest(ctx)
 	outputReserve := contextWindowOutputReserve
 	if feats.MaxTokens > outputReserve {
 		outputReserve = feats.MaxTokens
 	}
-	excluded, geminiUnsigned := routingpolicy.ExcludeGemini3xOnUnsignedHistory(env, excluded, s.availableModels)
-	if len(geminiUnsigned) > 0 {
-		log.Info("gemini pre-filter: excluded gemini-3.x for unsigned tool-call history",
-			"excluded_models", strings.Join(geminiUnsigned, ","),
-		)
-	}
-	customBindings := s.customBindingsForRequest(ctx)
-	excluded, imageLimitExcluded := routingpolicy.ExcludeImageLimitModels(feats.ImageCount, enabledProviders, customBindings, excluded, s.availableModels)
-	if len(imageLimitExcluded) > 0 {
-		log.Info("image limit pre-filter: excluded models whose bindings cap images below the request count",
-			"image_count", feats.ImageCount,
-			"excluded_models", strings.Join(imageLimitExcluded, ","),
-		)
-	}
-	hardExcluded := append(append([]string(nil), geminiUnsigned...), imageLimitExcluded...)
-	overflowEstimate := env.ContextOverflowTokenEstimate()
-	excluded, ctxOverflowed := routingpolicy.ExcludeContextOverflowModels(overflowEstimate, env.SignatureTokenSavings(), outputReserve, enabledProviders, excluded, s.availableModels)
-	overflowAdmitted := routingpolicy.AdmitWidestOnTotalOverflow(excluded, ctxOverflowed, s.availableModels, enabledProviders, router.RequestBindings{Custom: s.customBindingsForRequest(ctx), Gateways: s.gatewayProvidersForRequest(ctx)})
-	excluded = withoutModels(excluded, overflowAdmitted)
-	if len(ctxOverflowed) > 0 {
-		log.Info("context window pre-filter: excluded over-capacity models",
-			"overflow_token_estimate", overflowEstimate,
-			"output_reserve", outputReserve,
-			"excluded_count", len(ctxOverflowed)-len(overflowAdmitted),
-			"excluded_models", strings.Join(ctxOverflowed, ","),
-			"admitted_for_upstream", strings.Join(overflowAdmitted, ","),
-		)
-	}
+	pre := routingpolicy.Prefilter(routingpolicy.PrefilterRequest{
+		Envelope: env, ImageCount: feats.ImageCount, OutputReserve: outputReserve, Eligibility: eligibility,
+		Excluded: excluded, Available: s.availableModels,
+		AdvisorExclusions: advisorExclusions(env, s.routableUniverse()),
+	})
+	logPrefilter(log, env, feats.ImageCount, outputReserve, pre)
+	excluded, overflowEstimate := pre.Excluded, pre.OverflowEstimate
 
 	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText)
-	_, safetyAdvisorOutranking := excludeAdvisorOutrankingModels(env, nil, s.routableUniverse())
 	routeRequest := router.Request{
 		RequestedModel:                feats.Model,
 		ForceCluster:                  forceCluster,
@@ -192,15 +170,15 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		Tools:                         toolsForRouting(env),
 		ClientSessionID:               clientSessionIDForRequest(ctx, env),
 		EnabledProviders:              enabledProviders,
-		CustomBindings:                customBindings,
+		CustomBindings:                eligibility.CustomBindings,
 		GatewayProviders:              s.gatewayProvidersForRequest(ctx),
 		ExcludedModels:                excluded,
 		AllowedModels:                 allowedModelsForRequest(ctx),
-		SafetyExcludedModels:          routingpolicy.WithoutModelsKeep(routingpolicy.SafetyExcludedModels(env, outputReserve, enabledProviders, customBindings, s.availableModels, safetyAdvisorOutranking), overflowAdmitted, hardExcluded),
-		ContextWindowExcludedModels:   routingpolicy.ContextWindowOnlyExclusions(ctxOverflowed, overflowAdmitted, hardExcluded),
-		ImageLimitExcludedModels:      modelSet(imageLimitExcluded),
-		UnsignedHistoryExcludedModels: modelSet(geminiUnsigned),
-		OverflowAdmittedModels:        modelSet(overflowAdmitted),
+		SafetyExcludedModels:          pre.Safety,
+		ContextWindowExcludedModels:   pre.ContextWindowOnly,
+		ImageLimitExcludedModels:      modelSet(pre.ImageLimited),
+		UnsignedHistoryExcludedModels: modelSet(pre.UnsignedHistory),
+		OverflowAdmittedModels:        modelSet(pre.OverflowAdmitted),
 		PreferredModels:               s.preferredModelsForRequest(ctx),
 		RoutingKnobs:                  router.RoutingKnobsFromContext(ctx),
 		ClusterArmOverrides:           clusterArmOverridesForRequest(ctx),

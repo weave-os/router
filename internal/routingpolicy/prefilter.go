@@ -2,7 +2,8 @@ package routingpolicy
 
 import (
 	"sort"
-	"strings"
+
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -202,14 +203,6 @@ func WithoutModelsKeep(set map[string]struct{}, models, keep []string) map[strin
 	return WithoutModels(set, filtered)
 }
 
-// Gemini3xRequiresSignedHistory reports whether model is a Gemini 3.x model,
-// which 400s (INVALID_ARGUMENT) when the request history carries function-call
-// parts lacking the thoughtSignature Gemini issued. Scoped by family name; if
-// the catalog later grows a per-model capability flag this should move there.
-func Gemini3xRequiresSignedHistory(model string) bool {
-	return strings.HasPrefix(model, "gemini-3") || model == router.ModelGemini4Argon
-}
-
 // ExcludeGemini3xOnUnsignedHistory augments excluded with every Gemini 3.x
 // model when the request history carries an assistant tool call lacking a
 // Gemini thoughtSignature (guaranteed 400 on foreign/cross-model history).
@@ -222,7 +215,7 @@ func ExcludeGemini3xOnUnsignedHistory(env *translate.RequestEnvelope, excluded, 
 	var out map[string]struct{}
 	var added []string
 	for model := range available {
-		if !Gemini3xRequiresSignedHistory(model) {
+		if !catalog.RequiresSignedToolHistory(model) {
 			continue
 		}
 		if _, already := excluded[model]; already {
@@ -326,4 +319,58 @@ func ModelSet(ids []string) map[string]struct{} {
 		set[id] = struct{}{}
 	}
 	return set
+}
+
+// PrefilterRequest is the input to Prefilter.
+type PrefilterRequest struct {
+	Envelope      *translate.RequestEnvelope
+	ImageCount    int
+	OutputReserve int
+	Eligibility   credentials.Eligibility
+	// Excluded is the policy exclusion set the request-time filters extend.
+	Excluded  map[string]struct{}
+	Available map[string]struct{}
+	// AdvisorExclusions adds the models the request's advisor tool cannot
+	// advise; ExcludeAdvisorOutranking applies it to routing as well as safety.
+	AdvisorExclusions        func(excluded map[string]struct{}) (map[string]struct{}, []string)
+	ExcludeAdvisorOutranking bool
+}
+
+// Prefiltered is the request-time exclusion state handed to the router.
+type Prefiltered struct {
+	Excluded          map[string]struct{}
+	Safety            map[string]struct{}
+	ContextWindowOnly map[string]struct{}
+	UnsignedHistory   []string
+	AdvisorOutranking []string
+	ImageLimited      []string
+	ContextOverflowed []string
+	OverflowAdmitted  []string
+	OverflowEstimate  int
+}
+
+// Prefilter drops the models this request can never use, then the models
+// whose context window it overflows. Hard exclusions run first so a model the
+// request can never use does not count as fitting and suppress the
+// total-overflow admission.
+func Prefilter(req PrefilterRequest) Prefiltered {
+	env, available := req.Envelope, req.Available
+	enabled, custom := req.Eligibility.EnabledProviders, req.Eligibility.CustomBindings
+	var out Prefiltered
+	excluded, unsigned := ExcludeGemini3xOnUnsignedHistory(env, req.Excluded, available)
+	out.UnsignedHistory = unsigned
+	if req.ExcludeAdvisorOutranking {
+		excluded, out.AdvisorOutranking = req.AdvisorExclusions(excluded)
+	}
+	excluded, out.ImageLimited = ExcludeImageLimitModels(req.ImageCount, enabled, custom, excluded, available)
+	out.OverflowEstimate = env.ContextOverflowTokenEstimate()
+	excluded, out.ContextOverflowed = ExcludeContextOverflowModels(out.OverflowEstimate, env.SignatureTokenSavings(), req.OutputReserve, enabled, excluded, available)
+	bindings := router.RequestBindings{Custom: custom, Gateways: req.Eligibility.GatewayProviders}
+	out.OverflowAdmitted = AdmitWidestOnTotalOverflow(excluded, out.ContextOverflowed, available, enabled, bindings)
+	out.Excluded = WithoutModels(excluded, out.OverflowAdmitted)
+	hard := append(append(append([]string(nil), out.UnsignedHistory...), out.AdvisorOutranking...), out.ImageLimited...)
+	_, safetyAdvisor := req.AdvisorExclusions(nil)
+	out.Safety = WithoutModelsKeep(SafetyExcludedModels(env, req.OutputReserve, enabled, custom, available, safetyAdvisor), out.OverflowAdmitted, hard)
+	out.ContextWindowOnly = ContextWindowOnlyExclusions(out.ContextOverflowed, out.OverflowAdmitted, hard)
+	return out
 }

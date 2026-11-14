@@ -3,8 +3,10 @@ package routingpolicy_test
 import (
 	"strings"
 	"testing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 
@@ -252,12 +254,12 @@ func TestExcludeGemini3xOnUnsignedHistory_SignedHistoryIsNoop(t *testing.T) {
 	assert.Empty(t, out)
 }
 
-func TestGemini3xRequiresSignedHistory(t *testing.T) {
-	assert.True(t, routingpolicy.Gemini3xRequiresSignedHistory("gemini-3.1-pro-preview"))
-	assert.True(t, routingpolicy.Gemini3xRequiresSignedHistory("gemini-3.5-flash"))
-	assert.True(t, routingpolicy.Gemini3xRequiresSignedHistory(router.ModelGemini4Argon))
-	assert.False(t, routingpolicy.Gemini3xRequiresSignedHistory("gemini-2.5-flash"))
-	assert.False(t, routingpolicy.Gemini3xRequiresSignedHistory("claude-opus-4-8"))
+func TestRequiresSignedToolHistory(t *testing.T) {
+	assert.True(t, catalog.RequiresSignedToolHistory("gemini-3.1-pro-preview"))
+	assert.True(t, catalog.RequiresSignedToolHistory("gemini-3.5-flash"))
+	assert.True(t, catalog.RequiresSignedToolHistory(router.ModelGemini4Argon))
+	assert.False(t, catalog.RequiresSignedToolHistory("gemini-2.5-flash"))
+	assert.False(t, catalog.RequiresSignedToolHistory("claude-opus-4-8"))
 }
 
 func TestExcludeImageLimitModels(t *testing.T) {
@@ -313,4 +315,49 @@ func TestSafetyExcludedModelsIncludesImageLimits(t *testing.T) {
 	available := map[string]struct{}{"xiaomi/mimo-v2.6-pro": {}}
 	excluded := routingpolicy.SafetyExcludedModels(env, 0, map[string]struct{}{providers.ProviderDeepInfra: {}}, nil, available, nil)
 	assert.Equal(t, map[string]struct{}{"xiaomi/mimo-v2.6-pro": {}}, excluded)
+}
+
+func TestPrefilter_UnsignedHistoryExcludesGeminiFromRoutingAndSafety(t *testing.T) {
+	available := map[string]struct{}{"gemini-3.1-pro-preview": {}, "claude-opus-4-8": {}}
+	env, err := translate.ParseAnthropic([]byte(`{"model":"x","messages":[{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{}}]}]}`))
+	require.NoError(t, err)
+
+	pre := routingpolicy.Prefilter(routingpolicy.PrefilterRequest{
+		Envelope:  env,
+		Excluded:  map[string]struct{}{},
+		Available: available,
+		Eligibility: credentials.Eligibility{EnabledProviders: map[string]struct{}{
+			providers.ProviderGoogle: {}, providers.ProviderAnthropic: {},
+		}},
+		AdvisorExclusions: func(excluded map[string]struct{}) (map[string]struct{}, []string) { return excluded, nil },
+	})
+
+	assert.Equal(t, []string{"gemini-3.1-pro-preview"}, pre.UnsignedHistory)
+	assert.Contains(t, pre.Excluded, "gemini-3.1-pro-preview")
+	assert.NotContains(t, pre.Excluded, "claude-opus-4-8")
+	assert.Contains(t, pre.Safety, "gemini-3.1-pro-preview")
+	assert.Empty(t, pre.ContextWindowOnly, "a hard exclusion is not a context-window exclusion")
+}
+
+func TestPrefilter_AdvisorOutrankingAppliesOnlyWhenRequested(t *testing.T) {
+	available := map[string]struct{}{"claude-opus-4-8": {}}
+	env, err := translate.ParseAnthropic([]byte(`{"model":"x","messages":[{"role":"user","content":"hi"}]}`))
+	require.NoError(t, err)
+	advisor := func(excluded map[string]struct{}) (map[string]struct{}, []string) {
+		out := map[string]struct{}{"claude-opus-4-8": {}}
+		for m := range excluded {
+			out[m] = struct{}{}
+		}
+		return out, []string{"claude-opus-4-8"}
+	}
+	req := routingpolicy.PrefilterRequest{Envelope: env, Excluded: map[string]struct{}{}, Available: available, AdvisorExclusions: advisor}
+
+	skipped := routingpolicy.Prefilter(req)
+	req.ExcludeAdvisorOutranking = true
+	applied := routingpolicy.Prefilter(req)
+
+	assert.NotContains(t, skipped.Excluded, "claude-opus-4-8")
+	assert.Contains(t, skipped.Safety, "claude-opus-4-8", "safety always reflects advisor outranking")
+	assert.Equal(t, []string{"claude-opus-4-8"}, applied.AdvisorOutranking)
+	assert.Contains(t, applied.Excluded, "claude-opus-4-8")
 }

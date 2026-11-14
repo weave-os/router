@@ -1433,7 +1433,7 @@ func main() {
 		logger.Error("Failed to configure atomic classifier", "err", err)
 		panic(err)
 	}
-	proxySvc = proxySvc.WithInferenceExecutor(inferenceExecutor).WithInferencePlans(inferencePlans).WithInferenceDeployment(inferenceDeployment)
+	proxySvc = withRoutingPolicy(proxySvc.WithInferenceExecutor(inferenceExecutor).WithInferencePlans(inferencePlans).WithInferenceDeployment(inferenceDeployment), inferencePlans)
 	if subscriptionRuntime != nil {
 		proxySvc.WithManagedSubscriptions(subscriptionRuntime)
 	}
