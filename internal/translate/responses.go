@@ -2506,9 +2506,20 @@ func (t *ResponsesWriter) emitFunctionArgsDelta(item *responsesToolItem, delta s
 	})
 }
 
+// customToolInput attributes an unwrap failure on a length-finished turn to
+// truncation: Anthropic sends no argument deltas for a tool_use block that
+// max_tokens cuts off, leaving only its "{}" placeholder.
+func (t *ResponsesWriter) customToolInput(arguments string) (string, error) {
+	input, err := customToolInput(arguments)
+	if err != nil && t.finishReason == "length" {
+		return "", fmt.Errorf("%w: %w", ErrToolCallTruncated, err)
+	}
+	return input, err
+}
+
 func (t *ResponsesWriter) emitFunctionArgsDone(item *responsesToolItem) error {
 	if item.mapping.Custom {
-		input, err := customToolInput(item.call.Arguments)
+		input, err := t.customToolInput(item.call.Arguments)
 		if err != nil {
 			return err
 		}
@@ -2533,7 +2544,7 @@ func (t *ResponsesWriter) emitFunctionArgsDone(item *responsesToolItem) error {
 
 func (t *ResponsesWriter) emitFunctionCallItemDone(item *responsesToolItem) error {
 	if item.mapping.Custom {
-		input, err := customToolInput(item.call.Arguments)
+		input, err := t.customToolInput(item.call.Arguments)
 		if err != nil {
 			return err
 		}

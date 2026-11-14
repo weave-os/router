@@ -408,3 +408,18 @@ func TestResponsesWriter_WithoutCodexMappingsPreservesLegacyFunctionShape(t *tes
 		assert.False(t, hasNamespace, "non-Codex translated Responses output must retain its legacy shape")
 	}
 }
+
+// Anthropic streams no input_json_delta when max_tokens lands inside a
+// tool_use block, so the call surfaces with its `{}` placeholder and a
+// length finish; that is a truncation, not a malformed call.
+func TestResponsesWriter_CustomToolCutOffByOutputLimitIsTruncation(t *testing.T) {
+	w := translate.NewResponsesWriter(httptest.NewRecorder(), "synthetic-model")
+	w.SetToolMappings(customExecToolMappings(t))
+	require.NoError(t, w.Prelude(true))
+	_, err := w.Write(customExecToolChunk(t, `{}`, true, "length"))
+	if err == nil {
+		err = w.Finalize()
+	}
+	require.ErrorIs(t, err, translate.ErrToolCallTruncated)
+	require.ErrorIs(t, err, translate.ErrCustomToolArguments)
+}

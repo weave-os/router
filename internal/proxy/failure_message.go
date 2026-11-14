@@ -101,6 +101,9 @@ func failureWordingFor(a dispatch.TracedAttempt) failureWording {
 	if errors.Is(a.Err, ErrSubscriptionPoolUnavailable) {
 		return failureWording{"had no usable subscription seat", "no usable subscription seat"}
 	}
+	if errors.Is(a.Err, translate.ErrToolCallTruncated) {
+		return failureWording{"ran out of output tokens mid tool call", "tool call cut off by the output token limit"}
+	}
 	if errors.Is(a.Err, translate.ErrCustomToolArguments) {
 		return failureWording{"sent malformed tool arguments", "malformed tool call arguments"}
 	}

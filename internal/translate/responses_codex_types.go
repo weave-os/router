@@ -14,6 +14,10 @@ import (
 // unwrapped into a Codex custom tool input.
 var ErrCustomToolArguments = errors.New("decode custom tool arguments")
 
+// ErrToolCallTruncated marks a tool call the output token limit cut off
+// before its arguments completed. It wraps ErrCustomToolArguments.
+var ErrToolCallTruncated = errors.New("tool call cut off by the output token limit")
+
 // ResponsesToolMapping describes one Responses tool after it has been
 // projected into a flat Chat Completions function. Alias is the synthetic Chat
 // function name. Name and Namespace are restored on the way back to Codex;

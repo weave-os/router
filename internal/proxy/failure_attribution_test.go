@@ -179,6 +179,15 @@ func TestMalformedCustomToolArgumentsAreProviderOwned(t *testing.T) {
 	assert.Equal(t, "Provider DeepInfra failed: malformed tool call arguments.", terminalMessageFor(customTool))
 }
 
+func TestTruncatedToolCallNamesTheOutputLimit(t *testing.T) {
+	err := fmt.Errorf("write: %w: %w: expected exactly one input field", translate.ErrToolCallTruncated, translate.ErrCustomToolArguments)
+	truncated := dispatch.TracedAttempt{Target: inference.Target{Provider: providers.ProviderAnthropic}, Err: err,
+		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(TurnErrorOther), BodyTranslated: true}}
+	truncated.Diagnosis.FailureOwner = string(classifyFailureOwner(failureOwnerInput{Err: err, BodyTranslated: true}))
+
+	assert.Equal(t, "Provider Anthropic failed: tool call cut off by the output token limit.", terminalMessageFor(truncated))
+}
+
 func TestWithRescueDetail_SuppressedBadgeStaysEmpty(t *testing.T) {
 	assert.Empty(t, withRescueDetail("", "↳ switched: Fireworks timed out (provider issue)\n\n"))
 }
