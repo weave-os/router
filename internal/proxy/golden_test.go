@@ -47,6 +47,10 @@ type goldenScenario struct {
 	upstreams map[string][]goldenStep
 	requests  []goldenRequest
 	configure func(*proxy.Service, *goldenHarness) *proxy.Service
+	// credentials labels the secrets a scenario supplies; non-nil records the
+	// resolved credential per attempt and fails if an attempt carries any other
+	// credential or a known secret reaches client bytes, logs, billing or telemetry.
+	credentials map[string]string
 }
 
 type goldenRequest struct {
@@ -56,6 +60,7 @@ type goldenRequest struct {
 	decorateContext func(context.Context) context.Context
 	// noTelemetry marks requests refused before a request row is emitted.
 	noTelemetry bool
+	headers     map[string]string
 }
 
 type goldenRecorder struct {
@@ -69,6 +74,8 @@ type goldenRecorder struct {
 	debits            []any
 	telemetry         []any
 	cancel            context.CancelFunc
+	credentialLabels  map[string]string
+	exposed           goldenExposure
 }
 
 // goldenRecordLengths marks where one request's records start.
@@ -119,7 +126,7 @@ type goldenHarness struct {
 // every store and upstream replaced by an in-memory fake.
 func newGoldenHarness(t *testing.T, sc goldenScenario) *goldenHarness {
 	t.Helper()
-	h := &goldenHarness{clock: &goldenClock{now: goldenEpoch}, rec: &goldenRecorder{calls: map[string]int{}}}
+	h := &goldenHarness{clock: &goldenClock{now: goldenEpoch}, rec: &goldenRecorder{calls: map[string]int{}, credentialLabels: sc.credentials}}
 	h.telemetry = &goldenTelemetry{rec: h.rec, rows: make(chan struct{}, 64)}
 	h.pins = &goldenPinStore{clock: h.clock, rec: h.rec, pins: map[string]sessionpin.Pin{}}
 
@@ -190,6 +197,9 @@ func (h *goldenHarness) serve(t *testing.T, ingress string, req goldenRequest) g
 	base := context.WithValue(context.Background(), proxy.APIKeyIDContextKey{}, "golden-key")
 	base = context.WithValue(base, proxy.InstallationIDContextKey{}, goldenInstallationID)
 	base = context.WithValue(base, proxy.ExternalIDContextKey{}, "golden-org")
+	if h.rec.credentialLabels != nil {
+		base = h.rec.exposed.withLogger(base)
+	}
 	if req.decorateContext != nil {
 		base = req.decorateContext(base)
 	}
@@ -207,6 +217,9 @@ func (h *goldenHarness) serve(t *testing.T, ingress string, req goldenRequest) g
 	}
 	httpReq := httptest.NewRequest(http.MethodPost, path, strings.NewReader(req.body)).WithContext(ctx)
 	httpReq.Header.Set("Content-Type", "application/json")
+	for k, v := range req.headers {
+		httpReq.Header.Set(k, v)
+	}
 	rec := httptest.NewRecorder()
 	var err error
 	if ingress == ingressOpenAI {
@@ -237,6 +250,9 @@ func (h *goldenHarness) serve(t *testing.T, ingress string, req goldenRequest) g
 	}
 	if err != nil {
 		trace.DispatchError = goldenClassify(err)
+	}
+	if h.rec.credentialLabels != nil {
+		h.rec.exposed.record(rec, err)
 	}
 	return trace
 }
@@ -479,6 +495,9 @@ func runGoldenScenario(t *testing.T, sc goldenScenario) {
 	got, err := json.MarshalIndent(map[string]any{"scenario": sc.name, "requests": traces}, "", "  ")
 	require.NoError(t, err)
 	got = append(got, '\n')
+	if sc.credentials != nil {
+		h.rec.exposed.requireNoSecrets(t, got)
+	}
 
 	path := filepath.Join("testdata", "golden", sc.name+".json")
 	if *updateGolden {
@@ -494,7 +513,8 @@ func runGoldenScenario(t *testing.T, sc goldenScenario) {
 func TestGolden(t *testing.T) {
 	t.Parallel()
 	names := map[string]bool{}
-	for _, sc := range append(goldenInferenceScenarios(), goldenInferenceExecutionScenarios()...) {
+	scenarios := append(goldenInferenceScenarios(), goldenInferenceExecutionScenarios()...)
+	for _, sc := range append(scenarios, goldenCredentialScenarios()...) {
 		require.False(t, names[sc.name], "duplicate golden scenario %s", sc.name)
 		names[sc.name] = true
 		t.Run(sc.name, func(t *testing.T) {
