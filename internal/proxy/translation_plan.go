@@ -78,6 +78,15 @@ func translationRequirementsFromContext(ctx context.Context) (router.Translation
 	return req, ok && !req.IsZero()
 }
 
+// customToolExcludedModels re-applies the custom-tool exclusion for rescue
+// paths that rebuild their exclusions outside the scored request.
+func customToolExcludedModels(ctx context.Context) map[string]struct{} {
+	if requirements, ok := translationRequirementsFromContext(ctx); ok && requirements.CustomTools {
+		return catalog.CustomToolUnsupportedSet()
+	}
+	return nil
+}
+
 func responseTransformationsFromContext(ctx context.Context) []providers.RequestTransformation {
 	transforms, _ := ctx.Value(responsesTransformsContextKey{}).([]translate.ResponseTransform)
 	if len(transforms) == 0 {
@@ -154,19 +163,38 @@ func (s *Service) planTranslation(req router.Request) TranslationPlan {
 	// mode it is semantic: sending media to a known text-only model cannot be
 	// repaired by an upstream fallback after a response starts.
 	if requirements.Images {
-		for model := range catalog.ImageUnsupportedSet() {
-			plan.Exclusions = append(plan.Exclusions, TranslationExclusion{
-				Code: "image_input_unsupported", Model: model, Enforced: plan.Enforced,
-			})
-			if plan.Enforced {
-				if plan.ExcludedModels == nil {
-					plan.ExcludedModels = make(map[string]struct{})
-				}
-				plan.ExcludedModels[model] = struct{}{}
-			}
-		}
+		plan.excludeModels("image_input_unsupported", catalog.ImageUnsupportedSet(), plan.Enforced)
+	}
+
+	// A custom tool call the model cannot fill fails the committed stream, so
+	// this exclusion holds in every compatibility mode, like native search.
+	if requirements.CustomTools {
+		plan.excludeModels("custom_tool_unsupported", catalog.CustomToolUnsupportedSet(), true)
 	}
 	return plan
+}
+
+// compatibilityExcludesModel reports whether the request's content rules model
+// out regardless of context fit.
+func compatibilityExcludesModel(req router.Request, model string) bool {
+	return req.TranslationRequirements.Images && !catalog.AcceptsImages(model) ||
+		req.ImageCount > 0 && !catalog.AcceptsImageCount(model, req.ImageCount, req.EnabledProviders) ||
+		req.TranslationRequirements.CustomTools && !catalog.AcceptsCustomTools(model)
+}
+
+// excludeModels reports each model under code and, when enforced, removes it
+// from the candidate set.
+func (plan *TranslationPlan) excludeModels(code string, models map[string]struct{}, enforced bool) {
+	for model := range models {
+		plan.Exclusions = append(plan.Exclusions, TranslationExclusion{Code: code, Model: model, Enforced: enforced})
+		if !enforced {
+			continue
+		}
+		if plan.ExcludedModels == nil {
+			plan.ExcludedModels = make(map[string]struct{})
+		}
+		plan.ExcludedModels[model] = struct{}{}
+	}
 }
 
 // translationConstraints is the compatibility matrix. Native source routing
