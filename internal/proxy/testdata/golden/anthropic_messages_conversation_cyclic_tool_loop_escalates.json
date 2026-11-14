@@ -1,0 +1,833 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages",
+      "stream": false,
+      "routing_decisions": [],
+      "dispatch_attempts": [
+        {
+          "provider": "anthropic",
+          "wire_model": "claude-opus-5",
+          "outbound_body": {
+            "fallbacks": "default",
+            "max_tokens": 1024,
+            "messages": [
+              {
+                "content": "refactor the parser package",
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_00",
+                    "input": {
+                      "path": "parser.go"
+                    },
+                    "name": "Read",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "same output",
+                    "tool_use_id": "toolu_00",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_01",
+                    "input": {
+                      "path": "parser.go"
+                    },
+                    "name": "Read",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "same output",
+                    "tool_use_id": "toolu_01",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_02",
+                    "input": {
+                      "path": "parser.go"
+                    },
+                    "name": "Read",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "same output",
+                    "tool_use_id": "toolu_02",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_03",
+                    "input": {
+                      "path": "parser.go"
+                    },
+                    "name": "Read",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "same output",
+                    "tool_use_id": "toolu_03",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_04",
+                    "input": {
+                      "path": "parser.go"
+                    },
+                    "name": "Read",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "same output",
+                    "tool_use_id": "toolu_04",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_05",
+                    "input": {
+                      "path": "parser.go"
+                    },
+                    "name": "Read",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "same output",
+                    "tool_use_id": "toolu_05",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_06",
+                    "input": {
+                      "path": "parser.go"
+                    },
+                    "name": "Read",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "same output",
+                    "tool_use_id": "toolu_06",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_07",
+                    "input": {
+                      "path": "parser.go"
+                    },
+                    "name": "Read",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "same output",
+                    "tool_use_id": "toolu_07",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_08",
+                    "input": {
+                      "path": "parser.go"
+                    },
+                    "name": "Read",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "same output",
+                    "tool_use_id": "toolu_08",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_09",
+                    "input": {
+                      "path": "parser.go"
+                    },
+                    "name": "Read",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "same output",
+                    "tool_use_id": "toolu_09",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_10",
+                    "input": {
+                      "path": "parser.go"
+                    },
+                    "name": "Read",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "same output",
+                    "tool_use_id": "toolu_10",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_11",
+                    "input": {
+                      "path": "parser.go"
+                    },
+                    "name": "Read",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "same output",
+                    "tool_use_id": "toolu_11",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_12",
+                    "input": {
+                      "path": "parser.go"
+                    },
+                    "name": "Read",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "same output",
+                    "tool_use_id": "toolu_12",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_13",
+                    "input": {
+                      "path": "parser.go"
+                    },
+                    "name": "Read",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "same output",
+                    "tool_use_id": "toolu_13",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_14",
+                    "input": {
+                      "path": "parser.go"
+                    },
+                    "name": "Read",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "same output",
+                    "tool_use_id": "toolu_14",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_15",
+                    "input": {
+                      "path": "parser.go"
+                    },
+                    "name": "Read",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "same output",
+                    "tool_use_id": "toolu_15",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_16",
+                    "input": {
+                      "path": "parser.go"
+                    },
+                    "name": "Read",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "same output",
+                    "tool_use_id": "toolu_16",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_17",
+                    "input": {
+                      "path": "parser.go"
+                    },
+                    "name": "Read",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "same output",
+                    "tool_use_id": "toolu_17",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_18",
+                    "input": {
+                      "path": "parser.go"
+                    },
+                    "name": "Read",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "same output",
+                    "tool_use_id": "toolu_18",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_19",
+                    "input": {
+                      "path": "parser.go"
+                    },
+                    "name": "Read",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "same output",
+                    "tool_use_id": "toolu_19",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_20",
+                    "input": {
+                      "path": "parser.go"
+                    },
+                    "name": "Read",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "same output",
+                    "tool_use_id": "toolu_20",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_21",
+                    "input": {
+                      "path": "parser.go"
+                    },
+                    "name": "Read",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "same output",
+                    "tool_use_id": "toolu_21",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_22",
+                    "input": {
+                      "path": "parser.go"
+                    },
+                    "name": "Read",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "same output",
+                    "tool_use_id": "toolu_22",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_23",
+                    "input": {
+                      "path": "parser.go"
+                    },
+                    "name": "Read",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "cache_control": {
+                      "type": "ephemeral"
+                    },
+                    "content": "same output",
+                    "tool_use_id": "toolu_23",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "model": "claude-opus-5",
+            "stream": false,
+            "tools": [
+              {
+                "description": "run",
+                "input_schema": {
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "name": "Bash"
+              },
+              {
+                "description": "read",
+                "input_schema": {
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "name": "Read"
+              },
+              {
+                "description": "edit",
+                "input_schema": {
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "name": "Edit"
+              }
+            ]
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Diagnosis": {
+            "BodyTranslated": true
+          },
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-anthropic-messages",
+            "PolicyRevision": "3",
+            "Purpose": "anthropic_messages",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "claude-opus-5",
+            "Provider": "anthropic",
+            "UpstreamID": "claude-opus-5"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Router-Cache-Creation-Tokens": "0",
+          "X-Router-Cache-Read-Tokens": "0",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "1390",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "1000000",
+          "X-Router-Cost-Input-Usd": "0.00006",
+          "X-Router-Cost-Output-Usd": "0.000175",
+          "X-Router-Cost-Usd": "0.000235",
+          "X-Router-Decision": "loop_escalation",
+          "X-Router-Model": "claude-opus-5",
+          "X-Router-Provider": "anthropic"
+        },
+        "body": {
+          "content": [
+            {
+              "text": "reply 1",
+              "type": "text"
+            }
+          ],
+          "id": "\u003cid\u003e",
+          "model": "claude-haiku-4-5",
+          "role": "assistant",
+          "stop_reason": "end_turn",
+          "type": "message",
+          "usage": {
+            "input_tokens": 12,
+            "output_tokens": 7
+          }
+        }
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "default_low",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "Model": "claude-opus-5",
+            "Provider": "anthropic",
+            "Reason": "loop_escalation",
+            "Role": "default_low",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "upsert",
+          "role": "default_low",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "Model": "claude-opus-5",
+            "Provider": "anthropic",
+            "Reason": "loop_escalation",
+            "Role": "default_low",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "update_usage",
+          "role": "default_low",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "ServedModel": "claude-opus-5",
+            "ServedProvider": "anthropic",
+            "Strategy": "hmm_embedding"
+          }
+        }
+      ],
+      "store_events": [
+        {
+          "op": "loop_escalation.insert",
+          "detail": {
+            "Action": "escalated",
+            "DistinctRatio": 0.041666666666666664,
+            "EscalationTarget": "claude-opus-5",
+            "InstallationID": "00000000-0000-4000-8000-000000000001",
+            "LoopInputHash": "8ed7fdcd4373a43772a77da49d8499359b8d894c3b2116196dc0f771ccf738eb",
+            "LoopTool": "Read",
+            "LoopingModel": "claude-haiku-4-5",
+            "RepeatCount": 24,
+            "Role": "default_low",
+            "WindowSize": 24
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -235,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 235,
+          "OrganizationID": "golden-org",
+          "RouterModel": "claude-opus-5"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.00006,
+          "ActualOutputCostUSD": 0.000175,
+          "CaptureMode": "off",
+          "ContextSnapshot": {
+            "context_window": 1000000,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 1390,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "requested_model": "claude-haiku-4-5",
+            "served_model": "claude-opus-5",
+            "version": 1
+          },
+          "DecisionModel": "claude-opus-5",
+          "DecisionProvider": "anthropic",
+          "DecisionReason": "loop_escalation",
+          "EmbedInput": "only_user_message",
+          "EstimatedInputTokens": 6,
+          "FinalModelFamily": "claude-opus",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "claude-opus",
+          "LatestToolCallCounts": {
+            "Read": {
+              "calls": 1,
+              "errors": 0
+            }
+          },
+          "OutputTokens": 7,
+          "PinTier": "loop_escalation",
+          "RequestedInputCostUSD": 0.000012,
+          "RequestedModel": "claude-haiku-4-5",
+          "RequestedOutputCostUSD": 0.000035,
+          "Role": "default_low",
+          "SelectionTrace": {
+            "served_group": ""
+          },
+          "SpanType": "router.upstream",
+          "StickyHit": true,
+          "StopReason": "end_turn",
+          "ToolErrorCounts": {
+            "Read": {
+              "calls": 24,
+              "errors": 0
+            }
+          },
+          "ToolResultBytes": 13,
+          "TurnType": "tool_result",
+          "UpstreamFinishReason": "end_turn",
+          "UpstreamStatusCode": 200
+        }
+      ]
+    }
+  ],
+  "scenario": "anthropic_messages_conversation_cyclic_tool_loop_escalates"
+}
