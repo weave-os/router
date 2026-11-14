@@ -35,6 +35,13 @@ func TestSubscriptionRefreshTimestampPublishesWithGeneration(t *testing.T) {
 	require.NotNil(t, published.TokenRefreshedAt)
 	require.WithinDuration(t, start, *published.TokenRefreshedAt, 5*time.Second)
 	require.Equal(t, before.TokenRefreshVersion+1, published.TokenRefreshVersion)
+	candidates, err := repo.(interface {
+		ListSubscriptionCandidates(context.Context, auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error)
+	}).ListSubscriptionCandidates(ctx, owner)
+	require.NoError(t, err)
+	require.Len(t, candidates, 1)
+	require.Equal(t, published.TokenRefreshVersion, candidates[0].TokenRefreshVersion)
+
 	require.ErrorIs(t, repo.PersistSubscriptionTokens(ctx, account.ID, owner, leaseID, before.TokenRefreshVersion,
 		[]byte("synthetic-stale-refresh"), []byte("synthetic-stale-access"), start.Add(time.Hour)), auth.ErrSubscriptionRefreshConflict)
 	afterStale, err := repo.GetSubscriptionCredentialRecord(ctx, account.ID, owner)

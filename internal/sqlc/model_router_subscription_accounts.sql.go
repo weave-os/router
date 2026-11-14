@@ -476,6 +476,7 @@ SELECT account.id, account.subscriber_id, account.api_key_id, account.provider,
        account.enabled, account.health_state, account.cooldown_until, account.created_at,
        CASE WHEN account.subscriber_id = $1::uuid THEN 'personal' ELSE 'shared' END AS tier,
        (account.access_token_ciphertext IS NULL)::boolean AS access_token_missing,
+       account.token_refresh_version,
        -- A successful refresh clears the reason but keeps the rolling strikes.
        (CASE WHEN account.credential_last_rejection_reason IS NULL THEN 0
              ELSE account.credential_rejection_count END)::integer AS credential_rejection_count
@@ -522,6 +523,7 @@ type ListModelRouterSubscriptionCandidatesRow struct {
 	CreatedAt                pgtype.Timestamp
 	Tier                     string
 	AccessTokenMissing       bool
+	TokenRefreshVersion      int64
 	CredentialRejectionCount int32
 }
 
@@ -546,6 +548,7 @@ type ListModelRouterSubscriptionCandidatesRow struct {
 //	       account.enabled, account.health_state, account.cooldown_until, account.created_at,
 //	       CASE WHEN account.subscriber_id = $1::uuid THEN 'personal' ELSE 'shared' END AS tier,
 //	       (account.access_token_ciphertext IS NULL)::boolean AS access_token_missing,
+//	       account.token_refresh_version,
 //	       -- A successful refresh clears the reason but keeps the rolling strikes.
 //	       (CASE WHEN account.credential_last_rejection_reason IS NULL THEN 0
 //	             ELSE account.credential_rejection_count END)::integer AS credential_rejection_count
@@ -593,6 +596,7 @@ func (q *Queries) ListModelRouterSubscriptionCandidates(ctx context.Context, arg
 			&i.CreatedAt,
 			&i.Tier,
 			&i.AccessTokenMissing,
+			&i.TokenRefreshVersion,
 			&i.CredentialRejectionCount,
 		); err != nil {
 			return nil, err

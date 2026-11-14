@@ -117,7 +117,7 @@ func TestProactiveRefreshBeforeWeeklySessionBoundary(t *testing.T) {
 					require.Equal(t, 1, f.issuer.refreshes, "reported expiry alone leaves the old access token cached")
 				}
 				if hardSession {
-					_, err := f.issuer.Refresh(context.Background(), subscriptions.ProviderCodex, string(f.store.refreshTokens["synthetic-seat"]))
+					_, err := f.runtime.RefreshAccount(context.Background(), testOwner, "synthetic-seat")
 					var rejected *subscriptions.OAuthRefreshError
 					require.ErrorAs(t, err, &rejected)
 					require.Equal(t, "refresh_token_invalidated", rejected.Code)

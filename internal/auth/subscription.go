@@ -102,7 +102,8 @@ type SubscriptionAccount struct {
 	CreatedAt              time.Time
 	// AccessTokenMissing reports a dropped persisted access token, so replicas
 	// discard their cached copy instead of replaying a rejected token.
-	AccessTokenMissing bool
+	AccessTokenMissing  bool
+	TokenRefreshVersion int64
 	// CredentialRejections counts unresolved provider credential rejections,
 	// so owners can reconnect before the account is disabled.
 	CredentialRejections int

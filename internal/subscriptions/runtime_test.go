@@ -69,6 +69,7 @@ func (s *runtimeStore) ListSubscriptionCandidates(_ context.Context, owner auth.
 			continue
 		}
 		copied := *account
+		copied.TokenRefreshVersion = s.tokenRefreshVersions[account.ID]
 		_, hasAccessToken := s.accessTokens[account.ID]
 		copied.AccessTokenMissing = !hasAccessToken
 		if account.SubscriberID == owner.SubscriberID {

@@ -202,13 +202,7 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 		eligible = eligible[1:]
 		owner := auth.SubscriptionOwner{SubscriberID: candidate.SubscriberID, APIKeyID: candidate.EnrolledByAPIKeyID, InstallationID: requester.InstallationID}
 		poolID := "account:" + candidate.ID
-		account := Account{ID: candidate.ID, OwnerID: poolID, Provider: provider, Enabled: candidate.Enabled, State: candidate.State}
-		if provider == ProviderCodex {
-			account.AccountID = candidate.ExternalAccountID
-		}
-		if candidate.CooldownUntil != nil {
-			account.CooldownTil = *candidate.CooldownUntil
-		}
+		account := accountFromSubscription(candidate)
 		if err := r.manager.Upsert(account); err != nil {
 			releaseReservation()
 			return Lease{}, present, err
@@ -459,6 +453,7 @@ func subscriptionCredentialAvailable(ctx context.Context, provider Provider, cre
 
 func applySubscriptionCredentials(account Account, credentials auth.SubscriptionCredentials) Account {
 	account.AccessToken = string(credentials.AccessToken)
+	account.TokenRefreshVersion = credentials.TokenRefreshVersion
 	if credentials.AccessTokenExpiresAt == nil {
 		account.AccessTokenExpiresAt = time.Time{}
 	} else {

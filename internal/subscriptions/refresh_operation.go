@@ -138,6 +138,7 @@ func (r *Runtime) exchangeAndPersist(ctx context.Context, op refreshOperation, h
 	}
 	account := op.account
 	account.AccessToken, account.AccessTokenExpiresAt = refreshed.AccessToken, refreshed.ExpiresAt
+	account.TokenRefreshVersion = credentials.TokenRefreshVersion + 1
 	if refreshed.AccountID != "" {
 		account.AccountID = refreshed.AccountID
 	}
@@ -151,6 +152,9 @@ func (r *Runtime) exchangeAndPersist(ctx context.Context, op refreshOperation, h
 }
 
 func (r *Runtime) operationRefreshError(ctx context.Context, op refreshOperation, holder refreshHolder, credentials auth.SubscriptionCredentials, refreshErr error) (Account, error) {
+	if errors.Is(refreshErr, errRefreshLeaseLost) {
+		return Account{}, r.releaseRefreshLease(ctx, op.owner, op.account.ID, holder.leaseID, errRefreshLeaseLost)
+	}
 	if op.afterVersion != nil {
 		return r.manualRefreshError(ctx, op, holder, refreshErr)
 	}

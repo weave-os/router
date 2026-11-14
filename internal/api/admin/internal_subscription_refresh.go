@@ -31,7 +31,7 @@ func InternalRefreshSubscriptionAccountHandler(refresher subscriptions.AccountRe
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": refreshInvalidAccount})
 			return
 		}
-		status, err := refresher.RefreshAccount(c.Request.Context(), owner, accountID)
+		refreshResult, err := refresher.RefreshAccount(c.Request.Context(), owner, accountID)
 		if errors.Is(err, auth.ErrSubscriptionAccountNotFound) {
 			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": refreshAccountNotFound})
 			return
@@ -45,6 +45,6 @@ func InternalRefreshSubscriptionAccountHandler(refresher subscriptions.AccountRe
 			c.AbortWithStatusJSON(http.StatusBadGateway, gin.H{"error": refreshFailed})
 			return
 		}
-		c.JSON(http.StatusOK, status)
+		c.JSON(http.StatusOK, refreshResult)
 	}
 }

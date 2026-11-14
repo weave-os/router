@@ -32,8 +32,7 @@ func (r *Runtime) RefreshAccount(ctx context.Context, owner auth.SubscriptionOwn
 		if seat.ID != accountID || seat.SubscriberID == "" || seat.SubscriberID != owner.SubscriberID {
 			continue
 		}
-		account := Account{ID: seat.ID, OwnerID: "account:" + seat.ID, Provider: Provider(seat.Provider),
-			AccountID: seat.ExternalAccountID, Enabled: seat.Enabled, State: seat.State}
+		account := accountFromSubscription(seat)
 		return r.refreshOwnedAccount(ctx, owner, account)
 	}
 	return AccountRefreshResult{}, auth.ErrSubscriptionAccountNotFound

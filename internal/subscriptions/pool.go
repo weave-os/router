@@ -34,6 +34,7 @@ type Account struct {
 	Provider             Provider
 	AccessToken          string
 	AccessTokenExpiresAt time.Time
+	TokenRefreshVersion  int64
 	AccountID            string
 	Enabled              bool
 	State                auth.SubscriptionAccountState
@@ -109,7 +110,9 @@ func (p *Pool) Upsert(account Account) error {
 		if existing.account.Provider != account.Provider || existing.account.OwnerID != account.OwnerID {
 			return ErrProviderMismatch
 		}
-		if account.AccessToken == "" {
+		if account.TokenRefreshVersion < existing.account.TokenRefreshVersion ||
+			account.AccessToken == "" && account.TokenRefreshVersion == existing.account.TokenRefreshVersion {
+			account.TokenRefreshVersion = existing.account.TokenRefreshVersion
 			account.AccessToken = existing.account.AccessToken
 			account.AccessTokenExpiresAt = existing.account.AccessTokenExpiresAt
 		}

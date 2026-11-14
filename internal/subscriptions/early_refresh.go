@@ -11,6 +11,9 @@ import (
 
 // EarlyRefreshPolicy shortens the cached lifetime for explicitly enrolled Codex
 // seats. JWT issuance only schedules refresh; it never grants authorization.
+// Canary owner: Credential Brokerage maintainers. After crossing the observed
+// weekly boundary, review promotion versus removal; disable the controls if
+// refresh failures increase or the issuer enforces a hard session cutoff.
 type EarlyRefreshPolicy struct {
 	accountIDs map[string]struct{}
 	maxAge     time.Duration
@@ -22,9 +25,6 @@ func NewEarlyRefreshPolicy(accountIDs []string, maxAge time.Duration) (EarlyRefr
 	}
 	policy := EarlyRefreshPolicy{accountIDs: make(map[string]struct{}, len(accountIDs)), maxAge: maxAge}
 	for _, id := range accountIDs {
-		if id == "" {
-			return EarlyRefreshPolicy{}, errors.New("early refresh account ID must not be empty")
-		}
 		policy.accountIDs[id] = struct{}{}
 	}
 	return policy, nil
