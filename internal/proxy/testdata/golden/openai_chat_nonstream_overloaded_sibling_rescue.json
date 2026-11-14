@@ -16,7 +16,7 @@
           "provider": "anthropic",
           "wire_model": "claude-opus-4-7",
           "outbound_body": {
-            "max_tokens": 16000,
+            "max_tokens": 64000,
             "messages": [
               {
                 "content": [
@@ -40,7 +40,7 @@
           "provider": "anthropic",
           "wire_model": "claude-opus-4-7",
           "outbound_body": {
-            "max_tokens": 16000,
+            "max_tokens": 64000,
             "messages": [
               {
                 "content": [
@@ -64,7 +64,7 @@
           "provider": "anthropic",
           "wire_model": "claude-opus-4-7",
           "outbound_body": {
-            "max_tokens": 16000,
+            "max_tokens": 64000,
             "messages": [
               {
                 "content": [
