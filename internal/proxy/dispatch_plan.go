@@ -144,7 +144,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 		// transient error on it still gets the same-binding retries.
 		Bound: func(dispatch.Attempt, error) bool { return managedBinding },
 		// Nil unless transient_rate_limit is on for this request.
-		RetryDelay: s.throttleRetryDelay(ctx),
+		RetryDelay: dispatch.ThrottleLedgerFromContext(ctx).RetryDelay(s.clockNow),
 	}
 	transport.Attempt = func(attemptCtx context.Context, attempt dispatch.Attempt, client providers.Client) error {
 		decision := in.initialDecision
@@ -152,8 +152,8 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 		guarded := dispatch.GuardTarget(client, attempt.Target)
 		trace := attemptTraceFromContext(ctx)
 		if trace != nil {
-			trace.beginAttempt(attempt.Target, gatewayDeploymentBaseURL(attempt.Target.Provider, client), time.Now())
-			guarded = dispatch.ObservePrepared(guarded, trace.observeSent)
+			trace.BeginAttempt(attempt.Target, gatewayDeploymentBaseURL(attempt.Target.Provider, client), time.Now())
+			guarded = dispatch.ObservePrepared(guarded, observeAttemptSent(trace))
 		}
 		var lastSubscriptionErr error
 		if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && usage.IntendedModel == "" {
@@ -296,8 +296,8 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			// Describe runs once per dispatch attempt; record the failed account
 			// call before the next account overwrites the traced body.
 			if trace != nil {
-				trace.describe(ctx, attempt, attemptErr)
-				trace.beginAttempt(attempt.Target, gatewayDeploymentBaseURL(attempt.Target.Provider, client), time.Now())
+				describeAttempt(ctx, trace, attempt, attemptErr)
+				trace.BeginAttempt(attempt.Target, gatewayDeploymentBaseURL(attempt.Target.Provider, client), time.Now())
 			}
 			lastSubscriptionErr = attemptErr
 			if rotationBudget.remaining <= 0 {
@@ -317,7 +317,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 
 	if trace := attemptTraceFromContext(ctx); trace != nil {
 		transport.Describe = func(attempt dispatch.Attempt, err error) inference.AttemptDiagnosis {
-			return trace.describe(ctx, attempt, err)
+			return describeAttempt(ctx, trace, attempt, err)
 		}
 	}
 	req := inference.InvocationRequest{Purpose: in.purpose, RequestID: observability.RequestIDFromContext(ctx)}

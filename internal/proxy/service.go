@@ -169,14 +169,9 @@ type Service struct {
 	// byokOnly disables deployment-level credential fallback so customer
 	// requests never silently consume the platform's API key budget.
 	byokOnly bool
-	// noResponsesGateways memoizes gateway endpoints that answered they have no
-	// Responses API, so only the first tool turn against such an endpoint pays
-	// the probe. Keyed by gatewayResponsesKey.
-	noResponsesGateways sync.Map
-	// noPromptCacheKeyGateways memoizes gateway endpoints that rejected
-	// prompt_cache_key as an unknown field, so only the first turn against
-	// such an endpoint pays the 400. Keyed by gatewayResponsesKey.
-	noPromptCacheKeyGateways sync.Map
+	// gatewayCaps memoizes gateway endpoints that rejected the Responses API
+	// or prompt_cache_key. Keyed by gatewayResponsesKey.
+	gatewayCaps dispatch.GatewayCapabilities
 	// unservedGatewayModels memos (endpoint, model) pairs a gateway answered
 	// model-not-found for. Keyed by gatewayModelKey.
 	unservedGatewayModels sync.Map
@@ -719,7 +714,7 @@ func machineReadTurn(res turnLoopResult) bool {
 // its tool results and consume the parent's notice cooldown.
 func muteSlowStartFor(ctx context.Context, res turnLoopResult) {
 	if machineReadTurn(res) || res.HardPinned || res.TurnType == turntype.SubAgentDispatch {
-		attemptTraceFromContext(ctx).muteSlowStart()
+		attemptTraceFromContext(ctx).MuteSlowStart()
 	}
 }
 
@@ -916,7 +911,7 @@ func siblingMarkerReason(ctx context.Context, failedModel string) string {
 		return markerReasonSibling
 	}
 	cause := "was unavailable"
-	if failed, ok := attemptTraceFromContext(ctx).lastFailureOn(failedModel); ok {
+	if failed, ok := lastFailureOn(attemptTraceFromContext(ctx), failedModel); ok {
 		cause = failureWordingFor(failed).badge
 	}
 	return "switched after " + failedModel + " " + cause
@@ -951,7 +946,7 @@ func subscriptionTargetMarker(ctx context.Context, h http.Header, res turnLoopRe
 	}
 	// A pick the subscription lane never dispatched did not fail; it was
 	// swapped for a model the subscription covers.
-	if !attemptTraceFromContext(ctx).failedOn(picked.Model) {
+	if _, ok := lastFailureOn(attemptTraceFromContext(ctx), picked.Model); !ok {
 		return switchMarkerFor(ctx, h, res, markerReasonSubscriptionCovered, target.Model)
 	}
 	return siblingMarkerFor(ctx, h, res, picked.Model, target.Model)
@@ -2828,25 +2823,6 @@ func gatewayResponsesKey(ctx context.Context, provider string) string {
 	return EffectiveBaseURL(ctx, provider)
 }
 
-// gatewayLacksResponses reports whether that endpoint already told us it serves
-// no Responses API.
-func (s *Service) gatewayLacksResponses(key string) bool {
-	if key == "" {
-		return false
-	}
-	_, ok := s.noResponsesGateways.Load(key)
-	return ok
-}
-
-// rememberGatewayLacksResponses records a gateway's rejection of the Responses
-// API so later tool turns go straight to chat/completions.
-func (s *Service) rememberGatewayLacksResponses(key string) {
-	if key == "" {
-		return
-	}
-	s.noResponsesGateways.Store(key, struct{}{})
-}
-
 // gatewayModelKey returns "endpoint|model" for gateway providers (BYOK base
 // URL, or provider name when deployment-keyed); empty for direct vendors.
 func gatewayModelKey(endpoint, provider, model string) string {
@@ -2878,25 +2854,6 @@ func (s *Service) rememberGatewayLacksModel(ctx context.Context, provider, model
 		return
 	}
 	s.unservedGatewayModels.Store(key, struct{}{})
-}
-
-// gatewayRejectsPromptCacheKey reports whether that endpoint already told us
-// it refuses bodies carrying prompt_cache_key.
-func (s *Service) gatewayRejectsPromptCacheKey(key string) bool {
-	if key == "" {
-		return false
-	}
-	_, ok := s.noPromptCacheKeyGateways.Load(key)
-	return ok
-}
-
-// rememberGatewayRejectsPromptCacheKey records a gateway's unknown-field
-// rejection of prompt_cache_key so later turns go out without the hint.
-func (s *Service) rememberGatewayRejectsPromptCacheKey(key string) {
-	if key == "" {
-		return
-	}
-	s.noPromptCacheKeyGateways.Store(key, struct{}{})
 }
 
 // newTelemetryRecorder returns a request-scoped recorder, or nil when telemetry is disabled — guards against a nil-interface method-call panic.
@@ -4759,8 +4716,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					HasTools:       feats.HasTools,
 					ChatOnlyParams: env.RequiresChatCompletionsParams(targetOpts.Capabilities),
 					Broad:          s.ResolveOpenAIResponsesBroad(actx),
-				}) && !s.gatewayLacksResponses(gatewayKey)
-				stripPCK := s.gatewayRejectsPromptCacheKey(gatewayKey)
+				}) && !s.gatewayCaps.LacksResponses(gatewayKey)
+				stripPCK := s.gatewayCaps.RejectsPromptCacheKey(gatewayKey)
 				rawErr, finalize := dispatchOpenAICompat(actx, d, p, useResponses, stripPCK)
 				// A gateway with no usable Responses surface answers 404, or 4xx
 				// prose saying the API is off for this account. Re-emit onto
@@ -4768,7 +4725,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				// so the next turn skips the probe.
 				if rawErr != nil && useResponses && !committed(preludeBuf) &&
 					providers.IsUpstreamResponsesUnsupported(rawErr) {
-					s.rememberGatewayLacksResponses(gatewayKey)
+					s.gatewayCaps.RememberLacksResponses(gatewayKey)
 					log.Warn("Gateway rejected the Responses API; retrying on chat/completions",
 						"model", d.Model,
 						"decision_provider", d.Provider,
@@ -4784,7 +4741,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				// while pre-commit; memoize the endpoint so later turns skip it.
 				if rawErr != nil && !stripPCK && gatewayKey != "" && !committed(preludeBuf) &&
 					providers.IsUpstreamPromptCacheKeyRejection(rawErr) {
-					s.rememberGatewayRejectsPromptCacheKey(gatewayKey)
+					s.gatewayCaps.RememberRejectsPromptCacheKey(gatewayKey)
 					log.Warn("Gateway rejected prompt_cache_key; retrying without the affinity hint",
 						"model", d.Model,
 						"decision_provider", d.Provider,
@@ -5908,7 +5865,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		streamCut.noteCut(proxyErr)
 	}
 	servedCredentialSource, servedSubscriptionTier := s.servedCredentialLogValues(ctx)
-	log.Info("ProxyMessages complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(ctx, feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", failoverUsed, "failover_attempted", failoverAttempted, "subscription_failover", subscriptionFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "context_estimate_tokens", overflowEstimate, "has_tools", feats.HasTools, "message_count", feats.MessageCount, "last_kind", feats.LastKind, "last_preview", s.zdrLogField(ctx, feats.LastPreview), "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "error_class", classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), "failure_owner", turnFailureOwnerAfterFinish(ctx, proxyErr, classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), terminalFinishReason), "upstream_err_body", s.zdrLogField(ctx, providers.UpstreamErrorBodyMessage(proxyErr)), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "resp_refusal", refusalObs.refused, "resp_refusal_category", refusalObs.category, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "last_tool_use_name", terminalToolUse.Name, "last_tool_use_input_bytes", terminalToolUse.InputBytes, "ended_on_tool_use", endedOnToolUse, "tool_error_counts", toolErrorTally, "text_only_turn_nudged", respSummary.TextOnlyTurnNudged, "stop_reason_demoted", respSummary.StopReasonDemoted, "suppressed_tool_calls", respSummary.SuppressedToolCalls, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "cc_only_tools_stripped", reqStats.CCOnlyToolsStripped, "cc_task_reminders_stripped", reqStats.CCTaskRemindersStripped, "gemini_reminder_injected", reqStats.GeminiReminderInjected, "gemini_validated_tool_mode", reqStats.GeminiValidatedToolMode, "resp_output_tokens", respSummary.OutputTokens, "resp_reasoning_tokens", extractor.ReasoningTokens(), "prelude_committed", preludeBuf.Committed(), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned, "credential_source", servedCredentialSource, "client_app", completionLogClientApp(clientID), "subscription_tier", servedSubscriptionTier}, append(append(append(armStrikeLogFieldsWithPrimaryReason(armDemoted, armDemotionReasonValue, rescuedArmDemoted, rescuedArmDemotionReason), plannerLogFields(routeRes)...), streamCut.completionLogFields()...), rateLimit.completionLogFields()...)...), downgradeShadowLogFields(routeRes)...)...)
+	log.Info("ProxyMessages complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(ctx, feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", failoverUsed, "failover_attempted", failoverAttempted, "subscription_failover", subscriptionFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "context_estimate_tokens", overflowEstimate, "has_tools", feats.HasTools, "message_count", feats.MessageCount, "last_kind", feats.LastKind, "last_preview", s.zdrLogField(ctx, feats.LastPreview), "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "error_class", classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), "failure_owner", turnFailureOwnerAfterFinish(ctx, proxyErr, classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), terminalFinishReason), "upstream_err_body", s.zdrLogField(ctx, providers.UpstreamErrorBodyMessage(proxyErr)), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "resp_refusal", refusalObs.refused, "resp_refusal_category", refusalObs.category, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "last_tool_use_name", terminalToolUse.Name, "last_tool_use_input_bytes", terminalToolUse.InputBytes, "ended_on_tool_use", endedOnToolUse, "tool_error_counts", toolErrorTally, "text_only_turn_nudged", respSummary.TextOnlyTurnNudged, "stop_reason_demoted", respSummary.StopReasonDemoted, "suppressed_tool_calls", respSummary.SuppressedToolCalls, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "cc_only_tools_stripped", reqStats.CCOnlyToolsStripped, "cc_task_reminders_stripped", reqStats.CCTaskRemindersStripped, "gemini_reminder_injected", reqStats.GeminiReminderInjected, "gemini_validated_tool_mode", reqStats.GeminiValidatedToolMode, "resp_output_tokens", respSummary.OutputTokens, "resp_reasoning_tokens", extractor.ReasoningTokens(), "prelude_committed", preludeBuf.Committed(), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned, "credential_source", servedCredentialSource, "client_app", completionLogClientApp(clientID), "subscription_tier", servedSubscriptionTier}, append(append(append(armStrikeLogFieldsWithPrimaryReason(armDemoted, armDemotionReasonValue, rescuedArmDemoted, rescuedArmDemotionReason), plannerLogFields(routeRes)...), streamCut.completionLogFields()...), rateLimit.CompletionLogFields()...)...), downgradeShadowLogFields(routeRes)...)...)
 	policyRespBody, policyRespTrunc := capturedResponse(policyOutcomeCap)
 	var policyResp *policyOutcomeResponse
 	if policyOutcomeCap != nil {
@@ -7635,8 +7592,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			HasTools:       feats.HasTools,
 			ChatOnlyParams: env.RequiresChatCompletionsParams(opts.Capabilities),
 			Broad:          s.ResolveOpenAIResponsesBroad(ctx),
-		}) && !s.gatewayLacksResponses(responsesEndpointKey)
-		if !env.RequiresChatCompletionsParams(opts.Capabilities) && !s.gatewayLacksResponses(responsesEndpointKey) && s.supportsSubscriptionTransport(decision.Provider) &&
+		}) && !s.gatewayCaps.LacksResponses(responsesEndpointKey)
+		if !env.RequiresChatCompletionsParams(opts.Capabilities) && !s.gatewayCaps.LacksResponses(responsesEndpointKey) && s.supportsSubscriptionTransport(decision.Provider) &&
 			(servedOnCodexSubscription(resolvedCtx) || managedSubscriptionCanServe(ctx, decision.Provider, decision.Model)) {
 			openAIResponsesEndpoint = true
 		}
@@ -8105,13 +8062,13 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					}
 				}
 				gatewayKey := gatewayResponsesKey(actx, d.Provider)
-				stripPCK := s.gatewayRejectsPromptCacheKey(gatewayKey)
+				stripPCK := s.gatewayCaps.RejectsPromptCacheKey(gatewayKey)
 				err := dispatchOpenAI(actx, d, p, surface, stripPCK)
 				// Same prompt_cache_key unknown-field class as ProxyMessages' OpenAI-compat
 				// path: re-emit once without the hint while pre-commit; memoize the endpoint.
 				if err != nil && !stripPCK && gatewayKey != "" && !committed(preludeBuf) &&
 					providers.IsUpstreamPromptCacheKeyRejection(err) {
-					s.rememberGatewayRejectsPromptCacheKey(gatewayKey)
+					s.gatewayCaps.RememberRejectsPromptCacheKey(gatewayKey)
 					stripPCK = true
 					log.Warn("Gateway rejected prompt_cache_key; retrying without the affinity hint",
 						"model", d.Model,
@@ -8139,7 +8096,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					responsesPassthrough = false
 				}
 				translateToResponses = false
-				s.rememberGatewayLacksResponses(responsesEndpointKey)
+				s.gatewayCaps.RememberLacksResponses(responsesEndpointKey)
 				log.Warn("OpenAI endpoint rejected the Responses API; retrying on chat/completions",
 					"model", d.Model,
 					"decision_provider", d.Provider,
@@ -9083,7 +9040,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 
 	servedCredentialSource, servedSubscriptionTier := s.servedCredentialLogValues(ctx)
-	log.Info("ProxyOpenAIChatCompletion complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(ctx, feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", failoverUsed, "failover_attempted", failoverAttempted, "subscription_failover", codexFailoverUsed || claudeFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "error_class", classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), "failure_owner", turnFailureOwnerAfterFinish(ctx, proxyErr, classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), respSummary.UpstreamFinishReason), "upstream_err_body", s.zdrLogField(ctx, providers.UpstreamErrorBodyMessage(proxyErr)), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned, "credential_source", servedCredentialSource, "client_app", completionLogClientApp(clientID), "subscription_tier", servedSubscriptionTier}, append(append(armStrikeLogFieldsWithPrimaryReason(armDemotedOAI, armDemotionReasonOAI, rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI), plannerLogFields(routeRes)...), rateLimit.completionLogFields()...)...), downgradeShadowLogFields(routeRes)...)...)
+	log.Info("ProxyOpenAIChatCompletion complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(ctx, feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", failoverUsed, "failover_attempted", failoverAttempted, "subscription_failover", codexFailoverUsed || claudeFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "error_class", classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), "failure_owner", turnFailureOwnerAfterFinish(ctx, proxyErr, classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), respSummary.UpstreamFinishReason), "upstream_err_body", s.zdrLogField(ctx, providers.UpstreamErrorBodyMessage(proxyErr)), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned, "credential_source", servedCredentialSource, "client_app", completionLogClientApp(clientID), "subscription_tier", servedSubscriptionTier}, append(append(armStrikeLogFieldsWithPrimaryReason(armDemotedOAI, armDemotionReasonOAI, rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI), plannerLogFields(routeRes)...), rateLimit.CompletionLogFields()...)...), downgradeShadowLogFields(routeRes)...)...)
 	s.reportPolicyOutcome(ctx, routeRes, decision, effortServed, finalProvider, fastServed, feats.Tokens, in, out, cacheCreation, cacheRead, usageMods, routeMs, proxyMs, proxyErr, nil)
 
 	// Subscription-only mode disables paid failover by pinning dispatch to the

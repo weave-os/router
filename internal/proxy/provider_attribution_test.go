@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -21,8 +22,8 @@ import (
 
 const cortexGatewayURL = "https://acme-xy12345.snowflakecomputing.com/api/v2/cortex/anthropic"
 
-func cortexAttempt(model string, err error, class TurnErrorClass) tracedAttempt {
-	return tracedAttempt{
+func cortexAttempt(model string, err error, class TurnErrorClass) dispatch.TracedAttempt {
+	return dispatch.TracedAttempt{
 		Target:    inference.Target{Provider: providers.ProviderAnthropicGateway, CatalogID: model},
 		BaseURL:   cortexGatewayURL,
 		Err:       err,
@@ -30,8 +31,17 @@ func cortexAttempt(model string, err error, class TurnErrorClass) tracedAttempt 
 	}
 }
 
-func traceOf(attempts ...tracedAttempt) *attemptTrace {
-	return &attemptTrace{attempts: attempts}
+func traceOf(attempts ...dispatch.TracedAttempt) *dispatch.AttemptTrace {
+	trace := dispatch.NewAttemptTrace(nil, false)
+	recordAttempts(trace, attempts...)
+	return trace
+}
+
+func recordAttempts(trace *dispatch.AttemptTrace, attempts ...dispatch.TracedAttempt) {
+	for _, a := range attempts {
+		trace.BeginAttempt(a.Target, a.BaseURL, time.Time{})
+		trace.Record(dispatch.Attempt{Target: a.Target}, a.Err, func([]byte, []byte, bool) inference.AttemptDiagnosis { return a.Diagnosis })
+	}
 }
 
 func TestProviderDisplayNameFor_NamesCustomerGateway(t *testing.T) {
@@ -127,7 +137,7 @@ func TestSSEErrorEvents_GenericFailureNamesProvider(t *testing.T) {
 func TestSiblingMarkerReason_NamesRealFailureClass(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
-		a     tracedAttempt
+		a     dispatch.TracedAttempt
 		cause string
 	}{
 		{"timeout", cortexAttempt("gpt-6-luna", errors.New("timeout awaiting response headers"), TurnErrorTimeout), "timed out"},
@@ -144,14 +154,17 @@ func TestSiblingMarkerReason_NamesRealFailureClass(t *testing.T) {
 	}
 }
 
-func slowStartTrace(attemptAt, firstAt time.Time, attempts ...tracedAttempt) *attemptTrace {
-	return &attemptTrace{
-		current:        inference.Target{Provider: providers.ProviderAnthropicGateway, CatalogID: "claude-opus-5-5"},
-		baseURL:        cortexGatewayURL,
-		attemptAt:      attemptAt,
-		firstAttemptAt: firstAt,
-		attempts:       attempts,
-	}
+func slowStartTrace(attemptAt, firstAt time.Time, attempts ...dispatch.TracedAttempt) *dispatch.AttemptTrace {
+	return slowStartTraceOf(nil, attemptAt, firstAt, attempts...)
+}
+
+func slowStartTraceOf(inbound []byte, attemptAt, firstAt time.Time, attempts ...dispatch.TracedAttempt) *dispatch.AttemptTrace {
+	current := inference.Target{Provider: providers.ProviderAnthropicGateway, CatalogID: "claude-opus-5-5"}
+	trace := dispatch.NewAttemptTrace(inbound, false)
+	trace.BeginAttempt(current, cortexGatewayURL, firstAt)
+	recordAttempts(trace, attempts...)
+	trace.BeginAttempt(current, cortexGatewayURL, attemptAt)
+	return trace
 }
 
 func slowStartCtx(session, apiKeyID, userAgent string) context.Context {
@@ -199,7 +212,7 @@ func TestSlowStartNotice_BaselineRaisesThreshold(t *testing.T) {
 	now = now.Add(time.Minute)
 	_, shown := slowStartNotice(slowStartCtx("session-1", "key-1", "claude-cli/2.1.302 (external, cli)"), slowStartTrace(now.Add(-15*time.Second), now.Add(-15*time.Second)), tracker, now)
 	assert.False(t, shown, "15s is under 3x a 6s median")
-	assert.True(t, strings.HasPrefix(slowStartKey(tracedAttempt{Target: inference.Target{Provider: "p", CatalogID: "m"}, BaseURL: cortexGatewayURL}), "p|acme-xy12345.snowflakecomputing.com/api/v2/cortex/anthropic|m"))
+	assert.True(t, strings.HasPrefix(slowStartKey(dispatch.TracedAttempt{Target: inference.Target{Provider: "p", CatalogID: "m"}, BaseURL: cortexGatewayURL}), "p|acme-xy12345.snowflakecomputing.com/api/v2/cortex/anthropic|m"))
 }
 
 func TestTerminalErrorMessage_KeepsUpstreamMessageForResponses(t *testing.T) {
@@ -256,7 +269,7 @@ func TestAttributeStreamError_NamesGatewayFromServingAttempt(t *testing.T) {
 func TestSlowStartNotice_MutedTurnGetsNoNotice(t *testing.T) {
 	tracker, now := slowStartAfterBaseline(t)
 	trace := slowStartTrace(now.Add(-41*time.Second), now.Add(-41*time.Second))
-	trace.muteSlowStart()
+	trace.MuteSlowStart()
 
 	_, shown := slowStartNotice(slowStartCtx("session-1", "key-1", "claude-cli/2.1.302 (external, cli)"), trace, tracker, now)
 	assert.False(t, shown)
@@ -265,8 +278,8 @@ func TestSlowStartNotice_MutedTurnGetsNoNotice(t *testing.T) {
 func TestSlowStartKey_SeparatesGatewayPaths(t *testing.T) {
 	target := inference.Target{Provider: providers.ProviderOpenAIGateway, CatalogID: "m"}
 	assert.NotEqual(t,
-		slowStartKey(tracedAttempt{Target: target, BaseURL: "https://llm.acme.internal/team-a/v1"}),
-		slowStartKey(tracedAttempt{Target: target, BaseURL: "https://llm.acme.internal/team-b/v1"}))
+		slowStartKey(dispatch.TracedAttempt{Target: target, BaseURL: "https://llm.acme.internal/team-a/v1"}),
+		slowStartKey(dispatch.TracedAttempt{Target: target, BaseURL: "https://llm.acme.internal/team-b/v1"}))
 }
 
 func TestTerminalErrorMessage_CortexConnectionLossBlamesCortex(t *testing.T) {
