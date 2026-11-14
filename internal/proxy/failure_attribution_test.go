@@ -210,11 +210,11 @@ func TestCustomerOwnedCredential(t *testing.T) {
 func TestBodyRewrittenIgnoresGeminiRoutingFields(t *testing.T) {
 	inbound := []byte(`{"model":"gemini-3-pro","stream":true,"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
 	forwarded := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
-	if bodyRewritten(ingress.GeminiForwardedBody(inbound), forwarded) {
+	if bodyRewritten(ingress.Gemini{}.TraceBody(inbound), forwarded) {
 		t.Fatal("stripping the synthetic model/stream fields must not count as a rewrite")
 	}
 	sanitized := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"tools":[]}`)
-	if !bodyRewritten(ingress.GeminiForwardedBody(inbound), sanitized) {
+	if !bodyRewritten(ingress.Gemini{}.TraceBody(inbound), sanitized) {
 		t.Fatal("a body change beyond the routing fields must count as a rewrite")
 	}
 }

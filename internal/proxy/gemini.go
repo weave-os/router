@@ -39,7 +39,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	ctx = withWeaveCreditsFunding(ctx, r.Header)
 	w, finishBlindExperimentWriter := withBlindExperimentWriter(ctx, w, body)
 	defer finishBlindExperimentWriter()
-	ctx = withAttemptTrace(ctx, ingress.GeminiForwardedBody(body), r.Header)
+	ctx = withAttemptTrace(ctx, s.ingress.Gemini.TraceBody(body), r.Header)
 	ctx = s.withSubscriptionFundingAuthorization(ctx, r.Header)
 	ctx, returnErr = s.withClassifierInput(ctx, body, router.EndpointGeminiGenerate)
 	if returnErr != nil {
@@ -67,13 +67,12 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	installationID := installationIDFromContext(ctx)
 	clientID := ClientIdentityFrom(ctx)
 
-	body = ingress.StripGeminiEchoes(ctx, body)
-
-	env, parseErr := translate.ParseGemini(body)
+	parsed, parseErr := s.ingress.Gemini.Parse(ctx, body)
 	if parseErr != nil {
 		log.Error("Failed to parse Gemini request", "err", parseErr)
 		return fmt.Errorf("parse request: %w", parseErr)
 	}
+	env, body := parsed.Envelope, parsed.Body
 	inboundLastUser := env.LastUserMessage()
 	inboundUserPrompt := routingEndsWithUserPrompt(ctx, env)
 	var responseBuffer *responseCostBuffer
@@ -282,7 +281,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	})
 	telemetry.Flush(ctx)
 
-	if err := ingress.CheckGeminiTarget(decision.Provider); err != nil {
+	if err := s.ingress.Gemini.CheckTarget(decision.Provider); err != nil {
 		return err
 	}
 
@@ -340,7 +339,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 			return translate.ErrStreamEmpty
 		}
 		if err != nil && env.Stream() && preludeBuf.Committed() {
-			ingress.WriteGeminiStreamError(contentSink)
+			s.ingress.Gemini.WriteStreamError(contentSink)
 		}
 		return err
 	}
@@ -352,7 +351,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		attempt:         attempt,
 		flushErr: func(w http.ResponseWriter, err error) {
 			if env.Stream() && preludeBuf.PreludeSent() {
-				ingress.WriteGeminiStreamError(w)
+				s.ingress.Gemini.WriteStreamError(w)
 				return
 			}
 			flushBufferedIfPresent(w, err)
