@@ -67,12 +67,11 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	installationID := installationIDFromContext(ctx)
 	clientID := ClientIdentityFrom(ctx)
 
-	parsed, parseErr := s.ingress.Gemini.Parse(ctx, body)
+	env, body, parseErr := s.ingress.Gemini.Parse(ctx, body)
 	if parseErr != nil {
 		log.Error("Failed to parse Gemini request", "err", parseErr)
 		return fmt.Errorf("parse request: %w", parseErr)
 	}
-	env, body := parsed.Envelope, parsed.Body
 	inboundLastUser := env.LastUserMessage()
 	inboundUserPrompt := routingEndsWithUserPrompt(ctx, env)
 	var responseBuffer *responseCostBuffer

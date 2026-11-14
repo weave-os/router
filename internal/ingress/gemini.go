@@ -28,13 +28,10 @@ var _ Adapter = Gemini{}
 func (Gemini) Format() translate.Format { return translate.FormatGemini }
 
 // Parse implements Adapter.
-func (Gemini) Parse(ctx context.Context, body []byte) (Request, error) {
+func (Gemini) Parse(ctx context.Context, body []byte) (*translate.RequestEnvelope, []byte, error) {
 	body = stripGeminiEchoes(ctx, body)
 	env, err := translate.ParseGemini(body)
-	if err != nil {
-		return Request{}, err
-	}
-	return Request{Envelope: env, Body: body}, nil
+	return env, body, err
 }
 
 // stripGeminiEchoes removes the router's own additions a client echoes back.

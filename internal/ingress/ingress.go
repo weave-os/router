@@ -18,19 +18,13 @@ type Adapter interface {
 	Format() translate.Format
 	// TraceBody is the native body as a same-format dispatch forwards it.
 	TraceBody(body []byte) []byte
-	// Parse turns a native request body into the neutral turn request.
-	Parse(ctx context.Context, body []byte) (Request, error)
+	// Parse turns a native request body into the neutral turn request, also
+	// returning the native body without the router's own echoed additions.
+	Parse(ctx context.Context, body []byte) (*translate.RequestEnvelope, []byte, error)
 	// CheckTarget rejects a routed provider the format cannot be served by.
 	CheckTarget(provider string) error
 	// WriteStreamError ends a committed stream with the format's error frame.
 	WriteStreamError(w http.ResponseWriter)
-}
-
-// Request is a parsed native request.
-type Request struct {
-	Envelope *translate.RequestEnvelope
-	// Body is the native body without the router's own echoed additions.
-	Body []byte
 }
 
 // Formats holds the adapters for the formats the orchestrator serves.
