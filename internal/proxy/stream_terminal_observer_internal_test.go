@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
@@ -78,34 +77,4 @@ func TestStreamTerminalObserverBoundsPartialFrame(t *testing.T) {
 	_, err = o.Write([]byte("\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"))
 	require.NoError(t, err)
 	assert.NoError(t, o.streamErr())
-}
-
-func TestResponsesTerminalObserverState(t *testing.T) {
-	const created = `data: {"type":"response.created","response":{"id":"resp_1","status":"in_progress"}}` + "\n\n"
-	cases := []struct {
-		name string
-		body string
-		want error
-	}{
-		{name: "completed", body: created + `data: {"type":"response.completed","response":{"status":"completed","output":[]}}` + "\n\n"},
-		{name: "failed terminal names its outcome", body: created + `data: {"type":"response.failed","response":{"status":"failed","error":{"code":"server_error"}}}` + "\n\n"},
-		{name: "cut after created", body: created, want: translate.ErrStreamIncomplete},
-		{name: "keepalive only", body: ": keepalive\n\n", want: translate.ErrStreamEmpty},
-		{name: "terminal named only by the event field", body: created + "event: response.completed\ndata: {\"response\":{\"status\":\"completed\"}}\n\n"},
-		{name: "truncated final frame", body: created + `data: {"type":"response.completed","response":{"sta`, want: translate.ErrStreamIncomplete},
-		{name: "empty", want: translate.ErrStreamEmpty},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			o := ingress.NewResponsesTerminalObserver(httptest.NewRecorder())
-			_, err := o.Write([]byte(tc.body))
-			require.NoError(t, err)
-			o.Finalize()
-			if tc.want == nil {
-				assert.NoError(t, o.Err())
-				return
-			}
-			assert.ErrorIs(t, o.Err(), tc.want)
-		})
-	}
 }

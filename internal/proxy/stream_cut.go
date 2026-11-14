@@ -37,8 +37,6 @@ const (
 	streamFailureOther                  streamFailureClass = "other"
 )
 
-const streamCutErrorEvent = ingress.StreamErrorEvent
-
 // streamCutCarryCap bounds the partial-frame tail kept between writes. A
 // frame larger than this is pathological, so the scanner resyncs on the next
 // boundary instead of growing without bound.
@@ -293,7 +291,7 @@ func classifyStreamFailure(err error, lastEvent string) streamFailureClass {
 		return streamFailureUpstreamReset
 	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
 		return streamFailureUpstreamEOF
-	case isUpstreamStatusFailure(err), lastEvent == streamCutErrorEvent:
+	case isUpstreamStatusFailure(err), lastEvent == ingress.StreamErrorEvent:
 		return streamFailureUpstreamErrorFrame
 	default:
 		return streamFailureOther
