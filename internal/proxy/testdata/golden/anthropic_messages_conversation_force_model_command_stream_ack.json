@@ -53,12 +53,6 @@
             }
           },
           {
-            "event": "ping",
-            "data": {
-              "type": "ping"
-            }
-          },
-          {
             "event": "content_block_delta",
             "data": {
               "delta": {
@@ -95,7 +89,8 @@
               "type": "message_stop"
             }
           }
-        ]
+        ],
+        "keepalive": true
       },
       "pin_events": [
         {
