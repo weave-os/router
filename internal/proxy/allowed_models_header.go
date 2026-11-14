@@ -8,6 +8,7 @@ import (
 
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
@@ -166,7 +167,7 @@ func (s *Service) readmitForcedModel(
 	if advisorRejectsModel(env, pin.Model) {
 		return excluded
 	}
-	if gemini3xRequiresSignedHistory(pin.Model) && env.HasUnsignedToolCallHistory() {
+	if routingpolicy.Gemini3xRequiresSignedHistory(pin.Model) && env.HasUnsignedToolCallHistory() {
 		return excluded
 	}
 	outputReserve := contextWindowOutputReserve

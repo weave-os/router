@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
@@ -144,14 +145,14 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	if feats.MaxTokens > outputReserve {
 		outputReserve = feats.MaxTokens
 	}
-	excluded, geminiUnsigned := excludeGemini3xOnUnsignedHistory(env, excluded, s.availableModels)
+	excluded, geminiUnsigned := routingpolicy.ExcludeGemini3xOnUnsignedHistory(env, excluded, s.availableModels)
 	if len(geminiUnsigned) > 0 {
 		log.Info("gemini pre-filter: excluded gemini-3.x for unsigned tool-call history",
 			"excluded_models", strings.Join(geminiUnsigned, ","),
 		)
 	}
 	customBindings := s.customBindingsForRequest(ctx)
-	excluded, imageLimitExcluded := excludeImageLimitModels(feats.ImageCount, enabledProviders, customBindings, excluded, s.availableModels)
+	excluded, imageLimitExcluded := routingpolicy.ExcludeImageLimitModels(feats.ImageCount, enabledProviders, customBindings, excluded, s.availableModels)
 	if len(imageLimitExcluded) > 0 {
 		log.Info("image limit pre-filter: excluded models whose bindings cap images below the request count",
 			"image_count", feats.ImageCount,
@@ -160,8 +161,8 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	}
 	hardExcluded := append(append([]string(nil), geminiUnsigned...), imageLimitExcluded...)
 	overflowEstimate := env.ContextOverflowTokenEstimate()
-	excluded, ctxOverflowed := excludeContextOverflowModels(overflowEstimate, env.SignatureTokenSavings(), outputReserve, enabledProviders, excluded, s.availableModels)
-	overflowAdmitted := admitWidestOnTotalOverflow(excluded, ctxOverflowed, s.availableModels, enabledProviders, router.RequestBindings{Custom: s.customBindingsForRequest(ctx), Gateways: s.gatewayProvidersForRequest(ctx)})
+	excluded, ctxOverflowed := routingpolicy.ExcludeContextOverflowModels(overflowEstimate, env.SignatureTokenSavings(), outputReserve, enabledProviders, excluded, s.availableModels)
+	overflowAdmitted := routingpolicy.AdmitWidestOnTotalOverflow(excluded, ctxOverflowed, s.availableModels, enabledProviders, router.RequestBindings{Custom: s.customBindingsForRequest(ctx), Gateways: s.gatewayProvidersForRequest(ctx)})
 	excluded = withoutModels(excluded, overflowAdmitted)
 	if len(ctxOverflowed) > 0 {
 		log.Info("context window pre-filter: excluded over-capacity models",
@@ -174,6 +175,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	}
 
 	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText)
+	_, safetyAdvisorOutranking := excludeAdvisorOutrankingModels(env, nil, s.routableUniverse())
 	routeRequest := router.Request{
 		RequestedModel:                feats.Model,
 		ForceCluster:                  forceCluster,
@@ -194,8 +196,8 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		GatewayProviders:              s.gatewayProvidersForRequest(ctx),
 		ExcludedModels:                excluded,
 		AllowedModels:                 allowedModelsForRequest(ctx),
-		SafetyExcludedModels:          withoutModelsKeep(s.safetyExcludedModels(env, outputReserve, enabledProviders, customBindings), overflowAdmitted, hardExcluded),
-		ContextWindowExcludedModels:   contextWindowOnlyExclusions(ctxOverflowed, overflowAdmitted, hardExcluded),
+		SafetyExcludedModels:          routingpolicy.WithoutModelsKeep(routingpolicy.SafetyExcludedModels(env, outputReserve, enabledProviders, customBindings, s.availableModels, safetyAdvisorOutranking), overflowAdmitted, hardExcluded),
+		ContextWindowExcludedModels:   routingpolicy.ContextWindowOnlyExclusions(ctxOverflowed, overflowAdmitted, hardExcluded),
 		ImageLimitExcludedModels:      modelSet(imageLimitExcluded),
 		UnsignedHistoryExcludedModels: modelSet(geminiUnsigned),
 		OverflowAdmittedModels:        modelSet(overflowAdmitted),
