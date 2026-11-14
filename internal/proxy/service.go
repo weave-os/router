@@ -7575,11 +7575,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// resolution falls through to the deployment/BYOK OpenAI key and the turn
 	// runs on Weave credits instead of hard-failing.
 	if s.codexSubscriptionExhausted(ctx, r.Header) {
+		nudge := codexSubscriptionReconnectNudge(ctx, r.Header, s.usageObserver)
 		ctx = withSuppressedCodexSubscription(ctx)
 		if s.linkedSeatCanCover(ctx, decision.Provider, decision.Model) {
-			ctx = withDeferredReconnectNudge(ctx, ownCodexPlanSpentNudge)
+			ctx = withDeferredReconnectNudge(ctx, nudge)
 		} else {
-			ctx = withSubscriptionReconnectNudge(ctx, ownCodexPlanSpentNudge)
+			ctx = withSubscriptionReconnectNudge(ctx, nudge)
 		}
 	}
 	resolvedCtx := s.resolveCredentials(ctx, decision.Provider, decision.Model, r.Header)
@@ -7723,33 +7724,18 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		rootSink = preludeBuf
 	}
 
-	// Responses entry point delegates the eager lifecycle and routing badge to
-	// this layer because it has the completed routing decision. Provider output
-	// remains separately buffered so retry and failover stay possible.
-	if rw, ok := w.(*translate.ResponsesWriter); ok {
-		// A native OpenAI Responses route streams the original Responses
-		// bytes verbatim; cross-family routes stay in translation mode.
-		//
-		// Set once here (before Prelude), not per-attempt: response.created
-		// suppression depends on passthrough being engaged before the first
-		// write. Safe because decision.Provider == OpenAI is always a
-		// single-binding GPT model with no cross-format fallback to retry
-		// into. If a GPT model ever gains a fallback, gate this per-attempt.
+	responsesWriter, isResponses := w.(*translate.ResponsesWriter)
+	responseSwitch := responseProtocolSwitch{writer: responsesWriter, buffer: preludeBuf}
+	if isResponses {
 		if verbatimPassthrough {
-			// marker already carries any funding warning when terminal
-			// surfaces are enabled.
-			// Parse native SSE when this client needs a badge and/or footer.
-			if supportsResponsesTerminalSurfaces(clientID.ClientApp) && (marker != "" || s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoed) != "") {
-				rw.SetPassthroughBadge()
-			} else {
-				rw.SetPassthrough()
-			}
+			responseSwitch.native(supportsResponsesTerminalSurfaces(clientID.ClientApp) &&
+				(marker != "" || s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoed) != ""))
 		}
 		if responsesPreludeWillEmit {
-			if err := rw.Prelude(true); err != nil {
+			if err := responsesWriter.Prelude(true); err != nil {
 				log.Error("Responses prelude failed", "err", err)
 			} else {
-				rw.Flush()
+				responsesWriter.Flush()
 				if err := responsesPreludeBuf.CommitPrelude(); err != nil {
 					return fmt.Errorf("commit Responses prelude: %w", err)
 				}
@@ -7760,7 +7746,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	var sink http.ResponseWriter = rootSink
 	openAIPrelude := &requestNoticeStream{}
 
-	responsesWriter, isResponses := w.(*translate.ResponsesWriter)
 	makeMarkerSink := func(notice translate.RouterNotice) (http.ResponseWriter, error) {
 		if isResponses || verbatimPassthrough {
 			// Responses notices go out before dispatch; only a reconnect nudge
@@ -7803,18 +7788,17 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// cyberRefusalSeen survives per-attempt writers so the re-pin runs whether
 	// the refusal was withheld, passed through, or arrived as an error body.
 	cyberRefusalSeen := false
-	// buildAttempt composes the dispatch for one target model: same structure as
+	// buildProviderAttempt composes the dispatch for one target model: same structure as
 	// ProxyMessages', so a rescue on another model rebuilds the whole chain
 	// (emit, translator, marker) instead of reusing the failed model's.
 	//
 	// Dispatch keys off the provider's translation family, not a hardcoded name
 	// list, so a new OpenAI-compat provider routes here as soon as it has a
 	// ProviderFamilies entry (see internal/providers/provider.go).
-	buildAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatchAttempt, error) {
+	buildProviderAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatchAttempt, error) {
 		targetNotice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderCodex, target.Model, targetMarker)
 		targetNotice = addRoutingFundingSource(fundingCtx, target.Provider, target.Model, targetNotice)
-		if rw, ok := w.(*translate.ResponsesWriter); ok {
-			rw.SetRoutedModel(target.Model)
+		if isResponses {
 			if targetMarker != "" && (!verbatimPassthrough || supportsResponsesTerminalSurfaces(clientID.ClientApp)) {
 				_, noticeErr := responsesNotices.prepare(r.Context(), responsesPreludeBuf, responsesPreludeBuf, translate.FormatOpenAIResponses, env.Stream(), targetNotice)
 				if noticeErr != nil {
@@ -8041,14 +8025,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				return err
 			}
 			return func(actx context.Context, d router.Decision, p providers.Client) error {
-				// A passthrough writer set up for an OpenAI pick forwards bytes
-				// verbatim, so another family replacing that pick must be
-				// translated instead.
-				if isResponses && d.Provider != providers.ProviderOpenAI {
-					if err := leaveResponsesPassthrough(responsesWriter, preludeBuf); err != nil {
-						return err
-					}
-				}
 				surface := surfaceChat
 				if d.Provider == providers.ProviderOpenAI {
 					switch {
@@ -8089,8 +8065,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					return err
 				}
 				if surface == surfaceResponsesNative {
-					rw, ok := w.(*translate.ResponsesWriter)
-					if !promotedToResponses || !ok || !rw.ClearPassthrough() {
+					if !promotedToResponses || !isResponses || responseSwitch.leavePassthrough() != nil {
 						return err
 					}
 					responsesPassthrough = false
@@ -8238,6 +8213,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 	}
 
+	buildAttempt := responseSwitch.wrapBuilder(buildProviderAttempt)
 	attempt, attemptBuildErr := buildAttempt(decision, opts, marker, fundingCtx)
 	if attemptBuildErr != nil {
 		finishInferenceSpan(inferenceSpan, decision, decision.Provider, -1, attemptBuildErr)
@@ -8550,7 +8526,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		retryBindings := s.resolveBindingsForDispatch(retryCtx, cyberRetryTarget)
 		retryMarker := withRescueDetail(suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, cyberRefusalRoutingMarkerFor(routeRes, cyberRetryTarget.Model), cyberRetryTarget.Model, markerReasonCyberRefusal)), lastFailureDetail(attemptTraceFromContext(ctx)))
 		retryAttempt, retryBuildErr := buildAttempt(cyberRetryTarget, retryOpts, retryMarker, retryCtx)
-		rw, responsesIngress := w.(*translate.ResponsesWriter)
 		switch {
 		case retryBuildErr != nil:
 			log.Error("Cyber-refusal retry: preparing the fallback request failed; surfacing the refusal",
@@ -8560,11 +8535,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			log.Warn("Cyber-refusal retry: fallback has no usable binding; surfacing the refusal",
 				"fallback_model", cyberRetryTarget.Model,
 				"fallback_provider", cyberRetryTarget.Provider)
-		// The refused attempt streamed native Responses; the fallback speaks
-		// another format, so the writer has to translate for the rest of the turn.
-		case verbatimPassthrough && (!responsesIngress || !clearWithheldPassthrough(rw, preludeBuf)):
-			log.Warn("Cyber-refusal retry: Responses passthrough already committed; surfacing the refusal",
-				"fallback_model", cyberRetryTarget.Model)
 		default:
 			log.Warn("Cyber-refusal retry: OpenAI declined the turn on cyber policy, retrying off-vendor",
 				"failed_model", primaryModel,
@@ -8641,25 +8611,16 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
 			siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
 			siblingMarker := withRescueDetail(siblingMarkerFor(ctx, r.Header, routeRes, decision.Model, siblingDecision.Model), lastFailureDetail(attemptTraceFromContext(ctx)))
-			// A native Responses attempt left the writer in passthrough; a sibling
-			// on another vendor speaks Chat Completions, so the writer translates
-			// for the rest of the turn, as the cyber-refusal rescue does.
-			if verbatimPassthrough && siblingDecision.Provider != providers.ProviderOpenAI {
-				if rw, responsesIngress := w.(*translate.ResponsesWriter); !responsesIngress || !clearWithheldPassthrough(rw, preludeBuf) {
-					log.Warn("Sibling failover: Responses passthrough already committed; trying the next candidate",
-						"sibling_model", siblingDecision.Model,
-						"sibling_provider", siblingDecision.Provider)
-					continue
-				}
-				verbatimPassthrough = false
-				responsesPassthrough = false
-			}
 			siblingAttempt, siblingBuildErr := buildAttempt(siblingDecision, siblingOpts, siblingMarker, siblingCtx)
 			if siblingBuildErr != nil {
 				log.Error("Sibling failover: preparing the candidate request failed; trying the next candidate",
 					"err", siblingBuildErr,
 					"sibling_model", siblingDecision.Model)
 				continue
+			}
+			if verbatimPassthrough && siblingDecision.Provider != providers.ProviderOpenAI {
+				verbatimPassthrough = false
+				responsesPassthrough = false
 			}
 			if len(siblingBindings) == 0 {
 				log.Warn("Sibling failover: candidate has no usable binding; trying the next candidate",
