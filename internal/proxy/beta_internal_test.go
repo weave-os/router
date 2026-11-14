@@ -860,3 +860,26 @@ func TestBetaPreferenceSurvivesFirstMessageRewriteWithinClientSession(t *testing
 		})
 	}
 }
+
+func TestApplySessionStrategyIgnoresQwenPreferenceWithoutAdmittedRouter(t *testing.T) {
+	installationID := uuid.New()
+	var sessionKey [sessionstrategy.SessionKeyLen]byte
+	sessionKey[0] = 1
+	store := &betaTestPreferenceStore{found: true, preference: sessionstrategy.Preference{
+		InstallationID: installationID, SessionKey: sessionKey, Strategy: router.StrategyHMMQwen,
+	}}
+	svc := (&Service{}).WithSessionStrategyStore(store)
+	internal := requestcontext.WithServingIdentity(router.WithStrategy(context.Background(), router.StrategyHMM), requestcontext.ServingIdentity{
+		Target: string(policyregistry.TargetInternal), ReleaseID: "synthetic-release", BindingID: "synthetic-binding", CredentialIdentity: "synthetic-credential",
+	})
+
+	retained := policyregistry.WithServingSnapshot(internal, &policyregistry.Snapshot{Routers: map[router.Strategy]router.Router{}})
+	ctx, err := svc.applySessionStrategy(retained, installationID, sessionKey)
+	require.NoError(t, err)
+	assert.Equal(t, router.StrategyHMM, router.StrategyFromContext(ctx), "a snapshot without Qwen must not route the session to it")
+
+	admitted := policyregistry.WithServingSnapshot(internal, &policyregistry.Snapshot{Routers: map[router.Strategy]router.Router{router.StrategyHMMQwen: &betaTestRouter{}}})
+	ctx, err = svc.applySessionStrategy(admitted, installationID, sessionKey)
+	require.NoError(t, err)
+	assert.Equal(t, router.StrategyHMMQwen, router.StrategyFromContext(ctx))
+}

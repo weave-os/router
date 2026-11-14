@@ -65,6 +65,17 @@ func betaArtifactHistoryFromContext(ctx context.Context) bool {
 	return found
 }
 
+// qwenAdmitted reports whether this request may route through Qwen: the session
+// is internal and, under managed serving, its admitted snapshot binds Qwen. A
+// persisted preference outlives rollbacks to snapshots without that router.
+func qwenAdmitted(ctx context.Context) bool {
+	if !internalBetaSession(ctx) {
+		return false
+	}
+	snapshot := policyregistry.ServingSnapshotFromContext(ctx)
+	return snapshot == nil || snapshot.Routers[router.StrategyHMMQwen] != nil
+}
+
 func internalBetaSession(ctx context.Context) bool {
 	identity, managed := requestcontext.ServingIdentityFromContext(ctx)
 	return managed && policyregistry.ExperimentalRoutingModelsPermitted(policyregistry.ServingTarget(identity.Target), entitlement.Plan(identity.Plan)) && identity.ReleaseID != "" && identity.BindingID != "" && identity.CredentialIdentity != ""
@@ -106,7 +117,7 @@ func (s *Service) applySessionStrategy(
 	if !router.IsBetaStrategy(preference.Strategy) {
 		return ctx, fmt.Errorf("unsupported persisted session routing strategy %q", preference.Strategy)
 	}
-	if preference.Strategy == router.StrategyHMMQwen && !internalBetaSession(ctx) {
+	if preference.Strategy == router.StrategyHMMQwen && !qwenAdmitted(ctx) {
 		return ctx, nil
 	}
 	return router.WithStrategy(ctx, preference.Strategy), nil
