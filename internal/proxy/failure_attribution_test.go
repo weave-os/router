@@ -42,7 +42,7 @@ func TestDispatchPlanned_TranslatedRejectionIsRouterOwned(t *testing.T) {
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderGoogle}, {Provider: providers.ProviderOpenRouter}}, translated)
-	in.deferFlushOnExhaustion = true
+	in.DeferFlushOnExhaustion = true
 	_, err := s.dispatchWithFallback(ctx, in)
 	require.Error(t, err)
 
@@ -69,7 +69,7 @@ func TestDispatchPlanned_UntranslatedRejectionIsProviderOwned(t *testing.T) {
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}, {Provider: providers.ProviderOpenRouter}}, body)
-	in.deferFlushOnExhaustion = true
+	in.DeferFlushOnExhaustion = true
 	_, err := s.dispatchWithFallback(ctx, in)
 	require.Error(t, err)
 
@@ -133,7 +133,7 @@ func TestDispatchPlanned_ExhaustionNamesOwnerInTerminalMessage(t *testing.T) {
 			rec := httptest.NewRecorder()
 			buf := newPreludeBuffer(rec)
 			in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}}, body)
-			in.deferFlushOnExhaustion = true
+			in.DeferFlushOnExhaustion = true
 			_, err := s.dispatchWithFallback(ctx, in)
 			require.Error(t, err)
 

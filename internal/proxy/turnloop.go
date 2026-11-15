@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
@@ -528,19 +529,7 @@ func hmmHistoryRole(role string) string {
 	return role + "_hmm_history"
 }
 
-// handoverOutcome describes the synchronous handover step.
-type handoverOutcome struct {
-	Invoked       bool
-	LatencyMS     int64
-	SummaryTokens int
-	// FallbackToFullHistory is set when handover was invoked but no summary
-	// was applied (unwired, tenant-boundary skip, timeout, error, or empty
-	// summary), so the full body passes through unchanged. No ledger row billed.
-	FallbackToFullHistory bool
-	// SummaryUsage is the summarizer call's upstream usage, so fireBilling can
-	// debit it as a separate "_summary" ledger row. Zero on fallback/error paths.
-	SummaryUsage handover.Usage
-}
+type handoverOutcome = dispatch.HandoverOutcome
 
 // hasSubAgentOverride reports whether both sub-agent override fields are set;
 // a partial override is treated as unconfigured.

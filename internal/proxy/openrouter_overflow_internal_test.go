@@ -54,15 +54,15 @@ func (d *overflowDispatch) attempt() dispatchAttempt {
 func (d *overflowDispatch) run(ctx context.Context, laneRequest bool) error {
 	rec := httptest.NewRecorder()
 	in := failoverInputs{
-		w: rec, buf: newPreludeBuffer(rec),
-		initialDecision:  router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
-		bindings:         []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
-		attempt:          d.attempt(),
-		purpose:          inference.PurposeAnthropicMessages,
-		buildAlternative: func(router.Decision) (dispatchAttempt, error) { return d.attempt(), nil },
+		Writer: rec, Prelude: newPreludeBuffer(rec),
+		InitialDecision:  router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
+		Bindings:         []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
+		Attempt:          d.attempt(),
+		Purpose:          inference.PurposeAnthropicMessages,
+		BuildAlternative: func(router.Decision) (dispatchAttempt, error) { return d.attempt(), nil },
 	}
 	if laneRequest {
-		in.subscriptionStateRequest = &router.Request{
+		in.SubscriptionStateRequest = &router.Request{
 			AllowedModels:    allowedModelsForRequest(ctx),
 			EnabledProviders: modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter}),
 		}

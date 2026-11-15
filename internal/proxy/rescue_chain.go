@@ -137,47 +137,47 @@ func (c *rescueChain) dispatchPrimaryAttempt(ctx context.Context, deferFlush boo
 	routeRes := c.routeRes
 	c.winnerIdx, c.proxyErr = s.dispatchWithFallback(ctx, failoverInputs{
 		// contentSink is the raw w when capture is off.
-		w:                               c.contentSink,
-		buf:                             c.preludeBuf,
-		initialDecision:                 c.decision,
-		subscriptionStateRequest:        c.req,
-		subscriptionStateHeaders:        r.Header,
-		subscriptionStateWinnerProvider: &c.subscriptionStateWinnerProvider,
-		alternatives: func() []router.Decision {
+		Writer:                          c.contentSink,
+		Prelude:                         c.preludeBuf,
+		InitialDecision:                 c.decision,
+		SubscriptionStateRequest:        c.req,
+		SubscriptionStateHeaders:        r.Header,
+		SubscriptionStateWinnerProvider: &c.subscriptionStateWinnerProvider,
+		Alternatives: func() []router.Decision {
 			if routeRes.HardPinned || routeRes.AuthoritativePerTurn {
 				return nil
 			}
 			return c.credentials.SubscriptionAlternativeDecisions(ctx, *c.req, c.decision)
 		}(),
-		buildAlternative: func(target router.Decision) (dispatchAttempt, error) {
+		BuildAlternative: func(target router.Decision) (dispatchAttempt, error) {
 			alternativeOpts, _ := switchedAttemptOptions(ctx, c.opts, target, routeRes.EscalateEffort, s.resolveEffort)
 			alternativeMarker := subscriptionTargetMarker(ctx, r.Header, routeRes, c.primaryDecision, target, c.pickedMarker)
 			alternativeCtx := c.credentials.ResolveCredentials(ctx, target.Provider, target.Model, r.Header)
 			return c.buildAttempt(target, alternativeOpts, alternativeMarker, alternativeCtx)
 		},
-		onAlternative: func(target router.Decision) {
+		OnAlternative: func(target router.Decision) {
 			overloadedModel := c.decision.Model
 			c.decision = target
 			c.bindings = c.routing.ResolveBindingsForDispatch(ctx, target)
 			c.marker = siblingMarkerFor(ctx, r.Header, routeRes, overloadedModel, target.Model)
 		},
-		onSubscriptionStateTarget: func(target router.Decision, targetBindings []catalog.ProviderBinding) {
+		OnSubscriptionStateTarget: func(target router.Decision, targetBindings []catalog.ProviderBinding) {
 			c.marker = subscriptionTargetMarker(ctx, r.Header, routeRes, c.primaryDecision, target, c.pickedMarker)
 			c.decision = target
 			c.bindings = targetBindings
 		},
-		onSubscriptionStatePaidTarget: func(target router.Decision, _ []catalog.ProviderBinding) {
+		OnSubscriptionStatePaidTarget: func(target router.Decision, _ []catalog.ProviderBinding) {
 			c.subscriptionStatePaidTargetAttempted = true
 			if onPaidTarget != nil {
 				onPaidTarget(target)
 			}
 		},
-		bindings:               c.bindings,
-		attempt:                c.attempt,
-		flushErr:               c.flushErr,
-		deferFlushOnExhaustion: deferFlush,
-		purpose:                routeRes.dispatchPurpose(c.surface),
-		origin:                 routeRes.dispatchOrigin(c.decision),
+		Bindings:               c.bindings,
+		Attempt:                c.attempt,
+		FlushErr:               c.flushErr,
+		DeferFlushOnExhaustion: deferFlush,
+		Purpose:                routeRes.dispatchPurpose(c.surface),
+		Origin:                 routeRes.dispatchOrigin(c.decision),
 	})
 	c.subscriptionPoolFailure = isSubscriptionPoolError(c.proxyErr)
 }
@@ -276,15 +276,15 @@ func (c *rescueChain) dispatchSibling(ctx context.Context, siblingDecision route
 		*c.reqStats = providers.RequestMutationStats{}
 	}
 	c.winnerIdx, c.proxyErr = s.dispatchWithFallback(siblingCtx, failoverInputs{
-		w:                      c.contentSink,
-		buf:                    c.preludeBuf,
-		initialDecision:        siblingDecision,
-		bindings:               siblingBindings,
-		attempt:                siblingAttempt,
-		flushErr:               c.flushErr,
-		deferFlushOnExhaustion: true,
-		purpose:                routeRes.dispatchPurpose(c.surface),
-		origin:                 routeRes.rescueOrigin(),
+		Writer:                 c.contentSink,
+		Prelude:                c.preludeBuf,
+		InitialDecision:        siblingDecision,
+		Bindings:               siblingBindings,
+		Attempt:                siblingAttempt,
+		FlushErr:               c.flushErr,
+		DeferFlushOnExhaustion: true,
+		Purpose:                routeRes.dispatchPurpose(c.surface),
+		Origin:                 routeRes.rescueOrigin(),
 	})
 	c.subscriptionPoolFailure = isSubscriptionPoolError(c.proxyErr)
 	c.decision = siblingDecision

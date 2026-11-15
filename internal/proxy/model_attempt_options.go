@@ -15,6 +15,6 @@ func switchedAttemptOptions(ctx context.Context, base translate.EmitOptions, tar
 	base.Capabilities = router.Lookup(target.Model)
 	base.ModelSwitched = true
 	effort := resolveEffort(ctx, target, base.Capabilities, escalate)
-	effort.apply(&base)
+	effort.Apply(&base)
 	return base, effort
 }

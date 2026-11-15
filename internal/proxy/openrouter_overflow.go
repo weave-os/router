@@ -107,26 +107,26 @@ func (s *Service) subscriptionStateTargetBindings(ctx context.Context, target ro
 // withOpenRouterOverflowTarget rewrites a paid dispatch outside the
 // subscription-state lane onto OpenRouter.
 func (s *Service) withOpenRouterOverflowTarget(ctx context.Context, in failoverInputs) (context.Context, failoverInputs, error) {
-	target := openRouterOverflowTarget(ctx, in.initialDecision)
+	target := openRouterOverflowTarget(ctx, in.InitialDecision)
 	bindings := s.openRouterOverflowBindings(ctx, target)
 	if len(bindings) == 0 {
 		return ctx, in, router.ErrAllowlistEmptiesPool
 	}
-	if in.initialDecision.Provider != target.Provider {
-		if in.buildAlternative == nil {
+	if in.InitialDecision.Provider != target.Provider {
+		if in.BuildAlternative == nil {
 			return ctx, in, router.ErrAllowlistEmptiesPool
 		}
-		attempt, err := in.buildAlternative(target)
+		attempt, err := in.BuildAlternative(target)
 		if err != nil {
 			return ctx, in, err
 		}
-		in.attempt = attempt
-		ctx = s.resolveCredentials(clearCredentials(ctx), target.Provider, target.Model, in.subscriptionStateHeaders)
-		if in.onSubscriptionStateTarget != nil {
-			in.onSubscriptionStateTarget(target, bindings)
+		in.Attempt = attempt
+		ctx = s.resolveCredentials(clearCredentials(ctx), target.Provider, target.Model, in.SubscriptionStateHeaders)
+		if in.OnSubscriptionStateTarget != nil {
+			in.OnSubscriptionStateTarget(target, bindings)
 		}
 	}
-	in.initialDecision = target
-	in.bindings = bindings
+	in.InitialDecision = target
+	in.Bindings = bindings
 	return ctx, in, nil
 }

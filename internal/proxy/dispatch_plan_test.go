@@ -25,16 +25,16 @@ const plannedTestModel = "deepseek/deepseek-v4-pro"
 func plannedInputs(rec *httptest.ResponseRecorder, buf *preludeBuffer, bindings []catalog.ProviderBinding, body []byte) failoverInputs {
 	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 	return failoverInputs{
-		w:               rec,
-		buf:             buf,
-		initialDecision: router.Decision{Model: plannedTestModel, Provider: bindings[0].Provider},
-		bindings:        bindings,
-		attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
+		Writer:          rec,
+		Prelude:         buf,
+		InitialDecision: router.Decision{Model: plannedTestModel, Provider: bindings[0].Provider},
+		Bindings:        bindings,
+		Attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{Body: body}, buf, r)
 		},
-		flushErr: flushBufferedIfPresent,
-		purpose:  inference.PurposeAnthropicMessages,
+		FlushErr: flushBufferedIfPresent,
+		Purpose:  inference.PurposeAnthropicMessages,
 	}
 }
 
@@ -171,7 +171,7 @@ func TestDispatchPlanned_DeferredFlushLeavesWriterUntouched(t *testing.T) {
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}}, nil)
-	in.deferFlushOnExhaustion = true
+	in.DeferFlushOnExhaustion = true
 	_, err := s.dispatchWithFallback(context.Background(), in)
 
 	require.Error(t, err)
@@ -206,8 +206,8 @@ func TestDispatchPlanned_RecordsAttemptProvenance(t *testing.T) {
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}, {Provider: providers.ProviderOpenRouter}}, nil)
-	in.initialDecision.Reason = translate.ReasonUserForceModel
-	in.origin = policy.OverrideSourceRequest
+	in.InitialDecision.Reason = translate.ReasonUserForceModel
+	in.Origin = policy.OverrideSourceRequest
 	_, err = s.dispatchWithFallback(context.Background(), in)
 
 	require.NoError(t, err)
@@ -230,7 +230,7 @@ func TestDispatchPlanned_UnregisteredPurposeFailsClosed(t *testing.T) {
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}}, nil)
-	in.purpose = inference.Purpose("not_a_purpose")
+	in.Purpose = inference.Purpose("not_a_purpose")
 	_, err := s.dispatchWithFallback(context.Background(), in)
 
 	var resolution *policy.ResolutionError
@@ -258,7 +258,7 @@ func TestDispatchPlanned_LeaseFailureIsTerminal(t *testing.T) {
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}, {Provider: providers.ProviderOpenRouter}}, nil)
-	in.initialDecision.Model = "claude-opus-4-8"
+	in.InitialDecision.Model = "claude-opus-4-8"
 	_, err := s.dispatchWithFallback(ctx, in)
 
 	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)

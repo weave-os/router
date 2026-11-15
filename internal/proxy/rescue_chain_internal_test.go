@@ -43,8 +43,8 @@ func (f *fakeRescueServices) NoteRescueReadmission(_ context.Context, _, rescuer
 }
 
 func (f *fakeRescueServices) dispatchWithFallback(_ context.Context, in failoverInputs) (int, error) {
-	f.dispatched = append(f.dispatched, in.initialDecision.Model)
-	return 0, f.outcomes[in.initialDecision.Model]
+	f.dispatched = append(f.dispatched, in.InitialDecision.Model)
+	return 0, f.outcomes[in.InitialDecision.Model]
 }
 
 func newSiblingRescueChain(svc *fakeRescueServices, primaryErr error, siblings ...router.Decision) *rescueChain {

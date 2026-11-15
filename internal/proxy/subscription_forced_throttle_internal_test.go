@@ -35,11 +35,11 @@ func TestSubscriptionStateForcedModelThrottledPoolKeeps429(t *testing.T) {
 	rec := httptest.NewRecorder()
 	buffer := newPreludeBuffer(rec)
 	inputs := failoverInputs{
-		w: rec, buf: buffer, subscriptionStateRequest: &req,
-		subscriptionStateWinnerProvider: new(string),
-		initialDecision:                 router.Decision{Model: stateCodexModel, Provider: providers.ProviderOpenAI, Reason: translate.ReasonUserForceModel},
-		purpose:                         inference.PurposeOpenAIChatCompletions,
-		buildAlternative: func(router.Decision) (dispatchAttempt, error) {
+		Writer: rec, Prelude: buffer, SubscriptionStateRequest: &req,
+		SubscriptionStateWinnerProvider: new(string),
+		InitialDecision:                 router.Decision{Model: stateCodexModel, Provider: providers.ProviderOpenAI, Reason: translate.ReasonUserForceModel},
+		Purpose:                         inference.PurposeOpenAIChatCompletions,
+		BuildAlternative: func(router.Decision) (dispatchAttempt, error) {
 			return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
 				buffer.Seal()
 				return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, "/v1/responses", nil))

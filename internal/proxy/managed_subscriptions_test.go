@@ -118,11 +118,11 @@ func TestDispatchWithFallbackUsesOnlyMatchingManagedProviderFamily(t *testing.T)
 	ctx := managedSubscriptionContext(auth.SubscriptionProviderCodex)
 
 	_, err := svc.dispatchWithFallback(ctx, failoverInputs{
-		w: recorder, buf: buffer,
-		initialDecision: router.Decision{Model: "gpt-5.6-sol", Provider: providers.ProviderOpenAI},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderOpenAI}},
-		attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
+		Writer: recorder, Prelude: buffer,
+		InitialDecision: router.Decision{Model: "gpt-5.6-sol", Provider: providers.ProviderOpenAI},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderOpenAI}},
+		Attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
 			require.Equal(t, "token-codex", string(CredentialsFromContext(ctx).APIKey))
 			buffer.Seal()
 			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, request)
@@ -422,11 +422,11 @@ func TestDispatchWithFallbackRotatesManagedAccountBeforeCommit(t *testing.T) {
 	var output bytes.Buffer
 	ctx := observability.WithLogger(managedSubscriptionTestContext(), slog.New(slog.NewJSONHandler(&output, nil)))
 	_, err := svc.dispatchWithFallback(ctx, failoverInputs{
-		w: recorder, buf: buffer,
-		initialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
-		attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
+		Writer: recorder, Prelude: buffer,
+		InitialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
+		Attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
 			tokens = append(tokens, string(CredentialsFromContext(ctx).APIKey))
 			buffer.Seal()
 			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, request)
@@ -478,11 +478,11 @@ func TestDispatchWithFallbackDoesNotMarkFailedManagedAttemptServed(t *testing.T)
 	ctx := managedSubscriptionTestContext()
 
 	_, err := svc.dispatchWithFallback(ctx, failoverInputs{
-		w:               httptest.NewRecorder(),
-		initialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
-		attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
+		Writer:          httptest.NewRecorder(),
+		InitialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
+		Attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
 			return client.Proxy(ctx, decision, providers.PreparedRequest{}, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
 		},
 	})
@@ -506,12 +506,12 @@ func TestDispatchWithFallbackRefusesPaidRecoveryAfterManagedModelDenial(t *testi
 		recorder := httptest.NewRecorder()
 		buffer := newPreludeBuffer(recorder)
 		_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), failoverInputs{
-			w:               recorder,
-			buf:             buffer,
-			initialDecision: router.Decision{Model: parityAnthropicModel, Provider: providers.ProviderAnthropic},
-			purpose:         inference.PurposeAnthropicMessages,
-			bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
-			attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
+			Writer:          recorder,
+			Prelude:         buffer,
+			InitialDecision: router.Decision{Model: parityAnthropicModel, Provider: providers.ProviderAnthropic},
+			Purpose:         inference.PurposeAnthropicMessages,
+			Bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
+			Attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
 				buffer.Seal()
 				return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
 			},
@@ -543,12 +543,12 @@ func TestDispatchWithFallbackRotatesManagedModelDenialToEligibleAccount(t *testi
 	ctx := managedSubscriptionTestContext()
 
 	_, err := svc.dispatchWithFallback(ctx, failoverInputs{
-		w:               recorder,
-		buf:             buffer,
-		initialDecision: router.Decision{Model: parityAnthropicModel, Provider: providers.ProviderAnthropic},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
-		attempt: func(ctx context.Context, decision router.Decision, upstream dispatch.Upstream) error {
+		Writer:          recorder,
+		Prelude:         buffer,
+		InitialDecision: router.Decision{Model: parityAnthropicModel, Provider: providers.ProviderAnthropic},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
+		Attempt: func(ctx context.Context, decision router.Decision, upstream dispatch.Upstream) error {
 			buffer.Seal()
 			return upstream.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
 		},
@@ -572,12 +572,12 @@ func TestDispatchWithFallbackKeepsManagedModelDenialModelSpecific(t *testing.T) 
 	buffer := newPreludeBuffer(recorder)
 
 	_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), failoverInputs{
-		w:               recorder,
-		buf:             buffer,
-		initialDecision: router.Decision{Model: parityAnthropicModel, Provider: providers.ProviderAnthropic},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
-		attempt: func(ctx context.Context, decision router.Decision, upstream dispatch.Upstream) error {
+		Writer:          recorder,
+		Prelude:         buffer,
+		InitialDecision: router.Decision{Model: parityAnthropicModel, Provider: providers.ProviderAnthropic},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
+		Attempt: func(ctx context.Context, decision router.Decision, upstream dispatch.Upstream) error {
 			buffer.Seal()
 			return upstream.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
 		},
@@ -614,11 +614,11 @@ func TestDispatchWithFallbackSlowInferenceDoesNotConsumeLeaseBudget(t *testing.T
 	}
 
 	_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), failoverInputs{
-		w:               httptest.NewRecorder(),
-		initialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
-		attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
+		Writer:          httptest.NewRecorder(),
+		InitialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
+		Attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
 			return client.Proxy(ctx, decision, providers.PreparedRequest{}, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
 		},
 	})
@@ -643,11 +643,11 @@ func TestDispatchWithFallbackDisablesRejectedManagedAccountBeforeRotation(t *tes
 	request := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 
 	_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), failoverInputs{
-		w: recorder, buf: buffer,
-		initialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
-		attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
+		Writer: recorder, Prelude: buffer,
+		InitialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
+		Attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
 			buffer.Seal()
 			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, request)
 		},
@@ -673,11 +673,11 @@ func TestDispatchWithFallbackStrikesRejectedManagedAccountInsteadOfDisabling(t *
 	request := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 
 	_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), failoverInputs{
-		w: recorder, buf: buffer,
-		initialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
-		attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
+		Writer: recorder, Prelude: buffer,
+		InitialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
+		Attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
 			buffer.Seal()
 			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, request)
 		},
@@ -703,11 +703,11 @@ func TestDispatchWithFallbackDoesNotReplayCommittedManagedStream(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 
 	_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), failoverInputs{
-		w: recorder, buf: buffer,
-		initialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
-		attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
+		Writer: recorder, Prelude: buffer,
+		InitialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
+		Attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
 			buffer.Seal()
 			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, request)
 		},
@@ -730,14 +730,14 @@ func TestDispatchWithFallbackNeverUsesPaidBindingAfterManagedExhaustion(t *testi
 	buffer := newPreludeBuffer(recorder)
 
 	_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), failoverInputs{
-		w: recorder, buf: buffer,
-		initialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings: []catalog.ProviderBinding{
+		Writer: recorder, Prelude: buffer,
+		InitialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings: []catalog.ProviderBinding{
 			{Provider: providers.ProviderAnthropic},
 			{Provider: "paid"},
 		},
-		attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
+		Attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
 			buffer.Seal()
 			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
 		},
@@ -764,11 +764,11 @@ func TestDispatchWithFallbackRotatesManagedTransientErrorOnSameBinding(t *testin
 
 	ctx := managedSubscriptionTestContext()
 	_, err := svc.dispatchWithFallback(ctx, failoverInputs{
-		w: recorder, buf: buffer,
-		initialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
-		attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
+		Writer: recorder, Prelude: buffer,
+		InitialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
+		Purpose:         inference.PurposeAnthropicMessages,
+		Bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
+		Attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
 			buffer.Seal()
 			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, request)
 		},

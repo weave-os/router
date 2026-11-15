@@ -2,9 +2,7 @@ package proxy
 
 import (
 	"context"
-	"log/slog"
 	"maps"
-	"net/http"
 	"slices"
 	"sort"
 	"strings"
@@ -15,7 +13,6 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/turntype"
-	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 )
 
@@ -97,96 +94,49 @@ func (s *Service) earlyStopRedoMode(ctx context.Context, routeRes turnLoopResult
 	return mode
 }
 
-// earlyStopRedo carries what ProxyMessages lends a re-serve: the gate holding
-// the stopped response, the closures that build and dispatch the candidate,
-// and the served-attempt state the redo replaces (or restores on failure).
-type earlyStopRedo struct {
-	gate     *dispatch.EarlyStopGate
-	prelude  *preludeBuffer
-	header   http.Header
-	log      *slog.Logger
-	target   router.Decision
-	build    func(target router.Decision) (dispatchAttempt, []catalog.ProviderBinding, string, effortResolution, context.Context, error)
-	dispatch func(ctx context.Context, target router.Decision, bindings []catalog.ProviderBinding, attempt dispatchAttempt) (int, error)
-	served   *earlyStopServed
-}
+type earlyStopRedo = dispatch.EarlyStopRedo
 
-// earlyStopServed points at ProxyMessages' record of the attempt that served.
-type earlyStopServed struct {
-	decision   *router.Decision
-	bindings   *[]catalog.ProviderBinding
-	marker     *string
-	winnerIdx  *int
-	extractor  **telemetry.UsageExtractor
-	summary    *translate.ResponseSummary
-	reqStats   *providers.RequestMutationStats
-	fastServed *bool
-	effort     *effortResolution
-}
-
-type earlyStopServedSnapshot struct {
-	decision   router.Decision
-	bindings   []catalog.ProviderBinding
-	marker     string
-	winnerIdx  int
-	extractor  *telemetry.UsageExtractor
-	summary    translate.ResponseSummary
-	reqStats   providers.RequestMutationStats
-	fastServed bool
-	effort     effortResolution
-}
-
-func (p *earlyStopServed) save() earlyStopServedSnapshot {
-	return earlyStopServedSnapshot{
-		decision: *p.decision, bindings: *p.bindings, marker: *p.marker, winnerIdx: *p.winnerIdx,
-		extractor: *p.extractor, summary: *p.summary, reqStats: *p.reqStats, fastServed: *p.fastServed, effort: *p.effort,
-	}
-}
-
-func (p *earlyStopServed) restore(s earlyStopServedSnapshot) {
-	*p.decision, *p.bindings, *p.marker, *p.winnerIdx = s.decision, s.bindings, s.marker, s.winnerIdx
-	*p.extractor, *p.summary, *p.reqStats, *p.fastServed, *p.effort = s.extractor, s.summary, s.reqStats, s.fastServed, s.effort
-}
+type earlyStopServed = dispatch.EarlyStopServed
 
 // redoEarlyStop re-serves a withheld early stop on redo.target. If the candidate
 // cannot be dispatched, nothing changes and the caller releases the stopped
 // response. If the redo fails before output, the stopped response is
 // delivered instead, so the client never loses a turn the router discarded.
 func (s *Service) redoEarlyStop(ctx context.Context, redo earlyStopRedo) (redone bool, err error) {
-	attempt, bindings, marker, effort, redoCtx, buildErr := redo.build(redo.target)
+	attempt, bindings, marker, effort, redoCtx, buildErr := redo.Build(redo.Target)
 	if buildErr != nil || len(bindings) == 0 {
-		redo.log.Warn("Early-stop redo: candidate is not dispatchable; serving the stopped response",
-			"redo_model", redo.target.Model, "redo_provider", redo.target.Provider, "err", buildErr)
+		redo.Log.Warn("Early-stop redo: candidate is not dispatchable; serving the stopped response",
+			"redo_model", redo.Target.Model, "redo_provider", redo.Target.Provider, "err", buildErr)
 		return false, nil
 	}
-	stopped := redo.served.save()
-	header := redo.header.Clone()
-	status, body := redo.gate.TakeWithheld()
-	redo.prelude.Discard()
-	*redo.served.summary = translate.ResponseSummary{}
-	*redo.served.reqStats = providers.RequestMutationStats{}
-	redo.log.Info("Early-stop redo: re-serving the turn on a higher-tier candidate",
-		"stopped_model", stopped.decision.Model, "redo_model", redo.target.Model, "redo_provider", redo.target.Provider,
+	stopped := redo.Served.Save()
+	header := redo.Header.Clone()
+	status, body := redo.Gate.TakeWithheld()
+	redo.Prelude.Discard()
+	*redo.Served.Summary = translate.ResponseSummary{}
+	*redo.Served.ReqStats = providers.RequestMutationStats{}
+	redo.Log.Info("Early-stop redo: re-serving the turn on a higher-tier candidate",
+		"stopped_model", stopped.Decision.Model, "redo_model", redo.Target.Model, "redo_provider", redo.Target.Provider,
 		"stopped_output_bytes", len(body))
-	winnerIdx, err := redo.dispatch(redoCtx, redo.target, bindings, attempt)
-	if err == nil || redo.prelude.Committed() {
-		*redo.served.decision, *redo.served.bindings, *redo.served.marker = redo.target, bindings, marker
-		*redo.served.winnerIdx, *redo.served.effort = winnerIdx, effort
+	winnerIdx, err := redo.Dispatch(redoCtx, redo.Target, bindings, attempt)
+	if err == nil || redo.Prelude.Committed() {
+		*redo.Served.Decision, *redo.Served.Bindings, *redo.Served.Marker = redo.Target, bindings, marker
+		*redo.Served.WinnerIdx, *redo.Served.Effort = winnerIdx, effort
 		return err == nil, err
 	}
-	redo.log.Warn("Early-stop redo failed before output; serving the stopped response",
-		"redo_model", redo.target.Model, "upstream_status", upstreamStatus(err), "err", err)
-	redo.served.restore(stopped)
-	redo.prelude.Discard()
-	clear(redo.header)
-	maps.Copy(redo.header, header)
-	redo.prelude.Seal()
+	redo.Log.Warn("Early-stop redo failed before output; serving the stopped response",
+		"redo_model", redo.Target.Model, "upstream_status", upstreamStatus(err), "err", err)
+	redo.Served.Restore(stopped)
+	redo.Prelude.Discard()
+	clear(redo.Header)
+	maps.Copy(redo.Header, header)
+	redo.Prelude.Seal()
 	if status != 0 {
-		redo.prelude.WriteHeader(status)
+		redo.Prelude.WriteHeader(status)
 	}
-	if _, err := redo.gate.Write(body); err != nil {
+	if _, err := redo.Gate.Write(body); err != nil {
 		return false, err
 	}
-	redo.gate.Flush()
+	redo.Gate.Flush()
 	return false, nil
 }

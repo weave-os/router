@@ -4054,7 +4054,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// Names the level that reaches the wire, so a rescue candidate only takes it
 	// over once that candidate is committed to dispatch.
 	effortServed := s.resolveEffort(ctx, decision, opts.Capabilities, routeRes.EscalateEffort)
-	effortServed.apply(&opts)
+	effortServed.Apply(&opts)
 
 	// A caller's Claude subscription can be exhausted (429) or actively drawing
 	// customer-paid overage. Suppress either observed state so credential
@@ -6498,7 +6498,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		EnableExtendedContext:    shouldEnableExtendedContext(env.FullTokenEstimate(), outputReserveOAI),
 	}
 	effortServed := s.resolveEffort(ctx, decision, opts.Capabilities, routeRes.EscalateEffort)
-	effortServed.apply(&opts)
+	effortServed.Apply(&opts)
 
 	// A caller whose ChatGPT (Codex) plan window has bound can't serve another
 	// turn on it — the backend rejects until reset. Suppress the spent token so

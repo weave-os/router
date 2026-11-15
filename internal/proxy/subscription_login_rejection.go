@@ -63,8 +63,8 @@ func includedLaneVerdict(ctx context.Context, includedFailure error, ownLoginRej
 // flushIncludedLaneVerdict renders a login rejection the way dispatch renders
 // an exhausted attempt; the ingress handler renders pool errors itself.
 func flushIncludedLaneVerdict(in failoverInputs, err error) error {
-	if !isSubscriptionPoolError(err) && in.flushErr != nil && !in.deferFlushOnExhaustion {
-		in.flushErr(in.w, err)
+	if !isSubscriptionPoolError(err) && in.FlushErr != nil && !in.DeferFlushOnExhaustion {
+		in.FlushErr(in.Writer, err)
 	}
 	return err
 }

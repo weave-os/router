@@ -192,7 +192,7 @@ func TestReportPolicyOutcome_EffortMismatchExcludedFromTraining(t *testing.T) {
 		},
 	}
 	ctx := context.WithValue(context.Background(), PolicyTrainingAllowedContextKey{}, true)
-	effort := effortResolutionFor(router.Lookup(decision.Model), decision.Effort, decision.Effort, effortSourceArm)
+	effort := effortResolutionFor(router.Lookup(decision.Model), decision.Effort, decision.Effort, EffortSourceArm)
 
 	s.reportPolicyOutcome(
 		ctx,
@@ -209,7 +209,7 @@ func TestReportPolicyOutcome_EffortMismatchExcludedFromTraining(t *testing.T) {
 		assert.Equal(t, "xhigh", payload["arm_effort"])
 		assert.Equal(t, "xhigh", payload["selected_effort"])
 		assert.Equal(t, "high", payload["sent_effort"])
-		assert.Equal(t, effortSourceArm, payload["effort_source"])
+		assert.Equal(t, EffortSourceArm, payload["effort_source"])
 		assert.Equal(t, false, payload["selected_sent_effort_match"])
 		assert.Equal(t, false, payload["training_allowed"])
 		assert.Equal(t, "selected_sent_effort_mismatch", payload["training_exclusion_reason"])

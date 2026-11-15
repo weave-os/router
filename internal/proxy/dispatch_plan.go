@@ -113,16 +113,16 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 	}
 
 	lastIdx := 0
-	lastProvider := in.initialDecision.Provider
+	lastProvider := in.InitialDecision.Provider
 	managedBinding := false
 	ctx, rotationBudget := withSubscriptionAdmissionBudget(ctx)
-	ctx = withClientAppRefusalPaidFallback(ctx, in.initialDecision)
+	ctx = withClientAppRefusalPaidFallback(ctx, in.InitialDecision)
 	transport := dispatch.Transport{
-		OperationID: string(in.purpose),
-		Committed:   func() bool { return committed(in.buf) },
+		OperationID: string(in.Purpose),
+		Committed:   func() bool { return committed(in.Prelude) },
 		Reset: func() {
-			if in.buf != nil {
-				in.buf.Discard()
+			if in.Prelude != nil {
+				in.Prelude.Discard()
 			}
 		},
 		Prepare: func(ctx context.Context, attempt dispatch.Attempt) (context.Context, error) {
@@ -134,7 +134,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			// Fallback attempts re-resolve credentials against an empty header
 			// set: shouldFailover() already ruled out BYOK/client-credential
 			// paths, so the only source left is the deployment env key.
-			return resolveAndInjectCredentials(ctx, attempt.Target.Provider, in.initialDecision.Model, http.Header{}), nil
+			return resolveAndInjectCredentials(ctx, attempt.Target.Provider, in.InitialDecision.Model, http.Header{}), nil
 		},
 		Terminal: func(_ dispatch.Attempt, err error) bool {
 			var abort dispatchAbort
@@ -147,7 +147,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 		RetryDelay: dispatch.ThrottleLedgerFromContext(ctx).RetryDelay(s.clockNow),
 	}
 	transport.Attempt = func(attemptCtx context.Context, attempt dispatch.Attempt, client providers.Client) error {
-		decision := in.initialDecision
+		decision := in.InitialDecision
 		decision.Provider = attempt.Target.Provider
 		guarded := dispatch.GuardTarget(client, attempt.Target)
 		trace := attemptTraceFromContext(ctx)
@@ -160,13 +160,13 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			usage.IntendedModel = decision.Model
 		}
 		for account := 0; ; account++ {
-			if !committed(in.buf) {
-				in.w.Header().Set(HeaderRouterProvider, decision.Provider)
-				in.w.Header().Set(HeaderRouterModel, decision.Model)
-				in.w.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
+			if !committed(in.Prelude) {
+				in.Writer.Header().Set(HeaderRouterProvider, decision.Provider)
+				in.Writer.Header().Set(HeaderRouterModel, decision.Model)
+				in.Writer.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
 				if attempt.Index > 0 {
-					in.w.Header().Set(HeaderRouterFallbackFrom, in.bindings[0].Provider)
-					in.w.Header().Set(HeaderRouterFallbackAttempt, attemptIdxLabel(attempt.Index))
+					in.Writer.Header().Set(HeaderRouterFallbackFrom, in.Bindings[0].Provider)
+					in.Writer.Header().Set(HeaderRouterFallbackAttempt, attemptIdxLabel(attempt.Index))
 				}
 			}
 			if current := CredentialsFromContext(attemptCtx); current != nil && current.OAuth && !s.supportsSubscriptionTransport(decision.Provider) {
@@ -232,7 +232,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 				}
 			}
 			attemptStarted := time.Now()
-			attemptErr := in.attempt(credentialCtx, decision, dispatch.NewUpstream(guarded))
+			attemptErr := in.Attempt(credentialCtx, decision, dispatch.NewUpstream(guarded))
 
 			// Health bookkeeping must persist even if the caller has gone.
 			bookkeepingCtx := context.WithoutCancel(credentialCtx)
@@ -241,12 +241,12 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 					"subscription_event", auth.SubscriptionCredentialEventAttempted, "account_id", lease.AccountID,
 					"provider", decision.Provider, "succeeded", attemptErr == nil,
 					"upstream_status", upstreamStatus(attemptErr), "attempt_ms", time.Since(attemptStarted).Milliseconds(),
-					"response_committed", committed(in.buf), "subscription_account_attempt", account+1)
+					"response_committed", committed(in.Prelude), "subscription_account_attempt", account+1)
 			}
 			if creds := CredentialsFromContext(credentialCtx); !managedAttempt && creds != nil && creds.OAuth && attemptErr != nil {
 				s.recordDirectSubscriptionQuota(bookkeepingCtx, decision.Provider, decision.Model, creds, attemptErr)
 			}
-			if !committed(in.buf) {
+			if !committed(in.Prelude) {
 				s.recordSubscriptionModelRejection(bookkeepingCtx, decision.Provider, decision.Model, attemptErr)
 			}
 			lease.Release()
@@ -262,7 +262,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 				if attempt.Index > 0 {
 					log.Info("dispatchWithFallback: succeeded on fallback",
 						"model", decision.Model,
-						"primary_provider", in.bindings[0].Provider,
+						"primary_provider", in.Bindings[0].Provider,
 						"final_provider", decision.Provider,
 						"attempt_index", attempt.Index)
 				}
@@ -272,22 +272,22 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 				return attemptErr
 			}
 			rotate := managedAttempt && (s.recordManagedSubscriptionFailure(bookkeepingCtx, decision.Provider, decision.Model, lease, attemptErr) || providers.IsRetryable(attemptErr))
-			if managedAttempt && !committed(in.buf) {
+			if managedAttempt && !committed(in.Prelude) {
 				s.recordSubscriptionUnavailable(bookkeepingCtx, decision.Provider, decision.Model, attemptErr)
 			}
-			if !managedAttempt && !committed(in.buf) && codexSubscriptionRotates(credentialCtx, attemptErr) {
+			if !managedAttempt && !committed(in.Prelude) && codexSubscriptionRotates(credentialCtx, attemptErr) {
 				s.recordCodexCredentialUnusable(bookkeepingCtx, CredentialsFromContext(credentialCtx), attemptErr)
 				s.recordSubscriptionUnavailable(bookkeepingCtx, decision.Provider, decision.Model, attemptErr)
 				attemptCtx = resolveAndInjectCredentials(withSuppressedCodexSubscription(attemptCtx), decision.Provider, decision.Model, http.Header{})
 				rotate = true
 			}
-			if next, capped := claudeEnterpriseCapRotation(credentialCtx, attemptCtx, decision, attemptErr); capped && !managedAttempt && !committed(in.buf) {
+			if next, capped := claudeEnterpriseCapRotation(credentialCtx, attemptCtx, decision, attemptErr); capped && !managedAttempt && !committed(in.Prelude) {
 				attemptCtx, rotate = next, true
 			}
 			if credentialRejectionStands(lastSubscriptionErr, attemptErr, codexOAuthCredentialRejected) {
 				return lastSubscriptionErr
 			}
-			if committed(in.buf) || !rotate {
+			if committed(in.Prelude) || !rotate {
 				if providers.IsUpstreamModelNotFound(attemptErr) {
 					s.rememberGatewayLacksModel(attemptCtx, decision.Provider, decision.Model)
 				}
@@ -303,8 +303,8 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			if rotationBudget.remaining <= 0 {
 				return s.afterSubscriptionRotationBudget(ctx, decision, account+1, attemptErr)
 			}
-			if in.buf != nil {
-				in.buf.Discard()
+			if in.Prelude != nil {
+				in.Prelude.Discard()
 			}
 			log.Warn("dispatchWithFallback: retrying with another subscription account",
 				"model", decision.Model,
@@ -320,9 +320,9 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			return describeAttempt(ctx, trace, attempt, err)
 		}
 	}
-	req := inference.InvocationRequest{Purpose: in.purpose, RequestID: observability.RequestIDFromContext(ctx)}
+	req := inference.InvocationRequest{Purpose: in.Purpose, RequestID: observability.RequestIDFromContext(ctx)}
 	result, runErr := executor.Run(ctx, req, plan, transport)
-	s.recordOverloadOutcome(ctx, in.initialDecision.Model, lastProvider, result.Outcome.ResponseCommitted, runErr)
+	s.recordOverloadOutcome(ctx, in.InitialDecision.Model, lastProvider, result.Outcome.ResponseCommitted, runErr)
 	if runErr == nil {
 		return lastIdx, nil
 	}
@@ -332,8 +332,8 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 		// terms as binding exhaustion. Skipping it left a released prelude with
 		// no terminal frame, since the handler cannot write once the client has
 		// bytes.
-		if in.flushErr != nil && !in.deferFlushOnExhaustion && !committed(in.buf) {
-			in.flushErr(in.w, abort.err)
+		if in.FlushErr != nil && !in.DeferFlushOnExhaustion && !committed(in.Prelude) {
+			in.FlushErr(in.Writer, abort.err)
 		}
 		return lastIdx, abort.err
 	}
@@ -342,8 +342,8 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 		return lastIdx, runErr
 	}
 	runErr = attributeTerminalError(attemptTraceFromContext(ctx), runErr)
-	if in.flushErr != nil && !in.deferFlushOnExhaustion && !committed(in.buf) {
-		in.flushErr(in.w, runErr)
+	if in.FlushErr != nil && !in.DeferFlushOnExhaustion && !committed(in.Prelude) {
+		in.FlushErr(in.Writer, runErr)
 	}
 	return lastIdx, runErr
 }

@@ -21,12 +21,12 @@ func TestApplyEffortTelemetry_RecordsClampedWireLevel(t *testing.T) {
 		Arm:      "xhigh",
 		Selected: "xhigh",
 		Sent:     "high",
-		Source:   effortSourceArm,
+		Source:   EffortSourceArm,
 	})
 	assert.Equal(t, "xhigh", p.EffortArm)
 	assert.Equal(t, "xhigh", p.EffortSelected)
 	assert.Equal(t, "high", p.EffortSent)
-	assert.Equal(t, effortSourceArm, p.EffortSource)
+	assert.Equal(t, EffortSourceArm, p.EffortSource)
 }
 
 func TestApplyEffortTelemetry_RecordsOverrideSource(t *testing.T) {
@@ -35,8 +35,8 @@ func TestApplyEffortTelemetry_RecordsOverrideSource(t *testing.T) {
 		Arm:      "low",
 		Selected: "high",
 		Sent:     "high",
-		Source:   effortSourceUser,
+		Source:   EffortSourceUser,
 	})
 	assert.Equal(t, "low", p.EffortArm)
-	assert.Equal(t, effortSourceUser, p.EffortSource)
+	assert.Equal(t, EffortSourceUser, p.EffortSource)
 }

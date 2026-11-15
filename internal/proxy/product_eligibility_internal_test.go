@@ -120,7 +120,7 @@ func TestDispatchRefusesAnIneligibleDecisionTheTurnLoopMinted(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	in := plannedInputs(rec, newPreludeBuffer(rec), []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
-	in.initialDecision = router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic}
+	in.InitialDecision = router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic}
 
 	_, err := svc.dispatchWithFallback(maxScopedContext(), in)
 

@@ -86,14 +86,14 @@ func (m *messagesRescue) dispatchBaseline(ctx context.Context) context.Context {
 		*m.reqStats = providers.RequestMutationStats{}
 		logUpstreamBody(log, routeRes.SessionKey, baselineDecision, feats, baselinePrep.Body)
 		m.winnerIdx, m.proxyErr = s.dispatchWithFallback(baselineCtx, failoverInputs{
-			w:               m.contentSink,
-			buf:             preludeBuf,
-			initialDecision: baselineDecision,
-			bindings:        baselineBindings,
-			attempt:         baselineAttempt,
-			flushErr:        m.flushErrAsAnthropic,
-			purpose:         routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
-			origin:          routeRes.rescueOrigin(),
+			Writer:          m.contentSink,
+			Prelude:         preludeBuf,
+			InitialDecision: baselineDecision,
+			Bindings:        baselineBindings,
+			Attempt:         baselineAttempt,
+			FlushErr:        m.flushErrAsAnthropic,
+			Purpose:         routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
+			Origin:          routeRes.rescueOrigin(),
 		})
 		m.subscriptionPoolFailure = isSubscriptionPoolError(m.proxyErr)
 		m.decision = baselineDecision
@@ -167,17 +167,17 @@ func (m *messagesRescue) subscriptionRetry(ctx context.Context) {
 			m.subscriptionFailoverAttempted = true
 			subscriptionErr := m.proxyErr
 			m.winnerIdx, m.proxyErr = s.dispatchWithFallback(subCtx, failoverInputs{
-				w:               m.contentSink,
-				buf:             preludeBuf,
-				initialDecision: m.decision,
-				bindings:        subBindings,
-				attempt:         subAttempt,
-				flushErr:        m.flushErrAsAnthropic,
+				Writer:          m.contentSink,
+				Prelude:         preludeBuf,
+				InitialDecision: m.decision,
+				Bindings:        subBindings,
+				Attempt:         subAttempt,
+				FlushErr:        m.flushErrAsAnthropic,
 				// A failed retry keeps the same dark model; hold the error so
 				// the sibling rescue below can still serve the turn.
-				deferFlushOnExhaustion: m.rescueArmed,
-				purpose:                routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
-				origin:                 routeRes.dispatchOrigin(m.decision),
+				DeferFlushOnExhaustion: m.rescueArmed,
+				Purpose:                routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
+				Origin:                 routeRes.dispatchOrigin(m.decision),
 			})
 			m.subscriptionPoolFailure = isSubscriptionPoolError(m.proxyErr)
 			m.bindings = subBindings
