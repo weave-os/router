@@ -1167,7 +1167,7 @@ func TestPrepareAnthropic_ToolResultWithNilContentBecomesEmptyString(t *testing.
 	toolUserMsg, _ := msgs[2].(map[string]any)
 	blocks, _ := toolUserMsg["content"].([]any)
 	block, _ := blocks[0].(map[string]any)
-	assert.Empty(t, block["content"],
+	assert.Equal(t, "", block["content"],
 		"null/missing content must produce an empty string, not nil or a panic")
 }
 
