@@ -323,7 +323,7 @@ func (e *Emitter) post(endpoint string, body []byte) {
 		observability.Get().Warn("OTLP export request failed", "err", err)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		observability.Get().Warn("OTLP export returned non-2xx status", "status", resp.StatusCode)

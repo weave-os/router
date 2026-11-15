@@ -129,7 +129,7 @@ func readLocalObject(path string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open local policy object: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	payload, err := io.ReadAll(io.LimitReader(file, maxPolicyObjectBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read local policy object: %w", err)
@@ -168,9 +168,9 @@ func WriteDirectoryRelease(dir string, head LaneHead, releasePayload, policyPayl
 	if err != nil {
 		return fmt.Errorf("stage local lane head: %w", err)
 	}
-	defer os.Remove(staged.Name())
+	defer func() { _ = os.Remove(staged.Name()) }()
 	if _, err := staged.Write(append(headPayload, '\n')); err != nil {
-		staged.Close()
+		_ = staged.Close()
 		return fmt.Errorf("write local lane head: %w", err)
 	}
 	if err := staged.Close(); err != nil {

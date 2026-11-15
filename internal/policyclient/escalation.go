@@ -30,7 +30,7 @@ func (c *Client) ObserveEscalation(ctx context.Context, observation escalation.O
 	if err != nil {
 		return escalation.ObserveResponse{}, fmt.Errorf("observe escalation: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
 		return escalation.ObserveResponse{}, fmt.Errorf("escalation service status %d", response.StatusCode)

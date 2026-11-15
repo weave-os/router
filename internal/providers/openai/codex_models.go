@@ -42,7 +42,7 @@ func (c *Client) FetchCodexModelCatalog(ctx context.Context, clientVersion strin
 	if err != nil {
 		return nil, fmt.Errorf("fetch Codex models: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("Codex models endpoint returned HTTP %d", response.StatusCode)
 	}

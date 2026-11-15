@@ -78,7 +78,7 @@ func servingPublishRelease(ctx context.Context, dependencies servingDependencies
 	if err != nil {
 		return err
 	}
-	defer registry.Close()
+	defer func() { _ = registry.Close() }()
 	candidateRef, err := registry.PublishServingManifest(ctx, candidate.kind, candidate.payload)
 	if err != nil {
 		return err
