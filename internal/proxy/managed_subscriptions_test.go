@@ -408,7 +408,7 @@ func TestLeaseManagedSubscription_CreditsDepletedExhaustedPool_PlanFirstKeyServe
 	svc := newServiceWithProviders(t, nil).
 		WithManagedSubscriptions(leaser).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
-	ctx := context.WithValue(exhaustedManagedSubscriptionContext(auth.SubscriptionProviderClaude), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	ctx := context.WithValue(exhaustedManagedSubscriptionContext(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{ID: "key-1", Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-byok"), FundingPriority: auth.FundingPriorityPlanFirst},
 	})
 	ctx = flags.WithOverrides(

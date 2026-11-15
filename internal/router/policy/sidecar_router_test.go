@@ -903,7 +903,7 @@ func TestSidecarRouterServesOnlyResolvedGatewayBindings(t *testing.T) {
 
 			if tc.wantErr != "" {
 				require.ErrorIs(t, err, router.ErrStrategyUnavailable)
-				assert.ErrorContains(t, err, tc.wantErr)
+				require.ErrorContains(t, err, tc.wantErr)
 				assert.Empty(t, decision.Provider)
 				return
 			}
