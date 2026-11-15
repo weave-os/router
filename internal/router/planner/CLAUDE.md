@@ -15,7 +15,14 @@ Decide(pin, fresh router.Decision, estimated tokens, available models) → STAY 
 
 ## Math, briefly
 
-Compares expected per-action savings over the remaining horizon against the eviction cost of warming a new cache. The **tier-upgrade guard** fires when STAY would clearly under-serve the prompt — uses [`../catalog`](../catalog)'s Low/Mid/High tier to overturn a cost-driven "stay" when the fresh decision is in a strictly higher tier than the pin.
+Compares expected per-action savings over the remaining horizon against the eviction cost of warming a new cache. The legacy (`CorrectedEconomics=false`, bit-for-bit unchanged) math is
+
+```
+savings_per_turn = (pin $/M-tok * pinMult - fresh $/M-tok * freshMult) * tokens
+eviction_cost    = fresh $/M-tok * tokens * (1 - freshMult)
+```
+
+with per-model cache-read multipliers from `catalog.Pricing.EffectiveCacheReadMultiplier`; it switches when `savings * ExpectedRemainingTurns - eviction_cost > ThresholdUSD` (defaults `$0.001` against noise and `3` turns). An unroutable pin switches regardless of EV (nil `AvailableModels` means no filter), and a pin with no completed turn has no cache evidence. `ColdPinFollowFresh` (default off) lets a cold pin follow the fresh pick after EV-positive and tier-upgrade reasons, which take precedence; `ReasonSameTierPinned` is set by the proxy, not `Decide`. The **tier-upgrade guard** fires when STAY would clearly under-serve the prompt — uses [`../catalog`](../catalog)'s Low/Mid/High tier to overturn a cost-driven "stay" when the fresh decision is in a strictly higher tier than the pin.
 
 **Cache-warmth gate.** The cache-read multipliers and eviction cost only apply while the pin's upstream cache is warm. When `Inputs.PinCacheCold` is set (the pinned provider's cache TTL has lapsed — short and best-effort on the OSS compat providers vs Anthropic's 1h window; see [`../../providers`](../../providers).`CacheTTLFor`), both sides are priced uncached so raw economics + the tier guard decide, instead of a phantom cache gluing the session to a stale pin. The zero value means "assume warm", preserving the original behavior.
 

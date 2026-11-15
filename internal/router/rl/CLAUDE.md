@@ -14,6 +14,8 @@ Opt-in `router.Router` that delegates model selection to a trained RL/DPO policy
 - **Opt-in only.** Reached solely via `x-weave-router-strategy: rl` (see `proxy.Service.routeFor`); the deployment default stays `ROUTER_DEFAULT_STRATEGY`.
 - **Fail closed.** Every failure path (sidecar unreachable/errored, no eligible candidate, unrecognized selection) returns `ErrPolicyUnavailable`, which the API layer maps to HTTP 503. **Never** add a silent fallback to a default model or to another strategy; that masks regressions exactly like the retired heuristic fallback.
 - **Adapters don't import adapters.** This package defines its own `ErrPolicyUnavailable` rather than importing another router adapter. Keep it that way.
+- **Never follow redirects.** `HTTPDecider` answers a 3xx from the sidecar URL as an error instead of re-posting the prompt to wherever it points (`TestHTTPDeciderDoesNotFollowRedirects`).
+- **`Query.TurnIndex` is always 0.** `router.Request` carries turn type, not depth; the policy is dominated by the prompt embedding. Threading a real index through `router.Request` is a deliberate follow-up.
 - **Roster mapping is best-effort.** `mapping.go` mirrors `ml_dev/agent_environment/roster.py`'s `OPENROUTER_MODEL_ALIASES`. The sidecar intersects candidates against its trained roster, so a model it doesn't know is simply dropped — but keep the two dotted-form Claude exceptions accurate.
 
 ## Wiring

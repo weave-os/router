@@ -166,3 +166,16 @@ func TestParse(t *testing.T) {
 		})
 	}
 }
+
+func TestParse_HeadSHAMustBeAtLeastSevenHexChars(t *testing.T) {
+	block := func(sha string) []string {
+		return []string{"gitStatus: snapshot\nCurrent branch: main\nStatus:\n(clean)\nRecent commits:\n" + sha + " Subject"}
+	}
+
+	_, ok := Parse(block("abcdef"))
+	assert.False(t, ok)
+
+	got, ok := Parse(block("abcdef1"))
+	require.True(t, ok)
+	assert.Equal(t, "abcdef1", got.HeadSHA)
+}

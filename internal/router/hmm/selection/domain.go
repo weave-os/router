@@ -15,7 +15,6 @@ import (
 	"weave-os/router/internal/router/taskdomain"
 )
 
-// Domain is one independent work-category bit, not a complexity label.
 type Domain = taskdomain.Domain
 
 const (
@@ -26,7 +25,6 @@ const (
 	DomainDocs  = taskdomain.Docs
 )
 
-// Benchmark is one AA evaluation a task-domain recipe may weight.
 type Benchmark string
 
 const (
@@ -40,15 +38,10 @@ const (
 
 const (
 	domainSchemaVersion = "domain_wmi_evidence_v3"
-	// DomainRecipeVersion names the weights below; evidence carries only data.
 	DomainRecipeVersion = "domain_wmi_weighted_v1"
-	// DomainInfluence is the share of the quality term a task's benchmark mix
-	// may replace; at full coverage the quality term is 85% WII + 15% recipe.
-	DomainInfluence = 0.15
+	DomainInfluence     = 0.15
 )
 
-// Sums run in these fixed orders so the float result is reproducible across
-// replicas and matches the offline preview.
 var (
 	scoredDomainOrder = []Domain{DomainUI, DomainLogic, DomainData, DomainInfra}
 	benchmarkOrder    = []Benchmark{
@@ -57,8 +50,6 @@ var (
 	}
 )
 
-// domainRecipes is the pinned benchmark mix per domain. Docs is deliberately
-// absent: it neither corrects scores nor dilutes another active domain.
 var domainRecipes = map[Domain]map[Benchmark]float64{
 	DomainUI:    {BenchmarkTerminalBench4: 0.7, BenchmarkLongContextReasoning: 0.2, BenchmarkIFBench: 0.1},
 	DomainLogic: {BenchmarkTerminalBench4: 0.7, BenchmarkLongContextReasoning: 0.2, BenchmarkIFBench: 0.1},
@@ -69,20 +60,14 @@ var domainRecipes = map[Domain]map[Benchmark]float64{
 	DomainInfra: {BenchmarkTerminalBench4: 0.6, BenchmarkIFBench: 0.1, BenchmarkITBench: 0.3},
 }
 
-// DomainProfile is absent when the classifier cannot establish a human-turn profile.
-// A present profile with no active bits is a distinct, valid prediction.
 type DomainProfile = taskdomain.Profile
 
-// DomainArmEvidence holds exact-effort normalized benchmark qualities. A
-// benchmark the arm was never evaluated on is absent, not zero.
 type DomainArmEvidence struct {
 	GlobalWII  float64               `json:"global_wii"`
 	WPI        float64               `json:"wpi"`
 	Benchmarks map[Benchmark]float64 `json:"benchmarks"`
 }
 
-// DomainEvidence is version-bound, candidate-complete benchmark data. The
-// recipe that weights it is owned here, not by the evidence producer.
 type DomainEvidence struct {
 	SchemaVersion           string                       `json:"schema_version"`
 	SourceSnapshotSHA256    string                       `json:"source_snapshot_sha256"`
@@ -97,8 +82,6 @@ type DomainEvidence struct {
 	Arms                    map[string]DomainArmEvidence `json:"arms"`
 }
 
-// ParseDomainEvidence validates exact-arm coverage and roster/version binding
-// before the quality correction can be computed. It never falls back to base effort.
 func ParseDomainEvidence(payload []byte, roster *rosterdata.Roster) (*DomainEvidence, error) {
 	var evidence DomainEvidence
 	decoder := json.NewDecoder(bytes.NewReader(payload))
@@ -110,8 +93,6 @@ func ParseDomainEvidence(payload []byte, roster *rosterdata.Roster) (*DomainEvid
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		return nil, errors.New("domain evidence has trailing content")
 	}
-	// A null or missing arm, index or quality would decode as zero; an
-	// unmeasured benchmark must be absent so it stays neutral.
 	var nullableEvidence struct {
 		Arms map[string]*struct {
 			GlobalWII  *float64               `json:"global_wii"`
@@ -204,9 +185,6 @@ func isSHA256(digest string) bool {
 	return err == nil
 }
 
-// ScoredDomains returns the active domains that carry a recipe. An unavailable
-// or malformed profile, an all-zero profile and a docs-only profile all score
-// at baseline.
 func ScoredDomains(profile DomainProfile) []Domain {
 	if profile.Validate() != nil {
 		return nil
@@ -220,19 +198,16 @@ func ScoredDomains(profile DomainProfile) []Domain {
 	return active
 }
 
-// BenchmarkWeight is one benchmark's share of a domain recipe.
 type BenchmarkWeight struct {
 	Benchmark Benchmark `json:"benchmark"`
 	Weight    float64   `json:"weight"`
 }
 
-// DomainRecipe is the ordered benchmark mix for one scored domain.
 type DomainRecipe struct {
 	Domain  Domain            `json:"domain"`
 	Weights []BenchmarkWeight `json:"weights"`
 }
 
-// DomainRecipes returns the pinned recipes in scoring order for inspection.
 func DomainRecipes() []DomainRecipe {
 	recipes := make([]DomainRecipe, 0, len(scoredDomainOrder))
 	for _, domain := range scoredDomainOrder {
@@ -247,9 +222,6 @@ func DomainRecipes() []DomainRecipe {
 	return recipes
 }
 
-// BenchmarkGap is one benchmark's term in an arm's task delta. Weight is
-// averaged across the scored domains; Quality is nil when the arm was never
-// evaluated, in which case Gap is zero.
 type BenchmarkGap struct {
 	Benchmark Benchmark `json:"benchmark"`
 	Weight    float64   `json:"weight"`
@@ -257,7 +229,6 @@ type BenchmarkGap struct {
 	Gap       float64   `json:"gap"`
 }
 
-// BenchmarkGaps decomposes TaskQualityDelta into its per-benchmark terms.
 func BenchmarkGaps(domains []Domain, arm DomainArmEvidence) []BenchmarkGap {
 	if len(domains) == 0 {
 		return nil
@@ -282,9 +253,6 @@ func BenchmarkGaps(domains []Domain, arm DomainArmEvidence) []BenchmarkGap {
 	return gaps
 }
 
-// TaskQualityDelta averages each scored domain's weighted benchmark gap over
-// global WII. A missing benchmark contributes nothing and its weight is not
-// redistributed, so an arm with no relevant scores keeps a zero delta.
 func TaskQualityDelta(domains []Domain, arm DomainArmEvidence) float64 {
 	delta := 0.0
 	for _, gap := range BenchmarkGaps(domains, arm) {

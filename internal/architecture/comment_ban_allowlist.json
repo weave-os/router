@@ -138,48 +138,16 @@
       "banned_lines": 537
     },
     {
-      "package": "internal/router/decisionmodel",
-      "banned_lines": 42
-    },
-    {
-      "package": "internal/router/eligibility",
-      "banned_lines": 45
-    },
-    {
-      "package": "internal/router/gitcontext",
-      "banned_lines": 36
-    },
-    {
-      "package": "internal/router/handover",
-      "banned_lines": 36
-    },
-    {
-      "package": "internal/router/hmm/rosterdata",
-      "banned_lines": 45
-    },
-    {
-      "package": "internal/router/hmm/selection",
-      "banned_lines": 99
-    },
-    {
       "package": "internal/router/llmescalation",
-      "banned_lines": 59
+      "banned_lines": 3
     },
     {
       "package": "internal/router/percallband",
       "banned_lines": 114
     },
     {
-      "package": "internal/router/planner",
-      "banned_lines": 87
-    },
-    {
       "package": "internal/router/policy",
       "banned_lines": 473
-    },
-    {
-      "package": "internal/router/rl",
-      "banned_lines": 68
     },
     {
       "package": "internal/router/sessionpin",
@@ -188,10 +156,6 @@
     {
       "package": "internal/router/turntype",
       "banned_lines": 103
-    },
-    {
-      "package": "internal/routingpolicy",
-      "banned_lines": 78
     },
     {
       "package": "internal/server",
@@ -236,10 +200,6 @@
     {
       "package": "internal/usage",
       "banned_lines": 32
-    },
-    {
-      "package": "internal/websearch",
-      "banned_lines": 78
     },
     {
       "package": "scripts/arch_ratchet",
