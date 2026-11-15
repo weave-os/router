@@ -110,10 +110,8 @@ func drillDownPeople(rows []proxy.TelemetryDrillDownRow) []dashboardDrillDownPer
 	sessions := map[[2]string]*dashboardDrillDownSession{}
 	var order []string
 	for _, row := range rows {
-		person, ok := people[row.PersonID]
-		if !ok {
-			person = &dashboardDrillDownPerson{ID: row.PersonID, Linked: row.Linked, DisplayName: row.DisplayName, Email: row.Email}
-			people[row.PersonID] = person
+		if _, ok := people[row.PersonID]; !ok {
+			people[row.PersonID] = &dashboardDrillDownPerson{ID: row.PersonID, Linked: row.Linked, DisplayName: row.DisplayName, Email: row.Email}
 			order = append(order, row.PersonID)
 		}
 		sessionKey := [2]string{row.PersonID, row.SessionID}

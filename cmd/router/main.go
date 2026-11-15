@@ -154,7 +154,7 @@ func main() {
 	switch deploymentMode {
 	case server.DeploymentModeSelfHosted, server.DeploymentModeManaged:
 	default:
-		err := fmt.Errorf("Invalid ROUTER_DEPLOYMENT_MODE %q (expected %q or %q)", deploymentMode, server.DeploymentModeSelfHosted, server.DeploymentModeManaged)
+		err := fmt.Errorf("invalid ROUTER_DEPLOYMENT_MODE %q (expected %q or %q)", deploymentMode, server.DeploymentModeSelfHosted, server.DeploymentModeManaged)
 		logger.Error("Refusing to boot with invalid deployment mode", "err", err)
 		panic(err)
 	}
@@ -560,7 +560,7 @@ func main() {
 		logger.Error("Failed to create Pub/Sub client", "err", err)
 		panic(err)
 	}
-	defer pubsubClient.Close()
+	defer func() { _ = pubsubClient.Close() }()
 
 	publisher := pubsubClient.Publisher(pubsubTopicID)
 	notifier := routerpubsub.NewInvalidationNotifier(publisher)
@@ -1100,7 +1100,7 @@ func main() {
 				logger.Error("Router policy registry failed to initialize; refusing to boot", "err", registryErr)
 				panic(registryErr)
 			}
-			defer gcsRegistry.Close()
+			defer func() { _ = gcsRegistry.Close() }()
 			policyRegistry = gcsRegistry
 			policyEnvironment = policyregistry.Environment(policyEnvironmentRaw)
 		}
@@ -1749,7 +1749,7 @@ func buildWIFTokenSource(logger *slog.Logger) auth.WIFTokenSource {
 		logger.Info("Workload identity federation enabled", "provider", provider, "token_file", path)
 		return wif.NewFileTokenSource(path)
 	default:
-		err := fmt.Errorf("Invalid ROUTER_WIF_PROVIDER %q (expected %q or %q)", provider, auth.WIFProviderGCP, auth.WIFProviderOIDC)
+		err := fmt.Errorf("invalid ROUTER_WIF_PROVIDER %q (expected %q or %q)", provider, auth.WIFProviderGCP, auth.WIFProviderOIDC)
 		logger.Error("Refusing to boot with invalid workload identity provider", "err", err)
 		panic(err)
 	}
@@ -1990,7 +1990,7 @@ func runSessionPinSweep(ctx context.Context, store sessionpin.Store) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			sweepCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			sweepCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 			if err := store.SweepExpired(sweepCtx); err != nil {
 				logger.Error("Session pin sweep failed", "err", err)
 			}
@@ -2082,15 +2082,6 @@ func resolveHardPinModel() (provider, model string, resolutionErr error) {
 		return "", "", errors.New("ROUTER_HARD_PIN_PROVIDER requires ROUTER_HARD_PIN_MODEL")
 	}
 	return policy.UtilityHardPinDefaultProvider, policy.UtilityHardPinDefaultModel, nil
-}
-
-// envVarHint returns the env var name for a provider's API key, for log
-// warnings; falls back to a readable "unknown provider" string.
-func envVarHint(provider string) string {
-	if v := providers.APIKeyEnvVar(provider); v != "" {
-		return v
-	}
-	return "<unknown provider " + provider + ">"
 }
 
 // upstreamIDsForProvider maps public model ID -> upstream model ID for a

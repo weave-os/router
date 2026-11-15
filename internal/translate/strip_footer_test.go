@@ -43,7 +43,7 @@ func TestStripFeedbackFooter_SoleFooterBlockDropped(t *testing.T) {
 
 	content := gjson.GetBytes(out, "messages.0.content")
 	require.True(t, content.IsArray())
-	assert.Equal(t, 1, len(content.Array()), "footer-only block dropped, real text retained")
+	assert.Len(t, content.Array(), 1, "footer-only block dropped, real text retained")
 	assert.Equal(t, "real response", content.Get("0.text").String())
 }
 
@@ -69,8 +69,8 @@ func TestStripFeedbackFooter_NoFooterReturnsIdenticalSlice(t *testing.T) {
 
 	out, err := translate.StripFeedbackFooterFromMessages(body)
 	require.NoError(t, err)
-	require.Equal(t, len(body), len(out))
-	assert.True(t, &body[0] == &out[0], "expected the same backing array when no footer present")
+	require.Len(t, out, len(body))
+	assert.Same(t, &body[0], &out[0], "expected the same backing array when no footer present")
 }
 
 func TestStripFeedbackFooter_NonTextBlocksUntouched(t *testing.T) {
@@ -87,7 +87,7 @@ func TestStripFeedbackFooter_NonTextBlocksUntouched(t *testing.T) {
 	out, err := translate.StripFeedbackFooterFromMessages(body)
 	require.NoError(t, err)
 	content := gjson.GetBytes(out, "messages.0.content")
-	require.Equal(t, 2, len(content.Array()))
+	require.Len(t, content.Array(), 2)
 	assert.Equal(t, "answer", content.Get("0.text").String())
 	assert.Equal(t, "tool_use", content.Get("1.type").String())
 }
@@ -104,7 +104,7 @@ func TestStripFeedbackFooter_GeminiContentsDropsSoleFooterPart(t *testing.T) {
 
 	parts := gjson.GetBytes(out, "contents.1.parts")
 	require.True(t, parts.IsArray())
-	assert.Equal(t, 1, len(parts.Array()), "footer-only part dropped, real text retained")
+	assert.Len(t, parts.Array(), 1, "footer-only part dropped, real text retained")
 	assert.Equal(t, "real response", parts.Get("0.text").String())
 }
 
@@ -126,8 +126,8 @@ func TestStripFeedbackFooter_GeminiNoFooterReturnsIdenticalSlice(t *testing.T) {
 
 	out, err := translate.StripFeedbackFooterFromGeminiContents(body)
 	require.NoError(t, err)
-	require.Equal(t, len(body), len(out))
-	assert.True(t, &body[0] == &out[0], "expected the same backing array when no footer present")
+	require.Len(t, out, len(body))
+	assert.Same(t, &body[0], &out[0], "expected the same backing array when no footer present")
 }
 
 func TestStripFeedbackFooter_EmptyAndMissing(t *testing.T) {

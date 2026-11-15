@@ -56,6 +56,7 @@ func applySubscriberTelemetry(ctx context.Context, telemetry *InsertTelemetryPar
 		telemetry.LinkedUsageMicros = &retail
 	case entitlement.CapacitySourcePrepaid:
 		telemetry.PrepaidUsageMicros = &retail
+	case entitlement.CapacitySourceBillingOverride:
 	}
 }
 
@@ -79,6 +80,7 @@ func markSubscriberTelemetryUnsettled(telemetry *InsertTelemetryParams) {
 	case entitlement.CapacitySourceIncludedRouter, entitlement.CapacitySourcePrepaid:
 		failed := true
 		telemetry.SettlementFailed = &failed
+	case entitlement.CapacitySourceLinkedClaude, entitlement.CapacitySourceLinkedCodex, entitlement.CapacitySourceBillingOverride:
 	}
 }
 
@@ -90,6 +92,7 @@ func applySubscriberSettlementTelemetry(state subscriberSettlementState, telemet
 	case entitlement.CapacitySourcePrepaid:
 		failed := state.prepaidFailed
 		telemetry.SettlementFailed = &failed
+	case entitlement.CapacitySourceLinkedClaude, entitlement.CapacitySourceLinkedCodex, entitlement.CapacitySourceBillingOverride:
 	}
 }
 

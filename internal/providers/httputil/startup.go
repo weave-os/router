@@ -35,7 +35,7 @@ func WarmTransport(ctx context.Context, baseURL, requiredOrigin string, clients 
 			return true, err
 		}
 		_, readErr := io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
-		response.Body.Close()
+		_ = response.Body.Close()
 		if readErr != nil {
 			return true, readErr
 		}

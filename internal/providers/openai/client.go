@@ -285,7 +285,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	// /responses endpoint (Responses schema only).
 	codexCreds := codexSubscriptionCreds(ctx)
 	if codexCreds != nil && prep.Endpoint != providers.EndpointResponses {
-		return fmt.Errorf("Codex subscription credentials require a Responses endpoint")
+		return fmt.Errorf("codex subscription credentials require a Responses endpoint")
 	}
 	if codexCreds != nil && !requestcontext.CodexSubscriptionCanAttemptModel(decision.Model) {
 		return fmt.Errorf("refusing Codex subscription credential for model without approved Codex funding eligibility %q", decision.Model)
@@ -362,7 +362,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	if err != nil {
 		return fmt.Errorf("upstream call: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	t.StampUpstreamHeaders()
 	// Surface Codex rate-limit headroom (x-codex-*) even on 429s, where it matters most.
 	providers.ObserveUpstreamHeaders(ctx, resp.Header)
@@ -591,12 +591,12 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 	if err != nil {
 		return fmt.Errorf("upstream passthrough call: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	providers.CopyUpstreamHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
 	if resp.StatusCode >= 400 {
-		return httputil.WritePassthroughError(r.Context(), w, resp, nil, nil, "Upstream OpenAI returned error status (passthrough)", "base_url", c.baseURL, "path", r.URL.Path)
+		return httputil.WritePassthroughError(ctx, w, resp, nil, nil, "Upstream OpenAI returned error status (passthrough)", "base_url", c.baseURL, "path", r.URL.Path)
 	}
 	_, err = io.Copy(w, resp.Body)
 	return err

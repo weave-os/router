@@ -11,10 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
+
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 const (
@@ -148,7 +149,7 @@ func oauthProviderRequestID(headers http.Header) string {
 		}
 		valid := true
 		for _, char := range value {
-			if !(char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || char == '_' || char == '-' || char == '.') {
+			if (char < 'a' || char > 'z') && (char < 'A' || char > 'Z') && (char < '0' || char > '9') && char != '_' && char != '-' && char != '.' {
 				valid = false
 				break
 			}
@@ -258,7 +259,7 @@ func (c *OAuthClient) doTokenRequest(req *http.Request, provider Provider, respo
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxTokenResponseBytes))
 		code, errorType := oauthErrorDetails(body)
@@ -334,7 +335,7 @@ func (c *OAuthClient) VerifyCodexEnrollment(ctx context.Context, workspaceID str
 		return auth.VerifiedCodexEnrollment{}, err
 	}
 	if token.AccountID != workspaceID || token.UserID == "" {
-		return auth.VerifiedCodexEnrollment{}, fmt.Errorf("Codex enrollment did not verify the workspace and provider user")
+		return auth.VerifiedCodexEnrollment{}, fmt.Errorf("codex enrollment did not verify the workspace and provider user")
 	}
 	return auth.VerifiedCodexEnrollment{ProviderUserID: token.UserID, RefreshToken: []byte(token.RefreshToken)}, nil
 }

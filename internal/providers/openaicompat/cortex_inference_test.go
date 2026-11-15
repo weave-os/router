@@ -2,7 +2,6 @@ package openaicompat_test
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -81,7 +80,7 @@ func TestProxy_GatewayVersionProbeSurfacesRealError(t *testing.T) {
 
 	require.Error(t, err)
 	var upstream *providers.UpstreamErrorResponse
-	require.True(t, errors.As(err, &upstream))
+	require.ErrorAs(t, err, &upstream)
 	assert.Equal(t, http.StatusBadRequest, upstream.Status)
 	assert.Contains(t, string(upstream.Body), "reasoning_effort")
 	assert.Equal(t, []string{"/api/v2/cortex/chat/completions", "/api/v2/cortex/v1/chat/completions"}, paths)
@@ -154,7 +153,7 @@ func TestAnthropicProxy_GatewayVersionProbeSurfacesRealError(t *testing.T) {
 
 	require.Error(t, err)
 	var upstream *providers.UpstreamErrorResponse
-	require.True(t, errors.As(err, &upstream))
+	require.ErrorAs(t, err, &upstream)
 	assert.Equal(t, http.StatusBadRequest, upstream.Status)
 	assert.Contains(t, string(upstream.Body), "unknown model")
 

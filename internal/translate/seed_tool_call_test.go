@@ -7,10 +7,11 @@ import (
 	"strings"
 	"testing"
 
+	"weave-os/router/internal/usage"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
-	"weave-os/router/internal/usage"
 )
 
 var seedDeclared = map[string]string{"Shell": "Shell", "Read": "Read", "Bash": "Bash", "Write": "Write", "Bash_ab12cd": "Bash.local"}
@@ -54,7 +55,7 @@ func TestSeedToolCallGate_ReleasesProseImmediately(t *testing.T) {
 	assert.Equal(t, " <seed:tool_call>", gate.Feed(" <seed:tool_call>"), "a mid-prose tag stays text")
 
 	var partial seedToolCallGate
-	assert.Equal(t, "", partial.Feed("\n<se"))
+	assert.Empty(t, partial.Feed("\n<se"))
 	assert.Equal(t, "\n<sea shell", partial.Feed("a shell"), "held bytes release once the prefix diverges")
 }
 

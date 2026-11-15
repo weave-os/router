@@ -114,7 +114,7 @@ func (o *chatRescue) flushErrAsOpenAI(w http.ResponseWriter, err error) {
 	if isSubscriptionPoolError(err) {
 		return
 	}
-	flushBufferedIfPresent(w, err)
+	flushUpstreamErrorAsOpenAI(w, err)
 }
 
 // The deferred upstream error must reach the client exactly once: the rescue
@@ -145,7 +145,7 @@ func (o *chatRescue) flushDeferredErr() {
 	if o.subscriptionPoolFailure {
 		return
 	}
-	flushBufferedIfPresent(o.contentSink, o.proxyErr)
+	flushUpstreamErrorAsOpenAI(o.contentSink, o.proxyErr)
 }
 
 func (o *chatRescue) codexRetry(ctx context.Context) {
@@ -324,9 +324,10 @@ func (o *chatRescue) finish(ctx context.Context) {
 	}
 
 	if subscriptionCredentialFallbackUsed(ctx) {
-		if o.decision.Provider == providers.ProviderOpenAI {
+		switch o.decision.Provider {
+		case providers.ProviderOpenAI:
 			o.codexFailoverUsed = true
-		} else if o.decision.Provider == providers.ProviderAnthropic {
+		case providers.ProviderAnthropic:
 			o.claudeFailoverUsed = true
 		}
 	}

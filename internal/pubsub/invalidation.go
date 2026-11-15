@@ -137,8 +137,8 @@ func (l *InvalidationListener) Wait() { <-l.done }
 // CreateReplicaSubscription provisions a per-replica subscription on topicID so
 // every replica sees every invalidation message — a shared subscription would
 // load-balance and defeat the broadcast. Returns the subscription name and a
-// cleanup func; cleanup uses context.Background() so it still runs if the
-// caller's context is already canceled at shutdown.
+// cleanup func; cleanup detaches from ctx's cancellation so it still runs if
+// the caller's context is already canceled at shutdown.
 func CreateReplicaSubscription(
 	ctx context.Context,
 	client *gcppubsub.Client,
@@ -165,7 +165,7 @@ func CreateReplicaSubscription(
 	}
 
 	cleanup = func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), subscriptionDeleteTimeout)
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), subscriptionDeleteTimeout)
 		defer cancel()
 		delErr := client.SubscriptionAdminClient.DeleteSubscription(cleanupCtx, &pubsubpb.DeleteSubscriptionRequest{
 			Subscription: subscriptionName,

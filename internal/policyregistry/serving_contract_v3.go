@@ -35,7 +35,7 @@ func (s SelectionSetV3) Validate(root string) error {
 	if err := ValidateServingRef(s.Code.Candidate, root, ServingCandidate); err != nil {
 		return err
 	}
-	if err := s.Code.LaneBinding.validate(); err != nil {
+	if err := s.Code.validate(); err != nil {
 		return fmt.Errorf("code binding: %w", err)
 	}
 	if err := validateServingPolicy(s.DefaultPolicy, root); err != nil {

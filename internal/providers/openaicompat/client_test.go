@@ -1,14 +1,17 @@
 package openaicompat_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openaicompat"
 	"weave-os/router/internal/requestcontext"
@@ -306,7 +309,7 @@ func TestProxy_BuffersErrorBodyAndDoesNotTouchWriter(t *testing.T) {
 	// ResponseRecorder reports Code=200 by default even without WriteHeader,
 	// so check that nothing was actually written instead.
 	assert.Equal(t, 0, rec.Body.Len(), "writer must not be touched on retryable upstream error")
-	assert.False(t, rec.HeaderMap.Get("Content-Type") != "", "writer headers must not be set on retryable upstream error")
+	assert.Equal(t, rec.Header().Get("Content-Type"), "", "writer headers must not be set on retryable upstream error")
 }
 
 // TestProxy_BuffersErrorBodyTruncatedAtCap: a chatty upstream can't OOM us —
@@ -332,7 +335,7 @@ func TestProxy_BuffersErrorBodyTruncatedAtCap(t *testing.T) {
 	var buffered *providers.UpstreamErrorResponse
 	require.ErrorAs(t, err, &buffered)
 	assert.Equal(t, http.StatusBadGateway, buffered.Status)
-	assert.Equal(t, providers.MaxBufferedErrorBytes, len(buffered.Body),
+	assert.Len(t, buffered.Body, providers.MaxBufferedErrorBytes,
 		"body must be truncated at MaxBufferedErrorBytes")
 }
 
@@ -510,4 +513,24 @@ func TestProxyAndPassthrough_ProtectedHeadersOverridePreparedHeaders(t *testing.
 			assert.Equal(t, "required", gotZDR)
 		})
 	}
+}
+
+func TestPassthrough_ErrorStatusLogsThroughContextLogger(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"type":"invalid_request_error"}}`))
+	}))
+	defer upstream.Close()
+
+	var logs bytes.Buffer
+	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&logs, nil)).With("request_id", "req-bound"))
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/models", strings.NewReader(`{}`))
+	prep := providers.PreparedRequest{Body: []byte(`{}`), Headers: make(http.Header)}
+
+	err := openaicompat.NewClient("test-key", upstream.URL).Passthrough(ctx, prep, httptest.NewRecorder(), clientReq)
+
+	var statusErr *providers.UpstreamStatusError
+	require.ErrorAs(t, err, &statusErr)
+	assert.Contains(t, logs.String(), `"request_id":"req-bound"`)
+	assert.Contains(t, logs.String(), `"status":400`)
 }

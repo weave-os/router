@@ -18,9 +18,9 @@ type BetaCommandResult struct {
 
 // ExtractBetaCommand scans the final user message for a leading /beta
 // directive and strips it so the command is never forwarded upstream.
-func (env *RequestEnvelope) ExtractBetaCommand() (BetaCommandResult, bool) {
+func (e *RequestEnvelope) ExtractBetaCommand() (BetaCommandResult, bool) {
 	var result BetaCommandResult
-	found := env.extractLeadingCommand(func(text string) (bool, string) {
+	found := e.extractLeadingCommand(func(text string) (bool, string) {
 		parsed, ok, stripped := parseBetaCommand(text)
 		if ok {
 			result = parsed
@@ -33,13 +33,13 @@ func (env *RequestEnvelope) ExtractBetaCommand() (BetaCommandResult, bool) {
 // StripBetaArtifacts removes prior command-only /beta turns and the router's
 // synthetic acknowledgements from model-visible history. The trailing user
 // command is preserved so ExtractBetaCommand can still toggle the session.
-func (env *RequestEnvelope) StripBetaArtifacts() int {
-	switch env.format {
+func (e *RequestEnvelope) StripBetaArtifacts() int {
+	switch e.format {
 	case FormatAnthropic, FormatOpenAI:
 	default:
 		return 0
 	}
-	msgs := gjson.GetBytes(env.body, "messages")
+	msgs := gjson.GetBytes(e.body, "messages")
 	if !msgs.IsArray() {
 		return 0
 	}
@@ -77,7 +77,7 @@ func (env *RequestEnvelope) StripBetaArtifacts() int {
 	if removed == 0 {
 		return 0
 	}
-	return env.setMessages(rebuilt, removed)
+	return e.setMessages(rebuilt, removed)
 }
 
 func isEmptyTextContent(content gjson.Result) bool {

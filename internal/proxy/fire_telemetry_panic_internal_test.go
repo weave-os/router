@@ -96,7 +96,7 @@ func TestFireTelemetryRecoversFromPanic(t *testing.T) {
 	s := &Service{telemetry: panicTelemetryRepo{}}
 
 	assert.NotPanics(t, func() {
-		s.fireTelemetry(InsertTelemetryParams{RequestID: "req-1"})
+		s.fireTelemetry(t.Context(), InsertTelemetryParams{RequestID: "req-1"})
 	})
 
 	require.Eventually(t, func() bool {

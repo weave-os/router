@@ -1033,6 +1033,6 @@ func TestQwenWarmingStopsClassificationRetries(t *testing.T) {
 	defer server.Close()
 	client := New(server.URL, server.Client(), time.Second)
 	_, err := client.Decide(context.Background(), policy.Query{Strategy: router.StrategyHMMQwen, RouteID: "cold", SchemaVersion: policy.SchemaVersionV4})
-	require.ErrorContains(t, err, "Qwen classifier is warming")
+	require.ErrorIs(t, err, policy.ErrClassifierWarming)
 	require.Equal(t, 1, calls, "cold GPU startup should be prepared explicitly, not retried inside classification")
 }

@@ -104,6 +104,7 @@ func (r Registry) DeploymentProjection(config DeploymentPolicyConfig) Deployment
 					})
 				}
 			}
+		case SelectionStrategyClientAuthoritative, SelectionStrategyPassthrough, SelectionStrategyNone:
 		}
 		policies = append(policies, projection)
 	}

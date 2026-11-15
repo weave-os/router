@@ -201,3 +201,19 @@ func nearestReasoningLevel(levels []string, wanted string) string {
 // tool call off with no arguments. Matches Claude Code's own request size;
 // Anthropic estimates output rate limits from max_tokens, so not the 128k cap.
 const anthropicAdaptiveDefaultOutputTokens = 64000
+
+// effortForBudget maps legacy thinking.budget_tokens onto an adaptive
+// output_config.effort tier per Anthropic's guidance (≤4k low, ≤16k medium,
+// else high). Missing/zero budget defaults to "medium".
+func effortForBudget(budgetTokens int64) string {
+	switch {
+	case budgetTokens <= 0:
+		return "medium"
+	case budgetTokens <= 4096:
+		return effortLow
+	case budgetTokens <= 16384:
+		return "medium"
+	default:
+		return "high"
+	}
+}

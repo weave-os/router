@@ -756,7 +756,7 @@ func (s *Service) bypassToAnthropic(
 		applyPolicyPinTelemetry(ctx, &telemetryParams, nil)
 		applySubscriberTelemetry(ctx, &telemetryParams)
 		applyAgreementShadowTelemetry(ctx, &telemetryParams, turnLoopResult{UsageBypass: true})
-		s.fireTelemetry(telemetryParams)
+		s.fireTelemetry(ctx, telemetryParams)
 	}
 
 	servedCredentialSource, servedSubscriptionTier := s.servedCredentialLogValues(ctx)

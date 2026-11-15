@@ -60,7 +60,7 @@ func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) (quo
 		}
 		return codexQuotaTransportUnavailable(err, 0)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	upstreamStatus = resp.StatusCode
 	if resp.StatusCode != http.StatusOK {
 		log.Warn("Codex quota preflight rejected", "upstream_status", resp.StatusCode)
@@ -141,7 +141,7 @@ func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) (quo
 		}
 	}
 	// Windows go first so an exhausted window keeps its reset time.
-	if err != nil && !(allowCredits && codexIncludedLimitReached(err)) {
+	if err != nil && (!allowCredits || !codexIncludedLimitReached(err)) {
 		logCodexQuotaDenial(log, err, "plan_type", quotaStatus.PlanType, "has_rate_limit", quotaStatus.RateLimit != nil, "credit_reason", creditReason, "allow_credits", allowCredits)
 		return err
 	}
