@@ -43,10 +43,10 @@ func TestClaudeLoginReconnectsThroughAPIAndPostgres(t *testing.T) {
 	defer cancel()
 	conn, err := pgx.Connect(ctx, dsn)
 	require.NoError(t, err)
-	defer conn.Close(context.Background())
+	defer func() { _ = conn.Close(context.Background()) }()
 	tx, err := conn.Begin(ctx)
 	require.NoError(t, err)
-	defer tx.Rollback(context.Background())
+	defer func() { _ = tx.Rollback(context.Background()) }()
 	queries := sqlc.New(tx)
 	installation, err := queries.CreateModelRouterInstallation(ctx, sqlc.CreateModelRouterInstallationParams{
 		ExternalID: uuid.NewString(), Name: "subscription-enrollment-fixture",

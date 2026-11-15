@@ -51,7 +51,7 @@ func TestSearchSendsWIFAuthenticatedAgentRun(t *testing.T) {
 		gotRole = r.Header.Get("X-Snowflake-Role")
 		gotBody, _ = io.ReadAll(r.Body)
 		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, agentResponse)
+		_, _ = io.WriteString(w, agentResponse)
 	}))
 	defer srv.Close()
 
@@ -107,7 +107,7 @@ func TestSearchDropsInferenceVersionSegmentFromBaseURL(t *testing.T) {
 	var gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
-		io.WriteString(w, `{"content":[]}`)
+		_, _ = io.WriteString(w, `{"content":[]}`)
 	}))
 	defer srv.Close()
 
@@ -125,7 +125,7 @@ func TestSearchRunsAgentOnCortexRootForAIGatewayBaseURL(t *testing.T) {
 	var gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
-		io.WriteString(w, `{"content":[]}`)
+		_, _ = io.WriteString(w, `{"content":[]}`)
 	}))
 	defer srv.Close()
 
@@ -150,7 +150,7 @@ func TestSearchCapsResultsAtRequestedMax(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.Write(payload) }))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(payload) }))
 	defer srv.Close()
 
 	resp, err := cortexagents.NewClient("", cortexagents.WithHostSuffix("127.0.0.1")).Search(wifContext(srv.URL), websearch.Query{Text: "q", MaxResults: 3})
@@ -165,7 +165,7 @@ func TestSearchCapsResultsAtRequestedMax(t *testing.T) {
 func TestSearchSurfacesUpstreamError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
-		io.WriteString(w, `{"message":"Agent web search is not enabled for this account"}`)
+		_, _ = io.WriteString(w, `{"message":"Agent web search is not enabled for this account"}`)
 	}))
 	defer srv.Close()
 
@@ -191,7 +191,7 @@ func TestSearchRequiresCredentialAndQuery(t *testing.T) {
 func TestSearchRefusesNonSnowflakeGateway(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		t.Error("a non-Snowflake gateway must never be probed for agent:run")
-		io.WriteString(w, `{"content":[]}`)
+		_, _ = io.WriteString(w, `{"content":[]}`)
 	}))
 	defer srv.Close()
 
@@ -203,7 +203,7 @@ func TestSearchRefusesNonSnowflakeGateway(t *testing.T) {
 
 func TestSearchAcceptsMixedCaseGatewayHost(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		io.WriteString(w, `{"content":[]}`)
+		_, _ = io.WriteString(w, `{"content":[]}`)
 	}))
 	defer srv.Close()
 
@@ -219,7 +219,7 @@ func TestSearchToleratesSlowFirstByte(t *testing.T) {
 	// guard shorter than the run budget expires it and costs the turn a 400.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(150 * time.Millisecond)
-		io.WriteString(w, agentResponse)
+		_, _ = io.WriteString(w, agentResponse)
 	}))
 	defer srv.Close()
 
@@ -239,7 +239,7 @@ func TestSearchToleratesSlowFirstByte(t *testing.T) {
 func TestSearchFailsFastPastItsTimeout(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(2 * time.Second)
-		io.WriteString(w, agentResponse)
+		_, _ = io.WriteString(w, agentResponse)
 	}))
 	defer srv.Close()
 
@@ -257,7 +257,7 @@ func TestSearchOmitsRoleHeaderAndTokenTypeWhenNotApplicable(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, hasRole = r.Header["X-Snowflake-Role"]
 		_, hasTokenType = r.Header[http.CanonicalHeaderKey(auth.WIFTokenTypeHeader)]
-		io.WriteString(w, `{"content":[]}`)
+		_, _ = io.WriteString(w, `{"content":[]}`)
 	}))
 	defer srv.Close()
 
@@ -282,7 +282,7 @@ func TestSearchForwardsClientCorrelationHeaders(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotApp = r.Header.Get("X-SNOWFLAKE-APPLICATION")
 		gotBaggage = r.Header.Get("X-SNOWFLAKE-BAGGAGE")
-		io.WriteString(w, `{"content":[]}`)
+		_, _ = io.WriteString(w, `{"content":[]}`)
 	}))
 	defer srv.Close()
 

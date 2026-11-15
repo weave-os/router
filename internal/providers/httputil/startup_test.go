@@ -37,7 +37,7 @@ func TestWarmTransportRetainsConnectionWithoutCredentials(t *testing.T) {
 	require.True(t, warmed)
 	response, err := client.Get(server.URL + "/v1/models")
 	require.NoError(t, err)
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	body, err := io.ReadAll(response.Body)
 	require.NoError(t, err)
 	require.Equal(t, "served", string(body))

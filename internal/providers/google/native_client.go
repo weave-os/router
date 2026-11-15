@@ -115,7 +115,7 @@ func (c *NativeClient) Proxy(ctx context.Context, decision router.Decision, prep
 	if err != nil {
 		return fmt.Errorf("upstream call: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	t.StampUpstreamHeaders()
 	providers.ObserveUpstreamHeaders(ctx, resp.Header)
 
@@ -197,7 +197,7 @@ func (c *NativeClient) Passthrough(ctx context.Context, prep providers.PreparedR
 	if err != nil {
 		return fmt.Errorf("upstream passthrough call: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	providers.CopyUpstreamHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)

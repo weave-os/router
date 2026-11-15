@@ -10,13 +10,28 @@ linters:
     - contextcheck
     - dupl
     - errorlint
+    - errcheck
+    - bodyclose
+    - nilerr
+    - exhaustive
   settings:
+    errcheck:
+      exclude-functions:
+        - (*bufio.Writer).WriteString
+        - (*bufio.Writer).WriteByte
+        - (*bufio.Writer).WriteRune
+        - (*bufio.Writer).Write
+        - (*strings.Builder).WriteString
+        - (*strings.Builder).WriteByte
+        - (*bytes.Buffer).WriteString
     dupl:
       threshold: 100
     errorlint:
       comparison: true
       asserts: true
       errorf: false
+    exhaustive:
+      default-signifies-exhaustive: true
     depguard:
       rules:
         leaf:

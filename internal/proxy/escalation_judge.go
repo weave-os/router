@@ -81,7 +81,7 @@ func (j *EscalationJudge) Judge(ctx context.Context, request llmescalation.Judge
 			return providers.PreparedRequest{Body: body, Headers: make(http.Header)}, upstream, nil
 		},
 		Consume: func(_ context.Context, _ dispatch.Attempt, response *http.Response) error {
-			defer response.Body.Close()
+			defer func() { _ = response.Body.Close() }()
 			if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 				return &providers.UpstreamStatusError{Status: response.StatusCode}
 			}

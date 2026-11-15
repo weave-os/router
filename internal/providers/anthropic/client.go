@@ -418,7 +418,7 @@ func (c *Client) proxyTo(ctx context.Context, cancel context.CancelCauseFunc, ur
 	if err != nil {
 		return fmt.Errorf("upstream call: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	t.StampUpstreamHeaders()
 	// Surface subscription rate-limit headroom (anthropic-ratelimit-unified-*) to
 	// the proxy's usage observer. Done for every response, including 429s where
@@ -538,7 +538,7 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 	if err != nil {
 		return fmt.Errorf("upstream passthrough call: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	providers.CopyUpstreamHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)

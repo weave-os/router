@@ -235,7 +235,9 @@ func escalationAnthropicOutput(frames []gjson.Result, streaming bool) (Escalatio
 				escalationFragmentBuilder(textBuilders, index).WriteString(delta.Get("text").String())
 			case escalationInputJSONDelta:
 				escalationFragmentBuilder(arguments, index).WriteString(delta.Get("partial_json").String())
+			default:
 			}
+		default:
 		}
 	}
 	if !complete || !escalationAnthropicCompleted(finishReason) {

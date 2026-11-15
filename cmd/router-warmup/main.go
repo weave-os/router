@@ -77,7 +77,7 @@ func executeWarmup(ctx context.Context, client *http.Client, origin, credential 
 		response, err := client.Do(request)
 		if err == nil {
 			_, err = io.Copy(io.Discard, io.LimitReader(response.Body, 1<<20))
-			response.Body.Close()
+			_ = response.Body.Close()
 			if response.StatusCode != http.StatusOK {
 				err = fmt.Errorf("HTTP %d", response.StatusCode)
 			}
@@ -99,7 +99,7 @@ func executeWarmup(ctx context.Context, client *http.Client, origin, credential 
 		clearResponse, clearErr = client.Do(clearRequest)
 		if clearErr == nil {
 			_, clearErr = io.Copy(io.Discard, io.LimitReader(clearResponse.Body, 1<<20))
-			clearResponse.Body.Close()
+			_ = clearResponse.Body.Close()
 			if clearResponse.StatusCode != http.StatusOK {
 				clearErr = fmt.Errorf("HTTP %d", clearResponse.StatusCode)
 			}

@@ -72,7 +72,7 @@ func (c *ca) writePublicCert(dir string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return pem.Encode(f, &pem.Block{Type: "CERTIFICATE", Bytes: c.cert.Raw})
 }
 
