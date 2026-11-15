@@ -1,22 +1,14 @@
 package analytics
 
-// SchemaVersion identifies the export contract. Additive field changes keep
-// the version; a removal or a semantic change bumps it.
 const SchemaVersion = "3"
 
-// Field documents one exported column so a consumer can generate warehouse DDL
-// without reading prose docs.
 type Field struct {
-	Name string `json:"name"`
-	// Type is a warehouse-neutral type name: string, timestamp, integer,
-	// float, boolean, or string[].
+	Name        string `json:"name"`
 	Type        string `json:"type"`
 	Nullable    bool   `json:"nullable"`
 	Description string `json:"description"`
 }
 
-// Schema returns the field dictionary for Decision, in wire order.
-// schema_test asserts it matches Decision's JSON tags exactly.
 func Schema() []Field {
 	return []Field{
 		{"id", "string", false, "Unique id of this routing decision row."},
