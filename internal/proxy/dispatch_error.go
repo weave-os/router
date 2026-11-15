@@ -99,6 +99,9 @@ type DispatchErrorClass struct {
 	// buffered UpstreamStatusError, or a routine client-input problem).
 	LogLevel   string
 	LogMessage string
+	// Refusal is the refusal-table entry for a refusal; nil for every other
+	// dispatch error.
+	Refusal *refusal.Contract
 }
 
 // ClassifyDispatchError maps the sentinel errors shared by every dispatch

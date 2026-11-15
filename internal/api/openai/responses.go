@@ -67,7 +67,7 @@ func ResponsesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc
 				if cls.NoClientRetry {
 					c.Header("x-should-retry", "false")
 				}
-				writeOpenAIErrorWithCode(c, cls.Status, openAIErrorType(cls.Kind), cls.Message, proxy.OpenAIErrorCode(cls.Kind))
+				writeOpenAIErrorWithCode(c, cls.Status, openAIErrorType(cls), cls.Message, proxy.OpenAIErrorCode(cls.Kind))
 				return
 			}
 			log.Error("Proxy failed", "err", err)

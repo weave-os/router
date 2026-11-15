@@ -14,5 +14,6 @@ func refusalClass(kind DispatchErrorKind, reason refusal.Kind, message, logLevel
 		NoClientRetry: contract.NoClientRetry,
 		LogLevel:      logLevel,
 		LogMessage:    logMessage,
+		Refusal:       &contract,
 	}
 }

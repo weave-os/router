@@ -53,35 +53,5 @@ func WithPolicyPinOverride() gin.HandlerFunc {
 }
 
 func abortMalformedPolicyPin(c *gin.Context, message string) {
-	contract := refusal.PolicyPinMalformed.Contract()
-	code := contract.Code
-	switch detectAPIFormat(c.Request.URL.Path) {
-	case apiFormatAnthropic:
-		c.AbortWithStatusJSON(contract.Status, gin.H{
-			"type": "error",
-			"error": gin.H{
-				"type":    "invalid_request_error",
-				"code":    code,
-				"message": message,
-			},
-		})
-	case apiFormatGemini:
-		c.AbortWithStatusJSON(contract.Status, gin.H{
-			"error": gin.H{
-				"code":    contract.Status,
-				"message": message,
-				"status":  "INVALID_ARGUMENT",
-				"details": []gin.H{{"reason": code}},
-			},
-		})
-	default:
-		c.AbortWithStatusJSON(contract.Status, gin.H{
-			"error": gin.H{
-				"type":    "invalid_request_error",
-				"message": message,
-				"param":   nil,
-				"code":    code,
-			},
-		})
-	}
+	abortRefusal(c, refusal.PolicyPinMalformed, gin.H{"message": message})
 }

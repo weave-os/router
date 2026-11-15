@@ -419,10 +419,12 @@ func TestWithSubscriberAllowance_503WhenAllowanceUnreadable(t *testing.T) {
 			require.Equal(t, http.StatusServiceUnavailable, w.Code)
 
 			var body struct {
-				Error string `json:"error"`
+				Error struct {
+					Code string `json:"code"`
+				} `json:"error"`
 			}
 			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-			assert.Equal(t, "billing_unavailable", body.Error)
+			assert.Equal(t, "billing_unavailable", body.Error.Code)
 		})
 	}
 }
