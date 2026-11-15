@@ -4436,12 +4436,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			}
 			crossFormat = true
 			logUpstreamBody(log, routeRes.SessionKey, target, feats, prep.Body)
-			// geminiUsedValidated marks a request sent with
-			// functionCallingConfig.mode=VALIDATED (Gemini 3.x, tools, unforced
-			// choice): Gemini compiles each tool schema into a decode-time grammar,
-			// and one it can't compile 400s the whole request. Retried once below
-			// with mode=AUTO if nothing has reached the client yet.
-			geminiUsedValidated := prep.Stats.GeminiValidatedToolMode
 			// dispatchGemini does one call and returns the raw upstream error plus a
 			// finalize thunk, split so the attempt can inspect a pre-commit 400
 			// before finalize commits the prelude buffer and forecloses the retry.
@@ -4489,30 +4483,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				return rawErr, finalize
 			}
 			return func(actx context.Context, d router.Decision, p providers.Client) error {
-				rawErr, finalize := dispatchGemini(actx, d, p, prep)
-				// VALIDATED-mode schema-grammar 400: retry once with mode=AUTO while
-				// pre-commit. AUTO only drops the grammar constraint, so it can't make
-				// things worse — a non-schema 400 just 400s again normally. The first
-				// attempt's translators are abandoned (Discard).
-				if rawErr != nil && geminiUsedValidated && !committed(preludeBuf) && upstreamStatus(rawErr) == http.StatusBadRequest {
-					autoOpts := targetOpts
-					autoOpts.DowngradeGeminiValidatedToAuto = true
-					autoPrep, autoErr := env.PrepareGemini(r.Header, autoOpts)
-					if autoErr != nil {
-						log.Error("Failed to re-translate Gemini request with tool mode AUTO", "err", autoErr)
-						return finalize(rawErr)
-					}
-					log.Warn("Retrying Gemini request with functionCallingConfig.mode=AUTO after VALIDATED-mode 400",
-						"model", d.Model,
-						"request_id", requestID)
-					if preludeBuf != nil {
-						preludeBuf.Discard()
-					}
-					reqStats = autoPrep.Stats
-					logUpstreamBody(log, routeRes.SessionKey, d, feats, autoPrep.Body)
-					rawErr, finalize = dispatchGemini(actx, d, p, autoPrep)
-				}
-				return finalize(rawErr)
+				retry := geminiToolModeAttempt{log: log, buffer: preludeBuf, env: env, headers: r.Header, opts: targetOpts}
+				return retry.dispatch(prep, func(prepared providers.PreparedRequest) (error, func(error) error) {
+					reqStats = prepared.Stats
+					logUpstreamBody(log, routeRes.SessionKey, d, feats, prepared.Body)
+					return dispatchGemini(actx, d, p, prepared)
+				})
 			}, nil
 		default:
 			return nil, fmt.Errorf("%w: %s (no translation path defined for inbound Anthropic Messages)", ErrProviderNotConfigured, target.Provider)
@@ -4679,13 +4655,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				return s.subscriptionAlternativeDecisions(ctx, req, decision)
 			}(),
 			buildAlternative: func(target router.Decision) (dispatchAttempt, error) {
-				alternativeOpts := opts
-				alternativeOpts.TargetModel = target.Model
-				alternativeOpts.TargetProvider = target.Provider
-				alternativeOpts.Capabilities = router.Lookup(target.Model)
-				alternativeOpts.ModelSwitched = true
-				alternativeEffort := s.resolveEffort(ctx, target, alternativeOpts.Capabilities, routeRes.EscalateEffort)
-				alternativeEffort.apply(&alternativeOpts)
+				alternativeOpts, _ := switchedAttemptOptions(ctx, opts, target, routeRes.EscalateEffort, s.resolveEffort)
 				alternativeMarker := subscriptionTargetMarker(ctx, r.Header, routeRes, primaryDecision, target, pickedMarker)
 				alternativeCtx := s.resolveCredentials(ctx, target.Provider, target.Model, r.Header)
 				return buildAttempt(target, alternativeOpts, alternativeMarker, alternativeCtx)
@@ -4741,13 +4711,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				log:     log,
 				target:  earlyStopTarget,
 				build: func(target router.Decision) (dispatchAttempt, []catalog.ProviderBinding, string, effortResolution, context.Context, error) {
-					redoOpts := opts
-					redoOpts.TargetModel = target.Model
-					redoOpts.TargetProvider = target.Provider
-					redoOpts.Capabilities = router.Lookup(target.Model)
-					redoOpts.ModelSwitched = true
-					redoEffort := s.resolveEffort(ctx, target, redoOpts.Capabilities, routeRes.EscalateEffort)
-					redoEffort.apply(&redoOpts)
+					redoOpts, redoEffort := switchedAttemptOptions(ctx, opts, target, routeRes.EscalateEffort, s.resolveEffort)
 					redoCtx := s.resolveCredentials(subscriptionStatePaidRescueContext(rescueCredentialContext(ctx, target.Provider), target.Model), target.Provider, target.Model, r.Header)
 					redoOpts.FastMode = fastModeForAttempt(redoCtx, target.Model, target.Provider)
 					redoMarker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, markerReasonEarlyStop, target.Model), target.Model, markerReasonEarlyStop))
@@ -4860,10 +4824,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		baselineDecision := decision
 		baselineDecision.Model = baselineModel
 		baselineDecision.Provider = providers.ProviderAnthropic
-		baselineOpts := opts
-		baselineOpts.TargetModel = baselineModel
-		baselineOpts.TargetProvider = providers.ProviderAnthropic
-		baselineOpts.Capabilities = router.Lookup(baselineModel)
+		// The failed arm's effort does not describe the baseline model.
+		baselineDecision.Effort = ""
+		baselineOpts, baselineEffort := switchedAttemptOptions(ctx, opts, baselineDecision, routeRes.EscalateEffort, s.resolveEffort)
 		// Recompute against the model that actually serves, not the cost-routed
 		// OSS id — otherwise PrepareAnthropic may leave stale signed thinking
 		// blocks the baseline model rejects (400). Compare bare model IDs:
@@ -4872,11 +4835,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		// subsumes it.
 		baselineOpts.ModelSwitched = baseModelOf(routeRes.PriorServedModel) != baselineModel ||
 			routeRes.SessionEverSwitched
-		// The arm's level named the failed model's menu; the baseline resolves
-		// its own so the persisted identity matches what goes on the wire.
-		baselineDecision.Effort = ""
-		baselineEffort := s.resolveEffort(ctx, baselineDecision, baselineOpts.Capabilities, routeRes.EscalateEffort)
-		baselineEffort.apply(&baselineOpts)
 		baselineCtx := subscriptionStatePaidRescueContext(ctx, baselineModel)
 		baselineSubExhausted := s.claudeSubscriptionExhausted(ctx, r.Header)
 		if baselineSubExhausted {
@@ -5057,15 +5015,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			if siblingRescueRan && (proxyErr == nil || preludeBuf.Committed() || ctx.Err() != nil) {
 				break
 			}
-			siblingOpts := opts
-			siblingOpts.TargetModel = siblingDecision.Model
-			siblingOpts.TargetProvider = siblingDecision.Provider
-			siblingOpts.Capabilities = router.Lookup(siblingDecision.Model)
-			// The turn now serves a model the session hasn't seen, so signed
-			// thinking blocks from the prior model must not be replayed verbatim.
-			siblingOpts.ModelSwitched = true
-			siblingEffort := s.resolveEffort(ctx, siblingDecision, siblingOpts.Capabilities, routeRes.EscalateEffort)
-			siblingEffort.apply(&siblingOpts)
+			siblingOpts, siblingEffort := switchedAttemptOptions(ctx, opts, siblingDecision, routeRes.EscalateEffort, s.resolveEffort)
 			siblingCtx := s.resolveCredentials(subscriptionStatePaidRescueContext(rescueCredentialContext(ctx, siblingDecision.Provider), siblingDecision.Model), siblingDecision.Provider, siblingDecision.Model, r.Header)
 			siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
 			siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
@@ -6649,21 +6599,6 @@ func finalizeAfterProxy(proxyErr error, fn func() error) error {
 	return finErr
 }
 
-// openAISurface names which OpenAI endpoint an attempt POSTs to and in what
-// representation; the three cases differ in both emit and response handling.
-type openAISurface int
-
-const (
-	// surfaceChat is /v1/chat/completions with the client's own format.
-	surfaceChat openAISurface = iota
-	// surfaceResponsesNative is /v1/responses with a Responses caller's
-	// original bytes, streamed back verbatim.
-	surfaceResponsesNative
-	// surfaceResponsesTranslated is /v1/responses emitted from a
-	// chat/completions request, with the response translated back to chat.
-	surfaceResponsesTranslated
-)
-
 // ProxyOpenAIChatCompletion routes an OpenAI Chat Completion request,
 // translating cross-format when the decision picks a non-OpenAI provider.
 func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
@@ -6934,7 +6869,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// Codex (ChatGPT) subscription passthrough: ProxyOpenAIResponses stashed the
 	// caller's original Responses body. Such turns skip the routing marker +
 	// semantic cache below, and dispatch the verbatim body to the Codex
-	// backend when routed to an OpenAI model (see responsesPassthrough branch).
+	// backend when routed to an OpenAI model (see the native Responses dispatch branch).
 	//
 	// Deliberately not forcing OpenAI-only routing: enabledProviders already
 	// scopes to providers the caller can pay for, so a dual Codex+Claude
@@ -6942,7 +6877,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// Subscriptions are credentials scoped to the routed model, not a pinned
 	// provider.
 	responsesBody, _ := ctx.Value(codexResponsesBodyContextKey{}).([]byte)
-	responsesPassthrough := len(responsesBody) > 0
 	reasoningConfigurationHash := env.ReasoningConfigurationSHA256()
 	if nativeResponsesHash, ok := ctx.Value(nativeResponsesReasoningHashContextKey{}).(string); ok {
 		reasoningConfigurationHash = nativeResponsesHash
@@ -7149,7 +7083,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	resolvedCtx := s.resolveCredentials(ctx, decision.Provider, decision.Model, r.Header)
 	responsesEndpointKey := EffectiveBaseURL(resolvedCtx, decision.Provider)
-	openAIResponsesEndpoint := responsesPassthrough
+	openAIResponsesEndpoint := len(responsesBody) > 0
 	if !openAIResponsesEndpoint && decision.Provider == providers.ProviderOpenAI {
 		openAIResponsesEndpoint = translate.UseOpenAIResponsesAPI(translate.ResponsesRoute{
 			Provider:       decision.Provider,
@@ -7232,26 +7166,32 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// gpt-5.6 applies its own effort on chat/completions, so a /v1/responses
 	// caller's original bytes serve it natively — preserving reasoning the chat
 	// projection drops. Skip when compaction or a handover rewrote the envelope
-	// (stale bytes); pre-routing readers of responsesPassthrough already ran.
+	// (stale bytes); pre-routing readers of the native body already ran.
 	promotedToResponses := false
-	if !responsesPassthrough && !routeRes.Handover.Invoked && openAIResponsesEndpoint {
+	if len(responsesBody) == 0 && !routeRes.Handover.Invoked && openAIResponsesEndpoint {
 		if native, ok := ctx.Value(nativeResponsesBodyContextKey{}).([]byte); ok && len(native) > 0 {
 			responsesBody = native
-			responsesPassthrough = true
 			promotedToResponses = true
 		}
 	}
 
 	// Previously gated on policy debug; ordinary Codex turns fell through to
 	// ResponsesWriter's legacy badge that ignored suppression and never showed the routing reason.
-	verbatimPassthrough := responsesPassthrough && decision.Provider == providers.ProviderOpenAI
+	responsesWriter, isResponses := w.(*translate.ResponsesWriter)
+	responseSwitch := responseProtocolSwitch{
+		writer:              responsesWriter,
+		nativeRequest:       len(responsesBody) > 0,
+		translatedResponses: !isResponses && len(responsesBody) == 0 && openAIResponsesEndpoint,
+		promotedToResponses: promotedToResponses,
+	}
+	initialNativeResponses := responseSwitch.nativeRequest && decision.Provider == providers.ProviderOpenAI
 	if rw, ok := w.(*translate.ResponsesWriter); ok {
 		if footer := s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoed); footer != "" {
 			rw.SetFooterText(footer)
 		}
 	}
-	responsesPreludeWillEmit := env.Stream() && !verbatimPassthrough && (len(bindings) <= 1 || marker != "")
-	if verbatimPassthrough {
+	responsesPreludeWillEmit := env.Stream() && !initialNativeResponses && (len(bindings) <= 1 || marker != "")
+	if initialNativeResponses {
 		responsesPreludeWillEmit = env.Stream() && supportsResponsesTerminalSurfaces(clientID.ClientApp) && marker != ""
 	}
 
@@ -7262,7 +7202,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		rw.WrapInner(func(inner http.ResponseWriter) http.ResponseWriter {
 			responsesPreludeBuf = newPreludeBuffer(inner)
 			notice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderCodex, decision.Model, marker)
-			if verbatimPassthrough && !supportsResponsesTerminalSurfaces(clientID.ClientApp) {
+			if initialNativeResponses && !supportsResponsesTerminalSurfaces(clientID.ClientApp) {
 				notice.Text = ""
 			}
 			noticeSink, prepareErr := responsesNotices.prepare(r.Context(), responsesPreludeBuf, responsesPreludeBuf, translate.FormatOpenAIResponses, env.Stream(), notice)
@@ -7288,10 +7228,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		rootSink = preludeBuf
 	}
 
-	responsesWriter, isResponses := w.(*translate.ResponsesWriter)
-	responseSwitch := responseProtocolSwitch{writer: responsesWriter, buffer: preludeBuf}
+	responseSwitch.buffer = preludeBuf
 	if isResponses {
-		if verbatimPassthrough {
+		if initialNativeResponses {
 			responseSwitch.native(supportsResponsesTerminalSurfaces(clientID.ClientApp) &&
 				(marker != "" || s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoed) != ""))
 		}
@@ -7311,10 +7250,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	openAIPrelude := &requestNoticeStream{}
 
 	makeMarkerSink := func(notice translate.RouterNotice) (http.ResponseWriter, error) {
-		if isResponses || verbatimPassthrough {
+		if isResponses || responseSwitch.passthrough() {
 			// Responses notices go out before dispatch; only a reconnect nudge
 			// raised by this attempt's funding still needs delivering.
-			if isResponses && responsesPreludeBuf != nil && notice.Kind == translate.NoticeSubscriptionReconnect && (!verbatimPassthrough || supportsResponsesTerminalSurfaces(clientID.ClientApp)) {
+			if isResponses && responsesPreludeBuf != nil && notice.Kind == translate.NoticeSubscriptionReconnect && (!responseSwitch.passthrough() || supportsResponsesTerminalSurfaces(clientID.ClientApp)) {
 				return sink, responsesNotices.deliver(notice)
 			}
 			return sink, nil
@@ -7323,8 +7262,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		return noticeSink, noticeErr
 	}
 
-	// Chat caller: emit onto Responses and translate back; skipped for Responses-ingress (handled above).
-	translateToResponses := !isResponses && !responsesPassthrough && openAIResponsesEndpoint
 	// nil when the request has no tools; the translator treats nil as syntax-check-only.
 	toolValidator := env.ToolValidator()
 
@@ -7363,7 +7300,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		targetNotice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderCodex, target.Model, targetMarker)
 		targetNotice = addRoutingFundingSource(fundingCtx, target.Provider, target.Model, targetNotice)
 		if isResponses {
-			if targetMarker != "" && (!verbatimPassthrough || supportsResponsesTerminalSurfaces(clientID.ClientApp)) {
+			if targetMarker != "" && (!responseSwitch.passthrough() || supportsResponsesTerminalSurfaces(clientID.ClientApp)) {
 				_, noticeErr := responsesNotices.prepare(r.Context(), responsesPreludeBuf, responsesPreludeBuf, translate.FormatOpenAIResponses, env.Stream(), targetNotice)
 				if noticeErr != nil {
 					return nil, fmt.Errorf("emit Responses router notice: %w", noticeErr)
@@ -7589,18 +7526,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				return err
 			}
 			return func(actx context.Context, d router.Decision, p providers.Client) error {
-				surface := surfaceChat
-				if d.Provider == providers.ProviderOpenAI {
-					switch {
-					// Native bytes need a passthrough writer. One set up for a
-					// cross-family pick only parses Chat Completions chunks, so an
-					// OpenAI attempt that replaces it is translated back instead.
-					case responsesPassthrough && (!isResponses || responsesWriter.Passthrough()):
-						surface = surfaceResponsesNative
-					case responsesPassthrough || translateToResponses || servedOnCodexSubscription(actx):
-						surface = surfaceResponsesTranslated
-					}
-				}
+				surface := responseSwitch.surface(d.Provider, servedOnCodexSubscription(actx))
 				gatewayKey := gatewayResponsesKey(actx, d.Provider)
 				stripPCK := s.gatewayCaps.RejectsPromptCacheKey(gatewayKey)
 				err := dispatchOpenAI(actx, d, p, surface, stripPCK)
@@ -7628,13 +7554,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					codexSubscriptionModelRejected(err) {
 					return err
 				}
-				if surface == surfaceResponsesNative {
-					if !promotedToResponses || !isResponses || responseSwitch.leavePassthrough() != nil {
-						return err
-					}
-					responsesPassthrough = false
+				if responseSwitch.fallbackToChat(surface) != nil {
+					return err
 				}
-				translateToResponses = false
 				s.gatewayCaps.RememberLacksResponses(responsesEndpointKey)
 				log.Warn("OpenAI endpoint rejected the Responses API; retrying on chat/completions",
 					"model", d.Model,
@@ -7655,7 +7577,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			// See ProxyMessages' Gemini case: a VALIDATED-mode request can 400 with a
 			// generic INVALID_ARGUMENT when Gemini can't compile a tool schema into
 			// its decode-time grammar. Retry once with mode=AUTO when pre-commit.
-			geminiUsedValidated := prep.Stats.GeminiValidatedToolMode
 			dispatchGemini := func(actx context.Context, d router.Decision, p providers.Client, pr providers.PreparedRequest) (error, func(error) error) {
 				var usage translate.UsageSink
 				if s.usageRequired() {
@@ -7684,24 +7605,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				return rawErr, finalize
 			}
 			return func(actx context.Context, d router.Decision, p providers.Client) error {
-				rawErr, finalize := dispatchGemini(actx, d, p, prep)
-				if rawErr != nil && geminiUsedValidated && !committed(preludeBuf) && upstreamStatus(rawErr) == http.StatusBadRequest {
-					autoOpts := targetOpts
-					autoOpts.DowngradeGeminiValidatedToAuto = true
-					autoPrep, autoErr := env.PrepareGemini(r.Header, autoOpts)
-					if autoErr != nil {
-						log.Error("Failed to re-translate Gemini request with tool mode AUTO", "err", autoErr)
-						return finalize(rawErr)
-					}
-					log.Warn("Retrying Gemini request with functionCallingConfig.mode=AUTO after VALIDATED-mode 400",
-						"model", d.Model,
-						"request_id", requestID)
-					if preludeBuf != nil {
-						preludeBuf.Discard()
-					}
-					rawErr, finalize = dispatchGemini(actx, d, p, autoPrep)
-				}
-				return finalize(rawErr)
+				retry := geminiToolModeAttempt{log: log, buffer: preludeBuf, env: env, headers: r.Header, opts: targetOpts}
+				return retry.dispatch(prep, func(prepared providers.PreparedRequest) (error, func(error) error) {
+					return dispatchGemini(actx, d, p, prepared)
+				})
 			}, nil
 		case providers.FamilyAnthropic:
 			crossFormat = true
@@ -7713,20 +7620,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			// One send on the given tier, split into the raw upstream error plus a
 			// finalize thunk so a fast send refused for lack of fast-mode allocation
 			// can be re-sent at standard speed before finalize commits the prelude.
-			dispatchAnthropic := func(actx context.Context, d router.Decision, p providers.Client, fast bool) (error, func(error) error) {
+			dispatchAnthropic := func(actx context.Context, d router.Decision, p providers.Client, attemptPrep providers.PreparedRequest, fast bool) (error, func(error) error) {
 				fastServed = fast
-				attemptPrep := prep
-				if fast != targetOpts.FastMode {
-					attemptOpts := targetOpts
-					attemptOpts.TargetProvider = d.Provider
-					attemptOpts.FastMode = fast
-					var attemptEmitErr error
-					attemptPrep, attemptEmitErr = env.PrepareAnthropic(r.Header, attemptOpts)
-					if attemptEmitErr != nil {
-						log.Error("Failed to re-translate OpenAI request to Anthropic format for fast-tier change", "err", attemptEmitErr)
-						return fmt.Errorf("translate openai request: %w", attemptEmitErr), func(err error) error { return err }
-					}
-				}
 				var usage translate.UsageSink
 				if s.usageRequired() {
 					extractor = telemetry.NewUsageExtractor(providers.ProviderAnthropic)
@@ -7759,17 +7654,30 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				return rawErr, finalize
 			}
 			return func(actx context.Context, d router.Decision, p providers.Client) error {
-				fast := fastModeForAttempt(actx, d.Model, d.Provider)
-				rawErr, finalize := dispatchAnthropic(actx, d, p, fast)
-				if rawErr != nil && fast && !committed(preludeBuf) && providers.IsAnthropicFastModeQuotaRejection(rawErr) {
-					log.Warn("Retrying Anthropic request at standard speed after fast-mode quota rejection",
-						"model", d.Model,
-						"request_id", requestID)
-					if preludeBuf != nil {
-						preludeBuf.Discard()
+				attemptOpts := targetOpts
+				attemptOpts.TargetProvider = d.Provider
+				attemptOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)
+				attemptPrep := prep
+				if attemptOpts.FastMode != targetOpts.FastMode {
+					var emitErr error
+					attemptPrep, emitErr = env.PrepareAnthropic(r.Header, attemptOpts)
+					if emitErr != nil {
+						log.Error("Failed to re-translate OpenAI request to Anthropic format for fast-tier change", "err", emitErr)
+						return fmt.Errorf("translate openai request: %w", emitErr)
 					}
-					rawErr, finalize = dispatchAnthropic(actx, d, p, false)
 				}
+				rawErr, finalize := dispatchAnthropic(actx, d, p, attemptPrep, attemptOpts.FastMode)
+				rawErr, _ = retryAnthropicStandardSpeed(log, preludeBuf, d, attemptOpts, rawErr, func(standardOpts translate.EmitOptions) (func() error, error) {
+					standardPrep, emitErr := env.PrepareAnthropic(r.Header, standardOpts)
+					if emitErr != nil {
+						return nil, emitErr
+					}
+					return func() error {
+						var standardErr error
+						standardErr, finalize = dispatchAnthropic(actx, d, p, standardPrep, false)
+						return standardErr
+					}, nil
+				})
 				return finalize(rawErr)
 			}, nil
 		default:
@@ -7892,13 +7800,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			return s.subscriptionAlternativeDecisions(ctx, routeRequest, decision)
 		}(),
 		buildAlternative: func(target router.Decision) (dispatchAttempt, error) {
-			alternativeOpts := opts
-			alternativeOpts.TargetModel = target.Model
-			alternativeOpts.TargetProvider = target.Provider
-			alternativeOpts.Capabilities = router.Lookup(target.Model)
-			alternativeOpts.ModelSwitched = true
-			alternativeEffort := s.resolveEffort(ctx, target, alternativeOpts.Capabilities, routeRes.EscalateEffort)
-			alternativeEffort.apply(&alternativeOpts)
+			alternativeOpts, _ := switchedAttemptOptions(ctx, opts, target, routeRes.EscalateEffort, s.resolveEffort)
 			alternativeMarker := subscriptionTargetMarker(ctx, r.Header, routeRes, primaryDecision, target, pickedMarker)
 			alternativeCtx := s.resolveCredentials(ctx, target.Provider, target.Model, r.Header)
 			return buildAttempt(target, alternativeOpts, alternativeMarker, alternativeCtx)
@@ -8076,15 +7978,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	cyberRetryRan := false
 	if cyberRetryViable && proxyErr != nil && !preludeBuf.Committed() &&
 		providers.IsUpstreamCyberPolicyRefusal(proxyErr) {
-		retryOpts := opts
-		retryOpts.TargetModel = cyberRetryTarget.Model
-		retryOpts.TargetProvider = cyberRetryTarget.Provider
-		retryOpts.Capabilities = router.Lookup(cyberRetryTarget.Model)
-		// The turn now serves a model the session hasn't seen, so signed
-		// reasoning from the refusing model must not be replayed verbatim.
-		retryOpts.ModelSwitched = true
-		retryEffort := s.resolveEffort(ctx, cyberRetryTarget, retryOpts.Capabilities, routeRes.EscalateEffort)
-		retryEffort.apply(&retryOpts)
+		retryOpts, retryEffort := switchedAttemptOptions(ctx, opts, cyberRetryTarget, routeRes.EscalateEffort, s.resolveEffort)
 		retryCtx := resolveAndInjectCredentials(subscriptionStatePaidRescueContext(ctx, cyberRetryTarget.Model), cyberRetryTarget.Provider, cyberRetryTarget.Model, r.Header)
 		retryOpts.FastMode = fastModeForAttempt(retryCtx, cyberRetryTarget.Model, cyberRetryTarget.Provider)
 		retryBindings := s.resolveBindingsForDispatch(retryCtx, cyberRetryTarget)
@@ -8106,10 +8000,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				"fallback_model", cyberRetryTarget.Model,
 				"fallback_provider", cyberRetryTarget.Provider,
 				"request_id", requestID)
-			if verbatimPassthrough {
-				verbatimPassthrough = false
-				responsesPassthrough = false
-			}
 			cyberRetryRan = true
 			effortServed = retryEffort
 			respSummary = translate.ResponseSummary{}
@@ -8164,13 +8054,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			if siblingRescueRan && (proxyErr == nil || preludeBuf.Committed() || ctx.Err() != nil) {
 				break
 			}
-			siblingOpts := opts
-			siblingOpts.TargetModel = siblingDecision.Model
-			siblingOpts.TargetProvider = siblingDecision.Provider
-			siblingOpts.Capabilities = router.Lookup(siblingDecision.Model)
-			siblingOpts.ModelSwitched = true
-			siblingEffort := s.resolveEffort(ctx, siblingDecision, siblingOpts.Capabilities, routeRes.EscalateEffort)
-			siblingEffort.apply(&siblingOpts)
+			siblingOpts, siblingEffort := switchedAttemptOptions(ctx, opts, siblingDecision, routeRes.EscalateEffort, s.resolveEffort)
 			siblingCtx := s.resolveCredentials(subscriptionStatePaidRescueContext(rescueCredentialContext(ctx, siblingDecision.Provider), siblingDecision.Model), siblingDecision.Provider, siblingDecision.Model, r.Header)
 			siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
 			siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
@@ -8181,10 +8065,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					"err", siblingBuildErr,
 					"sibling_model", siblingDecision.Model)
 				continue
-			}
-			if verbatimPassthrough && siblingDecision.Provider != providers.ProviderOpenAI {
-				verbatimPassthrough = false
-				responsesPassthrough = false
 			}
 			if len(siblingBindings) == 0 {
 				log.Warn("Sibling failover: candidate has no usable binding; trying the next candidate",
