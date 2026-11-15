@@ -1,21 +1,3 @@
-// Package flags resolves per-organization overrides for the router's behavioral
-// feature flags.
-//
-// Behavioral flags have deployment-wide defaults resolved at boot, or fixed
-// defaults for settings that require explicit organization opt-in. This package
-// layers a sparse per-organization override on top of that default, so a flag can
-// be piloted (or disabled) for one installation without a global rollout.
-//
-// Precedence at a read site is header override > per-org override > deployment
-// default. The header layer is owned by the individual override helpers that
-// already exist in internal/proxy; this package supplies the middle layer via
-// BoolOr and friends, each of which takes the deployment default as its last
-// argument and returns it unchanged when the request carries no override.
-//
-// The package is I/O-free: it owns the value types, the registry, and the context
-// key, so both internal/proxy (inner ring) and internal/server/middleware
-// (adapter) can use it without an import cycle — the same shape as
-// internal/router's WithRoutingKnobs.
 package flags
 
 import (
@@ -26,13 +8,8 @@ import (
 	"strings"
 )
 
-// Key is the stable storage identifier for a flag. It is the JSON object key in
-// the installation's flag_overrides column and the primary key in
-// router.flag_definitions, so renaming one orphans existing overrides.
 type Key string
 
-// Kind is a flag's value type. A stored override whose JSON type disagrees with
-// its registered Kind is rejected at parse time rather than coerced.
 type Kind string
 
 const (
@@ -42,8 +19,6 @@ const (
 	KindString Kind = "string"
 )
 
-// AuthoritativeUpgradePolicy selects how expensive fresh HMM decisions are
-// compared with an active session pin.
 type AuthoritativeUpgradePolicy string
 
 const (
@@ -52,8 +27,6 @@ const (
 	AuthoritativeUpgradePolicyOff      AuthoritativeUpgradePolicy = "off"
 )
 
-// ParseAuthoritativeUpgradePolicy validates the deployment/override value at
-// the configuration boundary.
 func ParseAuthoritativeUpgradePolicy(raw string) (AuthoritativeUpgradePolicy, error) {
 	policy := AuthoritativeUpgradePolicy(raw)
 	switch policy {
@@ -64,8 +37,6 @@ func ParseAuthoritativeUpgradePolicy(raw string) (AuthoritativeUpgradePolicy, er
 	}
 }
 
-// EarlyStopRedoMode selects what happens when a downgraded model ends a Claude
-// Code tool-result turn without calling a tool.
 type EarlyStopRedoMode string
 
 const (
@@ -74,8 +45,6 @@ const (
 	EarlyStopRedoOn     EarlyStopRedoMode = "on"
 )
 
-// ParseEarlyStopRedoMode validates the deployment/override value at the
-// configuration boundary.
 func ParseEarlyStopRedoMode(raw string) (EarlyStopRedoMode, error) {
 	mode := EarlyStopRedoMode(raw)
 	switch mode {
@@ -86,7 +55,6 @@ func ParseEarlyStopRedoMode(raw string) (EarlyStopRedoMode, error) {
 	}
 }
 
-// Registered flag keys. Each corresponds to exactly one entry in Registry.
 const (
 	KeyEscalationActiveClassifier           Key = "escalation_active_classifier"
 	KeyEscalationShadowClassifier           Key = "escalation_shadow_classifier"
@@ -141,10 +109,6 @@ const (
 	KeyPlanUserClusterLists                 Key = "plan_user_cluster_lists"
 )
 
-// These keys were valid organization overrides before their respective flags
-// were retired. Keep them parse-only so an installation row written by an
-// older revision cannot invalidate unrelated active overrides during a rolling
-// deploy. They are never registered, published, or read by routing code.
 const (
 	retiredKeyStruggleEscalationEnabled Key = "struggle_escalation_enabled"
 	retiredKeyStruggleEscalationHoldout Key = "struggle_escalation_holdout_pct"
@@ -163,31 +127,16 @@ var retiredOverrideKeys = map[Key]struct{}{
 	retiredKeyEmbedOnlyUserMessage:      {},
 }
 
-// Definition describes one overridable flag. DeploymentDefault is not stored
-// here: it is resolved at boot, then published to
-// router.flag_definitions for the admin UI to display.
 type Definition struct {
-	Key Key
-	// EnvVar is empty for settings controlled only by organization overrides.
-	EnvVar      string
-	Kind        Kind
-	Description string
-	// OrgOverridable gates whether a per-organization override may be written.
-	// A registered-but-not-overridable flag still publishes its definition (so
-	// the admin UI can show it read-only) but rejects writes.
+	Key            Key
+	EnvVar         string
+	Kind           Kind
+	Description    string
 	OrgOverridable bool
 }
 
-// RegistryVersion changes whenever Registry's membership changes. Publish uses
-// it to make pruning safe during rolling deploys: a revision with an older
-// registry version may not delete definitions published by a newer revision.
 const RegistryVersion = 30
 
-// Registry is the curated allowlist of flags that may carry a per-organization
-// override. It is deliberately explicit rather than derived from the env var
-// namespace: most ROUTER_* vars are infra (sidecar URLs, secrets, asset paths),
-// are already per-installation columns on model_router_installations, or are
-// consumed at construction time and have no per-request read site to override.
 var Registry = []Definition{
 	{Key: KeyEscalationActiveClassifier, Kind: KindString, Description: "Active escalation classifier: none, xgb, switchyard_llm_v1, or llm_escalation. Absent preserves legacy XGB flags.", OrgOverridable: true},
 	{Key: KeyEscalationShadowClassifier, Kind: KindString, Description: "Independent shadow escalation classifier: none, xgb, switchyard_llm_v1, or llm_escalation.", OrgOverridable: true},
@@ -277,8 +226,6 @@ var Registry = []Definition{
 		Description:    "Re-score tool-result turns instead of following the session pin.",
 		OrgOverridable: true,
 	},
-	// Router policy owns this eval control; promote or remove it after the
-	// escalation benchmark comparison.
 	{
 		Key:            KeyHMMToolResultHold,
 		Kind:           KindBool,
@@ -496,7 +443,6 @@ var Registry = []Definition{
 	},
 }
 
-// definitions indexes Registry by key for O(1) validation.
 var definitions = func() map[Key]Definition {
 	m := make(map[Key]Definition, len(Registry))
 	for _, d := range Registry {
@@ -505,33 +451,20 @@ var definitions = func() map[Key]Definition {
 	return m
 }()
 
-// Lookup returns the definition for key.
 func Lookup(key Key) (def Definition, ok bool) {
 	def, ok = definitions[key]
 	return def, ok
 }
 
-// PublishedDefinition pairs a registry entry with the deployment default this
-// process actually resolved from the environment at boot.
 type PublishedDefinition struct {
 	Definition
-	// DeploymentDefault is the resolved default rendered as text. It is display
-	// metadata for the control plane's admin UI, never read back by routing.
 	DeploymentDefault string
 }
 
-// DefinitionRepository publishes the registry so the Weave control plane can
-// render and validate the per-org override UI without importing router code.
-// Implemented by internal/postgres.
 type DefinitionRepository interface {
-	// Publish upserts every supplied definition and removes rows for flags no
-	// longer in the registry.
 	Publish(ctx context.Context, defs []PublishedDefinition) error
 }
 
-// Overrides is a sparse set of per-organization flag values. Values are held in
-// per-Kind maps rather than a single map of a sum type so that reads are
-// type-safe without assertions and an empty Overrides costs no allocation.
 type Overrides struct {
 	Bools   map[Key]bool
 	Ints    map[Key]int
@@ -539,30 +472,18 @@ type Overrides struct {
 	Strings map[Key]string
 }
 
-// ErrUnknownKey means an override refers to a flag absent from Registry.
 var ErrUnknownKey = fmt.Errorf("flags: unknown flag key")
 
-// ErrNotOverridable means an override refers to a registered flag that is not
-// allowed to vary per organization.
 var ErrNotOverridable = fmt.Errorf("flags: flag is not overridable per organization")
 
-// ErrWrongKind means a typed override was put in the map for a different Kind.
 var ErrWrongKind = fmt.Errorf("flags: override value has the wrong kind")
 
-// ErrInvalidValue means a typed override violates a registered semantic
-// constraint, such as a percentage outside [0, 100].
 var ErrInvalidValue = fmt.Errorf("flags: invalid override value")
 
-// IsEmpty reports whether o carries no overrides at all.
 func (o Overrides) IsEmpty() bool {
 	return len(o.Bools) == 0 && len(o.Ints) == 0 && len(o.Floats) == 0 && len(o.Strings) == 0
 }
 
-// ValidateOverrides checks a typed override set before it is persisted. The
-// JSON parser performs the same checks after decoding, but callers that already
-// have typed maps (notably auth.Service) must not be able to bypass them. A key
-// appearing in two maps is rejected because JSON would otherwise silently pick
-// whichever map is marshaled last.
 func ValidateOverrides(o Overrides) error {
 	seen := make(map[Key]struct{}, len(o.Bools)+len(o.Ints)+len(o.Floats)+len(o.Strings))
 	check := func(key Key, kind Kind) error {
@@ -626,7 +547,6 @@ func ValidateOverrides(o Overrides) error {
 	return validateEscalationOverrides(o)
 }
 
-// Keys returns every overridden key, sorted, for logging and tests.
 func (o Overrides) Keys() (keys []Key) {
 	keys = make([]Key, 0, len(o.Bools)+len(o.Ints)+len(o.Floats)+len(o.Strings))
 	for k := range o.Bools {
@@ -645,10 +565,6 @@ func (o Overrides) Keys() (keys []Key) {
 	return keys
 }
 
-// ParseOverrides decodes a flag_overrides JSONB payload. Empty or JSON null
-// yields an empty Overrides and no error. Every non-retired key must be
-// registered and overridable, and every value must match its registered Kind;
-// a violation is returned as an error rather than silently dropped.
 func ParseOverrides(raw []byte) (o Overrides, err error) {
 	if len(raw) == 0 {
 		return Overrides{}, nil
@@ -681,7 +597,6 @@ func ParseOverrides(raw []byte) (o Overrides, err error) {
 	return o, nil
 }
 
-// set decodes one value into the map matching def.Kind.
 func (o *Overrides) set(def Definition, rawValue []byte) (err error) {
 	switch def.Kind {
 	case KindBool:
@@ -730,9 +645,6 @@ func (o *Overrides) set(def Definition, rawValue []byte) (err error) {
 	return nil
 }
 
-// MarshalJSON renders the override set as the flat object stored in the
-// flag_overrides column, so ParseOverrides(json.Marshal(o)) round-trips. An
-// empty set marshals to "{}" rather than null, matching the column default.
 func (o Overrides) MarshalJSON() (data []byte, err error) {
 	flat := make(map[string]any, len(o.Bools)+len(o.Ints)+len(o.Floats)+len(o.Strings))
 	for k, v := range o.Bools {
@@ -752,8 +664,6 @@ func (o Overrides) MarshalJSON() (data []byte, err error) {
 
 type overridesContextKey struct{}
 
-// WithOverrides stashes per-organization overrides on ctx. An empty set leaves
-// ctx unchanged so the accessors take their cheap path.
 func WithOverrides(ctx context.Context, o Overrides) context.Context {
 	if o.IsEmpty() {
 		return ctx
@@ -761,14 +671,11 @@ func WithOverrides(ctx context.Context, o Overrides) context.Context {
 	return context.WithValue(ctx, overridesContextKey{}, o)
 }
 
-// OverridesFromContext returns the per-organization overrides carried by ctx.
 func OverridesFromContext(ctx context.Context) (o Overrides, ok bool) {
 	o, ok = ctx.Value(overridesContextKey{}).(Overrides)
 	return o, ok
 }
 
-// BoolOr returns the per-organization override for key, or deploymentDefault
-// when the request carries none.
 func BoolOr(ctx context.Context, key Key, deploymentDefault bool) (value bool) {
 	o, ok := OverridesFromContext(ctx)
 	if !ok {
@@ -780,8 +687,6 @@ func BoolOr(ctx context.Context, key Key, deploymentDefault bool) (value bool) {
 	return deploymentDefault
 }
 
-// IntOr returns the per-organization override for key, or deploymentDefault
-// when the request carries none.
 func IntOr(ctx context.Context, key Key, deploymentDefault int) (value int) {
 	o, ok := OverridesFromContext(ctx)
 	if !ok {
@@ -793,8 +698,6 @@ func IntOr(ctx context.Context, key Key, deploymentDefault int) (value int) {
 	return deploymentDefault
 }
 
-// FloatOr returns the per-organization override for key, or deploymentDefault
-// when the request carries none.
 func FloatOr(ctx context.Context, key Key, deploymentDefault float64) (value float64) {
 	o, ok := OverridesFromContext(ctx)
 	if !ok {
@@ -806,8 +709,6 @@ func FloatOr(ctx context.Context, key Key, deploymentDefault float64) (value flo
 	return deploymentDefault
 }
 
-// StringOr returns the per-organization override for key, or deploymentDefault
-// when the request carries none.
 func StringOr(ctx context.Context, key Key, deploymentDefault string) (value string) {
 	o, ok := OverridesFromContext(ctx)
 	if !ok {

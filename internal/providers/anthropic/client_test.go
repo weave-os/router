@@ -689,3 +689,53 @@ func TestPassthrough_ErrorStatusLogsThroughContextLogger(t *testing.T) {
 	assert.Contains(t, logs.String(), `"request_id":"req-bound"`)
 	assert.Contains(t, logs.String(), `"status":400`)
 }
+
+func TestProxy_BYOKModelAliasOverridesCatalogModelIDMap(t *testing.T) {
+	var gotBody map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		assert.NoError(t, json.Unmarshal(body, &gotBody))
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_1"}`))
+	}))
+	defer upstream.Close()
+
+	c := anthropic.NewClient("deployment-key", upstream.URL).WithModelIDMap(map[string]string{"z-ai/glm-5.2": "GLM-5.2"})
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
+		APIKey:       []byte("gateway-token"),
+		ModelAliases: map[string]string{"z-ai/glm-5.2": "customer-glm"},
+	})
+	prep := providers.PreparedRequest{
+		Body:    []byte(`{"model":"z-ai/glm-5.2","messages":[{"role":"user","content":"hi"}]}`),
+		Headers: make(http.Header),
+	}
+
+	err := c.Proxy(ctx, router.Decision{Model: "z-ai/glm-5.2"}, prep, httptest.NewRecorder(),
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader("")))
+
+	require.NoError(t, err)
+	assert.Equal(t, "customer-glm", gotBody["model"], "the BYOK endpoint alias must override the deployment catalog mapping")
+}
+
+func TestProxy_ObservesUnifiedLimitHeadersOnRateLimitedResponse(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("anthropic-ratelimit-unified-status", "rejected")
+		w.Header().Set("anthropic-ratelimit-unified-reset", "1794770000")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"type":"rate_limit_error","message":"rate limited"}}`))
+	}))
+	defer upstream.Close()
+
+	var observed http.Header
+	ctx := providers.WithUpstreamHeaderObserver(context.Background(), func(_ context.Context, h http.Header) { observed = h.Clone() })
+	prep := providers.PreparedRequest{Body: []byte(`{"model":"x"}`), Headers: make(http.Header)}
+
+	err := anthropic.NewClient("k", upstream.URL).Proxy(ctx, router.Decision{Model: "claude-haiku-4-5"}, prep, httptest.NewRecorder(),
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader("")))
+
+	var buffered *providers.UpstreamErrorResponse
+	require.ErrorAs(t, err, &buffered)
+	require.NotNil(t, observed, "a 429 carries the headroom signal the usage observer needs most")
+	assert.Equal(t, "rejected", observed.Get("anthropic-ratelimit-unified-status"))
+	assert.Equal(t, "1794770000", observed.Get("anthropic-ratelimit-unified-reset"))
+}

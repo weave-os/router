@@ -4,7 +4,11 @@ import (
 	"encoding/json"
 	"math"
 	"os"
+	"slices"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // builderTol absorbs the fixture's 6-decimal rounding + float32 compute-order
@@ -117,4 +121,17 @@ func derefStr(p *string) string {
 		return ""
 	}
 	return *p
+}
+
+func TestDistinctActionsReproducesTrainingDefaultdictQuirk(t *testing.T) {
+	idx := slices.Index(FeatureNames(), "distinct_actions")
+	require.GreaterOrEqual(t, idx, 0, "distinct_actions missing from FeatureNames")
+	s := NewState()
+	call := Call{TurnType: "main_loop", Ts: 1_000}
+	assert.Zero(t, s.Features(call)[idx], "first call")
+
+	s.Advance(ActionTypes[0], 1_000, 10, false)
+	call.Ts = 1_010
+	assert.InDelta(t, float32(len(ActionTypes)), s.Features(call)[idx], 0,
+		"features.py counts every taxonomy key once any prior call exists")
 }

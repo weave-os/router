@@ -17,8 +17,6 @@ const (
 
 type clientSessionIDContextKey struct{}
 
-// WithClientSessionID attaches the caller's session identifier to ctx for
-// request-scoped trace instrumentation.
 func WithClientSessionID(ctx context.Context, clientSessionID string) context.Context {
 	if clientSessionID == "" {
 		return ctx
@@ -26,8 +24,6 @@ func WithClientSessionID(ctx context.Context, clientSessionID string) context.Co
 	return context.WithValue(ctx, clientSessionIDContextKey{}, clientSessionID)
 }
 
-// ClientSessionIDFromContext returns the client session identifier attached
-// for request-scoped trace instrumentation, or "" when none is known.
 func ClientSessionIDFromContext(ctx context.Context) string {
 	if ctx == nil {
 		return ""
@@ -36,10 +32,6 @@ func ClientSessionIDFromContext(ctx context.Context) string {
 	return clientSessionID
 }
 
-// LoggerWithTraceContext adds the active OpenTelemetry trace and span IDs to a
-// logger using the field names Cloud Logging recognizes for trace correlation.
-// When GCP_PROJECT_ID is set, the trace field is the fully-qualified resource
-// name expected by Logs Explorer.
 func LoggerWithTraceContext(ctx context.Context, log *slog.Logger) *slog.Logger {
 	if log == nil {
 		return nil
