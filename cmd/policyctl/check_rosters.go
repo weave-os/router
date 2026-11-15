@@ -13,9 +13,6 @@ import (
 	"weave-os/router/internal/router/hmm/rosterdata"
 )
 
-// rosterCheckReport is the machine-readable result of `policyctl check-rosters`.
-// Rosters in schemas the compiler does not accept as source are historical
-// artifacts and are reported as skipped, not failed.
 type rosterCheckReport struct {
 	Compiled []compiledRosterEntry `json:"compiled"`
 	Skipped  []skippedRosterEntry  `json:"skipped"`
@@ -66,9 +63,6 @@ func runCheckRosters(args []string) error {
 	return nil
 }
 
-// checkRosterDir compiles every roster whose source schema the compiler
-// accepts. A reviewed v7 roster that the compiler rejects is exactly the drift
-// that strands production without a publishable policy.
 func checkRosterDir(dir string, options policycompiler.Options) (rosterCheckReport, error) {
 	paths, err := filepath.Glob(filepath.Join(dir, "*.json"))
 	if err != nil {
@@ -108,8 +102,6 @@ func checkRosterDir(dir string, options policycompiler.Options) (rosterCheckRepo
 	return report, nil
 }
 
-// compilePublishable applies the same gate `publish` does: the compiled policy
-// must also pass catalog validation, or no release could ever be built from it.
 func compilePublishable(source []byte, options policycompiler.Options) ([]byte, error) {
 	canonical, _, err := policycompiler.Compile(source, options)
 	if err != nil {

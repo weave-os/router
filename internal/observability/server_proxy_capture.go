@@ -12,15 +12,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// GitHub's backend sends this user agent when it proxies an organization's
-// Copilot custom-model traffic to the router.
 const githubCopilotProxyUserAgent = "copilot-api"
 
 var sensitiveHeaderName = regexp.MustCompile(`(?i)authorization|cookie|token|key|secret|signature`)
 
-// LogServerProxyRequestShape logs the headers and top-level body keys of a
-// request proxied by GitHub's Copilot backend, so we can see what identity it
-// forwards. Credential-bearing header values are replaced with their length.
 func LogServerProxyRequestShape(c *gin.Context, body []byte) {
 	if c.Request.UserAgent() != githubCopilotProxyUserAgent {
 		return
@@ -31,21 +26,12 @@ func LogServerProxyRequestShape(c *gin.Context, body []byte) {
 	)
 }
 
-// responseIDScanLimit bounds how much of the response is buffered while
-// looking for "id" fields; ids lead the first SSE chunks.
 const responseIDScanLimit = 4096
 
-// maxResponseIDs caps how many distinct ids are recorded. A prepended routing
-// marker chunk carries its own id ahead of the completion's, so the first id
-// alone is not necessarily the one the client reports.
 const maxResponseIDs = 4
 
 var responseIDField = regexp.MustCompile(`"id"\s*:\s*"([^"]*)"`)
 
-// serverProxyResponseRecorder records the response ids the router sends back
-// to GitHub's proxy. GitHub passes them through unchanged to the client, whose
-// OpenTelemetry spans carry one as gen_ai.response.id, so they join those
-// spans (and their user identity) to this request.
 type serverProxyResponseRecorder struct {
 	gin.ResponseWriter
 	head        []byte
@@ -87,9 +73,6 @@ func (w *serverProxyResponseRecorder) scan(b []byte) {
 	}
 }
 
-// RecordServerProxyResponseID wraps the response writer of a request proxied
-// by GitHub's Copilot backend and returns a func that logs the response ids
-// once the handler has written them. For any other client it is a no-op.
 func RecordServerProxyResponseID(c *gin.Context) func() {
 	if c.Request.UserAgent() != githubCopilotProxyUserAgent {
 		return func() {}

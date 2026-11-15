@@ -428,3 +428,15 @@ func TestAgedOutClosedCircuitsAreSwept(t *testing.T) {
 	assert.False(t, staleKept, "a closed circuit whose strikes all aged out is dropped")
 	assert.True(t, liveKept, "a closed circuit with a strike inside the window is kept")
 }
+
+func TestOverloadStormKeepsAtMostOrgConfirmationsFailuresPerOrg(t *testing.T) {
+	c := newClock()
+	r := newRegistry(c)
+	openShared(t, r)
+	strike(r, cortexOrg, overloadedModel, false, 50)
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	failures := r.circuits[circuitKey(weaveOrg, overloadedModel, false)].orgFailures[cortexOrg]
+	assert.Len(t, failures, 2)
+}

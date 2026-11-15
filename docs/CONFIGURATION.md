@@ -15,6 +15,7 @@ This page is the exhaustive reference; the [README](../README.md) has the
 - [Server](#server)
 - [Managed serving (`ROUTER_SERVING_*`)](#managed-serving-router_serving_)
 - [Routing](#routing)
+- [Per-organization flag overrides](#per-organization-flag-overrides)
 - [Plan-aware subscription routing](#plan-aware-subscription-routing)
 - [Provider and model exclusions](#provider-and-model-exclusions)
 - [Policy sidecars](#policy-sidecars)
@@ -657,7 +658,7 @@ sweep backstops any lost signal.
 | `ROUTER_ESCALATION_JUDGE_ENABLED` | `false` | Enables the optional Weave-funded Switchyard LLM judge and requires `FIREWORKS_API_KEY`. The judge uses only the Fireworks binding for `z-ai/glm-5.3-flash`. |
 | `ROUTER_ESCALATION_SHADOW_CLASSIFIER_DEFAULT` | `none` | Shadow classifier (`llm_escalation` or `switchyard_llm_v1`) for installations with no escalation selection and no active classifier. `switchyard_llm_v1` requires `ROUTER_ESCALATION_JUDGE_ENABLED=true`; `llm_escalation` requires `ROUTER_LLM_ESCALATION_URL` and `ROUTER_LLM_ESCALATION_API_KEY`; startup fails otherwise. Shadow judging uses its own pool of 8 slots per instance. Each successful verdict is written to the judge's auxiliary telemetry row (`classifier_predicted_label`); failed judgments keep their cost row with no label. |
 | `ROUTER_ESCALATION_JUDGE_ACTIVE_ENABLED` | `false` | Allows `switchyard_llm_v1` to be selected as the active classifier. Keep false during shadow evaluation; requires `ROUTER_ESCALATION_JUDGE_ENABLED=true`. |
-| `ROUTER_PROVIDER_OVERLOADED`      | `true`                       | Per-model 529 circuit breaker. Provider-direct overloaded responses from every organization feed one shared circuit per model (3 overloaded operations within 2 minutes open it); once it opens, the model leaves automatic selection only for organizations that have each observed 2 overloads themselves. Traffic through an organization's own gateway gets a circuit of its own that no other organization feeds or sees. `/force-model` still reaches the model, and one request probes it after 30s, doubling to a 10-minute cap on each failed probe. Thresholds are fixed in `internal/router/breaker/thresholds.go`. Org-overridable as `provider_overloaded`. |
+| `ROUTER_PROVIDER_OVERLOADED`      | `true`                       | Per-model 529 circuit breaker. Provider-direct overloaded responses from every organization feed one shared circuit per model (3 overloaded operations within 2 minutes open it); once it opens, the model leaves automatic selection only for organizations that have each observed 2 overloads themselves. Traffic through an organization's own gateway gets a circuit of its own that no other organization feeds or sees. `/force-model` still reaches the model, and one request probes it after 30s, doubling to a 10-minute cap on each failed probe. Retries on the same binding count as one overloaded operation, and a claimed probe holds the slot for up to 15 minutes (a long streamed turn) before another request may claim it. Thresholds are fixed in `internal/router/breaker/thresholds.go` rather than configurable, because every replica pools organizations' evidence about the same provider and a per-deployment knob would only let replicas disagree; change them there, with a test, when production evidence says so. Org-overridable as `provider_overloaded`. |
 
 If the routing policy can't decide (sidecar unavailable, invalid decision,
 etc.), the router returns HTTP 503 — it does *not* silently fall back to a
@@ -705,6 +706,25 @@ turn was already served by one of these models.
 the installation's flag overrides (no environment variable), default `false`. When on, authoritative per-turn selection
 scores only the first call after a user message; that turn's tool-result calls
 reuse the session pin unless escalation constrains the request.
+
+## Per-organization flag overrides
+
+`internal/flags` layers a sparse per-organization override on top of each
+behavioral flag's deployment default, so a flag can be piloted or disabled for
+one installation without a global rollout. Precedence at a read site is header
+override, then organization override, then deployment default.
+
+- A flag `Key` is the JSON object key in the installation's `flag_overrides`
+  column and the primary key in `router.flag_definitions`; renaming one orphans
+  existing overrides.
+- A retired key stays parse-only, so an installation row written by an older
+  revision cannot invalidate unrelated overrides during a rolling deploy. It is
+  never registered, published, or read by routing code.
+- `flags.RegistryVersion` changes whenever registry membership changes. Publish
+  uses it so a revision with an older registry cannot prune definitions
+  published by a newer one.
+- `hmm_tool_result_hold` is an eval control owned by router policy: promote or
+  remove it after the escalation benchmark comparison.
 
 ## Plan-aware subscription routing
 

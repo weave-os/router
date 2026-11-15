@@ -1,13 +1,5 @@
 package percallband
 
-// Snapshot is the serializable form of a session's ring State — the "conversation
-// memory" persisted per session pin (e.g. a session_pins.action_history JSONB/bytes
-// column) and rehydrated at the next call's decision time. Everything the Markov
-// features need is a bounded running aggregate (whole-session counts + short rings),
-// so the snapshot is small and fixed-ish size regardless of session length.
-//
-// Exported fields (vs. State's unexported ones) so encoding/json can round-trip it
-// without reflection tricks; StateFromSnapshot rebuilds a live State.
 type Snapshot struct {
 	Hist        []Action       `json:"hist"`
 	HistWide    []Action       `json:"hist_wide"`
@@ -24,9 +16,6 @@ type Snapshot struct {
 	HasPrevTs   bool           `json:"has_prev_ts"`
 }
 
-// Snapshot captures the ring's current state for persistence. The returned maps
-// and slices are copies, so mutating the live State afterwards does not alias the
-// snapshot (and vice-versa).
 func (s *State) Snapshot() Snapshot {
 	return Snapshot{
 		Hist:        append([]Action(nil), s.hist...),
@@ -45,9 +34,6 @@ func (s *State) Snapshot() Snapshot {
 	}
 }
 
-// StateFromSnapshot rehydrates a live ring from a persisted snapshot. The zero
-// Snapshot yields an empty session (equivalent to NewState). Copies the maps/slices
-// so the restored State does not alias the caller's snapshot.
 func StateFromSnapshot(snap Snapshot) *State {
 	s := NewState()
 	s.hist = append([]Action(nil), snap.Hist...)

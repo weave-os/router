@@ -2,10 +2,6 @@
   "schema_version": "comment_ban_allowlist_v1",
   "packages": [
     {
-      "package": "cmd/policyctl",
-      "banned_lines": 61
-    },
-    {
       "package": "cmd/router",
       "banned_lines": 343
     },
@@ -42,18 +38,6 @@
       "banned_lines": 31
     },
     {
-      "package": "internal/flags",
-      "banned_lines": 108
-    },
-    {
-      "package": "internal/observability",
-      "banned_lines": 123
-    },
-    {
-      "package": "internal/policyclient",
-      "banned_lines": 134
-    },
-    {
       "package": "internal/policyregistry",
       "banned_lines": 491
     },
@@ -74,10 +58,6 @@
       "banned_lines": 5940
     },
     {
-      "package": "internal/proxy/usage",
-      "banned_lines": 155
-    },
-    {
       "package": "internal/refusal",
       "banned_lines": 17
     },
@@ -88,10 +68,6 @@
     {
       "package": "internal/router",
       "banned_lines": 408
-    },
-    {
-      "package": "internal/router/breaker",
-      "banned_lines": 106
     },
     {
       "package": "internal/router/catalog",
@@ -126,10 +102,6 @@
       "banned_lines": 59
     },
     {
-      "package": "internal/router/percallband",
-      "banned_lines": 114
-    },
-    {
       "package": "internal/router/planner",
       "banned_lines": 87
     },
@@ -146,24 +118,12 @@
       "banned_lines": 211
     },
     {
-      "package": "internal/router/turntype",
-      "banned_lines": 103
-    },
-    {
       "package": "internal/routingpolicy",
       "banned_lines": 78
     },
     {
-      "package": "internal/server",
-      "banned_lines": 128
-    },
-    {
       "package": "internal/server/middleware",
       "banned_lines": 315
-    },
-    {
-      "package": "internal/subscriptions",
-      "banned_lines": 163
     },
     {
       "package": "internal/subscriptions/entitlement",
@@ -186,40 +146,12 @@
       "banned_lines": 3422
     },
     {
-      "package": "internal/translate/toolcheck",
-      "banned_lines": 170
-    },
-    {
       "package": "internal/usage",
       "banned_lines": 32
     },
     {
       "package": "internal/websearch",
       "banned_lines": 78
-    },
-    {
-      "package": "scripts/arch_ratchet",
-      "banned_lines": 43
-    },
-    {
-      "package": "scripts/feedback_integration_check",
-      "banned_lines": 31
-    },
-    {
-      "package": "scripts/rotate_key_race_check",
-      "banned_lines": 31
-    },
-    {
-      "package": "scripts/rotate_key_race_ext_check",
-      "banned_lines": 53
-    },
-    {
-      "package": "scripts/session_pin_output_limit_check",
-      "banned_lines": 31
-    },
-    {
-      "package": "smoke/mitmproxy",
-      "banned_lines": 71
     }
   ]
 }
