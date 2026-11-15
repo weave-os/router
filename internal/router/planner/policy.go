@@ -77,7 +77,7 @@ type EVConfig struct {
 	ColdPinFollowFresh bool
 	// CorrectedEconomics prices the uncached tail at full rate, charges the
 	// cache-write premium on a switch, and counts output price. Off by default:
-	// it changes routing, so it is armed per environment.
+	// it changes routing, so it is armed per environment. See CLAUDE.md.
 	CorrectedEconomics bool
 }
 
