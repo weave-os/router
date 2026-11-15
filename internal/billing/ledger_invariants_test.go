@@ -78,11 +78,6 @@ func TestAutopayConfigReadFailureNeverFailsTheDebit(t *testing.T) {
 	assert.Empty(t, notifier.calls())
 }
 
-func TestPrepaidBalanceBlocksAtZero(t *testing.T) {
-	assert.Equal(t, int64(0), billing.MinBalanceMicros,
-		"prepaid semantics block new requests once the balance reaches zero and let in-flight debits settle below it")
-}
-
 func TestDelegatedSpendCheckFailsWithoutAReader(t *testing.T) {
 	_, _, err := billing.NewService(&fakeRepo{}).CheckDelegatedSpend(context.Background(), "key", "session", "task")
 	assert.ErrorIs(t, err, billing.ErrDelegatedSpendUnavailable)

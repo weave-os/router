@@ -21,7 +21,8 @@ with no registered book fails closed with `ErrOwnerKindUnsupported`, meaning
 
 - A balance at or below `MinBalanceMicros` (zero) blocks new requests with 402;
   debits already in flight still settle below it, matching provider prepaid
-  semantics.
+  semantics
+  (`TestWithBalanceCheck_ProductionThresholdBlocksAtZeroAndAdmitsOneMicro`).
 - A missing balance row (`ErrBalanceRowMissing`) gets the same 402 as a depleted
   balance, with a distinct operator log line; the organization needs a backfill.
 - Spend caps (API key lifetime, delegated session/task, engineer and organization
