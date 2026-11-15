@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -110,4 +111,32 @@ func TestSubscriptionOnlyUnavailableNamesTheSpentAllowanceWindow(t *testing.T) {
 	assert.Equal(t, DispatchErrorSpendCapReached, cls.Kind)
 	assert.Contains(t, cls.Message, "spend cap")
 	assert.NotContains(t, cls.Message, topUpURL)
+}
+
+func spendCapOnCustomerKey() context.Context {
+	ctx := billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlySpendCapReached)
+	return context.WithValue(ctx, CredentialsContextKey{}, &Credentials{APIKey: []byte("synthetic-key"), Source: credSourceBYOK})
+}
+
+func TestSpendCapKeyWarningShowsOncePerConversation(t *testing.T) {
+	const model = "claude-haiku-4-5"
+	fresh := withSubscriptionOnlyWarningEcho(spendCapOnCustomerKey(), []byte(`{"messages":[{"role":"user","content":"hi"}]}`))
+	assert.Equal(t, subscriptionSpendCapKeyWarningMarker, routerNoticeForRequest(fresh, http.Header{}, subscriptions.ProviderClaude, model, "").Text)
+
+	shownBody := []byte(`{"messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"text","text":` +
+		jsonString(subscriptionSpendCapKeyWarningMarker+"hello") + `}]},{"role":"user","content":"again"}]}`)
+	shown := withSubscriptionOnlyWarningEcho(spendCapOnCustomerKey(), shownBody)
+	assert.Empty(t, routerNoticeForRequest(shown, http.Header{}, subscriptions.ProviderClaude, model, "").Text,
+		"a key warning the conversation already shows must not repeat")
+}
+
+func TestSpendCapWarningNamesTheLinkedPlanItWillLease(t *testing.T) {
+	ctx := context.WithValue(spendCapOnCustomerKey(), ManagedSubscriptionProvidersContextKey{},
+		map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProvider(subscriptions.ProviderClaude): {}})
+	assert.Equal(t, subscriptionSpendCapWarningMarker,
+		routerNoticeForRequest(ctx, http.Header{}, subscriptions.ProviderClaude, "claude-haiku-4-5", "").Text,
+		"a plan_first key yields to the linked plan the dispatcher leases")
+	assert.Equal(t, subscriptionSpendCapKeyWarningMarker,
+		routerNoticeForRequest(ctx, http.Header{}, subscriptions.ProviderClaude, "gpt-5.6-sol", "").Text,
+		"the linked Claude plan cannot serve another provider's model")
 }

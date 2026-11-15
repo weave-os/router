@@ -170,7 +170,15 @@ same model or a scored sibling) is admitted while the mark is live. The mark is
 not quota evidence and is never persisted to the account. Model compatibility is
 catalog-based; an unrelated provider's available subscription does not block an
 API-only model. Rescue eligibility never overrides the final paid-credential
-funding guard: depleted credits and spend caps still prohibit paid dispatch.
+funding guard: depleted credits and spend caps still prohibit Weave-funded
+dispatch.
+
+A turn whose credits are depleted or whose spend cap is reached still serves on
+every customer-funded option before the 402: the caller's own plan, and the
+customer's usable connected provider key in its funding-priority order
+(`key_first` before the plan, `plan_first` once the plan is observed exhausted).
+Weave's deployment keys never fund it, and a failed key attempt is not rescued
+on them.
 
 Quota-verification failures are not inference-capacity failures. Preflight
 timeouts, quota-endpoint errors, and unverifiable responses retain a shared typed

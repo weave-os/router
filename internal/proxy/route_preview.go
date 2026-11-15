@@ -80,7 +80,7 @@ func (s *Service) anthropicRoutingRequest(
 
 	enabledProviders := s.enabledProvidersForRequest(ctx, providers.ProviderAnthropic, headers)
 	if paidFallbackForbidden(ctx) {
-		enabledProviders = restrictToSubscriptionProviders(ctx, headers, enabledProviders)
+		enabledProviders = restrictToFundedProviders(ctx, headers, enabledProviders)
 	}
 	outputReserve := contextWindowOutputReserve
 	if features.MaxTokens > outputReserve {
