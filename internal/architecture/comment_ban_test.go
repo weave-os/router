@@ -20,9 +20,9 @@ const commentBanFixturePackage = "testdata/comment_ban"
 var skippedSourceDirectories = map[string]bool{"node_modules": true, "vendor": true, "testdata": true}
 
 type bannedComment struct {
-	File  string
-	Line  int
-	Lines int
+	File      string
+	Line      int
+	LineCount int
 }
 
 func TestProductionGoHasNoComments(t *testing.T) {
@@ -67,23 +67,24 @@ func TestCommentBanKeepsOnlyToolAndSuppressionComments(t *testing.T) {
 
 	assert.Equal(t, map[string][]bannedComment{
 		"internal/architecture/testdata/comment_ban/banned": {
-			{File: file, Line: 1, Lines: 1},
-			{File: file, Line: 4, Lines: 2},
-			{File: file, Line: 9, Lines: 1},
-			{File: file, Line: 10, Lines: 1},
-			{File: file, Line: 11, Lines: 1},
-			{File: file, Line: 14, Lines: 1},
-			{File: file, Line: 15, Lines: 1},
-			{File: file, Line: 21, Lines: 1},
-			{File: file, Line: 24, Lines: 1},
-			{File: file, Line: 27, Lines: 1},
+			{File: file, Line: 1, LineCount: 1},
+			{File: file, Line: 4, LineCount: 2},
+			{File: file, Line: 9, LineCount: 1},
+			{File: file, Line: 10, LineCount: 1},
+			{File: file, Line: 11, LineCount: 1},
+			{File: file, Line: 14, LineCount: 1},
+			{File: file, Line: 15, LineCount: 1},
+			{File: file, Line: 21, LineCount: 1},
+			{File: file, Line: 24, LineCount: 1},
+			{File: file, Line: 27, LineCount: 1},
+			{File: file, Line: 30, LineCount: 1},
 		},
 	}, found)
 }
 
 func TestCommentBanAllowlistOnlyShrinks(t *testing.T) {
 	debt := commentban.PackageDebt{Package: "internal/example", BannedLines: 10}
-	comment := bannedComment{File: "internal/example/example.go", Line: 3, Lines: 1}
+	comment := bannedComment{File: "internal/example/example.go", Line: 3, LineCount: 1}
 
 	assert.Empty(t, allowlistedPackageFailure(debt, 10))
 	assert.Equal(t, []string{"internal/example has 11 banned comment lines but its budget in internal/architecture/comment_ban_allowlist.json is 10: new comments are banned in packages awaiting migration too; " + commentban.Fix}, allowlistedPackageFailure(debt, 11))
@@ -154,7 +155,7 @@ func bannedCommentsInFile(path, relative string) ([]bannedComment, error) {
 	}
 	banned := make([]bannedComment, len(comments))
 	for index, comment := range comments {
-		banned[index] = bannedComment{File: relative, Line: comment.Line, Lines: comment.Lines}
+		banned[index] = bannedComment{File: relative, Line: comment.Line, LineCount: comment.LineCount}
 	}
 	return banned, nil
 }
@@ -162,7 +163,7 @@ func bannedCommentsInFile(path, relative string) ([]bannedComment, error) {
 func bannedLineCount(comments []bannedComment) int {
 	lines := 0
 	for _, comment := range comments {
-		lines += comment.Lines
+		lines += comment.LineCount
 	}
 	return lines
 }

@@ -25,3 +25,7 @@ func trailing() int {
 var insecure = true
 
 // SPDX-License-Identifier: Apache-2.0
+
+// Deprecated: use Exported.
+/* block prose after a marker is banned */
+var legacy = 1

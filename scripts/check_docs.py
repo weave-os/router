@@ -185,6 +185,8 @@ def main() -> int:
         )
     except (OSError, subprocess.CalledProcessError, UnicodeError, ValueError) as error:
         print(f"documentation check failed: {error}", file=sys.stderr)
+        if isinstance(error, subprocess.CalledProcessError) and error.stderr:
+            print(error.stderr.rstrip(), file=sys.stderr)
         return 1
 
     if errors:

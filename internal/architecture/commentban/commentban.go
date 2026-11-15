@@ -21,9 +21,9 @@ const (
 var allowedDirectivePrefixes = []string{"//go:", "//line ", "//export ", "//extern "}
 
 type Comment struct {
-	Line  int
-	Lines int
-	Text  string
+	Line      int
+	LineCount int
+	Text      string
 }
 
 type Allowlist struct {
@@ -66,32 +66,24 @@ func InSource(filename string, source []byte) ([]Comment, error) {
 		inDeprecatedParagraph := false
 		for _, comment := range group.List {
 			inDeprecatedParagraph = continuesDeprecatedParagraph(comment.Text, inDeprecatedParagraph)
-			if inDeprecatedParagraph || allowed(comment.Text) {
+			if inDeprecatedParagraph || isAllowedComment(comment.Text) {
 				continue
 			}
 			start, end := fileSet.Position(comment.Pos()), fileSet.Position(comment.End())
-			banned = append(banned, Comment{Line: start.Line, Lines: end.Line - start.Line + 1, Text: comment.Text})
+			banned = append(banned, Comment{Line: start.Line, LineCount: end.Line - start.Line + 1, Text: comment.Text})
 		}
 	}
 	return banned, nil
-}
-
-func LineCount(comments []Comment) int {
-	lines := 0
-	for _, comment := range comments {
-		lines += comment.Lines
-	}
-	return lines
 }
 
 func continuesDeprecatedParagraph(text string, inParagraph bool) bool {
 	if strings.HasPrefix(text, deprecatedParagraphPrefix) {
 		return true
 	}
-	return inParagraph && strings.TrimSpace(text) != "//"
+	return inParagraph && strings.HasPrefix(text, "//") && strings.TrimSpace(text) != "//"
 }
 
-func allowed(text string) bool {
+func isAllowedComment(text string) bool {
 	for _, prefix := range allowedDirectivePrefixes {
 		if strings.HasPrefix(text, prefix) {
 			return true

@@ -31,7 +31,11 @@ func run(ctx context.Context, r repo, base string) (runResult, error) {
 	if err != nil {
 		return runResult{}, err
 	}
-	commentViolations, err := compareCommentBan(ctx, r, baseRev, baseSources, headSources)
+	commentViolations, err := compareComments(baseSources, headSources)
+	if err != nil {
+		return runResult{}, err
+	}
+	budgetViolations, err := compareCommentBudgets(ctx, r, baseRev)
 	if err != nil {
 		return runResult{}, err
 	}
@@ -43,6 +47,7 @@ func run(ctx context.Context, r repo, base string) (runResult, error) {
 	violations = append(violations, compareFiles(baseFiles, headFiles, allowed)...)
 	violations = append(violations, compareTotals(baseFiles, headFiles, allowed)...)
 	violations = append(violations, commentViolations...)
+	violations = append(violations, budgetViolations...)
 	if slices.ContainsFunc(changed, func(p string) bool { return path.Dir(p) == proxyDir }) {
 		surfaceViolations, err := compareProxySurface(ctx, r, baseRev, allowed)
 		if err != nil {
@@ -72,15 +77,6 @@ func measureBothSides(baseSources, headSources map[string][]byte) (map[string]fi
 	}
 	headFiles, err := measureFiles(headSources)
 	return baseFiles, headFiles, err
-}
-
-func compareCommentBan(ctx context.Context, r repo, baseRev string, baseSources, headSources map[string][]byte) ([]violation, error) {
-	violations, err := compareComments(baseSources, headSources)
-	if err != nil {
-		return nil, err
-	}
-	budgetViolations, err := compareCommentBudgets(ctx, r, baseRev)
-	return append(violations, budgetViolations...), err
 }
 
 func compareProxySurface(ctx context.Context, r repo, baseRev string, allowed exceptionSet) ([]violation, error) {
