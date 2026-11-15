@@ -26,8 +26,10 @@ with no registered book fails closed with `ErrOwnerKindUnsupported`, meaning
 - A missing balance row (`ErrBalanceRowMissing`) gets the same 402 as a depleted
   balance, with a distinct operator log line; the organization needs a backfill.
 - Spend caps (API key lifetime, delegated session/task, engineer and organization
-  UTC-month) are read fresh from storage, bypassing the auth cache, so
-  concurrent or cached callers cannot overrun them. A read failure fails closed
+  UTC-month) are read fresh from storage, bypassing the auth cache, so a cap is
+  never judged against a stale cached spend. They are preflight checks, not a
+  hard guarantee: spend is recorded after the turn serves, so requests already in
+  flight when a cap is nearly reached can together exceed it. A read failure fails closed
   with 503 (`ErrSpendLimitCheckUnavailable`); a key deleted mid-request has no cap
   to enforce.
 
