@@ -66,3 +66,11 @@ func TestInjectModelAndStream(t *testing.T) {
 	assert.Contains(t, string(out), `"model":"gemini-1.5-pro"`)
 	assert.Contains(t, string(out), `"stream":true`)
 }
+
+func TestInjectModelAndStreamRejectsBodiesThatAreNotAJSONObject(t *testing.T) {
+	const model = "gemini-2.5-flash"
+	for _, body := range []string{`{"contents":`, `[]`, `"contents"`, ``} {
+		_, err := injectModelAndStream([]byte(body), model, false)
+		assert.Error(t, err, "body %q", body)
+	}
+}
