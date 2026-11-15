@@ -725,3 +725,19 @@ func TestDebitForInference_UnfundedTurnChargesNoByokFee(t *testing.T) {
 		})
 	}
 }
+
+func TestWithUnfunded_ByokFeeUnpayableOnlyWhenAFeeIsCharged(t *testing.T) {
+	for _, reason := range []billing.SubscriptionOnlyReason{billing.SubscriptionOnlyCreditsDepleted, billing.SubscriptionOnlySpendCapReached} {
+		t.Run(string(reason), func(t *testing.T) {
+			free := billing.NewService(&fakeRepo{}).WithUnfunded(context.Background(), reason)
+			got, ok := billing.SubscriptionOnlyReasonFromContext(free)
+			require.True(t, ok)
+			assert.Equal(t, reason, got)
+			assert.False(t, billing.ByokFeeUnpayable(free), "with no fee the customer's key still serves the turn")
+
+			charged := billing.NewService(&fakeRepo{}).WithByokFeeRate(0.05).WithUnfunded(context.Background(), reason)
+			assert.True(t, billing.ByokFeeUnpayable(charged), "an unfunded organization cannot pay a BYOK fee")
+		})
+	}
+	assert.False(t, billing.ByokFeeUnpayable(context.Background()), "a funded turn pays its fee as usual")
+}
