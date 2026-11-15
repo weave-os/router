@@ -14,6 +14,10 @@ import (
 // unwrapped into a Codex custom tool input.
 var ErrCustomToolArguments = errors.New("decode custom tool arguments")
 
+// ErrToolCallTruncated marks a tool call the output token limit cut off
+// before its arguments completed. It wraps ErrCustomToolArguments.
+var ErrToolCallTruncated = errors.New("tool call cut off by the output token limit")
+
 // ResponsesToolMapping describes one Responses tool after it has been
 // projected into a flat Chat Completions function. Alias is the synthetic Chat
 // function name. Name and Namespace are restored on the way back to Codex;
@@ -71,4 +75,15 @@ func argumentKeyNames(wrapper map[string]json.RawMessage) []string {
 		names = append(names, key)
 	}
 	return names
+}
+
+// truncationAwareCustomToolInput attributes an unwrap failure on a
+// length-finished turn to truncation: Anthropic sends no argument deltas for a
+// tool_use block that max_tokens cuts off, leaving only its "{}" placeholder.
+func truncationAwareCustomToolInput(arguments, finishReason string) (string, error) {
+	input, err := customToolInput(arguments)
+	if err != nil && finishReason == "length" {
+		return "", fmt.Errorf("%w: %w", ErrToolCallTruncated, err)
+	}
+	return input, err
 }

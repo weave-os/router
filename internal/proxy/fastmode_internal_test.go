@@ -221,19 +221,39 @@ func TestProxyMessages_FastModeQuotaRejectionRetriesAtStandardSpeedAndBillsListP
 	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD), "a turn served at standard speed bills at list price")
 }
 
-func TestProxyOpenAIChatCompletion_FastModeQuotaRejectionRetriesAtStandardSpeed(t *testing.T) {
-	upstream := &fastQuotaFakeProvider{respBody: `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"hi"}],"model":"claude-opus-5","stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5}}`}
-	svc, _ := newFastModeService(router.Decision{Provider: providers.ProviderAnthropic, Model: fastOpusModel}, upstream)
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
-	body := []byte(`{"model":"claude-opus-5","messages":[{"role":"user","content":"hi"}]}`)
-	require.NoError(t, svc.ProxyOpenAIChatCompletion(fastModeCtx(fastOpusModel), body, rec, req))
-
-	require.Len(t, upstream.bodies, 2)
-	assert.Equal(t, "fast", gjson.GetBytes(upstream.bodies[0], "speed").Str)
-	assert.False(t, gjson.GetBytes(upstream.bodies[1], "speed").Exists())
-	assert.Equal(t, http.StatusOK, rec.Code)
+func TestOpenAIFormats_FastModeQuotaRejectionRetriesAtStandardSpeed(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		format translate.Format
+	}{
+		{name: "chat", format: translate.FormatOpenAI},
+		{name: "responses", format: translate.FormatOpenAIResponses},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			upstream := &fastQuotaFakeProvider{respBody: `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"hi"}],"model":"claude-opus-5","stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5}}`}
+			svc, _ := newFastModeService(router.Decision{Provider: providers.ProviderAnthropic, Model: fastOpusModel}, upstream)
+			rec := httptest.NewRecorder()
+			body := []byte(`{"model":"claude-opus-5","messages":[{"role":"user","content":"hi"}]}`)
+			var err error
+			if tc.format == translate.FormatOpenAIResponses {
+				body = []byte(`{"model":"auto","input":"hi"}`)
+				err = svc.ProxyOpenAIResponses(fastModeCtx(fastOpusModel), body, rec, httptest.NewRequest(http.MethodPost, routePathResponses, strings.NewReader("")))
+			} else {
+				err = svc.ProxyOpenAIChatCompletion(fastModeCtx(fastOpusModel), body, rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("")))
+			}
+			require.NoError(t, err)
+			require.Len(t, upstream.bodies, 2)
+			assert.Equal(t, "fast", gjson.GetBytes(upstream.bodies[0], "speed").Str)
+			assert.False(t, gjson.GetBytes(upstream.bodies[1], "speed").Exists())
+			assert.Equal(t, http.StatusOK, rec.Code)
+			if tc.format == translate.FormatOpenAIResponses {
+				assert.Equal(t, "completed", gjson.Get(rec.Body.String(), "status").Str)
+				assert.False(t, gjson.Get(rec.Body.String(), "choices").Exists())
+			} else {
+				assert.Equal(t, "hi", gjson.Get(rec.Body.String(), "choices.0.message.content").Str)
+			}
+		})
+	}
 }
 
 // An ordinary 429 on a fast send is not a quota rejection: the failover loop
