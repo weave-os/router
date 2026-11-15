@@ -1,4 +1,4 @@
-package proxy
+package ingress_test
 
 import (
 	"testing"
@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/translate"
 )
 
@@ -17,15 +18,15 @@ func TestNativeOnlyReasons_NamesPreservedTransforms(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, conversion.Requirements.NativeOnly)
 
-	assert.Equal(t, []string{"responses_unknown_tool_native_only@tools.1:image_generation"}, nativeOnlyReasons(conversion.Report, body))
+	assert.Equal(t, []string{"responses_unknown_tool_native_only@tools.1:image_generation"}, ingress.NativeOnlyReasons(conversion.Report, body))
 }
 
 func TestNativeOnlyReasons_Bounded(t *testing.T) {
-	report := make([]translate.ResponseTransform, nativeOnlyReasonLimit+3)
+	report := make([]translate.ResponseTransform, ingress.NativeOnlyReasonLimit+3)
 	for i := range report {
 		report[i] = translate.ResponseTransform{Code: "responses_unknown_tool_native_only", Action: "preserved", Path: "tools"}
 	}
 	report = append(report, translate.ResponseTransform{Code: "responses_developer_message_projected", Action: "projected", Path: "input.0.role"})
 
-	assert.Len(t, nativeOnlyReasons(report, nil), nativeOnlyReasonLimit)
+	assert.Len(t, ingress.NativeOnlyReasons(report, nil), ingress.NativeOnlyReasonLimit)
 }

@@ -23,6 +23,7 @@ import (
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
@@ -292,9 +293,8 @@ type Service struct {
 	// 529 circuit registry. See ResolveProviderOverloaded.
 	providerOverloaded bool
 	overloadBreaker    *breaker.Registry
-	// sseKeepalive is the client-silence budget before a ping is injected
-	// (ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS; 0 disables). See sse.KeepaliveWriter.
-	sseKeepalive time.Duration
+	// ingress holds the client wire-format adapters and the keepalive budget.
+	ingress ingress.Formats
 	// cyberRefusalFallbackModel is the model to re-pin to on a cyber refusal
 	// when the session pin carries no runner-up (PairedModel). Set from
 	// ROUTER_CYBER_REFUSAL_FALLBACK_MODEL; defaults to claude-sonnet-5.
@@ -1643,6 +1643,7 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		clients:                      dispatch.NewClients(providerMap),
 		translationCompatibilityMode: TranslationCompatibilityShadow,
 		emitter:                      emitter,
+		ingress:                      ingress.New(0),
 		pinStore:                     pinStore,
 		noProgress:                   newNoProgressTracker(),
 		searchUse:                    newSearchUseTracker(),
@@ -1928,13 +1929,6 @@ func (s *Service) WithNativeOpenAIResponseSignals(enabled bool) *Service {
 // x-weave-allowed-models header (ROUTER_ALLOWED_MODELS_HEADER).
 func (s *Service) WithAllowedModelsHeader(enabled bool) *Service {
 	s.allowedModelsHeader = enabled
-	return s
-}
-
-// WithSSEKeepalive sets the client-facing silence budget before a `ping` is
-// injected into a committed Anthropic stream. Non-positive disables it.
-func (s *Service) WithSSEKeepalive(interval time.Duration) *Service {
-	s.sseKeepalive = interval
 	return s
 }
 
@@ -4129,8 +4123,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		clientSink = streamCost
 		// Innermost wrap: arms only once preludeBuffer commits, so a keepalive
 		// can never strand a response the router still wants to retry.
-		if s.sseKeepalive > 0 {
-			keepalive := sse.NewKeepaliveWriter(clientSink, anthropicPingFrame, s.sseKeepalive)
+		if s.ingress.Keepalive > 0 {
+			keepalive := sse.NewKeepaliveWriter(clientSink, anthropicPingFrame, s.ingress.Keepalive)
 			defer keepalive.Close()
 			clientSink = keepalive
 		}
@@ -7379,7 +7373,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				var toolNames *translate.ToolNameWriter
 				// A native attempt has no translator, so its terminal Responses event
 				// is the only source for the turn's finish reason.
-				var nativeTerminal *responsesTerminalObserver
+				var nativeTerminal *ingress.ResponsesTerminalObserver
 				switch {
 				case surface == surfaceResponsesTranslated:
 					var usage translate.UsageSink
@@ -7402,7 +7396,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					toolNames = translate.NewOpenAIToolNameWriter(translator, prep.ResponseToolNames)
 					proxyWriter = toolNames
 				case surface == surfaceResponsesNative:
-					nativeTerminal = newResponsesTerminalObserver(attemptSink)
+					nativeTerminal = ingress.NewResponsesTerminalObserver(attemptSink)
 					proxyWriter = nativeTerminal
 					if s.usageRequired() {
 						extractor, proxyWriter = s.newUsageExtractor(nativeTerminal, d.Provider)
@@ -7424,7 +7418,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					preludeBuf.Seal()
 				}
 				err := p.Proxy(actx, d, prep, proxyWriter, r)
-				if nativeTerminal != nil && nativeTerminal.observed && errors.Is(err, context.Canceled) {
+				if nativeTerminal != nil && nativeTerminal.Observed() && errors.Is(err, context.Canceled) {
 					err = nil
 				}
 				if seedToolCalls != nil {
@@ -7462,21 +7456,21 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					// A post-commit verdict is rendered as response.failed by the
 					// Responses ingress, which owns the native stream's terminal.
 					if err == nil && env.Stream() {
-						err = nativeTerminal.state.err()
+						err = nativeTerminal.Err()
 					}
 					if isStreamTerminalMissing(err) {
 						// Releasing a withheld preamble would commit the client to a
 						// response that never finishes, ruling out the retry.
 						refusalGate.Abandon()
 					}
-					if nativeTerminal.observed && nativeTerminal.signals.OutputLimitReached {
+					if nativeTerminal.Observed() && nativeTerminal.Signals().OutputLimitReached {
 						extractor.RecordOutputLimitReached()
 					}
-					respSummary = translate.ResponseSummary{UpstreamFinishReason: nativeTerminal.signals.FinishReason}
+					respSummary = translate.ResponseSummary{UpstreamFinishReason: nativeTerminal.Signals().FinishReason}
 					nativeRespSummary = false
-					if nativeTerminal.observed && s.ResolveNativeOpenAIResponseSignals(actx) {
-						respSummary.StopReason = nativeTerminal.signals.FinishReason
-						respSummary.ToolUseBlocks = nativeTerminal.signals.ToolCalls
+					if nativeTerminal.Observed() && s.ResolveNativeOpenAIResponseSignals(actx) {
+						respSummary.StopReason = nativeTerminal.Signals().FinishReason
+						respSummary.ToolUseBlocks = nativeTerminal.Signals().ToolCalls
 						nativeRespSummary = true
 					}
 				}
@@ -8520,7 +8514,7 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	}
 	if conversion.Requirements.NativeOnly {
 		observability.FromContext(ctx).Info("Responses request restricted to its native wire family",
-			"native_only_reasons", nativeOnlyReasons(conversion.Report, conversionBody))
+			"native_only_reasons", ingress.NativeOnlyReasons(conversion.Report, conversionBody))
 	}
 	if portableCodex && codexModelSwitched(r.Header, conversion) {
 		ctx = withCodexSelectedModel(ctx, model, nativeBody)

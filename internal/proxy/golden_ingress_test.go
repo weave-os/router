@@ -18,6 +18,7 @@ import (
 	geminiapi "weave-os/router/internal/api/gemini"
 	openaiapi "weave-os/router/internal/api/openai"
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -191,7 +192,7 @@ func goldenAnthropicToolStream() []string {
 
 // withSlowKeepalive enables keepalive pings well inside a paused stream.
 func withSlowKeepalive(svc *proxy.Service, _ *goldenHarness) *proxy.Service {
-	return svc.WithSSEKeepalive(5 * time.Millisecond)
+	return svc.WithIngress(ingress.New(5 * time.Millisecond))
 }
 
 func goldenSlow(step goldenStep) goldenStep {
