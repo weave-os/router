@@ -82,10 +82,6 @@
       "banned_lines": 352
     },
     {
-      "package": "internal/providers/anthropic",
-      "banned_lines": 146
-    },
-    {
       "package": "internal/providers/cortexagents",
       "banned_lines": 49
     },
@@ -96,14 +92,6 @@
     {
       "package": "internal/providers/httputil",
       "banned_lines": 214
-    },
-    {
-      "package": "internal/providers/openai",
-      "banned_lines": 136
-    },
-    {
-      "package": "internal/providers/openaicompat",
-      "banned_lines": 115
     },
     {
       "package": "internal/proxy",

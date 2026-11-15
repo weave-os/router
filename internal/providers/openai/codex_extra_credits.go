@@ -21,8 +21,6 @@ func codexIncludedLimitReached(err error) bool {
 	return errors.As(err, &upstream) && upstream.Status == http.StatusTooManyRequests
 }
 
-// Credit metadata is read only after the operator opts in. Missing or invalid
-// quota data and provider spend controls never become permission to spend.
 func codexCreditAdmissionReason(raw, spend, reached json.RawMessage) string {
 	var credits struct {
 		HasCredits *bool   `json:"has_credits"`
@@ -36,8 +34,6 @@ func codexCreditAdmissionReason(raw, spend, reached json.RawMessage) string {
 		if credits.HasCredits == nil || !*credits.HasCredits {
 			return "credits_not_available"
 		}
-		// Subscription OAuth responses may explicitly report available credits
-		// while hiding the numeric balance.
 		if credits.Balance != nil && !positiveCreditBalance(*credits.Balance) {
 			return "credits_balance_not_positive"
 		}
