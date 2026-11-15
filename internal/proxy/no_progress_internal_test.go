@@ -498,6 +498,33 @@ func TestCompactionTracker_NoFalsePositiveWhenBothGrow(t *testing.T) {
 	assert.False(t, ct.checkAndRecord(key, install, "high", 14, 6), "flat toolCallCount (no new tool call) must not fire")
 }
 
+func TestCompactionTracker_NoFalsePositiveWhenUserTypesPrompt(t *testing.T) {
+	// A typed user prompt resets the loop-detector tool-call window to zero
+	// while the history only grows; that is not a trim and must not fire.
+	ct := newCompactionTracker()
+	key := sessionKeyFromString("session-typed-prompt")
+	install := uuid.New()
+
+	toolRounds := `{"role":"user","content":"fix the bug"}`
+	for i := range 4 {
+		id := "toolu_" + strconv.Itoa(i)
+		toolRounds += `,{"role":"assistant","content":[{"type":"tool_use","id":"` + id + `","name":"Read","input":{"path":"f` + strconv.Itoa(i) + `.go"}}]}` +
+			`,{"role":"user","content":[{"type":"tool_result","tool_use_id":"` + id + `","content":"ok"}]}`
+	}
+	record := func(messages string) bool {
+		env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-4-8","messages":[` + messages + `]}`))
+		require.NoError(t, err)
+		return ct.checkAndRecord(key, install, "high",
+			env.RoutingFeatures(false).MessageCount, len(env.AssistantToolCallSignatures()))
+	}
+
+	require.False(t, record(toolRounds))
+	assert.False(t, record(toolRounds+
+		`,{"role":"assistant","content":[{"type":"text","text":"done"}]}`+
+		`,{"role":"user","content":"now add tests"}`),
+		"history extended by a typed user prompt must not be reported as a trim")
+}
+
 func TestCompactionTracker_NilReceiverIsNoOp(t *testing.T) {
 	var ct *compactionTracker
 	key := sessionKeyFromString("session-nil")
