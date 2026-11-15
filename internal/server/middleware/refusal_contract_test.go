@@ -100,18 +100,22 @@ func runMalformedPolicyPin(t *testing.T, path string) *httptest.ResponseRecorder
 
 // TestRefusalContract pins the observable result of every middleware refusal
 // site: status, error code, the body shape it travels in and the retry headers.
-func TestRefusalContract(t *testing.T) {
-	billingDown := errors.New("billing down")
-	scenarios := []struct {
-		name       string
-		run        func(t *testing.T) *httptest.ResponseRecorder
-		status     int
-		body       string
-		retryAfter string
-	}{
+var errRefusalBillingDown = errors.New("billing down")
+
+type refusalScenario struct {
+	name       string
+	run        func(t *testing.T) *httptest.ResponseRecorder
+	status     int
+	body       string
+	retryAfter string
+}
+
+func authAndBalanceRefusals() []refusalScenario {
+	return []refusalScenario{
 		{
 			name: "auth invalid key",
 			run: func(t *testing.T) *httptest.ResponseRecorder {
+				t.Helper()
 				return runAuthWithRepo(t, &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}}, "rk_no_such_key")
 			},
 			status: http.StatusUnauthorized,
@@ -120,6 +124,7 @@ func TestRefusalContract(t *testing.T) {
 		{
 			name: "auth unavailable",
 			run: func(t *testing.T) *httptest.ResponseRecorder {
+				t.Helper()
 				const token = "rk_valid_but_db_is_down"
 				hash, _, _ := auth.APITokenFingerprint(token)
 				return runAuthWithRepo(t, &fakeAPIKeyRepository{
@@ -134,6 +139,7 @@ func TestRefusalContract(t *testing.T) {
 		{
 			name: "balance depleted",
 			run: func(t *testing.T) *httptest.ResponseRecorder {
+				t.Helper()
 				rr, _ := runMiddleware(t, &stubBillingRepo{balance: 0}, 0)
 				return rr
 			},
@@ -143,7 +149,8 @@ func TestRefusalContract(t *testing.T) {
 		{
 			name: "balance read failure",
 			run: func(t *testing.T) *httptest.ResponseRecorder {
-				rr, _ := runMiddleware(t, &stubBillingRepo{balanceErr: billingDown}, 0)
+				t.Helper()
+				rr, _ := runMiddleware(t, &stubBillingRepo{balanceErr: errRefusalBillingDown}, 0)
 				return rr
 			},
 			status: http.StatusServiceUnavailable,
@@ -152,6 +159,7 @@ func TestRefusalContract(t *testing.T) {
 		{
 			name: "internal test budget depleted",
 			run: func(t *testing.T) *httptest.ResponseRecorder {
+				t.Helper()
 				return runTestBudgetCheck(t, stubTestBudgetBook{balance: 0})
 			},
 			status: http.StatusPaymentRequired,
@@ -160,14 +168,21 @@ func TestRefusalContract(t *testing.T) {
 		{
 			name: "internal test budget read failure",
 			run: func(t *testing.T) *httptest.ResponseRecorder {
-				return runTestBudgetCheck(t, stubTestBudgetBook{err: billingDown})
+				t.Helper()
+				return runTestBudgetCheck(t, stubTestBudgetBook{err: errRefusalBillingDown})
 			},
 			status: http.StatusServiceUnavailable,
 			body:   `{"error":"test_budget_unavailable"}`,
 		},
+	}
+}
+
+func capAndSubscriberRefusals() []refusalScenario {
+	return []refusalScenario{
 		{
 			name: "api key spend cap reached",
 			run: func(t *testing.T) *httptest.ResponseRecorder {
+				t.Helper()
 				rr, _ := runSpendCap(t, "key-1", &stubBillingRepo{spendMicros: 10, capMicros: capPtr(10), spendFound: true})
 				return rr
 			},
@@ -177,7 +192,8 @@ func TestRefusalContract(t *testing.T) {
 		{
 			name: "api key spend cap read failure",
 			run: func(t *testing.T) *httptest.ResponseRecorder {
-				rr, _ := runSpendCap(t, "key-1", &stubBillingRepo{spendErr: billingDown})
+				t.Helper()
+				rr, _ := runSpendCap(t, "key-1", &stubBillingRepo{spendErr: errRefusalBillingDown})
 				return rr
 			},
 			status: http.StatusServiceUnavailable,
@@ -186,6 +202,7 @@ func TestRefusalContract(t *testing.T) {
 		{
 			name: "org monthly spend limit reached",
 			run: func(t *testing.T) *httptest.ResponseRecorder {
+				t.Helper()
 				rr, _ := runOrgMonthlyCap(t, "org_x", &stubBillingRepo{orgMonthSpent: 10, orgMonthLimit: capPtr(10)})
 				return rr
 			},
@@ -195,7 +212,8 @@ func TestRefusalContract(t *testing.T) {
 		{
 			name: "org monthly spend limit read failure",
 			run: func(t *testing.T) *httptest.ResponseRecorder {
-				rr, _ := runOrgMonthlyCap(t, "org_x", &stubBillingRepo{orgMonthErr: billingDown})
+				t.Helper()
+				rr, _ := runOrgMonthlyCap(t, "org_x", &stubBillingRepo{orgMonthErr: errRefusalBillingDown})
 				return rr
 			},
 			status: http.StatusServiceUnavailable,
@@ -204,6 +222,7 @@ func TestRefusalContract(t *testing.T) {
 		{
 			name: "delegated spend cap reached",
 			run: func(t *testing.T) *httptest.ResponseRecorder {
+				t.Helper()
 				rr, _ := runDelegatedSpendCap(t, &stubDelegatedSpend{sessionSpent: 10}, &auth.DelegatedSession{IssuerKeyID: "issuer", SessionID: "s1", TaskID: "t1", SessionCapMicros: capPtr(10)})
 				return rr
 			},
@@ -212,7 +231,8 @@ func TestRefusalContract(t *testing.T) {
 		{
 			name: "delegated spend cap read failure",
 			run: func(t *testing.T) *httptest.ResponseRecorder {
-				rr, _ := runDelegatedSpendCap(t, &stubDelegatedSpend{err: billingDown}, &auth.DelegatedSession{IssuerKeyID: "issuer", SessionID: "s1", TaskID: "t1", SessionCapMicros: capPtr(10)})
+				t.Helper()
+				rr, _ := runDelegatedSpendCap(t, &stubDelegatedSpend{err: errRefusalBillingDown}, &auth.DelegatedSession{IssuerKeyID: "issuer", SessionID: "s1", TaskID: "t1", SessionCapMicros: capPtr(10)})
 				return rr
 			},
 			status: http.StatusServiceUnavailable,
@@ -221,7 +241,8 @@ func TestRefusalContract(t *testing.T) {
 		{
 			name: "subscriber product scope read failure",
 			run: func(t *testing.T) *httptest.ResponseRecorder {
-				return runSubscriberGate(t, middleware.WithSubscriberProductScope, &stubEntitlements{err: billingDown}, &stubAllowances{})
+				t.Helper()
+				return runSubscriberGate(t, middleware.WithSubscriberProductScope, &stubEntitlements{err: errRefusalBillingDown}, &stubAllowances{})
 			},
 			status: http.StatusServiceUnavailable,
 			body:   `{"error":"billing_unavailable","message":"Billing system is temporarily unavailable. Retry in a few moments."}`,
@@ -229,12 +250,17 @@ func TestRefusalContract(t *testing.T) {
 		{
 			name: "subscriber allowance read failure",
 			run: func(t *testing.T) *httptest.ResponseRecorder {
-				return runSubscriberGate(t, middleware.WithSubscriberAllowance, &stubEntitlements{err: billingDown}, &stubAllowances{})
+				t.Helper()
+				return runSubscriberGate(t, middleware.WithSubscriberAllowance, &stubEntitlements{err: errRefusalBillingDown}, &stubAllowances{})
 			},
 			status: http.StatusServiceUnavailable,
 			body:   `{"error":"billing_unavailable","message":"Billing system is temporarily unavailable. Retry in a few moments."}`,
 		},
 	}
+}
+
+func TestRefusalContract(t *testing.T) {
+	scenarios := append(authAndBalanceRefusals(), capAndSubscriberRefusals()...)
 	for _, scenario := range scenarios {
 		t.Run(scenario.name, func(t *testing.T) {
 			rr := scenario.run(t)
