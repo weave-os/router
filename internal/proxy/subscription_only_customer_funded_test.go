@@ -153,3 +153,14 @@ func TestSubscriptionOnly_LivePlan429RetriesOnCustomerKey(t *testing.T) {
 	assert.Equal(t, "subscription_context", trace.Attempts[0].Resolved.Label, "a plan_first key leaves the plan first")
 	requireServedOnBYOK(t, trace)
 }
+
+func TestSubscriptionOnly_LivePlan429RetriesOnCustomerKey_ChatIngress(t *testing.T) {
+	const rateLimited = `{"type":"error","error":{"type":"rate_limit_error","message":"limit"}}`
+	trace := serveCustomerFunded(t, credentialCase{
+		name: "chat_plan_429_byok", supplies: []string{goldenSubscription, goldenBYOKAnthropic}, ingress: ingressOpenAI,
+		decisions: []router.Decision{goldenAnthropicDecision},
+		upstreams: anthropicUp(goldenUpstreamError(429, rateLimited), goldenUpstreamError(429, rateLimited), goldenUpstreamError(429, rateLimited), anthropicOK(false, "ok")),
+		ctx:       chainCtx(goldenSubscriptionOnlyCtx, goldenSubscriptionCtx, withBYOK(byokKey(providers.ProviderAnthropic, goldenBYOKAnthropic, auth.FundingPriorityPlanFirst))),
+	})
+	requireServedOnBYOK(t, trace)
+}
