@@ -1,7 +1,10 @@
 package proxy
 
 import (
+	"context"
+
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
 )
 
@@ -24,6 +27,25 @@ type subscriptionFundingWarning struct {
 	reason      billing.SubscriptionOnlyReason
 	source      subscriptions.Provider
 	customerKey bool
+}
+
+// newSubscriptionFundingWarning names the warning for a turn on model. A
+// customer-key warning carries no source, so its echo matches on either ingress.
+func newSubscriptionFundingWarning(ctx context.Context, reason billing.SubscriptionOnlyReason, source subscriptions.Provider, model string) subscriptionFundingWarning {
+	if fundedByCustomerKey(ctx, model) {
+		return subscriptionFundingWarning{reason: reason, customerKey: true}
+	}
+	return subscriptionFundingWarning{reason: reason, source: source}
+}
+
+// fundedByCustomerKey reports whether the customer's own provider key, not a
+// linked plan the dispatcher would lease for model, funds the turn.
+func fundedByCustomerKey(ctx context.Context, model string) bool {
+	if !servedOnCustomerKey(ctx) {
+		return false
+	}
+	m, found := catalog.ByID(model)
+	return !found || !managedSubscriptionCanServe(ctx, m.PrimaryProvider(), model)
 }
 
 func (w subscriptionFundingWarning) text() string {

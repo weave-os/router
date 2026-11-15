@@ -329,7 +329,7 @@ const topUpURL = "https://app.weaveos.com/organization/settings/weave-router/cre
 func routerNoticeForRequest(ctx context.Context, headers http.Header, source subscriptions.Provider, model, marker string) translate.RouterNotice {
 	kind := translate.NoticeModelSelection
 	reason, _ := billing.SubscriptionOnlyReasonFromContext(ctx)
-	warning := subscriptionFundingWarning{reason: reason, source: source, customerKey: servedOnCustomerKey(ctx)}
+	warning := newSubscriptionFundingWarning(ctx, reason, source, model)
 	echoed, _ := ctx.Value(subscriptionOnlyWarningsEchoedContextKey{}).(map[subscriptionFundingWarning]bool)
 	if text := warning.text(); text != "" && !echoed[warning] {
 		kind = translate.NoticeFundingWarning
