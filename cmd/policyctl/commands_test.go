@@ -44,7 +44,7 @@ func TestRunCompileWritesCanonicalBytes(t *testing.T) {
 	sourcePath := filepath.Join(tempDir, "roster.json")
 	outputPath := filepath.Join(tempDir, "policy.json")
 	summaryPath := filepath.Join(tempDir, "summary.json")
-	require.NoError(t, os.WriteFile(sourcePath, source, 0o644))
+	require.NoError(t, os.WriteFile(sourcePath, source, 0o600))
 
 	summaryFile, err := os.Create(summaryPath)
 	require.NoError(t, err)

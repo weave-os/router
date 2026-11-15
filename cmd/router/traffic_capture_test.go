@@ -329,7 +329,7 @@ func TestTrafficCaptureRejectsSymlinkCapturePathWithoutChangingTarget(t *testing
 	temporaryDirectory := t.TempDir()
 	targetPath := filepath.Join(temporaryDirectory, "target.jsonl")
 	capturePath := filepath.Join(temporaryDirectory, "capture.jsonl")
-	if err := os.WriteFile(targetPath, []byte("preserve target"), 0o644); err != nil {
+	if err := os.WriteFile(targetPath, []byte("preserve target"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(targetPath, capturePath); err != nil {
@@ -350,7 +350,7 @@ func TestTrafficCaptureRejectsSymlinkCapturePathWithoutChangingTarget(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(targetContents) != "preserve target" || targetInfo.Mode().Perm() != 0o644 {
+	if string(targetContents) != "preserve target" || targetInfo.Mode().Perm() != 0o600 {
 		t.Fatalf("symlink target changed: contents=%q permissions=%o", targetContents, targetInfo.Mode().Perm())
 	}
 }

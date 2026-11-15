@@ -1,7 +1,7 @@
 package translate
 
 import (
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -1137,8 +1137,8 @@ func sanitizeAnthropicToolNamesBytes(body []byte) ([]byte, map[string]string, er
 }
 
 func sanitizedAnthropicToolName(name string) string {
-	nameHash := sha1.Sum([]byte(name))
-	return fmt.Sprintf("invalid_tool_%x", nameHash)
+	nameHash := sha256.Sum256([]byte(name))
+	return fmt.Sprintf("invalid_tool_%x", nameHash[:20])
 }
 
 func uniqueSanitizedAnthropicToolName(name string, reservedNames map[string]struct{}) string {

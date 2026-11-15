@@ -92,7 +92,7 @@ func checkHTTPRotateRace(ctx context.Context, race httpRotateRace) error {
 			<-start
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/admin/v1/keys/"+issued.ID+"/rotate", nil)
-			req.AddCookie(&http.Cookie{Name: auth.AdminSessionCookieName, Value: session})
+			req.AddCookie(&http.Cookie{Name: auth.AdminSessionCookieName, Value: session, Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 			engine.ServeHTTP(rec, req)
 			statusMu.Lock()
 			statuses[rec.Code]++

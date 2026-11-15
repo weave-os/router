@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -55,14 +56,14 @@ func (p *proxy) handle(w http.ResponseWriter, r *http.Request) {
 	tlsConn := tls.Server(clientConn, p.ca.tlsConfigFor())
 	defer func() { _ = tlsConn.Close() }()
 	if err := tlsConn.HandshakeContext(r.Context()); err != nil {
-		log.Printf("mitmproxy: TLS handshake with client for %s: %v", host, err)
+		log.Printf("mitmproxy: TLS handshake with client for %s: %v", strconv.Quote(host), err)
 		return
 	}
 
 	// One request per CONNECT tunnel — the router doesn't pipeline, and
 	// sequential smoke calls keep the implementation simple and correct.
 	if err := p.serveOne(tlsConn, host); err != nil && !errors.Is(err, io.EOF) {
-		log.Printf("mitmproxy: serve %s: %v", host, err)
+		log.Printf("mitmproxy: serve %s: %v", strconv.Quote(host), err)
 	}
 }
 
@@ -80,7 +81,7 @@ func (p *proxy) serveOne(conn net.Conn, host string) error {
 	}
 
 	key := requestKey(req.Method, req.URL.Path, body)
-	log.Printf("mitmproxy: %s %s%s key=%s mode=%s", req.Method, host, req.URL.Path, key[:12], p.cfg.mode)
+	log.Printf("mitmproxy: %s key=%s mode=%s", strconv.Quote(req.Method+" "+host+req.URL.Path), key[:12], p.cfg.mode)
 
 	c, err := p.resolve(host, req, body, key)
 	if err != nil {
