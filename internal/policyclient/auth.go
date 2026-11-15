@@ -20,14 +20,9 @@ const (
 	cloudPlatformScope        = "https://www.googleapis.com/auth/cloud-platform"
 	externalAccountCredsType  = "external_account"
 	impersonationURLJSONField = "service_account_impersonation_url"
-	// Cloud Run tagged revision URLs are <tag>---<service host>; IAM only
-	// verifies ID tokens whose audience is the service host itself.
-	cloudRunTagSeparator = "---"
+	cloudRunTagSeparator      = "---"
 )
 
-// NewGoogleIDToken builds a Client that attaches a Google-signed ID token
-// (audience = sidecar service origin, with any revision tag stripped) to every
-// request; for Cloud Run sidecars only.
 func NewGoogleIDToken(baseURL string, timeout time.Duration, opts ...Option) (*Client, error) {
 	normalizedBaseURL, audience, err := googleIDTokenURLs(baseURL)
 	if err != nil {
@@ -36,8 +31,6 @@ func NewGoogleIDToken(baseURL string, timeout time.Duration, opts ...Option) (*C
 	return newGoogleIDTokenClient(normalizedBaseURL, audience, timeout, opts...)
 }
 
-// NewGoogleIDTokenForAudience uses a prepared binding's explicit service audience.
-// Managed revisions must not infer authority from mutable URL conventions.
 func NewGoogleIDTokenForAudience(baseURL, audience string, timeout time.Duration, opts ...Option) (*Client, error) {
 	normalizedBaseURL, _, err := googleIDTokenURLs(baseURL)
 	if err != nil {
@@ -65,10 +58,6 @@ func newGoogleIDTokenClient(normalizedBaseURL, audience string, timeout time.Dur
 	return New(normalizedBaseURL, httpClient, timeout, opts...), nil
 }
 
-// idtoken.NewCredentials cannot mint ID tokens from workload identity
-// federation credentials (it calls IAM generateIdToken without a bearer), so
-// that case exchanges the federated token itself and impersonates the target
-// service account explicitly.
 func newGoogleIDTokenCredentials(audience string) (*auth.Credentials, error) {
 	detected, err := credentials.DetectDefault(&credentials.DetectOptions{Scopes: []string{cloudPlatformScope}})
 	if err != nil {
@@ -93,8 +82,6 @@ func newGoogleIDTokenCredentials(audience string) (*auth.Credentials, error) {
 	})
 }
 
-// federatedSourceCredentials refuses anything but external_account, the only
-// type parseWorkloadIdentityFederation emits.
 func federatedSourceCredentials(sourceCredentialsJSON []byte) (*auth.Credentials, error) {
 	return credentials.NewCredentialsFromJSON(credentials.ExternalAccount, sourceCredentialsJSON, &credentials.DetectOptions{
 		Scopes: []string{cloudPlatformScope},
@@ -106,9 +93,6 @@ type workloadIdentityFederation struct {
 	sourceCredentialsJSON []byte
 }
 
-// parseWorkloadIdentityFederation returns nil for credentials that are not an
-// external_account file with service-account impersonation (metadata server,
-// service-account key, user credentials).
 func parseWorkloadIdentityFederation(credentialsJSON []byte) (*workloadIdentityFederation, error) {
 	if len(credentialsJSON) == 0 {
 		return nil, nil
