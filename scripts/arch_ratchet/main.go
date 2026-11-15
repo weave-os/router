@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 )
 
@@ -43,7 +44,9 @@ func report(w io.Writer, result runResult) {
 	for _, v := range result.violations {
 		_, _ = fmt.Fprintf(w, "  %s\n", v)
 	}
-	_, _ = fmt.Fprintln(w, "Fix: split the code along a concept boundary (.agents/skills/fix-lint-gate-failure/SKILL.md).")
+	if slices.ContainsFunc(result.violations, func(v violation) bool { return v.note == "" }) {
+		_, _ = fmt.Fprintln(w, "Fix: split the code along a concept boundary (.agents/skills/fix-lint-gate-failure/SKILL.md).")
+	}
 	_, _ = fmt.Fprintf(w, "Raising limits or adding //nolint is not an option; reviewed exceptions live in %s.\n", exceptionsPath)
 }
 

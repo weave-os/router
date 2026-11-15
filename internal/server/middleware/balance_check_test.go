@@ -90,7 +90,7 @@ func runMiddleware(t *testing.T, repo billing.Repo, threshold int64) (*httptest.
 	svc := billing.NewService(repo)
 	engine := gin.New()
 	reached := false
-	engine.GET("/probe", func(c *gin.Context) {
+	engine.GET("/v1/messages", func(c *gin.Context) {
 		// Synthetic auth: pre-stash the installation the way WithAuth would.
 		withInstallation(c, "org_x")
 		middleware.WithBalanceCheck(svc, threshold)(c)
@@ -101,7 +101,7 @@ func runMiddleware(t *testing.T, repo billing.Repo, threshold int64) (*httptest.
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/messages", nil)
 	engine.ServeHTTP(w, req)
 	return w, reached
 }
@@ -139,14 +139,17 @@ func TestWithBalanceCheck_402WhenBelowThreshold(t *testing.T) {
 	assert.False(t, reached, "handler must not be reached when balance is below threshold")
 	assert.Equal(t, http.StatusPaymentRequired, w.Code)
 
-	var body struct {
-		Error            string `json:"error"`
-		TopUpURL         string `json:"top_up_url"`
-		BalanceUSDMicros int64  `json:"balance_usd_micros"`
-		Message          string `json:"message"`
+	var envelope struct {
+		Error struct {
+			Code             string `json:"code"`
+			TopUpURL         string `json:"top_up_url"`
+			BalanceUSDMicros int64  `json:"balance_usd_micros"`
+			Message          string `json:"message"`
+		} `json:"error"`
 	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	assert.Equal(t, "insufficient_credits", body.Error)
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &envelope))
+	body := envelope.Error
+	assert.Equal(t, "insufficient_credits", body.Code)
 	assert.Equal(t, middleware.TopUpURL, body.TopUpURL)
 	assert.Equal(t, int64(999_999), body.BalanceUSDMicros, "402 body echoes the actual balance for client UX")
 	assert.NotEmpty(t, body.Message)
@@ -232,12 +235,15 @@ func TestWithBalanceCheck_FailClosedOnRepoError(t *testing.T) {
 	assert.False(t, reached, "infra error must not allow request through")
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 
-	var body struct {
-		Error   string `json:"error"`
-		Message string `json:"message"`
+	var envelope struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
 	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	assert.Equal(t, "billing_unavailable", body.Error)
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &envelope))
+	body := envelope.Error
+	assert.Equal(t, "billing_unavailable", body.Code)
 	assert.NotEmpty(t, body.Message)
 }
 

@@ -6210,8 +6210,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		return forceErr
 	}
 
-	// Wide cyclic re-read loop → escalate to opus (same path as the Anthropic
-	// ingress). See conversation.DetectCyclicToolCallLoop / handleLoopEscalation.
 	if !callerModelPassthroughActive(ctx) {
 		if cyc, csig, ccount, cratio, cwin := conversation.DetectCyclicToolCallLoop(env); cyc {
 			loopRole := roleForTier(catalog.TierFor(feats.Model))

@@ -216,7 +216,7 @@ func (s *Service) handleLoopEscalation(
 
 // WithLoopEscalationConfig sets the cyclic-loop escalation kill switch and the
 // log-not-act holdout percentage (clamped to [0, 100]). The holdout only takes
-// effect when a conversation.LoopEscalationStore is wired — otherwise a withheld rescue
+// effect when a LoopEscalationStore is wired — otherwise a withheld rescue
 // leaves no durable row and is pure loss, not a measurement.
 func (s *Service) WithLoopEscalationConfig(enabled bool, holdoutPct int) *Service {
 	s.loopEscalationEnabled = enabled

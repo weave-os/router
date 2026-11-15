@@ -10,10 +10,8 @@ import (
 	"path"
 )
 
-// SystemPrompt is the exact training-time text; changing it requires a new release.
 const SystemPrompt = "Classify the work requested in the current user turn. Use earlier turns only to resolve context. Return exactly five comma-separated integers, each 0 or 1, in this order: ui,logic,data,infra,docs. No other text."
 
-// Release pins every loaded model/tokenizer file and each supported roster's evidence.
 type Release struct {
 	SchemaVersion     string            `json:"schema_version"`
 	ProjectionVersion string            `json:"projection_version"`
@@ -22,7 +20,6 @@ type Release struct {
 	Evidence          map[string]string `json:"evidence"`
 }
 
-// ParseRelease accepts only the reviewed text-only inference contract.
 func ParseRelease(payload []byte, expectedSHA256 string) (Release, error) {
 	var release Release
 	digest := sha256.Sum256(payload)

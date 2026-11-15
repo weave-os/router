@@ -3,12 +3,12 @@ package middleware
 import (
 	"context"
 	"errors"
-	"net/http"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/refusal"
 
 	"github.com/gin-gonic/gin"
 )
@@ -48,11 +48,11 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 			balance, err := svc.PrepaidBalance(c.Request.Context(), owner)
 			if err != nil {
 				log.Error("Internal test budget unavailable", "subject_id", owner.TestSubjectID, "err", err)
-				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "test_budget_unavailable"})
+				abortRefusal(c, refusal.TestBudgetUnavailable, nil)
 				return
 			}
 			if balance <= minBalanceMicros {
-				c.AbortWithStatusJSON(http.StatusPaymentRequired, gin.H{"error": "test_budget_depleted"})
+				abortRefusal(c, refusal.TestBudgetDepleted, nil)
 				return
 			}
 			c.Next()
@@ -105,8 +105,7 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 					return
 				}
 				log.Info("Balance check rejected: balance row missing", "organization_id", orgID)
-				c.AbortWithStatusJSON(http.StatusPaymentRequired, gin.H{
-					"error":              "insufficient_credits",
+				abortRefusal(c, refusal.InsufficientCredits, gin.H{
 					"top_up_url":         TopUpURL,
 					"balance_usd_micros": 0,
 					"message":            "Your organization's prepaid credits are depleted. Contact your org admin to add credits.",
@@ -118,10 +117,7 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 			// unbilled-usage window. Return 503 so clients retry rather
 			// than silently spending against an unknown balance.
 			log.Error("Balance check failed; refusing request", "err", err, "organization_id", orgID)
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
-				"error":   "billing_unavailable",
-				"message": "Billing system is temporarily unavailable. Retry in a few moments.",
-			})
+			abortBillingUnavailable(c)
 			return
 		}
 
@@ -156,8 +152,7 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 				"threshold_usd_micros", threshold,
 				"subscription_exempt", subscriptionExempt,
 			)
-			c.AbortWithStatusJSON(http.StatusPaymentRequired, gin.H{
-				"error":              "insufficient_credits",
+			abortRefusal(c, refusal.InsufficientCredits, gin.H{
 				"top_up_url":         TopUpURL,
 				"balance_usd_micros": result.BalanceMicros,
 				"message":            "Your organization's prepaid credits are depleted. Contact your org admin to add credits.",
