@@ -21,8 +21,8 @@ func pinMatchesEffectiveStrategy(ctx context.Context, pin sessionpin.Pin) bool {
 	return pin.Strategy == "" && !router.IsBetaStrategy(expected)
 }
 
-func strategyContext(strategy router.Strategy) context.Context {
-	return router.WithStrategy(context.Background(), strategy)
+func strategyContext(ctx context.Context, strategy router.Strategy) context.Context {
+	return router.WithStrategy(context.WithoutCancel(ctx), strategy)
 }
 
 func strategyForTurnLoopResult(res turnLoopResult) router.Strategy {

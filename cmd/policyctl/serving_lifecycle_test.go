@@ -52,6 +52,10 @@ func (r *cliServingRegistry) VerifyServingArtifact(_ context.Context, ref policy
 func (r *cliServingRegistry) RootURI() string { return defaultRegistryURI }
 func (r *cliServingRegistry) Close() error    { return nil }
 func (r *cliServingRegistry) ReadServingObject(_ context.Context, kind policyregistry.ServingKind, ref policyregistry.ObjectRef) (policyregistry.ServingManifest, []byte, error) {
+	return r.readServingObject(kind, ref)
+}
+
+func (r *cliServingRegistry) readServingObject(kind policyregistry.ServingKind, ref policyregistry.ObjectRef) (policyregistry.ServingManifest, []byte, error) {
 	payload, ok := r.objects[ref]
 	if !ok {
 		return nil, nil, policyregistry.ErrNotFound
@@ -89,6 +93,10 @@ func (r *cliServingRegistry) CompareAndSwapServingState(_ context.Context, state
 // PublishServingManifest also accepts v1 kinds so fixtures can seed the legacy objects that a
 // real registry only reads.
 func (r *cliServingRegistry) PublishServingManifest(_ context.Context, kind policyregistry.ServingKind, payload []byte) (policyregistry.ObjectRef, error) {
+	return r.publishServingManifest(kind, payload)
+}
+
+func (r *cliServingRegistry) publishServingManifest(kind policyregistry.ServingKind, payload []byte) (policyregistry.ObjectRef, error) {
 	if _, err := policyregistry.DecodeServingManifest(payload, r.RootURI(), kind); err != nil {
 		return policyregistry.ObjectRef{}, err
 	}
@@ -139,7 +147,7 @@ func cliPublish(t *testing.T, registry *cliServingRegistry, kind policyregistry.
 	t.Helper()
 	encoded, err := policyregistry.CanonicalBytes(manifest)
 	require.NoError(t, err)
-	ref, err := registry.PublishServingManifest(context.Background(), kind, encoded)
+	ref, err := registry.publishServingManifest(kind, encoded)
 	require.NoError(t, err)
 	return ref
 }

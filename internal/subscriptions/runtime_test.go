@@ -888,10 +888,10 @@ func TestRuntimeHeartbeatKeepsLeaseDuringSlowRefresh(t *testing.T) {
 	store.refreshTokens["account-1"] = []byte("refresh-old")
 	const leaseTTL = 60 * time.Millisecond
 	peerBlocked := make(chan bool, 1)
-	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
+	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(ctx context.Context, _ subscriptions.Provider, _ string) (subscriptions.RefreshedToken, error) {
 		// Outlive the original lease window by several heartbeats.
 		time.Sleep(4 * leaseTTL)
-		acquisition, err := store.TryAcquireSubscriptionRefreshLease(context.Background(), testOwner, "account-1", "peer", leaseTTL)
+		acquisition, err := store.TryAcquireSubscriptionRefreshLease(ctx, testOwner, "account-1", "peer", leaseTTL)
 		require.NoError(t, err)
 		peerBlocked <- !acquisition.Acquired
 		return subscriptions.RefreshedToken{AccessToken: "access-new", RefreshToken: "refresh-new", ExpiresAt: time.Now().Add(time.Hour)}, nil

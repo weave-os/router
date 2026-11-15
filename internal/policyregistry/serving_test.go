@@ -712,6 +712,10 @@ func (s *servingMemoryStore) VerifyServingArtifact(_ context.Context, ref policy
 
 func (s *servingMemoryStore) RootURI() string { return testRegistryRoot }
 func (s *servingMemoryStore) ReadServingObject(_ context.Context, kind policyregistry.ServingKind, ref policyregistry.ObjectRef) (policyregistry.ServingManifest, []byte, error) {
+	return s.readServingObject(kind, ref)
+}
+
+func (s *servingMemoryStore) readServingObject(kind policyregistry.ServingKind, ref policyregistry.ObjectRef) (policyregistry.ServingManifest, []byte, error) {
 	payload, exists := s.objects[ref]
 	if !exists {
 		return nil, nil, policyregistry.ErrNotFound
@@ -775,7 +779,7 @@ func (s *servingMemoryStore) putRaw(ref policyregistry.ObjectRef, payload []byte
 // object decodes a stored payload for test assertions without going through ServingStore reads.
 func (s *servingMemoryStore) object(t *testing.T, kind policyregistry.ServingKind, ref policyregistry.ObjectRef) policyregistry.ServingManifest {
 	t.Helper()
-	manifest, _, err := s.ReadServingObject(context.Background(), kind, ref)
+	manifest, _, err := s.readServingObject(kind, ref)
 	require.NoError(t, err)
 	return manifest
 }
