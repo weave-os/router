@@ -59,7 +59,7 @@ non-trivial work.
 `internal/proxy` is being split into five bounded contexts: Protocol &
 Ingress, Credential Brokerage, Routing Policy, Inference Execution and
 Conversation Lifecycle. Before writing code, find your change's row in
-the [decision table](internal/proxy/CLAUDE.md#where-new-behavior-goes).
+the [decision table](.agents/skills/where-does-this-go/SKILL.md).
 New behavior goes in a new focused file for that context, as a free
 function or small struct with explicit dependencies, never as a new
 method or field on `proxy.Service`. Model quirks are catalog data; new
