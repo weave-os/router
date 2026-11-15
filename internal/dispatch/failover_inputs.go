@@ -30,7 +30,6 @@ type FailoverInputs struct {
 	// Bindings is the ordered (provider, upstream-id, price) list, filtered
 	// to providers wired in this deploy. Index 0 is primary, >0 fallbacks.
 	Bindings []catalog.ProviderBinding
-	// Attempt does one per-binding dispatch.
 	Attempt UpstreamAttempt
 	// FlushErr renders the final-attempt upstream error to Writer in the
 	// entry point's wire format. Optional — nil means do nothing on

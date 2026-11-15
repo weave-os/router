@@ -2,7 +2,9 @@ package dispatch
 
 import "weave-os/router/internal/router/handover"
 
-// HandoverOutcome describes the synchronous handover step.
+// HandoverOutcome is what the synchronous compaction handover reports to the
+// turn: a fallback to full history bills nothing, and a summary bills its own
+// usage as a separate ledger row.
 type HandoverOutcome struct {
 	Invoked       bool
 	LatencyMS     int64

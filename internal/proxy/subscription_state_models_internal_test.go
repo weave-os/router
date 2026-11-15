@@ -179,7 +179,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 			var servedModels []string
 			var subscriptionFunding []bool
 			var winner router.Decision
-			dispatch := dispatch.FailoverInputs{
+			failover := dispatch.FailoverInputs{
 				Writer: rec, Prelude: buffer, SubscriptionStateRequest: &req,
 				SubscriptionStateWinnerProvider: new(string),
 				InitialDecision:                 initialDecision,
@@ -195,7 +195,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 				},
 				OnAlternative: func(decision router.Decision) { winner = decision },
 			}
-			_, err := svc.dispatchWithFallback(ctx, dispatch)
+			_, err := svc.dispatchWithFallback(ctx, failover)
 			if scenario.wantErr {
 				require.Error(t, err)
 				require.Zero(t, paid.calls)
@@ -203,7 +203,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, scenario.want, winner.Model)
 				if scenario.want == statePaidModel {
-					require.Equal(t, providers.ProviderOpenRouter, *dispatch.SubscriptionStateWinnerProvider)
+					require.Equal(t, providers.ProviderOpenRouter, *failover.SubscriptionStateWinnerProvider)
 				}
 				require.Equal(t, scenario.want, rec.Header().Get(HeaderRouterModel))
 				require.Contains(t, rec.Body.String(), "answer")

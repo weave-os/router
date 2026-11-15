@@ -61,7 +61,8 @@ func (p *EarlyStopServed) Save() EarlyStopServedSnapshot {
 	}
 }
 
-// Restore writes a snapshot back through the pointers.
+// Restore puts back the attempt a failed redo replaced, so the stopped
+// response is what the turn serves and bills.
 func (p *EarlyStopServed) Restore(s EarlyStopServedSnapshot) {
 	*p.Decision, *p.Bindings, *p.Marker, *p.WinnerIdx = s.Decision, s.Bindings, s.Marker, s.WinnerIdx
 	*p.Extractor, *p.Summary, *p.ReqStats, *p.FastServed, *p.Effort = s.Extractor, s.Summary, s.ReqStats, s.FastServed, s.Effort
