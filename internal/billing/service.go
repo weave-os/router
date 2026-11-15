@@ -152,7 +152,7 @@ func (s *Service) WithUnfunded(ctx context.Context, reason SubscriptionOnlyReaso
 // ByokFeeOwed reports whether a BYOK-served turn on ctx would be charged the
 // fee: the rate is above zero and no billing override waives it.
 func (s *Service) ByokFeeOwed(ctx context.Context) bool {
-	return s != nil && s.byokFeeRate > 0 && !HasOverrideFromContext(ctx)
+	return s.byokFeeRate > 0 && !HasOverrideFromContext(ctx)
 }
 
 // ByokFeeUnpayable reports whether a gate found the turn unfunded while this

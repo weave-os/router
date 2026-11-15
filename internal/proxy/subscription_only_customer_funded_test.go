@@ -228,3 +228,20 @@ func TestSubscriptionOnly_OwedByokFeeSkipsLivePlan429Retry(t *testing.T) {
 		})
 	}
 }
+
+func TestSubscriptionOnly_OwedByokFeeKeyFirstStillServesOnTheLivePlan(t *testing.T) {
+	for _, reason := range unfundedReasons {
+		t.Run(string(reason), func(t *testing.T) {
+			trace := serveCustomerFunded(t, credentialCase{
+				name: "fee_owed_key_first_plan", supplies: []string{goldenSubscription, goldenBYOKAnthropic},
+				decisions: []router.Decision{goldenAnthropicDecision}, upstreams: anthropicUp(anthropicOK(true, "ok")),
+				ctx: chainCtx(unfundedCtx(0.05, reason), goldenSubscriptionCtx, withBYOK(byokKey(providers.ProviderAnthropic, goldenBYOKAnthropic, auth.FundingPriorityKeyFirst))),
+			})
+			require.Nil(t, trace.DispatchError, "a key that cannot be paid for must not hide the caller's free plan")
+			require.NotEmpty(t, trace.Attempts)
+			for _, attempt := range trace.Attempts {
+				assert.NotEqual(t, "byok_anthropic", attempt.Resolved.Label, "the customer's key is never called")
+			}
+		})
+	}
+}
