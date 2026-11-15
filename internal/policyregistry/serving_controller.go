@@ -792,7 +792,7 @@ func classifierCandidateCompositionV5(
 	releaseID string,
 ) (CandidateComposition, error) {
 	if !slices.Contains(candidate.Requirements.SupportedAPIMajors, release.APIMajor) {
-		return CandidateComposition{}, errors.New("Router candidate does not support classifier API major")
+		return CandidateComposition{}, errors.New("router candidate does not support classifier API major")
 	}
 	primary, exists := release.Variants[routerpolicy.ClassifierVariantPrimary]
 	if !exists {

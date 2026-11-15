@@ -285,7 +285,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	// /responses endpoint (Responses schema only).
 	codexCreds := codexSubscriptionCreds(ctx)
 	if codexCreds != nil && prep.Endpoint != providers.EndpointResponses {
-		return fmt.Errorf("Codex subscription credentials require a Responses endpoint")
+		return fmt.Errorf("codex subscription credentials require a Responses endpoint")
 	}
 	if codexCreds != nil && !requestcontext.CodexSubscriptionCanAttemptModel(decision.Model) {
 		return fmt.Errorf("refusing Codex subscription credential for model without approved Codex funding eligibility %q", decision.Model)

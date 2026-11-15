@@ -1015,7 +1015,7 @@ var routingMarkerPattern = replayedNoticePattern
 // responses (see proxy.Service.feedbackFooter), absorbing leading newlines
 // and everything to end of line since there's no fixed end-anchor. Keep the
 // sentinel in sync with proxy.feedbackFooterText.
-var feedbackFooterPattern = regexp.MustCompile("\\n*_Weave Router feedback:_ [^\\n]*")
+var feedbackFooterPattern = regexp.MustCompile(`\n*_Weave Router feedback:_ [^\n]*`)
 
 // StripRoutingMarkerFromMessages removes the routing-marker snippet from every
 // text block in messages[*].content[*]. Stripping on ingress keeps it out of

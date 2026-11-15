@@ -96,7 +96,7 @@ func checkConcurrencySweep(ctx context.Context, pool *pgxpool.Pool) error {
 	for _, n := range []int{2, 3, 10, 25} {
 		successes, active, errCounts, err := runHeldRotateRace(ctx, pool, n)
 		if err != nil {
-			return fmt.Errorf("N=%d: %w", n, err)
+			return fmt.Errorf("n=%d: %w", n, err)
 		}
 		note := "linear"
 		if successes != n || active != n {

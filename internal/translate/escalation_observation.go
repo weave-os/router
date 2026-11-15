@@ -226,7 +226,7 @@ func ParseResponsesEscalationObservation(body []byte) (EscalationObservation, er
 	observation.HistoryComplete = observation.ContinuationID == ""
 	if instructions := root.Get("instructions"); instructions.Exists() && instructions.Type != gjson.Null {
 		if instructions.Type != gjson.String {
-			return observation, fmt.Errorf("Responses instructions must be a string or null")
+			return observation, fmt.Errorf("responses instructions must be a string or null")
 		}
 		observation.Messages = append(observation.Messages, EscalationMessage{Role: EscalationRoleSystem, Blocks: []EscalationBlock{{Type: EscalationBlockText, Text: instructions.String()}}})
 	}
@@ -234,7 +234,7 @@ func ParseResponsesEscalationObservation(body []byte) (EscalationObservation, er
 	if input.Type == gjson.String {
 		observation.Messages = append(observation.Messages, EscalationMessage{Role: EscalationRoleUser, Blocks: []EscalationBlock{{Type: EscalationBlockText, Text: input.String()}}})
 	} else if input.Exists() && !input.IsArray() {
-		return observation, fmt.Errorf("Responses input must be a string or array")
+		return observation, fmt.Errorf("responses input must be a string or array")
 	} else {
 		for itemIndex, item := range input.Array() {
 			kind := escalationWireType(item.Get("type").String())
@@ -294,7 +294,7 @@ func ParseResponsesEscalationObservation(body []byte) (EscalationObservation, er
 			case escalationWireReference:
 				referenceID := item.Get("id").String()
 				if referenceID == "" {
-					return observation, fmt.Errorf("Responses item reference has no id")
+					return observation, fmt.Errorf("responses item reference has no id")
 				}
 				observation.ItemReferenceIDs = append(observation.ItemReferenceIDs, referenceID)
 				observation.HistoryComplete = false

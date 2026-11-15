@@ -335,7 +335,7 @@ func (c *OAuthClient) VerifyCodexEnrollment(ctx context.Context, workspaceID str
 		return auth.VerifiedCodexEnrollment{}, err
 	}
 	if token.AccountID != workspaceID || token.UserID == "" {
-		return auth.VerifiedCodexEnrollment{}, fmt.Errorf("Codex enrollment did not verify the workspace and provider user")
+		return auth.VerifiedCodexEnrollment{}, fmt.Errorf("codex enrollment did not verify the workspace and provider user")
 	}
 	return auth.VerifiedCodexEnrollment{ProviderUserID: token.UserID, RefreshToken: []byte(token.RefreshToken)}, nil
 }

@@ -4276,7 +4276,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			// error plus a finalize thunk so a gateway that rejects Responses can
 			// be re-emitted onto chat/completions before finalize commits the
 			// prelude buffer. Translators are stateful, so the retry calls again.
-			dispatchOpenAICompat := func(actx context.Context, d router.Decision, p providers.Client, useResponses, stripPromptCacheKey bool) (error, func(error) error) {
+			dispatchOpenAICompat := func(actx context.Context, d router.Decision, p providers.Client, useResponses, stripPromptCacheKey bool) (func(error) error, error) {
 				attemptOpts := targetOpts
 				attemptOpts.TargetProvider = d.Provider
 				attemptOpts.StripPromptCacheKey = stripPromptCacheKey
@@ -4294,7 +4294,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				}
 				if emitErr != nil {
 					log.Error("Failed to translate Anthropic request to OpenAI format", "err", emitErr, "decision_provider", d.Provider, "responses_api", useResponses)
-					return fmt.Errorf("translate anthropic request: %w", emitErr), func(err error) error { return err }
+					return func(err error) error { return err }, fmt.Errorf("translate anthropic request: %w", emitErr)
 				}
 				reqStats = prep.Stats
 				logUpstreamBody(log, routeRes.SessionKey, d, feats, prep.Body)
@@ -4306,7 +4306,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				var translator translate.ResponseTranslator
 				attemptSink, noticeErr := anthropicPrelude.prepare(r.Context(), sink, preludeBuf, translate.FormatAnthropic, env.Stream(), reconnectNoticeForAttempt(actx, r.Header, targetNotice))
 				if noticeErr != nil {
-					return noticeErr, func(err error) error { return err }
+					return func(err error) error { return err }, noticeErr
 				}
 				if useResponses {
 					responsesTranslator := translate.NewResponsesToAnthropicWriter(attemptSink, d.Model, usage).
@@ -4319,7 +4319,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					}
 					responsesTranslator.SetClientInputTokenScale(clientInputTokenScale(routeRes, d.Provider, clientRequestedModel(ctx, feats.Model)))
 					if err := responsesTranslator.Prelude(env.Stream()); err != nil {
-						return fmt.Errorf("emit Anthropic routing marker: %w", err), func(err error) error { return err }
+						return func(err error) error { return err }, fmt.Errorf("emit Anthropic routing marker: %w", err)
 					}
 					translator = responsesTranslator
 				} else {
@@ -4336,7 +4336,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					}
 					chatTranslator.SetClientInputTokenScale(clientInputTokenScale(routeRes, d.Provider, clientRequestedModel(ctx, feats.Model)))
 					if err := chatTranslator.Prelude(env.Stream()); err != nil {
-						return fmt.Errorf("emit Anthropic routing marker: %w", err), func(err error) error { return err }
+						return func(err error) error { return err }, fmt.Errorf("emit Anthropic routing marker: %w", err)
 					}
 					translator = chatTranslator
 				}
@@ -4358,7 +4358,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					respSummary = translator.Summary()
 					return finErr
 				}
-				return rawErr, finalize
+				return finalize, rawErr
 			}
 			return func(actx context.Context, d router.Decision, p providers.Client) error {
 				// Direct OpenAI serves every expressible turn on Responses;
@@ -4372,7 +4372,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					Broad:          s.ResolveOpenAIResponsesBroad(actx),
 				}) && !s.gatewayCaps.LacksResponses(gatewayKey)
 				stripPCK := s.gatewayCaps.RejectsPromptCacheKey(gatewayKey)
-				rawErr, finalize := dispatchOpenAICompat(actx, d, p, useResponses, stripPCK)
+				finalize, rawErr := dispatchOpenAICompat(actx, d, p, useResponses, stripPCK)
 				// A gateway with no usable Responses surface answers 404, or 4xx
 				// prose saying the API is off for this account. Re-emit onto
 				// chat/completions once while pre-commit, and remember the answer
@@ -4388,7 +4388,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 						preludeBuf.Discard()
 					}
 					useResponses = false
-					rawErr, finalize = dispatchOpenAICompat(actx, d, p, false, stripPCK)
+					finalize, rawErr = dispatchOpenAICompat(actx, d, p, false, stripPCK)
 				}
 				// prompt_cache_key is a spec Chat Completions field, but gateway schemas
 				// that trail the spec 400 it as unknown. Re-emit once without the hint
@@ -4403,7 +4403,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					if preludeBuf != nil {
 						preludeBuf.Discard()
 					}
-					rawErr, finalize = dispatchOpenAICompat(actx, d, p, useResponses, true)
+					finalize, rawErr = dispatchOpenAICompat(actx, d, p, useResponses, true)
 				}
 				return finalize(rawErr)
 			}, nil
@@ -4420,7 +4420,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			// finalize thunk, split so the attempt can inspect a pre-commit 400
 			// before finalize commits the prelude buffer and forecloses the retry.
 			// Translators are stateful, so a retry rebuilds the chain via a fresh call.
-			dispatchGemini := func(actx context.Context, d router.Decision, p providers.Client, pr providers.PreparedRequest) (error, func(error) error) {
+			dispatchGemini := func(actx context.Context, d router.Decision, p providers.Client, pr providers.PreparedRequest) (func(error) error, error) {
 				fastServed = false
 				setStreamCost(d, true, nil)
 				respSummary = translate.ResponseSummary{}
@@ -4432,7 +4432,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				// SSE chain: Gemini → OpenAI → Anthropic.
 				attemptSink, noticeErr := anthropicPrelude.prepare(r.Context(), sink, preludeBuf, translate.FormatAnthropic, env.Stream(), reconnectNoticeForAttempt(actx, r.Header, targetNotice))
 				if noticeErr != nil {
-					return noticeErr, func(err error) error { return err }
+					return func(err error) error { return err }, noticeErr
 				}
 				anthropicTr := translate.NewAnthropicSSETranslator(attemptSink, d.Model, nil).
 					WithLogger(log).
@@ -4441,7 +4441,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					WithEscapeNormalize(s.escapeNormalize).
 					WithToolValidator(toolValidator)
 				if err := anthropicTr.Prelude(env.Stream()); err != nil {
-					return fmt.Errorf("emit Anthropic routing marker: %w", err), func(err error) error { return err }
+					return func(err error) error { return err }, fmt.Errorf("emit Anthropic routing marker: %w", err)
 				}
 				if preludeBuf != nil {
 					preludeBuf.Seal()
@@ -4460,11 +4460,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					respSummary = anthropicTr.Summary()
 					return finErr
 				}
-				return rawErr, finalize
+				return finalize, rawErr
 			}
 			return func(actx context.Context, d router.Decision, p providers.Client) error {
 				retry := geminiToolModeAttempt{log: log, buffer: preludeBuf, env: env, headers: r.Header, opts: targetOpts}
-				return retry.dispatch(prep, func(prepared providers.PreparedRequest) (error, func(error) error) {
+				return retry.dispatch(prep, func(prepared providers.PreparedRequest) (func(error) error, error) {
 					reqStats = prepared.Stats
 					logUpstreamBody(log, routeRes.SessionKey, d, feats, prepared.Body)
 					return dispatchGemini(actx, d, p, prepared)
@@ -7009,7 +7009,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			// See ProxyMessages' Gemini case: a VALIDATED-mode request can 400 with a
 			// generic INVALID_ARGUMENT when Gemini can't compile a tool schema into
 			// its decode-time grammar. Retry once with mode=AUTO when pre-commit.
-			dispatchGemini := func(actx context.Context, d router.Decision, p providers.Client, pr providers.PreparedRequest) (error, func(error) error) {
+			dispatchGemini := func(actx context.Context, d router.Decision, p providers.Client, pr providers.PreparedRequest) (func(error) error, error) {
 				var usage translate.UsageSink
 				if s.usageRequired() {
 					extractor = telemetry.NewUsageExtractor(d.Provider)
@@ -7017,7 +7017,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				}
 				attemptSink, noticeErr := makeMarkerSink(reconnectNoticeForAttempt(actx, r.Header, targetNotice))
 				if noticeErr != nil {
-					return noticeErr, func(err error) error { return err }
+					return func(err error) error { return err }, noticeErr
 				}
 				translator := translate.NewGeminiToOpenAISSETranslator(attemptSink, d.Model, usage)
 				if isResponses {
@@ -7034,11 +7034,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					}
 					return finalizeAfterProxy(err, translator.Finalize)
 				}
-				return rawErr, finalize
+				return finalize, rawErr
 			}
 			return func(actx context.Context, d router.Decision, p providers.Client) error {
 				retry := geminiToolModeAttempt{log: log, buffer: preludeBuf, env: env, headers: r.Header, opts: targetOpts}
-				return retry.dispatch(prep, func(prepared providers.PreparedRequest) (error, func(error) error) {
+				return retry.dispatch(prep, func(prepared providers.PreparedRequest) (func(error) error, error) {
 					return dispatchGemini(actx, d, p, prepared)
 				})
 			}, nil
@@ -7052,7 +7052,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			// One send on the given tier, split into the raw upstream error plus a
 			// finalize thunk so a fast send refused for lack of fast-mode allocation
 			// can be re-sent at standard speed before finalize commits the prelude.
-			dispatchAnthropic := func(actx context.Context, d router.Decision, p providers.Client, attemptPrep providers.PreparedRequest, fast bool) (error, func(error) error) {
+			dispatchAnthropic := func(actx context.Context, d router.Decision, p providers.Client, attemptPrep providers.PreparedRequest, fast bool) (func(error) error, error) {
 				fastServed = fast
 				var usage translate.UsageSink
 				if s.usageRequired() {
@@ -7062,7 +7062,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				}
 				attemptSink, noticeErr := makeMarkerSink(reconnectNoticeForAttempt(actx, r.Header, targetNotice))
 				if noticeErr != nil {
-					return noticeErr, func(err error) error { return err }
+					return func(err error) error { return err }, noticeErr
 				}
 				translator := translate.NewSSETranslator(attemptSink, d.Model, usage)
 				if isResponses {
@@ -7083,7 +7083,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					nativeRespSummary = false
 					return err
 				}
-				return rawErr, finalize
+				return finalize, rawErr
 			}
 			return func(actx context.Context, d router.Decision, p providers.Client) error {
 				attemptOpts := targetOpts
@@ -7098,7 +7098,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 						return fmt.Errorf("translate openai request: %w", emitErr)
 					}
 				}
-				rawErr, finalize := dispatchAnthropic(actx, d, p, attemptPrep, attemptOpts.FastMode)
+				finalize, rawErr := dispatchAnthropic(actx, d, p, attemptPrep, attemptOpts.FastMode)
 				rawErr, _ = retryAnthropicStandardSpeed(log, preludeBuf, d, attemptOpts, rawErr, func(standardOpts translate.EmitOptions) (func() error, error) {
 					standardPrep, emitErr := env.PrepareAnthropic(r.Header, standardOpts)
 					if emitErr != nil {
@@ -7106,7 +7106,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					}
 					return func() error {
 						var standardErr error
-						standardErr, finalize = dispatchAnthropic(actx, d, p, standardPrep, false)
+						finalize, standardErr = dispatchAnthropic(actx, d, p, standardPrep, false)
 						return standardErr
 					}, nil
 				})

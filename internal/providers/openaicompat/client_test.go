@@ -306,7 +306,7 @@ func TestProxy_BuffersErrorBodyAndDoesNotTouchWriter(t *testing.T) {
 	// ResponseRecorder reports Code=200 by default even without WriteHeader,
 	// so check that nothing was actually written instead.
 	assert.Equal(t, 0, rec.Body.Len(), "writer must not be touched on retryable upstream error")
-	assert.Equal(t, rec.HeaderMap.Get("Content-Type"), "", "writer headers must not be set on retryable upstream error")
+	assert.Equal(t, rec.Header().Get("Content-Type"), "", "writer headers must not be set on retryable upstream error")
 }
 
 // TestProxy_BuffersErrorBodyTruncatedAtCap: a chatty upstream can't OOM us —

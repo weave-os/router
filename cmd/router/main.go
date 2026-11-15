@@ -154,7 +154,7 @@ func main() {
 	switch deploymentMode {
 	case server.DeploymentModeSelfHosted, server.DeploymentModeManaged:
 	default:
-		err := fmt.Errorf("Invalid ROUTER_DEPLOYMENT_MODE %q (expected %q or %q)", deploymentMode, server.DeploymentModeSelfHosted, server.DeploymentModeManaged)
+		err := fmt.Errorf("invalid ROUTER_DEPLOYMENT_MODE %q (expected %q or %q)", deploymentMode, server.DeploymentModeSelfHosted, server.DeploymentModeManaged)
 		logger.Error("Refusing to boot with invalid deployment mode", "err", err)
 		panic(err)
 	}
@@ -1749,7 +1749,7 @@ func buildWIFTokenSource(logger *slog.Logger) auth.WIFTokenSource {
 		logger.Info("Workload identity federation enabled", "provider", provider, "token_file", path)
 		return wif.NewFileTokenSource(path)
 	default:
-		err := fmt.Errorf("Invalid ROUTER_WIF_PROVIDER %q (expected %q or %q)", provider, auth.WIFProviderGCP, auth.WIFProviderOIDC)
+		err := fmt.Errorf("invalid ROUTER_WIF_PROVIDER %q (expected %q or %q)", provider, auth.WIFProviderGCP, auth.WIFProviderOIDC)
 		logger.Error("Refusing to boot with invalid workload identity provider", "err", err)
 		panic(err)
 	}

@@ -356,8 +356,8 @@ type turnLoopResult struct {
 	DowngradeShadow downgradeGuardShadow
 }
 
-func (res turnLoopResult) releaseCooldownProbes() {
-	for _, release := range res.CooldownProbeReleases {
+func (r turnLoopResult) releaseCooldownProbes() {
+	for _, release := range r.CooldownProbeReleases {
 		release()
 	}
 }
