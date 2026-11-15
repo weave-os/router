@@ -32,7 +32,7 @@ func (s *Service) handleSpiralShadow(
 	for _, reason := range reasons {
 		reasonText := string(reason)
 		key := conversation.SpiralFiredKey(sessionKey, role, reasonText)
-		if _, seen := s.spiralTracker.Fired.Get(key); seen {
+		if s.spiralTracker.Fired(key) {
 			continue
 		}
 
@@ -43,7 +43,7 @@ func (s *Service) handleSpiralShadow(
 			if err != nil {
 				log.Error("spiral-shadow: budget lookup failed", "err", err)
 			} else if count > 0 {
-				s.spiralTracker.Fired.Add(key, struct{}{})
+				s.spiralTracker.MarkFired(key)
 				continue
 			}
 		}
@@ -94,6 +94,63 @@ func (s *Service) handleSpiralShadow(
 				continue // leave the LRU unset so the next turn retries
 			}
 		}
-		s.spiralTracker.Fired.Add(key, struct{}{})
+		s.spiralTracker.MarkFired(key)
 	}
+}
+
+// turnSignalCaptureAllowed requires both privacy gates. CaptureOff is the
+// fallback for an unknown mode, so both gates fail closed by default.
+func turnSignalCaptureAllowed(trainingAllowed bool, capture ContentCaptureMode) bool {
+	return trainingAllowed && (capture == CaptureHashed || capture == CaptureFull)
+}
+
+// applyTurnSignalTelemetry fills p only when all gates pass, preserving
+// the distinction between a measured zero and an absent snapshot.
+func applyTurnSignalTelemetry(
+	p *InsertTelemetryParams,
+	sig conversation.SpiralSignals,
+	reasons []conversation.SpiralReason,
+	computed bool,
+	enabled bool,
+	trainingAllowed bool,
+	capture ContentCaptureMode,
+) {
+	if p == nil || !computed || !enabled || !turnSignalCaptureAllowed(trainingAllowed, capture) {
+		return
+	}
+	p.SpiralErrStreak = int32Ptr(int32(sig.ErrStats.TrailingErrStreak))
+	p.SpiralErroredResults = int32Ptr(int32(sig.ErrStats.Errored))
+	p.SpiralToolResults = int32Ptr(int32(sig.ErrStats.Total))
+	p.SpiralMaxSameFileEdits = int32Ptr(int32(sig.MaxSameFileEdits))
+	p.SpiralSameFilePathHash = sig.SameFilePathHash
+	repeatFrac := sig.RepeatFrac
+	p.SpiralRepeatFrac = &repeatFrac
+	p.SpiralMonologueLen = int32Ptr(int32(sig.MonologueLen))
+	p.SpiralToolCallCount = int32Ptr(int32(sig.ToolCallCount))
+	p.SpiralMessageCount = int32Ptr(int32(sig.MessageCount))
+	p.SpiralPingPongLen = int32Ptr(int32(sig.PingPongLen))
+	p.SpiralStepsSinceProgress = int32Ptr(int32(sig.StepsSinceProgress))
+	editAttempted := sig.EditAttempted
+	p.SpiralEditAttempted = &editAttempted
+	if reasons == nil {
+		reasons = []conversation.SpiralReason{}
+	}
+	p.SpiralReasons = conversation.SpiralReasonStrings(reasons)
+}
+
+// WithSpiralShadowConfig sets the shadow-mode spiral detector kill switch.
+// enabled=false skips signal computation entirely. Shadow mode takes no
+// routing action either way; the switch exists to shed the per-turn scan
+// cost if it ever misbehaves.
+func (s *Service) WithSpiralShadowConfig(enabled bool) *Service {
+	s.spiralShadowEnabled = enabled
+	return s
+}
+
+// WithSpiralShadowStore wires the durable sink for shadow spiral events
+// (router.spiral_shadow_events). Nil degrades to log-only fires with
+// replica-local de-duplication.
+func (s *Service) WithSpiralShadowStore(store conversation.SpiralShadowStore) *Service {
+	s.spiralShadowStore = store
+	return s
 }

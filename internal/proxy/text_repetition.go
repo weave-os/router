@@ -71,3 +71,11 @@ func (s *Service) handleTextRepetitionBreak(
 	ack := newCommandAcknowledgment(translate.CommandLoopStop)
 	return writeCommandOutcome(ctx, w, env, msg, ack.outcome, inputTokens)
 }
+
+// WithTextRepetitionBreak sets the enforcing text-repetition detector kill
+// switch (default on). enabled=false skips the per-turn scan entirely. See
+// text_repetition.go.
+func (s *Service) WithTextRepetitionBreak(enabled bool) *Service {
+	s.textRepetitionBreakEnabled = enabled
+	return s
+}

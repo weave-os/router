@@ -2139,75 +2139,10 @@ func (s *Service) WithBandSwap(enabled bool) *Service {
 	return s
 }
 
-// WithLoopEscalationConfig sets the cyclic-loop escalation kill switch and the
-// log-not-act holdout percentage (clamped to [0, 100]). The holdout only takes
-// effect when a conversation.LoopEscalationStore is wired — otherwise a withheld rescue
-// leaves no durable row and is pure loss, not a measurement.
-func (s *Service) WithLoopEscalationConfig(enabled bool, holdoutPct int) *Service {
-	s.loopEscalationEnabled = enabled
-	if holdoutPct < 0 {
-		holdoutPct = 0
-	}
-	if holdoutPct > 100 {
-		holdoutPct = 100
-	}
-	s.loopEscalationHoldoutPct = holdoutPct
-	return s
-}
-
-// WithLoopEscalationStore wires the durable sink for loop-escalation events
-// (router.loop_escalation_events). Nil disables persistence, the holdout, and
-// the cross-TTL once-per-session budget (the pin-reason check still applies).
-func (s *Service) WithLoopEscalationStore(store conversation.LoopEscalationStore) *Service {
-	s.loopEscalationStore = store
-	return s
-}
-
-// WithSpiralShadowConfig sets the shadow-mode spiral detector kill switch.
-// enabled=false skips signal computation entirely. Shadow mode takes no
-// routing action either way; the switch exists to shed the per-turn scan
-// cost if it ever misbehaves.
-func (s *Service) WithSpiralShadowConfig(enabled bool) *Service {
-	s.spiralShadowEnabled = enabled
-	return s
-}
-
 // WithTurnSignalCapture sets the per-turn signal persistence kill switch.
 // It cannot override installation privacy settings.
 func (s *Service) WithTurnSignalCapture(enabled bool) *Service {
 	s.turnSignalCaptureEnabled = enabled
-	return s
-}
-
-// WithTextRepetitionBreak sets the enforcing text-repetition detector kill
-// switch (default on). enabled=false skips the per-turn scan entirely. See
-// text_repetition.go.
-func (s *Service) WithTextRepetitionBreak(enabled bool) *Service {
-	s.textRepetitionBreakEnabled = enabled
-	return s
-}
-
-// WithSpiralShadowStore wires the durable sink for shadow spiral events
-// (router.spiral_shadow_events). Nil degrades to log-only fires with
-// replica-local de-duplication.
-func (s *Service) WithSpiralShadowStore(store conversation.SpiralShadowStore) *Service {
-	s.spiralShadowStore = store
-	return s
-}
-
-// WithStruggleShadowConfig sets the shadow-mode struggle detector kill switch.
-// enabled=false skips the check entirely. Shadow mode takes no routing action
-// either way; the switch exists to shed the per-turn check if it misbehaves.
-func (s *Service) WithStruggleShadowConfig(enabled bool) *Service {
-	s.struggleShadowEnabled = enabled
-	return s
-}
-
-// WithStruggleShadowStore wires the durable sink for shadow struggle events
-// (router.struggle_shadow_events). Nil degrades to log-only fires with
-// replica-local de-duplication.
-func (s *Service) WithStruggleShadowStore(store conversation.StruggleShadowStore) *Service {
-	s.struggleShadowStore = store
 	return s
 }
 

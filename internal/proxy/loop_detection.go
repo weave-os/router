@@ -213,3 +213,27 @@ func (s *Service) handleLoopEscalation(
 		}
 	}
 }
+
+// WithLoopEscalationConfig sets the cyclic-loop escalation kill switch and the
+// log-not-act holdout percentage (clamped to [0, 100]). The holdout only takes
+// effect when a conversation.LoopEscalationStore is wired — otherwise a withheld rescue
+// leaves no durable row and is pure loss, not a measurement.
+func (s *Service) WithLoopEscalationConfig(enabled bool, holdoutPct int) *Service {
+	s.loopEscalationEnabled = enabled
+	if holdoutPct < 0 {
+		holdoutPct = 0
+	}
+	if holdoutPct > 100 {
+		holdoutPct = 100
+	}
+	s.loopEscalationHoldoutPct = holdoutPct
+	return s
+}
+
+// WithLoopEscalationStore wires the durable sink for loop-escalation events
+// (router.loop_escalation_events). Nil disables persistence, the holdout, and
+// the cross-TTL once-per-session budget (the pin-reason check still applies).
+func (s *Service) WithLoopEscalationStore(store conversation.LoopEscalationStore) *Service {
+	s.loopEscalationStore = store
+	return s
+}

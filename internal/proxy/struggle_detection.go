@@ -28,7 +28,7 @@ func (s *Service) handleStruggleShadow(
 ) {
 	log := observability.FromContext(ctx)
 	key := conversation.StruggleFiredKey(sessionKey, role, reason)
-	if _, seen := s.struggleTracker.Fired.Get(key); seen {
+	if s.struggleTracker.Fired(key) {
 		return
 	}
 
@@ -39,7 +39,7 @@ func (s *Service) handleStruggleShadow(
 		if err != nil {
 			log.Error("struggle-shadow: budget lookup failed", "err", err)
 		} else if count > 0 {
-			s.struggleTracker.Fired.Add(key, struct{}{})
+			s.struggleTracker.MarkFired(key)
 			return
 		}
 	}
@@ -76,5 +76,21 @@ func (s *Service) handleStruggleShadow(
 			return // leave the LRU unset so the next turn retries
 		}
 	}
-	s.struggleTracker.Fired.Add(key, struct{}{})
+	s.struggleTracker.MarkFired(key)
+}
+
+// WithStruggleShadowConfig sets the shadow-mode struggle detector kill switch.
+// enabled=false skips the check entirely. Shadow mode takes no routing action
+// either way; the switch exists to shed the per-turn check if it misbehaves.
+func (s *Service) WithStruggleShadowConfig(enabled bool) *Service {
+	s.struggleShadowEnabled = enabled
+	return s
+}
+
+// WithStruggleShadowStore wires the durable sink for shadow struggle events
+// (router.struggle_shadow_events). Nil degrades to log-only fires with
+// replica-local de-duplication.
+func (s *Service) WithStruggleShadowStore(store conversation.StruggleShadowStore) *Service {
+	s.struggleShadowStore = store
+	return s
 }

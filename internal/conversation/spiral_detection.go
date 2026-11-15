@@ -257,16 +257,30 @@ const (
 	spiralFiredCacheTTL  = time.Hour
 )
 
+// SpiralTracker remembers which SpiralFiredKey values already fired on this
+// replica.
 type SpiralTracker struct {
-	Fired *lru.LRU[string, struct{}]
+	fired *lru.LRU[string, struct{}]
 }
 
 func NewSpiralTracker() *SpiralTracker {
 	return &SpiralTracker{
-		Fired: lru.NewLRU[string, struct{}](spiralFiredCacheSize, nil, spiralFiredCacheTTL),
+		fired: lru.NewLRU[string, struct{}](spiralFiredCacheSize, nil, spiralFiredCacheTTL),
 	}
 }
 
+// Fired reports whether key was marked on this replica within the cache TTL.
+func (t *SpiralTracker) Fired(key string) bool {
+	_, seen := t.fired.Get(key)
+	return seen
+}
+
+// MarkFired records that key fired.
+func (t *SpiralTracker) MarkFired(key string) {
+	t.fired.Add(key, struct{}{})
+}
+
+// SpiralFiredKey identifies one (session, role, reason) fire.
 func SpiralFiredKey(sessionKey [sessionpin.SessionKeyLen]byte, role, reason string) string {
 	return string(sessionKey[:]) + "\x00" + role + "\x00" + reason
 }

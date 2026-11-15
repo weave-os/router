@@ -110,7 +110,7 @@ func (r *fingerprintRing) RecordAndDetect(fp NoProgressFingerprint, now time.Tim
 // NoProgressTracker is the package-level tracker. Construct via
 // NewNoProgressTracker; nil receivers are valid (no-op).
 //
-// mu serializes the check-then-create of a bucket's ring in recordAndDetect:
+// mu serializes the check-then-create of a bucket's ring in RecordAndDetect:
 // the LRU synchronizes individual Get/Add calls, but two goroutines racing on
 // the first insert can each allocate a ring and silently orphan one (with its
 // recorded fingerprint). ring.recordAndDetect runs outside mu — fingerprintRing
@@ -157,7 +157,7 @@ const compactionMinHistoryMessages = 8
 //
 // nil receivers are valid (no-op), matching NoProgressTracker.
 //
-// mu makes checkAndRecord's Get+Add a single step: the LRU synchronizes each
+// mu makes CheckAndRecord's Get+Add a single step: the LRU synchronizes each
 // call individually, but a concurrent Get between the read and the write can
 // observe stale prior state and false-trip the drop check.
 type CompactionTracker struct {
@@ -171,7 +171,7 @@ func NewCompactionTracker() *CompactionTracker {
 	}
 }
 
-// checkAndRecord records the session's current counts and reports whether
+// CheckAndRecord records the session's current counts and reports whether
 // either dropped vs. the prior observation. Returns false on first
 // observation or when no bucket anchor is available.
 func (t *CompactionTracker) CheckAndRecord(sessionKey [sessionpin.SessionKeyLen]byte, installationID uuid.UUID, role string, messageCount, toolCallCount int) bool {
@@ -216,7 +216,7 @@ func (t *CompactionTracker) Tracks(sessionKey [sessionpin.SessionKeyLen]byte, in
 	return found
 }
 
-// recordAndDetect records the fingerprint in a bucket keyed by sessionKey
+// RecordAndDetect records the fingerprint in a bucket keyed by sessionKey
 // (preferred) or installationID (fallback), and reports whether the burst
 // exceeds the loop threshold. nil tracker returns (false, 0).
 //

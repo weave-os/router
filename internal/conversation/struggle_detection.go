@@ -65,16 +65,30 @@ const (
 	struggleFiredCacheTTL  = time.Hour
 )
 
+// StruggleTracker remembers which StruggleFiredKey values already fired on this
+// replica.
 type StruggleTracker struct {
-	Fired *lru.LRU[string, struct{}]
+	fired *lru.LRU[string, struct{}]
 }
 
 func NewStruggleTracker() *StruggleTracker {
 	return &StruggleTracker{
-		Fired: lru.NewLRU[string, struct{}](struggleFiredCacheSize, nil, struggleFiredCacheTTL),
+		fired: lru.NewLRU[string, struct{}](struggleFiredCacheSize, nil, struggleFiredCacheTTL),
 	}
 }
 
+// Fired reports whether key was marked on this replica within the cache TTL.
+func (t *StruggleTracker) Fired(key string) bool {
+	_, seen := t.fired.Get(key)
+	return seen
+}
+
+// MarkFired records that key fired.
+func (t *StruggleTracker) MarkFired(key string) {
+	t.fired.Add(key, struct{}{})
+}
+
+// StruggleFiredKey identifies one (session, role, reason) fire.
 func StruggleFiredKey(sessionKey [sessionpin.SessionKeyLen]byte, role, reason string) string {
 	return string(sessionKey[:]) + "\x00" + role + "\x00" + reason
 }
