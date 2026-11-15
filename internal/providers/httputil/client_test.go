@@ -87,6 +87,6 @@ func TestNewClientFailsTheCallOnARedirect(t *testing.T) {
 	require.NotNil(t, resp)
 	n, readErr := resp.Body.Read(make([]byte, 1))
 	assert.Zero(t, n)
-	assert.Error(t, readErr, "the returned response body is closed")
+	require.Error(t, readErr, "the returned response body is closed")
 	_ = resp.Body.Close()
 }
