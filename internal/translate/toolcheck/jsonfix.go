@@ -2,11 +2,6 @@ package toolcheck
 
 import "strings"
 
-// repairJSON conservatively repairs malformed tool-argument JSON: markdown
-// fences, trailing commas, and mid-stream truncation. Returns "" if no
-// repair applied (caller falls back to "{}").
-//
-// TODO: switch to a full repairer (kaptinlin/jsonrepair) once go 1.26 lands.
 func repairJSON(raw string) (out string, actions []string) {
 	if len(raw) > maxArgsBytes {
 		return "", nil
@@ -30,32 +25,25 @@ func repairJSON(raw string) (out string, actions []string) {
 	return out, actions
 }
 
-// stripMarkdownFence removes a ```json ... ``` (or bare ```) wrapper.
 func stripMarkdownFence(s string) (out string, ok bool) {
 	if !strings.HasPrefix(s, "```") {
 		return s, false
 	}
 	body := strings.TrimPrefix(s, "```")
 	if nl := strings.IndexByte(body, '\n'); nl >= 0 {
-		// Drop the info string ("json") on the opening fence line.
 		body = body[nl+1:]
 	}
 	body = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(body), "```"))
 	return body, true
 }
 
-// balanceJSON tracks string/escape state to drop trailing commas, truncate
-// content after the top-level value closes, and close whatever truncation
-// left open — stripping a dangling partial member like `,"key":` first.
 func balanceJSON(s string) (out string, actions []string) {
 	var stack []byte
 	inString := false
 	escaped := false
-	// expectKey marks whether the next string is an object KEY, not a value:
-	// a key's closing quote must not count as "last complete value".
 	expectKey := false
 	stringIsKey := false
-	lastComplete := -1 // index AFTER the last byte that ends a complete value
+	lastComplete := -1
 	var b strings.Builder
 	b.Grow(len(s) + 4)
 
@@ -103,7 +91,6 @@ func balanceJSON(s string) (out string, actions []string) {
 				want = '['
 			}
 			if len(stack) == 0 || stack[len(stack)-1] != want {
-				// Mismatched closer: unrepairable by this minimal pass.
 				return "", nil
 			}
 			stack = stack[:len(stack)-1]
@@ -111,7 +98,6 @@ func balanceJSON(s string) (out string, actions []string) {
 			b.WriteByte(c)
 			lastComplete = b.Len()
 			if len(stack) == 0 {
-				// Top-level value closed; anything after is trailing garbage.
 				if i+1 < len(s) && strings.TrimSpace(s[i+1:]) != "" {
 					actions = append(actions, "json_repair_strip_trailing")
 				}
@@ -126,11 +112,9 @@ func balanceJSON(s string) (out string, actions []string) {
 	}
 
 	if len(stack) == 0 && !inString {
-		return "", nil // already balanced; the syntax error is something else
+		return "", nil
 	}
 
-	// Truncated input: close an open value string, cut back to the last
-	// complete value, then close remaining open scopes in reverse order.
 	out = b.String()
 	if inString && !stringIsKey {
 		out += `"`

@@ -41,8 +41,6 @@ func (r repo) mergeBase(base string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// changedFiles lists measured Go files that differ between rev and the working tree,
-// including untracked files, so local runs see uncommitted work.
 func (r repo) changedFiles(rev string) ([]string, error) {
 	tracked, err := r.git("diff", "--name-only", "--no-renames", "-z", rev, "--")
 	if err != nil {
@@ -89,7 +87,6 @@ func (r repo) listDirWorktree(dir string) ([]string, error) {
 	return paths, nil
 }
 
-// readAt returns the contents of paths at rev; paths absent at rev are omitted.
 func (r repo) readAt(rev string, paths []string) (map[string][]byte, error) {
 	var request bytes.Buffer
 	for _, path := range paths {
@@ -171,8 +168,6 @@ func (r repo) readWorktree(paths []string) (map[string][]byte, error) {
 	return files, nil
 }
 
-// splitNul splits NUL-terminated git output. Paths are read with -z because git
-// otherwise quotes and escapes non-ASCII names.
 func splitNul(outputs ...[]byte) []string {
 	var paths []string
 	for _, out := range outputs {

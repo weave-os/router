@@ -1,6 +1,3 @@
-// Command arch_ratchet fails when a change grows code past the repository's size and
-// complexity limits. It compares the working tree with its merge base, so existing
-// over-limit code may shrink or move but never grow, and new code must meet the limits.
 package main
 
 import (

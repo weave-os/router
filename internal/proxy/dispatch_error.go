@@ -20,16 +20,9 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-// DispatchErrorKind identifies which sentinel a dispatch error (from
-// ProxyMessages, ProxyOpenAIChatCompletion, ProxyOpenAIResponses, or
-// ProxyGeminiGenerateContent) matched, so a format-specific handler can pick
-// its own error-envelope "type"/"status" string without re-deriving the
-// classification itself.
 type DispatchErrorKind int
 
 const (
-	// DispatchErrorNone means ClassifyDispatchError found no match; the
-	// caller falls back to its own generic upstream-failure response.
 	DispatchErrorNone DispatchErrorKind = iota
 	DispatchErrorUpstreamStatus
 	DispatchErrorNotImplemented
@@ -80,36 +73,16 @@ const (
 	DispatchErrorWeaveCreditsDisabled
 )
 
-// DispatchErrorClass is the format-agnostic classification of a dispatch
-// error: the HTTP status to return, the client-facing message, whether to
-// set Retry-After, and how (if at all) the handler should log it. Format
-// packages own only the envelope shape (writeAnthropicError/writeOpenAIError/
-// writeGeminiError) and any per-Kind "type" string their wire format needs.
 type DispatchErrorClass struct {
-	Kind       DispatchErrorKind
-	Status     int
-	Message    string
-	RetryAfter bool
-	// NoClientRetry tells SDK clients (x-should-retry: false) that retrying
-	// the identical request cannot succeed.
+	Kind          DispatchErrorKind
+	Status        int
+	Message       string
+	RetryAfter    bool
 	NoClientRetry bool
-	// LogLevel is "", "warn", or "error". Empty means the handler should not
-	// log at all (the error is either already logged upstream, e.g. a
-	// buffered UpstreamStatusError, or a routine client-input problem).
-	LogLevel   string
-	LogMessage string
+	LogLevel      string
+	LogMessage    string
 }
 
-// ClassifyDispatchError maps the sentinel errors shared by every dispatch
-// entry point (ProxyMessages, ProxyOpenAIChatCompletion, ProxyOpenAIResponses,
-// ProxyGeminiGenerateContent) to a DispatchErrorClass. The second return value
-// is false when err doesn't match any known sentinel, meaning the caller
-// should fall back to its own generic upstream-failure response.
-//
-// Callers must check c.Writer.Written() (mid-stream failure) before calling
-// this — that's HTTP-plumbing, not classification — and must handle
-// format-specific sentinels (e.g. proxy.ErrGeminiCrossFormatUnsupported)
-// themselves before falling through here.
 func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	var statusErr *providers.UpstreamStatusError
 	var bufferedErr *providers.UpstreamErrorResponse
@@ -149,7 +122,6 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "warn",
 			LogMessage: "Rejected forced Claude turn: subscriptions refused third-party client",
 		}, true
-	// Ahead of the pool cases: a billing-gated pool refusal carries both.
 	case errors.As(err, &allowanceSpent):
 		kind := DispatchErrorCreditsExhausted
 		if errors.Is(err, ErrSpendCapSubscriptionUnavailable) {
@@ -222,13 +194,9 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	case errors.Is(err, ErrHandoffUnavailable):
 		return DispatchErrorClass{Kind: DispatchErrorHandoff, Status: http.StatusServiceUnavailable, Message: ErrHandoffUnavailable.Error(), LogLevel: "warn", LogMessage: "Pi handoff unavailable"}, true
 	case errors.As(err, &forcedExcluded):
-		// Ahead of the sentinel cases so the reason reaches the caller: a bare
-		// "forced model is excluded" doesn't say which model or why.
 		return DispatchErrorClass{
-			Kind:   DispatchErrorForcedModelExcluded,
-			Status: http.StatusBadRequest,
-			// Sigil-free on purpose: this classifier has no request context to
-			// read the client from, and Codex never accepts the "/" form.
+			Kind:       DispatchErrorForcedModelExcluded,
+			Status:     http.StatusBadRequest,
 			Message:    forcedExcluded.Reason + ". Clear it with the unforce-model directive, or pick a model from a permitted provider.",
 			LogLevel:   "warn",
 			LogMessage: "Rejected request: forced model is excluded on this installation",
@@ -271,8 +239,6 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 		}, true
 	case errors.As(err, &compactionUnservable):
 		return compactionUnservableClassFor(compactionUnservable), true
-	// Before the generic upstream cases: an overflow must reach every client in
-	// its native shape, not as an opaque upstream failure.
 	case isContextOverflow(err):
 		return contextWindowExceededClass, true
 	case errors.As(err, &statusErr):
@@ -282,9 +248,6 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			Message: TerminalErrorMessage(err),
 		}, true
 	case errors.As(err, &bufferedErr):
-		// Same as UpstreamStatusError: preserve the upstream status so a
-		// buffered 429/5xx is not rewritten as a generic 502 by handlers
-		// that fall through when ClassifyDispatchError does not match.
 		return DispatchErrorClass{
 			Kind:    DispatchErrorUpstreamStatus,
 			Status:  bufferedErr.Status,
@@ -317,8 +280,6 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogMessage: "Rejected request: Chat Completions body posted to /v1/responses",
 		}, true
 	case errors.Is(err, translate.ErrAnthropicCacheControlOverflow), errors.Is(err, translate.ErrAnthropicCacheControlInvalid):
-		// Client's explicit cache_control is invalid (overflow or bad TTL order);
-		// validator caught it pre-dispatch, so the generic 502 was misleading.
 		return DispatchErrorClass{
 			Kind:       DispatchErrorAnthropicCacheControlInvalid,
 			Status:     http.StatusBadRequest,
@@ -344,7 +305,6 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogMessage: "Compatible translation provider unavailable",
 		}, true
 	case translate.IsIntrinsicallyIncompatible(err):
-		// Only reached when every rescue was unavailable or also failed.
 		return DispatchErrorClass{
 			Kind:       DispatchErrorRoutedModelIncompatible,
 			Status:     http.StatusBadGateway,
@@ -352,9 +312,6 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "warn",
 			LogMessage: "Routed model cannot serve this request shape; no failover was available",
 		}, true
-	// Must precede the ErrNoEligibleProvider case: ErrAllowlistEmptiesPool
-	// wraps it, so the generic case would otherwise match first and report a
-	// missing-provider-keys problem for what is actually a config decision.
 	case errors.Is(err, router.ErrAllowlistEmptiesPool):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorAllowlistEmptiesPool,
@@ -399,8 +356,6 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "warn",
 			LogMessage: "Policy pin unavailable",
 		}, true
-	// Must precede every policy-unavailable case: ErrGatewayServesNoDeployedModel
-	// also wraps ErrHMMUnavailable, and the more-specific sentinel wins.
 	case errors.Is(err, policy.ErrGatewayServesNoDeployedModel):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorGatewayServesNoModel,
@@ -487,9 +442,6 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	}
 }
 
-// classifyResolutionError maps a failed plan resolution to a client-facing
-// class: an override or selection the request itself supplied is a client
-// error; a policy with nothing eligible to run on is a routing outage.
 func classifyResolutionError(err *policy.ResolutionError) DispatchErrorClass {
 	switch err.Code {
 	case policy.ResolutionErrorInvalidOverride, policy.ResolutionErrorOverrideNotAllowed, policy.ResolutionErrorDuplicateOverride, policy.ResolutionErrorUnknownSelection, policy.ResolutionErrorBudgetViolation:
@@ -513,9 +465,6 @@ func classifyResolutionError(err *policy.ResolutionError) DispatchErrorClass {
 	}
 }
 
-// unwrapToSentinelMessage returns the message of the wrap layer whose direct
-// child is one of the cache_control sentinels, stripping outer prefixes like
-// "emit body: ". Falls back to err.Error().
 func unwrapToSentinelMessage(err error) string {
 	for e := err; e != nil; e = errors.Unwrap(e) {
 		child := errors.Unwrap(e)
@@ -529,10 +478,6 @@ func unwrapToSentinelMessage(err error) string {
 	return err.Error()
 }
 
-// IsClientError reports whether the classified error stems from a bad
-// request (as opposed to an upstream/routing failure), which anthropic and
-// openai handlers surface as the "invalid_request_error" envelope type
-// rather than "api_error".
 func (k DispatchErrorKind) IsClientError() bool {
 	switch k {
 	case DispatchErrorClassifierHistory, DispatchErrorClassifierInputTooLong:
@@ -544,9 +489,6 @@ func (k DispatchErrorKind) IsClientError() bool {
 	}
 }
 
-// LogDispatchErrorClass logs cls at the level it prescribes (a no-op when
-// LogLevel is empty, e.g. a well-understood client-input problem that
-// doesn't warrant a log line).
 func LogDispatchErrorClass(log *slog.Logger, cls DispatchErrorClass, err error) {
 	switch cls.LogLevel {
 	case "warn":

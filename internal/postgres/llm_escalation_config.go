@@ -17,7 +17,6 @@ import (
 
 var _ llmescalation.ConfigurationStore = (*LLMEscalationRepo)(nil)
 
-// GetSelection resolves the installation's explicit or legacy classifier settings.
 func (r *LLMEscalationRepo) GetSelection(ctx context.Context, installation string) (llmescalation.Selection, error) {
 	id, err := uuid.Parse(installation)
 	if err != nil {
@@ -33,7 +32,6 @@ func (r *LLMEscalationRepo) GetSelection(ctx context.Context, installation strin
 	return escalationSelection(installation, encoded)
 }
 
-// SetSelection atomically patches only escalation settings and their legacy mirrors.
 func (r *LLMEscalationRepo) SetSelection(ctx context.Context, installation string, update llmescalation.SelectionUpdate) (llmescalation.Selection, error) {
 	id, err := uuid.Parse(installation)
 	if err != nil {

@@ -15,8 +15,6 @@ import (
 	"strings"
 )
 
-// proxy is the forward-proxy handler. It handles only CONNECT (the shape
-// Go's HTTP transport uses for HTTPS through a proxy), one request per tunnel.
 type proxy struct {
 	cfg   config
 	ca    *ca
@@ -49,7 +47,7 @@ func (p *proxy) handle(w http.ResponseWriter, r *http.Request) {
 
 	host, _, err := net.SplitHostPort(r.Host)
 	if err != nil {
-		host = r.Host // r.Host had no port (defaults to 443 for CONNECT targets)
+		host = r.Host
 	}
 
 	tlsConn := tls.Server(clientConn, p.ca.tlsConfigFor())
@@ -59,8 +57,6 @@ func (p *proxy) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// One request per CONNECT tunnel — the router doesn't pipeline, and
-	// sequential smoke calls keep the implementation simple and correct.
 	if err := p.serveOne(tlsConn, host); err != nil && !errors.Is(err, io.EOF) {
 		log.Printf("mitmproxy: serve %s: %v", host, err)
 	}
@@ -84,8 +80,6 @@ func (p *proxy) serveOne(conn net.Conn, host string) error {
 
 	c, err := p.resolve(host, req, body, key)
 	if err != nil {
-		// Synthesize a clean 502 so a cache-miss appears as an assertion failure
-		// in the smoke suite rather than a confusing transport error.
 		writeErr := writeCassetteResponse(conn, &cassette{
 			StatusCode: http.StatusBadGateway,
 			Headers:    map[string]string{"Content-Type": "text/plain"},
@@ -100,7 +94,6 @@ func (p *proxy) serveOne(conn net.Conn, host string) error {
 	return writeCassetteResponse(conn, c)
 }
 
-// resolve returns the cassette to serve, per the configured mode.
 func (p *proxy) resolve(host string, req *http.Request, body []byte, key string) (*cassette, error) {
 	switch p.cfg.mode {
 	case modeReplayOnly:
@@ -114,7 +107,7 @@ func (p *proxy) resolve(host string, req *http.Request, body []byte, key string)
 	case modeRecord:
 		return p.recordLive(host, req, body, key)
 
-	default: // modeReplayOrRecord
+	default:
 		if c, ok := p.store.load(key); ok {
 			return c, nil
 		}
@@ -122,8 +115,6 @@ func (p *proxy) resolve(host string, req *http.Request, body []byte, key string)
 	}
 }
 
-// recordLive dispatches the request to the real upstream and persists the
-// (sanitized) response as a cassette before returning it.
 func (p *proxy) recordLive(host string, req *http.Request, body []byte, key string) (*cassette, error) {
 	targetURL := &url.URL{
 		Scheme:   "https",
@@ -150,9 +141,6 @@ func (p *proxy) recordLive(host string, req *http.Request, body []byte, key stri
 		return nil, fmt.Errorf("read live response body: %w", err)
 	}
 
-	// Decompress before persisting: the cloned request carries Accept-Encoding verbatim, so
-	// Go's transparent gzip decompression never fires and resp.Body is raw gzip. Storing
-	// compressed bytes makes cassettes binary blobs, undiffable and opaque to secret-scanning.
 	headers := sanitizeHeaders(resp.Header)
 	if strings.EqualFold(resp.Header.Get("Content-Encoding"), "gzip") {
 		gr, gzErr := gzip.NewReader(bytes.NewReader(respBody))
@@ -183,19 +171,15 @@ func (p *proxy) recordLive(host string, req *http.Request, body []byte, key stri
 	return c, nil
 }
 
-// writeCassetteResponse writes a stored cassette back to the client connection
-// as a raw HTTP/1.1 response.
 func writeCassetteResponse(conn net.Conn, c *cassette) error {
 	resp := &http.Response{
-		StatusCode: c.StatusCode,
-		Status:     http.StatusText(c.StatusCode),
-		Proto:      "HTTP/1.1",
-		ProtoMajor: 1,
-		ProtoMinor: 1,
-		Header:     make(http.Header, len(c.Headers)),
-		Body:       io.NopCloser(bytes.NewReader(c.Body)),
-		// ContentLength:-1 lets resp.Write use chunked encoding — fine for both
-		// JSON and SSE since the router's SSE reader doesn't require a specific transfer-encoding.
+		StatusCode:    c.StatusCode,
+		Status:        http.StatusText(c.StatusCode),
+		Proto:         "HTTP/1.1",
+		ProtoMajor:    1,
+		ProtoMinor:    1,
+		Header:        make(http.Header, len(c.Headers)),
+		Body:          io.NopCloser(bytes.NewReader(c.Body)),
 		ContentLength: -1,
 	}
 	for k, v := range c.Headers {

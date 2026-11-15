@@ -20,8 +20,6 @@ const (
 	organizationEnterprise organizationType = "claude_enterprise"
 )
 
-// SubscriptionPlan uses the authenticated profile's organization_type exclusively.
-// Quota windows, overage and organization display names do not identify a plan.
 func (c *Client) SubscriptionPlan(ctx context.Context, token []byte) (providers.SubscriptionPlan, error) {
 	if !c.SupportsSubscriptions() {
 		return providers.SubscriptionPlanUnknown, nil

@@ -23,21 +23,12 @@ const (
 	ctxKeySubscriptionOwner = "router_subscription_owner"
 )
 
-// RouterKeyHeader carries the Weave Router key when clients need to preserve Authorization / x-api-key for the upstream provider.
 const RouterKeyHeader = auth.RouterKeyHeader
 
-// WithAuth validates the inbound request via a bearer rk_ token only. Used on data-plane routes (`/v1/*`). On failure, short-circuits 401.
-//
-// byokRequiresOptIn gates BYOK keys behind the installation's own opt-in.
-// Managed-mode deployments pass true; self-hosted always passes false.
 func WithAuth(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAdmissionConfig) gin.HandlerFunc {
 	return withAPIKey(svc, byokRequiresOptIn, serving...)
 }
 
-// WithAdminOrAuth accepts either a signed admin session cookie OR a bearer rk_ token.
-// Don't use on `/v1/*` data-plane routes (a cookie shouldn't call provider proxy endpoints)
-// or on control-plane mutations (a leaked rk_ shouldn't mint keys or rotate credentials —
-// use WithAdminOnly there). See WithAuth for byokRequiresOptIn.
 func WithAdminOrAuth(svc *auth.Service, byokRequiresOptIn bool) gin.HandlerFunc {
 	apiKeyMW := withAPIKey(svc, byokRequiresOptIn)
 	return func(c *gin.Context) {
@@ -50,7 +41,6 @@ func WithAdminOrAuth(svc *auth.Service, byokRequiresOptIn bool) gin.HandlerFunc 
 	}
 }
 
-// WithAdminOnly requires a valid admin session cookie; bearer rk_ tokens are rejected so a leaked installation API key can't mint credentials or rotate provider keys.
 func WithAdminOnly(svc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !svc.AdminLoginEnabled() {
@@ -67,12 +57,6 @@ func WithAdminOnly(svc *auth.Service) gin.HandlerFunc {
 	}
 }
 
-// withAPIKey is the bearer-only auth path shared by WithAuth and the fall-through branch of WithAdminOrAuth.
-//
-// When byokRequiresOptIn is true, BYOK rows from svc.VerifyAPIKey are dropped
-// unless the installation set ByokEnabled. Every downstream BYOK consumer
-// (credential resolution, provider gating, usage bookkeeping) reads that
-// single ctx key, so gating it here decides the whole path in one place.
 func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAdmissionConfig) gin.HandlerFunc {
 	allowedOrganizations := organizationAllowlistFromEnv()
 	return func(c *gin.Context) {
@@ -173,8 +157,6 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 				ctx = context.WithValue(ctx, proxy.InstallationFastModeModelsContextKey{}, installation.FastModeModels)
 			}
 			if installation.RoutingQualityWeight != nil {
-				// User-facing dial position flows in as QualityBias (per-cluster,
-				// dispersion-aware), not the uniform Alpha. See router.Overrides.
 				ctx = context.WithValue(ctx, proxy.InstallationRoutingKnobsContextKey{}, &router.Overrides{
 					QualityBias: installation.RoutingQualityWeight,
 				})
@@ -219,10 +201,6 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 				ctx = context.WithValue(ctx, proxy.InstallationCaptureModeContextKey{},
 					proxy.ParseCaptureMode(*installation.ContentCaptureMode))
 			}
-			// Per-organization behavioral flag overrides. Skipped entirely when
-			// the deployment-wide escape hatch is set, so an env-var rollback
-			// can't be defeated by a stored per-org row. WithOverrides is a
-			// no-op for an empty set, which is the common case.
 			if !svc.FlagOverridesDisabled() {
 				ctx = flags.WithOverrides(ctx, installation.FlagOverrides)
 			}
@@ -259,7 +237,6 @@ func isAuthFailure(err error) bool {
 		errors.Is(err, auth.ErrWrongKeyScope) || errors.Is(err, auth.ErrPersonalCredentialRequired)
 }
 
-// tryAdminCookie returns nil so callers fall through to bearer auth when the cookie is absent, admin login is disabled, or the cookie is invalid.
 func tryAdminCookie(c *gin.Context, svc *auth.Service) *auth.AdminPrincipal {
 	if !svc.AdminLoginEnabled() {
 		return nil
@@ -270,13 +247,11 @@ func tryAdminCookie(c *gin.Context, svc *auth.Service) *auth.AdminPrincipal {
 	}
 	principal, err := svc.VerifyAdminSession(cookie)
 	if err != nil {
-		// Stale/tampered cookie: don't fail — caller may still have a valid rk_ bearer.
 		return nil
 	}
 	return principal
 }
 
-// extractToken pulls the router token from RouterKeyHeader first, then falls back to Authorization: Bearer or x-api-key.
 func extractToken(c *gin.Context) string {
 	return auth.RoutingTokenFromHeaders(c.Request.Header)
 }
@@ -297,7 +272,6 @@ func handleAuthError(c *gin.Context, err error) {
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "organization_not_allowed"})
 		return
 	default:
-		// Infra failure — not a bad key. 503 so clients retry instead of treating it as terminal.
 		logger.Error("Auth check errored", "err", err)
 		c.Header("Retry-After", "1")
 		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "auth_unavailable"})
@@ -306,7 +280,6 @@ func handleAuthError(c *gin.Context, err error) {
 	c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid_key"})
 }
 
-// InstallationFrom retrieves the authed installation set by WithAuth. Returns nil for admin-cookie sessions and unauthed requests.
 func InstallationFrom(c *gin.Context) *auth.Installation {
 	v, ok := c.Get(ctxKeyInstallation)
 	if !ok {
@@ -325,10 +298,6 @@ func APIKeyFrom(c *gin.Context) *auth.APIKey {
 	return apiKey
 }
 
-// SubscriptionOwnerFrom retrieves the person this request draws subscriptions
-// and included allowance from. It is the caller the request identified itself
-// as, which on a key shared across an organization is not the key's owner.
-// Requests authenticated before the owner was resolved fall back to the key.
 func SubscriptionOwnerFrom(c *gin.Context) auth.SubscriptionOwner {
 	if _, ok := requestcontext.InternalTestIdentityFrom(c.Request.Context()); ok {
 		return auth.SubscriptionOwner{}
@@ -342,10 +311,6 @@ func SubscriptionOwnerFrom(c *gin.Context) auth.SubscriptionOwner {
 	return auth.SubscriptionOwnerForKey(APIKeyFrom(c))
 }
 
-// SubscriptionOwnerLive re-resolves the caller against the live projection,
-// for the subscription-management endpoints: their owner decides whose linked
-// account is listed, disabled or deleted, so they must not act on an identity
-// the cache still remembers after Weave withdrew it.
 func SubscriptionOwnerLive(c *gin.Context, svc *auth.Service) (auth.SubscriptionOwner, error) {
 	apiKey := APIKeyFrom(c)
 	if apiKey == nil || svc == nil {
@@ -359,9 +324,6 @@ func SubscriptionOwnerLive(c *gin.Context, svc *auth.Service) (auth.Subscription
 	return owner, nil
 }
 
-// subscriptionOwnerForRequest binds personal capacity to the authenticated key
-// subject. Client-asserted email is attribution only and cannot grant ownership;
-// live candidate SQL revalidates subject eligibility and installation membership.
 func subscriptionOwnerForRequest(c *gin.Context, apiKey *auth.APIKey) auth.SubscriptionOwner {
 	if _, ok := requestcontext.InternalTestIdentityFrom(c.Request.Context()); ok {
 		return auth.SubscriptionOwner{}
@@ -369,7 +331,6 @@ func subscriptionOwnerForRequest(c *gin.Context, apiKey *auth.APIKey) auth.Subsc
 	return auth.SubscriptionOwnerForKey(apiKey)
 }
 
-// AdminPrincipalFrom retrieves the admin principal set when the request authenticated via the session cookie. Returns nil for rk_-keyed or unauthed requests.
 func AdminPrincipalFrom(c *gin.Context) *auth.AdminPrincipal {
 	v, ok := c.Get(ctxKeyAdminPrincipal)
 	if !ok {

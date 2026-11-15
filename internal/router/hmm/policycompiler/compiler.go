@@ -1,5 +1,3 @@
-// Package policycompiler turns reviewed HMM roster source into the only
-// serving-policy schema accepted by the Go runtime.
 package policycompiler
 
 import (
@@ -11,8 +9,6 @@ import (
 
 var defaultClassOrder = []string{"low", "medium", "high", "maximum"}
 
-// legacyPooledHarness is how reviewed roster source names the all-harness pin
-// bucket that canonical policy calls rosterdata.HarnessAll.
 const legacyPooledHarness = "pooled"
 
 func canonicalHarness(harness string) rosterdata.Harness {
@@ -22,9 +18,6 @@ func canonicalHarness(harness string) rosterdata.Harness {
 	return rosterdata.Harness(harness)
 }
 
-// CompilableSource reports whether reviewed roster source in the given schema
-// carries everything Go selection needs. v6 and older lack WII/WPI provenance,
-// so the serving loader may still parse them but Compile can never emit a policy.
 func CompilableSource(schema rosterdata.SchemaVersion) bool {
 	switch schema {
 	case rosterdata.SchemaVersionV7, rosterdata.SchemaVersionV75C, rosterdata.SchemaVersionPolicyV1:
@@ -33,8 +26,6 @@ func CompilableSource(schema rosterdata.SchemaVersion) bool {
 	return false
 }
 
-// Options contains reviewed policy metadata. Offline evidence is provenance;
-// it never changes membership or order inside Compile.
 type Options struct {
 	ClassOrder          []string
 	PreferredModelBonus *float64
@@ -44,7 +35,6 @@ type Options struct {
 	EvidenceSHA256      string
 }
 
-// Compile converts strict source JSON to canonical Go-owned serving-policy bytes.
 func Compile(source []byte, options Options) ([]byte, *rosterdata.Roster, error) {
 	roster, err := rosterdata.Parse(source)
 	if err != nil {

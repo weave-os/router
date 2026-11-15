@@ -1,6 +1,3 @@
-// Package rosterdata decodes and validates the generated HMM roster JSON as
-// declarative data, replacing the sidecar-embedded roster. It is the input to the
-// router's deterministic arm selection; see docs/HMM_GO_SELECTION.md.
 package rosterdata
 
 import (
@@ -22,18 +19,12 @@ import (
 type SchemaVersion string
 
 const (
-	SchemaVersionV6   SchemaVersion = "hmm_router_cluster_roster_v6"
-	SchemaVersionV7   SchemaVersion = "hmm_router_cluster_roster_v7"
-	SchemaVersionV75C SchemaVersion = "hmm_router_cluster_roster_v7_5c"
-	// SchemaVersionPolicyV1 is the first Go-owned serving-policy contract.
+	SchemaVersionV6       SchemaVersion = "hmm_router_cluster_roster_v6"
+	SchemaVersionV7       SchemaVersion = "hmm_router_cluster_roster_v7"
+	SchemaVersionV75C     SchemaVersion = "hmm_router_cluster_roster_v7_5c"
 	SchemaVersionPolicyV1 SchemaVersion = "hmm_go_selection_policy_v1"
 )
 
-// Harness identifies a request harness with policy-specific arm ordering. The
-// values are the sidecar-facing vocabulary in internal/router/policy/harness.go;
-// a policy may only key per-harness arms, membership, pins, and vendor
-// preferences on a harness listed here, and a harness with no entry serves the
-// pooled cluster order.
 type Harness string
 
 const (
@@ -44,7 +35,6 @@ const (
 	HarnessOpenCode   Harness = "opencode"
 )
 
-// Roster is the complete Go-owned HMM serving policy.
 type Roster struct {
 	SchemaVersion         SchemaVersion                     `json:"schema_version"`
 	Comment               string                            `json:"comment,omitempty"`
@@ -54,43 +44,32 @@ type Roster struct {
 	ManualPins            map[string]map[string][]string    `json:"manual_pins,omitempty"`
 	ModePolicies          map[string]ModePolicy             `json:"mode_policies,omitempty"`
 	Preferences           PreferencePolicy                  `json:"preferences,omitempty"`
-	// SubscriptionLadders maps a subscription provider to the arm it serves in
-	// each classifier group. When present, a request with that provider's
-	// subscription in play leads with the ladder arm, and a request with no
-	// subscription in play ranks the pooled cluster order without harness pins.
-	SubscriptionLadders map[string]map[string]string `json:"subscription_ladders,omitempty"`
-	Provenance          Provenance                   `json:"provenance,omitempty"`
-	Clusters            map[string]Cluster           `json:"clusters"`
-	// SHA256 identifies the exact roster bytes when loaded from disk.
-	SHA256 string `json:"-"`
+	SubscriptionLadders   map[string]map[string]string      `json:"subscription_ladders,omitempty"`
+	Provenance            Provenance                        `json:"provenance,omitempty"`
+	Clusters              map[string]Cluster                `json:"clusters"`
+	SHA256                string                            `json:"-"`
 }
 
-// HarnessVendorPriority records legacy generated vendor-affinity provenance.
 type HarnessVendorPriority struct {
 	Vendors  []string `json:"vendors"`
 	Clusters []string `json:"clusters"`
 }
 
-// ModePolicy constrains the classifier groups available in one router mode.
 type ModePolicy struct {
 	AllowedGroups []string `json:"allowed_groups"`
 }
 
-// PreferencePolicy bounds score bonuses that cannot affect hard eligibility.
 type PreferencePolicy struct {
 	PreferredModelBonus float64 `json:"preferred_model_bonus,omitempty"`
 	SubscriptionBonus   float64 `json:"subscription_bonus,omitempty"`
 }
 
-// Provenance identifies the reviewed source and optional offline evidence.
 type Provenance struct {
 	SourceRevision string `json:"source_revision,omitempty"`
 	EvidenceURI    string `json:"evidence_uri,omitempty"`
 	EvidenceSHA256 string `json:"evidence_sha256,omitempty"`
 }
 
-// Ranking carries the ranking metadata the roster builder used; Alpha is the
-// per-cluster WMI blend weight.
 type Ranking struct {
 	Metric                 string             `json:"metric,omitempty"`
 	Alpha                  map[string]float64 `json:"alpha"`
@@ -109,21 +88,17 @@ type Ranking struct {
 	WMIFilter              *RankingFilter     `json:"wmi_filter,omitempty"`
 }
 
-// RankingFilter records the reviewed membership bounds used by the offline compiler.
 type RankingFilter struct {
 	MinimumScoreByCluster map[string]float64 `json:"minimum_score_by_cluster"`
 	MinArmsPerCluster     int                `json:"min_arms_per_cluster"`
 	MaxArmsPerCluster     int                `json:"max_arms_per_cluster"`
 }
 
-// ArmIndices are the immutable quality and price axes used to dynamically
-// rank an arm. Both are absolute 0-100 indices; WPI is not a serving price.
 type ArmIndices struct {
 	WII float64 `json:"wii_v1"`
 	WPI float64 `json:"wpi_v1"`
 }
 
-// Cluster is one complexity cluster's ordered arm roster and reference costs.
 type Cluster struct {
 	ComplexityLabel           string                `json:"complexity_label"`
 	Arms                      []string              `json:"arms"`
@@ -137,8 +112,6 @@ type Cluster struct {
 	PreferredVendorsByHarness map[Harness][]string  `json:"preferred_vendors_by_harness"`
 }
 
-// AllArms returns every distinct arm ID referenced by the roster — cluster
-// arms, per-harness arms, and per-harness membership — in sorted order.
 func (r *Roster) AllArms() []string {
 	seen := make(map[string]struct{})
 	for _, cluster := range r.Clusters {
@@ -169,8 +142,6 @@ func (r *Roster) AllArms() []string {
 	return arms
 }
 
-// Parse decodes and schema-validates a roster document. It does not check
-// arms against the model catalog; Load does.
 func Parse(data []byte) (*Roster, error) {
 	var roster Roster
 	decoder := json.NewDecoder(bytes.NewReader(data))
@@ -191,8 +162,6 @@ func Parse(data []byte) (*Roster, error) {
 	return &roster, nil
 }
 
-// ParseValidated strictly parses policy bytes and validates every arm against
-// the compiled model catalog.
 func ParseValidated(data []byte) (*Roster, error) {
 	roster, err := Parse(data)
 	if err != nil {
@@ -205,14 +174,11 @@ func ParseValidated(data []byte) (*Roster, error) {
 	return roster, nil
 }
 
-// SHA256Hex returns the lowercase hexadecimal SHA-256 digest of raw roster bytes.
 func SHA256Hex(data []byte) string {
 	digest := sha256.Sum256(data)
 	return hex.EncodeToString(digest[:])
 }
 
-// ValidateCatalog rejects serving-policy arms that cannot resolve through the
-// router's compiled catalog mapping.
 func ValidateCatalog(roster *Roster) error {
 	if roster == nil {
 		return errors.New("rosterdata: nil roster")
@@ -227,7 +193,6 @@ func ValidateCatalog(roster *Roster) error {
 	return nil
 }
 
-// CanonicalBytes returns compact deterministic JSON for hashing and publishing.
 func CanonicalBytes(roster *Roster) ([]byte, error) {
 	if roster == nil {
 		return nil, errors.New("rosterdata: nil roster")
@@ -242,8 +207,6 @@ func CanonicalBytes(roster *Roster) ([]byte, error) {
 	return payload, nil
 }
 
-// Load reads and fully validates the roster at path, including catalog
-// validation of every arm via armid.ValidateRosterIDs.
 func Load(path string) (*Roster, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

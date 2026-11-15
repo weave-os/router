@@ -7,13 +7,6 @@ import (
 	"strings"
 )
 
-// VerifyAnalyticsAPIKey authenticates a raw ra_ bearer token for the read-only
-// analytics export surface, returning ErrInvalidPrefix, ErrInvalidToken, or
-// ErrWrongKeyScope on failure.
-//
-// Narrower than VerifyAPIKey: no BYOK fetch, no cluster allowlists — analytics
-// and routing tokens hash to separate cache entries so neither surface can pick
-// up the other's cached record.
 func (s *Service) VerifyAnalyticsAPIKey(ctx context.Context, rawToken string) (*Installation, *APIKey, error) {
 	if !strings.HasPrefix(rawToken, AnalyticsAPIKeyPrefix+"_") {
 		return nil, nil, ErrInvalidPrefix
@@ -21,9 +14,6 @@ func (s *Service) VerifyAnalyticsAPIKey(ctx context.Context, rawToken string) (*
 	return s.verifySlimAPIKey(ctx, rawToken, ScopeAnalyticsRead)
 }
 
-// VerifyReadAPIKey authenticates an rk_ routing key or an ra_ analytics key for
-// installation-scoped read surfaces. Both resolve to the owning installation;
-// neither loads BYOK secrets, cluster allowlists or subscription state.
 func (s *Service) VerifyReadAPIKey(ctx context.Context, rawToken string) (*Installation, *APIKey, error) {
 	var installation *Installation
 	var apiKey *APIKey
@@ -87,8 +77,6 @@ func (s *Service) verifySlimAPIKey(ctx context.Context, rawToken string, scope A
 		return nil, nil, ErrWrongKeyScope
 	}
 
-	// Only an analytics record is complete without BYOK keys; caching a slim
-	// routing record would strip them from inference for the positive TTL.
 	if scope == ScopeAnalyticsRead {
 		s.cache.Set(keyHash, CachedKey{APIKey: apiKey, Installation: installation})
 	}

@@ -18,7 +18,6 @@ import (
 	"weave-os/router/internal/subscriptions/entitlement"
 )
 
-// ServingAdmissionConfig is assembled only when the worker is running with managed serving.
 type TestPlanAdmitter interface {
 	Admit(context.Context, string, string, string, string) (policyregistry.ServingAssertion, error)
 }
@@ -33,8 +32,6 @@ type ServingAdmissionConfig struct {
 	Attribution       policyregistry.RequestAttributionStore
 }
 
-// WithServingAdmission admits the authenticated principal and loads the selected snapshot.
-// A nil config is a no-op so existing self-hosted and old-config managed workers boot unchanged.
 func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 	if cfg == nil {
 		return func(c *gin.Context) { c.Next() }

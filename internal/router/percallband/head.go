@@ -10,10 +10,6 @@ import (
 	"github.com/dmitryikh/leaves"
 )
 
-// artifacts holds the two frozen binary band boosters + metadata, exported by
-// ml_dev/router_action_classifier/percall/export.py and relabeled to the v3 header
-// the pure-Go leaves reader accepts. Compiled into the binary — no runtime I/O.
-//
 //go:embed artifacts/percall_band_markov.txt artifacts/percall_band_markov_emb.txt artifacts/percall_band_metadata.json
 var artifacts embed.FS
 
@@ -23,7 +19,6 @@ const (
 	metadataFile  = "artifacts/percall_band_metadata.json"
 )
 
-// headSpec is one head's frozen config from metadata.json.
 type headSpec struct {
 	File             string  `json:"file"`
 	NFeatures        int     `json:"n_features"`
@@ -45,9 +40,6 @@ type metadata struct {
 	Heads       map[string]headSpec `json:"heads"`
 }
 
-// Head is the loaded per-call band predictor: two boosters (markov-only for
-// ToolResult turns where the embedding is not free; markov+emb for MainLoop turns
-// where the router already computed the prompt vector) + their frozen thresholds.
 type Head struct {
 	markov     *leaves.Ensemble
 	markovEmb  *leaves.Ensemble
@@ -57,9 +49,6 @@ type Head struct {
 	meta       metadata
 }
 
-// New loads the embedded artifacts into a ready-to-serve Head. Fails fast if an
-// artifact is missing/corrupt or the embedded feature layout disagrees with the Go
-// feature builder (a train/serve-skew guard).
 func New() (*Head, error) {
 	rawMeta, err := artifacts.ReadFile(metadataFile)
 	if err != nil {
@@ -91,10 +80,6 @@ func New() (*Head, error) {
 	return h, nil
 }
 
-// PredictBand returns the routing band, P(LARGE), and which head fired. When emb is
-// non-nil and matches the trained dimension, the markov+emb head is used (MainLoop);
-// otherwise the markov-only head (ToolResult / cold path). Decision rule (frozen in
-// metadata): serve SMALL iff P(LARGE) < threshold.
 func (h *Head) PredictBand(markov []float32, emb []float32) (band Band, pLarge float64, usedEmb bool) {
 	if emb != nil && len(emb) == h.embDim {
 		fvals := make([]float64, 0, len(markov)+len(emb))
@@ -107,7 +92,6 @@ func (h *Head) PredictBand(markov []float32, emb []float32) (band Band, pLarge f
 	return bandFor(pLarge, h.markovT), pLarge, false
 }
 
-// EmbedDim is the embedding dimension the markov+emb head expects.
 func (h *Head) EmbedDim() int { return h.embDim }
 
 func bandFor(pLarge, threshold float64) Band {
@@ -122,8 +106,6 @@ func loadEnsemble(name string) (*leaves.Ensemble, error) {
 	if err != nil {
 		return nil, fmt.Errorf("percallband: read %s: %w", name, err)
 	}
-	// loadTransformation=true so PredictSingle returns the sigmoid'd P(LARGE),
-	// matching the Python booster_.predict the parity fixture was frozen against.
 	ens, err := leaves.LGEnsembleFromReader(bufio.NewReader(bytes.NewReader(raw)), true)
 	if err != nil {
 		return nil, fmt.Errorf("percallband: parse %s: %w", name, err)
@@ -131,8 +113,6 @@ func loadEnsemble(name string) (*leaves.Ensemble, error) {
 	return ens, nil
 }
 
-// checkFeatureLayout guards against train/serve skew: the embedded markov feature
-// names (from Python export) must equal the Go builder's column order exactly.
 func checkFeatureLayout(embedded []string) error {
 	got := FeatureNames()
 	if len(embedded) != len(got) {

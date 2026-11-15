@@ -1,4 +1,3 @@
-// Package openai holds HTTP handlers for the OpenAI Chat Completions surface.
 package openai
 
 import (
@@ -73,10 +72,6 @@ func ChatCompletionHandler(svc *proxy.Service, authSvc *auth.Service) gin.Handle
 	}
 }
 
-// openAIErrorType maps a classified dispatch error to the OpenAI Chat
-// Completions error envelope's "type" field. Like Anthropic, OpenAI only
-// distinguishes client-input problems ("invalid_request_error") from
-// everything else ("api_error").
 func openAIErrorType(kind proxy.DispatchErrorKind) string {
 	if kind.IsClientError() {
 		return "invalid_request_error"
@@ -88,8 +83,6 @@ func writeOpenAIError(c *gin.Context, status int, errType, message string) {
 	writeOpenAIErrorWithCode(c, status, errType, message, "")
 }
 
-// writeOpenAIErrorWithCode sets the envelope's "code", which clients branch on
-// (context_length_exceeded is what makes Codex and opencode compact).
 func writeOpenAIErrorWithCode(c *gin.Context, status int, errType, message, code string) {
 	var codeValue any
 	if code != "" {

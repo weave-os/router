@@ -12,8 +12,6 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-// The coordinator outlives binding attempts; the buffer's provider commitment
-// remains the retry gate even after a notice becomes visible.
 type requestNoticeStream struct {
 	delivery   *translate.NoticeDelivery
 	lastNotice translate.RouterNotice
@@ -39,9 +37,6 @@ func (s *requestNoticeStream) prepare(ctx context.Context, sink http.ResponseWri
 	if s.suppressed(notice) {
 		return s.delivery, nil
 	}
-	// Eager streams show the first marker immediately. Once one is visible, a
-	// fallback candidate's marker waits for its output, so failed candidates
-	// never add markers and only the model that served can correct the first.
 	if s.modelShown && notice.Kind == translate.NoticeModelSelection && s.delivery.DeferIfEager(notice) {
 		return s.delivery, nil
 	}
@@ -55,8 +50,6 @@ func (s *requestNoticeStream) suppressed(notice translate.RouterNotice) bool {
 	return notice.Text == "" || (notice.Kind == s.lastNotice.Kind && notice.Text == s.lastNotice.Text)
 }
 
-// deliver shows notice within the attempt prepare started, keeping that
-// attempt's deferred marker.
 func (s *requestNoticeStream) deliver(notice translate.RouterNotice) error {
 	if s.suppressed(notice) {
 		return nil

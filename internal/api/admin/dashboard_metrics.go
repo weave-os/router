@@ -33,8 +33,7 @@ const (
 	dashboardGroupModel        dashboardMetricGroup = "model"
 	dashboardGroupRoutingState dashboardMetricGroup = "routing_state"
 	dashboardGroupUserLink     dashboardMetricGroup = "user_link"
-	// dashboardGroupPerson only narrows drill-downs, to one Individuals row.
-	dashboardGroupPerson dashboardMetricGroup = "person"
+	dashboardGroupPerson       dashboardMetricGroup = "person"
 )
 
 type dashboardDecisionType string
@@ -44,7 +43,6 @@ const (
 	dashboardDecisionRouterPick  dashboardDecisionType = "router_pick"
 )
 
-// Group labels match the hosted dashboard so shared cards read both hosts alike.
 const (
 	costTypeActual          = "Actual cost"
 	costTypeComparison      = "Expensive model cost"
@@ -56,7 +54,6 @@ const (
 	userLinkUnlinked        = "unlinked"
 )
 
-// totalGranularity collapses the window into one value per group.
 const totalGranularity = "total"
 
 type dashboardPoint struct {
@@ -79,7 +76,6 @@ type dashboardReportSummaryResponse struct {
 	LastRequestAt     *string `json:"last_request_at"`
 }
 
-// The billing filter does not apply to active users; unknown granularity falls back to day.
 func MetricsSeriesHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		metric := dashboardMetricType(c.Query("type"))
@@ -129,7 +125,6 @@ func MetricsSeriesHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 	}
 }
 
-// Sums the routed or passthrough facts for the stat cards; the window is read at hour granularity.
 func MetricsReportSummaryHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		from, to := parseTimeWindow(c)
@@ -163,8 +158,6 @@ type dashboardPeopleResponse struct {
 	People []dashboardPerson `json:"people"`
 }
 
-// MetricsPeopleHandler serves the adoption and inactive cards: everyone who
-// can route, independent of the date filter.
 func MetricsPeopleHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installationID, ok := dashboardScope(c)
@@ -209,7 +202,6 @@ func validDashboardSeries(metric dashboardMetricType, group dashboardMetricGroup
 	return false
 }
 
-// factsInGroup keeps the facts whose group label is label; "" keeps every fact.
 func factsInGroup(facts []proxy.TelemetryDashboardFact, group dashboardMetricGroup, label string) []proxy.TelemetryDashboardFact {
 	if label == "" {
 		return facts
@@ -238,7 +230,6 @@ func reportSummary(facts []proxy.TelemetryDashboardFact) dashboardReportSummaryR
 	return summary
 }
 
-// billedCost is zero for subscription turns: they carry no marginal spend.
 func billedCost(fact proxy.TelemetryDashboardFact) float64 {
 	if fact.SubscriptionServed {
 		return 0
@@ -246,8 +237,6 @@ func billedCost(fact proxy.TelemetryDashboardFact) float64 {
 	return fact.ActualCostUSD
 }
 
-// comparisonCost reprices Router-picked API turns at the comparison model; other
-// API turns keep their recorded cost, so only the Router's own choices save.
 func comparisonCost(fact proxy.TelemetryDashboardFact) float64 {
 	if fact.SubscriptionServed {
 		return 0
@@ -261,7 +250,6 @@ func comparisonCost(fact proxy.TelemetryDashboardFact) float64 {
 	return fact.ActualCostUSD
 }
 
-// listPriceCost prices every turn, subscription or not, at its served model's list price.
 func listPriceCost(fact proxy.TelemetryDashboardFact) float64 {
 	if cost, ok := catalogCost(fact.DecisionModel, fact); ok {
 		return cost
@@ -276,7 +264,6 @@ func catalogCost(modelID string, fact proxy.TelemetryDashboardFact) (float64, bo
 	}
 	binding := model.Providers[0]
 	provider := string(binding.Provider)
-	// Facts are bucket sums, so a per-request long-context threshold does not apply.
 	price := binding.Price
 	price.LongContext = nil
 	input, cacheCreation, cacheRead := int(fact.InputTokens), int(fact.CacheCreationTokens), int(fact.CacheReadTokens)

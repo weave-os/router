@@ -1,4 +1,3 @@
-// Command gencandidaterequirements writes the Router candidate requirements declaration.
 package main
 
 import (

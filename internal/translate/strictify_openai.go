@@ -7,39 +7,24 @@ import (
 	"strings"
 )
 
-// strictify limits. Conservative against OpenAI's documented structured-output
-// caps so a strictified schema is never rejected for size.
 const (
 	strictifyMaxDepth      = 10
 	strictifyMaxProperties = 1000
 )
 
-// strictifyBailKeywords are JSON Schema constructs OpenAI strict mode cannot
-// express; their presence anywhere makes the schema non-strictifiable.
 var strictifyBailKeywords = []string{
 	"oneOf", "allOf", "not", "if", "then", "else", "patternProperties", "$ref",
 	"dependentSchemas", "unevaluatedProperties", "unevaluatedItems", "prefixItems",
 }
 
-// strictifyDropKeywords are constraints strict mode rejects; they're stripped
-// from the node and appended to its description as guidance instead.
 var strictifyDropKeywords = []string{
 	"format", "pattern", "default", "examples",
 	"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf",
 	"minLength", "maxLength", "minItems", "maxItems", "uniqueItems",
 	"minProperties", "maxProperties",
-	// propertyNames rode through untouched and 400'd requests carrying the
-	// playwright MCP tools (browser_drop) on the gpt-5.x Responses path.
 	"propertyNames", "contains", "minContains", "maxContains", "dependentRequired",
 }
 
-// strictifyOpenAISchema converts a $ref-inlined tool input_schema into the
-// subset OpenAI strict mode requires: additionalProperties:false everywhere,
-// all properties required (optional ones made nullable instead), and rejected
-// constraint keywords moved into descriptions.
-//
-// Returns ok=false if the schema can't be strictified (non-object root, bail
-// keywords, unresolved $ref, or size limits exceeded). Input is never mutated.
 func strictifyOpenAISchema(schema any) (out any, ok bool) {
 	root, isMap := schema.(map[string]any)
 	if !isMap {
@@ -56,8 +41,6 @@ func strictifyOpenAISchema(schema any) (out any, ok bool) {
 	return res, true
 }
 
-// closeOpenAISchemaObjects closes fallback object schemas when doing so keeps
-// their declared properties and composition semantics satisfiable.
 func closeOpenAISchemaObjects(schema any) (any, bool) {
 	root, isMap := schema.(map[string]any)
 	if !isMap {
@@ -69,9 +52,6 @@ func closeOpenAISchemaObjects(schema any) (any, bool) {
 func closeOpenAISchemaNode(node map[string]any) map[string]any {
 	closed := maps.Clone(node)
 
-	// Closing an object that composes properties from another schema can
-	// reject keys required by that schema. Keep such a node open while still
-	// visiting its independently declared child schemas.
 	composed := false
 	for _, keyword := range []string{"allOf", "anyOf", "oneOf"} {
 		if _, present := node[keyword]; present {
@@ -82,8 +62,6 @@ func closeOpenAISchemaNode(node map[string]any) map[string]any {
 	_, hasProperties := node["properties"].(map[string]any)
 	if schemaNodeIsObject(node) && hasProperties && !composed {
 		if additional, present := node["additionalProperties"]; present && additional != false {
-			// Preserve freeform dictionaries while continuing through sibling
-			// schemas below.
 		} else {
 			closed["additionalProperties"] = false
 		}
@@ -148,8 +126,6 @@ func schemaNodeIsObject(node map[string]any) bool {
 	return false
 }
 
-// strictifyNode transforms one schema node, recursing into properties, items,
-// and anyOf branches.
 func strictifyNode(node map[string]any, depth int, propCount *int) (out map[string]any, ok bool) {
 	if depth > strictifyMaxDepth {
 		return nil, false
@@ -160,7 +136,6 @@ func strictifyNode(node map[string]any, depth int, propCount *int) (out map[stri
 		}
 	}
 
-	// Strict mode closes objects; freeform dictionaries must keep their keys.
 	if additional, present := node["additionalProperties"]; present && additional != false {
 		return nil, false
 	}
@@ -204,7 +179,6 @@ func strictifyNode(node map[string]any, depth int, propCount *int) (out map[stri
 		}
 	}
 
-	// anyOf branches recurse; a branch that isn't an object schema bails.
 	if branches, present := res["anyOf"].([]any); present {
 		outBranches := make([]any, 0, len(branches))
 		for _, b := range branches {
@@ -216,8 +190,6 @@ func strictifyNode(node map[string]any, depth int, propCount *int) (out map[stri
 			if !sok {
 				return nil, false
 			}
-			// OpenAI strict mode: every anyOf branch needs a concrete type; bail
-			// rather than emit a typeless branch that 400s.
 			if !schemaHasStrictType(sb) {
 				return nil, false
 			}
@@ -229,7 +201,6 @@ func strictifyNode(node map[string]any, depth int, propCount *int) (out map[stri
 	if items, present := res["items"]; present {
 		im, isMap := items.(map[string]any)
 		if !isMap {
-			// Tuple-form items (array) is not expressible in strict mode.
 			return nil, false
 		}
 		si, sok := strictifyNode(im, depth+1, propCount)
@@ -237,13 +208,10 @@ func strictifyNode(node map[string]any, depth int, propCount *int) (out map[stri
 			return nil, false
 		}
 		if !schemaHasStrictType(si) {
-			// No declared element type — synthesizing would silently reject valid
-			// non-primitive elements; bail the whole tool to non-strict instead.
 			return nil, false
 		}
 		res["items"] = si
 	} else if typeIncludesArray(res["type"]) {
-		// Same "no declared element type" case as above.
 		return nil, false
 	}
 
@@ -259,9 +227,6 @@ func strictifyNode(node map[string]any, depth int, propCount *int) (out map[stri
 		return res, true
 	}
 
-	// Object node: additionalProperties:false, all properties required,
-	// originally-optional properties become nullable. Stamp type:"object" so
-	// a properties-only node inside anyOf carries an explicit type.
 	res["type"] = "object"
 	res["additionalProperties"] = false
 	originallyRequired := make(map[string]struct{})
@@ -303,13 +268,8 @@ func strictifyNode(node map[string]any, depth int, propCount *int) (out map[stri
 	return res, true
 }
 
-// optionalNote tells the model that null on a made-nullable property means
-// "omit": the strict schema alone reads as all-required, and gpt-5.x fills
-// optionals it should leave out (Bash.timeout, Read.limit, Agent.isolation).
 const optionalNote = "(Optional; pass null to omit.)"
 
-// makeNullable adds null as an accepted type: strict mode requires every
-// property in `required`, so optionality is expressed via null union instead.
 func makeNullable(node map[string]any) map[string]any {
 	node = withOptionalNote(node)
 	switch t := node["type"].(type) {
@@ -335,14 +295,6 @@ func makeNullable(node map[string]any) map[string]any {
 		node["anyOf"] = append(branches, map[string]any{"type": "null"})
 		return node
 	}
-	// No type and no anyOf: give the synthetic branch an explicit value-type union
-	// so OpenAI strict mode accepts it; preserve any inline constraints on the original node.
-	//
-	// OpenAI strict mode requires, on every node whose type can be "object": additionalProperties:false
-	// + empty properties/required (400: "'additionalProperties' is required to be supplied and to be false").
-	// On every node whose type can be "array": an "items" sub-schema (400: "array schema missing items").
-	// items bottoms out at primitives — this branch means "no type info at all", so a shallow
-	// terminating schema is deliberate.
 	branch := map[string]any{
 		"type":                 []any{"string", "number", "boolean", "object", "array", "null"},
 		"additionalProperties": false,
@@ -356,9 +308,6 @@ func makeNullable(node map[string]any) map[string]any {
 	return map[string]any{"anyOf": []any{branch, map[string]any{"type": "null"}}}
 }
 
-// addNullToEnum admits null on a typed enum node. `enum` constrains the value
-// independently of `type`, so a ["string","null"] union whose enum lacks null
-// still forces the model to pick a member on every call.
 func addNullToEnum(node map[string]any) {
 	values, present := node["enum"].([]any)
 	if !present {
@@ -387,8 +336,6 @@ func withOptionalNote(node map[string]any) map[string]any {
 	return node
 }
 
-// typeIncludesArray reports whether a node's "type" value (string or union
-// list form) includes "array".
 func typeIncludesArray(t any) bool {
 	switch v := t.(type) {
 	case string:
@@ -403,14 +350,10 @@ func typeIncludesArray(t any) bool {
 	return false
 }
 
-// permissiveAnySchema returns the items sub-schema for a bare array node —
-// excludes "array"/"object" to avoid recursive strictification.
 func permissiveAnySchema() map[string]any {
 	return map[string]any{"type": []any{"string", "number", "boolean", "null"}}
 }
 
-// schemaHasStrictType reports whether node carries a type OpenAI strict mode
-// can consume: an explicit "type", a nested "anyOf", or an "enum".
 func schemaHasStrictType(node map[string]any) bool {
 	if _, ok := node["type"]; ok {
 		return true
@@ -424,7 +367,6 @@ func schemaHasStrictType(node map[string]any) bool {
 	return false
 }
 
-// compactJSONValue renders a dropped constraint value for a description note.
 func compactJSONValue(v any) string {
 	switch val := v.(type) {
 	case string:

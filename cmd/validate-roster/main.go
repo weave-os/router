@@ -1,5 +1,3 @@
-// Command validate-roster checks a roster JSON file's arms against the model
-// catalog and exits non-zero on any invalid arm; never runs as part of the router.
 package main
 
 import (
@@ -26,8 +24,6 @@ func main() {
 	}
 }
 
-// run validates the roster file at path, writing one line per invalid arm to
-// out. It returns false when any arm fails validation.
 func run(path string, out io.Writer) (bool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -45,9 +41,6 @@ func run(path string, out io.Writer) (bool, error) {
 	return len(diagnostics) == 0, nil
 }
 
-// rosterArms extracts arm IDs from a flat JSON array, {"roster_ids": [...]}, or
-// {"clusters": {label: [...]|{"arms": [...]}}} — string-list clusters are the
-// sidecar /roster shape; arms-object clusters are the pinned artifact shape.
 func rosterArms(data []byte) ([]string, error) {
 	var flat []string
 	if err := json.Unmarshal(data, &flat); err == nil {
@@ -80,11 +73,8 @@ func rosterArms(data []byte) ([]string, error) {
 	return arms, nil
 }
 
-// clusterArmsList accepts a cluster as either a string list or an
-// {"arms": [...]} object.
 type clusterArmsList []string
 
-// UnmarshalJSON implements json.Unmarshaler for both cluster shapes.
 func (c *clusterArmsList) UnmarshalJSON(data []byte) error {
 	var list []string
 	if err := json.Unmarshal(data, &list); err == nil {

@@ -22,7 +22,6 @@ import (
 
 const commandApply commandName = "apply"
 
-// removedServingVerbs maps each retired verb to the invocation that absorbed it.
 var removedServingVerbs = map[commandName]string{
 	"validate": "publish --dry-run",
 	"resolve":  "apply --proposal-sha256 <sha256>",
@@ -169,8 +168,6 @@ func runServingWith(ctx context.Context, args []string, dependencies servingDepe
 	}
 }
 
-// servingPublish digests the manifest bytes exactly as they would be stored; a dry run performs
-// every pre-write check and reports that digest without opening the registry.
 func servingPublish(ctx context.Context, dependencies servingDependencies, root string, kind policyregistry.ServingKind, path string, dryRun bool) error {
 	if path == "" || kind == "" {
 		return errors.New("serving publish requires --kind and --manifest")
@@ -217,8 +214,6 @@ func servingTargetStatus(ctx context.Context, dependencies servingDependencies, 
 	return dependencies.writeOutput(snapshot)
 }
 
-// servingApply drives one proposal through the controller. A dry run stops after destination
-// validation; a rollback-scoped proposal additionally has its source validated by the controller.
 func servingApply(ctx context.Context, dependencies servingDependencies, root, proposalPath, proposalDigest string, dryRun bool) error {
 	var proposalRef policyregistry.ObjectRef
 	if proposalPath != "" {
@@ -343,7 +338,6 @@ func servingProposalStatus(ctx context.Context, registry servingRegistry, ref po
 	}{ref, false, snapshot.Generation})
 }
 
-// Every applied or replayed activation can change retained binding eligibility.
 func publishAdmissionInvalidation(ctx context.Context, project, topic string, target policyregistry.ServingTarget) error {
 	if project == "" || topic == "" {
 		return errors.New("admission invalidation requires project and topic configuration")

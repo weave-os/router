@@ -193,7 +193,6 @@ func (r *taskDomainRuntime) bind(candidate policyregistry.Candidate) (taskdomain
 		loaded, exists = r.bindings[ref.SHA256]
 	}
 	if !exists {
-		// Task weighting is optional: retiring a classifier must not strand candidates already admitted with it.
 		return baseline, nil, "", nil
 	}
 	evidenceSHA := loaded.release.Evidence[candidate.Policy.SHA256]

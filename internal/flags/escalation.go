@@ -5,7 +5,6 @@ import (
 	"fmt"
 )
 
-// EscalationClassifier identifies an independently selectable escalation policy.
 type EscalationClassifier string
 
 const (
@@ -15,7 +14,6 @@ const (
 	EscalationClassifierLLM        EscalationClassifier = "llm_escalation"
 )
 
-// EscalationConfig is one request's effective, immutable classifier selection.
 type EscalationConfig struct {
 	Active   EscalationClassifier
 	Shadow   EscalationClassifier
@@ -24,9 +22,6 @@ type EscalationConfig struct {
 	Explicit bool
 }
 
-// EscalationWithDeploymentShadow shadows classifier for installations that
-// select no classifier explicitly and run none actively; legacy XGB shadow
-// yields to it. Only LLM classifiers can be a deployment shadow.
 func EscalationWithDeploymentShadow(ctx context.Context, classifier EscalationClassifier) EscalationConfig {
 	config := EscalationFromContext(ctx)
 	if config.Explicit || config.Active != EscalationClassifierNone || !IsLLMEscalationClassifier(classifier) {
@@ -37,7 +32,6 @@ func EscalationWithDeploymentShadow(ctx context.Context, classifier EscalationCl
 	return config
 }
 
-// EscalationFromContext preserves legacy behavior until an active selector is set.
 func EscalationFromContext(ctx context.Context) EscalationConfig {
 	overrides, _ := OverridesFromContext(ctx)
 	active, explicit := overrides.Strings[KeyEscalationActiveClassifier]
@@ -91,7 +85,6 @@ func validateEscalationOverrides(overrides Overrides) error {
 	return nil
 }
 
-// IsLLMEscalationClassifier identifies selectors that share the asynchronous judge slot.
 func IsLLMEscalationClassifier(classifier EscalationClassifier) bool {
 	return classifier == EscalationClassifierSwitchyard || classifier == EscalationClassifierLLM
 }

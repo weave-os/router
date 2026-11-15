@@ -1,6 +1,3 @@
-// Command genprices rewrites every client-side pricing artifact from the
-// canonical router catalog exposed by internal/observability/otel/pricing.go.
-// Run via `make generate`.
 package main
 
 import (
@@ -21,9 +18,6 @@ const (
 	endMarker   = "# END_GENERATED_PRICES"
 )
 
-// scriptPaths lists files containing a BEGIN/END_GENERATED_PRICES block.
-// install.sh carries it in a heredoc, letting the installer write
-// cc-statusline.sh without a URL fetch.
 var scriptPaths = []string{
 	"install/cc-statusline.sh",
 	"install/install.sh",
@@ -31,8 +25,6 @@ var scriptPaths = []string{
 
 const piPricingPath = "install/pi-router/src/pricing.generated.ts"
 
-// benchPricingPath is the list-price table the Python benchmark harness
-// (bench/) uses to reprice Codex token counts; JSON so it needs no Go toolchain.
 const benchPricingPath = "bench/weave_bench/prices.generated.json"
 
 func main() {
@@ -62,9 +54,6 @@ func main() {
 	fmt.Printf("Wrote %s\n", benchPricingPath)
 }
 
-// benchModelPricing mirrors catalog.Pricing in the catalog's native USD/1M
-// units plus the effective cache multipliers, so the harness can compute
-// list-price cost exactly like catalog.Cost without re-deriving defaults.
 type benchModelPricing struct {
 	InputUSDPerMillion   float64 `json:"input_usd_per_million"`
 	OutputUSDPerMillion  float64 `json:"output_usd_per_million"`
@@ -111,12 +100,10 @@ func spliceFile(path, block string) error {
 	return os.WriteFile(path, []byte(updated), 0o755)
 }
 
-// buildBlock produces the shell prices='{...}' assignment from the pricing
-// table, in USD/1k (= USD/1M ÷ 1000) to match cc-statusline.sh's jq math.
 func buildBlock(table map[string]otel.Pricing) string {
 	models := sortedModels(table)
 
-	pad := maxLen(models) + 3 // room for `"` + name + `":`
+	pad := maxLen(models) + 3
 
 	var b strings.Builder
 	b.WriteString("prices='{\n")
@@ -154,9 +141,6 @@ func buildBlock(table map[string]otel.Pricing) string {
 	return b.String()
 }
 
-// buildTypeScript produces the price table consumed by the Pi extension. The
-// values stay in the catalog's native USD/1M units so the generated artifact is
-// lossless and the runtime arithmetic remains easy to audit.
 func buildTypeScript(table map[string]otel.Pricing) string {
 	models := sortedModels(table)
 	version := pricingVersion(table, models)
@@ -216,7 +200,6 @@ func fmtCatalogPrice(v float64) string {
 	return strconv.FormatFloat(v, 'f', -1, 64)
 }
 
-// splice replaces everything between the begin and end markers (exclusive) with block.
 func splice(path, src, block string) (string, error) {
 	start := strings.Index(src, beginMarker)
 	end := strings.Index(src, endMarker)
@@ -237,9 +220,6 @@ func maxLen(models []string) int {
 	return n
 }
 
-// fmtPrice formats a USD/1k price for cc-statusline.sh's jq math. Rounds to
-// 6 sig figs first so IEEE 754 artifacts (e.g. 0.071/1000 rendering as
-// 0.00007099999999999999) don't leak into the generated block.
 func fmtPrice(v float64) string {
 	if v == 0 {
 		return "0"

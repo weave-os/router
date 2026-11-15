@@ -12,8 +12,6 @@ import (
 	"weave-os/router/internal/providers"
 )
 
-// ParseInstallationBindings reads operator-owned authorization, independently
-// of tenant-supplied provider settings. An empty map authorizes no installation.
 func ParseInstallationBindings(raw string) (map[string]auth.AnthropicFederationConfig, error) {
 	var bindings map[string]auth.AnthropicFederationConfig
 	decoder := json.NewDecoder(strings.NewReader(raw))
@@ -39,8 +37,6 @@ func ParseInstallationBindings(raw string) (map[string]auth.AnthropicFederationC
 	return normalized, nil
 }
 
-// RequireInstallationBindings must be called before serving requests. It copies
-// the operator's allowlist so tenant configuration and cache entries cannot grant access.
 func (s *Source) RequireInstallationBindings(bindings map[string]auth.AnthropicFederationConfig) *Source {
 	s.bindings = maps.Clone(bindings)
 	if s.bindings == nil {

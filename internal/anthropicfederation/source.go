@@ -1,4 +1,3 @@
-// Package anthropicfederation exchanges workload assertions for Anthropic API credentials.
 package anthropicfederation
 
 import (
@@ -41,8 +40,6 @@ type cachedToken struct {
 	retryAt     time.Time
 }
 
-// Source isolates cached tokens by key, installation and federation configuration.
-// The identity provider is called for every exchange, including refreshes.
 type Source struct {
 	bindings      map[string]auth.AnthropicFederationConfig
 	httpClient    *http.Client
@@ -54,8 +51,6 @@ type Source struct {
 	group         singleflight.Group
 }
 
-// NewSource refuses redirects even when the injected HTTP client follows them.
-// Assertions and response bodies are never included in errors.
 func NewSource(client *http.Client, identityToken func(context.Context, string) (string, error), now auth.Clock) *Source {
 	isolatedClient := *client
 	isolatedClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
@@ -64,8 +59,6 @@ func NewSource(client *http.Client, identityToken func(context.Context, string) 
 	return &Source{httpClient: observability.WrapHTTPClient(&isolatedClient), identityToken: identityToken, now: now, cache: cache, assertions: assertions}
 }
 
-// Token permits a cached credential during temporary advisory-refresh failures;
-// failures within the mandatory window fail closed.
 func (s *Source) Token(ctx context.Context, key *auth.ExternalAPIKey) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -197,14 +190,10 @@ func (s *Source) exchange(ctx context.Context, federation *auth.AnthropicFederat
 	return append([]byte(nil), token...), nil
 }
 
-// claimAssertion prevents replay of jti-bearing assertions, including after an
-// ambiguous transport failure. The IdP remains responsible for rotation across restarts.
 func (s *Source) claimAssertion(assertion string) error {
 	if len(assertion) > 16*1024 {
 		return fmt.Errorf("%w: expected a raw OIDC JWT", auth.ErrAnthropicFederationUnavailable)
 	}
-	// This parse is only a local replay guard. Anthropic verifies the signature
-	// and enforces the issuer and rule; these claims never authorize a request.
 	claims := jwt.RegisteredClaims{}
 	if _, _, err := new(jwt.Parser).ParseUnverified(assertion, &claims); err != nil {
 		return fmt.Errorf("%w: invalid identity assertion", auth.ErrAnthropicFederationUnavailable)

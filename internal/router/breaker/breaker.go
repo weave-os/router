@@ -1,17 +1,3 @@
-// Package breaker is a per-model circuit breaker fed by upstream overload
-// signals. It is pure in-process state with no I/O: each router replica
-// observes its own traffic.
-//
-// A shared circuit pools every organization's evidence about a provider's own
-// capacity, but withdraws the model only from organizations that have each
-// confirmed the overload with failures of their own. An isolated circuit
-// belongs to one organization (traffic through its own gateway) and only ever
-// sees that organization's failures.
-//
-// Request-path calls never take the lock: Withdrawn and ClaimProbe read an
-// atomically published snapshot, and claiming or releasing a probe is one
-// compare-and-swap on the circuit. Only overload failures and probe outcomes,
-// which change what the snapshot says, lock and republish.
 package breaker
 
 import (
@@ -22,36 +8,22 @@ import (
 	"time"
 )
 
-// State is one circuit's position in the closed -> open -> half-open cycle.
 type State string
 
 const (
-	// StateClosed lets the model be chosen normally.
-	StateClosed State = "closed"
-	// StateOpen withdraws the model until its recovery timeout elapses.
-	StateOpen State = "open"
-	// StateHalfOpen is an open circuit whose single probe is in flight.
+	StateClosed   State = "closed"
+	StateOpen     State = "open"
 	StateHalfOpen State = "half_open"
 )
 
-// Config tunes when a circuit opens, who it withdraws the model from, and how
-// long it waits before probing. Production uses Defaults.
 type Config struct {
-	// Strikes overload failures within Window open a circuit.
-	Strikes int
-	Window  time.Duration
-	// OrgConfirmations is how many of its own overload failures an
-	// organization must observe before an open shared circuit withdraws the
-	// model from it. Failures within Window before the circuit opened count.
+	Strikes          int
+	Window           time.Duration
 	OrgConfirmations int
-	// RecoveryBase is the first open period; each failed probe doubles it,
-	// up to RecoveryCap.
-	RecoveryBase time.Duration
-	RecoveryCap  time.Duration
+	RecoveryBase     time.Duration
+	RecoveryCap      time.Duration
 }
 
-// Probe is one claimed half-open slot. Resolving or releasing a slot that
-// was since resolved or reclaimed is a no-op.
 type Probe struct {
 	Model   string
 	org     string
@@ -60,65 +32,40 @@ type Probe struct {
 	slot    *probeSlot
 }
 
-// Transition reports what a call did to one circuit, for logging.
 type Transition struct {
-	Model string
-	// Org is the organization whose request made the call.
-	Org      string
-	Isolated bool
-	From, To State
-	// Confirmed is true when the call made Org confirm an open shared
-	// circuit, withdrawing the model from it.
-	Confirmed bool
-	// RecoveryAfter is the open period that just started; zero otherwise.
+	Model         string
+	Org           string
+	Isolated      bool
+	From, To      State
+	Confirmed     bool
 	RecoveryAfter time.Duration
 }
 
-// Changed reports whether the call moved the circuit or an organization's
-// view of it.
 func (t Transition) Changed() bool { return t.From != t.To || t.Confirmed }
 
-// probeSlot is one holder's claim on a circuit's half-open slot, valid until
-// its lease runs out.
 type probeSlot struct{ until time.Time }
 
-// resolving holds a slot while its outcome is applied, so a lease that
-// expires mid-resolution cannot hand the circuit to a second prober.
 var resolving = &probeSlot{until: time.Unix(1<<62, 0)}
 
 type circuit struct {
-	// model and org never change, so snapshot readers use them unlocked.
 	model string
-	// org is set only on isolated circuits.
-	org string
+	org   string
 
-	// Guarded by Registry.mu.
-	state    State
-	failures []time.Time
-	// orgFailures holds each organization's recent failures on a shared
-	// circuit, newest last, at most OrgConfirmations per organization.
+	state        State
+	failures     []time.Time
 	orgFailures  map[string][]time.Time
 	episodeStart time.Time
 	openedAt     time.Time
 	reopens      int
 
-	// probe is the held half-open slot, nil when none; an open circuit with
-	// an unexpired slot is half-open.
-	probe atomic.Pointer[probeSlot]
-	// lastOffered is the UnixNano of the last claim, so a released probe
-	// yields to circuits not yet offered and one unwanted model cannot starve
-	// the others.
+	probe       atomic.Pointer[probeSlot]
 	lastOffered atomic.Int64
 }
 
-// snapshot is what request-path readers see, rebuilt whenever a circuit opens,
-// closes, reopens or gains a confirmation.
 type snapshot struct {
 	withdrawn map[string]map[string]struct{}
-	// open lists every open circuit, longest open first.
-	open []openCircuit
-	// nextDue is when the soonest open circuit becomes claimable.
-	nextDue time.Time
+	open      []openCircuit
+	nextDue   time.Time
 }
 
 type openCircuit struct {
@@ -127,7 +74,6 @@ type openCircuit struct {
 	dueAt   time.Time
 }
 
-// Registry holds every circuit on the replica.
 type Registry struct {
 	cfg Config
 	now func() time.Time
@@ -138,7 +84,6 @@ type Registry struct {
 	published atomic.Pointer[snapshot]
 }
 
-// New returns a registry with every circuit closed. now defaults to time.Now.
 func New(cfg Config, now func() time.Time) *Registry {
 	cfg.Strikes = max(cfg.Strikes, 1)
 	cfg.OrgConfirmations = max(cfg.OrgConfirmations, 1)
@@ -152,9 +97,6 @@ func New(cfg Config, now func() time.Time) *Registry {
 	return &Registry{cfg: cfg, now: now, circuits: make(map[string]*circuit)}
 }
 
-// Withdrawn returns the models org may not choose automatically: open shared
-// circuits it has confirmed, plus its own open isolated circuits. The map is
-// shared and must not be modified; nil when empty.
 func (r *Registry) Withdrawn(org string) map[string]struct{} {
 	if snap := r.published.Load(); snap != nil {
 		return snap.withdrawn[org]
@@ -162,12 +104,6 @@ func (r *Registry) Withdrawn(org string) map[string]struct{} {
 	return nil
 }
 
-// RecordOverload counts one overload failure of model observed by org from a
-// request that does not hold the circuit's probe. isolated selects org's own
-// circuit for the model instead of the shared one. A closed circuit opens once
-// Strikes failures fall within Window; on an open shared circuit the failure
-// can only confirm it for org, since only its probe decides recovery. org must
-// be non-empty.
 func (r *Registry) RecordOverload(org, model string, isolated bool) Transition {
 	if model == "" {
 		return Transition{}
@@ -210,12 +146,6 @@ func (r *Registry) RecordOverload(org, model string, isolated bool) Transition {
 	return transition
 }
 
-// ClaimProbe grants org the half-open slot of the first due circuit it may
-// probe that eligible accepts, preferring circuits whose probe was offered
-// least recently, then the longest open. Any organization may probe a shared
-// circuit, so one nobody has confirmed still recovers; an isolated circuit is
-// probed only by its owner. A circuit is due once its recovery timeout has
-// elapsed and no unexpired probe holds it. Lock-free.
 func (r *Registry) ClaimProbe(org string, eligible func(model string) bool) (Probe, Transition, bool) {
 	snap := r.published.Load()
 	if snap == nil || len(snap.open) == 0 {
@@ -254,9 +184,6 @@ func (r *Registry) ClaimProbe(org string, eligible func(model string) bool) (Pro
 		return Probe{}, Transition{}, false
 	}
 	if r.published.Load() != snap {
-		// A resolution republished while this claim was deciding; its due
-		// times may be stale, so leave the slot to a request that sees the
-		// new snapshot.
 		c.probe.CompareAndSwap(slot, observed)
 		return Probe{}, Transition{}, false
 	}
@@ -265,10 +192,6 @@ func (r *Registry) ClaimProbe(org string, eligible func(model string) bool) (Pro
 	return probe, Transition{Model: c.model, Org: org, Isolated: c.org != "", From: StateOpen, To: StateHalfOpen}, true
 }
 
-// ReleaseProbe returns a slot whose request ended without resolving it (the
-// model was not dispatched, or failed for a reason other than overload). The
-// circuit stays open and due, behind any due circuit not yet offered.
-// Lock-free; a no-op when the probe was already resolved or reclaimed.
 func (r *Registry) ReleaseProbe(p Probe) Transition {
 	if p.circuit == nil || !p.circuit.probe.CompareAndSwap(p.slot, nil) {
 		return Transition{Model: p.Model}
@@ -276,16 +199,10 @@ func (r *Registry) ReleaseProbe(p Probe) Transition {
 	return Transition{Model: p.Model, Org: p.org, Isolated: p.circuit.org != "", From: StateHalfOpen, To: StateOpen}
 }
 
-// ProbeSucceeded closes the probed circuit and resets its whole state,
-// including every organization's confirmation. No-op unless p still holds the
-// circuit's half-open slot.
 func (r *Registry) ProbeSucceeded(p Probe) Transition {
 	return r.resolveProbe(p, true)
 }
 
-// ProbeFailed reopens the probed circuit with a doubled recovery timeout,
-// capped at RecoveryCap; confirmations carry over. No-op unless p still holds
-// the half-open slot.
 func (r *Registry) ProbeFailed(p Probe) Transition {
 	return r.resolveProbe(p, false)
 }
@@ -310,10 +227,6 @@ func (r *Registry) resolveProbe(p Probe, closed bool) Transition {
 	return transition
 }
 
-// confirmedLocked reports whether c withdraws its model from org: always for
-// its owner when isolated, and for a shared circuit only once org has enough
-// failures of its own in the current episode. A closed circuit withdraws
-// nothing.
 func (r *Registry) confirmedLocked(c *circuit, org string, now time.Time) bool {
 	if c.state == StateClosed {
 		return false
@@ -331,8 +244,6 @@ func (r *Registry) confirmedLocked(c *circuit, org string, now time.Time) bool {
 	return count >= r.cfg.OrgConfirmations
 }
 
-// cutoffLocked is the oldest failure that still counts toward c: one Window
-// before the episode began while it is open, one Window ago while closed.
 func (r *Registry) cutoffLocked(c *circuit, now time.Time) time.Time {
 	if c.state == StateClosed {
 		return now.Add(-r.cfg.Window)
@@ -340,8 +251,6 @@ func (r *Registry) cutoffLocked(c *circuit, now time.Time) time.Time {
 	return c.episodeStart.Add(-r.cfg.Window)
 }
 
-// sweepLocked drops closed circuits whose every failure has aged out, so
-// one-off strikes from many organizations cannot accumulate.
 func (r *Registry) sweepLocked(now time.Time) {
 	cutoff := now.Add(-r.cfg.Window)
 	recent := func(at time.Time) bool { return at.After(cutoff) }
@@ -415,8 +324,6 @@ func circuitKey(org, model string, isolated bool) string {
 	return org + "\x00" + model
 }
 
-// recentFailures drops failures at or before cutoff and keeps at most limit of
-// the newest, so a storm cannot grow the slice.
 func recentFailures(failures []time.Time, cutoff time.Time, limit int) []time.Time {
 	kept := slices.DeleteFunc(failures, func(at time.Time) bool { return !at.After(cutoff) })
 	if len(kept) > limit {

@@ -6,8 +6,6 @@ import (
 	"time"
 )
 
-// SubscriptionCredentialRecord is the encrypted credential state for one
-// enrolled account. It never crosses the auth service boundary in this form.
 type SubscriptionCredentialRecord struct {
 	ExternalAccountID      string
 	ProviderUserID         string
@@ -23,9 +21,6 @@ type SubscriptionCredentialRecord struct {
 	CooldownUntil          *time.Time
 }
 
-// SubscriptionCredentials is the decrypted credential state used by the
-// subscription runtime. The access token is retained only in process memory
-// after this method returns.
 type SubscriptionCredentials struct {
 	ProviderUserID       string
 	RefreshToken         []byte
@@ -39,10 +34,6 @@ type SubscriptionCredentials struct {
 	CooldownUntil        *time.Time
 }
 
-// RefreshLeaseAcquisition is the outcome of one refresh-lease attempt.
-// TookOver means an expired lease from a holder that never released was
-// replaced. That holder may already have spent the refresh token, so the new
-// holder must not treat a terminal provider error as proof the account is dead.
 type RefreshLeaseAcquisition struct {
 	Acquired bool
 	TookOver bool
@@ -61,9 +52,6 @@ const (
 	SubscriptionCredentialEventAdmissionEvaluated SubscriptionCredentialEventKind = "account_admission_evaluated"
 )
 
-// SubscriptionCredentialRejectionInput describes one provider credential
-// rejection. A refresh rejection sets LeaseID and ExpectedVersion so a
-// refresher that lost its lease cannot strike replacement credentials.
 type SubscriptionCredentialRejectionInput struct {
 	Reason                string
 	ProviderErrorType     string
@@ -77,9 +65,6 @@ type SubscriptionCredentialRejectionInput struct {
 	ExpectedVersion       int64
 }
 
-// SubscriptionCredentialRejection is an account's provider credential
-// rejection history inside the current strike window. PreviousReason is the
-// reason recorded by the strike before this one.
 type SubscriptionCredentialRejection struct {
 	Count              int
 	FirstRejectedAt    time.Time
@@ -87,8 +72,6 @@ type SubscriptionCredentialRejection struct {
 	RepeatedDisconnect bool
 }
 
-// SubscriptionRefreshRepository coordinates refresh leases and encrypted
-// credential persistence across router replicas.
 type SubscriptionRefreshRepository interface {
 	TryAcquireSubscriptionRefreshLease(context.Context, string, SubscriptionOwner, string, time.Duration) (RefreshLeaseAcquisition, error)
 	ExtendSubscriptionRefreshLease(context.Context, string, SubscriptionOwner, string, time.Duration) (int64, error)

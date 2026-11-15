@@ -14,7 +14,6 @@ import (
 	"golang.org/x/net/idna"
 )
 
-// ResponsesRequest translates an isolated Claude Code search to native Responses tools.
 func ResponsesRequest(body []byte, model string) ([]byte, error) {
 	query, ok := DetectSearchTurn(body)
 	if !ok || !IsClaudeCodeWebSearchHelper(body) {
@@ -71,8 +70,6 @@ func ResponsesRequest(body []byte, model string) ([]byte, error) {
 	return json.Marshal(request)
 }
 
-// ParseResponses collects completed search items, citations and measured usage.
-// Codex may leave terminal output empty after delivering output_item.done events.
 func ParseResponses(body, request []byte) (Response, error) {
 	items := map[int]gjson.Result{}
 	var terminal gjson.Result

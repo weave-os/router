@@ -22,15 +22,11 @@ func stripCommandReference(text string) string {
 	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(encoded))
 	var outcome CommandOutcome
 	if err == nil && json.Unmarshal(raw, &outcome) == nil && outcome.Version == 1 && outcome.ID != "" && outcome.Command != "" {
-		// A control reply occupies the text before its reference definition. Any
-		// later ordinary content stays in place, as do adjacent tool/reasoning items.
 		return strings.TrimLeft(text[location[1]:], "\r\n")
 	}
 	return commandReferencePattern.ReplaceAllString(text, "")
 }
 
-// StripCommandOutcomes removes harness-only evidence from replayed assistant
-// messages. It does not interpret that evidence as a new command application.
 func (env *RequestEnvelope) StripCommandOutcomes() error {
 	body, err := stripCommandOutcomes(env.body, "messages")
 	if err != nil {

@@ -37,10 +37,8 @@ const (
 type handoffPreparationKey struct{}
 type handoffClaimsKey struct{}
 
-// ErrHandoffUnavailable means the deployment has no shared signing secret.
 var ErrHandoffUnavailable = errors.New("Pi handoff requires a shared ROUTER_PI_HANDOFF_SECRET of at least 32 bytes")
 
-// ErrHandoffInvalid rejects tickets whose identity or selection is no longer valid.
 var ErrHandoffInvalid = errors.New("Pi handoff expired or no longer matches this request; prepare the route again")
 
 type handoffClaims struct {
@@ -64,8 +62,6 @@ type preparedHandoff struct {
 	Complexity   string `json:"complexity,omitempty"`
 }
 
-// WithPiHandoffSecret requires the same secret on every serving replica. Tickets
-// carry routing state, never credentials or conversation text.
 func (s *Service) WithPiHandoffSecret(secret string) *Service {
 	if len(secret) >= 32 {
 		s.piHandoffSecret = []byte(secret)
@@ -73,7 +69,6 @@ func (s *Service) WithPiHandoffSecret(secret string) *Service {
 	return s
 }
 
-// WithHandoffPreparation stops Messages after selection without dispatching.
 func WithHandoffPreparation(ctx context.Context) context.Context {
 	return context.WithValue(ctx, handoffPreparationKey{}, true)
 }

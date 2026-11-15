@@ -10,8 +10,6 @@ import (
 	"weave-os/router/internal/providers"
 )
 
-// AnthropicFederationConfig identifies the trust rule and workspace that authorize a workload.
-// These identifiers are configuration, not credentials.
 type AnthropicFederationConfig struct {
 	FederationRuleID string `json:"federation_rule_id"`
 	OrganizationID   string `json:"organization_id"`
@@ -20,10 +18,8 @@ type AnthropicFederationConfig struct {
 	Audience         string `json:"audience"`
 }
 
-// AnthropicFederationAudience is the default audience and the fixed API origin.
 const AnthropicFederationAudience = "https://api.anthropic.com"
 
-// AnthropicBeta names protocol flags required for OAuth and federation requests.
 type AnthropicBeta string
 
 const (
@@ -31,14 +27,10 @@ const (
 	AnthropicBetaFederation AnthropicBeta = "oidc-federation-2026-04-01"
 )
 
-// ErrInvalidAnthropicFederation marks rejected provider credential configuration.
 var ErrInvalidAnthropicFederation = errors.New("invalid Anthropic workload federation configuration")
 
-// ErrAnthropicFederationUnavailable prevents fallback when configured federation fails.
 var ErrAnthropicFederationUnavailable = errors.New("Anthropic workload federation is unavailable")
 
-// NormalizeAnthropicFederation prevents configuration from being silently ignored or
-// an exchanged token from being sent to a customer-controlled endpoint.
 func NormalizeAnthropicFederation(authType AuthType, provider, baseURL string, federation *AnthropicFederationConfig) (*AnthropicFederationConfig, error) {
 	if authType != AuthTypeAnthropicWIF {
 		if federation != nil {
@@ -80,8 +72,6 @@ func NormalizeAnthropicFederation(authType AuthType, provider, baseURL string, f
 	return &normalized, nil
 }
 
-// AnthropicFederationTokenSource exchanges an identity assertion for an API bearer.
-// It must isolate cached tokens by installation and federation target.
 type AnthropicFederationTokenSource interface {
 	Token(context.Context, *ExternalAPIKey) ([]byte, error)
 }

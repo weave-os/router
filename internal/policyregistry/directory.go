@@ -21,18 +21,12 @@ const (
 	directoryHeadRevision = 1
 )
 
-// DirectoryRegistry serves one promoted lane head and the immutable objects it
-// references from a local copy of the registry layout. The objects are the exact
-// bytes promoted to GCS, so their digests and embedded URIs still validate; only
-// the classifier endpoint is rebound to the locally running sidecar.
 type DirectoryRegistry struct {
 	dir     string
 	rootURI string
 	head    LaneHead
 }
 
-// NewDirectoryRegistry loads dir/head.json and, when classifierURL is set, points
-// the head at that sidecar instead of the promoted managed revision.
 func NewDirectoryRegistry(dir, classifierURL string) (*DirectoryRegistry, error) {
 	payload, err := readLocalObject(filepath.Join(dir, directoryHeadFile))
 	if err != nil {
@@ -60,16 +54,12 @@ func NewDirectoryRegistry(dir, classifierURL string) (*DirectoryRegistry, error)
 	return &DirectoryRegistry{dir: dir, rootURI: rootURI, head: head}, nil
 }
 
-// Environment is the environment the baked head was promoted in.
 func (r *DirectoryRegistry) Environment() Environment { return r.head.Environment }
 
-// Lane is the lane the baked head was promoted in.
 func (r *DirectoryRegistry) Lane() Lane { return r.head.Lane }
 
-// RootURI is the registry root the baked objects were published under.
 func (r *DirectoryRegistry) RootURI() string { return r.rootURI }
 
-// ReadHead returns the baked head; it never changes for the life of the process.
 func (r *DirectoryRegistry) ReadHead(_ context.Context, environment Environment, lane Lane) (HeadSnapshot, error) {
 	if environment != r.head.Environment || lane != r.head.Lane {
 		return HeadSnapshot{}, ErrNotFound
@@ -77,7 +67,6 @@ func (r *DirectoryRegistry) ReadHead(_ context.Context, environment Environment,
 	return HeadSnapshot{Head: r.head, Generation: directoryHeadRevision}, nil
 }
 
-// ReadRelease reads and digest-verifies a baked release manifest.
 func (r *DirectoryRegistry) ReadRelease(_ context.Context, ref ObjectRef) (Release, error) {
 	payload, err := r.readExact(ref, releaseObjectPrefix)
 	if err != nil {
@@ -86,7 +75,6 @@ func (r *DirectoryRegistry) ReadRelease(_ context.Context, ref ObjectRef) (Relea
 	return DecodeRelease(payload, r.rootURI)
 }
 
-// ReadPolicy reads, digest-verifies and fully validates a baked selection policy.
 func (r *DirectoryRegistry) ReadPolicy(_ context.Context, ref ObjectRef) (*rosterdata.Roster, error) {
 	payload, err := r.readExact(ref, policyObjectPrefix)
 	if err != nil {
@@ -140,8 +128,6 @@ func readLocalObject(path string) ([]byte, error) {
 	return payload, nil
 }
 
-// WriteDirectoryRelease lays out a lane head and the exact bytes of its release and
-// policy objects so NewDirectoryRegistry can serve them.
 func WriteDirectoryRelease(dir string, head LaneHead, releasePayload, policyPayload []byte) error {
 	if Digest(releasePayload) != head.ReleaseSHA256 {
 		return errors.New("release bytes do not match the lane head digest")
@@ -163,7 +149,6 @@ func WriteDirectoryRelease(dir string, head LaneHead, releasePayload, policyPayl
 			return fmt.Errorf("write local policy object: %w", err)
 		}
 	}
-	// The head is replaced last and atomically so a failed export never strands a working one.
 	staged, err := os.CreateTemp(dir, directoryHeadFile+".*")
 	if err != nil {
 		return fmt.Errorf("stage local lane head: %w", err)

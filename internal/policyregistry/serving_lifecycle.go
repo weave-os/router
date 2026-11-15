@@ -16,24 +16,14 @@ import (
 )
 
 const (
-	// ServingIdleLifetime is measured from the last admitted request, not stream completion.
-	// It matches the one-hour session-pin TTL: a rebind resets the conversation's routing
-	// state, so it must only happen once the provider prompt cache has gone cold.
 	ServingIdleLifetime = time.Hour
-	// ServingDrainGrace exceeds the current maximum 600-second worker request duration.
-	ServingDrainGrace = 15 * time.Minute
+	ServingDrainGrace   = 15 * time.Minute
 )
 
-// MaxServingRequestIDLength bounds the workflow-minted audit key recorded on proposals and activations.
 const MaxServingRequestIDLength = 128
 
-// ErrSelectionSetLayoutFloor rejects an activation whose new selection set is not stored under
-// the artifacts/ layout. Historical v1 activations stay readable and withdrawable; only the set
-// a new activation would serve is floored, so a rollback to a v1 set fails closed.
 var ErrSelectionSetLayoutFloor = errors.New("new activations require an artifacts/ selection set")
 
-// ValidateServingRequestID accepts any non-empty bounded string; request IDs are audit metadata,
-// not identity. Replay is keyed on the proposal reference.
 func ValidateServingRequestID(id string) error {
 	if strings.TrimSpace(id) == "" || len(id) > MaxServingRequestIDLength {
 		return errors.New("request ID must be a non-empty string of at most 128 bytes")
@@ -41,7 +31,6 @@ func ValidateServingRequestID(id string) error {
 	return nil
 }
 
-// Activation is an incarnation, not an artifact ID; identical selections can have many incarnations.
 type Activation struct {
 	ID            string     `json:"id"`
 	Sequence      int64      `json:"sequence"`
@@ -56,7 +45,6 @@ type Activation struct {
 	WorkflowActor string     `json:"workflow_actor"`
 }
 
-// ServingControlState is the sole mutable target authority, updated in one GCS CAS.
 type ServingControlState struct {
 	SchemaVersion       ServingSchema         `json:"schema_version"`
 	Target              ServingTarget         `json:"target"`
@@ -65,17 +53,12 @@ type ServingControlState struct {
 	Activations         map[string]Activation `json:"activations"`
 }
 
-// ServingStateSnapshot binds state bytes to the concurrency token read with them. LegacyPath
-// marks a snapshot served from the pre-v2 state object, whose generation does not govern the
-// new state path.
 type ServingStateSnapshot struct {
 	State      ServingControlState `json:"state"`
 	Generation int64               `json:"generation"`
 	LegacyPath bool                `json:"legacy_path,omitempty"`
 }
 
-// WriteGeneration is the CAS token for the authoritative state path. A legacy-path snapshot has
-// no object there yet, so its successor must be created rather than replaced.
 func (s ServingStateSnapshot) WriteGeneration() int64 {
 	if s.LegacyPath {
 		return 0
@@ -83,7 +66,6 @@ func (s ServingStateSnapshot) WriteGeneration() int64 {
 	return s.Generation
 }
 
-// ActivationOutcome describes a successful CAS or a previous idempotent success.
 type ActivationOutcome string
 
 const (
@@ -91,7 +73,6 @@ const (
 	ActivationSuperseded ActivationOutcome = "superseded"
 )
 
-// ActivationResult preserves success even if an idempotent retry arrives after supersession.
 type ActivationResult struct {
 	Snapshot   ServingStateSnapshot `json:"snapshot"`
 	Activation Activation           `json:"activation"`
@@ -99,7 +80,6 @@ type ActivationResult struct {
 	Replayed   bool                 `json:"replayed"`
 }
 
-// Validate rejects unknown or inconsistent lifecycle state rather than admitting an unpinned request.
 func (s ServingControlState) Validate(root string, target ServingTarget) error {
 	if _, err := target.Environment(); err != nil {
 		return err
@@ -149,13 +129,6 @@ func (s ServingControlState) Validate(root string, target ServingTarget) error {
 	return nil
 }
 
-// NextServingActivation is pure; persistence must CAS the returned state against
-// snapshot.WriteGeneration(). Callers must validate the proposed selection set and its prepared
-// bindings before invoking it. proposalPayload must be the exact stored bytes proposalRef names:
-// replay and status are keyed on the recorded proposal ref, so the activated bytes must carry the
-// digest that ref records. Either proposal version is accepted; the incumbent is bound by
-// previous_selection_set content, and a v1 proposal additionally pins the generation it previewed.
-// The selection set a new activation would serve must be stored under the artifacts/ layout.
 func NextServingActivation(snapshot ServingStateSnapshot, proposalPayload []byte, proposalRef ObjectRef, root, workflowActor string, now time.Time) (ActivationResult, error) {
 	manifest, err := DecodeServingObject(proposalPayload, root, ServingProposal, proposalRef)
 	if err != nil {
@@ -223,7 +196,6 @@ func NextServingActivation(snapshot ServingStateSnapshot, proposalPayload []byte
 		if !exists || id == activation.ID {
 			return ActivationResult{}, errors.New("cannot withdraw an unknown activation or another target's activation")
 		}
-		// A later rollback must not rewrite historical withdrawal metadata.
 		if withdrawn.WithdrawnAt == nil {
 			withdrawn.WithdrawnAt = &now
 			withdrawn.ReplacementID = activation.ID
@@ -236,44 +208,34 @@ func NextServingActivation(snapshot ServingStateSnapshot, proposalPayload []byte
 	return ActivationResult{Snapshot: ServingStateSnapshot{State: state, Generation: snapshot.Generation, LegacyPath: snapshot.LegacyPath}, Activation: activation, Outcome: ActivationCurrent}, nil
 }
 
-// SessionReleaseBinding is the release decision persisted under an authenticated conversation scope.
 type SessionReleaseBinding struct {
-	RoutingModel         router.RoutingModel `json:"routing_model,omitempty"`
-	Target               ServingTarget       `json:"target"`
-	ActivationID         string              `json:"activation_id"`
-	Selection            ServingSelection    `json:"selection"`
-	ProfileKey           string              `json:"profile_key,omitempty"`
-	ProfileName          string              `json:"profile_name,omitempty"`
-	Plan                 entitlement.Plan    `json:"plan,omitempty"`
-	EntitlementVersion   int64               `json:"entitlement_version,omitempty"`
-	EnrollmentGeneration int64               `json:"enrollment_generation"`
-	AssignmentGeneration int64               `json:"assignment_generation"`
-	// Empty on bindings persisted before routing controls were projected.
-	RoutingControlsDigest string    `json:"routing_controls_digest,omitempty"`
-	BindingGeneration     int64     `json:"binding_generation"`
-	CreatedAt             time.Time `json:"created_at"`
-	LastAdmittedAt        time.Time `json:"last_admitted_at"`
+	RoutingModel          router.RoutingModel `json:"routing_model,omitempty"`
+	Target                ServingTarget       `json:"target"`
+	ActivationID          string              `json:"activation_id"`
+	Selection             ServingSelection    `json:"selection"`
+	ProfileKey            string              `json:"profile_key,omitempty"`
+	ProfileName           string              `json:"profile_name,omitempty"`
+	Plan                  entitlement.Plan    `json:"plan,omitempty"`
+	EntitlementVersion    int64               `json:"entitlement_version,omitempty"`
+	EnrollmentGeneration  int64               `json:"enrollment_generation"`
+	AssignmentGeneration  int64               `json:"assignment_generation"`
+	RoutingControlsDigest string              `json:"routing_controls_digest,omitempty"`
+	BindingGeneration     int64               `json:"binding_generation"`
+	CreatedAt             time.Time           `json:"created_at"`
+	LastAdmittedAt        time.Time           `json:"last_admitted_at"`
 }
 
-// AdmissionProjection is read from authenticated router storage, never caller headers.
 type AdmissionProjection struct {
-	Target               ServingTarget
-	ProfileKey           string
-	ProfileName          string
-	Plan                 entitlement.Plan
-	EntitlementVersion   int64
-	EnrollmentGeneration int64
-	AssignmentGeneration int64
-	// RoutingControlsDigest changes when the installation's model or provider
-	// controls change, so a pinned conversation cannot keep a roster that no
-	// longer overlaps them.
+	Target                ServingTarget
+	ProfileKey            string
+	ProfileName           string
+	Plan                  entitlement.Plan
+	EntitlementVersion    int64
+	EnrollmentGeneration  int64
+	AssignmentGeneration  int64
 	RoutingControlsDigest string
 }
 
-// SelectSessionRelease applies pin lifetimes to an authoritative target read inside session serialization.
-// A nil previous binding is request-scoped when no canonical client conversation ID exists.
-// sets must hold each activation's selection set keyed by its activation-declared SHA256, as
-// returned by digest- and generation-verified store reads.
 func SelectSessionRelease(previous *SessionReleaseBinding, projection AdmissionProjection, snapshot ServingStateSnapshot, sets map[string]SelectionSetView, root string, now time.Time) (SessionReleaseBinding, error) {
 	if snapshot.Generation <= 0 || now.IsZero() || projection.EnrollmentGeneration < 0 || projection.AssignmentGeneration < 0 {
 		return SessionReleaseBinding{}, errors.New("admission requires authoritative state, projection and clock")
@@ -367,8 +329,6 @@ func sameSelection(left, right ServingSelection) bool {
 	return left.Profile == nil || *left.Profile == *right.Profile
 }
 
-// RoutingControlsDigest fingerprints the installation controls that shape the
-// candidate set; order and duplicates are not significant.
 func RoutingControlsDigest(allowedModels, excludedModels, excludedProviders []string, routingStrategy *string) string {
 	canonical := func(values []string) []string {
 		out := slices.Clone(values)

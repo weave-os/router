@@ -12,15 +12,12 @@ import (
 	"time"
 )
 
-// Model is the System One judge model the client pins.
 const Model = "typesafe/jev-1.13"
 
-// DefaultTimeout bounds one classification round trip.
 const DefaultTimeout = 3 * time.Second
 
 const maxResponseBytes = 1 << 20
 
-// QuestionID names one routing question; the value is the key used in the judge request.
 type QuestionID string
 
 const (
@@ -29,7 +26,6 @@ const (
 	QuestionEscalate       QuestionID = "escalate"
 )
 
-// Choice is an answer label shared by the routing questions.
 type Choice string
 
 const (
@@ -80,27 +76,22 @@ var questions = map[QuestionID]question{
 	}},
 }
 
-// Answer is the judge's choice and its distribution over the question's labels.
 type Answer struct {
 	Choice        Choice             `json:"choice"`
 	Probabilities map[Choice]float64 `json:"probabilities"`
 	Confidence    float64            `json:"confidence"`
 }
 
-// Classifier answers routing questions about a compact conversation state. Router
-// depends on this interface so tests can substitute a deterministic fake.
 type Classifier interface {
 	Classify(ctx context.Context, state State, ids []QuestionID) (map[QuestionID]Answer, error)
 }
 
-// Client calls the System One endpoint with zero-retention, no-fallback provider preferences.
 type Client struct {
 	endpoint string
 	apiKey   string
 	http     *http.Client
 }
 
-// NewClient targets baseURL's /systemone endpoint.
 func NewClient(baseURL, apiKey string, timeout time.Duration) *Client {
 	return &Client{
 		endpoint: strings.TrimRight(baseURL, "/") + "/systemone",
@@ -127,7 +118,6 @@ type classifyResponse struct {
 	Answers map[QuestionID]Answer `json:"answers"`
 }
 
-// Classify asks every id in one request and validates each answer against its labels.
 func (c *Client) Classify(ctx context.Context, state State, ids []QuestionID) (map[QuestionID]Answer, error) {
 	asked := make(map[QuestionID]question, len(ids))
 	for _, id := range ids {
@@ -176,5 +166,4 @@ func (c *Client) Classify(ctx context.Context, state State, ids []QuestionID) (m
 	return decoded.Answers, nil
 }
 
-// ErrUnavailable reports that the decision model classifier could not produce a routing decision.
 var ErrUnavailable = errors.New("decision model classifier unavailable")

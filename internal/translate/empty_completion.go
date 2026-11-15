@@ -141,7 +141,6 @@ func nativeResponsesStatusIsAnswerTerminal(status string) bool {
 	case nativeResponsesStatusCompleted, nativeResponsesStatusIncomplete:
 		return true
 	case "":
-		// Terminal SSE events sometimes omit status; treat them as answer terminals.
 		return true
 	default:
 		return false

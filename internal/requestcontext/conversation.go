@@ -11,7 +11,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// ConversationSurface identifies ingress semantics, not the selected upstream protocol.
 type ConversationSurface string
 
 const (
@@ -21,13 +20,10 @@ const (
 	ConversationGemini    ConversationSurface = "gemini"
 )
 
-// MaxRequestBodyBytes matches Anthropic's 32 MiB limit across gateway and worker ingress.
 const MaxRequestBodyBytes = 32 * 1024 * 1024
 
-// MaxClientIdentifierLen preserves the existing header/Claude Code overlay bound.
 const MaxClientIdentifierLen = 128
 
-// NormalizeClientIdentifier rejects oversized identifiers rather than changing their identity.
 func NormalizeClientIdentifier(identifier string) string {
 	if len(identifier) > MaxClientIdentifierLen {
 		return ""
@@ -35,7 +31,6 @@ func NormalizeClientIdentifier(identifier string) string {
 	return identifier
 }
 
-// SessionIDFromHeaders preserves first-usable-header precedence across all ingress surfaces.
 func SessionIDFromHeaders(headers http.Header) string {
 	for _, name := range [...]string{ClaudeCodeSessionHeader, "Session-Id", "Thread-Id"} {
 		if id := NormalizeClientIdentifier(headers.Get(name)); id != "" {
@@ -45,13 +40,6 @@ func SessionIDFromHeaders(headers http.Header) string {
 	return ""
 }
 
-// OpenCodeSessionIDFromHeaders reads OpenCode's native session headers. The
-// worker consults it only once the client is known to be OpenCode; the gateway
-// has no client detection and relies on the header name alone. A subagent resolves
-// to its parent session, as Claude Code and Codex subagents share their
-// parent's session id; the first user message still separates the subagent's
-// pin. OpenCode names only the immediate parent, so a nested subagent resolves
-// to its spawning subagent.
 func OpenCodeSessionIDFromHeaders(headers http.Header) string {
 	session := NormalizeClientIdentifier(headers.Get(OpenCodeSessionHeader))
 	if session == "" {
@@ -63,14 +51,11 @@ func OpenCodeSessionIDFromHeaders(headers http.Header) string {
 	return session
 }
 
-// IsOpenCodeSubagent reports whether OpenCode's native headers name a child
-// session with a parent, which OpenCode sends only on subagent requests.
 func IsOpenCodeSubagent(headers http.Header) bool {
 	return NormalizeClientIdentifier(headers.Get(OpenCodeSessionHeader)) != "" &&
 		NormalizeClientIdentifier(headers.Get(OpenCodeParentSessionHeader)) != ""
 }
 
-// ClaudeCodeMetadata is caller-asserted attribution, never authenticated account ownership.
 type ClaudeCodeMetadata struct {
 	DeviceID  string `json:"device_id"`
 	AccountID string `json:"account_uuid"`
@@ -78,7 +63,6 @@ type ClaudeCodeMetadata struct {
 	Email     string `json:"email"`
 }
 
-// ParseClaudeCodeMetadata retains the legacy all-or-nothing JSON overlay semantics.
 func ParseClaudeCodeMetadata(raw string) ClaudeCodeMetadata {
 	var metadata ClaudeCodeMetadata
 	if err := json.Unmarshal([]byte(raw), &metadata); err != nil {
@@ -87,7 +71,6 @@ func ParseClaudeCodeMetadata(raw string) ClaudeCodeMetadata {
 	return metadata
 }
 
-// AnthropicHeaderSessionID applies the Messages handler's body overlay before envelope fallback.
 func AnthropicHeaderSessionID(headers http.Header, metadata ClaudeCodeMetadata) string {
 	if metadata.SessionID != "" {
 		return NormalizeClientIdentifier(metadata.SessionID)
@@ -98,8 +81,6 @@ func AnthropicHeaderSessionID(headers http.Header, metadata ClaudeCodeMetadata) 
 var clientSessionEmbeddedUUID = regexp.MustCompile(`(?i)session[_\-]?(?:id[=:])?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`)
 var clientSessionTrailingUUID = regexp.MustCompile(`([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$`)
 
-// MetadataSessionID preserves legacy envelope extraction, including its raw-value fallback.
-// Its bounds intentionally differ from the header overlay; changing them would break stored pins.
 func MetadataSessionID(raw string) string {
 	if raw == "" {
 		return ""
@@ -124,21 +105,15 @@ func MetadataSessionID(raw string) string {
 	return raw
 }
 
-// BodySessionID reads only conversation metadata; it never incorporates mutable message content.
 func BodySessionID(body []byte, surface ConversationSurface) string {
 	if surface == ConversationChat {
 		if raw := gjson.GetBytes(body, "user").String(); raw != "" {
 			return MetadataSessionID(raw)
 		}
 	}
-	// Responses conversion retains metadata but does not project the top-level user field.
 	return MetadataSessionID(gjson.GetBytes(body, "metadata.user_id").String())
 }
 
-// CanonicalConversationID applies header precedence and the Anthropic body overlay,
-// then OpenCode's native session headers, then envelope metadata without using
-// mutable message content.
-// Callers validate/bound the body before calling; ordinary dispatch retains its original bytes.
 func CanonicalConversationID(headers http.Header, body []byte, surface ConversationSurface) string {
 	id := SessionIDFromHeaders(headers)
 	if surface == ConversationAnthropic {
@@ -153,10 +128,6 @@ func CanonicalConversationID(headers http.Header, body []byte, surface Conversat
 	return BodySessionID(body, surface)
 }
 
-// ConversationFingerprint identifies a conversation whose client sends no session ID.
-// It prefers the client's prompt_cache_key, then a hash of the first user message's
-// text, which session-less harnesses resend unchanged on every turn. Callers scope the
-// result by credential, so identical openers only collide within one caller.
 func ConversationFingerprint(body []byte, surface ConversationSurface) string {
 	if surface == ConversationResponses || surface == ConversationChat {
 		if key := NormalizeClientIdentifier(gjson.GetBytes(body, "prompt_cache_key").String()); key != "" {
@@ -195,8 +166,6 @@ func firstUserMessageText(body []byte, surface ConversationSurface) string {
 
 var cursorAgentStorePattern = regexp.MustCompile(`Current agent's store: [^\n]*?cursor_agent_stores/([0-9a-fA-F-]{36})/`)
 
-// CursorAgentSessionID returns the per-conversation agent id Cursor embeds in
-// its opening user message; Cursor's only body identifier, user, is per person.
 func CursorAgentSessionID(body []byte) string {
 	if m := cursorAgentStorePattern.FindStringSubmatch(firstUserMessageText(body, ConversationChat)); m != nil {
 		return NormalizeClientIdentifier(m[1])
@@ -204,8 +173,6 @@ func CursorAgentSessionID(body []byte) string {
 	return ""
 }
 
-// isUserMessage applies the role defaults the Responses and Gemini parsers use:
-// a Responses message item and a Gemini content without a role are user turns.
 func isUserMessage(message gjson.Result, surface ConversationSurface) bool {
 	role := message.Get("role").String()
 	if role == "user" {
@@ -223,8 +190,6 @@ func isUserMessage(message gjson.Result, surface ConversationSurface) bool {
 	return false
 }
 
-// contentText ignores per-turn annotations such as cache_control, and a lone text
-// block matches the same text sent as a plain string.
 func contentText(content gjson.Result) string {
 	if content.Type == gjson.String {
 		return content.String()

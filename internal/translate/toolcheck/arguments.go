@@ -17,10 +17,6 @@ const (
 	argumentNull
 )
 
-// argumentDocument keeps JSON object members in wire order. gjson's traversal
-// supplies both decoded keys and raw value spans, so edits can retain duplicate
-// members, number lexemes, and untouched subtrees without reparsing the whole
-// argument string for every repair operation.
 type argumentDocument struct {
 	original           string
 	prefix             string
@@ -30,10 +26,9 @@ type argumentDocument struct {
 	libraryEdits       bool
 	rootMemberCapacity int
 	firstEditApplied   bool
-	// Small repairs share the root allocation instead of allocating its state separately.
-	initialRoot   argumentNode
-	initialSource argumentSource
-	rootContainer argumentContainer
+	initialRoot        argumentNode
+	initialSource      argumentSource
+	rootContainer      argumentContainer
 }
 
 type argumentNode struct {
@@ -108,8 +103,6 @@ func (document *argumentDocument) reset(raw string) {
 	document.root.source = &document.initialSource
 }
 
-// A single small edit costs less through the original path operations. A
-// second edit, or a caller with a known member count, amortizes the index.
 func (document *argumentDocument) firstSmallEdit() bool {
 	return !document.firstEditApplied && !document.root.changed && document.root.argumentContainer == nil && document.rootMemberCapacity == 0 && len(document.original) <= 512
 }
@@ -141,9 +134,6 @@ func newArgumentNode(kind argumentNodeKind) *argumentNode {
 	return &argumentNode{kind: kind}
 }
 
-// expandChildren leaves untouched subtrees raw. Root-only edits use GJSON's
-// traversal; descending builds a shared span index so successive depths do not
-// rescan the same nested suffix.
 func (document *argumentDocument) expandChildren(node *argumentNode) bool {
 	if node.kind != argumentObject && node.kind != argumentArray {
 		return true
@@ -154,8 +144,6 @@ func (document *argumentDocument) expandChildren(node *argumentNode) bool {
 	if node.start != 0 && node.source.spans == nil {
 		node.source.expandedBytes += len(node.raw)
 	}
-	// Amortize the stdlib index against repeated scans, not a single sparse
-	// descent. Unindexed traversal remains bounded by a fixed multiple of the source length.
 	if node.start != 0 && node.source.expandedBytes > 128*len(node.source.raw) {
 		err := node.source.indexContainers()
 		if err != nil {

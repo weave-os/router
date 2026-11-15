@@ -1,5 +1,3 @@
-// Package analytics serves the read-only routing-decision export
-// (/v1/analytics/*). ra_ analytics keys only; reads telemetry, never routes.
 package analytics
 
 import (
@@ -19,8 +17,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Headers rather than an envelope so the NDJSON body is a clean stream a
-// warehouse loader can ingest without unwrapping.
 const (
 	nextCursorHeader = "X-Weave-Next-Cursor"
 	hasMoreHeader    = "X-Weave-Has-More"
@@ -28,8 +24,6 @@ const (
 
 const contentTypeNDJSON = "application/x-ndjson"
 
-// RoutingDecisionsHandler serves GET /v1/analytics/routing-decisions: one
-// cursor-paginated page of raw, unaggregated routing decisions as NDJSON.
 func RoutingDecisionsHandler(svc *analytics.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation := middleware.InstallationFrom(c)
@@ -57,8 +51,6 @@ func RoutingDecisionsHandler(svc *analytics.Service) gin.HandlerFunc {
 			return
 		}
 
-		// Page is fully materialized before the first byte goes out; a mid-stream
-		// repository error can't leave a consumer with a truncated page.
 		c.Header(nextCursorHeader, page.NextCursor)
 		c.Header(hasMoreHeader, strconv.FormatBool(page.HasMore))
 		writePage(c, page)
@@ -73,16 +65,12 @@ func writePage(c *gin.Context, page analytics.Page) {
 	enc := json.NewEncoder(body)
 	for _, decision := range page.Decisions {
 		if err := enc.Encode(decision); err != nil {
-			// Headers are already out; the consumer sees a short read and
-			// retries the same cursor, which is safe because rows are immutable.
 			observability.FromGin(c).Error("Analytics export write failed", "err", err)
 			return
 		}
 	}
 }
 
-// responseWriter negotiates gzip: export pages compress well, which matters
-// for large backfills.
 func responseWriter(c *gin.Context) (io.Writer, func()) {
 	c.Header("Content-Type", contentTypeNDJSON)
 	if !strings.Contains(c.GetHeader("Accept-Encoding"), "gzip") {

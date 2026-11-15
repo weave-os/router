@@ -1,12 +1,3 @@
-// Command session_pin_output_limit_check exercises the session-pin
-// output-limit marker lifecycle (UpsertSessionPin preserve/reset rules and the
-// atomic UpdateSessionPinUsage write) against a migrated disposable database.
-// An in-memory fake cannot prove the SQL, so this runs the real adapter inside
-// one transaction that is always rolled back. Set ROUTER_TEST_DATABASE_URL to
-// opt in; unset means the check is skipped, not passed.
-//
-//	ROUTER_TEST_DATABASE_URL="postgres://router:router@localhost:5432/router?sslmode=disable&search_path=router" \
-//	  go run ./scripts/session_pin_output_limit_check
 package main
 
 import (
@@ -28,15 +19,11 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Synthetic serving identities; the SQL under test treats them as opaque.
 const (
 	modelPrimary   = "output-limit-check-model-a"
 	modelSecondary = "output-limit-check-model-b"
 )
 
-// hmmHistoryRole mirrors the proxy's unexported HMM-history role suffix so the
-// check covers the second role the guard reads. Only (session_key, role)
-// isolation matters here, not the proxy's role semantics.
 const hmmHistoryRole = sessionpin.DefaultRole + "_hmm_history"
 
 func main() {
@@ -68,8 +55,6 @@ func checkOutputLimitLifecycle(ctx context.Context, dsn string) (checkErr error)
 	if err != nil {
 		return err
 	}
-	// Every fixture lives inside this transaction; rolling it back is the only
-	// cleanup, on success and failure alike.
 	defer func() {
 		rollbackCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -92,7 +77,6 @@ func checkOutputLimitLifecycle(ctx context.Context, dsn string) (checkErr error)
 	digest := sha256.Sum256([]byte(uuid.NewString()))
 	copy(key[:], digest[:])
 
-	// Postgres stores microseconds; truncate so Equal survives the round trip.
 	base := time.Now().UTC().Truncate(time.Microsecond).Add(-time.Hour)
 	turnEnd := func(n int) time.Time { return base.Add(time.Duration(n) * time.Minute) }
 
@@ -131,7 +115,6 @@ func checkOutputLimitLifecycle(ctx context.Context, dsn string) (checkErr error)
 		return pin, nil
 	}
 
-	// Fresh rows for both roles start with no evidence.
 	for _, role := range []string{sessionpin.DefaultRole, hmmHistoryRole} {
 		if err := store.Upsert(ctx, newPin(role, modelPrimary, router.StrategyHMMEmbedding)); err != nil {
 			return err
@@ -145,7 +128,6 @@ func checkOutputLimitLifecycle(ctx context.Context, dsn string) (checkErr error)
 		}
 	}
 
-	// A healthy high-output turn records usage without a marker.
 	if err := store.UpdateUsage(ctx, key, sessionpin.DefaultRole, usage(router.StrategyHMMEmbedding, modelPrimary, turnEnd(1), false)); err != nil {
 		return err
 	}
@@ -157,7 +139,6 @@ func checkOutputLimitLifecycle(ctx context.Context, dsn string) (checkErr error)
 		return fmt.Errorf("healthy high-output write: marker=%v ended=%v out=%d served=%q", pin.LastOutputLimitAt, pin.LastTurnEndedAt, pin.LastOutputTokens, pin.LastServedModel)
 	}
 
-	// A confirmed cap binds the marker to the same turn-end instant.
 	if err := store.UpdateUsage(ctx, key, sessionpin.DefaultRole, usage(router.StrategyHMMEmbedding, modelPrimary, turnEnd(2), true)); err != nil {
 		return err
 	}
@@ -168,8 +149,6 @@ func checkOutputLimitLifecycle(ctx context.Context, dsn string) (checkErr error)
 		return fmt.Errorf("confirmed cap: marker=%v ended=%v", pin.LastOutputLimitAt, pin.LastTurnEndedAt)
 	}
 
-	// An older healthy completion must not erase newer cap evidence or regress
-	// the usage and serving identity that the next continuation reads.
 	if err := store.UpdateUsage(ctx, key, sessionpin.DefaultRole, usage(router.StrategyHMMEmbedding, modelSecondary, turnEnd(1), false)); err != nil {
 		return err
 	}
@@ -180,7 +159,6 @@ func checkOutputLimitLifecycle(ctx context.Context, dsn string) (checkErr error)
 		return fmt.Errorf("older healthy write regressed newest cap: marker=%v ended=%v out=%d served=%q", pin.LastOutputLimitAt, pin.LastTurnEndedAt, pin.LastOutputTokens, pin.LastServedModel)
 	}
 
-	// Same-strategy refresh preserves the marker with the other usage fields.
 	if err := store.Upsert(ctx, newPin(sessionpin.DefaultRole, modelPrimary, router.StrategyHMMEmbedding)); err != nil {
 		return err
 	}
@@ -191,8 +169,6 @@ func checkOutputLimitLifecycle(ctx context.Context, dsn string) (checkErr error)
 		return fmt.Errorf("same-strategy refresh: marker=%v ended=%v served=%q turns=%d", pin.LastOutputLimitAt, pin.LastTurnEndedAt, pin.LastServedModel, pin.TurnCount)
 	}
 
-	// Re-anchoring to another model under the same strategy keeps the prior
-	// served outcome: the guard names LastServedModel, not the new anchor.
 	if err := store.Upsert(ctx, newPin(sessionpin.DefaultRole, modelSecondary, router.StrategyHMMEmbedding)); err != nil {
 		return err
 	}
@@ -203,7 +179,6 @@ func checkOutputLimitLifecycle(ctx context.Context, dsn string) (checkErr error)
 		return fmt.Errorf("model change same strategy: model=%q served=%q marker=%v ended=%v", pin.Model, pin.LastServedModel, pin.LastOutputLimitAt, pin.LastTurnEndedAt)
 	}
 
-	// A later healthy turn clears the marker in the same write as its usage.
 	if err := store.UpdateUsage(ctx, key, sessionpin.DefaultRole, usage(router.StrategyHMMEmbedding, modelSecondary, turnEnd(3), false)); err != nil {
 		return err
 	}
@@ -214,7 +189,6 @@ func checkOutputLimitLifecycle(ctx context.Context, dsn string) (checkErr error)
 		return fmt.Errorf("healthy clear: marker=%v ended=%v served=%q", pin.LastOutputLimitAt, pin.LastTurnEndedAt, pin.LastServedModel)
 	}
 
-	// A cap reported by a strategy that no longer owns the row must not mark it.
 	if err := store.UpdateUsage(ctx, key, sessionpin.DefaultRole, usage(router.StrategyHMMBeta, modelSecondary, turnEnd(4), true)); err != nil {
 		return err
 	}
@@ -225,7 +199,6 @@ func checkOutputLimitLifecycle(ctx context.Context, dsn string) (checkErr error)
 		return fmt.Errorf("stale-strategy cap write mutated row: marker=%v ended=%v", pin.LastOutputLimitAt, pin.LastTurnEndedAt)
 	}
 
-	// ...and a stale healthy write must not clear a genuine marker either.
 	if err := store.UpdateUsage(ctx, key, sessionpin.DefaultRole, usage(router.StrategyHMMEmbedding, modelSecondary, turnEnd(5), true)); err != nil {
 		return err
 	}
@@ -239,7 +212,6 @@ func checkOutputLimitLifecycle(ctx context.Context, dsn string) (checkErr error)
 		return fmt.Errorf("stale-strategy healthy write mutated row: marker=%v ended=%v", pin.LastOutputLimitAt, pin.LastTurnEndedAt)
 	}
 
-	// The history role was never written and must not have inherited anything.
 	history, err := get(hmmHistoryRole)
 	if err != nil {
 		return err
@@ -248,7 +220,6 @@ func checkOutputLimitLifecycle(ctx context.Context, dsn string) (checkErr error)
 		return fmt.Errorf("history role inherited default-role evidence: marker=%v ended=%v", history.LastOutputLimitAt, history.LastTurnEndedAt)
 	}
 
-	// A strategy replacement resets the marker with the other prior usage.
 	if err := store.Upsert(ctx, newPin(sessionpin.DefaultRole, modelPrimary, router.StrategyHMMBeta)); err != nil {
 		return err
 	}
@@ -259,8 +230,6 @@ func checkOutputLimitLifecycle(ctx context.Context, dsn string) (checkErr error)
 		return fmt.Errorf("strategy reset: strategy=%q marker=%v ended=%v served=%q out=%d", pin.Strategy, pin.LastOutputLimitAt, pin.LastTurnEndedAt, pin.LastServedModel, pin.LastOutputTokens)
 	}
 
-	// Marking the history role leaves the default role untouched, and Consume
-	// hands the marker back with the row it removes.
 	if err := store.UpdateUsage(ctx, key, hmmHistoryRole, usage(router.StrategyHMMEmbedding, modelPrimary, turnEnd(7), true)); err != nil {
 		return err
 	}

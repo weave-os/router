@@ -7,9 +7,6 @@ import (
 	"weave-os/router/internal/router/catalog"
 )
 
-// coreConstraints are the constraints the candidate resolver applies to every
-// request, so every policy that selects a target must declare them: a spec
-// that omits one would under-claim what resolution actually guarantees.
 var coreConstraints = []Constraint{
 	ConstraintCatalogBinding,
 	ConstraintContextWindow,
@@ -26,9 +23,6 @@ func selectsTarget(strategy SelectionStrategy) bool {
 	}
 }
 
-// spendCapPossible reports whether a policy's resolved budget can ever carry a
-// spend cap: either the reviewed budget sets one or the budget source accepts
-// caller overrides that may.
 func spendCapPossible(budget BudgetSpec) bool {
 	return budget.MaxSpendUSD > 0 || budget.Source == BudgetSourceRequest || budget.Source == BudgetSourceDeployment
 }
@@ -59,10 +53,6 @@ func validateConstraintContract(spec PolicySpec) error {
 	return nil
 }
 
-// verifyHardConstraints re-checks every declared constraint against the
-// bindings a plan is about to emit. The candidate resolver already filtered
-// on these inputs; this is the fail-closed proof that the plan's declared
-// constraints describe the plan rather than annotate it.
 func verifyHardConstraints(spec PolicySpec, request router.Request, budget BudgetSpec, bindings []plannedBinding) error {
 	for _, binding := range bindings {
 		for _, constraint := range spec.HardConstraints {

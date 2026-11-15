@@ -12,13 +12,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// usdMicrosPerUSD converts micros to USD for display only; applied at encoding so float rounding never accumulates.
 const usdMicrosPerUSD = 1_000_000.0
 
-// sessionCostResponse is the JSON envelope for GET /v1/sessions/:id/cost: the
-// Weave public API's RouterSessionCost plus the savings fields the Codex status
-// hook reads. The *_usd_micros integers are authoritative; decimal fields are
-// derived for display only.
 type sessionCostResponse struct {
 	ContextSnapshot        *proxy.ContextSnapshot `json:"context_snapshot,omitempty"`
 	SessionID              string                 `json:"session_id"`
@@ -36,10 +31,6 @@ type sessionCostResponse struct {
 	LastRecordedAt         string                 `json:"last_recorded_at"`
 }
 
-// SessionCostHandler returns committed router cost for a session, scoped to the
-// installation that owns the presented rk_ or ra_ key. Exists so the Codex status
-// hook gets real savings without a local price table it cannot keep in sync.
-// Errors use the Weave public API's message/description shape.
 func SessionCostHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation := middleware.InstallationFrom(c)
@@ -53,8 +44,6 @@ func SessionCostHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"message": "Invalid session id", "description": err.Error()})
 			return
 		}
-		// One response for unknown, foreign, and not-yet-committed sessions:
-		// distinguishing them would confirm a foreign session's existence.
 		if errors.Is(err, proxy.ErrSessionCostNotFound) || (err == nil && cost.BlindExperiment) {
 			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"message": "No router cost found for this session. It may not exist, or its telemetry may not be recorded yet."})
 			return

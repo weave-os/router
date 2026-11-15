@@ -1,4 +1,3 @@
-// Package classifier exposes the authenticated, explicit new-thread handshake.
 package classifier
 
 import (
@@ -15,8 +14,6 @@ import (
 	"weave-os/router/internal/router"
 )
 
-// StartThreadHandler requires a fresh idempotency UUID for each new thread.
-// A client must retain that UUID for handshake retries, never for child threads.
 func StartThreadHandler(service *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Cache-Control", "no-store")
@@ -26,7 +23,6 @@ func StartThreadHandler(service *proxy.Service) gin.HandlerFunc {
 		decoder := json.NewDecoder(http.MaxBytesReader(c.Writer, c.Request.Body, 1024))
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&startRequest); err != nil || startRequest.NewChatID == uuid.Nil {
-			// Strict-decoder errors may echo arbitrary input field names.
 			observability.FromGin(c).Debug("Invalid classifier handshake UUID or JSON", "path", c.FullPath())
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_new_chat_id"})
 			return

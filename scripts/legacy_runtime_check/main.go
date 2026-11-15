@@ -1,5 +1,3 @@
-// Command legacy_runtime_check boots the real worker in both legacy deployment modes.
-// Its Postgres fixture must be local; Pub/Sub is an in-process gRPC fixture and no provider is called.
 package main
 
 import (
@@ -72,8 +70,6 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	// Workers boot on the hmm_embedding default, so serve a stub classifier
-	// and its baked release instead of real classifier infrastructure.
 	releaseDir, err := os.MkdirTemp("", "router-legacy-policy-*")
 	if err != nil {
 		return err
@@ -181,7 +177,6 @@ func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, 
 	request.Header.Set("Content-Type", "application/json")
 	wantStatus := http.StatusOK
 	if mode == server.DeploymentModeManaged {
-		// The fixture has no credits: legacy managed billing must still gate inference.
 		wantStatus = http.StatusPaymentRequired
 	}
 	if err := expectResponse(client, request, wantStatus, ""); err != nil {
@@ -192,8 +187,6 @@ func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, 
 }
 
 func workerEnv(dsn, pubsubAddress string, port int, policy policyFixture, mode server.DeploymentMode) []string {
-	// Do not inherit developer provider keys, cloud credentials, sidecars, or release configuration;
-	// the only policy release and classifier are the stub fixture passed below.
 	env := []string{
 		"PATH=" + os.Getenv("PATH"),
 		"DATABASE_URL=" + dsn,
@@ -212,11 +205,6 @@ func workerEnv(dsn, pubsubAddress string, port int, policy policyFixture, mode s
 		"GIN_MODE=release",
 	}
 	if mode == server.DeploymentModeSelfHosted {
-		// Self-hosted only: these prove the worker leaves ROUTER_SERVING_*
-		// unread while the assertion-key opt-in is absent. The managed leg is
-		// an unstamped legacy worker and must set none of them, because any
-		// ROUTER_SERVING_* variable set in managed mode without the assertion
-		// key refuses to boot (cmd/router/serving_runtime.go).
 		env = append(env,
 			"ROUTER_SERVING_REGISTRY_URI=invalid-disabled-registry",
 			"ROUTER_SERVING_CONFIGURATION_URI=invalid-disabled-configuration",

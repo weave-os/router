@@ -10,7 +10,6 @@ import (
 	"weave-os/router/internal/telemetry"
 )
 
-// applyServingTelemetry stamps the managed serving identity on every admitted turn.
 func applyServingTelemetry(ctx context.Context, telemetry *InsertTelemetryParams) {
 	identity, ok := requestcontext.ServingIdentityFromContext(ctx)
 	if !ok {
@@ -71,9 +70,6 @@ func captureSubscriberSettlementState(ctx context.Context) subscriberSettlementS
 	}
 }
 
-// markSubscriberTelemetryUnsettled flags subscriber usage on a turn that
-// failed before settlement ran, so reconciliation does not read its usage
-// columns as settled spend.
 func markSubscriberTelemetryUnsettled(telemetry *InsertTelemetryParams) {
 	switch entitlement.CapacitySource(telemetry.CapacitySource) {
 	case entitlement.CapacitySourceIncludedRouter, entitlement.CapacitySourcePrepaid:
@@ -174,8 +170,6 @@ func (s *Service) applySubscriptionSpanTelemetry(ctx context.Context, attrs *tel
 	}
 }
 
-// Decision attribution keeps admitted failures in their original family even
-// when credential selection rejects the request before an upstream span starts.
 func applySubscriptionDecisionSpanTelemetry(ctx context.Context, attrs *telemetry.AttrBuilder, requestedModel, selectedModel string) {
 	if keyID := apiKeyIDFromContext(ctx); keyID != "" {
 		attrs.String("api_key_id", keyID)
@@ -189,8 +183,6 @@ func applySubscriptionDecisionSpanTelemetry(ctx context.Context, attrs *telemetr
 	}
 }
 
-// servedCredentialLogValues names the credential that served the turn for the
-// completion log line. An empty source means the deployment key.
 func (s *Service) servedCredentialLogValues(ctx context.Context) (source, tier string) {
 	_, _, source = s.credentialKeyParts(ctx)
 	var telemetry InsertTelemetryParams

@@ -9,26 +9,8 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6/kind"
 )
 
-// maxRepairPasses bounds the repair loop: one coercion can surface the next
-// error (e.g. wrap-in-array then item type), but a payload that needs more
-// than a few passes is not safely repairable.
 const maxRepairPasses = 3
 
-// repairArgs applies validation-error-driven safe coercions to args and
-// returns the result plus the action names applied. Between passes it
-// re-validates against schema to surface the next layer of errors; the
-// caller still does the final re-validation and discards the repair when it
-// fails.
-//
-// Safe means lossless and meaning-preserving:
-//   - drop_unknown_key:        keys the schema rejects via additionalProperties
-//   - coerce_string_to_number: "5" -> 5 (lossless parse only)
-//   - coerce_string_to_bool:   "true" -> true
-//   - coerce_to_string:        5 -> "5", true -> "true"
-//   - wrap_scalar_in_array:    "x" -> ["x"]
-//
-// Missing required params and enum violations are NOT repairable — inventing
-// values would change the call's meaning.
 func repairArgs(schema *jsonschema.Schema, args string, verr error) (out string, actions []string) {
 	document := newArgumentDocument(args)
 	out = args
@@ -55,16 +37,11 @@ func repairArgs(schema *jsonschema.Schema, args string, verr error) (out string,
 	return out, actions
 }
 
-// applyLeafRepairs walks every leaf validation error and mutates out in
-// place. Returns the actions applied this pass.
 func applyLeafRepairs(document *argumentDocument, verr *jsonschema.ValidationError) (actions []string) {
 	for _, leaf := range collectLeaves(verr, nil) {
 		switch k := leaf.ErrorKind.(type) {
 		case *kind.AdditionalProperties:
-			// The validator only emits this where the schema forbids extra
-			// keys, so the additionalProperties:false gate is implicit.
 			parentPath := leaf.InstanceLocation
-			// The original joinPath omitted an empty encoded parent path.
 			if len(parentPath) == 1 && parentPath[0] == "" {
 				parentPath = nil
 			}
@@ -78,7 +55,7 @@ func applyLeafRepairs(document *argumentDocument, verr *jsonschema.ValidationErr
 			}
 		case *kind.Type:
 			if len(leaf.InstanceLocation) == 0 {
-				continue // root-level type mismatch is not repairable
+				continue
 			}
 			if action, ok := coerceValue(document, leaf.InstanceLocation, k); ok {
 				actions = append(actions, action)
@@ -88,8 +65,6 @@ func applyLeafRepairs(document *argumentDocument, verr *jsonschema.ValidationErr
 	return actions
 }
 
-// coerceValue attempts one lossless coercion of the value at path toward the
-// schema's wanted types, in fixed preference order.
 func coerceValue(document *argumentDocument, path []string, k *kind.Type) (action string, ok bool) {
 	value := document.lookup(path)
 	if value == nil {
@@ -147,7 +122,6 @@ func coerceValue(document *argumentDocument, path []string, k *kind.Type) (actio
 	return "", false
 }
 
-// collectLeaves flattens the error tree into its leaf causes.
 func collectLeaves(verr *jsonschema.ValidationError, acc []*jsonschema.ValidationError) []*jsonschema.ValidationError {
 	if len(verr.Causes) == 0 {
 		return append(acc, verr)

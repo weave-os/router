@@ -9,9 +9,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// TranslationRequirements extracts the semantic contract carried by an
-// already-parsed request. It does not decide eligibility; proxy combines this
-// value with configured provider families and catalog capabilities.
 func (e *RequestEnvelope) TranslationRequirements(endpoint router.TranslationEndpoint) router.TranslationRequirements {
 	req := router.TranslationRequirements{
 		Endpoint:      endpoint,
@@ -62,8 +59,6 @@ func containsAnyKey(body []byte, keys ...string) bool {
 	return false
 }
 
-// anthropicMediaRequirements identifies non-image content blocks; files and audio
-// need separate constraints because text translation can silently discard them.
 func anthropicMediaRequirements(body []byte) (audio, files bool) {
 	gjson.GetBytes(body, "messages").ForEach(func(_, message gjson.Result) bool {
 		message.Get("content").ForEach(func(_, block gjson.Result) bool {
@@ -80,9 +75,6 @@ func anthropicMediaRequirements(body []byte) (audio, files bool) {
 	return audio, files
 }
 
-// openAIMediaRequirements covers both Chat content parts and the Responses
-// input union. The latter is scanned recursively because Responses message
-// items nest their content under input[].content rather than messages[].
 func openAIMediaRequirements(body []byte) (audio, files bool) {
 	visitOpenAIMedia(gjson.ParseBytes(body), &audio, &files)
 	return audio, files
@@ -111,9 +103,6 @@ func visitOpenAIMedia(value gjson.Result, audio, files *bool) {
 	}
 }
 
-// geminiMediaRequirements categorizes native Gemini media by MIME type. An
-// unknown media type is treated as a file, which is conservative: unlike an
-// image, it has no portable translation path today.
 func geminiMediaRequirements(body []byte) (audio, files bool) {
 	gjson.GetBytes(body, "contents").ForEach(func(_, content gjson.Result) bool {
 		content.Get("parts").ForEach(func(_, part gjson.Result) bool {

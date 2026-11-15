@@ -17,12 +17,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// SessionPinRepo adapts sessionpin.Store to the SQLC-generated queries.
 type SessionPinRepo struct {
 	tx sqlc.DBTX
 }
 
-// NewSessionPinRepo wires the adapter over a pgx pool or transaction.
 func NewSessionPinRepo(tx sqlc.DBTX) *SessionPinRepo {
 	return &SessionPinRepo{tx: tx}
 }
@@ -48,7 +46,6 @@ func (r *SessionPinRepo) Get(ctx context.Context, sessionKey [sessionpin.Session
 	return toSessionPin(row), true, nil
 }
 
-// Consume atomically removes and returns an unexpired one-shot pin.
 func (r *SessionPinRepo) Consume(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, expectedStrategy router.Strategy) (sessionpin.Pin, bool, error) {
 	q := dbbudget.Queries(r.tx)
 	row, err := q.DeleteSessionPin(ctx, sqlc.DeleteSessionPinParams{
@@ -87,10 +84,6 @@ func (r *SessionPinRepo) Upsert(ctx context.Context, p sessionpin.Pin) error {
 	})
 }
 
-// UpdateUsage records the previous turn's usage on the pin row. A missing
-// pin (evicted/swept/never created) is a no-op, not an error. A zero
-// EndedAt is stamped with time.Now when the caller omits it; the output-limit
-// marker is written from that same instant in the same statement.
 func (r *SessionPinRepo) UpdateUsage(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, usage sessionpin.Usage) error {
 	endedAt := usage.EndedAt
 	if endedAt.IsZero() {
@@ -114,9 +107,6 @@ func (r *SessionPinRepo) UpdateUsage(ctx context.Context, sessionKey [sessionpin
 	})
 }
 
-// IncrementUpstreamErrors atomically bumps the consecutive-error counter.
-// A missing pin (already evicted or never created) returns (0, nil): the
-// two-strike check treats it as a no-op since there's no row left to evict.
 func (r *SessionPinRepo) IncrementUpstreamErrors(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, expectedStrategy router.Strategy) (int, error) {
 	q := dbbudget.Queries(r.tx)
 	count, err := q.IncrementSessionPinUpstreamErrors(ctx, sqlc.IncrementSessionPinUpstreamErrorsParams{
@@ -133,8 +123,6 @@ func (r *SessionPinRepo) IncrementUpstreamErrors(ctx context.Context, sessionKey
 	return int(count), nil
 }
 
-// ResetUpstreamErrors clears the consecutive-error counter after a
-// successful turn. Missing pin is a no-op, same as UpdateUsage.
 func (r *SessionPinRepo) ResetUpstreamErrors(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, expectedStrategy router.Strategy) error {
 	q := dbbudget.Queries(r.tx)
 	return q.ResetSessionPinUpstreamErrors(ctx, sqlc.ResetSessionPinUpstreamErrorsParams{
@@ -144,8 +132,6 @@ func (r *SessionPinRepo) ResetUpstreamErrors(ctx context.Context, sessionKey [se
 	})
 }
 
-// IncrementOverloadErrors atomically bumps the consecutive-529-exhaustion
-// counter. A missing pin returns (0, nil), mirroring IncrementUpstreamErrors.
 func (r *SessionPinRepo) IncrementOverloadErrors(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, expectedStrategy router.Strategy) (int, error) {
 	q := dbbudget.Queries(r.tx)
 	count, err := q.IncrementSessionPinOverloadErrors(ctx, sqlc.IncrementSessionPinOverloadErrorsParams{
@@ -162,8 +148,6 @@ func (r *SessionPinRepo) IncrementOverloadErrors(ctx context.Context, sessionKey
 	return int(count), nil
 }
 
-// ResetOverloadErrors clears the consecutive-529-exhaustion counter after a
-// successful turn. Missing pin is a no-op, same as ResetUpstreamErrors.
 func (r *SessionPinRepo) ResetOverloadErrors(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, expectedStrategy router.Strategy) error {
 	q := dbbudget.Queries(r.tx)
 	return q.ResetSessionPinOverloadErrors(ctx, sqlc.ResetSessionPinOverloadErrorsParams{
@@ -173,9 +157,6 @@ func (r *SessionPinRepo) ResetOverloadErrors(ctx context.Context, sessionKey [se
 	})
 }
 
-// DisableProvider appends provider to disabled_providers (deduped) and
-// resets the overload strike counter in the same write. Missing pin is a
-// no-op: the eviction that accompanies this call has nothing left to guard.
 func (r *SessionPinRepo) DisableProvider(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role, provider string, expectedStrategy router.Strategy) error {
 	q := dbbudget.Queries(r.tx)
 	return q.DisableSessionPinProvider(ctx, sqlc.DisableSessionPinProviderParams{
@@ -186,9 +167,6 @@ func (r *SessionPinRepo) DisableProvider(ctx context.Context, sessionKey [sessio
 	})
 }
 
-// ExpireAndDemoteModel seeds or expires the (session_key, role) row and
-// appends model to demoted_models in one statement. The ON CONFLICT update is
-// guarded by expired.Strategy, so a row another strategy owns is not touched.
 func (r *SessionPinRepo) ExpireAndDemoteModel(ctx context.Context, expired sessionpin.Pin, model string, _ sessionpin.DemotionReason) error {
 	q := dbbudget.Queries(r.tx)
 	return q.ExpireAndDemoteSessionPinModel(ctx, sqlc.ExpireAndDemoteSessionPinModelParams{
@@ -263,8 +241,6 @@ func (r *SessionPinRepo) ReleaseRecoveryProbe(ctx context.Context, sessionKey [s
 	})
 }
 
-// UpdateTokenizerCalibration replaces the row's tokenizer calibration. A
-// missing pin or a strategy mismatch is a no-op, matching UpdateUsage.
 func (r *SessionPinRepo) UpdateTokenizerCalibration(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, expectedStrategy router.Strategy, cal sessionpin.TokenizerCalibration) error {
 	raw, err := json.Marshal(cal)
 	if err != nil {
@@ -325,14 +301,10 @@ func toSessionPin(row sqlc.RouterSessionPin) sessionpin.Pin {
 		TurnStrikes:               row.TurnStrikes,
 		TokenizerCalibration:      tokenizerCalibration(row.TokenizerCalibration),
 	}
-	// Bounded copy guards against a corrupt row panicking the request handler.
 	copy(pin.SessionKey[:], row.SessionKey)
 	return pin
 }
 
-// tokenizerCalibration decodes the tokenizer_calibration JSONB column. An
-// unreadable value yields an empty calibration rather than failing the pin
-// read: the only effect is one turn's usage reported uncalibrated.
 func tokenizerCalibration(raw []byte) sessionpin.TokenizerCalibration {
 	var cal sessionpin.TokenizerCalibration
 	if len(raw) == 0 || json.Unmarshal(raw, &cal) != nil {
@@ -341,9 +313,6 @@ func tokenizerCalibration(raw []byte) sessionpin.TokenizerCalibration {
 	return cal
 }
 
-// demotionCooldowns decodes the {model: RFC 3339 instant} JSONB column. An
-// unreadable value yields no cooldowns rather than failing the pin read: the
-// worst outcome is one turn that does not skip a throttled arm.
 func demotionCooldowns(raw []byte) map[string]time.Time {
 	if len(raw) == 0 {
 		return nil
@@ -355,8 +324,6 @@ func demotionCooldowns(raw []byte) map[string]time.Time {
 	return cooldowns
 }
 
-// timestamptzOrZero mirrors timestampOrZero for TIMESTAMPTZ columns:
-// NULL becomes the zero value instead of a pointer.
 func timestamptzOrZero(t pgtype.Timestamptz) time.Time {
 	if !t.Valid {
 		return time.Time{}

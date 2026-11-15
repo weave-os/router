@@ -6,19 +6,15 @@ import (
 	"errors"
 )
 
-// RoutingCredentialLookup is the gateway's primary read; it exposes no provider secrets or writes.
 type RoutingCredentialLookup interface {
 	GetActiveByHashWithInstallation(context.Context, string) (*APIKey, *Installation, error)
 }
 
-// RoutingCredentialVerifier deliberately has no secret, user-attribution or authorization cache dependencies.
 type RoutingCredentialVerifier struct {
 	Keys     RoutingCredentialLookup
 	Subjects CredentialSubjectLookup
 }
 
-// VerifyRoutingCredential authenticates gateway admission without loading provider secrets or
-// caches. Admission rechecks eligibility under the identity/session transaction locks.
 func (v RoutingCredentialVerifier) VerifyRoutingCredential(ctx context.Context, rawToken string) (*Installation, *APIKey, error) {
 	if !HasAPIKeyPrefix(rawToken) {
 		return nil, nil, ErrInvalidPrefix

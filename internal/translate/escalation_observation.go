@@ -10,10 +10,8 @@ import (
 
 type EscalationSchemaVersion string
 
-// EscalationObservationSchema identifies the lossless visible-event contract.
 const EscalationObservationSchema EscalationSchemaVersion = "escalation_observation_v1"
 
-// EscalationRole is a semantic role, independent of the client protocol.
 type EscalationRole string
 
 const (
@@ -26,7 +24,6 @@ const (
 	escalationRoleFunction  EscalationRole = "function"
 )
 
-// EscalationBlockType distinguishes ordered visible events within a message.
 type EscalationBlockType string
 
 const (
@@ -35,7 +32,6 @@ const (
 	EscalationBlockToolResult EscalationBlockType = "tool_result"
 )
 
-// EscalationTurnType describes the final inbound decision boundary.
 type EscalationTurnType string
 
 const (
@@ -43,8 +39,6 @@ const (
 	EscalationTurnToolResult EscalationTurnType = "tool_result"
 )
 
-// EscalationObservation preserves visible order without recording reasoning or media.
-// A continuation or item reference requires history reconstruction before inference.
 type EscalationObservation struct {
 	SchemaVersion    EscalationSchemaVersion `json:"schema_version"`
 	Messages         []EscalationMessage     `json:"messages"`
@@ -52,22 +46,15 @@ type EscalationObservation struct {
 	HistoryComplete  bool                    `json:"history_complete"`
 	ContinuationID   string                  `json:"continuation_id,omitempty"`
 	ItemReferenceIDs []string                `json:"item_reference_ids,omitempty"`
-	// CodexToolResults is set by the proxy for identified Codex Responses ingress,
-	// never from tool names or body fields. It is not part of replay identity.
-	CodexToolResults bool `json:"-"`
+	CodexToolResults bool                    `json:"-"`
 }
 
-// EscalationMessage keeps text and tool events in their original relative order.
 type EscalationMessage struct {
-	Role   EscalationRole    `json:"role"`
-	Blocks []EscalationBlock `json:"blocks"`
-	// HasOmittedMedia prevents text-only consumers from claiming complete input
-	// identity. It records no media payload and leaves the escalation wire intact.
-	HasOmittedMedia bool `json:"-"`
+	Role            EscalationRole    `json:"role"`
+	Blocks          []EscalationBlock `json:"blocks"`
+	HasOmittedMedia bool              `json:"-"`
 }
 
-// EscalationBlock retains raw JSON for arguments/results, including custom-tool strings.
-// IsError is nil when the protocol supplied no explicit error verdict.
 type EscalationBlock struct {
 	Type          EscalationBlockType `json:"type"`
 	Text          string              `json:"text,omitempty"`
@@ -82,7 +69,6 @@ type EscalationBlock struct {
 
 type escalationWireType string
 
-// EscalationToolStatus is a wire status used to count explicit tool failures.
 type EscalationToolStatus string
 
 const (
@@ -118,8 +104,6 @@ const (
 	escalationWireAdditionalTools  escalationWireType = "additional_tools"
 )
 
-// EscalationObservation extracts every visible event without the HMM serializer's
-// clipping or tool-argument stripping. Responses callers must use the original body.
 func (e *RequestEnvelope) EscalationObservation() (EscalationObservation, error) {
 	if e == nil {
 		return EscalationObservation{}, fmt.Errorf("missing request envelope")
@@ -214,8 +198,6 @@ func (e *RequestEnvelope) EscalationObservation() (EscalationObservation, error)
 	return observation, nil
 }
 
-// ParseResponsesEscalationObservation reads original Responses input independently
-// of client identity and dispatch projections, retaining custom tools and references.
 func ParseResponsesEscalationObservation(body []byte) (EscalationObservation, error) {
 	observation := newEscalationObservation()
 	if err := validateResponsesRequest(body); err != nil {
@@ -280,12 +262,8 @@ func ParseResponsesEscalationObservation(body []byte) (EscalationObservation, er
 				}
 				searchID := callID.String()
 				if !callID.Exists() {
-					// Older clients omit native IDs on replay. The input position
-					// is stable under the append-only checkpoint and counts repeats.
 					searchID = fmt.Sprintf("__weave_native_web_search_%d", itemIndex)
 				}
-				// Server-executed searches have no separate client output item.
-				// Keep the terminal event intact as the paired result for identity.
 				failed := status == EscalationToolStatusFailed
 				observation.Messages = append(observation.Messages,
 					EscalationMessage{Role: EscalationRoleAssistant, Blocks: []EscalationBlock{{Type: EscalationBlockToolCall, ID: searchID, Name: string(kind), ArgumentsJSON: escalationJSON(item.Get("action"))}}},

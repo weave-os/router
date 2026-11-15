@@ -12,8 +12,6 @@ import (
 
 const maxCodexModelCatalogBytes = 1 << 20
 
-// FetchCodexModelCatalog reads the caller's account-specific Codex catalog.
-// Only the paired ChatGPT OAuth credential may go to the Codex backend.
 func (c *Client) FetchCodexModelCatalog(ctx context.Context, clientVersion string) ([]byte, error) {
 	creds := codexSubscriptionCreds(ctx)
 	if creds == nil {

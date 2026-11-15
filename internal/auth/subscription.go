@@ -9,17 +9,13 @@ import (
 	"unicode/utf8"
 )
 
-// SubscriptionProvider identifies a provider-specific account pool.
 type SubscriptionProvider string
 
 const (
-	// SubscriptionProviderClaude is a Claude subscription account.
 	SubscriptionProviderClaude SubscriptionProvider = "claude"
-	// SubscriptionProviderCodex is a Codex subscription account.
-	SubscriptionProviderCodex SubscriptionProvider = "codex"
+	SubscriptionProviderCodex  SubscriptionProvider = "codex"
 )
 
-// SubscriptionAccountState is the credential-free routing health of a linked account.
 type SubscriptionAccountState string
 
 const (
@@ -31,15 +27,10 @@ const (
 	SubscriptionAccountStateUnknown           SubscriptionAccountState = "unknown"
 )
 
-// Routable reports whether an account may be attempted.
 func (s SubscriptionAccountState) Routable() bool {
 	return s == SubscriptionAccountStateActive || s == SubscriptionAccountStateUnknown
 }
 
-// SubscriptionOwner identifies a verified requester and installation for live
-// serving admission. SubscriberID is the stable user owner; APIKeyID records
-// enrollment attribution and never partitions serving capacity. Unassigned
-// historical accounts require administrator ownership assignment before serving.
 type SubscriptionOwner struct {
 	SubscriberID       string
 	APIKeyID           string
@@ -54,13 +45,10 @@ const (
 	SubscriptionTierShared   SubscriptionTier = "shared"
 )
 
-// Valid reports whether this owner can address any account.
 func (o SubscriptionOwner) Valid() bool {
 	return o.SubscriberID != "" || o.APIKeyID != "" || o.InstallationID != ""
 }
 
-// LogKey identifies the pool in logs without emitting the api key id: legacy
-// pools are distinguished by the account id logged alongside it.
 func (o SubscriptionOwner) LogKey() string {
 	switch {
 	case o.SubscriberID != "":
@@ -72,9 +60,6 @@ func (o SubscriptionOwner) LogKey() string {
 	}
 }
 
-// SubscriptionOwnerForKey derives linked-account ownership from an
-// authenticated key: its credential subject where one exists, plus the key
-// itself for rows enrolled before ownership moved to the subscriber.
 func SubscriptionOwnerForKey(key *APIKey) SubscriptionOwner {
 	if key == nil {
 		return SubscriptionOwner{}
@@ -82,57 +67,44 @@ func SubscriptionOwnerForKey(key *APIKey) SubscriptionOwner {
 	return SubscriptionOwner{SubscriberID: key.CredentialSubjectID, APIKeyID: key.ID, InstallationID: key.InstallationID}
 }
 
-// SubscriptionAccount is the server-side representation of an enrolled
-// account. RefreshTokenCiphertext is encrypted storage and must not cross the
-// auth/service boundary into an API response.
 type SubscriptionAccount struct {
-	Tier               SubscriptionTier
-	ID                 string
-	SubscriberID       string
-	EnrolledByAPIKeyID string
-	Provider           SubscriptionProvider
-	ExternalAccountID  string
-	ProviderUserID     string
-	// DisplayName is provider-supplied metadata for humans; it is not identity.
+	Tier                   SubscriptionTier
+	ID                     string
+	SubscriberID           string
+	EnrolledByAPIKeyID     string
+	Provider               SubscriptionProvider
+	ExternalAccountID      string
+	ProviderUserID         string
 	DisplayName            string
 	RefreshTokenCiphertext []byte
 	Enabled                bool
 	State                  SubscriptionAccountState
 	CooldownUntil          *time.Time
 	CreatedAt              time.Time
-	// AccessTokenMissing reports a dropped persisted access token, so replicas
-	// discard their cached copy instead of replaying a rejected token.
-	AccessTokenMissing  bool
-	TokenRefreshVersion int64
-	// CredentialRejections counts unresolved provider credential rejections,
-	// so owners can reconnect before the account is disabled.
-	CredentialRejections int
+	AccessTokenMissing     bool
+	TokenRefreshVersion    int64
+	CredentialRejections   int
 }
 
-// CreateSubscriptionAccountParams describes an encrypted account enrollment.
 type CreateSubscriptionAccountParams struct {
-	Owner             SubscriptionOwner
-	Provider          SubscriptionProvider
-	ExternalAccountID string
-	ProviderUserID    string
-	DisplayName       string
-	RefreshToken      []byte
-	// InstallationExternalID identifies the authenticated installation for onboarding.
+	Owner                  SubscriptionOwner
+	Provider               SubscriptionProvider
+	ExternalAccountID      string
+	ProviderUserID         string
+	DisplayName            string
+	RefreshToken           []byte
 	InstallationExternalID string
 }
 
-// VerifiedCodexEnrollment separates a provider user from their routing workspace.
 type VerifiedCodexEnrollment struct {
 	ProviderUserID string
 	RefreshToken   []byte
 }
 
-// CodexEnrollmentVerifier validates a refresh credential with the provider.
 type CodexEnrollmentVerifier interface {
 	VerifyCodexEnrollment(context.Context, string, []byte) (VerifiedCodexEnrollment, error)
 }
 
-// SubscriptionUpsertKind reports whether an upsert inserted, adopted a legacy row, or refreshed an existing identity.
 type SubscriptionUpsertKind string
 
 const (
@@ -141,13 +113,10 @@ const (
 	SubscriptionUpsertAdopted  SubscriptionUpsertKind = "adopted"
 )
 
-// FirstConnected reports a genuine first registration, including legacy-row adoption.
 func (k SubscriptionUpsertKind) FirstConnected() bool {
 	return k == SubscriptionUpsertInserted || k == SubscriptionUpsertAdopted
 }
 
-// SubscriptionAccountRepository persists encrypted subscription account state
-// and coordinates cross-replica refresh leases.
 type SubscriptionAccountRepository interface {
 	UpsertSubscriptionAccount(context.Context, CreateSubscriptionAccountParams) (*SubscriptionAccount, SubscriptionUpsertKind, error)
 	ListSubscriptionAccounts(context.Context, SubscriptionOwner) ([]*SubscriptionAccount, error)
@@ -158,18 +127,12 @@ type SubscriptionAccountRepository interface {
 	SubscriptionRefreshRepository
 }
 
-// SubscriptionEnrollmentOwnerResolver finds the routing key a keyless browser
-// reconnect enrolls through.
 type SubscriptionEnrollmentOwnerResolver interface {
 	SubscriberEnrollmentOwner(ctx context.Context, subscriberID string) (SubscriptionOwner, error)
 }
 
-// ErrSubscriptionEnrollmentKeyNotFound means the subscriber has no active
-// personal routing key to own a browser-enrolled account.
 var ErrSubscriptionEnrollmentKeyNotFound = errors.New("subscriber has no active routing key")
 
-// SubscriberEnrollmentOwner resolves the full owner a browser reconnect needs,
-// since enrollment records the routing key and installation alongside the subscriber.
 func (s *Service) SubscriberEnrollmentOwner(ctx context.Context, subscriberID string) (SubscriptionOwner, error) {
 	resolver, ok := s.subscriptionAccounts.(SubscriptionEnrollmentOwnerResolver)
 	if !ok {
@@ -178,25 +141,16 @@ func (s *Service) SubscriberEnrollmentOwner(ctx context.Context, subscriberID st
 	return resolver.SubscriberEnrollmentOwner(ctx, subscriberID)
 }
 
-// ErrSubscriptionAccountNotFound indicates a state mutation did not match the
-// authenticated owner.
 var ErrSubscriptionAccountNotFound = errors.New("subscription account not found")
 
-// ErrSubscriptionRefreshConflict means the lease or credential version no longer
-// permits this refresher to publish tokens or record a failure.
 var ErrSubscriptionRefreshConflict = errors.New("subscription refresh lost race")
 
 const subscriptionAccessPurposeSuffix = ":access"
 
-// SubscriptionAccountsEnabled reports whether this deployment wired the
-// optional account repository. Callers use it to leave management routes
-// unmounted while the rollout flag is disabled.
 func (s *Service) SubscriptionAccountsEnabled() bool {
 	return s != nil && s.subscriptionAccounts != nil
 }
 
-// AddSubscriptionAccount encrypts and persists a refresh token. The raw token
-// is never returned by this method.
 func (s *Service) AddSubscriptionAccount(ctx context.Context, params CreateSubscriptionAccountParams) (*SubscriptionAccount, error) {
 	if s.subscriptionAccounts == nil {
 		return nil, errors.New("subscription accounts are not configured")
@@ -207,7 +161,7 @@ func (s *Service) AddSubscriptionAccount(ctx context.Context, params CreateSubsc
 	if params.Provider != SubscriptionProviderClaude && params.Provider != SubscriptionProviderCodex {
 		return nil, errors.New("unsupported subscription provider")
 	}
-	params.ProviderUserID = "" // Never trust caller-supplied identity.
+	params.ProviderUserID = ""
 	if params.Provider == SubscriptionProviderCodex {
 		if s.codexEnrollmentVerifier == nil {
 			return nil, errors.New("Codex enrollment identity verification is unavailable")
@@ -263,8 +217,6 @@ func normalizeSubscriptionAccountDisplayName(value string) string {
 	return value
 }
 
-// UpdateSubscriptionAccountCooldown records quota state without changing the
-// durable enabled flag.
 func (s *Service) UpdateSubscriptionAccountCooldown(ctx context.Context, owner SubscriptionOwner, accountID string, cooldownUntil time.Time) error {
 	if s.subscriptionAccounts == nil {
 		return errors.New("subscription accounts are not configured")
@@ -272,7 +224,6 @@ func (s *Service) UpdateSubscriptionAccountCooldown(ctx context.Context, owner S
 	return s.subscriptionAccounts.UpdateSubscriptionAccountCooldown(ctx, accountID, owner, cooldownUntil)
 }
 
-// ListSubscriptionAccounts returns account metadata without decrypting tokens.
 func (s *Service) ListSubscriptionAccounts(ctx context.Context, owner SubscriptionOwner) ([]*SubscriptionAccount, error) {
 	if s.subscriptionAccounts == nil {
 		return nil, errors.New("subscription accounts are not configured")
@@ -283,7 +234,6 @@ func (s *Service) ListSubscriptionAccounts(ctx context.Context, owner Subscripti
 	return s.subscriptionAccounts.ListSubscriptionAccounts(ctx, owner)
 }
 
-// ListSubscriptionCandidates performs serving admission independently of account management.
 func (s *Service) ListSubscriptionCandidates(ctx context.Context, owner SubscriptionOwner) ([]*SubscriptionAccount, error) {
 	repo, ok := s.subscriptionAccounts.(interface {
 		ListSubscriptionCandidates(context.Context, SubscriptionOwner) ([]*SubscriptionAccount, error)
@@ -294,8 +244,6 @@ func (s *Service) ListSubscriptionCandidates(ctx context.Context, owner Subscrip
 	return repo.ListSubscriptionCandidates(ctx, owner)
 }
 
-// SubscriptionRefreshToken decrypts an owner's refresh token for the refresh
-// worker. It is intentionally a narrow method and never appears in an API DTO.
 func (s *Service) SubscriptionRefreshToken(ctx context.Context, owner SubscriptionOwner, accountID string) ([]byte, error) {
 	accounts, err := s.ListSubscriptionAccounts(ctx, owner)
 	if err != nil {
@@ -309,8 +257,6 @@ func (s *Service) SubscriptionRefreshToken(ctx context.Context, owner Subscripti
 	return nil, ErrSubscriptionAccountNotFound
 }
 
-// UpdateSubscriptionRefreshToken encrypts a rotated refresh token using the
-// account's stable identity before replacing the stored ciphertext.
 func (s *Service) UpdateSubscriptionRefreshToken(ctx context.Context, owner SubscriptionOwner, accountID string, refreshToken []byte) error {
 	if len(refreshToken) == 0 {
 		return errors.New("subscription refresh token is required")
@@ -339,8 +285,6 @@ func (s *Service) subscriptionRefreshRepository() (SubscriptionRefreshRepository
 	return s.subscriptionAccounts, nil
 }
 
-// TryAcquireSubscriptionRefreshLease reserves an account for one replica's
-// provider refresh using the database clock. Acquired=false means it is unavailable.
 func (s *Service) TryAcquireSubscriptionRefreshLease(ctx context.Context, owner SubscriptionOwner, accountID, leaseID string, leaseTTL time.Duration) (RefreshLeaseAcquisition, error) {
 	repo, err := s.subscriptionRefreshRepository()
 	if err != nil {
@@ -349,8 +293,6 @@ func (s *Service) TryAcquireSubscriptionRefreshLease(ctx context.Context, owner 
 	return repo.TryAcquireSubscriptionRefreshLease(ctx, accountID, owner, leaseID, leaseTTL)
 }
 
-// ExtendSubscriptionRefreshLease renews a lease this replica still holds while
-// its provider refresh is in flight. A false result means the lease was lost.
 func (s *Service) ExtendSubscriptionRefreshLease(ctx context.Context, owner SubscriptionOwner, accountID, leaseID string, leaseTTL time.Duration) (bool, error) {
 	repo, err := s.subscriptionRefreshRepository()
 	if err != nil {
@@ -360,8 +302,6 @@ func (s *Service) ExtendSubscriptionRefreshLease(ctx context.Context, owner Subs
 	return rows > 0, err
 }
 
-// ReleaseSubscriptionRefreshLease releases a lease if this replica still
-// owns it. An expired or replaced lease is intentionally left untouched.
 func (s *Service) ReleaseSubscriptionRefreshLease(ctx context.Context, owner SubscriptionOwner, accountID, leaseID string) error {
 	repo, err := s.subscriptionRefreshRepository()
 	if err != nil {
@@ -370,7 +310,6 @@ func (s *Service) ReleaseSubscriptionRefreshLease(ctx context.Context, owner Sub
 	return repo.ReleaseSubscriptionRefreshLease(ctx, accountID, owner, leaseID)
 }
 
-// DisableSubscriptionAccountIfRefreshHolder rejects failures from stale refreshers.
 func (s *Service) DisableSubscriptionAccountIfRefreshHolder(ctx context.Context, owner SubscriptionOwner, accountID, leaseID string, expectedVersion int64) error {
 	repo, err := s.subscriptionRefreshRepository()
 	if err != nil {
@@ -379,7 +318,6 @@ func (s *Service) DisableSubscriptionAccountIfRefreshHolder(ctx context.Context,
 	return repo.DisableSubscriptionAccountIfRefreshHolder(ctx, accountID, owner, leaseID, expectedVersion)
 }
 
-// CooldownSubscriptionAccountIfRefreshHolder rejects failures from stale refreshers.
 func (s *Service) CooldownSubscriptionAccountIfRefreshHolder(ctx context.Context, owner SubscriptionOwner, accountID, leaseID string, expectedVersion int64, cooldownUntil time.Time) error {
 	repo, err := s.subscriptionRefreshRepository()
 	if err != nil {
@@ -388,8 +326,6 @@ func (s *Service) CooldownSubscriptionAccountIfRefreshHolder(ctx context.Context
 	return repo.CooldownSubscriptionAccountIfRefreshHolder(ctx, accountID, owner, leaseID, expectedVersion, cooldownUntil)
 }
 
-// RecordSubscriptionCredentialRejection counts one provider credential
-// rejection; strikes older than window restart the count.
 func (s *Service) RecordSubscriptionCredentialRejection(ctx context.Context, owner SubscriptionOwner, accountID string, input SubscriptionCredentialRejectionInput) (SubscriptionCredentialRejection, error) {
 	repo, err := s.subscriptionRefreshRepository()
 	if err != nil {
@@ -398,9 +334,6 @@ func (s *Service) RecordSubscriptionCredentialRejection(ctx context.Context, own
 	return repo.RecordSubscriptionCredentialRejection(ctx, accountID, owner, input)
 }
 
-// LoadSubscriptionCredentials decrypts the current refresh and access tokens
-// for the runtime. Access-token decryption happens on cache fill, not per
-// inference request.
 func (s *Service) LoadSubscriptionCredentials(ctx context.Context, owner SubscriptionOwner, accountID string) (SubscriptionCredentials, error) {
 	repo, err := s.subscriptionRefreshRepository()
 	if err != nil {
@@ -435,8 +368,6 @@ func (s *Service) LoadSubscriptionCredentials(ctx context.Context, owner Subscri
 	return credentials, nil
 }
 
-// PersistSubscriptionTokens encrypts and atomically publishes a provider
-// refresh result. The repository rejects stale lease owners or versions.
 func (s *Service) PersistSubscriptionTokens(ctx context.Context, owner SubscriptionOwner, accountID, leaseID string, expectedVersion int64, refreshToken, accessToken []byte, expiresAt time.Time) error {
 	if len(refreshToken) == 0 || len(accessToken) == 0 {
 		return errors.New("subscription refresh result is missing credentials")
@@ -464,8 +395,6 @@ func subscriptionAccessPurpose(provider SubscriptionProvider) string {
 	return string(provider) + subscriptionAccessPurposeSuffix
 }
 
-// UpdateSubscriptionAccountState changes enabled/cooldown state only for the
-// authenticated owner's account.
 func (s *Service) UpdateSubscriptionAccountState(ctx context.Context, owner SubscriptionOwner, accountID string, enabled bool, cooldownUntil *time.Time) error {
 	if s.subscriptionAccounts == nil {
 		return errors.New("subscription accounts are not configured")
@@ -474,7 +403,6 @@ func (s *Service) UpdateSubscriptionAccountState(ctx context.Context, owner Subs
 	return rowsErr
 }
 
-// UpdateSubscriptionAccountHealth returns true only when a new disconnect event was committed.
 func (s *Service) UpdateSubscriptionAccountHealth(ctx context.Context, owner SubscriptionOwner, accountID string, state SubscriptionAccountState, enabled bool, cooldownUntil *time.Time) (bool, error) {
 	if s.subscriptionAccounts == nil {
 		return false, errors.New("subscription accounts are not configured")
@@ -487,7 +415,6 @@ func (s *Service) UpdateSubscriptionAccountHealth(ctx context.Context, owner Sub
 	return false, s.subscriptionAccounts.UpdateSubscriptionAccountState(ctx, accountID, owner, enabled, cooldownUntil)
 }
 
-// DeleteSubscriptionAccount removes an account only for the authenticated owner.
 func (s *Service) DeleteSubscriptionAccount(ctx context.Context, owner SubscriptionOwner, accountID string) error {
 	if s.subscriptionAccounts == nil {
 		return errors.New("subscription accounts are not configured")

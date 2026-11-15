@@ -1,11 +1,3 @@
-// Command seed creates a local-dev installation and API key, then prints
-// the raw token and paste-ready configuration for Claude Code and Cursor.
-//
-// Usage:
-//
-//	go run ./cmd/seed
-//	# or via Makefile:
-//	make seed
 package main
 
 import (
@@ -22,11 +14,6 @@ import (
 )
 
 const (
-	// Seed into the admin installation so the seeded rk_... key (and any
-	// BYOK provider keys added through the dashboard) all live on the same
-	// installation. Using a separate "local-dev" installation made the
-	// seeded key invisible to the dashboard and made dashboard-added BYOK
-	// keys invisible to requests authenticated with the seeded token.
 	defaultOrgID = auth.AdminInstallationExternalID
 	defaultName  = auth.AdminInstallationName
 	createdBy    = "make seed"
@@ -57,7 +44,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: cannot begin transaction: %v\n", err)
 		os.Exit(1)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer tx.Rollback(ctx)
 
 	externalID := defaultOrgID
 	if v := os.Getenv("SEED_EXTERNAL_ID"); v != "" {
@@ -89,9 +76,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// One active key per installation (migration 0007). Soft-delete any
-	// existing key so re-running `make seed` rotates the local-dev token
-	// instead of erroring on the partial unique index.
 	if _, err := tx.Exec(ctx, `
 		UPDATE model_router_api_keys
 		SET deleted_at = CURRENT_TIMESTAMP

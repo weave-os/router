@@ -12,7 +12,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// EscalationResponseFormat identifies the client-facing bytes, not the upstream provider.
 type EscalationResponseFormat string
 
 const (
@@ -22,7 +21,6 @@ const (
 	EscalationResponseGemini    EscalationResponseFormat = "gemini"
 )
 
-// EscalationResponse supplies the completed assistant events for a continuation.
 type EscalationResponse struct {
 	ResponseID string              `json:"response_id,omitempty"`
 	Messages   []EscalationMessage `json:"messages"`
@@ -69,8 +67,6 @@ func escalationAnthropicCompleted(reason escalationFinishReason) bool {
 	}
 }
 
-// ParseEscalationResponse accepts JSON or SSE and rejects incomplete streams so
-// partial tool arguments never become completed history for a later request.
 func ParseEscalationResponse(body []byte, format EscalationResponseFormat) (EscalationResponse, error) {
 	frames, streaming, done, err := escalationResponseFrames(body)
 	if err != nil {
@@ -111,8 +107,6 @@ func escalationResponseFrames(body []byte) ([]gjson.Result, bool, bool, error) {
 			break
 		}
 		remaining = remaining[consumed:]
-		// ParseEvent intentionally supports only the first data line. Reject
-		// multiline input instead of silently discarding unparsed evidence.
 		dataLines := bytes.Count(event, []byte("\ndata:"))
 		if bytes.HasPrefix(event, []byte("data:")) {
 			dataLines++

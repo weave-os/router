@@ -12,22 +12,16 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// BillingRepo implements billing.Repo against the router-schema credit
-// tables via SQLC.
 type BillingRepo struct {
 	tx sqlc.DBTX
 }
 
-// NewBillingRepo constructs a BillingRepo backed by the given connection.
 func NewBillingRepo(tx sqlc.DBTX) *BillingRepo {
 	return &BillingRepo{tx: tx}
 }
 
 var _ billing.Repo = (*BillingRepo)(nil)
 
-// GetBalance returns the org's current credit balance in USD micros.
-// Maps pgx.ErrNoRows to billing.ErrBalanceRowMissing so middleware can
-// distinguish "row missing" from "balance == 0".
 func (r *BillingRepo) GetBalance(ctx context.Context, orgID string) (int64, error) {
 	q := dbbudget.Queries(r.tx)
 	balance, err := q.GetOrgCreditBalance(ctx, orgID)
@@ -40,8 +34,6 @@ func (r *BillingRepo) GetBalance(ctx context.Context, orgID string) (int64, erro
 	return balance, nil
 }
 
-// HasActiveOverride reports whether the org has an unexpired billing
-// override row. EXISTS-based query — true means the org bypasses billing.
 func (r *BillingRepo) HasActiveOverride(ctx context.Context, orgID string) (bool, error) {
 	q := dbbudget.Queries(r.tx)
 	override, err := q.GetActiveBillingOverride(ctx, orgID)
@@ -51,21 +43,14 @@ func (r *BillingRepo) HasActiveOverride(ctx context.Context, orgID string) (bool
 	return override, nil
 }
 
-// DebitInference performs the atomic UPDATE + INSERT CTE. Returns the
-// post-debit balance, or billing.ErrBalanceRowMissing if no balance row
-// existed (the CTE returns zero rows in that case).
 func (r *BillingRepo) DebitInference(ctx context.Context, p billing.DebitParams) (int64, error) {
 	q := dbbudget.Queries(r.tx)
 	feeEntryType := p.FeeEntryType
 	if p.FeeUsdMicros == 0 {
-		// The fee CTE no-ops on a zero fee, but entry_type is NOT NULL and
-		// CHECK-constrained, so it still needs a legal value.
 		feeEntryType = p.EntryType
 	}
 	balanceAfter, err := q.DebitOrgCredits(ctx, sqlc.DebitOrgCreditsParams{
-		OrganizationID: p.OrganizationID,
-		// The balance moves by the combined amount; the SET expression takes a
-		// single param (see the query's comment on charged_usd_micros).
+		OrganizationID:     p.OrganizationID,
 		ChargedUsdMicros:   p.DeltaUsdMicros + p.FeeUsdMicros,
 		DeltaUsdMicros:     p.DeltaUsdMicros,
 		NotionalCostMicros: p.NotionalCostMicros,
@@ -88,8 +73,6 @@ func (r *BillingRepo) DebitInference(ctx context.Context, p billing.DebitParams)
 	return balanceAfter, nil
 }
 
-// GetDelegatedTokenSpend reads a delegated session's and task's spend-to-date
-// fresh from Postgres. Missing rows and an empty task ID read as zero.
 func (r *BillingRepo) GetDelegatedTokenSpend(ctx context.Context, issuerKeyID, sessionID, taskID string) (int64, int64, error) {
 	issuer, err := uuid.Parse(issuerKeyID)
 	if err != nil {
@@ -102,13 +85,9 @@ func (r *BillingRepo) GetDelegatedTokenSpend(ctx context.Context, issuerKeyID, s
 	return row.SessionSpentUsdMicros, row.TaskSpentUsdMicros, nil
 }
 
-// GetAPIKeySpend reads a key's cap and spend-to-date fresh from Postgres.
-// Returns found=false (nil error) when no active key matches the id.
 func (r *BillingRepo) GetAPIKeySpend(ctx context.Context, apiKeyID string) (int64, *int64, bool, error) {
 	parsed, err := uuid.Parse(apiKeyID)
 	if err != nil {
-		// A malformed id can't match any row; treat as "no cap to enforce"
-		// rather than failing the request closed on a client-shaped value.
 		return 0, nil, false, nil
 	}
 	q := dbbudget.Queries(r.tx)
@@ -122,13 +101,9 @@ func (r *BillingRepo) GetAPIKeySpend(ctx context.Context, apiKeyID string) (int6
 	return row.SpentUsdMicros, row.SpendCapUsdMicros, true, nil
 }
 
-// GetUserMonthlySpendAndLimit resolves the effective monthly limit
-// (per-user override > org default; NULL override = explicitly uncapped).
 func (r *BillingRepo) GetUserMonthlySpendAndLimit(ctx context.Context, organizationID, routerUserID string) (int64, *int64, error) {
 	parsed, err := uuid.Parse(routerUserID)
 	if err != nil {
-		// A malformed id can't match any row; treat as "no limit to enforce"
-		// rather than failing the request closed on a client-shaped value.
 		return 0, nil, nil
 	}
 	q := dbbudget.Queries(r.tx)
@@ -146,8 +121,6 @@ func (r *BillingRepo) GetUserMonthlySpendAndLimit(ctx context.Context, organizat
 	return row.SpentUsdMicros, limit, nil
 }
 
-// GetOrgMonthlySpendAndLimit reads the org's current UTC-month spend and cap.
-// Scalar subqueries guarantee a row; missing config/spend -> nil limit / zero spend, not an error.
 func (r *BillingRepo) GetOrgMonthlySpendAndLimit(ctx context.Context, organizationID string) (int64, *int64, error) {
 	q := dbbudget.Queries(r.tx)
 	row, err := q.GetOrgMonthlySpendAndLimit(ctx, organizationID)
@@ -157,10 +130,6 @@ func (r *BillingRepo) GetOrgMonthlySpendAndLimit(ctx context.Context, organizati
 	return row.SpentUsdMicros, row.OrgLimitUsdMicros, nil
 }
 
-// GetAutopayConfig reads the org's autopay enabled flag and recharge threshold.
-// Maps pgx.ErrNoRows (org never configured autopay) to enabled=false with a nil
-// error so the debit hook skips the crossing check rather than treating a
-// missing row as a failure.
 func (r *BillingRepo) GetAutopayConfig(ctx context.Context, owner billing.Owner) (bool, int64, error) {
 	if err := owner.Validate(); err != nil {
 		return false, 0, err
@@ -192,8 +161,6 @@ func (r *BillingRepo) GetAutopayConfig(ctx context.Context, owner billing.Owner)
 	return enabled, threshold, nil
 }
 
-// BillingTablesExist runs the boot-time health check. Returns true when
-// every table the billing debit path touches exists in the router schema.
 func (r *BillingRepo) BillingTablesExist(ctx context.Context) (bool, error) {
 	q := dbbudget.Queries(r.tx)
 	return q.CheckBillingTablesExist(ctx)

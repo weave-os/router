@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-// Adapted from Switchyard's escalation.rs at SwitchyardRevision.
 package llmescalation
 
 import (
@@ -13,8 +10,6 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-// InstructionFingerprint changes for new top-level user instructions, including
-// repeated identical text, but not for Anthropic's user-role tool results.
 func InstructionFingerprint(messages []translate.EscalationMessage) [32]byte {
 	count := 0
 	latest := ""
@@ -43,7 +38,6 @@ const trimMarker = " ...[trimmed] "
 const truncationSuffix = "...<truncated>"
 const maxTranscriptChars = 18000
 
-// RenderTranscript ports Switchyard's Unicode-aware anchor/window condenser.
 func RenderTranscript(messages []translate.EscalationMessage) string {
 	anchors := make([]string, 0)
 	window := make([]string, 0)

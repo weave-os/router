@@ -1,5 +1,3 @@
-// Command escalation_state_check exercises durable classifier leases against a
-// migrated disposable database. Set ROUTER_TEST_DATABASE_URL to opt in.
 package main
 
 import (
@@ -139,7 +137,6 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 	if err = commitRace.Wait(); err != nil {
 		return err
 	}
-	// A duplicate may lose its claim, then invalidate after the winner commits.
 	err = store.Invalidate(ctx, scope, boundary, "")
 	if err != nil {
 		return err
@@ -330,7 +327,6 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 	if err != nil {
 		return err
 	}
-	// A released owner must leave the deferred reset for the next claimant.
 	releasedToken := uuid.NewString()
 	_, acquired, err = store.Claim(ctx, scope, installation.ID, releasedToken, boundary)
 	if err != nil || !acquired {
@@ -360,7 +356,6 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 	if err != nil {
 		return err
 	}
-	// With no owner, invalidation resets immediately and late outcome writes lose.
 	err = store.Invalidate(ctx, scope, missedBoundary, "")
 	if err != nil {
 		return err
@@ -401,7 +396,6 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 	if err != nil || found {
 		return fmt.Errorf("expired continuation survived a new lifetime: found=%t: %w", found, err)
 	}
-	// Leave one child in each table so deferred cleanup verifies its cascades.
 	fresh.Ordinal = 1
 	fresh.FeatureTurns = 1
 	fresh.FeatureState = json.RawMessage(`{"turns":1}`)
@@ -419,8 +413,6 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 	if err != nil || !acquired {
 		return fmt.Errorf("claim failed observation fixture: acquired=%t: %w", acquired, err)
 	}
-	// Recovery and the next claimant race; any successful claim must see
-	// the reset in the same snapshot as the released lease.
 	var recoveryRace errgroup.Group
 	recoveryRace.Go(func() error {
 		return store.Invalidate(ctx, scope, failedBoundary, failedToken)

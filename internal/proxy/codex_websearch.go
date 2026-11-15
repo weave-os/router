@@ -20,11 +20,8 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// nativeSearchLoggerContextKey carries the pre-bind logger so nested Responses
-// dispatch can bind session fields without duplicating log keys.
 type nativeSearchLoggerContextKey struct{}
 
-// codexWebSearchContextKey keeps isolated helpers out of conversation pin state.
 type codexWebSearchContextKey struct{}
 
 const (
@@ -56,7 +53,6 @@ func (s *Service) serveCodexWebSearch(ctx context.Context, body []byte, model st
 	}
 	callCtx, cancel := context.WithTimeout(ctx, nativeSearchTimeout)
 	defer cancel()
-	// The search bridge never authorizes API-key fallback, even for funded callers.
 	callCtx = context.WithValue(callCtx, subscriptionOnlyAttemptKey{}, true)
 	callCtx = context.WithValue(callCtx, codexWebSearchContextKey{}, true)
 	if base, ok := ctx.Value(nativeSearchLoggerContextKey{}).(*slog.Logger); ok {
@@ -193,8 +189,6 @@ func nativeSearchInvalidRequest(err error) error {
 	return &providers.UpstreamErrorResponse{Status: http.StatusBadRequest, Body: encoded}
 }
 
-// nativeSearchErrorResponse normalizes buffered Responses failures for Messages
-// clients, retaining status and cause while diagnostics are copied separately.
 func nativeSearchErrorResponse(status int, body []byte, cause error) *providers.UpstreamErrorResponse {
 	kind := providers.ProviderErrorTypeAPI
 	switch status {

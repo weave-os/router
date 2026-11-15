@@ -23,8 +23,6 @@ const (
 	openCodeBackgroundReceipt                         = "The subagent is working in the background (sessionID: "
 )
 
-// OpenCode drops synthetic-message metadata before inference. A completion must
-// match a prior background-task tool receipt before its routing role changes.
 func openCodeBackgroundCompletion(text string) (string, bool) {
 	text = strings.TrimSpace(text)
 	if id, state, ok := openCodeTaskOutput(text); ok {

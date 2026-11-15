@@ -8,20 +8,6 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// Clients replay the full conversation every turn, and a router directive the
-// user typed on an earlier turn (/fm, $router-session, …) comes back as an
-// ordinary user message. The directive was already applied when it was the
-// trailing turn and its ack stripped on replay, so what remains is a dangling
-// command the model reads, reasons about, and sometimes re-runs. These passes
-// remove it from history. The trailing turn is never touched: that is where
-// the Extract*Command readers still have to find a live directive. The first
-// user message is stripped like any other; the session key hashes the copy
-// StripHistoricalCommands captures first (ThreadDiscriminatorText), so the pin
-// an opening directive created survives.
-
-// stripHistoricalDirective returns text with any leading router directive,
-// including one a client wrapped (typedMessageInWrapper), removed, reporting whether one was found. Any text the user wrote alongside
-// the directive is kept.
 func stripHistoricalDirective(text string) (stripped string, found bool) {
 	for _, directive := range routerDirectives {
 		parse := func(text string) (struct{}, bool, string) {
@@ -35,9 +21,6 @@ func stripHistoricalDirective(text string) (stripped string, found bool) {
 	return text, false
 }
 
-// StripHistoricalCommands removes router directives from every user message
-// before the trailing user turn. The returned count is the number of messages
-// edited or dropped.
 func (env *RequestEnvelope) StripHistoricalCommands() (int, error) {
 	switch env.format {
 	case FormatAnthropic, FormatOpenAI:
@@ -83,7 +66,6 @@ func (env *RequestEnvelope) StripHistoricalCommands() (int, error) {
 			}
 			msg = gjson.Parse(raw)
 		}
-		// Dropping an opening directive must not leave an orphaned assistant ack.
 		if role == "assistant" && droppedUser && !keptUser && !carriesToolCall(msg) {
 			changed++
 			continue
@@ -117,8 +99,6 @@ func (env *RequestEnvelope) StripHistoricalCommands() (int, error) {
 	return env.setMessages(rebuilt, changed), nil
 }
 
-// trailingUserTurnIndex finds the user message that owns the current turn,
-// looking past the skill attachment Codex appends after a typed directive.
 func trailingUserTurnIndex(messages []gjson.Result, isUser func(gjson.Result) bool) int {
 	for i := len(messages) - 1; i >= 0; i-- {
 		if !isUser(messages[i]) || isSkillAttachment(messages, i) {
@@ -236,9 +216,6 @@ func stripHistoricalSkillToolMessage(msg gjson.Result, tracker *skillExecTracker
 	return raw, true, keep, nil
 }
 
-// stripDirectiveFromMessage rewrites a user message's content with its
-// leading directive removed. keep is false when nothing user-authored
-// remains and the whole message should go.
 func stripDirectiveFromMessage(msg gjson.Result, textType string) (raw string, edited, keep bool, err error) {
 	content := msg.Get("content")
 	switch {
@@ -302,8 +279,6 @@ func stripDirectiveFromMessage(msg gjson.Result, textType string) (raw string, e
 	}
 }
 
-// StripHistoricalCommandsFromResponsesInput is the Responses-shape twin of
-// StripHistoricalCommands for the native body Codex dispatches verbatim.
 func StripHistoricalCommandsFromResponsesInput(body []byte) ([]byte, error) {
 	input := gjson.GetBytes(body, "input")
 	if !input.IsArray() {

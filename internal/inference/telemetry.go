@@ -2,8 +2,6 @@ package inference
 
 import "time"
 
-// AccountingOutcome states how an operation's usage was accounted. Unknown
-// usage is explicit: it is never recorded as a zero-cost billed operation.
 type AccountingOutcome string
 
 const (
@@ -13,7 +11,6 @@ const (
 	AccountingOutcomeFailed       AccountingOutcome = "failed"
 )
 
-// AttemptOutcome classifies one upstream attempt.
 type AttemptOutcome string
 
 const (
@@ -23,8 +20,6 @@ const (
 	AttemptOutcomeAborted AttemptOutcome = "aborted"
 )
 
-// Usage is upstream-reported token usage. Known is false when the upstream
-// reported nothing; the counts are then unmeasured rather than zero.
 type Usage struct {
 	Known               bool
 	InputTokens         int
@@ -33,10 +28,6 @@ type Usage struct {
 	CacheReadTokens     int
 }
 
-// Provenance identifies the policy entry and revisions that produced a plan.
-// The same values appear in the request summary, every attempt event,
-// generated policy documentation, and runtime inspection so a revision can be
-// compared across all of them.
 type Provenance struct {
 	Purpose          Purpose
 	PolicyID         PolicyID
@@ -44,9 +35,6 @@ type Provenance struct {
 	PolicyRevision   PolicyRevision
 }
 
-// OperationSummary is the bounded provenance an operation contributes to the
-// request summary row. FallbackReason is empty when the served target is the
-// policy-selected target.
 type OperationSummary struct {
 	Provenance
 	PlanTarget        Target
@@ -56,11 +44,6 @@ type OperationSummary struct {
 	Usage             Usage
 }
 
-// AttemptEvent is one ordered upstream attempt of an operation. OperationID
-// distinguishes operations within one request (a main turn and its handover
-// summary) so attempt ordering never collides with request-summary
-// uniqueness. FailureReason is a bounded machine reason, never upstream body
-// content.
 type AttemptEvent struct {
 	Provenance
 	RequestID          string
@@ -72,14 +55,10 @@ type AttemptEvent struct {
 	UpstreamStatusCode int
 	Latency            time.Duration
 	Usage              Usage
-	// CostUSD is meaningful only when Usage.Known is true.
-	CostUSD   float64
-	Diagnosis AttemptDiagnosis
+	CostUSD            float64
+	Diagnosis          AttemptDiagnosis
 }
 
-// AttemptDiagnosis is the surface's reading of one attempt: how it failed,
-// who owns the failure, and whether the router rewrote the request body it
-// sent. ErrorClass and FailureOwner are empty on a served attempt.
 type AttemptDiagnosis struct {
 	ErrorClass     string
 	FailureOwner   string

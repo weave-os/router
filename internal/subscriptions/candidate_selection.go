@@ -44,8 +44,6 @@ type candidateComparison struct {
 	LastSelected time.Time             `json:"last_selected"`
 }
 
-// Ranking and reserving share one lock so concurrent callers see work that is
-// still refreshing credentials, as well as requests already sent upstream.
 func (r *Runtime) reserveCandidate(ctx context.Context, accounts []*auth.SubscriptionAccount, requester auth.SubscriptionOwner, provider Provider, preferred string, signals map[string]CandidateSignal) (*auth.SubscriptionAccount, func()) {
 	r.selectionMu.Lock()
 	now := r.clock()
@@ -95,8 +93,6 @@ func (r *Runtime) reserveCandidate(ctx context.Context, accounts []*auth.Subscri
 			if rank := cmp.Compare(leftSignal.UsedFraction, rightSignal.UsedFraction); rank != 0 {
 				return rank
 			}
-			// Unknown seats have no expiry signal to distinguish them. Rotate
-			// them even for sticky sessions until responses establish evidence.
 			if !leftSignal.Observed {
 				if rank := cmp.Compare(leftLoad.sequence, rightLoad.sequence); rank != 0 {
 					return rank
