@@ -324,9 +324,10 @@ func (o *chatRescue) finish(ctx context.Context) {
 	}
 
 	if subscriptionCredentialFallbackUsed(ctx) {
-		if o.decision.Provider == providers.ProviderOpenAI {
+		switch o.decision.Provider {
+		case providers.ProviderOpenAI:
 			o.codexFailoverUsed = true
-		} else if o.decision.Provider == providers.ProviderAnthropic {
+		case providers.ProviderAnthropic:
 			o.claudeFailoverUsed = true
 		}
 	}

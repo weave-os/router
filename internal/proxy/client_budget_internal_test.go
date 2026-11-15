@@ -85,7 +85,7 @@ func TestClientBudgetDoesNotUseRouterAddedBeta(t *testing.T) {
 
 func TestClientBudgetRecomputedAcrossSameSessionAndAgents(t *testing.T) {
 	clientIdentity := ClientIdentity{SessionID: "shared-session", ClientApp: ClientAppClaudeCode, UserAgent: budgetTestUserAgent}
-	var parent context.Context = context.Background()
+	var parent = context.Background()
 	for _, tt := range []struct {
 		model   string
 		variant bool

@@ -36,7 +36,7 @@ func TestBaselineFor(t *testing.T) {
 
 	t.Run("unknown model with no baseline returns empty", func(t *testing.T) {
 		s := &Service{}
-		assert.Equal(t, "", s.baselineFor(context.Background(), "weave-router"))
+		assert.Empty(t, s.baselineFor(context.Background(), "weave-router"))
 	})
 }
 

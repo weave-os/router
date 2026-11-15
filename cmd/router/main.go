@@ -560,7 +560,7 @@ func main() {
 		logger.Error("Failed to create Pub/Sub client", "err", err)
 		panic(err)
 	}
-	defer pubsubClient.Close()
+	defer func() { _ = pubsubClient.Close() }()
 
 	publisher := pubsubClient.Publisher(pubsubTopicID)
 	notifier := routerpubsub.NewInvalidationNotifier(publisher)
@@ -1100,7 +1100,7 @@ func main() {
 				logger.Error("Router policy registry failed to initialize; refusing to boot", "err", registryErr)
 				panic(registryErr)
 			}
-			defer gcsRegistry.Close()
+			defer func() { _ = gcsRegistry.Close() }()
 			policyRegistry = gcsRegistry
 			policyEnvironment = policyregistry.Environment(policyEnvironmentRaw)
 		}
@@ -2082,15 +2082,6 @@ func resolveHardPinModel() (provider, model string, resolutionErr error) {
 		return "", "", errors.New("ROUTER_HARD_PIN_PROVIDER requires ROUTER_HARD_PIN_MODEL")
 	}
 	return policy.UtilityHardPinDefaultProvider, policy.UtilityHardPinDefaultModel, nil
-}
-
-// envVarHint returns the env var name for a provider's API key, for log
-// warnings; falls back to a readable "unknown provider" string.
-func envVarHint(provider string) string {
-	if v := providers.APIKeyEnvVar(provider); v != "" {
-		return v
-	}
-	return "<unknown provider " + provider + ">"
 }
 
 // upstreamIDsForProvider maps public model ID -> upstream model ID for a

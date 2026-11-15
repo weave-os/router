@@ -5,12 +5,12 @@ func fallbackBindings(spec PolicySpec, selected plannedBinding, resolved Resolve
 	switch spec.Fallback.Kind {
 	case FallbackKindBinding:
 		for _, binding := range resolved.bindingsByCatalogID[selected.CatalogID] {
-			candidates = append(candidates, plannedBinding{Binding: binding.Binding, estimatedCostUSD: binding.estimatedCostUSD})
+			candidates = append(candidates, plannedBinding(binding))
 		}
 	case FallbackKindPlanAlternatives:
 		for _, catalogID := range spec.Fallback.Alternatives {
 			for _, binding := range resolved.bindingsByCatalogID[catalogID] {
-				candidates = append(candidates, plannedBinding{Binding: binding.Binding, estimatedCostUSD: binding.estimatedCostUSD})
+				candidates = append(candidates, plannedBinding(binding))
 			}
 		}
 	case FallbackKindLocalRecovery, FallbackKindFullHistory, FallbackKindRoutedDispatch, FallbackKindNone:
