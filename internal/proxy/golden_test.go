@@ -533,8 +533,8 @@ func runGoldenScenario(t *testing.T, sc goldenScenario) {
 
 	path := filepath.Join("testdata", "golden", sc.name+".json")
 	if *updateGolden {
-		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
-		require.NoError(t, os.WriteFile(path, got, 0o644))
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+		require.NoError(t, os.WriteFile(path, got, 0o600))
 		return
 	}
 	want, err := os.ReadFile(path)

@@ -27,7 +27,7 @@ func TestProxy_RefusedRedirectFailsRetryablyWithoutTouchingWriter(t *testing.T) 
 	}))
 	defer target.Close()
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, target.URL+r.URL.Path, http.StatusTemporaryRedirect)
+		http.Redirect(w, r, target.URL, http.StatusTemporaryRedirect)
 	}))
 	defer upstream.Close()
 
@@ -56,7 +56,7 @@ func TestListModels_RedirectRefused(t *testing.T) {
 	}))
 	defer target.Close()
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, target.URL+r.URL.Path, http.StatusMovedPermanently)
+		http.Redirect(w, r, target.URL, http.StatusMovedPermanently)
 	}))
 	defer upstream.Close()
 

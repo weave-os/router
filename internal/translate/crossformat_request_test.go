@@ -2195,7 +2195,7 @@ func TestSanitizeOverlongToolUseNames(t *testing.T) {
 func TestSanitizeAnthropicToolNamesUsesFieldSpecificLimits(t *testing.T) {
 	validHistoricalUnicodeName := strings.Repeat("界", 100)
 	invalidDeclaredName := strings.Repeat("a", 129)
-	collidingDeclaredName := "invalid_tool_d96debf1bdcbc896e6c134ea76e8141f40d78536"
+	collidingDeclaredName := "invalid_tool_c12cb024a2e5551cca0e08fce8f1c5e314555cc3"
 	body := []byte(fmt.Sprintf(`{
 		"model": "claude-opus-4-7",
 		"tools": [
@@ -2294,7 +2294,7 @@ func TestSanitizeAnthropicHistoricalToolNameCountsUnicodeCharacters(t *testing.T
 
 func TestSanitizeAnthropicToolNameAliasStableAcrossReplay(t *testing.T) {
 	invalidDeclaredName := strings.Repeat("a", 129)
-	collidingDeclaredName := "invalid_tool_d96debf1bdcbc896e6c134ea76e8141f40d78536"
+	collidingDeclaredName := "invalid_tool_c12cb024a2e5551cca0e08fce8f1c5e314555cc3"
 	initialBody := []byte(fmt.Sprintf(`{
 		"model": "claude-opus-4-7",
 		"tools": [

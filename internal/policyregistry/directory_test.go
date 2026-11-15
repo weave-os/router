@@ -142,7 +142,7 @@ func TestWriteDirectoryReleaseKeepsWorkingHeadWhenObjectWriteFails(t *testing.T)
 	require.NoError(t, err)
 	head.ReleaseSHA256 = policyregistry.Digest(releasePayload)
 	head.ReleaseURI = testRegistryRoot + "/router_policy/v1/releases/sha256/" + head.ReleaseSHA256 + ".json"
-	require.NoError(t, os.MkdirAll(filepath.Join(baked.dir, "router_policy", "v1", "releases", "sha256", head.ReleaseSHA256+".json"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(baked.dir, "router_policy", "v1", "releases", "sha256", head.ReleaseSHA256+".json"), 0o750))
 	policyPayload, err := os.ReadFile(baked.policyPath)
 	require.NoError(t, err)
 

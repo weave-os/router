@@ -1,7 +1,7 @@
 package translate
 
 import (
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -95,7 +95,7 @@ func applyResponsesSessionAffinity(body []byte, opts EmitOptions) ([]byte, error
 // stableResponsesPromptCacheKey hashes the cacheable prefix (instructions + tools)
 // for Responses bodies and returns "" when there is none.
 func stableResponsesPromptCacheKey(body []byte) string {
-	h := sha1.New()
+	h := sha256.New()
 	var hasPrefix bool
 	if instructions := gjson.GetBytes(body, "instructions"); instructions.Raw != "" && instructions.Type != gjson.Null {
 		h.Write([]byte(instructions.Raw))
@@ -109,7 +109,7 @@ func stableResponsesPromptCacheKey(body []byte) string {
 	if !hasPrefix {
 		return ""
 	}
-	return "wv_" + hex.EncodeToString(h.Sum(nil))
+	return "wv_" + hex.EncodeToString(h.Sum(nil)[:20])
 }
 
 // ResponseTranslator is the common surface the proxy's cross-format OpenAI

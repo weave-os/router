@@ -121,6 +121,7 @@ func (r *Runtime) reserveCandidate(ctx context.Context, accounts []*auth.Subscri
 		}
 		if budget.selections >= candidateExplorationEvery-1 && now.Sub(budget.lastProbe) >= candidateExplorationInterval {
 			probe := -1
+			var probeLastSelected time.Time
 			for i, account := range accounts {
 				load, signal := r.candidateLoads[account.ID], signals[account.ID]
 				if i == 0 || (account.SubscriberID == requester.SubscriberID) != (accounts[0].SubscriberID == requester.SubscriberID) ||
@@ -129,8 +130,8 @@ func (r *Runtime) reserveCandidate(ctx context.Context, accounts []*auth.Subscri
 					!load.lastSelected.IsZero() && now.Sub(load.lastSelected) < candidateExplorationIdle {
 					continue
 				}
-				if probe < 0 || load.lastSelected.Before(r.candidateLoads[accounts[probe].ID].lastSelected) {
-					probe = i
+				if probe < 0 || load.lastSelected.Before(probeLastSelected) {
+					probe, probeLastSelected = i, load.lastSelected
 				}
 			}
 			if probe >= 0 {

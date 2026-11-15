@@ -106,7 +106,7 @@ func runCompile(args []string) error {
 		return err
 	}
 	if !*checkOnly {
-		if err := os.WriteFile(*outputPath, canonical, 0o644); err != nil {
+		if err := os.WriteFile(*outputPath, canonical, 0o600); err != nil {
 			return fmt.Errorf("write compiled policy: %w", err)
 		}
 	}

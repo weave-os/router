@@ -56,11 +56,11 @@ func Configure(poolConfig *pgxpool.Config) (bool, error) {
 		RootCAs:      roots,
 		Certificates: []tls.Certificate{keyPair},
 		// Cloud SQL server certificates carry the instance connection name rather than the
-		// IP being dialed, so Go's default hostname check can never pass. VerifyPeerCertificate
+		// IP being dialed, so Go's default hostname check can never pass. VerifyConnection
 		// below replaces it with a chain check against the configured CA — the connection is
 		// still authenticated, just not by hostname.
-		InsecureSkipVerify:    true, // codeql[go/disabled-certificate-check]
-		VerifyPeerCertificate: verifyAgainst(roots, os.Getenv(serverNameEnvVar)),
+		InsecureSkipVerify: true, // codeql[go/disabled-certificate-check]
+		VerifyConnection:   verifyAgainst(roots, os.Getenv(serverNameEnvVar)),
 	}
 	poolConfig.ConnConfig.TLSConfig = tlsConfig
 
@@ -79,16 +79,13 @@ func Configure(poolConfig *pgxpool.Config) (bool, error) {
 	return true, nil
 }
 
-func verifyAgainst(roots *x509.CertPool, expectedServerName string) func([][]byte, [][]*x509.Certificate) error {
-	return func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
-		if len(rawCerts) == 0 {
+func verifyAgainst(roots *x509.CertPool, expectedServerName string) func(tls.ConnectionState) error {
+	return func(state tls.ConnectionState) error {
+		if len(state.PeerCertificates) == 0 {
 			return errors.New("postgres server presented no certificate")
 		}
-		serverCert, err := x509.ParseCertificate(rawCerts[0])
-		if err != nil {
-			return err
-		}
-		if _, err = serverCert.Verify(x509.VerifyOptions{Roots: roots}); err != nil {
+		serverCert := state.PeerCertificates[0]
+		if _, err := serverCert.Verify(x509.VerifyOptions{Roots: roots}); err != nil {
 			return err
 		}
 		if expectedServerName == "" {
