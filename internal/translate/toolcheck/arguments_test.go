@@ -22,7 +22,7 @@ func TestArgumentDocumentNormalizationPreservesDuplicateDeletionOrder(t *testing
 	raw := `{"x":"","x":"keep","x":""}`
 	got, actions := normalizeArgs(raw, nil)
 
-	assert.JSONEq(t, `{"x":""}`, got)
+	assert.Equal(t, `{"x":""}`, got)
 	assert.Equal(t, []string{"drop_empty_optional", "drop_empty_optional"}, actions)
 }
 
@@ -35,7 +35,7 @@ func TestArgumentDocumentPreservesReadAndWriteDuplicateParentBehavior(t *testing
 	assert.Equal(t, `"2"`, value.raw, "reads may continue through a later duplicate parent")
 
 	require.True(t, document.replace([]string{"a", "x"}, `2`))
-	assert.JSONEq(t, `{"a":{"y":1,"x":2},"a":{"x":"2"}}`, document.materialize(),
+	assert.Equal(t, `{"a":{"y":1,"x":2},"a":{"x":"2"}}`, document.materialize(),
 		"writes target the first matching parent")
 }
 
@@ -43,7 +43,7 @@ func TestArgumentDocumentPreservesDuplicateLeafMutation(t *testing.T) {
 	document := newArgumentDocument(`{"n":"1","n":"2"}`)
 
 	require.True(t, document.replace([]string{"n"}, `1`))
-	assert.JSONEq(t, `{"n":1,"n":"2"}`, document.materialize())
+	assert.Equal(t, `{"n":1,"n":"2"}`, document.materialize())
 }
 
 func TestArgumentDocumentPreservesSpecialPathKeys(t *testing.T) {
@@ -154,7 +154,7 @@ func TestCheckRepairsWrappedObjectAndArrayElements(t *testing.T) {
 		verdict := validator.Check("Nested", args)
 		require.NotNil(t, verdict.Issue)
 		assert.True(t, verdict.Issue.Repaired)
-		assert.JSONEq(t, `{"items":[{"n":1}]}`, verdict.Args)
+		assert.Equal(t, `{"items":[{"n":1}]}`, verdict.Args)
 	}
 }
 
@@ -171,9 +171,9 @@ func TestArgumentDocumentWrapRetainsCurrentEdits(t *testing.T) {
 	require.True(t, changed)
 	require.True(t, ok)
 	require.True(t, document.wrap([]string{"x"}, document.lookup([]string{"x"})))
-	assert.JSONEq(t, `{"x":[{"n":1}]}`, document.materialize())
+	assert.Equal(t, `{"x":[{"n":1}]}`, document.materialize())
 	require.True(t, document.replace([]string{"x", "0", "n"}, `2`))
-	assert.JSONEq(t, `{"x":[{"n":2}]}`, document.materialize())
+	assert.Equal(t, `{"x":[{"n":2}]}`, document.materialize())
 }
 
 func TestArgumentDocumentDuplicateWrapDoesNotAliasLaterParent(t *testing.T) {
@@ -185,7 +185,7 @@ func TestArgumentDocumentDuplicateWrapDoesNotAliasLaterParent(t *testing.T) {
 	changed, ok := document.delete([]string{"a", "x", "0", "extra"})
 	require.True(t, changed)
 	require.True(t, ok)
-	assert.JSONEq(t, `{"a":{"y":1,"x":[{"n":2}]},"a":{"x":{"n":"2","extra":true}}}`, document.materialize())
+	assert.Equal(t, `{"a":{"y":1,"x":[{"n":2}]},"a":{"x":{"n":"2","extra":true}}}`, document.materialize())
 	assert.Equal(t, `"2"`, document.lookup([]string{"a", "x", "n"}).raw,
 		"the read still reaches the untouched later parent when the first is an array")
 }
@@ -204,7 +204,7 @@ func TestArgumentDocumentDuplicateIndexAfterInsertDeleteAndReplace(t *testing.T)
 	assert.Nil(t, document.lookup([]string{"x"}))
 	require.True(t, document.replace([]string{"x"}, `{"child":1}`))
 	require.True(t, document.replace([]string{"x", "child"}, `2`))
-	assert.JSONEq(t, `{"y":0,"x":{"child":2}}`, document.materialize())
+	assert.Equal(t, `{"y":0,"x":{"child":2}}`, document.materialize())
 }
 
 func TestArgumentDocumentDeepEditsPreserveUntouchedSpans(t *testing.T) {
@@ -265,7 +265,7 @@ func TestArgumentDocumentPreservesOverflowedArrayIndex(t *testing.T) {
 	document := newArgumentDocument(raw)
 	assert.Equal(t, `"1"`, document.lookup(path).raw)
 	require.True(t, document.replace(path, `1`))
-	assert.JSONEq(t, `{"a":[{"n":1}],"a":{"18446744073709551616":{"n":"2"}}}`, document.materialize())
+	assert.Equal(t, `{"a":[{"n":1}],"a":{"18446744073709551616":{"n":"2"}}}`, document.materialize())
 	assert.Nil(t, document.lookup([]string{"a", "18446744073709551615"}))
 }
 
@@ -303,5 +303,5 @@ func TestArgumentDocumentExpandedSnapshotDoesNotAliasNestedChildren(t *testing.T
 	require.NotNil(t, document.lookup([]string{"a", "y", "inner", "n"}))
 	require.True(t, document.wrap([]string{"a", "y"}, document.lookup([]string{"a", "y"})))
 	require.True(t, document.replace([]string{"a", "y", "0", "inner", "n"}, `3`))
-	assert.JSONEq(t, `{"a":{"x":{"n":1},"y":[{"inner":{"n":3}}]},"a":{"y":{"inner":{"n":"2"}}}}`, document.materialize())
+	assert.Equal(t, `{"a":{"x":{"n":1},"y":[{"inner":{"n":3}}]},"a":{"y":{"inner":{"n":"2"}}}}`, document.materialize())
 }

@@ -490,7 +490,7 @@ func TestWithAuthSnapshotsForwardedClientHeaders(t *testing.T) {
 		// search) have no inbound request to read these off later.
 		snapshot := proxy.ForwardedHeaderSnapshotFrom(c.Request.Context())
 		assert.Equal(t, "cortex-cli/1.2.3", snapshot.Get("X-SNOWFLAKE-APPLICATION"))
-		assert.JSONEq(t, `{"deployment":"prod"}`, snapshot.Get("X-SNOWFLAKE-BAGGAGE"))
+		assert.Equal(t, `{"deployment":"prod"}`, snapshot.Get("X-SNOWFLAKE-BAGGAGE"))
 		assert.Empty(t, snapshot.Get("Authorization"),
 			"only headers a key forwards belong in the snapshot")
 		c.Status(http.StatusOK)

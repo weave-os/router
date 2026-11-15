@@ -88,7 +88,7 @@ func TestBlindExperimentWriterInactiveLeavesResponseUntouched(t *testing.T) {
 	require.NoError(t, err)
 	finish()
 	assert.Equal(t, "gpt-5.4-mini", rec.Header().Get("x-router-model"))
-	assert.JSONEq(t, `{"model":"gpt-5.4-mini"}`, rec.Body.String())
+	assert.Equal(t, `{"model":"gpt-5.4-mini"}`, rec.Body.String())
 }
 
 func TestBlindExperimentWriterDropsWeaveCostFromStream(t *testing.T) {

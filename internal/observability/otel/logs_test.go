@@ -144,7 +144,7 @@ func TestBuffer_RecordLogAndFlush(t *testing.T) {
 	require.NotNil(t, info)
 	require.NotNil(t, errRec)
 	assert.Equal(t, "claude-opus-4-8", info.attrs["decision.model"])
-	assert.JSONEq(t, `{"messages":[]}`, info.attrs["io.request_body"])
+	assert.Equal(t, `{"messages":[]}`, info.attrs["io.request_body"])
 }
 
 func TestBuffer_SpansAndLogsShareTraceID(t *testing.T) {

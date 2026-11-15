@@ -190,7 +190,7 @@ func TestParseEvent_ExtractsEventTypeAndData(t *testing.T) {
 	eventType, data := sse.ParseEvent([]byte("event: content_block_delta\ndata: {\"type\":\"text\"}"))
 
 	assert.Equal(t, "content_block_delta", string(eventType))
-	assert.JSONEq(t, `{"type":"text"}`, string(data))
+	assert.Equal(t, `{"type":"text"}`, string(data))
 }
 
 func TestParseEvent_NoEventLineLeavesEventTypeEmpty(t *testing.T) {

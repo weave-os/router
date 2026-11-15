@@ -152,7 +152,7 @@ func TestEscalationObservationPreservesInterleavingAndMissingError(t *testing.T)
 	require.Len(t, observation.Messages, 2)
 	assert.Equal(t, []translate.EscalationBlockType{translate.EscalationBlockText, translate.EscalationBlockToolCall, translate.EscalationBlockText}, []translate.EscalationBlockType{observation.Messages[0].Blocks[0].Type, observation.Messages[0].Blocks[1].Type, observation.Messages[0].Blocks[2].Type})
 	assert.Equal(t, `{"z":1,"a":2}`, observation.Messages[0].Blocks[1].ArgumentsJSON)
-	assert.JSONEq(t, `[{"type":"text","text":"done"}]`, observation.Messages[1].Blocks[0].ContentJSON)
+	assert.Equal(t, `[{"type":"text","text":"done"}]`, observation.Messages[1].Blocks[0].ContentJSON)
 	assert.Nil(t, observation.Messages[1].Blocks[0].IsError)
 	assert.Equal(t, "next", observation.Messages[1].Blocks[1].Text)
 }

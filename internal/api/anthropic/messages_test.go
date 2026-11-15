@@ -334,7 +334,7 @@ func TestMessagesHandler_HappyPathServesUpstreamResponse(t *testing.T) {
 	rec := postMessages(engine, []byte(validAnthropicBody))
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.JSONEq(t, `{"id":"msg_1","type":"message"}`, rec.Body.String())
+	assert.Equal(t, `{"id":"msg_1","type":"message"}`, rec.Body.String())
 	assert.Equal(t, "claude-sonnet-4-5", rec.Header().Get("x-router-model"))
 	assert.Equal(t, providers.ProviderAnthropic, rec.Header().Get("x-router-provider"))
 	assert.Equal(t, "test_reason", rec.Header().Get("x-router-decision"))

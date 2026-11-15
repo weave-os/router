@@ -485,7 +485,7 @@ func TestDeferredCallLog_ReadsBodyAtRunTime(t *testing.T) {
 
 	require.NoError(t, em.Shutdown(context.Background()))
 	a := coll.attrs(t)
-	assert.JSONEq(t, `{"final":"body"}`, a["io.response_body"], "deferred emit must read the post-Finalize body")
+	assert.Equal(t, `{"final":"body"}`, a["io.response_body"], "deferred emit must read the post-Finalize body")
 }
 
 func TestDeferredCallLog_SafeWhenAbsent(t *testing.T) {

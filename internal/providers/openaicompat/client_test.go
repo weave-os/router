@@ -300,7 +300,7 @@ func TestProxy_BuffersErrorBodyAndDoesNotTouchWriter(t *testing.T) {
 	var buffered *providers.UpstreamErrorResponse
 	require.ErrorAs(t, err, &buffered, "openaicompat must return *UpstreamErrorResponse for >=400 status so the dispatcher can retry")
 	assert.Equal(t, http.StatusServiceUnavailable, buffered.Status)
-	assert.JSONEq(t, errBody, string(buffered.Body))
+	assert.Equal(t, errBody, string(buffered.Body))
 	assert.Equal(t, "application/json", buffered.Headers.Get("Content-Type"))
 
 	// ResponseRecorder reports Code=200 by default even without WriteHeader,

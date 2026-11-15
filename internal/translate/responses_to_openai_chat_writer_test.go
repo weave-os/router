@@ -92,7 +92,7 @@ func TestResponsesToOpenAIChatWriter_StreamingClient(t *testing.T) {
 	assert.Equal(t, "call_xyz", toolCall.Get("id").String())
 	assert.Equal(t, "function", toolCall.Get("type").String())
 	assert.Equal(t, "get_weather", toolCall.Get("function.name").String())
-	assert.JSONEq(t, `{"location":"NYC"}`, toolCall.Get("function.arguments").String(),
+	assert.Equal(t, `{"location":"NYC"}`, toolCall.Get("function.arguments").String(),
 		"arguments are concatenated from both deltas and emitted as one JSON-encoded string")
 
 	final := chunks[len(chunks)-1]
@@ -152,7 +152,7 @@ func TestResponsesToOpenAIChatWriter_NonStreamingClient(t *testing.T) {
 	assert.Equal(t, "Let me check the weather.", root.Get("choices.0.message.content").String())
 	assert.Equal(t, "Checking the weather tool.", root.Get("choices.0.message.reasoning_content").String())
 	assert.Equal(t, "get_weather", root.Get("choices.0.message.tool_calls.0.function.name").String())
-	assert.JSONEq(t, `{"location":"NYC"}`, root.Get("choices.0.message.tool_calls.0.function.arguments").String())
+	assert.Equal(t, `{"location":"NYC"}`, root.Get("choices.0.message.tool_calls.0.function.arguments").String())
 	assert.Equal(t, "call_xyz", root.Get("choices.0.message.tool_calls.0.id").String())
 	assert.Equal(t, "tool_calls", root.Get("choices.0.finish_reason").String())
 	assert.EqualValues(t, 150, root.Get("usage.prompt_tokens").Int())
