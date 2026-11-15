@@ -1,20 +1,3 @@
-// Command rotate_key_race_check reproduces a concurrent RotateAPIKey race
-// against a live Postgres: N goroutines soft-delete + re-issue the same key
-// with no transaction / rows-affected check, so more than one successor key
-// can end up live from a single rotation intent.
-//
-// It is a separate main package (not a _test.go), so `go test ./...` never
-// touches Postgres. It is gated on ROUTER_TEST_DATABASE_URL (a DSN to a
-// database with the router migrations applied) and is a no-op without it.
-//
-// Timing note: a start-only barrier misses the race — List→SoftDelete is
-// microseconds, so one goroutine soft-deletes before the others List. A second
-// barrier inside ListForInstallation holds every caller at the TOCTOU window.
-//
-// Usage (from the repo root, against the docker-compose Postgres):
-//
-//	ROUTER_TEST_DATABASE_URL="postgres://router:router@localhost:5433/router?search_path=router" \
-//	    go run ./scripts/rotate_key_race_check
 package main
 
 import (
@@ -46,8 +29,6 @@ func main() {
 	if err != nil {
 		fail("parse database url", err)
 	}
-	// Enough connections that N concurrent RotateAPIKey calls are not
-	// artificially serialized by the pool (default is already ≥4).
 	cfg.MaxConns = int32(concurrentRotations + 2)
 	cfg.MinConns = int32(concurrentRotations)
 
@@ -70,14 +51,9 @@ func fail(step string, err error) {
 	os.Exit(1)
 }
 
-// checkRotateKeyRace creates a fresh installation + one API key, then fires
-// concurrentRotations barrier-synchronized RotateAPIKey calls on that same
-// keyID and reports how many succeeded vs how many active keys remain.
 func checkRotateKeyRace(ctx context.Context, pool *pgxpool.Pool) error {
 	repo := postgres.NewRepository(pool, auth.NoOpEncryptor{})
 
-	// Hold every caller between List and SoftDelete to open the TOCTOU window;
-	// a start-only barrier misses it because List→SoftDelete is microseconds.
 	listHold := newListHold(concurrentRotations)
 	apiKeys := &holdingAPIKeyRepo{inner: repo.APIKeys, hold: listHold}
 
@@ -150,8 +126,6 @@ func checkRotateKeyRace(ctx context.Context, pool *pgxpool.Pool) error {
 	done.Wait()
 	close(stopMon)
 
-	// Use the unwrapped repo: holdingAPIKeyRepo would block forever waiting
-	// for N more List arrivals that never come.
 	keys, err := repo.APIKeys.ListForInstallation(ctx, install.ID)
 	if err != nil {
 		return fmt.Errorf("list API keys: %w", err)
@@ -174,8 +148,6 @@ func checkRotateKeyRace(ctx context.Context, pool *pgxpool.Pool) error {
 	return nil
 }
 
-// listHold is a reusable N-party barrier: the Nth arrival closes release so
-// every waiter proceeds together.
 type listHold struct {
 	n        int
 	mu       sync.Mutex
@@ -202,9 +174,6 @@ func (h *listHold) Wait() {
 	<-release
 }
 
-// holdingAPIKeyRepo wraps an APIKeyRepository and parks every
-// ListForInstallation caller at listHold so SoftDelete cannot run until all
-// concurrent rotators have observed the pre-delete key set.
 type holdingAPIKeyRepo struct {
 	inner auth.APIKeyRepository
 	hold  *listHold
