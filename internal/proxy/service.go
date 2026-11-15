@@ -23,6 +23,7 @@ import (
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
@@ -305,9 +306,8 @@ type Service struct {
 	// 529 circuit registry. See ResolveProviderOverloaded.
 	providerOverloaded bool
 	overloadBreaker    *breaker.Registry
-	// sseKeepalive is the client-silence budget before a ping is injected
-	// (ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS; 0 disables). See sse.KeepaliveWriter.
-	sseKeepalive time.Duration
+	// ingress holds the client wire-format adapters and the keepalive budget.
+	ingress ingress.Formats
 	// cyberRefusalFallbackModel is the model to re-pin to on a cyber refusal
 	// when the session pin carries no runner-up (PairedModel). Set from
 	// ROUTER_CYBER_REFUSAL_FALLBACK_MODEL; defaults to claude-sonnet-5.
@@ -1656,6 +1656,7 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		clients:                      dispatch.NewClients(providerMap),
 		translationCompatibilityMode: TranslationCompatibilityShadow,
 		emitter:                      emitter,
+		ingress:                      ingress.New(0),
 		pinStore:                     pinStore,
 		noProgress:                   newNoProgressTracker(),
 		searchUse:                    newSearchUseTracker(),
@@ -1941,13 +1942,6 @@ func (s *Service) WithNativeOpenAIResponseSignals(enabled bool) *Service {
 // x-weave-allowed-models header (ROUTER_ALLOWED_MODELS_HEADER).
 func (s *Service) WithAllowedModelsHeader(enabled bool) *Service {
 	s.allowedModelsHeader = enabled
-	return s
-}
-
-// WithSSEKeepalive sets the client-facing silence budget before a `ping` is
-// injected into a committed Anthropic stream. Non-positive disables it.
-func (s *Service) WithSSEKeepalive(interval time.Duration) *Service {
-	s.sseKeepalive = interval
 	return s
 }
 
@@ -4142,8 +4136,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		clientSink = streamCost
 		// Innermost wrap: arms only once preludeBuffer commits, so a keepalive
 		// can never strand a response the router still wants to retry.
-		if s.sseKeepalive > 0 {
-			keepalive := sse.NewKeepaliveWriter(clientSink, anthropicPingFrame, s.sseKeepalive)
+		if s.ingress.Keepalive > 0 {
+			keepalive := sse.NewKeepaliveWriter(clientSink, anthropicPingFrame, s.ingress.Keepalive)
 			defer keepalive.Close()
 			clientSink = keepalive
 		}
