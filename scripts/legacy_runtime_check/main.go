@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"os"
 	"os/exec"
@@ -102,24 +103,13 @@ type policyFixture struct {
 	classifierURL string
 }
 
-func reserveLocalPort() (int, error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, err
-	}
-	addr, ok := listener.Addr().(*net.TCPAddr)
-	_ = listener.Close()
-	if !ok {
-		return 0, fmt.Errorf("listener address is %T, not *net.TCPAddr", listener.Addr())
-	}
-	return addr.Port, nil
-}
-
 func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, policy policyFixture, mode server.DeploymentMode) error {
-	port, err := reserveLocalPort()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return err
 	}
+	port := int(netip.MustParseAddrPort(listener.Addr().String()).Port())
+	_ = listener.Close()
 	logFile, err := os.CreateTemp("", "router-legacy-"+string(mode)+"-*.log")
 	if err != nil {
 		return err
