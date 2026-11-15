@@ -18,6 +18,8 @@ variables are in [CONFIGURATION.md](../../docs/CONFIGURATION.md).
   `SanitizeOrphanedToolCalls`: a skill can encode its command as a plain user
   string after an assistant `tool_use`, and sanitizing first erases the
   provenance and leaves a dangling `tool_use` that some upstreams reject.
+  `TestProxyMessages_ForceModelAfterOrphanedToolUseStaysAgentIssued` and its
+  chat-completions twin pin this.
 - Strip the Claude Code 1M-context model tag (`claude-opus-4-8[1m]`) to the
   canonical model id before parsing; it is a client display convention and a
   native Anthropic upstream 404s on it. The 1M window is enabled separately via
