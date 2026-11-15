@@ -120,3 +120,16 @@ func TestGatewayCompactionFailsOverBeforeCommit(t *testing.T) {
 	assert.Equal(t, catalog.ModelGPT6Luna, rec.Header().Get(HeaderRouterModel))
 	assert.Contains(t, rec.Body.String(), "summary")
 }
+
+func TestServedBindingPrefersTheProviderThatServedTheTurn(t *testing.T) {
+	const model = "qwen/qwen3-235b-a22b-2507"
+	both := map[string]struct{}{providers.ProviderBedrock: {}, providers.ProviderOpenRouter: {}}
+
+	binding, ok := servedBinding(model, providers.ProviderOpenRouter, both, nil)
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderOpenRouter, binding.Provider)
+
+	binding, ok = servedBinding(model, providers.ProviderAnthropic, both, nil)
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderBedrock, binding.Provider)
+}
