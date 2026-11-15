@@ -5644,7 +5644,7 @@ func (s *Service) excludeCodexOAuthOnlyModels(
 	excluded map[string]struct{},
 ) map[string]struct{} {
 	_, codexAvailable := subscriptionServableProviders(ctx, headers)[providers.ProviderOpenAI]
-	if !codexAvailable || (!paidFallbackForbidden(ctx) && s.openAIPaidCredentialAvailable(ctx, headers)) {
+	if !codexAvailable || (!paidFallbackForbiddenFor(ctx, providers.ProviderOpenAI) && s.openAIPaidCredentialAvailable(ctx, headers)) {
 		return excluded
 	}
 	for _, model := range catalog.Models {

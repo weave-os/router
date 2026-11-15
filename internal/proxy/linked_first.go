@@ -42,6 +42,13 @@ func paidCapacityUnfunded(ctx context.Context) bool {
 	return billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx)
 }
 
+// paidFallbackForbiddenFor is paidFallbackForbidden for a fallback onto
+// provider: an unfunded organization may still fall back to the customer's
+// own usable key for provider.
+func paidFallbackForbiddenFor(ctx context.Context, provider string) bool {
+	return paidFallbackForbiddenByPlan(ctx) || paidCapacityUnfunded(ctx) && usableBYOK(ctx, provider) == nil
+}
+
 // paidAttemptForbidden reports whether dispatch must refuse an attempt on
 // creds. An unfunded organization's turn may still run on the customer's own
 // usable provider key.

@@ -403,6 +403,24 @@ func TestLeaseManagedSubscription_CreditsDepletedExhaustedPool_StillRefuses(t *t
 	assert.Equal(t, http.StatusPaymentRequired, cls.Status)
 }
 
+func TestLeaseManagedSubscription_CreditsDepletedExhaustedPool_PlanFirstKeyServes(t *testing.T) {
+	leaser := &scriptedSubscriptionLeaser{}
+	svc := newServiceWithProviders(t, nil).
+		WithManagedSubscriptions(leaser).
+		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
+	ctx := context.WithValue(exhaustedManagedSubscriptionContext(auth.SubscriptionProviderClaude), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+		{ID: "key-1", Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-byok"), FundingPriority: auth.FundingPriorityPlanFirst},
+	})
+	ctx = flags.WithOverrides(
+		billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted),
+		flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionPlanAwareRouting: true, flags.KeyClaudeEnterpriseOnly: false}},
+	)
+
+	_, _, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderAnthropic, "claude-opus-4-8")
+	require.NoError(t, err, "a spent linked pool hands an unfunded turn to the customer's plan_first key")
+	require.False(t, managed)
+}
+
 func TestDispatchWithFallbackRotatesManagedAccountBeforeCommit(t *testing.T) {
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{
 		{AccountID: "opaque-a", AccessToken: "token-a"},
