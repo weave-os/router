@@ -110,10 +110,6 @@
       "banned_lines": 5940
     },
     {
-      "package": "internal/proxy/usage",
-      "banned_lines": 155
-    },
-    {
       "package": "internal/pubsub",
       "banned_lines": 61
     },
@@ -128,10 +124,6 @@
     {
       "package": "internal/router",
       "banned_lines": 408
-    },
-    {
-      "package": "internal/router/breaker",
-      "banned_lines": 106
     },
     {
       "package": "internal/router/catalog",
@@ -166,10 +158,6 @@
       "banned_lines": 59
     },
     {
-      "package": "internal/router/percallband",
-      "banned_lines": 114
-    },
-    {
       "package": "internal/router/planner",
       "banned_lines": 87
     },
@@ -184,10 +172,6 @@
     {
       "package": "internal/router/sessionpin",
       "banned_lines": 211
-    },
-    {
-      "package": "internal/router/turntype",
-      "banned_lines": 103
     },
     {
       "package": "internal/routingpolicy",
@@ -228,10 +212,6 @@
     {
       "package": "internal/translate",
       "banned_lines": 3422
-    },
-    {
-      "package": "internal/translate/toolcheck",
-      "banned_lines": 170
     },
     {
       "package": "internal/usage",

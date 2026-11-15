@@ -118,3 +118,25 @@ func derefStr(p *string) string {
 	}
 	return *p
 }
+
+func TestDistinctActionsReproducesTrainingDefaultdictQuirk(t *testing.T) {
+	idx := -1
+	for i, name := range FeatureNames() {
+		if name == "distinct_actions" {
+			idx = i
+		}
+	}
+	if idx < 0 {
+		t.Fatal("distinct_actions missing from FeatureNames")
+	}
+	s := NewState()
+	call := Call{TurnType: "main_loop", Ts: 1_000}
+	if got := s.Features(call)[idx]; got != 0 {
+		t.Fatalf("first call distinct_actions = %v, want 0", got)
+	}
+	s.Advance(ActionTypes[0], 1_000, 10, false)
+	call.Ts = 1_010
+	if got := s.Features(call)[idx]; got != float32(len(ActionTypes)) {
+		t.Fatalf("after one action distinct_actions = %v, want %d: features.py counts every taxonomy key once any prior call exists", got, len(ActionTypes))
+	}
+}
