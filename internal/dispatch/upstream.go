@@ -15,12 +15,10 @@ type Upstream struct {
 	client providers.Client
 }
 
-// NewUpstream wraps the client the executor selected for an attempt.
 func NewUpstream(client providers.Client) Upstream {
 	return Upstream{client: client}
 }
 
-// Proxy sends prep to the wrapped client.
 func (u Upstream) Proxy(ctx context.Context, decision router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
 	return u.client.Proxy(ctx, decision, prep, w, r)
 }
