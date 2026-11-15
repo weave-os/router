@@ -4,9 +4,9 @@ Shared, I/O-free building blocks for routers that delegate a decision to an
 external policy sidecar, plus the checked-in inference-purpose registry and
 plan resolver. The sidecar returns classifier facts; candidate filtering,
 eligibility, arm selection, pins and fallbacks stay in Go (see
-[Go HMM selection](../../docs/HMM_GO_SELECTION.md),
-[the policy router harness](../../docs/POLICY_ROUTER_HARNESS.md) and
-[the inference boundary](../../docs/INFERENCE_BOUNDARY.md)).
+[Go HMM selection](../../../docs/HMM_GO_SELECTION.md),
+[the policy router harness](../../../docs/POLICY_ROUTER_HARNESS.md) and
+[the inference boundary](../../../docs/INFERENCE_BOUNDARY.md)).
 
 ## Sidecar contract versions
 
