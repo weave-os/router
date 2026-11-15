@@ -51,8 +51,8 @@ func (f v2Fixture) selection(profileKey string) policyregistry.ServingSelection 
 // foldCandidate publishes the v2 candidate equivalent to a v1 release and its classifier bundle.
 func foldCandidate(t *testing.T, store *servingMemoryStore, releaseRef policyregistry.ObjectRef) policyregistry.ObjectRef {
 	t.Helper()
-	release := store.object(t, policyregistry.ServingReleases, releaseRef).(*policyregistry.ServingRelease)
-	bundle := store.object(t, policyregistry.ServingClassifiers, release.Classifier).(*policyregistry.ClassifierBundle)
+	release := mustAs[*policyregistry.ServingRelease](t, store.object(t, policyregistry.ServingReleases, releaseRef))
+	bundle := mustAs[*policyregistry.ClassifierBundle](t, store.object(t, policyregistry.ServingClassifiers, release.Classifier))
 	candidate := policyregistry.CandidateV2{SchemaVersion: policyregistry.ServingCandidateV2, CandidateComposition: policyregistry.CandidateComposition{
 		RouterImageDigest: release.RouterImageDigest,
 		Policy:            release.Policy,
@@ -66,10 +66,10 @@ func foldCandidate(t *testing.T, store *servingMemoryStore, releaseRef policyreg
 // foldLane expresses a v1 selection (release + binding + optional profile objects) as a v2 lane.
 func foldLane(t *testing.T, store *servingMemoryStore, selection policyregistry.ServingSelection) policyregistry.ServingLane {
 	t.Helper()
-	binding := store.object(t, policyregistry.ServingBindings, selection.Binding).(*policyregistry.DeploymentBinding)
+	binding := mustAs[*policyregistry.DeploymentBinding](t, store.object(t, policyregistry.ServingBindings, selection.Binding))
 	lane := policyregistry.ServingLane{Candidate: foldCandidate(t, store, selection.Release), LaneBinding: policyregistry.LaneBinding{Project: binding.Project, Region: binding.Region, Router: binding.Router, Classifier: binding.Classifier, Attestation: binding.Attestation}}
 	if selection.Profile != nil {
-		profile := store.object(t, policyregistry.ServingProfiles, *selection.Profile).(*policyregistry.RoutingProfile)
+		profile := mustAs[*policyregistry.RoutingProfile](t, store.object(t, policyregistry.ServingProfiles, *selection.Profile))
 		policy, requirements := profile.Policy, profile.Requirements
 		lane.ProfileKey, lane.ProfilePolicy, lane.ProfileRequirements = profile.ProfileKey, &policy, &requirements
 	}
@@ -88,7 +88,7 @@ func foldSelectionSet(t *testing.T, store *servingMemoryStore, set policyregistr
 
 func newV2Fixture(t *testing.T, store *servingMemoryStore, set policyregistry.SelectionSet) v2Fixture {
 	t.Helper()
-	release := store.object(t, policyregistry.ServingReleases, set.Default.Release).(*policyregistry.ServingRelease)
+	release := mustAs[*policyregistry.ServingRelease](t, store.object(t, policyregistry.ServingReleases, set.Default.Release))
 	set.Profiles[profileKeyOne] = registerProfileFixture(t, store, set.Default, profileKeyOne, release.Policy)
 	store.publish(t, policyregistry.ServingSelectionSets, set)
 	v2, setRef := foldSelectionSet(t, store, set)
@@ -102,7 +102,7 @@ func fixtureProposalV2(fixture v2Fixture, previous *policyregistry.ObjectRef) po
 func TestServingV2ContractsValidateFoldedShapes(t *testing.T) {
 	store, _, set := controllerFixture(t)
 	fixture := newV2Fixture(t, store, set)
-	candidate := *store.object(t, policyregistry.ServingCandidate, fixture.candidate).(*policyregistry.CandidateV2)
+	candidate := *mustAs[*policyregistry.CandidateV2](t, store.object(t, policyregistry.ServingCandidate, fixture.candidate))
 	require.NoError(t, candidate.Validate(testRegistryRoot))
 	require.NoError(t, fixture.set.Validate(testRegistryRoot))
 	previous := namespaceRef(policyregistry.ServingSelectionSets, "incumbent")
@@ -111,13 +111,13 @@ func TestServingV2ContractsValidateFoldedShapes(t *testing.T) {
 	t.Run("candidate", func(t *testing.T) {
 		wrongSchema := candidate
 		wrongSchema.SchemaVersion = policyregistry.ServingReleaseV1
-		assert.ErrorContains(t, wrongSchema.Validate(testRegistryRoot), "schema")
+		require.ErrorContains(t, wrongSchema.Validate(testRegistryRoot), "schema")
 		mismatched := candidate
 		mismatched.Requirements.TaxonomySHA256 = strings.Repeat("9", 64)
-		assert.ErrorContains(t, mismatched.Validate(testRegistryRoot), "classifier identity")
+		require.ErrorContains(t, mismatched.Validate(testRegistryRoot), "classifier identity")
 		wrongPackage := candidate
 		wrongPackage.Classifier.Package = artifactRef("other-package")
-		assert.ErrorContains(t, wrongPackage.Validate(testRegistryRoot), "attested identity")
+		require.ErrorContains(t, wrongPackage.Validate(testRegistryRoot), "attested identity")
 		noInventory := candidate
 		noInventory.Classifier.AuxiliaryModels = nil
 		assert.ErrorContains(t, noInventory.Validate(testRegistryRoot), "auxiliary")
@@ -125,19 +125,19 @@ func TestServingV2ContractsValidateFoldedShapes(t *testing.T) {
 	t.Run("selection set", func(t *testing.T) {
 		defaultWithProfile := fixture.set
 		defaultWithProfile.Default = fixture.set.Profiles[profileKeyOne]
-		assert.ErrorContains(t, defaultWithProfile.Validate(testRegistryRoot), "default lane")
+		require.ErrorContains(t, defaultWithProfile.Validate(testRegistryRoot), "default lane")
 		bareProfile := fixture.set
 		bareProfile.Profiles = map[string]policyregistry.ServingLane{profileKeyOne: fixture.set.Default}
-		assert.ErrorContains(t, bareProfile.Validate(testRegistryRoot), "profile lane")
+		require.ErrorContains(t, bareProfile.Validate(testRegistryRoot), "profile lane")
 		renamed := fixture.set
 		renamed.Profiles = map[string]policyregistry.ServingLane{profileKeyTwo: fixture.set.Profiles[profileKeyOne]}
-		assert.ErrorContains(t, renamed.Validate(testRegistryRoot), "own key")
+		require.ErrorContains(t, renamed.Validate(testRegistryRoot), "own key")
 		noProfiles := fixture.set
 		noProfiles.Profiles = nil
-		assert.Error(t, noProfiles.Validate(testRegistryRoot))
+		require.Error(t, noProfiles.Validate(testRegistryRoot))
 		v1Candidate := fixture.set
 		v1Candidate.Default.Candidate = namespaceRef(policyregistry.ServingBindings, "binding")
-		assert.ErrorContains(t, v1Candidate.Validate(testRegistryRoot), "namespace")
+		require.ErrorContains(t, v1Candidate.Validate(testRegistryRoot), "namespace")
 		noRegion := fixture.set
 		noRegion.Default.Region = ""
 		assert.ErrorContains(t, noRegion.Validate(testRegistryRoot), "region")
@@ -145,22 +145,22 @@ func TestServingV2ContractsValidateFoldedShapes(t *testing.T) {
 	t.Run("proposal", func(t *testing.T) {
 		rollback := fixtureProposalV2(fixture, nil)
 		rollback.Scope = policyregistry.ChangeRollback
-		assert.ErrorContains(t, rollback.Validate(testRegistryRoot), "rollback")
+		require.ErrorContains(t, rollback.Validate(testRegistryRoot), "rollback")
 		longID := fixtureProposalV2(fixture, nil)
 		longID.RequestID = strings.Repeat("r", policyregistry.MaxServingRequestIDLength+1)
-		assert.ErrorContains(t, longID.Validate(testRegistryRoot), "request ID")
+		require.ErrorContains(t, longID.Validate(testRegistryRoot), "request ID")
 		opaqueID := fixtureProposalV2(fixture, nil)
 		opaqueID.RequestID = "workflow-run-42/attempt-1"
-		assert.NoError(t, opaqueID.Validate(testRegistryRoot))
+		require.NoError(t, opaqueID.Validate(testRegistryRoot))
 		wrongSource := fixtureProposalV2(fixture, nil)
 		wrongSource.SourceCandidate = namespaceRef(policyregistry.ServingBindings, "binding")
-		assert.ErrorContains(t, wrongSource.Validate(testRegistryRoot), "namespace")
+		require.ErrorContains(t, wrongSource.Validate(testRegistryRoot), "namespace")
 		v1Source := fixtureProposalV2(fixture, nil)
 		v1Source.SourceCandidate = set.Default.Release
-		assert.NoError(t, v1Source.Validate(testRegistryRoot), "a v2 proposal may promote a v1 release as its source")
+		require.NoError(t, v1Source.Validate(testRegistryRoot), "a v2 proposal may promote a v1 release as its source")
 		profileScope := fixtureProposalV2(fixture, &previous)
 		profileScope.Scope = policyregistry.ChangeProfile
-		assert.Error(t, profileScope.Validate(testRegistryRoot))
+		require.Error(t, profileScope.Validate(testRegistryRoot))
 		profileScope.ProfileKey = profileKeyOne
 		assert.NoError(t, profileScope.Validate(testRegistryRoot))
 	})
@@ -176,23 +176,23 @@ func TestServingV2ContractsValidateFoldedShapes(t *testing.T) {
 func TestServingRefAcceptsBothLayoutsOnlyForTheKindThatFoldsThem(t *testing.T) {
 	artifact := artifactStoredRef([]byte("object"))
 	for _, kind := range []policyregistry.ServingKind{policyregistry.ServingCandidate, policyregistry.ServingSelectionSet, policyregistry.ServingProposal} {
-		assert.NoError(t, policyregistry.ValidateServingRef(artifact, testRegistryRoot, kind), kind)
+		require.NoError(t, policyregistry.ValidateServingRef(artifact, testRegistryRoot, kind), kind)
 	}
 	for _, kind := range []policyregistry.ServingKind{policyregistry.ServingReleases, policyregistry.ServingClassifiers, policyregistry.ServingBindings, policyregistry.ServingProfiles, policyregistry.ServingSelectionSets, policyregistry.ServingProposals} {
-		assert.ErrorContains(t, policyregistry.ValidateServingRef(artifact, testRegistryRoot, kind), "namespace", kind)
+		require.ErrorContains(t, policyregistry.ValidateServingRef(artifact, testRegistryRoot, kind), "namespace", kind)
 	}
 	folds := map[policyregistry.ServingKind]policyregistry.ServingKind{policyregistry.ServingCandidate: policyregistry.ServingReleases, policyregistry.ServingSelectionSet: policyregistry.ServingSelectionSets, policyregistry.ServingProposal: policyregistry.ServingProposals}
 	for family, legacy := range folds {
-		assert.NoError(t, policyregistry.ValidateServingRef(namespaceRef(legacy, "object"), testRegistryRoot, family))
+		require.NoError(t, policyregistry.ValidateServingRef(namespaceRef(legacy, "object"), testRegistryRoot, family))
 		for _, other := range []policyregistry.ServingKind{policyregistry.ServingReleases, policyregistry.ServingClassifiers, policyregistry.ServingBindings, policyregistry.ServingProfiles, policyregistry.ServingSelectionSets, policyregistry.ServingProposals} {
 			if other != legacy {
-				assert.Error(t, policyregistry.ValidateServingRef(namespaceRef(other, "object"), testRegistryRoot, family), "%s must not accept %s", family, other)
+				require.Error(t, policyregistry.ValidateServingRef(namespaceRef(other, "object"), testRegistryRoot, family), "%s must not accept %s", family, other)
 			}
 		}
 	}
 	outside := artifact
 	outside.URI = "gs://weave_ml/other_registry/artifacts/" + artifact.SHA256 + ".json"
-	assert.Error(t, policyregistry.ValidateServingRef(outside, testRegistryRoot, policyregistry.ServingCandidate))
+	require.Error(t, policyregistry.ValidateServingRef(outside, testRegistryRoot, policyregistry.ServingCandidate))
 	relabeled := artifact
 	relabeled.URI = testRegistryRoot + "/artifacts/" + strings.Repeat("0", 64) + ".json"
 	assert.Error(t, policyregistry.ValidateServingRef(relabeled, testRegistryRoot, policyregistry.ServingCandidate), "the URI must name the referenced digest")
@@ -213,17 +213,17 @@ func TestDecodeServingObjectDispatchesOnLayoutThenSchema(t *testing.T) {
 	assert.IsType(t, &policyregistry.CandidateV2{}, artifact)
 
 	_, err = policyregistry.DecodeServingManifest(candidatePayload, testRegistryRoot, policyregistry.ServingReleases)
-	assert.Error(t, err, "a v1 kind never decodes a v2 schema")
+	require.Error(t, err, "a v1 kind never decodes a v2 schema")
 	_, err = policyregistry.DecodeServingObject(candidatePayload, testRegistryRoot, policyregistry.ServingCandidate, servingStoredRef(t, policyregistry.ServingReleases, candidatePayload))
-	assert.ErrorContains(t, err, "storage layout", "v2 bytes cannot live under a legacy namespace")
+	require.ErrorContains(t, err, "storage layout", "v2 bytes cannot live under a legacy namespace")
 	_, err = policyregistry.DecodeServingObject(releasePayload, testRegistryRoot, policyregistry.ServingCandidate, artifactStoredRef(releasePayload))
-	assert.ErrorContains(t, err, "storage layout", "v1 bytes cannot live under artifacts/")
+	require.ErrorContains(t, err, "storage layout", "v1 bytes cannot live under artifacts/")
 	_, err = policyregistry.DecodeServingObject(candidatePayload, testRegistryRoot, policyregistry.ServingSelectionSet, fixture.candidate)
-	assert.ErrorContains(t, err, "not a selection_set manifest", "the family kind must agree with the declared schema")
+	require.ErrorContains(t, err, "not a selection_set manifest", "the family kind must agree with the declared schema")
 	_, err = policyregistry.DecodeServingObject(store.objects[set.Default.Binding], testRegistryRoot, policyregistry.ServingCandidate, artifactStoredRef(store.objects[set.Default.Binding]))
-	assert.Error(t, err, "unfolded v1 kinds have no artifacts/ representation")
+	require.Error(t, err, "unfolded v1 kinds have no artifacts/ representation")
 	_, err = policyregistry.DecodeServingManifest([]byte(`{"target":"prod/stable"}`), testRegistryRoot, policyregistry.ServingProposal)
-	assert.ErrorContains(t, err, "schema_version")
+	require.ErrorContains(t, err, "schema_version")
 
 	for _, kind := range []policyregistry.ServingKind{policyregistry.ServingCandidate, policyregistry.ServingSelectionSet} {
 		ref := map[policyregistry.ServingKind]policyregistry.ObjectRef{policyregistry.ServingCandidate: fixture.candidate, policyregistry.ServingSelectionSet: fixture.setRef}[kind]
@@ -271,18 +271,18 @@ func TestPreparedSelectionNormalizesV1TraversalAndV2LanesIdentically(t *testing.
 		otherCandidate := fixture.selection("")
 		otherCandidate.Release = artifactStoredRef([]byte("another candidate"))
 		_, err := policyregistry.ReadPreparedSelection(ctx, store, policyregistry.TargetStable, "", otherCandidate)
-		assert.ErrorContains(t, err, "no lane")
+		require.ErrorContains(t, err, "no lane")
 		unknownProfile := fixture.selection(profileKeyOne)
 		_, err = policyregistry.ReadPreparedSelection(ctx, store, policyregistry.TargetStable, profileKeyTwo, unknownProfile)
-		assert.ErrorContains(t, err, "no lane")
+		require.ErrorContains(t, err, "no lane")
 		otherTarget := fixture.selection("")
 		_, err = policyregistry.ReadPreparedSelection(ctx, store, policyregistry.TargetStaging, "", otherTarget)
-		assert.ErrorContains(t, err, "another target")
+		require.ErrorContains(t, err, "another target")
 		foreignProfile := fixture.selection(profileKeyOne)
 		v1Profile := *fixture.v1.Profiles[profileKeyOne].Profile
 		foreignProfile.Profile = &v1Profile
 		_, err = policyregistry.ReadPreparedSelection(ctx, store, policyregistry.TargetStable, profileKeyOne, foreignProfile)
-		assert.ErrorContains(t, err, "embeds the lane")
+		require.ErrorContains(t, err, "embeds the lane")
 		_, err = policyregistry.ResolveAdmissionBinding(ctx, store, policyregistry.SessionReleaseBinding{Target: policyregistry.TargetStable, Selection: otherCandidate})
 		assert.ErrorContains(t, err, "no lane")
 	})

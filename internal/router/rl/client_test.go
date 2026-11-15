@@ -21,7 +21,7 @@ func TestHTTPDeciderPostsContractAndParsesResult(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		raw, _ := io.ReadAll(r.Body)
-		require.NoError(t, json.Unmarshal(raw, &gotBody))
+		assert.NoError(t, json.Unmarshal(raw, &gotBody))
 		// Mirror router_policy_server.py's success envelope.
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"model":       "anthropic/claude-opus-4-8",

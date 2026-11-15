@@ -44,7 +44,7 @@ func TestLogServerProxyRequestShapeRedactsCredentialsAndListsBodyKeys(t *testing
 	assert.NotContains(t, out, "rk_secret")
 	assert.NotContains(t, out, "rk_other")
 	line := findLogLine(t, out, "Copilot proxy request shape")
-	headers := line["inbound_headers"].(map[string]any)
+	headers := mustAs[map[string]any](t, line["inbound_headers"])
 	assert.Equal(t, "<redacted len=16>", headers["Authorization"])
 	assert.Equal(t, "<redacted len=8>", headers["X-Weave-Router-Key"])
 	assert.Equal(t, "6a325047-683a-4d1a-8f3a-b712352dad05", headers["X-Client-Session-Id"])

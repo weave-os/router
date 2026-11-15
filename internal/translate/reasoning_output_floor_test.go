@@ -32,16 +32,16 @@ func geminiGenConfig(t *testing.T, target string) map[string]any {
 	})
 	require.NoError(t, err)
 	out := mustUnmarshal(t, prep.Body)
-	return out["generationConfig"].(map[string]any)
+	return mustAs[map[string]any](t, out["generationConfig"])
 }
 
 // Gemini 3.x cannot turn thinking off and maxOutputTokens counts thought
 // tokens, so a 64-token budget must be raised or the verdict never appears.
 func TestPrepareGemini_TinyBudgetFlooredWhenThinkingAlwaysOn(t *testing.T) {
 	gc := geminiGenConfig(t, "gemini-3.1-flash-lite-preview")
-	assert.Equal(t, float64(16000), gc["maxOutputTokens"])
+	assert.InDelta(t, float64(16000), gc["maxOutputTokens"], 1e-9)
 	assert.Equal(t, []any{"</severity>"}, gc["stopSequences"])
-	tc := gc["thinkingConfig"].(map[string]any)
+	tc := mustAs[map[string]any](t, gc["thinkingConfig"])
 	assert.Equal(t, "low", tc["thinkingLevel"], "disabled normalizes to the lowest always-on level")
 }
 
@@ -49,8 +49,8 @@ func TestPrepareGemini_TinyBudgetFlooredWhenThinkingAlwaysOn(t *testing.T) {
 // tokens compete with the caller's budget and it passes through unchanged.
 func TestPrepareGemini_TinyBudgetKeptWhenThinkingDisabled(t *testing.T) {
 	gc := geminiGenConfig(t, "gemini-2.5-flash")
-	assert.Equal(t, float64(64), gc["maxOutputTokens"])
-	tc := gc["thinkingConfig"].(map[string]any)
+	assert.InDelta(t, float64(64), gc["maxOutputTokens"], 1e-9)
+	tc := mustAs[map[string]any](t, gc["thinkingConfig"])
 	assert.EqualValues(t, 0, tc["thinkingBudget"])
 }
 
@@ -64,9 +64,9 @@ func TestPrepareGemini_TinyBudgetFlooredWhenEffortForced(t *testing.T) {
 		ForceReasoningEffort: "medium",
 	})
 	require.NoError(t, err)
-	gc := mustUnmarshal(t, prep.Body)["generationConfig"].(map[string]any)
-	assert.Equal(t, float64(16000), gc["maxOutputTokens"])
-	tc := gc["thinkingConfig"].(map[string]any)
+	gc := mustAs[map[string]any](t, mustUnmarshal(t, prep.Body)["generationConfig"])
+	assert.InDelta(t, float64(16000), gc["maxOutputTokens"], 1e-9)
+	tc := mustAs[map[string]any](t, gc["thinkingConfig"])
 	assert.EqualValues(t, 8192, tc["thinkingBudget"])
 }
 
@@ -80,8 +80,8 @@ func TestPrepareGemini_FromOpenAI_TinyBudgetFlooredWhenThinkingAlwaysOn(t *testi
 		Capabilities: router.Lookup("gemini-3.1-flash-lite-preview"),
 	})
 	require.NoError(t, err)
-	gc := mustUnmarshal(t, prep.Body)["generationConfig"].(map[string]any)
-	assert.Equal(t, float64(16000), gc["maxOutputTokens"])
+	gc := mustAs[map[string]any](t, mustUnmarshal(t, prep.Body)["generationConfig"])
+	assert.InDelta(t, float64(16000), gc["maxOutputTokens"], 1e-9)
 	assert.Equal(t, []any{"</severity>"}, gc["stopSequences"])
 }
 
@@ -96,7 +96,7 @@ func TestPrepareOpenAI_FromAnthropic_TinyBudgetFlooredForReasoningTarget(t *test
 	})
 	require.NoError(t, err)
 	out := mustUnmarshal(t, prep.Body)
-	assert.Equal(t, float64(16000), out["max_completion_tokens"])
+	assert.InDelta(t, float64(16000), out["max_completion_tokens"], 1e-9)
 	assert.NotContains(t, out, "max_tokens")
 }
 
@@ -111,7 +111,7 @@ func TestPrepareOpenAI_FromAnthropic_TinyBudgetKeptWhenEffortNone(t *testing.T) 
 	})
 	require.NoError(t, err)
 	out := mustUnmarshal(t, prep.Body)
-	assert.Equal(t, float64(64), out["max_completion_tokens"])
+	assert.InDelta(t, float64(64), out["max_completion_tokens"], 1e-9)
 }
 
 // Non-reasoning chat targets keep the caller's budget verbatim.
@@ -124,6 +124,6 @@ func TestPrepareOpenAI_FromAnthropic_TinyBudgetKeptForNonReasoningTarget(t *test
 	})
 	require.NoError(t, err)
 	out := mustUnmarshal(t, prep.Body)
-	assert.Equal(t, float64(64), out["max_tokens"])
+	assert.InDelta(t, float64(64), out["max_tokens"], 1e-9)
 	assert.Equal(t, []any{"</severity>"}, out["stop"])
 }

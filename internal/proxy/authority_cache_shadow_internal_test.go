@@ -117,18 +117,17 @@ func runAuthorityShadowTurnWithPin(
 	return result
 }
 
-func hmmFreshDecision(model string, scores map[string]float32) router.Decision {
-	return hmmFreshDecisionWithArmScores(model, scores, nil)
+func hmmFreshDecision(scores map[string]float32) router.Decision {
+	return hmmFreshDecisionWithArmScores(scores, nil)
 }
 
 func hmmFreshDecisionWithArmScores(
-	model string,
 	scores map[string]float32,
 	armScores map[string]float32,
 ) router.Decision {
 	return router.Decision{
 		Provider: providers.ProviderAnthropic,
-		Model:    model,
+		Model:    shadowFreshModel,
 		Reason:   "hmm_policy(classifier 'high' (p=0.41))",
 		Metadata: &router.RoutingMetadata{
 			Strategy:        "hmm",
@@ -143,7 +142,7 @@ func hmmFreshDecisionWithArmScores(
 // guarantee: the shadow observes but does not route -- a shadow that could alter
 // dispatch would be a routing change shipped under the name of a measurement.
 func TestAuthorityCacheShadowNeverChangesTheServedDecision(t *testing.T) {
-	result := runAuthorityShadowTurn(t, true, hmmFreshDecision(shadowFreshModel, nil))
+	result := runAuthorityShadowTurn(t, true, hmmFreshDecision(nil))
 
 	assert.Equal(t, shadowFreshModel, result.Decision.Model, "served model must remain the authoritative fresh pick")
 	assert.Equal(t, "authoritative_per_turn", result.PinTier)
@@ -157,7 +156,7 @@ func TestAuthorityCacheShadowNeverChangesTheServedDecision(t *testing.T) {
 // made over-switching unmeasurable: on a turn that serves fresh, the shadow must
 // name the pin it priced against.
 func TestAuthorityCacheShadowRecordsTheAbandonedPin(t *testing.T) {
-	result := runAuthorityShadowTurn(t, true, hmmFreshDecision(shadowFreshModel, nil))
+	result := runAuthorityShadowTurn(t, true, hmmFreshDecision(nil))
 
 	shadow := result.AuthorityShadow
 	require.True(t, shadow.Computed)
@@ -170,7 +169,7 @@ func TestAuthorityCacheShadowRecordsTheAbandonedPin(t *testing.T) {
 // TestAuthorityCacheShadowKillSwitch proves the flag suppresses the computation
 // outright rather than computing and discarding, so every column stays NULL.
 func TestAuthorityCacheShadowKillSwitch(t *testing.T) {
-	result := runAuthorityShadowTurn(t, false, hmmFreshDecision(shadowFreshModel, nil))
+	result := runAuthorityShadowTurn(t, false, hmmFreshDecision(nil))
 
 	assert.False(t, result.AuthorityShadow.Computed)
 	assert.Equal(t, shadowFreshModel, result.Decision.Model)
@@ -202,7 +201,7 @@ func TestAuthorityCacheShadowSkipsNonHMMDecisions(t *testing.T) {
 // can be built at all, and a stored zero would read as "scored, and terrible".
 func TestAuthorityCacheShadowCandidateScoreCoverage(t *testing.T) {
 	t.Run("both scored", func(t *testing.T) {
-		result := runAuthorityShadowTurn(t, true, hmmFreshDecision(shadowFreshModel, map[string]float32{
+		result := runAuthorityShadowTurn(t, true, hmmFreshDecision(map[string]float32{
 			shadowPinnedModel: 0.62,
 			shadowFreshModel:  0.71,
 		}))
@@ -214,7 +213,7 @@ func TestAuthorityCacheShadowCandidateScoreCoverage(t *testing.T) {
 	})
 
 	t.Run("pin absent from this turn's eligible arms", func(t *testing.T) {
-		result := runAuthorityShadowTurn(t, true, hmmFreshDecision(shadowFreshModel, map[string]float32{
+		result := runAuthorityShadowTurn(t, true, hmmFreshDecision(map[string]float32{
 			shadowFreshModel: 0.71,
 		}))
 		shadow := result.AuthorityShadow
@@ -224,7 +223,7 @@ func TestAuthorityCacheShadowCandidateScoreCoverage(t *testing.T) {
 
 	t.Run("AA sidecar arm scores", func(t *testing.T) {
 		result := runAuthorityShadowTurn(t, true, hmmFreshDecisionWithArmScores(
-			shadowFreshModel, nil, map[string]float32{
+			nil, map[string]float32{
 				"anthropic/" + shadowPinnedModel: 0.62,
 				"anthropic/" + shadowFreshModel:  0.71,
 			},
@@ -238,7 +237,7 @@ func TestAuthorityCacheShadowCandidateScoreCoverage(t *testing.T) {
 
 	t.Run("effort-qualified AA sidecar arm scores", func(t *testing.T) {
 		const effort = "high"
-		dec := hmmFreshDecisionWithArmScores(shadowFreshModel, nil, map[string]float32{
+		dec := hmmFreshDecisionWithArmScores(nil, map[string]float32{
 			"anthropic/" + shadowPinnedModel + ":" + effort: 0.62,
 			"anthropic/" + shadowFreshModel + ":" + effort:  0.71,
 		})
@@ -251,7 +250,7 @@ func TestAuthorityCacheShadowCandidateScoreCoverage(t *testing.T) {
 	})
 
 	t.Run("sidecar reported no scores at all", func(t *testing.T) {
-		result := runAuthorityShadowTurn(t, true, hmmFreshDecision(shadowFreshModel, nil))
+		result := runAuthorityShadowTurn(t, true, hmmFreshDecision(nil))
 		shadow := result.AuthorityShadow
 		assert.Nil(t, shadow.StayScore)
 		assert.Nil(t, shadow.FreshScore)
@@ -314,8 +313,7 @@ func TestAuthorityCacheShadowEffortBearingPinIsNotAStayCandidate(t *testing.T) {
 	const servedIdentity = shadowPinnedModel + ":high"
 
 	result := runAuthorityShadowTurnWithPin(t, true,
-		hmmFreshDecisionWithArmScores(shadowFreshModel,
-			map[string]float32{shadowPinnedModel: 0.40, shadowFreshModel: 0.71},
+		hmmFreshDecisionWithArmScores(map[string]float32{shadowPinnedModel: 0.40, shadowFreshModel: 0.71},
 			map[string]float32{servedIdentity: 0.66},
 		),
 		authorityShadowPinServing(servedIdentity),
@@ -334,8 +332,7 @@ func TestAuthorityCacheShadowEffortBearingPinIsNotAStayCandidate(t *testing.T) {
 // by bare catalog ID; ArmScores uses roster arm IDs (provider/model[:effort]),
 // so both namespaces are exercised with the nil-vs-value contract intact.
 func TestCandidateScoreFor(t *testing.T) {
-	dec := hmmFreshDecisionWithArmScores(shadowFreshModel,
-		map[string]float32{shadowPinnedModel: 0.40, shadowFreshModel: 0.71},
+	dec := hmmFreshDecisionWithArmScores(map[string]float32{shadowPinnedModel: 0.40, shadowFreshModel: 0.71},
 		map[string]float32{"anthropic/" + shadowPinnedModel + ":high": 0.66},
 	)
 
@@ -346,7 +343,7 @@ func TestCandidateScoreFor(t *testing.T) {
 	})
 
 	t.Run("AA arm score fallback", func(t *testing.T) {
-		dec := hmmFreshDecisionWithArmScores(shadowFreshModel, nil, map[string]float32{
+		dec := hmmFreshDecisionWithArmScores(nil, map[string]float32{
 			"anthropic/" + shadowFreshModel: 0.71,
 		})
 		got := candidateScoreFor(dec, shadowFreshModel)
@@ -356,7 +353,7 @@ func TestCandidateScoreFor(t *testing.T) {
 
 	t.Run("selected roster arm is authoritative for fresh score", func(t *testing.T) {
 		const rosterArmID = "vendor/roster-alias-for-fresh"
-		dec := hmmFreshDecisionWithArmScores(shadowFreshModel, nil, map[string]float32{
+		dec := hmmFreshDecisionWithArmScores(nil, map[string]float32{
 			rosterArmID: 0.71,
 		})
 		got := candidateScoreForWithArm(dec, shadowFreshModel, providers.ProviderAnthropic, rosterArmID)
@@ -365,7 +362,7 @@ func TestCandidateScoreFor(t *testing.T) {
 	})
 
 	t.Run("stay score uses re-resolved provider", func(t *testing.T) {
-		dec := hmmFreshDecisionWithArmScores(shadowFreshModel, nil, map[string]float32{
+		dec := hmmFreshDecisionWithArmScores(nil, map[string]float32{
 			"anthropic/" + shadowPinnedModel: 0.62,
 			"openai/" + shadowPinnedModel:    0.91,
 		})
@@ -379,7 +376,7 @@ func TestCandidateScoreFor(t *testing.T) {
 	})
 
 	t.Run("gateway provider falls back to roster namespace", func(t *testing.T) {
-		dec := hmmFreshDecisionWithArmScores(shadowFreshModel, nil, map[string]float32{
+		dec := hmmFreshDecisionWithArmScores(nil, map[string]float32{
 			"anthropic/" + shadowFreshModel: 0.71,
 		})
 		got := candidateScoreForWithProvider(dec, shadowFreshModel, "anthropic_gateway")
@@ -406,7 +403,7 @@ func TestCandidateScoreFor(t *testing.T) {
 // stay_model carries ":effort" while decision_model is a bare catalog ID, so the
 // string compare reports false divergence on every effort-bearing pin.
 func TestAuthorityCacheShadowPersistsGateDivergenceVerdict(t *testing.T) {
-	result := runAuthorityShadowTurn(t, true, hmmFreshDecision(shadowFreshModel, nil))
+	result := runAuthorityShadowTurn(t, true, hmmFreshDecision(nil))
 
 	var params InsertTelemetryParams
 	applyAuthorityShadowTelemetry(&params, result)
@@ -426,7 +423,7 @@ func TestAuthorityCacheShadowEarlyExitLeavesEVColumnsNull(t *testing.T) {
 	// An effort-bearing pin is rejected by normalizeHMMStayPin, so the gate takes
 	// the no_pin early exit with no EV math.
 	result := runAuthorityShadowTurnWithPin(t, true,
-		hmmFreshDecision(shadowFreshModel, map[string]float32{shadowFreshModel: 0.71}),
+		hmmFreshDecision(map[string]float32{shadowFreshModel: 0.71}),
 		authorityShadowPinServing(shadowPinnedModel+":high"),
 	)
 	require.True(t, result.AuthorityShadow.Computed)

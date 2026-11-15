@@ -103,7 +103,7 @@ func TestInternalTaskDomainPreviewScoresEveryItemWithWorkerRecipe(t *testing.T) 
 	var reply taskDomainPreviewReply
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &reply))
 	assert.Equal(t, "domain_wmi_weighted_v1", reply.RecipeVersion)
-	assert.Equal(t, 0.15, reply.RecipeInfluence)
+	assert.InDelta(t, 0.15, reply.RecipeInfluence, 1e-9)
 	assert.Len(t, reply.Recipes, 4, "docs carries no recipe")
 	require.Len(t, reply.Items, 6)
 

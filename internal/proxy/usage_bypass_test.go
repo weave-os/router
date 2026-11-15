@@ -637,7 +637,7 @@ func TestSubscriptionOnly_ExhaustedSubscription_Refuses402(t *testing.T) {
 	ctx := billing.WithSubscriptionOnly(bypassCtx(0.80), billing.SubscriptionOnlyCreditsDepleted)
 	err := svc.ProxyMessages(ctx, body, rec, req)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable,
+	require.ErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable,
 		"an exhausted subscription in subscription-only mode must be refused, not paid for")
 	assert.Empty(t, p.proxyBodies, "no paid dispatch may occur when the subscription can't serve the turn")
 }
@@ -695,7 +695,7 @@ func TestSubscriptionOnly_PlanOverage_Refuses402(t *testing.T) {
 		billing.SubscriptionOnlyCreditsDepleted)
 	err := svc.ProxyMessages(claudeCreditFallbackContext(ctx), body, rec, req)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable)
+	require.ErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable)
 	assert.Empty(t, p.proxyBodies, "plan overage must not be spent in subscription-only mode")
 }
 
@@ -752,7 +752,7 @@ func TestSubscriptionOnly_NonBypassPaidRoute_Refuses402(t *testing.T) {
 		billing.SubscriptionOnlyCreditsDepleted)
 	err := svc.ProxyMessages(ctx, body, rec, req)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable,
+	require.ErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable,
 		"a non-bypass turn that routes to a paid model must be refused, not dispatched")
 	assert.Empty(t, p.proxyBodies, "no paid dispatch may occur below the floor in subscription-only mode")
 }
@@ -786,7 +786,7 @@ func TestSubscriptionOnly_BypassRetryable_Refuses402(t *testing.T) {
 	ctx := billing.WithSubscriptionOnly(bypassCtx(0.80), billing.SubscriptionOnlyCreditsDepleted)
 	err := svc.ProxyMessages(ctx, body, rec, req)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable,
+	require.ErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable,
 		"a retryable bypass failure in subscription-only mode must be refused, not rerouted to a paid model")
 	assert.Equal(t, 0, fr.routeCalls, "subscription-only mode must not run the scorer to reroute onto a paid model")
 	assert.Equal(t, 1, wrappedP.calls, "only the bypass attempt may dispatch; no paid reroute")

@@ -49,8 +49,9 @@ func testRoutingAnnouncementOverlap(t *testing.T) {
 	}}
 	first := openAIChatServiceWithDecision(firstProvider, decision)
 	writer := newObservedResponseWriter()
+	body := announcementReplayBody(t)
 	go func() {
-		done <- first.ProxyOpenAIResponses(announcementReplayContext(), announcementReplayBody(t), writer,
+		done <- first.ProxyOpenAIResponses(announcementReplayContext(), body, writer,
 			httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
 	}()
 	select {

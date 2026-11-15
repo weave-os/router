@@ -100,7 +100,7 @@ func TestCompactionWithoutSessionPinUsesScorer(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	assert.NotErrorIs(t, err, router.ErrRoutingUnavailable)
+	require.NotErrorIs(t, err, router.ErrRoutingUnavailable)
 	assert.Equal(t, turntype.Compaction, turn.TurnType)
 	assert.Equal(t, compactionStrategyModel, turn.Decision.Model)
 	assert.Equal(t, int32(1), f.scorerCalls.Load())

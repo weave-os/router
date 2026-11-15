@@ -20,7 +20,7 @@ func TestGeminiToOpenAIResponse_CompletionTokensIncludeThoughts(t *testing.T) {
 	body := []byte(`{"candidates":[{"content":{"role":"model","parts":[{"text":"hi"}]},"finishReason":"STOP","index":0}],` + geminiThoughtsUsage + `}`)
 	out, err := translate.GeminiToOpenAIResponse(body, "gemini-3.8-flash")
 	require.NoError(t, err)
-	usage := mustUnmarshal(t, out)["usage"].(map[string]any)
+	usage := mustAs[map[string]any](t, mustUnmarshal(t, out)["usage"])
 	assert.EqualValues(t, 100, usage["prompt_tokens"])
 	assert.EqualValues(t, 257, usage["completion_tokens"])
 	assert.EqualValues(t, 357, usage["total_tokens"])

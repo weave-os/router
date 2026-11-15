@@ -115,6 +115,6 @@ func TestProxyOpenAIResponses_EncryptedAgentTaskKeepsNativePayload(t *testing.T)
 		providers.ProviderAnthropic: blockedUpstream,
 	}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-5-5", nil)
 	err := blockedService.ProxyOpenAIResponses(ctx, body, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
-	assert.ErrorIs(t, err, proxy.ErrTranslationCompatibleProviderUnavailable)
+	require.ErrorIs(t, err, proxy.ErrTranslationCompatibleProviderUnavailable)
 	assert.Empty(t, blockedUpstream.proxyBodies, "never substitute the clear routing header for an opaque task")
 }

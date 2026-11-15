@@ -46,10 +46,7 @@ func (e *RequestEnvelope) PrepareAnthropic(in http.Header, opts EmitOptions) (pr
 	var err error
 	switch e.format {
 	case FormatOpenAI:
-		body, err = e.buildAnthropicFromOpenAI(opts)
-		if err != nil {
-			return providers.PreparedRequest{}, fmt.Errorf("build anthropic from openai: %w", err)
-		}
+		body = e.buildAnthropicFromOpenAI(opts)
 	case FormatAnthropic:
 		body, err = e.buildAnthropicFromAnthropic(opts)
 		if err != nil {
@@ -255,7 +252,7 @@ func joinKept(beta string, keep func(string) bool) string {
 	return strings.Join(kept, ",")
 }
 
-func (e *RequestEnvelope) buildAnthropicFromOpenAI(opts EmitOptions) ([]byte, error) {
+func (e *RequestEnvelope) buildAnthropicFromOpenAI(opts EmitOptions) []byte {
 	jw := newJSONWriter()
 	jw.Obj()
 	jw.Key("model")
@@ -280,7 +277,7 @@ func (e *RequestEnvelope) buildAnthropicFromOpenAI(opts EmitOptions) ([]byte, er
 		writeAnthropicToolChoice(jw, e.body, opts.Capabilities.Supports(router.CapAutoToolChoiceOnly))
 	}
 	jw.EndObj()
-	return jw.Bytes(), nil
+	return jw.Bytes()
 }
 
 // writeAnthropicSystemAndMessages extracts the leading run of system-role

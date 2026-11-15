@@ -9,12 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/require"
-	"golang.org/x/sync/errgroup"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
 )
 
 func cohortCache(t *testing.T, store *servingMemoryStore) *policyregistry.ServingRuntimeCache {
@@ -163,7 +164,7 @@ func TestCohortTargetsAndAuthenticatedWorkerScopesStayIsolated(t *testing.T) {
 	internal.Target = policyregistry.TargetInternal
 	internal.Profiles = maps.Clone(stable.Profiles)
 	internal.Profiles[profileKeyOne] = stable.Profiles[profileKeyTwo]
-	candidate := *store.object(t, policyregistry.ServingCandidate, stable.Code.Candidate).(*policyregistry.CandidateV2)
+	candidate := *mustAs[*policyregistry.CandidateV2](t, store.object(t, policyregistry.ServingCandidate, stable.Code.Candidate))
 	candidate.RouterImageDigest = "sha256:" + strings.Repeat("9", 64)
 	internal.Code.Candidate = store.publishArtifact(t, policyregistry.ServingCandidate, candidate)
 	internal.Code.Router.Name = "internal-worker-0002"

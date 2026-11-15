@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"os"
 	"os/exec"
@@ -147,7 +148,7 @@ func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, 
 	if err != nil {
 		return err
 	}
-	port := listener.Addr().(*net.TCPAddr).Port
+	port := int(netip.MustParseAddrPort(listener.Addr().String()).Port())
 	_ = listener.Close()
 	logFile, err := os.CreateTemp("", "router-legacy-"+string(mode)+"-*.log")
 	if err != nil {

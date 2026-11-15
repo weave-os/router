@@ -347,10 +347,10 @@ func TestHandleBetaCommandOverlappingTogglesAcknowledgeDistinctStates(t *testing
 	acknowledgements := make(chan string, 2)
 	var toggles sync.WaitGroup
 	for range 2 {
+		env := betaTestEnvelope(t, "/beta", true)
 		toggles.Add(1)
 		go func() {
 			defer toggles.Done()
-			env := betaTestEnvelope(t, "/beta", true)
 			cmd, found := env.ExtractBetaCommand()
 			assert.True(t, found)
 			response := httptest.NewRecorder()
@@ -496,10 +496,10 @@ func TestHandleBetaCommandOverlappingTogglesCannotReenableUnavailableBeta(t *tes
 	acknowledgements := make(chan string, 2)
 	var commands sync.WaitGroup
 	for range 2 {
+		env := betaTestEnvelope(t, "/beta", true)
 		commands.Add(1)
 		go func() {
 			defer commands.Done()
-			env := betaTestEnvelope(t, "/beta", true)
 			cmd, found := env.ExtractBetaCommand()
 			assert.True(t, found)
 			response := httptest.NewRecorder()

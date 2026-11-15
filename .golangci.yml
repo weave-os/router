@@ -10,6 +10,9 @@ linters:
     - contextcheck
     - dupl
     - errorlint
+    - forcetypeassert
+    - testifylint
+    - unparam
     - ineffassign
     - staticcheck
     - unused
@@ -22,6 +25,11 @@ linters:
     - noctx
     - thelper
   settings:
+    testifylint:
+      enable-all: true
+      disable:
+        # translate tests assert byte-exact JSON output; JSONEq would hide key order and whitespace changes.
+        - encoded-compare
     staticcheck:
       checks:
         - all

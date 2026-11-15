@@ -6,14 +6,14 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/stretchr/testify/require"
-	"weave-os/router/internal/auth"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
+
+	"github.com/stretchr/testify/require"
 )
 
 type overflowDispatch struct {
@@ -37,7 +37,7 @@ func newOverflowDispatch(activeProviders map[subscriptions.Provider]bool) *overf
 func overflowContext(exhausted bool) context.Context {
 	ctx := managedSubscriptionTestContext()
 	if exhausted {
-		ctx = exhaustedManagedSubscriptionContext(auth.SubscriptionProviderClaude)
+		ctx = exhaustedManagedSubscriptionContext()
 	}
 	return flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionExhaustedOpenRouterOnly: true, flags.KeyClaudeEnterpriseOnly: false}})
 }
@@ -110,7 +110,7 @@ func TestOpenRouterOverflowRewritesPaidRescueOutsideLane(t *testing.T) {
 
 func TestOpenRouterOverflowOffKeepsDirectPaidFallback(t *testing.T) {
 	d := newOverflowDispatch(map[subscriptions.Provider]bool{})
-	ctx := context.WithValue(exhaustedManagedSubscriptionContext(auth.SubscriptionProviderClaude), InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{stateClaudeModel})
+	ctx := context.WithValue(exhaustedManagedSubscriptionContext(), InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{stateClaudeModel})
 
 	require.NoError(t, d.run(ctx, true))
 
