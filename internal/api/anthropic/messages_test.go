@@ -334,7 +334,7 @@ func TestMessagesHandler_HappyPathServesUpstreamResponse(t *testing.T) {
 	rec := postMessages(engine, []byte(validAnthropicBody))
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, `{"id":"msg_1","type":"message"}`, rec.Body.String())
+	assert.JSONEq(t, `{"id":"msg_1","type":"message"}`, rec.Body.String())
 	assert.Equal(t, "claude-sonnet-4-5", rec.Header().Get("x-router-model"))
 	assert.Equal(t, providers.ProviderAnthropic, rec.Header().Get("x-router-provider"))
 	assert.Equal(t, "test_reason", rec.Header().Get("x-router-decision"))
@@ -533,7 +533,7 @@ func TestRouteAnthropicRequest_DropsMalformedInstallationIDInsteadOfForwardingRa
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "not-a-uuid")
 	_, err := svc.RouteAnthropicRequest(ctx, []byte(validAnthropicBody), nil)
 	require.NoError(t, err)
-	assert.Equal(t, "", got.InstallationID,
+	assert.Empty(t, got.InstallationID,
 		"malformed installation ID must collapse to empty string so the HMM "+
 			"sidecar omits the field, matching ProxyMessages's runTurnLoop behavior")
 }
@@ -546,7 +546,7 @@ func TestRouteAnthropicRequest_DropsEmptyInstallationIDInsteadOfForwardingRaw(t 
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "")
 	_, err := svc.RouteAnthropicRequest(ctx, []byte(validAnthropicBody), nil)
 	require.NoError(t, err)
-	assert.Equal(t, "", got.InstallationID,
+	assert.Empty(t, got.InstallationID,
 		"empty installation ID must collapse to empty string")
 }
 
@@ -559,7 +559,7 @@ func TestRouteAnthropicRequest_DropsMissingInstallationIDInsteadOfForwardingRaw(
 	// InstallationIDContextKey on the context at all.
 	_, err := svc.RouteAnthropicRequest(context.Background(), []byte(validAnthropicBody), nil)
 	require.NoError(t, err)
-	assert.Equal(t, "", got.InstallationID,
+	assert.Empty(t, got.InstallationID,
 		"missing installation ID context value must collapse to empty string")
 }
 

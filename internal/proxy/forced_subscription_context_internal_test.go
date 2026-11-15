@@ -192,7 +192,7 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 					assert.Equal(t, "high", efforts[i], "canonicalizing the model must preserve the requested wire effort")
 				}
 			}
-			assert.True(t, largeHistory == contents[0], "the router must let the provider count the original history (sent %d bytes)", len(contents[0]))
+			assert.Equal(t, largeHistory, contents[0], "the router must let the provider count the original history (sent %d bytes)", len(contents[0]))
 		})
 	}
 }

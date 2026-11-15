@@ -96,7 +96,7 @@ func hmmPolicySnapshotBuilder(
 			artifactID, artifactSHA := expectedClassifier.ArtifactID, expectedClassifier.PackageSHA256
 			if router.IsBetaStrategy(strategy) {
 				variant, found := expectedClassifier.Variants[strategy]
-				if !found && !(strategy == router.StrategyHMMBeta && candidate.HeadSnapshot.Head.Lane == policyregistry.LaneBeta) {
+				if !found && (strategy != router.StrategyHMMBeta || candidate.HeadSnapshot.Head.Lane != policyregistry.LaneBeta) {
 					continue
 				}
 				if found {

@@ -21,7 +21,7 @@ func TestToolCallLedger_IdlessCallKeepsGeneratedIDWhenSourceArrivesLate(t *testi
 	assert.Equal(t, generated, entry.ExternalID)
 	assert.Equal(t, "call_real", entry.SourceID)
 	assert.Equal(t, "Read", entry.Name)
-	assert.Equal(t, `{"path":"a.go"}`, entry.Arguments.String())
+	assert.JSONEq(t, `{"path":"a.go"}`, entry.Arguments.String())
 	assert.True(t, entry.HasSourceID("call_real"))
 }
 
@@ -57,7 +57,7 @@ func TestToolCallLedger_AcceptanceIsFinalAndRetainsAliases(t *testing.T) {
 	call := entry.Accept(nil)
 	assert.Equal(t, id, call.ID)
 	assert.Equal(t, "Read", call.Name)
-	assert.Equal(t, `{"path":"synthetic.txt"}`, call.Arguments)
+	assert.JSONEq(t, `{"path":"synthetic.txt"}`, call.Arguments)
 	ledger.SetArguments(3, `{"path":"replacement.txt"}`)
 	ledger.AppendArguments(3, "another", "Write", "invalid")
 	assert.Equal(t, call, ledger.Close(3, "final", "Write", `{}`).Accept(nil))
@@ -76,12 +76,12 @@ func TestToolCallLedger_CompleteArgumentsOverrideFragments(t *testing.T) {
 	ledger.AppendArguments(0, "call_synthetic", "Read", `{"path":"fragment.txt"}`)
 	ledger.SetArguments(0, `{"path":"done.txt"}`)
 	call := ledger.Close(0, "", "", `{"path":"terminal.txt"}`).Accept(nil)
-	assert.Equal(t, `{"path":"done.txt"}`, call.Arguments)
+	assert.JSONEq(t, `{"path":"done.txt"}`, call.Arguments)
 
 	ledger.AppendArguments(1, "", "Read", `{"path":"discarded.txt"}`)
 	ledger.SetArguments(1, "")
 	call = ledger.Close(1, "", "", `{"path":"terminal.txt"}`).Accept(nil)
-	assert.Equal(t, `{"path":"terminal.txt"}`, call.Arguments)
+	assert.JSONEq(t, `{"path":"terminal.txt"}`, call.Arguments)
 }
 
 func TestToolCallLedger_SchemaRepairsRemainFailOpen(t *testing.T) {
@@ -114,5 +114,5 @@ func TestToolCallLedger_ParallelAndDuplicateSourceIDsNeverCollide(t *testing.T) 
 	closed := l.Close(1, "duplicate", "", `{"path":"b.go"}`)
 	assert.True(t, closed.Closed)
 	assert.False(t, closed.Open)
-	assert.Equal(t, `{"path":"b.go"}`, closed.Arguments.String())
+	assert.JSONEq(t, `{"path":"b.go"}`, closed.Arguments.String())
 }

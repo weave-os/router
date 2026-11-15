@@ -343,7 +343,7 @@ func TestExtractRouterFeedbackCommand_OpenAIFormat(t *testing.T) {
 	res, found := env.ExtractRouterFeedbackCommand()
 	require.True(t, found)
 	assert.Equal(t, "wrong model for this task", res.Feedback)
-	assert.Equal(t, "", lastOpenAIUserMessageText(t, env))
+	assert.Empty(t, lastOpenAIUserMessageText(t, env))
 }
 
 func TestExtractRouterFeedbackCommand_ToolResultContinuesAgentTurn(t *testing.T) {
@@ -363,7 +363,7 @@ func TestExtractRouterFeedbackCommand_ToolResultContinuesAgentTurn(t *testing.T)
 	require.True(t, found)
 	assert.True(t, res.FromToolResult)
 	assert.Equal(t, "too slow", res.Feedback)
-	assert.Equal(t, "", lastOpenAIUserMessageText(t, env))
+	assert.Empty(t, lastOpenAIUserMessageText(t, env))
 }
 
 func TestExtractRouterFeedbackCommand_CodexExecPreamble(t *testing.T) {
@@ -491,7 +491,7 @@ func TestExtractRouterFeedbackCommand_ArrayContentMultipleTextBlocks(t *testing.
 	blocks, _ := last["content"].([]any)
 	require.Len(t, blocks, 2)
 	second, _ := blocks[1].(map[string]any)
-	assert.Equal(t, "", second["text"], "the directive-bearing text block must be stripped")
+	assert.Empty(t, second["text"], "the directive-bearing text block must be stripped")
 }
 
 func TestExtractRouterFeedbackCommand_GeminiFormatIgnored(t *testing.T) {

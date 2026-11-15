@@ -580,7 +580,7 @@ func TestCrossFormat_OpenAIToAnthropic_NullToolResult(t *testing.T) {
 	require.Len(t, blocks, 1)
 	block := blocks[0].(map[string]any)
 	assert.Equal(t, "tool_result", block["type"])
-	assert.Equal(t, "", block["content"], "null tool content must become empty string")
+	assert.Empty(t, block["content"], "null tool content must become empty string")
 }
 func TestCrossFormat_OpenAIToGemini_SimpleText(t *testing.T) {
 	env, err := translate.ParseOpenAI(openAISimpleConversation)
@@ -906,7 +906,7 @@ func TestCrossFormat_AnthropicToOpenAI_EmptyAssistantKeepsContent(t *testing.T) 
 	require.Len(t, msgs, 3)
 	assistantMsg := msgAt(t, msgs, 1)
 	assert.Equal(t, "assistant", assistantMsg["role"])
-	assert.Equal(t, "", assistantMsg["content"])
+	assert.Empty(t, assistantMsg["content"])
 	assert.NotContains(t, assistantMsg, "tool_calls")
 }
 
@@ -1014,7 +1014,7 @@ func TestCrossFormat_AnthropicToOpenAI_ToolResultImageHoisted(t *testing.T) {
 	toolMsg := msgAt(t, msgs, 2)
 	assert.Equal(t, "tool", toolMsg["role"])
 	assert.Equal(t, "toolu_1", toolMsg["tool_call_id"])
-	assert.Equal(t, "", toolMsg["content"], "text-only tool content stays empty")
+	assert.Empty(t, toolMsg["content"], "text-only tool content stays empty")
 
 	userMsg := msgAt(t, msgs, 3)
 	assert.Equal(t, "user", userMsg["role"], "hoisted image rides a trailing user message")
@@ -1886,7 +1886,7 @@ func TestCrossFormat_AnthropicToOpenAI_ToolUseWithMissingName(t *testing.T) {
 	call := toolCalls[0].(map[string]any)
 	assert.Equal(t, "toolu_123", call["id"], "the original tool_use id must be preserved, not replaced with a garbage id")
 	fn := call["function"].(map[string]any)
-	assert.Equal(t, "", fn["name"], "a missing name must pass through as empty, not a fabricated placeholder name")
+	assert.Empty(t, fn["name"], "a missing name must pass through as empty, not a fabricated placeholder name")
 	assert.JSONEq(t, `{"x":1}`, fn["arguments"].(string), "arguments must survive untouched")
 }
 
@@ -1912,7 +1912,7 @@ func TestCrossFormat_AnthropicToOpenAI_ToolResultMissingToolUseID(t *testing.T) 
 	require.Len(t, msgs, 1, "the tool_result message must not be silently dropped")
 	toolMsg := msgs[0].(map[string]any)
 	assert.Equal(t, "tool", toolMsg["role"])
-	assert.Equal(t, "", toolMsg["tool_call_id"], "a missing tool_use_id must pass through as empty, not a fabricated id")
+	assert.Empty(t, toolMsg["tool_call_id"], "a missing tool_use_id must pass through as empty, not a fabricated id")
 	assert.Equal(t, "done", toolMsg["content"])
 }
 

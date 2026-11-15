@@ -38,7 +38,7 @@ func (c *Client) PrepareClassifier(ctx context.Context, operationID string) (pol
 		return policy.ClassifierPreparation{}, fmt.Errorf("decode classifier preparation: %w", err)
 	}
 	if !policy.ValidPreparationOperationID(preparation.OperationID) || operationID != "" && preparation.OperationID != operationID ||
-		!(preparation.State == policy.PreparationReady && response.StatusCode == http.StatusOK || preparation.State == policy.PreparationWarming && response.StatusCode == http.StatusAccepted) {
+		((preparation.State != policy.PreparationReady || response.StatusCode != http.StatusOK) && (preparation.State != policy.PreparationWarming || response.StatusCode != http.StatusAccepted)) {
 		return policy.ClassifierPreparation{}, fmt.Errorf("invalid classifier preparation response")
 	}
 	return preparation, nil

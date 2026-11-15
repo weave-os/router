@@ -309,7 +309,7 @@ func TestProxy_BuffersUpstream4xx(t *testing.T) {
 	require.ErrorAs(t, err, &buffered,
 		"non-2xx upstream must surface as *UpstreamErrorResponse so dispatch can fail over / render in-format")
 	assert.Equal(t, http.StatusBadRequest, buffered.Status)
-	assert.Equal(t, upstreamBody, string(buffered.Body),
+	assert.JSONEq(t, upstreamBody, string(buffered.Body),
 		"buffered body must round-trip the upstream error envelope verbatim")
 	assert.Equal(t, "abc", buffered.Headers.Get("X-Custom-Upstream"),
 		"adapter must capture upstream headers so dispatch can preserve them when flushing")

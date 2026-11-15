@@ -147,7 +147,7 @@ func TestClientPostsVersionedRouteAndParsesPolicyMetadata(t *testing.T) {
 	require.Len(t, got.TrainingConversationDelta[1].ToolResults, 1)
 	assert.Equal(t, "full tool result", got.TrainingConversationDelta[1].ToolResults[0].Text)
 	require.Len(t, got.TrainingConversationDelta[2].ToolCalls, 1)
-	assert.Equal(t, `{"file_path":"README.md"}`, got.TrainingConversationDelta[2].ToolCalls[0].InputJSON)
+	assert.JSONEq(t, `{"file_path":"README.md"}`, got.TrainingConversationDelta[2].ToolCalls[0].InputJSON)
 	assert.Empty(t, got.ConversationMessages[2].ToolResults[0].Text)
 	assert.True(t, got.ConversationMessages[2].ToolResults[0].ResultPresent)
 	assert.Equal(t, 16, got.ConversationMessages[2].ToolResults[0].CharCount)

@@ -13,8 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/providers"
@@ -25,6 +23,9 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 )
 
 type escalationTestStore struct {
@@ -130,10 +131,11 @@ func TestEscalationCadenceReplayFloorAndGates(t *testing.T) {
 		require.NotNil(t, turn.session.Epoch)
 		require.Zero(t, *turn.session.Epoch)
 		constraint := turn.constraint()
-		if n == 5 {
+		switch n {
+		case 5:
 			require.True(t, constraint.Escalate)
 			res.Decision.Metadata = &router.RoutingMetadata{Escalation: &escalation.Decision{Baseline: escalation.Low, Effective: escalation.Maximum, Outcome: escalation.OutcomePromoted, Constrained: true}}
-		} else if n == 6 {
+		case 6:
 			require.Equal(t, escalation.Maximum, constraint.Floor)
 			require.False(t, constraint.Escalate)
 		}
