@@ -20,7 +20,7 @@ Migrations + SQLC query sources. Read [root CLAUDE.md](../CLAUDE.md) first. Adap
 
 - **Named params** only (`TestQueriesUseNamedParameters`).
 - **Always include type casts** so SQLC inference is unambiguous.
-- Query names use consistent prefixes: `Insert*`, `Upsert*`, `Get*`, `Update*`, `Delete*`.
+- Query names start with `Insert`/`Upsert`/`Get`/`Update`/`Delete` or a domain verb from `queryNameVerbs` (`TestQueriesUsePrefixedNames`).
 - Every query gets an explanatory comment (SQLC turns it into godoc on the generated function).
 - No-rows single-row queries return an error — caller checks `errors.Is(err, sql.ErrNoRows)`.
 

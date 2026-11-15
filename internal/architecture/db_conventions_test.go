@@ -17,7 +17,16 @@ var (
 	transactionCommit = regexp.MustCompile(`(?i)\bCOMMIT\s*;$`)
 	ifExistsGuard     = regexp.MustCompile(`(?i)\bIF\s+EXISTS\b`)
 	numberedParameter = regexp.MustCompile(`\$[0-9]+`)
+	queryName         = regexp.MustCompile(`(?m)^-- name: (\w+) :`)
+	queryNamePrefix   = regexp.MustCompile(`^(` + strings.Join(queryNameVerbs, "|") + `)[A-Z]`)
 )
+
+var queryNameVerbs = []string{
+	"Insert", "Upsert", "Get", "Update", "Delete",
+	"Acquire", "Add", "Advance", "Check", "Claim", "Cooldown", "Count", "Create", "Debit", "Disable",
+	"Expire", "Extend", "Finalize", "Has", "Increment", "List", "Lock", "Mark", "Persist", "Record",
+	"Refresh", "Release", "Reserve", "Reset", "SoftDelete", "Sweep", "TryAcquire",
+}
 
 func TestMigrationsAreTransactional(t *testing.T) {
 	findings := sqlFindings(t, filepath.Join(repositoryRoot(t), "db", "migrations"), "*.sql", untransactionalMigration)
@@ -34,6 +43,22 @@ func TestQueriesUseNamedParameters(t *testing.T) {
 	assert.Empty(t, findings, "SQLC queries use named, cast parameters (@param::type), never numbered $1 placeholders")
 }
 
+func TestQueriesUsePrefixedNames(t *testing.T) {
+	directory := filepath.Join(repositoryRoot(t), "db", "queries")
+	paths, err := filepath.Glob(filepath.Join(directory, "*.sql"))
+	require.NoError(t, err)
+	require.NotEmpty(t, paths)
+	var findings []string
+	for _, path := range paths {
+		content, err := os.ReadFile(path)
+		require.NoError(t, err)
+		for _, name := range unprefixedQueryNames(string(content)) {
+			findings = append(findings, filepath.Base(path)+": "+name)
+		}
+	}
+	assert.Empty(t, findings, "start the query name with one of: %s", strings.Join(queryNameVerbs, ", "))
+}
+
 func TestSQLConventionChecksRejectNegativeFixtures(t *testing.T) {
 	assert.True(t, untransactionalMigration("ALTER TABLE router.t ADD COLUMN c TEXT;\n"))
 	assert.True(t, untransactionalMigration("BEGIN;\nALTER TABLE router.t ADD COLUMN c TEXT;\n"))
@@ -45,6 +70,7 @@ func TestSQLConventionChecksRejectNegativeFixtures(t *testing.T) {
 	assert.False(t, guardedRollback("-- Do not use IF EXISTS\nBEGIN;\n/* IF EXISTS */ COMMENT ON TABLE router.t IS 'IF EXISTS';\nCOMMIT;\n"))
 	assert.True(t, numberedParameters("SELECT * FROM router.t WHERE id = $1;"))
 	assert.False(t, numberedParameters("SELECT * FROM router.t WHERE id = @id::uuid;"))
+	assert.Equal(t, []string{"FetchThing", "Getter"}, unprefixedQueryNames("-- name: FetchThing :one\n-- name: Getter :one\n-- name: GetThing :one\n-- name: SoftDeleteThing :exec\n"))
 	assert.False(t, numberedParameters("-- never $1\nSELECT * FROM router.t WHERE note = 'costs $1' AND id = @id::uuid;"))
 }
 
@@ -59,6 +85,16 @@ func guardedRollback(sql string) bool {
 
 func numberedParameters(sql string) bool {
 	return numberedParameter.MatchString(sqlCode(sql))
+}
+
+func unprefixedQueryNames(sql string) []string {
+	var names []string
+	for _, match := range queryName.FindAllStringSubmatch(sql, -1) {
+		if !queryNamePrefix.MatchString(match[1]) {
+			names = append(names, match[1])
+		}
+	}
+	return names
 }
 
 // sqlCode blanks comments and single-quoted literals so the checks only see SQL statements.
