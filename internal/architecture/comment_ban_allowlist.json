@@ -30,14 +30,6 @@
       "banned_lines": 320
     },
     {
-      "package": "internal/providers",
-      "banned_lines": 352
-    },
-    {
-      "package": "internal/providers/httputil",
-      "banned_lines": 214
-    },
-    {
       "package": "internal/proxy",
       "banned_lines": 5940
     },

@@ -13,6 +13,7 @@ This page is the exhaustive reference; the [README](../README.md) has the
   - [Anthropic workload identity federation](#anthropic-workload-identity-federation)
 - [Postgres](#postgres)
 - [Server](#server)
+- [Upstream transport and stream watchdogs](#upstream-transport-and-stream-watchdogs)
 - [Managed serving (`ROUTER_SERVING_*`)](#managed-serving-router_serving_)
 - [Routing](#routing)
 - [Per-organization flag overrides](#per-organization-flag-overrides)
@@ -573,6 +574,22 @@ Set `DATABASE_URL` directly, or compose it from the individual vars:
 | `ROUTER_RESTRICT_UPSTREAM_EGRESS` | follows `ROUTER_DEPLOYMENT_MODE` | When true, provider adapters refuse to dial an upstream that resolves outside the public internet (loopback, private, link-local, CGNAT). Defaults to true in `managed` mode and false in `selfhosted`, where pointing a provider at an in-cluster or loopback gateway is normal. While on, provider adapters also ignore `HTTP_PROXY`/`HTTPS_PROXY`, since a proxied connection makes the destination unverifiable. |
 | `ROUTER_INFERENCE_ORGANIZATION_ALLOWLIST` | *(none)* | Comma-separated organization IDs (installation external IDs) allowed to authenticate. When set, router keys and session tokens for any other organization get `403 organization_not_allowed` before routing or dispatch. Signed internal test plans are exempt. Use it on shared non-production deployments so self-serve signups cannot spend provider keys. |
 | `ROUTER_MODEL_DISCOVERY_PRIVATE_ORIGINS` | *(none)* | Comma-separated exact origins allowed to use private addresses for model discovery (for example, `https://gateway.internal:8443`). Discovery always blocks non-public destinations otherwise and always ignores ambient proxies, regardless of `ROUTER_RESTRICT_UPSTREAM_EGRESS`. Entries may contain only scheme, host, and port; paths, wildcards, and CIDRs are rejected at startup. |
+
+## Upstream transport and stream watchdogs
+
+Every value is whole seconds (or a count); an unset, unparsable or non-positive duration keeps the default.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `ROUTER_SSE_IDLE_TIMEOUT_SECONDS` | `45` | Fails over a stream that sends no bytes for this long. Keep it below the 350s idle reaper of AWS NAT gateways, NLBs and VPC endpoints, or a stall hangs until the request deadline. |
+| `ROUTER_RESPONSES_SSE_IDLE_TIMEOUT_SECONDS` | `90` | Byte-idle budget for OpenAI Responses streams, wider because a reasoning turn can go tens of seconds between frames. |
+| `ROUTER_OUTPUT_STALL_TIMEOUT_SECONDS` | `240` | Fails over a Chat Completions stream that stays byte-alive (keepalive comments, empty or role-only deltas) without producing output or reasoning. |
+| `ROUTER_RESPONSES_OUTPUT_STALL_TIMEOUT_SECONDS` | `240` | The same output-stall budget for Responses streams; keepalives, status events and empty reasoning frames do not reset it. |
+| `ROUTER_MIN_THROUGHPUT_DELTAS_PER_WINDOW` | `8` | Fails over a stream producing fewer output deltas than this per window after warmup. `0` or a negative value disables the throughput watchdog. |
+| `ROUTER_THROUGHPUT_WINDOW_SECONDS` | `20` | Rolling window for the throughput floor; long enough to absorb brief mid-stream pauses. |
+| `ROUTER_THROUGHPUT_MIN_ELAPSED_SECONDS` | `90` | Warmup during which the throughput watchdog never fires, covering prefill and initial reasoning. |
+| `ROUTER_H2_READ_IDLE_TIMEOUT_SECONDS` | `15` | Idle time before a pooled HTTP/2 connection is pinged, so a connection an upstream load balancer reaped is detected. |
+| `ROUTER_H2_PING_TIMEOUT_SECONDS` | `5` | Time to wait for a PING ACK before closing the connection. Read-idle plus ping may use at most two thirds of the transport's time-to-first-byte guard (30s by default); a larger pair is scaled down proportionally. |
 
 ## Managed serving (`ROUTER_SERVING_*`)
 
