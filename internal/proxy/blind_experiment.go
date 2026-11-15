@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -240,7 +241,7 @@ func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router
 		provider, found := gatewayProviderFor(req.RequestedModel, req.CustomBindings, req.GatewayProviders)
 		if !found {
 			// Passthrough serves the client's model as-is, so aliases retired from routing still count.
-			provider, found = gatewayProviderFor(req.RequestedModel, aliasedBindingsFromKeys(externalKeysFromContext(ctx), true), req.GatewayProviders)
+			provider, found = gatewayProviderFor(req.RequestedModel, credentials.AliasedBindings(externalKeysFromContext(ctx), true), req.GatewayProviders)
 		}
 		if !found {
 			return router.Decision{}, fmt.Errorf("requested model %q has no available gateway alias: %w", req.RequestedModel, policy.ErrGatewayServesNoDeployedModel)
