@@ -9,9 +9,11 @@ into `auth.Service` and `proxy.Service`. Operator-facing variables are listed in
 
 - **Telemetry before clients.** `apm.Init` runs before any HTTP client is built so
   OpenTelemetry transports capture the configured providers and propagator.
-- **Schema pin.** Every pooled connection sets `search_path` to `router` in
-  `AfterConnect`, so a `DATABASE_URL` without `?search_path=router` cannot read or
-  write `public.*`.
+- **Schema preference.** Every pooled connection sets `search_path` to
+  `router, public` in `AfterConnect`, so unqualified names resolve to `router`
+  first even when `DATABASE_URL` omits `?search_path=router`. It is not an
+  isolation boundary: names missing from `router` and qualified `public.*`
+  references still reach `public`.
 - **Small pool.** The pool is capped at 6 connections; the API-key cache and the
   in-process LRUs absorb most reads. Sustained pool wait above ~1 ms with session
   pinning on is the signal to move pin traffic off Postgres, not to grow the pool.
@@ -21,9 +23,11 @@ into `auth.Service` and `proxy.Service`. Operator-facing variables are listed in
 - **Readiness.** `/readyz` requires Postgres, the HMM policy snapshot when one is
   wired, and a routable deployment default strategy, so a revision whose default
   would 503 every request never passes its startup probe.
-- **Managed serving.** A managed worker registers only `managedServingStrategies`,
-  and any serving variable requires an explicit fleet target; a stamped managed
-  revision refuses to boot without fleet admission.
+- **Managed serving.** The deployment default of a managed worker must be one of
+  `managedServingStrategies`; workers admitted to `policyregistry.TargetInternal`
+  additionally register the beta and Qwen HMM strategies. Any serving variable
+  requires an explicit fleet target, and a stamped managed revision refuses to
+  boot without fleet admission.
 - **Encryption.** An absent `EXTERNAL_KEY_ENCRYPTION_KEY` selects the no-op
   encryptor (self-hosted/local only); a malformed keyset fails boot.
 - **Billing.** Managed mode wires billing by default. A boot-time billing health

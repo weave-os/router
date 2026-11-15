@@ -671,8 +671,10 @@ policy sidecar deadline or transport failure into the session pin (or
 
 ### Kill switches and staged behaviors
 
-Each switch is read once at boot. Boolean switches accept only the literal
-`true`; any other value is off. Integer switches marked *0 allowed* treat `0` as
+Each switch is read once at boot; an unset switch takes its listed default.
+When set, a boolean switch is on only for the literal `true` (any other value is
+off), except `ROUTER_SUBSCRIBER_ALLOWANCE_ENABLED`, which accepts `true` in any
+letter case. Integer switches marked *0 allowed* treat `0` as
 a real "off" value; elsewhere a non-positive or unparseable value logs a warning
 and keeps the default.
 
