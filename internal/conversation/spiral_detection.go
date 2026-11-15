@@ -54,7 +54,8 @@ const (
 	spiralNoProgressThreshold = 15
 )
 
-// SpiralReason names one spiral signal class.
+// SpiralReason values are persisted verbatim in spiral_shadow_events.reason and
+// the telemetry spiral_reasons column, so renaming one breaks offline joins.
 type SpiralReason string
 
 // Spiral signal-class taxonomy. One event per (session, role, reason).
@@ -67,7 +68,8 @@ const (
 	spiralReasonNoProgress                  = "no_progress"
 )
 
-// SpiralReasonStrings converts reasons for persistence.
+// SpiralReasonStrings keeps a nil input nil, so "not computed" stays distinct
+// from "computed, nothing fired".
 func SpiralReasonStrings(reasons []SpiralReason) []string {
 	if reasons == nil {
 		return nil
