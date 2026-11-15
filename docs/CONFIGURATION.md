@@ -625,6 +625,17 @@ The `policyctl serving` runner and worker fleets must also share `PUBSUB_PROJECT
 and `PUBSUB_TOPIC_ROUTER_POLICY_INVALIDATION` so activation invalidations reach
 the admission caches using the same Pub/Sub project and topic.
 
+Cache invalidation is a broadcast: each replica creates its own subscription
+(with an expiration TTL that reclaims subscriptions leaked by a crashed replica)
+because a shared subscription would load-balance messages and leave other
+replicas stale. Shutdown deletes the replica's subscription even after the
+serving context is canceled. Publishing is fire-and-forget: a lost message is
+recovered by the cache TTL, never by blocking the request that changed state.
+Publishers must be stopped at shutdown; closing the client does not flush them.
+Autopay recharge signals follow the same rule: the debit has already committed,
+so a failed publish is logged and dropped, and the control plane's reconciliation
+sweep backstops any lost signal.
+
 ## Routing
 
 | Variable                          | Default                      | Purpose |

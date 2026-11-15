@@ -11,15 +11,12 @@ import (
 	"weave-os/router/internal/sqlc"
 )
 
-// RequestAttributionRepo writes the admitted tuple before any worker side effect.
 type RequestAttributionRepo struct{ queries *sqlc.Queries }
 
-// NewRequestAttributionRepo is wired only in managed-serving mode.
 func NewRequestAttributionRepo(pool *pgxpool.Pool) *RequestAttributionRepo {
 	return &RequestAttributionRepo{queries: dbbudget.Queries(pool)}
 }
 
-// RecordServingRequest never overwrites an earlier request's attribution.
 func (r *RequestAttributionRepo) RecordServingRequest(ctx context.Context, requestID string, assertion policyregistry.ServingAssertion) error {
 	installation, err := uuid.Parse(assertion.Scope.InstallationID)
 	if err != nil {
