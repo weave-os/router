@@ -190,7 +190,7 @@ func TestIneligibleModelIsAClassifiedClientError(t *testing.T) {
 // The operator escape hatch replaces the exclusion set wholesale; the
 // product boundary still survives it.
 func TestExcludedModelsOverrideCannotWidenTheBoundary(t *testing.T) {
-	svc := &Service{excludedModelsOverride: map[string]struct{}{"gpt-5.5": {}}}
+	svc := (&Service{}).WithExcludedModelsOverride([]string{"gpt-5.5"})
 
 	excluded := svc.excludedModelsForRequest(maxScopedContext())
 
@@ -198,5 +198,5 @@ func TestExcludedModelsOverrideCannotWidenTheBoundary(t *testing.T) {
 	assert.Contains(t, excluded, "muse-spark-1.3")
 	assert.Contains(t, excluded, "gpt-5.5")
 	assert.NotContains(t, excluded, "deepseek/deepseek-v4-pro")
-	assert.NotContains(t, svc.excludedModelsOverride, "claude-opus-4-8")
+	assert.NotContains(t, svc.ExcludedModelsOverride(), "claude-opus-4-8")
 }

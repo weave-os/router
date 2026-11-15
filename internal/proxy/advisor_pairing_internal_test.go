@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
@@ -38,11 +39,12 @@ func TestExcludeAdvisorOutrankingModels_NoAdvisorIsNoop(t *testing.T) {
 }
 
 func TestSafetyExcludedModelsIncludesAdvisorOutranking(t *testing.T) {
-	s := &Service{availableModels: map[string]struct{}{"claude-fable-5-1": {}, "claude-opus-5-5": {}}}
+	available := map[string]struct{}{"claude-fable-5-1": {}, "claude-opus-5-5": {}}
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-5-5","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"advisor_20260301","name":"advisor","model":"claude-opus-5-5"}]}`))
 	require.NoError(t, err)
 
-	assert.Equal(t, map[string]struct{}{"claude-fable-5-1": {}}, s.safetyExcludedModels(env, 0, nil, nil))
+	_, advisorOutranking := excludeAdvisorOutrankingModels(env, nil, available)
+	assert.Equal(t, map[string]struct{}{"claude-fable-5-1": {}}, routingpolicy.SafetyExcludedModels(env, 0, nil, nil, available, advisorOutranking))
 }
 
 func TestAdvisorRejectsModel(t *testing.T) {

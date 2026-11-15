@@ -250,6 +250,9 @@ type Model struct {
 	// rejects an advisor ranked below the request model. Values mirror Claude
 	// Code's model catalog; 0 means the model takes no advisor.
 	AdvisorRank int
+	// RequiresSignedToolHistory marks models that 400 on function-call
+	// history lacking the thoughtSignature they issued.
+	RequiresSignedToolHistory bool
 	// ForceModelOnly keeps the model off family advancement: it serves only
 	// when a caller names it, never as a newer stand-in for an older sibling.
 	ForceModelOnly bool
@@ -260,16 +263,6 @@ type Model struct {
 	// Providers is the ordered fallback list. First binding whose
 	// Provider name is in the available set wins. Must be non-empty.
 	Providers []ProviderBinding
-}
-
-// PrimaryProvider returns the first binding's provider name. Callers that
-// don't yet thread provider through (OTel emitter, billing debit hook)
-// look up pricing by this.
-func (m Model) PrimaryProvider() string {
-	if len(m.Providers) == 0 {
-		return ""
-	}
-	return m.Providers[0].Provider
 }
 
 // Models is the source of truth, one struct literal per model, grouped by
@@ -659,39 +652,39 @@ var Models = []Model{
 	}},
 
 	// --- Google Gemini 3.x ---
-	{ID: "gemini-3.1-flash-lite-preview", Source: SourceClosedSource, Tier: TierLow, ContextWindow: 1_048_576, AgenticUse: AgenticLow, Providers: []ProviderBinding{
+	{ID: "gemini-3.1-flash-lite-preview", Source: SourceClosedSource, RequiresSignedToolHistory: true, Tier: TierLow, ContextWindow: 1_048_576, AgenticUse: AgenticLow, Providers: []ProviderBinding{
 		{Provider: providers.ProviderGoogle, Price: Pricing{InputUSDPer1M: 0.10, OutputUSDPer1M: 0.40, CacheReadMultiplier: 0.10}},
 	}},
-	{ID: "gemini-3-flash-preview", Source: SourceClosedSource, Tier: TierMid, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+	{ID: "gemini-3-flash-preview", Source: SourceClosedSource, RequiresSignedToolHistory: true, Tier: TierMid, ContextWindow: 1_048_576, Providers: []ProviderBinding{
 		{Provider: providers.ProviderGoogle, Price: Pricing{InputUSDPer1M: 0.50, OutputUSDPer1M: 2.00, CacheReadMultiplier: 0.10}},
 	}},
-	{ID: "gemini-3-pro-preview", Source: SourceClosedSource, Tier: TierHigh, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+	{ID: "gemini-3-pro-preview", Source: SourceClosedSource, RequiresSignedToolHistory: true, Tier: TierHigh, ContextWindow: 1_048_576, Providers: []ProviderBinding{
 		{Provider: providers.ProviderGoogle, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 8.00, CacheReadMultiplier: 0.10}},
 	}},
-	{ID: "gemini-3.1-pro-preview", Source: SourceClosedSource, Tier: TierHigh, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+	{ID: "gemini-3.1-pro-preview", Source: SourceClosedSource, RequiresSignedToolHistory: true, Tier: TierHigh, ContextWindow: 1_048_576, Providers: []ProviderBinding{
 		{Provider: providers.ProviderGoogle, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 8.00, CacheReadMultiplier: 0.10}},
 	}},
-	{ID: "gemini-3.5-flash", Source: SourceClosedSource, Tier: TierMid, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+	{ID: "gemini-3.5-flash", Source: SourceClosedSource, RequiresSignedToolHistory: true, Tier: TierMid, ContextWindow: 1_048_576, Providers: []ProviderBinding{
 		{Provider: providers.ProviderGoogle, Price: Pricing{InputUSDPer1M: 1.50, OutputUSDPer1M: 9.00, CacheReadMultiplier: 0.10}},
 	}},
-	{ID: "gemini-3.5-flash-lite", Source: SourceClosedSource, Tier: TierLow, ContextWindow: 1_048_576, AgenticUse: AgenticLow, Providers: []ProviderBinding{
+	{ID: "gemini-3.5-flash-lite", Source: SourceClosedSource, RequiresSignedToolHistory: true, Tier: TierLow, ContextWindow: 1_048_576, AgenticUse: AgenticLow, Providers: []ProviderBinding{
 		{Provider: providers.ProviderGoogle, Price: Pricing{InputUSDPer1M: 0.30, OutputUSDPer1M: 2.50, CacheReadMultiplier: 0.10}},
 	}},
-	{ID: "gemini-3.6-flash", Source: SourceClosedSource, Tier: TierMid, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+	{ID: "gemini-3.6-flash", Source: SourceClosedSource, RequiresSignedToolHistory: true, Tier: TierMid, ContextWindow: 1_048_576, Providers: []ProviderBinding{
 		{Provider: providers.ProviderGoogle, Price: Pricing{InputUSDPer1M: 1.50, OutputUSDPer1M: 7.50, CacheReadMultiplier: 0.10}},
 	}},
 	// Priced at the standard post-promo rate ($1.50/$7.50, matching 3.6-flash)
 	// rather than the $0.75/$3.75 introductory rate shared with 3.6-flash
 	// (through 2026-12-31) — avoids a compile-time price going stale.
-	{ID: "gemini-3.7-flash", Source: SourceClosedSource, Tier: TierMid, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+	{ID: "gemini-3.7-flash", Source: SourceClosedSource, RequiresSignedToolHistory: true, Tier: TierMid, ContextWindow: 1_048_576, Providers: []ProviderBinding{
 		{Provider: providers.ProviderGoogle, Price: Pricing{InputUSDPer1M: 1.50, OutputUSDPer1M: 7.50, CacheReadMultiplier: 0.10}},
 	}},
 	// Same post-promo list price as 3.7-flash; the shared $0.75/$3.75
 	// introductory rate also ends 2026-12-31.
-	{ID: "gemini-3.8-flash", Source: SourceClosedSource, Tier: TierMid, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+	{ID: "gemini-3.8-flash", Source: SourceClosedSource, RequiresSignedToolHistory: true, Tier: TierMid, ContextWindow: 1_048_576, Providers: []ProviderBinding{
 		{Provider: providers.ProviderGoogle, Price: Pricing{InputUSDPer1M: 1.50, OutputUSDPer1M: 7.50, CacheReadMultiplier: 0.10}},
 	}},
-	{ID: ModelIDGemini4Argon.String(), Source: SourceClosedSource, HMMTarget: true, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+	{ID: ModelIDGemini4Argon.String(), Source: SourceClosedSource, RequiresSignedToolHistory: true, HMMTarget: true, ContextWindow: 1_048_576, Providers: []ProviderBinding{
 		{Provider: providers.ProviderGoogle, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 10.00, CacheReadMultiplier: 0.10}},
 	}},
 	{ID: "google/gemma-4-26b-a4b-it", Source: SourceOpenSource, Tier: TierLow, ContextWindow: 262_144, Providers: []ProviderBinding{
