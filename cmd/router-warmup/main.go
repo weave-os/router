@@ -1,4 +1,3 @@
-// router-warmup plans broad model warmup; live inference requires -execute.
 package main
 
 import (
