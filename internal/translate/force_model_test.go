@@ -315,7 +315,7 @@ func TestExtractForceModelCommand_ArrayContentMultipleTextBlocks(t *testing.T) {
 	blocks, _ := last["content"].([]any)
 	require.Len(t, blocks, 2)
 	second, _ := blocks[1].(map[string]any)
-	assert.Empty(t, second["text"], "the directive-bearing text block must be stripped")
+	assert.Equal(t, "", second["text"], "the directive-bearing text block must be stripped")
 }
 
 func TestExtractForceModelCommand_AgentToolResultString(t *testing.T) {
@@ -521,7 +521,7 @@ func TestExtractForceModelCommand_OpenAIToolResult(t *testing.T) {
 	msgs, _ := prepared["messages"].([]any)
 	require.Len(t, msgs, 3, "the tool message must remain to answer the assistant tool call")
 	tool, _ := msgs[2].(map[string]any)
-	assert.Empty(t, tool["content"], "only the command text is stripped")
+	assert.Equal(t, "", tool["content"], "only the command text is stripped")
 }
 
 func TestExtractForceModelCommand_ModelAliasInUserTextAfterOpenAIToolUse(t *testing.T) {
