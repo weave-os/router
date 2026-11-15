@@ -27,7 +27,7 @@
     },
     {
       "package": "internal/billing",
-      "banned_lines": 294
+      "banned_lines": 248
     },
     {
       "package": "internal/credentials",
@@ -107,7 +107,7 @@
     },
     {
       "package": "internal/proxy",
-      "banned_lines": 5940
+      "banned_lines": 5924
     },
     {
       "package": "internal/proxy/usage",
@@ -199,7 +199,7 @@
     },
     {
       "package": "internal/server/middleware",
-      "banned_lines": 315
+      "banned_lines": 304
     },
     {
       "package": "internal/sse",
