@@ -10,6 +10,7 @@ import (
 	"slices"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -52,7 +53,7 @@ func newSiblingRescueChain(svc rescueServices, primaryErr error, siblings ...rou
 		log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 		preludeBuf: newPreludeBuffer(httptest.NewRecorder()),
 		buildAttempt: func(router.Decision, translate.EmitOptions, string, context.Context) (dispatchAttempt, error) {
-			return func(context.Context, router.Decision, providers.Client) error { return nil }, nil
+			return func(context.Context, router.Decision, dispatch.Upstream) error { return nil }, nil
 		},
 		respSummary:      &translate.ResponseSummary{StopReason: "stale"},
 		reqStats:         &providers.RequestMutationStats{},

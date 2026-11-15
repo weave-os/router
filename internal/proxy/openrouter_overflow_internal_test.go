@@ -6,14 +6,16 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
+
+	"github.com/stretchr/testify/require"
 )
 
 type overflowDispatch struct {
@@ -43,7 +45,7 @@ func overflowContext(exhausted bool) context.Context {
 }
 
 func (d *overflowDispatch) attempt() dispatchAttempt {
-	return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
+	return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
 		d.served = append(d.served, decision)
 		return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
 	}

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
@@ -302,7 +303,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	bindings := s.resolveBindingsForDispatch(ctx, decision)
 	primaryDecision := decision
 	notices := &requestNoticeStream{}
-	attempt := func(actx context.Context, d router.Decision, p providers.Client) error {
+	attempt := func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 		attemptSink, noticeErr := notices.prepare(r.Context(), preludeBuf, preludeBuf, translate.FormatGemini, env.Stream(), translate.NewRouterNotice(translate.NoticeModelSelection, marker, d.Model, ""))
 		if noticeErr != nil {
 			return fmt.Errorf("emit Gemini router notice: %w", noticeErr)

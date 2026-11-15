@@ -30,7 +30,7 @@ func newPreludeBuffer(w http.ResponseWriter) *preludeBuffer { return dispatch.Ne
 
 // dispatchAttempt does one per-binding dispatch. Returns the upstream error
 // unmodified so dispatchWithFallback can decide whether to retry.
-type dispatchAttempt func(ctx context.Context, decision router.Decision, p providers.Client) error
+type dispatchAttempt func(ctx context.Context, decision router.Decision, p dispatch.Upstream) error
 
 // failoverInputs bundles the inputs dispatchWithFallback needs that don't
 // belong to a single attempt.

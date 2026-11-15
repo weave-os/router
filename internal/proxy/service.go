@@ -3139,7 +3139,7 @@ func (s *Service) anthropicNativeAttempt(
 	setExtractor func(*telemetry.UsageExtractor),
 	setStreamCost func(router.Decision, bool, func() bool),
 ) dispatchAttempt {
-	return func(actx context.Context, d router.Decision, p providers.Client) error {
+	return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 		requestCacheTTL1h := func() bool { return translate.AnthropicRequestCacheTTL1h(prep.Body) }
 		setStreamCost(d, false, requestCacheTTL1h)
 		attemptSink, noticeErr := preludeState.prepare(r.Context(), sink, preludeBuf, translate.FormatAnthropic, env.Stream(), reconnectNoticeForAttempt(actx, r.Header, notice))
@@ -4240,7 +4240,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			crossFormat = false
 			logUpstreamBody(log, routeRes.SessionKey, target, feats, prep.Body)
 			tiered := anthropicTierAttemptFor(targetOpts, prep, targetNotice)
-			return func(actx context.Context, d router.Decision, p providers.Client) error {
+			return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 				attemptOpts, err := tiered.dispatch(actx, d, p, recordFastServed)
 				// Cortex documents output_config.format, so the knob goes out as
 				// written; only a gateway whose relayed schema predates it rejects
@@ -4276,7 +4276,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			// error plus a finalize thunk so a gateway that rejects Responses can
 			// be re-emitted onto chat/completions before finalize commits the
 			// prelude buffer. Translators are stateful, so the retry calls again.
-			dispatchOpenAICompat := func(actx context.Context, d router.Decision, p providers.Client, useResponses, stripPromptCacheKey bool) (error, func(error) error) {
+			dispatchOpenAICompat := func(actx context.Context, d router.Decision, p dispatch.Upstream, useResponses, stripPromptCacheKey bool) (error, func(error) error) {
 				attemptOpts := targetOpts
 				attemptOpts.TargetProvider = d.Provider
 				attemptOpts.StripPromptCacheKey = stripPromptCacheKey
@@ -4360,7 +4360,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				}
 				return rawErr, finalize
 			}
-			return func(actx context.Context, d router.Decision, p providers.Client) error {
+			return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 				// Direct OpenAI serves every expressible turn on Responses;
 				// gateways only the reasoning tool turn chat/completions rejects.
 				gatewayKey := gatewayResponsesKey(actx, d.Provider)
@@ -4420,7 +4420,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			// finalize thunk, split so the attempt can inspect a pre-commit 400
 			// before finalize commits the prelude buffer and forecloses the retry.
 			// Translators are stateful, so a retry rebuilds the chain via a fresh call.
-			dispatchGemini := func(actx context.Context, d router.Decision, p providers.Client, pr providers.PreparedRequest) (error, func(error) error) {
+			dispatchGemini := func(actx context.Context, d router.Decision, p dispatch.Upstream, pr providers.PreparedRequest) (error, func(error) error) {
 				fastServed = false
 				setStreamCost(d, true, nil)
 				respSummary = translate.ResponseSummary{}
@@ -4462,7 +4462,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				}
 				return rawErr, finalize
 			}
-			return func(actx context.Context, d router.Decision, p providers.Client) error {
+			return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 				retry := geminiToolModeAttempt{log: log, buffer: preludeBuf, env: env, headers: r.Header, opts: targetOpts}
 				return retry.dispatch(prep, func(prepared providers.PreparedRequest) (error, func(error) error) {
 					reqStats = prepared.Stats
@@ -6746,7 +6746,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			// should not see. On failover to OpenRouter the body must be re-emitted.
 			// Split from attempt so a native dispatch that finds no Responses surface
 			// can re-emit onto chat/completions while still pre-commit.
-			dispatchOpenAI := func(actx context.Context, d router.Decision, p providers.Client, surface openAISurface, stripPromptCacheKey bool) error {
+			dispatchOpenAI := func(actx context.Context, d router.Decision, p dispatch.Upstream, surface openAISurface, stripPromptCacheKey bool) error {
 				if rw, ok := w.(*translate.ResponsesWriter); ok {
 					rw.ResetAttempt()
 				}
@@ -6957,7 +6957,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				}
 				return err
 			}
-			return func(actx context.Context, d router.Decision, p providers.Client) error {
+			return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 				surface := responseSwitch.surface(d.Provider, servedOnCodexSubscription(actx))
 				gatewayKey := gatewayResponsesKey(actx, d.Provider)
 				stripPCK := s.gatewayCaps.RejectsPromptCacheKey(gatewayKey)
@@ -7009,7 +7009,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			// See ProxyMessages' Gemini case: a VALIDATED-mode request can 400 with a
 			// generic INVALID_ARGUMENT when Gemini can't compile a tool schema into
 			// its decode-time grammar. Retry once with mode=AUTO when pre-commit.
-			dispatchGemini := func(actx context.Context, d router.Decision, p providers.Client, pr providers.PreparedRequest) (error, func(error) error) {
+			dispatchGemini := func(actx context.Context, d router.Decision, p dispatch.Upstream, pr providers.PreparedRequest) (error, func(error) error) {
 				var usage translate.UsageSink
 				if s.usageRequired() {
 					extractor = telemetry.NewUsageExtractor(d.Provider)
@@ -7036,7 +7036,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				}
 				return rawErr, finalize
 			}
-			return func(actx context.Context, d router.Decision, p providers.Client) error {
+			return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 				retry := geminiToolModeAttempt{log: log, buffer: preludeBuf, env: env, headers: r.Header, opts: targetOpts}
 				return retry.dispatch(prep, func(prepared providers.PreparedRequest) (error, func(error) error) {
 					return dispatchGemini(actx, d, p, prepared)
@@ -7052,7 +7052,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			// One send on the given tier, split into the raw upstream error plus a
 			// finalize thunk so a fast send refused for lack of fast-mode allocation
 			// can be re-sent at standard speed before finalize commits the prelude.
-			dispatchAnthropic := func(actx context.Context, d router.Decision, p providers.Client, attemptPrep providers.PreparedRequest, fast bool) (error, func(error) error) {
+			dispatchAnthropic := func(actx context.Context, d router.Decision, p dispatch.Upstream, attemptPrep providers.PreparedRequest, fast bool) (error, func(error) error) {
 				fastServed = fast
 				var usage translate.UsageSink
 				if s.usageRequired() {
@@ -7085,7 +7085,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				}
 				return rawErr, finalize
 			}
-			return func(actx context.Context, d router.Decision, p providers.Client) error {
+			return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 				attemptOpts := targetOpts
 				attemptOpts.TargetProvider = d.Provider
 				attemptOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)

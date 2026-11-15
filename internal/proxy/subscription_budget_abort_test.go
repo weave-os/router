@@ -6,12 +6,14 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
+
+	"github.com/stretchr/testify/require"
 )
 
 func expiredRotationContext(provider auth.SubscriptionProvider) context.Context {
@@ -28,7 +30,7 @@ func TestExpiredAdmissionBudgetDoesNotAuthorizeAPI(t *testing.T) {
 	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderOpenAI}}, nil)
 	in.initialDecision = router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel}
 	var oauthCalls, apiCalls int
-	in.attempt = func(attemptCtx context.Context, _ router.Decision, _ providers.Client) error {
+	in.attempt = func(attemptCtx context.Context, _ router.Decision, _ dispatch.Upstream) error {
 		require.NoError(t, attemptCtx.Err(), "paid recovery runs on the caller's live context")
 		if creds := CredentialsFromContext(attemptCtx); creds != nil && creds.OAuth {
 			oauthCalls++
@@ -63,7 +65,7 @@ func TestExpiredRotationBudgetRendersCleanErrorWithoutAPI(t *testing.T) {
 		_, _ = w.Write([]byte("terminal error"))
 	}
 	calls := 0
-	in.attempt = func(context.Context, router.Decision, providers.Client) error {
+	in.attempt = func(context.Context, router.Decision, dispatch.Upstream) error {
 		calls++
 		return nil
 	}
