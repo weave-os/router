@@ -3368,10 +3368,6 @@ func (s *Service) repinOffRefusingModel(ctx context.Context, sessionKey [session
 		"to_provider", fbProvider)
 }
 
-// anthropicPingFrame keeps a client-facing stream byte-alive during long
-// upstream reasoning phases that produce no translatable frames.
-var anthropicPingFrame = []byte(sseEvent("ping", `{"type":"ping"}`))
-
 func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
 	ctx = withWeaveCreditsFunding(ctx, r.Header)
 	w, finishBlindExperimentWriter := withBlindExperimentWriter(ctx, w, body)
@@ -3421,39 +3417,18 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		return fmt.Errorf("strip routing marker: %w", stripErr)
 	}
 
-	// Same for the one-click thumbs footer (and its signed rate URLs), which
-	// would otherwise shift assistant prefixes off the prompt cache.
-	// Best-effort: log-and-continue on failure rather than abort over cosmetic
-	// cleanup, matching the OpenAI chat path. The echo check must read the body
-	// before the strip erases its evidence.
+	// The echo check must read the body before the footer strip erases its
+	// evidence.
 	footerEchoed := translate.FeedbackFooterInHistory(body)
 	if echoed, _ := ctx.Value(responsesFooterEchoedContextKey{}).(bool); echoed {
 		footerEchoed = true
 	}
-	if strippedBody, ferr := translate.StripFeedbackFooterFromMessages(body); ferr != nil {
-		log.Error("Failed to strip feedback footer from inbound messages", "err", ferr)
-	} else {
-		body = strippedBody
-	}
-
-	// Strip Claude Code's 1M-context model variant tag (e.g.
-	// "claude-opus-4-8[1m]") to the canonical id before parsing, so routing/pins/
-	// telemetry key off the real model and it never reaches a native Anthropic
-	// upstream (which 404s on it). The 1M window is enabled separately via the
-	// context-1m beta.
-	var modelVariant1M bool
-	if canon, hadVariant, modelErr := translate.CanonicalizeModelInBody(body); modelErr != nil {
-		log.Error("Failed to canonicalize inbound model", "err", modelErr)
-	} else {
-		body = canon
-		modelVariant1M = hadVariant
-	}
-
-	env, parseErr := translate.ParseAnthropic(body)
+	parsed, parseErr := ingress.ParseMessages(ctx, body)
 	if parseErr != nil {
 		log.Error("Failed to parse Anthropic request", "err", parseErr)
 		return fmt.Errorf("parse request: %w", parseErr)
 	}
+	env, body, modelVariant1M := parsed.Envelope, parsed.Body, parsed.ModelVariant1M
 	if claims := piSessionFromContext(ctx); claims != nil && !claims.matches(ctx, env) {
 		return ErrHandoffInvalid
 	}
@@ -4112,7 +4087,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		// Innermost wrap: arms only once preludeBuffer commits, so a keepalive
 		// can never strand a response the router still wants to retry.
 		if s.ingress.Keepalive > 0 {
-			keepalive := sse.NewKeepaliveWriter(clientSink, anthropicPingFrame, s.ingress.Keepalive)
+			keepalive := sse.NewKeepaliveWriter(clientSink, ingress.AnthropicPingFrame, s.ingress.Keepalive)
 			defer keepalive.Close()
 			clientSink = keepalive
 		}
