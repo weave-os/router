@@ -12,7 +12,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// GeminiToOpenAIResponse converts a non-streaming Gemini response to OpenAI format.
 func GeminiToOpenAIResponse(body []byte, requestModel string) ([]byte, error) {
 	return geminiToOpenAIResponse(body, requestModel, usage.ParseGemini(gjson.GetBytes(body, "usageMetadata")))
 }
@@ -49,9 +48,6 @@ func geminiToOpenAIResponse(body []byte, requestModel string, facts usage.Facts)
 	return jw.Bytes(), nil
 }
 
-// writeOpenAIMessageFromGemini writes the "message" object for a single Gemini candidate.
-// Returns hasToolCalls and leadingSig (non-empty when a leading text part carries a thoughtSignature
-// and there are no function calls — callers may propagate it as an off-spec field).
 func writeOpenAIMessageFromGemini(jw *jsonWriter, candidate gjson.Result) (hasToolCalls bool, leadingSig string) {
 	parts := candidate.Get("content.parts")
 
@@ -66,9 +62,6 @@ func writeOpenAIMessageFromGemini(jw *jsonWriter, candidate gjson.Result) (hasTo
 	ledger := NewToolCallLedger()
 	sourceIndex := 0
 
-	// First pass: find any thoughtSignature in the candidate's parts.
-	// Gemini 3.x emits one sig per turn — usually on the leading text or
-	// first functionCall — and the rest of the parts need it on round-trip.
 	var inheritedSig string
 	parts.ForEach(func(_, part gjson.Result) bool {
 		if sig := part.Get("thoughtSignature").String(); sig != "" {
@@ -143,7 +136,6 @@ func writeOpenAIMessageFromGemini(jw *jsonWriter, candidate gjson.Result) (hasTo
 		}
 		jw.EndArr()
 	} else if leadingSig != "" {
-		// Off-spec; litellm/openai-go pass through unknown fields.
 		jw.Key("thought_signature")
 		jw.Str(leadingSig)
 	}
@@ -152,7 +144,6 @@ func writeOpenAIMessageFromGemini(jw *jsonWriter, candidate gjson.Result) (hasTo
 	return hasToolCalls, leadingSig
 }
 
-// GeminiToOpenAIError re-wraps a Gemini error envelope as an OpenAI error.
 func GeminiToOpenAIError(body []byte) []byte {
 	code := gjson.GetBytes(body, "error.code")
 	msg := gjson.GetBytes(body, "error.message").String()
@@ -177,7 +168,6 @@ func GeminiToOpenAIError(body []byte) []byte {
 	return jw.Bytes()
 }
 
-// mapGeminiFinishReason converts Gemini finishReason to OpenAI finish_reason.
 func mapGeminiFinishReason(reason string, hasToolCalls bool) string {
 	switch reason {
 	case "STOP":
