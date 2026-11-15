@@ -135,7 +135,7 @@ func TestFeedbackSpans_UseDistinctNamesAndSchemas(t *testing.T) {
 	ctx := context.WithValue(context.Background(), proxy.APIKeyIDContextKey{}, "key-1")
 	ctx = context.WithValue(ctx, proxy.InstallationIDContextKey{}, uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, cmdSvc.ProxyMessages(ctx, []byte(body), rec, httpReq))
 
 	// Force both buffers to flush and the emitter to export before asserting.

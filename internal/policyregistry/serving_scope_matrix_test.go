@@ -315,6 +315,7 @@ func routerOnlySource(t *testing.T, store *servingMemoryStore, initialSet policy
 }
 
 func routerOnlyRelease(t *testing.T, store *servingMemoryStore, previous policyregistry.ServingSelection, source policyregistry.ServingRelease) policyregistry.ServingRelease {
+	t.Helper()
 	release := *store.object(t, policyregistry.ServingReleases, previous.Release).(*policyregistry.ServingRelease)
 	release.RouterImageDigest = source.RouterImageDigest
 	release.Provenance = source.Provenance
@@ -322,6 +323,7 @@ func routerOnlyRelease(t *testing.T, store *servingMemoryStore, previous policyr
 }
 
 func sharedRouterRevision(t *testing.T, store *servingMemoryStore, initialSet policyregistry.SelectionSet, source policyregistry.ServingRelease, name string) policyregistry.RevisionBinding {
+	t.Helper()
 	router := store.object(t, policyregistry.ServingBindings, initialSet.Default.Binding).(*policyregistry.DeploymentBinding).Router
 	router.Name = name
 	router.URL = "https://" + name + ".example"

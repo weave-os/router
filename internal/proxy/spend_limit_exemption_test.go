@@ -90,7 +90,7 @@ func TestProxyMessages_OverEngineerCap_CoveringSubscription_ServesFreeNo402(t *t
 	ctx = context.WithValue(ctx, proxy.AnthropicSubscriptionContextKey{}, subToken)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	req.Header.Set("Authorization", "Bearer "+subToken)
 	body := []byte(`{"model":"claude-sonnet-4-6","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
@@ -134,7 +134,7 @@ func TestProxyMessages_OverEngineerCap_WarningAlreadyShown_NotRepeated(t *testin
 	ctx = context.WithValue(ctx, proxy.AnthropicSubscriptionContextKey{}, subToken)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	req.Header.Set("Authorization", "Bearer "+subToken)
 	body := []byte(`{"model":"claude-sonnet-4-6","stream":true,"messages":[{"role":"user","content":"hi"},` +
 		`{"role":"assistant","content":[{"type":"text","text":"✦ **Weave Router** → a Weave router spend cap has been reached, so this turn is running on your own Anthropic subscription and paid model fallback is disabled.\n\nhello"}]},` +
@@ -173,7 +173,7 @@ func TestProxyMessages_OverEngineerCap_NoSubscription_402s(t *testing.T) {
 	ctx = context.WithValue(ctx, proxy.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true})
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}]}`)
 
 	err := svc.ProxyMessages(ctx, body, rec, req)
@@ -216,7 +216,7 @@ func TestProxyMessages_OverEngineerCap_ExhaustedSubscription_Refuses402(t *testi
 	ctx = context.WithValue(ctx, proxy.AnthropicSubscriptionContextKey{}, subToken)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	req.Header.Set("Authorization", "Bearer "+subToken)
 	body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}]}`)
 

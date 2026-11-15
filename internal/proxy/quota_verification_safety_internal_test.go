@@ -76,13 +76,13 @@ func TestQuotaVerificationFailureNeverBuysPaidCapacity(t *testing.T) {
 					svc := outOfRosterFundingService(client, translate.ReasonUserForceModel, repo)
 					ctx := codexSubscriptionTestCtx()
 					body := `{"model":"codex-auto-review","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic"}]}]}`
-					request := codexSubHTTPRequest("/v1/responses", body)
+					request := codexSubHTTPRequest(t.Context(), "/v1/responses", body)
 					if managed {
 						ctx = WithManagedSubscriptionCandidates(managedSubscriptionContext(auth.SubscriptionProviderCodex), []*auth.SubscriptionAccount{{
 							ID: "synthetic-seat", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive,
 						}})
 						ctx = context.WithValue(ctx, InstallationIDContextKey{}, "33333333-3333-3333-3333-333333333333")
-						request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
+						request = httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(body))
 						svc.WithManagedSubscriptions(&scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{
 							AccountID: "synthetic-seat", AccessToken: "synthetic-token", ProviderAccount: "synthetic-chatgpt-account",
 						}}})
@@ -193,7 +193,7 @@ func TestQuotaVerificationRotationAndRealOverloadFunding(t *testing.T) {
 				}
 				body := `{"model":"codex-auto-review","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic"}]}]}`
 				recorder := httptest.NewRecorder()
-				err := svc.ProxyOpenAIResponses(ctx, []byte(body), recorder, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body)))
+				err := svc.ProxyOpenAIResponses(ctx, []byte(body), recorder, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(body)))
 				wantPaid := scenario.capacityOverload && (reason == "" || reason == billing.SubscriptionOnlyLinkedFirst)
 				require.Equal(t, scenario.includedCalls, includedCalls.Load())
 				if wantPaid || scenario.includedSeatServes {

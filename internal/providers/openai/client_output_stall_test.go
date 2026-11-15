@@ -98,7 +98,7 @@ func TestProxy_OutputStallAbortsRetryable_ByteAliveNoOutput(t *testing.T) {
 	const outputStall = 120 * time.Millisecond
 	c := openai.NewClientWithStallTimeouts("test-key", upstream.URL, stallTestHeaderTimeout, byteIdle, outputStall)
 	w := &fakeProgressWriter{armReturns: true} // streaming translator; never marks output
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 
 	start := time.Now()
 	err := c.Proxy(context.Background(), router.Decision{Model: "gpt-5.5"}, responsesPrep(), w, clientReq)
@@ -142,7 +142,7 @@ func TestProxy_OutputFlowingStreamIsNotOutputStalled(t *testing.T) {
 	const outputStall = 60 * time.Millisecond // < frames*frameInterval, so total duration exceeds it
 	c := openai.NewClientWithStallTimeouts("test-key", upstream.URL, stallTestHeaderTimeout, byteIdle, outputStall)
 	w := &fakeProgressWriter{armReturns: true, markOnWrite: true}
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 
 	err := c.Proxy(context.Background(), router.Decision{Model: "gpt-5.5"}, responsesPrep(), w, clientReq)
 

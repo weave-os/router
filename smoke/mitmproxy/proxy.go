@@ -54,7 +54,7 @@ func (p *proxy) handle(w http.ResponseWriter, r *http.Request) {
 
 	tlsConn := tls.Server(clientConn, p.ca.tlsConfigFor())
 	defer func() { _ = tlsConn.Close() }()
-	if err := tlsConn.Handshake(); err != nil {
+	if err := tlsConn.HandshakeContext(r.Context()); err != nil {
 		log.Printf("mitmproxy: TLS handshake with client for %s: %v", host, err)
 		return
 	}

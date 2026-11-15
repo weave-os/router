@@ -45,7 +45,7 @@ func TestSubscriptionModelAccessOpenAIIngressDoesNotPayAndRemembers(t *testing.T
 
 	for range 2 {
 		recorder := httptest.NewRecorder()
-		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+		request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 		require.ErrorIs(t, svc.ProxyOpenAIChatCompletion(in.subCtx(), body, recorder, request), ErrSubscriptionPoolUnavailable)
 		assert.Empty(t, recorder.Body.String(), "the handler owns rendering the unpaid refusal")
 	}

@@ -18,6 +18,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func newGetRequest(t *testing.T, target string) *http.Request {
+	t.Helper()
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
+	require.NoError(t, err)
+	return request
+}
+
 type modelDiscoveryResolverFunc func(context.Context, string, string) ([]netip.Addr, error)
 
 func (f modelDiscoveryResolverFunc) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
@@ -31,7 +38,7 @@ func TestRestrictedTransportRefusesANonPublicDestination(t *testing.T) {
 	defer upstream.Close()
 
 	restricted := &http.Client{Transport: newTransport(time.Second, time.Second, time.Second, true)}
-	restrictedResp, err := restricted.Get(upstream.URL)
+	restrictedResp, err := restricted.Do(newGetRequest(t, upstream.URL))
 	if restrictedResp != nil {
 		_ = restrictedResp.Body.Close()
 	}
@@ -39,7 +46,7 @@ func TestRestrictedTransportRefusesANonPublicDestination(t *testing.T) {
 	assert.ErrorIs(t, err, ErrRestrictedDestination)
 
 	unrestricted := &http.Client{Transport: newTransport(time.Second, time.Second, time.Second, false)}
-	resp, err := unrestricted.Get(upstream.URL)
+	resp, err := unrestricted.Do(newGetRequest(t, upstream.URL))
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -171,7 +178,7 @@ func TestModelDiscoveryRejectsRestrictedAndMixedDNSAnswersBeforeDial(t *testing.
 			)
 			require.NoError(t, err)
 
-			response, requestErr := client.Get("http://models.example:" + serverPort(t, target) + "/models")
+			response, requestErr := client.Do(newGetRequest(t, "http://models.example:"+serverPort(t, target)+"/models"))
 			if response != nil {
 				_ = response.Body.Close()
 			}
@@ -204,7 +211,7 @@ func TestModelDiscoveryDialsValidatedAddressWithoutChangingTheRequestOrigin(t *t
 	)
 	require.NoError(t, err)
 
-	response, err := client.Get("http://models.example:" + port + "/models")
+	response, err := client.Do(newGetRequest(t, "http://models.example:"+port+"/models"))
 	require.NoError(t, err)
 	_ = response.Body.Close()
 	assert.Equal(t, "models.example:"+port, receivedHost)
@@ -230,13 +237,13 @@ func TestModelDiscoveryPrivateOriginExceptionIsExact(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	response, err := client.Get(origin + "/gateway/models?limit=1000")
+	response, err := client.Do(newGetRequest(t, origin+"/gateway/models?limit=1000"))
 	require.NoError(t, err)
 	_ = response.Body.Close()
 	assert.Equal(t, int32(1), dialCalls.Load())
 
 	otherPort := strconv.Itoa(mustPortNumber(t, port) + 1)
-	response, err = client.Get("http://models.internal:" + otherPort + "/models")
+	response, err = client.Do(newGetRequest(t, "http://models.internal:"+otherPort+"/models"))
 	if response != nil {
 		_ = response.Body.Close()
 	}
@@ -268,13 +275,12 @@ func TestModelDiscoveryRevalidatesDNSOnEachNewConnection(t *testing.T) {
 	require.NoError(t, err)
 	requestURL := "http://models.example:" + serverPort(t, target) + "/models"
 
-	firstRequest, err := http.NewRequest(http.MethodGet, requestURL, nil)
-	require.NoError(t, err)
+	firstRequest := newGetRequest(t, requestURL)
 	firstRequest.Close = true
 	response, err := client.Do(firstRequest)
 	require.NoError(t, err)
 	_ = response.Body.Close()
-	response, err = client.Get(requestURL)
+	response, err = client.Do(newGetRequest(t, requestURL))
 	if response != nil {
 		_ = response.Body.Close()
 	}
@@ -312,7 +318,7 @@ func TestModelDiscoveryIgnoresAmbientProxyConfiguration(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	response, err := client.Get("http://models.example:" + serverPort(t, target) + "/models")
+	response, err := client.Do(newGetRequest(t, "http://models.example:"+serverPort(t, target)+"/models"))
 	require.NoError(t, err)
 	_ = response.Body.Close()
 	assert.Zero(t, proxyRequests.Load())

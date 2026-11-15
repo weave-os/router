@@ -69,7 +69,7 @@ func TestAnthropicBYOKDispatchIgnoresSubscriptionState(t *testing.T) {
 			ctx = svc.resolveCredentials(ctx, providers.ProviderAnthropic, model, headers)
 			recorder := httptest.NewRecorder()
 			buffer := newPreludeBuffer(recorder)
-			in := plannedInputs(recorder, buffer, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
+			in := plannedInputs(t.Context(), recorder, buffer, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 			in.initialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: model}
 			in.subscriptionStateHeaders = headers
 			_, err := svc.dispatchWithFallback(ctx, in)
@@ -140,7 +140,7 @@ func TestAnthropicBYOKHTTPNeverProbesOAuth(t *testing.T) {
 			body := `{"model":"` + model + `","max_tokens":32,"messages":[{"role":"user","content":"synthetic task"}]}`
 			for _, token := range []string{"sk-ant-oat01-original", "sk-ant-oat01-refreshed"} {
 				svc.WithUsageObserver(usage.NewObserver([]byte("synthetic-salt"), time.Minute, time.Now))
-				request := httptest.NewRequest(http.MethodPost, routePathMessages, strings.NewReader(body))
+				request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathMessages, strings.NewReader(body))
 				request.Header.Set("Authorization", "Bearer "+token)
 				recorder := httptest.NewRecorder()
 				err := svc.ProxyMessages(ctx, []byte(body), recorder, request)

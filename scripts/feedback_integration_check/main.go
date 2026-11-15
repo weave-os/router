@@ -110,7 +110,7 @@ func checkFeedbackLinkEndToEnd(ctx context.Context, pool *pgxpool.Pool) error {
 
 	// 1) GET returns the routing context, no feedback yet.
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/feedback/link/"+tok, nil))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(ctx, http.MethodGet, "/v1/feedback/link/"+tok, nil))
 	if rec.Code != http.StatusOK {
 		return fmt.Errorf("initial GET: want 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -134,14 +134,14 @@ func checkFeedbackLinkEndToEnd(ctx context.Context, pool *pgxpool.Pool) error {
 	// 2) POST a thumbs-down with a comment.
 	body := `{"token":"` + tok + `","rating":"down","comment":"  routed too low  "}`
 	rec = httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/feedback/link", strings.NewReader(body)))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/feedback/link", strings.NewReader(body)))
 	if rec.Code != http.StatusOK {
 		return fmt.Errorf("first POST: want 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
 	// 3) GET again reflects the persisted, trimmed feedback.
 	rec = httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/feedback/link/"+tok, nil))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(ctx, http.MethodGet, "/v1/feedback/link/"+tok, nil))
 	if rec.Code != http.StatusOK {
 		return fmt.Errorf("second GET: want 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -163,7 +163,7 @@ func checkFeedbackLinkEndToEnd(ctx context.Context, pool *pgxpool.Pool) error {
 	// one row and the comment collapses to NULL.
 	body = `{"token":"` + tok + `","rating":"up","comment":"   "}`
 	rec = httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/feedback/link", strings.NewReader(body)))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/feedback/link", strings.NewReader(body)))
 	if rec.Code != http.StatusOK {
 		return fmt.Errorf("revision POST: want 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -228,7 +228,7 @@ func checkFeedbackWithoutTelemetry(ctx context.Context, pool *pgxpool.Pool) erro
 
 	tok := signer.Mint(installID, externalID, requestID, "")
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/feedback/link/"+tok, nil))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(ctx, http.MethodGet, "/v1/feedback/link/"+tok, nil))
 	if rec.Code != http.StatusOK {
 		return fmt.Errorf("GET: want 200, got %d: %s", rec.Code, rec.Body.String())
 	}

@@ -72,7 +72,7 @@ func runConformanceCase(t *testing.T, c conformanceCase) {
 	).WithDeploymentKeyedProviders(map[string]struct{}{c.provider: {}})
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	req.Header.Set(routingMarkerHeader, "off")
 	require.NoError(t, svc.ProxyMessages(context.Background(), []byte(c.inbound), rec, req),
 		"ProxyMessages should succeed for a healthy upstream")

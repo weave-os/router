@@ -67,7 +67,7 @@ func TestProxy_SlowThroughputAbortsRetryable(t *testing.T) {
 	c := openaicompat.NewClientWithThroughputGuard("test-key", upstream.URL,
 		60*time.Millisecond /*window*/, 30*time.Millisecond /*minElapsed*/, 100 /*minDeltas*/)
 	w := &fakeProgressWriter{armReturns: true, markOnWrite: true}
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 
 	start := time.Now()
 	err := c.Proxy(context.Background(), router.Decision{Model: "deepseek/deepseek-v4-flash"}, chatPrep(), w, clientReq)
@@ -107,7 +107,7 @@ func TestProxy_HealthyThroughputIsNotAborted(t *testing.T) {
 	c := openaicompat.NewClientWithThroughputGuard("test-key", upstream.URL,
 		60*time.Millisecond /*window*/, 30*time.Millisecond /*minElapsed*/, 3 /*minDeltas*/)
 	w := &fakeProgressWriter{armReturns: true, markOnWrite: true}
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 
 	err := c.Proxy(context.Background(), router.Decision{Model: "deepseek/deepseek-v4-flash"}, chatPrep(), w, clientReq)
 

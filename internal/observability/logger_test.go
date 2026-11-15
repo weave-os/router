@@ -34,7 +34,7 @@ func TestMiddlewareBindsRequestIDToGinAndRequestContext(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/x", nil))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil))
 
 	require.NotEmpty(t, fromCtx, "request id must be bound to the request context")
 	assert.Equal(t, fromCtx, fromGin, "gin and context loggers must be the same instance")
@@ -60,7 +60,7 @@ func TestMiddlewareDoesNotAdoptInboundRequestID(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/x", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil)
 	req.Header.Set("X-Request-Id", inbound)
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, req)
@@ -89,7 +89,7 @@ func TestMiddlewareBoundsInboundRequestIDValue(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/x", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil)
 	req.Header.Set("X-Request-Id", strings.Repeat("A", 5000)+"\ninjected=1")
 	engine.ServeHTTP(httptest.NewRecorder(), req)
 
@@ -114,7 +114,7 @@ func TestAccessLogCarriesRequestID(t *testing.T) {
 	engine.GET("/x", func(c *gin.Context) { c.Status(http.StatusTeapot) })
 
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/x", nil))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil))
 
 	line := findLogLine(t, buf.String(), "http request")
 	assert.NotEmpty(t, line["request_id"], "access log must carry request_id")
@@ -185,7 +185,7 @@ func TestPromoteRequestLoggerReachesAccessLogAndFromGin(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/x", nil))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil))
 
 	access := findLogLine(t, buf.String(), "http request")
 	assert.Equal(t, "abc123", access["session_key"],

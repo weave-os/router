@@ -68,7 +68,7 @@ func TestSubscriptionOnlyReasonPrecedenceAcrossGates(t *testing.T) {
 			})
 
 			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 			req.Header.Set("Authorization", "Bearer sk-ant-oat-abc123")
 			engine.ServeHTTP(w, req)
 

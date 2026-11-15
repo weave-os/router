@@ -30,7 +30,7 @@ func runForceEffort(t *testing.T, path, header string) (status int, body any, ca
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodPost, path, nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, path, nil)
 	if header != "" {
 		req.Header.Set(middleware.ForceEffortOverrideHeader, header)
 	}

@@ -68,19 +68,19 @@ func TestProxyOutputLimitAcrossResponsePaths(t *testing.T) {
 					body := []byte(fmt.Sprintf(`{"model":%q,"max_tokens":64000,"stream":%t,"messages":[{"role":"user","content":"Inspect the repository files"}]}`, path.model, stream))
 					switch path.ingress {
 					case "messages":
-						require.NoError(t, svc.ProxyMessages(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/messages", nil)))
+						require.NoError(t, svc.ProxyMessages(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)))
 					case "chat":
-						require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)))
+						require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", nil)))
 					case "responses":
 						body = []byte(fmt.Sprintf(`{"model":"auto","stream":%t,"input":"Inspect the repository files"}`, stream))
-						require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/responses", nil)))
+						require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)))
 					case "gemini":
 						body = []byte(`{"contents":[{"role":"user","parts":[{"text":"Inspect the repository files"}]}],"generationConfig":{"maxOutputTokens":64000}}`)
 						action := "generateContent"
 						if stream {
 							action = "streamGenerateContent"
 						}
-						require.NoError(t, svc.ProxyGeminiGenerateContent(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1beta/models/"+path.model+":"+action, nil)))
+						require.NoError(t, svc.ProxyGeminiGenerateContent(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1beta/models/"+path.model+":"+action, nil)))
 					}
 					assert.Equal(t, http.StatusOK, rec.Code)
 					assert.NotEmpty(t, rec.Body.String())
@@ -110,7 +110,7 @@ func TestProxyGeminiTelemetryClassifiesOutputCap(t *testing.T) {
 				providers.ProviderGoogle, capGeminiModel, telem)
 			body := []byte(`{"contents":[{"role":"user","parts":[{"text":"Inspect the repository files"}]}],"generationConfig":{"maxOutputTokens":64000}}`)
 			require.NoError(t, svc.ProxyGeminiGenerateContent(authedCtx(uuid.NewString()), body, httptest.NewRecorder(),
-				httptest.NewRequest(http.MethodPost, "/v1beta/models/"+capGeminiModel+":generateContent", nil)))
+				httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1beta/models/"+capGeminiModel+":generateContent", nil)))
 
 			select {
 			case <-telem.notify:
@@ -195,7 +195,7 @@ func TestTurnLoop_HighOutputKeepsActiveAndExpiredPins(t *testing.T) {
 			routes := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: freshModel, Reason: "fresh"}}
 			svc := newPinSvc(routes, store).WithPlannerEnabled(false).WithAvailableModels(map[string]struct{}{capAnthropicModel: {}, freshModel: {}})
 			rec := httptest.NewRecorder()
-			require.NoError(t, svc.ProxyMessages(authedCtx(uuid.NewString()), []byte(pinTestBody), rec, httptest.NewRequest(http.MethodPost, "/v1/messages", nil)))
+			require.NoError(t, svc.ProxyMessages(authedCtx(uuid.NewString()), []byte(pinTestBody), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)))
 			assert.Equal(t, capAnthropicModel, rec.Header().Get(proxy.HeaderRouterModel))
 		})
 	}
