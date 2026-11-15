@@ -4154,7 +4154,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// uncommitted and still re-servable; see earlyStopGate.
 	earlyStop := newEarlyStopGate(sink, log)
 	sink = earlyStop
-	preludeBuf.onDiscard = earlyStop.resetAttempt
+	preludeBuf.OnDiscard = earlyStop.resetAttempt
 	// Attached per attempt directly above the upstream writer, so a stream
 	// that dies after commit can be described (frames, last event, gap)
 	// instead of reported as a bare synthesized 502.
