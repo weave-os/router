@@ -19,29 +19,16 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// ContentCaptureMode controls how much request/response content the router
-// emits over OTLP as high-fidelity `router.call` log records.
 type ContentCaptureMode int
 
 const (
-	// CaptureOff emits no `router.call` log records. Permanent upstream 4xx
-	// failures emit a separate diagnostic event with the bounded upstream error body.
-	// Default for self-hosted / OSS.
 	CaptureOff ContentCaptureMode = iota
-	// CaptureHashed emits log records with metadata + SHA-256 content hashes
-	// but no raw text — dedup/cache analysis without exposing prompts.
 	CaptureHashed
-	// CaptureFull emits log records with full raw request/response bodies
-	// (after the redaction hook). Default for Weave-managed deploys.
 	CaptureFull
 )
 
-// InstallationCaptureModeContextKey carries the installation capture ceiling
-// (ContentCaptureMode); absent when no override is set.
 type InstallationCaptureModeContextKey struct{}
 
-// effectiveCaptureMode returns the stricter of the deployment-wide setting and
-// the per-installation override (minimum wins, so a tenant can only tighten).
 func (s *Service) effectiveCaptureMode(ctx context.Context) ContentCaptureMode {
 	override, ok := ctx.Value(InstallationCaptureModeContextKey{}).(ContentCaptureMode)
 	if !ok {
@@ -50,7 +37,6 @@ func (s *Service) effectiveCaptureMode(ctx context.Context) ContentCaptureMode {
 	return StricterCaptureMode(s.captureMode, override)
 }
 
-// StricterCaptureMode returns the less permissive of two capture modes.
 func StricterCaptureMode(a, b ContentCaptureMode) ContentCaptureMode {
 	if b < a {
 		return b
@@ -58,27 +44,17 @@ func StricterCaptureMode(a, b ContentCaptureMode) ContentCaptureMode {
 	return a
 }
 
-// CaptureMode reports the deployment-wide capture setting, before any
-// per-installation override.
 func (s *Service) CaptureMode() ContentCaptureMode { return s.captureMode }
 
-// ContentKind tells the redaction hook whether it is scrubbing a request or a
-// response body, so callers can apply asymmetric policies.
 type ContentKind int
 
 const (
-	// ContentKindRequest marks an inbound request body.
 	ContentKindRequest ContentKind = iota
-	// ContentKindResponse marks an outbound response body.
 	ContentKindResponse
 )
 
-// Redactor scrubs sensitive content before it enters the OTLP export queue.
-// A nil redactor passes content through unchanged.
 type Redactor func(content string, kind ContentKind) string
 
-// ParseCaptureMode maps a config string to a ContentCaptureMode. Unknown or
-// empty values fall back to CaptureOff (the safe default).
 func ParseCaptureMode(raw string) ContentCaptureMode {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "full":
@@ -101,12 +77,6 @@ func (m ContentCaptureMode) String() string {
 	}
 }
 
-// maybeCaptureResponse wraps w with a content-capturing writer when capture is
-// enabled, mirroring the exact bytes sent to the client (nil when off).
-//
-// ResponsesWriter translates and emits an eager prelude to its inner writer, so
-// wrapping it externally would miss the prelude and capture pre-translation
-// bytes; instead we splice the capture writer at its true client boundary.
 func (s *Service) maybeCaptureResponse(ctx context.Context, w http.ResponseWriter) (http.ResponseWriter, *captureWriter) {
 	if s.effectiveCaptureMode(ctx) == CaptureOff {
 		return w, nil
@@ -123,8 +93,6 @@ func (s *Service) maybeCaptureResponse(ctx context.Context, w http.ResponseWrite
 	return cw, cw
 }
 
-// capturedResponse extracts the buffered response body. truncated is true when
-// the body exceeded the capture cap (the buffer is then dropped).
 func capturedResponse(c *captureWriter) (body []byte, truncated bool) {
 	if c == nil {
 		return nil, false
@@ -136,16 +104,9 @@ func capturedResponse(c *captureWriter) (body []byte, truncated bool) {
 	return b, false
 }
 
-// deferredCallLog lets a wrapping handler run call-log emission after the
-// response body is fully written, since /v1/responses' ResponsesWriter only
-// calls Finalize after ProxyOpenAIChatCompletion returns (reading the
-// captured body earlier would yield empty/partial content).
 type deferredCallLog struct {
-	escalation func(error)
-	fn         func()
-	// requestBody overrides the captured request body: ProxyOpenAIResponses
-	// sets it to the client's original Responses JSON so io.request_body
-	// matches, instead of the translated Chat Completions payload.
+	escalation  func(error)
+	fn          func()
 	requestBody []byte
 }
 
@@ -161,16 +122,12 @@ func deferredCallLogFrom(ctx context.Context) *deferredCallLog {
 	return h
 }
 
-// run invokes the deferred emit if one was registered. Safe on nil receiver
-// and when no emit was stored (e.g. the request errored before any call).
 func (d *deferredCallLog) run() {
 	if d != nil && d.fn != nil {
 		d.fn()
 	}
 }
 
-// zdrLogField blanks content-bearing log values when the effective capture
-// mode is off, keeping stdout logs content-free for zero-retention installs.
 func (s *Service) zdrLogField(ctx context.Context, v string) string {
 	if s.effectiveCaptureMode(ctx) == CaptureOff {
 		return ""
@@ -190,11 +147,6 @@ func sha256Hex(b []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// recordCallLog emits a high-fidelity `router.call` OTLP log record for one
-// upstream call, reusing the upstream span's attributes as the metadata base
-// and appending content attributes per capture mode. Under CaptureOff, only
-// permanent upstream 4xx failures emit a metadata-only alert event. base is cloned
-// before appending so the span's attributes aren't mutated.
 func (s *Service) recordCallLog(ctx context.Context, base []telemetry.Attr, routeMs int64, proxyErr error, reqBody, respBody []byte, respTruncated bool) {
 	mode := s.effectiveCaptureMode(ctx)
 	if mode == CaptureOff {
@@ -289,7 +241,6 @@ const (
 	upstreamCorrelationHeaderRequest            upstreamCorrelationHeader = "Request-Id"
 )
 
-// recordPermanentError includes a bounded provider error response for diagnosis.
 func (s *Service) recordPermanentError(ctx context.Context, base []telemetry.Attr, proxyErr error, requestBytes int) {
 	if proxyErr == nil {
 		return

@@ -8,14 +8,10 @@ import (
 	"weave-os/router/internal/router"
 )
 
-// PolicyShadowStore persists comparison-only policy decisions; if nil,
-// shadow routing still logs results without durable storage.
 type PolicyShadowStore interface {
 	InsertPolicyShadowDecision(ctx context.Context, event PolicyShadowDecision) error
 }
 
-// PolicyShadowDecision is one immutable serving-vs-shadow comparison. It does
-// not contain prompt or response content.
 type PolicyShadowDecision struct {
 	InstallationID  string
 	OrganizationID  string

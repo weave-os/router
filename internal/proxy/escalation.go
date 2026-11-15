@@ -32,7 +32,6 @@ const (
 	escalationModeShadow escalationMode = "shadow"
 )
 
-// WithEscalation wires optional scoring independently of baseline HMM availability.
 func (s *Service) WithEscalation(store escalation.Store, observer escalation.Observer) *Service {
 	s.escalationStore = store
 	s.escalationObserver = observer
@@ -108,8 +107,6 @@ func (s *Service) beginEscalation(ctx context.Context, env *translate.RequestEnv
 			}, backoff.WithBackOff(retryBackoff), backoff.WithMaxTries(5), backoff.WithMaxElapsedTime(100*time.Millisecond))
 		}
 		if _, managed := requestcontext.ServingIdentityFromContext(ctx); lookupErr == nil && !found && !managed {
-			// Compatibility requires the exact pre-HMAC identifier for continuations
-			// written before the credential-pseudonym hardening deployment.
 			legacyActivation := sha256.Sum256([]byte(fmt.Sprintf("%s/%s/%s/%s/%d", res.InstallationID, apiKeyID, res.Strategy, mode, selection.Epoch))) // lgtm[go/weak-sensitive-data-hashing]
 			priorScope, history, found, lookupErr = s.escalationStore.Continuation(claimCtx, legacyActivation, observation.ContinuationID)
 		}
@@ -177,8 +174,6 @@ func (s *Service) beginEscalation(ctx context.Context, env *translate.RequestEnv
 		}
 	}
 	if err != nil {
-		// A missed observation breaks temporal continuity. Clear the reducer and
-		// restart cadence while retaining the already accepted classification floor.
 		turn.session.Ordinal = nextOrdinal
 		turn.session.FeatureTurns = 0
 		turn.session.FeatureState = nil
@@ -197,8 +192,6 @@ func (s *Service) beginEscalation(ctx context.Context, env *translate.RequestEnv
 	return turn
 }
 
-// escalationActivationID derives a stable, installation-scoped pseudonym for
-// credential identity without persisting the credential identifier itself.
 func escalationActivationID(ctx context.Context, installationID uuid.UUID, material string) [32]byte {
 	mac := hmac.New(sha256.New, installationID[:])
 	_, _ = mac.Write([]byte(material))
@@ -250,8 +243,6 @@ func (s *Service) finishEscalation(ctx context.Context, turn *escalationTurn, re
 	commitCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 	defer cancel()
 	if err := s.escalationStore.Commit(commitCtx, turn.scope, turn.boundary, turn.token, turn.session, turn.checkpoint); err != nil {
-		// Reset the gap and release the lease atomically. A committed boundary
-		// remains intact if only its acknowledgment was lost.
 		s.invalidateEscalation(ctx, turn.scope, turn.boundary, turn.token)
 		return err
 	}
@@ -266,8 +257,6 @@ func (s *Service) finishEscalation(ctx context.Context, turn *escalationTurn, re
 	return nil
 }
 
-// captureEscalationResponse observes client-visible output solely for the opted-in
-// session's bounded operational state, independent of training/content-log consent.
 func (s *Service) captureEscalationResponse(w http.ResponseWriter, res turnLoopResult) (http.ResponseWriter, *captureWriter) {
 	if res.EscalationOrdinal == 0 && res.llmEscalation == nil {
 		return w, nil
