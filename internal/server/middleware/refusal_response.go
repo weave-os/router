@@ -55,13 +55,21 @@ func abortRefusal(c *gin.Context, kind refusal.Kind, fields gin.H) {
 // routes such as /validate whose clients read the flat error code.
 func inferenceAPIFormat(path string) (apiFormat, bool) {
 	switch {
-	case strings.HasPrefix(path, "/v1/chat/completions"), strings.HasPrefix(path, "/v1/responses"):
+	case strings.HasPrefix(path, "/v1beta/"):
+		return apiFormatGemini, true
+	case underPath(path, "/v1/messages"), underPath(path, "/v1/route"):
+		return apiFormatAnthropic, true
+	case underPath(path, "/v1/chat/completions"), underPath(path, "/v1/responses"):
 		return apiFormatOpenAI, true
-	case strings.HasPrefix(path, "/v1beta/"), strings.HasPrefix(path, "/v1/messages"), strings.HasPrefix(path, "/v1/route"):
-		return detectAPIFormat(path), true
 	default:
 		return apiFormatOpenAI, false
 	}
+}
+
+// underPath reports whether path is root or below it, so /v1/router is not
+// mistaken for /v1/route.
+func underPath(path, root string) bool {
+	return path == root || strings.HasPrefix(path, root+"/")
 }
 
 func abortBillingUnavailable(c *gin.Context) {

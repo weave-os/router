@@ -311,9 +311,11 @@ func TestRefusalContract_PerFormat(t *testing.T) {
 			assert.JSONEq(t, scenario.body, withRefusalMessage(t, rr.Body.Bytes()))
 		})
 	}
-	rr := runAuthAt(t, &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}}, "rk_no_such_key", "/validate")
-	require.Equal(t, http.StatusUnauthorized, rr.Code)
-	assert.JSONEq(t, `{"error":"invalid_key"}`, rr.Body.String())
+	for _, path := range []string{"/validate", "/v1/router/threads", "/v1/router/models"} {
+		rr := runAuthAt(t, &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}}, "rk_no_such_key", path)
+		require.Equal(t, http.StatusUnauthorized, rr.Code, path)
+		assert.JSONEq(t, `{"error":"invalid_key"}`, rr.Body.String(), path)
+	}
 }
 
 // TestRefusalContract_MalformedPolicyPinPerFormat pins the malformed policy
