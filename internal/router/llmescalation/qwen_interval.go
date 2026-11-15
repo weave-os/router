@@ -95,6 +95,7 @@ func qwenTurns(messages []translate.EscalationMessage, codexToolResults bool) []
 					}
 				case translate.EscalationBlockToolResult:
 					inboundResults = append(inboundResults, qwenToolResult(block, toolCalls[block.CallID], codexToolResults))
+				case translate.EscalationBlockToolCall:
 				}
 			}
 			if text := qwenTruncate(strings.Join(userParts, "\n"), 1500); text != "" {
@@ -113,8 +114,10 @@ func qwenTurns(messages []translate.EscalationMessage, codexToolResults bool) []
 				case translate.EscalationBlockToolCall:
 					toolCalls[block.ID] = block
 					turn.toolCalls = append(turn.toolCalls, qwenToolCall(block))
+				case translate.EscalationBlockToolResult:
 				}
 			}
+		case translate.EscalationRoleSystem, translate.EscalationRoleDeveloper:
 		}
 	}
 	return turns

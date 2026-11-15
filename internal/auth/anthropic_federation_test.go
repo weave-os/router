@@ -6,10 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func federationConfiguration() *auth.AnthropicFederationConfig {
@@ -72,7 +73,7 @@ func TestFederationFailureKeepsAnUnavailableCredentialMarker(t *testing.T) {
 				require.Len(t, credentials, 1)
 				assert.ErrorIs(t, credentials[0].CredentialError, auth.ErrAnthropicFederationUnavailable)
 				assert.Empty(t, credentials[0].Plaintext)
-				assert.Nil(t, key.CredentialError, "the shared cache must not retain a request's failure")
+				assert.NoError(t, key.CredentialError, "the shared cache must not retain a request's failure")
 			}
 		})
 	}

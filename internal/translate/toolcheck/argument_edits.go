@@ -262,6 +262,7 @@ func (document *argumentDocument) wrap(path []string, value *argumentNode) bool 
 			if index, ok := argumentArrayIndex(mutationKey(target)); ok && index < len(parent.arrayElements) {
 				current = parent.arrayElements[index].value
 			}
+		case argumentString, argumentNumber, argumentBoolean, argumentNull:
 		}
 	}
 	if current != value {

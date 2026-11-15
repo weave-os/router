@@ -353,7 +353,7 @@ func isRawInferenceHTTPCall(info *types.Info, call *ast.CallExpr, object types.O
 	if object.Pkg() == nil || object.Pkg().Path() != "net/http" {
 		return false
 	}
-	urlArgument := -1
+	var urlArgument int
 	switch object.Name() {
 	case "NewRequest":
 		urlArgument = 1

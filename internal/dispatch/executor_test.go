@@ -331,7 +331,7 @@ func TestRunAbortsWhenPrepareFails(t *testing.T) {
 func TestBindSatisfiesInferenceExecutor(t *testing.T) {
 	fw := &fakeUpstream{}
 	exec := newExecutor(t, map[string]providers.Client{providers.ProviderFireworks: fw}, &recorder{})
-	var bound inference.Executor = exec.Bind(dispatch.Transport{Attempt: attemptWith([]byte(`{"model":"kimi-k2.5"}`))})
+	var bound = exec.Bind(dispatch.Transport{Attempt: attemptWith([]byte(`{"model":"kimi-k2.5"}`))})
 	outcome, err := bound.Execute(context.Background(), inference.InvocationRequest{}, fakePlan{selected: primary})
 	require.NoError(t, err)
 	assert.Equal(t, primary, outcome.ServedTarget)

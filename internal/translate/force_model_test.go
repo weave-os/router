@@ -339,7 +339,7 @@ func TestExtractForceModelCommand_AgentToolResultString(t *testing.T) {
 	require.True(t, found)
 	assert.Equal(t, "opus", cmd.Model)
 	assert.True(t, cmd.FromToolResult)
-	assert.Equal(t, "", lastUserMessageText(t, env))
+	assert.Empty(t, lastUserMessageText(t, env))
 }
 
 func TestExtractForceModelCommand_AgentToolResultBlock(t *testing.T) {

@@ -24,7 +24,7 @@ func (r *Registry) VerifyServingArtifact(ctx context.Context, ref ObjectRef) err
 	if err != nil {
 		return classifyStorageError("read serving evidence artifact", err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	payload, err := io.ReadAll(io.LimitReader(reader, maxPolicyObjectBytes+1))
 	if err != nil {
 		return fmt.Errorf("read serving evidence artifact: %w", err)

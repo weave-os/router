@@ -42,7 +42,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: cannot connect to postgres: %v\n", err)
 		os.Exit(1)
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	if _, err := conn.Exec(ctx, "SET search_path TO router, public"); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: cannot set search_path: %v\n", err)
@@ -57,7 +57,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: cannot begin transaction: %v\n", err)
 		os.Exit(1)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	externalID := defaultOrgID
 	if v := os.Getenv("SEED_EXTERNAL_ID"); v != "" {

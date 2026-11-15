@@ -204,6 +204,8 @@ func validDashboardSeries(metric dashboardMetricType, group dashboardMetricGroup
 		switch group {
 		case dashboardGroupNone, dashboardGroupModel, dashboardGroupBilling, dashboardGroupDecisionType, dashboardGroupRoutingState:
 			return true
+		case dashboardGroupCostType, dashboardGroupUserLink, dashboardGroupPerson:
+			return false
 		}
 	}
 	return false

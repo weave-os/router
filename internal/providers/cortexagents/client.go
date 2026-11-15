@@ -143,7 +143,7 @@ func (c *Client) Search(ctx context.Context, q websearch.Query) (websearch.Respo
 	if err != nil {
 		return websearch.Response{}, fmt.Errorf("cortexagents: agent:run call: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	raw, _, readErr := httputil.ReadCapped(resp.Body, maxResponseBytes)
 	if resp.StatusCode >= 400 {

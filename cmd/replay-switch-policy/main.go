@@ -18,6 +18,10 @@ import (
 	"weave-os/router/internal/router/switchpolicy"
 )
 
+var createTrace = func(path string) (io.WriteCloser, error) {
+	return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+}
+
 type record struct {
 	ID         string                 `json:"id"`
 	SessionKey string                 `json:"session_key"`
@@ -188,17 +192,22 @@ func run(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("open replay input: %w", err)
 	}
-	defer input.Close()
+	defer func() { _ = input.Close() }()
 	trace := io.Discard
+	var traceFile io.WriteCloser
 	if *tracePath != "" {
-		file, err := os.OpenFile(*tracePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		file, err := createTrace(*tracePath)
 		if err != nil {
 			return fmt.Errorf("create private trace: %w", err)
 		}
-		defer file.Close()
-		trace = file
+		traceFile, trace = file, file
 	}
 	output, err := replay(input, trace, config)
+	if traceFile != nil {
+		if closeErr := traceFile.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close replay trace: %w", closeErr))
+		}
+	}
 	if err != nil {
 		return err
 	}

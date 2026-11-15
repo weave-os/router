@@ -176,7 +176,7 @@ func TestPiHandoffSummaryUsesPreviousModelWithoutReclassifyingOrWritingUsageToIt
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequest("POST", "/v1/messages", nil)))
 	require.Equal(t, "claude-sonnet-4-6", gjson.GetBytes(upstream.body, "model").String())
 	require.Equal(t, 1, classifier.calls)
-	require.Equal(t, pinWrites, len(store.upserts))
+	require.Len(t, store.upserts, pinWrites)
 	require.Zero(t, store.usageHits)
 }
 

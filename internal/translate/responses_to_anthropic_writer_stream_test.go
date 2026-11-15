@@ -3,7 +3,6 @@ package translate_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http/httptest"
 	"strconv"
 	"strings"
@@ -590,7 +589,7 @@ data: {"type":"response.failed","response":{"id":"r","status":"failed","output":
 	_, err := w.Write([]byte(fixture))
 	require.Error(t, err)
 	var upstreamErr *providers.UpstreamErrorResponse
-	require.True(t, errors.As(err, &upstreamErr))
+	require.ErrorAs(t, err, &upstreamErr)
 	assert.Equal(t, 502, upstreamErr.Status)
 	assert.Contains(t, string(upstreamErr.Body), "status: failed")
 
@@ -677,7 +676,7 @@ data: {"type":"response.incomplete","response":{"id":"r","status":"incomplete","
 			w := translate.NewResponsesToAnthropicWriter(rec, "gpt-5.5", nil)
 			require.NoError(t, w.Prelude(streaming))
 			_, err := w.Write([]byte(fixture))
-			body := rec.Body.String()
+			var body string
 			if streaming {
 				var upstreamErr *providers.UpstreamErrorResponse
 				require.ErrorAs(t, err, &upstreamErr)
