@@ -143,10 +143,16 @@ type byokFeeUnpayableKey struct{}
 // upstream call instead. At a zero fee rate nothing is owed and the key serves.
 func (s *Service) WithUnfunded(ctx context.Context, reason SubscriptionOnlyReason) context.Context {
 	ctx = WithSubscriptionOnly(ctx, reason)
-	if s != nil && s.byokFeeRate > 0 && reason != SubscriptionOnlyLinkedFirst {
+	if s.ByokFeeOwed(ctx) && reason != SubscriptionOnlyLinkedFirst {
 		ctx = context.WithValue(ctx, byokFeeUnpayableKey{}, true)
 	}
 	return ctx
+}
+
+// ByokFeeOwed reports whether a BYOK-served turn on ctx would be charged the
+// fee: the rate is above zero and no billing override waives it.
+func (s *Service) ByokFeeOwed(ctx context.Context) bool {
+	return s != nil && s.byokFeeRate > 0 && !HasOverrideFromContext(ctx)
 }
 
 // ByokFeeUnpayable reports whether a gate found the turn unfunded while this
