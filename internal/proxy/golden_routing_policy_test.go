@@ -258,6 +258,14 @@ func routingPolicyRefused(body string, headers map[string]string, decorators ...
 	return goldenRequest{body: body, headers: headers, decorateContext: routingPolicyCtx(decorators...), noTelemetry: true}
 }
 
+// routingPolicyPinRefused is a policy-pin refusal, which still writes its
+// routing_refused telemetry row asynchronously, so the trace must wait for it.
+func routingPolicyPinRefused(body string) goldenRequest {
+	req := routingPolicyRefused(body, nil, routingPolicyAuthorizedPin)
+	req.noTelemetry = false
+	return req
+}
+
 func routingPolicyForce(model string) map[string]string {
 	return map[string]string{proxy.ForceModelHeader: model}
 }
@@ -345,7 +353,7 @@ func routingPolicyEscalationAndClassifierScenarios() []goldenScenario {
 		routingPolicyScenario("strategy_without_router_fails_closed", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyLow))},
 			routingPolicyRefused(routingPolicyFirstTurn, nil, routingPolicyStrategy(router.StrategyRL))),
 		routingPolicyScenario("policy_pin_not_honoured_fails_closed", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyLow))},
-			routingPolicyRefused(routingPolicyFirstTurn, nil, routingPolicyAuthorizedPin)),
+			routingPolicyPinRefused(routingPolicyFirstTurn)),
 		routingPolicyScenario("policy_pin_honoured_skips_session_pin", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyLow), router.Decision{
 			Provider: providers.ProviderAnthropic, Model: routingPolicyHigh, Reason: "golden_route", Metadata: &router.RoutingMetadata{PolicyPinHonoured: true}})},
 			first, routingPolicyRequest(next.body, routingPolicyAuthorizedPin)),
