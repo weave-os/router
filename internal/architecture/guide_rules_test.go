@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/mod/modfile"
 )
 
 var (
@@ -24,7 +25,7 @@ var (
 func TestGoModRequiresNoDependencyInjectionFramework(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join(repositoryRoot(t), "go.mod"))
 	require.NoError(t, err)
-	assert.Empty(t, requiredDependencyInjectionModules(string(content)), "compose dependencies with plain constructor calls in cmd/router/main.go; drop the DI container from go.mod")
+	assert.Empty(t, requiredDependencyInjectionModules(t, string(content)), "compose dependencies with plain constructor calls in cmd/router/main.go; drop the DI container from go.mod")
 }
 
 func TestMigrationForeignKeysStayInRouterSchema(t *testing.T) {
@@ -44,33 +45,37 @@ func TestMigrationForeignKeysStayInRouterSchema(t *testing.T) {
 }
 
 func TestNoTrainedArtifactsAreTracked(t *testing.T) {
-	output, err := exec.CommandContext(t.Context(), "git", "-C", repositoryRoot(t), "ls-files").Output()
+	output, err := exec.CommandContext(t.Context(), "git", "-C", repositoryRoot(t), "ls-files", "-z").Output()
 	require.NoError(t, err)
-	assert.Empty(t, trainedArtifacts(strings.Split(string(output), "\n")), "trained model artifacts are never committed: git rm them and use synthetic fixtures in tests, or skip when the artifact package is absent")
+	assert.Empty(t, trainedArtifacts(nulSeparatedPaths(output)), "trained model artifacts are never committed: git rm them and use synthetic fixtures in tests, or skip when the artifact package is absent")
 }
 
 func TestGuideRuleChecksRejectNegativeFixtures(t *testing.T) {
-	assert.Equal(t, []string{"go.uber.org/fx", "github.com/google/wire"}, requiredDependencyInjectionModules("module m\n\nrequire (\n\tgo.uber.org/fx v1.0.0\n\tgithub.com/google/uuid v1.6.0\n)\nrequire github.com/google/wire v0.6.0 // indirect\n"))
-	assert.Empty(t, requiredDependencyInjectionModules("module m\n\nrequire github.com/google/wireguard v1.0.0\n"))
+	assert.Equal(t, []string{"go.uber.org/fx", "github.com/google/wire"}, requiredDependencyInjectionModules(t, "module m\n\nrequire (\n\tgo.uber.org/fx v1.0.0\n\tgithub.com/google/uuid v1.6.0\n)\nrequire\tgithub.com/google/wire v0.6.0 // indirect\n"))
+	assert.Empty(t, requiredDependencyInjectionModules(t, "module m\n\nrequire github.com/google/wireguard v1.0.0\n\nexclude go.uber.org/fx v1.0.0\n"))
 	assert.Equal(t, []string{"public.users", "orgs"}, foreignKeysOutsideRouterSchema("BEGIN;\nCREATE TABLE router.t (u UUID REFERENCES public.users(id), o UUID REFERENCES orgs (id), i UUID REFERENCES router.model_router_installations(id));\nCOMMIT;\n"))
-	assert.Empty(t, foreignKeysOutsideRouterSchema("-- REFERENCES public.users\nCOMMENT ON COLUMN router.t.u IS 'REFERENCES public.users';\n"))
-	assert.Equal(t, []string{"router/model.joblib", "eval/weights.PT"}, trainedArtifacts([]string{"router/model.joblib", "eval/weights.PT", "router/model.go", "docs/pickle.md", ""}))
+	assert.Empty(t, foreignKeysOutsideRouterSchema("-- REFERENCES public.users\nCOMMENT ON COLUMN router.t.u IS 'REFERENCES public.users';\nCOMMENT ON TABLE router.t IS $$REFERENCES public.users$$;\nCOMMENT ON TABLE router.t IS $note$REFERENCES orgs$note$;\n"))
+	assert.Equal(t, []string{"public.users"}, foreignKeysOutsideRouterSchema("COMMENT ON TABLE router.t IS $$x$$;\nALTER TABLE router.t ADD FOREIGN KEY (u) REFERENCES public.users(id);\n"))
+	assert.Equal(t, []string{"router/model.joblib", "eval/weights.PT", "模型/weights.pt"}, trainedArtifacts(nulSeparatedPaths([]byte("router/model.joblib\x00eval/weights.PT\x00模型/weights.pt\x00router/model.go\x00docs/pickle.md\x00"))))
 }
 
-func requiredDependencyInjectionModules(goMod string) []string {
+func requiredDependencyInjectionModules(t *testing.T, goMod string) []string {
+	t.Helper()
+	parsed, err := modfile.ParseLax("go.mod", []byte(goMod), nil)
+	require.NoError(t, err)
 	var found []string
-	for _, line := range strings.Split(goMod, "\n") {
-		fields := strings.Fields(strings.TrimPrefix(strings.TrimSpace(line), "require "))
-		if len(fields) == 0 {
-			continue
-		}
+	for _, requirement := range parsed.Require {
 		for _, module := range dependencyInjectionModules {
-			if fields[0] == module || strings.HasPrefix(fields[0], module+"/") {
-				found = append(found, fields[0])
+			if requirement.Mod.Path == module || strings.HasPrefix(requirement.Mod.Path, module+"/") {
+				found = append(found, requirement.Mod.Path)
 			}
 		}
 	}
 	return found
+}
+
+func nulSeparatedPaths(output []byte) []string {
+	return strings.Split(strings.TrimSuffix(string(output), "\x00"), "\x00")
 }
 
 func foreignKeysOutsideRouterSchema(sql string) []string {
