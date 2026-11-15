@@ -87,7 +87,7 @@ func TestVerificationSQLUnsignedEmailCannotClaimPersonalServing(t *testing.T) {
 	client := &verificationIncludedClient{openai.NewClient("synthetic-api-key", providerServer.URL)}
 	client.SetCodexBaseURL(providerServer.URL)
 	svc := proxy.NewService(verificationBillingRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil).WithManagedSubscriptions(runtime).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
-	var winners []*proxy.ManagedSubscriptionUsage
+	var winners []any
 	var resolvedOwners []auth.SubscriptionOwner
 	var proxyErrors []error
 	engine := gin.New()
@@ -95,7 +95,7 @@ func TestVerificationSQLUnsignedEmailCannotClaimPersonalServing(t *testing.T) {
 		body, _ := io.ReadAll(c.Request.Body)
 		resolvedOwners = append(resolvedOwners, middleware.SubscriptionOwnerFrom(c))
 		proxyErrors = append(proxyErrors, svc.ProxyOpenAIChatCompletion(c.Request.Context(), body, c.Writer, c.Request))
-		winners = append(winners, assertAs[*proxy.ManagedSubscriptionUsage](t, c.Request.Context().Value(proxy.ManagedSubscriptionUsageContextKey{})))
+		winners = append(winners, c.Request.Context().Value(proxy.ManagedSubscriptionUsageContextKey{}))
 	})
 	actualIngress := httptest.NewServer(engine)
 	defer actualIngress.Close()
@@ -125,7 +125,7 @@ func TestVerificationSQLUnsignedEmailCannotClaimPersonalServing(t *testing.T) {
 			require.Equal(t, 200, response.StatusCode, string(payload))
 			require.Contains(t, string(payload), "identity answer")
 			require.Len(t, bearers, before+1)
-			winner := winners[len(winners)-1]
+			winner := mustAs[*proxy.ManagedSubscriptionUsage](t, winners[len(winners)-1])
 			identity := resolvedOwners[len(resolvedOwners)-1]
 			if scenario.wantTier == auth.SubscriptionTierPersonal {
 				require.Equal(t, subject.String(), identity.SubscriberID)
