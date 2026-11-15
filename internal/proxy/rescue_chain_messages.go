@@ -248,13 +248,7 @@ func (m *messagesRescue) redoIfStoppedEarly(ctx context.Context) {
 				log:     log,
 				target:  m.earlyStopTarget,
 				build: func(target router.Decision) (dispatchAttempt, []catalog.ProviderBinding, string, effortResolution, context.Context, error) {
-					redoOpts := opts
-					redoOpts.TargetModel = target.Model
-					redoOpts.TargetProvider = target.Provider
-					redoOpts.Capabilities = router.Lookup(target.Model)
-					redoOpts.ModelSwitched = true
-					redoEffort := s.resolveEffort(ctx, target, redoOpts.Capabilities, routeRes.EscalateEffort)
-					redoEffort.apply(&redoOpts)
+					redoOpts, redoEffort := switchedAttemptOptions(ctx, opts, target, routeRes.EscalateEffort, s.resolveEffort)
 					redoCtx := s.resolveCredentials(subscriptionStatePaidRescueContext(rescueCredentialContext(ctx, target.Provider), target.Model), target.Provider, target.Model, r.Header)
 					redoOpts.FastMode = fastModeForAttempt(redoCtx, target.Model, target.Provider)
 					redoMarker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, markerReasonEarlyStop, target.Model), target.Model, markerReasonEarlyStop))

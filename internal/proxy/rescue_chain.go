@@ -134,13 +134,7 @@ func (c *rescueChain) dispatchPrimaryAttempt(ctx context.Context, deferFlush boo
 			return s.subscriptionAlternativeDecisions(ctx, *c.req, c.decision)
 		}(),
 		buildAlternative: func(target router.Decision) (dispatchAttempt, error) {
-			alternativeOpts := opts
-			alternativeOpts.TargetModel = target.Model
-			alternativeOpts.TargetProvider = target.Provider
-			alternativeOpts.Capabilities = router.Lookup(target.Model)
-			alternativeOpts.ModelSwitched = true
-			alternativeEffort := s.resolveEffort(ctx, target, alternativeOpts.Capabilities, routeRes.EscalateEffort)
-			alternativeEffort.apply(&alternativeOpts)
+			alternativeOpts, _ := switchedAttemptOptions(ctx, opts, target, routeRes.EscalateEffort, s.resolveEffort)
 			alternativeMarker := subscriptionTargetMarker(ctx, r.Header, routeRes, c.primaryDecision, target, c.pickedMarker)
 			alternativeCtx := s.resolveCredentials(ctx, target.Provider, target.Model, r.Header)
 			return c.buildAttempt(target, alternativeOpts, alternativeMarker, alternativeCtx)
@@ -230,15 +224,7 @@ func (c *rescueChain) dispatchSibling(ctx context.Context, siblingDecision route
 	routeRes := c.routeRes
 	opts := c.opts
 	preludeBuf := c.preludeBuf
-	siblingOpts := opts
-	siblingOpts.TargetModel = siblingDecision.Model
-	siblingOpts.TargetProvider = siblingDecision.Provider
-	siblingOpts.Capabilities = router.Lookup(siblingDecision.Model)
-	// The turn now serves a model the session hasn't seen, so signed
-	// thinking blocks from the prior model must not be replayed verbatim.
-	siblingOpts.ModelSwitched = true
-	siblingEffort := s.resolveEffort(ctx, siblingDecision, siblingOpts.Capabilities, routeRes.EscalateEffort)
-	siblingEffort.apply(&siblingOpts)
+	siblingOpts, siblingEffort := switchedAttemptOptions(ctx, opts, siblingDecision, routeRes.EscalateEffort, s.resolveEffort)
 	siblingCtx := s.resolveCredentials(subscriptionStatePaidRescueContext(rescueCredentialContext(ctx, siblingDecision.Provider), siblingDecision.Model), siblingDecision.Provider, siblingDecision.Model, r.Header)
 	siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
 	siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)

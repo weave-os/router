@@ -1557,9 +1557,9 @@ func defaultOutputTokens(model string) int64 {
 	return defaultMaxOutputTokenCap
 }
 
-// defaultAnthropicOutputTokens leaves enough room for hidden reasoning on
-// always-on adaptive targets while respecting a documented model cap below the
-// reasoning floor. Explicit caller max_tokens values are handled separately
+// defaultAnthropicOutputTokens leaves room for hidden reasoning and long tool
+// calls on always-on adaptive targets while respecting a documented model cap
+// below anthropicAdaptiveDefaultOutputTokens. Explicit caller max_tokens values are handled separately
 // and are intentionally not changed here.
 func defaultAnthropicOutputTokens(model string, capabilities router.ModelSpec) int64 {
 	if !capabilities.Supports(router.CapAdaptiveThinking) {
@@ -1572,7 +1572,7 @@ func defaultAnthropicOutputTokens(model string, capabilities router.ModelSpec) i
 	if !capabilities.Supports(router.CapAdaptiveThinking) || !capabilities.Reasoning().AlwaysOn {
 		return defaultTokens
 	}
-	floored := reasoningOutputFloor(defaultTokens, true)
+	floored := int64(anthropicAdaptiveDefaultOutputTokens)
 	if tokenCap, ok := modelMaxOutputTokens[model]; ok && int64(tokenCap) < floored {
 		return int64(tokenCap)
 	}

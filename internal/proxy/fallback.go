@@ -174,7 +174,7 @@ func (s *Service) clockNow() time.Time {
 // provider disables it too: a failover binding re-resolves credentials and
 // would prefer that key even if the primary binding used the deployment key.
 func (s *Service) shouldFailover(ctx context.Context) bool {
-	if s.byokOnly {
+	if s.credentials.BYOKOnly {
 		return false
 	}
 	if CredentialsFromContext(ctx) != nil {
@@ -196,8 +196,8 @@ func (s *Service) resolveBindingsForDispatch(ctx context.Context, decision route
 		UserForced: isUserForcedReason(decision.Reason),
 		ForceModel: decision.Reason == translate.ReasonUserForceModel,
 	}
-	if s.shouldFailover(ctx) && s.deploymentKeyedProviders != nil {
-		req.DeploymentKeyedProviders = s.deploymentKeyedProviders
+	if s.shouldFailover(ctx) && s.credentials.KeyedProviders != nil {
+		req.DeploymentKeyedProviders = s.credentials.KeyedProviders
 		req.SubscriptionServes = managedSubscriptionCanServe(ctx, decision.Provider, decision.Model) && s.supportsSubscriptionTransport(decision.Provider)
 		req.Excluded = s.excludedProvidersForRequest(ctx)
 	}
@@ -317,15 +317,6 @@ func errorFrameType(cls DispatchErrorClass) string {
 		return "invalid_request_error"
 	}
 	return "api_error"
-}
-
-// emitGeminiSSEErrorEvent writes a terminal error frame to a committed
-// Gemini stream; called only on post-commit transport or truncation failure.
-func emitGeminiSSEErrorEvent(sink http.ResponseWriter) {
-	_, _ = sink.Write([]byte("data: {\"error\":{\"code\":\"UNAVAILABLE\",\"message\":\"upstream stream failed\"}}\n\n"))
-	if f, ok := sink.(http.Flusher); ok {
-		f.Flush()
-	}
 }
 
 // flushUpstreamErrorAsAnthropic is ProxyMessages' flushErr: translates the

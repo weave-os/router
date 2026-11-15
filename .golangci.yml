@@ -63,12 +63,26 @@ linters:
             - "**/internal/websearch/**"
             - "**/internal/usage/**"
             - "**/internal/telemetry/**"
+            - "**/internal/routingpolicy/**"
+            - "**/internal/credentials/**"
             - "!**/*_test.go"
           deny:
             - pkg: weave-os/router/internal/observability/otel
               desc: inner-ring packages record through internal/telemetry; cmd/router wires the otel adapter
             - pkg: weave-os/router/internal/observability/apm
               desc: inner-ring packages record through internal/telemetry; cmd/router wires the apm adapter
+        routing-policy-context:
+          files:
+            - "**/internal/routingpolicy/**"
+            - "!**/*_test.go"
+          deny:
+            - pkg: net/http
+              desc: routing policy knows nothing of HTTP; credential reach arrives through credentials.Broker
+            - pkg: weave-os/router/internal/billing
+            - pkg: weave-os/router/internal/proxy
+            - pkg: weave-os/router/internal/dispatch
+            - pkg: weave-os/router/internal/providers/
+              desc: routing policy never touches provider clients
   exclusions:
     rules:
       - path: _test\.go

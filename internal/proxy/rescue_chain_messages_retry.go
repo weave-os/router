@@ -4,7 +4,6 @@ import (
 	"context"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
 )
@@ -42,10 +41,9 @@ func (m *messagesRescue) dispatchBaseline(ctx context.Context) context.Context {
 	baselineDecision := m.decision
 	baselineDecision.Model = m.baselineModel
 	baselineDecision.Provider = providers.ProviderAnthropic
-	baselineOpts := opts
-	baselineOpts.TargetModel = m.baselineModel
-	baselineOpts.TargetProvider = providers.ProviderAnthropic
-	baselineOpts.Capabilities = router.Lookup(m.baselineModel)
+	// The failed arm's effort does not describe the baseline model.
+	baselineDecision.Effort = ""
+	baselineOpts, baselineEffort := switchedAttemptOptions(ctx, opts, baselineDecision, routeRes.EscalateEffort, s.resolveEffort)
 	// Recompute against the model that actually serves, not the cost-routed
 	// OSS id — otherwise PrepareAnthropic may leave stale signed thinking
 	// blocks the baseline model rejects (400). Compare bare model IDs:
@@ -54,11 +52,6 @@ func (m *messagesRescue) dispatchBaseline(ctx context.Context) context.Context {
 	// subsumes it.
 	baselineOpts.ModelSwitched = baseModelOf(routeRes.PriorServedModel) != m.baselineModel ||
 		routeRes.SessionEverSwitched
-	// The arm's level named the failed model's menu; the baseline resolves
-	// its own so the persisted identity matches what goes on the wire.
-	baselineDecision.Effort = ""
-	baselineEffort := s.resolveEffort(ctx, baselineDecision, baselineOpts.Capabilities, routeRes.EscalateEffort)
-	baselineEffort.apply(&baselineOpts)
 	baselineCtx := subscriptionStatePaidRescueContext(ctx, m.baselineModel)
 	baselineSubExhausted := s.claudeSubscriptionExhausted(ctx, r.Header)
 	if baselineSubExhausted {

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"weave-os/router/internal/credentials"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
@@ -482,7 +483,7 @@ func TestSubscriptionFailover_EligibilityAndSuppression(t *testing.T) {
 	})
 
 	t.Run("deployment Anthropic key present: eligible", func(t *testing.T) {
-		s := &Service{deploymentKeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}
+		s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}}
 		assert.True(t, s.anthropicFallbackKeyAvailable(ctx),
 			"a deployment Anthropic key is a valid failover target for a throttled subscription")
 	})
