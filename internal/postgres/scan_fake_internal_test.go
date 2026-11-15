@@ -2,7 +2,6 @@ package postgres
 
 import "fmt"
 
-// scanInto stores value through a pgx-style scan destination, failing on a type mismatch.
 func scanInto[T any](dest any, value T) error {
 	target, ok := dest.(*T)
 	if !ok {
@@ -12,7 +11,6 @@ func scanInto[T any](dest any, value T) error {
 	return nil
 }
 
-// setFrom stores a fixture value into target, failing on a type mismatch.
 func setFrom[T any](target *T, value any) error {
 	got, ok := value.(T)
 	if !ok {

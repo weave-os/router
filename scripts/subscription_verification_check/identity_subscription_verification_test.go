@@ -95,7 +95,7 @@ func TestVerificationSQLUnsignedEmailCannotClaimPersonalServing(t *testing.T) {
 		body, _ := io.ReadAll(c.Request.Body)
 		resolvedOwners = append(resolvedOwners, middleware.SubscriptionOwnerFrom(c))
 		proxyErrors = append(proxyErrors, svc.ProxyOpenAIChatCompletion(c.Request.Context(), body, c.Writer, c.Request))
-		winners = append(winners, mustAs[*proxy.ManagedSubscriptionUsage](t, c.Request.Context().Value(proxy.ManagedSubscriptionUsageContextKey{})))
+		winners = append(winners, assertAs[*proxy.ManagedSubscriptionUsage](t, c.Request.Context().Value(proxy.ManagedSubscriptionUsageContextKey{})))
 	})
 	actualIngress := httptest.NewServer(engine)
 	defer actualIngress.Close()

@@ -72,7 +72,7 @@ func TestClassifierSearchChildIsolationAndReplay(t *testing.T) {
 			if captured.Value(classifierThreadContextKey{}) != childThread {
 				t.Error("retry changed child identity")
 			}
-			_, err = replica.classifyThread(captured, mustAs[router.ClassifierContext](t, captured.Value(classifierInputContextKey{})))
+			_, err = replica.classifyThread(captured, assertAs[router.ClassifierContext](t, captured.Value(classifierInputContextKey{})))
 			if err != nil {
 				t.Errorf("classify retry: %v", err)
 			}

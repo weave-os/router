@@ -6,7 +6,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// assertAs records a failure unless v holds a T; unlike mustAs it is safe off the test goroutine.
 func assertAs[T any](tb testing.TB, v any) T {
 	tb.Helper()
 	got, ok := v.(T)

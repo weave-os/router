@@ -1178,10 +1178,10 @@ func (s *Service) fetchBlindExperiment(ctx context.Context, installationID, rout
 	case <-ctx.Done():
 		return BlindExperimentState{}, false
 	}
-	if result.Err != nil {
-		observability.FromContext(ctx).Warn("Failed to fetch blind router experiment assignment", "router_user_id", routerUserID, "err", result.Err)
-	}
 	state, ok := result.Val.(BlindExperimentState)
+	if !ok {
+		observability.FromContext(ctx).Warn("Failed to fetch blind router experiment assignment", "router_user_id", routerUserID, "err", result.Err, "value_type", fmt.Sprintf("%T", result.Val))
+	}
 	return state, ok
 }
 
