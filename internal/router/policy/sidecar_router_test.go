@@ -218,7 +218,7 @@ func TestSidecarRouterOnboardsFutureStrategyWithoutProxyChanges(t *testing.T) {
 	require.Len(t, decider.query.Candidates, 1)
 	assert.Equal(t, "future/gpt-5.5", decider.query.Candidates[0].RosterID)
 	assert.Greater(t, decider.query.Candidates[0].InputUSDPer1M, 0.0)
-	assert.Greater(t, decider.query.Candidates[0].Capabilities.ContextWindow, 0)
+	assert.Positive(t, decider.query.Candidates[0].Capabilities.ContextWindow)
 
 	require.NoError(t, adapter.ReportOutcome(context.Background(), map[string]interface{}{"route_id": "route-future"}))
 	require.NoError(t, adapter.ReportFeedback(context.Background(), map[string]interface{}{"feedback": "positive"}))
@@ -868,4 +868,48 @@ func TestSidecarRouterCapabilityRefreshIsConcurrentSafe(t *testing.T) {
 	}
 
 	workers.Wait()
+}
+
+func TestSidecarRouterServesOnlyResolvedGatewayBindings(t *testing.T) {
+	haiku, sonnet := string(catalog.ModelIDClaudeHaiku45), string(catalog.ModelIDClaudeSonnet46)
+	resolver := policy.NewResolver(
+		set(haiku, sonnet),
+		set(providers.ProviderAnthropic, providers.ProviderAnthropicGateway),
+		func(model catalog.Model) string { return model.ID },
+		policy.ManagedProviderPolicy(),
+	)
+	req := router.Request{
+		EnabledProviders: set(providers.ProviderAnthropicGateway),
+		GatewayProviders: set(providers.ProviderAnthropicGateway),
+		CustomBindings:   map[string][]string{haiku: {providers.ProviderAnthropicGateway}},
+	}
+	tests := []struct {
+		name         string
+		pick         policy.Result
+		wantErr      string
+		wantProvider string
+	}{
+		{name: "provider not enabled for request", pick: policy.Result{Model: haiku, Provider: providers.ProviderAnthropic},
+			wantErr: `sidecar returned provider "anthropic"`},
+		{name: "model outside gateway roster", pick: policy.Result{Model: sonnet, Provider: providers.ProviderAnthropic},
+			wantErr: `sidecar returned unknown arm`},
+		{name: "gateway alias", pick: policy.Result{Model: haiku}, wantProvider: providers.ProviderAnthropicGateway},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			adapter := policy.NewSidecarRouter(policy.SidecarRouterConfig{Strategy: router.StrategyHMM}, &recordingPolicy{result: tc.pick}, resolver)
+
+			decision, err := adapter.Route(context.Background(), req)
+
+			if tc.wantErr != "" {
+				require.ErrorIs(t, err, router.ErrStrategyUnavailable)
+				assert.ErrorContains(t, err, tc.wantErr)
+				assert.Empty(t, decision.Provider)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, haiku, decision.Model)
+			assert.Equal(t, tc.wantProvider, decision.Provider)
+		})
+	}
 }

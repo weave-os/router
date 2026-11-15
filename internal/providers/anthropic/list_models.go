@@ -80,7 +80,7 @@ func (c *Client) ListModels(ctx context.Context) ([]string, error) {
 			return nil, providers.ErrModelDiscoveryTransport
 		}
 		body, err := io.ReadAll(io.LimitReader(resp.Body, maxModelListBytes))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode == http.StatusNotFound && page == 0 {
 			return c.listGatewayModels(ctx, baseURL)
 		}
@@ -152,7 +152,7 @@ func (c *Client) getGatewayModels(ctx context.Context, baseURL string, withEntit
 		}
 		return nil, 0, providers.ErrModelDiscoveryTransport
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxModelListBytes))
 	if resp.StatusCode >= 400 {
 		return nil, resp.StatusCode, providers.NewModelListStatusError(resp.StatusCode)

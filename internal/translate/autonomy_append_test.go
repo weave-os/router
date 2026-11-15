@@ -33,7 +33,7 @@ func TestAutonomyAppend_AnthropicAppendsUncachedBlockAfterClientCacheControl(t *
 	on, err := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: "claude-opus-5", AppendAutonomySystem: true})
 	require.NoError(t, err)
 
-	assert.False(t, strings.Contains(string(off.Body), "operating autonomously"), "flag off must not touch the prompt")
+	assert.NotContains(t, string(off.Body), "operating autonomously", "flag off must not touch the prompt")
 
 	offSystem := gjson.GetBytes(off.Body, "system").Array()
 	onSystem := gjson.GetBytes(on.Body, "system").Array()
@@ -105,7 +105,7 @@ func TestAutonomyAppend_CrossFormatEmitsCarryTheText(t *testing.T) {
 			sys := gjson.GetBytes(out.Body, "systemInstruction.parts.0.text").String()
 			assert.Contains(t, sys, "ask for confirmation before proceeding", "client prompt still carried for %s", model)
 			assert.NotContains(t, sys, "operating autonomously", "autonomy append must not reach Gemini (%s)", model)
-			assert.Equal(t, 1, len(gjson.GetBytes(out.Body, "systemInstruction.parts").Array()), "no extra system part for %s", model)
+			assert.Len(t, gjson.GetBytes(out.Body, "systemInstruction.parts").Array(), 1, "no extra system part for %s", model)
 		}
 	})
 }

@@ -157,7 +157,7 @@ func (b *nativeSearchBuffer) Write(p []byte) (int, error) {
 			_, data := sse.ParseEvent(event)
 			value := gjson.ParseBytes(data)
 			kind := value.Get("type").String()
-			if kind != "response.web_search_call.in_progress" && !(kind == "response.output_item.added" && value.Get("item.type").String() == "web_search_call") {
+			if kind != "response.web_search_call.in_progress" && (kind != "response.output_item.added" || value.Get("item.type").String() != "web_search_call") {
 				continue
 			}
 			id := value.Get("item_id").String()
@@ -189,7 +189,11 @@ func copyNativeSearchHeaders(w http.ResponseWriter, headers http.Header) {
 }
 
 func nativeSearchInvalidRequest(err error) error {
-	encoded, _ := json.Marshal(map[string]any{"type": "error", "error": map[string]any{"type": "invalid_request_error", "message": err.Error()}})
+	message := err.Error()
+	if errors.Is(err, websearch.ErrDomainFilterNotHostname) {
+		message = websearch.DomainFilterNotHostnameMessage
+	}
+	encoded, _ := json.Marshal(map[string]any{"type": "error", "error": map[string]any{"type": "invalid_request_error", "message": message}})
 	return &providers.UpstreamErrorResponse{Status: http.StatusBadRequest, Body: encoded}
 }
 

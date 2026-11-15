@@ -81,3 +81,34 @@ func openAIToolChoice(body []byte) (toolChoiceKind, string) {
 	}
 	return toolChoiceUnrecognized, ""
 }
+
+// writeOpenAIToolChoiceFromAnthropic emits the "tool_choice" key into jw by
+// converting the Anthropic tool_choice field to OpenAI format.
+func writeOpenAIToolChoiceFromAnthropic(jw *jsonWriter, body []byte) {
+	kind, name := anthropicToolChoice(body)
+	switch kind {
+	case toolChoiceAuto:
+		jw.Key("tool_choice")
+		jw.Str("auto")
+	case toolChoiceRequired:
+		jw.Key("tool_choice")
+		jw.Str("required")
+	case toolChoiceNone:
+		jw.Key("tool_choice")
+		jw.Str("none")
+	case toolChoiceNamed:
+		inner := newJSONWriter()
+		inner.Obj()
+		inner.Key("type")
+		inner.Str("function")
+		inner.Key("function")
+		inner.Obj()
+		inner.Key("name")
+		inner.Str(sanitizeResponsesToolAlias(name))
+		inner.EndObj()
+		inner.EndObj()
+		jw.Key("tool_choice")
+		jw.RawBytes(inner.Bytes())
+	case toolChoiceAbsent, toolChoiceUnrecognized:
+	}
+}

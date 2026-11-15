@@ -121,6 +121,7 @@ func responsesItemHasUsableOutput(item gjson.Result) bool {
 		return item.Get("name").String() != ""
 	case responsesReasoningItem:
 		return joinReasoningSummary(item.Get("summary")) != ""
+	case responsesCustomToolCallItem, responsesComputerCallItem:
 	}
 	return false
 }
@@ -182,6 +183,7 @@ func nativeResponsesItemHasUsableOutput(item gjson.Result) bool {
 				return true
 			}
 		}
+	case responsesReasoningItem, responsesFunctionCallItem:
 	}
 	return false
 }

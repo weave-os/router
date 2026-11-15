@@ -304,6 +304,7 @@ func TestClassifyDispatchError_AnthropicCacheControlOverflowIs400(t *testing.T) 
 	assert.False(t, cls.RetryAfter)
 	assert.NotContains(t, cls.Message, "emit body:", "the internal wrap-chain prefix must not leak into the client-facing message")
 	assert.Contains(t, cls.Message, "got 5, maximum is 4", "the validator's dynamic detail must survive unwrapping")
+	assert.Equal(t, "Anthropic cache_control breakpoint capacity exceeded: got 5, maximum is 4", cls.Message)
 }
 
 func TestClassifyDispatchError_AnthropicCacheControlInvalidTTLOrderingIs400(t *testing.T) {
@@ -485,7 +486,7 @@ func TestClassifyDispatchError_QwenWarmingIsActionable(t *testing.T) {
 	classification, found := proxy.ClassifyDispatchError(fmt.Errorf("route: %w: %w", policy.ErrClassifierWarming, hmm.ErrHMMUnavailable))
 	require.True(t, found)
 	assert.Equal(t, http.StatusServiceUnavailable, classification.Status)
-	assert.Contains(t, classification.Message, "prepare-model")
+	assert.Equal(t, "Qwen classifier is warming; run wv router prepare-model weave-qwen-20261008-0001v2 before retrying", classification.Message)
 	assert.True(t, classification.RetryAfter)
 }
 

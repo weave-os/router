@@ -211,6 +211,16 @@ func (s *Service) resolveBindingsForDispatch(ctx context.Context, decision route
 // we hold, so the upstream's advertised length may exceed what we actually
 // write, breaking HTTP framing. net/http recomputes Content-Length itself.
 func flushBufferedIfPresent(w http.ResponseWriter, err error) {
+	flushUpstreamErrorRendered(w, err, nil)
+}
+
+// flushUpstreamErrorAsOpenAI is the Chat flushErr: an Anthropic upstream's
+// error body is re-wrapped in the OpenAI shape the client parses.
+func flushUpstreamErrorAsOpenAI(w http.ResponseWriter, err error) {
+	flushUpstreamErrorRendered(w, err, translate.AnthropicErrorAsOpenAI)
+}
+
+func flushUpstreamErrorRendered(w http.ResponseWriter, err error, render func([]byte) []byte) {
 	var resp *providers.UpstreamErrorResponse
 	// An overflow is left to the ingress handler, which answers in the
 	// client's native prompt-too-long shape.
@@ -229,7 +239,11 @@ func flushBufferedIfPresent(w http.ResponseWriter, err error) {
 			w.Header().Add(k, v)
 		}
 	}
-	body := attributedErrorBody(resp.Body, err)
+	body := resp.Body
+	if render != nil {
+		body = render(body)
+	}
+	body = attributedErrorBody(body, err)
 	if !bytes.Equal(body, resp.Body) {
 		w.Header().Set("Content-Type", "application/json")
 	}
@@ -279,7 +293,7 @@ func emitOpenAISSEErrorEvent(sink http.ResponseWriter, err error) error {
 		body = openAIErrorFrameBody(cls)
 	case errors.As(err, &resp):
 		status = resp.Status
-		body = attributedErrorBody(resp.Body, err)
+		body = attributedErrorBody(translate.AnthropicErrorAsOpenAI(resp.Body), err)
 	case classified:
 		status = cls.Status
 		body = openAIErrorFrameBody(cls)

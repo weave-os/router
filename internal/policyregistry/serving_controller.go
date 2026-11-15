@@ -308,19 +308,7 @@ func (c *ServingController) validateProposal(ctx context.Context, proposal Propo
 		return errors.New("previous selection set belongs to another target")
 	}
 	if proposal.Scope == ChangeRollback {
-		// Only the exact historical object may bypass forward profile preservation.
-		snapshot, err := c.store.ReadServingState(ctx, proposal.Target)
-		if err != nil {
-			c.logger.Error("Failed to read exact rollback history", "target", proposal.Target, "selection_set_sha256", proposal.SelectionSet.SHA256, "err", err)
-			return fmt.Errorf("read exact rollback history: %w", err)
-		}
-		for _, activation := range snapshot.State.Activations {
-			if activation.SelectionSet == proposal.SelectionSet {
-				return nil
-			}
-		}
-		c.logger.Warn("Rejected exact rollback: selection set was not previously activated on target", "target", proposal.Target, "selection_set_sha256", proposal.SelectionSet.SHA256)
-		return errors.New("exact rollback requires a selection set previously activated on the same target")
+		return c.validateExactRollback(ctx, proposal)
 	}
 	if set.ConfigurationOnly && (proposal.Scope == ChangeRoster || proposal.Scope == ChangeProfile) {
 		if proposal.SourceCandidate != set.Default.Candidate || set.Default.Candidate != previous.Default.Candidate || set.Default.Binding != previous.Default.Binding {
@@ -409,6 +397,7 @@ func (c *ServingController) validateProposal(ctx context.Context, proposal Propo
 			(set.SchemaVersion != ServingSelectionSetV4 && !base.Classifier.Equal(source.Classifier)) || base.RouterImageDigest != oldBase.RouterImageDigest || base.Policy != oldBase.Policy || !maps.Equal(base.StrategyPolicies, oldBase.StrategyPolicies) {
 			return errors.New("classifier-only promotion must retain destination Router candidate, image, policy and strategy policies")
 		}
+	case ChangeFull, ChangeProfile, ChangeCustom, ChangeRollback:
 	}
 	return nil
 }
@@ -792,7 +781,7 @@ func classifierCandidateCompositionV5(
 	releaseID string,
 ) (CandidateComposition, error) {
 	if !slices.Contains(candidate.Requirements.SupportedAPIMajors, release.APIMajor) {
-		return CandidateComposition{}, errors.New("Router candidate does not support classifier API major")
+		return CandidateComposition{}, errors.New("router candidate does not support classifier API major")
 	}
 	primary, exists := release.Variants[routerpolicy.ClassifierVariantPrimary]
 	if !exists {

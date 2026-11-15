@@ -92,7 +92,7 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 	inputCost := catalog.EffectiveInputCost(usage.InputTokens, usage.CacheCreation, usage.CacheRead, pricing, usage.Provider, usageMods)
 	outputCost := catalog.EffectiveOutputCost(catalog.PromptTokens(usage.InputTokens, usage.CacheCreation, usage.CacheRead, usage.Provider), usage.OutputTokens, pricing, usageMods)
 
-	s.fireTelemetry(InsertTelemetryParams{
+	s.fireTelemetry(ctx, InsertTelemetryParams{
 		InstallationID:   installationID.String(),
 		APIKeyID:         apiKeyID,
 		RequestID:        auxRequestID,
@@ -123,7 +123,7 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 	})
 }
 
-func (s *Service) recordEscalationJudgeInference(installationID, requestID string, mode llmescalation.Mode, job llmescalation.Job, judgment llmescalation.Judgment, failure llmescalation.FailureCode) {
+func (s *Service) recordEscalationJudgeInference(ctx context.Context, installationID, requestID string, mode llmescalation.Mode, job llmescalation.Job, judgment llmescalation.Judgment, failure llmescalation.FailureCode) {
 	succeeded := failure == llmescalation.FailureNone
 	if s.telemetry == nil || installationID == "" || (!judgment.Usage.Known && !succeeded) {
 		return
@@ -142,7 +142,7 @@ func (s *Service) recordEscalationJudgeInference(installationID, requestID strin
 	if judgment.CostSource == llmescalation.CostSourceProviderReported {
 		inputCost, outputCost = judgment.CostUSD, 0
 	}
-	s.fireTelemetry(InsertTelemetryParams{
+	s.fireTelemetry(ctx, InsertTelemetryParams{
 		InstallationID:   installationID,
 		RequestID:        requestID + "_escalation_judge_" + job.ID,
 		SpanType:         SpanTypePlatformAuxiliaryInference,

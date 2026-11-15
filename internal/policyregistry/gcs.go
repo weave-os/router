@@ -339,7 +339,7 @@ func (r *Registry) readObject(ctx context.Context, name string, generation int64
 	if err != nil {
 		return nil, classifyStorageError("open router policy object", err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	payload, err := io.ReadAll(io.LimitReader(reader, maxPolicyObjectBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read router policy object: %w", err)

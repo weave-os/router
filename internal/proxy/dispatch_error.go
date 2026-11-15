@@ -126,7 +126,7 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 		return DispatchErrorClass{Kind: DispatchErrorAnthropicFederationUnavailable, Status: http.StatusServiceUnavailable, Message: "Anthropic workload federation is unavailable.", RetryAfter: true}, true
 	case errors.Is(err, policy.ErrClassifierWarming):
 		return DispatchErrorClass{Kind: DispatchErrorPolicyUnavailable, Status: http.StatusServiceUnavailable,
-			Message: policy.ErrClassifierWarming.Error(), RetryAfter: true, LogLevel: "warn", LogMessage: "Classifier warming"}, true
+			Message: policy.ClassifierWarmingMessage, RetryAfter: true, LogLevel: "warn", LogMessage: "Classifier warming"}, true
 	case errors.Is(err, router.ErrClassifierHistoryUnavailable), errors.Is(err, router.ErrClassifierThreadInvalid):
 		return DispatchErrorClass{Kind: DispatchErrorClassifierHistory, Status: http.StatusConflict, Message: "Classifier thread history is unavailable or changed. Restore the complete original history; do not re-enroll a compacted thread.", LogLevel: "warn", LogMessage: "Classifier history rejected"}, true
 	case errors.Is(err, router.ErrClassifierInputTooLong):
@@ -218,9 +218,9 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogMessage: "Subscription account pool unavailable",
 		}, true
 	case errors.Is(err, ErrHandoffInvalid):
-		return DispatchErrorClass{Kind: DispatchErrorHandoff, Status: http.StatusConflict, Message: ErrHandoffInvalid.Error(), LogLevel: "warn", LogMessage: "Pi handoff rejected"}, true
+		return DispatchErrorClass{Kind: DispatchErrorHandoff, Status: http.StatusConflict, Message: handoffInvalidMessage, LogLevel: "warn", LogMessage: "Pi handoff rejected"}, true
 	case errors.Is(err, ErrHandoffUnavailable):
-		return DispatchErrorClass{Kind: DispatchErrorHandoff, Status: http.StatusServiceUnavailable, Message: ErrHandoffUnavailable.Error(), LogLevel: "warn", LogMessage: "Pi handoff unavailable"}, true
+		return DispatchErrorClass{Kind: DispatchErrorHandoff, Status: http.StatusServiceUnavailable, Message: handoffUnavailableMessage, LogLevel: "warn", LogMessage: "Pi handoff unavailable"}, true
 	case errors.As(err, &forcedExcluded):
 		// Ahead of the sentinel cases so the reason reaches the caller: a bare
 		// "forced model is excluded" doesn't say which model or why.
@@ -487,32 +487,6 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	}
 }
 
-// classifyResolutionError maps a failed plan resolution to a client-facing
-// class: an override or selection the request itself supplied is a client
-// error; a policy with nothing eligible to run on is a routing outage.
-func classifyResolutionError(err *policy.ResolutionError) DispatchErrorClass {
-	switch err.Code {
-	case policy.ResolutionErrorInvalidOverride, policy.ResolutionErrorOverrideNotAllowed, policy.ResolutionErrorDuplicateOverride, policy.ResolutionErrorUnknownSelection, policy.ResolutionErrorBudgetViolation:
-		if err.Source == policy.OverrideSourceRequest || err.Code == policy.ResolutionErrorUnknownSelection {
-			return DispatchErrorClass{
-				Kind:       DispatchErrorPlanOverrideRejected,
-				Status:     http.StatusBadRequest,
-				Message:    "The requested model, provider, or budget is not permitted for this operation.",
-				LogLevel:   "warn",
-				LogMessage: "Inference plan rejected request-supplied override",
-			}
-		}
-	}
-	return DispatchErrorClass{
-		Kind:       DispatchErrorPlanUnresolvable,
-		Status:     http.StatusServiceUnavailable,
-		Message:    "Router unavailable: no inference target could be authorized for this request.",
-		RetryAfter: true,
-		LogLevel:   "error",
-		LogMessage: "Inference plan resolution failed",
-	}
-}
-
 // unwrapToSentinelMessage returns the message of the wrap layer whose direct
 // child is one of the cache_control sentinels, stripping outer prefixes like
 // "emit body: ". Falls back to err.Error().
@@ -523,7 +497,7 @@ func unwrapToSentinelMessage(err error) string {
 			continue
 		}
 		if errors.Is(child, translate.ErrAnthropicCacheControlOverflow) || errors.Is(child, translate.ErrAnthropicCacheControlInvalid) {
-			return e.Error()
+			return translate.CacheControlClientMessage(e)
 		}
 	}
 	return err.Error()

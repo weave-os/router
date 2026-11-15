@@ -14,12 +14,12 @@ func TestPreview_ShortStringUnchanged(t *testing.T) {
 }
 
 func TestPreview_EmptyString(t *testing.T) {
-	assert.Equal(t, "", observability.Preview("", 10))
+	assert.Empty(t, observability.Preview("", 10))
 }
 
 func TestPreview_ZeroOrNegativeLimit(t *testing.T) {
-	assert.Equal(t, "", observability.Preview("hello", 0))
-	assert.Equal(t, "", observability.Preview("hello", -1))
+	assert.Empty(t, observability.Preview("hello", 0))
+	assert.Empty(t, observability.Preview("hello", -1))
 }
 
 func TestPreview_TruncatesWithEllipsis(t *testing.T) {

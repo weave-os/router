@@ -75,7 +75,7 @@ func (c *OAuthClient) StartLogin(ctx context.Context, provider Provider) (Starte
 			return StartedLogin{}, err
 		}
 		if response.DeviceAuthID == "" || response.UserCode == "" {
-			return StartedLogin{}, errors.New("Codex device authorization returned an invalid response")
+			return StartedLogin{}, errors.New("codex device authorization returned an invalid response")
 		}
 		interval := 5 * time.Second
 		if seconds, err := response.Interval.Int64(); err == nil && seconds >= 1 && seconds <= 30 {
@@ -146,7 +146,7 @@ func (c *OAuthClient) completeCodexLogin(ctx context.Context, pending PendingLog
 		return CompletedLogin{}, err
 	}
 	if authorization.AuthorizationCode == "" || authorization.CodeVerifier == "" {
-		return CompletedLogin{}, errors.New("Codex authorization returned an invalid response")
+		return CompletedLogin{}, errors.New("codex authorization returned an invalid response")
 	}
 	form := url.Values{
 		"grant_type":    {"authorization_code"},
@@ -175,7 +175,7 @@ func (c *OAuthClient) completeCodexLogin(ctx context.Context, pending PendingLog
 	}
 	accountID := accountIDFromJWT(identity)
 	if token.RefreshToken == "" || accountID == "" {
-		return CompletedLogin{}, errors.New("Codex token exchange omitted account identity or refresh credentials")
+		return CompletedLogin{}, errors.New("codex token exchange omitted account identity or refresh credentials")
 	}
 	return CompletedLogin{Provider: ProviderCodex, ExternalAccountID: accountID, DisplayName: emailFromJWT(identity), RefreshToken: token.RefreshToken}, nil
 }
@@ -186,7 +186,7 @@ func (c *OAuthClient) completeClaudeLogin(ctx context.Context, pending PendingLo
 		return CompletedLogin{}, errors.New("expected Claude's code#state value")
 	}
 	if state != pending.State {
-		return CompletedLogin{}, errors.New("Claude authorization state did not match this login")
+		return CompletedLogin{}, errors.New("claude authorization state did not match this login")
 	}
 	var token struct {
 		RefreshToken string `json:"refresh_token"`
@@ -212,7 +212,7 @@ func (c *OAuthClient) completeClaudeLogin(ctx context.Context, pending PendingLo
 	}
 	externalID := ClaudeExternalAccountID(token.Account.UUID, token.Organization.UUID)
 	if token.RefreshToken == "" || externalID == "" {
-		return CompletedLogin{}, errors.New("Claude token exchange omitted account identity or refresh credentials")
+		return CompletedLogin{}, errors.New("claude token exchange omitted account identity or refresh credentials")
 	}
 	displayName := token.Account.Email
 	if token.Organization.Name != "" && displayName != "" {

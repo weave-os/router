@@ -11,7 +11,7 @@ import (
 
 // ErrWeaveCreditsDisabled refuses a turn that only Weave's own provider keys
 // could serve while the installation does not allow Weave credits.
-var ErrWeaveCreditsDisabled = errors.New("Weave credits are disabled and no customer plan or provider key can serve this request")
+var ErrWeaveCreditsDisabled = errors.New("weave credits are disabled and no customer plan or provider key can serve this request")
 
 // forcedModelUnfundedReason is the ForcedModelExcludedError reason for a
 // forced model no customer funding source can pay for; it also unwraps to

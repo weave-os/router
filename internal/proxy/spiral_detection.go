@@ -61,11 +61,11 @@ type spiralReason string
 // Spiral signal-class taxonomy. One event per (session, role, reason).
 const (
 	spiralReasonErrStreak      spiralReason = "err_streak"
-	spiralReasonSameFileThrash              = "same_file_thrash"
-	spiralReasonRepetition                  = "repetition"
-	spiralReasonMonologue                   = "monologue"
-	spiralReasonPingPong                    = "ping_pong"
-	spiralReasonNoProgress                  = "no_progress"
+	spiralReasonSameFileThrash spiralReason = "same_file_thrash"
+	spiralReasonRepetition     spiralReason = "repetition"
+	spiralReasonMonologue      spiralReason = "monologue"
+	spiralReasonPingPong       spiralReason = "ping_pong"
+	spiralReasonNoProgress     spiralReason = "no_progress"
 )
 
 func spiralReasonStrings(reasons []spiralReason) []string {
@@ -350,9 +350,9 @@ func (s *Service) handleSpiralShadow(
 				PingPongLen:        int32(sig.pingPongLen),
 				StepsSinceProgress: int32(sig.stepsSinceProgress),
 			}
-			// context.Background(): the request ctx may already be canceled;
+			// context.WithoutCancel: the request ctx may already be canceled;
 			// losing the row would skew the shadow fire-rate corpus.
-			if err := s.spiralShadowStore.InsertSpiralShadowEvent(context.Background(), event); err != nil {
+			if err := s.spiralShadowStore.InsertSpiralShadowEvent(context.WithoutCancel(ctx), event); err != nil {
 				log.Error("spiral-shadow: event insert failed", "err", err)
 				continue // leave the LRU unset so the next turn retries
 			}

@@ -66,7 +66,7 @@ func (s *Service) strikeRescuedModelsForTurn(ctx context.Context, proxyErr error
 		}
 		for _, strikeRole := range demotionRoles(role, pinRole) {
 			// The request ctx may already be canceled once the stream has ended.
-			if err := store.StrikeTurnModel(context.Background(), sessionKey, strikeRole, model); err != nil {
+			if err := store.StrikeTurnModel(context.WithoutCancel(ctx), sessionKey, strikeRole, model); err != nil {
 				log.Error("agent-turn model strike failed", "err", err, "role", strikeRole, "model", model)
 			}
 		}
@@ -80,7 +80,7 @@ func (s *Service) clearTurnStrikes(ctx context.Context, sessionKey [sessionpin.S
 		return
 	}
 	for _, role := range demotionRoles(pinRole, pinRole) {
-		if err := store.ClearTurnStrikes(context.Background(), sessionKey, role); err != nil {
+		if err := store.ClearTurnStrikes(context.WithoutCancel(ctx), sessionKey, role); err != nil {
 			observability.FromContext(ctx).Error("agent-turn strike clear failed", "err", err, "role", role)
 		}
 	}

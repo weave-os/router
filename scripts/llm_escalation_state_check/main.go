@@ -52,7 +52,7 @@ func check(ctx context.Context, dsn string) (checkErr error) {
 	scope := sha256.Sum256([]byte(uuid.NewString()))
 	cleanup := postgres.NewEscalationCheckFixture(pool, *installation, scope)
 	defer func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		checkErr = errors.Join(checkErr, cleanup.Cleanup(cleanupCtx))
 	}()
@@ -216,7 +216,7 @@ func check(ctx context.Context, dsn string) (checkErr error) {
 	}
 	dashboard := storedDashboard.Snapshot
 	if dashboard.Summary.ObservedSessions != 1 || dashboard.Summary.Evaluations != 1 || dashboard.Summary.Recommendations != 1 || dashboard.Summary.EscalationsApplied != 1 || dashboard.Summary.InvalidEvaluations < 2 {
-		return fmt.Errorf("Switchyard dashboard metrics did not reconcile: %+v", dashboard.Summary)
+		return fmt.Errorf("switchyard dashboard metrics did not reconcile: %+v", dashboard.Summary)
 	}
 	if dashboard.MatchingSessions != 0 || len(dashboard.Sessions) != 0 {
 		return errors.New("session outcome filter changed dashboard cohort or returned a mismatched row")
