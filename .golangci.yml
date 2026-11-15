@@ -9,6 +9,7 @@ linters:
     - depguard
     - dupl
     - errorlint
+    - exhaustive
   settings:
     dupl:
       threshold: 100
@@ -16,6 +17,8 @@ linters:
       comparison: true
       asserts: true
       errorf: false
+    exhaustive:
+      default-signifies-exhaustive: true
     depguard:
       rules:
         leaf:

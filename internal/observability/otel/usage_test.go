@@ -687,6 +687,8 @@ func TestUsageExtractor_OutputLimitEvidence(t *testing.T) {
 					if stream {
 						body = "data: " + body + "\n\n"
 					}
+				case providers.FamilyUnknown:
+					t.Fatalf("no fixture body for provider %q", tc.provider)
 				}
 				rec := httptest.NewRecorder()
 				ext := otel.NewUsageExtractor(rec, tc.provider)

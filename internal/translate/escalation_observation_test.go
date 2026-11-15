@@ -127,6 +127,7 @@ func TestEscalationObservationPreservesToolIdentityAcrossProtocols(t *testing.T)
 						calls = append(calls, block)
 					case translate.EscalationBlockToolResult:
 						outputs = append(outputs, block)
+					case translate.EscalationBlockText:
 					}
 				}
 			}

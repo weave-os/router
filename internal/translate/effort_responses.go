@@ -52,3 +52,9 @@ func ClampReasoningLevel(spec router.ModelSpec, level string) string {
 	}
 	return nearestReasoningLevel(levels, level)
 }
+
+// responsesReasoningEffort preserves client-selected effort. Routing policy may
+// select a model, but translation must not silently promote a valid level.
+func responsesReasoningEffort(eff, model string) string {
+	return eff
+}
