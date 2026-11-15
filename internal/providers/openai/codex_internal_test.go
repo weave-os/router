@@ -220,7 +220,7 @@ func TestProxy_CodexCredOnChatEndpointIsRejected(t *testing.T) {
 	ctx := codexCtx("eyJhbGciOiJ-codex-jwt", "acct-12345")
 	err := c.Proxy(ctx, router.Decision{Model: "gpt-5.6-sol", Provider: providers.ProviderOpenAI}, prep, rec, clientReq)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "Codex subscription credentials require a Responses endpoint")
+	assert.Contains(t, err.Error(), "codex subscription credentials require a Responses endpoint")
 	assert.Zero(t, requests, "Codex OAuth must never be sent to the public Chat Completions endpoint")
 }
 

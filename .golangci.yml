@@ -10,6 +10,10 @@ linters:
     - contextcheck
     - dupl
     - errorlint
+    - ineffassign
+    - staticcheck
+    - unused
+    - wastedassign
     - errcheck
     - bodyclose
     - nilerr
@@ -17,6 +21,14 @@ linters:
     - noctx
     - thelper
   settings:
+    staticcheck:
+      checks:
+        - all
+        - -ST1000
+        - -ST1003
+        - -ST1020
+        - -ST1021
+        - -ST1022
     errcheck:
       exclude-functions:
         - (*bufio.Writer).WriteString

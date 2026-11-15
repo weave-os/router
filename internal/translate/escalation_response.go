@@ -145,7 +145,7 @@ func escalationResponsesOutput(frames []gjson.Result, streaming bool) (Escalatio
 		if streaming {
 			switch escalationResponseEvent(frame.Get("type").String()) {
 			case escalationResponseFailed, escalationResponseIncomplete, escalationResponseError:
-				return EscalationResponse{}, fmt.Errorf("Responses stream did not complete")
+				return EscalationResponse{}, fmt.Errorf("responses stream did not complete")
 			case escalationResponseCompleted:
 				response = frame.Get("response")
 			default:
@@ -153,22 +153,22 @@ func escalationResponsesOutput(frames []gjson.Result, streaming bool) (Escalatio
 			}
 		}
 		if escalationResponseStatus(response.Get("status").String()) != escalationResponseStatusCompleted {
-			return EscalationResponse{}, fmt.Errorf("Responses response is not completed")
+			return EscalationResponse{}, fmt.Errorf("responses response is not completed")
 		}
 		output := response.Get("output")
 		if !output.IsArray() {
-			return EscalationResponse{}, fmt.Errorf("Responses completion has no output array")
+			return EscalationResponse{}, fmt.Errorf("responses completion has no output array")
 		}
 		observation, err := ParseResponsesEscalationObservation([]byte(`{"input":` + output.Raw + `}`))
 		if err != nil {
 			return EscalationResponse{}, err
 		}
 		if !observation.HistoryComplete {
-			return EscalationResponse{}, fmt.Errorf("Responses output has unresolved references")
+			return EscalationResponse{}, fmt.Errorf("responses output has unresolved references")
 		}
 		return EscalationResponse{ResponseID: response.Get("id").String(), Messages: observation.Messages}, nil
 	}
-	return EscalationResponse{}, fmt.Errorf("Responses stream has no completed event")
+	return EscalationResponse{}, fmt.Errorf("responses stream has no completed event")
 }
 
 func escalationAnthropicOutput(frames []gjson.Result, streaming bool) (EscalationResponse, error) {
@@ -177,7 +177,7 @@ func escalationAnthropicOutput(frames []gjson.Result, streaming bool) (Escalatio
 			return EscalationResponse{}, fmt.Errorf("invalid Anthropic response")
 		}
 		if !escalationAnthropicCompleted(escalationFinishReason(frames[0].Get("stop_reason").String())) {
-			return EscalationResponse{}, fmt.Errorf("Anthropic response did not complete")
+			return EscalationResponse{}, fmt.Errorf("anthropic response did not complete")
 		}
 		blocks, hasOmittedMedia, err := escalationContentBlocks(frames[0].Get("content"))
 		if err != nil {
@@ -196,14 +196,14 @@ func escalationAnthropicOutput(frames []gjson.Result, streaming bool) (Escalatio
 		index := int(frame.Get("index").Int())
 		switch escalationResponseEvent(frame.Get("type").String()) {
 		case escalationResponseError:
-			return EscalationResponse{}, fmt.Errorf("Anthropic stream failed")
+			return EscalationResponse{}, fmt.Errorf("anthropic stream failed")
 		case escalationMessageStart:
 			responseID = frame.Get("message.id").String()
 		case escalationMessageDelta:
 			if reason := frame.Get("delta.stop_reason"); reason.Exists() && reason.Type != gjson.Null {
 				finishReason = escalationFinishReason(reason.String())
 				if !escalationAnthropicCompleted(finishReason) {
-					return EscalationResponse{}, fmt.Errorf("Anthropic stream did not complete")
+					return EscalationResponse{}, fmt.Errorf("anthropic stream did not complete")
 				}
 			}
 		case escalationMessageStop:
@@ -241,7 +241,7 @@ func escalationAnthropicOutput(frames []gjson.Result, streaming bool) (Escalatio
 		}
 	}
 	if !complete || !escalationAnthropicCompleted(finishReason) {
-		return EscalationResponse{}, fmt.Errorf("Anthropic stream has no terminal event")
+		return EscalationResponse{}, fmt.Errorf("anthropic stream has no terminal event")
 	}
 	for index, textBuilder := range textBuilders {
 		block := blocks[index]
@@ -364,7 +364,7 @@ func escalationGeminiOutput(frames []gjson.Result) (EscalationResponse, error) {
 	}
 	for _, frame := range frames {
 		if frame.Get("error").Exists() {
-			return EscalationResponse{}, fmt.Errorf("Gemini response failed")
+			return EscalationResponse{}, fmt.Errorf("gemini response failed")
 		}
 		if frame.Get("responseId").Exists() {
 			responseID = frame.Get("responseId").String()
@@ -379,7 +379,7 @@ func escalationGeminiOutput(frames []gjson.Result) (EscalationResponse, error) {
 		candidate := candidates[0]
 		if reason := candidate.Get("finishReason"); reason.Exists() && reason.Type != gjson.Null {
 			if escalationFinishReason(reason.String()) != escalationGeminiStop {
-				return EscalationResponse{}, fmt.Errorf("Gemini response did not complete")
+				return EscalationResponse{}, fmt.Errorf("gemini response did not complete")
 			}
 			complete = true
 		}
@@ -401,7 +401,7 @@ func escalationGeminiOutput(frames []gjson.Result) (EscalationResponse, error) {
 		}
 	}
 	if !complete {
-		return EscalationResponse{}, fmt.Errorf("Gemini response has no terminal candidate")
+		return EscalationResponse{}, fmt.Errorf("gemini response has no terminal candidate")
 	}
 	flushText()
 	return EscalationResponse{ResponseID: responseID, Messages: []EscalationMessage{{Role: EscalationRoleAssistant, Blocks: blocks, HasOmittedMedia: hasOmittedMedia}}}, nil

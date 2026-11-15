@@ -35,7 +35,7 @@ const (
 var ErrInvalidAnthropicFederation = errors.New("invalid Anthropic workload federation configuration")
 
 // ErrAnthropicFederationUnavailable prevents fallback when configured federation fails.
-var ErrAnthropicFederationUnavailable = errors.New("Anthropic workload federation is unavailable")
+var ErrAnthropicFederationUnavailable = errors.New("anthropic workload federation is unavailable")
 
 // NormalizeAnthropicFederation prevents configuration from being silently ignored or
 // an exchanged token from being sent to a customer-controlled endpoint.

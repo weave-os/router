@@ -598,7 +598,7 @@ func TestResolveBinding_WaferTrailingBindings(t *testing.T) {
 	_, ok = ResolveBinding("z-ai/glm-5.2", map[string]struct{}{providers.ProviderWaferAnthropic: {}})
 	assert.False(t, ok)
 
-	b, ok = ResolveBinding("z-ai/glm-5.2", map[string]struct{}{providers.ProviderWafer: {}, providers.ProviderWaferAnthropic: {}})
+	_, ok = ResolveBinding("z-ai/glm-5.2", map[string]struct{}{providers.ProviderWafer: {}, providers.ProviderWaferAnthropic: {}})
 	assert.False(t, ok)
 
 	// kimi-k3.1: Fireworks leads, Together second, OpenRouter last.
