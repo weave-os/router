@@ -33,6 +33,7 @@ import (
 	"weave-os/router/internal/escalationmodal"
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/flags"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/observability/apm"
 	"weave-os/router/internal/observability/otel"
@@ -600,25 +601,7 @@ func main() {
 		WithFlagOverridesDisabled(flagOverridesDisabled).
 		WithSessionSpendCaps(billingSvc != nil)
 	subscriptionPoolsEnabled := config.GetOr("ROUTER_SUBSCRIPTION_POOLS_ENABLED", "false") == "true"
-	var subscriptionRuntime *subscriptions.Runtime
-	var subscriptionLogins admin.SubscriptionLoginFlow
-	if subscriptionPoolsEnabled {
-		authSvc.WithSubscriptionAccounts(repo.SubscriptionAccounts)
-		codexTokenURL := ""
-		if codexIssuer := strings.TrimRight(config.GetOr("WEAVE_CODEX_OAUTH_ISSUER", ""), "/"); codexIssuer != "" {
-			codexTokenURL = codexIssuer + "/oauth/token"
-		}
-		subscriptionOAuth := subscriptions.NewOAuthClient(
-			&http.Client{Timeout: subscriptions.RefreshHTTPTimeout}, codexTokenURL,
-			config.GetOr("WEAVE_ANTHROPIC_OAUTH_TOKEN", ""), time.Now,
-		)
-		authSvc.WithCodexEnrollmentVerifier(subscriptionOAuth)
-		subscriptionLogins = subscriptionOAuth
-		subscriptionRuntime = subscriptions.NewRuntime(authSvc, subscriptionOAuth, time.Now)
-		logger.Info("Server-side subscription account pools enabled")
-	} else {
-		logger.Info("Server-side subscription account pools disabled")
-	}
+	subscriptionRuntime, subscriptionLogins := buildSubscriptionRuntime(subscriptionPoolsEnabled, authSvc, repo.SubscriptionAccounts, logger)
 
 	// Fans out Pub/Sub invalidations to this replica's cache; the 5-min TTL
 	// is the safety net if the listener falls behind.
@@ -791,7 +774,6 @@ func main() {
 	// nativeOpenAIResponseSignals is the same kill switch for the OpenAI-native
 	// surfaces: chat/completions passthrough and /v1/responses passthrough.
 	nativeOpenAIResponseSignals := config.GetOr("ROUTER_NATIVE_OPENAI_RESPONSE_SIGNALS", "true") == "true"
-	sseKeepalive := sseKeepaliveInterval()
 	ccOrchToolsCrossVendor := config.GetOr("ROUTER_CC_ORCH_TOOLS_CROSSVENDOR", "true") == "true"
 	ccTaskToolsCrossVendor := config.GetOr("ROUTER_CC_TASK_TOOLS_CROSSVENDOR", "false") == "true"
 	ccAutonomySystemAppend := config.GetOr("ROUTER_CC_AUTONOMY_SYSTEM_APPEND", "false") == "true"
@@ -1387,7 +1369,7 @@ func main() {
 		WithProviderOverloaded(providerOverloaded, breaker.New(breaker.Defaults(), nil)).
 		WithNativeAnthropicResponseSignals(nativeAnthropicResponseSignals).
 		WithNativeOpenAIResponseSignals(nativeOpenAIResponseSignals).
-		WithSSEKeepalive(sseKeepalive).
+		WithIngress(ingress.New(sseKeepaliveInterval())).
 		WithPrefixTrimFreeSwitch(prefixTrimFreeSwitch).
 		WithHMMUpgradeConfidenceThreshold(hmmUpgradeConfidence).
 		WithAuthoritativeUpgradeConfig(upgradeConfig).
@@ -1433,7 +1415,7 @@ func main() {
 		logger.Error("Failed to configure atomic classifier", "err", err)
 		panic(err)
 	}
-	proxySvc = proxySvc.WithInferenceExecutor(inferenceExecutor).WithInferencePlans(inferencePlans).WithInferenceDeployment(inferenceDeployment)
+	proxySvc = withRoutingPolicy(proxySvc.WithInferenceExecutor(inferenceExecutor).WithInferencePlans(inferencePlans).WithInferenceDeployment(inferenceDeployment), inferencePlans)
 	if subscriptionRuntime != nil {
 		proxySvc.WithManagedSubscriptions(subscriptionRuntime)
 	}
@@ -1599,6 +1581,7 @@ func main() {
 	logger.Info("Router startup initialization complete")
 	serverFeatures := server.Features{
 		SubscriptionLogins:       subscriptionLogins,
+		SubscriptionRefresh:      subscriptionRuntime,
 		StartupDatabasePing:      pool.Ping,
 		TestPlans:                testPlans,
 		PolicyPinEnabled:         policyPinEnabled,

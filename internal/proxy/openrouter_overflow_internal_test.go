@@ -30,7 +30,7 @@ func newOverflowDispatch(activeProviders map[subscriptions.Provider]bool) *overf
 	}
 	d.svc = NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderAnthropic: d.anthropic, providers.ProviderOpenRouter: d.openRouter}, nil, nil, false, "", "", nil).
 		WithManagedSubscriptions(&stateModelLeaser{activeProviders: activeProviders})
-	d.svc.deploymentKeyedProviders = map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenAI: {}, providers.ProviderOpenRouter: {}}
+	d.svc.credentials.KeyedProviders = map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenAI: {}, providers.ProviderOpenRouter: {}}
 	return d
 }
 
@@ -137,7 +137,7 @@ func servedTargets(served []router.Decision) []router.Decision {
 
 func TestOpenRouterOverflowServesConfiguredModelRoutingCannotSee(t *testing.T) {
 	d := newOverflowDispatch(map[subscriptions.Provider]bool{})
-	d.svc.deploymentKeyedProviders = map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenRouter: {}}
+	d.svc.credentials.KeyedProviders = map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenRouter: {}}
 	ctx := context.WithValue(overflowContext(true), InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{"gpt-5.4"})
 
 	require.NoError(t, d.run(ctx, true))

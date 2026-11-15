@@ -28,6 +28,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/server/middleware"
+	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/trafficcapture"
 
@@ -147,7 +148,8 @@ type Features struct {
 	SubscriptionPoolsEnabled bool
 	// SubscriptionLogins runs browser reconnects for the control plane. Nil
 	// leaves enrollment on `router login` alone.
-	SubscriptionLogins admin.SubscriptionLoginFlow
+	SubscriptionLogins  admin.SubscriptionLoginFlow
+	SubscriptionRefresh subscriptions.AccountRefresher
 	// PolicyStatus adds the active stable policy release to /v1/version.
 	PolicyStatus admin.PolicyStatusSource
 	// RoutingDistribution backs the dial preview outside managed serving,
@@ -277,15 +279,8 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		internalGroup.POST("/provider-keys/models", admin.InternalListUpstreamModelsHandler(authSvc, proxySvc))
 		internalGroup.POST("/session-issuers", admin.InternalRegisterSessionIssuerHandler(authSvc))
 		internalGroup.DELETE("/session-issuers/:installationID/:kid", admin.InternalRevokeSessionIssuerHandler(authSvc))
-		if authSvc.SubscriptionAccountsEnabled() {
-			internalGroup.GET("/subscription-accounts/:subscriberID", admin.InternalListSubscriptionAccountsHandler(authSvc))
-			internalGroup.PATCH("/subscription-accounts/:subscriberID/:accountID", admin.InternalUpdateSubscriptionAccountHandler(authSvc))
-			internalGroup.DELETE("/subscription-accounts/:subscriberID/:accountID", admin.InternalDeleteSubscriptionAccountHandler(authSvc))
-			if features.SubscriptionLogins != nil {
-				internalGroup.POST("/subscription-logins/:subscriberID", admin.InternalStartSubscriptionLoginHandler(authSvc, features.SubscriptionLogins))
-				internalGroup.POST("/subscription-logins/:subscriberID/complete", admin.InternalCompleteSubscriptionLoginHandler(authSvc, features.SubscriptionLogins))
-			}
-		}
+		registerInternalSubscriptions(engine, internalGroup, authSvc, features, internalToken)
+
 		// Inference-policy inspection: the reviewed registry, the deployment's
 		// view of it, and a resolution preview. Read-only and content-free; the
 		// control plane mirrors these into its policy inventory.
