@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"weave-os/router/internal/billing"
 
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
@@ -3082,9 +3081,6 @@ func resolveSummarizerCreds(ctx context.Context, provider string, headers http.H
 	}
 	if byok := BuildCredentialsMap(externalKeysFromContext(ctx)); byok != nil {
 		if creds, ok := byok[provider]; ok {
-			if billing.ByokFeeUnpayable(ctx) {
-				return nil
-			}
 			return creds
 		}
 	}
