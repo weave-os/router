@@ -12,12 +12,24 @@ linters:
     - forcetypeassert
     - testifylint
     - unparam
+    - errcheck
+    - bodyclose
+    - nilerr
   settings:
     testifylint:
       enable-all: true
       disable:
         # translate tests assert byte-exact JSON output; JSONEq would hide key order and whitespace changes.
         - encoded-compare
+    errcheck:
+      exclude-functions:
+        - (*bufio.Writer).WriteString
+        - (*bufio.Writer).WriteByte
+        - (*bufio.Writer).WriteRune
+        - (*bufio.Writer).Write
+        - (*strings.Builder).WriteString
+        - (*strings.Builder).WriteByte
+        - (*bytes.Buffer).WriteString
     dupl:
       threshold: 100
     errorlint:

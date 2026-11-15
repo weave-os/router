@@ -78,7 +78,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(releaseDir)
+	defer func() { _ = os.RemoveAll(releaseDir) }()
 	if err := hmmstub.WriteRelease(releaseDir); err != nil {
 		return err
 	}
@@ -124,7 +124,7 @@ func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, 
 	if err != nil {
 		return err
 	}
-	defer logFile.Close()
+	defer func() { _ = logFile.Close() }()
 	command := exec.CommandContext(ctx, binary)
 	command.Env = workerEnv(dsn, pubsubAddress, port, policy, mode)
 	command.Stdout = logFile
@@ -243,7 +243,7 @@ func expectResponse(client *http.Client, request *http.Request, status int, cont
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(response.Body, 8192))
 	if err != nil {
 		return err

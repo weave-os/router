@@ -28,10 +28,10 @@ func TestVerificationSQLSharingOwnershipAndIsolation(t *testing.T) {
 	ctx := context.Background()
 	conn, err := pgx.Connect(ctx, dsn)
 	require.NoError(t, err)
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 	tx, err := conn.Begin(ctx)
 	require.NoError(t, err)
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	org, otherOrg, personal, shared, outsider, key := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	for _, installation := range []uuid.UUID{org, otherOrg} {
 		_, err = tx.Exec(ctx, `INSERT INTO router.model_router_installations(id,external_id,name) VALUES($1,$2,'verification')`, installation, installation.String())

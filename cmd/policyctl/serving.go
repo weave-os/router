@@ -159,7 +159,7 @@ func runServingWith(ctx context.Context, args []string, dependencies servingDepe
 		if err != nil {
 			return err
 		}
-		defer registry.Close()
+		defer func() { _ = registry.Close() }()
 		return servingProposalStatus(ctx, registry, ref, dependencies.writeOutput)
 	default:
 		if (*proposalPath == "") == (*proposalDigest == "") {
@@ -193,7 +193,7 @@ func servingPublish(ctx context.Context, dependencies servingDependencies, root 
 	if err != nil {
 		return err
 	}
-	defer registry.Close()
+	defer func() { _ = registry.Close() }()
 	reference, err := registry.PublishServingManifest(ctx, kind, payload)
 	if err != nil {
 		return err
@@ -209,7 +209,7 @@ func servingTargetStatus(ctx context.Context, dependencies servingDependencies, 
 	if err != nil {
 		return err
 	}
-	defer registry.Close()
+	defer func() { _ = registry.Close() }()
 	snapshot, err := registry.ReadServingState(ctx, target)
 	if err != nil {
 		return err
@@ -237,7 +237,7 @@ func servingApply(ctx context.Context, dependencies servingDependencies, root, p
 	if err != nil {
 		return err
 	}
-	defer registry.Close()
+	defer func() { _ = registry.Close() }()
 	if proposalPath == "" {
 		if proposalRef, err = registry.ServingRef(ctx, policyregistry.ServingProposal, proposalDigest); err != nil {
 			return err
@@ -288,7 +288,7 @@ func readServingReference(path string, reference *policyregistry.ObjectRef) erro
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	payload, err := io.ReadAll(io.LimitReader(file, (64<<10)+1))
 	if err != nil {
 		return err
@@ -352,7 +352,7 @@ func publishAdmissionInvalidation(ctx context.Context, project, topic string, ta
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	publisher := client.Publisher(topic)
 	defer publisher.Stop()
 	_, err = publisher.Publish(ctx, &gcppubsub.Message{Data: []byte(target)}).Get(ctx)

@@ -167,7 +167,7 @@ func (s *Source) exchange(ctx context.Context, federation *auth.AnthropicFederat
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", auth.ErrAnthropicFederationUnavailable, errTemporaryExchange)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		if response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= http.StatusInternalServerError {
 			return nil, fmt.Errorf("%w: %w (HTTP %d)", auth.ErrAnthropicFederationUnavailable, errTemporaryExchange, response.StatusCode)

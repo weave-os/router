@@ -132,7 +132,7 @@ func record(client *http.Client, c recordCase, apiKey string) (err error) {
 	if err != nil {
 		return fmt.Errorf("upstream call: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("read response: %w", err)

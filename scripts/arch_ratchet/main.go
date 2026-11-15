@@ -35,14 +35,14 @@ func main() {
 }
 
 func report(w io.Writer, result runResult) {
-	fmt.Fprintf(w, "arch_ratchet: %d violation(s) against merge base %s\n", len(result.violations), short(result.baseRev))
-	fmt.Fprintf(w, "Limits: cognitive complexity %d, %d lines and %d params per function, nesting depth %d, %d lines per file.\n",
+	_, _ = fmt.Fprintf(w, "arch_ratchet: %d violation(s) against merge base %s\n", len(result.violations), short(result.baseRev))
+	_, _ = fmt.Fprintf(w, "Limits: cognitive complexity %d, %d lines and %d params per function, nesting depth %d, %d lines per file.\n",
 		funcLimits[metricCognitive], funcLimits[metricLines], funcLimits[metricParams], funcLimits[metricNesting], limitFileLines)
 	for _, v := range result.violations {
-		fmt.Fprintf(w, "  %s\n", v)
+		_, _ = fmt.Fprintf(w, "  %s\n", v)
 	}
-	fmt.Fprintln(w, "Fix: split the code along a concept boundary (.agents/skills/fix-lint-gate-failure/SKILL.md).")
-	fmt.Fprintf(w, "Raising limits or adding //nolint is not an option; reviewed exceptions live in %s.\n", exceptionsPath)
+	_, _ = fmt.Fprintln(w, "Fix: split the code along a concept boundary (.agents/skills/fix-lint-gate-failure/SKILL.md).")
+	_, _ = fmt.Fprintf(w, "Raising limits or adding //nolint is not an option; reviewed exceptions live in %s.\n", exceptionsPath)
 }
 
 func short(rev string) string {
