@@ -254,7 +254,7 @@ func TestCodexOutOfRosterModel_ChatOnlyRequestDoesNotBypassIncludedQuota(t *test
 func TestCodexOutOfRosterModel_ChatOnlyRequestWithoutAPICredentialRefusesBeforeDispatch(t *testing.T) {
 	client := &scriptedFundingClient{}
 	svc := outOfRosterFundingService(client, translate.ReasonUserForceModel, &auxBillingRepo{})
-	svc.deploymentKeyedProviders = nil
+	svc.credentials.KeyedProviders = nil
 	ctx := outOfRosterBillingCtx(codexSubscriptionTestCtx())
 	body := `{"model":"gpt-6-astra","stream":true,"n":2,"messages":[{"role":"user","content":"synthetic"}]}`
 	rec := httptest.NewRecorder()

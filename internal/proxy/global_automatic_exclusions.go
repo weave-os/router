@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/routingpolicy"
 )
 
 // globalAutomaticExclusionTTL bounds how stale a replica's snapshot may be.
@@ -75,19 +76,6 @@ func (c *globalAutomaticExclusionCache) snapshot(ctx context.Context) map[string
 	return byModel
 }
 
-// modelSet renders a model ID list as an exclusion set, nil when empty so
-// callers keep their existing map untouched.
-func modelSet(ids []string) map[string]struct{} {
-	if len(ids) == 0 {
-		return nil
-	}
-	set := make(map[string]struct{}, len(ids))
-	for _, id := range ids {
-		set[id] = struct{}{}
-	}
-	return set
-}
-
 // mergeExcludedModels returns the union of hard and automatic exclusions.
 func mergeExcludedModels(hard, automatic map[string]struct{}) map[string]struct{} {
 	if len(automatic) == 0 {
@@ -145,3 +133,5 @@ func (s *Service) globalAutomaticExclusionReason(ctx context.Context, model stri
 	}
 	return "", false
 }
+
+func modelSet(ids []string) map[string]struct{} { return routingpolicy.ModelSet(ids) }

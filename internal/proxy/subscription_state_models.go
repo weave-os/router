@@ -227,9 +227,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 			!codexSubscriptionModelRejected(err) && !anthropicSubscriptionModelRejected(err) && !codexOAuthCredentialRejected(err) && !anthropicOAuthCredentialRejected(err) && !anthropicSubscriptionThirdPartyRefused(err) {
 			return winner, err
 		}
-		if providers.IsUpstreamRateLimited(err) {
-			includedFailure = err
-		}
+		includedFailure = includedFailureAfter(includedFailure, err, ownCodexLoginRejected(ctx, in.subscriptionStateHeaders, s.usageObserver))
 		observability.FromContext(ctx).Info("Subscription model unavailable; selecting another included target", "model", target.Model, "provider", target.Provider)
 		recordTurnFailure(ctx, target.Model)
 		if !hasFixedTarget {
@@ -246,8 +244,8 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 			break
 		}
 	}
-	if billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
-		return -1, subscriptionPoolExhausted(ctx)
+	if err := includedLaneVerdict(ctx, includedFailure, ownCodexLoginRejected(ctx, in.subscriptionStateHeaders, s.usageObserver)); err != nil {
+		return -1, flushIncludedLaneVerdict(in, err)
 	}
 	if ctx.Err() != nil {
 		return -1, ctx.Err()

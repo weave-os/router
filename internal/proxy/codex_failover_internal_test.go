@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"weave-os/router/internal/credentials"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -54,7 +55,7 @@ func TestCodexFailover_EligibilityAndSuppression(t *testing.T) {
 	})
 
 	t.Run("deployment OpenAI key present: eligible", func(t *testing.T) {
-		s := &Service{deploymentKeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}}
+		s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}}}
 		assert.True(t, s.openaiFallbackKeyAvailable(ctx),
 			"a deployment OpenAI key is a valid failover target for a spent ChatGPT plan")
 	})
@@ -189,8 +190,8 @@ func TestCodexReconnectNudgeDistinguishesRejectedCredentialsFromSpentQuota(t *te
 // as having slack and every later turn re-buys the same rejected round-trip.
 func TestCodexQuotaExhaustion_RecordedForLaterTurns(t *testing.T) {
 	svc := &Service{
-		usageObserver:            usage.NewObserver([]byte("test-salt"), time.Hour, time.Now),
-		deploymentKeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}},
+		usageObserver: usage.NewObserver([]byte("test-salt"), time.Hour, time.Now),
+		credentials:   credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}},
 	}
 	ctx := codexSubscriptionTestCtx()
 	headers := http.Header{}
@@ -259,8 +260,8 @@ func TestCodexQuotaExhaustion_SuppressionLastsUntilThePlanResets(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			clock := time.Now()
 			svc := &Service{
-				usageObserver:            usage.NewObserver([]byte("test-salt"), time.Minute, func() time.Time { return clock }),
-				deploymentKeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}},
+				usageObserver: usage.NewObserver([]byte("test-salt"), time.Minute, func() time.Time { return clock }),
+				credentials:   credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}},
 			}
 			ctx, headers := codexSubscriptionTestCtx(), http.Header{}
 
