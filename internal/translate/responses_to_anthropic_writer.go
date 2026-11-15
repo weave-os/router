@@ -369,6 +369,7 @@ func (t *ResponsesToAnthropicWriter) translateResponsesEvent(raw []byte) error {
 		}
 		t.captureFinalResponse(data)
 		return nil
+	default:
 	}
 	return nil
 }
@@ -398,6 +399,7 @@ func (t *ResponsesToAnthropicWriter) handleOutputItemAdded(data []byte) error {
 		return t.emitContentBlockStartTool(index, t.toolLedger.ProjectID(oi, sanitizeToolUseID), entry.Name)
 	case responsesReasoningItem:
 		t.captureReasoningSignature(oi, item)
+	case responsesMessageItem, responsesCustomToolCallItem, responsesComputerCallItem:
 	}
 	return nil
 }
@@ -787,19 +789,6 @@ func malformedResponsesFrame(data []byte) bool {
 		return false
 	}
 	return !gjson.ValidBytes(data)
-}
-
-func responsesTerminalIsFailure(resp gjson.Result) bool {
-	if !resp.Exists() {
-		return true
-	}
-	if resp.Get("status").String() == "failed" {
-		return true
-	}
-	if err := resp.Get("error"); err.Exists() && err.Type != gjson.Null {
-		return true
-	}
-	return resp.Get("status").String() == "incomplete" && resp.Get("incomplete_details.reason").String() != "max_output_tokens"
 }
 
 // responsesError builds an Anthropic error envelope from a Responses-style

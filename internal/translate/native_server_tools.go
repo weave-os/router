@@ -94,6 +94,7 @@ func nativeServerTool(tool gjson.Result, format Format) (name, typ string, ok bo
 				return key, key, true
 			}
 		}
+	case FormatOpenAIResponses:
 	}
 	return "", "", false
 }

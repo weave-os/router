@@ -83,6 +83,8 @@ func TestCommandOutcomesAcrossSurfaces(t *testing.T) {
 						err = svc.ProxyOpenAIChatCompletion(requestContext, encoded, rec, req)
 					case translate.FormatOpenAIResponses:
 						err = svc.ProxyOpenAIResponses(requestContext, encoded, rec, req)
+					case translate.FormatGemini:
+						t.Fatalf("unexpected surface %v", surface)
 					}
 					require.NoError(t, err)
 					outcome := readCommandOutcome(t, rec)

@@ -12,6 +12,7 @@ linters:
     - errcheck
     - bodyclose
     - nilerr
+    - exhaustive
     - noctx
     - thelper
   settings:
@@ -30,6 +31,8 @@ linters:
       comparison: true
       asserts: true
       errorf: false
+    exhaustive:
+      default-signifies-exhaustive: true
     depguard:
       rules:
         leaf:
