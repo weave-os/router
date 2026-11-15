@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -269,7 +270,7 @@ func (s *Service) handleLoopEscalation(
 			Reason:          translate.ReasonLoopEscalation,
 			Strategy:        router.StrategyFromContext(ctx),
 			TurnCount:       1,
-			PinnedUntil:     time.Now().Add(pinSessionTTL),
+			PinnedUntil:     time.Now().Add(routingpolicy.PinSessionTTL),
 			LastServedModel: lastServed,
 		}
 		// context.Background(): the request ctx may already be canceled by the

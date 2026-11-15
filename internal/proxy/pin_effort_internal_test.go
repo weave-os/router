@@ -148,14 +148,15 @@ func TestRefreshPin_CarriesEffortForward(t *testing.T) {
 		Effort:   "xhigh",
 		Reason:   translate.ReasonUserForceModel,
 	}
-	routingpolicy.NewSessionPins(svc.pinStore).Refresh(context.Background(), uuid.New(), [sessionpin.SessionKeyLen]byte{},
+	sessionPins := routingpolicy.NewSessionPins(svc.pinStore)
+	sessionPins.Refresh(context.Background(), uuid.New(), [sessionpin.SessionKeyLen]byte{},
 		existing, "default", router.Decision{
 			Provider: existing.Provider, Model: existing.Model, Reason: existing.Reason,
 		})
 	require.Len(t, store.upserts, 1)
 	assert.Equal(t, "xhigh", store.upserts[0].Effort)
 
-	routingpolicy.NewSessionPins(svc.pinStore).Refresh(context.Background(), uuid.New(), [sessionpin.SessionKeyLen]byte{},
+	sessionPins.Refresh(context.Background(), uuid.New(), [sessionpin.SessionKeyLen]byte{},
 		existing, "default", router.Decision{
 			Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5",
 		})
