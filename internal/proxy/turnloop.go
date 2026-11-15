@@ -839,7 +839,7 @@ func (s *Service) runTurnLoop(
 			applyAgreementShadowTelemetry(ctx, &params, res)
 			if params.agreementShadow != nil {
 				log := observability.FromContext(ctx)
-				observability.SafeGo(log, 5*time.Second, "agreementShadowRoutingFailure", func(shadowCtx context.Context) {
+				observability.SafeGoContext(ctx, log, 5*time.Second, "agreementShadowRoutingFailure", func(shadowCtx context.Context) {
 					s.recordAgreementShadow(shadowCtx, log, params)
 				})
 			}
@@ -3054,7 +3054,7 @@ func (s *Service) upsertPin(ctx context.Context, p sessionpin.Pin) {
 	if p.Strategy == "" {
 		p.Strategy = router.StrategyFromContext(ctx)
 	}
-	if err := s.pinStore.Upsert(context.Background(), p); err != nil {
+	if err := s.pinStore.Upsert(context.WithoutCancel(ctx), p); err != nil {
 		log.Error("session pin upsert failed", "err", err)
 		return
 	}

@@ -30,7 +30,7 @@ func (r *LLMEscalationRepo) GetSelection(ctx context.Context, installation strin
 	if err != nil {
 		return llmescalation.Selection{}, err
 	}
-	return escalationSelection(installation, encoded)
+	return escalationSelection(ctx, installation, encoded)
 }
 
 // SetSelection atomically patches only escalation settings and their legacy mirrors.
@@ -76,14 +76,14 @@ func (r *LLMEscalationRepo) SetSelection(ctx context.Context, installation strin
 	if err != nil {
 		return llmescalation.Selection{}, err
 	}
-	return escalationSelection(installation, updated)
+	return escalationSelection(ctx, installation, updated)
 }
 
-func escalationSelection(installation string, encoded []byte) (llmescalation.Selection, error) {
+func escalationSelection(ctx context.Context, installation string, encoded []byte) (llmescalation.Selection, error) {
 	overrides, err := flags.ParseOverrides(encoded)
 	if err != nil {
 		return llmescalation.Selection{}, err
 	}
-	effective := flags.EscalationFromContext(flags.WithOverrides(context.Background(), overrides))
+	effective := flags.EscalationFromContext(flags.WithOverrides(ctx, overrides))
 	return llmescalation.Selection{InstallationID: installation, Active: effective.Active, Shadow: effective.Shadow, Cadence: effective.Cadence, Epoch: effective.Epoch}, nil
 }

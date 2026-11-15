@@ -56,7 +56,7 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 	scope := sha256.Sum256([]byte(uuid.NewString()))
 	fixture := postgres.NewEscalationCheckFixture(pool, *installation, scope)
 	defer func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		checkErr = errors.Join(checkErr, fixture.Cleanup(cleanupCtx))
 	}()
