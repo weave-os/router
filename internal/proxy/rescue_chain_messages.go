@@ -22,8 +22,6 @@ type messagesRescue struct {
 	*rescueChain
 	feats                   translate.RoutingFeatures
 	agentShadowMode         bool
-	overflowEstimate        int
-	outputReserve           int
 	earlyStop               *dispatch.EarlyStopGate
 	streamCut               *streamCutObserver
 	attemptBuildErr         error
@@ -121,38 +119,7 @@ func (m *messagesRescue) armSubscriptionRetry(ctx context.Context) {
 }
 
 func (m *messagesRescue) armRescues(ctx context.Context) context.Context {
-	s := m.svc
-	env := m.env
-	routeRes := m.routeRes
-	// Same-cluster model failover: when the routed model's only binding is dark,
-	// degrade to a peer the policy already scored. Gated out for depleted-credit
-	// turns (a different model incurs the paid spend that mode forbids). BYOK
-	// normally disables failover, but a gateway-aliased sibling uses the same
-	// held credentials, so it stays eligible.
-	// The plan-capacity mark set during dispatch must be readable here.
-	ctx = withClaudeEnterpriseTurn(ctx, m.decision)
-	ctx = WithManagedSubscriptionUsage(ctx)
-	m.siblingDecisions = subscriptionStatePaidRescueDecisions(ctx, s.siblingFailoverDecisions(ctx, rescueBasisForTurn(m.decision, routeRes), m.overflowEstimate, env.SignatureTokenSavings(), m.outputReserve))
-	m.siblingViable = len(m.siblingDecisions) > 0 &&
-		!m.agentShadowMode &&
-		!routeRes.CallerModelPassthrough &&
-		m.decision.Reason != translate.ReasonUserForceModel &&
-		s.siblingRescueAllowed(ctx, s.gatewaySiblingAllowed(ctx, m.siblingDecisions[0]))
-	// When the plan credential is the only reason the walk is open, the walk
-	// must wait for the plan's own 5xx mark: a 429 or timeout on the plan must
-	// not buy a paid sibling.
-	m.subscriptionOnlySibling = m.siblingViable && !s.shouldFailover(ctx) &&
-		!s.gatewaySiblingAllowed(ctx, m.siblingDecisions[0]) && s.subscriptionSiblingAllowed(ctx)
-	m.overflowRescue = s.overflowRescueDecisions(ctx, m.decision, m.overflowEstimate, env.SignatureTokenSavings(), m.outputReserve)
-	m.overflowRescueViable = len(m.overflowRescue) > 0 &&
-		!m.agentShadowMode &&
-		!routeRes.CallerModelPassthrough &&
-		m.decision.Reason != translate.ReasonUserForceModel &&
-		s.siblingRescueAllowed(ctx, true)
-	// Either rescue holds the primary's error until it knows whether it runs.
-	m.rescueArmed = m.siblingViable || m.overflowRescueViable
-	m.overflowRescueOnly = m.overflowRescueViable && !m.siblingViable
-	return ctx
+	return m.armSiblings(ctx, m.agentShadowMode || m.routeRes.CallerModelPassthrough || m.decision.Reason == translate.ReasonUserForceModel)
 }
 
 func (m *messagesRescue) armEarlyStop(ctx context.Context) {
@@ -364,17 +331,14 @@ func (m *messagesRescue) finish(ctx context.Context) {
 	m.proxyErr = asRequestedWindowOverflow(m.proxyErr, m.requestedWindowPassed, preludeBuf.Committed())
 
 	m.subscriptionFailoverUsed = m.subscriptionFailoverUsed || subscriptionCredentialFallbackUsed(ctx)
-	m.finalProvider = m.primaryProvider
-	if m.subscriptionStateWinnerProvider != "" {
-		m.finalProvider = m.subscriptionStateWinnerProvider
-	} else if m.winnerIdx >= 0 && m.winnerIdx < len(m.bindings) {
-		m.finalProvider = m.bindings[m.winnerIdx].Provider
-	} else if m.baselineAttempted {
+	unservedProvider := m.primaryProvider
+	if m.baselineAttempted {
 		// Baseline ran but no binding served (winnerIdx == -1); the last
 		// attempt was Anthropic with the baseline model, so finalProvider must
 		// not revert to the OSS primary that never served it.
-		m.finalProvider = providers.ProviderAnthropic
+		unservedProvider = providers.ProviderAnthropic
 	}
+	m.finalProvider = m.servedProvider(unservedProvider)
 	m.decision.Provider = m.finalProvider
 	// Same-provider subscription->Weave retries keep finalProvider ==
 	// primaryProvider, so OR in subscriptionFailoverUsed.

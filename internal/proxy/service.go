@@ -4486,30 +4486,31 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// this function's ctx, so it must see what the previous step left.
 	rescue := &messagesRescue{
 		rescueChain: &rescueChain{
-			svc:          s,
-			r:            r,
-			log:          log,
-			env:          env,
-			routeRes:     routeRes,
-			req:          &req,
-			opts:         opts,
-			contentSink:  contentSink,
-			preludeBuf:   preludeBuf,
-			attempt:      attempt,
-			buildAttempt: buildAttempt,
-			surface:      inference.PurposeAnthropicMessages,
-			respSummary:  &respSummary,
-			reqStats:     &reqStats,
-			decision:     decision,
-			bindings:     bindings,
-			marker:       marker,
-			proxyErr:     proxyErr,
-			effortServed: effortServed,
+			svc:              s,
+			r:                r,
+			log:              log,
+			env:              env,
+			routeRes:         routeRes,
+			req:              &req,
+			opts:             opts,
+			contentSink:      contentSink,
+			preludeBuf:       preludeBuf,
+			attempt:          attempt,
+			buildAttempt:     buildAttempt,
+			surface:          inference.PurposeAnthropicMessages,
+			respSummary:      &respSummary,
+			reqStats:         &reqStats,
+			decision:         decision,
+			bindings:         bindings,
+			marker:           marker,
+			proxyErr:         proxyErr,
+			effortServed:     effortServed,
+			overflowEstimate: overflowEstimate,
+			outputReserve:    outputReserve,
 		},
-		feats:                     feats,
-		agentShadowMode:           agentShadowMode,
-		overflowEstimate:          overflowEstimate,
-		outputReserve:             outputReserve,
+		feats:           feats,
+		agentShadowMode: agentShadowMode,
+
 		earlyStop:                 earlyStop,
 		streamCut:                 streamCut,
 		attemptBuildErr:           attemptBuildErr,
@@ -7123,453 +7124,63 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		return attemptBuildErr
 	}
 
-	// OpenAI's cybersecurity classifier declines the turn itself, so the rescue
-	// has to leave the vendor — a retry on another OpenAI binding meets the same
-	// classifier. Resolved pre-dispatch: the refusal gate must be armed before
-	// the first upstream byte, and the primary dispatch has to hold its
-	// exhaustion flush so the refusal envelope can still be swallowed.
-	_, explicitRequestedModel := catalog.ByID(routeRequest.RequestedModel)
-	cyberRetryEligible := s.ResolveCyberRefusalRetry(ctx) &&
-		!routeRes.CallerModelPassthrough &&
-		decision.Provider == providers.ProviderOpenAI &&
-		!strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel) &&
-		!s.isHardPinnedTurn(ctx, routeRes.TurnType) &&
-		!billing.SubscriptionOnlyFromContext(ctx)
-	var cyberRetryTarget router.Decision
-	cyberRetryViable := false
-	if cyberRetryEligible {
-		target, found := s.cyberRefusalRetryTarget(ctx, decision, routeRes.SessionKey, stickyStateRole(routeRes),
-			overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI)
-		cyberRetryViable = found && (s.shouldFailover(ctx) || s.gatewaySiblingAllowed(ctx, target)) &&
-			(!subscriptionStateModelsEnabled(ctx) || !paidFallbackForbiddenForModel(ctx, target.Model))
-		cyberRetryTarget = target
-	}
-	cyberRetryArmed = cyberRetryViable
-
-	// Codex-subscription failover: a turn served on the caller's ChatGPT plan is
-	// pinned to that one credential, so a plan throttle (429 usage_limit_reached)
-	// or a rejected OAuth token has no binding to walk and reaches Codex raw.
-	// Retry the same model once on the Weave/BYOK OpenAI key so an exhausted plan
-	// rolls over to Weave credits. Suppressed when credits are depleted, where
-	// paid spend is exactly what the caller forbade; a linked-first turn's
-	// credits are intact, so its throttle rolls over like any other.
-	codexRetryViable := decision.Provider == providers.ProviderOpenAI &&
-		servedOnCodexSubscription(ctx) &&
-		!paidFallbackForbiddenForModel(ctx, decision.Model) &&
-		s.openaiFallbackKeyAvailable(ctx)
-	// OpenAI-compatible callers can route to Anthropic too; give their Claude
-	// subscription model-access and third-party refusals the same paid recovery
-	// as /v1/messages.
-	claudeRetryViable := decision.Provider == providers.ProviderAnthropic &&
-		servedOnSubscription(ctx) &&
-		!paidFallbackForbiddenForModel(ctx, decision.Model) &&
-		s.anthropicFallbackKeyAvailable(ctx)
-
-	ctx = withClaudeEnterpriseTurn(ctx, decision)
-	ctx = WithManagedSubscriptionUsage(ctx)
-	siblingDecisions := subscriptionStatePaidRescueDecisions(ctx, s.siblingFailoverDecisions(ctx, rescueBasisForTurn(decision, routeRes), overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI))
-	siblingViable := len(siblingDecisions) > 0 &&
-		!routeRes.CallerModelPassthrough &&
-		!strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel) &&
-		s.siblingRescueAllowed(ctx, s.gatewaySiblingAllowed(ctx, siblingDecisions[0]))
-	subscriptionOnlySibling := siblingViable && !s.shouldFailover(ctx) &&
-		!s.gatewaySiblingAllowed(ctx, siblingDecisions[0]) && s.subscriptionSiblingAllowed(ctx)
-	overflowRescue := s.overflowRescueDecisions(ctx, decision, overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI)
-	overflowRescueViable := len(overflowRescue) > 0 &&
-		!routeRes.CallerModelPassthrough &&
-		!strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel) &&
-		s.siblingRescueAllowed(ctx, true)
-	// Either rescue holds the primary's error until it knows whether it runs.
-	rescueArmed := siblingViable || overflowRescueViable
-	overflowRescueOnly := overflowRescueViable && !siblingViable
-	preOutputRescueArmed = codexRetryViable || rescueArmed
-
-	primaryProvider := decision.Provider
-	primaryModel := decision.Model
-	primaryDecision := decision
-	// The routed badge, kept for subscription-state targets that land back on
-	// the original pick after a sibling failed.
-	pickedMarker := marker
 	surfacePurpose := inference.PurposeOpenAIChatCompletions
 	if isResponsesWriter {
 		surfacePurpose = inference.PurposeOpenAIResponses
 	}
-	var winnerIdx int
-	var subscriptionStateWinnerProvider string
-	subscriptionStatePaidTargetAttempted := false
-	// A released prelude can only take an SSE error frame, so every dispatch in
-	// the chain renders through this — a JSON envelope appended to a live stream
-	// is unparseable to the client.
-	flushErrAsOpenAI := func(w http.ResponseWriter, err error) {
-		// Native Responses bytes are passed through verbatim; there is no
-		// error frame we can synthesize into that stream.
-		if isResponses && responsesPreludeBuf != nil && responsesPreludeBuf.PreludeSent() {
-			return
-		}
-		if env.Stream() && preludeBuf.PreludeSent() {
-			_ = emitOpenAISSEErrorEvent(w, err)
-			return
-		}
-		// Pre-commit, the handler renders the classified sentinel itself.
-		if isSubscriptionPoolError(err) {
-			return
-		}
-		flushBufferedIfPresent(w, err)
-	}
-	winnerIdx, proxyErr = s.dispatchWithFallback(ctx, failoverInputs{
-		// contentSink is the raw w when capture is off.
-		w:                               contentSink,
-		buf:                             preludeBuf,
-		initialDecision:                 decision,
-		subscriptionStateRequest:        &routeRequest,
-		subscriptionStateHeaders:        r.Header,
-		subscriptionStateWinnerProvider: &subscriptionStateWinnerProvider,
-		alternatives: func() []router.Decision {
-			if routeRes.HardPinned || routeRes.AuthoritativePerTurn {
-				return nil
-			}
-			return s.subscriptionAlternativeDecisions(ctx, routeRequest, decision)
-		}(),
-		buildAlternative: func(target router.Decision) (dispatchAttempt, error) {
-			alternativeOpts, _ := switchedAttemptOptions(ctx, opts, target, routeRes.EscalateEffort, s.resolveEffort)
-			alternativeMarker := subscriptionTargetMarker(ctx, r.Header, routeRes, primaryDecision, target, pickedMarker)
-			alternativeCtx := s.resolveCredentials(ctx, target.Provider, target.Model, r.Header)
-			return buildAttempt(target, alternativeOpts, alternativeMarker, alternativeCtx)
+	// Each step hands ctx back here before the next runs: buildAttempt reads
+	// this function's ctx, so it must see what the previous step left.
+	rescue := &chatRescue{
+		rescueChain: &rescueChain{
+			svc:              s,
+			r:                r,
+			log:              log,
+			env:              env,
+			routeRes:         routeRes,
+			req:              &routeRequest,
+			opts:             opts,
+			contentSink:      contentSink,
+			preludeBuf:       preludeBuf,
+			attempt:          attempt,
+			buildAttempt:     buildAttempt,
+			surface:          surfacePurpose,
+			overflowEstimate: overflowEstimateOAI,
+			outputReserve:    outputReserveOAI,
+			respSummary:      &respSummary,
+			decision:         decision,
+			bindings:         bindings,
+			marker:           marker,
+			proxyErr:         proxyErr,
+			effortServed:     effortServed,
 		},
-		onAlternative: func(target router.Decision) {
-			overloadedModel := decision.Model
-			decision = target
-			bindings = s.resolveBindingsForDispatch(ctx, target)
-			marker = siblingMarkerFor(ctx, r.Header, routeRes, overloadedModel, target.Model)
-		},
-		onSubscriptionStateTarget: func(target router.Decision, targetBindings []catalog.ProviderBinding) {
-			marker = subscriptionTargetMarker(ctx, r.Header, routeRes, primaryDecision, target, pickedMarker)
-			decision = target
-			bindings = targetBindings
-		},
-		onSubscriptionStatePaidTarget: func(router.Decision, []catalog.ProviderBinding) {
-			subscriptionStatePaidTargetAttempted = true
-		},
-		bindings:               bindings,
-		attempt:                attempt,
-		flushErr:               flushErrAsOpenAI,
-		deferFlushOnExhaustion: cyberRetryViable || codexRetryViable || claudeRetryViable || rescueArmed,
-		purpose:                routeRes.dispatchPurpose(surfacePurpose),
-		origin:                 routeRes.dispatchOrigin(decision),
-	})
-	if subscriptionStatePaidTargetAttempted {
-		codexRetryViable = false
-		claudeRetryViable = false
+		isResponses:          isResponses,
+		responsesPreludeBuf:  responsesPreludeBuf,
+		cyberRefusalSeen:     &cyberRefusalSeen,
+		cyberRetryArmed:      &cyberRetryArmed,
+		preOutputRescueArmed: &preOutputRescueArmed,
 	}
-	primaryFailureErr := proxyErr
-	subscriptionPoolFailure := isSubscriptionPoolError(proxyErr)
-	primarySubscriptionArmFailure := proxyErr
-	if (servedOnSubscription(ctx) || subscriptionOnlySibling) && !preludeBuf.Committed() {
-		s.recordSubscriptionUnavailable(ctx, decision.Provider, decision.Model, proxyErr)
-	}
-	cyberRefusalSeen = cyberRefusalSeen || providers.IsUpstreamCyberPolicyRefusal(proxyErr)
-
-	// The deferred upstream error must reach the client exactly once: the rescue
-	// owns it, and flushes it itself when it declines to run. A managed-pool
-	// failure is rendered by the handler from the classified sentinel, so the
-	// proxy must not write it here as well.
-	deferredErrFlushed := false
-	flushDeferredErr := func() {
-		if deferredErrFlushed {
-			return
-		}
-		deferredErrFlushed = true
-		if isResponses && responsesPreludeBuf != nil && responsesPreludeBuf.PreludeSent() {
-			return
-		}
-		if env.Stream() && preludeBuf.PreludeSent() {
-			// The handler cannot render anything once the client has bytes,
-			// so an in-stream frame is the only way the turn reports at all —
-			// including for a pool sentinel, which would otherwise truncate
-			// the stream silently. Keep the sentinel as the returned error so
-			// the handler still classifies and logs it.
-			sseErr := emitOpenAISSEErrorEvent(contentSink, proxyErr)
-			if !subscriptionPoolFailure {
-				proxyErr = sseErr
-			}
-			return
-		}
-		// Pre-commit, the handler renders the classified sentinel itself.
-		if subscriptionPoolFailure {
-			return
-		}
-		flushBufferedIfPresent(contentSink, proxyErr)
-	}
-
-	codexFailoverUsed := false
-	codexRetryRan := false
-	if codexRetryViable && !paidFallbackForbiddenForModel(ctx, decision.Model) && proxyErr != nil && !preludeBuf.Committed() &&
-		(providers.IsRetryable(proxyErr) || codexOAuthCredentialRejected(proxyErr) || codexSubscriptionModelRejected(proxyErr)) {
-		// Remember the plan is spent so later turns suppress the token pre-dispatch
-		// instead of buying another rejected round-trip per turn until it resets.
-		s.recordCodexQuotaExhaustion(ctx, r.Header, proxyErr)
-		subCtx := subscriptionStatePaidRescueContext(withSuppressedCodexSubscription(ctx), decision.Model)
-		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderOpenAI, decision.Model, r.Header)
-		subOpts := opts
-		subOpts.FastMode = fastModeForAttempt(subCtx, decision.Model, providers.ProviderOpenAI)
-		subAttempt, subBuildErr := buildAttempt(decision, subOpts, marker, subCtx)
-		subBindings := s.resolveBindingsForDispatch(subCtx, decision)
-		switch {
-		case subBuildErr != nil:
-			log.Error("Codex subscription failover: preparing the Weave-key retry failed; surfacing the original error",
-				"err", subBuildErr, "model", decision.Model)
-		case len(subBindings) == 0:
-			// No usable OpenAI binding under suppression — surface the real
-			// upstream error rather than a synthetic failure that masks it.
-			log.Warn("Codex subscription failover: no fallback OpenAI binding available; surfacing the original error",
-				"model", decision.Model, "upstream_status", upstreamStatus(proxyErr))
-		default:
-			log.Warn("Codex subscription failover: ChatGPT plan rejected the turn, retrying on Weave credits",
-				"model", decision.Model,
-				"err", proxyErr,
-				"upstream_status", upstreamStatus(proxyErr),
-				"request_id", requestID)
-			codexRetryRan = true
-			respSummary = translate.ResponseSummary{}
-			subscriptionErr := proxyErr
-			winnerIdx, proxyErr = s.dispatchWithFallback(subCtx, failoverInputs{
-				w:               contentSink,
-				buf:             preludeBuf,
-				initialDecision: decision,
-				bindings:        subBindings,
-				attempt:         subAttempt,
-				flushErr:        flushErrAsOpenAI,
-				// A failed retry keeps the same model; hold the error so the
-				// cyber-refusal rescue below can still serve the turn.
-				deferFlushOnExhaustion: cyberRetryViable || rescueArmed,
-				purpose:                routeRes.dispatchPurpose(surfacePurpose),
-				origin:                 routeRes.dispatchOrigin(decision),
-			})
-			bindings = subBindings
-			codexFailoverUsed = proxyErr == nil
-			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
-			cyberRefusalSeen = cyberRefusalSeen || providers.IsUpstreamCyberPolicyRefusal(proxyErr)
-			if credentialRejectionStands(subscriptionErr, proxyErr, codexOAuthCredentialRejected) {
-				proxyErr = subscriptionErr
-				subscriptionPoolFailure = false
-				flushDeferredErr()
-			}
-		}
-	}
-
-	claudeFailoverUsed := false
-	claudeRetryRan := false
-	if claudeRetryViable && !paidFallbackForbiddenForModel(ctx, decision.Model) && proxyErr != nil && !preludeBuf.Committed() && (anthropicSubscriptionModelRejected(proxyErr) || anthropicSubscriptionThirdPartyRefused(proxyErr)) {
-		subCtx := subscriptionStatePaidRescueContext(withSuppressedClaudeSubscription(ctx), decision.Model)
-		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderAnthropic, decision.Model, r.Header)
-		subOpts := opts
-		subOpts.FastMode = fastModeForAttempt(subCtx, decision.Model, providers.ProviderAnthropic)
-		subAttempt, subBuildErr := buildAttempt(decision, subOpts, marker, subCtx)
-		subBindings := s.resolveBindingsForDispatch(subCtx, decision)
-		switch {
-		case subBuildErr != nil:
-			log.Error("Claude subscription failover: preparing the Weave-key retry failed; surfacing the original error",
-				"err", subBuildErr, "model", decision.Model)
-		case len(subBindings) == 0:
-			log.Warn("Claude subscription failover: no fallback Anthropic binding available; surfacing the original error",
-				"model", decision.Model, "upstream_status", upstreamStatus(proxyErr))
-		default:
-			log.Warn("Claude subscription failover: subscription rejected the turn, retrying on Weave credits",
-				"model", decision.Model,
-				"err", proxyErr,
-				"upstream_status", upstreamStatus(proxyErr),
-				"request_id", requestID)
-			claudeRetryRan = true
-			respSummary = translate.ResponseSummary{}
-			winnerIdx, proxyErr = s.dispatchWithFallback(subCtx, failoverInputs{
-				w:                      contentSink,
-				buf:                    preludeBuf,
-				initialDecision:        decision,
-				bindings:               subBindings,
-				attempt:                subAttempt,
-				flushErr:               flushErrAsOpenAI,
-				deferFlushOnExhaustion: cyberRetryViable || rescueArmed,
-				purpose:                routeRes.dispatchPurpose(surfacePurpose),
-				origin:                 routeRes.dispatchOrigin(decision),
-			})
-			bindings = subBindings
-			claudeFailoverUsed = proxyErr == nil
-			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
-			cyberRefusalSeen = cyberRefusalSeen || providers.IsUpstreamCyberPolicyRefusal(proxyErr)
-		}
-	}
-
-	// A subscription retry declined to run and no other rescue owns the held
-	// error; surface it now so it is never dropped.
-	if ((codexRetryViable && !codexRetryRan) || (claudeRetryViable && !claudeRetryRan)) &&
-		!cyberRetryViable && !rescueArmed && proxyErr != nil && !preludeBuf.Committed() {
-		flushDeferredErr()
-	}
-
-	cyberRetryRan := false
-	if cyberRetryViable && proxyErr != nil && !preludeBuf.Committed() &&
-		providers.IsUpstreamCyberPolicyRefusal(proxyErr) {
-		retryOpts, retryEffort := switchedAttemptOptions(ctx, opts, cyberRetryTarget, routeRes.EscalateEffort, s.resolveEffort)
-		retryCtx := resolveAndInjectCredentials(subscriptionStatePaidRescueContext(ctx, cyberRetryTarget.Model), cyberRetryTarget.Provider, cyberRetryTarget.Model, r.Header)
-		retryOpts.FastMode = fastModeForAttempt(retryCtx, cyberRetryTarget.Model, cyberRetryTarget.Provider)
-		retryBindings := s.resolveBindingsForDispatch(retryCtx, cyberRetryTarget)
-		retryMarker := withRescueDetail(suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, cyberRefusalRoutingMarkerFor(routeRes, cyberRetryTarget.Model), cyberRetryTarget.Model, markerReasonCyberRefusal)), lastFailureDetail(attemptTraceFromContext(ctx)))
-		retryAttempt, retryBuildErr := buildAttempt(cyberRetryTarget, retryOpts, retryMarker, retryCtx)
-		switch {
-		case retryBuildErr != nil:
-			log.Error("Cyber-refusal retry: preparing the fallback request failed; surfacing the refusal",
-				"err", retryBuildErr,
-				"fallback_model", cyberRetryTarget.Model)
-		case len(retryBindings) == 0:
-			log.Warn("Cyber-refusal retry: fallback has no usable binding; surfacing the refusal",
-				"fallback_model", cyberRetryTarget.Model,
-				"fallback_provider", cyberRetryTarget.Provider)
-		default:
-			log.Warn("Cyber-refusal retry: OpenAI declined the turn on cyber policy, retrying off-vendor",
-				"failed_model", primaryModel,
-				"failed_provider", primaryProvider,
-				"fallback_model", cyberRetryTarget.Model,
-				"fallback_provider", cyberRetryTarget.Provider,
-				"request_id", requestID)
-			cyberRetryRan = true
-			effortServed = retryEffort
-			respSummary = translate.ResponseSummary{}
-			winnerIdx, proxyErr = s.dispatchWithFallback(retryCtx, failoverInputs{
-				w:                      contentSink,
-				buf:                    preludeBuf,
-				initialDecision:        cyberRetryTarget,
-				bindings:               retryBindings,
-				attempt:                retryAttempt,
-				flushErr:               flushErrAsOpenAI,
-				deferFlushOnExhaustion: rescueArmed,
-				purpose:                routeRes.dispatchPurpose(surfacePurpose),
-				origin:                 routeRes.rescueOrigin(),
-			})
-			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
-			decision = cyberRetryTarget
-			bindings = retryBindings
-			marker = retryMarker
-		}
-	}
-	// The rescue declined to run; surface the held error now so it's never dropped.
-	if cyberRetryViable && !cyberRetryRan && !rescueArmed && proxyErr != nil && !preludeBuf.Committed() {
-		flushDeferredErr()
-	}
-
-	siblingFailoverUsed := false
-	siblingRescueRan := false
-	var rescuedPrimary router.Decision
-	var rescuedPrimaryErr error
-	if (servedOnSubscription(ctx) || subscriptionOnlySibling) && !preludeBuf.Committed() {
-		s.recordSubscriptionUnavailable(ctx, decision.Provider, decision.Model, proxyErr)
-	}
-	// A gateway overflow walks only the other gateways; same-gateway peers share the window that rejected it.
-	overflowRescued := overflowRescueViable && isUpstreamContextOverflow(proxyErr)
-	rescueOrder := siblingDecisions
-	if overflowRescued {
-		rescueOrder = overflowRescue
-	}
-	siblingRescueOwed := (siblingViable || overflowRescued) && !deferredErrFlushed &&
-		!(explicitRequestedModel && isSubscriptionPoolError(proxyErr)) &&
-		(!subscriptionOnlySibling || s.subscriptionPoolUnavailable(ctx, decision.Provider, decision.Model))
-	if siblingRescueOwed && proxyErr != nil && !preludeBuf.Committed() &&
-		(providers.IsRetryable(proxyErr) ||
-			providers.IsUpstreamModelNotFound(proxyErr) ||
-			providers.IsUpstreamProviderBillingBlocked(proxyErr) ||
-			isSubscriptionPoolError(proxyErr) ||
-			rescuesCompactionOverflow(routeRes.TurnType, proxyErr) ||
-			overflowRescued) {
-		for _, siblingDecision := range rescueOrder {
-			// A rescuer that itself failed pre-commit hands the turn to the next
-			// candidate; a served, committed, or client-cancelled turn ends the walk.
-			if siblingRescueRan && (proxyErr == nil || preludeBuf.Committed() || ctx.Err() != nil) {
-				break
-			}
-			siblingOpts, siblingEffort := switchedAttemptOptions(ctx, opts, siblingDecision, routeRes.EscalateEffort, s.resolveEffort)
-			siblingCtx := s.resolveCredentials(subscriptionStatePaidRescueContext(rescueCredentialContext(ctx, siblingDecision.Provider), siblingDecision.Model), siblingDecision.Provider, siblingDecision.Model, r.Header)
-			siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
-			siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
-			siblingMarker := withRescueDetail(siblingMarkerFor(ctx, r.Header, routeRes, decision.Model, siblingDecision.Model), lastFailureDetail(attemptTraceFromContext(ctx)))
-			siblingAttempt, siblingBuildErr := buildAttempt(siblingDecision, siblingOpts, siblingMarker, siblingCtx)
-			if siblingBuildErr != nil {
-				log.Error("Sibling failover: preparing the candidate request failed; trying the next candidate",
-					"err", siblingBuildErr,
-					"sibling_model", siblingDecision.Model)
-				continue
-			}
-			if len(siblingBindings) == 0 {
-				log.Warn("Sibling failover: candidate has no usable binding; trying the next candidate",
-					"sibling_model", siblingDecision.Model,
-					"sibling_provider", siblingDecision.Provider,
-					"err", proxyErr)
-				continue
-			}
-			log.Warn("Sibling failover: model exhausted, retrying a same-cluster candidate",
-				"failed_model", decision.Model,
-				"failed_provider", decision.Provider,
-				"primary_model", primaryModel,
-				"sibling_model", siblingDecision.Model,
-				"sibling_provider", siblingDecision.Provider,
-				"upstream_status", upstreamStatus(proxyErr),
-				"err", proxyErr)
-			recordTurnFailure(ctx, decision.Model)
-			if !siblingRescueRan {
-				rescuedPrimary = decision
-				rescuedPrimaryErr = proxyErr
-			}
-			siblingRescueRan = true
-			s.noteRescueReadmission(ctx, decision, siblingDecision)
-			effortServed = siblingEffort
-			respSummary = translate.ResponseSummary{}
-			winnerIdx, proxyErr = s.dispatchWithFallback(siblingCtx, failoverInputs{
-				w:                      contentSink,
-				buf:                    preludeBuf,
-				initialDecision:        siblingDecision,
-				bindings:               siblingBindings,
-				attempt:                siblingAttempt,
-				flushErr:               flushErrAsOpenAI,
-				deferFlushOnExhaustion: true,
-				purpose:                routeRes.dispatchPurpose(surfacePurpose),
-				origin:                 routeRes.rescueOrigin(),
-			})
-			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
-			decision = siblingDecision
-			bindings = siblingBindings
-			marker = siblingMarker
-			siblingFailoverUsed = proxyErr == nil
-		}
-	}
-	// No rescuer served (none ran, or the last one failed pre-commit); surface
-	// the held error now so it's never dropped.
-	proxyErr = asCompactionUnservable(routeRes.TurnType, decision, proxyErr)
-	if (siblingRescueOwed || overflowRescueOnly) && proxyErr != nil && !preludeBuf.Committed() {
-		flushDeferredErr()
-	}
-
-	if subscriptionCredentialFallbackUsed(ctx) {
-		if decision.Provider == providers.ProviderOpenAI {
-			codexFailoverUsed = true
-		} else if decision.Provider == providers.ProviderAnthropic {
-			claudeFailoverUsed = true
-		}
-	}
-	finalProvider := decision.Provider
-	if subscriptionStateWinnerProvider != "" {
-		finalProvider = subscriptionStateWinnerProvider
-	} else if winnerIdx >= 0 && winnerIdx < len(bindings) {
-		finalProvider = bindings[winnerIdx].Provider
-	}
-	decision.Provider = finalProvider
-	failoverUsed := finalProvider != primaryProvider || codexFailoverUsed || claudeFailoverUsed || siblingFailoverUsed
-	failoverAttempted := failoverUsed || codexRetryRan || claudeRetryRan || siblingRescueRan
+	rescue.flushErr = rescue.flushErrAsOpenAI
+	rescue.armCyberRetry(ctx)
+	rescue.armSubscriptionRetries(ctx)
+	ctx = rescue.armRescues(ctx)
+	rescue.holdPrimary()
+	rescue.dispatchPrimary(ctx)
+	rescue.notePrimaryFailure(ctx)
+	rescue.codexRetry(ctx)
+	rescue.claudeRetry(ctx)
+	rescue.cyberRetry(ctx)
+	rescue.siblingRescue(ctx)
+	rescue.finish(ctx)
+	decision, bindings, marker, proxyErr, effortServed = rescue.decision, rescue.bindings, rescue.marker, rescue.proxyErr, rescue.effortServed
+	winnerIdx, finalProvider := rescue.winnerIdx, rescue.finalProvider
 
 	// Re-resolve credentials for the binding that actually served — each
 	// failover attempt gets its own context with potentially different creds.
 	// Carry subscription suppression forward once a Weave-key retry succeeded,
 	// so cost.subscription_served and the billing key reflect the key that paid.
-	if codexFailoverUsed {
+	if rescue.codexFailoverUsed {
 		ctx = withSuppressedCodexSubscription(ctx)
-	} else if claudeFailoverUsed {
+	} else if rescue.claudeFailoverUsed {
 		ctx = withSuppressedClaudeSubscription(ctx)
 	}
 	ctx = s.resolveCredentials(ctx, finalProvider, decision.Model, r.Header)
@@ -7644,15 +7255,15 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		Int64("latency.total_ms", time.Since(requestStart).Milliseconds()).
 		Int64("upstream.status_code", int64(upstreamStatus(proxyErr))).
 		Bool("routing.cross_format", crossFormat).
-		String("dispatch.primary_provider", primaryProvider).
-		String("dispatch.primary_model", primaryModel).
+		String("dispatch.primary_provider", rescue.primaryProvider).
+		String("dispatch.primary_model", rescue.primaryModel).
 		String("dispatch.final_provider", finalProvider).
 		Int64("dispatch.fallback_attempts", int64(winnerIdx)).
-		Bool("dispatch.failover_used", failoverUsed).
-		Bool("dispatch.failover_attempted", failoverAttempted).
-		Bool("dispatch.subscription_failover", codexFailoverUsed || claudeFailoverUsed).
-		Bool("dispatch.cyber_refusal_retry", cyberRetryRan).
-		Bool("dispatch.sibling_failover", siblingFailoverUsed)
+		Bool("dispatch.failover_used", rescue.failoverUsed).
+		Bool("dispatch.failover_attempted", rescue.failoverAttempted).
+		Bool("dispatch.subscription_failover", rescue.codexFailoverUsed || rescue.claudeFailoverUsed).
+		Bool("dispatch.cyber_refusal_retry", rescue.cyberRetryRan).
+		Bool("dispatch.sibling_failover", rescue.siblingFailoverUsed)
 	if responsesSurface, _ := ctx.Value(responsesSurfaceContextKey{}).(bool); responsesSurface {
 		openaiUpstreamBuilder.String("request.api_surface", string(requestAPISurfaceResponses))
 	}
@@ -7718,21 +7329,21 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		if armDemotedOAI != "" {
 			armDemotionReasonOAI = sessionpin.DemotionReasonCommittedStreamFailure
 		}
-		primaryModelRescueRan := siblingRescueRan || decision.Model != primaryModel
-		if providers.IsResponseHeaderTimeout(primaryFailureErr) && (primaryModelRescueRan || proxyErr != nil) {
-			rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI = s.maybeStrikeArmAfterRescuedFailure(ctx, primaryModelRescueRan, routeRes.HardPinned, primaryFailureErr, primaryDecision, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+		primaryModelRescueRan := rescue.siblingRescueRan || decision.Model != rescue.primaryModel
+		if providers.IsResponseHeaderTimeout(rescue.primaryFailureErr) && (primaryModelRescueRan || proxyErr != nil) {
+			rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI = s.maybeStrikeArmAfterRescuedFailure(ctx, primaryModelRescueRan, routeRes.HardPinned, rescue.primaryFailureErr, rescue.primaryDecision, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
 		} else {
-			rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI = s.maybeStrikeArmAfterRescuedFailure(ctx, siblingRescueRan, routeRes.HardPinned, rescuedPrimaryErr, rescuedPrimary, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+			rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI = s.maybeStrikeArmAfterRescuedFailure(ctx, rescue.siblingRescueRan, routeRes.HardPinned, rescue.rescuedPrimaryErr, rescue.rescuedPrimary, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
 		}
 		s.strikeRescuedModelsForTurn(ctx, proxyErr, decision, routeRes.HardPinned, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
 		if proxyErr != nil {
-			unrescuedStallDemoted := s.maybeDemoteArmAfterUnrescuedStall(ctx, siblingRescueRan, committed(preludeBuf) || committed(responsesPreludeBuf), routeRes.HardPinned, primarySubscriptionArmFailure, primaryDecision, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+			unrescuedStallDemoted := s.maybeDemoteArmAfterUnrescuedStall(ctx, rescue.siblingRescueRan, committed(preludeBuf) || committed(responsesPreludeBuf), routeRes.HardPinned, rescue.primarySubscriptionArmFailure, rescue.primaryDecision, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
 			if armDemotedOAI == "" && unrescuedStallDemoted != "" {
 				armDemotedOAI = unrescuedStallDemoted
 				armDemotionReasonOAI = sessionpin.DemotionReasonUnrescuedStall
 			}
 		}
-		s.maybeExpireSubscriptionArmPin(ctx, primarySubscriptionArmFailure, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes))
+		s.maybeExpireSubscriptionArmPin(ctx, rescue.primarySubscriptionArmFailure, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes))
 		// See ProxyMessages for the two-strike provider-disable rationale.
 		s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
 	}
@@ -7816,8 +7427,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			InvalidToolArgsBlocks: int32PtrIfKnown(int32(respSummary.InvalidToolArgsBlocks), respSummary.StopReason != "" && !nativeRespSummary),
 			// A subscription->Weave retry keeps the same provider, so OR it in to
 			// match the OTel span + completion log.
-			FailoverUsed:      boolPtrTrue(failoverUsed),
-			FailoverAttempted: boolPtrTrue(failoverAttempted),
+			FailoverUsed:      boolPtrTrue(rescue.failoverUsed),
+			FailoverAttempted: boolPtrTrue(rescue.failoverAttempted),
 			// (session_key, role) join key — see the Anthropic-path write site.
 			SessionKey: sessionKey[:],
 			Role:       routeRes.PinRole,
@@ -7857,7 +7468,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// Re-pin the session off the refusing model so the next turn skips it,
 	// whether or not this turn was rescued.
 	if cyberRefusalSeen && !routeRes.CallerModelPassthrough {
-		s.repinOffRefusingModel(ctx, routeRes.SessionKey, stickyStateRole(routeRes), primaryDecision, providers.CyberPolicyErrorCode, primaryDecision.Provider)
+		s.repinOffRefusingModel(ctx, routeRes.SessionKey, stickyStateRole(routeRes), rescue.primaryDecision, providers.CyberPolicyErrorCode, rescue.primaryDecision.Provider)
 	}
 
 	// One event per tool call that failed toolcheck validation, mirroring the
@@ -7876,7 +7487,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 
 	servedCredentialSource, servedSubscriptionTier := s.servedCredentialLogValues(ctx)
-	log.Info("ProxyOpenAIChatCompletion complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(ctx, feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", failoverUsed, "failover_attempted", failoverAttempted, "subscription_failover", codexFailoverUsed || claudeFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "error_class", classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), "failure_owner", turnFailureOwnerAfterFinish(ctx, proxyErr, classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), respSummary.UpstreamFinishReason), "upstream_err_body", s.zdrLogField(ctx, providers.UpstreamErrorBodyMessage(proxyErr)), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned, "credential_source", servedCredentialSource, "client_app", completionLogClientApp(clientID), "subscription_tier", servedSubscriptionTier}, append(append(armStrikeLogFieldsWithPrimaryReason(armDemotedOAI, armDemotionReasonOAI, rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI), plannerLogFields(routeRes)...), rateLimit.CompletionLogFields()...)...), downgradeShadowLogFields(routeRes)...)...)
+	log.Info("ProxyOpenAIChatCompletion complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(ctx, feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", rescue.primaryProvider, "primary_model", rescue.primaryModel, "fallback_attempts", winnerIdx, "failover_used", rescue.failoverUsed, "failover_attempted", rescue.failoverAttempted, "subscription_failover", rescue.codexFailoverUsed || rescue.claudeFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "error_class", classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), "failure_owner", turnFailureOwnerAfterFinish(ctx, proxyErr, classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), respSummary.UpstreamFinishReason), "upstream_err_body", s.zdrLogField(ctx, providers.UpstreamErrorBodyMessage(proxyErr)), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned, "credential_source", servedCredentialSource, "client_app", completionLogClientApp(clientID), "subscription_tier", servedSubscriptionTier}, append(append(armStrikeLogFieldsWithPrimaryReason(armDemotedOAI, armDemotionReasonOAI, rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI), plannerLogFields(routeRes)...), rateLimit.CompletionLogFields()...)...), downgradeShadowLogFields(routeRes)...)...)
 	s.reportPolicyOutcome(ctx, routeRes, decision, effortServed, finalProvider, fastServed, feats.Tokens, in, out, cacheCreation, cacheRead, usageMods, routeMs, proxyMs, proxyErr, nil)
 
 	// Subscription-only mode disables paid failover by pinning dispatch to the
