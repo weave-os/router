@@ -768,3 +768,21 @@ func TestUpdateExternalKeyFundingPriorityHandler(t *testing.T) {
 		})
 	}
 }
+
+func TestDeleteAPIKeyHandler_ForeignKeyIDReturnsNotFound(t *testing.T) {
+	repo := &fakeAPIKeyRepository{}
+	svc := newAuthServiceForKeyTests(repo, nil)
+	foreign, _, err := svc.IssueAPIKey(context.Background(), "other-inst", nil, nil)
+	require.NoError(t, err)
+	engine := apiKeysEngine(svc)
+	engine.DELETE("/admin/v1/keys/:id", func(c *gin.Context) {
+		c.Set("router_installation", &auth.Installation{ID: testInstallationID})
+	}, admin.DeleteAPIKeyHandler(svc))
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodDelete, "/admin/v1/keys/"+foreign.ID, nil)
+	rr := httptest.NewRecorder()
+	engine.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusNotFound, rr.Code)
+	assert.Empty(t, repo.softDeletedSnapshot())
+}
