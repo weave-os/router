@@ -33,6 +33,7 @@ adopted AS (
       cooldown_until = NULL,
       access_token_ciphertext = NULL,
       access_token_expires_at = NULL,
+    token_refreshed_at = NULL,
       credential_rejection_count = 0,
       credential_first_rejected_at = NULL,
       credential_last_rejection_reason = NULL,
@@ -210,6 +211,7 @@ SET refresh_token_ciphertext = @refresh_token_ciphertext::bytea,
     credential_last_rejection_reason = NULL,
     access_token_ciphertext = NULL,
     access_token_expires_at = NULL,
+    token_refreshed_at = NULL,
     token_refresh_lease_until = NULL,
     token_refresh_lease_id = NULL,
     token_refresh_version = token_refresh_version + 1,
@@ -251,7 +253,8 @@ acquired AS (
          OR (subscriber_id IS NULL AND api_key_id = sqlc.narg(api_key_id)::uuid))
     AND enabled = TRUE
     AND (cooldown_until IS NULL OR cooldown_until <= CURRENT_TIMESTAMP
-         OR (@allow_claude_overage::boolean AND provider = 'claude' AND health_state = 'exhausted'))
+         OR (@allow_claude_overage::boolean AND provider = 'claude' AND health_state = 'exhausted')
+ OR (@allow_quota_refresh::boolean AND health_state = 'exhausted'))
     AND (token_refresh_lease_until IS NULL OR token_refresh_lease_until <= CURRENT_TIMESTAMP)
   RETURNING id
 )
@@ -293,6 +296,7 @@ SELECT external_account_id,
        access_token_ciphertext,
        access_token_expires_at,
        token_refresh_version,
+       token_refreshed_at,
        token_refresh_lease_id,
        enabled,
        health_state,
@@ -311,6 +315,7 @@ UPDATE router.model_router_subscription_accounts
 SET refresh_token_ciphertext = @refresh_token_ciphertext::bytea,
     access_token_ciphertext = @access_token_ciphertext::bytea,
     access_token_expires_at = @access_token_expires_at::timestamp,
+    token_refreshed_at = CURRENT_TIMESTAMP,
     token_refresh_lease_until = NULL,
     token_refresh_lease_id = NULL,
     token_refresh_version = token_refresh_version + 1,
@@ -397,6 +402,7 @@ SELECT account.id, account.subscriber_id, account.api_key_id, account.provider,
        account.enabled, account.health_state, account.cooldown_until, account.created_at,
        CASE WHEN account.subscriber_id = sqlc.narg(subscriber_id)::uuid THEN 'personal' ELSE 'shared' END AS tier,
        (account.access_token_ciphertext IS NULL)::boolean AS access_token_missing,
+       account.token_refresh_version,
        -- A successful refresh clears the reason but keeps the rolling strikes.
        (CASE WHEN account.credential_last_rejection_reason IS NULL THEN 0
              ELSE account.credential_rejection_count END)::integer AS credential_rejection_count
