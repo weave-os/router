@@ -28,7 +28,7 @@ func (c *Client) PrepareClassifier(ctx context.Context, operationID string) (pol
 	if err != nil {
 		return policy.ClassifierPreparation{}, fmt.Errorf("call classifier preparation endpoint: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusAccepted {
 		return policy.ClassifierPreparation{}, fmt.Errorf("classifier preparation status %d", response.StatusCode)
 	}

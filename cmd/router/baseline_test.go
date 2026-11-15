@@ -5,20 +5,13 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestResolveDefaultBaselineModel(t *testing.T) {
 	t.Run("unset returns default", func(t *testing.T) {
-		orig, hadOrig := os.LookupEnv("ROUTER_DEFAULT_BASELINE_MODEL")
-		require := func() {
-			if hadOrig {
-				os.Setenv("ROUTER_DEFAULT_BASELINE_MODEL", orig)
-			} else {
-				os.Unsetenv("ROUTER_DEFAULT_BASELINE_MODEL")
-			}
-		}
-		os.Unsetenv("ROUTER_DEFAULT_BASELINE_MODEL")
-		t.Cleanup(require)
+		t.Setenv("ROUTER_DEFAULT_BASELINE_MODEL", "")
+		require.NoError(t, os.Unsetenv("ROUTER_DEFAULT_BASELINE_MODEL"))
 		assert.Equal(t, "claude-sonnet-4-5", resolveDefaultBaselineModel())
 	})
 

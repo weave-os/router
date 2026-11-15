@@ -13,6 +13,9 @@ linters:
     - staticcheck
     - unused
     - wastedassign
+    - errcheck
+    - bodyclose
+    - nilerr
   settings:
     staticcheck:
       checks:
@@ -22,6 +25,15 @@ linters:
         - -ST1020
         - -ST1021
         - -ST1022
+    errcheck:
+      exclude-functions:
+        - (*bufio.Writer).WriteString
+        - (*bufio.Writer).WriteByte
+        - (*bufio.Writer).WriteRune
+        - (*bufio.Writer).Write
+        - (*strings.Builder).WriteString
+        - (*strings.Builder).WriteByte
+        - (*bytes.Buffer).WriteString
     dupl:
       threshold: 100
     errorlint:
