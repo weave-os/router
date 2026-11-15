@@ -33,4 +33,4 @@ Subscription customers (Claude Code / Codex logged-in flows) want unused, perish
 - An overage-only reading stays authoritative through the unified plan reset when reported. Without a reported plan reset, it remains authoritative until a new observation establishes headroom. The overage credit-window reset does not restore subscription headroom.
 - Per-window merge on `Record`: a response reporting only one window must not erase the other window's last-known utilization.
 - Periodic `Sweep` (driven by the composition root on a ticker) bounds memory; the package spawns no goroutines of its own.
-- I/O-free per the inner-ring rule — just structs, maps, a mutex, and an injected clock.
+- I/O-free with an injected clock (`TestIOFreePackagesDoNoIO`, `TestInjectedClockPackagesDoNotReadWallClock`).
