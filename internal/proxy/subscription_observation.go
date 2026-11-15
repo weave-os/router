@@ -150,6 +150,22 @@ func RequestPresentsCoveringSubscription(ctx context.Context, headers http.Heade
 	}
 }
 
+// RequestHasCustomerFunding reports whether a customer funding source can serve
+// the request without organization credits: a covering subscription or a
+// usable connected provider key. Admission flags such a request unfunded
+// instead of refusing it; the proxy serves it on that source or refuses.
+func RequestHasCustomerFunding(ctx context.Context, headers http.Header, routePath string) bool {
+	if RequestPresentsCoveringSubscription(ctx, headers, routePath) {
+		return true
+	}
+	for provider := range BuildCredentialsMap(externalKeysFromContext(ctx)) {
+		if usableBYOK(ctx, provider) != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // withUsageObserver records headers against the credential actually dispatched.
 // Managed accounts use physical identity so token refresh and shared borrowers
 // observe the same quota windows. Direct OAuth retains token-keyed observation.

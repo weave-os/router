@@ -51,7 +51,7 @@ func WithOrgMonthlySpendCap(svc *billing.Service) gin.HandlerFunc {
 		// presenting a Claude/Codex credential that covers this route serves at
 		// $0 on the caller's own plan, so exempt it from the cap-reached 402 below
 		// (mirrors WithBalanceCheck).
-		subscriptionExempt := proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath())
+		subscriptionExempt := proxy.RequestHasCustomerFunding(c.Request.Context(), c.Request.Header, c.FullPath())
 
 		result, err := svc.CheckOrgMonthlySpend(c.Request.Context(), orgID)
 		if err != nil {
