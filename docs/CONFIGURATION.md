@@ -65,6 +65,11 @@ Claude Code keep using the user's logged-in plan.
 | `OPENAI_GATEWAY_TOKEN`       | *(none)*                                           | Token for that gateway, sent as `Authorization: Bearer`. Only used when `OPENAI_GATEWAY_BASE_URL` is also set. |
 | `WAFER_API_KEY`   | *(none)*                                                  | Enables Wafer Serverless (both its OpenAI-compatible `wafer` and Anthropic-compatible `wafer_anthropic` surfaces; one key covers both). |
 | `WAFER_BASE_URL`  | `https://pass.wafer.ai/v1`                                | Override for the Wafer OpenAI-compatible endpoint (`wafer_anthropic` uses the fixed `/v1/messages` endpoint). |
+| `AWS_BEARER_TOKEN_BEDROCK` | *(none)* | Enables Bedrock through its OpenAI-compatible `bedrock-mantle` surface, which AWS recommends over `bedrock-runtime` for OpenAI-format traffic. The value is a long-term Bedrock API key sent as a bearer token, not SigV4 access keys. Model IDs are rewritten to Bedrock's dot form from the catalog. |
+| `AWS_REGION` | `us-east-1` | Region of the default Bedrock endpoint, `https://bedrock-mantle.<region>.api.aws/v1`. |
+| `BEDROCK_BASE_URL` | regional default | Override the Bedrock endpoint. |
+| `ROUTER_GROK_HEADER_TIMEOUT_SECONDS` | `90` | Time-to-first-byte guard for Grok models on OpenAI-compatible upstreams (30s for every other model). Snowflake Cortex prefill can push Grok's first byte past 30s; stream inactivity stays bounded by the SSE idle watchdog. |
+| `ROUTER_ANTHROPIC_LARGE_PROMPT_HEADER_TIMEOUT_SECONDS` | `120` | Time-to-first-byte guard for Anthropic Messages request bodies over 1 MiB (30s for smaller bodies). Anthropic withholds response headers until prefill completes, even when streaming, and cache-miss prefill near the 1M-token window can run past 30s. Dead connections are still caught by the HTTP/2 keepalive PING and stream inactivity by the SSE idle watchdog. |
 
 **Anthropic-compatible gateway.** Some enterprises front Claude with their own
 gateway that speaks the Anthropic Messages spec but authenticates with a bearer
