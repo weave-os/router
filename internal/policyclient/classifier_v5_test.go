@@ -3,7 +3,6 @@ package policyclient
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -11,10 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -140,7 +140,7 @@ func TestClassifierV5WrongReleaseIdentityIsAPinError(t *testing.T) {
 		RouteID: "route-v5", ExecutionMode: policy.ExecutionModeServing,
 	})
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, router.ErrPolicyPinUnavailable))
+	assert.ErrorIs(t, err, router.ErrPolicyPinUnavailable)
 }
 
 func TestClassifierV5UnknownReleaseIsAPinError(t *testing.T) {
@@ -156,7 +156,7 @@ func TestClassifierV5UnknownReleaseIsAPinError(t *testing.T) {
 		RouteID: "route-v5", ExecutionMode: policy.ExecutionModeServing,
 	})
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, router.ErrPolicyPinUnavailable))
+	assert.ErrorIs(t, err, router.ErrPolicyPinUnavailable)
 }
 
 func TestClassifierV5WrongArtifactIdentityIsAPinError(t *testing.T) {
@@ -218,7 +218,7 @@ func TestClassifierV5PropagatesRemainingDeadlineToWorker(t *testing.T) {
 	require.NoError(t, err)
 	budget, err := strconv.Atoi(<-budgets)
 	require.NoError(t, err, "the worker receives the Router's remaining classify budget")
-	assert.Greater(t, budget, 0)
+	assert.Positive(t, budget)
 	assert.LessOrEqual(t, budget, 300, "the caller's tighter deadline bounds the worker budget")
 
 	query.ExecutionMode = policy.ExecutionModePreview

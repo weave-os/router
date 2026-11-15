@@ -215,6 +215,7 @@ func (s *Service) recordCallLog(ctx context.Context, base []telemetry.Attr, rout
 	case CaptureHashed:
 		content.String("io.request_sha256", sha256Hex(reqBody)).
 			String("io.response_sha256", sha256Hex(respBody))
+	case CaptureOff:
 	}
 
 	attrs := append(slices.Clone(base), content.Build()...)

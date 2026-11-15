@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"weave-os/router/internal/dispatch"
 
@@ -279,7 +278,7 @@ func TestApplyTranslationPlan_IntrinsicallyIncompatible(t *testing.T) {
 		TranslationRequirements: router.TranslationRequirements{NativeOnly: true},
 	})
 
-	assert.True(t, errors.Is(err, ErrTranslationIntrinsicallyIncompatible))
+	assert.ErrorIs(t, err, ErrTranslationIntrinsicallyIncompatible)
 }
 
 func requireExclusion(t *testing.T, plan TranslationPlan, code, provider string, enforced bool) {

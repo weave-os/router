@@ -152,7 +152,7 @@ func (c *Client) Classify(ctx context.Context, state State, ids []QuestionID) (m
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	payload, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
 		return nil, err
