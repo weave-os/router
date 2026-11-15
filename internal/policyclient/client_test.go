@@ -21,8 +21,8 @@ import (
 func TestClientPostsVersionedRouteAndParsesPolicyMetadata(t *testing.T) {
 	var got routeRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		require.Equal(t, "/route", request.URL.Path)
-		require.NoError(t, json.NewDecoder(request.Body).Decode(&got))
+		assert.Equal(t, "/route", request.URL.Path)
+		assert.NoError(t, json.NewDecoder(request.Body).Decode(&got))
 		_ = json.NewEncoder(w).Encode(routeResponse{
 			SchemaVersion:        policy.SchemaVersionV1,
 			RouteID:              "route-1",
@@ -117,7 +117,7 @@ func TestClientPostsVersionedRouteAndParsesPolicyMetadata(t *testing.T) {
 	assert.Equal(t, "high", got.RoutingIntent)
 	assert.Equal(t, []string{"moonshotai/kimi-k2.7"}, got.PreferredModels)
 	require.NotNil(t, got.QualityBias)
-	assert.Equal(t, 0.7, *got.QualityBias)
+	assert.InDelta(t, 0.7, *got.QualityBias, 1e-9)
 	assert.True(t, got.TrainingAllowed)
 	assert.True(t, got.DebugEnabled)
 	assert.Equal(t, "latest hello", got.LatestUserText)
@@ -165,7 +165,7 @@ func TestClientPostsVersionedRouteAndParsesPolicyMetadata(t *testing.T) {
 	assert.Equal(t, "roster-v2", result.RosterVersion)
 	assert.Equal(t, "arm-kimi-fireworks", result.ArmID)
 	assert.Equal(t, "debug-1", result.DebugRef)
-	assert.Equal(t, 0.91, result.Score)
+	assert.InDelta(t, 0.91, result.Score, 1e-9)
 	assert.Equal(t, map[string]float32{"moonshotai/kimi-k2.7-code": 0.91}, result.CandidateScores)
 }
 
@@ -189,7 +189,7 @@ func validClassifierResponseV4() classifierResponseV4 {
 func TestClientPostsClassifierOnlyV4RequestAndParsesFacts(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		var requestPayload map[string]json.RawMessage
-		require.NoError(t, json.NewDecoder(request.Body).Decode(&requestPayload))
+		assert.NoError(t, json.NewDecoder(request.Body).Decode(&requestPayload))
 		for _, field := range []string{
 			"candidate_models",
 			"candidate_providers",
@@ -202,7 +202,7 @@ func TestClientPostsClassifierOnlyV4RequestAndParsesFacts(t *testing.T) {
 		} {
 			assert.NotContains(t, requestPayload, field)
 		}
-		require.NoError(t, json.NewEncoder(w).Encode(validClassifierResponseV4()))
+		assert.NoError(t, json.NewEncoder(w).Encode(validClassifierResponseV4()))
 	}))
 	defer server.Close()
 
@@ -238,11 +238,11 @@ func TestClientRejectsSelectionAuthorityInV4Response(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		response := validClassifierResponseV4()
 		payload, err := json.Marshal(response)
-		require.NoError(t, err)
+		assert.NoError(t, err)
 		var responsePayload map[string]interface{}
-		require.NoError(t, json.Unmarshal(payload, &responsePayload))
+		assert.NoError(t, json.Unmarshal(payload, &responsePayload))
 		responsePayload["model"] = "openai/gpt-5.6-luna"
-		require.NoError(t, json.NewEncoder(w).Encode(responsePayload))
+		assert.NoError(t, json.NewEncoder(w).Encode(responsePayload))
 	}))
 	defer server.Close()
 
@@ -258,9 +258,9 @@ func TestClientRejectsSelectionAuthorityInV4Response(t *testing.T) {
 func TestClientIgnoresUnknownTimingStagesInV4Response(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		payload, err := json.Marshal(validClassifierResponseV4())
-		require.NoError(t, err)
+		assert.NoError(t, err)
 		var responsePayload map[string]interface{}
-		require.NoError(t, json.Unmarshal(payload, &responsePayload))
+		assert.NoError(t, json.Unmarshal(payload, &responsePayload))
 		responsePayload["timings"] = map[string]interface{}{
 			"route_ms":             20.0,
 			"infer_ms":             14.0,
@@ -276,7 +276,7 @@ func TestClientIgnoresUnknownTimingStagesInV4Response(t *testing.T) {
 			"embed_cache_misses":   1,
 			"embed_inflight_joins": 0,
 		}
-		require.NoError(t, json.NewEncoder(w).Encode(responsePayload))
+		assert.NoError(t, json.NewEncoder(w).Encode(responsePayload))
 	}))
 	defer server.Close()
 
@@ -289,9 +289,9 @@ func TestClientIgnoresUnknownTimingStagesInV4Response(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "high", result.PredictedLabel)
 	require.NotNil(t, result.Timings)
-	assert.Equal(t, 12.5, *result.Timings.EmbedMs)
-	assert.Equal(t, 3.5, *result.Timings.SelectMs)
-	assert.Equal(t, 4.0, *result.Timings.OtherMs)
+	assert.InDelta(t, 12.5, *result.Timings.EmbedMs, 1e-9)
+	assert.InDelta(t, 3.5, *result.Timings.SelectMs, 1e-9)
+	assert.InDelta(t, 4.0, *result.Timings.OtherMs, 1e-9)
 	require.NotNil(t, result.ServingStats)
 	assert.Equal(t, int64(2), *result.ServingStats.EmbedCacheHits)
 }
@@ -321,10 +321,10 @@ func TestClientDecideDecomposesFullTimingsIntoDisjointStagesSummingToRouteMs(t *
 	require.NotNil(t, result.Timings.EmbedMs)
 	require.NotNil(t, result.Timings.SelectMs)
 	require.NotNil(t, result.Timings.OtherMs)
-	assert.Equal(t, 12.5, *result.Timings.EmbedMs)
-	assert.Equal(t, 3.5, *result.Timings.SelectMs)
-	assert.Equal(t, routeMs-12.5-3.5, *result.Timings.OtherMs)
-	assert.Equal(t, routeMs, *result.Timings.EmbedMs+*result.Timings.SelectMs+*result.Timings.OtherMs)
+	assert.InDelta(t, 12.5, *result.Timings.EmbedMs, 1e-9)
+	assert.InDelta(t, 3.5, *result.Timings.SelectMs, 1e-9)
+	assert.InDelta(t, routeMs-12.5-3.5, *result.Timings.OtherMs, 1e-9)
+	assert.InDelta(t, routeMs, *result.Timings.EmbedMs+*result.Timings.SelectMs+*result.Timings.OtherMs, 1e-9)
 }
 
 func TestClientDecideLeavesSelectAndOtherNilForEmbedOnlyTimings(t *testing.T) {
@@ -332,7 +332,7 @@ func TestClientDecideLeavesSelectAndOtherNilForEmbedOnlyTimings(t *testing.T) {
 
 	require.NotNil(t, result.Timings)
 	require.NotNil(t, result.Timings.EmbedMs)
-	assert.Equal(t, 12.5, *result.Timings.EmbedMs)
+	assert.InDelta(t, 12.5, *result.Timings.EmbedMs, 1e-9)
 	assert.Nil(t, result.Timings.SelectMs)
 	assert.Nil(t, result.Timings.OtherMs)
 }
@@ -343,8 +343,8 @@ func TestClientDecidePreservesPresentZeroEmbedMsAndComputesOtherFromRoute(t *tes
 	require.NotNil(t, result.Timings)
 	require.NotNil(t, result.Timings.EmbedMs)
 	require.NotNil(t, result.Timings.OtherMs)
-	assert.Equal(t, 0.0, *result.Timings.EmbedMs)
-	assert.Equal(t, 3.0, *result.Timings.OtherMs)
+	assert.InDelta(t, 0.0, *result.Timings.EmbedMs, 1e-9)
+	assert.InDelta(t, 3.0, *result.Timings.OtherMs, 1e-9)
 }
 
 func TestClientDecideLeavesTimingsNilWhenOmittedEntirely(t *testing.T) {
@@ -474,7 +474,7 @@ func TestClientOmitsV2CandidateFieldsFromV1(t *testing.T) {
 func TestClientPostsArmProviderMapForV2(t *testing.T) {
 	var got routeRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		require.NoError(t, json.NewDecoder(request.Body).Decode(&got))
+		assert.NoError(t, json.NewDecoder(request.Body).Decode(&got))
 		_ = json.NewEncoder(w).Encode(routeResponse{
 			SchemaVersion:    policy.SchemaVersionV2,
 			SelectedArmID:    "arm-fireworks",
@@ -517,7 +517,7 @@ func TestClientPostsArmProviderMapForV2(t *testing.T) {
 func TestClientPreviewAcceptsV2Schema(t *testing.T) {
 	var got routeRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		require.NoError(t, json.NewDecoder(request.Body).Decode(&got))
+		assert.NoError(t, json.NewDecoder(request.Body).Decode(&got))
 		_ = json.NewEncoder(w).Encode(previewResponse{
 			SchemaVersion: policy.SchemaVersionV2,
 		})
@@ -553,8 +553,8 @@ func TestClientAcceptsLegacyRouteResponse(t *testing.T) {
 func TestClientPreviewPostsNonLearningRequestAndReturnsEveryArm(t *testing.T) {
 	var got routeRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		require.Equal(t, "/preview", request.URL.Path)
-		require.NoError(t, json.NewDecoder(request.Body).Decode(&got))
+		assert.Equal(t, "/preview", request.URL.Path)
+		assert.NoError(t, json.NewDecoder(request.Body).Decode(&got))
 		_ = json.NewEncoder(w).Encode(previewResponse{
 			SchemaVersion:         policy.SchemaVersionV1,
 			RouteID:               "preview-1",
@@ -607,7 +607,7 @@ func TestClientPreviewRequiresPreviewExecutionMode(t *testing.T) {
 func TestClientOmitsHMMTrainingTranscriptWithoutPermission(t *testing.T) {
 	var got routeRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		require.NoError(t, json.NewDecoder(request.Body).Decode(&got))
+		assert.NoError(t, json.NewDecoder(request.Body).Decode(&got))
 		_ = json.NewEncoder(w).Encode(routeResponse{SelectedRosterID: "model"})
 	}))
 	defer server.Close()
@@ -753,7 +753,7 @@ func TestClientReportsAttemptBudgetWhenEveryAttemptStalls(t *testing.T) {
 	assert.Contains(t, err.Error(), "attempt budget")
 	// The proxy degrades on deadline errors, so the attempt bound must not
 	// disguise itself as an ordinary transport failure.
-	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.Equal(t, defaultRouteAttempts, attempts)
 }
 
@@ -774,7 +774,7 @@ func TestClientAttemptBudgetNeverOutlivesDecisionBudget(t *testing.T) {
 	)
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.Less(t, time.Since(started), 3*time.Second)
 	assert.Equal(t, 1, attempts)
 }
@@ -846,23 +846,23 @@ func TestExhaustedPolicyErrShapes(t *testing.T) {
 	sidecarErr := &PolicyStatusError{Status: http.StatusServiceUnavailable, Message: "fail closed"}
 
 	both := exhaustedPolicyErr(sidecarErr, nil, context.DeadlineExceeded)
-	assert.ErrorIs(t, both, context.DeadlineExceeded)
+	require.ErrorIs(t, both, context.DeadlineExceeded)
 	assert.Contains(t, both.Error(), "fail closed")
 
 	onlySidecar := exhaustedPolicyErr(sidecarErr, nil, nil)
-	assert.NotErrorIs(t, onlySidecar, context.DeadlineExceeded,
+	require.NotErrorIs(t, onlySidecar, context.DeadlineExceeded,
 		"with no deadline anywhere, none should be invented")
 	assert.Contains(t, onlySidecar.Error(), "fail closed")
 
 	onlyDeadline := exhaustedPolicyErr(nil, nil, context.DeadlineExceeded)
-	assert.ErrorIs(t, onlyDeadline, context.DeadlineExceeded)
+	require.ErrorIs(t, onlyDeadline, context.DeadlineExceeded)
 	assert.Contains(t, onlyDeadline.Error(), "retries exhausted")
 
 	// A transport deadline is not printed twice: the sentinel is already
 	// reachable through the wrapped attempt error.
 	transportErr := fmt.Errorf("call policy sidecar: %w", context.DeadlineExceeded)
 	deduped := exhaustedPolicyErr(nil, transportErr, context.DeadlineExceeded)
-	assert.ErrorIs(t, deduped, context.DeadlineExceeded)
+	require.ErrorIs(t, deduped, context.DeadlineExceeded)
 	assert.Equal(t, 1, strings.Count(deduped.Error(), context.DeadlineExceeded.Error()))
 
 	cancelled := exhaustedPolicyErr(nil, fmt.Errorf("call policy sidecar: %w", context.Canceled), nil)
@@ -907,7 +907,7 @@ func TestClientCapabilities(t *testing.T) {
 	for _, schemaVersion := range []string{policy.SchemaVersionV1, policy.SchemaVersionV2} {
 		t.Run(schemaVersion, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-				require.Equal(t, "/capabilities", request.URL.Path)
+				assert.Equal(t, "/capabilities", request.URL.Path)
 				_ = json.NewEncoder(w).Encode(policy.Capabilities{
 					SchemaVersion:   schemaVersion,
 					ReportsFeedback: true,

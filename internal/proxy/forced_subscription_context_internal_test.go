@@ -144,7 +144,7 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 				})
 				require.NoError(t, err)
 				recorder := httptest.NewRecorder()
-				request := httptest.NewRequest(http.MethodPost, routePathMessages, strings.NewReader(string(body)))
+				request := httptest.NewRequestWithContext(ctx, http.MethodPost, routePathMessages, strings.NewReader(string(body)))
 				if scenario.forceWithEffort {
 					request.Header.Set(ForceModelHeader, gatewayCompactionOpusModel+":high")
 				}

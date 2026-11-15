@@ -79,8 +79,8 @@ func TestSelectorRejectsMismatchedClassOrder(t *testing.T) {
 	}
 
 	_, err := selector(context.Background(), input)
-	assert.ErrorIs(t, err, selection.ErrClassifierTaxonomyMismatch)
-	assert.NotErrorIs(t, err, selection.ErrNoEligibleArm)
+	require.ErrorIs(t, err, selection.ErrClassifierTaxonomyMismatch)
+	require.NotErrorIs(t, err, selection.ErrNoEligibleArm)
 
 	input.ClassOrder = append([]string(nil), roster.ClassOrder...)
 	pick, err := selector(context.Background(), input)

@@ -31,7 +31,7 @@ func (s slowServingStore) ReadServingObject(ctx context.Context, kind policyregi
 func TestAdmissionTimingsCountEveryAuthoritativeRead(t *testing.T) {
 	const delay = 5 * time.Millisecond
 	memory, _, first := controllerFixture(t)
-	initial, _ := storedActivateFixture(t, memory, policyregistry.ServingStateSnapshot{}, first, servingEpoch)
+	initial := storedActivateFixture(t, memory, policyregistry.ServingStateSnapshot{}, first, servingEpoch)
 	memory.states[policyregistry.TargetStable] = initial
 	store := slowServingStore{servingMemoryStore: memory, delay: delay}
 	admission := policyregistry.ServingAdmission{Store: store}
@@ -47,7 +47,7 @@ func TestAdmissionTimingsCountEveryAuthoritativeRead(t *testing.T) {
 	assert.Equal(t, 1, fresh.SelectionSetReads)
 
 	second := variantSet(t, memory, first, "worker-0002")
-	replacement, _ := storedActivateFixture(t, memory, initial, second, servingEpoch.Add(time.Minute))
+	replacement := storedActivateFixture(t, memory, initial, second, servingEpoch.Add(time.Minute))
 	memory.states[policyregistry.TargetStable] = replacement
 	now = servingEpoch.Add(2 * time.Minute)
 	retained := &policyregistry.AdmissionTimings{}

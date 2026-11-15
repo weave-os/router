@@ -50,7 +50,7 @@ func TestMaxServingForcesProfileStrategyAndIgnoresCustomerHeaders(t *testing.T) 
 			c.Status(http.StatusOK)
 		})
 
-		request := httptest.NewRequest(http.MethodGet, "/probe", nil)
+		request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 		request.Header.Set(middleware.RouterStrategyOverrideHeader, "rl")
 		request.Header.Set(proxy.AllowedModelsHeader, "unknown-model")
 		request.Header.Set(middleware.HeaderAlpha, "not-a-number")
@@ -93,7 +93,7 @@ func TestBoostServingUsesInstallationStrategyAndAuthorizedOverride(t *testing.T)
 				c.Status(http.StatusOK)
 			})
 
-			request := httptest.NewRequest(http.MethodGet, "/probe", nil)
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 			if tc.header != "" {
 				request.Header.Set(middleware.RouterStrategyOverrideHeader, tc.header)
 			}
@@ -120,7 +120,7 @@ func TestPlanOwnedServingRejectsUnknownPlan(t *testing.T) {
 	engine.GET("/probe", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	response := httptest.NewRecorder()
-	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/probe", nil))
+	engine.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil))
 
 	assert.Equal(t, http.StatusServiceUnavailable, response.Code)
 }

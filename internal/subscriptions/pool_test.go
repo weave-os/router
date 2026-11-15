@@ -7,10 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPoolSeparatesProvidersAndOwners(t *testing.T) {
@@ -43,11 +45,11 @@ func TestPoolRefreshesOnceForConcurrentLeases(t *testing.T) {
 	p := subscriptions.NewPool("user-a", subscriptions.ProviderClaude, nil)
 	require.NoError(t, p.Upsert(subscriptions.Account{ID: "claude", OwnerID: "user-a", Provider: subscriptions.ProviderClaude, Enabled: true}))
 	var refreshes atomic.Int32
-	refresh := func(_ context.Context, account subscriptions.Account) (subscriptions.Account, error) {
+	refresh := func(ctx context.Context, account subscriptions.Account) (subscriptions.Account, error) {
 		refreshes.Add(1)
 		time.Sleep(5 * time.Millisecond)
 		account.AccessToken = "fresh"
-		return account, nil
+		return account, ctx.Err()
 	}
 	var wg sync.WaitGroup
 	for range 8 {
@@ -56,7 +58,7 @@ func TestPoolRefreshesOnceForConcurrentLeases(t *testing.T) {
 			defer wg.Done()
 			acct, release, err := p.Lease(context.Background(), subscriptions.ProviderClaude, "", refresh)
 			if err == nil {
-				require.Equal(t, "fresh", acct.AccessToken)
+				assert.Equal(t, "fresh", acct.AccessToken)
 				release()
 			}
 		}()
@@ -89,11 +91,11 @@ func TestPoolCanceledRefreshWaiterDoesNotCooldownAccount(t *testing.T) {
 	require.NoError(t, p.Upsert(subscriptions.Account{ID: "claude", OwnerID: "user-a", Provider: subscriptions.ProviderClaude, Enabled: true}))
 	refreshStarted := make(chan struct{})
 	allowRefresh := make(chan struct{})
-	refresh := func(_ context.Context, account subscriptions.Account) (subscriptions.Account, error) {
+	refresh := func(ctx context.Context, account subscriptions.Account) (subscriptions.Account, error) {
 		close(refreshStarted)
 		<-allowRefresh
 		account.AccessToken = "fresh"
-		return account, nil
+		return account, ctx.Err()
 	}
 
 	firstDone := make(chan error, 1)

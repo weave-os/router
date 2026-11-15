@@ -126,8 +126,8 @@ func TestPriceFor_UnknownProviderForKnownModel(t *testing.T) {
 func TestPriceFor_KnownPair(t *testing.T) {
 	p, ok := PriceFor(providers.ProviderAnthropic, "claude-opus-4-7")
 	require.True(t, ok)
-	assert.Equal(t, 5.00, p.InputUSDPer1M)
-	assert.Equal(t, 0.10, p.CacheReadMultiplier)
+	assert.InDelta(t, 5.00, p.InputUSDPer1M, 1e-9)
+	assert.InDelta(t, 0.10, p.CacheReadMultiplier, 1e-9)
 }
 
 func TestPrimaryPriceFor_LegacyOpusIDsResolve(t *testing.T) {
@@ -148,8 +148,8 @@ func TestPrimaryPriceFor_LegacyOpusIDsResolve(t *testing.T) {
 	for _, tc := range cases {
 		p, ok := PrimaryPriceFor(tc.id)
 		require.True(t, ok, "%s must resolve to a catalog entry", tc.id)
-		assert.Equal(t, tc.inputUSDPer1M, p.InputUSDPer1M, "%s input price", tc.id)
-		assert.Equal(t, tc.outputUSDPer1M, p.OutputUSDPer1M, "%s output price", tc.id)
+		assert.InDelta(t, tc.inputUSDPer1M, p.InputUSDPer1M, 1e-9, "%s input price", tc.id)
+		assert.InDelta(t, tc.outputUSDPer1M, p.OutputUSDPer1M, 1e-9, "%s output price", tc.id)
 	}
 }
 
@@ -198,8 +198,8 @@ func TestResolveBinding_MiniMaxUsesNativeModelIDs(t *testing.T) {
 			require.True(t, ok)
 			assert.Equal(t, providers.ProviderMiniMax, binding.Provider)
 			assert.Equal(t, tc.upstreamID, binding.UpstreamID)
-			assert.Equal(t, tc.inputPrice, binding.Price.InputUSDPer1M)
-			assert.Equal(t, tc.outputPrice, binding.Price.OutputUSDPer1M)
+			assert.InDelta(t, tc.inputPrice, binding.Price.InputUSDPer1M, 1e-9)
+			assert.InDelta(t, tc.outputPrice, binding.Price.OutputUSDPer1M, 1e-9)
 			assert.InDelta(t, tc.cacheRead, binding.Price.EffectiveCacheReadMultiplier(), 1e-9)
 		})
 	}
@@ -242,9 +242,9 @@ func TestGPT56ProCatalogRowsAreDirectOpenAIRoutable(t *testing.T) {
 			require.True(t, ok)
 			assert.Equal(t, providers.ProviderOpenAI, binding.Provider)
 			assert.Equal(t, tc.upstreamID, binding.UpstreamID)
-			assert.Equal(t, tc.inputUSDPer1M, binding.Price.InputUSDPer1M)
-			assert.Equal(t, tc.outputUSDPer1M, binding.Price.OutputUSDPer1M)
-			assert.Equal(t, 0.10, binding.Price.CacheReadMultiplier)
+			assert.InDelta(t, tc.inputUSDPer1M, binding.Price.InputUSDPer1M, 1e-9)
+			assert.InDelta(t, tc.outputUSDPer1M, binding.Price.OutputUSDPer1M, 1e-9)
+			assert.InDelta(t, 0.10, binding.Price.CacheReadMultiplier, 1e-9)
 			require.NotNil(t, binding.Price.LongContext)
 			assert.Equal(t, 272_000, binding.Price.LongContext.ThresholdTokens)
 		})
@@ -260,17 +260,17 @@ func TestGPT6AstraCatalogRow(t *testing.T) {
 	binding, ok := ResolveBinding("gpt-6-astra", map[string]struct{}{providers.ProviderOpenAI: {}})
 	require.True(t, ok)
 	assert.Equal(t, providers.ProviderOpenAI, binding.Provider)
-	assert.Equal(t, 10.00, binding.Price.InputUSDPer1M)
-	assert.Equal(t, 50.00, binding.Price.OutputUSDPer1M)
-	assert.Equal(t, 0.10, binding.Price.CacheReadMultiplier)
-	assert.Equal(t, 1.25, binding.Price.CacheWriteMultiplier)
+	assert.InDelta(t, 10.00, binding.Price.InputUSDPer1M, 1e-9)
+	assert.InDelta(t, 50.00, binding.Price.OutputUSDPer1M, 1e-9)
+	assert.InDelta(t, 0.10, binding.Price.CacheReadMultiplier, 1e-9)
+	assert.InDelta(t, 1.25, binding.Price.CacheWriteMultiplier, 1e-9)
 
 	fast, ok := FastPriceFor(providers.ProviderOpenAI, "gpt-6-astra")
 	require.True(t, ok)
-	assert.Equal(t, 20.00, fast.InputUSDPer1M)
-	assert.Equal(t, 100.00, fast.OutputUSDPer1M)
-	assert.Equal(t, 0.10, fast.CacheReadMultiplier)
-	assert.Equal(t, 1.25, fast.CacheWriteMultiplier)
+	assert.InDelta(t, 20.00, fast.InputUSDPer1M, 1e-9)
+	assert.InDelta(t, 100.00, fast.OutputUSDPer1M, 1e-9)
+	assert.InDelta(t, 0.10, fast.CacheReadMultiplier, 1e-9)
+	assert.InDelta(t, 1.25, fast.CacheWriteMultiplier, 1e-9)
 }
 
 func TestGemini4ArgonCatalogRow(t *testing.T) {
@@ -517,26 +517,26 @@ func TestContextWindowFor_KnownModels(t *testing.T) {
 func TestGPT61SolCachedAndLongContextPricing(t *testing.T) {
 	price, ok := PriceFor(providers.ProviderOpenAI, "gpt-6.1-sol")
 	require.True(t, ok)
-	assert.Equal(t, 0.05, price.CacheReadMultiplier)
+	assert.InDelta(t, 0.05, price.CacheReadMultiplier, 1e-9)
 	require.NotNil(t, price.LongContext)
 	assert.Equal(t, 272_000, price.LongContext.ThresholdTokens)
-	assert.Equal(t, 4.0, price.LongContext.InputUSDPer1M)
-	assert.Equal(t, 15.0, price.LongContext.OutputUSDPer1M)
+	assert.InDelta(t, 4.0, price.LongContext.InputUSDPer1M, 1e-9)
+	assert.InDelta(t, 15.0, price.LongContext.OutputUSDPer1M, 1e-9)
 
 	assert.True(t, SupportsFastMode("gpt-6.1-sol"))
 }
 
 func TestValidateDeployed_FlagsMissingAndUntiered(t *testing.T) {
 	err := ValidateDeployed([]string{"claude-opus-4-7"})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	err = ValidateDeployed([]string{"definitely-not-a-model"})
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "definitely-not-a-model")
 
 	// gpt-4o is priced but has no tier (passthrough only); flag it.
 	err = ValidateDeployed([]string{"gpt-4o"})
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "gpt-4o")
 }
 

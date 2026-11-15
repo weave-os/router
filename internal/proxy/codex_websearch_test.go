@@ -58,7 +58,7 @@ func TestProxyMessages_CodexSubscriptionExecutesNativeWebSearch(t *testing.T) {
 			ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
 			body := []byte(fmt.Sprintf(`{"model":"%s","stream":%t,"max_tokens":1024,"system":%q,"tools":[{"type":"web_search_20250305","name":"web_search","allowed_domains":["docs.example"]}],"messages":[{"role":"user","content":"Perform a web search for the query: feature guide"}]}`, codexSearchModel, stream, tc.prompt))
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 			req.Header.Set(proxy.ForceModelHeader, "opus")
 			require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
 			store.mu.Lock()
@@ -96,7 +96,7 @@ func TestProxyMessages_CodexSearchNeverFallsBackToAPIKeys(t *testing.T) {
 	ctx := context.WithValue(codexSearchContext(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppClaudeCode, SessionID: "parent-session"})
 	body := []byte(fmt.Sprintf(`{"model":"%s","max_tokens":1024,"system":"You are an assistant for performing a web search tool use","tools":[{"type":"web_search_20250305","name":"web_search"}],"messages":[{"role":"user","content":"Perform a web search for the query: a public query"}]}`, codexSearchModel))
 	rec := httptest.NewRecorder()
-	err := svc.ProxyMessages(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+	err := svc.ProxyMessages(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
 	require.Error(t, err)
 	require.NotEmpty(t, p.proxyCreds)
 	for _, creds := range p.proxyCreds {
@@ -121,7 +121,7 @@ func TestProxyMessages_CodexSearchPreservesTypedRateLimit(t *testing.T) {
 	svc := proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexSearchModel}}, map[string]providers.Client{providers.ProviderOpenAI: p}, nil, nil, false, providers.ProviderOpenAI, codexSearchModel, nil)
 	body := []byte(fmt.Sprintf(`{"model":"%s","max_tokens":1024,"system":"You are an assistant for performing a web search tool use","tools":[{"type":"web_search_20250305","name":"web_search"}],"messages":[{"role":"user","content":"Perform a web search for the query: a public query"}]}`, codexSearchModel))
 	rec := httptest.NewRecorder()
-	err := svc.ProxyMessages(codexSearchContext(), body, rec, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+	err := svc.ProxyMessages(codexSearchContext(), body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
 	require.Error(t, err)
 	var responseErr *providers.UpstreamErrorResponse
 	var statusErr *providers.UpstreamStatusError

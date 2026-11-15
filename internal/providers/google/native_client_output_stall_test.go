@@ -82,7 +82,11 @@ func streamsKeepalivesForever(interval time.Duration) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
-		f := w.(http.Flusher)
+		f, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+			return
+		}
 		f.Flush()
 		for {
 			select {
@@ -115,15 +119,15 @@ func TestNativeProxy_OutputStallAbortsRetryable_ByteAliveNoOutput(t *testing.T) 
 	const outputStall = 120 * time.Millisecond
 	c := google.NewNativeClientWithStallTimeouts("test-key", upstream.URL, byteIdle, outputStall)
 	w := &fakeProgressWriter{armReturns: true} // streaming translator; never marks output
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	start := time.Now()
 	err := c.Proxy(context.Background(), router.Decision{Model: "gemini-3.1-flash-lite-preview"}, geminiStreamPrep(), w, clientReq)
 	elapsed := time.Since(start)
 
 	require.Error(t, err, "a byte-alive/output-silent stream must surface an error, not hang")
-	assert.ErrorIs(t, err, httputil.ErrUpstreamOutputStall)
-	assert.NotErrorIs(t, err, httputil.ErrUpstreamIdleTimeout,
+	require.ErrorIs(t, err, httputil.ErrUpstreamOutputStall)
+	require.NotErrorIs(t, err, httputil.ErrUpstreamIdleTimeout,
 		"the byte-idle watchdog must not be what fired — bytes were flowing the whole time")
 	assert.True(t, providers.IsRetryable(err),
 		"the output stall must classify retryable so dispatchWithFallback can re-attempt")
@@ -139,7 +143,7 @@ func TestNativeProxy_OutputFlowingStreamIsNotOutputStalled(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
-		f := w.(http.Flusher)
+		f := assertAs[http.Flusher](t, w)
 		f.Flush()
 		for range frames {
 			select {
@@ -157,7 +161,7 @@ func TestNativeProxy_OutputFlowingStreamIsNotOutputStalled(t *testing.T) {
 	const outputStall = 60 * time.Millisecond // < frames*frameInterval, so total duration exceeds it
 	c := google.NewNativeClientWithStallTimeouts("test-key", upstream.URL, byteIdle, outputStall)
 	w := &fakeProgressWriter{armReturns: true, markOnWrite: true}
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	err := c.Proxy(context.Background(), router.Decision{Model: "gemini-3.1-flash-lite-preview"}, geminiStreamPrep(), w, clientReq)
 
@@ -173,7 +177,7 @@ func TestNativeProxy_NotArmedWriterStillByteIdleGuarded(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
-		w.(http.Flusher).Flush()
+		assertAs[http.Flusher](t, w).Flush()
 		<-r.Context().Done() // headers sent, then zero bytes forever
 	}))
 	defer upstream.Close()
@@ -182,14 +186,14 @@ func TestNativeProxy_NotArmedWriterStillByteIdleGuarded(t *testing.T) {
 	const outputStall = 5 * time.Second
 	c := google.NewNativeClientWithStallTimeouts("test-key", upstream.URL, byteIdle, outputStall)
 	w := &fakeProgressWriter{armReturns: false}
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	start := time.Now()
 	err := c.Proxy(context.Background(), router.Decision{Model: "gemini-3.1-flash-lite-preview"}, geminiStreamPrep(), w, clientReq)
 	elapsed := time.Since(start)
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, httputil.ErrUpstreamIdleTimeout)
+	require.ErrorIs(t, err, httputil.ErrUpstreamIdleTimeout)
 	assert.GreaterOrEqual(t, elapsed, byteIdle)
 	assert.Less(t, elapsed, outputStall, "byte-idle must fire well before the output-stall budget")
 }

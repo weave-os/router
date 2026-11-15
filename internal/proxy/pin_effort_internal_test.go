@@ -62,7 +62,7 @@ func TestForceModelHeader_PersistsEffortOnPin(t *testing.T) {
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 	env := forceCommandEnv(t)
-	req, err := http.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	require.NoError(t, err)
 	req.Header.Set(ForceModelHeader, "opus:high")
 

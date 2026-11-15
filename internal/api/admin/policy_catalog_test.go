@@ -48,7 +48,7 @@ func TestPolicyCatalogHandlerReportsDefaultAndCapabilities(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(
 		recorder,
-		httptest.NewRequest(http.MethodGet, "/v1/router/policies", nil),
+		httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/router/policies", nil),
 	)
 
 	require.Equal(t, http.StatusOK, recorder.Code)

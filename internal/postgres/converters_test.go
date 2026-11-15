@@ -21,7 +21,7 @@ func TestToAuthInstallationRoutingQualityWeight(t *testing.T) {
 			RoutingQualityWeight: &quality,
 		})
 		require.NotNil(t, inst.RoutingQualityWeight)
-		assert.Equal(t, 0.7, *inst.RoutingQualityWeight)
+		assert.InDelta(t, 0.7, *inst.RoutingQualityWeight, 1e-9)
 	})
 
 	t.Run("null weight maps to nil", func(t *testing.T) {

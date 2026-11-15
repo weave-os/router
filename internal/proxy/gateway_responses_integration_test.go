@@ -93,7 +93,7 @@ func TestProxyMessages_GatewayToolTurnUsesResponses(t *testing.T) {
 	defer gateway.Close()
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, gatewayService(t, gateway.URL+"/v1").
 		ProxyMessages(context.Background(), []byte(gatewayToolTurn), rec, req))
 
@@ -126,7 +126,7 @@ func TestProxyMessages_GatewayWithoutResponsesFallsBackToChat(t *testing.T) {
 
 	svc := gatewayService(t, gateway.URL+"/v1")
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(context.Background(), []byte(gatewayToolTurn), rec, req))
 	assert.Contains(t, rec.Body.String(), "event: message_start")
 
@@ -163,7 +163,7 @@ func TestProxyMessages_GatewayResponsesRejectionIsNotRetried(t *testing.T) {
 	defer gateway.Close()
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	_ = gatewayService(t, gateway.URL+"/v1").
 		ProxyMessages(context.Background(), []byte(gatewayToolTurn), rec, req)
 
@@ -217,7 +217,7 @@ func TestProxyMessages_DirectOpenAIToollessTurnFollowsRollout(t *testing.T) {
 			defer upstream.Close()
 
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 			require.NoError(t, directOpenAIService(t, upstream.URL, tc.broad).
 				ProxyMessages(context.Background(), []byte(anthropicToollessTurn), rec, req))
 
@@ -255,7 +255,7 @@ func TestProxyMessages_DirectOpenAIStopSequencesStayOnChat(t *testing.T) {
 	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(context.Background(), []byte(body), rec, req))
 
 	mu.Lock()

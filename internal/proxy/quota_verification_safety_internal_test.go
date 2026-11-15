@@ -76,13 +76,13 @@ func TestQuotaVerificationFailureNeverBuysPaidCapacity(t *testing.T) {
 					svc := outOfRosterFundingService(client, translate.ReasonUserForceModel, repo)
 					ctx := codexSubscriptionTestCtx()
 					body := `{"model":"codex-auto-review","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic"}]}]}`
-					request := codexSubHTTPRequest("/v1/responses", body)
+					request := codexSubHTTPRequest(t.Context(), "/v1/responses", body)
 					if managed {
 						ctx = WithManagedSubscriptionCandidates(managedSubscriptionContext(auth.SubscriptionProviderCodex), []*auth.SubscriptionAccount{{
 							ID: "synthetic-seat", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive,
 						}})
 						ctx = context.WithValue(ctx, InstallationIDContextKey{}, "33333333-3333-3333-3333-333333333333")
-						request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
+						request = httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(body))
 						svc.WithManagedSubscriptions(&scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{
 							AccountID: "synthetic-seat", AccessToken: "synthetic-token", ProviderAccount: "synthetic-chatgpt-account",
 						}}})
@@ -98,7 +98,7 @@ func TestQuotaVerificationFailureNeverBuysPaidCapacity(t *testing.T) {
 					require.Zero(t, paidCalls.Load(), "uncertainty must not buy inference")
 					require.Empty(t, repo.snapshot(), "uncertainty must not debit customer credit")
 					require.Error(t, err)
-					state := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+					state := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{}))
 					require.Empty(t, state.UnavailableProviders)
 					require.Empty(t, state.QuotaExhaustedAccounts)
 					require.Empty(t, state.QuotaExhaustedProviders)
@@ -193,7 +193,7 @@ func TestQuotaVerificationRotationAndRealOverloadFunding(t *testing.T) {
 				}
 				body := `{"model":"codex-auto-review","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic"}]}]}`
 				recorder := httptest.NewRecorder()
-				err := svc.ProxyOpenAIResponses(ctx, []byte(body), recorder, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body)))
+				err := svc.ProxyOpenAIResponses(ctx, []byte(body), recorder, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(body)))
 				wantPaid := scenario.capacityOverload && (reason == "" || reason == billing.SubscriptionOnlyLinkedFirst)
 				require.Equal(t, scenario.includedCalls, includedCalls.Load())
 				if wantPaid || scenario.includedSeatServes {
@@ -213,7 +213,7 @@ func TestQuotaVerificationRotationAndRealOverloadFunding(t *testing.T) {
 					require.Zero(t, paidCalls.Load())
 					require.Empty(t, repo.snapshot())
 				}
-				state := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+				state := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{}))
 				_, capacityMarked := state.UnavailableProviders[subscriptions.ProviderCodex]
 				require.Equal(t, scenario.capacityOverload, capacityMarked)
 				require.False(t, svc.subscriptionPoolUnavailable(ctx, providers.ProviderAnthropic, overloadRescuerModel), "capacity evidence cannot cross pools")

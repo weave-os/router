@@ -57,8 +57,8 @@ func (e effortResolution) apply(opts *translate.EmitOptions) {
 
 // applyEffortAttrs stamps the effort actually dispatched with, alongside the
 // level routing selected and where it came from.
-func applyEffortAttrs(b *telemetry.AttrBuilder, e effortResolution) *telemetry.AttrBuilder {
-	return b.String("routing.arm_effort", e.Arm).
+func applyEffortAttrs(b *telemetry.AttrBuilder, e effortResolution) {
+	b.String("routing.arm_effort", e.Arm).
 		String("routing.selected_effort", e.Selected).
 		String("routing.sent_effort", e.Sent).
 		String("routing.effort_source", e.Source).

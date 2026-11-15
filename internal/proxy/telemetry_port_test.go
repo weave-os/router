@@ -116,7 +116,7 @@ func TestTelemetryPort_CommandFeedbackRecordsAndFlushes(t *testing.T) {
 	}`
 	ctx := context.WithValue(context.Background(), proxy.APIKeyIDContextKey{}, "key-1")
 	ctx = context.WithValue(ctx, proxy.InstallationIDContextKey{}, uuid.New().String())
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	err := service.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(), req)
 

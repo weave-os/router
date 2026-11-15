@@ -224,7 +224,7 @@ func (h *goldenHarness) serve(t *testing.T, ingress string, req goldenRequest) g
 	if req.path != "" {
 		path = req.path
 	}
-	httpReq := httptest.NewRequest(http.MethodPost, path, strings.NewReader(req.body)).WithContext(ctx)
+	httpReq := httptest.NewRequestWithContext(ctx, http.MethodPost, path, strings.NewReader(req.body))
 	httpReq.Header.Set("Content-Type", "application/json")
 	for k, v := range req.headers {
 		httpReq.Header.Set(k, v)
@@ -444,14 +444,14 @@ func goldenReflect(v reflect.Value) (any, bool) {
 	if !v.IsValid() {
 		return nil, false
 	}
-	switch v.Interface().(type) {
+	switch value := v.Interface().(type) {
 	case time.Time, time.Duration:
 		return nil, false
 	case error:
 		if v.Kind() == reflect.Pointer && v.IsNil() {
 			return nil, false
 		}
-		return v.Interface().(error).Error(), true
+		return value.Error(), true
 	}
 	switch v.Kind() {
 	case reflect.Pointer, reflect.Interface:
@@ -515,6 +515,7 @@ func goldenReflect(v reflect.Value) (any, bool) {
 }
 
 func runGoldenScenario(t *testing.T, sc goldenScenario) {
+	t.Helper()
 	h := newGoldenHarness(t, sc)
 	traces := make([]goldenRequestTrace, 0, len(sc.requests))
 	for _, req := range sc.requests {

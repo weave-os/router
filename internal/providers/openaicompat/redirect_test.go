@@ -42,13 +42,13 @@ func TestProxy_RefusedRedirectFailsRetryablyWithoutTouchingWriter(t *testing.T) 
 
 	c := openaicompat.NewClient("test-key", upstream.URL+"/api/v1")
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	prep := providers.PreparedRequest{Body: []byte(`{"model":"m","messages":[]}`), Headers: make(http.Header)}
 
 	err := c.Proxy(context.Background(), router.Decision{Model: "m"}, prep, rec, clientReq)
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, httputil.ErrRefusedRedirect, "the sentinel must survive the adapter's wrapping for classification")
+	require.ErrorIs(t, err, httputil.ErrRefusedRedirect, "the sentinel must survive the adapter's wrapping for classification")
 	assert.True(t, providers.IsRetryable(err), "no bytes reached the client, so the next binding may be tried")
 	assert.Zero(t, rec.Body.Len(), "writer must not be touched on a refused redirect")
 	assert.Empty(t, rec.Header().Get("Location"), "the redirect Location must never reach the client")
@@ -62,13 +62,13 @@ func TestPassthrough_RefusedRedirectRelaysNothing(t *testing.T) {
 
 	c := openaicompat.NewClient("test-key", upstream.URL+"/api/v1")
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models", nil)
 	prep := providers.PreparedRequest{Headers: make(http.Header)}
 
 	err := c.Passthrough(context.Background(), prep, rec, clientReq)
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, httputil.ErrRefusedRedirect)
+	require.ErrorIs(t, err, httputil.ErrRefusedRedirect)
 	assert.Zero(t, rec.Body.Len(), "no redirect body reaches the caller")
 	assert.Empty(t, rec.Header().Get("Location"), "the unconfigured host must not reach the caller")
 	assert.False(t, targetHit.Load(), "the redirect target must never be contacted")
@@ -83,7 +83,7 @@ func TestListModels_RedirectRefused(t *testing.T) {
 	ids, err := c.ListModels(context.Background())
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, providers.ErrModelDiscoveryTransport)
+	require.ErrorIs(t, err, providers.ErrModelDiscoveryTransport)
 	assert.Empty(t, ids)
 	assert.False(t, targetHit.Load(), "the redirect target must never be contacted")
 }

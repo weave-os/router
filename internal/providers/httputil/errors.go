@@ -66,7 +66,8 @@ func LogUpstreamStatus(ctx context.Context, msg string, status int, attrs ...any
 		filtered := make([]any, 0, len(attrs)+2)
 		for i := 0; i+1 < len(attrs); i += 2 {
 			if key, _ := attrs[i].(string); key == "body_preview" {
-				filtered = append(filtered, upstreamErrorTypeAttrs(attrs[i+1].(string))...)
+				preview, _ := attrs[i+1].(string)
+				filtered = append(filtered, upstreamErrorTypeAttrs(preview)...)
 				continue
 			}
 			filtered = append(filtered, attrs[i], attrs[i+1])

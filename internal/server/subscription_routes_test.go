@@ -36,10 +36,10 @@ func TestInternalRefreshRouteRetainsAuthAndAllowsTokenExchangeBudget(t *testing.
 	registerInternalSubscriptions(engine, group, authSvc, Features{SubscriptionRefresh: probe}, token)
 	path := "/internal/v1/subscription-accounts/11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/refresh"
 	unauthenticated := httptest.NewRecorder()
-	engine.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodPost, path, nil))
+	engine.ServeHTTP(unauthenticated, httptest.NewRequestWithContext(t.Context(), http.MethodPost, path, nil))
 	require.Equal(t, http.StatusUnauthorized, unauthenticated.Code)
 	require.Zero(t, probe.remaining)
-	request := httptest.NewRequest(http.MethodPost, path, nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, path, nil)
 	request.Header.Set("X-Weave-Internal-Token", token)
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, request)

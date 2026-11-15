@@ -97,7 +97,7 @@ func TestJSONWriter_DeepNesting_NoPanic(t *testing.T) {
 		w.EndObj()
 	}
 	got := w.Bytes()
-	require.Positive(t, len(got), "should produce output without panic")
+	require.NotEmpty(t, got, "should produce output without panic")
 }
 
 func TestJSONWriter_StringEscaping(t *testing.T) {

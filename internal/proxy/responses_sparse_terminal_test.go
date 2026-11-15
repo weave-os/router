@@ -58,7 +58,7 @@ func TestProxyOpenAIResponses_NativeStreamCompletionDoesNotReplayOutput(t *testi
 				body := `{"model":"gpt-5.6-luna","stream":true,"input":"hi"}`
 				rec := httptest.NewRecorder()
 				err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec,
-					httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body)))
+					httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(body)))
 				if interrupt {
 					require.Error(t, err)
 					assert.Contains(t, rec.Body.String(), `"type":"response.failed"`)

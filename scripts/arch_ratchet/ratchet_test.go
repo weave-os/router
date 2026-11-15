@@ -246,7 +246,7 @@ func TestLoadExceptionsRejectsEntriesWithoutReason(t *testing.T) {
 func TestRunComparesWorkingTreeWithMergeBase(t *testing.T) {
 	root := t.TempDir()
 	git := func(args ...string) {
-		cmd := exec.Command("git", append([]string{"-c", "user.name=test", "-c", "user.email=test@invalid"}, args...)...)
+		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-c", "user.name=test", "-c", "user.email=test@invalid"}, args...)...)
 		cmd.Dir = root
 		out, err := cmd.CombinedOutput()
 		require.NoError(t, err, string(out))
@@ -262,19 +262,19 @@ func TestRunComparesWorkingTreeWithMergeBase(t *testing.T) {
 	git("commit", "-q", "-m", "base")
 
 	write("internal/proxy/service.go", "package proxy\n\ntype Service struct{}\n\nfunc (s *Service) Big() {\n"+statements(110)+"}\n")
-	result, err := run(repo{root: root}, "main")
+	result, err := run(t.Context(), repo{root: root}, "main")
 	require.NoError(t, err)
 	assert.Empty(t, result.violations)
 
 	write("internal/proxy/extra.go", "package proxy\n\nfunc (s *Service) Extra() {}\n")
-	result, err = run(repo{root: root}, "main")
+	result, err = run(t.Context(), repo{root: root}, "main")
 	require.NoError(t, err)
 	require.Len(t, result.violations, 1)
 	assert.Equal(t, metricServiceMethods, result.violations[0].metric)
 
 	require.NoError(t, os.Remove(filepath.Join(root, "internal/proxy/extra.go")))
 	write("internal/other/ünïcode.go", "package other\n\nfunc Long() {\n"+statements(120)+"}\n")
-	result, err = run(repo{root: root}, "main")
+	result, err = run(t.Context(), repo{root: root}, "main")
 	require.NoError(t, err)
 	require.Len(t, result.violations, 1)
 	assert.Equal(t, "internal/other.Long", result.violations[0].subject)

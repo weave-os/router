@@ -267,7 +267,7 @@ func apiRequest(t *testing.T, handler http.Handler, method, accountID string, bo
 	if accountID != "" {
 		path += "/" + accountID
 	}
-	request := httptest.NewRequest(method, path, bytes.NewReader(data))
+	request := httptest.NewRequestWithContext(t.Context(), method, path, bytes.NewReader(data))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set(auth.RouterKeyHeader, "rk_fixture_rotated")
 	response := httptest.NewRecorder()

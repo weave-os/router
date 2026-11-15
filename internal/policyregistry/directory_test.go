@@ -117,7 +117,7 @@ func TestDirectoryRegistryRejectsTamperedPolicyBytes(t *testing.T) {
 
 func TestDirectoryRegistryFailsClosedOnMissingHeadOrBadSidecarURL(t *testing.T) {
 	_, err := policyregistry.NewDirectoryRegistry(t.TempDir(), "")
-	assert.ErrorIs(t, err, policyregistry.ErrNotFound)
+	require.ErrorIs(t, err, policyregistry.ErrNotFound)
 
 	baked := writeBakedRegistry(t)
 	for _, raw := range []string{"hmm-sidecar:8093", "ftp://hmm-sidecar", "http://user:pass@hmm-sidecar"} {
