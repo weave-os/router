@@ -592,10 +592,10 @@ func TestResolveBinding_WaferTrailingBindings(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, providers.ProviderTogether, b.Provider)
 
-	b, ok = ResolveBinding("z-ai/glm-5.2", map[string]struct{}{providers.ProviderWafer: {}})
+	_, ok = ResolveBinding("z-ai/glm-5.2", map[string]struct{}{providers.ProviderWafer: {}})
 	assert.False(t, ok)
 
-	b, ok = ResolveBinding("z-ai/glm-5.2", map[string]struct{}{providers.ProviderWaferAnthropic: {}})
+	_, ok = ResolveBinding("z-ai/glm-5.2", map[string]struct{}{providers.ProviderWaferAnthropic: {}})
 	assert.False(t, ok)
 
 	b, ok = ResolveBinding("z-ai/glm-5.2", map[string]struct{}{providers.ProviderWafer: {}, providers.ProviderWaferAnthropic: {}})

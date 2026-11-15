@@ -131,7 +131,7 @@ func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, 
 	defer ticker.Stop()
 	readyCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
-	lastReadiness := "no readiness response"
+	var lastReadiness string
 	for {
 		response, err := client.Get(baseURL + "/readyz")
 		if err == nil {

@@ -159,7 +159,7 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 				require.True(t, ok)
 				require.Equal(t, DispatchErrorContextWindowExceeded, class.Kind)
 				require.Len(t, models, 1, "a real overflow must reach the client without retrying the oversized turn")
-				recorder, err = proxyTurn(largeHistory, "Your task is to create a detailed summary of the conversation so far.")
+				_, err = proxyTurn(largeHistory, "Your task is to create a detailed summary of the conversation so far.")
 				require.Error(t, err)
 				class, ok = ClassifyDispatchError(err)
 				require.True(t, ok)

@@ -54,9 +54,8 @@ type Emitter struct {
 	// calls so a late Enqueue cannot panic with "send on closed channel".
 	// Enqueue acquires RLock for the lifetime of the send; Shutdown takes
 	// Lock to flip closed and close(queue) atomically.
-	closeMu            sync.RWMutex
-	closed             atomic.Bool
-	translationMetrics translationMetrics
+	closeMu sync.RWMutex
+	closed  atomic.Bool
 }
 
 // NewEmitter starts the worker pool and returns a ready emitter. Returns
