@@ -326,37 +326,14 @@ func anthropicOAuthCredentialRejected(err error) bool {
 // the CTA.
 const topUpURL = "https://app.weaveos.com/organization/settings/weave-router/credits"
 
-// subscriptionSpendCapWarningMarker is prepended to a subscription-only turn
-// a spend cap barred from paid capacity. The organization may still hold
-// credits, so it names the cap and carries no top-up CTA.
-const subscriptionSpendCapWarningMarker = routingMarkerPrefix +
-	"a Weave router spend cap has been reached, so this turn is running on your own Anthropic subscription and paid model fallback is disabled.\n\n"
-
-const subscriptionSpendCapWarningMarkerCodex = routingMarkerPrefix +
-	"a Weave router spend cap has been reached, so this turn is running on your own ChatGPT (Codex) subscription and paid model fallback is disabled.\n\n"
-
-// subscriptionFundingWarning keeps funding policy separate from notice encoding.
-type subscriptionFundingWarning struct {
-	reason billing.SubscriptionOnlyReason
-	source subscriptions.Provider
-}
-
-func (w subscriptionFundingWarning) text() string {
-	switch w.reason {
-	case billing.SubscriptionOnlySpendCapReached:
-		if w.source == subscriptions.ProviderCodex {
-			return subscriptionSpendCapWarningMarkerCodex
-		}
-		return subscriptionSpendCapWarningMarker
-	default:
-		return ""
-	}
-}
-
 func routerNoticeForRequest(ctx context.Context, headers http.Header, source subscriptions.Provider, model, marker string) translate.RouterNotice {
 	kind := translate.NoticeModelSelection
 	reason, _ := billing.SubscriptionOnlyReasonFromContext(ctx)
 	warning := subscriptionFundingWarning{reason: reason, source: source}
+	if fundedByCustomerKey(ctx, model) {
+		// A customer-key warning carries no source, so its echo matches on either ingress.
+		warning = subscriptionFundingWarning{reason: reason, customerKey: true}
+	}
 	echoed, _ := ctx.Value(subscriptionOnlyWarningsEchoedContextKey{}).(map[subscriptionFundingWarning]bool)
 	if text := warning.text(); text != "" && !echoed[warning] {
 		kind = translate.NoticeFundingWarning
@@ -422,11 +399,6 @@ func reconnectNoticeForAttempt(ctx context.Context, headers http.Header, notice 
 func reconnectNudgeEchoed(ctx context.Context, text string) bool {
 	echoed, _ := ctx.Value(subscriptionReconnectNudgesEchoedContextKey{}).(map[string]bool)
 	return echoed[text]
-}
-
-var subscriptionFundingWarnings = []subscriptionFundingWarning{
-	{reason: billing.SubscriptionOnlySpendCapReached, source: subscriptions.ProviderClaude},
-	{reason: billing.SubscriptionOnlySpendCapReached, source: subscriptions.ProviderCodex},
 }
 
 // Capture replay evidence before cleanup, retaining it through Responses delegation.
