@@ -4,6 +4,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/subscriptionlane"
 	"weave-os/router/internal/subscriptions/entitlement"
 
 	"github.com/gin-gonic/gin"
@@ -96,7 +97,8 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 		// retaining included capacity for any model it cannot cover.
 		if proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath()) {
 			log.Info("Subscriber request prefers linked subscription funding", "reason", billing.SubscriptionOnlyLinkedFirst, "subscriber_id", subscriberID, "admission_outcome", admission.Outcome)
-			c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context(), billing.SubscriptionOnlyLinkedFirst))
+			ctx, _ := billing.StepSubscriptionLane(c.Request.Context(), subscriptionlane.LinkedPlanPreferred)
+			c.Request = c.Request.WithContext(ctx)
 			c.Next()
 			return
 		}

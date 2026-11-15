@@ -2,10 +2,12 @@ package proxy
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/refusal"
+	"weave-os/router/internal/subscriptionlane"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -63,9 +65,36 @@ func TestSubscriptionLaneRefusalsPerMark(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			assert.Equal(t, tc.unavailable.Contract(), classifiedRefusal(t, subscriptionOnlyUnavailable(tc.ctx)))
 			assert.Equal(t, tc.poolExhausted.Contract(), classifiedRefusal(t, subscriptionPoolExhausted(tc.ctx)))
-			assert.ErrorIs(t, subscriptionPoolExhausted(tc.ctx), ErrSubscriptionPoolExhausted)
+			require.ErrorIs(t, subscriptionPoolExhausted(tc.ctx), ErrSubscriptionPoolExhausted)
 			assert.Equal(t, tc.paidUnfunded, paidCapacityUnfunded(tc.ctx))
 			assert.Equal(t, tc.linkedFirstStill, linkedFirst(tc.ctx))
 		})
 	}
+}
+
+func TestSubscriptionLaneRefusalsClassifyAsTheTableKind(t *testing.T) {
+	refusals := map[subscriptionlane.Event]func(context.Context) error{
+		subscriptionlane.SubscriptionUnservable:    subscriptionOnlyUnavailable,
+		subscriptionlane.SubscriptionPoolExhausted: subscriptionPoolExhausted,
+	}
+	for name, tc := range subscriptionLaneRefusalCases() {
+		from := billing.SubscriptionLaneFromContext(tc.ctx)
+		for on, refuse := range refusals {
+			t.Run(name+"/"+on.String(), func(t *testing.T) {
+				terminal, ok := subscriptionlane.Step(from, on)
+				require.True(t, ok)
+				kind, refused := terminal.Refusal()
+				require.True(t, refused)
+				assert.Equal(t, kind.Contract(), classifiedRefusal(t, refuse(tc.ctx)))
+			})
+		}
+	}
+}
+
+func TestUserSpendLimitRefusalClassifiesAsTheTableKind(t *testing.T) {
+	terminal, ok := subscriptionlane.Step(subscriptionlane.Funded, subscriptionlane.UserSpendLimitGate.Tripped(false))
+	require.True(t, ok)
+	kind, refused := terminal.Refusal()
+	require.True(t, refused)
+	assert.Equal(t, kind.Contract(), classifiedRefusal(t, fmt.Errorf("%w: spent", billing.ErrUserMonthlySpendLimitReached)))
 }

@@ -9,6 +9,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/refusal"
+	"weave-os/router/internal/subscriptionlane"
 
 	"github.com/gin-gonic/gin"
 )
@@ -97,15 +98,15 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 			if errors.Is(err, billing.ErrBalanceRowMissing) {
 				// A subscription-only org may never have had a balance
 				// row; its turns are free, so exempt them here too.
-				if subscriptionExempt {
+				kind, refused := tripSubscriptionLane(c, subscriptionlane.BalanceGate, subscriptionExempt)
+				if !refused {
 					log.Warn("Balance row missing: serving subscription-only, paid failover disabled",
 						"organization_id", orgID)
-					c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context(), billing.SubscriptionOnlyCreditsDepleted))
 					c.Next()
 					return
 				}
 				log.Info("Balance check rejected: balance row missing", "organization_id", orgID)
-				abortRefusal(c, refusal.InsufficientCredits, gin.H{
+				abortRefusal(c, kind, gin.H{
 					"top_up_url":         TopUpURL,
 					"balance_usd_micros": 0,
 					"message":            "Your organization's prepaid credits are depleted. Contact your org admin to add credits.",
@@ -131,18 +132,13 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 		threshold := minBalanceMicros
 
 		if result.BalanceMicros <= threshold {
-			// A subscription-covered request at or below the prepaid threshold is not
-			// 402'd: 402ing here would block traffic that serves for free on the
-			// caller's own subscription. Flag it subscription-only so the proxy
-			// serves on the subscription (or refuses a would-be-paid turn) and
-			// never fails over to a paid model.
-			if subscriptionExempt {
+			kind, refused := tripSubscriptionLane(c, subscriptionlane.BalanceGate, subscriptionExempt)
+			if !refused {
 				log.Warn("Balance depleted: serving subscription-only, paid failover disabled",
 					"organization_id", orgID,
 					"balance_usd_micros", result.BalanceMicros,
 					"threshold_usd_micros", threshold,
 				)
-				c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context(), billing.SubscriptionOnlyCreditsDepleted))
 				c.Next()
 				return
 			}
@@ -152,7 +148,7 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 				"threshold_usd_micros", threshold,
 				"subscription_exempt", subscriptionExempt,
 			)
-			abortRefusal(c, refusal.InsufficientCredits, gin.H{
+			abortRefusal(c, kind, gin.H{
 				"top_up_url":         TopUpURL,
 				"balance_usd_micros": result.BalanceMicros,
 				"message":            "Your organization's prepaid credits are depleted. Contact your org admin to add credits.",
