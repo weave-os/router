@@ -136,14 +136,14 @@ func TestCheckUserMonthlySpendLimit_CapReachedNoSubscriptionStillRejects(t *test
 	assert.ErrorIs(t, err, billing.ErrUserMonthlySpendLimitReached)
 }
 
-func TestCheckUserMonthlySpendLimit_CapReachedSubscriptionWithoutBypassRejects(t *testing.T) {
-	// Subscription present, but the org has NOT enabled usage-bypass. The exemption
-	// is scoped to bypass orgs, so a reached cap must still 402.
+func TestCheckUserMonthlySpendLimit_CapReachedSubscriptionWithoutBypassServesSubscriptionOnly(t *testing.T) {
 	s := &Service{billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
 	ctx := context.WithValue(spendLimitCtx("u1"), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-valid-token")
-	_, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathMessages)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, billing.ErrUserMonthlySpendLimitReached)
+	outCtx, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathMessages)
+	require.NoError(t, err)
+	reason, ok := billing.SubscriptionOnlyReasonFromContext(outCtx)
+	require.True(t, ok)
+	assert.Equal(t, billing.SubscriptionOnlySpendCapReached, reason)
 }
 
 func TestCheckUserMonthlySpendLimit_CapReachedSubscriptionUncoveredRouteRejects(t *testing.T) {
