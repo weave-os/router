@@ -2075,8 +2075,8 @@ func (s *Service) runTurnLoop(
 			if !slidingServed && s.evidenceUpgradeApplies(ctx, res.SessionKey) && res.UpgradeShadow != nil {
 				res.UpgradeShadow.Applied = true
 				switch res.UpgradeShadow.Verdict.Outcome {
-				case upgradeAllow:
-					// Fall through to serve the fresh model; the confidence floor does not run.
+				case upgradeAllow, upgradeExistingPolicy, upgradeNotApplicable, upgradeExcluded:
+					// Fall through to serve the fresh model; only upgradeAllow skips the confidence floor.
 				case upgradeHold:
 					decision := pinDecision(pin)
 					res.Decision = decision

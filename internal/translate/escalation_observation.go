@@ -439,6 +439,7 @@ func escalationErrorFlag(value gjson.Result) *bool {
 	case EscalationToolStatusError, EscalationToolStatusFailed:
 		verdict := true
 		return &verdict
+	case EscalationToolStatusCompleted:
 	}
 	if value.Get("error").Exists() && value.Get("error").Type != gjson.Null {
 		verdict := true

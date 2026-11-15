@@ -487,32 +487,6 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	}
 }
 
-// classifyResolutionError maps a failed plan resolution to a client-facing
-// class: an override or selection the request itself supplied is a client
-// error; a policy with nothing eligible to run on is a routing outage.
-func classifyResolutionError(err *policy.ResolutionError) DispatchErrorClass {
-	switch err.Code {
-	case policy.ResolutionErrorInvalidOverride, policy.ResolutionErrorOverrideNotAllowed, policy.ResolutionErrorDuplicateOverride, policy.ResolutionErrorUnknownSelection, policy.ResolutionErrorBudgetViolation:
-		if err.Source == policy.OverrideSourceRequest || err.Code == policy.ResolutionErrorUnknownSelection {
-			return DispatchErrorClass{
-				Kind:       DispatchErrorPlanOverrideRejected,
-				Status:     http.StatusBadRequest,
-				Message:    "The requested model, provider, or budget is not permitted for this operation.",
-				LogLevel:   "warn",
-				LogMessage: "Inference plan rejected request-supplied override",
-			}
-		}
-	}
-	return DispatchErrorClass{
-		Kind:       DispatchErrorPlanUnresolvable,
-		Status:     http.StatusServiceUnavailable,
-		Message:    "Router unavailable: no inference target could be authorized for this request.",
-		RetryAfter: true,
-		LogLevel:   "error",
-		LogMessage: "Inference plan resolution failed",
-	}
-}
-
 // unwrapToSentinelMessage returns the message of the wrap layer whose direct
 // child is one of the cache_control sentinels, stripping outer prefixes like
 // "emit body: ". Falls back to err.Error().

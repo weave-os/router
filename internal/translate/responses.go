@@ -1795,19 +1795,6 @@ func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) err
 	return t.writeNativeResponsesFrame(rewritten, delimiter)
 }
 
-func (t *ResponsesWriter) shouldHoldNativeEvent(eventType responsesEventType, itemType responsesItemType) bool {
-	if t.footerText == "" || t.sawToolCall {
-		return false
-	}
-	switch eventType {
-	case responsesOutputTextDone, responsesContentPartDone:
-		return true
-	case responsesOutputItemDone:
-		return itemType == responsesMessageItem || itemType == ""
-	}
-	return false
-}
-
 func (t *ResponsesWriter) flushNativeHeldEvents(commitFooter bool) error {
 	if len(t.nativeHeldEvents) == 0 {
 		return nil

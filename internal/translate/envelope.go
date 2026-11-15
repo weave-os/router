@@ -205,6 +205,7 @@ func (e *RequestEnvelope) ClientSessionID() string {
 		return requestcontext.BodySessionID(e.body, requestcontext.ConversationGemini)
 	case FormatOpenAI:
 		return requestcontext.BodySessionID(e.body, requestcontext.ConversationChat)
+	case FormatOpenAIResponses:
 	}
 	return ""
 }
@@ -1344,22 +1345,6 @@ func ResolveForceEffort(caps router.ModelSpec, level string) string {
 // exists so call sites inside EmitOptions don't repeat caps + level extraction.
 func resolveForceEffort(opts EmitOptions) string {
 	return ResolveForceEffort(opts.Capabilities, opts.ForceEffort)
-}
-
-// effortForBudget maps legacy thinking.budget_tokens onto an adaptive
-// output_config.effort tier per Anthropic's guidance (≤4k low, ≤16k medium,
-// else high). Missing/zero budget defaults to "medium".
-func effortForBudget(budgetTokens int64) string {
-	switch {
-	case budgetTokens <= 0:
-		return "medium"
-	case budgetTokens <= 4096:
-		return effortLow
-	case budgetTokens <= 16384:
-		return "medium"
-	default:
-		return "high"
-	}
 }
 
 func resolveAnthropicOverrides(body []byte, opts EmitOptions) EmitOverrides {

@@ -128,6 +128,7 @@ func failureWordingFor(a dispatch.TracedAttempt) failureWording {
 		return failureWording{"declined the request", "declined the request"}
 	case TurnErrorClientCanceled:
 		return failureWording{"was canceled", "request canceled"}
+	default:
 	}
 	if isUpstreamContextOverflow(a.Err) {
 		return failureWording{"found the conversation too long for its context window", withStatus("context window exceeded")}
