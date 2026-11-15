@@ -15,7 +15,11 @@ func TestAnthropicErrorAsOpenAIRewrapsAnAnthropicEnvelope(t *testing.T) {
 		string(translate.AnthropicErrorAsOpenAI(body)))
 }
 
-func TestAnthropicErrorAsOpenAILeavesAnOpenAIBodyUnchanged(t *testing.T) {
-	body := []byte(`{"error":{"message":"slow down","type":"requests","param":null,"code":"rate_limit_exceeded"}}`)
-	assert.Equal(t, string(body), string(translate.AnthropicErrorAsOpenAI(body)))
+func TestAnthropicErrorAsOpenAILeavesOpenAIBodiesUnchanged(t *testing.T) {
+	for _, body := range []string{
+		`{"error":{"message":"slow down","type":"requests","param":null,"code":"rate_limit_exceeded"}}`,
+		`{"type":"error","sequence_number":3,"error":{"type":"invalid_request_error","code":"invalid_prompt","message":"bad","param":null}}`,
+	} {
+		assert.Equal(t, body, string(translate.AnthropicErrorAsOpenAI([]byte(body))))
+	}
 }
