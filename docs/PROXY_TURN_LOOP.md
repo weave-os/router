@@ -1,3 +1,6 @@
+Created: 2026-11-15
+Last edited: 2026-11-15
+
 # Proxy turn loop, session keys, force-model and handover
 
 Contributor reference for `internal/proxy/turnloop.go`, `session_key.go`,
