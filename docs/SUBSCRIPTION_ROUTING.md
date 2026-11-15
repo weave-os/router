@@ -155,6 +155,58 @@ failures rotate to another eligible account before authorized Weave-funded API
 capacity serves the selected model. Depleted Weave credits
 prohibit paid API fallback, not subscription use.
 
+## Subscription pass-through lanes
+
+Two lanes serve the requested model verbatim on the caller's own subscription,
+skipping the scorer, planner, session pin, semantic cache and billing. Both
+dispatch straight to the subscription provider and record a
+`router.usage_bypass` span; `decision_reason` tells them apart:
+`classifier_subscription_passthrough`, then `usage_bypass`.
+
+- **Classifier passthrough** needs no opt-in. A Claude Code classifier turn
+  presenting a Claude subscription credential stays on that plan, because the
+  provider bills the classifier to the plan and any substituted model would be
+  router-added API spend. A spent or billable subscription falls through to
+  routing.
+- **Usage bypass** is the installation opt-in (`usage_bypass_enabled`). It
+  engages while observed utilization of the matching Claude or Codex
+  subscription stays below the threshold (default applied when unset, clamped
+  to `[0, 1]`), and on cold start so the first response primes the observer.
+  Once utilization crosses the threshold, routing and account selection take
+  over to conserve the remaining quota. In subscription-only mode the threshold
+  no longer applies and the plan serves up to exhaustion.
+
+Both lanes share one admission check. The model must be known, primary on
+Anthropic (Claude subscription) or OpenAI and covered by the Codex plan, enabled
+for the request, absent from `SafetyExcludedModels`, inside the installation
+allowlist, sold by the caller's product, and not struck by this session after a
+failed stream. The installation's `excluded_models` and the deployment-wide
+automatic exclusions are routing preferences the lanes may override; the
+allowlist is a compliance boundary they must not. The bypass never serves a
+spent subscription, nor one drawing billable overage while a paid lane remains.
+A usage-billed Enterprise seat with paid fallback disabled (other than
+linked-first) stays servable on overage, and a picked model on the caller's own
+login lets the provider decide.
+
+Before any bytes reach the client, a retryable upstream failure (rate limit,
+transport error) returns the turn to routed dispatch. A subscription
+model-access 404 or third-party-client 400 also reroutes, but only when a BYOK
+or deployment Anthropic key can serve it. Other upstream errors are flushed
+verbatim and local preparation errors surface directly. A session that switched
+models strips stale thinking signatures before dispatch. Bypass turns still
+persist a telemetry row (routing fields empty) with unified limit headers and
+use the routed path's session key, so a session switching lanes keeps one turn
+clock.
+
+The telemetry columns `unified_limit_headers` (Claude) and `codex_limit_headers`
+hold the raw limit headers of the turn's last attempt served on a subscription
+OAuth credential; BYOK and deployment-key calls describe other accounts and are
+never captured. Each attempt replaces both families, so a Claude attempt
+followed by a Codex attempt leaves only the Codex reading; read them together
+with `failover_used` and `credential_source`. A turn with no subscription
+attempt leaves both columns NULL, and a marshal failure is logged rather than
+failing the request.
+
 ## Paid inference authorization
 
 Immediately before every provider inference call, the dispatch executor checks

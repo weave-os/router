@@ -11,28 +11,13 @@ import (
 	"weave-os/router/internal/subscriptions/entitlement"
 )
 
-// checkUserMonthlySpendLimit gates a turn on the resolved engineer's monthly
-// spend limit. Runs inside the proxy (not middleware) because user identity is
-// resolved by the handler after the middleware chain; no identity passes through.
-//
-// The cap bounds PAID spend, not free subscription usage: a covered turn on a
-// usage-bypass org (a Claude/Codex credential that covers routePath) is not
-// rejected when the cap is reached. Instead it returns a subscription-only
-// ctx (billing.WithSubscriptionOnly) so the proxy serves it on the caller's
-// own plan — or refuses a would-be-paid turn with the controlled 402 — never
-// on a paid model. Mirrors middleware.WithBalanceCheck's exemption. Returns the
-// (possibly flagged) ctx the rest of the turn must use.
 func (s *Service) checkUserMonthlySpendLimit(ctx context.Context, headers http.Header, routePath string) (context.Context, error) {
 	if s.billing == nil {
 		return ctx, nil
 	}
-	// Billing override is the org-wide escape hatch (WithBalanceCheck stamps it
-	// and passes those orgs through), so engineer limits don't apply either.
 	if billing.HasOverrideFromContext(ctx) {
 		return ctx, nil
 	}
-	// A turn covered by an individual Max/Boost allowance debits 0 and settles
-	// against that allowance, so it adds nothing to the engineer's paid spend.
 	if _, covered := entitlement.CoverageFromContext(ctx); covered {
 		return ctx, nil
 	}
@@ -51,10 +36,6 @@ func (s *Service) checkUserMonthlySpendLimit(ctx context.Context, headers http.H
 		return ctx, fmt.Errorf("%w: %v", billing.ErrSpendLimitCheckUnavailable, err)
 	}
 	if result.LimitReached() {
-		// Cap reached but the caller's own subscription covers this route: don't
-		// 402 free traffic. Flag subscription-only so the proxy serves on the
-		// subscription (or refuses a would-be-paid turn), bounding paid spend at
-		// the cap while subscription usage keeps flowing.
 		if _, bypassOn := usageBypassFromContext(ctx); bypassOn &&
 			RequestPresentsCoveringSubscription(ctx, headers, routePath) {
 			observability.FromContext(ctx).Info("Engineer monthly cap reached but subscription covers the route: serving subscription-only",

@@ -12,14 +12,8 @@ import (
 	"weave-os/router/internal/subscriptions"
 )
 
-// subscriptionSessionHold keeps a session off a subscription pool that just
-// failed on provider capacity. The agent-turn strike clears at the next user
-// prompt, which sent such sessions straight back to the overloaded pool every
-// prompt. Per replica, in memory.
 const subscriptionSessionHold = 5 * time.Minute
 
-// subscriptionSessionHolds has its own cache so caller-chosen session ids
-// cannot evict account and model denials.
 type subscriptionSessionHolds struct {
 	once    sync.Once
 	entries *lru.Cache[string, time.Time]
@@ -49,8 +43,6 @@ func (s *Service) holdSessionOffSubscriptionPool(ctx context.Context, provider, 
 	observability.FromContext(ctx).Info("Session held off subscription pool after capacity failure", "pool", pool, "hold", subscriptionSessionHold)
 }
 
-// withoutHeldSubscriptionModels drops every model served by a held pool, so a
-// sibling model on the same overloaded seats is skipped too.
 func (s *Service) withoutHeldSubscriptionModels(ctx context.Context, models []string) []string {
 	owner := sessionHoldOwner(ctx)
 	if owner == "" {
