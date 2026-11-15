@@ -7,15 +7,44 @@ linters:
   default: none
   enable:
     - depguard
+    - contextcheck
     - dupl
     - errorlint
+    - errcheck
+    - bodyclose
+    - nilerr
+    - exhaustive
+    - gosec
   settings:
+    errcheck:
+      exclude-functions:
+        - (*bufio.Writer).WriteString
+        - (*bufio.Writer).WriteByte
+        - (*bufio.Writer).WriteRune
+        - (*bufio.Writer).Write
+        - (*strings.Builder).WriteString
+        - (*strings.Builder).WriteByte
+        - (*bytes.Buffer).WriteString
     dupl:
       threshold: 100
+    gosec:
+      excludes:
+        - G115
+        - G101
+        - G117
+        - G704
+        - G304
+        - G104
+        - G703
+        - G705
+        - G204
+        - G702
     errorlint:
       comparison: true
       asserts: true
       errorf: false
+    exhaustive:
+      default-signifies-exhaustive: true
     depguard:
       rules:
         leaf:
@@ -88,6 +117,16 @@ linters:
       - path: _test\.go
         linters:
           - dupl
+      # Cloud SQL certificates cannot pass hostname verification; VerifyConnection checks the CA chain and identity instead.
+      - path: internal/postgres/pgtls/pgtls\.go
+        linters:
+          - gosec
+        text: G402
+      # Read by other containers or executed as a stub binary.
+      - path: (internal/policyregistry/directory\.go|smoke/mitmproxy/(main|store)\.go|scripts/subscription_enrollment_check/enrollment_test\.go)
+        linters:
+          - gosec
+        text: G30[126]
 
 issues:
   # Duplicate-code findings apply to new code only; existing clones are tracked for removal.

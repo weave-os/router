@@ -1,7 +1,6 @@
 package translate
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,7 +9,7 @@ import (
 func TestCustomToolInput_ErrorsAreTyped(t *testing.T) {
 	for _, arguments := range []string{`{"input":"a","extra":"b"}`, `{"other":"a"}`, `{"input":1}`} {
 		_, err := customToolInput(arguments)
-		assert.True(t, errors.Is(err, ErrCustomToolArguments), arguments)
+		assert.ErrorIs(t, err, ErrCustomToolArguments, arguments)
 	}
 	input, err := customToolInput(`{"input":"patch"}`)
 	assert.NoError(t, err)

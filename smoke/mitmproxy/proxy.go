@@ -41,7 +41,7 @@ func (p *proxy) handle(w http.ResponseWriter, r *http.Request) {
 		log.Printf("mitmproxy: hijack failed: %v", err)
 		return
 	}
-	defer clientConn.Close()
+	defer func() { _ = clientConn.Close() }()
 
 	if _, err := clientConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n")); err != nil {
 		log.Printf("mitmproxy: write CONNECT ack: %v", err)
@@ -54,7 +54,7 @@ func (p *proxy) handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tlsConn := tls.Server(clientConn, p.ca.tlsConfigFor())
-	defer tlsConn.Close()
+	defer func() { _ = tlsConn.Close() }()
 	if err := tlsConn.Handshake(); err != nil {
 		log.Printf("mitmproxy: TLS handshake with client for %s: %v", strconv.Quote(host), err)
 		return
@@ -73,7 +73,7 @@ func (p *proxy) serveOne(conn net.Conn, host string) error {
 	if err != nil {
 		return fmt.Errorf("read tunneled request: %w", err)
 	}
-	defer req.Body.Close()
+	defer func() { _ = req.Body.Close() }()
 
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
@@ -144,7 +144,7 @@ func (p *proxy) recordLive(host string, req *http.Request, body []byte, key stri
 	if err != nil {
 		return nil, fmt.Errorf("live upstream call: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -161,7 +161,7 @@ func (p *proxy) recordLive(host string, req *http.Request, body []byte, key stri
 			return nil, fmt.Errorf("open gzip response body: %w", gzErr)
 		}
 		decompressed, readErr := io.ReadAll(gr)
-		gr.Close()
+		_ = gr.Close()
 		if readErr != nil {
 			return nil, fmt.Errorf("decompress gzip response body: %w", readErr)
 		}

@@ -165,7 +165,7 @@ func (s *Service) handleBetaCommand(
 		available = snapshot.Routers[strategy] != nil
 	}
 	if available {
-		enabled, err := s.sessionStrategyStore.Toggle(context.Background(), sessionstrategy.Preference{
+		enabled, err := s.sessionStrategyStore.Toggle(context.WithoutCancel(ctx), sessionstrategy.Preference{
 			InstallationID: installationID,
 			SessionKey:     preferenceKey,
 			Strategy:       strategy,
@@ -175,7 +175,7 @@ func (s *Service) handleBetaCommand(
 		}
 		nowEnabled = enabled
 	} else {
-		wasEnabled, err := s.sessionStrategyStore.Disable(context.Background(), installationID, preferenceKey, strategy)
+		wasEnabled, err := s.sessionStrategyStore.Disable(context.WithoutCancel(ctx), installationID, preferenceKey, strategy)
 		if err != nil {
 			return fmt.Errorf("disable beta routing: %w", err)
 		}
@@ -236,7 +236,7 @@ func (s *Service) invalidateSessionRoutingState(
 				continue
 			}
 			seen[stateRole] = struct{}{}
-			if _, _, err := s.pinStore.Consume(context.Background(), sessionKey, stateRole, strategy); err != nil && firstErr == nil {
+			if _, _, err := s.pinStore.Consume(context.WithoutCancel(ctx), sessionKey, stateRole, strategy); err != nil && firstErr == nil {
 				firstErr = err
 			}
 		}

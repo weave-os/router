@@ -113,6 +113,8 @@ func acceptsRoutedDecision(spec PolicySpec) bool {
 		return spec.DispatchClass == DispatchClassMainInference
 	case SelectionStrategyDeploymentHardPin:
 		return spec.DispatchClass == DispatchClassAuxiliaryInference || spec.DispatchClass == DispatchClassClientAuthoritative
+	case SelectionStrategyFixedCatalog, SelectionStrategyClientAuthoritative, SelectionStrategyPassthrough, SelectionStrategyNone:
+		return false
 	}
 	return false
 }

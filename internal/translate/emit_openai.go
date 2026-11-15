@@ -866,36 +866,6 @@ func writeOpenAIToolsFromAnthropic(jw *jsonWriter, body []byte) {
 	jw.EndArr()
 }
 
-// writeOpenAIToolChoiceFromAnthropic emits the "tool_choice" key into jw by
-// converting the Anthropic tool_choice field to OpenAI format.
-func writeOpenAIToolChoiceFromAnthropic(jw *jsonWriter, body []byte) {
-	kind, name := anthropicToolChoice(body)
-	switch kind {
-	case toolChoiceAuto:
-		jw.Key("tool_choice")
-		jw.Str("auto")
-	case toolChoiceRequired:
-		jw.Key("tool_choice")
-		jw.Str("required")
-	case toolChoiceNone:
-		jw.Key("tool_choice")
-		jw.Str("none")
-	case toolChoiceNamed:
-		inner := newJSONWriter()
-		inner.Obj()
-		inner.Key("type")
-		inner.Str("function")
-		inner.Key("function")
-		inner.Obj()
-		inner.Key("name")
-		inner.Str(sanitizeResponsesToolAlias(name))
-		inner.EndObj()
-		inner.EndObj()
-		jw.Key("tool_choice")
-		jw.RawBytes(inner.Bytes())
-	}
-}
-
 // writeOpenAIMaxTokensFromAnthropic emits either "max_tokens" or
 // "max_completion_tokens" (for reasoning-capable models), clamped to the
 // model's output-token cap. max_completion_tokens counts reasoning tokens, so

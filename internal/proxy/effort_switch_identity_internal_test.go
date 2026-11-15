@@ -93,5 +93,5 @@ func TestMaxedOutServedModel_BareIdentityUnchanged(t *testing.T) {
 func TestBaseModelOf(t *testing.T) {
 	assert.Equal(t, "claude-opus-5", baseModelOf("claude-opus-5:xhigh"))
 	assert.Equal(t, "claude-opus-5", baseModelOf("claude-opus-5"))
-	assert.Equal(t, "", baseModelOf(""))
+	assert.Empty(t, baseModelOf(""))
 }

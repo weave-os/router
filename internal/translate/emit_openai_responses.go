@@ -245,12 +245,6 @@ func openAIContentNeedsChatCompletions(body []byte) bool {
 	return unsupported
 }
 
-// responsesReasoningEffort preserves client-selected effort. Routing policy may
-// select a model, but translation must not silently promote a valid level.
-func responsesReasoningEffort(eff, model string) string {
-	return eff
-}
-
 func (e *RequestEnvelope) buildResponsesFromAnthropic(opts EmitOptions) ([]byte, providers.RequestMutationStats, error) {
 	var stats providers.RequestMutationStats
 	body, ccFilter, err := filterClaudeCodeOnlyToolsFromAnthropicBody(e.body, opts.ccToolFilter())
@@ -291,6 +285,7 @@ func (e *RequestEnvelope) buildResponsesFromAnthropic(opts EmitOptions) ([]byte,
 			eff = intent.Level
 		case ReasoningBudget:
 			eff = effortForBudget(intent.BudgetTokens)
+		case ReasoningDisabled, ReasoningAuto:
 		}
 		if eff != "" {
 			eff = responsesReasoningEffort(eff, opts.TargetModel)
@@ -705,6 +700,7 @@ func writeResponsesToolChoiceFromAnthropic(jw *jsonWriter, body []byte) {
 		jw.Key("name")
 		jw.Str(sanitizeResponsesToolAlias(name))
 		jw.EndObj()
+	case toolChoiceAbsent, toolChoiceUnrecognized:
 	}
 }
 

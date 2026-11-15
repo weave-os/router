@@ -418,6 +418,7 @@ func reconciledChatToolFinish(reason string, accepted int) string {
 	switch chatFinishReason(reason) {
 	case chatFinishLength, chatFinishFiltered:
 		return reason
+	case chatFinishStop, chatFinishTools:
 	}
 	if accepted > 0 {
 		return string(chatFinishTools)

@@ -46,7 +46,10 @@ func TestIsRetryable_ResponseHeaderTimeout(t *testing.T) {
 	defer close(release)
 
 	client := &http.Client{Transport: &http.Transport{ResponseHeaderTimeout: 10 * time.Millisecond}}
-	_, err := client.Post(upstream.URL, "application/json", strings.NewReader(`{}`))
+	resp, err := client.Post(upstream.URL, "application/json", strings.NewReader(`{}`))
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
@@ -70,7 +73,10 @@ func TestIsRetryable_RequestDeadlineExceeded(t *testing.T) {
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, upstream.URL, strings.NewReader(`{}`))
 	require.NoError(t, err)
-	_, err = http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
@@ -442,9 +448,9 @@ func TestUpstreamErrorBodyMessage(t *testing.T) {
 	raw := &providers.UpstreamErrorResponse{Status: 502, Body: []byte("Bad Gateway from LB")}
 	assert.Equal(t, "Bad Gateway from LB", providers.UpstreamErrorBodyMessage(raw))
 
-	assert.Equal(t, "", providers.UpstreamErrorBodyMessage(nil))
-	assert.Equal(t, "", providers.UpstreamErrorBodyMessage(&providers.UpstreamStatusError{Status: 400}))
-	assert.Equal(t, "", providers.UpstreamErrorBodyMessage(&providers.UpstreamErrorResponse{Status: 400}))
+	assert.Empty(t, providers.UpstreamErrorBodyMessage(nil))
+	assert.Empty(t, providers.UpstreamErrorBodyMessage(&providers.UpstreamStatusError{Status: 400}))
+	assert.Empty(t, providers.UpstreamErrorBodyMessage(&providers.UpstreamErrorResponse{Status: 400}))
 
 	big := &providers.UpstreamErrorResponse{Status: 400, Body: []byte(strings.Repeat("x", 5000))}
 	assert.LessOrEqual(t, len(providers.UpstreamErrorBodyMessage(big)), 1024, "body is capped")

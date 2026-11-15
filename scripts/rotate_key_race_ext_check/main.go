@@ -19,17 +19,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"weave-os/router/internal/api/admin"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/postgres"
-	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -72,7 +68,7 @@ func main() {
 	}
 
 	fmt.Println("\n=== 3. HTTP-level rotate race (httptest + WithAdminOnly) ===")
-	if err := checkHTTPRotateRace(ctx, pool); err != nil {
+	if err := checkHTTPRotateRace(ctx, newHTTPRotateRace(pool)); err != nil {
 		fail("http rotate race", err)
 	}
 
@@ -323,100 +319,6 @@ func (r *signalListRepo) MarkUsed(ctx context.Context, id string) (bool, error) 
 }
 func (r *signalListRepo) SoftDelete(ctx context.Context, installationID, id string) (int64, error) {
 	return r.inner.SoftDelete(ctx, installationID, id)
-}
-
-// ---------------------------------------------------------------------------
-// 3. HTTP-level race
-// ---------------------------------------------------------------------------
-
-func checkHTTPRotateRace(ctx context.Context, pool *pgxpool.Pool) error {
-	const n = 5
-	const adminPassword = "rotate-race-http-check-password"
-
-	repo := postgres.NewRepository(pool, auth.NoOpEncryptor{})
-	hold := newListHold(n)
-	svc := auth.NewService(
-		repo.Installations,
-		&holdingAPIKeyRepo{inner: repo.APIKeys, hold: hold},
-		repo.ExternalAPIKeys,
-		repo.Users,
-		auth.NoOpAPIKeyCache{},
-		nil,
-		time.Now,
-	).WithAdminPassword(adminPassword)
-
-	// Admin cookie sessions operate on EnsureAdminInstallation's singleton.
-	install, err := svc.EnsureAdminInstallation(ctx)
-	if err != nil {
-		return fmt.Errorf("ensure admin installation: %w", err)
-	}
-	name := "http-race-key-" + uuid.NewString()[:8]
-	issued, _, err := svc.IssueAPIKey(ctx, install.ID, &name, nil)
-	if err != nil {
-		return fmt.Errorf("issue key: %w", err)
-	}
-	fmt.Printf("method=httptest+WithAdminOnly installation_id=%s initial_key_id=%s\n", install.ID, issued.ID)
-
-	session, _, err := svc.IssueAdminSession()
-	if err != nil {
-		return fmt.Errorf("issue admin session: %w", err)
-	}
-
-	engine := gin.New()
-	mgmt := engine.Group("/admin/v1", middleware.WithAdminOnly(svc))
-	mgmt.POST("/keys/:id/rotate", admin.RotateAPIKeyHandler(svc))
-
-	var (
-		ready    sync.WaitGroup
-		done     sync.WaitGroup
-		start    = make(chan struct{})
-		okCount  atomic.Int64
-		statusMu sync.Mutex
-		statuses = map[int]int{}
-	)
-	ready.Add(n)
-	done.Add(n)
-	for i := 0; i < n; i++ {
-		go func() {
-			defer done.Done()
-			ready.Done()
-			<-start
-			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/admin/v1/keys/"+issued.ID+"/rotate", nil)
-			req.AddCookie(&http.Cookie{Name: auth.AdminSessionCookieName, Value: session, Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
-			engine.ServeHTTP(rec, req)
-			statusMu.Lock()
-			statuses[rec.Code]++
-			statusMu.Unlock()
-			if rec.Code == http.StatusCreated {
-				okCount.Add(1)
-			}
-		}()
-	}
-	ready.Wait()
-	close(start)
-	done.Wait()
-
-	keys, err := repo.APIKeys.ListForInstallation(ctx, install.ID)
-	if err != nil {
-		return fmt.Errorf("list keys: %w", err)
-	}
-	// Count only keys from this race (name match) — admin install may have leftovers.
-	activeNamed := 0
-	for _, k := range keys {
-		if k.Name != nil && *k.Name == name {
-			activeNamed++
-		}
-	}
-
-	fmt.Printf("http_status_counts=%v\n", statuses)
-	fmt.Printf("rotate_http_201=%d active_keys_with_race_name=%d\n", okCount.Load(), activeNamed)
-	if okCount.Load() > 1 && activeNamed > 1 {
-		fmt.Println("YES: race reproduces through gin WithAdminOnly + RotateAPIKeyHandler (httptest)")
-	} else {
-		fmt.Println("NO: HTTP path did not show multi-successor race")
-	}
-	return nil
 }
 
 // ---------------------------------------------------------------------------
