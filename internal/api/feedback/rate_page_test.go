@@ -22,7 +22,7 @@ func TestWoolyWaveHandler_ServesPNG(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "image/png", rec.Header().Get("Content-Type"))
-	assert.True(t, len(rec.Body.Bytes()) > 1000, "embedded wooly asset should be non-trivial")
+	assert.Greater(t, len(rec.Body.Bytes()), 1000, "embedded wooly asset should be non-trivial")
 }
 
 func TestWeaveLogoHandler_ServesSVG(t *testing.T) {

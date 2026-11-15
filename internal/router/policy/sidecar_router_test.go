@@ -218,7 +218,7 @@ func TestSidecarRouterOnboardsFutureStrategyWithoutProxyChanges(t *testing.T) {
 	require.Len(t, decider.query.Candidates, 1)
 	assert.Equal(t, "future/gpt-5.5", decider.query.Candidates[0].RosterID)
 	assert.Greater(t, decider.query.Candidates[0].InputUSDPer1M, 0.0)
-	assert.Greater(t, decider.query.Candidates[0].Capabilities.ContextWindow, 0)
+	assert.Positive(t, decider.query.Candidates[0].Capabilities.ContextWindow)
 
 	require.NoError(t, adapter.ReportOutcome(context.Background(), map[string]interface{}{"route_id": "route-future"}))
 	require.NoError(t, adapter.ReportFeedback(context.Background(), map[string]interface{}{"feedback": "positive"}))

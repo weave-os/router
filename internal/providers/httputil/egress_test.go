@@ -33,7 +33,10 @@ func TestRestrictedTransportRefusesANonPublicDestination(t *testing.T) {
 	restricted := &http.Client{Transport: newTransport(time.Second, time.Second, time.Second, true)}
 	request, buildErr := http.NewRequestWithContext(t.Context(), http.MethodGet, upstream.URL, nil)
 	require.NoError(t, buildErr)
-	_, err := restricted.Do(request)
+	restrictedResp, err := restricted.Do(request)
+	if restrictedResp != nil {
+		_ = restrictedResp.Body.Close()
+	}
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrRestrictedDestination)
 
@@ -42,7 +45,7 @@ func TestRestrictedTransportRefusesANonPublicDestination(t *testing.T) {
 	require.NoError(t, build2Err)
 	resp, err := unrestricted.Do(request2)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
@@ -176,7 +179,7 @@ func TestModelDiscoveryRejectsRestrictedAndMixedDNSAnswersBeforeDial(t *testing.
 			require.NoError(t, buildErr)
 			response, requestErr := client.Do(request)
 			if response != nil {
-				response.Body.Close()
+				_ = response.Body.Close()
 			}
 			require.Error(t, requestErr)
 			assert.ErrorIs(t, requestErr, providers.ErrModelDiscoveryDestination)
@@ -211,7 +214,7 @@ func TestModelDiscoveryDialsValidatedAddressWithoutChangingTheRequestOrigin(t *t
 	require.NoError(t, buildErr)
 	response, err := client.Do(request)
 	require.NoError(t, err)
-	response.Body.Close()
+	_ = response.Body.Close()
 	assert.Equal(t, "models.example:"+port, receivedHost)
 }
 
@@ -239,7 +242,7 @@ func TestModelDiscoveryPrivateOriginExceptionIsExact(t *testing.T) {
 	require.NoError(t, buildErr)
 	response, err := client.Do(request)
 	require.NoError(t, err)
-	response.Body.Close()
+	_ = response.Body.Close()
 	assert.Equal(t, int32(1), dialCalls.Load())
 
 	otherPort := strconv.Itoa(mustPortNumber(t, port) + 1)
@@ -247,7 +250,7 @@ func TestModelDiscoveryPrivateOriginExceptionIsExact(t *testing.T) {
 	require.NoError(t, build2Err)
 	response, err = client.Do(request2)
 	if response != nil {
-		response.Body.Close()
+		_ = response.Body.Close()
 	}
 	require.Error(t, err)
 	assert.ErrorIs(t, err, providers.ErrModelDiscoveryDestination)
@@ -282,12 +285,12 @@ func TestModelDiscoveryRevalidatesDNSOnEachNewConnection(t *testing.T) {
 	firstRequest.Close = true
 	response, err := client.Do(firstRequest)
 	require.NoError(t, err)
-	response.Body.Close()
+	_ = response.Body.Close()
 	request, buildErr := http.NewRequestWithContext(t.Context(), http.MethodGet, requestURL, nil)
 	require.NoError(t, buildErr)
 	response, err = client.Do(request)
 	if response != nil {
-		response.Body.Close()
+		_ = response.Body.Close()
 	}
 	require.Error(t, err)
 	assert.ErrorIs(t, err, providers.ErrModelDiscoveryDestination)
@@ -327,7 +330,7 @@ func TestModelDiscoveryIgnoresAmbientProxyConfiguration(t *testing.T) {
 	require.NoError(t, buildErr)
 	response, err := client.Do(request)
 	require.NoError(t, err)
-	response.Body.Close()
+	_ = response.Body.Close()
 	assert.Zero(t, proxyRequests.Load())
 }
 

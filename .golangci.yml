@@ -9,9 +9,21 @@ linters:
     - depguard
     - dupl
     - errorlint
+    - errcheck
+    - bodyclose
+    - nilerr
     - noctx
     - thelper
   settings:
+    errcheck:
+      exclude-functions:
+        - (*bufio.Writer).WriteString
+        - (*bufio.Writer).WriteByte
+        - (*bufio.Writer).WriteRune
+        - (*bufio.Writer).Write
+        - (*strings.Builder).WriteString
+        - (*strings.Builder).WriteByte
+        - (*bytes.Buffer).WriteString
     dupl:
       threshold: 100
     errorlint:

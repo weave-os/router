@@ -70,7 +70,6 @@ type goldenRequest struct {
 type goldenRecorder struct {
 	mu                sync.Mutex
 	calls             map[string]int
-	steps             map[string][]goldenStep
 	routes            []goldenRouteCall
 	attempts          []goldenAttempt
 	inferenceAttempts []any

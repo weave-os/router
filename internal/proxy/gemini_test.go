@@ -112,7 +112,7 @@ func TestProxyGeminiGenerateContent_CrossFormatReturnsSentinel(t *testing.T) {
 	err := svc.ProxyGeminiGenerateContent(ctx, []byte(geminiInjectedBody), rec, httpReq)
 
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, proxy.ErrGeminiCrossFormatUnsupported))
+	assert.ErrorIs(t, err, proxy.ErrGeminiCrossFormatUnsupported)
 }
 
 func TestProxyGeminiGenerateContent_DelaysMarkerUntilFirstUpstreamEvent(t *testing.T) {

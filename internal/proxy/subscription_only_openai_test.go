@@ -2,7 +2,6 @@ package proxy_test
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -87,7 +86,7 @@ func TestSubscriptionOnly_OpenAI_PaidRoute_Refuses402(t *testing.T) {
 	err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, req)
 	require.Error(t, err)
 	require.Positive(t, fr.routeCalls, "the scorer must be consulted so the decision is the paid route under test")
-	assert.True(t, errors.Is(err, proxy.ErrCreditsExhaustedSubscriptionUnavailable),
+	assert.ErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable,
 		"a Codex-covered turn that routes to a paid model must be refused, not dispatched")
 	assert.Empty(t, p.proxyBodies, "no paid dispatch may occur below the floor in subscription-only mode")
 }
@@ -130,9 +129,9 @@ func TestSubscriptionOnly_OpenAI_SubFailure_NoPaidFailover(t *testing.T) {
 	err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, req)
 	require.Error(t, err)
 	var statusErr *providers.UpstreamStatusError
-	require.True(t, errors.As(err, &statusErr), "the caller's own subscription error must surface raw, not be rewritten")
+	require.ErrorAs(t, err, &statusErr, "the caller's own subscription error must surface raw, not be rewritten")
 	assert.Equal(t, http.StatusTooManyRequests, statusErr.Status)
-	assert.False(t, errors.Is(err, proxy.ErrCreditsExhaustedSubscriptionUnavailable),
+	assert.NotErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable,
 		"a served-sub runtime failure is not a credits-exhausted refusal")
 	require.NotNil(t, p.proxyCreds[0], "the dispatch must carry the caller's subscription credential")
 	assert.True(t, p.proxyCreds[0].OAuth, "only the caller's own subscription may be attempted")

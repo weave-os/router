@@ -461,7 +461,7 @@ func TestProxyMessages_ChosenScoreZeroIsPersisted(t *testing.T) {
 // leave routing-brain columns NULL rather than synthesizing fake values.
 func TestProxyMessages_NoMetadataOmitsClusterFields(t *testing.T) {
 	const installID = "22222222-2222-2222-2222-222222222222"
-	require.NotEqual(t, uuid.Nil.String(), installID)
+	require.NotEqual(t, installID, uuid.Nil.String())
 
 	decision := router.Decision{
 		Provider: providers.ProviderAnthropic,
@@ -641,7 +641,7 @@ func TestProxyMessages_PersistsSessionKeyAndRole(t *testing.T) {
 // truncated) so a stored id always joins back to a real rollout.
 func TestNormalizeRolloutID(t *testing.T) {
 	assert.Equal(t, "run/cond/0/iid", proxy.NormalizeRolloutID("  run/cond/0/iid "))
-	assert.Equal(t, "", proxy.NormalizeRolloutID(strings.Repeat("x", 257)))
+	assert.Empty(t, proxy.NormalizeRolloutID(strings.Repeat("x", 257)))
 	assert.Equal(t, strings.Repeat("x", 256), proxy.NormalizeRolloutID(strings.Repeat("x", 256)))
 }
 

@@ -118,7 +118,7 @@ func TestVerificationSQLUnsignedEmailCannotClaimPersonalServing(t *testing.T) {
 			response, err := actualIngress.Client().Do(request)
 			require.NoError(t, err)
 			payload, _ := io.ReadAll(response.Body)
-			response.Body.Close()
+			_ = response.Body.Close()
 			require.Len(t, proxyErrors, proxyErrorsBefore+1, "the request must reach the proxy handler")
 			require.NoError(t, proxyErrors[proxyErrorsBefore])
 			require.Equal(t, 200, response.StatusCode, string(payload))

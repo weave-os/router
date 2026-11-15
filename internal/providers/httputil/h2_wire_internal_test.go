@@ -27,7 +27,7 @@ func rawH2Upstream(t *testing.T, onRequest func(fr *http2.Framer, conn net.Conn,
 	srv.EnableHTTP2 = true
 	srv.Config.TLSNextProto = map[string]func(*http.Server, *tls.Conn, http.Handler){
 		"h2": func(_ *http.Server, conn *tls.Conn, _ http.Handler) {
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 			preface := make([]byte, len(http2.ClientPreface))
 			if _, err := io.ReadFull(conn, preface); err != nil {
 				return
@@ -75,7 +75,7 @@ func h2BodyReadError(t *testing.T, onRequest func(fr *http2.Framer, conn net.Con
 	require.NoError(t, buildErr)
 	resp, err := (&http.Client{Transport: tr, Timeout: 5 * time.Second}).Do(request)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, 2, resp.ProtoMajor, "transport must negotiate HTTP/2")
 	_, err = io.ReadAll(resp.Body)
 	require.Error(t, err)
@@ -137,7 +137,7 @@ func TestNewTransport_PingsAnIdleHTTP2Connection(t *testing.T) {
 	require.NoError(t, buildErr)
 	resp, err := (&http.Client{Transport: tr}).Do(request)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	select {
 	case <-pinged:

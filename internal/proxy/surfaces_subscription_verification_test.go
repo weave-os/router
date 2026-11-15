@@ -63,7 +63,7 @@ func TestVerificationSafeSubscriptionIngressConformance(t *testing.T) {
 				defer collector.Close()
 				emitter, err := otel.NewEmitter(otel.EmitterConfig{Endpoint: collector.URL, Workers: 1, QueueSize: 100, BatchSize: 1, FlushInterval: time.Millisecond})
 				require.NoError(t, err)
-				defer emitter.Shutdown(context.Background())
+				defer func() { _ = emitter.Shutdown(context.Background()) }()
 				var sent []byte
 				var bearer, path, providerAccount string
 				var gatewayMu sync.Mutex

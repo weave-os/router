@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -213,8 +212,8 @@ func TestDispatchPlanned_RecordsAttemptProvenance(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, sink.events, 2)
 	for _, event := range sink.events {
-		assert.Equal(t, inference.PurposeAnthropicMessages, event.Provenance.Purpose)
-		assert.NotEmpty(t, event.Provenance.PolicyID)
+		assert.Equal(t, inference.PurposeAnthropicMessages, event.Purpose)
+		assert.NotEmpty(t, event.PolicyID)
 		assert.Equal(t, plannedTestModel, event.Target.CatalogID)
 	}
 	assert.Equal(t, providers.ProviderFireworks, sink.events[0].Target.Provider)
@@ -234,7 +233,7 @@ func TestDispatchPlanned_UnregisteredPurposeFailsClosed(t *testing.T) {
 	_, err := s.dispatchWithFallback(context.Background(), in)
 
 	var resolution *policy.ResolutionError
-	require.True(t, errors.As(err, &resolution))
+	require.ErrorAs(t, err, &resolution)
 	assert.Equal(t, policy.ResolutionErrorUnknownPurpose, resolution.Code)
 	assert.Equal(t, 0, primary.calls)
 }

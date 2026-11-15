@@ -812,7 +812,7 @@ func TestTurnLoop_UsageWritebackPersistsCacheStats(t *testing.T) {
 // first message, so every turn derives the same session key.
 func trimSessionTurn(t *testing.T, msgCount int) []byte {
 	t.Helper()
-	require.True(t, msgCount%2 == 1, "odd msgCount keeps the trailing message a user turn")
+	require.Equal(t, msgCount%2, 1, "odd msgCount keeps the trailing message a user turn")
 	msgs := make([]string, 0, msgCount)
 	for i := 0; i < msgCount; i++ {
 		role := "user"

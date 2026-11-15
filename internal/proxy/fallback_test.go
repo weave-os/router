@@ -83,7 +83,10 @@ func responseHeaderTimeoutErr(t *testing.T) error {
 	client := &http.Client{Transport: &http.Transport{ResponseHeaderTimeout: 10 * time.Millisecond}}
 	request, buildErr := http.NewRequestWithContext(t.Context(), http.MethodGet, upstream.URL, nil)
 	require.NoError(t, buildErr)
-	_, err := client.Do(request)
+	resp, err := client.Do(request)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, context.DeadlineExceeded)

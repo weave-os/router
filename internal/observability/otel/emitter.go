@@ -54,11 +54,10 @@ type Emitter struct {
 	// calls so a late Enqueue cannot panic with "send on closed channel".
 	// Enqueue acquires RLock for the lifetime of the send; Shutdown takes
 	// Lock to flip closed and close(queue) atomically.
-	closeMu            sync.RWMutex
-	closed             atomic.Bool
-	exportCtx          context.Context
-	cancelExport       context.CancelFunc
-	translationMetrics translationMetrics
+	closeMu      sync.RWMutex
+	closed       atomic.Bool
+	exportCtx    context.Context
+	cancelExport context.CancelFunc
 }
 
 // NewEmitter starts the worker pool and returns a ready emitter. Returns
@@ -331,7 +330,7 @@ func (e *Emitter) post(endpoint string, body []byte) {
 		observability.Get().Warn("OTLP export request failed", "err", err)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		observability.Get().Warn("OTLP export returned non-2xx status", "status", resp.StatusCode)

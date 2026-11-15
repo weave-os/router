@@ -42,7 +42,7 @@ func TestStripRoutingMarker_AssistantBlockExactMatch(t *testing.T) {
 
 	content := gjson.GetBytes(out, "messages.1.content")
 	require.True(t, content.IsArray())
-	assert.Equal(t, 1, len(content.Array()), "marker-only block dropped, real text retained")
+	assert.Len(t, content.Array(), 1, "marker-only block dropped, real text retained")
 	assert.Equal(t, "real response", content.Get("0.text").String())
 }
 
@@ -57,7 +57,7 @@ func TestStripRoutingMarker_OnlyMarkerBlockDropsToEmptyContent(t *testing.T) {
 
 	content := gjson.GetBytes(out, "messages.0.content")
 	require.True(t, content.IsArray())
-	assert.Equal(t, 0, len(content.Array()), "sole marker block dropped, leaving empty content")
+	assert.Empty(t, content.Array(), "sole marker block dropped, leaving empty content")
 }
 
 func TestStripRoutingMarker_EmbeddedInUserBlockStripsSubstringOnly(t *testing.T) {
@@ -99,9 +99,9 @@ func TestStripRoutingMarker_NoMarkerReturnsIdenticalSlice(t *testing.T) {
 
 	out, err := translate.StripRoutingMarkerFromMessages(body)
 	require.NoError(t, err)
-	require.Equal(t, len(body), len(out))
+	require.Len(t, out, len(body))
 	// Identity check: when nothing changes we hand back the exact input slice.
-	assert.True(t, &body[0] == &out[0], "expected the same backing array when no marker present")
+	assert.Same(t, &body[0], &out[0], "expected the same backing array when no marker present")
 }
 
 func TestStripRoutingMarker_AllPlannerReasonShapes(t *testing.T) {
@@ -144,7 +144,7 @@ func TestStripRoutingMarker_NonTextBlocksUntouched(t *testing.T) {
 	out, err := translate.StripRoutingMarkerFromMessages(body)
 	require.NoError(t, err)
 	content := gjson.GetBytes(out, "messages.0.content")
-	require.Equal(t, 1, len(content.Array()))
+	require.Len(t, content.Array(), 1)
 	assert.Equal(t, "tool_use", content.Get("0.type").String())
 	assert.Equal(t, "Bash", content.Get("0.name").String())
 }

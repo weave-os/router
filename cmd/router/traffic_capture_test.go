@@ -84,7 +84,7 @@ func TestTrafficCaptureCorrelatesActualLocalHTTPExchanges(t *testing.T) {
 			c.Status(http.StatusBadGateway)
 			return
 		}
-		defer response.Body.Close()
+		defer func() { _ = response.Body.Close() }()
 		c.Status(response.StatusCode)
 		_, _ = io.Copy(c.Writer, response.Body)
 	})
@@ -144,7 +144,7 @@ func TestTrafficCaptureWriterRedactsHeadersAndPreservesBodies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer capture.Close()
+	defer func() { _ = capture.Close() }()
 
 	exchange := trafficcapture.Exchange{
 		SchemaVersion: 1,
@@ -388,7 +388,7 @@ func TestTrafficCaptureWriterSerializesConcurrentEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	lineCount := 0
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {

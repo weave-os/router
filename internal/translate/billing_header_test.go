@@ -1,7 +1,6 @@
 package translate
 
 import (
-	"strings"
 	"testing"
 
 	"weave-os/router/internal/router"
@@ -81,7 +80,7 @@ func TestPrepareOpenAIStripsBillingHeaderFromSystemArray(t *testing.T) {
 	require.NoError(t, err)
 	body := string(prep.Body)
 	require.NotContains(t, body, "x-anthropic-billing-header", "billing header must be stripped; body=%s", body)
-	require.True(t, strings.Contains(body, "You are Claude Code."), "real system prompt must survive")
+	require.Contains(t, body, "You are Claude Code.", "real system prompt must survive")
 }
 
 // TestPrepareGeminiStripsBillingHeaderFromSystemArray is the Gemini-emit
@@ -105,5 +104,5 @@ func TestPrepareGeminiStripsBillingHeaderFromSystemArray(t *testing.T) {
 	require.NoError(t, err)
 	body := string(prep.Body)
 	require.NotContains(t, body, "x-anthropic-billing-header", "billing header must be stripped; body=%s", body)
-	require.True(t, strings.Contains(body, "You are Claude Code."), "real system prompt must survive")
+	require.Contains(t, body, "You are Claude Code.", "real system prompt must survive")
 }

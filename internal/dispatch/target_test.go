@@ -2,7 +2,6 @@ package dispatch_test
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -50,7 +49,7 @@ func TestGuardTarget_RejectsBeforeProviderIO(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			upstream := &fakeUpstream{name: primary.Provider}
 			err := guardedProxy(t, upstream, tc.decision, tc.body)
-			require.True(t, errors.Is(err, dispatch.ErrTargetMismatch), "got %v", err)
+			require.ErrorIs(t, err, dispatch.ErrTargetMismatch, "got %v", err)
 			assert.Empty(t, upstream.models, "provider must not be called")
 		})
 	}

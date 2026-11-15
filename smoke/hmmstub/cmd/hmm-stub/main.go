@@ -26,7 +26,11 @@ func main() {
 			os.Exit(1)
 		}
 		response, err := client.Do(request)
-		if err != nil || response.StatusCode != http.StatusOK {
+		if err != nil {
+			os.Exit(1)
+		}
+		_ = response.Body.Close()
+		if response.StatusCode != http.StatusOK {
 			os.Exit(1)
 		}
 		return

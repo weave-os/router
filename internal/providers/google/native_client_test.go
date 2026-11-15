@@ -3,7 +3,6 @@ package google_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -141,7 +140,7 @@ func TestNativeClient_BuffersNon2xxBeforeTouchingDownstream(t *testing.T) {
 				httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/x", nil))
 
 			var upstreamErr *providers.UpstreamErrorResponse
-			require.True(t, errors.As(err, &upstreamErr))
+			require.ErrorAs(t, err, &upstreamErr)
 			assert.Equal(t, status, upstreamErr.Status)
 			assert.Equal(t, "redacted-id", upstreamErr.Headers.Get("X-Upstream-Request"))
 			assert.Equal(t, 0, rec.Body.Len(), "retry classification must happen before downstream commitment")
