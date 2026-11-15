@@ -4151,10 +4151,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	toolUseObs := newToolUseObserver(sink)
 	sink = toolUseObs
 	// Above the prelude buffer, so a withheld response leaves the turn
-	// uncommitted and still re-servable; see earlyStopGate.
-	earlyStop := newEarlyStopGate(sink, log)
+	// uncommitted and still re-servable; see dispatch.EarlyStopGate.
+	earlyStop := dispatch.NewEarlyStopGate(sink, log)
 	sink = earlyStop
-	preludeBuf.OnDiscard = earlyStop.resetAttempt
+	preludeBuf.OnDiscard = earlyStop.ResetAttempt
 	// Attached per attempt directly above the upstream writer, so a stream
 	// that dies after commit can be described (frames, last event, gap)
 	// instead of reported as a bare synthesized 502.
@@ -4581,7 +4581,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if found && s.siblingRescueAllowed(ctx, s.gatewaySiblingAllowed(ctx, target)) && !paidFallbackForbiddenForModel(ctx, target.Model) {
 			earlyStopTarget = target
 			earlyStopCandidates = basis.Metadata.CandidateModels
-			earlyStop.observe(earlyStopMode == flags.EarlyStopRedoOn)
+			earlyStop.Observe(earlyStopMode == flags.EarlyStopRedoOn)
 		} else {
 			earlyStopMode = flags.EarlyStopRedoOff
 		}
@@ -4673,8 +4673,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	earlyStopRedone := false
 	if earlyStopMode != flags.EarlyStopRedoOff {
-		stopped := proxyErr == nil && earlyStop.earlyStop()
-		if releaseCause := earlyStop.releaseReason(); !stopped && releaseCause != "" {
+		stopped := proxyErr == nil && earlyStop.EarlyStop()
+		if releaseCause := earlyStop.ReleaseReason(); !stopped && releaseCause != "" {
 			log.Debug("Early-stop gate released the turn", "release_cause", releaseCause, "served_model", decision.Model)
 		}
 		if stopped {
@@ -4682,9 +4682,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				"served_model", decision.Model,
 				"redo_model", earlyStopTarget.Model,
 				"early_stop_redo_mode", string(earlyStopMode),
-				"withheld", earlyStop.withheld())
+				"withheld", earlyStop.Withheld())
 		}
-		if stopped && earlyStop.withheld() && !preludeBuf.Committed() {
+		if stopped && earlyStop.Withheld() && !preludeBuf.Committed() {
 			earlyStopRedone, proxyErr = s.redoEarlyStop(ctx, earlyStopRedo{
 				gate:    earlyStop,
 				prelude: preludeBuf,
@@ -4731,7 +4731,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				}
 			}
 		}
-		if releaseErr := earlyStop.disarm(); releaseErr != nil && proxyErr == nil {
+		if releaseErr := earlyStop.Disarm(); releaseErr != nil && proxyErr == nil {
 			proxyErr = releaseErr
 		}
 	}
