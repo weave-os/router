@@ -513,8 +513,8 @@ func TestProxyMessages_BypassWeeklyLimit_FallsBackToRoutedDispatch(t *testing.T)
 		WithUsageObserver(obs).
 		WithTranslationCompatibilityMode(proxy.TranslationCompatibilityEnforce)
 
-	rec, req, body := bypassRequest(t)
-	body = []byte(`{"model":"` + bypassRequestedMdl + `","system":[{"type":"text","text":"cached instructions","cache_control":{"type":"ephemeral"}}],"messages":[{"role":"user","content":"hi"}]}`)
+	rec, req, _ := bypassRequest(t)
+	body := []byte(`{"model":"` + bypassRequestedMdl + `","system":[{"type":"text","text":"cached instructions","cache_control":{"type":"ephemeral"}}],"messages":[{"role":"user","content":"hi"}]}`)
 	const organizationID = "org-bypass-reroute"
 	installationID := uuid.New()
 	ctx := context.WithValue(bypassCtx(0.80), proxy.ExternalIDContextKey{}, organizationID)

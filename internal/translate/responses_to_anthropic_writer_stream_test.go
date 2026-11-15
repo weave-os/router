@@ -677,7 +677,7 @@ data: {"type":"response.incomplete","response":{"id":"r","status":"incomplete","
 			w := translate.NewResponsesToAnthropicWriter(rec, "gpt-5.5", nil)
 			require.NoError(t, w.Prelude(streaming))
 			_, err := w.Write([]byte(fixture))
-			body := rec.Body.String()
+			var body string
 			if streaming {
 				var upstreamErr *providers.UpstreamErrorResponse
 				require.ErrorAs(t, err, &upstreamErr)
