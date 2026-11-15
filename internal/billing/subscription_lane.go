@@ -16,22 +16,36 @@ const (
 	SubscriptionOnlyLinkedFirst     SubscriptionOnlyReason = "linked_first"
 )
 
-var subscriptionOnlyReasonForLane = map[subscriptionlane.State]SubscriptionOnlyReason{
-	subscriptionlane.LinkedFirst:     SubscriptionOnlyLinkedFirst,
-	subscriptionlane.SpendCapReached: SubscriptionOnlySpendCapReached,
-	subscriptionlane.CreditsDepleted: SubscriptionOnlyCreditsDepleted,
+type subscriptionOnlyRow struct {
+	reason SubscriptionOnlyReason
+	lane   subscriptionlane.State
+	mark   subscriptionlane.Event
 }
 
-var laneForSubscriptionOnlyReason = map[SubscriptionOnlyReason]subscriptionlane.State{
-	SubscriptionOnlyLinkedFirst:     subscriptionlane.LinkedFirst,
-	SubscriptionOnlySpendCapReached: subscriptionlane.SpendCapReached,
-	SubscriptionOnlyCreditsDepleted: subscriptionlane.CreditsDepleted,
+var subscriptionOnlyRows = []subscriptionOnlyRow{
+	{SubscriptionOnlyLinkedFirst, subscriptionlane.LinkedFirst, subscriptionlane.LinkedPlanPreferred},
+	{SubscriptionOnlySpendCapReached, subscriptionlane.SpendCapReached, subscriptionlane.KeySpendCapCovered},
+	{SubscriptionOnlyCreditsDepleted, subscriptionlane.CreditsDepleted, subscriptionlane.CreditsDepletedCovered},
 }
 
-var markEventForSubscriptionOnlyReason = map[SubscriptionOnlyReason]subscriptionlane.Event{
-	SubscriptionOnlyLinkedFirst:     subscriptionlane.LinkedPlanPreferred,
-	SubscriptionOnlySpendCapReached: subscriptionlane.KeySpendCapCovered,
-	SubscriptionOnlyCreditsDepleted: subscriptionlane.CreditsDepletedCovered,
+var unknownSubscriptionOnlyRow = subscriptionOnlyRows[len(subscriptionOnlyRows)-1]
+
+func subscriptionOnlyRowForReason(reason SubscriptionOnlyReason) subscriptionOnlyRow {
+	for _, row := range subscriptionOnlyRows {
+		if row.reason == reason {
+			return row
+		}
+	}
+	return unknownSubscriptionOnlyRow
+}
+
+func subscriptionOnlyReasonForLane(lane subscriptionlane.State) (SubscriptionOnlyReason, bool) {
+	for _, row := range subscriptionOnlyRows {
+		if row.lane == lane {
+			return row.reason, true
+		}
+	}
+	return "", false
 }
 
 func SubscriptionLaneFromContext(ctx context.Context) subscriptionlane.State {
@@ -39,7 +53,7 @@ func SubscriptionLaneFromContext(ctx context.Context) subscriptionlane.State {
 	if !ok {
 		return subscriptionlane.Funded
 	}
-	return laneForSubscriptionOnlyReason[reason]
+	return subscriptionOnlyRowForReason(reason).lane
 }
 
 func StepSubscriptionLane(ctx context.Context, on subscriptionlane.Event) (context.Context, subscriptionlane.State) {
@@ -48,7 +62,7 @@ func StepSubscriptionLane(ctx context.Context, on subscriptionlane.Event) (conte
 	if next == from || next.Terminal() {
 		return ctx, next
 	}
-	reason, marked := subscriptionOnlyReasonForLane[next]
+	reason, marked := subscriptionOnlyReasonForLane(next)
 	if !marked {
 		return context.WithValue(ctx, subscriptionOnlyContextKeyT{}, nil), next
 	}
@@ -56,11 +70,7 @@ func StepSubscriptionLane(ctx context.Context, on subscriptionlane.Event) (conte
 }
 
 func WithSubscriptionOnly(ctx context.Context, reason SubscriptionOnlyReason) context.Context {
-	on, known := markEventForSubscriptionOnlyReason[reason]
-	if !known {
-		return ctx
-	}
-	ctx, _ = StepSubscriptionLane(ctx, on)
+	ctx, _ = StepSubscriptionLane(ctx, subscriptionOnlyRowForReason(reason).mark)
 	return ctx
 }
 

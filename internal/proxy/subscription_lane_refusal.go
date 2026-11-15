@@ -24,8 +24,8 @@ func paidCapacityUnfunded(ctx context.Context) bool {
 }
 
 func subscriptionLaneRefusal(ctx context.Context, on subscriptionlane.Event) refusal.Kind {
-	refused, _ := subscriptionlane.Step(billing.SubscriptionLaneFromContext(ctx), on)
-	kind, _ := refused.Refusal()
+	next, _ := subscriptionlane.Step(billing.SubscriptionLaneFromContext(ctx), on)
+	kind, _ := next.Refusal()
 	return kind
 }
 

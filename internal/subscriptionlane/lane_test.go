@@ -129,11 +129,11 @@ func forbiddenTransition(from, to subscriptionlane.State, on subscriptionlane.Ev
 func TestRandomEventSequencesNeverTakeAForbiddenTransition(t *testing.T) {
 	events := subscriptionlane.Events()
 	for seed := range uint64(2000) {
-		walkSeed := splitMix64(seed)
+		rng := splitMix64(seed)
 		state := subscriptionlane.Funded
 		walk := []string{state.String()}
-		for range 1 + walkSeed.next(16) {
-			on := events[walkSeed.next(len(events))]
+		for range 1 + rng.next(16) {
+			on := events[rng.next(len(events))]
 			next, ok := subscriptionlane.Step(state, on)
 			walk = append(walk, on.String())
 			if !ok {

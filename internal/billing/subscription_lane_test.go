@@ -49,3 +49,13 @@ func TestStepSubscriptionLaneFollowsTheTransitionTable(t *testing.T) {
 		}
 	}
 }
+
+func TestUnknownSubscriptionOnlyReasonFailsClosedAsCreditsDepleted(t *testing.T) {
+	ctx := billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlyReason("unrecognized"))
+
+	assert.True(t, billing.SubscriptionOnlyFromContext(ctx))
+	assert.Equal(t, subscriptionlane.CreditsDepleted, billing.SubscriptionLaneFromContext(ctx))
+	reason, ok := billing.SubscriptionOnlyReasonFromContext(ctx)
+	require.True(t, ok)
+	assert.Equal(t, billing.SubscriptionOnlyCreditsDepleted, reason)
+}

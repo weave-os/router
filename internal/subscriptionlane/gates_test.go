@@ -30,9 +30,9 @@ func TestTrippedGateRefusesUncoveredAndMarksCovered(t *testing.T) {
 			if from.Terminal() {
 				continue
 			}
-			refused, ok := subscriptionlane.Step(from, gate.Tripped(false))
+			next, ok := subscriptionlane.Step(from, gate.Tripped(false))
 			assert.True(t, ok)
-			kind, isRefusal := refused.Refusal()
+			kind, isRefusal := next.Refusal()
 			assert.True(t, isRefusal, "%s on %s", from, gate.Tripped(false))
 			assert.Equal(t, want[gate].refusal, kind)
 		}
