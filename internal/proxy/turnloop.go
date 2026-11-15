@@ -25,6 +25,7 @@ import (
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 
@@ -489,15 +490,6 @@ const (
 	nativeWebSearchPassthroughReason = "native_web_search_passthrough"
 )
 
-// decisionPolicyGroup returns the policy cluster/group a decision was drawn
-// from, or "" for reconstructed pins and routers that report no group.
-func decisionPolicyGroup(dec router.Decision) string {
-	if dec.Metadata == nil {
-		return ""
-	}
-	return dec.Metadata.PolicyGroup
-}
-
 // policyDeadlineFallbackReason is set as PinTier when a policy sidecar deadline degrades to a pin or tier-3 default.
 const policyDeadlineFallbackReason = "policy_deadline_last_known_good"
 
@@ -519,13 +511,6 @@ func isPolicyDeadlineErr(err error) bool {
 		return false
 	}
 	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)
-}
-
-func hmmHistoryRole(role string) string {
-	if role == "" {
-		role = sessionpin.DefaultRole
-	}
-	return role + "_hmm_history"
 }
 
 // handoverOutcome describes the synchronous handover step.
@@ -695,10 +680,6 @@ func (s *Service) classifierModelDecision(ctx context.Context, headers http.Head
 
 func authoritativePolicyTurn(tt turntype.TurnType) bool {
 	return tt == turntype.MainLoop || tt == turntype.ToolResult
-}
-
-func isUserForcedReason(reason string) bool {
-	return strings.HasPrefix(reason, translate.ReasonUserForceModel)
 }
 
 // pinServesImages reports whether a pinned model can carry an image-bearing
@@ -1009,7 +990,7 @@ func (s *Service) runTurnLoop(
 	if _, pinned := router.HonouredPolicyPin(ctx); pinned && (!s.isHardPinnedTurn(ctx, res.TurnType) || automaticProbe) {
 		if s.pinStore != nil && !isUnpinnedScoredTurn(res.TurnType) && !automaticProbe {
 			res.SessionKey = threadSessionKey
-			_, _, res.SessionFirstTurn = s.loadPinWithStoreState(ctx, res.SessionKey, res.PinRole)
+			_, _, res.SessionFirstTurn = routingpolicy.NewSessionPins(s.pinStore).LoadWithStoreState(ctx, res.SessionKey, res.PinRole)
 		}
 		req.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{})
 		decision, err := s.routeFor(ctx, req)
@@ -1030,7 +1011,7 @@ func (s *Service) runTurnLoop(
 	// pins. Legacy thread-scoped forces keep their original thread boundary.
 	hardPinnedTurn := s.isHardPinnedTurn(ctx, res.TurnType)
 	if s.pinStore != nil && hardPinnedTurn && !forceModelFound && !forceModelCleared {
-		legacyPin, found := s.loadPin(ctx, threadSessionKey, res.PinRole)
+		legacyPin, found := routingpolicy.NewSessionPins(s.pinStore).Load(ctx, threadSessionKey, res.PinRole)
 		if found && isUserForcedReason(legacyPin.Reason) {
 			binding, reason := s.forcedModelBinding(ctx, legacyPin.Model, legacyPin.Provider)
 			if reason != "" {
@@ -1068,8 +1049,8 @@ func (s *Service) runTurnLoop(
 			res.Purpose = utilityPurposes[res.TurnType]
 			threadPin, hmmHistory, forceHistory := sessionpin.Pin{}, sessionpin.Pin{}, sessionpin.Pin{}
 			if s.pinStore != nil {
-				threadPin, _ = s.loadPin(ctx, threadSessionKey, res.PinRole)
-				hmmHistory = s.loadHMMHistory(ctx, threadSessionKey, res.PinRole)
+				threadPin, _ = routingpolicy.NewSessionPins(s.pinStore).Load(ctx, threadSessionKey, res.PinRole)
+				hmmHistory = routingpolicy.NewSessionPins(s.pinStore).LoadHMMHistory(ctx, threadSessionKey, res.PinRole)
 				forceHistory = s.loadForceModelHistory(ctx, threadSessionKey, res.PinRole)
 			}
 			res.SessionKey = threadSessionKey
@@ -1082,7 +1063,7 @@ func (s *Service) runTurnLoop(
 			res.Decision.Reason = translate.ReasonUserForceModel
 			res.StickyHit = true
 			res.PinTier = translate.ReasonUserForceModel
-			s.anchorForceModelHistory(ctx, installationID, threadSessionKey, res.PinRole, forceModelPin)
+			routingpolicy.NewSessionPins(s.pinStore).AnchorForceModelHistory(ctx, installationID, threadSessionKey, res.PinRole, forceModelPin)
 			return res, nil
 		}
 		res.SessionKey = threadSessionKey
@@ -1285,7 +1266,7 @@ func (s *Service) runTurnLoop(
 
 	res.SessionKey = sessionKey
 
-	pin, pinFound, noStoredState := s.loadPinWithStoreState(ctx, res.SessionKey, res.PinRole)
+	pin, pinFound, noStoredState := routingpolicy.NewSessionPins(s.pinStore).LoadWithStoreState(ctx, res.SessionKey, res.PinRole)
 	res.SessionFirstTurn = noStoredState
 	// A deliberate clear is stored as an expired, blank pin with a reason.
 	// Natural expiry retains the model/provider and may still use a renewed
@@ -1295,7 +1276,7 @@ func (s *Service) runTurnLoop(
 	if !pinFound && pin.Model == "" && pin.Provider == "" && pin.Reason != "" {
 		clearedPinReason = pin.Reason
 	}
-	hmmHistory := s.loadHMMHistory(ctx, res.SessionKey, res.PinRole)
+	hmmHistory := routingpolicy.NewSessionPins(s.pinStore).LoadHMMHistory(ctx, res.SessionKey, res.PinRole)
 	forceHistory := sessionpin.Pin{}
 	if forceModelFound || forceModelCleared {
 		forceHistory = s.loadForceModelHistory(ctx, res.SessionKey, res.PinRole)
@@ -1501,7 +1482,7 @@ func (s *Service) runTurnLoop(
 			res.Decision.Reason = translate.ReasonUserForceModel
 			res.StickyHit = true
 			res.PinTier = translate.ReasonUserForceModel
-			s.anchorForceModelHistory(ctx, installationID, res.SessionKey, res.PinRole, forceModelPin)
+			routingpolicy.NewSessionPins(s.pinStore).AnchorForceModelHistory(ctx, installationID, res.SessionKey, res.PinRole, forceModelPin)
 			return res, nil
 		}
 		res.ForcedPinDropped = true
@@ -1540,7 +1521,7 @@ func (s *Service) runTurnLoop(
 			res.PinTier = pin.Reason
 			res.Decision = decision
 			res.StickyHit = true
-			s.refreshPin(ctx, installationID, res.SessionKey, pin, res.PinRole, pinDecision(pin))
+			routingpolicy.NewSessionPins(s.pinStore).Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, pinDecision(pin))
 			return res, nil
 		}
 		// A forced pin is an explicit user instruction; dropping it silently reverts
@@ -1816,7 +1797,7 @@ func (s *Service) runTurnLoop(
 			"pin_model", commandContinuation.Model,
 			"pin_provider", commandContinuation.Provider,
 		)
-		s.refreshPin(ctx, installationID, res.SessionKey, commandContinuation, res.PinRole, decision)
+		routingpolicy.NewSessionPins(s.pinStore).Refresh(ctx, installationID, res.SessionKey, commandContinuation, res.PinRole, decision)
 		return res, nil
 	}
 
@@ -1880,7 +1861,7 @@ func (s *Service) runTurnLoop(
 				res.PinTier = unscorableHMMStickyReason
 				log.Info("HMM turn has no user text; preserving eligible session pin",
 					"pin_model", pin.Model, "pin_provider", pin.Provider)
-				s.refreshPin(ctx, installationID, res.SessionKey, pin, res.PinRole, pinDecision(pin))
+				routingpolicy.NewSessionPins(s.pinStore).Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, pinDecision(pin))
 				return res, nil
 			}
 		}
@@ -1897,7 +1878,7 @@ func (s *Service) runTurnLoop(
 			res.Decision = decision
 			res.StickyHit = true
 			res.PinTier = "postgres_tool_result_sc"
-			s.refreshPin(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
+			routingpolicy.NewSessionPins(s.pinStore).Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
 			return res, nil
 		}
 
@@ -1907,7 +1888,7 @@ func (s *Service) runTurnLoop(
 			res.Decision = decision
 			res.StickyHit = true
 			res.PinTier = "postgres"
-			s.refreshPin(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
+			routingpolicy.NewSessionPins(s.pinStore).Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
 			return res, nil
 		}
 
@@ -1962,7 +1943,7 @@ func (s *Service) runTurnLoop(
 						// isHMMPinReason gates later HMM stickiness on it.
 						refreshed := decision
 						refreshed.Reason = pin.Reason
-						s.refreshPin(ctx, installationID, res.SessionKey, pin, res.PinRole, refreshed)
+						routingpolicy.NewSessionPins(s.pinStore).Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, refreshed)
 						return res, nil
 					}
 					if decision, ok := s.policyDeadlineDefaultDecision(req); ok {
@@ -1975,7 +1956,7 @@ func (s *Service) runTurnLoop(
 							"default_provider", decision.Provider,
 							"requested_model", req.RequestedModel,
 						)
-						s.writeNewPin(ctx, installationID, res.SessionKey, res.PinRole, decision)
+						routingpolicy.NewSessionPins(s.pinStore).WriteNew(ctx, installationID, res.SessionKey, res.PinRole, decision)
 						return res, nil
 					}
 				}
@@ -2033,7 +2014,7 @@ func (s *Service) runTurnLoop(
 						"fresh_model", fresh.Model,
 						"reason", res.UpgradeShadow.Verdict.Reason,
 					)
-					s.refreshPin(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
+					routingpolicy.NewSessionPins(s.pinStore).Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
 					return res, nil
 				}
 
@@ -2058,7 +2039,7 @@ func (s *Service) runTurnLoop(
 					"rerouted_model", rerouted.Model,
 					"reason", res.UpgradeShadow.Verdict.Reason,
 				)
-				s.writeNewPin(ctx, installationID, res.SessionKey, res.PinRole, rerouted)
+				routingpolicy.NewSessionPins(s.pinStore).WriteNew(ctx, installationID, res.SessionKey, res.PinRole, rerouted)
 				return res, nil
 			}
 			slidingServed, slidingProbability := slidingThresholdServes(req, pin, fresh)
@@ -2089,7 +2070,7 @@ func (s *Service) runTurnLoop(
 						"reason", res.UpgradeShadow.Verdict.Reason,
 						"upgrade_votes", votes,
 					)
-					s.refreshPinVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, 0, votes)
+					routingpolicy.NewSessionPins(s.pinStore).RefreshVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, 0, votes)
 					return res, nil
 				}
 			}
@@ -2115,7 +2096,7 @@ func (s *Service) runTurnLoop(
 						"confidence", confidence,
 						"threshold", s.hmmUpgradeConfidenceThreshold,
 					)
-					s.refreshPin(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
+					routingpolicy.NewSessionPins(s.pinStore).Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
 					return res, nil
 				}
 			}
@@ -2141,7 +2122,7 @@ func (s *Service) runTurnLoop(
 						"downgrade_votes", pin.ConsecutiveDowngradeVotes,
 						"hysteresis_turns", hysteresisTurns,
 					)
-					s.refreshPinDowngradeVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, pin.ConsecutiveDowngradeVotes)
+					routingpolicy.NewSessionPins(s.pinStore).RefreshDowngradeVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, pin.ConsecutiveDowngradeVotes)
 					return res, nil
 				}
 				votes := pin.ConsecutiveDowngradeVotes + 1
@@ -2160,7 +2141,7 @@ func (s *Service) runTurnLoop(
 						"downgrade_votes", votes,
 						"hysteresis_turns", hysteresisTurns,
 					)
-					s.refreshPinDowngradeVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, votes)
+					routingpolicy.NewSessionPins(s.pinStore).RefreshDowngradeVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, votes)
 					return res, nil
 				}
 				// The downgrade is served. Shadow what the guards would have done at
@@ -2192,7 +2173,7 @@ func (s *Service) runTurnLoop(
 			if slidingServed {
 				res.PinTier = string(pinTierAuthoritativeSlidingThresholdUpgrade)
 			}
-			s.writeNewPin(ctx, installationID, res.SessionKey, res.PinRole, fresh)
+			routingpolicy.NewSessionPins(s.pinStore).WriteNew(ctx, installationID, res.SessionKey, res.PinRole, fresh)
 			return res, nil
 		}
 		if isHMMDecision(fresh) {
@@ -2277,7 +2258,7 @@ func (s *Service) runTurnLoop(
 								res.Decision = priorDecision
 								res.StickyHit = true
 								res.PinTier = "postgres_reanchor"
-								s.writeNewPin(ctx, installationID, res.SessionKey, res.PinRole, priorDecision)
+								routingpolicy.NewSessionPins(s.pinStore).WriteNew(ctx, installationID, res.SessionKey, res.PinRole, priorDecision)
 								log.Info("router re-anchored expired session pin",
 									"prior_model", pin.Model,
 									"prior_provider", pin.Provider,
@@ -2296,7 +2277,7 @@ func (s *Service) runTurnLoop(
 
 		if !s.ResolvePlannerEnabled(ctx) {
 			res.Decision = fresh
-			s.writeNewPin(ctx, installationID, res.SessionKey, res.PinRole, fresh)
+			routingpolicy.NewSessionPins(s.pinStore).WriteNew(ctx, installationID, res.SessionKey, res.PinRole, fresh)
 			return res, nil
 		}
 
@@ -2327,7 +2308,7 @@ func (s *Service) runTurnLoop(
 			res.Decision = served
 			res.StickyHit = true
 			res.PinTier = "postgres_stay_" + decision.Reason
-			s.refreshPin(ctx, installationID, res.SessionKey, pin, res.PinRole, anchor)
+			routingpolicy.NewSessionPins(s.pinStore).Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, anchor)
 			return res, nil
 		}
 
@@ -2403,7 +2384,7 @@ func (s *Service) runTurnLoop(
 		if pinFound {
 			res.PinTier = "switch_" + decision.Reason
 		}
-		s.writeNewPin(ctx, installationID, res.SessionKey, res.PinRole, fresh)
+		routingpolicy.NewSessionPins(s.pinStore).WriteNew(ctx, installationID, res.SessionKey, res.PinRole, fresh)
 		return res, nil
 	}
 	res, routeErr = routeRemaining()
@@ -2825,54 +2806,6 @@ func roleForTier(t catalog.Tier) string {
 	}
 }
 
-// loadPin returns the stored pin and whether it may actively serve this turn.
-// Expired rows are misses for routing, but their history fields still protect
-// Anthropic emit from stale thinking-block signatures in the client transcript.
-func (s *Service) loadPin(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (sessionpin.Pin, bool) {
-	pin, active, _ := s.loadPinWithStoreState(ctx, sessionKey, role)
-	return pin, active
-}
-
-// loadPinWithStoreState is loadPin plus noStoredState: the store answered and
-// held nothing for this key. A store error routes exactly like a miss (fall
-// through to the scorer), but a caller that reads absence as session state —
-// first-turn telemetry capture — must not read an outage as a fresh session.
-func (s *Service) loadPinWithStoreState(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (_ sessionpin.Pin, active, noStoredState bool) {
-	log := observability.FromContext(ctx)
-	log.Debug("loadPin called", "role", role, "session_key_hex", fmt.Sprintf("%x", sessionKey))
-	pin, found, err := s.pinStore.Get(ctx, sessionKey, role)
-	if err != nil {
-		log.Error("session pin store unavailable; falling through to cluster scorer", "err", err)
-		return sessionpin.Pin{}, false, false
-	}
-	if !found {
-		return sessionpin.Pin{}, false, true
-	}
-	if !pinMatchesEffectiveStrategy(ctx, pin) {
-		return sessionpin.Pin{}, false, false
-	}
-	if !pin.PinnedUntil.After(time.Now()) {
-		return pin, false, false
-	}
-	return pin, true, false
-}
-
-func (s *Service) loadHMMHistory(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) sessionpin.Pin {
-	log := observability.FromContext(ctx)
-	pin, found, err := s.pinStore.Get(ctx, sessionKey, hmmHistoryRole(role))
-	if err != nil {
-		log.Error("HMM switch-history store unavailable", "err", err)
-		return sessionpin.Pin{}
-	}
-	if !found {
-		return sessionpin.Pin{}
-	}
-	if !pinMatchesEffectiveStrategy(ctx, pin) {
-		return sessionpin.Pin{}
-	}
-	return pin
-}
-
 func switchHistoryFromPins(pins ...sessionpin.Pin) (string, bool) {
 	latestTurn, sessionEverSwitched := latestServedTurn(pins...)
 	return latestTurn.LastServedModel, sessionEverSwitched
@@ -2958,107 +2891,6 @@ func buildPolicyTurnContext(
 		SessionEverSwitched: res.SessionEverSwitched,
 		HistoryTruncated:    req.HistoryTruncated || res.PrefixTrimmed,
 	}
-}
-
-// refreshPin extends the TTL on an existing pin. Carries the existing pin's
-// usage forward so the planner has evidence before the next UpdateUsage
-// writeback lands.
-func (s *Service) refreshPin(ctx context.Context, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, existing sessionpin.Pin, role string, chosen router.Decision) {
-	s.refreshPinVotes(ctx, installationID, sessionKey, existing, role, chosen, 0, 0)
-}
-
-func (s *Service) refreshPinDowngradeVotes(ctx context.Context, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, existing sessionpin.Pin, role string, chosen router.Decision, downgradeVotes int) {
-	s.refreshPinVotes(ctx, installationID, sessionKey, existing, role, chosen, downgradeVotes, 0)
-}
-
-func (s *Service) refreshPinVotes(ctx context.Context, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, existing sessionpin.Pin, role string, chosen router.Decision, downgradeVotes, upgradeVotes int) {
-	if installationID == uuid.Nil {
-		return
-	}
-	effort := chosen.Effort
-	if effort == "" && chosen.Model == existing.Model {
-		effort = existing.Effort
-	}
-	p := sessionpin.Pin{
-		SessionKey:     sessionKey,
-		Role:           role,
-		InstallationID: installationID,
-		Provider:       chosen.Provider,
-		Model:          chosen.Model,
-		Effort:         effort,
-		// No scorer runs on a plain refresh, so carry the existing pair
-		// forward unchanged (ON CONFLICT preserves an empty one).
-		PairedProvider: existing.PairedProvider,
-		PairedModel:    existing.PairedModel,
-		Reason:         chosen.Reason,
-		Strategy:       router.StrategyFromContext(ctx),
-		// Same rationale as the pair above: a refresh runs no policy, so the
-		// reconstructed decision carries no group. Carry the stored one forward.
-		PolicyGroup:           existing.PolicyGroup,
-		TurnCount:             1,
-		PinnedUntil:           pinExpiry(chosen.Reason),
-		LastInputTokens:       existing.LastInputTokens,
-		LastCachedReadTokens:  existing.LastCachedReadTokens,
-		LastCachedWriteTokens: existing.LastCachedWriteTokens,
-		LastOutputTokens:      existing.LastOutputTokens,
-		LastTurnEndedAt:       existing.LastTurnEndedAt,
-		LastOutputLimitAt:     existing.LastOutputLimitAt,
-		LastServedModel:       existing.LastServedModel,
-
-		ConsecutiveDowngradeVotes: downgradeVotes,
-		ConsecutiveUpgradeVotes:   upgradeVotes,
-	}
-	s.upsertPin(ctx, p)
-}
-
-// writeNewPin records a freshly-routed decision as the active pin. Used on
-// first-turn routing and switch turns. UpdateUsage fills in usage stats later.
-func (s *Service) writeNewPin(ctx context.Context, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, role string, chosen router.Decision) {
-	log := observability.FromContext(ctx)
-	// pinDecision(pin) reconstructions carry no Metadata, so the nil guard
-	// leaves the pair empty; ON CONFLICT then preserves the stored pair
-	// instead of wiping it.
-	var pairedProvider, pairedModel string
-	if chosen.Metadata != nil {
-		pairedProvider = chosen.Metadata.PairedProvider
-		pairedModel = chosen.Metadata.PairedModel
-	}
-	log.Info("writeNewPin called", "installation_id", installationID.String(), "role", role, "model", chosen.Model, "paired_model", pairedModel, "paired_provider", pairedProvider, "session_key_hex", fmt.Sprintf("%x", sessionKey))
-	if installationID == uuid.Nil {
-		log.Info("writeNewPin: skipping because installationID is uuid.Nil")
-		return
-	}
-	p := sessionpin.Pin{
-		SessionKey:     sessionKey,
-		Role:           role,
-		InstallationID: installationID,
-		Provider:       chosen.Provider,
-		Model:          chosen.Model,
-		Effort:         chosen.Effort,
-		PairedProvider: pairedProvider,
-		PairedModel:    pairedModel,
-		Reason:         chosen.Reason,
-		Strategy:       router.StrategyFromContext(ctx),
-		PolicyGroup:    decisionPolicyGroup(chosen),
-		TurnCount:      1,
-		PinnedUntil:    pinExpiry(chosen.Reason),
-	}
-	s.upsertPin(ctx, p)
-}
-
-// upsertPin synchronously persists a pin write. context.Background() is used
-// so the DB write survives request-ctx cancellation after the response has
-// finished streaming.
-func (s *Service) upsertPin(ctx context.Context, p sessionpin.Pin) {
-	log := observability.FromContext(ctx)
-	if p.Strategy == "" {
-		p.Strategy = router.StrategyFromContext(ctx)
-	}
-	if err := s.pinStore.Upsert(context.Background(), p); err != nil {
-		log.Error("session pin upsert failed", "err", err)
-		return
-	}
-	log.Debug("session pin upsert ok", "installation_id", p.InstallationID.String(), "role", p.Role, "model", p.Model)
 }
 
 // estimateSummaryTokens is a rough char/4 estimate. The summarizer

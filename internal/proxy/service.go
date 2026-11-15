@@ -430,27 +430,6 @@ type registeredStrategy struct {
 	feedback     policy.FeedbackReporter
 }
 
-// pinSessionTTL mirrors Anthropic's prompt-cache TTL on Sonnet/Haiku/Opus 4.5+
-// so the pin lifecycle tracks the cache it's keeping warm.
-const pinSessionTTL = time.Hour
-
-// pinNeverExpires is the sentinel PinnedUntil for user-forced pins: a
-// /force-model must survive arbitrarily long idle gaps and only clear on
-// /unforce-model, never lapse on the session TTL. Far enough out to read as
-// live indefinitely everywhere PinnedUntil is checked, but still within
-// Postgres's timestamp range. /unforce-model rewrites it to a past time.
-var pinNeverExpires = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
-
-// pinExpiry returns the PinnedUntil to record for a pin with the given decision
-// reason. User-forced pins get the never-expires sentinel; every other pin keeps
-// the sliding one-hour session TTL.
-func pinExpiry(reason string) time.Time {
-	if strings.HasPrefix(reason, translate.ReasonUserForceModel) {
-		return pinNeverExpires
-	}
-	return time.Now().Add(pinSessionTTL)
-}
-
 // APIKeyIDContextKey is the request-context key for the authenticated api_key_id.
 type APIKeyIDContextKey struct{}
 
@@ -3859,8 +3838,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if s.pinStore != nil && !isUnpinnedScoredTurn(routeRes.TurnType) {
 			sessionKey := deriveSessionKeyForRequest(ctx, env, apiKeyID)
 			role := roleForTier(catalog.TierFor(feats.Model))
-			pin, _ := s.loadPin(ctx, sessionKey, role)
-			hmmHistory := s.loadHMMHistory(ctx, sessionKey, role)
+			pin, _ := routingpolicy.NewSessionPins(s.pinStore).Load(ctx, sessionKey, role)
+			hmmHistory := routingpolicy.NewSessionPins(s.pinStore).LoadHMMHistory(ctx, sessionKey, role)
 			forceHistory := s.loadForceModelHistory(ctx, sessionKey, role)
 			routeRes.SessionKey = sessionKey
 			routeRes.applySwitchHistory(pin, hmmHistory, forceHistory)
@@ -5183,14 +5162,14 @@ func (s *Service) recordHMMTurnHistory(ctx context.Context, res turnLoopResult, 
 	if !hasUsage {
 		// A failed turn has no usage writeback; preserve the prior provider to
 		// avoid an invalid model/provider pair on the next HMM stay.
-		if prior := s.loadHMMHistory(strategyCtx, res.SessionKey, res.PinRole); prior.Provider != "" {
+		if prior := routingpolicy.NewSessionPins(s.pinStore).LoadHMMHistory(strategyCtx, res.SessionKey, res.PinRole); prior.Provider != "" {
 			historyProvider = prior.Provider
 		}
 	}
 	role := hmmHistoryRole(res.PinRole)
 	// The upsert only refreshes the row's TTL/turn_count/provider (ON CONFLICT
 	// leaves the usage columns untouched), so it is always safe to run.
-	s.upsertPin(strategyCtx, sessionpin.Pin{
+	routingpolicy.NewSessionPins(s.pinStore).Upsert(strategyCtx, sessionpin.Pin{
 		SessionKey:     res.SessionKey,
 		Role:           role,
 		InstallationID: res.InstallationID,

@@ -6,6 +6,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
 )
@@ -33,7 +34,7 @@ func (s *Service) grantPostCommandContinuation(
 	if s.pinStore == nil || installationID == uuid.Nil {
 		return
 	}
-	pin, found := s.loadPin(ctx, sessionKey, role)
+	pin, found := routingpolicy.NewSessionPins(s.pinStore).Load(ctx, sessionKey, role)
 	if !found || pin.Model == "" || pin.Provider == "" || isUserForcedReason(pin.Reason) {
 		return
 	}
@@ -54,7 +55,7 @@ func (s *Service) grantPostCommandContinuation(
 	// A slash command can arrive just before the active pin expires. Renew the
 	// one-shot independently so its immediate follow-up remains eligible.
 	pin.PinnedUntil = pinExpiry(pin.Reason)
-	s.upsertPin(ctx, pin)
+	routingpolicy.NewSessionPins(s.pinStore).Upsert(ctx, pin)
 	observability.FromContext(ctx).Info("stored one-shot post-command continuation", "model", pin.Model, "provider", pin.Provider, "role", role)
 }
 

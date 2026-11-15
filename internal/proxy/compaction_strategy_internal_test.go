@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
@@ -42,7 +43,7 @@ func TestCodexCompactionAfterAutoReview(t *testing.T) {
 		turnCtx := router.WithStrategy(ctx, strategy)
 		decision := router.Decision{Provider: providers.ProviderOpenAI, Model: compactionStrategyModel,
 			Metadata: &router.RoutingMetadata{Strategy: string(strategy)}}
-		svc.writeNewPin(turnCtx, installationID, sessionKey, sessionpin.DefaultRole, decision)
+		routingpolicy.NewSessionPins(svc.pinStore).WriteNew(turnCtx, installationID, sessionKey, sessionpin.DefaultRole, decision)
 		svc.recordTurnUsage(turnCtx, turnLoopResult{
 			InstallationID: installationID, SessionKey: sessionKey, PinRole: sessionpin.DefaultRole,
 			Strategy: strategy, Decision: decision,
@@ -81,9 +82,9 @@ func TestCodexCompactionAfterAutoReview(t *testing.T) {
 	assert.Equal(t, compactionStrategyModel, turn.Decision.Model)
 	assert.Equal(t, policy.OverrideSourceSession, turn.Origin)
 
-	_, active := svc.loadPin(ctx, sessionKey, sessionpin.DefaultRole)
+	_, active := routingpolicy.NewSessionPins(svc.pinStore).Load(ctx, sessionKey, sessionpin.DefaultRole)
 	assert.False(t, active, "ordinary routing must still reject another strategy's pin")
-	assert.Empty(t, svc.loadHMMHistory(ctx, sessionKey, sessionpin.DefaultRole).LastServedModel)
+	assert.Empty(t, routingpolicy.NewSessionPins(svc.pinStore).LoadHMMHistory(ctx, sessionKey, sessionpin.DefaultRole).LastServedModel)
 }
 
 func TestCodexCompactionDispatchAcrossStrategies(t *testing.T) {

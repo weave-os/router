@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -101,7 +102,7 @@ func TestRefreshPin_PreservesOutputLimitEvidence(t *testing.T) {
 	ended := time.Now().Add(-time.Second)
 	pin := sessionpin.Pin{Provider: providers.ProviderAnthropic, Model: outputLimitSecondModel, LastServedModel: outputLimitFirstModel,
 		LastTurnEndedAt: ended, LastOutputLimitAt: ended, LastOutputTokens: 128}
-	svc.refreshPin(context.Background(), uuid.New(), [sessionpin.SessionKeyLen]byte{1}, pin, sessionpin.DefaultRole,
+	routingpolicy.NewSessionPins(svc.pinStore).Refresh(context.Background(), uuid.New(), [sessionpin.SessionKeyLen]byte{1}, pin, sessionpin.DefaultRole,
 		router.Decision{Provider: providers.ProviderAnthropic, Model: outputLimitSecondModel})
 	require.Len(t, store.upserts, 1)
 	assert.Equal(t, outputLimitFirstModel, maxedOutServedModel(store.upserts[0]), "refreshing the anchor cannot lose the prior served outcome")

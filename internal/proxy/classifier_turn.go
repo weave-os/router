@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 	"weave-os/router/internal/websearch"
 )
@@ -114,7 +115,7 @@ func (s *Service) runClassifierTurn(ctx context.Context, request router.Request,
 	}
 	turn.Decision, turn.Fresh, turn.PinTier = decision, decision, string(router.StrategyLLMClassifier)
 	if s.pinStore != nil && !unpinned {
-		s.writeNewPin(ctx, turn.InstallationID, sessionKey, turn.PinRole, decision)
+		routingpolicy.NewSessionPins(s.pinStore).WriteNew(ctx, turn.InstallationID, sessionKey, turn.PinRole, decision)
 	}
 	return turn, nil
 }

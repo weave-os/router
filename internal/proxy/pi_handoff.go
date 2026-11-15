@@ -20,6 +20,7 @@ import (
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 	"weave-os/router/internal/websearch"
 )
@@ -161,7 +162,7 @@ func (s *Service) finishHandoffPreparation(ctx context.Context, w http.ResponseW
 		previousProvider = route.PinProvider
 	}
 	if previousModel != "" && s.pinStore != nil && (router.IsHMMStrategy(route.Strategy) || isHMMTurn(route)) {
-		history := s.loadHMMHistory(ctx, route.SessionKey, route.PinRole)
+		history := routingpolicy.NewSessionPins(s.pinStore).LoadHMMHistory(ctx, route.SessionKey, route.PinRole)
 		if history.LastServedModel == route.PriorServedModel {
 			previousProvider = history.Provider
 		}
