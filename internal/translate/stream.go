@@ -488,6 +488,9 @@ type AnthropicSSETranslator struct {
 	// available" (Gemini-3.1, Mimo-v2.5 sometimes emit prose/<think> instead)
 	// and synthesize a recovery nudge.
 	requestHadTools bool
+	// priorConsecutiveNudges is how many of the request's most recent
+	// assistant turns were router nudges with no real tool_use between them.
+	priorConsecutiveNudges int
 
 	// thinkTagReasoning reroutes a leading <think>…</think> in content into
 	// thinking blocks, for upstreams (e.g. mimo-v2.5-pro) that stream
@@ -610,6 +613,13 @@ func (t *AnthropicSSETranslator) WithEstimatedInputTokens(n int) *AnthropicSSETr
 // after PRs #280/#281.
 func (t *AnthropicSSETranslator) WithRequestHadTools(hadTools bool) *AnthropicSSETranslator {
 	t.requestHadTools = hadTools
+	return t
+}
+
+// WithPriorConsecutiveNudges records how many trailing assistant turns in the
+// inbound history were router-synthesized text-only-turn nudges.
+func (t *AnthropicSSETranslator) WithPriorConsecutiveNudges(n int) *AnthropicSSETranslator {
+	t.priorConsecutiveNudges = n
 	return t
 }
 
@@ -1225,6 +1235,13 @@ func (t *AnthropicSSETranslator) emitValidatedToolArgsDelta(sourceIndex, blockId
 // produced no tool_use on a request that had tools. Bash is used because
 // every Claude Code request includes it, so the fabricated call is always
 // dispatchable; the echo surfaces as a tool_result nudging the model to act.
+const (
+	routerNudgeIDPrefix = "toolu_router_nudge_"
+	// maxConsecutiveTextOnlyNudges bounds back-to-back nudges: an upstream that
+	// keeps answering a nudge with no tool_use will not be rescued by another.
+	maxConsecutiveTextOnlyNudges = 2
+)
+
 const routerNudgeCommand = "echo '[router] previous turn produced no tool_use; use Edit/Write/Read/Bash/Grep — do not respond with prose or thinking tags only.'"
 
 // leadingContentCap bounds retained opening text for leadsWithToolishMarkup —
@@ -1322,8 +1339,17 @@ func (t *AnthropicSSETranslator) synthesizeTextOnlyTurnNudge() error {
 		)
 		return nil
 	}
+	if t.priorConsecutiveNudges >= maxConsecutiveTextOnlyNudges {
+		t.log().Warn(
+			"AnthropicSSE suppressed text-only-turn nudge after consecutive nudges",
+			"prior_consecutive_nudges", t.priorConsecutiveNudges,
+			"upstream_model", t.modelFromUpstream,
+			"request_model", t.requestModel,
+		)
+		return nil
+	}
 	blockIdx := t.blockIdx
-	id := "toolu_router_nudge_" + t.messageID
+	id := routerNudgeIDPrefix + t.messageID
 	if err := t.emitContentBlockStartTool(blockIdx, id, "Bash", ""); err != nil {
 		return err
 	}
