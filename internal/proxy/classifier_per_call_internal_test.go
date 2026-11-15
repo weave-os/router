@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/policyclient"
@@ -78,9 +79,9 @@ func TestClassifierResponsesToolLoopSwitchesDispatchedModel(t *testing.T) {
 	fixture, principal, store := classifierSessionFixture(t, classifierMedium)
 	config := fixture.classifierSessions.config
 	classifierServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/classify", r.URL.Path)
+		assert.Equal(t, "/classify", r.URL.Path)
 		var input router.AtomicClassificationRequest
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&input))
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&input))
 		inputs = append(inputs, input)
 		complexity := router.ClassifierLow
 		if input.User.Features.ToolErrorCount > 0 {
@@ -88,7 +89,7 @@ func TestClassifierResponsesToolLoopSwitchesDispatchedModel(t *testing.T) {
 		}
 		probabilities := make([]float64, 4)
 		probabilities[complexity] = 1
-		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+		assert.NoError(t, json.NewEncoder(w).Encode(map[string]any{
 			"release": config.Release, "release_sha256": config.ReleaseSHA256,
 			"prediction": complexity, "probabilities": probabilities, "input_tokens": 600,
 			"history_source": router.ClassifierHistoricalPrediction,
@@ -192,7 +193,7 @@ func TestClassifierLegacyPredictionsCannotBecomeCallHistory(t *testing.T) {
 	require.NoError(t, err)
 	prediction, err := svc.classifyThread(ctx, input)
 	require.NoError(t, err)
-	thread := ctx.Value(classifierThreadContextKey{}).(router.ClassifierThread)
+	thread := mustAs[router.ClassifierThread](t, ctx.Value(classifierThreadContextKey{}))
 	prediction.InputMessageCount = 0
 	store.turns[thread.ThreadID][prediction.TurnDigest] = prediction
 	_, err = svc.classifyThread(ctx, input)

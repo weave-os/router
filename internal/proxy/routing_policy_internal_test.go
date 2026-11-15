@@ -316,7 +316,7 @@ func TestPickedModelKeepsSpentPlanAndRefusesMeteredRescue(t *testing.T) {
 
 	assert.True(t, svc.claudeSubscriptionExhausted(routed, http.Header{}), "routed traffic leaves a spent plan")
 	assert.False(t, svc.claudeSubscriptionExhausted(picked, http.Header{}), "a pick stays on its own plan and lets the provider decide")
-	assert.NoError(t, svc.subscriptionAPIAuthorization(routed, providers.ProviderAnthropic, model))
+	require.NoError(t, svc.subscriptionAPIAuthorization(routed, providers.ProviderAnthropic, model))
 	assert.ErrorIs(t, svc.subscriptionAPIAuthorization(picked, providers.ProviderAnthropic, model), ErrSubscriptionPoolUnavailable)
 }
 

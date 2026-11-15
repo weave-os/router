@@ -6,12 +6,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
+
+	"github.com/stretchr/testify/require"
 )
 
 func expiredRotationContext(provider auth.SubscriptionProvider) context.Context {
@@ -47,7 +48,7 @@ func TestExpiredAdmissionBudgetDoesNotAuthorizeAPI(t *testing.T) {
 	require.Zero(t, apiCalls)
 	require.Empty(t, rec.Body.String())
 	require.Empty(t, leaser.cooldownIDs, "budget expiry alone never cools down an account")
-	require.False(t, ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage).Served)
+	require.False(t, mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{})).Served)
 }
 
 func TestExpiredRotationBudgetRendersCleanErrorWithoutAPI(t *testing.T) {

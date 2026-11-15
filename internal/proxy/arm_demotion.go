@@ -93,10 +93,8 @@ func (s *Service) maybeDemoteArmAfterRescuedFailure(
 	primary router.Decision,
 	installationID uuid.UUID,
 	sessionKey [sessionpin.SessionKeyLen]byte,
-	role string,
-	pinRole string,
 ) string {
-	model, _ := s.maybeStrikeArmAfterRescuedFailure(ctx, rescueRan, hardPinned, primaryErr, primary, installationID, sessionKey, role, pinRole)
+	model, _ := s.maybeStrikeArmAfterRescuedFailure(ctx, rescueRan, hardPinned, primaryErr, primary, installationID, sessionKey, sessionpin.DefaultRole, sessionpin.DefaultRole)
 	return model
 }
 

@@ -177,7 +177,7 @@ func TestParseDynamicRoster(t *testing.T) {
   }
 }`))
 	require.NoError(t, err)
-	assert.Equal(t, 50.0, roster.Clusters["low"].ArmIndices["provider/scored"].WII)
+	assert.InDelta(t, 50.0, roster.Clusters["low"].ArmIndices["provider/scored"].WII, 1e-9)
 	assert.Equal(t, []string{"provider/manual"}, roster.Clusters["low"].ManualPinsByHarness["pi"])
 }
 

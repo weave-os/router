@@ -30,7 +30,7 @@ func testSpan(name string) *tracev1.Span {
 
 func TestNewEmitter_EmptyEndpoint(t *testing.T) {
 	em, err := otel.NewEmitter(otel.EmitterConfig{})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Nil(t, em)
 }
 

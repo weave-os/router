@@ -60,7 +60,7 @@ func rawH2Upstream(t *testing.T, onRequest func(fr *http2.Framer, conn net.Conn,
 	}
 	srv.StartTLS()
 	t.Cleanup(srv.Close)
-	return srv.URL, srv.Client().Transport.(*http.Transport).TLSClientConfig
+	return srv.URL, mustAs[*http.Transport](t, srv.Client().Transport).TLSClientConfig
 }
 
 func h2BodyReadError(t *testing.T, onRequest func(fr *http2.Framer, conn net.Conn, streamID uint32)) error {

@@ -53,7 +53,7 @@ func openAIChatServiceWithDecision(provider providers.Client, decision router.De
 func TestService_ProxyOpenAIChatCompletion_ResponsesUsageDebitsBilling(t *testing.T) {
 	repo := &capturingBillingRepo{}
 	provider := &fakeProvider{proxyResponse: responsesTextUpstream}
-	svc := openAIChatService(provider, "gpt-5.6-luna").
+	svc := openAIChatService(provider).
 		WithBillingService(billing.NewService(repo))
 
 	ctx := proxyContextWithExternalID(t, "tenant-billing")

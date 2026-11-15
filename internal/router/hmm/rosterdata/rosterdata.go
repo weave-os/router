@@ -323,7 +323,7 @@ func validateGoPolicy(r *Roster) error {
 		}
 		seenGroups[label] = struct{}{}
 	}
-	if !finiteRange(r.Preferences.PreferredModelBonus, 0, 1) || !finiteRange(r.Preferences.SubscriptionBonus, 0, 1) {
+	if !finiteUpTo(r.Preferences.PreferredModelBonus, 1) || !finiteUpTo(r.Preferences.SubscriptionBonus, 1) {
 		return fmt.Errorf("preference bonuses must be finite values in [0,1]")
 	}
 	for mode, modePolicy := range r.ModePolicies {
@@ -411,7 +411,7 @@ func validateDynamicCluster(r *Roster, label string, cluster Cluster) error {
 			}
 			return fmt.Errorf("cluster %q arm %q has no arm_indices entry", label, arm)
 		}
-		if !finiteRange(indices.WII, 0, 100) || !finiteRange(indices.WPI, 0, 100) {
+		if !finiteUpTo(indices.WII, 100) || !finiteUpTo(indices.WPI, 100) {
 			return fmt.Errorf("cluster %q arm %q has invalid WII/WPI indices", label, arm)
 		}
 	}
@@ -430,7 +430,7 @@ func validateDynamicCluster(r *Roster, label string, cluster Cluster) error {
 				}
 				return fmt.Errorf("cluster %q harness %q arm %q has no arm_indices entry", label, harness, arm)
 			}
-			if !finiteRange(indices.WII, 0, 100) || !finiteRange(indices.WPI, 0, 100) {
+			if !finiteUpTo(indices.WII, 100) || !finiteUpTo(indices.WPI, 100) {
 				return fmt.Errorf("cluster %q harness %q arm %q has invalid WII/WPI indices", label, harness, arm)
 			}
 		}
@@ -455,8 +455,8 @@ func armSet(arms []string) map[string]struct{} {
 	return set
 }
 
-func finiteUnit(value float64) bool { return finiteRange(value, 0, 1) }
+func finiteUnit(value float64) bool { return finiteUpTo(value, 1) }
 
-func finiteRange(value, minimum, maximum float64) bool {
-	return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= minimum && value <= maximum
+func finiteUpTo(value, maximum float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0 && value <= maximum
 }

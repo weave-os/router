@@ -270,9 +270,9 @@ func TestStreamCutObserver_TracksCompletedAndOutputBlocks(t *testing.T) {
 		for i := 0; i+1 < len(logged); i += 2 {
 			switch logged[i] {
 			case "stream_upstream_blocks_completed":
-				completed = logged[i+1].(int)
+				completed = mustAs[int](t, logged[i+1])
 			case "stream_upstream_output_block_started":
-				outputStarted = logged[i+1].(bool)
+				outputStarted = mustAs[bool](t, logged[i+1])
 			}
 		}
 		return completed, outputStarted
@@ -351,7 +351,7 @@ func TestStreamCutObserver_ForwardsOutputProgressArming(t *testing.T) {
 	assert.Equal(t, 1, armer.marks)
 
 	plain := newStreamCutObserver(nil).attach(httptest.NewRecorder())
-	assert.False(t, plain.(providers.OutputProgressArmer).ArmOutputProgress(func() {}),
+	assert.False(t, mustAs[providers.OutputProgressArmer](t, plain).ArmOutputProgress(func() {}),
 		"a writer that cannot distinguish output frames must not claim to be armed")
 }
 
@@ -389,7 +389,7 @@ func TestStreamCutObserver_ForwardsReasoningProgressArming(t *testing.T) {
 		inner := &reasoningArmerRecorder{ResponseRecorder: httptest.NewRecorder(), armed: armed}
 		writer := newStreamCutObserver(nil).attach(inner)
 		marks := 0
-		assert.Equal(t, armed, writer.(providers.ReasoningProgressArmer).ArmReasoningProgress(func() { marks++ }))
+		assert.Equal(t, armed, mustAs[providers.ReasoningProgressArmer](t, writer).ArmReasoningProgress(func() { marks++ }))
 		if armed {
 			require.NotNil(t, inner.mark)
 			inner.mark()
@@ -399,7 +399,7 @@ func TestStreamCutObserver_ForwardsReasoningProgressArming(t *testing.T) {
 		}
 	}
 	legacy := newStreamCutObserver(nil).attach(&armerRecorder{ResponseRecorder: httptest.NewRecorder()})
-	assert.False(t, legacy.(providers.ReasoningProgressArmer).ArmReasoningProgress(func() {}))
+	assert.False(t, mustAs[providers.ReasoningProgressArmer](t, legacy).ArmReasoningProgress(func() {}))
 }
 
 // An Anthropic turn that closes a thinking block, then opens and closes a text

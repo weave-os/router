@@ -823,7 +823,7 @@ func marshalClassifierRequestV5(query policy.Query) ([]byte, error) {
 	if query.InteractionStateInputs {
 		omittedUserTurnCount = pointerTo(userTextTurnCount(query.ConversationMessages) - routedUserTextTurnCount(messages))
 	}
-	invokedTools := clipRouteValues(invokedToolNames(query.ConversationMessages), maxRouteToolCallInputKeys, maxRouteToolCallInputChars)
+	invokedTools := clipRouteValues(invokedToolNames(query.ConversationMessages))
 	return json.Marshal(classifierRequestV5{
 		SchemaVersion: string(policy.SchemaVersionV5), ClassifierSelectionID: query.ClassifierSelectionID,
 		ClassifierReleaseID: query.ClassifierReleaseID, ClassifierVariantID: query.ClassifierVariantID,
@@ -834,7 +834,7 @@ func marshalClassifierRequestV5(query policy.Query) ([]byte, error) {
 		PriorOutputTokens: priorOutputTokens, SessionEverSwitched: sessionEverSwitched,
 		HistoryTruncated: historyTruncated, ConversationMessages: messages,
 		OmittedUserTurnCount: omittedUserTurnCount,
-		AvailableTools:       clipRouteValues(unionToolNames(query.AvailableTools, invokedTools), maxRouteToolCallInputKeys, maxRouteToolCallInputChars),
+		AvailableTools:       clipRouteValues(unionToolNames(query.AvailableTools, invokedTools)),
 		InvokedTools:         invokedTools, Tools: routeTools(query.Tools), EstimatedInputTokens: query.EstimatedInputTokens,
 		HasTools: query.HasTools, HasImages: query.HasImages,
 	})
@@ -1165,8 +1165,8 @@ func marshalRouteRequest(query policy.Query) ([]byte, error) {
 		trainingDelta = trainingRouteMessageDelta(query.ConversationMessages)
 	}
 	harness := policy.HarnessForClientApp(query.ClientApp)
-	invokedTools := clipRouteValues(invokedToolNames(query.ConversationMessages), maxRouteToolCallInputKeys, maxRouteToolCallInputChars)
-	availableTools := clipRouteValues(unionToolNames(query.AvailableTools, invokedTools), maxRouteToolCallInputKeys, maxRouteToolCallInputChars)
+	invokedTools := clipRouteValues(invokedToolNames(query.ConversationMessages))
+	availableTools := clipRouteValues(unionToolNames(query.AvailableTools, invokedTools))
 	if schemaVersion == policy.SchemaVersionV4 {
 		body, err := json.Marshal(classifierRequestV4{
 			SchemaVersion: schemaVersion, Strategy: string(query.Strategy), ExecutionMode: query.ExecutionMode, RouteID: query.RouteID,
@@ -1868,17 +1868,17 @@ func routeTools(tools []router.ToolDescriptor) []routeTool {
 	return out
 }
 
-func clipRouteValues(values []string, maxValues, maxChars int) []string {
+func clipRouteValues(values []string) []string {
 	if len(values) == 0 {
 		return nil
 	}
-	if maxValues > 0 && len(values) > maxValues {
-		values = values[:maxValues]
+	if len(values) > maxRouteToolCallInputKeys {
+		values = values[:maxRouteToolCallInputKeys]
 	}
 	out := make([]string, 0, len(values))
 	seen := make(map[string]struct{}, len(values))
 	for _, value := range values {
-		clipped := clipRouteText(value, maxChars)
+		clipped := clipRouteText(value, maxRouteToolCallInputChars)
 		if clipped == "" {
 			continue
 		}

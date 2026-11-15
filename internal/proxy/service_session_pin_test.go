@@ -1684,7 +1684,7 @@ func TestService_HardPin_TitleGen_GatewayExclusive_NoAliasReportsConfigError(t *
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	err := svc.ProxyMessages(ctx, []byte(titleGenBody), rec, httpReq)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, policy.ErrGatewayServesNoDeployedModel,
+	require.ErrorIs(t, err, policy.ErrGatewayServesNoDeployedModel,
 		"gateway-exclusive hard-pin must name the alias list, not report the router unavailable")
 	assert.NotErrorIs(t, err, router.ErrRoutingUnavailable)
 }

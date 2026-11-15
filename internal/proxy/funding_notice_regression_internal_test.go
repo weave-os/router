@@ -10,9 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"github.com/tidwall/gjson"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
@@ -20,6 +17,10 @@ import (
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 type fundingStreamProvider struct{ bypassFakeProvider }
@@ -158,7 +159,7 @@ func TestFundingNoticeDoesNotEstablishProviderFacts(t *testing.T) {
 	input, output := extractor.Tokens()
 	assert.Zero(t, input)
 	assert.Zero(t, output)
-	assert.ErrorIs(t, terminal.streamErr(), translate.ErrStreamEmpty)
+	require.ErrorIs(t, terminal.streamErr(), translate.ErrStreamEmpty)
 	assert.False(t, buffer.Committed())
 	buffer.Seal()
 	_, err = terminal.Write([]byte("event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":7}}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"provider answer\"}}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":2}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"))

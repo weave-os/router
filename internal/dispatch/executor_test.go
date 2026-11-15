@@ -425,7 +425,7 @@ func TestRunTerminalStopsSameTargetRetryAndFailover(t *testing.T) {
 func TestRunBoundRetriesSameTargetButNeverFailsOver(t *testing.T) {
 	transient := &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests}
 	slept := 0
-	sleep := func(context.Context, time.Duration) error { slept++; return nil }
+	sleep := func(ctx context.Context, _ time.Duration) error { slept++; return ctx.Err() }
 
 	t.Run("single target keeps same-target retries", func(t *testing.T) {
 		slept = 0

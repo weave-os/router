@@ -8,13 +8,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"github.com/tidwall/gjson"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 const claudeCodeIdentity = "You are Claude Code, Anthropic's official CLI for Claude."
@@ -24,7 +25,7 @@ func upstreamBodyServer(t *testing.T, body *[]byte) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		read, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
+		assert.NoError(t, err)
 		*body = read
 		w.Header().Set("content-type", "application/json")
 		_, _ = w.Write([]byte(`{"id":"msg_1"}`))

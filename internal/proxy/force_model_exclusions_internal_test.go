@@ -164,7 +164,7 @@ func TestForceModelHeader_RejectsExcludedModel(t *testing.T) {
 		uuid.New(), DeriveSessionKey(env, "key-1"))
 
 	require.Error(t, forceErr)
-	assert.ErrorIs(t, forceErr, ErrForcedModelExcluded)
+	require.ErrorIs(t, forceErr, ErrForcedModelExcluded)
 	assert.Empty(t, model)
 	assert.Empty(t, store.upserts, "a refused header force must not write a pin")
 }
@@ -234,7 +234,7 @@ func TestTurnLoop_ForcedPinToNewlyExcludedProviderRejects(t *testing.T) {
 		router.Request{RequestedModel: feats.Model})
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrForcedModelExcluded)
+	require.ErrorIs(t, err, ErrForcedModelExcluded)
 	assert.Empty(t, fr.captured,
 		"the request must fail rather than quietly re-route through the scorer")
 }

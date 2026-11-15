@@ -3,7 +3,6 @@ package proxy
 import (
 	"bytes"
 	"context"
-	"github.com/stretchr/testify/require"
 	"io"
 	"log/slog"
 	"net"
@@ -19,6 +18,8 @@ import (
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
+
+	"github.com/stretchr/testify/require"
 )
 
 const hungSeatHeaderTimeout = 200 * time.Millisecond
@@ -69,7 +70,7 @@ func TestVerificationSubscriptionTimeoutRefusesAPIWithoutQuotaProof(t *testing.T
 	require.Equal(t, []string{"Bearer timeout-seat"}, bearers)
 	bearersMu.Unlock()
 	require.NotContains(t, rec.Body.String(), "api answer")
-	winner := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	winner := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{}))
 	require.False(t, winner.Served, "a failed subscription attempt cannot count as a winner")
 }
 
@@ -119,7 +120,7 @@ func TestVerificationResponsesSubscriptionTimeoutRefusesAPIWithoutQuotaProof(t *
 	require.Equal(t, []string{"Bearer timeout-seat"}, bearers)
 	bearersMu.Unlock()
 	require.NotContains(t, rec.Body.String(), "api answer")
-	winner := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	winner := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{}))
 	require.False(t, winner.Served, "a failed subscription attempt cannot count as a winner")
 }
 
@@ -135,7 +136,7 @@ func TestVerificationCommittedSubscriptionStreamNeverReplayed(t *testing.T) {
 		bearersMu.Unlock()
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"committed answer\"}\n\n")
-		w.(http.Flusher).Flush()
+		assertAs[http.Flusher](t, w).Flush()
 		_, _ = io.WriteString(w, "data: {\"type\":\"response.failed\",\"response\":{\"id\":\"synthetic\",\"status\":\"failed\",\"error\":{\"code\":\"usage_limit_reached\",\"message\":\"synthetic exhaustion\"}}}\n\n")
 	}))
 	defer upstream.Close()
@@ -176,7 +177,7 @@ func TestVerificationCommittedFailureAcrossIngress(t *testing.T) {
 				bearersMu.Unlock()
 				w.Header().Set("Content-Type", "text/event-stream")
 				_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"committed answer\"}\n\n")
-				w.(http.Flusher).Flush()
+				assertAs[http.Flusher](t, w).Flush()
 				_, _ = io.WriteString(w, "data: {\"type\":\"response.failed\",\"response\":{\"id\":\"synthetic\",\"status\":\"failed\",\"error\":{\"code\":\"usage_limit_reached\",\"message\":\"synthetic exhaustion\"}}}\n\n")
 			}))
 			defer server.Close()
@@ -192,7 +193,7 @@ func TestVerificationCommittedFailureAcrossIngress(t *testing.T) {
 			require.Equal(t, []string{"Bearer first-seat"}, bearers)
 			bearersMu.Unlock()
 			require.Contains(t, rec.Body.String(), "committed answer")
-			require.False(t, ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage).Served, "failed committed stream cannot count as successful subscription winner")
+			require.False(t, mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{})).Served, "failed committed stream cannot count as successful subscription winner")
 		})
 	}
 }
@@ -218,7 +219,7 @@ func TestVerificationCommittedCRLFFailureAcrossIngress(t *testing.T) {
 				bearersMu.Unlock()
 				w.Header().Set("Content-Type", "text/event-stream")
 				_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"committed answer\"}\r\n\r\n")
-				w.(http.Flusher).Flush()
+				assertAs[http.Flusher](t, w).Flush()
 				_, _ = io.WriteString(w, "data: {\"type\":\"response.failed\",\"response\":{\"id\":\"synthetic\",\"status\":\"failed\",\"error\":{\"code\":\"usage_limit_reached\",\"message\":\"synthetic exhaustion\"}}}\r\n\r\n")
 			}))
 			defer server.Close()
@@ -234,7 +235,7 @@ func TestVerificationCommittedCRLFFailureAcrossIngress(t *testing.T) {
 			require.Equal(t, []string{"Bearer first-seat"}, bearers)
 			bearersMu.Unlock()
 			require.Contains(t, rec.Body.String(), "committed answer")
-			require.False(t, ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage).Served, "failed committed stream cannot count as successful subscription winner")
+			require.False(t, mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{})).Served, "failed committed stream cannot count as successful subscription winner")
 		})
 	}
 }
@@ -261,7 +262,7 @@ func TestVerificationDebugCommittedFailureAcrossIngress(t *testing.T) {
 					bearersMu.Unlock()
 					w.Header().Set("Content-Type", "text/event-stream")
 					_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"committed answer\"}"+newline)
-					w.(http.Flusher).Flush()
+					assertAs[http.Flusher](t, w).Flush()
 					_, _ = io.WriteString(w, "data: {\"type\":\"response.failed\",\"response\":{\"id\":\"synthetic\",\"status\":\"failed\",\"error\":{\"code\":\"usage_limit_reached\",\"message\":\"synthetic exhaustion\"}}}"+newline)
 				}))
 				defer server.Close()
@@ -280,7 +281,7 @@ func TestVerificationDebugCommittedFailureAcrossIngress(t *testing.T) {
 				require.Equal(t, []string{"Bearer first-seat"}, bearers)
 				bearersMu.Unlock()
 				require.Contains(t, rec.Body.String(), "committed answer")
-				require.False(t, ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage).Served, "failed committed stream cannot count as successful subscription winner")
+				require.False(t, mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{})).Served, "failed committed stream cannot count as successful subscription winner")
 			})
 		}
 	}
@@ -298,7 +299,7 @@ func TestVerificationCommittedSubscriptionStreamOutlivesRotationBudget(t *testin
 		bearersMu.Unlock()
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"early output \"}\n\n")
-		w.(http.Flusher).Flush()
+		assertAs[http.Flusher](t, w).Flush()
 		select {
 		case <-r.Context().Done():
 			return
@@ -321,5 +322,5 @@ func TestVerificationCommittedSubscriptionStreamOutlivesRotationBudget(t *testin
 	require.Equal(t, []string{"Bearer long-seat"}, bearers)
 	bearersMu.Unlock()
 	require.Contains(t, rec.Body.String(), "late output")
-	require.True(t, ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage).Served)
+	require.True(t, mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{})).Served)
 }

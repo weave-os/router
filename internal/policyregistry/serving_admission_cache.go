@@ -3,6 +3,7 @@ package policyregistry
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -112,7 +113,10 @@ func (c *AdmissionDecisionCache) admit(ctx context.Context, installationID, apiK
 		if admitted.Err != nil {
 			return AdmissionScope{}, SessionReleaseBinding{}, admitted.Err
 		}
-		entry := admitted.Val.(admissionCacheEntry)
+		entry, ok := admitted.Val.(admissionCacheEntry)
+		if !ok {
+			return AdmissionScope{}, SessionReleaseBinding{}, fmt.Errorf("admission decision returned %T", admitted.Val)
+		}
 		return entry.Scope, entry.Binding, nil
 	}
 }

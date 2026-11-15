@@ -9,14 +9,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
-	"github.com/tidwall/gjson"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 // Pool-first dispatch must preserve translation without a paid API credential.
@@ -32,7 +34,7 @@ func TestVerificationSafeTransportInboundOAuthUsesLinkedWithoutAPI(t *testing.T)
 		accountIDs = append(accountIDs, r.Header.Get("ChatGPT-Account-ID"))
 		paths = append(paths, r.URL.Path)
 		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
+		assert.NoError(t, err)
 		sent = append(sent, body)
 		if r.Header.Get("Authorization") != "Bearer linked-token" {
 			w.WriteHeader(http.StatusForbidden)
