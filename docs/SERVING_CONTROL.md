@@ -394,6 +394,13 @@ proposals, the `--approved-proposal`/`--workflow-actor` binding flags, the
 `--validation-origin` allowlist, and the per-component `releases`/`classifiers`/
 `bindings`/`profiles` publishes.
 
+## Admission transaction
+
+`ServingAdmissionRepo` is wired only in managed gateway mode; legacy startup never constructs it.
+Every admission takes row locks in the same order — installation, key, subject/access, then
+conversation — so concurrent admissions cannot deadlock. `Admit` fails the whole request when
+either persistence or the authoritative release read fails; it never admits on partial state.
+
 ## Admission timing measurement
 
 Every uncached worker admission emits exactly one `Serving admission timing` record at `Info`

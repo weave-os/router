@@ -15,29 +15,16 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
-// notifyTimeout bounds the publish call so a slow Pub/Sub connection can't
-// stall the request that triggered the settings change.
 const notifyTimeout = 2 * time.Second
 
-// replicaSubscriptionTTL reclaims subscriptions leaked by replicas that
-// crash before running their deferred cleanup.
 const replicaSubscriptionTTL = 24 * time.Hour
 
-// subscriptionDeleteTimeout bounds the cleanup call during shutdown so a slow
-// Pub/Sub admin API can't hold up termination indefinitely.
 const subscriptionDeleteTimeout = 10 * time.Second
 
-// publisher is the narrow seam NotifyInstallationChanged needs from a GCP
-// Pub/Sub Publisher: publish installationID and synchronously wait for the
-// result. Abstracting it behind an interface (rather than the concrete
-// *gcppubsub.Publisher, whose Publish returns a SDK-internal PublishResult
-// future) lets tests exercise the guard/retry logic with an in-memory fake
-// instead of a real Pub/Sub connection.
 type publisher interface {
 	Publish(ctx context.Context, installationID string) error
 }
 
-// gcpPublisher adapts a real *gcppubsub.Publisher to the publisher interface.
 type gcpPublisher struct {
 	inner *gcppubsub.Publisher
 }
@@ -48,13 +35,11 @@ func (p gcpPublisher) Publish(ctx context.Context, installationID string) error 
 	return err
 }
 
-// InvalidationNotifier publishes installation invalidation events over GCP Pub/Sub.
 type InvalidationNotifier struct {
 	publisher publisher
 	stop      func()
 }
 
-// NewInvalidationNotifier constructs a notifier backed by the supplied Publisher.
 func NewInvalidationNotifier(publisherClient *gcppubsub.Publisher) *InvalidationNotifier {
 	return &InvalidationNotifier{
 		publisher: gcpPublisher{inner: publisherClient},
@@ -62,8 +47,6 @@ func NewInvalidationNotifier(publisherClient *gcppubsub.Publisher) *Invalidation
 	}
 }
 
-// NotifyInstallationChanged publishes installationID on the invalidation topic.
-// Fire-and-forget: the write already committed, so failures just log and rely on cache TTL.
 func (n *InvalidationNotifier) NotifyInstallationChanged(installationID string) {
 	if installationID == "" {
 		return
@@ -76,32 +59,21 @@ func (n *InvalidationNotifier) NotifyInstallationChanged(installationID string) 
 	})
 }
 
-// Stop flushes buffered messages and shuts the publisher down. Must be
-// called on graceful shutdown — Client.Close() does not stop publishers.
 func (n *InvalidationNotifier) Stop() {
 	n.stop()
 }
 
-// subscriberReceiver is the narrow seam Run needs from a GCP Pub/Sub
-// Subscriber. *gcppubsub.Subscriber already implements this directly, so no
-// adapter is required in production; the interface exists purely so tests can
-// substitute an in-memory fake for Run's message-handling logic.
 type subscriberReceiver interface {
 	Receive(ctx context.Context, f func(context.Context, *gcppubsub.Message)) error
 	String() string
 }
 
-// InvalidationListener subscribes to the invalidation topic and forwards every
-// payload to the local cache; cache TTL is the fallback under sustained outages.
 type InvalidationListener struct {
 	subscriber subscriberReceiver
 	caches     []auth.InstallationInvalidator
 	done       chan struct{}
 }
 
-// NewInvalidationListener wires a listener that drops entries from every supplied
-// cache on publish. Variadic so one installation-changed message fans out to both
-// the API-key cache and the per-user cluster-selection cache.
 func NewInvalidationListener(subscriber *gcppubsub.Subscriber, caches ...auth.InstallationInvalidator) *InvalidationListener {
 	return &InvalidationListener{
 		subscriber: subscriber,
@@ -110,9 +82,6 @@ func NewInvalidationListener(subscriber *gcppubsub.Subscriber, caches ...auth.In
 	}
 }
 
-// Run blocks until ctx is canceled, forwarding invalidation messages to cache.
-// done is closed via defer so Wait() can't hang if a caller wraps Run with
-// panic recovery (e.g. safeGo) — the defer still fires as the panic unwinds.
 func (l *InvalidationListener) Run(ctx context.Context) {
 	defer close(l.done)
 	log := observability.Get()
@@ -131,14 +100,8 @@ func (l *InvalidationListener) Run(ctx context.Context) {
 	}
 }
 
-// Wait blocks until Run has returned. Intended for shutdown coordination.
 func (l *InvalidationListener) Wait() { <-l.done }
 
-// CreateReplicaSubscription provisions a per-replica subscription on topicID so
-// every replica sees every invalidation message — a shared subscription would
-// load-balance and defeat the broadcast. Returns the subscription name and a
-// cleanup func; cleanup detaches from ctx's cancellation so it still runs if
-// the caller's context is already canceled at shutdown.
 func CreateReplicaSubscription(
 	ctx context.Context,
 	client *gcppubsub.Client,

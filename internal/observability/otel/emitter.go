@@ -23,7 +23,6 @@ import (
 	"weave-os/router/internal/observability"
 )
 
-// EmitterConfig controls the emitter's async export pipeline.
 type EmitterConfig struct {
 	Endpoint      string
 	Headers       map[string]string
@@ -36,32 +35,24 @@ type EmitterConfig struct {
 	ExportTimeout time.Duration
 }
 
-// Emitter batches OTLP spans and exports them via HTTP POST. Safe for concurrent
-// use. A nil *Emitter means OTel is disabled; all methods no-op.
 type Emitter struct {
-	queue       chan *tracev1.Span
-	logQueue    chan *logsv1.LogRecord
-	client      *http.Client
-	endpoint    string
-	logEndpoint string
-	headers     map[string]string
-	resource    *resourcev1.Resource
-	batchSz     int
-	flushInt    time.Duration
-	dropped     atomic.Int64
-	wg          sync.WaitGroup
-	// closeMu coordinates Shutdown's queue close against in-flight Enqueue
-	// calls so a late Enqueue cannot panic with "send on closed channel".
-	// Enqueue acquires RLock for the lifetime of the send; Shutdown takes
-	// Lock to flip closed and close(queue) atomically.
+	queue        chan *tracev1.Span
+	logQueue     chan *logsv1.LogRecord
+	client       *http.Client
+	endpoint     string
+	logEndpoint  string
+	headers      map[string]string
+	resource     *resourcev1.Resource
+	batchSz      int
+	flushInt     time.Duration
+	dropped      atomic.Int64
+	wg           sync.WaitGroup
 	closeMu      sync.RWMutex
 	closed       atomic.Bool
 	exportCtx    context.Context
 	cancelExport context.CancelFunc
 }
 
-// NewEmitter starts the worker pool and returns a ready emitter. Returns
-// (nil, nil) when cfg.Endpoint is empty (OTel disabled).
 func NewEmitter(cfg EmitterConfig) (*Emitter, error) {
 	if cfg.Endpoint == "" {
 		return nil, nil
@@ -110,8 +101,6 @@ func NewEmitter(cfg EmitterConfig) (*Emitter, error) {
 	return e, nil
 }
 
-// NewBuffer returns a request-scoped span/log buffer wrapping e, or nil when e
-// is nil (OTel disabled).
 func (e *Emitter) NewBuffer() *Buffer {
 	return NewBuffer(e)
 }
@@ -123,15 +112,11 @@ func (e *Emitter) NewRecorder() telemetry.Recorder {
 	return NewBuffer(e)
 }
 
-// NewUsageExtractor returns the vendor-neutral parser and its HTTP adapter.
-// The parser remains in the inner ring while the adapter owns response I/O.
 func (e *Emitter) NewUsageExtractor(inner http.ResponseWriter, provider string) (*telemetry.UsageExtractor, http.ResponseWriter) {
 	wrapper := NewUsageExtractor(inner, provider)
 	return wrapper.Extractor(), wrapper
 }
 
-// Enqueue submits a span to the export queue. Non-blocking: drops on queue-full
-// or post-shutdown. Nil receiver is a no-op.
 func (e *Emitter) Enqueue(s *tracev1.Span) {
 	if e == nil {
 		return
@@ -149,8 +134,6 @@ func (e *Emitter) Enqueue(s *tracev1.Span) {
 	}
 }
 
-// EnqueueLog submits a log record to the export queue. Non-blocking: drops on
-// queue-full or post-shutdown. Nil receiver is a no-op.
 func (e *Emitter) EnqueueLog(r *logsv1.LogRecord) {
 	if e == nil {
 		return
@@ -168,8 +151,6 @@ func (e *Emitter) EnqueueLog(r *logsv1.LogRecord) {
 	}
 }
 
-// Shutdown closes the queue and waits for workers to drain. Blocks until all
-// workers finish or ctx expires. Idempotent; nil receiver is a no-op.
 func (e *Emitter) Shutdown(c context.Context) error {
 	if e == nil {
 		return nil
@@ -225,8 +206,6 @@ func (e *Emitter) worker() {
 			if len(batch) >= e.batchSz {
 				e.exportBatch(batch)
 				batch = batch[:0]
-				// Go 1.23+ drains the channel inside Stop/Reset automatically;
-				// the old `if !timer.Stop() { <-timer.C }` idiom deadlocks.
 				timer.Reset(e.flushInt)
 			}
 
@@ -240,7 +219,6 @@ func (e *Emitter) worker() {
 	}
 }
 
-// logWorker mirrors worker for the log-record export pipeline.
 func (e *Emitter) logWorker() {
 	defer e.wg.Done()
 
@@ -312,8 +290,6 @@ func (e *Emitter) exportLogBatch(records []*logsv1.LogRecord) {
 	e.post(e.logEndpoint, body)
 }
 
-// post sends a marshaled OTLP protobuf body to endpoint. Failures are logged,
-// not returned: telemetry export is best-effort and never blocks the request.
 func (e *Emitter) post(endpoint string, body []byte) {
 	httpReq, err := http.NewRequestWithContext(e.exportCtx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
