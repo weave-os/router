@@ -35,8 +35,7 @@ func ParseKeypairPrivateKey(pemBytes []byte) (*rsa.PrivateKey, error) {
 	if block == nil {
 		return nil, fmt.Errorf("%w: private key is not PEM encoded", ErrInvalidKeypairAuth)
 	}
-	//nolint:staticcheck // x509.IsEncryptedPEMBlock is the only way to detect the legacy encrypted form we reject.
-	if x509.IsEncryptedPEMBlock(block) || strings.Contains(block.Type, "ENCRYPTED") {
+	if _, legacyEncrypted := block.Headers["DEK-Info"]; legacyEncrypted || strings.Contains(block.Type, "ENCRYPTED") {
 		return nil, fmt.Errorf("%w: passphrase-protected private keys are not supported", ErrInvalidKeypairAuth)
 	}
 	key, err := parseRSAPrivateKey(block)

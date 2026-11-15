@@ -12,8 +12,8 @@ var listModelsTokens = [...]string{
 // list-models directive, stripping it so no upstream ever sees it. The answer
 // is a read of the force-model catalog and this request's policy, so the
 // router answers it without a model turn.
-func (env *RequestEnvelope) ExtractListModelsCommand() bool {
-	return env.extractLeadingCommand(parseListModelsCommand)
+func (e *RequestEnvelope) ExtractListModelsCommand() bool {
+	return e.extractLeadingCommand(parseListModelsCommand)
 }
 
 func parseListModelsCommand(text string) (found bool, stripped string) {

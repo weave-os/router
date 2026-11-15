@@ -34,9 +34,9 @@ type ForceModelResult struct {
 // stripping it from env.body.
 // FromToolResult distinguishes agent-issued commands from user-typed ones.
 // Returns (zero, false) when no command is present.
-func (env *RequestEnvelope) ExtractForceModelCommand() (ForceModelResult, bool) {
+func (e *RequestEnvelope) ExtractForceModelCommand() (ForceModelResult, bool) {
 	var res ForceModelResult
-	found, fromToolResult := env.extractLeadingCommandWithSource(func(text string, fromToolResult bool) (bool, string) {
+	found, fromToolResult := e.extractLeadingCommandWithSource(func(text string, fromToolResult bool) (bool, string) {
 		r, ok, stripped := parseForceModelCommandFromSource(text, fromToolResult)
 		if ok {
 			res = r
@@ -49,13 +49,13 @@ func (env *RequestEnvelope) ExtractForceModelCommand() (ForceModelResult, bool) 
 
 // extractLeadingCommand scans the trailing user or tool-result message
 // (Anthropic/OpenAI shapes only) for a directive recognized by parse.
-func (env *RequestEnvelope) extractLeadingCommand(parse func(text string) (found bool, stripped string)) bool {
-	originalBody := env.body
-	found, fromToolResult := env.extractLeadingCommandWithSource(func(text string, _ bool) (bool, string) {
+func (e *RequestEnvelope) extractLeadingCommand(parse func(text string) (found bool, stripped string)) bool {
+	originalBody := e.body
+	found, fromToolResult := e.extractLeadingCommandWithSource(func(text string, _ bool) (bool, string) {
 		return parse(text)
 	})
 	if fromToolResult {
-		env.body = originalBody
+		e.body = originalBody
 		return false
 	}
 	return found
@@ -123,13 +123,13 @@ type commandTextCandidate struct {
 // tool-result turn as well as whether it matched. The parser receives that
 // provenance so commands with different trust requirements can make the
 // decision before stripping the candidate.
-func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text string, fromToolResult bool) (found bool, stripped string)) (bool, bool) {
-	switch env.format {
+func (e *RequestEnvelope) extractLeadingCommandWithSource(parse func(text string, fromToolResult bool) (found bool, stripped string)) (bool, bool) {
+	switch e.format {
 	case FormatAnthropic, FormatOpenAI:
 	default:
 		return false, false
 	}
-	msgs := gjson.GetBytes(env.body, "messages")
+	msgs := gjson.GetBytes(e.body, "messages")
 	if !msgs.IsArray() {
 		return false, false
 	}
@@ -218,13 +218,13 @@ func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text stri
 			continue
 		}
 		if fromToolResult && stripped == "" && candidate.dropPath != "" {
-			if newBody, ok := dropCommandBlock(env.body, candidate.dropPath, lastIdx); ok {
-				env.body = newBody
+			if newBody, ok := dropCommandBlock(e.body, candidate.dropPath, lastIdx); ok {
+				e.body = newBody
 				return true, fromToolResult
 			}
 		}
-		if newBody, err := sjson.SetBytes(env.body, candidate.path, stripped); err == nil {
-			env.body = newBody
+		if newBody, err := sjson.SetBytes(e.body, candidate.path, stripped); err == nil {
+			e.body = newBody
 		}
 		return true, fromToolResult
 	}

@@ -301,7 +301,7 @@ func TestUpgradeShadowPreservesHigherPrecedencePaths(t *testing.T) {
 			}
 			var policyRouter router.Router = &authorityShadowTestRouter{decision: fresh}
 			if tc.deadline {
-				policyRouter = &erroringTestRouter{err: policyDeadlineTestErr}
+				policyRouter = &erroringTestRouter{err: errPolicyDeadlineTest}
 			}
 			strategy := router.Strategy("upgrade-precedence-test")
 			svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, store, false, providers.ProviderAnthropic, upgradeTestPinModel, nil).
