@@ -4486,9 +4486,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// this function's ctx, so it must see what the previous step left.
 	rescue := &messagesRescue{
 		rescueChain: &rescueChain{
-			svc:              s,
-			credentials:      rescueCredentialPort{s},
-			routing:          rescueRoutingPort{s},
+			rescuePorts:      rescuePortsFor(s),
 			r:                r,
 			log:              log,
 			env:              env,
@@ -7134,9 +7132,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// this function's ctx, so it must see what the previous step left.
 	rescue := &chatRescue{
 		rescueChain: &rescueChain{
-			svc:              s,
-			credentials:      rescueCredentialPort{s},
-			routing:          rescueRoutingPort{s},
+			rescuePorts:      rescuePortsFor(s),
 			r:                r,
 			log:              log,
 			env:              env,

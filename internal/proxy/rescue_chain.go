@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
-	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
@@ -29,9 +28,7 @@ type rescueServices interface {
 // It owns the served decision, bindings, marker and error while the walk runs;
 // the entrypoint reads them back afterwards.
 type rescueChain struct {
-	svc              rescueServices
-	credentials      dispatch.RescueCredentials
-	routing          dispatch.RescueRouting
+	rescuePorts
 	r                *http.Request
 	log              *slog.Logger
 	env              *translate.RequestEnvelope
