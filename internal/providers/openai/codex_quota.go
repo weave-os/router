@@ -60,7 +60,7 @@ func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) (quo
 		}
 		return codexQuotaTransportUnavailable(err, 0)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	upstreamStatus = resp.StatusCode
 	if resp.StatusCode != http.StatusOK {
 		log.Warn("Codex quota preflight rejected", "upstream_status", resp.StatusCode)

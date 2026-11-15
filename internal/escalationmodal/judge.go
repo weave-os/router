@@ -69,7 +69,7 @@ func (j *Judge) Judge(ctx context.Context, request llmescalation.JudgeRequest) (
 	if err != nil {
 		return llmescalation.Judgment{}, fmt.Errorf("call LLM escalation endpoint: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return llmescalation.Judgment{}, fmt.Errorf("LLM escalation endpoint returned HTTP %d", response.StatusCode)
 	}

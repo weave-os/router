@@ -45,7 +45,7 @@ func ensureDatabase(ctx context.Context, u *url.URL, dbName string) {
 	if err != nil {
 		fatal("Cannot connect to postgres maintenance database: %v", err)
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	var exists bool
 	err = conn.QueryRow(ctx,
@@ -75,7 +75,7 @@ func ensureSchema(ctx context.Context, dsn string) {
 	if err != nil {
 		fatal("Cannot connect to target database: %v", err)
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	if _, err := conn.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS router"); err != nil {
 		fatal("Cannot create router schema: %v", err)

@@ -362,7 +362,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	if err != nil {
 		return fmt.Errorf("upstream call: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	t.StampUpstreamHeaders()
 	// Surface Codex rate-limit headroom (x-codex-*) even on 429s, where it matters most.
 	providers.ObserveUpstreamHeaders(ctx, resp.Header)
@@ -591,7 +591,7 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 	if err != nil {
 		return fmt.Errorf("upstream passthrough call: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	providers.CopyUpstreamHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
