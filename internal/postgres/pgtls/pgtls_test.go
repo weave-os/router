@@ -146,7 +146,7 @@ func handshake(t *testing.T, clientConfig *tls.Config, serverCertificate tls.Cer
 		if acceptErr != nil {
 			return
 		}
-		defer serverConn.Close()
+		defer func() { _ = serverConn.Close() }()
 		server := tls.Server(serverConn, &tls.Config{Certificates: []tls.Certificate{serverCertificate}, MinVersion: tls.VersionTLS12})
 		if server.HandshakeContext(ctx) == nil {
 			_, _ = server.Read(make([]byte, 1))
