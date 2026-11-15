@@ -86,7 +86,7 @@ func TestSplitNext_DelimiterAfterLongPayloadWithoutNewlines(t *testing.T) {
 
 		event, n := sse.SplitNext(buf)
 
-		assert.Equal(t, len(payload), len(event), "delimiter=%q", delimiter)
+		assert.Len(t, event, len(payload), "delimiter=%q", delimiter)
 		assert.Equal(t, len(payload)+len(delimiter), n, "delimiter=%q", delimiter)
 	}
 }
@@ -161,7 +161,7 @@ func TestSplitNext_PreservesBackingStorageAndCapacity(t *testing.T) {
 	assert.Equal(t, "event", string(event))
 	assert.Equal(t, len("event\n\n"), n)
 	assert.Equal(t, cap(buf), cap(event))
-	assert.True(t, &buf[0] == &event[0])
+	assert.Same(t, &buf[0], &event[0])
 	assert.Equal(t, "rest", string(buf[n:]))
 }
 

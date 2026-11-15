@@ -183,6 +183,7 @@ func writeRawText(buf *bytes.Buffer, v reflect.Value, depth int) {
 			writeRawText(buf, iter.Key(), depth+1)
 			writeRawText(buf, iter.Value(), depth+1)
 		}
+	default:
 	}
 }
 

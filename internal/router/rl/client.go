@@ -109,7 +109,7 @@ func (d *HTTPDecider) Decide(ctx context.Context, q Query) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("call policy sidecar: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {

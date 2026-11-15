@@ -43,10 +43,10 @@ func TestClaudeLoginReconnectsThroughAPIAndPostgres(t *testing.T) {
 	defer cancel()
 	conn, err := pgx.Connect(ctx, dsn)
 	require.NoError(t, err)
-	defer conn.Close(context.Background())
+	defer func() { _ = conn.Close(context.Background()) }()
 	tx, err := conn.Begin(ctx)
 	require.NoError(t, err)
-	defer tx.Rollback(context.Background())
+	defer func() { _ = tx.Rollback(context.Background()) }()
 	queries := sqlc.New(tx)
 	installation, err := queries.CreateModelRouterInstallation(ctx, sqlc.CreateModelRouterInstallationParams{
 		ExternalID: uuid.NewString(), Name: "subscription-enrollment-fixture",
@@ -204,7 +204,7 @@ func TestClaudeLoginReconnectsThroughAPIAndPostgres(t *testing.T) {
 	require.Nil(t, accounts[0].CooldownUntil)
 	stored, err := repo.GetSubscriptionCredentialRecord(ctx, first.ID, owner)
 	require.NoError(t, err)
-	require.True(t, !bytes.Equal(stored.RefreshTokenCiphertext, []byte("refresh-fixture-2")), "credential must be encrypted at rest")
+	require.False(t, bytes.Equal(stored.RefreshTokenCiphertext, []byte("refresh-fixture-2")), "credential must be encrypted at rest")
 	latest, err := svc.SubscriptionRefreshToken(ctx, owner, first.ID)
 	require.NoError(t, err)
 	require.True(t, bytes.Equal(latest, []byte("refresh-fixture-2")), "reconnect must retain the latest refresh token")

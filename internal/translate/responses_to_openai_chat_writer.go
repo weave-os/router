@@ -342,6 +342,7 @@ func (t *ResponsesToOpenAIChatWriter) translateEvent(raw []byte) error {
 		}
 		t.captureFinalResponse(resp)
 		return nil
+	default:
 	}
 	return nil
 }
@@ -377,6 +378,7 @@ func (t *ResponsesToOpenAIChatWriter) handleOutputItemDone(data []byte) error {
 			return nil
 		}
 		return t.emitReasoningDelta(oi, joinReasoningSummary(item.Get("summary")))
+	case responsesCustomToolCallItem, responsesComputerCallItem:
 	}
 	return nil
 }
@@ -728,27 +730,6 @@ func (t *ResponsesToOpenAIChatWriter) writeChunkHeader() {
 
 func (t *ResponsesToOpenAIChatWriter) flushEvent() error {
 	return sse.FlushWriter(t.bw, t.flusher)
-}
-
-// openAIErrorBody builds a chat/completions-shape error envelope.
-func openAIErrorBody(errType, msg string) []byte {
-	if errType == "" {
-		errType = "api_error"
-	}
-	if msg == "" {
-		msg = "upstream Responses request failed"
-	}
-	jw := newJSONWriter()
-	jw.Obj()
-	jw.Key("error")
-	jw.Obj()
-	jw.Key("message")
-	jw.Str(msg)
-	jw.Key("type")
-	jw.Str(errType)
-	jw.EndObj()
-	jw.EndObj()
-	return jw.Bytes()
 }
 
 var (

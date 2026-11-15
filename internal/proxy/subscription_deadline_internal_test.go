@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -179,7 +178,7 @@ func TestCallerCancellationDuringSubscriptionAttemptIsTerminal(t *testing.T) {
 
 		_, err := svc.dispatchWithFallback(ctx, in)
 
-		require.True(t, errors.Is(err, context.Canceled))
+		require.ErrorIs(t, err, context.Canceled)
 		require.Equal(t, 1, calls, "caller cancellation never triggers another attempt")
 	})
 }

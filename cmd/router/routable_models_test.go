@@ -27,7 +27,7 @@ func TestProxyRoutableModels_WithHMMUnionsHMMOnlyTargets(t *testing.T) {
 	require.Greater(t, len(hmm), len(generic), "catalog must have HMM-only rows or this test is vacuous")
 
 	got := proxyRoutableModels(generic, providers, true)
-	assert.Equal(t, len(hmm), len(got))
+	assert.Len(t, got, len(hmm))
 	for id := range hmm {
 		assert.Contains(t, got, id)
 	}

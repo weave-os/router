@@ -84,6 +84,6 @@ func escalationSelection(installation string, encoded []byte) (llmescalation.Sel
 	if err != nil {
 		return llmescalation.Selection{}, err
 	}
-	effective := flags.EscalationFromContext(flags.WithOverrides(context.Background(), overrides))
+	effective := flags.EscalationFromOverrides(overrides)
 	return llmescalation.Selection{InstallationID: installation, Active: effective.Active, Shadow: effective.Shadow, Cadence: effective.Cadence, Epoch: effective.Epoch}, nil
 }

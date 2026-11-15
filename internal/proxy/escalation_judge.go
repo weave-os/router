@@ -56,10 +56,8 @@ func (j *EscalationJudge) Judge(ctx context.Context, request llmescalation.Judge
 	}
 	// The synthetic call inherits cancellation, but no tenant headers, credentials,
 	// aliases, subscription state, or identity forwarding from the served turn.
-	callCtx, cancel := context.WithTimeout(context.Background(), llmescalation.JudgeTimeout)
+	callCtx, cancel := context.WithTimeout(withoutRequestValues(ctx), llmescalation.JudgeTimeout)
 	defer cancel()
-	stop := context.AfterFunc(ctx, cancel)
-	defer stop()
 	if err := ctx.Err(); err != nil {
 		return llmescalation.Judgment{}, err
 	}
@@ -83,7 +81,7 @@ func (j *EscalationJudge) Judge(ctx context.Context, request llmescalation.Judge
 			return providers.PreparedRequest{Body: body, Headers: make(http.Header)}, upstream, nil
 		},
 		Consume: func(_ context.Context, _ dispatch.Attempt, response *http.Response) error {
-			defer response.Body.Close()
+			defer func() { _ = response.Body.Close() }()
 			if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 				return &providers.UpstreamStatusError{Status: response.StatusCode}
 			}
@@ -176,4 +174,13 @@ func parseEscalationJudgment(encoded []byte) (llmescalation.Judgment, error) {
 	}
 	judgment.Escalate, judgment.Reason = *verdict.Escalate, *verdict.Reason
 	return judgment, nil
+}
+
+// requestValuesHidden keeps ctx's cancellation and deadline but none of its values.
+type requestValuesHidden struct{ context.Context }
+
+func (requestValuesHidden) Value(any) any { return nil }
+
+func withoutRequestValues(ctx context.Context) context.Context {
+	return requestValuesHidden{ctx}
 }

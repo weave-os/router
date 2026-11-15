@@ -575,7 +575,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 			"forced_arm", overrideRosterID,
 		)
 		res.PolicyGroup = outcome.Group
-	case len(req.ClusterArmOverrides) > 0 && len(res.RankedFallback) > 0 && !(escalationDecision != nil && escalationDecision.Constrained):
+	case len(req.ClusterArmOverrides) > 0 && len(res.RankedFallback) > 0 && (escalationDecision == nil || !escalationDecision.Constrained):
 		outcome := ApplyClusterArmOverrides(req.ClusterArmOverrides, res.RankedFallback, resolved, overrideRosterID)
 		// Only a configured allowlist supersedes the router's own selection; an
 		// unconstrained group walk would just re-derive the same ranked order.
