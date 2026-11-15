@@ -710,5 +710,9 @@ func TestWithUnfunded_ByokFeeUnpayableOnlyWhenAFeeIsCharged(t *testing.T) {
 			assert.True(t, billing.ByokFeeUnpayable(charged), "an unfunded organization cannot pay a BYOK fee")
 		})
 	}
+	overridden := context.WithValue(context.Background(), billing.HasOverrideContextKey, true)
+	assert.False(t, billing.ByokFeeUnpayable(billing.NewService(&fakeRepo{}).WithByokFeeRate(0.05).
+		WithUnfunded(overridden, billing.SubscriptionOnlySpendCapReached)),
+		"a billing override waives the fee, so the key still serves the turn")
 	assert.False(t, billing.ByokFeeUnpayable(context.Background()), "a funded turn pays its fee as usual")
 }
