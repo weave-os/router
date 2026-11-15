@@ -533,7 +533,7 @@ func TestRouteAnthropicRequest_DropsMalformedInstallationIDInsteadOfForwardingRa
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "not-a-uuid")
 	_, err := svc.RouteAnthropicRequest(ctx, []byte(validAnthropicBody), nil)
 	require.NoError(t, err)
-	assert.Equal(t, "", got.InstallationID,
+	assert.Empty(t, got.InstallationID,
 		"malformed installation ID must collapse to empty string so the HMM "+
 			"sidecar omits the field, matching ProxyMessages's runTurnLoop behavior")
 }
@@ -546,7 +546,7 @@ func TestRouteAnthropicRequest_DropsEmptyInstallationIDInsteadOfForwardingRaw(t 
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "")
 	_, err := svc.RouteAnthropicRequest(ctx, []byte(validAnthropicBody), nil)
 	require.NoError(t, err)
-	assert.Equal(t, "", got.InstallationID,
+	assert.Empty(t, got.InstallationID,
 		"empty installation ID must collapse to empty string")
 }
 
@@ -559,7 +559,7 @@ func TestRouteAnthropicRequest_DropsMissingInstallationIDInsteadOfForwardingRaw(
 	// InstallationIDContextKey on the context at all.
 	_, err := svc.RouteAnthropicRequest(context.Background(), []byte(validAnthropicBody), nil)
 	require.NoError(t, err)
-	assert.Equal(t, "", got.InstallationID,
+	assert.Empty(t, got.InstallationID,
 		"missing installation ID context value must collapse to empty string")
 }
 

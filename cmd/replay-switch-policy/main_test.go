@@ -173,6 +173,30 @@ func TestReplayDoesNotClaimCompletionAfterTraceFailure(t *testing.T) {
 	}
 }
 
+type unflushedTrace struct{ bytes.Buffer }
+
+func (*unflushedTrace) Close() error { return io.ErrShortWrite }
+
+func TestRunReportsTraceCloseFailureInsteadOfSummary(t *testing.T) {
+	directory := t.TempDir()
+	inputPath := filepath.Join(directory, "input.jsonl")
+	if err := os.WriteFile(inputPath, encodeRecords(t, syntheticRecord("first", "session", escalation.High, modelSol, 0)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	original := createTrace
+	t.Cleanup(func() { createTrace = original })
+	createTrace = func(string) (io.WriteCloser, error) { return &unflushedTrace{}, nil }
+
+	var stdout, stderr bytes.Buffer
+	err := run([]string{"-input", inputPath, "-trace", filepath.Join(directory, "trace.jsonl")}, &stdout, &stderr)
+	if !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("trace close failure was not reported: %v", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("a truncated trace must not be reported complete: %s", stdout.String())
+	}
+}
+
 func TestRunProducesPrivateTraceWithoutOverwriting(t *testing.T) {
 	directory := t.TempDir()
 	inputPath := filepath.Join(directory, "input.jsonl")

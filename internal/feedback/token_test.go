@@ -1,7 +1,6 @@
 package feedback_test
 
 import (
-	"errors"
 	"testing"
 	"time"
 
@@ -54,7 +53,7 @@ func TestSigner_NilIsDisabled(t *testing.T) {
 	var s *feedback.Signer
 	assert.Empty(t, s.Mint("a", "b", "c", ""))
 	_, err := s.Verify("anything.anything")
-	assert.True(t, errors.Is(err, feedback.ErrInvalidToken))
+	assert.ErrorIs(t, err, feedback.ErrInvalidToken)
 }
 
 func TestNewSigner_EmptySecretReturnsNil(t *testing.T) {

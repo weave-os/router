@@ -60,7 +60,7 @@ func checkOutputLimitLifecycle(ctx context.Context, dsn string) (checkErr error)
 		return err
 	}
 	defer func() {
-		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		checkErr = errors.Join(checkErr, conn.Close(closeCtx))
 	}()
@@ -71,7 +71,7 @@ func checkOutputLimitLifecycle(ctx context.Context, dsn string) (checkErr error)
 	// Every fixture lives inside this transaction; rolling it back is the only
 	// cleanup, on success and failure alike.
 	defer func() {
-		rollbackCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		checkErr = errors.Join(checkErr, tx.Rollback(rollbackCtx))
 	}()

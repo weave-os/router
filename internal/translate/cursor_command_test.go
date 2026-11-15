@@ -1,7 +1,6 @@
 package translate_test
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -54,7 +53,7 @@ func TestExtractRouterFeedbackCommand_CursorUserQuery(t *testing.T) {
 	res, found := env.ExtractRouterFeedbackCommand()
 	require.True(t, found)
 	assert.Equal(t, "down", res.Rating)
-	assert.True(t, strings.Contains(res.Feedback, "too slow"), "feedback = %q", res.Feedback)
+	assert.Contains(t, res.Feedback, "too slow", "feedback = %q", res.Feedback)
 }
 
 func cursorUserTurn(query string) map[string]any {

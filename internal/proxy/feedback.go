@@ -122,13 +122,13 @@ func (s *Service) SubmitFeedback(ctx context.Context, p SubmitFeedbackParams) er
 	if err != nil {
 		return err
 	}
-	s.emitFeedbackSpan(p)
+	s.emitFeedbackSpan(ctx, p)
 	return nil
 }
 
 // emitFeedbackSpan ships a router.feedback span to the Weave OTLP ingest. The
 // attribute keys are the contract the Weave backend's buildFeedbackRow reads.
-func (s *Service) emitFeedbackSpan(p SubmitFeedbackParams) {
+func (s *Service) emitFeedbackSpan(ctx context.Context, p SubmitFeedbackParams) {
 	if s.emitter == nil {
 		return
 	}
@@ -144,7 +144,7 @@ func (s *Service) emitFeedbackSpan(p SubmitFeedbackParams) {
 	if p.RouterUserID != "" {
 		b = b.String("router_user_id", p.RouterUserID)
 	}
-	ctx := telemetry.WithRecorder(context.Background(), s.newTelemetryRecorder())
+	ctx = telemetry.WithRecorder(context.WithoutCancel(ctx), s.newTelemetryRecorder())
 	telemetry.Record(ctx, telemetry.Span{Name: routerFeedbackSpanName, Start: now, End: now, Attrs: b.Build()})
 	telemetry.Flush(ctx)
 }

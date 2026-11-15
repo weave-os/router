@@ -235,6 +235,7 @@ func (u *UsageExtractor) extractFromSSEEvent(eventType []byte, data []byte) {
 		u.extractAnthropicSSE(eventType, data)
 	case providers.FamilyOpenAICompat, providers.FamilyGemini:
 		u.extractOpenAISSE(data)
+	case providers.FamilyUnknown:
 	}
 }
 
@@ -301,6 +302,7 @@ func (u *UsageExtractor) tryExtractFromJSON() {
 		if gjson.GetBytes(u.leftover, "candidates.0.finishReason").String() == geminiFinishMaxTokens {
 			u.RecordOutputLimitReached()
 		}
+	case providers.FamilyUnknown:
 	}
 
 	u.RecordProviderUsage(facts)
