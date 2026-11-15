@@ -51,7 +51,7 @@ func TestSuppressMarkerIfRequestedHiddenByInstallation(t *testing.T) {
 
 	// Hidden: even an absent header (which would keep the marker) yields "".
 	hiddenCtx := context.WithValue(context.Background(), InstallationHideTerminalSurfacesContextKey{}, true)
-	assert.Equal(t, "", suppressMarkerIfRequested(hiddenCtx, h, marker))
+	assert.Empty(t, suppressMarkerIfRequested(hiddenCtx, h, marker))
 
 	// Visible: same header state keeps the marker.
 	assert.Equal(t, marker, suppressMarkerIfRequested(context.Background(), h, marker))

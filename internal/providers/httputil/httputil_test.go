@@ -316,7 +316,7 @@ func TestH2KeepaliveFor_EnvOverridesCannotReachTheHeaderGuard(t *testing.T) {
 // this is what lets dispatchWithFallback rescue a mid-stream stall on the
 // next binding (prod incident 2026-06-09).
 func TestErrUpstreamIdleTimeout_AliasIsRetryable(t *testing.T) {
-	assert.True(t, errors.Is(ErrUpstreamIdleTimeout, providers.ErrUpstreamIdleTimeout))
+	assert.ErrorIs(t, ErrUpstreamIdleTimeout, providers.ErrUpstreamIdleTimeout)
 	assert.True(t, providers.IsRetryable(ErrUpstreamIdleTimeout))
 }
 
@@ -445,7 +445,7 @@ func TestStartThroughputWatchdog_DoesNotFireOnBurstThenSilence(t *testing.T) {
 }
 
 func TestErrUpstreamSlowThroughput_AliasIsRetryable(t *testing.T) {
-	assert.True(t, errors.Is(ErrUpstreamSlowThroughput, providers.ErrUpstreamSlowThroughput))
+	assert.ErrorIs(t, ErrUpstreamSlowThroughput, providers.ErrUpstreamSlowThroughput)
 	assert.True(t, providers.IsRetryable(ErrUpstreamSlowThroughput))
 }
 

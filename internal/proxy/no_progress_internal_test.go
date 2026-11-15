@@ -50,7 +50,7 @@ func TestHandleNoProgressBreak_PreservesUserForcedPin(t *testing.T) {
 
 func TestShortSessionKey_TruncatesAndRedactsZero(t *testing.T) {
 	var zero [sessionpin.SessionKeyLen]byte
-	assert.Equal(t, "", shortSessionKey(zero), "zero key must produce empty so logs distinguish missing-anchor from real")
+	assert.Empty(t, shortSessionKey(zero), "zero key must produce empty so logs distinguish missing-anchor from real")
 
 	key := sessionKeyFromString("0123456789ABCDEFsomemore")
 	got := shortSessionKey(key)

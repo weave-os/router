@@ -225,7 +225,7 @@ func TestToolProgressMarker_EmptyWithoutToolCalls(t *testing.T) {
 	body := []byte(`{"model":"claude-haiku-4-5","max_tokens":256,"messages":[{"role":"user","content":"hi"}]}`)
 	env, err := translate.ParseAnthropic(body)
 	require.NoError(t, err)
-	assert.Equal(t, "", ToolProgressMarker(env), "a tool-free turn has no tool-progress marker")
+	assert.Empty(t, ToolProgressMarker(env), "a tool-free turn has no tool-progress marker")
 }
 
 func TestNoProgressTracker_TripsAfterThresholdHits(t *testing.T) {

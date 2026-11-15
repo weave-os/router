@@ -4075,7 +4075,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	preludeBuf := newPreludeBuffer(contentSink)
 	var rootSink http.ResponseWriter = preludeBuf
-	var sink http.ResponseWriter = rootSink
+	var sink = rootSink
 	// Wrap sink to observe refusals on the native path (no translator Summary
 	// here). Detection is unconditional: refusals must be measurable independently
 	// of the re-pin kill switch.
@@ -4471,7 +4471,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	rescue.subscriptionRetry(ctx)
 	rescue.siblingRescue(ctx)
 	rescue.finish(ctx)
-	decision, bindings, marker, proxyErr, effortServed = rescue.decision, rescue.bindings, rescue.marker, rescue.proxyErr, rescue.effortServed
+	decision, marker, proxyErr, effortServed = rescue.decision, rescue.marker, rescue.proxyErr, rescue.effortServed
 	compactionHandoverOutcome = rescue.compactionHandoverOutcome
 	winnerIdx, finalProvider := rescue.winnerIdx, rescue.finalProvider
 
@@ -6614,7 +6614,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 	}
 
-	var sink http.ResponseWriter = rootSink
+	var sink = rootSink
 	openAIPrelude := &requestNoticeStream{}
 
 	makeMarkerSink := func(notice translate.RouterNotice) (http.ResponseWriter, error) {
@@ -7107,7 +7107,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	rescue.cyberRetry(ctx)
 	rescue.siblingRescue(ctx)
 	rescue.finish(ctx)
-	decision, bindings, marker, proxyErr, effortServed = rescue.decision, rescue.bindings, rescue.marker, rescue.proxyErr, rescue.effortServed
+	decision, marker, proxyErr, effortServed = rescue.decision, rescue.marker, rescue.proxyErr, rescue.effortServed
 	winnerIdx, finalProvider := rescue.winnerIdx, rescue.finalProvider
 
 	// Re-resolve credentials for the binding that actually served — each

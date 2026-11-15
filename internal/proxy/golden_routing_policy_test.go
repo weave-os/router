@@ -345,7 +345,8 @@ func routingPolicyEscalationAndClassifierScenarios() []goldenScenario {
 		routingPolicyScenario("strategy_without_router_fails_closed", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyLow))},
 			routingPolicyRefused(routingPolicyFirstTurn, nil, routingPolicyStrategy(router.StrategyRL))),
 		routingPolicyScenario("policy_pin_not_honoured_fails_closed", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyLow))},
-			routingPolicyRefused(routingPolicyFirstTurn, nil, routingPolicyAuthorizedPin)),
+			// Not routingPolicyRefused: this refusal writes its routing_refused row asynchronously, so the trace waits for it.
+			routingPolicyRequest(routingPolicyFirstTurn, routingPolicyAuthorizedPin)),
 		routingPolicyScenario("policy_pin_honoured_skips_session_pin", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyLow), router.Decision{
 			Provider: providers.ProviderAnthropic, Model: routingPolicyHigh, Reason: "golden_route", Metadata: &router.RoutingMetadata{PolicyPinHonoured: true}})},
 			first, routingPolicyRequest(next.body, routingPolicyAuthorizedPin)),

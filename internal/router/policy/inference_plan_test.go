@@ -1,7 +1,6 @@
 package policy_test
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -388,7 +387,7 @@ func providerSet(providerNames ...string) map[string]struct{} {
 func assertResolutionErrorCode(t *testing.T, err error, expected policy.ResolutionErrorCode) {
 	t.Helper()
 	var resolutionErr *policy.ResolutionError
-	require.True(t, errors.As(err, &resolutionErr), "expected ResolutionError, got %v", err)
+	require.ErrorAs(t, err, &resolutionErr, "expected ResolutionError, got %v", err)
 	assert.Equal(t, expected, resolutionErr.Code)
 }
 

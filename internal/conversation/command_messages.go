@@ -83,7 +83,7 @@ func RouterModelsMessage(routable, excluded, automaticExcluded map[string]struct
 			default:
 				enabled++
 			}
-			b.WriteString(fmt.Sprintf("  [%s] %s\n", mark, id))
+			fmt.Fprintf(&b, "  [%s] %s\n", mark, id)
 		}
 	}
 

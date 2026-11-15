@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -98,7 +97,7 @@ func TestCommandReplayRemovesClaudeMetadata(t *testing.T) {
 	env, err := ParseAnthropic(body)
 	require.NoError(t, err)
 	require.NoError(t, env.StripCommandOutcomes())
-	assert.False(t, strings.Contains(string(env.body), "router_command"))
+	assert.NotContains(t, string(env.body), "router_command")
 	assert.Len(t, gjson.GetBytes(env.body, "messages").Array(), 1)
 }
 

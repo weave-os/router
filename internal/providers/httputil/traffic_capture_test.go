@@ -251,7 +251,10 @@ func TestNewClientRecordsTransportFailureWithoutChangingError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.Do(request)
+	response, err := client.Do(request)
+	if response != nil {
+		_ = response.Body.Close()
+	}
 	if !errors.Is(err, upstreamErr) {
 		t.Fatalf("client error = %v, want wrapped provider error", err)
 	}
