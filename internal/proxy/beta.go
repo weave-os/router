@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/requestcontext"
@@ -230,7 +231,7 @@ func (s *Service) invalidateSessionRoutingState(
 		for _, stateRole := range []string{
 			role,
 			hmmHistoryRole(role),
-			commandContinuationRole(role),
+			conversation.CommandContinuationRole(role),
 		} {
 			if _, duplicate := seen[stateRole]; duplicate {
 				continue

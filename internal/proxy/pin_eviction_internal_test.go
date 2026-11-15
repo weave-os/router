@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
@@ -172,7 +173,7 @@ func TestMaybeEvictPin_SecondStrikeExpires(t *testing.T) {
 }
 
 func TestExpireSessionPinInvalidatesPostCommandContinuation(t *testing.T) {
-	continuationRole := commandContinuationRole(sessionpin.DefaultRole)
+	continuationRole := conversation.CommandContinuationRole(sessionpin.DefaultRole)
 	store := &evictionStubPinStore{continuations: map[string]sessionpin.Pin{
 		continuationRole: {
 			Provider:    providers.ProviderAnthropic,
@@ -214,7 +215,7 @@ func TestExpireSessionPinAndHMMHistoryExpiresBothRoles(t *testing.T) {
 	require.Len(t, store.upserts, 2)
 	assert.Equal(t, sessionpin.DefaultRole, store.upserts[0].Role)
 	assert.Equal(t, hmmHistoryRole(sessionpin.DefaultRole), store.upserts[1].Role)
-	assert.Equal(t, []string{commandContinuationRole(sessionpin.DefaultRole)}, store.consumeRoles,
+	assert.Equal(t, []string{conversation.CommandContinuationRole(sessionpin.DefaultRole)}, store.consumeRoles,
 		"only the primary pin may invalidate a post-command continuation")
 	for _, expired := range store.upserts {
 		assert.Equal(t, installationID, expired.InstallationID)

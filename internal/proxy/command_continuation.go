@@ -3,23 +3,13 @@ package proxy
 import (
 	"context"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 
 	"github.com/google/uuid"
 )
-
-// Roles live in router.session_pins.role (VARCHAR(32)); the longest normal
-// role is default_high, so keep this internal suffix compact.
-const commandContinuationRoleSuffix = "_cmd_next"
-
-func commandContinuationRole(role string) string {
-	if role == "" {
-		role = sessionpin.DefaultRole
-	}
-	return role + commandContinuationRoleSuffix
-}
 
 // grantPostCommandContinuation preserves an active automatic pin for exactly
 // one following normal turn. The command itself never reaches the upstream,
@@ -47,7 +37,7 @@ func (s *Service) grantPostCommandContinuation(
 		)
 		return
 	}
-	pin.Role = commandContinuationRole(role)
+	pin.Role = conversation.CommandContinuationRole(role)
 	pin.InstallationID = installationID
 	pin.Strategy = router.StrategyFromContext(ctx)
 	pin.TurnCount = 1
@@ -68,7 +58,7 @@ func (s *Service) consumePostCommandContinuation(
 	if s.pinStore == nil {
 		return sessionpin.Pin{}, false
 	}
-	pin, found, err := s.pinStore.Consume(ctx, sessionKey, commandContinuationRole(role), router.StrategyFromContext(ctx))
+	pin, found, err := s.pinStore.Consume(ctx, sessionKey, conversation.CommandContinuationRole(role), router.StrategyFromContext(ctx))
 	if err != nil {
 		observability.FromContext(ctx).Error("post-command continuation consume failed", "err", err)
 		return sessionpin.Pin{}, false
@@ -90,7 +80,7 @@ func (s *Service) invalidatePostCommandContinuation(
 	if s.pinStore == nil {
 		return nil
 	}
-	_, _, err := s.pinStore.Consume(context.Background(), sessionKey, commandContinuationRole(role), router.StrategyFromContext(ctx))
+	_, _, err := s.pinStore.Consume(context.Background(), sessionKey, conversation.CommandContinuationRole(role), router.StrategyFromContext(ctx))
 	if err != nil {
 		observability.FromContext(ctx).Error(
 			"post-command continuation invalidation failed",
