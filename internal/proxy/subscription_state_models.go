@@ -144,7 +144,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 		sessionUnavailableModels = make(map[string]struct{})
 	}
 	for model, cooldownUntil := range sessionCooldownModelsFromContext(ctx) {
-		if cooldownUntil.After(s.clockNow()) {
+		if cooldownUntil.After(s.now.Now()) {
 			sessionUnavailableModels[model] = struct{}{}
 		}
 	}

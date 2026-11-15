@@ -216,15 +216,15 @@ func (s *Service) authoritativeUpgradeFor(ctx context.Context, req router.Reques
 		decision.Evidence.MarginQualified = &qualified
 	}
 	if decision.Evidence.HasPin {
-		decision.Evidence.CacheCold = pinCacheCold(pin, decision.Evidence.PrefixBroken)
+		decision.Evidence.CacheCold = pinCacheCold(pin, decision.Evidence.PrefixBroken, s.now.Now())
 		_, pinPriced := hmmEffectiveInputUSDPer1M(pin.Model, inputTokens)
 		_, freshPriced := hmmEffectiveInputUSDPer1M(fresh.Model, inputTokens)
 		decision.Evidence.PricingKnown = pinPriced && freshPriced
 		decision.Evidence.MoreExpensive = hmmFreshIsMoreExpensive(pin.Model, fresh.Model, inputTokens)
 		if !pin.FirstPinnedAt.IsZero() {
-			age := pinAge(pin)
+			age := pinAge(pin, s.now.Now())
 			decision.PinAgeSec = &age
-			decision.Evidence.StalePin = s.authoritativeUpgradeConfig.StalePinAfter > 0 && time.Since(pin.FirstPinnedAt) >= s.authoritativeUpgradeConfig.StalePinAfter
+			decision.Evidence.StalePin = s.authoritativeUpgradeConfig.StalePinAfter > 0 && s.now.Now().Sub(pin.FirstPinnedAt) >= s.authoritativeUpgradeConfig.StalePinAfter
 		}
 	}
 	if s.authoritativeUpgradeConfig.StalePinAfter > 0 {

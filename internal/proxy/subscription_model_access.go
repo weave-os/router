@@ -97,7 +97,7 @@ func (s *Service) recordSubscriptionModelRejection(ctx context.Context, provider
 	if creds == nil || !creds.OAuth || len(creds.APIKey) == 0 {
 		return
 	}
-	until := s.clockNow().Add(subscriptionModelDenialTTL)
+	until := s.now.Now().Add(subscriptionModelDenialTTL)
 	switch provider {
 	case providers.ProviderAnthropic:
 		if anthropicSubscriptionModelRejected(err) {
@@ -123,11 +123,11 @@ func (s *Service) resolveCredentials(ctx context.Context, provider, model string
 	creds := CredentialsFromContext(resolved)
 	if provider == providers.ProviderOpenAI && creds != nil && creds.OAuth && len(creds.AccountID) > 0 &&
 
-		s.subscriptionModels.deniedForProvider(creds.APIKey, provider, model, s.clockNow()) {
+		s.subscriptionModels.deniedForProvider(creds.APIKey, provider, model, s.now.Now()) {
 		return resolveAndInjectCredentials(withSuppressedCodexModel(resolved, model), provider, model, headers)
 	}
 	if provider != providers.ProviderAnthropic || creds == nil || !creds.OAuth ||
-		!s.subscriptionModels.denied(creds.APIKey, model, s.clockNow()) {
+		!s.subscriptionModels.denied(creds.APIKey, model, s.now.Now()) {
 		return resolved
 	}
 	previous, _ := ctx.Value(suppressClaudeModelContextKey{}).(map[string]struct{})

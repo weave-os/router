@@ -108,7 +108,7 @@ func (s *Service) runClassifierTurn(ctx context.Context, request router.Request,
 		turn.SessionKey = sessionKey
 	}
 	turn.AuthoritativePerTurn = true
-	request.PolicyTurnContext = buildPolicyTurnContext(request, turn, sessionpin.Pin{}, sessionpin.Pin{})
+	request.PolicyTurnContext = buildPolicyTurnContext(request, turn, sessionpin.Pin{}, sessionpin.Pin{}, s.now.Now())
 	decision, err := s.routeFor(ctx, request)
 	if err != nil {
 		return turn, err

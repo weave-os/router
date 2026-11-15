@@ -198,7 +198,7 @@ func (s *Service) recordCodexCredentialUnusable(ctx context.Context, creds *Cred
 		return
 	}
 	if codexOAuthCredentialRejected(err) {
-		s.usageObserver.RecordRejected(s.usageObserver.Key(creds.APIKey), time.Now().Add(codexRejectedTokenHold))
+		s.usageObserver.RecordRejected(s.usageObserver.Key(creds.APIKey), s.now.Now().Add(codexRejectedTokenHold))
 		observability.FromContext(ctx).Info("Codex subscription token rejected; skipping it on later turns", "hold", codexRejectedTokenHold)
 		return
 	}
@@ -214,7 +214,7 @@ func (s *Service) recordCodexPlanSpent(ctx context.Context, codexTok string, res
 		return
 	}
 	s.usageObserver.Record(s.usageObserver.Key([]byte(codexTok)), usage.Snapshot{
-		Primary: codexExhaustionWindow(resetAt, time.Now()),
+		Primary: codexExhaustionWindow(resetAt, s.now.Now()),
 	})
 	observability.FromContext(ctx).Info("Codex subscription reported its plan spent; suppressing it until reset",
 		"resets_at", resetAt)

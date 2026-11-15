@@ -11,6 +11,7 @@ import (
 
 	"github.com/tidwall/sjson"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
@@ -159,13 +160,9 @@ func committed(b *dispatch.PreludeBuffer) bool {
 // header/stream watchdogs and the caller own inference lifetime.
 const subscriptionRotationBudget = 10 * time.Second
 
-// clockNow reads the current time through the injectable clock, falling back
-// to time.Now when no fake is wired.
-func (s *Service) clockNow() time.Time {
-	if s.now != nil {
-		return s.now()
-	}
-	return time.Now()
+func (s *Service) WithClock(now auth.Clock) *Service {
+	s.now = now
+	return s
 }
 
 // shouldFailover reports failover eligibility. Customer-supplied

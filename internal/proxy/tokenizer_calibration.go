@@ -4,7 +4,6 @@ import (
 	"context"
 	"sort"
 	"strings"
-	"time"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -103,7 +102,7 @@ func (s *Service) recordTokenizerObservation(ctx context.Context, res turnLoopRe
 	if family == "" || prompt <= 0 {
 		return
 	}
-	cal := res.TokenizerCalibration.Observe(family, prompt, res.ContextEstimate, time.Now())
+	cal := res.TokenizerCalibration.Observe(family, prompt, res.ContextEstimate, s.now.Now())
 	// Detached from the request's cancellation like the usage writeback, but
 	// logged through the request-scoped logger so the line carries its IDs.
 	if err := store.UpdateTokenizerCalibration(context.WithoutCancel(ctx), res.SessionKey, role, strategyForTurnLoopResult(res), cal); err != nil {

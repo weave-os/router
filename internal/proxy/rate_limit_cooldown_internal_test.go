@@ -159,7 +159,7 @@ func TestRescued429_FlagOffKeepsPermanentDemotion(t *testing.T) {
 	ctx, turn := svc.withRateLimitTurn(context.Background())
 	assert.Nil(t, turn)
 	assert.Nil(t, turn.CompletionLogFields())
-	assert.Nil(t, dispatch.ThrottleLedgerFromContext(ctx).RetryDelay(svc.clockNow))
+	assert.Nil(t, dispatch.ThrottleLedgerFromContext(ctx).RetryDelay(svc.now.Now))
 
 	model, reason := strikeRescuedPrimary(svc, ctx, upstream429(""))
 
@@ -414,7 +414,7 @@ func TestThrottleRetryDelay_RecordsHonouredRetryAfter(t *testing.T) {
 	svc := newRateLimitTestService(&cooldownStubPinStore{}, true)
 	ctx, turn := svc.withRateLimitTurn(context.Background())
 	require.NotNil(t, turn)
-	retryDelay := dispatch.ThrottleLedgerFromContext(ctx).RetryDelay(svc.clockNow)
+	retryDelay := dispatch.ThrottleLedgerFromContext(ctx).RetryDelay(svc.now.Now)
 	require.NotNil(t, retryDelay)
 
 	delay, retry := retryDelay(dispatch.Attempt{}, upstream429("3"), 250*time.Millisecond)

@@ -110,9 +110,9 @@ func TestPinCacheCold_OrdinaryAndHMMShareTheSameRule(t *testing.T) {
 	cold := warm
 	cold.LastTurnEndedAt = time.Now().Add(-2 * time.Hour)
 
-	assert.False(t, pinCacheCold(warm, false), "a warm unmodified prefix remains cache-eligible")
-	assert.True(t, pinCacheCold(warm, true), "a prefix break makes a warm pin cold")
-	assert.True(t, pinCacheCold(cold, false), "an expired pin is cold without a prefix break")
+	assert.False(t, pinCacheCold(warm, false, time.Now()), "a warm unmodified prefix remains cache-eligible")
+	assert.True(t, pinCacheCold(warm, true, time.Now()), "a prefix break makes a warm pin cold")
+	assert.True(t, pinCacheCold(cold, false, time.Now()), "an expired pin is cold without a prefix break")
 }
 
 func TestConsumePostCommandContinuation_RequiresEffectiveStrategy(t *testing.T) {
@@ -139,7 +139,7 @@ func TestApplyPinEvidence_UsesAvailablePriorTurnData(t *testing.T) {
 	applyPinEvidence(&zeroTimestamp, sessionpin.Pin{
 		Provider: providers.ProviderAnthropic,
 		Model:    "claude-haiku-4-5",
-	})
+	}, time.Now())
 	assert.Equal(t, providers.ProviderAnthropic, zeroTimestamp.PinProvider)
 	assert.Nil(t, zeroTimestamp.PriorTurnGapMS)
 
@@ -149,7 +149,7 @@ func TestApplyPinEvidence_UsesAvailablePriorTurnData(t *testing.T) {
 		Model:           "accounts/fireworks/models/qwen3-235b-a22b",
 		PolicyGroup:     "high",
 		LastTurnEndedAt: time.Now().Add(-time.Second),
-	})
+	}, time.Now())
 	assert.Equal(t, providers.ProviderFireworks, withHistory.PinProvider)
 	assert.Equal(t, "high", withHistory.PinPolicyGroup)
 	require.NotNil(t, withHistory.PriorTurnGapMS)

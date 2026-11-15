@@ -32,7 +32,7 @@ func (s *Service) EscalationDashboard(ctx context.Context, filter escalationdash
 	if filter.Limit < 1 || filter.Limit > 200 {
 		return escalationdashboard.Snapshot{}, errors.New("invalid escalation dashboard page")
 	}
-	now := time.Now().UTC()
+	now := s.now.Now().UTC()
 	pageStart := int32(0)
 	var stored escalationdashboard.StoredSnapshot
 	var err error

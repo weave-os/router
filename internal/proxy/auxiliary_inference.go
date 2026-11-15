@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"time"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
@@ -98,7 +97,7 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 		RequestID:        auxRequestID,
 		SpanType:         SpanTypeAuxiliaryInference,
 		TraceID:          requestID,
-		Timestamp:        time.Now(),
+		Timestamp:        s.now.Now(),
 		DecisionModel:    usage.Model,
 		DecisionProvider: usage.Provider,
 		// The client never asked for this call, so there is no requested model
@@ -147,7 +146,7 @@ func (s *Service) recordEscalationJudgeInference(ctx context.Context, installati
 		RequestID:        requestID + "_escalation_judge_" + job.ID,
 		SpanType:         SpanTypePlatformAuxiliaryInference,
 		TraceID:          requestID,
-		Timestamp:        time.Now(),
+		Timestamp:        s.now.Now(),
 		DecisionModel:    job.Model,
 		DecisionProvider: job.Provider,
 		DecisionReason:   decisionReasonEscalationJudge,

@@ -15,6 +15,7 @@ import (
 // The coordinator outlives binding attempts; the buffer's provider commitment
 // remains the retry gate even after a notice becomes visible.
 type requestNoticeStream struct {
+	now        func() time.Time
 	delivery   *translate.NoticeDelivery
 	lastNotice translate.RouterNotice
 	modelShown bool
@@ -27,7 +28,7 @@ func (s *requestNoticeStream) prepare(ctx context.Context, sink http.ResponseWri
 	}
 	if trace := attemptTraceFromContext(ctx); trace != nil && streaming {
 		s.delivery.SetBeforeProviderContent(func() (translate.RouterNotice, bool) {
-			return slowStartNotice(ctx, trace, slowStarts, time.Now())
+			return slowStartNotice(ctx, trace, slowStarts, s.now())
 		})
 	}
 	retainNotices := prelude == nil || prelude.PreludeSent()

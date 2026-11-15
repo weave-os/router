@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"time"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -390,7 +389,7 @@ func (s *Service) preserveForceModelControlHistory(
 	}
 	return s.pinStore.UpdateUsage(context.WithoutCancel(ctx), sessionKey, forceModelSessionRole, sessionpin.Usage{
 		Strategy:            existing.Strategy,
-		EndedAt:             time.Now(),
+		EndedAt:             s.now.Now(),
 		ServedModel:         existing.Model,
 		ServedProvider:      existing.Provider,
 		PriorServedModel:    existing.LastServedModel,
@@ -443,7 +442,7 @@ func (s *Service) loadForceModelSessionPin(
 	if found && pin.Reason == userUnforcedReason {
 		return pin, false, true
 	}
-	if !found || !pin.PinnedUntil.After(time.Now()) || !isUserForcedReason(pin.Reason) || pin.Model == "" || pin.Provider == "" {
+	if !found || !pin.PinnedUntil.After(s.now.Now()) || !isUserForcedReason(pin.Reason) || pin.Model == "" || pin.Provider == "" {
 		return sessionpin.Pin{}, false, false
 	}
 	if pin.ForcedThreadKey != "" && (isSubagent || pin.ForcedThreadKey != sessionKeyHex(threadSessionKey)) {
@@ -467,7 +466,7 @@ func (s *Service) loadForceModelHistory(
 		observability.FromContext(ctx).Error("force-model history lookup failed", "err", err)
 		return sessionpin.Pin{}
 	}
-	if !found || !pin.PinnedUntil.After(time.Now()) {
+	if !found || !pin.PinnedUntil.After(s.now.Now()) {
 		return sessionpin.Pin{}
 	}
 	return pin

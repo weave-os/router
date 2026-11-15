@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"time"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
@@ -78,10 +77,10 @@ func (s *Service) firePolicyShadowDecision(ctx context.Context, servingStrategy 
 		"shadow_strategy", shadowStrategy,
 	)
 	observability.SafeGoContext(withoutRequestValues(ctx), log, policyShadowDecisionTimeout, "policyShadowDecision", func(shadowCtx context.Context) {
-		started := time.Now()
+		started := s.now.Now()
 		shadow, err := s.routeWithStrategy(shadowCtx, shadowStrategy, shadowReq)
 		event := base
-		event.ShadowLatencyMs = time.Since(started).Milliseconds()
+		event.ShadowLatencyMs = s.now.Now().Sub(started).Milliseconds()
 		if err != nil {
 			event.ShadowError = truncatePolicyShadowError(err.Error())
 		} else {

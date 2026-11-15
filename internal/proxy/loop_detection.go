@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/binary"
 	"strings"
-	"time"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -269,7 +268,7 @@ func (s *Service) handleLoopEscalation(
 			Reason:          translate.ReasonLoopEscalation,
 			Strategy:        router.StrategyFromContext(ctx),
 			TurnCount:       1,
-			PinnedUntil:     time.Now().Add(pinSessionTTL),
+			PinnedUntil:     s.now.Now().Add(pinSessionTTL),
 			LastServedModel: lastServed,
 		}
 		// context.WithoutCancel: the request ctx may already be canceled by the

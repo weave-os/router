@@ -178,7 +178,7 @@ func (s *Service) recordAgreementShadowCommandBoundary(ctx context.Context, inst
 	}
 	boundaryCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 	defer cancel()
-	startedAt := time.Now()
+	startedAt := s.now.Now()
 	log := observability.FromContext(ctx).With("command_outcome_id", commandID)
 	for _, role := range forceModelClearRoles() {
 		p := InsertTelemetryParams{InstallationID: installationID.String(), RequestID: commandID, Timestamp: startedAt,

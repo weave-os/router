@@ -256,15 +256,12 @@ func (s *goldenPinStore) Get(_ context.Context, key [sessionpin.SessionKeyLen]by
 	s.rec.mu.Lock()
 	defer s.rec.mu.Unlock()
 	p, ok := s.pins[pinKey(key, role)]
-	if !ok || !p.PinnedUntil.After(s.clock.Now()) {
-		return sessionpin.Pin{}, false, nil
-	}
-	return p, true, nil
+	return p, ok, nil
 }
 
 func (s *goldenPinStore) Consume(ctx context.Context, key [sessionpin.SessionKeyLen]byte, role string, strategy router.Strategy) (sessionpin.Pin, bool, error) {
 	p, ok, err := s.Get(ctx, key, role)
-	if !ok || err != nil || p.Strategy != strategy {
+	if !ok || err != nil || p.Strategy != strategy || !p.PinnedUntil.After(s.clock.Now()) {
 		return sessionpin.Pin{}, false, err
 	}
 	s.rec.mu.Lock()

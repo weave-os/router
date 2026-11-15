@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"time"
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -358,7 +357,7 @@ func (s *Service) applyTranslationPlan(ctx context.Context, req router.Request) 
 		}
 		telemetry.RecordLog(ctx, telemetry.LogRecord{
 			Name: "translation.compatibility",
-			Time: time.Now(),
+			Time: s.now.Now(),
 			Attrs: telemetry.NewAttrBuilder(7).
 				String("translation.requirement", exclusion.Code).
 				String("translation.source_format", string(req.TranslationRequirements.SourceFormat)).

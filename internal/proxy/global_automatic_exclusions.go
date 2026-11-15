@@ -41,9 +41,9 @@ func newGlobalAutomaticExclusionCache(store GlobalAutomaticExclusionStore) *glob
 // snapshot returns the current disabled-model set keyed by model, with the
 // operator's reason as the value. A cold cache whose first read fails returns
 // nil (fail open) rather than disabling routing on a control-plane outage.
-func (c *globalAutomaticExclusionCache) snapshot(ctx context.Context) map[string]string {
+func (c *globalAutomaticExclusionCache) snapshot(ctx context.Context, now func() time.Time) map[string]string {
 	c.mu.Lock()
-	if c.loaded && time.Since(c.refreshedAt) < globalAutomaticExclusionTTL {
+	if c.loaded && now().Sub(c.refreshedAt) < globalAutomaticExclusionTTL {
 		byModel := c.byModel
 		c.mu.Unlock()
 		return byModel
@@ -70,7 +70,7 @@ func (c *globalAutomaticExclusionCache) snapshot(ctx context.Context) map[string
 		return stale
 	}
 	c.byModel = byModel
-	c.refreshedAt = time.Now()
+	c.refreshedAt = now()
 	c.loaded = true
 	c.mu.Unlock()
 	return byModel
@@ -109,7 +109,7 @@ func (s *Service) controlPlaneExcludedModels(ctx context.Context) map[string]str
 	if s.globalAutomaticExclusions == nil {
 		return nil
 	}
-	byModel := s.globalAutomaticExclusions.snapshot(ctx)
+	byModel := s.globalAutomaticExclusions.snapshot(ctx, s.now.Now)
 	if len(byModel) == 0 {
 		return nil
 	}
@@ -124,7 +124,7 @@ func (s *Service) controlPlaneExcludedModels(ctx context.Context) map[string]str
 // model, so a dropped automatic pin says why in the logs.
 func (s *Service) globalAutomaticExclusionReason(ctx context.Context, model string) (string, bool) {
 	if s.globalAutomaticExclusions != nil {
-		if reason, disabled := s.globalAutomaticExclusions.snapshot(ctx)[model]; disabled {
+		if reason, disabled := s.globalAutomaticExclusions.snapshot(ctx, s.now.Now)[model]; disabled {
 			return reason, true
 		}
 	}

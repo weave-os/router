@@ -135,7 +135,7 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 	if managedSubscriptionEnrollmentUnavailable(ctx) {
 		return fmt.Errorf("%w: subscription enrollment could not be verified", ErrSubscriptionPoolUnavailable)
 	}
-	now := s.clockNow()
+	now := s.now.Now()
 	if subscriptionProviderUnavailable(ctx, pool, now) {
 		return nil
 	}
@@ -232,7 +232,7 @@ func (s *Service) markSubscriptionPoolUnavailable(ctx context.Context, pool subs
 	if state.UnavailableProviders == nil {
 		state.UnavailableProviders = make(map[subscriptions.Provider]time.Time)
 	}
-	state.UnavailableProviders[pool] = s.clockNow().Add(subscriptionUnavailableCooldown)
+	state.UnavailableProviders[pool] = s.now.Now().Add(subscriptionUnavailableCooldown)
 	observability.FromContext(ctx).Warn("Subscription inference failed on provider capacity; paid rescue eligible subject to funding authorization")
 }
 
@@ -278,7 +278,7 @@ func upstreamServerFailure(err error) bool {
 // provider/model carries a live "cannot serve this turn" mark.
 func (s *Service) subscriptionPoolUnavailable(ctx context.Context, provider, model string) bool {
 	pool, compatible := managedSubscriptionProviderFromUpstream(provider, model)
-	return compatible && subscriptionProviderUnavailable(ctx, pool, s.clockNow())
+	return compatible && subscriptionProviderUnavailable(ctx, pool, s.now.Now())
 }
 
 func subscriptionProviderUnavailable(ctx context.Context, pool subscriptions.Provider, now time.Time) bool {
@@ -293,7 +293,7 @@ func (s *Service) linkedSeatCanCover(ctx context.Context, provider, model string
 		return false
 	}
 	pool, _ := managedSubscriptionProviderFromUpstream(provider, model)
-	now := s.clockNow()
+	now := s.now.Now()
 	if subscriptionProviderUnavailable(ctx, pool, now) {
 		return false
 	}

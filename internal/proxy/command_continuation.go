@@ -53,7 +53,7 @@ func (s *Service) grantPostCommandContinuation(
 	pin.TurnCount = 1
 	// A slash command can arrive just before the active pin expires. Renew the
 	// one-shot independently so its immediate follow-up remains eligible.
-	pin.PinnedUntil = pinExpiry(pin.Reason)
+	pin.PinnedUntil = pinExpiry(pin.Reason, s.now.Now())
 	s.upsertPin(ctx, pin)
 	observability.FromContext(ctx).Info("stored one-shot post-command continuation", "model", pin.Model, "provider", pin.Provider, "role", role)
 }

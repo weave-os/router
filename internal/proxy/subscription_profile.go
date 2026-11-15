@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/subscriptions"
@@ -15,7 +16,7 @@ type claudeSubscriptionPlanKey struct{}
 func (s *Service) WithClaudeSubscriptionPlanReader(reader providers.SubscriptionPlanReader) *Service {
 	s.claudePlans = nil
 	if reader != nil {
-		s.claudePlans = subscriptions.NewPlanResolver(reader, s.clockNow)
+		s.claudePlans = subscriptions.NewPlanResolver(reader, func() time.Time { return s.now.Now() })
 	}
 	return s
 }

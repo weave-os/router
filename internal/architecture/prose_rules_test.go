@@ -40,7 +40,7 @@ var ioFreePackagePatterns = []string{
 
 var injectedClockPackagePatterns = []string{
 	"./internal/auth/...",
-	"./internal/proxy/usage/...",
+	"./internal/proxy/...",
 	"./internal/router/planner/...",
 }
 
@@ -69,7 +69,12 @@ func TestProviderAdaptersBuildClientsWithHTTPUtil(t *testing.T) {
 
 func TestInjectedClockPackagesDoNotReadWallClock(t *testing.T) {
 	findings := wallClockCalls(t, repositoryRoot(t), injectedClockPackagePatterns...)
-	assert.Empty(t, findings, "these packages take their clock as a dependency: call the injected clock (auth.Clock, the usage Observer's now func) instead of time.Now/Since/Until; the planner has no clock and receives cache warmth as Inputs.PinCacheCold")
+	assert.Empty(t, findings, "these packages take their clock as a dependency: call the injected clock (auth.Clock: the clock proxy.Service.WithClock wires from cmd/router, the usage Observer's now func) instead of time.Now/Since/Until, latency included; the planner has no clock and receives cache warmth as Inputs.PinCacheCold")
+}
+
+func TestProxyGoldenTestsDoNotReadWallClock(t *testing.T) {
+	findings := goldenTestWallClockCalls(t, repositoryRoot(t), "./internal/proxy")
+	assert.Empty(t, findings, "golden tests run on the harness's fake clock: wire h.clock.Now (proxy.Service.WithClock, usage.NewObserver) and derive instants from goldenEpoch instead of time.Now/Since/Until")
 }
 
 func TestSafeGoPackagesHaveNoRawGoroutines(t *testing.T) {
@@ -94,6 +99,10 @@ func TestProseRuleChecksRejectNegativeFixtures(t *testing.T) {
 		"internal/architecture/testdata/wall_clock/fixture.go: time.Now()",
 		"internal/architecture/testdata/wall_clock/fixture.go: time.Since()",
 	}, wallClockCalls(t, root, "./internal/architecture/testdata/wall_clock"))
+	assert.Equal(t, []string{
+		"internal/architecture/testdata/wall_clock_golden/golden_fixture_test.go: time.Now()",
+		"internal/architecture/testdata/wall_clock_golden/golden_fixture_test.go: time.Until()",
+	}, goldenTestWallClockCalls(t, root, "./internal/architecture/testdata/wall_clock_golden"))
 	assert.Equal(t, []string{
 		"internal/architecture/testdata/raw_goroutine/fixture.go:4: go statement",
 		"internal/architecture/testdata/raw_goroutine/fixture.go:5: go statement",
@@ -208,7 +217,24 @@ func rawProviderClients(t *testing.T, root string, patterns ...string) []string 
 func wallClockCalls(t *testing.T, root string, patterns ...string) []string {
 	t.Helper()
 	var findings []string
-	inspectNonTestFiles(t, root, patterns, func(info *types.Info, _ func(token.Pos) int, relative string, node ast.Node) {
+	inspectNonTestFiles(t, root, patterns, recordWallClockCalls(&findings))
+	return sortedUnique(findings)
+}
+
+func goldenTestWallClockCalls(t *testing.T, root string, patterns ...string) []string {
+	t.Helper()
+	var findings []string
+	inspectFiles(t, root, patterns, true, isGoldenTestFile, recordWallClockCalls(&findings))
+	return sortedUnique(findings)
+}
+
+func isGoldenTestFile(relative string) bool {
+	name := filepath.Base(relative)
+	return strings.HasPrefix(name, "golden") && strings.HasSuffix(name, "_test.go")
+}
+
+func recordWallClockCalls(findings *[]string) func(*types.Info, func(token.Pos) int, string, ast.Node) {
+	return func(info *types.Info, _ func(token.Pos) int, relative string, node ast.Node) {
 		call, ok := node.(*ast.CallExpr)
 		if !ok {
 			return
@@ -223,10 +249,9 @@ func wallClockCalls(t *testing.T, root string, patterns ...string) []string {
 		}
 		switch object.Name() {
 		case "Now", "Since", "Until":
-			findings = append(findings, fmt.Sprintf("%s: time.%s()", relative, object.Name()))
+			*findings = append(*findings, fmt.Sprintf("%s: time.%s()", relative, object.Name()))
 		}
-	})
-	return sortedUnique(findings)
+	}
 }
 
 func rawGoStatements(t *testing.T, root string, patterns ...string) []string {
@@ -242,9 +267,15 @@ func rawGoStatements(t *testing.T, root string, patterns ...string) []string {
 
 func inspectNonTestFiles(t *testing.T, root string, patterns []string, visit func(info *types.Info, position func(token.Pos) int, relative string, node ast.Node)) {
 	t.Helper()
+	inspectFiles(t, root, patterns, false, func(string) bool { return true }, visit)
+}
+
+func inspectFiles(t *testing.T, root string, patterns []string, tests bool, include func(relative string) bool, visit func(info *types.Info, position func(token.Pos) int, relative string, node ast.Node)) {
+	t.Helper()
 	configuration := &packages.Config{
-		Dir:  root,
-		Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo,
+		Dir:   root,
+		Mode:  packages.NeedName | packages.NeedFiles | packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo,
+		Tests: tests,
 	}
 	loaded, err := packages.Load(configuration, patterns...)
 	require.NoError(t, err)
@@ -254,6 +285,9 @@ func inspectNonTestFiles(t *testing.T, root string, patterns []string, visit fun
 		for _, file := range loadedPackage.Syntax {
 			relative, err := filepath.Rel(root, loadedPackage.Fset.Position(file.Package).Filename)
 			require.NoError(t, err)
+			if !include(filepath.ToSlash(relative)) {
+				continue
+			}
 			ast.Inspect(file, func(node ast.Node) bool {
 				if node != nil {
 					visit(loadedPackage.TypesInfo, func(pos token.Pos) int { return loadedPackage.Fset.Position(pos).Line }, filepath.ToSlash(relative), node)

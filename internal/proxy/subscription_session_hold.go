@@ -45,7 +45,7 @@ func (s *Service) holdSessionOffSubscriptionPool(ctx context.Context, provider, 
 	if owner == "" || !compatible || !s.subscriptionPoolUnavailable(ctx, provider, model) {
 		return
 	}
-	s.sessionHolds.cache().Add(owner+"\x00"+string(pool), s.clockNow().Add(subscriptionSessionHold))
+	s.sessionHolds.cache().Add(owner+"\x00"+string(pool), s.now.Now().Add(subscriptionSessionHold))
 	observability.FromContext(ctx).Info("Session held off subscription pool after capacity failure", "pool", pool, "hold", subscriptionSessionHold)
 }
 
@@ -56,7 +56,7 @@ func (s *Service) withoutHeldSubscriptionModels(ctx context.Context, models []st
 	if owner == "" {
 		return models
 	}
-	now := s.clockNow()
+	now := s.now.Now()
 	held := func(pool subscriptions.Provider) bool {
 		until, ok := s.sessionHolds.cache().Get(owner + "\x00" + string(pool))
 		return ok && now.Before(until)
