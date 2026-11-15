@@ -9,6 +9,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -110,11 +111,12 @@ func healthcheck(listen string) int {
 	if addr == "" || addr[0] == ':' {
 		addr = "localhost" + addr
 	}
-	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+	dialer := net.Dialer{Timeout: 2 * time.Second}
+	conn, err := dialer.DialContext(context.Background(), "tcp", addr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "mitmproxy: healthcheck dial %s: %v\n", addr, err)
 		return 1
 	}
-	conn.Close()
+	_ = conn.Close()
 	return 0
 }

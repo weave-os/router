@@ -60,17 +60,21 @@ type goldenRequest struct {
 	decorateContext func(context.Context) context.Context
 	// noTelemetry marks requests refused before a request row is emitted.
 	noTelemetry bool
-	headers     map[string]string
+	// path overrides the ingress's default request path; headers are sent as-is.
+	path string
+	// bodyFrom builds the body from the previous raw response when set.
+	bodyFrom func(previous []byte) string
+	headers  map[string]string
 }
 
 type goldenRecorder struct {
 	mu                sync.Mutex
 	calls             map[string]int
-	steps             map[string][]goldenStep
 	routes            []goldenRouteCall
 	attempts          []goldenAttempt
 	inferenceAttempts []any
 	pinEvents         []goldenPinEvent
+	storeEvents       []goldenPinEvent
 	debits            []any
 	telemetry         []any
 	cancel            context.CancelFunc
@@ -80,13 +84,13 @@ type goldenRecorder struct {
 
 // goldenRecordLengths marks where one request's records start.
 type goldenRecordLengths struct {
-	routes, attempts, inferenceAttempts, pinEvents, debits, telemetry int
+	routes, attempts, inferenceAttempts, pinEvents, storeEvents, debits, telemetry int
 }
 
 func (r *goldenRecorder) lengths() goldenRecordLengths {
 	return goldenRecordLengths{
 		routes: len(r.routes), attempts: len(r.attempts), inferenceAttempts: len(r.inferenceAttempts),
-		pinEvents: len(r.pinEvents), debits: len(r.debits), telemetry: len(r.telemetry),
+		pinEvents: len(r.pinEvents), storeEvents: len(r.storeEvents), debits: len(r.debits), telemetry: len(r.telemetry),
 	}
 }
 
@@ -115,11 +119,12 @@ func (r *goldenRecorder) cancelClient() {
 }
 
 type goldenHarness struct {
-	clock     *goldenClock
-	rec       *goldenRecorder
-	telemetry *goldenTelemetry
-	pins      *goldenPinStore
-	svc       *proxy.Service
+	clock            *goldenClock
+	rec              *goldenRecorder
+	telemetry        *goldenTelemetry
+	pins             *goldenPinStore
+	svc              *proxy.Service
+	lastResponseBody []byte
 }
 
 // newGoldenHarness wires a real Service the way cmd/router/main.go does, with
@@ -171,6 +176,8 @@ type goldenResponse struct {
 	Headers map[string]string `json:"headers,omitempty"`
 	Body    any               `json:"body,omitempty"`
 	Events  []goldenSSEEvent  `json:"events,omitempty"`
+	// Set when a keepalive ping reaches the client. Presence only: ping timing is wall-clock, so no count is kept.
+	Keepalive bool `json:"keepalive,omitempty"`
 }
 
 type goldenSSEEvent struct {
@@ -187,6 +194,7 @@ type goldenRequestTrace struct {
 	Response          goldenResponse       `json:"response"`
 	DispatchError     *goldenDispatchError `json:"dispatch_error,omitempty"`
 	PinEvents         []goldenPinEvent     `json:"pin_events,omitempty"`
+	StoreEvents       []goldenPinEvent     `json:"store_events,omitempty"`
 	Billing           []any                `json:"billing,omitempty"`
 	Telemetry         []any                `json:"telemetry,omitempty"`
 }
@@ -211,22 +219,18 @@ func (h *goldenHarness) serve(t *testing.T, ingress string, req goldenRequest) g
 	before := h.rec.lengths()
 	h.rec.mu.Unlock()
 
-	path := "/v1/messages"
-	if ingress == ingressOpenAI {
-		path = "/v1/chat/completions"
+	surface := goldenIngressSurfaces[ingress]
+	path := surface.path
+	if req.path != "" {
+		path = req.path
 	}
-	httpReq := httptest.NewRequest(http.MethodPost, path, strings.NewReader(req.body)).WithContext(ctx)
+	httpReq := httptest.NewRequestWithContext(ctx, http.MethodPost, path, strings.NewReader(req.body))
 	httpReq.Header.Set("Content-Type", "application/json")
 	for k, v := range req.headers {
 		httpReq.Header.Set(k, v)
 	}
 	rec := httptest.NewRecorder()
-	var err error
-	if ingress == ingressOpenAI {
-		err = h.svc.ProxyOpenAIChatCompletion(ctx, []byte(req.body), rec, httpReq)
-	} else {
-		err = h.svc.ProxyMessages(ctx, []byte(req.body), rec, httpReq)
-	}
+	err := surface.serve(h.svc, ctx, []byte(req.body), rec, httpReq)
 	if !req.noTelemetry {
 		h.awaitTelemetry(t, before.telemetry)
 	}
@@ -235,6 +239,8 @@ func (h *goldenHarness) serve(t *testing.T, ingress string, req goldenRequest) g
 		Stream bool `json:"stream"`
 	}
 	_ = json.Unmarshal([]byte(req.body), &parsed)
+	parsed.Stream = parsed.Stream || strings.HasSuffix(path, ":streamGenerateContent")
+	h.lastResponseBody = rec.Body.Bytes()
 	h.rec.mu.Lock()
 	defer h.rec.mu.Unlock()
 	trace := goldenRequestTrace{
@@ -245,6 +251,7 @@ func (h *goldenHarness) serve(t *testing.T, ingress string, req goldenRequest) g
 		InferenceAttempts: h.rec.inferenceAttempts[before.inferenceAttempts:],
 		Response:          goldenClientResponse(rec),
 		PinEvents:         h.rec.pinEvents[before.pinEvents:],
+		StoreEvents:       h.rec.storeEvents[before.storeEvents:],
 		Billing:           h.rec.debits[before.debits:],
 		Telemetry:         h.rec.telemetry[before.telemetry:],
 	}
@@ -327,6 +334,11 @@ func goldenClientResponse(rec *httptest.ResponseRecorder) goldenResponse {
 			if len(eventType) == 0 && len(data) == 0 {
 				continue
 			}
+			// Keepalive pings fire on wall-clock time; pin presence, not count or position.
+			if string(eventType) == "ping" && string(data) == `{"type":"ping"}` {
+				out.Keepalive = true
+				continue
+			}
 			out.Events = append(out.Events, goldenSSEEvent{Event: string(eventType), Data: goldenWireJSON(data)})
 		}
 		return out
@@ -389,10 +401,26 @@ var goldenUUID = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4
 var goldenVolatileKey = regexp.MustCompile(`(?i)(_at|_ms|latency|timestamp)$`)
 
 // goldenMintedID matches response ids the router mints per request.
+var goldenJWT = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+`)
+
 var goldenMintedID = regexp.MustCompile(`\bchatcmpl-[0-9a-f]{16}\b`)
 
+// goldenMintedItemID matches Responses/Gemini item ids minted from an unpadded
+// counter and clock fragment, so they can be as short as two characters.
+// goldenFixtureItemID is the scripted upstream id, which passes through as-is.
+var goldenMintedItemID = regexp.MustCompile(`\b(resp|msg|fc|ctc|rs)_[0-9a-z]{2,}\b`)
+
+const goldenFixtureItemID = "msg_up"
+
 func scrubGoldenString(s string) string {
+	s = goldenJWT.ReplaceAllString(s, "<jwt>")
 	s = goldenMintedID.ReplaceAllString(s, "chatcmpl-<id>")
+	s = goldenMintedItemID.ReplaceAllStringFunc(s, func(id string) string {
+		if id == goldenFixtureItemID {
+			return id
+		}
+		return id[:strings.IndexByte(id, '_')] + "_<id>"
+	})
 	return goldenUUID.ReplaceAllStringFunc(s, func(id string) string {
 		if id == goldenInstallationID {
 			return id
@@ -416,14 +444,14 @@ func goldenReflect(v reflect.Value) (any, bool) {
 	if !v.IsValid() {
 		return nil, false
 	}
-	switch v.Interface().(type) {
+	switch value := v.Interface().(type) {
 	case time.Time, time.Duration:
 		return nil, false
 	case error:
 		if v.Kind() == reflect.Pointer && v.IsNil() {
 			return nil, false
 		}
-		return v.Interface().(error).Error(), true
+		return value.Error(), true
 	}
 	switch v.Kind() {
 	case reflect.Pointer, reflect.Interface:
@@ -487,9 +515,13 @@ func goldenReflect(v reflect.Value) (any, bool) {
 }
 
 func runGoldenScenario(t *testing.T, sc goldenScenario) {
+	t.Helper()
 	h := newGoldenHarness(t, sc)
 	traces := make([]goldenRequestTrace, 0, len(sc.requests))
 	for _, req := range sc.requests {
+		if req.bodyFrom != nil {
+			req.body = req.bodyFrom(h.lastResponseBody)
+		}
 		traces = append(traces, h.serve(t, sc.ingress, req))
 	}
 	got, err := json.MarshalIndent(map[string]any{"scenario": sc.name, "requests": traces}, "", "  ")
@@ -501,8 +533,8 @@ func runGoldenScenario(t *testing.T, sc goldenScenario) {
 
 	path := filepath.Join("testdata", "golden", sc.name+".json")
 	if *updateGolden {
-		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
-		require.NoError(t, os.WriteFile(path, got, 0o644))
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+		require.NoError(t, os.WriteFile(path, got, 0o600))
 		return
 	}
 	want, err := os.ReadFile(path)
@@ -514,7 +546,10 @@ func TestGolden(t *testing.T) {
 	t.Parallel()
 	names := map[string]bool{}
 	scenarios := append(goldenInferenceScenarios(), goldenInferenceExecutionScenarios()...)
-	for _, sc := range append(scenarios, goldenCredentialScenarios()...) {
+	scenarios = append(scenarios, goldenCredentialScenarios()...)
+	scenarios = append(scenarios, goldenRoutingPolicyScenarios()...)
+	scenarios = append(scenarios, goldenConversationScenarios()...)
+	for _, sc := range append(scenarios, goldenIngressScenarios()...) {
 		require.False(t, names[sc.name], "duplicate golden scenario %s", sc.name)
 		names[sc.name] = true
 		t.Run(sc.name, func(t *testing.T) {

@@ -52,7 +52,7 @@ func check(ctx context.Context, dsn string) (checkErr error) {
 	scope := sha256.Sum256([]byte(uuid.NewString()))
 	cleanup := postgres.NewEscalationCheckFixture(pool, *installation, scope)
 	defer func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		checkErr = errors.Join(checkErr, cleanup.Cleanup(cleanupCtx))
 	}()
@@ -91,13 +91,13 @@ func check(ctx context.Context, dsn string) (checkErr error) {
 	if session.CompletedTurns != 1 {
 		return fmt.Errorf("duplicates counted %d completed turns", session.CompletedTurns)
 	}
-	finish := func(label string, capacity bool) (llmescalation.Completion, error) {
-		return store.Complete(ctx, llmescalation.CompleteRequest{Session: session, Boundary: sha256.Sum256([]byte(label)), RequestID: label, Capacity: capacity})
+	finish := func(label string) (llmescalation.Completion, error) {
+		return store.Complete(ctx, llmescalation.CompleteRequest{Session: session, Boundary: sha256.Sum256([]byte(label)), RequestID: label, Capacity: true})
 	}
-	if completion, err := finish("second", true); err != nil || completion.Job != nil {
+	if completion, err := finish("second"); err != nil || completion.Job != nil {
 		return fmt.Errorf("unexpected second-turn checkpoint: %w", err)
 	}
-	checkpoint, err := finish("third", true)
+	checkpoint, err := finish("third")
 	if err != nil {
 		return err
 	}
@@ -138,11 +138,11 @@ func check(ctx context.Context, dsn string) (checkErr error) {
 		return errors.New("old instruction judgment not marked stale")
 	}
 	for _, label := range []string{"fourth", "fifth"} {
-		if _, err := finish(label, true); err != nil {
+		if _, err := finish(label); err != nil {
 			return err
 		}
 	}
-	checkpoint, err = finish("sixth", true)
+	checkpoint, err = finish("sixth")
 	if err != nil {
 		return err
 	}
@@ -164,11 +164,11 @@ func check(ctx context.Context, dsn string) (checkErr error) {
 		return errors.New("expired judge lease became pending")
 	}
 	for _, label := range []string{"seventh", "eighth"} {
-		if _, err := finish(label, true); err != nil {
+		if _, err := finish(label); err != nil {
 			return err
 		}
 	}
-	checkpoint, err = finish("ninth", true)
+	checkpoint, err = finish("ninth")
 	if err != nil {
 		return err
 	}
@@ -216,7 +216,7 @@ func check(ctx context.Context, dsn string) (checkErr error) {
 	}
 	dashboard := storedDashboard.Snapshot
 	if dashboard.Summary.ObservedSessions != 1 || dashboard.Summary.Evaluations != 1 || dashboard.Summary.Recommendations != 1 || dashboard.Summary.EscalationsApplied != 1 || dashboard.Summary.InvalidEvaluations < 2 {
-		return fmt.Errorf("Switchyard dashboard metrics did not reconcile: %+v", dashboard.Summary)
+		return fmt.Errorf("switchyard dashboard metrics did not reconcile: %+v", dashboard.Summary)
 	}
 	if dashboard.MatchingSessions != 0 || len(dashboard.Sessions) != 0 {
 		return errors.New("session outcome filter changed dashboard cohort or returned a mismatched row")
@@ -260,11 +260,11 @@ func check(ctx context.Context, dsn string) (checkErr error) {
 		return fmt.Errorf("expired continuation survived: %w", err)
 	}
 	for _, label := range []string{"new-first", "new-second"} {
-		if _, err := finish(label, true); err != nil {
+		if _, err := finish(label); err != nil {
 			return err
 		}
 	}
-	checkpoint, err = finish("new-third", true)
+	checkpoint, err = finish("new-third")
 	if err != nil {
 		return err
 	}
@@ -273,11 +273,11 @@ func check(ctx context.Context, dsn string) (checkErr error) {
 	}
 	job = *checkpoint.Job
 	for _, label := range []string{"new-fourth", "new-fifth"} {
-		if _, err := finish(label, true); err != nil {
+		if _, err := finish(label); err != nil {
 			return err
 		}
 	}
-	checkpoint, err = finish("new-sixth", true)
+	checkpoint, err = finish("new-sixth")
 	if err != nil {
 		return err
 	}

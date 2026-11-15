@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -64,16 +63,14 @@ func (row sessionStrategyEnabledRow) Scan(dest ...any) error {
 	if row.err != nil {
 		return row.err
 	}
-	*dest[0].(*bool) = row.enabled
-	return nil
+	return scanInto(dest[0], row.enabled)
 }
 
 func (row sessionStrategyRow) Scan(dest ...any) error {
 	if row.err != nil {
 		return row.err
 	}
-	*dest[0].(*string) = row.strategy
-	return nil
+	return scanInto(dest[0], row.strategy)
 }
 
 func TestSessionStrategyRepoGet(t *testing.T) {
@@ -136,7 +133,7 @@ func TestSessionStrategyRepoToggleAcceptsBetaClassifiers(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.True(t, enabled)
-	assert.True(t, strings.Contains(db.rowQuery, "ON CONFLICT (installation_id, session_key)"))
+	assert.Contains(t, db.rowQuery, "ON CONFLICT (installation_id, session_key)")
 	assert.Contains(t, db.rowQuery, "THEN NOT router.session_strategy_preferences.enabled ELSE TRUE END")
 	assert.Contains(t, db.rowQuery, "RETURNING enabled")
 	assert.Equal(t, []any{installationID, key[:], string(router.StrategyHMMBeta)}, db.rowArgs)

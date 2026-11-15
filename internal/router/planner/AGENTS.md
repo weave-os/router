@@ -10,7 +10,7 @@ Prism-style cache-aware EV policy. Decides STAY (preserve pinned model's upstrea
 Decide(pin, fresh router.Decision, estimated tokens, available models) → STAY | SWITCH
 ```
 
-- **Pure function.** No DB lookups, no provider calls. No clock — the proxy computes cache warmth (it owns the clock) and passes it in as `Inputs.PinCacheCold`.
+- **Pure function.** No DB lookups, no provider calls. No clock (`TestInjectedClockPackagesDoNotReadWallClock`); the proxy passes cache warmth as `Inputs.PinCacheCold`.
 - Inputs are values: pin row, fresh decision, estimated token count, available-model set resolved at boot, and a cache-cold flag.
 
 ## Math, briefly

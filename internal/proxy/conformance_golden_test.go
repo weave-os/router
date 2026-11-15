@@ -47,8 +47,8 @@ func golden(t *testing.T, name string, got []byte) {
 	t.Helper()
 	path := goldenPath(name)
 	if *updateGolden {
-		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
-		require.NoError(t, os.WriteFile(path, got, 0o644))
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+		require.NoError(t, os.WriteFile(path, got, 0o600))
 		return
 	}
 	want, err := os.ReadFile(path)

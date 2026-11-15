@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,7 @@ import (
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
@@ -39,7 +41,7 @@ func TestDispatchPlanned_TranslatedRejectionIsRouterOwned(t *testing.T) {
 	ctx := withAttemptTrace(context.Background(), inbound, http.Header{})
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderGoogle}, {Provider: providers.ProviderOpenRouter}}, translated)
+	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderGoogle}, {Provider: providers.ProviderOpenRouter}}, translated)
 	in.deferFlushOnExhaustion = true
 	_, err := s.dispatchWithFallback(ctx, in)
 	require.Error(t, err)
@@ -66,7 +68,7 @@ func TestDispatchPlanned_UntranslatedRejectionIsProviderOwned(t *testing.T) {
 	ctx := withAttemptTrace(context.Background(), body, http.Header{})
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}, {Provider: providers.ProviderOpenRouter}}, body)
+	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}, {Provider: providers.ProviderOpenRouter}}, body)
 	in.deferFlushOnExhaustion = true
 	_, err := s.dispatchWithFallback(ctx, in)
 	require.Error(t, err)
@@ -88,7 +90,7 @@ func TestDispatchPlanned_FailoverRecordsOwnerPerAttemptAndBadgeDetail(t *testing
 	ctx := withAttemptTrace(context.Background(), []byte(`{"model":"claude","messages":[]}`), http.Header{})
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	_, err := s.dispatchWithFallback(ctx, plannedInputs(rec, buf,
+	_, err := s.dispatchWithFallback(ctx, plannedInputs(t.Context(), rec, buf,
 		[]catalog.ProviderBinding{{Provider: providers.ProviderFireworks}, {Provider: providers.ProviderOpenRouter}}, body))
 	require.NoError(t, err)
 
@@ -130,7 +132,7 @@ func TestDispatchPlanned_ExhaustionNamesOwnerInTerminalMessage(t *testing.T) {
 			ctx := withAttemptTrace(context.Background(), body, tc.header)
 			rec := httptest.NewRecorder()
 			buf := newPreludeBuffer(rec)
-			in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}}, body)
+			in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}}, body)
 			in.deferFlushOnExhaustion = true
 			_, err := s.dispatchWithFallback(ctx, in)
 			require.Error(t, err)
@@ -167,6 +169,11 @@ func TestRouterOwnedFailureWording(t *testing.T) {
 	assert.Equal(t, "↳ switched: Anthropic had no subscription capacity (router issue)\n\n", rescueDetailLine(pool))
 	assert.Equal(t, "Router error: Anthropic subscription capacity exhausted.", terminalMessageFor(pool))
 
+	rejected := dispatch.TracedAttempt{Target: inference.Target{Provider: providers.ProviderOpenAI},
+		Err:       errors.Join(ErrSubscriptionPoolExhausted, &providers.UpstreamErrorResponse{Status: http.StatusUnauthorized}),
+		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(TurnErrorOther), FailureOwner: string(FailureOwnerRouter)}}
+	assert.Equal(t, "↳ switched: OpenAI rejected the subscription login (router issue)\n\n", rescueDetailLine(rejected))
+
 }
 
 func TestMalformedCustomToolArgumentsAreProviderOwned(t *testing.T) {
@@ -177,6 +184,15 @@ func TestMalformedCustomToolArgumentsAreProviderOwned(t *testing.T) {
 
 	assert.Equal(t, "↳ switched: DeepInfra sent malformed tool arguments (provider issue)\n\n", rescueDetailLine(customTool))
 	assert.Equal(t, "Provider DeepInfra failed: malformed tool call arguments.", terminalMessageFor(customTool))
+}
+
+func TestTruncatedToolCallNamesTheOutputLimit(t *testing.T) {
+	err := fmt.Errorf("write: %w: %w: expected exactly one input field", translate.ErrToolCallTruncated, translate.ErrCustomToolArguments)
+	truncated := dispatch.TracedAttempt{Target: inference.Target{Provider: providers.ProviderAnthropic}, Err: err,
+		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(TurnErrorOther), BodyTranslated: true}}
+	truncated.Diagnosis.FailureOwner = string(classifyFailureOwner(failureOwnerInput{Err: err, BodyTranslated: true}))
+
+	assert.Equal(t, "Provider Anthropic failed: tool call cut off by the output token limit.", terminalMessageFor(truncated))
 }
 
 func TestWithRescueDetail_SuppressedBadgeStaysEmpty(t *testing.T) {
@@ -209,11 +225,11 @@ func TestCustomerOwnedCredential(t *testing.T) {
 func TestBodyRewrittenIgnoresGeminiRoutingFields(t *testing.T) {
 	inbound := []byte(`{"model":"gemini-3-pro","stream":true,"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
 	forwarded := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
-	if bodyRewritten(geminiForwardedBody(inbound), forwarded) {
+	if bodyRewritten(ingress.Gemini{}.TraceBody(inbound), forwarded) {
 		t.Fatal("stripping the synthetic model/stream fields must not count as a rewrite")
 	}
 	sanitized := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"tools":[]}`)
-	if !bodyRewritten(geminiForwardedBody(inbound), sanitized) {
+	if !bodyRewritten(ingress.Gemini{}.TraceBody(inbound), sanitized) {
 		t.Fatal("a body change beyond the routing fields must count as a rewrite")
 	}
 }

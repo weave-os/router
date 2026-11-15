@@ -44,7 +44,7 @@ func TestInferenceRegistryRejectsDuplicateAndMissingPurposes(t *testing.T) {
 	duplicate.PolicyID = "duplicate-purpose-policy"
 	_, err := policy.NewRegistry(append(specs, duplicate))
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "more than one policy")
+	require.ErrorContains(t, err, "more than one policy")
 
 	_, err = policy.NewRegistry(append(specs[:index:index], specs[index+1:]...))
 	require.Error(t, err)
@@ -58,13 +58,13 @@ func TestInferenceRegistryRejectsMissingRequiredFields(t *testing.T) {
 
 	_, err := policy.NewRegistry(specs)
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "missing policy identity, owner, rationale, or revision")
+	require.ErrorContains(t, err, "missing policy identity, owner, rationale, or revision")
 
 	specs = policy.DefaultRegistry().Specs()
 	specs[index].PolicyID = "  "
 	_, err = policy.NewRegistry(specs)
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "missing policy identity, owner, rationale, or revision")
+	require.ErrorContains(t, err, "missing policy identity, owner, rationale, or revision")
 
 	specs = policy.DefaultRegistry().Specs()
 	specs[index].PolicyRevision = "\t"
@@ -80,19 +80,19 @@ func TestInferenceRegistryRejectsInvalidFixedPolicy(t *testing.T) {
 	specs[index].FixedCatalogModels = nil
 	_, err := policy.NewRegistry(specs)
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "has no catalog models")
+	require.ErrorContains(t, err, "has no catalog models")
 
 	specs = policy.DefaultRegistry().Specs()
 	specs[index].FixedCatalogModels = []string{"not-a-catalog-model"}
 	_, err = policy.NewRegistry(specs)
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "unknown catalog model")
+	require.ErrorContains(t, err, "unknown catalog model")
 
 	specs = policy.DefaultRegistry().Specs()
 	specs[index].CandidateSource = policy.CandidateSourceDeployment
 	_, err = policy.NewRegistry(specs)
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "must use the fixed catalog candidate source")
+	require.ErrorContains(t, err, "must use the fixed catalog candidate source")
 
 	specs = policy.DefaultRegistry().Specs()
 	mainIndex := policyIndex(t, specs, policy.PurposeAnthropicMessages)
@@ -109,19 +109,19 @@ func TestInferenceRegistryRejectsInvalidFallbackAndOverridePrecedence(t *testing
 	specs[index].Fallback.Kind = policy.FallbackKind("arbitrary")
 	_, err := policy.NewRegistry(specs)
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "invalid typed value")
+	require.ErrorContains(t, err, "invalid typed value")
 
 	specs = policy.DefaultRegistry().Specs()
 	specs[index].Fallback = policy.FallbackSpec{Kind: policy.FallbackKindPlanAlternatives}
 	_, err = policy.NewRegistry(specs)
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "without alternatives")
+	require.ErrorContains(t, err, "without alternatives")
 
 	specs = policy.DefaultRegistry().Specs()
 	specs[index].Fallback.Alternatives = []string{"claude-haiku-4-5"}
 	_, err = policy.NewRegistry(specs)
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "declares alternatives for fallback kind")
+	require.ErrorContains(t, err, "declares alternatives for fallback kind")
 
 	specs = policy.DefaultRegistry().Specs()
 	fixedIndex := policyIndex(t, specs, policy.PurposeHandoverSummary)
@@ -131,13 +131,13 @@ func TestInferenceRegistryRejectsInvalidFallbackAndOverridePrecedence(t *testing
 	}
 	_, err = policy.NewRegistry(specs)
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "repeats fixed catalog model")
+	require.ErrorContains(t, err, "repeats fixed catalog model")
 
 	specs = policy.DefaultRegistry().Specs()
 	specs[index].OverridePrecedence = []policy.OverrideSource{policy.OverrideSourceRequest, policy.OverrideSourceRequest}
 	_, err = policy.NewRegistry(specs)
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "repeats override source")
+	require.ErrorContains(t, err, "repeats override source")
 
 	specs = policy.DefaultRegistry().Specs()
 	specs[index].OverridePrecedence = []policy.OverrideSource{
@@ -155,7 +155,7 @@ func TestInferenceRegistryRejectsInvalidPreferencesAndBudgets(t *testing.T) {
 	specs[index].SoftPreferences = append(specs[index].SoftPreferences, policy.SoftPreference("unknown"))
 	_, err := policy.NewRegistry(specs)
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "invalid soft preference")
+	require.ErrorContains(t, err, "invalid soft preference")
 
 	specs = policy.DefaultRegistry().Specs()
 	specs[index].Budget.MaxSpendUSD = -1

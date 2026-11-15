@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -156,7 +155,7 @@ func TestForceModelHeader_RejectsExcludedModel(t *testing.T) {
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 
 	env := forceCommandEnv(t)
-	req, err := http.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	require.NoError(t, err)
 	req.Header.Set(ForceModelHeader, "opus")
 
@@ -165,7 +164,7 @@ func TestForceModelHeader_RejectsExcludedModel(t *testing.T) {
 		uuid.New(), DeriveSessionKey(env, "key-1"))
 
 	require.Error(t, forceErr)
-	assert.True(t, errors.Is(forceErr, ErrForcedModelExcluded))
+	require.ErrorIs(t, forceErr, ErrForcedModelExcluded)
 	assert.Empty(t, model)
 	assert.Empty(t, store.upserts, "a refused header force must not write a pin")
 }
@@ -178,7 +177,7 @@ func TestForceModelHeader_UnfencedInstallationUnaffected(t *testing.T) {
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 	env := forceCommandEnv(t)
-	req, err := http.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	require.NoError(t, err)
 	req.Header.Set(ForceModelHeader, "opus")
 
@@ -199,7 +198,7 @@ func TestForceModelHeader_EffortSuffixLandsOnReturnedContext(t *testing.T) {
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 	env := forceCommandEnv(t)
-	req, err := http.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	require.NoError(t, err)
 	req.Header.Set(ForceModelHeader, "opus:xhigh")
 
@@ -235,7 +234,7 @@ func TestTurnLoop_ForcedPinToNewlyExcludedProviderRejects(t *testing.T) {
 		router.Request{RequestedModel: feats.Model})
 
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrForcedModelExcluded))
+	require.ErrorIs(t, err, ErrForcedModelExcluded)
 	assert.Empty(t, fr.captured,
 		"the request must fail rather than quietly re-route through the scorer")
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -170,9 +171,9 @@ func callerRoutingState(ctx context.Context) (passthrough bool, source callerRou
 // applyCallerRoutingAttrs records the caller's assigned state, not the turn's
 // outcome: force-model and policy pins still rewrite some experiment-passthrough
 // turns. Spans are internal, so this does not disclose the blind arm to clients.
-func applyCallerRoutingAttrs(ctx context.Context, b *telemetry.AttrBuilder) *telemetry.AttrBuilder {
+func applyCallerRoutingAttrs(ctx context.Context, b *telemetry.AttrBuilder) {
 	passthrough, source := callerRoutingState(ctx)
-	return b.Bool("routing.caller_passthrough", passthrough).
+	b.Bool("routing.caller_passthrough", passthrough).
 		String("routing.caller_routing_source", string(source))
 }
 
@@ -240,7 +241,7 @@ func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router
 		provider, found := gatewayProviderFor(req.RequestedModel, req.CustomBindings, req.GatewayProviders)
 		if !found {
 			// Passthrough serves the client's model as-is, so aliases retired from routing still count.
-			provider, found = gatewayProviderFor(req.RequestedModel, aliasedBindingsFromKeys(externalKeysFromContext(ctx), true), req.GatewayProviders)
+			provider, found = gatewayProviderFor(req.RequestedModel, credentials.AliasedBindings(externalKeysFromContext(ctx), true), req.GatewayProviders)
 		}
 		if !found {
 			return router.Decision{}, fmt.Errorf("requested model %q has no available gateway alias: %w", req.RequestedModel, policy.ErrGatewayServesNoDeployedModel)
@@ -262,7 +263,7 @@ func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router
 
 	availableProviders := req.EnabledProviders
 	if availableProviders == nil {
-		availableProviders = s.deploymentKeyedProviders
+		availableProviders = s.credentials.KeyedProviders
 	}
 	if availableProviders == nil {
 		if model.PrimaryProvider() == "" {

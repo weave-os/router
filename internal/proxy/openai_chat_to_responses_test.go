@@ -38,9 +38,9 @@ func responsesStreamUpstream(w http.ResponseWriter) {
 	}
 }
 
-func openAIChatService(provider providers.Client, model string) *proxy.Service {
+func openAIChatService(provider providers.Client) *proxy.Service {
 	return proxy.NewService(
-		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: model, Reason: "test"}},
+		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "test"}},
 		map[string]providers.Client{providers.ProviderOpenAI: provider},
 		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil,
 	)
@@ -56,10 +56,10 @@ const chatToolTurnBody = `{"model":"auto","stream":true,"max_tokens":2048,
 // function tools produces — while still receiving chat/completions on the wire.
 func TestService_ProxyOpenAIChatCompletion_TranslatesOntoResponses(t *testing.T) {
 	provider := &fakeProvider{proxyResponse: responsesStreamUpstream}
-	svc := openAIChatService(provider, "gpt-5.6-luna")
+	svc := openAIChatService(provider)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(chatToolTurnBody))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(chatToolTurnBody))
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(context.Background(), []byte(chatToolTurnBody), rec, req))
 
 	require.Len(t, provider.proxyBodies, 1)
@@ -84,11 +84,11 @@ func TestService_ProxyOpenAIChatCompletion_TranslatesOntoResponses(t *testing.T)
 // A non-streaming chat client gets one chat.completion body, not SSE.
 func TestService_ProxyOpenAIChatCompletion_TranslatesOntoResponsesNonStreaming(t *testing.T) {
 	provider := &fakeProvider{proxyResponse: responsesStreamUpstream}
-	svc := openAIChatService(provider, "gpt-5.6-luna")
+	svc := openAIChatService(provider)
 
 	body := strings.Replace(chatToolTurnBody, `"stream":true`, `"stream":false`, 1)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(context.Background(), []byte(body), rec, req))
 
 	assert.Equal(t, providers.EndpointResponses, provider.proxyEndpoints[0])
@@ -148,7 +148,7 @@ func TestService_ProxyOpenAIChatCompletion_ResponsesEndpointSelection(t *testing
 				_, _ = io.WriteString(w, "data: {\"id\":\"chatcmpl_1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\n")
 				_, _ = io.WriteString(w, "data: [DONE]\n\n")
 			}}
-			svc := openAIChatService(provider, "gpt-5.6-luna")
+			svc := openAIChatService(provider)
 
 			ctx := context.Background()
 			if tc.broadOff {
@@ -157,7 +157,7 @@ func TestService_ProxyOpenAIChatCompletion_ResponsesEndpointSelection(t *testing
 				})
 			}
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(tc.body))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(tc.body))
 			require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(tc.body), rec, req))
 
 			require.Len(t, provider.proxyEndpoints, 1)
@@ -184,7 +184,7 @@ func TestService_ProxyOpenAIChatCompletion_FallsBackWhenEndpointLacksResponses(t
 			_, _ = io.WriteString(w, "data: [DONE]\n\n")
 		},
 	}
-	svc := openAIChatService(provider, "gpt-5.6-luna")
+	svc := openAIChatService(provider)
 
 	for _, want := range [][]providers.Endpoint{
 		{providers.EndpointResponses, providers.EndpointChatCompletions},
@@ -193,7 +193,7 @@ func TestService_ProxyOpenAIChatCompletion_FallsBackWhenEndpointLacksResponses(t
 		provider.proxyEndpoints = nil
 		provider.proxyBodies = nil
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(chatToolTurnBody))
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(chatToolTurnBody))
 
 		require.NoError(t, svc.ProxyOpenAIChatCompletion(context.Background(), []byte(chatToolTurnBody), rec, req))
 		assert.Equal(t, want, provider.proxyEndpoints)
@@ -220,7 +220,7 @@ func TestService_ProxyOpenAIChatCompletion_UsesBYOKBaseForResponsesCapability(t 
 			_, _ = io.WriteString(w, "data: {\"id\":\"chatcmpl_1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
 		},
 	}
-	svc := openAIChatService(provider, "gpt-5.6-luna")
+	svc := openAIChatService(provider)
 	ctx := context.WithValue(context.Background(), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{
 		Provider:  providers.ProviderOpenAI,
 		Plaintext: []byte("synthetic-key"),
@@ -233,7 +233,7 @@ func TestService_ProxyOpenAIChatCompletion_UsesBYOKBaseForResponsesCapability(t 
 	} {
 		provider.proxyEndpoints = nil
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(chatToolTurnBody))
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(chatToolTurnBody))
 		require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(chatToolTurnBody), rec, req))
 		assert.Equal(t, want, provider.proxyEndpoints,
 			"Responses capability memoization must use the resolved BYOK base URL")
@@ -257,10 +257,10 @@ func TestService_ProxyOpenAIChatCompletion_NoResponsesFallbackAfterCommit(t *tes
 			_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"committed\"}\n\n")
 		},
 	}
-	svc := openAIChatService(provider, "gpt-5.6-luna")
+	svc := openAIChatService(provider)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(chatToolTurnBody))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(chatToolTurnBody))
 	require.Error(t, svc.ProxyOpenAIChatCompletion(context.Background(), []byte(chatToolTurnBody), rec, req))
 
 	assert.Equal(t, []providers.Endpoint{providers.EndpointResponses}, provider.proxyEndpoints,
@@ -278,10 +278,10 @@ func TestService_ProxyOpenAIChatCompletion_MalformedUpstreamFrameReported(t *tes
 		_, _ = io.WriteString(w, "data: {\"type\":\"response.outp\n\n")
 		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"status\":\"completed\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n")
 	}}
-	svc := openAIChatService(provider, "gpt-5.6-luna")
+	svc := openAIChatService(provider)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(chatToolTurnBody))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(chatToolTurnBody))
 	require.Error(t, svc.ProxyOpenAIChatCompletion(context.Background(), []byte(chatToolTurnBody), rec, req))
 
 	body := rec.Body.String()
@@ -314,10 +314,10 @@ func TestService_ProxyOpenAIChatCompletion_LogsToolCallIssues(t *testing.T) {
 			_, _ = io.WriteString(w, "data: "+frame+"\n\n")
 		}
 	}}
-	svc := openAIChatService(provider, "gpt-5.6-luna")
+	svc := openAIChatService(provider)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(chatToolTurnBody))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(chatToolTurnBody))
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(context.Background(), []byte(chatToolTurnBody), rec, req))
 
 	assert.Contains(t, logBuf.String(), "router.tool_call_invalid")
@@ -340,7 +340,7 @@ func TestService_ProxyOpenAIChatCompletion_GatewayKeepsChatCompletions(t *testin
 
 	body := `{"model":"auto","messages":[{"role":"user","content":"hi"}]}`
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(context.Background(), []byte(body), rec, req))
 
 	require.Len(t, provider.proxyEndpoints, 1)

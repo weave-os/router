@@ -33,7 +33,7 @@ func putAllowedModels(t *testing.T, routable admin.RoutableModelsSource, allowed
 
 	body, err := json.Marshal(map[string][]string{"allowed": allowed})
 	require.NoError(t, err)
-	req := httptest.NewRequest(http.MethodPut, "/admin/v1/allowed-models", bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/admin/v1/allowed-models", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, req)

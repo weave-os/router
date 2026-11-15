@@ -87,7 +87,7 @@ func MessagesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc 
 				if cls.NoClientRetry {
 					c.Header("x-should-retry", "false")
 				}
-				writeAnthropicError(c, cls.Status, anthropicErrorType(cls.Kind), cls.Message)
+				writeAnthropicError(c, cls.Status, anthropicErrorType(cls), cls.Message)
 				return
 			}
 			log.Error("Proxy failed", "err", err)
@@ -129,11 +129,14 @@ func stashClientIdentity(ctx context.Context, h http.Header, body []byte) contex
 }
 
 // anthropicErrorType maps a classified dispatch error to the Anthropic
-// Messages error envelope's "type" field. Anthropic only distinguishes
-// client-input problems ("invalid_request_error") from everything else
-// ("api_error").
-func anthropicErrorType(kind proxy.DispatchErrorKind) string {
-	if kind.IsClientError() {
+// Messages error envelope's "type" field: refusals take the type for their
+// status; other errors split client-input problems ("invalid_request_error")
+// from everything else ("api_error").
+func anthropicErrorType(cls proxy.DispatchErrorClass) string {
+	if cls.Refusal != nil {
+		return cls.Refusal.AnthropicType()
+	}
+	if cls.Kind.IsClientError() {
 		return "invalid_request_error"
 	}
 	return "api_error"

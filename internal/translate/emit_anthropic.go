@@ -1,7 +1,7 @@
 package translate
 
 import (
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -46,10 +46,7 @@ func (e *RequestEnvelope) PrepareAnthropic(in http.Header, opts EmitOptions) (pr
 	var err error
 	switch e.format {
 	case FormatOpenAI:
-		body, err = e.buildAnthropicFromOpenAI(opts)
-		if err != nil {
-			return providers.PreparedRequest{}, fmt.Errorf("build anthropic from openai: %w", err)
-		}
+		body = e.buildAnthropicFromOpenAI(opts)
 	case FormatAnthropic:
 		body, err = e.buildAnthropicFromAnthropic(opts)
 		if err != nil {
@@ -255,7 +252,7 @@ func joinKept(beta string, keep func(string) bool) string {
 	return strings.Join(kept, ",")
 }
 
-func (e *RequestEnvelope) buildAnthropicFromOpenAI(opts EmitOptions) ([]byte, error) {
+func (e *RequestEnvelope) buildAnthropicFromOpenAI(opts EmitOptions) []byte {
 	jw := newJSONWriter()
 	jw.Obj()
 	jw.Key("model")
@@ -280,7 +277,7 @@ func (e *RequestEnvelope) buildAnthropicFromOpenAI(opts EmitOptions) ([]byte, er
 		writeAnthropicToolChoice(jw, e.body, opts.Capabilities.Supports(router.CapAutoToolChoiceOnly))
 	}
 	jw.EndObj()
-	return jw.Bytes(), nil
+	return jw.Bytes()
 }
 
 // writeAnthropicSystemAndMessages extracts the leading run of system-role
@@ -1140,8 +1137,8 @@ func sanitizeAnthropicToolNamesBytes(body []byte) ([]byte, map[string]string, er
 }
 
 func sanitizedAnthropicToolName(name string) string {
-	nameHash := sha1.Sum([]byte(name))
-	return fmt.Sprintf("invalid_tool_%x", nameHash)
+	nameHash := sha256.Sum256([]byte(name))
+	return fmt.Sprintf("invalid_tool_%x", nameHash[:20])
 }
 
 func uniqueSanitizedAnthropicToolName(name string, reservedNames map[string]struct{}) string {
@@ -1394,7 +1391,7 @@ func sanitizeToolUseID(id string) string {
 	b := []byte(id)
 	changed := false
 	for i, c := range b {
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-') {
+		if !isIdentifierChar(rune(c)) {
 			b[i] = '_'
 			changed = true
 		}

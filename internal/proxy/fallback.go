@@ -5,14 +5,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"net/http"
 	"strconv"
-	"sync/atomic"
 	"time"
 
 	"github.com/tidwall/sjson"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -23,164 +22,11 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-// preludeBuffer absorbs pre-upstream writes (the eager SSE Prelude) so
-// per-request failover can retry on another binding without the client
-// having seen bytes from a primary that ultimately failed.
-//
-// Flow: Seal() ends the buffering phase; the first Write/WriteHeader after
-// that calls commit(), flushing the buffered status+body to inner and going
-// pass-through. If the attempt errors before ever writing, Committed() is
-// false and the caller can Discard() and retry or render the error itself.
-// Committed() is the retry gate (replaces firstByteGuard.written).
-type preludeBuffer struct {
-	inner          http.ResponseWriter
-	initialHeaders http.Header
-	bufStatus      int
-	bufBody        bytes.Buffer
-	sealed         bool
-	preludeSent    bool
-	committed      atomic.Bool
-	// onDiscard lets a writer holding output above this buffer drop it with
-	// the failed attempt, so a retry never appends to a stale response.
-	onDiscard func()
-}
+// preludeBuffer and newPreludeBuffer keep the entrypoints outside Inference
+// Execution compiling against the buffer while they still construct it here.
+type preludeBuffer = dispatch.PreludeBuffer
 
-func newPreludeBuffer(w http.ResponseWriter) *preludeBuffer {
-	// Snapshot headers so Discard() can restore them; Prelude only
-	// Set/Del's, never appends, so sharing the inner []string is safe.
-	snap := make(http.Header, len(w.Header()))
-	for k, vs := range w.Header() {
-		cp := make([]string, len(vs))
-		copy(cp, vs)
-		snap[k] = cp
-	}
-	return &preludeBuffer{inner: w, initialHeaders: snap}
-}
-
-func (b *preludeBuffer) Header() http.Header { return b.inner.Header() }
-
-func (b *preludeBuffer) Write(p []byte) (int, error) {
-	if b.committed.Load() {
-		return sse.WriteJSONChunk(b.inner, p)
-	}
-	if b.sealed {
-		// Post-Seal first write: commit buffered prelude, then pass through.
-		if err := b.commit(); err != nil {
-			return 0, err
-		}
-		return sse.WriteJSONChunk(b.inner, p)
-	}
-	// Pre-Seal: buffer.
-	return b.bufBody.Write(p)
-}
-
-func (b *preludeBuffer) WriteHeader(status int) {
-	if b.committed.Load() {
-		sse.PrepareJSONResponse(b.inner)
-		b.inner.WriteHeader(status)
-		return
-	}
-	if b.sealed {
-		// Buffer success headers so an empty or retryable stream can still
-		// avoid committing a downstream 200 before upstream output arrives.
-		b.bufStatus = status
-		return
-	}
-	b.bufStatus = status
-}
-
-func (b *preludeBuffer) Flush() {
-	if !b.preludeSent && !b.committed.Load() {
-		// Pre-commit Flush is a no-op — we don't want partial Prelude bytes
-		// reaching the client before commit decides.
-		return
-	}
-	if f, ok := b.inner.(http.Flusher); ok {
-		f.Flush()
-	}
-}
-
-// Seal marks the end of the Prelude phase. The next Write or WriteHeader
-// will trigger commit().
-func (b *preludeBuffer) Seal() { b.sealed = true }
-
-// PreludeSent reports whether the buffered prelude is already client-visible.
-func (b *preludeBuffer) PreludeSent() bool { return b.preludeSent }
-
-// CommitPrelude makes the buffered prelude client-visible without marking the
-// attempt committed. A later provider error can still be retried or fail over.
-func (b *preludeBuffer) CommitPrelude() error {
-	if !b.preludeSent && b.bufStatus != 0 {
-		sse.PrepareJSONResponse(b.inner)
-		b.inner.WriteHeader(b.bufStatus)
-	}
-	if b.bufBody.Len() > 0 {
-		if _, err := sse.WriteJSONChunk(b.inner, b.bufBody.Bytes()); err != nil {
-			return err
-		}
-	}
-	b.bufStatus = 0
-	b.bufBody.Reset()
-	b.preludeSent = true
-	if f, ok := b.inner.(http.Flusher); ok {
-		f.Flush()
-	}
-	return nil
-}
-
-// Committed reports whether provider output has reached the inner writer.
-func (b *preludeBuffer) Committed() bool { return b.committed.Load() }
-
-// Discard resets buffered Prelude bytes and headers to the construction-time
-// snapshot. No-op once committed. Called between failed attempts and before
-// the exhaustion error renderer writes via the unwrapped inner writer.
-func (b *preludeBuffer) Discard() {
-	if b.committed.Load() {
-		return
-	}
-	if b.onDiscard != nil {
-		b.onDiscard()
-	}
-	b.bufStatus = 0
-	b.bufBody.Reset()
-	b.sealed = false
-	if b.preludeSent {
-		return
-	}
-	h := b.inner.Header()
-	for k := range h {
-		delete(h, k)
-	}
-	for k, vs := range b.initialHeaders {
-		cp := make([]string, len(vs))
-		copy(cp, vs)
-		h[k] = cp
-	}
-}
-
-func (b *preludeBuffer) commit() error {
-	if b.committed.Swap(true) {
-		return nil
-	}
-	if !b.preludeSent {
-		if b.bufStatus != 0 {
-			sse.PrepareJSONResponse(b.inner)
-			b.inner.WriteHeader(b.bufStatus)
-		}
-		if b.bufBody.Len() > 0 {
-			if _, err := sse.WriteJSONChunk(b.inner, b.bufBody.Bytes()); err != nil {
-				return err
-			}
-		}
-		b.preludeSent = true
-	}
-	b.bufStatus = 0
-	b.bufBody.Reset()
-	if f, ok := b.inner.(http.Flusher); ok {
-		f.Flush()
-	}
-	return nil
-}
+func newPreludeBuffer(w http.ResponseWriter) *preludeBuffer { return dispatch.NewPreludeBuffer(w) }
 
 // dispatchAttempt does one per-binding dispatch. Returns the upstream error
 // unmodified so dispatchWithFallback can decide whether to retry.
@@ -195,7 +41,7 @@ type failoverInputs struct {
 	// buf is the writer per-attempt code writes through; its Committed()
 	// bit gates retry. nil when failover is impossible (single binding,
 	// BYOK, legacy mode) — the loop then skips discard/commit entirely.
-	buf *preludeBuffer
+	buf *dispatch.PreludeBuffer
 	// initialDecision carries the model + cluster metadata from the
 	// router. dispatchWithFallback rewrites Provider per-attempt.
 	initialDecision router.Decision
@@ -300,37 +146,11 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 
 // committed is a nil-safe shorthand for in.buf.Committed(); the
 // single-binding fast path passes buf=nil and is treated as not committed.
-func committed(b *preludeBuffer) bool {
+func committed(b *dispatch.PreludeBuffer) bool {
 	if b == nil {
 		return false
 	}
 	return b.Committed()
-}
-
-// clearWithheldPassthrough returns a native Responses writer to translation
-// mode for an off-format rescue. A pinned turn emits no routing notice, so the
-// failed attempt's 200 header is all the writer saw, and buf held it back from
-// the client; that header must not count as a commitment.
-func clearWithheldPassthrough(rw *translate.ResponsesWriter, buf *preludeBuffer) bool {
-	if buf != nil && !buf.Committed() && !buf.PreludeSent() {
-		rw.ForgetWithheldHeaders()
-	}
-	return rw.ClearPassthrough()
-}
-
-// errResponsesPassthroughStuck reports a non-OpenAI attempt that cannot run
-// because the Responses writer already forwarded native bytes for an earlier
-// OpenAI attempt and can no longer translate.
-var errResponsesPassthroughStuck = errors.New("responses passthrough already carries native output; another wire format cannot continue it")
-
-// leaveResponsesPassthrough returns a passthrough writer to translation before
-// an attempt that speaks another wire format. It returns errResponsesPassthroughStuck
-// when the writer is still in passthrough and cannot be cleared.
-func leaveResponsesPassthrough(rw *translate.ResponsesWriter, buf *preludeBuffer) error {
-	if !rw.Passthrough() || clearWithheldPassthrough(rw, buf) {
-		return nil
-	}
-	return errResponsesPassthroughStuck
 }
 
 // subscriptionRotationBudget bounds how long included-capacity accounts and
@@ -354,7 +174,7 @@ func (s *Service) clockNow() time.Time {
 // provider disables it too: a failover binding re-resolves credentials and
 // would prefer that key even if the primary binding used the deployment key.
 func (s *Service) shouldFailover(ctx context.Context) bool {
-	if s.byokOnly {
+	if s.credentials.BYOKOnly {
 		return false
 	}
 	if CredentialsFromContext(ctx) != nil {
@@ -370,150 +190,18 @@ func (s *Service) shouldFailover(ctx context.Context) bool {
 // When failover is disabled or unavailable, returns a single-element
 // slice carrying the already-resolved decision provider.
 func (s *Service) resolveBindingsForDispatch(ctx context.Context, decision router.Decision) []catalog.ProviderBinding {
-	primary := catalog.ProviderBinding{Provider: decision.Provider}
-	imageCount := requestImageCountFromContext(ctx)
-	if !s.shouldFailover(ctx) {
-		if binding, ok := catalog.BindingFor(decision.Model, decision.Provider); ok &&
-			!binding.AcceptsImageCount(imageCount) && !isUserForcedReason(decision.Reason) {
-			return nil
-		}
-		return []catalog.ProviderBinding{primary}
+	req := dispatch.BindingRequest{
+		Decision:   decision,
+		ImageCount: requestImageCountFromContext(ctx),
+		UserForced: isUserForcedReason(decision.Reason),
+		ForceModel: decision.Reason == translate.ReasonUserForceModel,
 	}
-	available := s.deploymentKeyedProviders
-	if available == nil {
-		// Legacy "all registered" mode — fall back to single-attempt to
-		// avoid retrying on providers whose keys aren't actually wired.
-		if binding, ok := catalog.BindingFor(decision.Model, decision.Provider); ok &&
-			!binding.AcceptsImageCount(imageCount) && !isUserForcedReason(decision.Reason) {
-			return nil
-		}
-		return []catalog.ProviderBinding{primary}
+	if s.shouldFailover(ctx) && s.credentials.KeyedProviders != nil {
+		req.DeploymentKeyedProviders = s.credentials.KeyedProviders
+		req.SubscriptionServes = managedSubscriptionCanServe(ctx, decision.Provider, decision.Model) && s.supportsSubscriptionTransport(decision.Provider)
+		req.Excluded = s.excludedProvidersForRequest(ctx)
 	}
-	// A linked subscription makes the selected native binding available
-	// without a deployment API key. Extend only this request's binding set;
-	// lease/funding guards still control subscription exhaustion and fallback.
-	if managedSubscriptionCanServe(ctx, decision.Provider, decision.Model) && s.supportsSubscriptionTransport(decision.Provider) {
-		available = maps.Clone(available)
-		available[decision.Provider] = struct{}{}
-	}
-	// Exclusions must hold during failover too, or a fallback binding could
-	// resurrect a provider the scorer already filtered out.
-	excluded := s.excludedProvidersForRequest(ctx)
-	if len(excluded) > 0 {
-		filtered := make(map[string]struct{}, len(available))
-		for p := range available {
-			if _, drop := excluded[p]; !drop {
-				filtered[p] = struct{}{}
-			}
-		}
-		available = filtered
-	}
-	_, primaryExcluded := excluded[decision.Provider]
-	indexedBindings := catalog.EnumerateBindings(decision.Model, available)
-	unfilteredBindings := indexedBindings
-	imagePrimaryExcluded := false
-	imageFiltered := false
-	if imageCount > 0 {
-		filtered := make([]catalog.IndexedBinding, 0, len(indexedBindings))
-		for _, binding := range indexedBindings {
-			if binding.AcceptsImageCount(imageCount) {
-				filtered = append(filtered, binding)
-				continue
-			}
-			imageFiltered = true
-			if binding.Provider == decision.Provider {
-				imagePrimaryExcluded = true
-			}
-		}
-		indexedBindings = filtered
-	}
-	if imageFiltered && len(indexedBindings) == 0 {
-		if isUserForcedReason(decision.Reason) {
-			indexedBindings = unfilteredBindings
-		} else {
-			return nil
-		}
-	} else {
-		primaryExcluded = primaryExcluded || imagePrimaryExcluded
-	}
-	bindings := make([]catalog.ProviderBinding, 0, len(indexedBindings))
-	for _, binding := range indexedBindings {
-		bindings = append(bindings, binding.ProviderBinding)
-	}
-	if len(bindings) == 0 {
-		if primaryExcluded {
-			// Decision names an excluded provider with no other bindings (a
-			// bug upstream) — return nil so dispatch 502s instead of
-			// dispatching to the forbidden provider.
-			return nil
-		}
-		if decision.Reason == translate.ReasonUserForceModel {
-			if _, known := catalog.ByID(decision.Model); known {
-				return nil
-			}
-		}
-		return []catalog.ProviderBinding{primary}
-	}
-	if decision.Metadata != nil && decision.Metadata.SelectedArmID != "" {
-		bindings, found := prioritizeSelectedArmBinding(
-			indexedBindings,
-			decision.Model,
-			decision.Provider,
-			decision.Metadata.SelectedUpstreamID,
-			decision.Metadata.BindingIndex,
-		)
-		if found {
-			return bindings
-		}
-	}
-	if len(bindings) == 1 && !primaryExcluded {
-		return []catalog.ProviderBinding{primary}
-	}
-	// Defensive: if the runtime decision's provider differs from
-	// bindings[0], keep the decision's as primary and dedupe the rest —
-	// unless it's excluded, in which case serve only eligible bindings.
-	if bindings[0].Provider != decision.Provider {
-		if primaryExcluded {
-			return bindings
-		}
-		out := []catalog.ProviderBinding{primary}
-		for _, b := range bindings {
-			if b.Provider != decision.Provider {
-				out = append(out, b)
-			}
-		}
-		return out
-	}
-	return bindings
-}
-
-func prioritizeSelectedArmBinding(
-	bindings []catalog.IndexedBinding,
-	catalogID string,
-	provider string,
-	upstreamID string,
-	bindingIndex int,
-) ([]catalog.ProviderBinding, bool) {
-	ordered := make([]catalog.ProviderBinding, 0, len(bindings))
-	for _, binding := range bindings {
-		if binding.Index != bindingIndex || binding.Provider != provider {
-			continue
-		}
-		if catalog.UpstreamIDFor(catalogID, binding.UpstreamID) != upstreamID {
-			return nil, false
-		}
-		ordered = append(ordered, binding.ProviderBinding)
-		break
-	}
-	if len(ordered) == 0 {
-		return nil, false
-	}
-	for _, binding := range bindings {
-		if binding.Index != bindingIndex {
-			ordered = append(ordered, binding.ProviderBinding)
-		}
-	}
-	return ordered, true
+	return dispatch.OrderedBindings(req)
 }
 
 // flushBufferedIfPresent writes an *UpstreamErrorResponse through to the
@@ -523,6 +211,16 @@ func prioritizeSelectedArmBinding(
 // we hold, so the upstream's advertised length may exceed what we actually
 // write, breaking HTTP framing. net/http recomputes Content-Length itself.
 func flushBufferedIfPresent(w http.ResponseWriter, err error) {
+	flushUpstreamErrorRendered(w, err, nil)
+}
+
+// flushUpstreamErrorAsOpenAI is the Chat flushErr: an Anthropic upstream's
+// error body is re-wrapped in the OpenAI shape the client parses.
+func flushUpstreamErrorAsOpenAI(w http.ResponseWriter, err error) {
+	flushUpstreamErrorRendered(w, err, translate.AnthropicErrorAsOpenAI)
+}
+
+func flushUpstreamErrorRendered(w http.ResponseWriter, err error, render func([]byte) []byte) {
 	var resp *providers.UpstreamErrorResponse
 	// An overflow is left to the ingress handler, which answers in the
 	// client's native prompt-too-long shape.
@@ -541,7 +239,11 @@ func flushBufferedIfPresent(w http.ResponseWriter, err error) {
 			w.Header().Add(k, v)
 		}
 	}
-	body := attributedErrorBody(resp.Body, err)
+	body := resp.Body
+	if render != nil {
+		body = render(body)
+	}
+	body = attributedErrorBody(body, err)
 	if !bytes.Equal(body, resp.Body) {
 		w.Header().Set("Content-Type", "application/json")
 	}
@@ -591,7 +293,7 @@ func emitOpenAISSEErrorEvent(sink http.ResponseWriter, err error) error {
 		body = openAIErrorFrameBody(cls)
 	case errors.As(err, &resp):
 		status = resp.Status
-		body = attributedErrorBody(resp.Body, err)
+		body = attributedErrorBody(translate.AnthropicErrorAsOpenAI(resp.Body), err)
 	case classified:
 		status = cls.Status
 		body = openAIErrorFrameBody(cls)
@@ -629,15 +331,6 @@ func errorFrameType(cls DispatchErrorClass) string {
 		return "invalid_request_error"
 	}
 	return "api_error"
-}
-
-// emitGeminiSSEErrorEvent writes a terminal error frame to a committed
-// Gemini stream; called only on post-commit transport or truncation failure.
-func emitGeminiSSEErrorEvent(sink http.ResponseWriter) {
-	_, _ = sink.Write([]byte("data: {\"error\":{\"code\":\"UNAVAILABLE\",\"message\":\"upstream stream failed\"}}\n\n"))
-	if f, ok := sink.(http.Flusher); ok {
-		f.Flush()
-	}
 }
 
 // flushUpstreamErrorAsAnthropic is ProxyMessages' flushErr: translates the

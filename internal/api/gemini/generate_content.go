@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
 
@@ -91,7 +92,7 @@ func GenerateContentHandler(svc *proxy.Service, authSvc *auth.Service) gin.Handl
 				if cls.NoClientRetry {
 					c.Header("x-should-retry", "false")
 				}
-				writeGeminiError(c, cls.Status, geminiErrorStatus(cls.Kind), cls.Message)
+				writeGeminiError(c, cls.Status, geminiErrorStatus(cls), cls.Message)
 				return
 			}
 			log.Error("Gemini proxy failed", "err", err)
@@ -116,7 +117,12 @@ func splitModelAction(modelAction string) (model string, stream bool, ok bool) {
 	return model, stream, true
 }
 
+var errBodyNotJSONObject = errors.New("request body is not a JSON object")
+
 func injectModelAndStream(body []byte, model string, stream bool) ([]byte, error) {
+	if !gjson.ValidBytes(body) || !gjson.ParseBytes(body).IsObject() {
+		return nil, errBodyNotJSONObject
+	}
 	out, err := sjson.SetBytes(body, "model", model)
 	if err != nil {
 		return nil, err
@@ -131,9 +137,13 @@ func injectModelAndStream(body []byte, model string, stream bool) ([]byte, error
 // geminiErrorStatus maps a classified dispatch error to the Gemini native
 // error envelope's "status" field. Gemini's taxonomy is finer-grained than
 // Anthropic/OpenAI's two-way split, so this switches on Kind directly rather
-// than reusing DispatchErrorKind.IsClientError.
-func geminiErrorStatus(kind proxy.DispatchErrorKind) string {
-	switch kind {
+// than reusing DispatchErrorKind.IsClientError. Refusals take the status for
+// their HTTP status from the refusal table.
+func geminiErrorStatus(cls proxy.DispatchErrorClass) string {
+	if cls.Refusal != nil {
+		return cls.Refusal.GeminiStatus()
+	}
+	switch cls.Kind {
 	case proxy.DispatchErrorNotImplemented:
 		return "UNIMPLEMENTED"
 	case proxy.DispatchErrorProviderNotConfigured:
@@ -144,7 +154,7 @@ func geminiErrorStatus(kind proxy.DispatchErrorKind) string {
 		return "FAILED_PRECONDITION"
 	case proxy.DispatchErrorInvalidRoutingKnobs, proxy.DispatchErrorPlanOverrideRejected:
 		return "INVALID_ARGUMENT"
-	case proxy.DispatchErrorRLPolicyUnavailable, proxy.DispatchErrorHMMUnavailable, proxy.DispatchErrorDecisionModelUnavailable, proxy.DispatchErrorPolicyUnavailable, proxy.DispatchErrorClusterUnavailable, proxy.DispatchErrorPlanUnresolvable, proxy.DispatchErrorPolicyPinUnavailable:
+	case proxy.DispatchErrorRLPolicyUnavailable, proxy.DispatchErrorHMMUnavailable, proxy.DispatchErrorDecisionModelUnavailable, proxy.DispatchErrorPolicyUnavailable, proxy.DispatchErrorClusterUnavailable, proxy.DispatchErrorPlanUnresolvable:
 		return "UNAVAILABLE"
 	default:
 		return "UPSTREAM_ERROR"

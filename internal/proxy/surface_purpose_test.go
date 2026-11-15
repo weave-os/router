@@ -52,7 +52,7 @@ func TestPublicSurfaces_DispatchThroughResolvedPlan(t *testing.T) {
 			run: func(svc *proxy.Service, w http.ResponseWriter) error {
 				body := []byte(`{"model":"claude-haiku-4-5","max_tokens":4096,"messages":[{"role":"user","content":"hi"}]}`)
 				return svc.ProxyMessages(authedCtx("00000000-0000-0000-0000-000000000001"), body, w,
-					httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader("")))
+					httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader("")))
 			},
 		},
 		"openai chat completions": {
@@ -62,7 +62,7 @@ func TestPublicSurfaces_DispatchThroughResolvedPlan(t *testing.T) {
 			run: func(svc *proxy.Service, w http.ResponseWriter) error {
 				body := []byte(`{"model":"auto","stream":false,"messages":[{"role":"user","content":"hi"}],"stop":["END"]}`)
 				return svc.ProxyOpenAIChatCompletion(authedCtx("00000000-0000-0000-0000-000000000001"), body, w,
-					httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("")))
+					httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader("")))
 			},
 		},
 		"openai responses": {
@@ -72,7 +72,7 @@ func TestPublicSurfaces_DispatchThroughResolvedPlan(t *testing.T) {
 			run: func(svc *proxy.Service, w http.ResponseWriter) error {
 				body := []byte(`{"model":"gpt-5.5","input":"hi"}`)
 				return svc.ProxyOpenAIResponses(context.Background(), body, w,
-					httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader("")))
+					httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader("")))
 			},
 		},
 		"gemini generate content": {
@@ -81,7 +81,7 @@ func TestPublicSurfaces_DispatchThroughResolvedPlan(t *testing.T) {
 			upstream: jsonUpstream(`{"candidates":[{"content":{"role":"model","parts":[{"text":"hi"}]}}]}`),
 			run: func(svc *proxy.Service, w http.ResponseWriter) error {
 				return svc.ProxyGeminiGenerateContent(authedCtx("00000000-0000-0000-0000-000000000001"), []byte(geminiInjectedBody), w,
-					httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", strings.NewReader("")))
+					httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", strings.NewReader("")))
 			},
 		},
 	}
@@ -149,7 +149,7 @@ func TestUtilityTurns_DispatchUnderResolvedPurpose(t *testing.T) {
 
 				rec := httptest.NewRecorder()
 				require.NoError(t, svc.ProxyMessages(authedCtx("00000000-0000-0000-0000-000000000001"), []byte(tc.body), rec,
-					httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
+					httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))))
 
 				require.Len(t, provider.proxyBodies, 1)
 				require.Len(t, sink.events, 1)
@@ -193,7 +193,7 @@ func TestClassifierTurn_DispatchUnderSurfacePurpose(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyMessages(authedCtx("00000000-0000-0000-0000-000000000001"), []byte(body), rec,
-		httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))))
 
 	assert.Equal(t, 0, fr.routeCalls)
 	require.Len(t, sink.events, 1)
@@ -218,7 +218,7 @@ func TestAutomaticProbesServeUnderIngressPolicyWithoutConversationState(t *testi
 			body := []byte(`{"model":"` + model + `","max_tokens":1,"messages":[{"role":"user","content":"ping"}]}`)
 			rec := httptest.NewRecorder()
 			require.NoError(t, svc.ProxyMessages(authedCtx("00000000-0000-0000-0000-000000000001"), body, rec,
-				httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
+				httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))))
 			assert.Equal(t, http.StatusOK, rec.Code)
 			assert.Equal(t, "pong", gjson.Get(rec.Body.String(), "content.0.text").String())
 			require.Len(t, provider.proxyBodies, 1)
@@ -249,7 +249,7 @@ func TestConcreteProbeFailureNeverRescuesAnotherModel(t *testing.T) {
 	requestedModel := catalog.ModelIDClaudeOpus48.String()
 	body := []byte(`{"model":"` + requestedModel + `","max_tokens":1,"messages":[{"role":"user","content":"ping"}]}`)
 	err = svc.ProxyMessages(authedCtx("00000000-0000-0000-0000-000000000001"), body, httptest.NewRecorder(),
-		httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader("")))
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader("")))
 	require.Error(t, err)
 	require.NotEmpty(t, primary.proxyBodies)
 	assert.Empty(t, alternate.proxyBodies)

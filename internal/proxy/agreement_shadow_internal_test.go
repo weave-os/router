@@ -190,7 +190,7 @@ func TestAgreementShadowRecordsOnlyAfterBaselineTelemetryAndHandlesFailures(t *t
 	svc := &Service{telemetry: store}
 	p, res := agreementFixture()
 	applyAgreementShadowTelemetry(agreementContext(policyregistry.TargetInternal, true), &p, res)
-	svc.fireTelemetry(p)
+	svc.fireTelemetry(t.Context(), p)
 	select {
 	case <-store.notify:
 	case <-time.After(3 * time.Second):
@@ -223,7 +223,7 @@ func TestAgreementShadowStoreErrorDoesNotLoseBaselineTelemetry(t *testing.T) {
 	svc := &Service{telemetry: store}
 	p, res := agreementFixture()
 	applyAgreementShadowTelemetry(agreementContext(policyregistry.TargetInternal, true), &p, res)
-	svc.fireTelemetry(p)
+	svc.fireTelemetry(t.Context(), p)
 	rows := store.waitForRows(1)
 	if len(rows) != 1 || rows[0].DecisionModel != p.DecisionModel || rows[0].UpstreamStatusCode != http.StatusOK {
 		t.Fatalf("shadow error affected serving telemetry: %+v", rows)

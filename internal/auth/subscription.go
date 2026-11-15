@@ -102,7 +102,8 @@ type SubscriptionAccount struct {
 	CreatedAt              time.Time
 	// AccessTokenMissing reports a dropped persisted access token, so replicas
 	// discard their cached copy instead of replaying a rejected token.
-	AccessTokenMissing bool
+	AccessTokenMissing  bool
+	TokenRefreshVersion int64
 	// CredentialRejections counts unresolved provider credential rejections,
 	// so owners can reconnect before the account is disabled.
 	CredentialRejections int
@@ -143,98 +144,6 @@ const (
 // FirstConnected reports a genuine first registration, including legacy-row adoption.
 func (k SubscriptionUpsertKind) FirstConnected() bool {
 	return k == SubscriptionUpsertInserted || k == SubscriptionUpsertAdopted
-}
-
-// SubscriptionCredentialRecord is the encrypted credential state for one
-// enrolled account. It never crosses the auth service boundary in this form.
-type SubscriptionCredentialRecord struct {
-	ExternalAccountID      string
-	ProviderUserID         string
-	Provider               SubscriptionProvider
-	RefreshTokenCiphertext []byte
-	AccessTokenCiphertext  []byte
-	AccessTokenExpiresAt   *time.Time
-	TokenRefreshVersion    int64
-	TokenRefreshLeaseID    string
-	Enabled                bool
-	State                  SubscriptionAccountState
-	CooldownUntil          *time.Time
-}
-
-// SubscriptionCredentials is the decrypted credential state used by the
-// subscription runtime. The access token is retained only in process memory
-// after this method returns.
-type SubscriptionCredentials struct {
-	ProviderUserID       string
-	RefreshToken         []byte
-	AccessToken          []byte
-	AccessTokenExpiresAt *time.Time
-	TokenRefreshVersion  int64
-	TokenRefreshLeaseID  string
-	Enabled              bool
-	State                SubscriptionAccountState
-	CooldownUntil        *time.Time
-}
-
-// RefreshLeaseAcquisition is the outcome of one refresh-lease attempt.
-// TookOver means an expired lease from a holder that never released was
-// replaced. That holder may already have spent the refresh token, so the new
-// holder must not treat a terminal provider error as proof the account is dead.
-type RefreshLeaseAcquisition struct {
-	Acquired bool
-	TookOver bool
-}
-
-type SubscriptionCredentialEventKind string
-
-const (
-	SubscriptionCredentialEventRejected           SubscriptionCredentialEventKind = "credential_rejected"
-	SubscriptionCredentialEventReconnectRequired  SubscriptionCredentialEventKind = "reconnect_required"
-	SubscriptionCredentialEventPersistenceFailed  SubscriptionCredentialEventKind = "token_persistence_failed"
-	SubscriptionCredentialEventSelected           SubscriptionCredentialEventKind = "account_selected"
-	SubscriptionCredentialEventLeaseAttempted     SubscriptionCredentialEventKind = "account_lease_attempted"
-	SubscriptionCredentialEventCandidateEvaluated SubscriptionCredentialEventKind = "candidate_evaluated"
-	SubscriptionCredentialEventAttempted          SubscriptionCredentialEventKind = "account_attempted"
-	SubscriptionCredentialEventAdmissionEvaluated SubscriptionCredentialEventKind = "account_admission_evaluated"
-)
-
-// SubscriptionCredentialRejectionInput describes one provider credential
-// rejection. A refresh rejection sets LeaseID and ExpectedVersion so a
-// refresher that lost its lease cannot strike replacement credentials.
-type SubscriptionCredentialRejectionInput struct {
-	Reason                string
-	ProviderErrorType     string
-	ProviderRequestID     string
-	UpstreamStatus        int
-	RequestID             string
-	RejectedAt            time.Time
-	Window                time.Duration
-	InvalidateAccessToken bool
-	LeaseID               string
-	ExpectedVersion       int64
-}
-
-// SubscriptionCredentialRejection is an account's provider credential
-// rejection history inside the current strike window. PreviousReason is the
-// reason recorded by the strike before this one.
-type SubscriptionCredentialRejection struct {
-	Count              int
-	FirstRejectedAt    time.Time
-	PreviousReason     string
-	RepeatedDisconnect bool
-}
-
-// SubscriptionRefreshRepository coordinates refresh leases and encrypted
-// credential persistence across router replicas.
-type SubscriptionRefreshRepository interface {
-	TryAcquireSubscriptionRefreshLease(context.Context, string, SubscriptionOwner, string, time.Duration) (RefreshLeaseAcquisition, error)
-	ExtendSubscriptionRefreshLease(context.Context, string, SubscriptionOwner, string, time.Duration) (int64, error)
-	ReleaseSubscriptionRefreshLease(context.Context, string, SubscriptionOwner, string) error
-	DisableSubscriptionAccountIfRefreshHolder(context.Context, string, SubscriptionOwner, string, int64) error
-	CooldownSubscriptionAccountIfRefreshHolder(context.Context, string, SubscriptionOwner, string, int64, time.Time) error
-	RecordSubscriptionCredentialRejection(context.Context, string, SubscriptionOwner, SubscriptionCredentialRejectionInput) (SubscriptionCredentialRejection, error)
-	GetSubscriptionCredentialRecord(context.Context, string, SubscriptionOwner) (*SubscriptionCredentialRecord, error)
-	PersistSubscriptionTokens(context.Context, string, SubscriptionOwner, string, int64, []byte, []byte, time.Time) error
 }
 
 // SubscriptionAccountRepository persists encrypted subscription account state
@@ -301,14 +210,14 @@ func (s *Service) AddSubscriptionAccount(ctx context.Context, params CreateSubsc
 	params.ProviderUserID = "" // Never trust caller-supplied identity.
 	if params.Provider == SubscriptionProviderCodex {
 		if s.codexEnrollmentVerifier == nil {
-			return nil, errors.New("Codex enrollment identity verification is unavailable")
+			return nil, errors.New("codex enrollment identity verification is unavailable")
 		}
 		verified, err := s.codexEnrollmentVerifier.VerifyCodexEnrollment(ctx, params.ExternalAccountID, params.RefreshToken)
 		if err != nil {
 			return nil, err
 		}
 		if verified.ProviderUserID == "" || len(verified.RefreshToken) == 0 {
-			return nil, errors.New("Codex enrollment omitted verified provider user identity")
+			return nil, errors.New("codex enrollment omitted verified provider user identity")
 		}
 		params.ProviderUserID = verified.ProviderUserID
 		params.RefreshToken = verified.RefreshToken
@@ -509,6 +418,7 @@ func (s *Service) LoadSubscriptionCredentials(ctx context.Context, owner Subscri
 		ProviderUserID:      credentialRecord.ProviderUserID,
 		RefreshToken:        refreshToken,
 		TokenRefreshVersion: credentialRecord.TokenRefreshVersion,
+		TokenRefreshedAt:    credentialRecord.TokenRefreshedAt,
 		TokenRefreshLeaseID: credentialRecord.TokenRefreshLeaseID,
 		Enabled:             credentialRecord.Enabled,
 		State:               credentialRecord.State,

@@ -2,12 +2,6 @@ package proxy
 
 import (
 	"context"
-	"github.com/stretchr/testify/require"
-	"github.com/tidwall/gjson"
-	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
-	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -22,6 +16,14 @@ import (
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
+	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestVerificationSafeSubscriptionIngressConformance(t *testing.T) {
@@ -45,7 +47,7 @@ func TestVerificationSafeSubscriptionIngressConformance(t *testing.T) {
 					if r.URL.Path == "/v1/traces" {
 						body, _ := io.ReadAll(r.Body)
 						var exported coltracepb.ExportTraceServiceRequest
-						require.NoError(t, proto.Unmarshal(body, &exported))
+						assert.NoError(t, proto.Unmarshal(body, &exported))
 						spanMu.Lock()
 						for _, resource := range exported.ResourceSpans {
 							for _, scope := range resource.ScopeSpans {
@@ -63,7 +65,7 @@ func TestVerificationSafeSubscriptionIngressConformance(t *testing.T) {
 				defer collector.Close()
 				emitter, err := otel.NewEmitter(otel.EmitterConfig{Endpoint: collector.URL, Workers: 1, QueueSize: 100, BatchSize: 1, FlushInterval: time.Millisecond})
 				require.NoError(t, err)
-				defer emitter.Shutdown(context.Background())
+				defer func() { _ = emitter.Shutdown(context.Background()) }()
 				var sent []byte
 				var bearer, path, providerAccount string
 				var gatewayMu sync.Mutex
@@ -107,7 +109,7 @@ func TestVerificationSafeSubscriptionIngressConformance(t *testing.T) {
 				ctx = context.WithValue(ctx, APIKeyIDContextKey{}, "10000000-0000-4000-8000-000000000003")
 				ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
 				rec := httptest.NewRecorder()
-				err = fixture.run(svc, ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, fixture.path, strings.NewReader(body)))
+				err = fixture.run(svc, ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, fixture.path, strings.NewReader(body)))
 				require.NoError(t, err)
 				gatewayMu.Lock()
 				defer gatewayMu.Unlock()
@@ -122,7 +124,7 @@ func TestVerificationSafeSubscriptionIngressConformance(t *testing.T) {
 				}
 				require.Contains(t, rec.Body.String(), "read_file")
 				require.Contains(t, rec.Body.String(), "fixture.go")
-				winner := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+				winner := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{}))
 				require.True(t, winner.Served)
 				require.Equal(t, "10000000-0000-4000-8000-000000000001", winner.SubscriptionAccountID)
 				require.Equal(t, "10000000-0000-4000-8000-000000000002", winner.SubscriptionOwnerID)

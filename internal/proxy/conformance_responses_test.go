@@ -34,6 +34,7 @@ func TestConformance_OpenAIResponses(t *testing.T) {
 			stream:          true,
 			upstreamFixture: "responses/toolcall.upstream.sse",
 			wantUpstream: func(t *testing.T, path string, body []byte, _ http.Header) {
+				t.Helper()
 				assert.Equal(t, "/v1/responses", path, "gpt-5.x reasoning+tools must use the Responses API, not chat/completions")
 				assert.True(t, gjson.GetBytes(body, "stream").Bool(),
 					"Responses request MUST set stream:true — a stream:false regression reintroduces the #331 header-timeout hang")
@@ -51,6 +52,7 @@ func TestConformance_OpenAIResponses(t *testing.T) {
 			stream:          false,
 			upstreamFixture: "responses/toolcall.upstream.sse",
 			wantUpstream: func(t *testing.T, _ string, body []byte, _ http.Header) {
+				t.Helper()
 				assert.True(t, gjson.GetBytes(body, "stream").Bool(),
 					"Responses upstream MUST stream even for a non-streaming client (#331)")
 			},
@@ -65,6 +67,7 @@ func TestConformance_OpenAIResponses(t *testing.T) {
 			stream:          true,
 			upstreamFixture: "responses/toolcall.upstream.sse",
 			wantUpstream: func(t *testing.T, _ string, body []byte, _ http.Header) {
+				t.Helper()
 				assert.Equal(t, "medium", gjson.GetBytes(body, "reasoning.effort").String())
 			},
 		},
@@ -79,6 +82,7 @@ func TestConformance_OpenAIResponses(t *testing.T) {
 			stream:          true,
 			upstreamFixture: "responses/toolcall.upstream.sse",
 			wantUpstream: func(t *testing.T, _ string, body []byte, _ http.Header) {
+				t.Helper()
 				tool := gjson.GetBytes(body, "tools.0")
 				assert.True(t, tool.Get("strict").Bool(), "strictifiable schema must opt into strict mode")
 				params := tool.Get("parameters")

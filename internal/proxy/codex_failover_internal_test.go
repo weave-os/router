@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"weave-os/router/internal/credentials"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -54,7 +55,7 @@ func TestCodexFailover_EligibilityAndSuppression(t *testing.T) {
 	})
 
 	t.Run("deployment OpenAI key present: eligible", func(t *testing.T) {
-		s := &Service{deploymentKeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}}
+		s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}}}
 		assert.True(t, s.openaiFallbackKeyAvailable(ctx),
 			"a deployment OpenAI key is a valid failover target for a spent ChatGPT plan")
 	})
@@ -162,13 +163,35 @@ func TestCodexOAuthCredentialRejected(t *testing.T) {
 		"only buffered upstream envelopes classify as credential rejections")
 }
 
+func TestCodexReconnectNudgeDistinguishesRejectedCredentialsFromSpentQuota(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			svc := &Service{usageObserver: usage.NewObserver([]byte("synthetic-salt"), time.Hour, time.Now)}
+			ctx := codexSubscriptionTestCtx()
+			resolved := resolveAndInjectCredentials(ctx, providers.ProviderOpenAI, codexCoveredModel, http.Header{})
+			svc.recordCodexCredentialUnusable(ctx, CredentialsFromContext(resolved), &providers.UpstreamErrorResponse{
+				Status: status, Body: []byte(`{"error":{"type":"usage_limit_reached"}}`),
+			})
+			require.True(t, svc.codexSubscriptionExhausted(ctx, http.Header{}))
+			nudge := codexSubscriptionReconnectNudge(ctx, http.Header{}, svc.usageObserver)
+			if status == http.StatusTooManyRequests {
+				assert.Contains(t, nudge, "plan is out of usage")
+				assert.NotContains(t, nudge, "login was rejected")
+			} else {
+				assert.Contains(t, nudge, "login was rejected")
+				assert.NotContains(t, nudge, "plan is out of usage")
+			}
+		})
+	}
+}
+
 // TestCodexQuotaExhaustion_RecordedForLaterTurns: the quota rejection carries no
 // x-codex-* headers, so without recording it the observer keeps reading the plan
 // as having slack and every later turn re-buys the same rejected round-trip.
 func TestCodexQuotaExhaustion_RecordedForLaterTurns(t *testing.T) {
 	svc := &Service{
-		usageObserver:            usage.NewObserver([]byte("test-salt"), time.Hour, time.Now),
-		deploymentKeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}},
+		usageObserver: usage.NewObserver([]byte("test-salt"), time.Hour, time.Now),
+		credentials:   credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}},
 	}
 	ctx := codexSubscriptionTestCtx()
 	headers := http.Header{}
@@ -237,8 +260,8 @@ func TestCodexQuotaExhaustion_SuppressionLastsUntilThePlanResets(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			clock := time.Now()
 			svc := &Service{
-				usageObserver:            usage.NewObserver([]byte("test-salt"), time.Minute, func() time.Time { return clock }),
-				deploymentKeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}},
+				usageObserver: usage.NewObserver([]byte("test-salt"), time.Minute, func() time.Time { return clock }),
+				credentials:   credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}},
 			}
 			ctx, headers := codexSubscriptionTestCtx(), http.Header{}
 
@@ -295,8 +318,8 @@ func codexQuotaService(client providers.Client) *Service {
 
 // codexSubHTTPRequest builds a request carrying the ChatGPT subscription the way
 // the client presents it: an OAuth bearer plus the account id.
-func codexSubHTTPRequest(path, body string) *http.Request {
-	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+func codexSubHTTPRequest(ctx context.Context, path, body string) *http.Request {
+	req := httptest.NewRequestWithContext(ctx, http.MethodPost, path, strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+codexTestToken)
 	req.Header.Set("ChatGPT-Account-ID", codexTestAccountID)
 	return req
@@ -313,7 +336,7 @@ func TestCodexRescue_FailedRetryRendersIntoTheLiveStream(t *testing.T) {
 
 	body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"read main.go"}]}`
 	rec := httptest.NewRecorder()
-	err := svc.ProxyOpenAIChatCompletion(context.Background(), []byte(body), rec, codexSubHTTPRequest("/v1/chat/completions", body))
+	err := svc.ProxyOpenAIChatCompletion(context.Background(), []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/chat/completions", body))
 	require.Error(t, err)
 
 	require.GreaterOrEqual(t, len(client.oauthPerCall), 2, "the spent plan must be rescued on the Weave key")
@@ -342,7 +365,7 @@ func TestCodexRescue_FailedRetryWritesNothingIntoACommittedResponsesStream(t *te
 	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"read main.go"}]}]}`
 	rec := httptest.NewRecorder()
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
-	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest("/v1/responses", body))
+	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/responses", body))
 	require.Error(t, err)
 
 	require.GreaterOrEqual(t, len(client.oauthPerCall), 2, "the spent plan must be rescued on the Weave key")

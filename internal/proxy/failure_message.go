@@ -92,6 +92,9 @@ func failureWordingFor(a dispatch.TracedAttempt) failureWording {
 	if providers.IsUpstreamCyberPolicyRefusal(a.Err) {
 		return failureWording{"declined the request", "declined the request"}
 	}
+	if errors.Is(a.Err, ErrSubscriptionPoolExhausted) && (status == http.StatusUnauthorized || status == http.StatusForbidden) {
+		return failureWording{"rejected the subscription login", "subscription login rejected"}
+	}
 	if errors.Is(a.Err, ErrSubscriptionPoolExhausted) {
 		return failureWording{"had no subscription capacity", "subscription capacity exhausted"}
 	}
@@ -100,6 +103,9 @@ func failureWordingFor(a dispatch.TracedAttempt) failureWording {
 	}
 	if errors.Is(a.Err, ErrSubscriptionPoolUnavailable) {
 		return failureWording{"had no usable subscription seat", "no usable subscription seat"}
+	}
+	if errors.Is(a.Err, translate.ErrToolCallTruncated) {
+		return failureWording{"ran out of output tokens mid tool call", "tool call cut off by the output token limit"}
 	}
 	if errors.Is(a.Err, translate.ErrCustomToolArguments) {
 		return failureWording{"sent malformed tool arguments", "malformed tool call arguments"}
@@ -122,6 +128,7 @@ func failureWordingFor(a dispatch.TracedAttempt) failureWording {
 		return failureWording{"declined the request", "declined the request"}
 	case TurnErrorClientCanceled:
 		return failureWording{"was canceled", "request canceled"}
+	default:
 	}
 	if isUpstreamContextOverflow(a.Err) {
 		return failureWording{"found the conversation too long for its context window", withStatus("context window exceeded")}

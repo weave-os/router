@@ -10,10 +10,11 @@ import (
 	"sync"
 	"testing"
 
+	"weave-os/router/internal/translate"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
-	"weave-os/router/internal/translate"
 )
 
 const syntheticNoticeKind translate.NoticeKind = "synthetic_status"
@@ -85,7 +86,7 @@ func TestNoticeWritersEscapeProviderHTMLWithoutChangingJSONText(t *testing.T) {
 					consumed, err := writer.Write([]byte(payload))
 					require.NoError(t, err)
 					assert.Equal(t, len(payload), consumed)
-					writer.(http.Flusher).Flush()
+					mustAs[http.Flusher](t, writer).Flush()
 					assert.NotContains(t, rec.Body.String(), "<script>")
 					assert.Equal(t, contentType, rec.Result().Header.Get("Content-Type"))
 					assert.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
@@ -263,6 +264,8 @@ func TestNoticeDeliverySharedAfterConversion(t *testing.T) {
 				upstream = anthropicStream
 			case translate.FormatOpenAIResponses:
 				converter = translate.NewResponsesWriter(delivery, "model")
+			case translate.FormatGemini:
+				t.Fatalf("unexpected format %v", format)
 			}
 			converter.Header().Set("Content-Type", "text/event-stream")
 			converter.WriteHeader(http.StatusOK)
@@ -330,6 +333,7 @@ func TestNoticeReplayRecognition(t *testing.T) {
 				textPath = "delta"
 			case translate.FormatGemini:
 				textPath = "candidates.0.content.parts.0.text"
+			case translate.FormatAnthropic:
 			}
 			noticeText := ""
 			for _, event := range splitSSEEvents(rec.Body.String()) {
@@ -351,6 +355,7 @@ func TestNoticeReplayRecognition(t *testing.T) {
 			case translate.FormatOpenAIResponses:
 				body = []byte(`{"input":[{"role":"assistant","type":"message","content":[{"type":"output_text","text":` + quoted + `}]}]}`)
 				stripped, err = translate.StripRoutingBadgeFromResponsesInput(body)
+			case translate.FormatOpenAI, translate.FormatAnthropic:
 			}
 			require.NoError(t, err)
 			assert.NotContains(t, string(stripped), "temporary synthetic status")

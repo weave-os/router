@@ -2,10 +2,11 @@ package policyregistry
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"log/slog"
-	"math/rand/v2"
+	"math/big"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -458,7 +459,8 @@ func jitteredInterval(base time.Duration) time.Duration {
 	if quarter == 0 {
 		return base
 	}
-	return base - quarter + time.Duration(rand.Int64N(int64(quarter*2)+1))
+	offset, _ := rand.Int(rand.Reader, big.NewInt(int64(quarter*2)+1))
+	return base - quarter + time.Duration(offset.Int64())
 }
 
 var _ router.Router = (*DynamicRouter)(nil)

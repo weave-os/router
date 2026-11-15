@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log/slog"
 	"net/http"
@@ -20,8 +21,16 @@ func main() {
 
 	if *healthcheck {
 		client := &http.Client{Timeout: 2 * time.Second}
-		response, err := client.Get("http://" + *listen + "/readyz")
-		if err != nil || response.StatusCode != http.StatusOK {
+		request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://"+*listen+"/readyz", nil)
+		if err != nil {
+			os.Exit(1)
+		}
+		response, err := client.Do(request)
+		if err != nil {
+			os.Exit(1)
+		}
+		_ = response.Body.Close()
+		if response.StatusCode != http.StatusOK {
 			os.Exit(1)
 		}
 		return

@@ -777,6 +777,7 @@ type RouterModelRouterSubscriptionAccount struct {
 	CredentialRejectionCount      int32
 	CredentialFirstRejectedAt     pgtype.Timestamp
 	CredentialLastRejectionReason *string
+	TokenRefreshedAt              pgtype.Timestamptz
 }
 
 type RouterModelRouterSubscriptionAccountInstallation struct {

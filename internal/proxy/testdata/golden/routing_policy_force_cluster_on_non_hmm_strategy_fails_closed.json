@@ -1,0 +1,18 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages",
+      "stream": false,
+      "routing_decisions": [],
+      "dispatch_attempts": [],
+      "response": {},
+      "dispatch_error": {
+        "outcome": "error: cannot force cluster \"golden-group\": strategy \"rl\" runs no policy sidecar",
+        "kind": 28,
+        "status": 400,
+        "message": "cannot force cluster \"golden-group\": strategy \"rl\" runs no policy sidecar. Clear x-weave-force-cluster, or move the installation to a policy-sidecar strategy."
+      }
+    }
+  ],
+  "scenario": "routing_policy_force_cluster_on_non_hmm_strategy_fails_closed"
+}

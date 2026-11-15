@@ -8,8 +8,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/providers/httputil"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestWarmTransportRetainsConnectionWithoutCredentials(t *testing.T) {
@@ -18,26 +20,28 @@ func TestWarmTransportRetainsConnectionWithoutCredentials(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if requests.Add(1) == 1 {
 			address = r.RemoteAddr
-			require.Equal(t, http.MethodHead, r.Method)
-			require.Equal(t, "/", r.URL.Path)
-			require.Empty(t, r.Header.Get("Authorization"))
-			require.Empty(t, r.Header.Get("X-Api-Key"))
+			assert.Equal(t, http.MethodHead, r.Method)
+			assert.Equal(t, "/", r.URL.Path)
+			assert.Empty(t, r.Header.Get("Authorization"))
+			assert.Empty(t, r.Header.Get("X-Api-Key"))
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		require.Equal(t, address, r.RemoteAddr)
+		assert.Equal(t, address, r.RemoteAddr)
 		_, _ = io.WriteString(w, "served")
 	}))
 	defer server.Close()
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport := mustAs[*http.Transport](t, http.DefaultTransport).Clone()
 	defer transport.CloseIdleConnections()
 	client := httputil.NewClient(transport)
 	warmed, err := httputil.WarmTransport(context.Background(), server.URL+"/v1", "", client)
 	require.NoError(t, err)
 	require.True(t, warmed)
-	response, err := client.Get(server.URL + "/v1/models")
+	request, buildErr := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/v1/models", nil)
+	require.NoError(t, buildErr)
+	response, err := client.Do(request)
 	require.NoError(t, err)
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	body, err := io.ReadAll(response.Body)
 	require.NoError(t, err)
 	require.Equal(t, "served", string(body))

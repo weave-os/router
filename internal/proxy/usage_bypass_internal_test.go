@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"weave-os/router/internal/credentials"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
@@ -332,11 +333,11 @@ func TestBypass_429_ReturnsErrBypassRetryable_NoBytesWritten(t *testing.T) {
 	env := bypassAnthropicEnvelope(t)
 	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	err := svc.bypassToAnthropic(context.Background(), env, feats, false, time.Now(), "req-1", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
 
-	assert.ErrorIs(t, err, errBypassRetryable, "a retryable 429 must signal fall-through to routed dispatch")
+	require.ErrorIs(t, err, errBypassRetryable, "a retryable 429 must signal fall-through to routed dispatch")
 	assert.Equal(t, 1, upstream.dispatches, "the bypass attempt must hit the upstream exactly once")
 
 	// No status code, no body bytes — the routed path needs a pristine writer.
@@ -357,7 +358,7 @@ func TestBypass_NonRetryableError_StillFlushes(t *testing.T) {
 	env := bypassAnthropicEnvelope(t)
 	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	err := svc.bypassToAnthropic(context.Background(), env, feats, false, time.Now(), "req-1", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
 
@@ -374,7 +375,7 @@ func TestBypass_NilError_ReturnsNil(t *testing.T) {
 	env := bypassAnthropicEnvelope(t)
 	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	err := svc.bypassToAnthropic(context.Background(), env, feats, false, time.Now(), "req-1", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
 	require.NoError(t, err)
@@ -396,7 +397,7 @@ func TestBypass_NonStreamResponseIncludesCostHeaders(t *testing.T) {
 	env := bypassAnthropicEnvelope(t)
 	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	err := svc.bypassToAnthropic(context.Background(), env, feats, false, time.Now(), "req-cost", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
 	require.NoError(t, err)
@@ -425,11 +426,11 @@ func TestBypass_TransportError_ReroutesViaScorer(t *testing.T) {
 	env := bypassAnthropicEnvelope(t)
 	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	err := svc.bypassToAnthropic(context.Background(), env, feats, false, time.Now(), "req-1", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
 
-	assert.ErrorIs(t, err, errBypassRetryable, "a transport error must signal fall-through to routed dispatch")
+	require.ErrorIs(t, err, errBypassRetryable, "a transport error must signal fall-through to routed dispatch")
 	assert.Equal(t, 1, upstream.dispatches, "the bypass attempt must hit the upstream exactly once")
 	assert.Equal(t, http.StatusOK, rec.Code, "no status header must be written — the routed path needs a pristine writer")
 	assert.Empty(t, rec.Body.Bytes(), "no body bytes must be flushed on a transport-error bypass failure")
@@ -448,7 +449,7 @@ func TestBypass_LocalPrepError_PropagatesToClient(t *testing.T) {
 	env := bypassAnthropicEnvelope(t)
 	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	err := svc.bypassToAnthropic(context.Background(), env, feats, false, time.Now(), "req-1", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
 
@@ -482,7 +483,7 @@ func TestSubscriptionFailover_EligibilityAndSuppression(t *testing.T) {
 	})
 
 	t.Run("deployment Anthropic key present: eligible", func(t *testing.T) {
-		s := &Service{deploymentKeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}
+		s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}}
 		assert.True(t, s.anthropicFallbackKeyAvailable(ctx),
 			"a deployment Anthropic key is a valid failover target for a throttled subscription")
 	})
@@ -510,13 +511,13 @@ func newBypassSpanCollector(t *testing.T) *bypassSpanCollector {
 	c := &bypassSpanCollector{byName: make(map[string][]*tracev1.Span)}
 	c.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
+		assert.NoError(t, err)
 		if r.URL.Path != "/v1/traces" {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
 		var req coltracepb.ExportTraceServiceRequest
-		require.NoError(t, proto.Unmarshal(body, &req))
+		assert.NoError(t, proto.Unmarshal(body, &req))
 		c.mu.Lock()
 		for _, rs := range req.ResourceSpans {
 			for _, ss := range rs.ScopeSpans {
@@ -615,7 +616,7 @@ func TestBypass_EmitsUsageAndCost(t *testing.T) {
 	env := bypassAnthropicEnvelope(t)
 	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	buf := otel.NewBuffer(emitter)
 	ctx := telemetry.WithRecorder(context.Background(), buf)
@@ -691,7 +692,7 @@ func TestBypass_PersistsTelemetryRowWithUnifiedHeaders(t *testing.T) {
 	env := bypassAnthropicEnvelope(t)
 	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	// Subscription bearer on the inbound request: resolveAndInjectCredentials
 	// inside bypassToAnthropic resolves it, so the header observer treats the
 	// upstream call as subscription-served.
@@ -762,7 +763,7 @@ func TestBypass_NoTelemetryRowWithoutInstallation(t *testing.T) {
 	env := bypassAnthropicEnvelope(t)
 	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	err := svc.bypassToAnthropic(context.Background(), env, feats, false, time.Now(), "req-tel-2", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
 	require.NoError(t, err)
@@ -784,7 +785,7 @@ func TestBypass_TelemetryRowClassifiesOutputCap(t *testing.T) {
 	env := bypassAnthropicEnvelope(t)
 	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, uuid.New().String())
 
 	err := svc.bypassToAnthropic(ctx, env, feats, false, time.Now(), "req-tel-3", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)

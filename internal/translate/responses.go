@@ -335,7 +335,7 @@ func StripRoutingBadgeFromResponsesInput(body []byte) ([]byte, error) {
 	changed := false
 	for _, item := range itemRaws {
 		itemType := item.Get("type").Str
-		if itemType != "message" && !(itemType == "" && item.Get("role").Str != "") {
+		if itemType != "message" && (itemType != "" || item.Get("role").Str == "") {
 			newItemRaws = append(newItemRaws, item.Raw)
 			continue
 		}
@@ -431,7 +431,7 @@ func StripFeedbackFooterFromResponsesInput(body []byte) ([]byte, error) {
 	changed := false
 	for _, item := range itemRaws {
 		itemType := item.Get("type").Str
-		if itemType != "message" && !(itemType == "" && item.Get("role").Str != "") {
+		if itemType != "message" && (itemType != "" || item.Get("role").Str == "") {
 			newItemRaws = append(newItemRaws, item.Raw)
 			continue
 		}
@@ -1795,19 +1795,6 @@ func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) err
 	return t.writeNativeResponsesFrame(rewritten, delimiter)
 }
 
-func (t *ResponsesWriter) shouldHoldNativeEvent(eventType responsesEventType, itemType responsesItemType) bool {
-	if t.footerText == "" || t.sawToolCall {
-		return false
-	}
-	switch eventType {
-	case responsesOutputTextDone, responsesContentPartDone:
-		return true
-	case responsesOutputItemDone:
-		return itemType == responsesMessageItem || itemType == ""
-	}
-	return false
-}
-
 func (t *ResponsesWriter) flushNativeHeldEvents(commitFooter bool) error {
 	if len(t.nativeHeldEvents) == 0 {
 		return nil
@@ -2508,7 +2495,7 @@ func (t *ResponsesWriter) emitFunctionArgsDelta(item *responsesToolItem, delta s
 
 func (t *ResponsesWriter) emitFunctionArgsDone(item *responsesToolItem) error {
 	if item.mapping.Custom {
-		input, err := customToolInput(item.call.Arguments)
+		input, err := truncationAwareCustomToolInput(item.call.Arguments, t.finishReason)
 		if err != nil {
 			return err
 		}
@@ -2533,7 +2520,7 @@ func (t *ResponsesWriter) emitFunctionArgsDone(item *responsesToolItem) error {
 
 func (t *ResponsesWriter) emitFunctionCallItemDone(item *responsesToolItem) error {
 	if item.mapping.Custom {
-		input, err := customToolInput(item.call.Arguments)
+		input, err := truncationAwareCustomToolInput(item.call.Arguments, t.finishReason)
 		if err != nil {
 			return err
 		}
@@ -2706,7 +2693,7 @@ func chatCompletionToResponse(body []byte, responseID, model string, createdAt i
 			item["namespace"] = mapping.Namespace
 		}
 		if mapping.Custom {
-			input, err := customToolInput(call.Arguments)
+			input, err := truncationAwareCustomToolInput(call.Arguments, root.Get("choices.0.finish_reason").Str)
 			if err != nil {
 				return nil, err
 			}

@@ -59,6 +59,9 @@ type goldenStep struct {
 	err     error
 	// cancel cancels the client's request context after frames are written.
 	cancel bool
+	// pause holds the stream open before the last frame, in wall-clock time,
+	// so a keepalive writer can fire once the response has committed.
+	pause time.Duration
 }
 
 func goldenUpstreamError(status int, body string) goldenStep {
@@ -103,10 +106,13 @@ func (p *goldenProvider) Proxy(ctx context.Context, decision router.Decision, pr
 			w.Header().Set(k, v)
 		}
 		w.WriteHeader(max(step.status, http.StatusOK))
-		for _, frame := range step.frames {
+		for i, frame := range step.frames {
 			_, _ = w.Write([]byte(frame))
 			if f, ok := w.(http.Flusher); ok {
 				f.Flush()
+			}
+			if i == len(step.frames)-2 && step.pause > 0 {
+				time.Sleep(step.pause)
 			}
 		}
 	}
@@ -164,6 +170,7 @@ type goldenRouteCall struct {
 	Provider          string   `json:"provider,omitempty"`
 	Reason            string   `json:"reason,omitempty"`
 	Error             string   `json:"error,omitempty"`
+	Request           any      `json:"request,omitempty"`
 }
 
 // goldenRouter returns the first decision whose model is not excluded.

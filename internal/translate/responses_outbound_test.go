@@ -27,9 +27,9 @@ func gjsonStopReason(b []byte) string {
 	return s
 }
 
-func openAIReasoningTestSignature(t *testing.T, id, enc, scope string) string {
+func openAIReasoningTestSignature(t *testing.T, id, enc string) string {
 	t.Helper()
-	b, err := json.Marshal(map[string]any{"v": 1, "provider": "openai", "id": id, "enc": enc, "scope": scope})
+	b, err := json.Marshal(map[string]any{"v": 1, "provider": "openai", "id": id, "enc": enc, "scope": "scope_a"})
 	require.NoError(t, err)
 	return base64.StdEncoding.EncodeToString(b)
 }
@@ -103,7 +103,7 @@ func TestPrepareOpenAIResponses_RequestShape(t *testing.T) {
 	for _, it := range input {
 		m, _ := it.(map[string]any)
 		if r, ok := m["role"]; ok {
-			types = append(types, "msg:"+r.(string))
+			types = append(types, "msg:"+mustAs[string](t, r))
 			continue
 		}
 		switch m["type"] {
@@ -151,7 +151,7 @@ func TestPrepareOpenAIResponses_SanitizesHistoricalToolName(t *testing.T) {
 	require.Len(t, input, 2)
 	call, _ := input[0].(map[string]any)
 	assert.Regexp(t, `^dots_schema_search_--scope_all_[0-9a-f]{10}$`, call["name"])
-	assert.Equal(t, "dots schema search --scope all", prep.ResponseToolNames[call["name"].(string)])
+	assert.Equal(t, "dots schema search --scope all", prep.ResponseToolNames[mustAs[string](t, call["name"])])
 }
 
 func topLevelResponsesFields(t *testing.T, body []byte) []string {
@@ -358,7 +358,7 @@ func TestPrepareOpenAIResponses_ClampsGeminiThoughtSignatureCallID(t *testing.T)
 }
 
 func TestPrepareOpenAIResponses_ReplaysSignedReasoning(t *testing.T) {
-	sig := openAIReasoningTestSignature(t, "rs_prev", "enc_prev", "scope_a")
+	sig := openAIReasoningTestSignature(t, "rs_prev", "enc_prev")
 	body := []byte(`{
 		"model":"claude-opus-4-8","max_tokens":1024,
 		"thinking":{"type":"enabled","budget_tokens":8192},
@@ -393,9 +393,9 @@ func TestPrepareOpenAIResponses_ReplaysSignedReasoning(t *testing.T) {
 }
 
 func TestPrepareOpenAIResponses_ReplaysOnlyCurrentTurnReasoning(t *testing.T) {
-	prior := openAIReasoningTestSignature(t, "rs_prior", "enc_prior", "scope_a")
-	promptBLoop := openAIReasoningTestSignature(t, "rs_loop", "enc_loop", "scope_a")
-	current := openAIReasoningTestSignature(t, "rs_current", "enc_current", "scope_a")
+	prior := openAIReasoningTestSignature(t, "rs_prior", "enc_prior")
+	promptBLoop := openAIReasoningTestSignature(t, "rs_loop", "enc_loop")
+	current := openAIReasoningTestSignature(t, "rs_current", "enc_current")
 	priorCarrierID := "toolu_0__openai_reasoning__" + base64.RawURLEncoding.EncodeToString([]byte(prior))
 	head := `
 		{"role":"user","content":"prompt A"},
@@ -459,7 +459,7 @@ func TestPrepareOpenAIResponses_ReplaysOnlyCurrentTurnReasoning(t *testing.T) {
 }
 
 func TestPrepareOpenAIResponses_ReplaysSignedReasoningAfterModelSwitch(t *testing.T) {
-	sig := openAIReasoningTestSignature(t, "rs_prev", "enc_prev", "scope_a")
+	sig := openAIReasoningTestSignature(t, "rs_prev", "enc_prev")
 	body := []byte(`{
 		"model":"claude-opus-4-8","max_tokens":1024,
 		"thinking":{"type":"enabled","budget_tokens":8192},
@@ -501,7 +501,7 @@ func TestPrepareOpenAIResponses_ReplaysSignedReasoningAfterModelSwitch(t *testin
 // and the rejected turn ends the client session, so a turn dispatched
 // anywhere else drops the item instead of replaying it.
 func TestPrepareOpenAIResponses_DropsReasoningMintedOnAnotherAccount(t *testing.T) {
-	sig := openAIReasoningTestSignature(t, "rs_prev", "enc_prev", "scope_a")
+	sig := openAIReasoningTestSignature(t, "rs_prev", "enc_prev")
 	// Claude Code drops the thinking block but echoes the tool_use id, so the
 	// envelope rides on both carriers and both must honor the scope.
 	carrierID := "toolu_1__openai_reasoning__" + base64.RawURLEncoding.EncodeToString([]byte(sig))
@@ -594,8 +594,8 @@ func TestResponsesToAnthropicResponse(t *testing.T) {
 	b0, _ := content[0].(map[string]any)
 	assert.Equal(t, "thinking", b0["type"])
 	assert.Equal(t, "thinking about it", b0["thinking"])
-	sigEnv := decodeOpenAIReasoningTestSignature(t, b0["signature"].(string))
-	assert.Equal(t, float64(1), sigEnv["v"])
+	sigEnv := decodeOpenAIReasoningTestSignature(t, mustAs[string](t, b0["signature"]))
+	assert.InDelta(t, float64(1), sigEnv["v"], 1e-9)
 	assert.Equal(t, "openai", sigEnv["provider"])
 	assert.Equal(t, "rs_1", sigEnv["id"])
 	assert.Equal(t, "enc_1", sigEnv["enc"])

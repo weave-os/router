@@ -33,6 +33,7 @@ import (
 	"weave-os/router/internal/escalationmodal"
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/flags"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/observability/apm"
 	"weave-os/router/internal/observability/otel"
@@ -153,7 +154,7 @@ func main() {
 	switch deploymentMode {
 	case server.DeploymentModeSelfHosted, server.DeploymentModeManaged:
 	default:
-		err := fmt.Errorf("Invalid ROUTER_DEPLOYMENT_MODE %q (expected %q or %q)", deploymentMode, server.DeploymentModeSelfHosted, server.DeploymentModeManaged)
+		err := fmt.Errorf("invalid ROUTER_DEPLOYMENT_MODE %q (expected %q or %q)", deploymentMode, server.DeploymentModeSelfHosted, server.DeploymentModeManaged)
 		logger.Error("Refusing to boot with invalid deployment mode", "err", err)
 		panic(err)
 	}
@@ -577,7 +578,7 @@ func main() {
 		logger.Error("Failed to create Pub/Sub client", "err", err)
 		panic(err)
 	}
-	defer pubsubClient.Close()
+	defer func() { _ = pubsubClient.Close() }()
 
 	publisher := pubsubClient.Publisher(pubsubTopicID)
 	notifier := routerpubsub.NewInvalidationNotifier(publisher)
@@ -618,25 +619,7 @@ func main() {
 		WithFlagOverridesDisabled(flagOverridesDisabled).
 		WithSessionSpendCaps(billingSvc != nil)
 	subscriptionPoolsEnabled := config.GetOr("ROUTER_SUBSCRIPTION_POOLS_ENABLED", "false") == "true"
-	var subscriptionRuntime *subscriptions.Runtime
-	var subscriptionLogins admin.SubscriptionLoginFlow
-	if subscriptionPoolsEnabled {
-		authSvc.WithSubscriptionAccounts(repo.SubscriptionAccounts)
-		codexTokenURL := ""
-		if codexIssuer := strings.TrimRight(config.GetOr("WEAVE_CODEX_OAUTH_ISSUER", ""), "/"); codexIssuer != "" {
-			codexTokenURL = codexIssuer + "/oauth/token"
-		}
-		subscriptionOAuth := subscriptions.NewOAuthClient(
-			&http.Client{Timeout: subscriptions.RefreshHTTPTimeout}, codexTokenURL,
-			config.GetOr("WEAVE_ANTHROPIC_OAUTH_TOKEN", ""), time.Now,
-		)
-		authSvc.WithCodexEnrollmentVerifier(subscriptionOAuth)
-		subscriptionLogins = subscriptionOAuth
-		subscriptionRuntime = subscriptions.NewRuntime(authSvc, subscriptionOAuth, time.Now)
-		logger.Info("Server-side subscription account pools enabled")
-	} else {
-		logger.Info("Server-side subscription account pools disabled")
-	}
+	subscriptionRuntime, subscriptionLogins := buildSubscriptionRuntime(subscriptionPoolsEnabled, authSvc, repo.SubscriptionAccounts, logger)
 
 	// Fans out Pub/Sub invalidations to this replica's cache; the 5-min TTL
 	// is the safety net if the listener falls behind.
@@ -809,7 +792,6 @@ func main() {
 	// nativeOpenAIResponseSignals is the same kill switch for the OpenAI-native
 	// surfaces: chat/completions passthrough and /v1/responses passthrough.
 	nativeOpenAIResponseSignals := config.GetOr("ROUTER_NATIVE_OPENAI_RESPONSE_SIGNALS", "true") == "true"
-	sseKeepalive := sseKeepaliveInterval()
 	ccOrchToolsCrossVendor := config.GetOr("ROUTER_CC_ORCH_TOOLS_CROSSVENDOR", "true") == "true"
 	ccTaskToolsCrossVendor := config.GetOr("ROUTER_CC_TASK_TOOLS_CROSSVENDOR", "false") == "true"
 	ccAutonomySystemAppend := config.GetOr("ROUTER_CC_AUTONOMY_SYSTEM_APPEND", "false") == "true"
@@ -1136,12 +1118,12 @@ func main() {
 				logger.Error("Router policy registry failed to initialize; refusing to boot", "err", registryErr)
 				panic(registryErr)
 			}
-			defer gcsRegistry.Close()
+			defer func() { _ = gcsRegistry.Close() }()
 			policyRegistry = gcsRegistry
 			policyEnvironment = policyregistry.Environment(policyEnvironmentRaw)
 		}
 		hmmTimeout := parseEnvDurationMs("ROUTER_HMM_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout)
-		hmmAttemptTimeout := parseEnvAttemptTimeoutMs("ROUTER_HMM_SIDECAR_ATTEMPT_TIMEOUT_MS", policyclient.DeriveAttemptTimeout(hmmTimeout))
+		hmmAttemptTimeout := parseEnvAttemptTimeoutMs(policyclient.DeriveAttemptTimeout(hmmTimeout))
 		hmmAuthMode := config.GetOr("ROUTER_HMM_SIDECAR_AUTH", defaultSidecarAuth)
 		stableManager, managerErr := policyregistry.NewManager(
 			policyRegistry,
@@ -1168,7 +1150,7 @@ func main() {
 		stableDynamicRouter := policyregistry.NewDynamicRouter(stableManager, router.StrategyHMM)
 		hmmRouter = stableDynamicRouter
 		hmmEmbeddingRouter = policyregistry.NewDynamicRouter(stableManager, router.StrategyHMMEmbedding)
-		hmmCapabilities = hmmRouter.(policy.CapabilitySource).CurrentCapabilities()
+		hmmCapabilities = stableDynamicRouter.CurrentCapabilities()
 		hmmReadinessChecker = stableManager
 		policyStatus = stableManager
 		hmmRosterSources = map[router.Strategy]policy.RosterSource{
@@ -1203,8 +1185,8 @@ func main() {
 			cancelBetaRefresh()
 			if betaRefreshErr != nil {
 				logger.Warn("No valid beta router policy snapshot; beta disabled", "err", betaRefreshErr)
-			} else {
-				hmmBetaCapabilities = hmmBetaRouter.(policy.CapabilitySource).CurrentCapabilities()
+			} else if source, ok := hmmBetaRouter.(policy.CapabilitySource); ok {
+				hmmBetaCapabilities = source.CurrentCapabilities()
 			}
 		}
 		policyInvalidationTopic := strings.TrimSpace(config.GetOr("PUBSUB_TOPIC_ROUTER_POLICY_INVALIDATION", ""))
@@ -1405,7 +1387,7 @@ func main() {
 		WithProviderOverloaded(providerOverloaded, breaker.New(breaker.Defaults(), nil)).
 		WithNativeAnthropicResponseSignals(nativeAnthropicResponseSignals).
 		WithNativeOpenAIResponseSignals(nativeOpenAIResponseSignals).
-		WithSSEKeepalive(sseKeepalive).
+		WithIngress(ingress.New(sseKeepaliveInterval())).
 		WithPrefixTrimFreeSwitch(prefixTrimFreeSwitch).
 		WithHMMUpgradeConfidenceThreshold(hmmUpgradeConfidence).
 		WithAuthoritativeUpgradeConfig(upgradeConfig).
@@ -1451,7 +1433,7 @@ func main() {
 		logger.Error("Failed to configure atomic classifier", "err", err)
 		panic(err)
 	}
-	proxySvc = proxySvc.WithInferenceExecutor(inferenceExecutor).WithInferencePlans(inferencePlans).WithInferenceDeployment(inferenceDeployment)
+	proxySvc = withRoutingPolicy(proxySvc.WithInferenceExecutor(inferenceExecutor).WithInferencePlans(inferencePlans).WithInferenceDeployment(inferenceDeployment), inferencePlans)
 	if subscriptionRuntime != nil {
 		proxySvc.WithManagedSubscriptions(subscriptionRuntime)
 	}
@@ -1617,6 +1599,7 @@ func main() {
 	logger.Info("Router startup initialization complete")
 	serverFeatures := server.Features{
 		SubscriptionLogins:       subscriptionLogins,
+		SubscriptionRefresh:      subscriptionRuntime,
 		StartupDatabasePing:      pool.Ping,
 		TestPlans:                testPlans,
 		PolicyPinEnabled:         policyPinEnabled,
@@ -1784,7 +1767,7 @@ func buildWIFTokenSource(logger *slog.Logger) auth.WIFTokenSource {
 		logger.Info("Workload identity federation enabled", "provider", provider, "token_file", path)
 		return wif.NewFileTokenSource(path)
 	default:
-		err := fmt.Errorf("Invalid ROUTER_WIF_PROVIDER %q (expected %q or %q)", provider, auth.WIFProviderGCP, auth.WIFProviderOIDC)
+		err := fmt.Errorf("invalid ROUTER_WIF_PROVIDER %q (expected %q or %q)", provider, auth.WIFProviderGCP, auth.WIFProviderOIDC)
 		logger.Error("Refusing to boot with invalid workload identity provider", "err", err)
 		panic(err)
 	}
@@ -1992,11 +1975,11 @@ func parseEnvDurationMs(key string, fallback time.Duration) time.Duration {
 // parseEnvAttemptTimeoutMs is parseEnvDurationMs with 0 kept as a real value:
 // it is how an operator disables the per-attempt bound, which the shared parser
 // would otherwise reject and invert into the derived bound.
-func parseEnvAttemptTimeoutMs(key string, fallback time.Duration) time.Duration {
-	if ms, err := strconv.Atoi(config.GetOr(key, "")); err == nil && ms == 0 {
+func parseEnvAttemptTimeoutMs(fallback time.Duration) time.Duration {
+	if ms, err := strconv.Atoi(config.GetOr(hmmAttemptTimeoutEnv, "")); err == nil && ms == 0 {
 		return 0
 	}
-	return parseEnvDurationMs(key, fallback)
+	return parseEnvDurationMs(hmmAttemptTimeoutEnv, fallback)
 }
 
 // safeGo launches fn in a goroutine with panic recovery so a bug in a
@@ -2025,7 +2008,7 @@ func runSessionPinSweep(ctx context.Context, store sessionpin.Store) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			sweepCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			sweepCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 			if err := store.SweepExpired(sweepCtx); err != nil {
 				logger.Error("Session pin sweep failed", "err", err)
 			}
@@ -2117,15 +2100,6 @@ func resolveHardPinModel() (provider, model string, resolutionErr error) {
 		return "", "", errors.New("ROUTER_HARD_PIN_PROVIDER requires ROUTER_HARD_PIN_MODEL")
 	}
 	return policy.UtilityHardPinDefaultProvider, policy.UtilityHardPinDefaultModel, nil
-}
-
-// envVarHint returns the env var name for a provider's API key, for log
-// warnings; falls back to a readable "unknown provider" string.
-func envVarHint(provider string) string {
-	if v := providers.APIKeyEnvVar(provider); v != "" {
-		return v
-	}
-	return "<unknown provider " + provider + ">"
 }
 
 // upstreamIDsForProvider maps public model ID -> upstream model ID for a

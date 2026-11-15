@@ -77,7 +77,7 @@ func (s *Service) firePolicyShadowDecision(ctx context.Context, servingStrategy 
 		"serving_strategy", servingStrategy,
 		"shadow_strategy", shadowStrategy,
 	)
-	observability.SafeGo(log, policyShadowDecisionTimeout, "policyShadowDecision", func(shadowCtx context.Context) {
+	observability.SafeGoContext(withoutRequestValues(ctx), log, policyShadowDecisionTimeout, "policyShadowDecision", func(shadowCtx context.Context) {
 		started := time.Now()
 		shadow, err := s.routeWithStrategy(shadowCtx, shadowStrategy, shadowReq)
 		event := base

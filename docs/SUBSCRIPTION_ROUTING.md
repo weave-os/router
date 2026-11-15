@@ -170,7 +170,15 @@ same model or a scored sibling) is admitted while the mark is live. The mark is
 not quota evidence and is never persisted to the account. Model compatibility is
 catalog-based; an unrelated provider's available subscription does not block an
 API-only model. Rescue eligibility never overrides the final paid-credential
-funding guard: depleted credits and spend caps still prohibit paid dispatch.
+funding guard: depleted credits and spend caps still prohibit Weave-funded
+dispatch.
+
+A turn whose credits are depleted or whose spend cap is reached still serves on
+every customer-funded option before the 402: the caller's own plan, and the
+customer's usable connected provider key in its funding-priority order
+(`key_first` before the plan, `plan_first` once the plan is observed exhausted).
+Weave's deployment keys never fund it, and a failed key attempt is not rescued
+on them.
 
 Quota-verification failures are not inference-capacity failures. Preflight
 timeouts, quota-endpoint errors, and unverifiable responses retain a shared typed
@@ -280,3 +288,53 @@ Codex account: every admitted attempt verifies fresh quota/credit metadata.
 Configure the spending allowance with OpenAI; this switch is spending consent,
 not a router-enforced monetary cap. No inference is needed to test the option;
 regression tests use synthetic quota responses and a local provider server.
+
+### Seat-scoped refresh and early-refresh canaries
+
+The internal control-plane API accepts
+`POST /internal/v1/subscription-accounts/:subscriberID/:accountID/refresh`.
+It requires `X-Weave-Internal-Token`, like the existing internal subscription
+management routes. The subscriber must directly own the account; access through
+an installation's shared pool does not authorize manual refresh. Disabled seats and credential cooldowns remain unavailable. A maintenance
+refresh may renew a quota-exhausted seat, but it never clears that quota state
+or makes the seat available for inference. Refresh cannot reconnect a revoked
+login.
+
+The operation refreshes an otherwise valid credential through the ordinary
+cross-replica lease, heartbeat, identity check and atomic version-fenced token
+save. Concurrent callers that observed the same generation adopt the published
+replacement. The JSON response contains the account ID, provider, token refresh
+version, last successful refresh timestamp, reported access-token expiry and next refresh time. It never returns
+tokens. Manual failures return an error without replacing quota or credential health;
+ordinary serving continues to own credential-health decisions.
+
+Early refresh is off by default. To select a canary, set both
+`ROUTER_SUBSCRIPTION_EARLY_REFRESH_ACCOUNT_IDS` to explicit subscription-account
+UUIDs and `ROUTER_SUBSCRIPTION_EARLY_REFRESH_MAX_AGE` to a Go duration such as
+`144h`. When subscription pools are enabled, invalid or incomplete configuration fails
+startup. There is no wildcard
+or organization-wide default. The policy only applies to listed Codex seats.
+
+For an enrolled seat, the runtime refreshes on use before the earlier of the
+provider's reported expiry and the last successful refresh time plus the configured
+age. The nullable `token_refreshed_at` column is published atomically with each
+credential generation. For existing rows without that metadata, the access token's
+`iat` supplies the initial age.
+The fallback JWT timestamp only shortens caching; it grants no authorization. Missing or
+unparseable issuance metadata leaves the existing expiry behavior in place.
+An idle seat is not refreshed by a background scheduler. A transient early
+refresh failure retains genuinely unexpired access and retries after a short
+local backoff; terminal issuer rejections retain the existing credential-health
+handling.
+
+Migration `0152_subscription-token-refreshed-at` must run before the new worker
+queries the column; deploy the schema before the binary. No historical timestamps
+are fabricated or backfilled. Roll back the binary before dropping the column.
+
+Successful refresh logs contain account/provider, typed reason (`access_expiry`,
+`credential_age`, or `manual`), issuance and refresh timestamps, resulting token
+version, reported expiry, next refresh time and whether a lease was taken over.
+No token material is logged. Use these fields to distinguish a renewed rolling
+lifetime from a hard session cutoff. A six-day canary is an experiment based on
+observed incidents, not a claim about OpenAI's session policy. Keep rollout scoped
+until real provider behavior across the suspected boundary is observed.

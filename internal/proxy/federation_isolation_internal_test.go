@@ -8,12 +8,13 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/router"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestUnavailableFederationIsIsolatedToItsProvider(t *testing.T) {
@@ -26,14 +27,14 @@ func TestUnavailableFederationIsIsolatedToItsProvider(t *testing.T) {
 	resolvedAnthropic := resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, model, nil)
 	anthropicCredential := CredentialsFromContext(resolvedAnthropic)
 	require.NotNil(t, anthropicCredential)
-	assert.ErrorIs(t, anthropicCredential.CredentialError, auth.ErrAnthropicFederationUnavailable)
+	require.ErrorIs(t, anthropicCredential.CredentialError, auth.ErrAnthropicFederationUnavailable)
 	assert.Empty(t, anthropicCredential.APIKey)
 
 	resolvedOpenAI := resolveAndInjectCredentials(ctx, providers.ProviderOpenAI, "gpt-5", nil)
 	openAICredential := CredentialsFromContext(resolvedOpenAI)
 	require.NotNil(t, openAICredential)
 	assert.Equal(t, "synthetic-openai-key", string(openAICredential.APIKey))
-	assert.NoError(t, openAICredential.CredentialError)
+	require.NoError(t, openAICredential.CredentialError)
 
 	var upstreamCalls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -42,7 +43,7 @@ func TestUnavailableFederationIsIsolatedToItsProvider(t *testing.T) {
 	}))
 	defer upstream.Close()
 	client := anthropic.NewClient("synthetic-platform-key", upstream.URL)
-	request := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader("{}"))
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader("{}"))
 	err := client.Proxy(resolvedAnthropic, router.Decision{Provider: providers.ProviderAnthropic, Model: model}, providers.PreparedRequest{Body: []byte(`{"model":"claude-opus-5-5"}`), Headers: make(http.Header)}, httptest.NewRecorder(), request)
 	require.ErrorIs(t, err, auth.ErrAnthropicFederationUnavailable)
 	assert.Zero(t, upstreamCalls.Load(), "the platform Anthropic key must never be used as a fallback")
@@ -63,7 +64,7 @@ func TestFederationOutageDoesNotBlockOpenAIInference(t *testing.T) {
 	ctx = context.WithValue(ctx, InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 	body := []byte(`{"model":"claude-opus-4-8","max_tokens":100,"messages":[{"role":"user","content":"hello"}]}`)
 	recorder := httptest.NewRecorder()
-	err := service.ProxyMessages(ctx, body, recorder, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+	err := service.ProxyMessages(ctx, body, recorder, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
 	require.NoError(t, err)
 	assert.Equal(t, 1, upstream.dispatches)
 	require.NotNil(t, CredentialsFromContext(upstream.capturedCtx))
@@ -80,7 +81,7 @@ func TestFederationOutageFailsClosedOnAnthropicInference(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{ID: "federation-key", Provider: providers.ProviderAnthropic, AuthType: auth.AuthTypeAnthropicWIF, CredentialError: auth.ErrAnthropicFederationUnavailable}})
 	ctx = context.WithValue(ctx, InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 	body := []byte(`{"model":"claude-opus-4-8","max_tokens":100,"messages":[{"role":"user","content":"hello"}]}`)
-	err := service.ProxyMessages(ctx, body, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+	err := service.ProxyMessages(ctx, body, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
 	require.ErrorIs(t, err, auth.ErrAnthropicFederationUnavailable)
 	classification, matched := ClassifyDispatchError(err)
 	require.True(t, matched)

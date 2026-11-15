@@ -43,7 +43,7 @@ func TestModelPreparationMountedOnlyWithManagedAdmissionAndRequiresAuth(t *testi
 					path += "/fc-synthetic1"
 				}
 				response := httptest.NewRecorder()
-				engine.ServeHTTP(response, httptest.NewRequest(method, path, strings.NewReader(`{}`)))
+				engine.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), method, path, strings.NewReader(`{}`)))
 				require.Equal(t, http.StatusUnauthorized, response.Code)
 			}
 		})

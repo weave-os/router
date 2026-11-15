@@ -45,7 +45,7 @@ func main() {
 		}
 		fmt.Printf("Wrote %s\n", path)
 	}
-	if err := os.WriteFile(piPricingPath, []byte(buildTypeScript(table)), 0o644); err != nil {
+	if err := os.WriteFile(piPricingPath, []byte(buildTypeScript(table)), 0o600); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: writing %s: %v\n", piPricingPath, err)
 		os.Exit(1)
 	}
@@ -55,7 +55,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: encoding %s: %v\n", benchPricingPath, err)
 		os.Exit(1)
 	}
-	if err := os.WriteFile(benchPricingPath, benchJSON, 0o644); err != nil {
+	if err := os.WriteFile(benchPricingPath, benchJSON, 0o600); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: writing %s: %v\n", benchPricingPath, err)
 		os.Exit(1)
 	}
@@ -108,7 +108,7 @@ func spliceFile(path, block string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(updated), 0o755)
+	return os.WriteFile(path, []byte(updated), 0o600)
 }
 
 // buildBlock produces the shell prices='{...}' assignment from the pricing

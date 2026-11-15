@@ -205,6 +205,7 @@ func (e *RequestEnvelope) ClientSessionID() string {
 		return requestcontext.BodySessionID(e.body, requestcontext.ConversationGemini)
 	case FormatOpenAI:
 		return requestcontext.BodySessionID(e.body, requestcontext.ConversationChat)
+	case FormatOpenAIResponses:
 	}
 	return ""
 }
@@ -1015,7 +1016,7 @@ var routingMarkerPattern = replayedNoticePattern
 // responses (see proxy.Service.feedbackFooter), absorbing leading newlines
 // and everything to end of line since there's no fixed end-anchor. Keep the
 // sentinel in sync with proxy.feedbackFooterText.
-var feedbackFooterPattern = regexp.MustCompile("\\n*_Weave Router feedback:_ [^\\n]*")
+var feedbackFooterPattern = regexp.MustCompile(`\n*_Weave Router feedback:_ [^\n]*`)
 
 // StripRoutingMarkerFromMessages removes the routing-marker snippet from every
 // text block in messages[*].content[*]. Stripping on ingress keeps it out of
@@ -1346,22 +1347,6 @@ func resolveForceEffort(opts EmitOptions) string {
 	return ResolveForceEffort(opts.Capabilities, opts.ForceEffort)
 }
 
-// effortForBudget maps legacy thinking.budget_tokens onto an adaptive
-// output_config.effort tier per Anthropic's guidance (≤4k low, ≤16k medium,
-// else high). Missing/zero budget defaults to "medium".
-func effortForBudget(budgetTokens int64) string {
-	switch {
-	case budgetTokens <= 0:
-		return "medium"
-	case budgetTokens <= 4096:
-		return effortLow
-	case budgetTokens <= 16384:
-		return "medium"
-	default:
-		return "high"
-	}
-}
-
 func resolveAnthropicOverrides(body []byte, opts EmitOptions) EmitOverrides {
 	ov := EmitOverrides{
 		Model:                        opts.TargetModel,
@@ -1557,9 +1542,9 @@ func defaultOutputTokens(model string) int64 {
 	return defaultMaxOutputTokenCap
 }
 
-// defaultAnthropicOutputTokens leaves enough room for hidden reasoning on
-// always-on adaptive targets while respecting a documented model cap below the
-// reasoning floor. Explicit caller max_tokens values are handled separately
+// defaultAnthropicOutputTokens leaves room for hidden reasoning and long tool
+// calls on always-on adaptive targets while respecting a documented model cap
+// below anthropicAdaptiveDefaultOutputTokens. Explicit caller max_tokens values are handled separately
 // and are intentionally not changed here.
 func defaultAnthropicOutputTokens(model string, capabilities router.ModelSpec) int64 {
 	if !capabilities.Supports(router.CapAdaptiveThinking) {
@@ -1572,7 +1557,7 @@ func defaultAnthropicOutputTokens(model string, capabilities router.ModelSpec) i
 	if !capabilities.Supports(router.CapAdaptiveThinking) || !capabilities.Reasoning().AlwaysOn {
 		return defaultTokens
 	}
-	floored := reasoningOutputFloor(defaultTokens, true)
+	floored := int64(anthropicAdaptiveDefaultOutputTokens)
 	if tokenCap, ok := modelMaxOutputTokens[model]; ok && int64(tokenCap) < floored {
 		return int64(tokenCap)
 	}

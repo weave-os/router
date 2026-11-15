@@ -51,7 +51,7 @@ func TestProxy_CodexOutOfRosterModelPreservesSelectedWireID(t *testing.T) {
 	}
 	err := client.Proxy(codexCtx("synthetic-codex-jwt", "synthetic-account"), router.Decision{
 		Model: model, Provider: providers.ProviderOpenAI,
-	}, prepared, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+	}, prepared, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
 	require.NoError(t, err)
 	assert.Equal(t, model, receivedModel)
 }
@@ -83,7 +83,7 @@ func TestProxy_CodexLunaSubscriptionDispatch(t *testing.T) {
 	}
 	err := client.Proxy(codexCtx("synthetic-codex-jwt", "synthetic-account"), router.Decision{
 		Model: model, Provider: providers.ProviderOpenAI,
-	}, prepared, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+	}, prepared, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
 	require.NoError(t, err)
 	assert.Equal(t, model, receivedModel)
 	assert.Equal(t, "synthetic-account", receivedAccount)
@@ -119,7 +119,7 @@ func TestProxy_CodexSubscriptionDispatch(t *testing.T) {
 	body := []byte(`{"model":"gpt-5.6-sol","input":"hi","stream":true}`)
 	prep := providers.PreparedRequest{Body: body, Endpoint: providers.EndpointResponses, Headers: make(http.Header)}
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 
 	ctx := codexCtx("eyJhbGciOiJ-codex-jwt", "acct-12345")
 	err := c.Proxy(ctx, router.Decision{Model: "gpt-5.6-sol", Provider: providers.ProviderOpenAI}, prep, rec, clientReq)
@@ -165,7 +165,7 @@ func TestProxy_CodexSubscriptionStripsUnsupportedParams(t *testing.T) {
 		router.Decision{Model: "gpt-5.6-sol", Provider: providers.ProviderOpenAI},
 		prep,
 		httptest.NewRecorder(),
-		httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader("")),
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader("")),
 	)
 	require.NoError(t, err)
 
@@ -186,7 +186,7 @@ func TestProxy_CodexSubscriptionCredentialRejectsInfrastructureModel(t *testing.
 		Headers:  make(http.Header),
 	}
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 
 	err := c.Proxy(
 		codexCtx("eyJhbGciOiJ-codex-jwt", "acct-12345"),
@@ -215,12 +215,12 @@ func TestProxy_CodexCredOnChatEndpointIsRejected(t *testing.T) {
 
 	prep := providers.PreparedRequest{Body: []byte(`{"model":"gpt-5.6-sol","messages":[]}`), Headers: make(http.Header)}
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 
 	ctx := codexCtx("eyJhbGciOiJ-codex-jwt", "acct-12345")
 	err := c.Proxy(ctx, router.Decision{Model: "gpt-5.6-sol", Provider: providers.ProviderOpenAI}, prep, rec, clientReq)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "Codex subscription credentials require a Responses endpoint")
+	assert.Contains(t, err.Error(), "codex subscription credentials require a Responses endpoint")
 	assert.Zero(t, requests, "Codex OAuth must never be sent to the public Chat Completions endpoint")
 }
 
@@ -245,7 +245,7 @@ func TestProxy_NoCodexCredHitsOpenAI(t *testing.T) {
 
 	prep := providers.PreparedRequest{Body: []byte(`{"model":"gpt-5.5"}`), Headers: make(http.Header)}
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 
 	err := c.Proxy(context.Background(), router.Decision{Model: "gpt-5.5", Provider: providers.ProviderOpenAI}, prep, rec, clientReq)
 	require.NoError(t, err)
@@ -288,7 +288,7 @@ func TestProxy_ResponsesMaxEffortMatchesPublicModelMenu(t *testing.T) {
 				router.Decision{Model: tc.model, Provider: providers.ProviderOpenAI},
 				prep,
 				httptest.NewRecorder(),
-				httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader("")),
+				httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader("")),
 			)
 			require.NoError(t, err)
 
@@ -320,7 +320,7 @@ func TestProxy_ResponsesMaxEffortUnchangedWithCodexCred(t *testing.T) {
 	body := []byte(`{"model":"gpt-5.6-sol","input":"hi","stream":true,"reasoning":{"effort":"max","summary":"detailed"}}`)
 	prep := providers.PreparedRequest{Body: body, Endpoint: providers.EndpointResponses, Headers: make(http.Header)}
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 
 	ctx := codexCtx("eyJhbGciOiJ-codex-jwt", "acct-12345")
 	err := c.Proxy(ctx, router.Decision{Model: "gpt-5.6-sol", Provider: providers.ProviderOpenAI}, prep, rec, clientReq)
@@ -364,7 +364,7 @@ func TestProxy_CodexSubscriptionServesNonStreamingCaller(t *testing.T) {
 					Headers:  make(http.Header),
 				},
 				rec,
-				httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader("")),
+				httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader("")),
 			)
 			require.NoError(t, err)
 
@@ -403,7 +403,7 @@ func TestProxy_CodexSubscriptionStreamingCallerStillStreams(t *testing.T) {
 			Headers:  make(http.Header),
 		},
 		rec,
-		httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader("")),
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader("")),
 	)
 	require.NoError(t, err)
 	assert.Equal(t, frames, rec.Body.String())

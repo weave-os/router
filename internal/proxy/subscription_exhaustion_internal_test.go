@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 	"time"
+	"weave-os/router/internal/credentials"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
@@ -127,8 +128,8 @@ func TestClaudeSubscriptionExhausted(t *testing.T) {
 
 	t.Run("exhausted snapshot + deployment key", func(t *testing.T) {
 		s := &Service{
-			usageObserver:            observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()),
-			deploymentKeyedProviders: deploymentKeyed,
+			usageObserver: observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()),
+			credentials:   credentials.Brokerage{KeyedProviders: deploymentKeyed},
 		}
 		assert.True(t, s.claudeSubscriptionExhausted(context.Background(), headers()))
 	})
@@ -137,8 +138,8 @@ func TestClaudeSubscriptionExhausted(t *testing.T) {
 		// Without a deployment / BYOK Anthropic key, a spent plan is still
 		// unavailable: the turn is refused rather than billing overage or 429ing.
 		s := &Service{
-			usageObserver:            observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()),
-			deploymentKeyedProviders: map[string]struct{}{},
+			usageObserver: observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()),
+			credentials:   credentials.Brokerage{KeyedProviders: map[string]struct{}{}},
 		}
 		assert.True(t, s.claudeSubscriptionExhausted(context.Background(), headers()))
 	})
@@ -148,29 +149,29 @@ func TestClaudeSubscriptionExhausted(t *testing.T) {
 			usageObserver: observerWithSnapshot(exhaustedSubToken, usage.Snapshot{
 				Secondary: usage.Window{UsedPercent: 0.80, WindowMinutes: 10080},
 			}),
-			deploymentKeyedProviders: deploymentKeyed,
+			credentials: credentials.Brokerage{KeyedProviders: deploymentKeyed},
 		}
 		assert.False(t, s.claudeSubscriptionExhausted(context.Background(), headers()))
 	})
 
 	t.Run("no subscription token present", func(t *testing.T) {
 		s := &Service{
-			usageObserver:            observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()),
-			deploymentKeyedProviders: deploymentKeyed,
+			usageObserver: observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()),
+			credentials:   credentials.Brokerage{KeyedProviders: deploymentKeyed},
 		}
 		assert.False(t, s.claudeSubscriptionExhausted(context.Background(), http.Header{}))
 	})
 
 	t.Run("observer not wired", func(t *testing.T) {
-		s := &Service{deploymentKeyedProviders: deploymentKeyed}
+		s := &Service{credentials: credentials.Brokerage{KeyedProviders: deploymentKeyed}}
 		assert.False(t, s.claudeSubscriptionExhausted(context.Background(), headers()))
 	})
 
 	t.Run("token present but never observed", func(t *testing.T) {
 		now := time.Unix(1_000_000, 0)
 		s := &Service{
-			usageObserver:            usage.NewObserver([]byte("salt"), time.Minute, func() time.Time { return now }),
-			deploymentKeyedProviders: deploymentKeyed,
+			usageObserver: usage.NewObserver([]byte("salt"), time.Minute, func() time.Time { return now }),
+			credentials:   credentials.Brokerage{KeyedProviders: deploymentKeyed},
 		}
 		assert.False(t, s.claudeSubscriptionExhausted(context.Background(), headers()),
 			"a never-observed credential is cold-start slack, not exhausted")
@@ -179,7 +180,7 @@ func TestClaudeSubscriptionExhausted(t *testing.T) {
 
 func TestAnthropicFallbackKeyAvailable(t *testing.T) {
 	t.Run("deployment key present", func(t *testing.T) {
-		s := &Service{deploymentKeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}
+		s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}}
 		assert.True(t, s.anthropicFallbackKeyAvailable(context.Background()))
 	})
 	t.Run("BYOK present", func(t *testing.T) {
@@ -190,7 +191,7 @@ func TestAnthropicFallbackKeyAvailable(t *testing.T) {
 		assert.True(t, s.anthropicFallbackKeyAvailable(ctx))
 	})
 	t.Run("neither", func(t *testing.T) {
-		s := &Service{deploymentKeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}}
+		s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}}}
 		assert.False(t, s.anthropicFallbackKeyAvailable(context.Background()))
 	})
 	t.Run("nil deploymentKeyedProviders, no BYOK", func(t *testing.T) {

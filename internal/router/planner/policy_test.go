@@ -483,7 +483,7 @@ func TestDecide(t *testing.T) {
 				// tolerance is fine; we only allow float64 rounding noise.
 				assert.InDelta(t, tc.wantExpectedSavingsUSD, got.ExpectedSavingsUSD, 1e-9, "expected_savings_usd")
 				assert.InDelta(t, tc.wantEvictionCostUSD, got.EvictionCostUSD, 1e-9, "eviction_cost_usd")
-				assert.Equal(t, tc.cfg.ThresholdUSD, got.ThresholdUSD, "threshold_usd echoed")
+				assert.InDelta(t, tc.cfg.ThresholdUSD, got.ThresholdUSD, 1e-9, "threshold_usd echoed")
 				assert.Equal(t, tc.in.PinCacheCold, got.PinCacheCold, "pin_cache_cold echoed")
 			} else {
 				// When the EV math never ran, all three USD fields are

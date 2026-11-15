@@ -1,0 +1,44 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages",
+      "stream": false,
+      "routing_decisions": [],
+      "dispatch_attempts": [],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "content": [
+            {
+              "text": "✦ **Weave Router** → models this installation can be routed to\n```\n\nanthropic\n  [x] claude-fable-5\n  [x] claude-fable-5-1\n  [x] claude-fable-5-2\n  [x] claude-haiku-4-5\n  [x] claude-haiku-5-5\n  [x] claude-mythos-5-2\n  [x] claude-opus-4-0\n  [x] claude-opus-4-1\n  [x] claude-opus-4-5\n  [x] claude-opus-4-6\n  [x] claude-opus-4-7\n  [x] claude-opus-4-8\n  [x] claude-opus-5\n  [x] claude-opus-5-5\n  [x] claude-sonnet-4-5\n  [x] claude-sonnet-4-6\n  [x] claude-sonnet-5\n  [x] claude-sonnet-5-5\n\nbedrock\n  [x] moonshotai/kimi-k2.5\n  [x] qwen/qwen3-235b-a22b-2507\n  [x] qwen/qwen3-coder-next\n  [x] qwen/qwen3-next-80b-a3b-instruct\n\ndeepinfra\n  [x] inclusionai/ling-3.0-flash\n  [x] xiaomi/mimo-v2.6-pro\n  [x] z-ai/glm-5.3-flash\n\nfireworks\n  [x] deepseek/deepseek-v4-pro\n  [x] deepseek/deepseek-v4-pro-0813\n  [x] minimax/minimax-m3\n  [x] minimax/minimax-m3.1-flash\n  [x] moonshotai/kimi-k2.6\n  [x] moonshotai/kimi-k2.7\n  [x] moonshotai/kimi-k3\n  [x] moonshotai/kimi-k3.1\n  [x] qwen/qwen3-30b-a3b-instruct-2507\n  [x] qwen/qwen3-coder\n  [x] qwen/qwen3.7-plus\n  [x] qwen/qwen3.8-max\n  [x] z-ai/glm-5\n  [x] z-ai/glm-5.1\n  [x] z-ai/glm-5.3\n\ngoogle\n  [x] gemini-2.0-flash\n  [x] gemini-2.0-flash-lite\n  [x] gemini-2.5-flash\n  [x] gemini-2.5-flash-lite\n  [x] gemini-2.5-pro\n  [x] gemini-3-flash-preview\n  [x] gemini-3-pro-preview\n  [x] gemini-3.1-flash-lite-preview\n  [x] gemini-3.1-pro-preview\n  [x] gemini-3.5-flash\n  [x] gemini-3.5-flash-lite\n  [x] gemini-3.6-flash\n  [x] gemini-3.7-flash\n  [x] gemini-3.8-flash\n  [x] gemini-4-argon\n  [x] google/gemma-4-26b-a4b-it\n\nmakora\n  [x] deepseek/deepseek-v4.1-flash\n  [x] xiaomi/mimo-v2.6-flash\n\nmeta\n  [x] muse-ember-1.0\n  [x] muse-spark-1.3\n  [x] muse-wonder-1.0\n\nopenai\n  [x] gpt-4.1\n  [x] gpt-4.1-mini\n  [x] gpt-4.1-nano\n  [x] gpt-4o\n  [x] gpt-4o-mini\n  [x] gpt-5\n  [x] gpt-5-chat\n  [x] gpt-5-mini\n  [x] gpt-5-nano\n  [x] gpt-5.4\n  [x] gpt-5.4-mini\n  [x] gpt-5.4-nano\n  [x] gpt-5.4-pro\n  [x] gpt-5.5\n  [x] gpt-5.5-mini\n  [x] gpt-5.5-nano\n  [x] gpt-5.5-pro\n  [x] gpt-5.6-luna\n  [x] gpt-5.6-luna-pro\n  [x] gpt-5.6-sol\n  [x] gpt-5.6-sol-pro\n  [x] gpt-5.6-terra\n  [x] gpt-6-astra\n  [x] gpt-6-luna\n  [x] gpt-6-sol\n  [x] gpt-6.1-sol\n  [x] gpt-6.1-terra\n\nopenrouter\n  [x] deepseek/deepseek-v4-flash\n  [x] mistralai/mistral-small-2603\n  [x] qwen/qwen3.5-flash-02-23\n  [x] qwen/qwen3.6-35b-a3b\n  [x] xiaomi/mimo-v2.5-pro\n\ntogether\n  [x] meta/muse-spark-open\n  [x] minimax/minimax-m2.7\n  [x] z-ai/glm-5.2\n\nxai\n  [x] grok-4.5\n  [x] grok-4.6\n  [x] grok-4.7\n```\n\n99 of 99 routable here. Change the selection with `/router-models enable \u003cid\u003e` or `/router-models disable \u003cid\u003e`.\n\n",
+              "type": "text"
+            }
+          ],
+          "id": "\u003cid\u003e",
+          "model": "weave-router",
+          "role": "assistant",
+          "router_command": {
+            "command": "router_models",
+            "disposition": "accepted",
+            "id": "\u003cuuid\u003e",
+            "pin": {
+              "transition": "unchanged"
+            },
+            "version": 1
+          },
+          "stop_reason": "end_turn",
+          "stop_sequence": null,
+          "type": "message",
+          "usage": {
+            "input_tokens": 23,
+            "output_tokens": 648
+          }
+        }
+      }
+    }
+  ],
+  "scenario": "anthropic_messages_conversation_router_models_command"
+}

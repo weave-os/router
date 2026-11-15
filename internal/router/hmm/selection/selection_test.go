@@ -82,7 +82,7 @@ func TestSelectGroupsWithPreferenceReweightsWithinClassifierBand(t *testing.T) {
 	pick, scores, ok := selection.SelectGroupsWithPreference(roster, groups, "", candidates, &neutral)
 	require.True(t, ok)
 	assert.Equal(t, "vendor-a/quality", pick.Arm)
-	assert.Equal(t, float32(30), scores["low"]["vendor-a/quality"])
+	assert.InDelta(t, float32(30), scores["low"]["vendor-a/quality"], 1e-9)
 
 	priceHeavy := 0.0
 	pick, _, ok = selection.SelectGroupsWithPreference(roster, groups, "", candidates, &priceHeavy)

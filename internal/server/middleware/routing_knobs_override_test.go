@@ -27,7 +27,7 @@ func runInvalidKnob(t *testing.T, path string) (int, map[string]any) {
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodPost, path, nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, path, nil)
 	req.Header.Set(middleware.HeaderAlpha, "1.5")
 	rr := httptest.NewRecorder()
 	engine.ServeHTTP(rr, req)

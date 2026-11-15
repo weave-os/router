@@ -1,12 +1,11 @@
 package middleware
 
 import (
-	"net/http"
-
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/refusal"
 
 	"github.com/gin-gonic/gin"
 )
@@ -44,10 +43,7 @@ func WithDelegatedSpendCap(svc *billing.Service) gin.HandlerFunc {
 		sessionSpent, taskSpent, err := svc.CheckDelegatedSpend(ctx, session.IssuerKeyID, session.SessionID, session.TaskID)
 		if err != nil {
 			log.Error("Delegated spend-cap check failed; refusing request", "err", err)
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
-				"error":   "billing_unavailable",
-				"message": "Billing system is temporarily unavailable. Retry in a few moments.",
-			})
+			abortBillingUnavailable(c)
 			return
 		}
 		scope, spent, capMicros, reached := delegatedCapReached(session, sessionSpent, taskSpent)
@@ -62,8 +58,7 @@ func WithDelegatedSpendCap(svc *billing.Service) gin.HandlerFunc {
 			return
 		}
 		log.Info("Request rejected: delegated spend cap reached", "scope", scope, "spent_usd_micros", spent, "spend_cap_usd_micros", capMicros)
-		c.AbortWithStatusJSON(http.StatusPaymentRequired, gin.H{
-			"error":                "key_spend_cap_reached",
+		abortRefusal(c, refusal.DelegatedSpendCapReached, gin.H{
 			"scope":                scope,
 			"spent_usd_micros":     spent,
 			"spend_cap_usd_micros": capMicros,

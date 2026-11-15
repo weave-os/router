@@ -67,7 +67,7 @@ func (c *TaskDomainClassifier) Classify(ctx context.Context, userText string) (t
 	if err != nil {
 		return nil, fmt.Errorf("task classifier transport: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("task classifier HTTP %d", response.StatusCode)
 	}
