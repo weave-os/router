@@ -21,8 +21,7 @@ func NewUpstream(client providers.Client) Upstream {
 	return Upstream{client: client}
 }
 
-// Proxy forwards to the wrapped client unchanged; it exists so the provider
-// call is made from internal/dispatch rather than by the attempt closure.
+// Proxy sends prep upstream for the attempt it was handed to.
 func (u Upstream) Proxy(ctx context.Context, decision router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
 	return u.client.Proxy(ctx, decision, prep, w, r)
 }
