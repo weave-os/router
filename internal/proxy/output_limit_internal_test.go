@@ -177,7 +177,7 @@ func TestProxyMessages_OutputLimitEightActionSequence(t *testing.T) {
 						"messages": messages, "tools": []any{map[string]any{"name": "Read", "description": "Read a file", "input_schema": map[string]any{"type": "object"}}}})
 					require.NoError(t, err)
 					rec := httptest.NewRecorder()
-					req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(body)))
+					req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(string(body)))
 					require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
 					want := outputLimitFirstModel
 					if trueCap && action == 4 {

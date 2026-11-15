@@ -1,7 +1,6 @@
 package middleware_test
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,8 +14,8 @@ import (
 )
 
 // runForceEffort fires a request with the given x-weave-effort header and
-// returns the response status, body, and captured routing overrides.
-func runForceEffort(t *testing.T, path, header string) (status int, body any, captured *router.Overrides) {
+// returns the response status and captured routing overrides.
+func runForceEffort(t *testing.T, header string) (status int, captured *router.Overrides) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
@@ -30,24 +29,20 @@ func runForceEffort(t *testing.T, path, header string) (status int, body any, ca
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodPost, path, nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	if header != "" {
 		req.Header.Set(middleware.ForceEffortOverrideHeader, header)
 	}
 	rr := httptest.NewRecorder()
 	engine.ServeHTTP(rr, req)
 
-	var parsed any
-	if rr.Body.Len() > 0 {
-		_ = json.Unmarshal(rr.Body.Bytes(), &parsed)
-	}
-	return rr.Code, parsed, captured
+	return rr.Code, captured
 }
 
 // TestForceEffortOverride_BareValue verifies x-weave-effort low passes
 // through to Overrides.ForceEffort in canonical (low) form.
 func TestForceEffortOverride_BareValue(t *testing.T) {
-	status, _, captured := runForceEffort(t, "/v1/messages", "low")
+	status, captured := runForceEffort(t, "low")
 	assert.Equal(t, http.StatusOK, status)
 	require.NotNil(t, captured)
 	assert.Equal(t, "low", captured.ForceEffort)
@@ -67,7 +62,7 @@ func TestForceEffortOverride_AliasCanonicalizes(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.in, func(t *testing.T) {
-			status, _, captured := runForceEffort(t, "/v1/messages", tc.in)
+			status, captured := runForceEffort(t, tc.in)
 			assert.Equal(t, http.StatusOK, status)
 			require.NotNil(t, captured, "middleware must stash parsed override")
 			assert.Equal(t, tc.want, captured.ForceEffort)
@@ -78,7 +73,7 @@ func TestForceEffortOverride_AliasCanonicalizes(t *testing.T) {
 // TestForceEffortOverride_InvalidValue verifies the middleware 400s on an
 // unknown level instead of forwarding it to a provider (fail at the boundary).
 func TestForceEffortOverride_InvalidValue(t *testing.T) {
-	status, _, captured := runForceEffort(t, "/v1/messages", "garbage")
+	status, captured := runForceEffort(t, "garbage")
 	assert.Equal(t, http.StatusBadRequest, status)
 	assert.Nil(t, captured, "invalid value must not stash an override")
 }
@@ -86,7 +81,7 @@ func TestForceEffortOverride_InvalidValue(t *testing.T) {
 // TestForceEffortOverride_Absent confirms an empty header is a no-op
 // (the middleware lets the request through without stashing).
 func TestForceEffortOverride_Absent(t *testing.T) {
-	status, _, captured := runForceEffort(t, "/v1/messages", "")
+	status, captured := runForceEffort(t, "")
 	assert.Equal(t, http.StatusOK, status)
 	assert.Nil(t, captured)
 }

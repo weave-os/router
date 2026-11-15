@@ -26,7 +26,7 @@ func TestSanitizeOpenAIToolSchema_ConflictingPatternsStayUnifierSafe(t *testing.
 	sanitizeOpenAIToolSchema(a2)
 
 	descOf := func(m map[string]any) string {
-		return m["properties"].(map[string]any)["description"].(map[string]any)["description"].(string)
+		return mustAs[string](t, mustAs[map[string]any](t, mustAs[map[string]any](t, m["properties"])["description"])["description"])
 	}
 	da, db, da2 := descOf(a), descOf(b), descOf(a2)
 

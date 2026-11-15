@@ -43,21 +43,28 @@ func paidCapacityUnfunded(ctx context.Context) bool {
 	return billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx)
 }
 
+// unfundedKeyFunds reports whether creds may fund an unfunded organization's
+// turn: the customer's own usable key, unless the deployment charges a BYOK
+// fee the organization cannot pay.
+func unfundedKeyFunds(ctx context.Context, creds *Credentials) bool {
+	return customerKeyFunded(creds) && !billing.ByokFeeUnpayable(ctx)
+}
+
 // paidFallbackForbiddenFor is paidFallbackForbidden for a fallback onto
 // provider: an unfunded organization may still fall back to the customer's
-// own usable key for provider.
+// own usable key for provider when no BYOK fee is owed.
 func paidFallbackForbiddenFor(ctx context.Context, provider string) bool {
-	return paidFallbackForbiddenByPlan(ctx) || paidCapacityUnfunded(ctx) && usableBYOK(ctx, provider) == nil
+	return paidFallbackForbiddenByPlan(ctx) || paidCapacityUnfunded(ctx) && !unfundedKeyFunds(ctx, usableBYOK(ctx, provider))
 }
 
 // paidAttemptForbidden reports whether dispatch must refuse an attempt on
 // creds. An unfunded organization's turn may still run on the customer's own
-// usable provider key.
+// usable provider key when no BYOK fee is owed.
 func paidAttemptForbidden(ctx context.Context, creds *Credentials) bool {
 	if creds != nil && creds.OAuth {
 		return false
 	}
-	return paidFallbackForbiddenByPlan(ctx) || paidCapacityUnfunded(ctx) && !customerKeyFunded(creds)
+	return paidFallbackForbiddenByPlan(ctx) || paidCapacityUnfunded(ctx) && !unfundedKeyFunds(ctx, creds)
 }
 
 // subscriptionOnlyUnservable reports whether a subscription-only turn routed
@@ -65,7 +72,13 @@ func paidAttemptForbidden(ctx context.Context, creds *Credentials) bool {
 // caller's plan (direct or managed) and, for an unfunded organization, not the
 // customer's own provider key.
 func subscriptionOnlyUnservable(ctx context.Context, provider, model string) bool {
-	return !servedOnSubscription(ctx) && !(paidCapacityUnfunded(ctx) && servedOnCustomerKey(ctx)) && !managedSubscriptionCanServe(ctx, provider, model)
+	return !servedOnSubscription(ctx) && !servedOnUnfundedKey(ctx) && !managedSubscriptionCanServe(ctx, provider, model)
+}
+
+// servedOnUnfundedKey reports whether an unfunded organization's turn runs on
+// a customer key that may fund it.
+func servedOnUnfundedKey(ctx context.Context) bool {
+	return paidCapacityUnfunded(ctx) && unfundedKeyFunds(ctx, CredentialsFromContext(ctx))
 }
 
 func paidFallbackForbiddenForModel(ctx context.Context, model string) bool {

@@ -62,7 +62,7 @@ func TestClassifierThreadHTTPContract(t *testing.T) {
 		})
 	}
 	request := func(principal context.Context, path, body, header string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body)).WithContext(principal)
+		req := httptest.NewRequestWithContext(principal, http.MethodPost, path, strings.NewReader(body))
 		if header != "" {
 			req.Header.Set(proxy.ClassifierThreadHeader, header)
 		}

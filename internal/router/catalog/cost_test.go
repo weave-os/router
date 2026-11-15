@@ -152,8 +152,8 @@ func TestPricingForInputTokens_ThresholdIsExclusive(t *testing.T) {
 		},
 	}
 
-	assert.Equal(t, 0.20, price.ForInputTokens(272_000).InputUSDPer1M)
-	assert.Equal(t, 0.40, price.ForInputTokens(272_001).InputUSDPer1M)
+	assert.InDelta(t, 0.20, price.ForInputTokens(272_000).InputUSDPer1M, 1e-9)
+	assert.InDelta(t, 0.40, price.ForInputTokens(272_001).InputUSDPer1M, 1e-9)
 }
 
 func TestSignedUSDToMicrosPreservesNegatives(t *testing.T) {
@@ -258,15 +258,15 @@ func TestSynthesizedBindingsDoNotInheritUSInferenceGeoPremium(t *testing.T) {
 	binding, ok := catalog.ResolveBindingWithCustom("claude-fable-5-1", available, customs)
 	require.True(t, ok)
 	require.Equal(t, custom, binding.Provider)
-	assert.Equal(t, 1.0, binding.Price.EffectiveUSInferenceGeoMultiplier())
+	assert.InDelta(t, 1.0, binding.Price.EffectiveUSInferenceGeoMultiplier(), 1e-9)
 
 	bindings := catalog.EnumerateBindingsWithCustom("claude-fable-5-1", available, customs)
 	require.Len(t, bindings, 1)
-	assert.Equal(t, 1.0, bindings[0].Price.EffectiveUSInferenceGeoMultiplier())
+	assert.InDelta(t, 1.0, bindings[0].Price.EffectiveUSInferenceGeoMultiplier(), 1e-9)
 
 	primary, ok := catalog.PrimaryPriceFor("claude-fable-5-1")
 	require.True(t, ok)
-	assert.Equal(t, catalog.USInferenceGeoMultiplier, primary.EffectiveUSInferenceGeoMultiplier(), "first-party binding keeps the premium")
+	assert.InDelta(t, catalog.USInferenceGeoMultiplier, primary.EffectiveUSInferenceGeoMultiplier(), 1e-9, "first-party binding keeps the premium")
 }
 
 func TestEffectiveCost_AnthropicPromptLengthTierCountsCachedTokens(t *testing.T) {

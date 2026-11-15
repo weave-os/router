@@ -33,8 +33,8 @@ func overloadedDecision(md *router.RoutingMetadata) router.Decision {
 }
 
 // firstSibling is the head of the rescue walk: the candidate the turn tries first.
-func firstSibling(s *Service, ctx context.Context, failed router.Decision, est, sigSavings, outputReserve int) (router.Decision, bool) {
-	decisions := s.siblingFailoverDecisions(ctx, failed, est, sigSavings, outputReserve)
+func firstSibling(s *Service, ctx context.Context, failed router.Decision, est, outputReserve int) (router.Decision, bool) {
+	decisions := s.siblingFailoverDecisions(ctx, failed, est, 0, outputReserve)
 	if len(decisions) == 0 {
 		return router.Decision{}, false
 	}
@@ -69,7 +69,7 @@ func TestSiblingFailoverSelectsImageCompatibleBinding(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := withRequestImageCount(context.Background(), tc.imageCount)
-			got, ok := firstSibling(s, ctx, failed, 1_000, 0, 0)
+			got, ok := firstSibling(s, ctx, failed, 1_000, 0)
 			require.True(t, ok)
 			assert.Equal(t, model, got.Model)
 			assert.Equal(t, tc.wantProvider, got.Provider)
@@ -188,7 +188,7 @@ func TestSiblingFailoverDecision(t *testing.T) {
 				"claude-sonnet-5":          providers.ProviderAnthropic,
 				"deepseek/deepseek-v4-pro": providers.ProviderFireworks,
 			},
-		}), 1_000, 0, 0)
+		}), 1_000, 0)
 		require.True(t, ok)
 		assert.Equal(t, "deepseek/deepseek-v4-pro", got.Model)
 		assert.Equal(t, providers.ProviderFireworks, got.Provider)
@@ -241,7 +241,7 @@ func TestSiblingFailoverDecision(t *testing.T) {
 				"claude-sonnet-5":          providers.ProviderAnthropic,
 				"deepseek/deepseek-v4-pro": providers.ProviderFireworks,
 			},
-		}), 1_000, 0, 0)
+		}), 1_000, 0)
 		require.True(t, ok)
 		assert.Equal(t, "claude-sonnet-5", got.Model)
 		assert.Equal(t, providers.ProviderAnthropic, got.Provider)
@@ -251,7 +251,7 @@ func TestSiblingFailoverDecision(t *testing.T) {
 		s := siblingService(providers.ProviderAnthropic)
 		got, ok := firstSibling(s, ctx, overloadedDecision(&router.RoutingMetadata{
 			PairedModel: "claude-sonnet-5",
-		}), 1_000, 0, 0)
+		}), 1_000, 0)
 		require.True(t, ok)
 		assert.Equal(t, "claude-sonnet-5", got.Model)
 	})
@@ -265,7 +265,7 @@ func TestSiblingFailoverDecision(t *testing.T) {
 			SelectedUpstreamID:  "claude-opus-5-20260101",
 			BindingIndex:        2,
 		}
-		got, ok := firstSibling(s, ctx, overloadedDecision(md), 1_000, 0, 0)
+		got, ok := firstSibling(s, ctx, overloadedDecision(md), 1_000, 0)
 		require.True(t, ok)
 		assert.Empty(t, got.Metadata.SelectedArmID)
 		assert.Empty(t, got.Metadata.SelectedRosterArmID)
@@ -278,17 +278,17 @@ func TestSiblingFailoverDecision(t *testing.T) {
 		s := siblingService(providers.ProviderAnthropic)
 		_, ok := firstSibling(s, ctx, overloadedDecision(&router.RoutingMetadata{
 			CandidateModels: []string{"claude-sonnet-5"},
-		}), 1_100_000, 0, 0)
+		}), 1_100_000, 0)
 		assert.False(t, ok, "claude-sonnet-5's extended window still can't serve a 1.1M-token turn")
 	})
 
 	t.Run("counts the output reserve against the candidate window", func(t *testing.T) {
 		s := siblingService(providers.ProviderAnthropic)
 		md := &router.RoutingMetadata{CandidateModels: []string{"claude-sonnet-5"}}
-		_, ok := firstSibling(s, ctx, overloadedDecision(md), 990_000, 0, 32_000)
+		_, ok := firstSibling(s, ctx, overloadedDecision(md), 990_000, 32_000)
 		assert.False(t, ok, "990K of history plus a 32K reserve overflows the window")
 
-		_, ok = firstSibling(s, ctx, overloadedDecision(md), 990_000, 0, 4_000)
+		_, ok = firstSibling(s, ctx, overloadedDecision(md), 990_000, 4_000)
 		assert.True(t, ok)
 	})
 
@@ -297,7 +297,7 @@ func TestSiblingFailoverDecision(t *testing.T) {
 		excluded := context.WithValue(ctx, InstallationExcludedModelsContextKey{}, []string{"claude-sonnet-5"})
 		_, ok := firstSibling(s, excluded, overloadedDecision(&router.RoutingMetadata{
 			CandidateModels: []string{"claude-opus-5", "claude-sonnet-5"},
-		}), 1_000, 0, 0)
+		}), 1_000, 0)
 		assert.False(t, ok)
 	})
 
@@ -311,7 +311,7 @@ func TestSiblingFailoverDecision(t *testing.T) {
 			},
 		}
 		demoted := context.WithValue(ctx, SessionDemotedModelsContextKey{}, []string{"deepseek/deepseek-v4-pro"})
-		got, ok := firstSibling(s, demoted, overloadedDecision(md), 1_000, 0, 0)
+		got, ok := firstSibling(s, demoted, overloadedDecision(md), 1_000, 0)
 		require.True(t, ok)
 		assert.Equal(t, "claude-sonnet-5", got.Model, "the demoted arm is skipped even though it ranks first")
 	})
@@ -337,7 +337,7 @@ func TestSiblingFailoverDecision(t *testing.T) {
 				CandidateModels: []string{"grok-4.6", "claude-opus-5"},
 			},
 		}
-		got, ok := firstSibling(s, gwCtx, failed, 1_000, 0, 0)
+		got, ok := firstSibling(s, gwCtx, failed, 1_000, 0)
 		require.True(t, ok)
 		assert.Equal(t, "claude-opus-5", got.Model)
 		assert.Equal(t, providers.ProviderAnthropicGateway, got.Provider)
@@ -390,7 +390,7 @@ func TestSiblingFailoverDecision(t *testing.T) {
 				CandidateModels: []string{"claude-opus-5"},
 			},
 		}
-		_, ok := firstSibling(s, gwCtx, failed, 1_000, 0, 0)
+		_, ok := firstSibling(s, gwCtx, failed, 1_000, 0)
 		assert.False(t, ok)
 		assert.False(t, s.gatewaySiblingAllowed(gwCtx, router.Decision{Provider: providers.ProviderAnthropic}))
 	})
@@ -411,7 +411,7 @@ func TestSiblingFailoverDecision(t *testing.T) {
 				CandidateModels: []string{"gpt-5"},
 			},
 		}
-		got, ok := firstSibling(s, gwCtx, failed, 1_000, 0, 0)
+		got, ok := firstSibling(s, gwCtx, failed, 1_000, 0)
 		require.True(t, ok)
 		assert.Equal(t, "gpt-5", got.Model)
 		assert.Equal(t, providers.ProviderOpenAIGateway, got.Provider)
@@ -419,13 +419,13 @@ func TestSiblingFailoverDecision(t *testing.T) {
 
 	t.Run("no metadata and legacy unkeyed deploys have no candidate", func(t *testing.T) {
 		s := siblingService(providers.ProviderAnthropic)
-		_, ok := firstSibling(s, ctx, overloadedDecision(nil), 1_000, 0, 0)
+		_, ok := firstSibling(s, ctx, overloadedDecision(nil), 1_000, 0)
 		assert.False(t, ok)
 
 		legacy := &Service{}
 		_, ok = firstSibling(legacy, ctx, overloadedDecision(&router.RoutingMetadata{
 			CandidateModels: []string{"claude-sonnet-5"},
-		}), 1_000, 0, 0)
+		}), 1_000, 0)
 		assert.False(t, ok, "an unset keyed-provider set can't prove a candidate is dispatchable")
 	})
 }

@@ -62,7 +62,7 @@ func TestChatCompletionHandler_CrossFormatOverflowReturnsNativeError(t *testing.
 			engine.POST("/v1/chat/completions", openai.ChatCompletionHandler(svc, nil))
 			body := fmt.Sprintf(`{"model":"gpt-5-mini","max_tokens":1024,"stream":%t,"messages":[{"role":"user","content":"hi"}]}`, stream)
 			rec := httptest.NewRecorder()
-			engine.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body)))
+			engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(body)))
 
 			if stream {
 				require.Equal(t, http.StatusOK, rec.Code)

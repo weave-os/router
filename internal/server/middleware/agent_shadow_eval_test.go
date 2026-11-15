@@ -30,7 +30,7 @@ func runAgentShadowMiddleware(t *testing.T, installation *auth.Installation, hea
 		_, observed = proxy.AgentShadowEvalFromContext(c.Request.Context())
 		c.Status(http.StatusOK)
 	})
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	req.Header = headers
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, req)
@@ -74,7 +74,7 @@ func TestAgentShadowEvaluation_SkipsCustomerBillingGates(t *testing.T) {
 	engine.Use(middleware.WithAPIKeySpendCap(nil))
 	engine.Use(middleware.WithOrgMonthlySpendCap(nil))
 	engine.POST("/v1/messages", func(c *gin.Context) { c.Status(http.StatusOK) })
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	req.Header.Set(proxy.AgentShadowModelHeader, "claude-opus-4-8")
 	req.Header.Set(proxy.AgentShadowRolloutHeader, "pilot-1")
 	req.Header.Set(proxy.AgentShadowStateHeader, "state-1")

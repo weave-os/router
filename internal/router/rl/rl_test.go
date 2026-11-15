@@ -162,7 +162,7 @@ func TestRouteToolTurnDropsToolUseLowFromCandidatesAndIndex(t *testing.T) {
 		EnabledProviders: nil,
 	})
 	require.Error(t, err)
-	assert.ErrorIs(t, err, rl.ErrPolicyUnavailable)
+	require.ErrorIs(t, err, rl.ErrPolicyUnavailable)
 	for _, c := range dec.got.Candidates {
 		assert.NotEqual(t, "qwen/qwen3-235b-a22b-2507", c.RosterID,
 			"ToolUseLow model must not be offered on a tool turn")

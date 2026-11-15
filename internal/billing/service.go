@@ -134,6 +134,34 @@ func SubscriptionOnlyReasonFromContext(ctx context.Context) (reason Subscription
 	return reason, ok
 }
 
+type byokFeeUnpayableKey struct{}
+
+// WithUnfunded marks ctx subscription-only for an unfunded reason (depleted
+// credits or a reached spend cap) and records whether the customer's own key
+// may still serve the turn. It may not when this deployment charges a BYOK
+// fee: the organization cannot pay it, so the turn is refused before any
+// upstream call instead. At a zero fee rate nothing is owed and the key serves.
+func (s *Service) WithUnfunded(ctx context.Context, reason SubscriptionOnlyReason) context.Context {
+	ctx = WithSubscriptionOnly(ctx, reason)
+	if s.ByokFeeOwed(ctx) && reason != SubscriptionOnlyLinkedFirst {
+		ctx = context.WithValue(ctx, byokFeeUnpayableKey{}, true)
+	}
+	return ctx
+}
+
+// ByokFeeOwed reports whether a BYOK-served turn on ctx would be charged the
+// fee: the rate is above zero and no billing override waives it.
+func (s *Service) ByokFeeOwed(ctx context.Context) bool {
+	return s != nil && s.byokFeeRate > 0 && !HasOverrideFromContext(ctx)
+}
+
+// ByokFeeUnpayable reports whether a gate found the turn unfunded while this
+// deployment charges a BYOK fee, so the customer's own key may not serve it.
+func ByokFeeUnpayable(ctx context.Context) bool {
+	unpayable, _ := ctx.Value(byokFeeUnpayableKey{}).(bool)
+	return unpayable
+}
+
 func subscriptionOnlyReason(ctx context.Context) (reason SubscriptionOnlyReason, ok bool) {
 	reason, ok = ctx.Value(SubscriptionOnlyContextKey).(SubscriptionOnlyReason)
 	return reason, ok

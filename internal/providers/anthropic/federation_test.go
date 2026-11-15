@@ -35,7 +35,7 @@ func TestFederatedCredentialUsesBearerWithoutSubscriptionBehavior(t *testing.T) 
 	payload := `{"model":"claude-opus-5-5","system":"Keep this instruction","messages":[{"role":"user","content":"hello"}]}`
 	err := client.Proxy(ctx, router.Decision{Model: "claude-opus-5-5"}, providers.PreparedRequest{
 		Body: []byte(payload), Headers: make(http.Header),
-	}, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(payload)))
+	}, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(payload)))
 	require.NoError(t, err)
 	assert.Equal(t, "Bearer sk-ant-oat01-synthetic-workload-token", headers.Get("Authorization"))
 	assert.Empty(t, headers.Get("x-api-key"))
@@ -61,7 +61,7 @@ func TestFederatedCredentialSupportsPassthroughAndModelListing(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, []string{"claude-opus-5-5"}, models)
 			} else {
-				err := client.Passthrough(ctx, providers.PreparedRequest{Body: []byte(`{"model":"claude-opus-5-5"}`), Headers: make(http.Header)}, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+				err := client.Passthrough(ctx, providers.PreparedRequest{Body: []byte(`{"model":"claude-opus-5-5"}`), Headers: make(http.Header)}, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
 				require.NoError(t, err)
 			}
 			assert.Equal(t, "Bearer sk-ant-oat01-synthetic-workload-token", headers.Get("Authorization"))
@@ -83,7 +83,7 @@ func TestUnavailableFederationNeverUsesDeploymentKey(t *testing.T) {
 	client := anthropic.NewClient("synthetic-platform-key", upstream.URL, anthropic.WithModelListHTTPClient(anthropicDiscoveryClient(t, upstream.URL)))
 	ctx := requestcontext.WithCredentials(context.Background(), &requestcontext.Credentials{AuthType: auth.AuthTypeAnthropicWIF, CredentialError: auth.ErrAnthropicFederationUnavailable})
 	prep := providers.PreparedRequest{Body: []byte(`{"model":"claude-opus-5-5"}`), Headers: make(http.Header)}
-	request := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	require.ErrorIs(t, client.Proxy(ctx, router.Decision{Model: "claude-opus-5-5"}, prep, httptest.NewRecorder(), request), auth.ErrAnthropicFederationUnavailable)
 	require.ErrorIs(t, client.Passthrough(ctx, prep, httptest.NewRecorder(), request), auth.ErrAnthropicFederationUnavailable)
 	_, err := client.ListModels(ctx)

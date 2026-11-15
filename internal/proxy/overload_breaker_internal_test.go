@@ -102,7 +102,7 @@ func (h *overloadHarness) turn(t *testing.T, ctx context.Context) *httptest.Resp
 	t.Helper()
 	rec := httptest.NewRecorder()
 	body := anthropicMessagesBody()
-	err := h.svc.ProxyMessages(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(body))))
+	err := h.svc.ProxyMessages(ctx, body, rec, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", strings.NewReader(string(body))))
 	require.NoError(t, err)
 	return rec
 }
@@ -479,7 +479,7 @@ func TestOverloadBreaker_GatewayTwoModelRosterStillServes(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	body := []byte(`{"model":"gpt-6-luna","stream":true,"messages":[{"role":"user","content":"synthetic recovery check"}]}`)
-	require.NoError(t, svc.ProxyMessages(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/messages", nil)))
+	require.NoError(t, svc.ProxyMessages(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)))
 
 	assert.Equal(t, recoveryOpusModel, rec.Header().Get(HeaderRouterModel))
 	assert.Equal(t, 1, sibling.calls)

@@ -47,7 +47,7 @@ func TestProxy_ErrorLogIdentifiesEffectiveEndpoint(t *testing.T) {
 			})
 			c := openai.NewClient("", "https://deployment.invalid")
 			prep := providers.PreparedRequest{Body: []byte(`{"model":"test-model"}`), Endpoint: tc.endpoint}
-			err = c.Proxy(ctx, router.Decision{Model: "test-model"}, prep, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+			err = c.Proxy(ctx, router.Decision{Model: "test-model"}, prep, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
 			var upstreamErr *providers.UpstreamErrorResponse
 			require.ErrorAs(t, err, &upstreamErr)
 			assert.Equal(t, http.StatusNotFound, upstreamErr.Status)
@@ -73,7 +73,7 @@ func TestProxy_RewritesModelAndForwardsAuth(t *testing.T) {
 		gotPath = r.URL.Path
 		gotAuth = r.Header.Get("Authorization")
 		body, _ := io.ReadAll(r.Body)
-		require.NoError(t, json.Unmarshal(body, &gotBody))
+		assert.NoError(t, json.Unmarshal(body, &gotBody))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"id":"chatcmpl-1","object":"chat.completion"}`))
@@ -82,7 +82,7 @@ func TestProxy_RewritesModelAndForwardsAuth(t *testing.T) {
 
 	c := openai.NewClient("test-key", upstream.URL)
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 
 	body := []byte(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`)
 	prep := providers.PreparedRequest{Body: body, Headers: make(http.Header)}
@@ -112,7 +112,7 @@ func TestProxy_RewritesMappedModelForChatAndResponses(t *testing.T) {
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				gotPath = r.URL.Path
 				body, _ := io.ReadAll(r.Body)
-				require.NoError(t, json.Unmarshal(body, &gotBody))
+				assert.NoError(t, json.Unmarshal(body, &gotBody))
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusOK)
 				_, _ = w.Write([]byte(`{"id":"mapped-model","object":"response"}`))
@@ -123,7 +123,7 @@ func TestProxy_RewritesMappedModelForChatAndResponses(t *testing.T) {
 				"gpt-5.6-luna-pro": "gpt-5.6-luna",
 			})
 			rec := httptest.NewRecorder()
-			clientReq := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(""))
+			clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, tc.path, strings.NewReader(""))
 			prep := providers.PreparedRequest{
 				Body:     []byte(`{"model":"gpt-5.6-luna-pro","messages":[]}`),
 				Headers:  make(http.Header),
@@ -143,7 +143,7 @@ func TestProxy_BYOKModelAliasOverridesCatalogModelIDMap(t *testing.T) {
 	var gotBody map[string]any
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		require.NoError(t, json.Unmarshal(body, &gotBody))
+		assert.NoError(t, json.Unmarshal(body, &gotBody))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"id":"byok-alias","object":"chat.completion"}`))
@@ -159,7 +159,7 @@ func TestProxy_BYOKModelAliasOverridesCatalogModelIDMap(t *testing.T) {
 		ModelAliases: map[string]string{"gpt-5.6-luna-pro": "customer-luna"},
 	})
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	prep := providers.PreparedRequest{
 		Body:    []byte(`{"model":"gpt-5.6-luna-pro","messages":[]}`),
 		Headers: make(http.Header),
@@ -176,7 +176,7 @@ func TestProxy_ForwardsUnmappedModelUnchanged(t *testing.T) {
 	var gotBody map[string]any
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		require.NoError(t, json.Unmarshal(body, &gotBody))
+		assert.NoError(t, json.Unmarshal(body, &gotBody))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"id":"unmapped-model","object":"chat.completion"}`))
@@ -187,7 +187,7 @@ func TestProxy_ForwardsUnmappedModelUnchanged(t *testing.T) {
 		"gpt-5.6-luna-pro": "gpt-5.6-luna",
 	})
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	prep := providers.PreparedRequest{
 		Body:    []byte(`{"model":"gpt-5.6-sol-pro","messages":[]}`),
 		Headers: make(http.Header),
@@ -210,7 +210,7 @@ func TestProxy_StripsDynamicHopByHopHeaders(t *testing.T) {
 
 	c := openai.NewClient("k", upstream.URL)
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 
 	prep := providers.PreparedRequest{Body: []byte(`{"model":"x"}`), Headers: make(http.Header)}
 	err := c.Proxy(context.Background(), router.Decision{Model: "m"}, prep, rec, clientReq)
@@ -233,7 +233,7 @@ func TestProxy_StreamsAndFlushes(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		flusher, ok := w.(http.Flusher)
-		require.True(t, ok)
+		assert.True(t, ok)
 		for i := 0; i < 3; i++ {
 			_, _ = w.Write([]byte("data: {\"id\":\"chatcmpl-1\"}\n\n"))
 			flusher.Flush()
@@ -243,7 +243,7 @@ func TestProxy_StreamsAndFlushes(t *testing.T) {
 
 	c := openai.NewClient("k", upstream.URL)
 	rec := &flushSpyWriter{ResponseRecorder: httptest.NewRecorder()}
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 
 	prep := providers.PreparedRequest{Body: []byte(`{"model":"x"}`), Headers: make(http.Header)}
 	err := c.Proxy(context.Background(), router.Decision{Model: "gpt-4o-mini"}, prep, rec, clientReq)
@@ -264,7 +264,7 @@ func TestProxy_StampsTimingMilestones(t *testing.T) {
 	c := openai.NewClient("k", upstream.URL)
 	ctx, tm := timing.WithTiming(context.Background())
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 
 	prep := providers.PreparedRequest{Body: []byte(`{"model":"x"}`), Headers: make(http.Header)}
 	err := c.Proxy(ctx, router.Decision{Model: "m"}, prep, rec, clientReq)
@@ -299,7 +299,7 @@ func TestProxy_BuffersUpstream4xx(t *testing.T) {
 
 	c := openai.NewClient("k", upstream.URL)
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 
 	prep := providers.PreparedRequest{Body: []byte(`{"model":"gpt-5.5"}`), Headers: make(http.Header)}
 	err := c.Proxy(context.Background(), router.Decision{Model: "gpt-5.5"}, prep, rec, clientReq)
@@ -331,7 +331,7 @@ func TestProxy_5xxIsBufferedToo(t *testing.T) {
 
 	c := openai.NewClient("k", upstream.URL)
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 
 	prep := providers.PreparedRequest{Body: []byte(`{"model":"x"}`), Headers: make(http.Header)}
 	err := c.Proxy(context.Background(), router.Decision{Model: "m"}, prep, rec, clientReq)
@@ -369,7 +369,7 @@ func TestProxy_DebugLogsFirstChunkPreview(t *testing.T) {
 
 	c := openai.NewClient("k", upstream.URL)
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 
 	prep := providers.PreparedRequest{Body: []byte(`{"model":"x"}`), Headers: make(http.Header)}
 	err := c.Proxy(context.Background(), router.Decision{Model: "gpt-4o-mini"}, prep, rec, clientReq)
@@ -398,7 +398,7 @@ func TestPassthrough_ForwardsPathAndAuth(t *testing.T) {
 
 	c := openai.NewClient("test-key", upstream.URL)
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models", nil)
 
 	prep := providers.PreparedRequest{Body: nil, Headers: make(http.Header)}
 	err := c.Passthrough(context.Background(), prep, rec, clientReq)
@@ -419,7 +419,7 @@ func TestPassthrough_ErrorStatusLogsThroughContextLogger(t *testing.T) {
 
 	var logs bytes.Buffer
 	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&logs, nil)).With("request_id", "req-bound"))
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/models", strings.NewReader(`{}`))
+	clientReq := httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/models", strings.NewReader(`{}`))
 	prep := providers.PreparedRequest{Body: []byte(`{}`), Headers: make(http.Header)}
 
 	err := openai.NewClient("test-key", upstream.URL).Passthrough(ctx, prep, httptest.NewRecorder(), clientReq)

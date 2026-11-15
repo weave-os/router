@@ -318,8 +318,8 @@ func codexQuotaService(client providers.Client) *Service {
 
 // codexSubHTTPRequest builds a request carrying the ChatGPT subscription the way
 // the client presents it: an OAuth bearer plus the account id.
-func codexSubHTTPRequest(path, body string) *http.Request {
-	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+func codexSubHTTPRequest(ctx context.Context, path, body string) *http.Request {
+	req := httptest.NewRequestWithContext(ctx, http.MethodPost, path, strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+codexTestToken)
 	req.Header.Set("ChatGPT-Account-ID", codexTestAccountID)
 	return req
@@ -336,7 +336,7 @@ func TestCodexRescue_FailedRetryRendersIntoTheLiveStream(t *testing.T) {
 
 	body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"read main.go"}]}`
 	rec := httptest.NewRecorder()
-	err := svc.ProxyOpenAIChatCompletion(context.Background(), []byte(body), rec, codexSubHTTPRequest("/v1/chat/completions", body))
+	err := svc.ProxyOpenAIChatCompletion(context.Background(), []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/chat/completions", body))
 	require.Error(t, err)
 
 	require.GreaterOrEqual(t, len(client.oauthPerCall), 2, "the spent plan must be rescued on the Weave key")
@@ -365,7 +365,7 @@ func TestCodexRescue_FailedRetryWritesNothingIntoACommittedResponsesStream(t *te
 	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"read main.go"}]}]}`
 	rec := httptest.NewRecorder()
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
-	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest("/v1/responses", body))
+	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/responses", body))
 	require.Error(t, err)
 
 	require.GreaterOrEqual(t, len(client.oauthPerCall), 2, "the spent plan must be rescued on the Weave key")

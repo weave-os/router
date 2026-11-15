@@ -30,7 +30,7 @@ const TopUpURL = "https://app.weaveos.com/organization/settings/weave-router/cre
 //   - Balance ≤ minBalanceMicros (or no balance row) → HTTP 402 unless
 //     the request presents a validated Claude/Codex subscription credential
 //     covering this route. Subscription-covered requests pass through flagged
-//     subscription-only (billing.WithSubscriptionOnly), so the proxy serves them
+//     subscription-only (billing.Service.WithUnfunded), so the proxy serves them
 //     on the caller's own subscription or refuses them, never on a paid model.
 //     Override detection above still runs.
 //   - Otherwise → pass through, flagged billing.WithOrganizationPrepaid.
@@ -100,7 +100,7 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 				if subscriptionExempt {
 					log.Warn("Balance row missing: serving subscription-only, paid failover disabled",
 						"organization_id", orgID)
-					c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context(), billing.SubscriptionOnlyCreditsDepleted))
+					c.Request = c.Request.WithContext(svc.WithUnfunded(c.Request.Context(), billing.SubscriptionOnlyCreditsDepleted))
 					c.Next()
 					return
 				}
@@ -146,7 +146,7 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 					"balance_usd_micros", result.BalanceMicros,
 					"threshold_usd_micros", threshold,
 				)
-				c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context(), billing.SubscriptionOnlyCreditsDepleted))
+				c.Request = c.Request.WithContext(svc.WithUnfunded(c.Request.Context(), billing.SubscriptionOnlyCreditsDepleted))
 				c.Next()
 				return
 			}

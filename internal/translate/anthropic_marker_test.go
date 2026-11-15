@@ -62,7 +62,7 @@ func TestAnthropicRoutingMarkerWriter_StreamingInjectsMarker(t *testing.T) {
 	msgData := extractDataField(events[0])
 	assert.Equal(t, "message_start", gjson.Get(msgData, "type").String())
 	assert.Equal(t, "claude-opus-4", gjson.Get(msgData, "message.model").String())
-	assert.NotEqual(t, gjson.Get(msgData, "message.id").String(), "", "prelude message_start should have a non-empty id")
+	assert.NotEmpty(t, gjson.Get(msgData, "message.id").String(), "prelude message_start should have a non-empty id")
 
 	// Event 1: prelude content_block_start at index 0 (text)
 	startData := extractDataField(events[1])

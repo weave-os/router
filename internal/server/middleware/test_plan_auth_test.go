@@ -65,7 +65,7 @@ func TestDirectTestAuthSkipsEmailSubscriptionsAndProviderSecrets(t *testing.T) {
 	}
 	for _, scenario := range []string{"valid", "spoofed grant", "disabled budget", "wrong credential subject", "invalid credential"} {
 		t.Run(scenario, func(t *testing.T) {
-			request := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{}`))
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(`{}`))
 			requestCredential := credential
 			if scenario == "invalid credential" {
 				requestCredential = "rk_invalid_test"

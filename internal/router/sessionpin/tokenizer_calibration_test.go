@@ -98,7 +98,7 @@ func TestMergeTokenizerCalibrations_KeepsNewestEvidence(t *testing.T) {
 func TestTokenizerCalibration_SameFamilyIsIdentity(t *testing.T) {
 	ratio, ok := sessionpin.TokenizerCalibration{}.Ratio(openAIFamily, openAIFamily)
 	assert.True(t, ok)
-	assert.Equal(t, 1.0, ratio)
+	assert.InDelta(t, 1.0, ratio, 1e-9)
 }
 
 // A thread GPT billed at ~920k for a ~950k body estimate projects past a 1M

@@ -30,17 +30,17 @@ func TestHTTPRouterEndToEndWithSidecar(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/route":
-			require.NoError(t, json.NewDecoder(r.Body).Decode(&gotRoute))
-			require.NotEmpty(t, gotRoute.RouteID)
-			require.Contains(t, gotRoute.CandidateModels, "moonshotai/kimi-k2.7-code")
-			require.Equal(t, "fireworks", gotRoute.CandidateProviders["moonshotai/kimi-k2.7-code"])
+			assert.NoError(t, json.NewDecoder(r.Body).Decode(&gotRoute))
+			assert.NotEmpty(t, gotRoute.RouteID)
+			assert.Contains(t, gotRoute.CandidateModels, "moonshotai/kimi-k2.7-code")
+			assert.Equal(t, "fireworks", gotRoute.CandidateProviders["moonshotai/kimi-k2.7-code"])
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"route_id": gotRoute.RouteID, "model": "moonshotai/kimi-k2.7-code", "score": 0.72,
 				"score_kind": "policy_confidence", "reason": "policy delegated_work", "policy_group": "delegated",
 				"policy_label": "delegated_work", "propensity": 0.5, "display_marker": "Weave Router: delegated_work",
 			})
 		case "/outcome":
-			require.NoError(t, json.NewDecoder(r.Body).Decode(&gotOutcome))
+			assert.NoError(t, json.NewDecoder(r.Body).Decode(&gotOutcome))
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 		default:
 			http.NotFound(w, r)
@@ -65,7 +65,7 @@ func TestHTTPRouterEndToEndWithSidecar(t *testing.T) {
 	assert.Equal(t, "moonshotai/kimi-k2.7", decision.Model)
 	assert.Equal(t, providers.ProviderFireworks, decision.Provider)
 	assert.Equal(t, "hmm", decision.Metadata.Strategy)
-	assert.Equal(t, float32(0.5), decision.Metadata.Propensity)
+	assert.InDelta(t, float32(0.5), decision.Metadata.Propensity, 1e-9)
 	assert.Contains(t, decision.Metadata.DisplayMarker, "delegated_work")
 	assert.Equal(t, "please inspect the router source", gotRoute.PromptText)
 	assert.True(t, gotRoute.HasTools)
