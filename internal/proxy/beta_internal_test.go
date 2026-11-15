@@ -546,9 +546,10 @@ func TestApplySessionStrategyOnlyUsesPersistedPreference(t *testing.T) {
 	assert.Equal(t, router.StrategyHMMBeta, router.StrategyFromContext(ctx))
 }
 
+type betaMarkerKey struct{}
+
 func TestApplySessionStrategyReturnsOriginalContextOnStoreError(t *testing.T) {
-	marker := struct{}{}
-	ctx := context.WithValue(context.Background(), marker, "kept")
+	ctx := context.WithValue(context.Background(), betaMarkerKey{}, "kept")
 	svc := (&Service{}).WithSessionStrategyStore(&betaTestPreferenceStore{getErr: errors.New("db down")})
 	var sessionKey [sessionstrategy.SessionKeyLen]byte
 	sessionKey[0] = 1
@@ -557,7 +558,7 @@ func TestApplySessionStrategyReturnsOriginalContextOnStoreError(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Same(t, ctx, got)
-	assert.Equal(t, "kept", got.Value(marker))
+	assert.Equal(t, "kept", got.Value(betaMarkerKey{}))
 }
 
 func TestPersistedBetaPreferenceFailsClosedWhenBetaRouterUnavailable(t *testing.T) {

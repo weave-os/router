@@ -189,7 +189,11 @@ func copyNativeSearchHeaders(w http.ResponseWriter, headers http.Header) {
 }
 
 func nativeSearchInvalidRequest(err error) error {
-	encoded, _ := json.Marshal(map[string]any{"type": "error", "error": map[string]any{"type": "invalid_request_error", "message": err.Error()}})
+	message := err.Error()
+	if errors.Is(err, websearch.ErrDomainFilterNotHostname) {
+		message = websearch.DomainFilterNotHostnameMessage
+	}
+	encoded, _ := json.Marshal(map[string]any{"type": "error", "error": map[string]any{"type": "invalid_request_error", "message": message}})
 	return &providers.UpstreamErrorResponse{Status: http.StatusBadRequest, Body: encoded}
 }
 
