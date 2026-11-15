@@ -49,7 +49,7 @@ func TestVerificationNonstreamFailedJSONCannotWin(t *testing.T) {
 			svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).WithManagedSubscriptions(leaser).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 			ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 			rec := httptest.NewRecorder()
-			err := fixture.run(svc, ctx, []byte(fixture.body), rec, httptest.NewRequest(http.MethodPost, fixture.path, strings.NewReader(fixture.body)))
+			err := fixture.run(svc, ctx, []byte(fixture.body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, fixture.path, strings.NewReader(fixture.body)))
 			assert.Error(t, err, "failed provider JSON must not become successful request")
 			capturesMu.Lock()
 			defer capturesMu.Unlock()

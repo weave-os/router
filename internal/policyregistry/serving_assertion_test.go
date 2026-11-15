@@ -20,7 +20,7 @@ func TestServingAssertionBindsRequestAndExpires(t *testing.T) {
 	signer, err := policyregistry.NewAssertionSigner([]byte(strings.Repeat("k", 32)), func() time.Time { return now })
 	require.NoError(t, err)
 	body := []byte(`{"model":"auto","stream":true}`)
-	r := httptest.NewRequest(http.MethodPost, "https://router.example/v1/messages?beta=true", strings.NewReader(string(body)))
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "https://router.example/v1/messages?beta=true", strings.NewReader(string(body)))
 	admission := policyregistry.SessionReleaseBinding{Target: policyregistry.TargetStable, ActivationID: "activation", Selection: set.Default, BindingGeneration: 1}
 	assertion := policyregistry.ServingAssertion{APIKeyID: "key", Scope: policyregistry.AdmissionScope{InstallationID: "installation", CredentialIdentity: "subject"}, Admission: admission}
 	encoded, err := signer.Sign(assertion, r, body, "rk_credential")

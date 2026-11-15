@@ -107,7 +107,7 @@ func TestProxy_OutputStallAbortsRetryable_ByteAliveNoOutput(t *testing.T) {
 	const outputStall = 120 * time.Millisecond
 	c := openaicompat.NewClientWithStallTimeouts("test-key", upstream.URL, byteIdle, outputStall)
 	w := &fakeProgressWriter{armReturns: true} // streaming translator; never marks output
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 
 	start := time.Now()
 	err := c.Proxy(context.Background(), router.Decision{Model: "deepseek/deepseek-v4-flash"}, chatPrep(), w, clientReq)
@@ -152,7 +152,7 @@ func TestProxy_OutputFlowingStreamIsNotOutputStalled(t *testing.T) {
 	const outputStall = 60 * time.Millisecond // < frames*frameInterval, so total duration exceeds it
 	c := openaicompat.NewClientWithStallTimeouts("test-key", upstream.URL, byteIdle, outputStall)
 	w := &fakeProgressWriter{armReturns: true, markOnWrite: true}
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 
 	err := c.Proxy(context.Background(), router.Decision{Model: "deepseek/deepseek-v4-flash"}, chatPrep(), w, clientReq)
 
@@ -177,7 +177,7 @@ func TestProxy_NotArmedWriterStillByteIdleGuarded(t *testing.T) {
 	const outputStall = 5 * time.Second
 	c := openaicompat.NewClientWithStallTimeouts("test-key", upstream.URL, byteIdle, outputStall)
 	w := &fakeProgressWriter{armReturns: false} // declines arming (e.g. non-streaming translator)
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 
 	start := time.Now()
 	err := c.Proxy(context.Background(), router.Decision{Model: "deepseek/deepseek-v4-flash"}, chatPrep(), w, clientReq)

@@ -58,7 +58,7 @@ func TestCodexIncludedQuotaPreflight(t *testing.T) {
 			defer server.Close()
 			client := NewClient("deployment-key", server.URL)
 			client.SetCodexBaseURL(server.URL)
-			err := client.Proxy(codexCtx("test-token", "test-account"), router.Decision{Model: "gpt-6.1-sol", Provider: providers.ProviderOpenAI}, providers.PreparedRequest{Endpoint: providers.EndpointResponses, Body: []byte(`{"model":"gpt-6.1-sol","input":"hi"}`)}, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+			err := client.Proxy(codexCtx("test-token", "test-account"), router.Decision{Model: "gpt-6.1-sol", Provider: providers.ProviderOpenAI}, providers.PreparedRequest{Endpoint: providers.EndpointResponses, Body: []byte(`{"model":"gpt-6.1-sol","input":"hi"}`)}, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
 			if tc.status == 0 {
 				require.NoError(t, err)
 				require.Equal(t, int32(1), inferenceCalls.Load())
@@ -106,7 +106,7 @@ func TestCodexQuotaChecksFinalUpstreamModel(t *testing.T) {
 			} else {
 				client.modelIDMap = map[string]string{"gpt-6.1-sol": "wire-model"}
 			}
-			err := client.Proxy(ctx, router.Decision{Model: "gpt-6.1-sol", Provider: providers.ProviderOpenAI}, providers.PreparedRequest{Endpoint: providers.EndpointResponses, Body: []byte(`{"model":"gpt-6.1-sol","input":"hi"}`)}, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+			err := client.Proxy(ctx, router.Decision{Model: "gpt-6.1-sol", Provider: providers.ProviderOpenAI}, providers.PreparedRequest{Endpoint: providers.EndpointResponses, Body: []byte(`{"model":"gpt-6.1-sol","input":"hi"}`)}, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
 			var upstream *providers.UpstreamErrorResponse
 			require.ErrorAs(t, err, &upstream)
 			require.Equal(t, 503, upstream.Status)
@@ -131,7 +131,7 @@ func TestCodexQuotaPreflightPreservesAuthRejection(t *testing.T) {
 			defer server.Close()
 			client := NewClient("deployment-key", server.URL)
 			client.SetCodexBaseURL(server.URL)
-			err := client.Proxy(codexCtx("test-token", "test-account"), router.Decision{Model: "gpt-6.1-sol", Provider: providers.ProviderOpenAI}, providers.PreparedRequest{Endpoint: providers.EndpointResponses, Body: []byte(`{"model":"gpt-6.1-sol","input":"hi"}`)}, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+			err := client.Proxy(codexCtx("test-token", "test-account"), router.Decision{Model: "gpt-6.1-sol", Provider: providers.ProviderOpenAI}, providers.PreparedRequest{Endpoint: providers.EndpointResponses, Body: []byte(`{"model":"gpt-6.1-sol","input":"hi"}`)}, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
 			var upstream *providers.UpstreamErrorResponse
 			require.ErrorAs(t, err, &upstream)
 			if status == http.StatusNotFound {
@@ -171,7 +171,7 @@ func TestCodexQuotaEndpointUnavailableNeverInfers(t *testing.T) {
 			client := NewClient("deployment-key", server.URL)
 			client.SetCodexBaseURL(server.URL)
 			started := time.Now()
-			err := client.Proxy(codexCtx("test-token", "test-account"), router.Decision{Model: "gpt-6.1-sol", Provider: providers.ProviderOpenAI}, providers.PreparedRequest{Endpoint: providers.EndpointResponses, Body: []byte(`{"model":"gpt-6.1-sol","input":"hi"}`)}, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+			err := client.Proxy(codexCtx("test-token", "test-account"), router.Decision{Model: "gpt-6.1-sol", Provider: providers.ProviderOpenAI}, providers.PreparedRequest{Endpoint: providers.EndpointResponses, Body: []byte(`{"model":"gpt-6.1-sol","input":"hi"}`)}, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
 			var upstream *providers.UpstreamErrorResponse
 			require.ErrorAs(t, err, &upstream)
 			require.Equal(t, 503, upstream.Status)

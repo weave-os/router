@@ -29,7 +29,7 @@ const (
 // subscription in the inbound Authorization header.
 func codexSubRequest(t *testing.T, body string) (*httptest.ResponseRecorder, *http.Request) {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+codexSubToken)
 	req.Header.Set("ChatGPT-Account-ID", codexSubAccountID)
 	return httptest.NewRecorder(), req

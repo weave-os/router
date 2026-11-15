@@ -81,7 +81,7 @@ func TestProxy_OutputStallAbortsOnPingOnlyStream(t *testing.T) {
 	const outputStall = 120 * time.Millisecond
 	c := anthropic.NewClientWithStallTimeouts("test-key", upstream.URL, byteIdle, outputStall)
 	w := translate.NewAnthropicRoutingMarkerWriter(&flushRecorder{}, "claude-sonnet-5", "[routed]")
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	start := time.Now()
 	err := c.Proxy(context.Background(), router.Decision{Model: "claude-sonnet-5"}, messagesPrep(), w, clientReq)
@@ -122,7 +122,7 @@ func TestProxy_ContentDeltasResetOutputStall(t *testing.T) {
 	const outputStall = 60 * time.Millisecond // < frames*frameInterval, so total duration exceeds it
 	c := anthropic.NewClientWithStallTimeouts("test-key", upstream.URL, byteIdle, outputStall)
 	w := translate.NewAnthropicRoutingMarkerWriter(&flushRecorder{}, "claude-sonnet-5", "[routed]")
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	err := c.Proxy(context.Background(), router.Decision{Model: "claude-sonnet-5"}, messagesPrep(), w, clientReq)
 	require.NoError(t, err, "a stream producing content_block_delta output must never trip the output-stall watchdog")
@@ -144,7 +144,7 @@ func TestProxy_NotArmedWriterStillByteIdleGuarded(t *testing.T) {
 	const outputStall = 5 * time.Second
 	c := anthropic.NewClientWithStallTimeouts("test-key", upstream.URL, byteIdle, outputStall)
 	w := &flushRecorder{} // no ArmOutputProgress hook
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	start := time.Now()
 	err := c.Proxy(context.Background(), router.Decision{Model: "claude-sonnet-5"}, messagesPrep(), w, clientReq)

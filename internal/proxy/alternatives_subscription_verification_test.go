@@ -101,7 +101,7 @@ func TestVerificationAutomaticAlternativeHTTP(t *testing.T) {
 			}
 			body := `{"model":"` + requested + `","reasoning_effort":"medium","stream":true,"messages":[{"role":"user","content":"synthetic"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
 			rec := httptest.NewRecorder()
-			dispatchErr := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body)))
+			dispatchErr := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), "POST", "/v1/chat/completions", strings.NewReader(body)))
 			if scenario.max {
 				require.ErrorContains(t, dispatchErr, "cannot be served on max_subscription")
 				require.Empty(t, bearers)

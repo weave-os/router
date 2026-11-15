@@ -1,6 +1,7 @@
 package middleware_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -25,8 +26,8 @@ func rateLimitedEngine(perMinute int) *gin.Engine {
 	return engine
 }
 
-func callAs(engine *gin.Engine, keyID string) int {
-	req := httptest.NewRequest(http.MethodGet, "/x", nil)
+func callAs(ctx context.Context, engine *gin.Engine, keyID string) int {
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/x", nil)
 	if keyID != "" {
 		req.Header.Set("X-Test-Key-ID", keyID)
 	}
@@ -39,26 +40,26 @@ func TestAnalyticsRateLimitAllowsBurstThenRejects(t *testing.T) {
 	engine := rateLimitedEngine(3)
 
 	for i := range 3 {
-		require.Equal(t, http.StatusOK, callAs(engine, "key-1"), "request %d should be inside the burst", i)
+		require.Equal(t, http.StatusOK, callAs(t.Context(), engine, "key-1"), "request %d should be inside the burst", i)
 	}
 
-	require.Equal(t, http.StatusTooManyRequests, callAs(engine, "key-1"))
+	require.Equal(t, http.StatusTooManyRequests, callAs(t.Context(), engine, "key-1"))
 }
 
 // One noisy ETL job must not throttle another installation's export.
 func TestAnalyticsRateLimitIsPerKey(t *testing.T) {
 	engine := rateLimitedEngine(1)
-	require.Equal(t, http.StatusOK, callAs(engine, "key-1"))
-	require.Equal(t, http.StatusTooManyRequests, callAs(engine, "key-1"))
+	require.Equal(t, http.StatusOK, callAs(t.Context(), engine, "key-1"))
+	require.Equal(t, http.StatusTooManyRequests, callAs(t.Context(), engine, "key-1"))
 
-	require.Equal(t, http.StatusOK, callAs(engine, "key-2"))
+	require.Equal(t, http.StatusOK, callAs(t.Context(), engine, "key-2"))
 }
 
 func TestAnalyticsRateLimitSetsRetryAfter(t *testing.T) {
 	engine := rateLimitedEngine(1)
-	require.Equal(t, http.StatusOK, callAs(engine, "key-1"))
+	require.Equal(t, http.StatusOK, callAs(t.Context(), engine, "key-1"))
 
-	req := httptest.NewRequest(http.MethodGet, "/x", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil)
 	req.Header.Set("X-Test-Key-ID", "key-1")
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, req)
@@ -72,6 +73,6 @@ func TestAnalyticsRateLimitSetsRetryAfter(t *testing.T) {
 func TestAnalyticsRateLimitIgnoresUnauthenticated(t *testing.T) {
 	engine := rateLimitedEngine(1)
 
-	require.Equal(t, http.StatusOK, callAs(engine, ""))
-	require.Equal(t, http.StatusOK, callAs(engine, ""))
+	require.Equal(t, http.StatusOK, callAs(t.Context(), engine, ""))
+	require.Equal(t, http.StatusOK, callAs(t.Context(), engine, ""))
 }

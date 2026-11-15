@@ -78,7 +78,7 @@ func TestCodexQuotaPreflightRotatesBeforeInference(t *testing.T) {
 			}
 			body := `{"model":"auto","stream":true,"input":"synthetic","tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}]}`
 			rec := httptest.NewRecorder()
-			err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body)))
+			err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(body)))
 			inferenceMu.Lock()
 			defer inferenceMu.Unlock()
 			if tc.depleted {
@@ -107,7 +107,7 @@ func TestModelQuotaRejectionLeavesOtherModelsOnSubscription(t *testing.T) {
 	ctx := codexSubscriptionTestCtx()
 	credentialCtx := resolveAndInjectCredentials(ctx, providers.ProviderOpenAI, "gpt-6-astra", http.Header{})
 	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderOpenAI: client}).WithUsageObserver(usage.NewObserver([]byte("synthetic-quota-salt"), time.Minute, time.Now))
-	err := client.Proxy(credentialCtx, router.Decision{Model: "gpt-6-astra", Provider: providers.ProviderOpenAI}, providers.PreparedRequest{Endpoint: providers.EndpointResponses, Body: []byte(`{"model":"gpt-6-astra","input":"hi"}`)}, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+	err := client.Proxy(credentialCtx, router.Decision{Model: "gpt-6-astra", Provider: providers.ProviderOpenAI}, providers.PreparedRequest{Endpoint: providers.EndpointResponses, Body: []byte(`{"model":"gpt-6-astra","input":"hi"}`)}, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
 	require.Error(t, err)
 	_, accountSpent := codexQuotaExhaustion(err)
 	require.False(t, accountSpent)
@@ -116,7 +116,7 @@ func TestModelQuotaRejectionLeavesOtherModelsOnSubscription(t *testing.T) {
 	require.False(t, svc.codexSubscriptionExhausted(credentialCtx, http.Header{}))
 	laterCtx := svc.resolveCredentials(ctx, providers.ProviderOpenAI, codexCoveredModel, http.Header{})
 	require.True(t, requestcontext.CredentialsFromContext(laterCtx).OAuth)
-	require.NoError(t, client.Proxy(laterCtx, router.Decision{Model: codexCoveredModel, Provider: providers.ProviderOpenAI}, providers.PreparedRequest{Endpoint: providers.EndpointResponses, Body: []byte(`{"model":"` + codexCoveredModel + `","input":"hi"}`)}, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/responses", nil)))
+	require.NoError(t, client.Proxy(laterCtx, router.Decision{Model: codexCoveredModel, Provider: providers.ProviderOpenAI}, providers.PreparedRequest{Endpoint: providers.EndpointResponses, Body: []byte(`{"model":"` + codexCoveredModel + `","input":"hi"}`)}, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)))
 	leaser := &scriptedSubscriptionLeaser{}
 	svc.WithManagedSubscriptions(leaser)
 	require.False(t, svc.recordManagedSubscriptionFailure(credentialCtx, providers.ProviderOpenAI, "gpt-6-astra", subscriptions.Lease{AccountID: "synthetic-account"}, err), "model quota must not cool down the whole managed account")
@@ -154,7 +154,7 @@ func TestCodexExtraCreditsManagedAccountWithSpentObservation(t *testing.T) {
 				ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
 				body := `{"model":"auto","stream":true,"input":"synthetic","tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}]}`
 				rec := httptest.NewRecorder()
-				err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body)))
+				err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(body)))
 				if allowed {
 					require.NoError(t, err)
 					require.Contains(t, rec.Body.String(), "answer")
@@ -217,7 +217,7 @@ func TestCodexExtraCreditsCallerLoginPrecedesAPIFallback(t *testing.T) {
 			svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).WithUsageObserver(observer).WithCodexExtraCredits(allowed)
 			body := `{"model":"auto","stream":true,"input":"synthetic","tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}]}`
 			rec := httptest.NewRecorder()
-			require.NoError(t, svc.ProxyOpenAIResponses(codexSubscriptionTestCtx(), []byte(body), rec, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))))
+			require.NoError(t, svc.ProxyOpenAIResponses(codexSubscriptionTestCtx(), []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(body))))
 			require.Contains(t, rec.Body.String(), "answer")
 			if allowed {
 				require.EqualValues(t, 1, quotaChecks.Load(), "caller login must freshly verify quota and credits")

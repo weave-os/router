@@ -61,7 +61,7 @@ func TestProxyOpenAIResponses_ForcedOpusPlaintextAgentTask(t *testing.T) {
 	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
 	parentBody := []byte(`{"model":"gpt-6.1-sol","stream":true,"input":"Delegate project test inspection","tools":[{"type":"namespace","name":"collaboration","tools":[{"type":"function","name":"spawn_agent","parameters":{"type":"object","properties":{"message":{"type":"string"}}}}]}]}`)
 	parentSink := httptest.NewRecorder()
-	require.NoError(t, svc.ProxyOpenAIResponses(ctx, parentBody, parentSink, httptest.NewRequest(http.MethodPost, "/v1/responses", nil)))
+	require.NoError(t, svc.ProxyOpenAIResponses(ctx, parentBody, parentSink, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)))
 	var call gjson.Result
 	for _, line := range strings.Split(parentSink.Body.String(), "\n") {
 		if strings.HasPrefix(line, "data: ") && gjson.Get(line[6:], "type").Str == "response.output_item.done" && gjson.Get(line[6:], "item.type").Str == "function_call" {
@@ -77,7 +77,7 @@ func TestProxyOpenAIResponses_ForcedOpusPlaintextAgentTask(t *testing.T) {
 	require.NoError(t, err)
 	body := []byte(`{"model":"gpt-6.1-sol","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Inspect the project"}]},{"type":"agent_message","author":"parent","recipient":"child","content":[{"type":"input_text","text":` + string(delivery) + `}]}]}`)
 	sink := httptest.NewRecorder()
-	err = svc.ProxyOpenAIResponses(ctx, body, sink, httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+	err = svc.ProxyOpenAIResponses(ctx, body, sink, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
 
 	require.NoError(t, err)
 	mu.Lock()
@@ -104,7 +104,7 @@ func TestProxyOpenAIResponses_EncryptedAgentTaskKeepsNativePayload(t *testing.T)
 	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
 	body := []byte(`{"model":"gpt-6.1-sol","input":[{"type":"agent_message","author":"parent","recipient":"child","content":[{"type":"input_text","text":"Message Type: NEW_TASK\nPayload:\n"},{"type":"encrypted_content","encrypted_content":"opaque-task"}]}]}`)
 	sink := httptest.NewRecorder()
-	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, sink, httptest.NewRequest(http.MethodPost, "/v1/responses", nil)))
+	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, sink, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)))
 	require.NotNil(t, fr.capturedReq)
 	assert.Equal(t, map[string]struct{}{providers.ProviderOpenAI: {}}, fr.capturedReq.EnabledProviders)
 	require.Len(t, native.proxyBodies, 1)
@@ -114,7 +114,7 @@ func TestProxyOpenAIResponses_EncryptedAgentTaskKeepsNativePayload(t *testing.T)
 	blockedService := proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-5-5"}}, map[string]providers.Client{
 		providers.ProviderAnthropic: blockedUpstream,
 	}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-5-5", nil)
-	err := blockedService.ProxyOpenAIResponses(ctx, body, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+	err := blockedService.ProxyOpenAIResponses(ctx, body, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
 	assert.ErrorIs(t, err, proxy.ErrTranslationCompatibleProviderUnavailable)
 	assert.Empty(t, blockedUpstream.proxyBodies, "never substitute the clear routing header for an opaque task")
 }

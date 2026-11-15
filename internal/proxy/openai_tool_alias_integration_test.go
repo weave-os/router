@@ -38,7 +38,7 @@ func TestProxyMessages_OpenAIToolAliasRoundTrip(t *testing.T) {
 	svc := proxy.NewService(&fakeRouter{decision: decision}, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.5", nil)
 	body := []byte(fmt.Sprintf(`{"model":"claude-sonnet-5-5","max_tokens":1024,"tools":[{"name":%q,"input_schema":{"type":"object"}}],"messages":[{"role":"user","content":"list issue types"}]}`, name))
 	sink := httptest.NewRecorder()
-	require.NoError(t, svc.ProxyMessages(context.Background(), body, sink, httptest.NewRequest(http.MethodPost, "/v1/messages", nil)))
+	require.NoError(t, svc.ProxyMessages(context.Background(), body, sink, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)))
 	require.NotEqual(t, name, alias)
 	require.LessOrEqual(t, len(alias), 64)
 	require.Equal(t, name, gjson.Get(sink.Body.String(), `content.#(type=="tool_use").name`).String(), sink.Body.String())

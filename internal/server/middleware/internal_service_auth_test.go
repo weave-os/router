@@ -22,7 +22,7 @@ func internalServiceEngine(token string) *gin.Engine {
 
 func internalServiceResponse(t *testing.T, token, presented string) int {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, "/internal/v1/ping", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/internal/v1/ping", nil)
 	if presented != "" {
 		req.Header.Set("X-Weave-Internal-Token", presented)
 	}

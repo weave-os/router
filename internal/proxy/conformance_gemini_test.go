@@ -8,6 +8,7 @@ package proxy_test
 
 import (
 	"net/http"
+	"slices"
 	"testing"
 
 	"weave-os/router/internal/providers"
@@ -22,7 +23,13 @@ func geminiClient(baseURL string) providers.Client {
 }
 
 func TestConformance_GeminiNative(t *testing.T) {
-	cases := []conformanceCase{
+	for _, c := range slices.Concat(geminiNativeWireCases(), geminiNativeThinkingCases()) {
+		t.Run(c.name, func(t *testing.T) { runConformanceCase(t, c) })
+	}
+}
+
+func geminiNativeWireCases() []conformanceCase {
+	return []conformanceCase{
 		{
 			name:            "gemini_native/basic_text",
 			provider:        providers.ProviderGoogle,
@@ -32,6 +39,7 @@ func TestConformance_GeminiNative(t *testing.T) {
 			stream:          true,
 			upstreamFixture: "gemini_native/basic_text.upstream.sse",
 			wantUpstream: func(t *testing.T, path string, body []byte, _ http.Header) {
+				t.Helper()
 				assert.Contains(t, path, "gemini-3.1-pro-preview:streamGenerateContent", "streaming inbound must hit the native streaming surface")
 				assert.Equal(t, "user", gjson.GetBytes(body, "contents.0.role").String())
 			},
@@ -45,56 +53,8 @@ func TestConformance_GeminiNative(t *testing.T) {
 			stream:          true,
 			upstreamFixture: "gemini_native/toolcall.upstream.sse",
 			wantUpstream: func(t *testing.T, _ string, body []byte, _ http.Header) {
+				t.Helper()
 				assert.Equal(t, "get_weather", gjson.GetBytes(body, "tools.0.functionDeclarations.0.name").String(), "Anthropic tools must map to Gemini functionDeclarations")
-			},
-		},
-		{
-			// Guards router #328/#121: Gemini 3.x must use thinkingLevel (string),
-			// NOT the legacy numeric thinkingBudget — mixing both 400s.
-			name:            "gemini_native/thinking_level_gemini3",
-			provider:        providers.ProviderGoogle,
-			model:           "gemini-3.1-pro-preview",
-			newClient:       geminiClient,
-			inbound:         `{"model":"gemini-3.1-pro-preview","stream":true,"max_tokens":1024,"reasoning_effort":"high","messages":[{"role":"user","content":"Think hard."}]}`,
-			stream:          true,
-			upstreamFixture: "gemini_native/basic_text.upstream.sse",
-			wantUpstream: func(t *testing.T, _ string, body []byte, _ http.Header) {
-				tc := gjson.GetBytes(body, "generationConfig.thinkingConfig")
-				assert.Equal(t, "high", tc.Get("thinkingLevel").String(), "gemini-3.x must send a string thinkingLevel")
-				assert.False(t, tc.Get("thinkingBudget").Exists(), "gemini-3.x must NOT send the legacy numeric thinkingBudget")
-			},
-		},
-		{
-			// Regression for Anthropic ingress: Claude Code's numeric thinking
-			// budget must reach Gemini 3.x as a named thinkingLevel, rather than
-			// failing local translation before the provider call.
-			name:            "gemini_native/thinking_budget_gemini37",
-			provider:        providers.ProviderGoogle,
-			model:           "gemini-3.7-flash",
-			newClient:       geminiClient,
-			inbound:         `{"model":"gemini-3.7-flash","stream":true,"max_tokens":1024,"thinking":{"type":"enabled","budget_tokens":31999},"messages":[{"role":"user","content":"Think hard."}]}`,
-			stream:          true,
-			upstreamFixture: "gemini_native/basic_text.upstream.sse",
-			wantUpstream: func(t *testing.T, path string, body []byte, _ http.Header) {
-				assert.Contains(t, path, "gemini-3.7-flash:streamGenerateContent")
-				tc := gjson.GetBytes(body, "generationConfig.thinkingConfig")
-				assert.Equal(t, "high", tc.Get("thinkingLevel").String())
-				assert.False(t, tc.Get("thinkingBudget").Exists())
-			},
-		},
-		{
-			// The 2.5 counterpart: numeric thinkingBudget, no thinkingLevel.
-			name:            "gemini_native/thinking_budget_gemini25",
-			provider:        providers.ProviderGoogle,
-			model:           "gemini-2.5-pro",
-			newClient:       geminiClient,
-			inbound:         `{"model":"gemini-2.5-pro","stream":true,"max_tokens":1024,"thinking":{"type":"enabled","budget_tokens":24576},"messages":[{"role":"user","content":"Think hard."}]}`,
-			stream:          true,
-			upstreamFixture: "gemini_native/basic_text.upstream.sse",
-			wantUpstream: func(t *testing.T, _ string, body []byte, _ http.Header) {
-				tc := gjson.GetBytes(body, "generationConfig.thinkingConfig")
-				assert.EqualValues(t, 24576, tc.Get("thinkingBudget").Int(), "gemini-2.5 keeps the numeric thinkingBudget")
-				assert.False(t, tc.Get("thinkingLevel").Exists(), "gemini-2.5 must NOT send thinkingLevel")
 			},
 		},
 		{
@@ -113,6 +73,7 @@ func TestConformance_GeminiNative(t *testing.T) {
 			stream:          true,
 			upstreamFixture: "gemini_native/basic_text.upstream.sse",
 			wantUpstream: func(t *testing.T, _ string, body []byte, _ http.Header) {
+				t.Helper()
 				assert.Contains(t, string(body), `"thoughtSignature":"SIG_ROUNDTRIP"`,
 					"prior assistant tool_use signature must round-trip onto the Gemini functionCall part")
 			},
@@ -130,6 +91,7 @@ func TestConformance_GeminiNative(t *testing.T) {
 			stream:          true,
 			upstreamFixture: "gemini_native/toolcall.upstream.sse",
 			wantUpstream: func(t *testing.T, _ string, body []byte, _ http.Header) {
+				t.Helper()
 				assert.Equal(t, "VALIDATED", gjson.GetBytes(body, "toolConfig.functionCallingConfig.mode").String(),
 					"tools + unforced tool_choice on Gemini 3.x must request VALIDATED decoding")
 			},
@@ -145,13 +107,68 @@ func TestConformance_GeminiNative(t *testing.T) {
 			stream:          true,
 			upstreamFixture: "gemini_native/toolcall.upstream.sse",
 			wantUpstream: func(t *testing.T, _ string, body []byte, _ http.Header) {
+				t.Helper()
 				fcc := gjson.GetBytes(body, "toolConfig.functionCallingConfig")
 				assert.Equal(t, "ANY", fcc.Get("mode").String(), "a forced tool keeps mode=ANY")
 				assert.Equal(t, "get_weather", fcc.Get("allowedFunctionNames.0").String())
 			},
 		},
 	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) { runConformanceCase(t, c) })
+}
+
+func geminiNativeThinkingCases() []conformanceCase {
+	return []conformanceCase{
+		{
+			// Guards router #328/#121: Gemini 3.x must use thinkingLevel (string),
+			// NOT the legacy numeric thinkingBudget — mixing both 400s.
+			name:            "gemini_native/thinking_level_gemini3",
+			provider:        providers.ProviderGoogle,
+			model:           "gemini-3.1-pro-preview",
+			newClient:       geminiClient,
+			inbound:         `{"model":"gemini-3.1-pro-preview","stream":true,"max_tokens":1024,"reasoning_effort":"high","messages":[{"role":"user","content":"Think hard."}]}`,
+			stream:          true,
+			upstreamFixture: "gemini_native/basic_text.upstream.sse",
+			wantUpstream: func(t *testing.T, _ string, body []byte, _ http.Header) {
+				t.Helper()
+				tc := gjson.GetBytes(body, "generationConfig.thinkingConfig")
+				assert.Equal(t, "high", tc.Get("thinkingLevel").String(), "gemini-3.x must send a string thinkingLevel")
+				assert.False(t, tc.Get("thinkingBudget").Exists(), "gemini-3.x must NOT send the legacy numeric thinkingBudget")
+			},
+		},
+		{
+			// Regression for Anthropic ingress: Claude Code's numeric thinking
+			// budget must reach Gemini 3.x as a named thinkingLevel, rather than
+			// failing local translation before the provider call.
+			name:            "gemini_native/thinking_budget_gemini37",
+			provider:        providers.ProviderGoogle,
+			model:           "gemini-3.7-flash",
+			newClient:       geminiClient,
+			inbound:         `{"model":"gemini-3.7-flash","stream":true,"max_tokens":1024,"thinking":{"type":"enabled","budget_tokens":31999},"messages":[{"role":"user","content":"Think hard."}]}`,
+			stream:          true,
+			upstreamFixture: "gemini_native/basic_text.upstream.sse",
+			wantUpstream: func(t *testing.T, path string, body []byte, _ http.Header) {
+				t.Helper()
+				assert.Contains(t, path, "gemini-3.7-flash:streamGenerateContent")
+				tc := gjson.GetBytes(body, "generationConfig.thinkingConfig")
+				assert.Equal(t, "high", tc.Get("thinkingLevel").String())
+				assert.False(t, tc.Get("thinkingBudget").Exists())
+			},
+		},
+		{
+			// The 2.5 counterpart: numeric thinkingBudget, no thinkingLevel.
+			name:            "gemini_native/thinking_budget_gemini25",
+			provider:        providers.ProviderGoogle,
+			model:           "gemini-2.5-pro",
+			newClient:       geminiClient,
+			inbound:         `{"model":"gemini-2.5-pro","stream":true,"max_tokens":1024,"thinking":{"type":"enabled","budget_tokens":24576},"messages":[{"role":"user","content":"Think hard."}]}`,
+			stream:          true,
+			upstreamFixture: "gemini_native/basic_text.upstream.sse",
+			wantUpstream: func(t *testing.T, _ string, body []byte, _ http.Header) {
+				t.Helper()
+				tc := gjson.GetBytes(body, "generationConfig.thinkingConfig")
+				assert.EqualValues(t, 24576, tc.Get("thinkingBudget").Int(), "gemini-2.5 keeps the numeric thinkingBudget")
+				assert.False(t, tc.Get("thinkingLevel").Exists(), "gemini-2.5 must NOT send thinkingLevel")
+			},
+		},
 	}
 }

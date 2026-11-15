@@ -57,7 +57,7 @@ func TestService_ProxyOpenAIChatCompletion_GatewayPromptCacheKeyRejectionRetries
 	body := []byte(`{"model":"grok-4.6","messages":[{"role":"system","content":"You are a terse assistant."},{"role":"user","content":"hello"}]}`)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, body, rec, req))
 
 	require.Len(t, gw.proxyBodies, 2, "strict 400 must trigger exactly one strip-and-retry")
@@ -68,7 +68,7 @@ func TestService_ProxyOpenAIChatCompletion_GatewayPromptCacheKeyRejectionRetries
 
 	// Later turn against the memoized endpoint: single dispatch, no hint.
 	rec2 := httptest.NewRecorder()
-	req2 := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	req2 := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, body, rec2, req2))
 	require.Len(t, gw.proxyBodies, 3, "memoized endpoint must not pay the 400 again")
 	assert.NotContains(t, string(gw.proxyBodies[2]), `"prompt_cache_key"`)

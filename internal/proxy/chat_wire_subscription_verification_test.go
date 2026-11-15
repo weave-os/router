@@ -34,7 +34,7 @@ func TestVerificationUnrepresentableChatRefusesAPIWithoutQuotaProof(t *testing.T
 	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 	body := `{"model":"auto","n":2,"logprobs":true,"stream":true,"messages":[{"role":"user","content":"synthetic"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
 	rec := httptest.NewRecorder()
-	require.ErrorIs(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))), ErrSubscriptionPoolUnavailable)
+	require.ErrorIs(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), "POST", "/v1/chat/completions", strings.NewReader(body))), ErrSubscriptionPoolUnavailable)
 	require.Empty(t, bearers)
 	require.Empty(t, paths)
 	require.NotContains(t, rec.Body.String(), "chat answer")

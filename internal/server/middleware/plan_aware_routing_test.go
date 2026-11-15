@@ -47,7 +47,7 @@ func TestWithAuthPropagatesPlanAwareOrganizationFlag(t *testing.T) {
 		overrides, err := flags.ParseOverrides([]byte(tc.stored))
 		require.NoError(t, err)
 		installation.FlagOverrides = overrides
-		req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 		req.Header.Set(middleware.RouterKeyHeader, routerToken)
 		recorder := httptest.NewRecorder()
 		engine.ServeHTTP(recorder, req)

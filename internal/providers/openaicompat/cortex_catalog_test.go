@@ -17,6 +17,7 @@ import (
 // cortex replays Snowflake Cortex's observed catalog responses: 415 without a
 // content type, 400 without an entity, 400 without Accept, models otherwise.
 func cortex(t *testing.T, hits *int) http.HandlerFunc {
+	t.Helper()
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v2/cortex/models" {
 			w.WriteHeader(http.StatusNotFound)

@@ -19,6 +19,8 @@ linters:
     - nilerr
     - exhaustive
     - gosec
+    - noctx
+    - thelper
   settings:
     staticcheck:
       checks:

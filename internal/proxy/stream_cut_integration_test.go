@@ -58,7 +58,7 @@ func TestProxyMessages_CommittedStreamCutLogsDiagnostics(t *testing.T) {
 	)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(streamCutTurnBody))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(streamCutTurnBody))
 	require.Error(t, svc.ProxyMessages(context.Background(), []byte(streamCutTurnBody), rec, req))
 
 	logged := logBuf.String()
@@ -102,7 +102,7 @@ func TestProxyMessages_ThinkingOnlyIdleCutReportsNoFinalBlocks(t *testing.T) {
 	)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(streamCutTurnBody))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(streamCutTurnBody))
 	require.Error(t, svc.ProxyMessages(context.Background(), []byte(streamCutTurnBody), rec, req))
 
 	assert.Equal(t, http.StatusOK, rec.Code, "the status went out with the first provider byte")
@@ -143,7 +143,7 @@ func TestProxyMessages_ClientCancelClassifiedSeparately(t *testing.T) {
 	)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(streamCutTurnBody))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(streamCutTurnBody))
 	require.Error(t, svc.ProxyMessages(context.Background(), []byte(streamCutTurnBody), rec, req))
 
 	logged := logBuf.String()
@@ -169,7 +169,7 @@ func TestProxyMessages_CleanStreamLogsNoStreamCutFields(t *testing.T) {
 	)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(streamCutTurnBody))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(streamCutTurnBody))
 	require.NoError(t, svc.ProxyMessages(context.Background(), []byte(streamCutTurnBody), rec, req))
 
 	assert.NotContains(t, logBuf.String(), "stream_failure_class")
@@ -194,7 +194,7 @@ func TestProxyMessages_TranslatedPathStreamCutLogsDiagnostics(t *testing.T) {
 	)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(streamCutTurnBody))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(streamCutTurnBody))
 	require.Error(t, svc.ProxyMessages(context.Background(), []byte(streamCutTurnBody), rec, req))
 
 	assert.Contains(t, logBuf.String(), "stream_failure_class=upstream_eof")

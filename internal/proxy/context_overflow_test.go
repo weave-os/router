@@ -40,7 +40,7 @@ func TestProxyMessages_UpstreamOverflowIsLeftForNativeRendering(t *testing.T) {
 	)
 	rec := httptest.NewRecorder()
 	body := []byte(`{"model":"claude-haiku-4-5","max_tokens":64,"messages":[{"role":"user","content":"hi"}]}`)
-	err := svc.ProxyMessages(authedCtx(overflowInstallationID), body, rec, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+	err := svc.ProxyMessages(authedCtx(overflowInstallationID), body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
 
 	require.Error(t, err)
 	cls, ok := proxy.ClassifyDispatchError(err)
@@ -67,7 +67,7 @@ func TestProxyMessages_ForcedModelDispatchesPastByteEstimate(t *testing.T) {
 	// forced model's 200k window.
 	content := strconv.QuoteToASCII(strings.Repeat("中", 150_000))
 	body := []byte(`{"model":"` + forced + `","max_tokens":1024,"messages":[{"role":"user","content":` + content + `}]}`)
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	httpReq.Header.Set(proxy.ForceModelHeader, forced)
 	require.NoError(t, svc.ProxyMessages(authedCtx(overflowInstallationID), body, httptest.NewRecorder(), httpReq))
 
@@ -90,7 +90,7 @@ func proxyResponsesOverflow(t *testing.T, stream bool) *httptest.ResponseRecorde
 	if stream {
 		body = `{"model":"claude-haiku-4-5","input":"hi","stream":true}`
 	}
-	err := svc.ProxyOpenAIResponses(authedCtx(overflowInstallationID), []byte(body), rec, httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+	err := svc.ProxyOpenAIResponses(authedCtx(overflowInstallationID), []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
 	require.Error(t, err)
 	cls, ok := proxy.ClassifyDispatchError(err)
 	require.True(t, ok)
@@ -178,7 +178,7 @@ func TestCrossFormatResponsesOverflowClassifiesAsContextWindowExceeded(t *testin
 				)
 				rec := httptest.NewRecorder()
 				body := []byte(fmt.Sprintf(ingress.body, stream))
-				err := ingress.proxy(svc)(authedCtx(overflowInstallationID), body, rec, httptest.NewRequest(http.MethodPost, ingress.path, nil))
+				err := ingress.proxy(svc)(authedCtx(overflowInstallationID), body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, ingress.path, nil))
 
 				require.Error(t, err)
 				cls, ok := proxy.ClassifyDispatchError(err)
@@ -247,7 +247,7 @@ func TestHMMTotalOverflowReachesUpstreamOnEveryIngress(t *testing.T) {
 			svc := hmmOverflowService(test.provider, upstream, test.models...)
 			ctx := router.WithStrategy(authedCtx(overflowInstallationID), router.StrategyHMM)
 
-			err := test.send(svc, ctx, []byte(test.body), httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, test.path, nil))
+			err := test.send(svc, ctx, []byte(test.body), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, test.path, nil))
 
 			require.Error(t, err)
 			cls, ok := proxy.ClassifyDispatchError(err)
@@ -270,7 +270,7 @@ func TestTotalOverflowIgnoresWiderUnservableModel(t *testing.T) {
 	svc := hmmOverflowService(providers.ProviderAnthropic, upstream, "claude-opus-4-8", "gemini-3.5-flash")
 	ctx := router.WithStrategy(authedCtx(overflowInstallationID), router.StrategyHMM)
 
-	err := svc.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+	err := svc.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
 
 	require.Error(t, err)
 	cls, ok := proxy.ClassifyDispatchError(err)
@@ -288,7 +288,7 @@ func TestHMMPolicyEmptiedPoolStaysNoRoutableModels(t *testing.T) {
 		proxy.InstallationExcludedModelsContextKey{}, []string{"claude-opus-4-8", "claude-haiku-4-5"})
 	body := []byte(`{"model":"claude-opus-4-8","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`)
 
-	err := svc.ProxyMessages(ctx, body, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+	err := svc.ProxyMessages(ctx, body, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
 
 	require.Error(t, err)
 	cls, ok := proxy.ClassifyDispatchError(err)
