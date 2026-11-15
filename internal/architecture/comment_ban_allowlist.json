@@ -14,10 +14,6 @@
       "banned_lines": 883
     },
     {
-      "package": "internal/billing",
-      "banned_lines": 294
-    },
-    {
       "package": "internal/dispatch",
       "banned_lines": 278
     },
@@ -64,10 +60,6 @@
     {
       "package": "internal/server/middleware",
       "banned_lines": 315
-    },
-    {
-      "package": "internal/subscriptions/entitlement",
-      "banned_lines": 239
     },
     {
       "package": "internal/translate",

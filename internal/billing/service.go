@@ -9,16 +9,10 @@ import (
 	"weave-os/router/internal/subscriptions/entitlement"
 )
 
-// hasOverrideContextKeyT lives in billing (not middleware/proxy) so both
-// sides can reference it without a layering violation.
 type hasOverrideContextKeyT struct{}
 
-// HasOverrideContextKey flags override-pass-through requests for the
-// proxy's debit hook. Set by middleware.WithBalanceCheck. Bool value.
 var HasOverrideContextKey = hasOverrideContextKeyT{}
 
-// HasOverrideFromContext returns true when WithBalanceCheck flagged the
-// current request as a billing-override pass-through.
 func HasOverrideFromContext(ctx context.Context) bool {
 	v := ctx.Value(HasOverrideContextKey)
 	if v == nil {
@@ -30,65 +24,27 @@ func HasOverrideFromContext(ctx context.Context) bool {
 
 type organizationPrepaidContextKeyT struct{}
 
-// WithOrganizationPrepaid marks a request admitted against the organization's
-// prepaid credit balance, so a paid turn can name Weave credits as its funding.
 func WithOrganizationPrepaid(ctx context.Context) context.Context {
 	return context.WithValue(ctx, organizationPrepaidContextKeyT{}, true)
 }
 
-// OrganizationPrepaidFromContext reports whether WithBalanceCheck admitted the
-// request against the organization's prepaid credit balance.
 func OrganizationPrepaidFromContext(ctx context.Context) bool {
 	admitted, _ := ctx.Value(organizationPrepaidContextKeyT{}).(bool)
 	return admitted
 }
 
-// subscriptionOnlyContextKeyT lives in billing (not middleware/proxy) so both
-// sides can reference it without a layering violation, mirroring
-// hasOverrideContextKeyT.
 type subscriptionOnlyContextKeyT struct{}
 
-// SubscriptionOnlyReason names why a request was flagged subscription-only.
-// Every reason is served identically — on the caller's own subscription or,
-// for credits_depleted and spend_cap_reached, their own usable provider key in
-// its funding-priority order — with no Weave-funded failover and no inference
-// debit. The reason decides what a refused turn tells the caller (top-up CTA,
-// cap notice) and which marker a served turn carries.
 type SubscriptionOnlyReason string
 
 const (
-	// SubscriptionOnlyCreditsDepleted marks a turn the organization cannot pay
-	// for: prepaid credits are gone or a balance row is missing. The caller's
-	// own plan is absorbing work Weave would otherwise have billed. A turn the
-	// plan cannot serve is refused with the top-up CTA; one it serves is silent.
 	SubscriptionOnlyCreditsDepleted SubscriptionOnlyReason = "credits_depleted"
-	// SubscriptionOnlySpendCapReached marks a turn a configured spend cap (API
-	// key lifetime, org monthly, or engineer monthly) bars from paid capacity.
-	// The organization may still hold credits, so the turn names the cap rather
-	// than claiming credits are depleted, and carries no top-up CTA.
 	SubscriptionOnlySpendCapReached SubscriptionOnlyReason = "spend_cap_reached"
-	// SubscriptionOnlyLinkedFirst marks a turn the caller's own linked plan
-	// funds by preference, ahead of any metered capacity. Nothing is depleted,
-	// so the turn keeps its ordinary routing marker.
-	SubscriptionOnlyLinkedFirst SubscriptionOnlyReason = "linked_first"
+	SubscriptionOnlyLinkedFirst     SubscriptionOnlyReason = "linked_first"
 )
 
-// SubscriptionOnlyContextKey carries the SubscriptionOnlyReason for a request
-// the proxy must serve on the caller's own subscription (no paid failover, no
-// debit) or refuse. Unset unless a gate flagged the request.
 var SubscriptionOnlyContextKey = subscriptionOnlyContextKeyT{}
 
-// WithSubscriptionOnly marks ctx subscription-only for reason. The reason is a
-// required argument rather than a default so a gate added later must decide
-// what the caller is told, instead of silently inheriting the depleted-credits
-// refusal — which is how linked-first turns came to claim credits were gone.
-//
-// A recorded reason is never downgraded (see precedence): a funding failure
-// outranks a funding preference, because paid fallback is off and a refused
-// turn must say why, and a depleted balance outranks a reached cap, because
-// its 402 top-up path is the more pressing action (a reached cap still blocks
-// paid routing after a top-up). The precedence is enforced here rather than
-// left resting on gate registration order, which no gate can see.
 func WithSubscriptionOnly(ctx context.Context, reason SubscriptionOnlyReason) context.Context {
 	if existing, ok := subscriptionOnlyReason(ctx); ok && existing.precedence() > reason.precedence() {
 		return ctx
@@ -107,12 +63,6 @@ func (r SubscriptionOnlyReason) precedence() int {
 	}
 }
 
-// ReleaseLinkedFirst clears a linked-first mark so the turn continues on
-// metered capacity. A linked plan is the preferred funding source, not the
-// only one: once it cannot serve, the turn falls through to the organization
-// balance the gates already admitted it against. A credits_depleted or
-// spend_cap_reached mark is kept — there is nothing to fall through to, and
-// a turn the plan cannot serve is still refused.
 func ReleaseLinkedFirst(ctx context.Context) context.Context {
 	if reason, ok := subscriptionOnlyReason(ctx); ok && reason == SubscriptionOnlyLinkedFirst {
 		return context.WithValue(ctx, SubscriptionOnlyContextKey, nil)
@@ -120,22 +70,16 @@ func ReleaseLinkedFirst(ctx context.Context) context.Context {
 	return ctx
 }
 
-// SubscriptionOnlyFromContext reports whether a gate flagged the current
-// request subscription-only, for any reason.
 func SubscriptionOnlyFromContext(ctx context.Context) bool {
 	_, ok := subscriptionOnlyReason(ctx)
 	return ok
 }
 
-// SubscriptionOnlyReasonFromContext returns why the current request was flagged
-// subscription-only, and whether it was flagged at all.
 func SubscriptionOnlyReasonFromContext(ctx context.Context) (reason SubscriptionOnlyReason, ok bool) {
 	reason, ok = subscriptionOnlyReason(ctx)
 	return reason, ok
 }
 
-// unfundedTurn reports whether the organization cannot pay for the turn: a
-// depleted balance or a reached spend cap, not a linked-first preference.
 func unfundedTurn(ctx context.Context) bool {
 	reason, ok := subscriptionOnlyReason(ctx)
 	return ok && reason != SubscriptionOnlyLinkedFirst
@@ -146,26 +90,14 @@ func subscriptionOnlyReason(ctx context.Context) (reason SubscriptionOnlyReason,
 	return reason, ok
 }
 
-// EntryTypeInference is the canonical entry_type for per-request debits.
-// Keep in sync with the CHECK constraint on
-// router.organization_credit_ledger.entry_type.
 const EntryTypeInference = "inference"
 
-// EntryTypeByokFee is the entry_type for Weave's platform fee on a turn served
-// by the customer's own provider key. Keep in sync with the CHECK constraint on
-// router.organization_credit_ledger.entry_type.
 const EntryTypeByokFee = "byok_fee"
 
-// DefaultByokFeeRate is the BYOK platform fee fraction; zero means no fee unless BYOK_FEE_RATE opts a deployment in.
 const DefaultByokFeeRate = 0.0
 
-// MinBalanceMicros: requests 402 when balance <= this. 0 matches
-// OpenAI/Anthropic prepaid semantics — block at zero, let in-flight
-// debits settle.
 const MinBalanceMicros int64 = 0
 
-// Service orchestrates balance reads and debits. No I/O of its own — all
-// persistence flows through the Repo interface.
 type Service struct {
 	repo              Repo
 	autopay           AutopayNotifier
@@ -176,19 +108,12 @@ type Service struct {
 	delegatedSpend    DelegatedSpendReader
 }
 
-// NewService constructs a billing service. The Repo is required; nil panics
-// at request time, so the composition root must guard against it. Only the
-// organization book is bound here — a deployment that sells individual plans
-// adds the subscriber book with WithSubscriberPrepaid.
 func NewService(repo Repo) *Service {
 	books := newPrepaidBooks()
 	books.register(OwnerKindOrganization, OrganizationBook(repo))
 	return &Service{repo: repo, byokFeeRate: DefaultByokFeeRate, prepaid: books}
 }
 
-// WithSubscriberPrepaid binds the prepaid book owned by individual Max/Boost
-// subscribers and returns the service for chaining. Without it a subscriber
-// owner resolves to no book at all rather than to organization funds.
 func (s *Service) WithSubscriberPrepaid(book PrepaidBook) *Service {
 	s.prepaid.register(OwnerKindSubscriber, book)
 	if authorizer, ok := book.(SubscriberPrepaidAuthorizer); ok {
@@ -197,7 +122,6 @@ func (s *Service) WithSubscriberPrepaid(book PrepaidBook) *Service {
 	return s
 }
 
-// AuthorizeSubscriberPrepaid holds subscriber funds before provider dispatch.
 func (s *Service) AuthorizeSubscriberPrepaid(ctx context.Context, request PrepaidAuthorizationRequest) (PrepaidAuthorization, error) {
 	if s.subscriberPrepaid == nil {
 		return PrepaidAuthorization{}, ErrOwnerKindUnsupported
@@ -205,7 +129,6 @@ func (s *Service) AuthorizeSubscriberPrepaid(ctx context.Context, request Prepai
 	return s.subscriberPrepaid.Authorize(ctx, request)
 }
 
-// FinalizeSubscriberPrepaid returns the unused portion of a request hold.
 func (s *Service) FinalizeSubscriberPrepaid(ctx context.Context, actionID string) (int64, error) {
 	if s.subscriberPrepaid == nil {
 		return 0, ErrOwnerKindUnsupported
@@ -213,19 +136,14 @@ func (s *Service) FinalizeSubscriberPrepaid(ctx context.Context, actionID string
 	return s.subscriberPrepaid.Finalize(ctx, actionID)
 }
 
-// PrepaidBalance reads one owner's prepaid balance. The owner's kind picks the
-// book, so an organization id can only ever read organization funds and a
-// credential subject only its own.
 func (s *Service) PrepaidBalance(ctx context.Context, owner Owner) (int64, error) {
 	return s.prepaid.Balance(ctx, owner)
 }
 
-// DebitPrepaid charges one owner's prepaid book, ledger row included.
 func (s *Service) DebitPrepaid(ctx context.Context, debit PrepaidDebit) (int64, error) {
 	return s.prepaid.Debit(ctx, debit)
 }
 
-// WithByokFeeRate sets the BYOK platform fee as a fraction of upstream cost (e.g. 0.05 = 5%). Negative rates clamp to zero.
 func (s *Service) WithByokFeeRate(rate float64) *Service {
 	if rate < 0 {
 		rate = 0
@@ -234,55 +152,35 @@ func (s *Service) WithByokFeeRate(rate float64) *Service {
 	return s
 }
 
-// AutopayNotifier signals the control plane that a prepaid owner's balance just
-// crossed below its autopay threshold. Implemented by a Pub/Sub adapter in
-// internal/pubsub; nil disables the crossing check (selfhosted, or topic
-// env unset).
 type AutopayNotifier interface {
 	NotifyRechargeNeeded(owner Owner)
 }
 
-// WithAutopayNotifier attaches the autopay recharge signaller and returns
-// the service for chaining. Wired only in managed mode.
 func (s *Service) WithAutopayNotifier(n AutopayNotifier) *Service {
 	s.autopay = n
 	return s
 }
 
-// SubscriberAllowanceSettler books a served action's retail cost against an
-// individual subscriber's included Router allowance. Implemented by
-// subscriptions/entitlement.Service; nil leaves subscription metering off.
 type SubscriberAllowanceSettler interface {
 	Settle(context.Context, entitlement.Settlement) error
 }
 
-// WithSubscriberAllowance attaches individual-subscription metering and
-// returns the service for chaining. Wired only in managed mode.
 func (s *Service) WithSubscriberAllowance(settler SubscriberAllowanceSettler) *Service {
 	s.allowances = settler
 	return s
 }
 
-// CheckResult is the outcome of a preflight balance check. HasOverride
-// tells the middleware to skip the threshold comparison and flag the
-// request context so the debit hook writes a delta=0 ledger row.
 type CheckResult struct {
 	HasOverride   bool
 	BalanceMicros int64
 }
 
-// APIKeySpendCapResult is the outcome of a preflight per-key spend-cap
-// check. Found is false if the key was deleted mid-request; CapMicros is
-// nil for an uncapped key. Middleware blocks when Found && CapMicros !=
-// nil && SpentMicros >= *CapMicros.
 type APIKeySpendCapResult struct {
 	Found       bool
 	SpentMicros int64
 	CapMicros   *int64
 }
 
-// ErrDelegatedSpendUnavailable is returned when a delegated cap must be checked
-// but no spend reader is wired.
 var ErrDelegatedSpendUnavailable = errors.New("delegated spend reader not configured")
 
 func (s *Service) WithDelegatedSpend(reader DelegatedSpendReader) *Service {
@@ -290,8 +188,6 @@ func (s *Service) WithDelegatedSpend(reader DelegatedSpendReader) *Service {
 	return s
 }
 
-// CheckDelegatedSpend reads a delegated session's and task's spend-to-date
-// fresh from storage so concurrent sessions cannot overrun a cap through a cache.
 func (s *Service) CheckDelegatedSpend(ctx context.Context, issuerKeyID, sessionID, taskID string) (sessionSpentMicros, taskSpentMicros int64, err error) {
 	if s.delegatedSpend == nil {
 		return 0, 0, ErrDelegatedSpendUnavailable
@@ -299,8 +195,6 @@ func (s *Service) CheckDelegatedSpend(ctx context.Context, issuerKeyID, sessionI
 	return s.delegatedSpend.GetDelegatedTokenSpend(ctx, issuerKeyID, sessionID, taskID)
 }
 
-// CheckAPIKeySpendCap reads fresh from the repo (not the auth cache) so a
-// hot cached key can't overrun its cap within the cache TTL.
 func (s *Service) CheckAPIKeySpendCap(ctx context.Context, apiKeyID string) (APIKeySpendCapResult, error) {
 	spent, cap, found, err := s.repo.GetAPIKeySpend(ctx, apiKeyID)
 	if err != nil {
@@ -309,12 +203,6 @@ func (s *Service) CheckAPIKeySpendCap(ctx context.Context, apiKeyID string) (API
 	return APIKeySpendCapResult{Found: found, SpentMicros: spent, CapMicros: cap}, nil
 }
 
-// CheckBalance short-circuits the balance read when an override is active
-// (returns HasOverride=true). Otherwise the caller compares BalanceMicros
-// against MinBalanceMicros.
-//
-// ErrBalanceRowMissing means no balance row exists for the org — treat as
-// 402; the org needs to be backfilled before inference can succeed.
 func (s *Service) CheckBalance(ctx context.Context, orgID string) (CheckResult, error) {
 	override, err := s.repo.HasActiveOverride(ctx, orgID)
 	if err != nil {
@@ -330,20 +218,15 @@ func (s *Service) CheckBalance(ctx context.Context, orgID string) (CheckResult, 
 	return CheckResult{BalanceMicros: balance}, nil
 }
 
-// MonthlySpendResult carries a current-UTC-month spend counter alongside the
-// limit that applies to it. LimitMicros nil means no limit is configured.
 type MonthlySpendResult struct {
 	SpentMicros int64
 	LimitMicros *int64
 }
 
-// LimitReached reports whether a configured limit has been met or exceeded.
 func (r MonthlySpendResult) LimitReached() bool {
 	return r.LimitMicros != nil && r.SpentMicros >= *r.LimitMicros
 }
 
-// CheckUserMonthlySpend reads the engineer's current-month spend and
-// effective monthly limit fresh from Postgres.
 func (s *Service) CheckUserMonthlySpend(ctx context.Context, organizationID, routerUserID string) (MonthlySpendResult, error) {
 	spent, limit, err := s.repo.GetUserMonthlySpendAndLimit(ctx, organizationID, routerUserID)
 	if err != nil {
@@ -352,8 +235,6 @@ func (s *Service) CheckUserMonthlySpend(ctx context.Context, organizationID, rou
 	return MonthlySpendResult{SpentMicros: spent, LimitMicros: limit}, nil
 }
 
-// CheckOrgMonthlySpend reads the org's current-month spend and configured
-// monthly cap fresh from Postgres.
 func (s *Service) CheckOrgMonthlySpend(ctx context.Context, organizationID string) (MonthlySpendResult, error) {
 	spent, limit, err := s.repo.GetOrgMonthlySpendAndLimit(ctx, organizationID)
 	if err != nil {
@@ -362,47 +243,27 @@ func (s *Service) CheckOrgMonthlySpend(ctx context.Context, organizationID strin
 	return MonthlySpendResult{SpentMicros: spent, LimitMicros: limit}, nil
 }
 
-// DebitInferenceParams is the input to DebitForInference. Token counts
-// and pricing come from the proxy's usage extractor; HasOverride is
-// carried from the context flag middleware already stamped, so the
-// override read doesn't happen twice.
 type DebitInferenceParams struct {
-	OrganizationID  string
-	RouterRequestID string
-	Model           string
-	Provider        string
-	InputTokens     int
-	OutputTokens    int
-	CacheCreation   int
-	CacheRead       int
-	Pricing         catalog.Pricing
-	UsageModifiers  catalog.UsageModifiers
-	HasOverride     bool
-	// SubscriptionServed: turn ran on the customer's own Anthropic/Codex
-	// subscription token, so Weave charges nothing.
+	OrganizationID     string
+	RouterRequestID    string
+	Model              string
+	Provider           string
+	InputTokens        int
+	OutputTokens       int
+	CacheCreation      int
+	CacheRead          int
+	Pricing            catalog.Pricing
+	UsageModifiers     catalog.UsageModifiers
+	HasOverride        bool
 	SubscriptionServed bool
-	// ByokServed: turn ran on the customer's own provider key; Weave charges
-	// only the configured BYOK fee rate of the upstream cost rather than
-	// full inference cost.
-	ByokServed bool
-	// APIKeyID attributes the debit to the authenticating key for
-	// spend-cap tracking; empty leaves per-key spend untouched.
-	APIKeyID string
-	// DelegatedSessionID and DelegatedTaskID attribute the debit to a delegated
-	// session token's session and task; empty for every other credential.
+	ByokServed         bool
+	APIKeyID           string
 	DelegatedSessionID string
 	DelegatedTaskID    string
-	// RouterUserID attributes the debit to the resolved engineer identity for
-	// monthly spend-limit tracking; empty leaves per-user spend untouched.
-	RouterUserID string
-	// RequestedModel is the model the client asked for, which routing or
-	// failover may not have served (Model). Empty falls back to Model, for
-	// callers that dispatch exactly the model they name.
-	RequestedModel string
+	RouterUserID       string
+	RequestedModel     string
 }
 
-// requestedModel reports the client-requested model, defaulting to the served
-// model for callers that dispatch exactly the model they were handed.
 func (p DebitInferenceParams) requestedModel() string {
 	if p.RequestedModel != "" {
 		return p.RequestedModel
@@ -410,23 +271,6 @@ func (p DebitInferenceParams) requestedModel() string {
 	return p.Model
 }
 
-// DebitForInference writes one ledger row at cost — no markup math here;
-// margin is collected at top-up by the backend. Debits 0 for an override
-// pass-through or subscription-served turn (already paid for), but always
-// records NotionalCostMicros as a shadow trail.
-//
-// A BYOK turn debits 0 on the inference row (the customer paid their own
-// provider) and adds a byok_fee row for the configured fee rate of the
-// upstream cost (no fee row when the rate is zero, or when credits are
-// depleted or a spend cap is reached).
-// Override and subscription outrank BYOK.
-//
-// A turn funded by an individual Max/Boost allowance or subscriber prepaid
-// balance never reaches the organization's book. An Enterprise turn carries no
-// subscriber funding context and is unaffected.
-//
-// Returns the post-debit balance (0 on override, since balance doesn't
-// change).
 func (s *Service) DebitForInference(ctx context.Context, p DebitInferenceParams) (int64, error) {
 	warnOnUnknownPricing(p)
 	notional := computeNotionalMicros(p)
@@ -447,11 +291,8 @@ func (s *Service) DebitForInference(ctx context.Context, p DebitInferenceParams)
 	var fee int64
 	switch {
 	case p.HasOverride, p.SubscriptionServed:
-		// Already paid for — debit nothing, but still record notional cost below.
 		delta = 0
 	case p.ByokServed:
-		// Customer paid their upstream directly; Weave charges only the fee,
-		// and none on a turn the organization could not pay for.
 		delta = 0
 		if !unfundedTurn(ctx) {
 			fee = -s.byokFeeMicros(notional)
@@ -519,7 +360,6 @@ func (s *Service) settleSubscriberPrepaid(ctx context.Context, p DebitInferenceP
 	return balanceAfter, nil
 }
 
-// meterSubscriberAllowance books the turn against the admitted windows.
 func (s *Service) meterSubscriberAllowance(ctx context.Context, p DebitInferenceParams, coverage entitlement.Coverage, retailMicros int64) (bool, error) {
 	actionID, ok := entitlement.NextActionID(ctx, p.RouterRequestID)
 	if !ok {
@@ -554,11 +394,6 @@ func (s *Service) meterSubscriberAllowance(ctx context.Context, p DebitInference
 	return false, err
 }
 
-// maybeSignalRecharge fires once, on the debit that crosses the owner's
-// balance from at-or-above its autopay threshold to below it. No-ops if
-// autopay isn't wired, the debit moved nothing, or autopay is disabled.
-// A config-read error is logged and dropped (not returned) since the
-// control-plane reconciliation sweep backstops a missed signal.
 func (s *Service) maybeSignalRecharge(ctx context.Context, owner Owner, delta, balanceAfter int64) {
 	if s.autopay == nil || delta >= 0 {
 		return
@@ -577,18 +412,12 @@ func (s *Service) maybeSignalRecharge(ctx context.Context, owner Owner, delta, b
 	if !enabled {
 		return
 	}
-	// delta < 0, so the pre-debit balance is strictly greater than balanceAfter.
 	balanceBefore := balanceAfter - delta
 	if balanceBefore >= threshold && balanceAfter < threshold {
 		s.autopay.NotifyRechargeNeeded(owner)
 	}
 }
 
-// warnOnUnknownPricing logs when a billable turn resolves to zero-value
-// catalog pricing — the model ID has no internal/router/catalog.Models
-// entry, so PrimaryPriceFor/PriceFor returned a zero Pricing and this turn
-// is about to debit $0 for real usage. Override/subscription-served turns
-// are exempt: those are intentionally free, not a pricing gap.
 func warnOnUnknownPricing(p DebitInferenceParams) {
 	if p.HasOverride || p.SubscriptionServed {
 		return
@@ -611,22 +440,17 @@ func warnOnUnknownPricing(p DebitInferenceParams) {
 	)
 }
 
-// computeNotionalMicros returns the would-be charge in USD micros,
-// regardless of override status, for the shadow billing trail.
 func computeNotionalMicros(p DebitInferenceParams) int64 {
 	inUSD := catalog.EffectiveInputCost(p.InputTokens, p.CacheCreation, p.CacheRead, p.Pricing, p.Provider, p.UsageModifiers)
 	outUSD := catalog.EffectiveOutputCost(catalog.PromptTokens(p.InputTokens, p.CacheCreation, p.CacheRead, p.Provider), p.OutputTokens, p.Pricing, p.UsageModifiers)
 	return catalog.USDToMicros(inUSD + outUSD)
 }
 
-// byokFeeMicros returns Weave's platform fee as a positive micros magnitude.
-// Integer math avoids a float round-trip; rounds half away from zero so a
-// sub-micro fee rounds up rather than disappearing.
 func (s *Service) byokFeeMicros(notionalMicros int64) int64 {
 	if notionalMicros <= 0 {
 		return 0
 	}
-	const scale = 10_000 // the rate expressed as basis-points-of-a-basis-point
+	const scale = 10_000
 	rate := int64(s.byokFeeRate * scale)
 	return (notionalMicros*rate + scale/2) / scale
 }
