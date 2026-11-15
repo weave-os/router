@@ -208,3 +208,23 @@ func TestSubscriptionOnly_OwedByokFeeRefusesBeforeDispatch(t *testing.T) {
 		}
 	}
 }
+
+func TestSubscriptionOnly_OwedByokFeeSkipsLivePlan429Retry(t *testing.T) {
+	const rateLimited = `{"type":"error","error":{"type":"rate_limit_error","message":"limit"}}`
+	for _, reason := range unfundedReasons {
+		t.Run(string(reason), func(t *testing.T) {
+			trace := serveCustomerFunded(t, credentialCase{
+				name: "plan_429_fee_owed", supplies: []string{goldenSubscription, goldenBYOKAnthropic}, refused: true,
+				decisions: []router.Decision{goldenAnthropicDecision},
+				upstreams: anthropicUp(goldenUpstreamError(429, rateLimited), goldenUpstreamError(429, rateLimited), goldenUpstreamError(429, rateLimited), anthropicOK(false, "ok")),
+				ctx:       chainCtx(unfundedCtx(0.05, reason), goldenSubscriptionCtx, withBYOK(byokKey(providers.ProviderAnthropic, goldenBYOKAnthropic, auth.FundingPriorityPlanFirst))),
+			})
+			require.NotNil(t, trace.DispatchError, "an organization that cannot pay the BYOK fee is not rescued on its key")
+			assert.Equal(t, http.StatusPaymentRequired, trace.DispatchError.Status)
+			for _, attempt := range trace.Attempts {
+				assert.NotEqual(t, "byok_anthropic", attempt.Resolved.Label, "the customer's key is never called")
+			}
+			assert.Empty(t, trace.Billing, "nothing is debited")
+		})
+	}
+}
