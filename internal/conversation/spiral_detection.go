@@ -68,8 +68,8 @@ const (
 	spiralReasonNoProgress                  = "no_progress"
 )
 
-// SpiralReasonStrings keeps a nil input nil, so "not computed" stays distinct
-// from "computed, nothing fired".
+// SpiralReasonStrings returns nil for nil; pass an empty slice to persist an
+// empty list.
 func SpiralReasonStrings(reasons []SpiralReason) []string {
 	if reasons == nil {
 		return nil
