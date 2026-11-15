@@ -7396,7 +7396,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				var toolNames *translate.ToolNameWriter
 				// A native attempt has no translator, so its terminal Responses event
 				// is the only source for the turn's finish reason.
-				var nativeTerminal *responsesTerminalObserver
+				var nativeTerminal *ingress.ResponsesTerminalObserver
 				switch {
 				case surface == surfaceResponsesTranslated:
 					var usage translate.UsageSink
@@ -7419,7 +7419,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					toolNames = translate.NewOpenAIToolNameWriter(translator, prep.ResponseToolNames)
 					proxyWriter = toolNames
 				case surface == surfaceResponsesNative:
-					nativeTerminal = newResponsesTerminalObserver(attemptSink)
+					nativeTerminal = ingress.NewResponsesTerminalObserver(attemptSink)
 					proxyWriter = nativeTerminal
 					if s.usageRequired() {
 						extractor, proxyWriter = s.newUsageExtractor(nativeTerminal, d.Provider)
@@ -7441,7 +7441,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					preludeBuf.Seal()
 				}
 				err := p.Proxy(actx, d, prep, proxyWriter, r)
-				if nativeTerminal != nil && nativeTerminal.observed && errors.Is(err, context.Canceled) {
+				if nativeTerminal != nil && nativeTerminal.Observed() && errors.Is(err, context.Canceled) {
 					err = nil
 				}
 				if seedToolCalls != nil {
@@ -7479,21 +7479,21 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					// A post-commit verdict is rendered as response.failed by the
 					// Responses ingress, which owns the native stream's terminal.
 					if err == nil && env.Stream() {
-						err = nativeTerminal.state.err()
+						err = nativeTerminal.Err()
 					}
 					if isStreamTerminalMissing(err) {
 						// Releasing a withheld preamble would commit the client to a
 						// response that never finishes, ruling out the retry.
 						refusalGate.Abandon()
 					}
-					if nativeTerminal.observed && nativeTerminal.signals.OutputLimitReached {
+					if nativeTerminal.Observed() && nativeTerminal.Signals().OutputLimitReached {
 						extractor.RecordOutputLimitReached()
 					}
-					respSummary = translate.ResponseSummary{UpstreamFinishReason: nativeTerminal.signals.FinishReason}
+					respSummary = translate.ResponseSummary{UpstreamFinishReason: nativeTerminal.Signals().FinishReason}
 					nativeRespSummary = false
-					if nativeTerminal.observed && s.ResolveNativeOpenAIResponseSignals(actx) {
-						respSummary.StopReason = nativeTerminal.signals.FinishReason
-						respSummary.ToolUseBlocks = nativeTerminal.signals.ToolCalls
+					if nativeTerminal.Observed() && s.ResolveNativeOpenAIResponseSignals(actx) {
+						respSummary.StopReason = nativeTerminal.Signals().FinishReason
+						respSummary.ToolUseBlocks = nativeTerminal.Signals().ToolCalls
 						nativeRespSummary = true
 					}
 				}
@@ -8537,7 +8537,7 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	}
 	if conversion.Requirements.NativeOnly {
 		observability.FromContext(ctx).Info("Responses request restricted to its native wire family",
-			"native_only_reasons", nativeOnlyReasons(conversion.Report, conversionBody))
+			"native_only_reasons", ingress.NativeOnlyReasons(conversion.Report, conversionBody))
 	}
 	if portableCodex && codexModelSwitched(r.Header, conversion) {
 		ctx = withCodexSelectedModel(ctx, model, nativeBody)

@@ -21,7 +21,7 @@ Plus the action loop, handover adapter, and session-key derivation in sibling fi
 
 | If the change… | Context | Owns today |
 |---|---|---|
-| changes wire format or streaming | Protocol & Ingress (port: `ingress.Adapter` in `internal/ingress`, which holds the Gemini adapter; pure format conversion stays in [`translate`](../translate/CLAUDE.md)) | the four `Proxy*` entrypoints, `gemini.go`, `responses_*.go`, `stream_*.go` |
+| changes wire format or streaming | Protocol & Ingress (port: `ingress.Adapter` in `internal/ingress`, which holds the Gemini adapter, the Responses terminal observer and the shared `ingress.StreamTerminalState`; pure format conversion stays in [`translate`](../translate/CLAUDE.md)) | the four `Proxy*` entrypoints, `gemini.go`, `responses_*.go`, `stream_*.go` |
 | touches keys, BYOK, OAuth or subscriptions | Credential Brokerage | `credentials.go`, `credential_key_parts.go`, `managed_subscriptions.go`, `subscription_*.go` |
 | chooses or filters models | Routing Policy (package [`internal/routingpolicy`](../routingpolicy): `Planner` port, request-time eligibility filters; consumes `credentials.Eligibility`; inference purposes register in `internal/router/policy`) | `turnloop.go`, `escalation*.go`, `classifier_*.go`, `force_model*.go`, `*_model_selection.go` |
 | does retry, fallback or provider calls | Inference Execution (port: `inference.Executor`; start of the implementation: `dispatch.Executor`) | `dispatch_plan.go`, `fallback.go`, `*_failover.go`, `early_stop_redo.go`, `context_overflow.go`, `*overload*.go`, `rate_limit_cooldown.go`, `attempt_trace.go`, `arm_demotion.go` |

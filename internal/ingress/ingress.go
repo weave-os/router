@@ -1,7 +1,7 @@
 // Package ingress is the Protocol & Ingress bounded context: each client wire
 // format's request parsing and the format-specific output the orchestrator
-// owes the client (terminal error frames, keepalive). Pure format conversion
-// stays in internal/translate.
+// owes the client (terminal error frames, keepalive, stream terminal
+// observers). Pure format conversion stays in internal/translate.
 package ingress
 
 import (

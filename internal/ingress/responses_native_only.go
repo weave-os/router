@@ -1,4 +1,4 @@
-package proxy
+package ingress
 
 import (
 	"github.com/tidwall/gjson"
@@ -6,19 +6,19 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-// nativeOnlyReasonLimit bounds the reasons logged for one request; a Codex
+// NativeOnlyReasonLimit bounds the reasons logged for one request; a Codex
 // tool list can repeat the same unportable shape many times.
-const nativeOnlyReasonLimit = 8
+const NativeOnlyReasonLimit = 8
 
-// nativeOnlyReasons lists the transforms that kept a Responses request on its
+// NativeOnlyReasons lists the transforms that kept a Responses request on its
 // native wire family, as code@path, plus :type when the item at path declares one.
-func nativeOnlyReasons(report []translate.ResponseTransform, body []byte) []string {
-	reasons := make([]string, 0, min(len(report), nativeOnlyReasonLimit))
+func NativeOnlyReasons(report []translate.ResponseTransform, body []byte) []string {
+	reasons := make([]string, 0, min(len(report), NativeOnlyReasonLimit))
 	for _, transform := range report {
 		if transform.Action != "preserved" {
 			continue
 		}
-		if len(reasons) == nativeOnlyReasonLimit {
+		if len(reasons) == NativeOnlyReasonLimit {
 			break
 		}
 		reason := transform.Code + "@" + transform.Path
