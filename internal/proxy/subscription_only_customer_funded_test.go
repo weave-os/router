@@ -220,7 +220,7 @@ func TestSubscriptionOnly_OwedByokFeeSkipsLivePlan429Retry(t *testing.T) {
 				ctx:       chainCtx(unfundedCtx(0.05, reason), goldenSubscriptionCtx, withBYOK(byokKey(providers.ProviderAnthropic, goldenBYOKAnthropic, auth.FundingPriorityPlanFirst))),
 			})
 			require.NotNil(t, trace.DispatchError, "an organization that cannot pay the BYOK fee is not rescued on its key")
-			assert.Equal(t, http.StatusPaymentRequired, trace.DispatchError.Status)
+			assert.Equal(t, http.StatusTooManyRequests, trace.DispatchError.Status, "the plan's own refusal reaches the client")
 			for _, attempt := range trace.Attempts {
 				assert.NotEqual(t, "byok_anthropic", attempt.Resolved.Label, "the customer's key is never called")
 			}
