@@ -29,6 +29,8 @@ const (
 	HMMReasonPhaseChange          = "hmm_phase_change"
 )
 
+// Decide reports the pin this HMM turn should stay on (sticky=true) or the
+// prior model it switched away from, plus the planner's verdict.
 func (g HMMCostGate) Decide(
 	req router.Request,
 	activePin sessionpin.Pin,
@@ -36,13 +38,13 @@ func (g HMMCostGate) Decide(
 	fresh router.Decision,
 	estimatedInputTokens int,
 	prefixBroken bool,
-) (router.Decision, planner.Decision, bool, string) {
+) (sessionpin.Pin, planner.Decision, bool) {
 	stayPin, ok := g.StayPin(req, activePin, hmmHistory)
 	if !ok {
-		return fresh, planner.Decision{Outcome: planner.OutcomeSwitch, Reason: planner.ReasonNoPin}, false, ""
+		return stayPin, planner.Decision{Outcome: planner.OutcomeSwitch, Reason: planner.ReasonNoPin}, false
 	}
 	if HMMToolExecutionPhaseChanged(stayPin.Reason, fresh.Reason) {
-		return fresh, planner.Decision{Outcome: planner.OutcomeSwitch, Reason: HMMReasonPhaseChange}, false, stayPin.Model
+		return stayPin, planner.Decision{Outcome: planner.OutcomeSwitch, Reason: HMMReasonPhaseChange}, false
 	}
 
 	cfg := g.Planner
@@ -83,11 +85,13 @@ func (g HMMCostGate) Decide(
 	}
 
 	if base.Outcome == planner.OutcomeStay && stayPin.Model != fresh.Model {
-		return PinDecision(stayPin), base, true, stayPin.Model
+		return stayPin, base, true
 	}
-	return fresh, base, false, stayPin.Model
+	return stayPin, base, false
 }
 
+// StayPin returns the most recent eligible HMM stay candidate among the
+// active pin and the HMM history row.
 func (g HMMCostGate) StayPin(req router.Request, activePin sessionpin.Pin, hmmHistory sessionpin.Pin) (sessionpin.Pin, bool) {
 	var (
 		best sessionpin.Pin
@@ -111,6 +115,8 @@ func (g HMMCostGate) StayPin(req router.Request, activePin sessionpin.Pin, hmmHi
 	return best, ok
 }
 
+// NormalizeStayPin validates p as a stay candidate for req and re-resolves its
+// provider binding when the stored one is no longer usable.
 func (g HMMCostGate) NormalizeStayPin(req router.Request, p sessionpin.Pin) (sessionpin.Pin, bool) {
 	model := p.LastServedModel
 	if model == "" {
@@ -177,14 +183,18 @@ func IsHMMPinReason(reason string) bool {
 		strings.HasPrefix(strings.TrimSpace(reason), "hmm_policy")
 }
 
+// IsHMMToolExecutionReason reports whether reason marks an HMM tool-execution turn.
 func IsHMMToolExecutionReason(reason string) bool {
 	return strings.HasPrefix(strings.TrimSpace(reason), "hmm_policy:tool_execution")
 }
 
+// HMMToolExecutionPhaseChanged reports whether the session entered or left a
+// tool-execution stretch between the stay pin and the fresh pick.
 func HMMToolExecutionPhaseChanged(stayReason, freshReason string) bool {
 	return IsHMMToolExecutionReason(stayReason) != IsHMMToolExecutionReason(freshReason)
 }
 
+// HMMDecisionConfidence returns the policy's confidence in dec, if it reported one.
 func HMMDecisionConfidence(dec router.Decision) (float64, bool) {
 	if dec.Metadata == nil {
 		return 0, false
@@ -196,12 +206,15 @@ func HMMDecisionConfidence(dec router.Decision) (float64, bool) {
 	return confidence, true
 }
 
+// HMMFreshIsMoreExpensive reports whether freshModel's input price exceeds
+// stayModel's at this prompt size.
 func HMMFreshIsMoreExpensive(stayModel, freshModel string, inputTokens int) bool {
 	stay, okStay := HMMEffectiveInputUSDPer1M(stayModel, inputTokens)
 	fresh, okFresh := HMMEffectiveInputUSDPer1M(freshModel, inputTokens)
 	return okStay && okFresh && fresh > stay
 }
 
+// HMMEffectiveInputUSDPer1M is model's primary input price at this prompt size.
 func HMMEffectiveInputUSDPer1M(model string, inputTokens int) (float64, bool) {
 	price, ok := catalog.PrimaryPriceFor(model)
 	if !ok {
@@ -264,17 +277,8 @@ func AutomaticallyDisabled(req router.Request, model string) bool {
 	return disabled
 }
 
-// PinDecision rehydrates a router.Decision from a stored pin. Metadata is nil
-// (embedding isn't persisted, acceptable since the pin short-circuits routing).
-func PinDecision(p sessionpin.Pin) router.Decision {
-	return router.Decision{
-		Provider: p.Provider,
-		Model:    p.Model,
-		Effort:   p.Effort,
-		Reason:   p.Reason,
-	}
-}
-
+// MaxedOutServedModel returns the bare model that hit its output limit on the
+// pin's last turn, or "" when that turn finished normally.
 func MaxedOutServedModel(pin sessionpin.Pin) string {
 	if pin.LastOutputLimitAt.IsZero() || !pin.LastOutputLimitAt.Equal(pin.LastTurnEndedAt) {
 		return ""

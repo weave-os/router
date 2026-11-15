@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/routingpolicy"
 )
@@ -23,6 +24,22 @@ func hmmCostGateFor(s *Service) routingpolicy.HMMCostGate {
 	}
 }
 
+func hmmCostGatedDecision(
+	s *Service,
+	req router.Request,
+	activePin sessionpin.Pin,
+	hmmHistory sessionpin.Pin,
+	fresh router.Decision,
+	estimatedInputTokens int,
+	prefixBroken bool,
+) (router.Decision, planner.Decision, bool, string) {
+	stayPin, plan, sticky := hmmCostGateFor(s).Decide(req, activePin, hmmHistory, fresh, estimatedInputTokens, prefixBroken)
+	if sticky {
+		return pinDecision(stayPin), plan, true, stayPin.Model
+	}
+	return fresh, plan, false, stayPin.Model
+}
+
 func hmmFreshIsMoreExpensive(stayModel, freshModel string, inputTokens int) bool {
 	return routingpolicy.HMMFreshIsMoreExpensive(stayModel, freshModel, inputTokens)
 }
@@ -40,8 +57,6 @@ func priorPromptTokens(pin sessionpin.Pin) int { return routingpolicy.PriorPromp
 func pinCacheCold(pin sessionpin.Pin, prefixBroken bool) bool {
 	return routingpolicy.PinCacheCold(pin, prefixBroken)
 }
-
-func pinDecision(p sessionpin.Pin) router.Decision { return routingpolicy.PinDecision(p) }
 
 func automaticallyDisabled(req router.Request, model string) bool {
 	return routingpolicy.AutomaticallyDisabled(req, model)

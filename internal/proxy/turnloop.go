@@ -2124,7 +2124,7 @@ func (s *Service) runTurnLoop(
 			if pinFound {
 				activePin = pin
 			}
-			hmmDecision, hmmPlannerDecision, hmmSticky, hmmStayModel := hmmCostGateFor(s).Decide(
+			hmmDecision, hmmPlannerDecision, hmmSticky, hmmStayModel := hmmCostGatedDecision(s,
 				req,
 				activePin,
 				hmmHistory,
@@ -2393,7 +2393,7 @@ func (s *Service) authorityCacheShadowFor(
 	if !isHMMDecision(fresh) {
 		return authorityCacheShadow{}
 	}
-	_, plannerDecision, sticky, stayModel := hmmCostGateFor(s).Decide(
+	_, plannerDecision, sticky, stayModel := hmmCostGatedDecision(s,
 		req, activePin, hmmHistory, fresh, estimatedInputTokens, prefixBroken,
 	)
 	// Re-resolve the provider; guard on model equality because normalizeHMMStayPin

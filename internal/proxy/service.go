@@ -5382,6 +5382,17 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 	})
 }
 
+// pinDecision rehydrates a router.Decision from a stored pin. Metadata is nil
+// (embedding isn't persisted, acceptable since the pin short-circuits routing).
+func pinDecision(p sessionpin.Pin) router.Decision {
+	return router.Decision{
+		Provider: p.Provider,
+		Model:    p.Model,
+		Effort:   p.Effort,
+		Reason:   p.Reason,
+	}
+}
+
 // policyDeadlineDefaultDecision resolves ROUTER_POLICY_DEADLINE_DEFAULT_MODEL to a
 // dispatchable Decision, honouring this turn's eligibility (enabled providers and
 // excluded models). Reports false when unset, hard-excluded, or without a live binding.
