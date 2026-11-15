@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -167,6 +168,11 @@ func TestRouterOwnedFailureWording(t *testing.T) {
 	assert.Equal(t, "↳ switched: Anthropic had no subscription capacity (router issue)\n\n", rescueDetailLine(pool))
 	assert.Equal(t, "Router error: Anthropic subscription capacity exhausted.", terminalMessageFor(pool))
 
+	rejected := dispatch.TracedAttempt{Target: inference.Target{Provider: providers.ProviderOpenAI},
+		Err:       errors.Join(ErrSubscriptionPoolExhausted, &providers.UpstreamErrorResponse{Status: http.StatusUnauthorized}),
+		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(TurnErrorOther), FailureOwner: string(FailureOwnerRouter)}}
+	assert.Equal(t, "↳ switched: OpenAI rejected the subscription login (router issue)\n\n", rescueDetailLine(rejected))
+
 }
 
 func TestMalformedCustomToolArgumentsAreProviderOwned(t *testing.T) {
@@ -177,6 +183,15 @@ func TestMalformedCustomToolArgumentsAreProviderOwned(t *testing.T) {
 
 	assert.Equal(t, "↳ switched: DeepInfra sent malformed tool arguments (provider issue)\n\n", rescueDetailLine(customTool))
 	assert.Equal(t, "Provider DeepInfra failed: malformed tool call arguments.", terminalMessageFor(customTool))
+}
+
+func TestTruncatedToolCallNamesTheOutputLimit(t *testing.T) {
+	err := fmt.Errorf("write: %w: %w: expected exactly one input field", translate.ErrToolCallTruncated, translate.ErrCustomToolArguments)
+	truncated := dispatch.TracedAttempt{Target: inference.Target{Provider: providers.ProviderAnthropic}, Err: err,
+		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(TurnErrorOther), BodyTranslated: true}}
+	truncated.Diagnosis.FailureOwner = string(classifyFailureOwner(failureOwnerInput{Err: err, BodyTranslated: true}))
+
+	assert.Equal(t, "Provider Anthropic failed: tool call cut off by the output token limit.", terminalMessageFor(truncated))
 }
 
 func TestWithRescueDetail_SuppressedBadgeStaysEmpty(t *testing.T) {

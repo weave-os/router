@@ -163,6 +163,28 @@ func TestCodexOAuthCredentialRejected(t *testing.T) {
 		"only buffered upstream envelopes classify as credential rejections")
 }
 
+func TestCodexReconnectNudgeDistinguishesRejectedCredentialsFromSpentQuota(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			svc := &Service{usageObserver: usage.NewObserver([]byte("synthetic-salt"), time.Hour, time.Now)}
+			ctx := codexSubscriptionTestCtx()
+			resolved := resolveAndInjectCredentials(ctx, providers.ProviderOpenAI, codexCoveredModel, http.Header{})
+			svc.recordCodexCredentialUnusable(ctx, CredentialsFromContext(resolved), &providers.UpstreamErrorResponse{
+				Status: status, Body: []byte(`{"error":{"type":"usage_limit_reached"}}`),
+			})
+			require.True(t, svc.codexSubscriptionExhausted(ctx, http.Header{}))
+			nudge := codexSubscriptionReconnectNudge(ctx, http.Header{}, svc.usageObserver)
+			if status == http.StatusTooManyRequests {
+				assert.Contains(t, nudge, "plan is out of usage")
+				assert.NotContains(t, nudge, "login was rejected")
+			} else {
+				assert.Contains(t, nudge, "login was rejected")
+				assert.NotContains(t, nudge, "plan is out of usage")
+			}
+		})
+	}
+}
+
 // TestCodexQuotaExhaustion_RecordedForLaterTurns: the quota rejection carries no
 // x-codex-* headers, so without recording it the observer keeps reading the plan
 // as having slack and every later turn re-buys the same rejected round-trip.

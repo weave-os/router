@@ -14,7 +14,7 @@ import (
 )
 
 // Anthropic Messages requires max_tokens; we inject a per-model default when
-// absent. Always-on adaptive targets receive the reasoning floor.
+// absent. Always-on adaptive targets receive room for reasoning and long tool calls.
 
 func TestAnthropicSameFormat_DefaultMaxTokensInjectedWhenAbsent(t *testing.T) {
 	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"}]}`)
@@ -23,7 +23,7 @@ func TestAnthropicSameFormat_DefaultMaxTokensInjectedWhenAbsent(t *testing.T) {
 		Capabilities: router.Lookup("claude-opus-4-7"),
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
-	assert.Equal(t, float64(16000), out["max_tokens"])
+	assert.Equal(t, float64(64000), out["max_tokens"])
 }
 
 func TestAnthropicSameFormat_ExistingMaxTokensUnchanged(t *testing.T) {
@@ -91,7 +91,7 @@ func TestAnthropicSameFormat_AdaptiveDefaultsHaveReasoningHeadroom(t *testing.T)
 			out := parseAndEmit(t, body, "anthropic", translate.EmitOptions{
 				TargetModel: model, Capabilities: router.Lookup(model),
 			})
-			assert.Equal(t, float64(16000), out["max_tokens"])
+			assert.Equal(t, float64(64000), out["max_tokens"])
 		})
 	}
 
@@ -112,7 +112,7 @@ func TestAnthropicCrossFormat_AdaptiveDefaultHasReasoningHeadroom(t *testing.T) 
 	require.NoError(t, err)
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(prep.Body, &out))
-	assert.Equal(t, float64(16000), out["max_tokens"])
+	assert.Equal(t, float64(64000), out["max_tokens"])
 
 	responsesBody := []byte(`{"model":"gpt-5","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}]}`)
 	conversion, err := translate.ConvertResponsesToChatCompletions(responsesBody)
@@ -125,7 +125,7 @@ func TestAnthropicCrossFormat_AdaptiveDefaultHasReasoningHeadroom(t *testing.T) 
 	})
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(prep.Body, &out))
-	assert.Equal(t, float64(16000), out["max_tokens"])
+	assert.Equal(t, float64(64000), out["max_tokens"])
 }
 
 func TestOpenAISameFormat_DefaultMaxTokensInjectedForNonReasoningTarget(t *testing.T) {
@@ -207,7 +207,7 @@ func TestCrossFormat_OpenAIToAnthropic_DefaultMaxTokensInjectedWhenAbsent(t *tes
 	require.NoError(t, err)
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(prep.Body, &out))
-	assert.Equal(t, float64(16000), out["max_tokens"])
+	assert.Equal(t, float64(64000), out["max_tokens"])
 }
 
 // Source omits max_tokens, non-reasoning target: injection populates max_tokens.
@@ -388,4 +388,21 @@ func TestCrossFormat_AnthropicToOpenAI_Qwen38MaxExplicitMaxTokensPassedThrough(t
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(prep.Body, &out))
 	assert.Equal(t, float64(64000), out["max_tokens"])
+}
+
+// Codex sends no max_output_tokens; a 16k default cut long code-mode exec
+// calls off mid tool_use on always-on adaptive targets (prod 2026-11).
+func TestAnthropicCrossFormat_CodexDefaultLeavesRoomForLongToolCalls(t *testing.T) {
+	responsesBody := []byte(`{"model":"gpt-6-astra","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}]}`)
+	conversion, err := translate.ConvertResponsesToChatCompletions(responsesBody)
+	require.NoError(t, err)
+	env, err := translate.ParseOpenAI(conversion.Body)
+	require.NoError(t, err)
+	for _, model := range []string{"claude-fable-5-2", "claude-opus-5-5", "claude-mythos-5-2"} {
+		prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: model, Capabilities: router.Lookup(model)})
+		require.NoError(t, err)
+		var out map[string]any
+		require.NoError(t, json.Unmarshal(prep.Body, &out))
+		assert.Equal(t, float64(64000), out["max_tokens"], model)
+	}
 }

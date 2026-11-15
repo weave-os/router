@@ -387,7 +387,7 @@ const ownClaudePlanSpentNudge = routingMarkerPrefix +
 	"your own Claude plan is out of usage for now. Connect or reconnect a Claude seat to keep this on a subscription: " +
 	SubscriptionsDashboardURL + "?reconnect=claude\n\n"
 
-var subscriptionReconnectNudges = []string{ownCodexPlanSpentNudge, ownClaudePlanSpentNudge}
+var subscriptionReconnectNudges = []string{ownCodexPlanSpentNudge, ownCodexCredentialRejectedNudge, ownClaudePlanSpentNudge}
 
 type subscriptionReconnectNudgeContextKey struct{}
 
