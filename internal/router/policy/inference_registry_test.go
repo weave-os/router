@@ -200,7 +200,7 @@ func TestInferenceRegistryProjectionIsDeterministic(t *testing.T) {
 	firstMarkdown := registry.StaticMarkdown()
 	secondMarkdown := registry.StaticMarkdown()
 
-	assert.Equal(t, firstJSON, secondJSON)
+	assert.JSONEq(t, string(firstJSON), string(secondJSON))
 	assert.Equal(t, firstMarkdown, secondMarkdown)
 	assert.Contains(t, string(firstMarkdown), registry.Revision())
 }

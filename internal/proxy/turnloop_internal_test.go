@@ -153,7 +153,7 @@ func TestApplyPinEvidence_UsesAvailablePriorTurnData(t *testing.T) {
 	assert.Equal(t, providers.ProviderFireworks, withHistory.PinProvider)
 	assert.Equal(t, "high", withHistory.PinPolicyGroup)
 	require.NotNil(t, withHistory.PriorTurnGapMS)
-	assert.Greater(t, *withHistory.PriorTurnGapMS, int64(0))
+	assert.Positive(t, *withHistory.PriorTurnGapMS)
 
 	clearPinEvidence(&withHistory)
 	assert.Empty(t, withHistory.PinModel)

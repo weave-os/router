@@ -1,7 +1,6 @@
 package translate_test
 
 import (
-	"errors"
 	"testing"
 
 	"weave-os/router/internal/translate"
@@ -37,6 +36,6 @@ func TestStreamLifecycle_IncompleteAndCancellationRemainDistinct(t *testing.T) {
 		require.NoError(t, l.Start())
 		require.NoError(t, l.Cancel())
 		assert.NoError(t, l.EOF())
-		assert.False(t, errors.Is(l.EOF(), translate.ErrStreamIncomplete))
+		assert.NotErrorIs(t, l.EOF(), translate.ErrStreamIncomplete)
 	})
 }

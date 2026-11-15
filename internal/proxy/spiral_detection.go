@@ -61,11 +61,11 @@ type spiralReason string
 // Spiral signal-class taxonomy. One event per (session, role, reason).
 const (
 	spiralReasonErrStreak      spiralReason = "err_streak"
-	spiralReasonSameFileThrash              = "same_file_thrash"
-	spiralReasonRepetition                  = "repetition"
-	spiralReasonMonologue                   = "monologue"
-	spiralReasonPingPong                    = "ping_pong"
-	spiralReasonNoProgress                  = "no_progress"
+	spiralReasonSameFileThrash spiralReason = "same_file_thrash"
+	spiralReasonRepetition     spiralReason = "repetition"
+	spiralReasonMonologue      spiralReason = "monologue"
+	spiralReasonPingPong       spiralReason = "ping_pong"
+	spiralReasonNoProgress     spiralReason = "no_progress"
 )
 
 func spiralReasonStrings(reasons []spiralReason) []string {

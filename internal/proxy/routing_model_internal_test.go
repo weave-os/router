@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"weave-os/router/internal/providers"
@@ -97,7 +96,7 @@ func TestRoutingModelDispatchesConcreteModelAcrossClientProtocols(t *testing.T) 
 				require.Equal(t, 1, hmmRouter.calls)
 				require.Equal(t, completionModel, gjson.GetBytes(provider.body, "model").String())
 				require.Contains(t, response.Body.String(), "selected policy reply")
-				require.False(t, strings.Contains(string(provider.body), string(choice.model)))
+				require.NotContains(t, string(provider.body), string(choice.model))
 			})
 		}
 	}

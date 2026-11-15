@@ -803,7 +803,7 @@ func TestService_VerifyAPIKey_DoesNotCacheTransportErrors(t *testing.T) {
 	rawToken := "rk_db_will_error"
 	cache := newRecordingAPIKeyCache()
 	svc, repo := makeServiceWithCacheAndCounter(t, cache)
-	repo.fakeAPIKeyRepository.override = errors.New("postgres connection refused")
+	repo.override = errors.New("postgres connection refused")
 
 	_, _, _, _, err := svc.VerifyAPIKey(context.Background(), rawToken)
 
@@ -992,7 +992,7 @@ func TestService_SetInstallationExcludedModels(t *testing.T) {
 	t.Run("rejects unknown model with ErrUnknownModel", func(t *testing.T) {
 		_, err := svc.SetInstallationExcludedModels(context.Background(), "ext-1", "inst-1", []string{"gemini-nope"}, allowed)
 		require.Error(t, err)
-		assert.True(t, errors.Is(err, auth.ErrUnknownModel))
+		assert.ErrorIs(t, err, auth.ErrUnknownModel)
 	})
 
 	t.Run("nil allowed skips validation", func(t *testing.T) {
@@ -1027,7 +1027,7 @@ func TestService_SetInstallationExcludedProviders(t *testing.T) {
 	t.Run("rejects unknown provider with ErrUnknownProvider", func(t *testing.T) {
 		_, err := svc.SetInstallationExcludedProviders(context.Background(), "ext-1", "inst-1", []string{"acme-cloud"}, allowed)
 		require.Error(t, err)
-		assert.True(t, errors.Is(err, auth.ErrUnknownProvider))
+		assert.ErrorIs(t, err, auth.ErrUnknownProvider)
 	})
 
 	t.Run("nil allowed skips validation", func(t *testing.T) {

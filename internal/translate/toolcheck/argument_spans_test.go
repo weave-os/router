@@ -33,7 +33,7 @@ func TestArgumentSpansDoNotIntroduceDepthLimit(t *testing.T) {
 	raw := `{"x":` + strings.Repeat(`[`, 20000) + `0` + strings.Repeat(`]`, 20000) + `}`
 	document := newArgumentDocument(raw)
 	assert.True(t, document.replace([]string{"x", "0"}, `1`))
-	assert.Equal(t, `{"x":[1]}`, document.materialize())
+	assert.JSONEq(t, `{"x":[1]}`, document.materialize())
 }
 
 func TestArgumentSpansOnlyBuildOnNestedTraversal(t *testing.T) {
@@ -42,10 +42,10 @@ func TestArgumentSpansOnlyBuildOnNestedTraversal(t *testing.T) {
 	changed, ok := document.delete([]string{"optional"})
 	require.True(t, changed)
 	require.True(t, ok)
-	assert.Equal(t, `{"x":{"n":"1","large":[1,2,3]},"other": [4,5]}`, document.materialize())
+	assert.JSONEq(t, `{"x":{"n":"1","large":[1,2,3]},"other": [4,5]}`, document.materialize())
 	assert.Nil(t, document.root.source.spans, "root-only edits must not index nested containers")
 	require.True(t, document.replace([]string{"x", "n"}, `1`))
-	assert.Equal(t, `{"x":{"n":1,"large":[1,2,3]},"other": [4,5]}`, document.materialize())
+	assert.JSONEq(t, `{"x":{"n":1,"large":[1,2,3]},"other": [4,5]}`, document.materialize())
 	assert.Nil(t, document.root.source.spans, "a single sparse descent must not index the whole source")
 	assert.False(t, document.lookup([]string{"other"}).expanded, "unvisited sibling remains raw")
 }

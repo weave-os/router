@@ -4139,7 +4139,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	preludeBuf := newPreludeBuffer(contentSink)
 	var rootSink http.ResponseWriter = preludeBuf
-	var sink http.ResponseWriter = rootSink
+	var sink = rootSink
 	// Wrap sink to observe refusals on the native path (no translator Summary
 	// here). Detection is unconditional: refusals must be measurable independently
 	// of the re-pin kill switch.
@@ -6678,7 +6678,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 	}
 
-	var sink http.ResponseWriter = rootSink
+	var sink = rootSink
 	openAIPrelude := &requestNoticeStream{}
 
 	makeMarkerSink := func(notice translate.RouterNotice) (http.ResponseWriter, error) {

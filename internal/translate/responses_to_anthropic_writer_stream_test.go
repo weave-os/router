@@ -3,7 +3,6 @@ package translate_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http/httptest"
 	"strconv"
 	"strings"
@@ -348,7 +347,7 @@ data: {"type":"response.completed","response":{"id":"r","status":"completed","ou
 	require.Len(t, content, 1)
 	tool, _ := content[0].(map[string]any)
 	input, _ := tool["input"].(map[string]any)
-	assert.Equal(t, "", input["pages"],
+	assert.Empty(t, input["pages"],
 		"schema for a different tool must not authorize stripping this tool's args")
 }
 
@@ -590,7 +589,7 @@ data: {"type":"response.failed","response":{"id":"r","status":"failed","output":
 	_, err := w.Write([]byte(fixture))
 	require.Error(t, err)
 	var upstreamErr *providers.UpstreamErrorResponse
-	require.True(t, errors.As(err, &upstreamErr))
+	require.ErrorAs(t, err, &upstreamErr)
 	assert.Equal(t, 502, upstreamErr.Status)
 	assert.Contains(t, string(upstreamErr.Body), "status: failed")
 

@@ -204,7 +204,7 @@ func TestClaudeLoginReconnectsThroughAPIAndPostgres(t *testing.T) {
 	require.Nil(t, accounts[0].CooldownUntil)
 	stored, err := repo.GetSubscriptionCredentialRecord(ctx, first.ID, owner)
 	require.NoError(t, err)
-	require.True(t, !bytes.Equal(stored.RefreshTokenCiphertext, []byte("refresh-fixture-2")), "credential must be encrypted at rest")
+	require.False(t, bytes.Equal(stored.RefreshTokenCiphertext, []byte("refresh-fixture-2")), "credential must be encrypted at rest")
 	latest, err := svc.SubscriptionRefreshToken(ctx, owner, first.ID)
 	require.NoError(t, err)
 	require.True(t, bytes.Equal(latest, []byte("refresh-fixture-2")), "reconnect must retain the latest refresh token")

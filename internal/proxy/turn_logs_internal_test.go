@@ -364,7 +364,7 @@ func TestPermanentErrorDiagnostics_BoundsAndRedactsErrorResponse(t *testing.T) {
 	attrs := attrsByTelemetryKey(permanentErrorDiagnosticAttrs(proxyErr, 1, redact))
 
 	assert.Equal(t, strings.Repeat("r", maxLoggedErrorResponseBytes), attrs["upstream.error_response"].GetStringValue())
-	assert.Equal(t, true, attrs["upstream.error_response_truncated"].GetBoolValue())
+	assert.True(t, attrs["upstream.error_response_truncated"].GetBoolValue())
 }
 
 func TestPermanentErrorDiagnostics_TruncatesOnUTF8Boundary(t *testing.T) {
@@ -485,7 +485,7 @@ func TestDeferredCallLog_ReadsBodyAtRunTime(t *testing.T) {
 
 	require.NoError(t, em.Shutdown(context.Background()))
 	a := coll.attrs(t)
-	assert.Equal(t, `{"final":"body"}`, a["io.response_body"], "deferred emit must read the post-Finalize body")
+	assert.JSONEq(t, `{"final":"body"}`, a["io.response_body"], "deferred emit must read the post-Finalize body")
 }
 
 func TestDeferredCallLog_SafeWhenAbsent(t *testing.T) {

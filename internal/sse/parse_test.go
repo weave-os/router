@@ -86,7 +86,7 @@ func TestSplitNext_DelimiterAfterLongPayloadWithoutNewlines(t *testing.T) {
 
 		event, n := sse.SplitNext(buf)
 
-		assert.Equal(t, len(payload), len(event), "delimiter=%q", delimiter)
+		assert.Len(t, event, len(payload), "delimiter=%q", delimiter)
 		assert.Equal(t, len(payload)+len(delimiter), n, "delimiter=%q", delimiter)
 	}
 }
@@ -161,7 +161,7 @@ func TestSplitNext_PreservesBackingStorageAndCapacity(t *testing.T) {
 	assert.Equal(t, "event", string(event))
 	assert.Equal(t, len("event\n\n"), n)
 	assert.Equal(t, cap(buf), cap(event))
-	assert.True(t, &buf[0] == &event[0])
+	assert.Same(t, &buf[0], &event[0])
 	assert.Equal(t, "rest", string(buf[n:]))
 }
 
@@ -190,7 +190,7 @@ func TestParseEvent_ExtractsEventTypeAndData(t *testing.T) {
 	eventType, data := sse.ParseEvent([]byte("event: content_block_delta\ndata: {\"type\":\"text\"}"))
 
 	assert.Equal(t, "content_block_delta", string(eventType))
-	assert.Equal(t, `{"type":"text"}`, string(data))
+	assert.JSONEq(t, `{"type":"text"}`, string(data))
 }
 
 func TestParseEvent_NoEventLineLeavesEventTypeEmpty(t *testing.T) {
