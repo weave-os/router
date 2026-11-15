@@ -10,6 +10,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -605,14 +606,14 @@ func runBalanceWithKeys(t *testing.T, keys []*auth.ExternalAPIKey) (*httptest.Re
 }
 
 func TestWithBalanceCheck_AdmitsKeyOnlyCallerAsUnfunded(t *testing.T) {
-	w, reason, reached := runBalanceWithKeys(t, []*auth.ExternalAPIKey{{ID: "k", Provider: "anthropic", Plaintext: []byte("sk-ant-byok")}})
+	w, reason, reached := runBalanceWithKeys(t, []*auth.ExternalAPIKey{{ID: "k", Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-byok")}})
 	assert.True(t, reached, "a usable provider key can serve the turn, so admission must not 402 it")
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, billing.SubscriptionOnlyCreditsDepleted, reason, "the proxy must see the turn as unfunded so only the customer's key serves it")
 }
 
 func TestWithBalanceCheck_UnusableKeyStill402s(t *testing.T) {
-	w, _, reached := runBalanceWithKeys(t, []*auth.ExternalAPIKey{{ID: "k", Provider: "anthropic", CredentialError: errors.New("decrypt failed")}})
+	w, _, reached := runBalanceWithKeys(t, []*auth.ExternalAPIKey{{ID: "k", Provider: providers.ProviderAnthropic, CredentialError: errors.New("decrypt failed")}})
 	assert.False(t, reached)
 	assert.Equal(t, http.StatusPaymentRequired, w.Code)
 }
