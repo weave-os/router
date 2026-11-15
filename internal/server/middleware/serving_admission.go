@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/refusal"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions/entitlement"
 )
@@ -61,7 +62,7 @@ func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 		key := APIKeyFrom(c)
 		installation := InstallationFrom(c)
 		if key == nil || installation == nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid_key"})
+			abortRefusal(c, refusal.InvalidKey, nil)
 			return
 		}
 		assertion, err := directAssertion(c.Request.Context(), cfg, installation.ID, key.ID, c.Request, body)
@@ -95,7 +96,7 @@ func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 		}
 		if assertion.TestPlan != nil && (!cfg.TestBudgetEnabled || assertion.TestPlan.PolicyRevision != snapshot.Release.Policy.SHA256) {
 			observability.FromGin(c).Warn("Internal test snapshot or billing scope rejected", "activation_id", assertion.Admission.ActivationID)
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "test_scope_rejected"})
+			abortRefusal(c, refusal.TestScopeRejected, nil)
 			return
 		}
 		ctx := policyregistry.WithServingAssertion(c.Request.Context(), assertion)

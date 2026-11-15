@@ -1,9 +1,8 @@
 package middleware
 
 import (
-	"net/http"
-
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/refusal"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -54,10 +53,11 @@ func WithPolicyPinOverride() gin.HandlerFunc {
 }
 
 func abortMalformedPolicyPin(c *gin.Context, message string) {
-	code := string(router.PolicyPinErrorMalformed)
+	contract := refusal.PolicyPinMalformed.Contract()
+	code := contract.Code
 	switch detectAPIFormat(c.Request.URL.Path) {
 	case apiFormatAnthropic:
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+		c.AbortWithStatusJSON(contract.Status, gin.H{
 			"type": "error",
 			"error": gin.H{
 				"type":    "invalid_request_error",
@@ -66,16 +66,16 @@ func abortMalformedPolicyPin(c *gin.Context, message string) {
 			},
 		})
 	case apiFormatGemini:
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+		c.AbortWithStatusJSON(contract.Status, gin.H{
 			"error": gin.H{
-				"code":    http.StatusBadRequest,
+				"code":    contract.Status,
 				"message": message,
 				"status":  "INVALID_ARGUMENT",
 				"details": []gin.H{{"reason": code}},
 			},
 		})
 	default:
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+		c.AbortWithStatusJSON(contract.Status, gin.H{
 			"error": gin.H{
 				"type":    "invalid_request_error",
 				"message": message,
