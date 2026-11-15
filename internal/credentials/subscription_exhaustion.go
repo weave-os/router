@@ -24,7 +24,8 @@ type ClaudeSubscriptionFacts struct {
 }
 
 // ClaudeSnapshotUnservable reports whether an observed Claude subscription
-// should leave the turn.
+// should leave the turn. Any exemption set in f keeps the subscription serving
+// regardless of the snapshot's billable or exhausted state.
 func ClaudeSnapshotUnservable(f ClaudeSubscriptionFacts, snap usage.Snapshot) bool {
 	if f.EnterpriseOnly || f.PickedModelOnOwnPlan || f.EnterpriseSubscriptionOnly {
 		return false
