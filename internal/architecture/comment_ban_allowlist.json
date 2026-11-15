@@ -2,10 +2,6 @@
   "schema_version": "comment_ban_allowlist_v1",
   "packages": [
     {
-      "package": "cmd/router",
-      "banned_lines": 343
-    },
-    {
       "package": "internal/api/admin",
       "banned_lines": 303
     },
@@ -24,10 +20,6 @@
     {
       "package": "internal/policyregistry",
       "banned_lines": 491
-    },
-    {
-      "package": "internal/postgres",
-      "banned_lines": 320
     },
     {
       "package": "internal/providers",
