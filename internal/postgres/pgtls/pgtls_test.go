@@ -131,13 +131,13 @@ func TestConfigureRejectsServerCertificateFromAnotherCA(t *testing.T) {
 // presenting serverCertificate, returning the client-side error.
 func handshake(t *testing.T, clientConfig *tls.Config, serverCertificate tls.Certificate) error {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}
 	t.Cleanup(func() { _ = listener.Close() })
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 
 	serverDone := make(chan struct{})
 	go func() {
@@ -152,7 +152,7 @@ func handshake(t *testing.T, clientConfig *tls.Config, serverCertificate tls.Cer
 			_, _ = server.Read(make([]byte, 1))
 		}
 	}()
-	clientConn, err := net.Dial("tcp", listener.Addr().String())
+	clientConn, err := (&net.Dialer{}).DialContext(ctx, "tcp", listener.Addr().String())
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
