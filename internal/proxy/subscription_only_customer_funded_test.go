@@ -140,3 +140,16 @@ func TestSubscriptionOnly_SpendCapNoticeNamesTheKeyNotThePlan(t *testing.T) {
 	assert.Contains(t, string(body), "spend cap", "the cap notice still shows")
 	assert.NotContains(t, string(body), "your own Anthropic subscription", "the notice must not claim the plan served a BYOK turn")
 }
+
+func TestSubscriptionOnly_LivePlan429RetriesOnCustomerKey(t *testing.T) {
+	const rateLimited = `{"type":"error","error":{"type":"rate_limit_error","message":"limit"}}`
+	trace := serveCustomerFunded(t, credentialCase{
+		name: "plan_429_byok", supplies: []string{goldenSubscription, goldenBYOKAnthropic},
+		decisions: []router.Decision{goldenAnthropicDecision},
+		upstreams: anthropicUp(goldenUpstreamError(429, rateLimited), goldenUpstreamError(429, rateLimited), goldenUpstreamError(429, rateLimited), anthropicOK(false, "ok")),
+		ctx:       chainCtx(goldenSubscriptionOnlyCtx, goldenSubscriptionCtx, withBYOK(byokKey(providers.ProviderAnthropic, goldenBYOKAnthropic, auth.FundingPriorityPlanFirst))),
+	})
+	require.NotEmpty(t, trace.Attempts)
+	assert.Equal(t, "subscription_context", trace.Attempts[0].Resolved.Label, "a plan_first key leaves the plan first")
+	requireServedOnBYOK(t, trace)
+}
