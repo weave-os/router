@@ -11,7 +11,9 @@ import (
 // upstream reasoning phases that produce no translatable frames.
 var AnthropicPingFrame = []byte("event: ping\ndata: {\"type\":\"ping\"}\n\n")
 
-// MessagesRequest is a parsed Anthropic Messages request.
+// MessagesRequest is a parsed Anthropic Messages request. Body is the
+// footer-stripped, model-canonicalized body forwarded upstream, not the
+// client's raw bytes.
 type MessagesRequest struct {
 	Envelope *translate.RequestEnvelope
 	Body     []byte
