@@ -268,7 +268,7 @@ func selectBinding(spec PolicySpec, request ResolutionRequest, override *TargetO
 				if exceedsSpendBudget(binding.estimatedCostUSD, budget.MaxSpendUSD) {
 					continue
 				}
-				return plannedBinding{Binding: binding.Binding, estimatedCostUSD: binding.estimatedCostUSD}, PlanProvenance{
+				return plannedBinding(binding), PlanProvenance{
 					SelectionStrategy: spec.SelectionStrategy,
 					OverrideSource:    OverrideSourcePolicyDefault,
 				}, nil
@@ -453,7 +453,7 @@ func overrideBinding(resolved ResolvedCandidates, override TargetOverride) (plan
 		if override.Provider != "" && binding.Provider != override.Provider {
 			continue
 		}
-		return plannedBinding{Binding: binding.Binding, estimatedCostUSD: binding.estimatedCostUSD}, true
+		return plannedBinding(binding), true
 	}
 	return plannedBinding{}, false
 }
@@ -461,7 +461,7 @@ func overrideBinding(resolved ResolvedCandidates, override TargetOverride) (plan
 func plannedBindingFor(resolved ResolvedCandidates, selected Binding) (plannedBinding, bool) {
 	for _, binding := range resolved.bindingsByCatalogID[selected.CatalogID] {
 		if binding.Provider == selected.Provider && binding.BindingIndex == selected.BindingIndex {
-			return plannedBinding{Binding: binding.Binding, estimatedCostUSD: binding.estimatedCostUSD}, true
+			return plannedBinding(binding), true
 		}
 	}
 	return plannedBinding{}, false
@@ -472,12 +472,12 @@ func fallbackBindings(spec PolicySpec, selected plannedBinding, resolved Resolve
 	switch spec.Fallback.Kind {
 	case FallbackKindBinding:
 		for _, binding := range resolved.bindingsByCatalogID[selected.CatalogID] {
-			candidates = append(candidates, plannedBinding{Binding: binding.Binding, estimatedCostUSD: binding.estimatedCostUSD})
+			candidates = append(candidates, plannedBinding(binding))
 		}
 	case FallbackKindPlanAlternatives:
 		for _, catalogID := range spec.Fallback.Alternatives {
 			for _, binding := range resolved.bindingsByCatalogID[catalogID] {
-				candidates = append(candidates, plannedBinding{Binding: binding.Binding, estimatedCostUSD: binding.estimatedCostUSD})
+				candidates = append(candidates, plannedBinding(binding))
 			}
 		}
 	}

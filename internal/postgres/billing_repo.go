@@ -105,10 +105,8 @@ func (r *BillingRepo) GetDelegatedTokenSpend(ctx context.Context, issuerKeyID, s
 // GetAPIKeySpend reads a key's cap and spend-to-date fresh from Postgres.
 // Returns found=false (nil error) when no active key matches the id.
 func (r *BillingRepo) GetAPIKeySpend(ctx context.Context, apiKeyID string) (int64, *int64, bool, error) {
-	parsed, err := uuid.Parse(apiKeyID)
-	if err != nil {
-		// A malformed id can't match any row; treat as "no cap to enforce"
-		// rather than failing the request closed on a client-shaped value.
+	parsed, ok := parseOptionalUUID(apiKeyID)
+	if !ok {
 		return 0, nil, false, nil
 	}
 	q := dbbudget.Queries(r.tx)
@@ -125,10 +123,8 @@ func (r *BillingRepo) GetAPIKeySpend(ctx context.Context, apiKeyID string) (int6
 // GetUserMonthlySpendAndLimit resolves the effective monthly limit
 // (per-user override > org default; NULL override = explicitly uncapped).
 func (r *BillingRepo) GetUserMonthlySpendAndLimit(ctx context.Context, organizationID, routerUserID string) (int64, *int64, error) {
-	parsed, err := uuid.Parse(routerUserID)
-	if err != nil {
-		// A malformed id can't match any row; treat as "no limit to enforce"
-		// rather than failing the request closed on a client-shaped value.
+	parsed, ok := parseOptionalUUID(routerUserID)
+	if !ok {
 		return 0, nil, nil
 	}
 	q := dbbudget.Queries(r.tx)
@@ -197,4 +193,12 @@ func (r *BillingRepo) GetAutopayConfig(ctx context.Context, owner billing.Owner)
 func (r *BillingRepo) BillingTablesExist(ctx context.Context) (bool, error) {
 	q := dbbudget.Queries(r.tx)
 	return q.CheckBillingTablesExist(ctx)
+}
+
+// parseOptionalUUID reports ok=false for a malformed id. Spend lookups treat
+// that as "no cap to enforce": it can't match any row, and failing closed on a
+// client-shaped value would reject the request.
+func parseOptionalUUID(value string) (uuid.UUID, bool) {
+	parsed, err := uuid.Parse(value)
+	return parsed, err == nil
 }

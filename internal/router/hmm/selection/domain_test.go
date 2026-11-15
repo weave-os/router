@@ -2,7 +2,6 @@ package selection_test
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -285,7 +284,7 @@ func TestDomainEvidenceRejectsRecipeDriftAndInvalidArms(t *testing.T) {
 			if test.valid {
 				require.NoError(t, err)
 			} else {
-				require.Error(t, err, fmt.Sprintf("%s should fail closed", test.name))
+				require.Error(t, err, "%s should fail closed", test.name)
 			}
 		})
 	}

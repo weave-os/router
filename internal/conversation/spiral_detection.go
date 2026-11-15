@@ -61,11 +61,11 @@ type SpiralReason string
 // Spiral signal-class taxonomy. One event per (session, role, reason).
 const (
 	SpiralReasonErrStreak      SpiralReason = "err_streak"
-	spiralReasonSameFileThrash              = "same_file_thrash"
-	spiralReasonRepetition                  = "repetition"
-	spiralReasonMonologue                   = "monologue"
-	SpiralReasonPingPong                    = "ping_pong"
-	spiralReasonNoProgress                  = "no_progress"
+	spiralReasonSameFileThrash SpiralReason = "same_file_thrash"
+	spiralReasonRepetition     SpiralReason = "repetition"
+	spiralReasonMonologue      SpiralReason = "monologue"
+	SpiralReasonPingPong       SpiralReason = "ping_pong"
+	spiralReasonNoProgress     SpiralReason = "no_progress"
 )
 
 // SpiralReasonStrings returns nil for nil; pass an empty slice to persist an
