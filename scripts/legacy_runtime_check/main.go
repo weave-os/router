@@ -98,14 +98,6 @@ func run() error {
 	return nil
 }
 
-func getReadiness(ctx context.Context, client *http.Client, readyURL string) (*http.Response, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, readyURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	return client.Do(request)
-}
-
 type policyFixture struct {
 	releaseDir    string
 	classifierURL string
@@ -141,9 +133,13 @@ func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, 
 	defer ticker.Stop()
 	readyCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
+	readyRequest, err := http.NewRequestWithContext(readyCtx, http.MethodGet, baseURL+"/readyz", nil)
+	if err != nil {
+		return err
+	}
 	var lastReadiness string
 	for {
-		response, err := getReadiness(readyCtx, client, baseURL+"/readyz")
+		response, err := client.Do(readyRequest)
 		if err == nil {
 			body, readErr := io.ReadAll(io.LimitReader(response.Body, 8192))
 			_ = response.Body.Close()

@@ -71,9 +71,7 @@ func h2BodyReadError(t *testing.T, onRequest func(fr *http2.Framer, conn net.Con
 	tr.TLSClientConfig.NextProtos = []string{"h2"}
 	t.Cleanup(tr.CloseIdleConnections)
 
-	request, buildErr := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
-	require.NoError(t, buildErr)
-	resp, err := (&http.Client{Transport: tr, Timeout: 5 * time.Second}).Do(request)
+	resp, err := (&http.Client{Transport: tr, Timeout: 5 * time.Second}).Do(newGetRequest(t, url))
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, 2, resp.ProtoMajor, "transport must negotiate HTTP/2")
@@ -133,9 +131,7 @@ func TestNewTransport_PingsAnIdleHTTP2Connection(t *testing.T) {
 	tr.TLSClientConfig.NextProtos = []string{"h2"}
 	t.Cleanup(tr.CloseIdleConnections)
 
-	request, buildErr := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
-	require.NoError(t, buildErr)
-	resp, err := (&http.Client{Transport: tr}).Do(request)
+	resp, err := (&http.Client{Transport: tr}).Do(newGetRequest(t, url))
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 
