@@ -107,7 +107,7 @@
     },
     {
       "package": "internal/proxy",
-      "banned_lines": 5735
+      "banned_lines": 5733
     },
     {
       "package": "internal/proxy/usage",
