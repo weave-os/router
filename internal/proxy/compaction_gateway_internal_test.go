@@ -86,7 +86,7 @@ func proxyGatewayCompaction(t *testing.T, svc *Service, ctx context.Context) (*h
 	t.Helper()
 	body := []byte(`{"model":"claude-opus-5-5","max_tokens":20000,"stream":true,"system":"Your task is to create a detailed summary of the conversation so far.","messages":[{"role":"user","content":"summarize"}]}`)
 	rec := httptest.NewRecorder()
-	err := svc.ProxyMessages(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(body))))
+	err := svc.ProxyMessages(ctx, body, rec, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", strings.NewReader(string(body))))
 	return rec, err
 }
 

@@ -180,7 +180,7 @@ func TestProviderSummarizer_EmptyContentReturnsErrEmptySummary(t *testing.T) {
 
 	got, _, err := s.Summarize(context.Background(), env, router.Request{})
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrEmptySummary)
+	require.ErrorIs(t, err, ErrEmptySummary)
 	assert.Empty(t, got)
 }
 

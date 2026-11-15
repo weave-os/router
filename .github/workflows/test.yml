@@ -7,10 +7,11 @@ on:
   pull_request:
 
 # A newer commit supersedes an older PR run; stop the older run to free its
-# runner and avoid reporting stale results.
+# runner and avoid reporting stale results. Every main commit gets its own
+# group and a full run: a cancelled main run fails the fan-in gates below.
 concurrency:
-  group: test-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: test-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

@@ -35,7 +35,7 @@ func TestVerificationNativeCodexSubscriptionPreferredToPaidAPI(t *testing.T) {
 	svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 	body := []byte(`{"model":"auto","stream":true,"messages":[{"role":"user","content":"inspect synthetic billing"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`)
 	recorder := httptest.NewRecorder()
-	err := svc.ProxyOpenAIChatCompletion(codexSubscriptionTestCtx(), body, recorder, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body))))
+	err := svc.ProxyOpenAIChatCompletion(codexSubscriptionTestCtx(), body, recorder, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body))))
 	require.NoError(t, err)
 	require.Equal(t, 1, subscriptionRequests)
 	require.Zero(t, apiRequests)

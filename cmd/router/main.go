@@ -154,7 +154,7 @@ func main() {
 	switch deploymentMode {
 	case server.DeploymentModeSelfHosted, server.DeploymentModeManaged:
 	default:
-		err := fmt.Errorf("Invalid ROUTER_DEPLOYMENT_MODE %q (expected %q or %q)", deploymentMode, server.DeploymentModeSelfHosted, server.DeploymentModeManaged)
+		err := fmt.Errorf("invalid ROUTER_DEPLOYMENT_MODE %q (expected %q or %q)", deploymentMode, server.DeploymentModeSelfHosted, server.DeploymentModeManaged)
 		logger.Error("Refusing to boot with invalid deployment mode", "err", err)
 		panic(err)
 	}
@@ -1105,7 +1105,7 @@ func main() {
 			policyEnvironment = policyregistry.Environment(policyEnvironmentRaw)
 		}
 		hmmTimeout := parseEnvDurationMs("ROUTER_HMM_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout)
-		hmmAttemptTimeout := parseEnvAttemptTimeoutMs("ROUTER_HMM_SIDECAR_ATTEMPT_TIMEOUT_MS", policyclient.DeriveAttemptTimeout(hmmTimeout))
+		hmmAttemptTimeout := parseEnvAttemptTimeoutMs(policyclient.DeriveAttemptTimeout(hmmTimeout))
 		hmmAuthMode := config.GetOr("ROUTER_HMM_SIDECAR_AUTH", defaultSidecarAuth)
 		stableManager, managerErr := policyregistry.NewManager(
 			policyRegistry,
@@ -1132,7 +1132,7 @@ func main() {
 		stableDynamicRouter := policyregistry.NewDynamicRouter(stableManager, router.StrategyHMM)
 		hmmRouter = stableDynamicRouter
 		hmmEmbeddingRouter = policyregistry.NewDynamicRouter(stableManager, router.StrategyHMMEmbedding)
-		hmmCapabilities = hmmRouter.(policy.CapabilitySource).CurrentCapabilities()
+		hmmCapabilities = stableDynamicRouter.CurrentCapabilities()
 		hmmReadinessChecker = stableManager
 		policyStatus = stableManager
 		hmmRosterSources = map[router.Strategy]policy.RosterSource{
@@ -1167,8 +1167,8 @@ func main() {
 			cancelBetaRefresh()
 			if betaRefreshErr != nil {
 				logger.Warn("No valid beta router policy snapshot; beta disabled", "err", betaRefreshErr)
-			} else {
-				hmmBetaCapabilities = hmmBetaRouter.(policy.CapabilitySource).CurrentCapabilities()
+			} else if source, ok := hmmBetaRouter.(policy.CapabilitySource); ok {
+				hmmBetaCapabilities = source.CurrentCapabilities()
 			}
 		}
 		policyInvalidationTopic := strings.TrimSpace(config.GetOr("PUBSUB_TOPIC_ROUTER_POLICY_INVALIDATION", ""))
@@ -1749,7 +1749,7 @@ func buildWIFTokenSource(logger *slog.Logger) auth.WIFTokenSource {
 		logger.Info("Workload identity federation enabled", "provider", provider, "token_file", path)
 		return wif.NewFileTokenSource(path)
 	default:
-		err := fmt.Errorf("Invalid ROUTER_WIF_PROVIDER %q (expected %q or %q)", provider, auth.WIFProviderGCP, auth.WIFProviderOIDC)
+		err := fmt.Errorf("invalid ROUTER_WIF_PROVIDER %q (expected %q or %q)", provider, auth.WIFProviderGCP, auth.WIFProviderOIDC)
 		logger.Error("Refusing to boot with invalid workload identity provider", "err", err)
 		panic(err)
 	}
@@ -1957,11 +1957,11 @@ func parseEnvDurationMs(key string, fallback time.Duration) time.Duration {
 // parseEnvAttemptTimeoutMs is parseEnvDurationMs with 0 kept as a real value:
 // it is how an operator disables the per-attempt bound, which the shared parser
 // would otherwise reject and invert into the derived bound.
-func parseEnvAttemptTimeoutMs(key string, fallback time.Duration) time.Duration {
-	if ms, err := strconv.Atoi(config.GetOr(key, "")); err == nil && ms == 0 {
+func parseEnvAttemptTimeoutMs(fallback time.Duration) time.Duration {
+	if ms, err := strconv.Atoi(config.GetOr(hmmAttemptTimeoutEnv, "")); err == nil && ms == 0 {
 		return 0
 	}
-	return parseEnvDurationMs(key, fallback)
+	return parseEnvDurationMs(hmmAttemptTimeoutEnv, fallback)
 }
 
 // safeGo launches fn in a goroutine with panic recovery so a bug in a
@@ -1990,7 +1990,7 @@ func runSessionPinSweep(ctx context.Context, store sessionpin.Store) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			sweepCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			sweepCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 			if err := store.SweepExpired(sweepCtx); err != nil {
 				logger.Error("Session pin sweep failed", "err", err)
 			}

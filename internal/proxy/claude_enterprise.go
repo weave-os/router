@@ -13,7 +13,7 @@ import (
 
 // ErrClaudeEnterpriseSubscriptionUnavailable refuses a Claude turn rather
 // than charging a different funding source when Enterprise-only is enabled.
-var ErrClaudeEnterpriseSubscriptionUnavailable = errors.New("Claude Enterprise-only billing requires a usable Claude subscription")
+var ErrClaudeEnterpriseSubscriptionUnavailable = errors.New("enterprise-only Claude billing requires a usable Claude subscription")
 
 type claudeEnterpriseTurnKey struct{}
 type claudeSubscriptionTurnKey struct{}

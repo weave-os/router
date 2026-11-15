@@ -81,6 +81,7 @@ func (ack commandAcknowledgment) render(format translate.Format) string {
 		case feedbackRecorded:
 			return conversation.RouterFeedbackAck(format, ack.rating)
 		}
+	case translate.CommandLoopStop:
 	}
 	return ""
 }

@@ -520,9 +520,9 @@ func TestService_VerifyAPIKey_PropagatesNonNotFoundRepoError(t *testing.T) {
 	_, _, _, _, err := svc.VerifyAPIKey(context.Background(), "rk_anything")
 
 	require.Error(t, err)
-	assert.NotErrorIs(t, err, auth.ErrInvalidToken,
+	require.NotErrorIs(t, err, auth.ErrInvalidToken,
 		"infrastructure failures must surface as their own errors, not as ErrInvalidToken")
-	assert.NotErrorIs(t, err, auth.ErrInvalidPrefix)
+	require.NotErrorIs(t, err, auth.ErrInvalidPrefix)
 	assert.Contains(t, err.Error(), "postgres connection refused",
 		"original repo error must propagate so on-call can identify infrastructure failures")
 }
@@ -808,7 +808,7 @@ func TestService_VerifyAPIKey_DoesNotCacheTransportErrors(t *testing.T) {
 	_, _, _, _, err := svc.VerifyAPIKey(context.Background(), rawToken)
 
 	require.Error(t, err)
-	assert.NotErrorIs(t, err, auth.ErrInvalidToken,
+	require.NotErrorIs(t, err, auth.ErrInvalidToken,
 		"a transport error must not collapse into ErrInvalidToken")
 	assert.Empty(t, cache.setSnapshot(),
 		"transport errors must NOT populate the cache; the next request might succeed")
@@ -1053,7 +1053,7 @@ func TestService_SetInstallationRoutingPreference(t *testing.T) {
 		err := svc.SetInstallationRoutingPreference(context.Background(), "ext-1", "inst-1", &quality)
 		require.NoError(t, err)
 		require.NotNil(t, installRepo.routingQualityByID["inst-1"])
-		assert.Equal(t, 0.6, *installRepo.routingQualityByID["inst-1"])
+		assert.InDelta(t, 0.6, *installRepo.routingQualityByID["inst-1"], 1e-9)
 	})
 
 	t.Run("nil clears the preference", func(t *testing.T) {

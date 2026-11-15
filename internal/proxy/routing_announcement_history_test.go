@@ -40,7 +40,7 @@ func TestRoutingAnnouncementSharedCompletionHistory(t *testing.T) {
 			badge := codexBadgeSentinelForTest + "✦ **Weave Router** → " + test.announced + " · best pick for this turn\n\n"
 			rec := httptest.NewRecorder()
 			require.NoError(t, svc.ProxyOpenAIResponses(ctx, announcementReplayBody(t, badge), rec,
-				httptest.NewRequest(http.MethodPost, "/v1/responses", nil)))
+				httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)))
 			text := strings.Join(responsesTextDeltas(t, rec.Body.Bytes()), "")
 			assert.Equal(t, test.wantBadge, strings.Contains(text, "✦ **Weave Router** → gpt-6-luna"))
 			assert.Contains(t, text, "cached answer")

@@ -28,7 +28,7 @@ func ParseInstallationBindings(raw string) (map[string]auth.AnthropicFederationC
 	for installationID, target := range bindings {
 		parsedID, err := uuid.Parse(installationID)
 		if err != nil || parsedID.String() != installationID {
-			return nil, fmt.Errorf("Anthropic federation binding must use a canonical installation UUID")
+			return nil, fmt.Errorf("anthropic federation binding must use a canonical installation UUID")
 		}
 		federation, err := auth.NormalizeAnthropicFederation(auth.AuthTypeAnthropicWIF, providers.ProviderAnthropic, "", &target)
 		if err != nil {

@@ -49,7 +49,7 @@ func (s *Service) CodexModelCatalog(ctx context.Context, headers http.Header, cl
 func addCodexRoutingModels(catalog []byte, includeVariants bool) ([]byte, error) {
 	models := gjson.GetBytes(catalog, "models")
 	if !models.IsArray() {
-		return nil, fmt.Errorf("Codex model catalog has no models array")
+		return nil, fmt.Errorf("codex model catalog has no models array")
 	}
 	var template, solTemplate gjson.Result
 	seen := make(map[string]bool)
@@ -67,7 +67,7 @@ func addCodexRoutingModels(catalog []byte, includeVariants bool) ([]byte, error)
 		template = solTemplate
 	}
 	if !template.Exists() {
-		return nil, fmt.Errorf("Codex model catalog has no model to base automatic mode on")
+		return nil, fmt.Errorf("codex model catalog has no model to base automatic mode on")
 	}
 	for _, choice := range modelcatalog.ModelChoices() {
 		if choice.Kind != modelcatalog.ModelChoiceRouter || seen[choice.Model] || (!includeVariants && choice.Model != CodexAutomaticModel) {

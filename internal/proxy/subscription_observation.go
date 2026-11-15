@@ -94,13 +94,32 @@ func subscriptionServableProviders(ctx context.Context, headers http.Header) map
 // (defensive: the balance gate only flags subscription-only when a covering sub
 // is present, so this keeps a misconfiguration from emptying the eligible set).
 func restrictToSubscriptionProviders(ctx context.Context, headers http.Header, enabled map[string]struct{}) map[string]struct{} {
-	sub := subscriptionServableProviders(ctx, headers)
-	if len(sub) == 0 {
+	return restrictToProviders(enabled, subscriptionServableProviders(ctx, headers))
+}
+
+// restrictToCustomerFundedProviders narrows enabled to customerFundedProviders,
+// the reach of a turn the organization cannot pay for.
+func restrictToCustomerFundedProviders(ctx context.Context, headers http.Header, enabled map[string]struct{}) map[string]struct{} {
+	return restrictToProviders(enabled, customerFundedProviders(ctx, headers))
+}
+
+// restrictToFundedProviders narrows enabled for a turn paid fallback may not
+// fund: to the caller's plan, or also the customer's own key when only the
+// organization is unfunded.
+func restrictToFundedProviders(ctx context.Context, headers http.Header, enabled map[string]struct{}) map[string]struct{} {
+	if paidFallbackForbiddenByPlan(ctx) {
+		return restrictToSubscriptionProviders(ctx, headers, enabled)
+	}
+	return restrictToCustomerFundedProviders(ctx, headers, enabled)
+}
+
+func restrictToProviders(enabled, allowed map[string]struct{}) map[string]struct{} {
+	if len(allowed) == 0 {
 		return enabled
 	}
-	out := make(map[string]struct{}, len(sub))
+	out := make(map[string]struct{}, len(allowed))
 	for p := range enabled {
-		if _, ok := sub[p]; ok {
+		if _, ok := allowed[p]; ok {
 			out[p] = struct{}{}
 		}
 	}

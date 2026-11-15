@@ -499,8 +499,9 @@ func TestBlindExperimentSessionModeSplitsOneUsersSessions(t *testing.T) {
 func TestBlindExperimentSessionKeyIsScopedToCredential(t *testing.T) {
 	assert.Empty(t, auth.BlindExperimentSessionSubjectKey("key-1", ""))
 	assert.Empty(t, auth.BlindExperimentSessionSubjectKey("", "session-1"))
-	assert.Equal(t, auth.BlindExperimentSessionSubjectKey("key-1", "session-1"), auth.BlindExperimentSessionSubjectKey("key-1", "session-1"))
-	assert.NotEqual(t, auth.BlindExperimentSessionSubjectKey("key-1", "session-1"), auth.BlindExperimentSessionSubjectKey("key-2", "session-1"))
+	subject := auth.BlindExperimentSessionSubjectKey("key-1", "session-1")
+	assert.Equal(t, subject, auth.BlindExperimentSessionSubjectKey("key-1", "session-1"))
+	assert.NotEqual(t, subject, auth.BlindExperimentSessionSubjectKey("key-2", "session-1"))
 }
 
 func TestBlindExperimentSessionModeWithoutSessionFallsBackToUserDraw(t *testing.T) {

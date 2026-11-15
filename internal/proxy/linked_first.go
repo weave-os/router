@@ -25,11 +25,50 @@ func linkedFirst(ctx context.Context) bool {
 // Enterprise-only Claude turns also forbid metered recovery after a refusal,
 // except on the customer's plan-first key once the seat hit its overage cap.
 func paidFallbackForbidden(ctx context.Context) bool {
-	return claudeEnterpriseTurn(ctx) && !claudeEnterpriseCapRescue(ctx) || pickedModelOnOwnPlan(ctx) || subscriptionAttemptOnly(ctx) || subscriptionStateModelsEnabled(ctx) && !subscriptionAPIOnly(ctx) || billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx)
+	return paidFallbackForbiddenByPlan(ctx) || paidCapacityUnfunded(ctx)
+}
+
+// paidFallbackForbiddenByPlan is paidFallbackForbidden without the unfunded
+// organization: these turns stay on the caller's subscription even when the
+// customer holds a provider key.
+func paidFallbackForbiddenByPlan(ctx context.Context) bool {
+	return claudeEnterpriseTurn(ctx) && !claudeEnterpriseCapRescue(ctx) || pickedModelOnOwnPlan(ctx) || subscriptionAttemptOnly(ctx) || subscriptionStateModelsEnabled(ctx) && !subscriptionAPIOnly(ctx)
+}
+
+// paidCapacityUnfunded reports whether the organization cannot pay for the
+// turn (credits depleted or a spend cap reached). Only customer-funded
+// credentials may serve it; Weave's deployment keys never do.
+func paidCapacityUnfunded(ctx context.Context) bool {
+	return billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx)
+}
+
+// paidFallbackForbiddenFor is paidFallbackForbidden for a fallback onto
+// provider: an unfunded organization may still fall back to the customer's
+// own usable key for provider.
+func paidFallbackForbiddenFor(ctx context.Context, provider string) bool {
+	return paidFallbackForbiddenByPlan(ctx) || paidCapacityUnfunded(ctx) && usableBYOK(ctx, provider) == nil
+}
+
+// paidAttemptForbidden reports whether dispatch must refuse an attempt on
+// creds. An unfunded organization's turn may still run on the customer's own
+// usable provider key.
+func paidAttemptForbidden(ctx context.Context, creds *Credentials) bool {
+	if creds != nil && creds.OAuth {
+		return false
+	}
+	return paidFallbackForbiddenByPlan(ctx) || paidCapacityUnfunded(ctx) && !customerKeyFunded(creds)
+}
+
+// subscriptionOnlyUnservable reports whether a subscription-only turn routed
+// to provider/model has no customer-funded credential to serve it: not the
+// caller's plan (direct or managed) and, for an unfunded organization, not the
+// customer's own provider key.
+func subscriptionOnlyUnservable(ctx context.Context, provider, model string) bool {
+	return !servedOnSubscription(ctx) && !(paidCapacityUnfunded(ctx) && servedOnCustomerKey(ctx)) && !managedSubscriptionCanServe(ctx, provider, model)
 }
 
 func paidFallbackForbiddenForModel(ctx context.Context, model string) bool {
-	if claudeEnterpriseTarget(ctx, inference.Target{CatalogID: model}) || pickedModelOnOwnPlan(ctx) || subscriptionAttemptOnly(ctx) || billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
+	if claudeEnterpriseTarget(ctx, inference.Target{CatalogID: model}) || pickedModelOnOwnPlan(ctx) || subscriptionAttemptOnly(ctx) || paidCapacityUnfunded(ctx) {
 		return true
 	}
 	if !subscriptionStateModelsEnabled(ctx) || subscriptionAPIOnly(ctx) {

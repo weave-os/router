@@ -79,7 +79,7 @@ func TestApplyTurnSignalTelemetry_CopiesFullSnapshot(t *testing.T) {
 	assertInt32Ptr("SpiralStepsSinceProgress", telemetry.SpiralStepsSinceProgress, 19)
 	assert.Equal(t, "a1b2c3d4e5f60718", telemetry.SpiralSameFilePathHash)
 	require.NotNil(t, telemetry.SpiralRepeatFrac)
-	assert.Equal(t, 0.42, *telemetry.SpiralRepeatFrac)
+	assert.InDelta(t, 0.42, *telemetry.SpiralRepeatFrac, 1e-9)
 	require.NotNil(t, telemetry.SpiralEditAttempted)
 	assert.True(t, *telemetry.SpiralEditAttempted)
 	assert.Equal(t, []string{string(conversation.SpiralReasonErrStreak), string(conversation.SpiralReasonPingPong)}, telemetry.SpiralReasons)

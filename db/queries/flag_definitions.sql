@@ -42,8 +42,3 @@ SET kind = EXCLUDED.kind,
 DELETE FROM router.flag_definitions
 WHERE registry_version <= @registry_version::integer
   AND key <> ALL(@keys::text[]);
-
--- name: ListFlagDefinitions :many
-SELECT *
-FROM router.flag_definitions
-ORDER BY key;

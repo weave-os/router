@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -19,8 +20,8 @@ type repo struct {
 	root string
 }
 
-func (r repo) git(args ...string) ([]byte, error) {
-	cmd := exec.Command("git", args...)
+func (r repo) git(ctx context.Context, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = r.root
 	out, err := cmd.Output()
 	var exitErr *exec.ExitError
@@ -33,8 +34,8 @@ func (r repo) git(args ...string) ([]byte, error) {
 	return out, nil
 }
 
-func (r repo) mergeBase(base string) (string, error) {
-	out, err := r.git("merge-base", base, "HEAD")
+func (r repo) mergeBase(ctx context.Context, base string) (string, error) {
+	out, err := r.git(ctx, "merge-base", base, "HEAD")
 	if err != nil {
 		return "", err
 	}
@@ -43,12 +44,12 @@ func (r repo) mergeBase(base string) (string, error) {
 
 // changedFiles lists measured Go files that differ between rev and the working tree,
 // including untracked files, so local runs see uncommitted work.
-func (r repo) changedFiles(rev string) ([]string, error) {
-	tracked, err := r.git("diff", "--name-only", "--no-renames", "-z", rev, "--")
+func (r repo) changedFiles(ctx context.Context, rev string) ([]string, error) {
+	tracked, err := r.git(ctx, "diff", "--name-only", "--no-renames", "-z", rev, "--")
 	if err != nil {
 		return nil, err
 	}
-	untracked, err := r.git("ls-files", "--others", "--exclude-standard", "-z")
+	untracked, err := r.git(ctx, "ls-files", "--others", "--exclude-standard", "-z")
 	if err != nil {
 		return nil, err
 	}
@@ -61,8 +62,8 @@ func (r repo) changedFiles(rev string) ([]string, error) {
 	return sortedKeys(seen), nil
 }
 
-func (r repo) listDirAt(rev, dir string) ([]string, error) {
-	out, err := r.git("ls-tree", "--name-only", "-z", rev, dir+"/")
+func (r repo) listDirAt(ctx context.Context, rev, dir string) ([]string, error) {
+	out, err := r.git(ctx, "ls-tree", "--name-only", "-z", rev, dir+"/")
 	if err != nil {
 		return nil, err
 	}
@@ -75,8 +76,8 @@ func (r repo) listDirAt(rev, dir string) ([]string, error) {
 	return paths, nil
 }
 
-func (r repo) listDirWorktree(dir string) ([]string, error) {
-	out, err := r.git("ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", dir+"/")
+func (r repo) listDirWorktree(ctx context.Context, dir string) ([]string, error) {
+	out, err := r.git(ctx, "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", dir+"/")
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +91,7 @@ func (r repo) listDirWorktree(dir string) ([]string, error) {
 }
 
 // readAt returns the contents of paths at rev; paths absent at rev are omitted.
-func (r repo) readAt(rev string, paths []string) (map[string][]byte, error) {
+func (r repo) readAt(ctx context.Context, rev string, paths []string) (map[string][]byte, error) {
 	var request bytes.Buffer
 	for _, path := range paths {
 		if strings.Contains(path, "\n") {
@@ -98,7 +99,7 @@ func (r repo) readAt(rev string, paths []string) (map[string][]byte, error) {
 		}
 		fmt.Fprintf(&request, "%s:%s\n", rev, path)
 	}
-	cmd := exec.Command("git", "cat-file", "--batch")
+	cmd := exec.CommandContext(ctx, "git", "cat-file", "--batch")
 	cmd.Dir = r.root
 	cmd.Stdin = &request
 	out, err := cmd.Output()

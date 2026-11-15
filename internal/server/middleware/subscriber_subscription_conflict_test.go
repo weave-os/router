@@ -53,7 +53,7 @@ func TestWithSubscriberAllowance_MaxIgnoresLinkedSubscriptionAndUsesAllowance(t 
 					c.Status(http.StatusOK)
 				})
 
-				request := httptest.NewRequest(http.MethodPost, route.path, nil)
+				request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, route.path, nil)
 				if enrolled {
 					request = request.WithContext(context.WithValue(request.Context(), proxy.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{route.provider: {}}))
 				} else {
@@ -85,7 +85,7 @@ func TestWithSubscriberAllowance_MaxExplicitSubscriptionOptOutUsesAllowance(t *t
 		dispatched = true
 	})
 
-	request := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	request.Header.Set("Authorization", "Bearer sk-ant-oat-test")
 	ctx := context.WithValue(request.Context(), proxy.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
 	ctx = context.WithValue(ctx, proxy.InstallationSubscriptionRoutingDisabledContextKey{}, true)

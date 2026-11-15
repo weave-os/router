@@ -123,8 +123,8 @@ func TestLookup(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got := otel.Lookup(tc.model)
-			assert.Equal(t, tc.wantInput, got.InputUSDPer1M)
-			assert.Equal(t, tc.wantOutput, got.OutputUSDPer1M)
+			assert.InDelta(t, tc.wantInput, got.InputUSDPer1M, 1e-9)
+			assert.InDelta(t, tc.wantOutput, got.OutputUSDPer1M, 1e-9)
 		})
 	}
 }

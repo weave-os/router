@@ -256,30 +256,7 @@ func writeGeminiFromOpenAI(jw *jsonWriter, body []byte, opts EmitOptions) error 
 		})
 		return true
 	})
-	// Collect system text.
-	var sysParts []string
-	msgs.ForEach(func(_, msg gjson.Result) bool {
-		if msg.Get("role").String() != "system" {
-			return true
-		}
-		content := msg.Get("content")
-		switch content.Type {
-		case gjson.String:
-			if s := content.String(); s != "" {
-				sysParts = append(sysParts, s)
-			}
-		case gjson.JSON:
-			content.ForEach(func(_, part gjson.Result) bool {
-				if part.Get("type").String() == "text" {
-					if s := part.Get("text").String(); s != "" {
-						sysParts = append(sysParts, s)
-					}
-				}
-				return true
-			})
-		}
-		return true
-	})
+	sysParts := openAISystemTextParts(msgs)
 	if reminder := geminiSystemReminder(opts.TargetModel); reminder != "" && hasNonEmptyTools(body) {
 		sysParts = append(sysParts, reminder)
 	}
@@ -395,6 +372,7 @@ func openAIUserPartsGJSON(content gjson.Result) []string {
 			return true
 		})
 		return parts
+	default:
 	}
 	return nil
 }
@@ -633,6 +611,7 @@ func writeGeminiFromAnthropic(jw *jsonWriter, body []byte, opts EmitOptions) err
 			}
 			return true
 		})
+	default:
 	}
 	if reminder := geminiSystemReminder(opts.TargetModel); reminder != "" && hasNonEmptyTools(body) {
 		sysParts = append(sysParts, reminder)
@@ -866,6 +845,7 @@ func anthropicUserPartsGJSON(content gjson.Result, toolNames map[string]string) 
 			return true
 		})
 		return parts
+	default:
 	}
 	return nil
 }
@@ -938,6 +918,7 @@ func anthropicAssistantPartsGJSON(content gjson.Result) []string {
 			return true
 		})
 		return parts
+	default:
 	}
 	return nil
 }
@@ -1034,6 +1015,7 @@ func writeGeminiToolChoice(jw *jsonWriter, body []byte, model string, downgradeV
 		writeGeminiFunctionCallingMode(jw, "NONE", "")
 	case toolChoiceNamed:
 		writeGeminiFunctionCallingMode(jw, "ANY", name)
+	case toolChoiceAbsent, toolChoiceUnrecognized:
 	}
 }
 
@@ -1138,6 +1120,7 @@ func geminiThinkingActive(intent ReasoningIntent, opts EmitOptions) bool {
 		return intent.BudgetTokens > 0
 	case ReasoningLevel:
 		return intent.Level != "none"
+	case ReasoningAuto:
 	}
 	return true
 }
@@ -1340,7 +1323,7 @@ func sanitizeGeminiSchemaNode(v any, path string) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		base := mergeSchemaMaps(node, nil, false)
+		base := cloneSchemaMap(node)
 		delete(base, "allOf")
 		// The merged branches arrived here already nullability-normalized
 		// (type:["x","null"] lowered to type + nullable:true); the sibling map
@@ -1574,15 +1557,10 @@ func mergeGeminiAllOf(v any, path string) (merged map[string]any, widened bool, 
 	return stripEmptyNullable(merged), widened, nil
 }
 
-func mergeSchemaMaps(base, extra map[string]any, overwrite bool) map[string]any {
-	out := make(map[string]any, len(base)+len(extra))
+func cloneSchemaMap(base map[string]any) map[string]any {
+	out := make(map[string]any, len(base))
 	for key, value := range base {
 		out[key] = deepCopyJSON(value)
-	}
-	for key, value := range extra {
-		if _, exists := out[key]; !exists || overwrite {
-			out[key] = deepCopyJSON(value)
-		}
 	}
 	return out
 }
@@ -1615,7 +1593,7 @@ var geminiStricterBoundKeys = map[string]bool{
 func intersectGeminiSchemas(left, right map[string]any) (map[string]any, bool) {
 	left = clampNullableTyped(left)
 	right = clampNullableTyped(right)
-	out := mergeSchemaMaps(left, nil, false)
+	out := cloneSchemaMap(left)
 	for key, value := range right {
 		current, exists := out[key]
 		if !exists {
@@ -1708,7 +1686,7 @@ func clampNullableTyped(schema map[string]any) map[string]any {
 		if !ok {
 			return schema
 		}
-		out := mergeSchemaMaps(schema, nil, false)
+		out := cloneSchemaMap(schema)
 		out["type"] = primary
 		out["nullable"] = true
 		return out
@@ -1716,7 +1694,7 @@ func clampNullableTyped(schema map[string]any) map[string]any {
 	if _, hasNullable := schema["nullable"]; hasNullable {
 		return schema
 	}
-	out := mergeSchemaMaps(schema, nil, false)
+	out := cloneSchemaMap(schema)
 	out["nullable"] = false
 	return out
 }
@@ -1768,7 +1746,7 @@ func stripEmptyNullable(schema map[string]any) map[string]any {
 // mergeGeminiPropertyMaps merges two `properties` maps. A name declared by
 // both branches has its two subschemas intersected, not compared for equality.
 func mergeGeminiPropertyMaps(left, right map[string]any) (map[string]any, bool) {
-	out := mergeSchemaMaps(left, nil, false)
+	out := cloneSchemaMap(left)
 	for name, value := range right {
 		current, exists := out[name]
 		if !exists {
@@ -1834,7 +1812,7 @@ func stricterBound(left, right any, larger bool) (any, bool) {
 // to "produce some representable schema" — properties recurse, required unions,
 // any other conflict keeps left.
 func mergeSchemaMapsLenient(left, right map[string]any) map[string]any {
-	out := mergeSchemaMaps(left, nil, false)
+	out := cloneSchemaMap(left)
 	for key, value := range right {
 		current, exists := out[key]
 		if !exists {

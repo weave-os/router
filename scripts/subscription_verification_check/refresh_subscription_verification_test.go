@@ -232,7 +232,7 @@ func verifyDispatchBilling(t *testing.T, pool *pgxpool.Pool, authService *auth.S
 		requestCtx = proxy.WithManagedSubscriptionCandidates(requestCtx, accounts)
 		body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"synthetic"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
 		rec := httptest.NewRecorder()
-		dispatchErr := svc.ProxyOpenAIChatCompletion(requestCtx, []byte(body), rec, httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body)))
+		dispatchErr := svc.ProxyOpenAIChatCompletion(requestCtx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), "POST", "/v1/chat/completions", strings.NewReader(body)))
 		if scenario.genericThrottle {
 			require.ErrorIs(t, dispatchErr, proxy.ErrSubscriptionPoolExhausted)
 			require.NotContains(t, rec.Body.String(), "billing answer")

@@ -76,7 +76,7 @@ func TestNativeSearchErrorsUseAnthropicEnvelope(t *testing.T) {
 		cause := errors.New("synthetic dispatch failure")
 		response := nativeSearchErrorResponse(status, []byte(`{"error":{"message":"synthetic provider detail","type":"invalid_request","code":"provider-specific"}}`), cause)
 		assert.Equal(t, status, response.Status)
-		assert.ErrorIs(t, response, cause)
+		require.ErrorIs(t, response, cause)
 		assert.Equal(t, "error", gjson.GetBytes(response.Body, "type").String())
 		assert.Equal(t, kind, gjson.GetBytes(response.Body, "error.type").String())
 		assert.Equal(t, "synthetic provider detail", gjson.GetBytes(response.Body, "error.message").String())
@@ -107,4 +107,13 @@ func TestNativeSearchPreservesRoutingPassthroughWithoutPins(t *testing.T) {
 	assert.Zero(t, spy.routeCalls)
 	assert.Empty(t, pins.getRoles)
 	assert.Empty(t, pins.upserts)
+}
+
+func TestNativeSearchInvalidRequestKeepsDomainFilterClientMessage(t *testing.T) {
+	_, err := websearch.ResponsesRequest([]byte(`{"model":"caller","system":"You are an assistant for performing a web search tool use","messages":[{"role":"user","content":"Perform a web search for the query: a public query"}],"tools":[{"type":"web_search_20250305","name":"web_search","allowed_domains":["example.com/docs"]}]}`), "selected")
+	require.ErrorIs(t, err, websearch.ErrDomainFilterNotHostname)
+
+	var upstream *providers.UpstreamErrorResponse
+	require.ErrorAs(t, nativeSearchInvalidRequest(err), &upstream)
+	assert.JSONEq(t, `{"type":"error","error":{"type":"invalid_request_error","message":"Codex web search requires hostname-only domain filters"}}`, string(upstream.Body))
 }

@@ -125,6 +125,6 @@ and are not stripped. Tool-output directives stay the job of
 
 ## Invariants
 
-- **No I/O.** No HTTP, no DB, no filesystem.
+- **No I/O.** Enforced by `TestIOFreePackagesDoNoIO`.
 - **No domain types.** Don't import `auth`, `proxy`, or anything from `internal/router/*`.
 - **No provider package imports.** Translation must be addressable without pulling in `internal/providers/<name>`.

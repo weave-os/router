@@ -118,7 +118,7 @@ func TestProxyMessages_CrossModelRescueKeepsNextTurnOnPinnedBinding(t *testing.T
 func runRescueTurn(t *testing.T, svc *proxy.Service, body []byte) *httptest.ResponseRecorder {
 	t.Helper()
 	recorder := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	req.Header.Set("X-Claude-Code-Session-Id", rescuedSessionID)
 	ctx := context.WithValue(
 		authedCtx("11111111-1111-1111-1111-111111111111"),

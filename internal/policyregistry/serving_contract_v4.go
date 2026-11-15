@@ -131,7 +131,7 @@ func (m ClassifierReleaseManifestV1) Validate(root string) error {
 			}
 		case ClassifierVariantKindQwenBundle:
 			if variantID != policy.ClassifierVariantQwen || variant.PackageWeaveDataRef != nil || variant.EmbeddingContractSHA256 != "" || variant.BundleSHA256 != variant.ArtifactSHA256 || !validDigest(variant.BundleSHA256) || len(variant.AuxiliaryModels) != 0 {
-				return errors.New("Qwen variant requires its bundle digest and no HMM package or embedding refs")
+				return errors.New("qwen variant requires its bundle digest and no HMM package or embedding refs")
 			}
 		default:
 			return fmt.Errorf("classifier variant %q has unsupported kind %q", variantID, variant.Kind)

@@ -171,9 +171,9 @@ func callerRoutingState(ctx context.Context) (passthrough bool, source callerRou
 // applyCallerRoutingAttrs records the caller's assigned state, not the turn's
 // outcome: force-model and policy pins still rewrite some experiment-passthrough
 // turns. Spans are internal, so this does not disclose the blind arm to clients.
-func applyCallerRoutingAttrs(ctx context.Context, b *telemetry.AttrBuilder) *telemetry.AttrBuilder {
+func applyCallerRoutingAttrs(ctx context.Context, b *telemetry.AttrBuilder) {
 	passthrough, source := callerRoutingState(ctx)
-	return b.Bool("routing.caller_passthrough", passthrough).
+	b.Bool("routing.caller_passthrough", passthrough).
 		String("routing.caller_routing_source", string(source))
 }
 

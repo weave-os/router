@@ -28,9 +28,9 @@ func (sessionModeExperimentRepo) InstallationExperimentEnabled(context.Context, 
 	return true, nil
 }
 
-func sessionModeArm(t *testing.T, routerOnPercentage int, headers http.Header) auth.BlindExperimentState {
+func sessionModeArm(t *testing.T, headers http.Header) auth.BlindExperimentState {
 	t.Helper()
-	svc := auth.NewService(nil, nil, nil, &captureUserRepo{}, nil, auth.NoOpUserCache{}, time.Now).WithBlindExperiments(sessionModeExperimentRepo{routerOnPercentage: routerOnPercentage}, nil)
+	svc := auth.NewService(nil, nil, nil, &captureUserRepo{}, nil, auth.NoOpUserCache{}, time.Now).WithBlindExperiments(sessionModeExperimentRepo{routerOnPercentage: 50}, nil)
 	identity := proxy.ClientIdentityFromHeaders(headers)
 	identity.Email = "alice@example.com"
 	ctx := requestcontext.WithClientIdentity(context.Background(), identity)
@@ -44,10 +44,10 @@ func TestBlindExperimentSessionModeSplitsSessionsAndKeepsSubagentsWithParent(t *
 	arms := map[auth.BlindExperimentArm]bool{}
 	for index := range 40 {
 		sessionID := "session-" + strconv.Itoa(index)
-		claudeMain := sessionModeArm(t, 50, http.Header{"X-Claude-Code-Session-Id": {sessionID}})
-		claudeTask := sessionModeArm(t, 50, http.Header{"X-Claude-Code-Session-Id": {sessionID}, "X-Claude-Code-Agent-Id": {"agent-1"}})
-		codexMain := sessionModeArm(t, 50, http.Header{"Session-Id": {sessionID}, "Thread-Id": {sessionID}})
-		codexSubagent := sessionModeArm(t, 50, http.Header{
+		claudeMain := sessionModeArm(t, http.Header{"X-Claude-Code-Session-Id": {sessionID}})
+		claudeTask := sessionModeArm(t, http.Header{"X-Claude-Code-Session-Id": {sessionID}, "X-Claude-Code-Agent-Id": {"agent-1"}})
+		codexMain := sessionModeArm(t, http.Header{"Session-Id": {sessionID}, "Thread-Id": {sessionID}})
+		codexSubagent := sessionModeArm(t, http.Header{
 			"Session-Id": {sessionID}, "Thread-Id": {"child-thread-" + strconv.Itoa(index)},
 			"X-Codex-Parent-Thread-Id": {sessionID}, "X-Openai-Subagent": {"collab_spawn"},
 		})
@@ -63,7 +63,7 @@ func TestBlindExperimentSessionModeSplitsSessionsAndKeepsSubagentsWithParent(t *
 }
 
 func TestBlindExperimentSessionModeWithoutSessionIDUsesUserDraw(t *testing.T) {
-	state := sessionModeArm(t, 50, http.Header{})
+	state := sessionModeArm(t, http.Header{})
 	assert.Empty(t, state.SessionSubjectKey)
 	assert.Equal(t, auth.BlindExperimentArmPassthrough, state.Arm)
 }

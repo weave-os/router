@@ -45,7 +45,7 @@ func TestService_SessionPin_CustomToolTurnKeepsUnsupportedPinExcluded(t *testing
 
 	body := `{"model":"auto","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic task"}]}],"tools":[{"type":"custom","name":"exec"}]}`
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 	require.NoError(t, svc.ProxyOpenAIResponses(authedCtx(uuid.New().String()), []byte(body), rec, httpReq))
 
 	require.NotNil(t, fr.capturedReq, "scorer must run once the unsupported pin is dropped")
