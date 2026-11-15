@@ -13,6 +13,10 @@ linters:
     - forcetypeassert
     - testifylint
     - unparam
+    - ineffassign
+    - staticcheck
+    - unused
+    - wastedassign
     - errcheck
     - bodyclose
     - nilerr
@@ -23,6 +27,14 @@ linters:
       disable:
         # translate tests assert byte-exact JSON output; JSONEq would hide key order and whitespace changes.
         - encoded-compare
+    staticcheck:
+      checks:
+        - all
+        - -ST1000
+        - -ST1003
+        - -ST1020
+        - -ST1021
+        - -ST1022
     errcheck:
       exclude-functions:
         - (*bufio.Writer).WriteString

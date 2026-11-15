@@ -210,14 +210,14 @@ func (s *Service) AddSubscriptionAccount(ctx context.Context, params CreateSubsc
 	params.ProviderUserID = "" // Never trust caller-supplied identity.
 	if params.Provider == SubscriptionProviderCodex {
 		if s.codexEnrollmentVerifier == nil {
-			return nil, errors.New("Codex enrollment identity verification is unavailable")
+			return nil, errors.New("codex enrollment identity verification is unavailable")
 		}
 		verified, err := s.codexEnrollmentVerifier.VerifyCodexEnrollment(ctx, params.ExternalAccountID, params.RefreshToken)
 		if err != nil {
 			return nil, err
 		}
 		if verified.ProviderUserID == "" || len(verified.RefreshToken) == 0 {
-			return nil, errors.New("Codex enrollment omitted verified provider user identity")
+			return nil, errors.New("codex enrollment omitted verified provider user identity")
 		}
 		params.ProviderUserID = verified.ProviderUserID
 		params.RefreshToken = verified.RefreshToken

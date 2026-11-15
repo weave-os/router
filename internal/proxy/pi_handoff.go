@@ -38,10 +38,15 @@ type handoffPreparationKey struct{}
 type handoffClaimsKey struct{}
 
 // ErrHandoffUnavailable means the deployment has no shared signing secret.
-var ErrHandoffUnavailable = errors.New("Pi handoff requires a shared ROUTER_PI_HANDOFF_SECRET of at least 32 bytes")
+var ErrHandoffUnavailable = errors.New("pi handoff requires a shared ROUTER_PI_HANDOFF_SECRET of at least 32 bytes")
 
 // ErrHandoffInvalid rejects tickets whose identity or selection is no longer valid.
-var ErrHandoffInvalid = errors.New("Pi handoff expired or no longer matches this request; prepare the route again")
+var ErrHandoffInvalid = errors.New("pi handoff expired or no longer matches this request; prepare the route again")
+
+const (
+	handoffUnavailableMessage = "Pi handoff requires a shared ROUTER_PI_HANDOFF_SECRET of at least 32 bytes"
+	handoffInvalidMessage     = "Pi handoff expired or no longer matches this request; prepare the route again"
+)
 
 type handoffClaims struct {
 	jwt.RegisteredClaims

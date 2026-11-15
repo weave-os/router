@@ -43,7 +43,7 @@ func validCodexAgentPath(path string) bool {
 			return false
 		}
 		for _, char := range segment {
-			if !((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || char == '_' || char == '-') {
+			if !isIdentifierChar(char) {
 				return false
 			}
 		}
@@ -62,4 +62,8 @@ func codexAgentMessageRoutingRole(currentPath string, item gjson.Result) Escalat
 		return EscalationRoleUser
 	}
 	return EscalationRoleAssistant
+}
+
+func isIdentifierChar(c rune) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-'
 }

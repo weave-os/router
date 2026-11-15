@@ -436,7 +436,8 @@ func (s *rowBackedPinStore) ExpireAndDemoteModel(ctx context.Context, expired se
 		s.rows[expired.Role] = expired
 		return nil
 	}
-	if !(row.Strategy == expired.Strategy || (row.Strategy == "" && expired.Strategy != router.StrategyHMMBeta)) {
+	sameStrategy := row.Strategy == expired.Strategy || (row.Strategy == "" && expired.Strategy != router.StrategyHMMBeta)
+	if !sameStrategy {
 		return nil
 	}
 	demoted := row.DemotedModels

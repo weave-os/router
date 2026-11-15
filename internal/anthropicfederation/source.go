@@ -27,7 +27,7 @@ const jwtBearerGrant = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 const exchangeTimeout = 15 * time.Second
 const maxResponseBytes = 64 * 1024
 
-var errTemporaryExchange = errors.New("Anthropic token endpoint temporarily unavailable")
+var errTemporaryExchange = errors.New("anthropic token endpoint temporarily unavailable")
 
 type assertionKey struct {
 	issuer  string

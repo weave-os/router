@@ -14,6 +14,12 @@ import (
 	"golang.org/x/net/idna"
 )
 
+// ErrDomainFilterNotHostname rejects allowed/blocked domain filters that are not bare hostnames.
+var ErrDomainFilterNotHostname = errors.New("codex web search requires hostname-only domain filters")
+
+// DomainFilterNotHostnameMessage is the client-facing text for ErrDomainFilterNotHostname.
+const DomainFilterNotHostnameMessage = "Codex web search requires hostname-only domain filters"
+
 // ResponsesRequest translates an isolated Claude Code search to native Responses tools.
 func ResponsesRequest(body []byte, model string) ([]byte, error) {
 	query, ok := DetectSearchTurn(body)
@@ -35,7 +41,7 @@ func ResponsesRequest(body []byte, model string) ([]byte, error) {
 			for _, domain := range value.Array() {
 				raw := domain.String()
 				if domain.Type != gjson.String || raw == "" || strings.TrimSpace(raw) != raw || strings.ContainsAny(raw, "/*:?#@[]\\ \t\r\n") {
-					return nil, errors.New("Codex web search requires hostname-only domain filters")
+					return nil, ErrDomainFilterNotHostname
 				}
 				ascii, err := idna.Lookup.ToASCII(strings.TrimSuffix(raw, "."))
 				if err != nil || ascii == "" || strings.HasPrefix(ascii, ".") || strings.Contains(ascii, "..") || strings.HasSuffix(ascii, ".") {

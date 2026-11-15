@@ -22,8 +22,8 @@ var routerModelsTokens = [...]string{
 // config. Answering an argument form here would either be a no-op or a hole
 // through that boundary, so anything with arguments falls through to the
 // skill, which shells out to the installer and authenticates properly.
-func (env *RequestEnvelope) ExtractRouterModelsCommand() bool {
-	return env.extractLeadingCommand(parseRouterModelsCommand)
+func (e *RequestEnvelope) ExtractRouterModelsCommand() bool {
+	return e.extractLeadingCommand(parseRouterModelsCommand)
 }
 
 // parseRouterModelsCommand recognizes the bare directive; parseBareDirective holds the

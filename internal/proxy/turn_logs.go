@@ -478,7 +478,8 @@ func safeUpstreamRequestID(headers http.Header) string {
 			continue
 		}
 		for _, char := range requestID {
-			if !((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || strings.ContainsRune("-_.:/", char)) {
+			allowed := (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || strings.ContainsRune("-_.:/", char)
+			if !allowed {
 				requestID = ""
 				break
 			}

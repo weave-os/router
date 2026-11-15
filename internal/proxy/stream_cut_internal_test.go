@@ -53,7 +53,7 @@ func TestClassifyStreamFailure(t *testing.T) {
 		{name: "http/2 keepalive ping lost", err: http2LostPing(), want: streamFailureUpstreamReset},
 		{name: "http/2 keepalive ping lost mid-stream", err: fmt.Errorf("read upstream stream: %w", errors.New("http2: client connection lost")), lastEvent: "content_block_delta", want: streamFailureUpstreamReset},
 		{name: "http/2 stream reset by the peer", err: http2PeerStreamReset(), want: streamFailureUpstreamReset},
-		{name: "http/2 goaway", err: &url.Error{Op: "Post", URL: "https://upstream.test", Err: http2.GoAwayError{ErrCode: http2.ErrCodeEnhanceYourCalm}}, want: streamFailureUpstreamReset},
+		{name: "http/2 goaway", err: http2GoAway(), want: streamFailureUpstreamReset},
 		{name: "unattributable", err: errors.New("stream closed"), lastEvent: "content_block_delta", want: streamFailureOther},
 	}
 	for _, tc := range cases {
@@ -117,6 +117,11 @@ func http2HeaderTimeout() error {
 // keepalive pings; it is an untyped errors.New.
 func http2LostPing() error {
 	return &url.Error{Op: "Post", URL: "https://upstream.test", Err: errors.New("http2: client connection lost")}
+}
+
+// http2GoAway mirrors net/http's bundled transport error after a GOAWAY frame.
+func http2GoAway() error {
+	return &url.Error{Op: "Post", URL: "https://upstream.test", Err: errors.New(`http2: server sent GOAWAY and closed the connection; LastStreamID=1, ErrCode=ENHANCE_YOUR_CALM, debug=""`)}
 }
 
 func http2PeerStreamReset() error {

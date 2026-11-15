@@ -16,8 +16,16 @@ var (
 	ErrAnthropicCacheControlInvalid = errors.New("invalid Anthropic cache_control")
 	// ErrAnthropicCacheControlOverflow marks explicit client breakpoints beyond
 	// the provider's supported capacity.
-	ErrAnthropicCacheControlOverflow = errors.New("Anthropic cache_control breakpoint capacity exceeded")
+	ErrAnthropicCacheControlOverflow = errors.New("anthropic cache_control breakpoint capacity exceeded")
 )
+
+const anthropicCacheControlOverflowMessage = "Anthropic cache_control breakpoint capacity exceeded"
+
+// CacheControlClientMessage renders a cache_control validation error with its
+// client-facing capitalization.
+func CacheControlClientMessage(err error) string {
+	return strings.Replace(err.Error(), ErrAnthropicCacheControlOverflow.Error(), anthropicCacheControlOverflowMessage, 1)
+}
 
 const anthropicCacheControlCapacity = 4
 
