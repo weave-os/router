@@ -21,10 +21,6 @@ func (s *Service) claudeSubscriptionExhausted(ctx context.Context, headers http.
 	return s.anthropicSubscriptionObservedExhausted(ctx, headers)
 }
 
-// anthropicSubscriptionObservedExhausted is credentials.ClaudeSubscriptionObservedExhausted
-// for the caller's present Claude subscription. Subscription-only refusal uses
-// this bare signal: an exhausted sub can only 429, so the turn is refused with
-// a controlled 402.
 func (s *Service) anthropicSubscriptionObservedExhausted(ctx context.Context, headers http.Header) bool {
 	if s.usageObserver == nil {
 		return false
