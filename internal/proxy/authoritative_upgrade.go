@@ -308,11 +308,8 @@ func holdAuthoritativePin(
 				HysteresisWouldHold: verdict.HysteresisWouldHold,
 				ConfidenceWouldHold: verdict.ConfidenceWouldHold,
 			}
-			log.Info("turnloop served authoritative downgrade", append(fields,
-				"shadow_hysteresis_turns", verdict.ShadowHysteresisTurns,
-				"shadow_hysteresis_would_hold", verdict.HysteresisWouldHold,
-				"shadow_confidence_would_hold", verdict.ConfidenceWouldHold,
-			)...)
+			fields = append(fields, "shadow_hysteresis_turns", verdict.ShadowHysteresisTurns, "shadow_hysteresis_would_hold", verdict.HysteresisWouldHold, "shadow_confidence_would_hold", verdict.ConfidenceWouldHold)
+			log.Info("turnloop served authoritative downgrade", fields...)
 		}
 		return false
 	}
