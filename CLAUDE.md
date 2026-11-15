@@ -33,7 +33,7 @@ ignored `.context/`; only authored, synthetic reproductions belong in public fix
 - **CLEAN architecture** (Martin) — especially dependency inversion
 - **DRY**
 - **Small expert team** — explicit composition, readable wiring; reject DI containers, reflection, framework magic
-- **Concise comments, sparingly** — default to none. Only when *why* is non-obvious (hidden constraint, subtle invariant, workaround, surprising behavior). Never rehash code, never reference current task/PR/caller, no multi-paragraph. If removing wouldn't confuse, don't write.
+- **No comments in production Go** — move what a comment would say into a name, type or test (or `docs/` for operator knowledge). Only `// Deprecated:` paragraphs, `codeql[...]` suppressions and tool directives (`//go:build`, `//go:generate`, `//go:embed`) are allowed; generated files are exempt. Enforced by `TestProductionGoHasNoComments` in `internal/architecture`; packages in `internal/architecture/comment_ban_allowlist.json` are awaiting migration, and that list only shrinks. `make arch-ratchet` also rejects any new or reworded comment and any budget increase against the merge base. Test files are not yet covered.
 - **Non-tautological tests** — every test must assert behavior that breaks if prod code deleted.
 
 ## Layer model and import rules
@@ -217,7 +217,7 @@ Don't, unless same logic needed in 3+ places and no plausible existing home. Can
 - **SSE framing** → [`internal/sse`](internal/sse).
 - **Per-request latency stamps** → [`internal/timing`](internal/timing) — pure value type shared by adapters (`server/middleware`, `providers/*`) and `proxy.Service`; deliberately has zero otel dependency so those adapters don't need one just to stamp a timestamp.
 
-If new helper doesn't fit, justify new package in code comment before creating.
+If new helper doesn't fit, justify the new package in the PR description before creating it.
 
 ## Conventions
 
@@ -226,7 +226,6 @@ If new helper doesn't fit, justify new package in code comment before creating.
 - **No magic strings for provider/model names.** Use named constants from `internal/providers` (`providers.ProviderAnthropic`, `providers.ProviderOpenAI`, `providers.ProviderGoogle`, `providers.ProviderOpenRouter`, `providers.ProviderFireworks`) everywhere provider names appear as values — map keys, switch cases, `router.Decision.Provider` literals, log fields, test fixtures. For new model name constants, add to appropriate package before use. Bare string literals = review-blocking.
 - Keep files small. Split distinct logic into separate files, especially when shared between multiple places.
 - Avoid unnecessary nesting — flatten conditionals with early returns + combined conditions.
-- All exported symbols carry godoc starting with symbol name (`Foo does X` or `// Foo is …`).
 - Errors flow up. Don't swallow; don't log-and-continue on request path. The one exception is best-effort, off-request-path fire-and-forget through [`observability.SafeGo`](internal/observability/safego.go); `TestSafeGoPackagesHaveNoRawGoroutines` rejects raw `go` statements in auth, proxy and pubsub.
 - Use `errors.Is` / `errors.As`, never `==` or `!=` on errors. For no-rows checks: `errors.Is(err, sql.ErrNoRows)`.
 - Log with `slog` (forbidigo rejects `fmt.Print*` / `log.Print*`). **On the request path, acquire the logger from the context** — `observability.FromContext(ctx)`, or `observability.FromGin(c)` in a handler. Both inherit the correlation fields `observability.Middleware` binds at first touch (`request_id`, plus `session_key` / `client_session_id` once `bindRequestLogger` runs), which is what makes one session's logs filterable end to end. `observability.Get()` returns the global logger with **no** request correlation, so a request-path line emitted through it cannot be found when filtering by session — reserve it for genuinely off-request-path code (startup, background listeners, `SafeGo` fire-and-forget). Enforced by `TestGlobalLoggerBudget`; fix a failure by threading ctx, not by raising the budget.
@@ -269,7 +268,7 @@ A helper that logs on the request path takes `ctx` and calls `observability.From
 ## Things to NEVER do
 
 - **Never put customer/company/org names or private identifiers in anything committed here.** This repo is public — commit messages, branch names, PR titles/descriptions, code comments, tests, and fixtures are world-readable. This holds even when a change is motivated by one customer's investigation (e.g. a loop-break or spiral fix found from a specific org's agentic session): describe the trigger generically ("a customer", "a large agentic session", "an org's monorepo"). No org names, org IDs, account emails, internal ticket/Linear links, or verbatim private Slack/support excerpts — those stay in the private Weave repo + Linear.
-- **Never import code from outside this subproject.** Router is standalone Go module (`module weave-os/router`) with no cross-project deps. If need utility from elsewhere in monorepo, copy into appropriate `internal/` package with own godoc.
+- **Never import code from outside this subproject.** Router is standalone Go module (`module weave-os/router`) with no cross-project deps. If need utility from elsewhere in monorepo, copy into appropriate `internal/` package with its own tests.
 - **Never write raw SQL outside `db/queries/`** or call `pgx.Pool` directly from anywhere except `internal/postgres/`. SQLC is only data mapper.
 - **Never reach across layers.** Handler in `internal/api/` calling `*sqlc.Queries` directly = layering violation; surface Service method instead. Repo calling another repo = layering violation; put orchestration in `auth.Service` / `proxy.Service`.
 - **Never add FKs to tables outside router's own schema.** Such tables don't exist in this project. `organization_id` + `created_by` = opaque external strings, not FKs.

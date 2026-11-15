@@ -1,5 +1,3 @@
-// Command database_budget_check verifies database wait budgets on a migrated disposable database.
-// Run with ROUTER_TEST_DATABASE_URL set to a local migrated fixture.
 package main
 
 import (
