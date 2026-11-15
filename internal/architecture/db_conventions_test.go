@@ -13,8 +13,8 @@ import (
 )
 
 var (
-	transactionStart  = regexp.MustCompile(`(?mi)^\s*BEGIN\s*;`)
-	transactionCommit = regexp.MustCompile(`(?mi)^\s*COMMIT\s*;`)
+	transactionStart  = regexp.MustCompile(`(?i)^BEGIN\s*;`)
+	transactionCommit = regexp.MustCompile(`(?i)\bCOMMIT\s*;$`)
 	ifExistsGuard     = regexp.MustCompile(`(?i)\bIF\s+EXISTS\b`)
 	numberedParameter = regexp.MustCompile(`\$[0-9]+`)
 )
@@ -37,23 +37,55 @@ func TestQueriesUseNamedParameters(t *testing.T) {
 func TestSQLConventionChecksRejectNegativeFixtures(t *testing.T) {
 	assert.True(t, untransactionalMigration("ALTER TABLE router.t ADD COLUMN c TEXT;\n"))
 	assert.True(t, untransactionalMigration("BEGIN;\nALTER TABLE router.t ADD COLUMN c TEXT;\n"))
-	assert.False(t, untransactionalMigration("BEGIN;\nALTER TABLE router.t ADD COLUMN c TEXT;\nCOMMIT;\n"))
+	assert.True(t, untransactionalMigration("ALTER TABLE router.t ADD COLUMN c TEXT;\nBEGIN;\nCOMMIT;\n"))
+	assert.True(t, untransactionalMigration("BEGIN;\nCOMMIT;\nALTER TABLE router.t ADD COLUMN c TEXT;\n"))
+	assert.False(t, untransactionalMigration("-- add c\nBEGIN;\nALTER TABLE router.t ADD COLUMN c TEXT;\nCOMMIT;\n-- done\n"))
 	assert.True(t, guardedRollback("BEGIN;\nDROP TABLE IF EXISTS router.t;\nCOMMIT;\n"))
 	assert.False(t, guardedRollback("BEGIN;\nDROP TABLE router.t;\nCOMMIT;\n"))
+	assert.False(t, guardedRollback("-- Do not use IF EXISTS\nBEGIN;\n/* IF EXISTS */ COMMENT ON TABLE router.t IS 'IF EXISTS';\nCOMMIT;\n"))
 	assert.True(t, numberedParameters("SELECT * FROM router.t WHERE id = $1;"))
 	assert.False(t, numberedParameters("SELECT * FROM router.t WHERE id = @id::uuid;"))
+	assert.False(t, numberedParameters("-- never $1\nSELECT * FROM router.t WHERE note = 'costs $1' AND id = @id::uuid;"))
 }
 
 func untransactionalMigration(sql string) bool {
-	return !transactionStart.MatchString(sql) || !transactionCommit.MatchString(sql)
+	code := strings.TrimSpace(sqlCode(sql))
+	return !transactionStart.MatchString(code) || !transactionCommit.MatchString(code)
 }
 
 func guardedRollback(sql string) bool {
-	return ifExistsGuard.MatchString(sql)
+	return ifExistsGuard.MatchString(sqlCode(sql))
 }
 
 func numberedParameters(sql string) bool {
-	return numberedParameter.MatchString(sql)
+	return numberedParameter.MatchString(sqlCode(sql))
+}
+
+// sqlCode blanks comments and single-quoted literals so the checks only see SQL statements.
+func sqlCode(sql string) string {
+	var code strings.Builder
+	for i := 0; i < len(sql); i++ {
+		switch {
+		case strings.HasPrefix(sql[i:], "--"):
+			i += skipUntil(sql[i:], "\n") - 1
+		case strings.HasPrefix(sql[i:], "/*"):
+			i += skipUntil(sql[i+2:], "*/") + 1
+		case sql[i] == '\'':
+			i += skipUntil(sql[i+1:], "'")
+		default:
+			code.WriteByte(sql[i])
+			continue
+		}
+		code.WriteByte(' ')
+	}
+	return code.String()
+}
+
+func skipUntil(rest, terminator string) int {
+	if end := strings.Index(rest, terminator); end >= 0 {
+		return end + len(terminator)
+	}
+	return len(rest)
 }
 
 func sqlFindings(t *testing.T, directory, pattern string, violates func(string) bool) []string {

@@ -38,14 +38,6 @@ var ioFreePackagePatterns = []string{
 	"./internal/routingpolicy/...",
 }
 
-var providerAdapterPatterns = []string{
-	"./internal/providers/anthropic/...",
-	"./internal/providers/cortexagents/...",
-	"./internal/providers/google/...",
-	"./internal/providers/openai/...",
-	"./internal/providers/openaicompat/...",
-}
-
 var injectedClockPackagePatterns = []string{
 	"./internal/auth/...",
 	"./internal/proxy/usage/...",
@@ -70,7 +62,8 @@ func TestIOFreePackagesDoNoIO(t *testing.T) {
 }
 
 func TestProviderAdaptersBuildClientsWithHTTPUtil(t *testing.T) {
-	findings := rawProviderClients(t, repositoryRoot(t), providerAdapterPatterns...)
+	root := repositoryRoot(t)
+	findings := rawProviderClients(t, root, providerAdapterPackages(t, root)...)
 	assert.Empty(t, findings, "provider adapters build their client with httputil.NewClient(httputil.NewTransport(...)) so redirects are refused and the managed-mode destination policy applies")
 }
 
@@ -156,6 +149,22 @@ func methodReceiver(object types.Object) types.Type {
 		return nil
 	}
 	return signature.Recv().Type()
+}
+
+func providerAdapterPackages(t *testing.T, root string) []string {
+	t.Helper()
+	loaded, err := packages.Load(&packages.Config{Dir: root, Mode: packages.NeedName}, "./internal/providers/...")
+	require.NoError(t, err)
+	var adapters []string
+	for _, loadedPackage := range loaded {
+		switch loadedPackage.PkgPath {
+		case providersPackagePath, providersPackagePath + "/httputil":
+		default:
+			adapters = append(adapters, loadedPackage.PkgPath)
+		}
+	}
+	require.NotEmpty(t, adapters, "no provider adapter packages under internal/providers")
+	return adapters
 }
 
 func isIOImport(path string) bool {
