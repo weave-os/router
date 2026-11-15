@@ -54,52 +54,12 @@
       "banned_lines": 537
     },
     {
-      "package": "internal/router/decisionmodel",
-      "banned_lines": 42
-    },
-    {
-      "package": "internal/router/eligibility",
-      "banned_lines": 45
-    },
-    {
-      "package": "internal/router/gitcontext",
-      "banned_lines": 36
-    },
-    {
-      "package": "internal/router/handover",
-      "banned_lines": 36
-    },
-    {
-      "package": "internal/router/hmm/rosterdata",
-      "banned_lines": 45
-    },
-    {
-      "package": "internal/router/hmm/selection",
-      "banned_lines": 99
-    },
-    {
-      "package": "internal/router/llmescalation",
-      "banned_lines": 59
-    },
-    {
-      "package": "internal/router/planner",
-      "banned_lines": 87
-    },
-    {
       "package": "internal/router/policy",
       "banned_lines": 473
     },
     {
-      "package": "internal/router/rl",
-      "banned_lines": 68
-    },
-    {
       "package": "internal/router/sessionpin",
       "banned_lines": 211
-    },
-    {
-      "package": "internal/routingpolicy",
-      "banned_lines": 78
     },
     {
       "package": "internal/server/middleware",
@@ -112,10 +72,6 @@
     {
       "package": "internal/translate",
       "banned_lines": 3422
-    },
-    {
-      "package": "internal/websearch",
-      "banned_lines": 78
     }
   ]
 }
