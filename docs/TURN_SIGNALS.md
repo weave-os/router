@@ -41,9 +41,13 @@ the way they are.
 
 ## Stuck-session detectors
 
-All detectors key on the request envelope, which carries the full history on
-every turn, so their signal functions are pure. A zero session key never gets a
-pin row written: such a row would be shared by every zero-keyed session.
+Text repetition, cyclic loop and spiral signals are pure functions of the
+request envelope, which carries the full history on every turn. The others need
+earlier turns: no-progress keeps a per-replica ring of recent fingerprints per
+session, compaction detection compares against the last counts it cached, and
+struggle reads the session pin's turn count and age. Replay tests for those
+must drive a sequence of requests. A zero session key never gets a pin row
+written: such a row would be shared by every zero-keyed session.
 
 | Detector | Catches | Acts? |
 |---|---|---|
