@@ -35,7 +35,7 @@ func runSpendCap(t *testing.T, keyID string, repo *stubBillingRepo) (*httptest.R
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	engine.ServeHTTP(w, req)
 	return w, reached
 }
@@ -118,7 +118,7 @@ func runSpendCapSub(t *testing.T, keyID string, setInstall func(*gin.Context), a
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/v1/messages", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/messages", nil)
 	if authHeader != "" {
 		req.Header.Set("Authorization", authHeader)
 	}

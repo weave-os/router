@@ -45,7 +45,7 @@ func overflowContext(exhausted bool) context.Context {
 func (d *overflowDispatch) attempt() dispatchAttempt {
 	return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
 		d.served = append(d.served, decision)
-		return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+		return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, httptest.NewRecorder(), httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/messages", nil))
 	}
 }
 

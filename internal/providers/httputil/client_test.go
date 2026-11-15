@@ -71,7 +71,7 @@ func TestNewClientFailsTheCallOnARedirect(t *testing.T) {
 	defer redirector.Close()
 
 	client := NewClient(NewTransport(time.Second, time.Second))
-	req, err := http.NewRequest(http.MethodGet, redirector.URL, nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, redirector.URL, nil)
 	require.NoError(t, err)
 
 	resp, err := client.Do(req)

@@ -67,7 +67,7 @@ func TestFundingBypassPartialStreamRecoversOnLinkedSubscription(t *testing.T) {
 				}
 				body := `{"model":"` + model + `","stream":true,"max_tokens":` + strconv.Itoa(maxTokens) + `,"messages":[{"role":"user","content":"hello"}]}`
 				rec := httptest.NewRecorder()
-				err := svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body)))
+				err := svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(body)))
 				require.NoError(t, err)
 				require.Equal(t, []string{"Bearer sk-ant-oat01-direct-partial", "Bearer sk-ant-oat01-linked-spent", "Bearer sk-ant-oat01-linked-healthy"}, tokens)
 				require.Contains(t, rec.Body.String(), "linked answer")
@@ -131,7 +131,7 @@ func TestClaudeBypassDepletedCreditsRotatesLinkedAccounts(t *testing.T) {
 				}
 				body := `{"model":"` + model + `","max_tokens":` + strconv.Itoa(maxTokens) + `,"messages":[{"role":"user","content":"hello"}]}`
 				rec := httptest.NewRecorder()
-				err := svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body)))
+				err := svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(body)))
 				if available {
 					require.NoError(t, err)
 					require.Contains(t, rec.Body.String(), "linked answer")

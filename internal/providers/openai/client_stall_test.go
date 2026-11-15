@@ -55,7 +55,7 @@ func TestProxy_MidStreamStallAbortsRetryableNothingWritten(t *testing.T) {
 	const idleTimeout = 100 * time.Millisecond
 	c := openai.NewClientWithTimeouts("test-key", upstream.URL, stallTestHeaderTimeout, idleTimeout)
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 
 	start := time.Now()
 	err := c.Proxy(context.Background(), router.Decision{Model: "gpt-5.5"}, responsesPrep(), rec, clientReq)
@@ -100,7 +100,7 @@ func TestProxy_SlowButFlowingStreamIsNotAborted(t *testing.T) {
 	const idleTimeout = 150 * time.Millisecond
 	c := openai.NewClientWithTimeouts("test-key", upstream.URL, stallTestHeaderTimeout, idleTimeout)
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 
 	err := c.Proxy(context.Background(), router.Decision{Model: "gpt-5.5"}, responsesPrep(), rec, clientReq)
 
@@ -130,7 +130,7 @@ func TestProxy_StalledErrorBodyDoesNotHang(t *testing.T) {
 	const idleTimeout = 100 * time.Millisecond
 	c := openai.NewClientWithTimeouts("test-key", upstream.URL, stallTestHeaderTimeout, idleTimeout)
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 
 	start := time.Now()
 	err := c.Proxy(context.Background(), router.Decision{Model: "gpt-5.5"}, responsesPrep(), rec, clientReq)

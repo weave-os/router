@@ -52,7 +52,7 @@ func testRoutingAnnouncementOverlap(t *testing.T) {
 	body := announcementReplayBody(t)
 	go func() {
 		done <- first.ProxyOpenAIResponses(announcementReplayContext(), body, writer,
-			httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+			httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
 	}()
 	select {
 	case <-started:
@@ -68,7 +68,7 @@ func testRoutingAnnouncementOverlap(t *testing.T) {
 	second := openAIChatServiceWithDecision(secondProvider, decision)
 	rec := httptest.NewRecorder()
 	require.NoError(t, second.ProxyOpenAIResponses(announcementReplayContext(), announcementReplayBody(t, visible), rec,
-		httptest.NewRequest(http.MethodPost, "/v1/responses", nil)))
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)))
 	text := strings.Join(responsesTextDeltas(t, rec.Body.Bytes()), "")
 	assert.NotContains(t, text, "Weave Router", "a model already announced to this client must not repeat before completion")
 	assert.Contains(t, text, "cached answer")
@@ -95,7 +95,7 @@ func testLatestClientAnnouncement(t *testing.T) {
 			svc := openAIChatServiceWithDecision(provider, router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-6-luna", Reason: "test"})
 			rec := httptest.NewRecorder()
 			require.NoError(t, svc.ProxyOpenAIResponses(announcementReplayContext(), announcementReplayBody(t, test.history...), rec,
-				httptest.NewRequest(http.MethodPost, "/v1/responses", nil)))
+				httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)))
 			text := strings.Join(responsesTextDeltas(t, rec.Body.Bytes()), "")
 			assert.Equal(t, test.wantBadge, strings.Contains(text, "✦ **Weave Router** → gpt-6-luna"))
 			assert.Contains(t, text, "cached answer")
@@ -120,7 +120,7 @@ func testSidecarClientAnnouncement(t *testing.T) {
 		svc := openAIChatServiceWithDecision(provider, decision)
 		rec := httptest.NewRecorder()
 		require.NoError(t, svc.ProxyOpenAIResponses(announcementReplayContext(), announcementReplayBody(t, history...), rec,
-			httptest.NewRequest(http.MethodPost, "/v1/responses", nil)))
+			httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)))
 		text := strings.Join(responsesTextDeltas(t, rec.Body.Bytes()), "")
 		assert.Contains(t, text, "cached answer")
 		if turn == 0 {

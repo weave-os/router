@@ -51,7 +51,7 @@ func TestGeminiUsageAcrossClientSurfaces(t *testing.T) {
 				svc := proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: router.ModelGemini4Argon}}, map[string]providers.Client{providers.ProviderGoogle: provider}, usageProjectionEmitter{}, nil, false, providers.ProviderGoogle, router.ModelGemini4Argon, telemetry)
 				ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "55555555-5555-5555-5555-555555555555")
 				rec := httptest.NewRecorder()
-				req := httptest.NewRequest(http.MethodPost, "/", nil)
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", nil)
 				req.Header.Set(routingMarkerHeader, "off")
 				var err error
 				switch format {
@@ -62,9 +62,9 @@ func TestGeminiUsageAcrossClientSurfaces(t *testing.T) {
 				case translate.FormatOpenAIResponses:
 					err = svc.ProxyOpenAIResponses(ctx, []byte(fmt.Sprintf(`{"model":"auto","stream":%v,"input":"hello"}`, stream)), rec, req)
 				case translate.FormatGemini:
-					req = httptest.NewRequest(http.MethodPost, "/v1beta/models/"+router.ModelGemini4Argon+":generateContent", nil)
+					req = httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1beta/models/"+router.ModelGemini4Argon+":generateContent", nil)
 					if stream {
-						req = httptest.NewRequest(http.MethodPost, "/v1beta/models/"+router.ModelGemini4Argon+":streamGenerateContent", nil)
+						req = httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1beta/models/"+router.ModelGemini4Argon+":streamGenerateContent", nil)
 					}
 					req.Header.Set(routingMarkerHeader, "off")
 					err = svc.ProxyGeminiGenerateContent(ctx, []byte(`{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`), rec, req)
@@ -129,7 +129,7 @@ func TestUsageProjection_XAIStreamCostIncludesReasoningOnce(t *testing.T) {
 	svc := proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderXAI, Model: model}}, map[string]providers.Client{providers.ProviderXAI: provider}, nil, nil, false, providers.ProviderXAI, model, telemetry)
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "55555555-5555-5555-5555-555555555555")
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	req.Header.Set(routingMarkerHeader, "off")
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(`{"model":"auto","stream":true,"messages":[{"role":"user","content":"hello"}]}`), rec, req))
 	row := telemetry.firstRow(t)
@@ -156,7 +156,7 @@ func TestUsageProjection_NoticesAndFeedbackContributeNoProviderUsage(t *testing.
 	svc := proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: router.ModelGemini4Argon}}, map[string]providers.Client{providers.ProviderGoogle: provider}, nil, nil, false, providers.ProviderGoogle, router.ModelGemini4Argon, telemetry).WithRouterFeedbackStore(&fakeFeedbackStore{})
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "55555555-5555-5555-5555-555555555555")
 	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppClaudeCode})
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(`{"model":"auto","stream":true,"messages":[{"role":"user","content":"hello"}]}`), rec, req))
 	assert.Contains(t, rec.Body.String(), "Weave Router")

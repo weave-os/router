@@ -101,7 +101,7 @@ func TestInternalPlanLaunchTargetsStableAndSignsExactTestScope(t *testing.T) {
 			require.Equal(t, plan, admitted.TestPlan.Plan)
 			signer, err := policyregistry.NewAssertionSigner([]byte(strings.Repeat("s", 32)), func() time.Time { return *now })
 			require.NoError(t, err)
-			request := httptest.NewRequest(http.MethodPost, "https://router.example/v1/messages", strings.NewReader("{}"))
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "https://router.example/v1/messages", strings.NewReader("{}"))
 			encoded, err := signer.Sign(admitted, request, []byte("{}"), "rk_test")
 			require.NoError(t, err)
 			verified, err := signer.Verify(encoded, request, []byte("{}"), "rk_test")

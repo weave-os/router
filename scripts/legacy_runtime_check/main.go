@@ -69,7 +69,8 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	var listenConfig net.ListenConfig
+	listener, err := listenConfig.Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		return err
 	}
@@ -98,13 +99,52 @@ func run() error {
 	return nil
 }
 
+func waitForWorkerReady(ctx context.Context, client *http.Client, readyURL string, logFile *os.File) error {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	readyCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+	readyRequest, err := http.NewRequestWithContext(readyCtx, http.MethodGet, readyURL, nil)
+	if err != nil {
+		return err
+	}
+	var lastReadiness string
+	for {
+		response, err := client.Do(readyRequest)
+		if err == nil {
+			body, readErr := io.ReadAll(io.LimitReader(response.Body, 8192))
+			_ = response.Body.Close()
+			if response.StatusCode == http.StatusOK {
+				return nil
+			}
+			lastReadiness = fmt.Sprintf("HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+			if readErr != nil {
+				lastReadiness += "; read error: " + readErr.Error()
+			}
+		} else {
+			lastReadiness = err.Error()
+		}
+		select {
+		case <-readyCtx.Done():
+			_ = logFile.Sync()
+			logTail, _ := os.ReadFile(logFile.Name())
+			if len(logTail) > 8192 {
+				logTail = logTail[len(logTail)-8192:]
+			}
+			return fmt.Errorf("worker did not become ready; last /readyz response: %s; worker log tail: %s; timeout: %w", lastReadiness, strings.TrimSpace(string(logTail)), readyCtx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
 type policyFixture struct {
 	releaseDir    string
 	classifierURL string
 }
 
 func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, policy policyFixture, mode server.DeploymentMode) error {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	var listenConfig net.ListenConfig
+	listener, err := listenConfig.Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		return err
 	}
@@ -128,36 +168,8 @@ func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, 
 	}()
 	client := &http.Client{Timeout: 10 * time.Second}
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	readyCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
-	defer cancel()
-	var lastReadiness string
-	for {
-		response, err := client.Get(baseURL + "/readyz")
-		if err == nil {
-			body, readErr := io.ReadAll(io.LimitReader(response.Body, 8192))
-			_ = response.Body.Close()
-			if response.StatusCode == http.StatusOK {
-				break
-			}
-			lastReadiness = fmt.Sprintf("HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
-			if readErr != nil {
-				lastReadiness += "; read error: " + readErr.Error()
-			}
-		} else {
-			lastReadiness = err.Error()
-		}
-		select {
-		case <-readyCtx.Done():
-			_ = logFile.Sync()
-			logTail, _ := os.ReadFile(logFile.Name())
-			if len(logTail) > 8192 {
-				logTail = logTail[len(logTail)-8192:]
-			}
-			return fmt.Errorf("worker did not become ready; last /readyz response: %s; worker log tail: %s; timeout: %w", lastReadiness, strings.TrimSpace(string(logTail)), readyCtx.Err())
-		case <-ticker.C:
-		}
+	if err := waitForWorkerReady(ctx, client, baseURL+"/readyz", logFile); err != nil {
+		return err
 	}
 	for _, probe := range []struct{ path, response string }{
 		{path: "/validate", response: `"valid":true`},

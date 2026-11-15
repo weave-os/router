@@ -25,7 +25,7 @@ func serveServerProxyShape(t *testing.T, userAgent string, headers map[string]st
 	engine.POST("/v1/chat/completions", func(c *gin.Context) {
 		observability.LogServerProxyRequestShape(c, []byte(body))
 	})
-	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", nil)
 	req.Header.Set("User-Agent", userAgent)
 	for k, v := range headers {
 		req.Header.Set(k, v)
@@ -70,7 +70,7 @@ func serveServerProxyResponse(t *testing.T, userAgent string, chunks ...string) 
 			_, _ = c.Writer.WriteString(chunk)
 		}
 	})
-	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", nil)
 	req.Header.Set("User-Agent", userAgent)
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, req)
@@ -123,7 +123,7 @@ func TestRecordServerProxyResponseIDPreventsHTMLSniffing(t *testing.T) {
 					}
 					require.NoError(t, err)
 				})
-				req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", nil)
 				req.Header.Set("User-Agent", "copilot-api")
 				rec := httptest.NewRecorder()
 				engine.ServeHTTP(rec, req)

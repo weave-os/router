@@ -50,7 +50,7 @@ func TestProxyMessages_KeepaliveDuringUpstreamSilence(t *testing.T) {
 		WithIngress(ingress.New(40 * time.Millisecond))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"deepseek/deepseek-v4-pro","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
 	require.NoError(t, svc.ProxyMessages(context.Background(), body, rec, req))
@@ -97,7 +97,7 @@ func TestProxyMessages_KeepaliveDisabledLeavesStreamUnpadded(t *testing.T) {
 		WithIngress(ingress.New(0))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"deepseek/deepseek-v4-pro","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
 	require.NoError(t, svc.ProxyMessages(context.Background(), body, rec, req))

@@ -293,7 +293,7 @@ func TestService_NativeWebSearchSubTurnPassesThroughRequestedModel(t *testing.T)
 			body := strings.Replace(nativeWebSearchSubTurnBody, "claude-opus-4-8", requestedModel, 1)
 
 			rec := httptest.NewRecorder()
-			httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+			httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 			require.NoError(t, svc.ProxyMessages(
 				authedCtx(uuid.New().String()),
 				[]byte(body),
@@ -340,7 +340,7 @@ func TestService_InContextNativeWebSearchKeepsAnthropicPin(t *testing.T) {
 	}`)
 
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(authedCtx(uuid.New().String()), body, rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "an in-context search turn must retain normal pin-aware routing")
@@ -381,7 +381,7 @@ func TestService_NativeSearchResultHistoryFiltersPolicyCandidatesInGo(t *testing
 	}`)
 
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(authedCtx(uuid.New().String()), body, rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls)
@@ -408,7 +408,7 @@ func TestService_SessionPin_PostgresHitKeepsPinnedModel(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	// Scorer runs even on a pin hit, but planner keeps the pin (no prior-turn usage).
@@ -445,7 +445,7 @@ func TestService_SessionPin_ImageTurnEvictsTextOnlyPin(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, imageBody, rec, httpReq))
 
 	require.NotNil(t, fr.capturedReq, "scorer must run after the text-only pin is dropped")
@@ -465,13 +465,13 @@ func TestService_SessionPin_EveryTurnReadsPostgres(t *testing.T) {
 	ctx := authedCtx(uuid.New().String())
 
 	rec1 := httptest.NewRecorder()
-	httpReq1 := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq1 := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec1, httpReq1))
 	require.Equal(t, 1, fr.routeCalls)
 	require.Equal(t, 3, store.getCalls, "first turn reads force control, active pin, and HMM history")
 
 	rec2 := httptest.NewRecorder()
-	httpReq2 := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq2 := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec2, httpReq2))
 	assert.Equal(t, 2, fr.routeCalls, "planner re-evaluates every MainLoop turn")
 	assert.Equal(t, 6, store.getCalls, "second turn must also read Postgres — there is no in-process cache")
@@ -485,7 +485,7 @@ func TestService_SessionPin_StoreErrorFallsThroughToFreshRoute(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "pin-store error must fall through to the cluster scorer (fail-open per D5)")
@@ -504,7 +504,7 @@ func TestService_SessionPin_ExpiredPinIsIgnored(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "expired pin must not be served (sweep races leave stale rows)")
@@ -541,7 +541,7 @@ func TestService_Classifier_ServesClassifierModelNotHardPinned(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(classifierBody), rec, httpReq))
 
 	assert.Equal(t, 0, fr.routeCalls, "an API-billed classifier is served on the classifier model")
@@ -572,7 +572,7 @@ func TestService_Classifier_IgnoresExistingSessionPin(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(classifierBody), rec, httpReq))
 
 	assert.Equal(t, "claude-haiku-5-5", rec.Header().Get(proxy.HeaderRouterModel), "the session pin must not replace the classifier model")
@@ -616,7 +616,7 @@ func TestService_HardPin_TitleGen_AppliesExcludedModels(t *testing.T) {
 	ctx := context.WithValue(authedCtx(uuid.New().String()),
 		proxy.InstallationExcludedModelsContextKey{}, []string{excludedModel})
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(titleGenBody), rec, httpReq))
 
 	assert.Equal(t, 0, fr.routeCalls, "title generation must bypass the cluster scorer")
@@ -633,7 +633,7 @@ func TestService_CompactionWithoutSessionPinIsScored(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(compactionBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "compaction without a session pin is scored, not hard-pinned")
@@ -663,7 +663,7 @@ func TestService_HardPin_ExploreRoutesToHaikuWhenFlagOn(t *testing.T) {
 	// The legacy hardPinExplore default only applies to non-HMM strategies.
 	ctx := router.WithStrategy(authedCtx(uuid.New().String()), router.StrategyRL)
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq))
 
 	assert.Equal(t, 0, fr.routeCalls, "Explore must bypass cluster scorer when hardPinExplore=on")
@@ -697,7 +697,7 @@ func TestService_HardPin_HMMExploreBypassesBootHardPin(t *testing.T) {
 
 	ctx := router.WithStrategy(authedCtx(uuid.New().String()), router.StrategyHMM)
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "HMM strategy must classify subagent dispatch instead of boot-hard-pinning Explore")
@@ -723,7 +723,7 @@ func TestService_HMMSubAgentUsesFreshDecision(t *testing.T) {
 
 	ctx := router.WithStrategy(authedCtx(uuid.New().String()), router.StrategyHMM)
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "subagent HMM turns may still score for diagnostics")
@@ -741,7 +741,7 @@ func TestService_HardPin_ExploreFallsThroughWhenFlagOff(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "Explore must fall through when hardPinExplore=off")
@@ -779,7 +779,7 @@ func TestService_HardPin_SubAgentOverrideRoutesIndependentlyOfHardPin(t *testing
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq))
 
 	assert.Equal(t, 0, fr.routeCalls, "sub-agent override must bypass the cluster scorer")
@@ -810,7 +810,7 @@ func TestService_HardPin_SubAgentOverrideLeavesMainLoopUnaffected(t *testing.T) 
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "main-loop turn must still go through the cluster scorer")
@@ -836,7 +836,7 @@ func TestService_HardPin_NoSubAgentOverrideUsesSharedHardPin(t *testing.T) {
 	// The legacy hardPinExplore default only applies to non-HMM strategies.
 	ctx := router.WithStrategy(authedCtx(uuid.New().String()), router.StrategyRL)
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq))
 
 	assert.Equal(t, 0, fr.routeCalls)
@@ -864,7 +864,7 @@ func TestService_HardPin_PartialSubAgentOverrideFallsThroughToScorer(t *testing.
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "incomplete override must not hard-pin; scorer must run")
@@ -902,7 +902,7 @@ func TestService_HardPin_SubAgentOverrideAppliesUnderHMMStrategy(t *testing.T) {
 
 	ctx := router.WithStrategy(authedCtx(uuid.New().String()), router.StrategyHMM)
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq))
 
 	assert.Equal(t, 0, fr.routeCalls, "sub-agent override must bypass the HMM classifier")
@@ -933,7 +933,7 @@ func TestService_HMMStrategy_SubAgentTurnIsClassifiedWithoutOverride(t *testing.
 
 	ctx := router.WithStrategy(authedCtx(uuid.New().String()), router.StrategyHMM)
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "sub-agent turn must go through the classifier")
@@ -961,7 +961,7 @@ func TestService_HardPin_SubAgentOverrideIneligibleProviderErrors(t *testing.T) 
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	err := svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq)
 
 	require.Error(t, err)
@@ -1008,7 +1008,7 @@ func TestService_SessionPin_OpenAI_PostgresHitKeepsPinnedModel(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(openAIPinTestBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "scorer runs every MainLoop turn under the planner")
@@ -1023,7 +1023,7 @@ func TestService_SessionPin_OpenAI_FreshRouteCreatesPin(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(openAIPinTestBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "first turn must route fresh")
@@ -1059,7 +1059,7 @@ func TestService_SessionPin_AgentForceModelCommandContinuesOnForcedModel(t *test
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec, httpReq))
 
 	assert.Equal(t, 0, fr.routeCalls, "the newly forced pin must bypass automatic routing")
@@ -1094,7 +1094,7 @@ func TestService_SessionPin_OpenAI_AgentForceModelCommandContinuesOnForcedModel(
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httpReq))
 
 	assert.Equal(t, 0, fr.routeCalls, "the newly forced pin must bypass automatic routing")
@@ -1119,7 +1119,7 @@ func TestService_SessionPin_OpenAI_ForceModelCommandSetsPin(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(forceBody), rec, httpReq))
 
 	assert.Equal(t, 0, fr.routeCalls, "force-model command must short-circuit routing")
@@ -1163,7 +1163,7 @@ func TestService_SessionPin_OpenAIResponses_OpenCodeForceModelCommandFromToolOut
 
 	ctx := context.WithValue(authedCtx(uuid.New().String()), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, []byte(forceBody), rec, httpReq))
 
 	assert.Equal(t, 0, fr.routeCalls, "force-model command must bypass fresh routing")
@@ -1188,7 +1188,7 @@ func TestService_SessionPin_OpenAI_UnforceModelCommandClearsPin(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(unforceBody), rec, httpReq))
 
 	assert.Equal(t, 0, fr.routeCalls, "unforce-model command must short-circuit routing")
@@ -1224,7 +1224,7 @@ func TestService_SessionPin_OpenAI_ForceModelCommandStreamShape(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(forceStreamBody), rec, httpReq))
 
 	assert.Equal(t, "text/event-stream", rec.Header().Get("Content-Type"))
@@ -1259,7 +1259,7 @@ func TestService_SessionPin_OpenAI_ToolResultShortCircuit(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(toolResultBody), rec, httpReq))
 
 	assert.Equal(t, 0, fr.routeCalls, "disabled tool-result scoring must not re-run the scorer")
@@ -1301,7 +1301,7 @@ func TestService_OpenAI_CompactionPhraseDoesNotHardPin(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(compactionOpenAIBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "OpenAI body must run the scorer, not hard-pin")
@@ -1316,7 +1316,7 @@ func TestService_HardPin_OpenAI_SubAgentHeaderHintRoutesToHardPin(t *testing.T) 
 	// The legacy hardPinExplore default only applies to non-HMM strategies.
 	ctx := router.WithStrategy(authedCtx(uuid.New().String()), router.StrategyRL)
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	httpReq.Header.Set("x-weave-subagent-type", "Explore")
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(openAIPinTestBody), rec, httpReq))
 
@@ -1344,7 +1344,7 @@ func TestService_HardPin_BypassesTierCeiling(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	// Haiku-requesting body with the compaction system marker → hard-pin
 	// triggers; tier ceiling is Low but hard-pin must bypass it.
 	body := `{"model":"claude-haiku-4-5","system":"Your task is to create a detailed summary of the conversation so far.","messages":[{"role":"user","content":"go"}]}`
@@ -1371,7 +1371,7 @@ func TestService_TierClamp_HaikuRequestedHonorsHighScore(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(haikuClampBody), rec, httpReq))
 
 	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel), "haiku-requested hard turn must honor the scorer's Opus upgrade, not clamp down")
@@ -1387,7 +1387,7 @@ func TestService_TierClamp_OpusRequestedDecisionPassesThrough(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel), "scorer's pick must pass through unchanged")
@@ -1411,7 +1411,7 @@ func TestService_TierClamp_PinAboveRequestedTierHonored(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(haikuClampBody), rec, httpReq))
 
 	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel), "pin above the requested tier must be honored, not clamped down")
@@ -1433,7 +1433,7 @@ func TestService_ForcedPin_ReasonStaysUserForced(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel))
@@ -1456,7 +1456,7 @@ func TestService_LoopEscalationPin_HonoredAsImmutableSticky(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	assert.Equal(t, "claude-opus-4-8", rec.Header().Get(proxy.HeaderRouterModel), "escalation pin must keep the session on opus")
@@ -1501,7 +1501,7 @@ func TestService_LoopEscalation_DoesNotOverwriteUserForcedPin(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, buildCyclicLoopBody(t, 5, 26), rec, httpReq))
 
 	for _, p := range store.upserts {
@@ -1527,7 +1527,7 @@ func TestService_UserForcedPin_IneligibleProviderFallsThrough(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "ineligible-provider forced pin must fall through to the scorer")
@@ -1556,7 +1556,7 @@ func TestService_ClaudeOAuthDoesNotRestrictForcedOpenAIPinWithoutSubscriptionOnl
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	req.Header.Set("Authorization", "Bearer sk-ant-oat-abc123")
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(ccTaskToolTurnBody), rec, req))
 
@@ -1575,7 +1575,7 @@ func TestService_ForceModelHeader_WritesUserForcedPin(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	httpReq.Header.Set(proxy.ForceModelHeader, "opus")
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
@@ -1605,7 +1605,7 @@ func TestService_ForceModelHeader_UnknownModelRejected(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	httpReq.Header.Set(proxy.ForceModelHeader, "totally-not-a-model")
 	err := svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq)
 
@@ -1655,7 +1655,7 @@ func TestService_HardPin_TitleGen_GatewayExclusive_ResolvesAlias(t *testing.T) {
 
 	ctx := authedCtxWithGatewayKey(uuid.New().String(), aliasedModel)
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(titleGenBody), rec, httpReq))
 
 	assert.Equal(t, []string{providers.ProviderOpenAIGateway}, seen.CustomBindings[aliasedModel],
@@ -1681,7 +1681,7 @@ func TestService_HardPin_TitleGen_GatewayExclusive_NoAliasReportsConfigError(t *
 
 	ctx := authedCtxWithGatewayKey(uuid.New().String(), "")
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	err := svc.ProxyMessages(ctx, []byte(titleGenBody), rec, httpReq)
 	require.Error(t, err)
 	require.ErrorIs(t, err, policy.ErrGatewayServesNoDeployedModel,
@@ -1743,7 +1743,7 @@ func TestService_SessionPin_ForcedPinDropped_SurfacesInMarker(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "an unservable forced pin must fall through to routing")

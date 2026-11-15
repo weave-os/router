@@ -105,7 +105,7 @@ func newEmbedTestService(t *testing.T, collector *bypassSpanCollector, rt router
 func decisionSpanEmbed(t *testing.T, svc *Service, collector *bypassSpanCollector) *tracev1.Span {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(context.Background(), embedTurnBody(), rec, httpReq))
 
 	em := mustAs[*otel.Emitter](t, svc.emitter)
@@ -254,7 +254,7 @@ func TestDecisionSpan_RolloutIDFromClientIdentity(t *testing.T) {
 	svc := newEmbedTestService(t, collector, &embedTestRouter{}, nil)
 
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{
 		ClientApp: ClientAppCodex,
 		Eval:      true,
@@ -340,7 +340,7 @@ func TestDecisionAndUpstreamSpansCarryCallerRoutingState(t *testing.T) {
 				collector := newBypassSpanCollector(t)
 				svc := newEmbedTestService(t, collector, &embedTestRouter{provider: ingress.provider, model: ingress.model}, nil)
 				rec := httptest.NewRecorder()
-				httpReq := httptest.NewRequest(http.MethodPost, ingress.path, strings.NewReader(""))
+				httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, ingress.path, strings.NewReader(""))
 				require.NoError(t, ingress.call(svc, tc.ctx, ingress.body, rec, httpReq))
 				require.NoError(t, mustAs[*otel.Emitter](t, svc.emitter).Shutdown(context.Background()))
 

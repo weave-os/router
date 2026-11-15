@@ -101,7 +101,7 @@ func runMiddleware(t *testing.T, repo billing.Repo, threshold int64) (*httptest.
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	engine.ServeHTTP(w, req)
 	return w, reached
 }
@@ -125,7 +125,7 @@ func runMiddlewareWith(t *testing.T, repo billing.Repo, setInstall func(*gin.Con
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/v1/messages", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/messages", nil)
 	if authHeader != "" {
 		req.Header.Set("Authorization", authHeader)
 	}
@@ -189,7 +189,7 @@ func TestWithBalanceCheck_FlagsOrganizationPrepaidAdmission(t *testing.T) {
 				c.Status(http.StatusOK)
 			})
 			w := httptest.NewRecorder()
-			engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/probe", nil))
+			engine.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil))
 			assert.Equal(t, http.StatusOK, w.Code)
 			assert.Equal(t, test.want, admitted)
 		})
@@ -215,7 +215,7 @@ func TestWithBalanceCheck_OverrideShortCircuitsAndFlagsContext(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	engine.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.True(t, hasOverride, "override flag must reach the request context")
@@ -275,7 +275,7 @@ func TestWithBalanceCheck_SkipsWhenInstallationMissing(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	engine.ServeHTTP(w, req)
 	assert.True(t, reached)
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -347,7 +347,7 @@ func runMiddlewarePrep(t *testing.T, repo billing.Repo, routePath string, prep f
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, routePath, nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, routePath, nil)
 	engine.ServeHTTP(w, req)
 	return w, reached, hasOverride
 }
@@ -459,7 +459,7 @@ func TestWithBalanceCheck_SubscriptionOnlyAtDepletedBalance(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
-	engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/messages", nil))
+	engine.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/messages", nil))
 	assert.True(t, reached, "subscription request at the prepaid threshold must pass through")
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.True(t, subOnly, "at the prepaid threshold the request must be flagged subscription-only")
@@ -487,7 +487,7 @@ func TestWithBalanceCheck_SubscriptionOnlyWhenBalanceRowMissing(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
-	engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/messages", nil))
+	engine.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/messages", nil))
 	assert.True(t, reached, "subscription request with no balance row must pass through")
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.True(t, subOnly, "missing balance row must force subscription-only serving")
@@ -539,7 +539,7 @@ func TestWithBalanceCheck_MarksWeaveCreditsDenied(t *testing.T) {
 			denied = billing.WeaveCreditsDeniedFromContext(c.Request.Context())
 			c.Status(http.StatusOK)
 		})
-		engine.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/probe", nil))
+		engine.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil))
 		assert.Equal(t, !allowed, denied, "allowed=%v", allowed)
 	}
 }
@@ -570,7 +570,7 @@ func TestWithBalanceCheck_CreditsDisabledIgnoresBalance(t *testing.T) {
 				c.Status(http.StatusOK)
 			})
 			w := httptest.NewRecorder()
-			engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/messages", nil))
+			engine.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/messages", nil))
 			assert.Equal(t, repo.override, override, "an override still exempts monthly spend caps")
 			assert.True(t, reached, "a credits-disabled installation must not be gated on its balance")
 			assert.Equal(t, http.StatusOK, w.Code)

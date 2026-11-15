@@ -79,7 +79,7 @@ func proxyPinnedCodexOverload(t *testing.T, pinFound bool) (*anthropicServingCli
 	ctx = router.WithStrategy(ctx, strategy)
 	ctx = WithManagedSubscriptionUsage(ctx)
 	ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyLinkedFirst)
-	err := svc.ProxyOpenAIResponses(ctx, []byte(pinnedOverloadToolTurnBody), rec, codexSubHTTPRequest("/v1/responses", pinnedOverloadToolTurnBody))
+	err := svc.ProxyOpenAIResponses(ctx, []byte(pinnedOverloadToolTurnBody), rec, codexSubHTTPRequest(t.Context(), "/v1/responses", pinnedOverloadToolTurnBody))
 	return sibling, rec, err
 }
 

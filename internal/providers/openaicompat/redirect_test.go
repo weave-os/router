@@ -42,7 +42,7 @@ func TestProxy_RefusedRedirectFailsRetryablyWithoutTouchingWriter(t *testing.T) 
 
 	c := openaicompat.NewClient("test-key", upstream.URL+"/api/v1")
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	prep := providers.PreparedRequest{Body: []byte(`{"model":"m","messages":[]}`), Headers: make(http.Header)}
 
 	err := c.Proxy(context.Background(), router.Decision{Model: "m"}, prep, rec, clientReq)
@@ -62,7 +62,7 @@ func TestPassthrough_RefusedRedirectRelaysNothing(t *testing.T) {
 
 	c := openaicompat.NewClient("test-key", upstream.URL+"/api/v1")
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models", nil)
 	prep := providers.PreparedRequest{Headers: make(http.Header)}
 
 	err := c.Passthrough(context.Background(), prep, rec, clientReq)

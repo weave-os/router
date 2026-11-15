@@ -224,3 +224,49 @@ func TestEmitter_EndpointTrailingSlash(t *testing.T) {
 	defer mu.Unlock()
 	assert.Equal(t, "/v1/traces", gotPath)
 }
+
+func TestEmitter_ShutdownDeadlineCancelsInFlightExport(t *testing.T) {
+	entered := make(chan struct{}, 1)
+	canceled := make(chan struct{})
+	release := make(chan struct{})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+		select {
+		case <-r.Context().Done():
+			close(canceled)
+		case <-release:
+		}
+	}))
+	t.Cleanup(srv.Close)
+	t.Cleanup(func() { close(release) })
+
+	em, err := otel.NewEmitter(otel.EmitterConfig{
+		Endpoint:      srv.URL,
+		Workers:       1,
+		BatchSize:     1,
+		ExportTimeout: time.Minute,
+	})
+	require.NoError(t, err)
+
+	em.Enqueue(testSpan("stuck"))
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("export did not reach upstream within 2s")
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+	require.ErrorIs(t, em.Shutdown(shutdownCtx), context.DeadlineExceeded)
+
+	select {
+	case <-canceled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("in-flight OTLP export was not canceled when Shutdown's deadline expired")
+	}
+}

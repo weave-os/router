@@ -46,7 +46,7 @@ func TestFederationAdmissionFailureHonorsBYOKOptIn(t *testing.T) {
 				}
 				c.Status(http.StatusOK)
 			})
-			request := httptest.NewRequest(http.MethodGet, "/probe", nil)
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 			request.Header.Set(middleware.RouterKeyHeader, token)
 			recorder := httptest.NewRecorder()
 			engine.ServeHTTP(recorder, request)
@@ -69,7 +69,7 @@ func TestFederationFailureDoesNotBlockOtherProviders(t *testing.T) {
 	engine := gin.New()
 	engine.Use(middleware.WithAuth(svc, true))
 	engine.GET("/probe", func(c *gin.Context) { c.Status(http.StatusOK) })
-	request := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	request.Header.Set(middleware.RouterKeyHeader, token)
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, request)

@@ -16,7 +16,8 @@ import (
 
 // cortex replays Snowflake Cortex's observed catalog responses: 415 without a
 // content type, 400 without an entity, 400 without Accept, models otherwise.
-func cortex(hits *int) http.HandlerFunc {
+func cortex(t *testing.T, hits *int) http.HandlerFunc {
+	t.Helper()
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v2/cortex/models" {
 			w.WriteHeader(http.StatusNotFound)
@@ -50,7 +51,7 @@ func cortex(hits *int) http.HandlerFunc {
 
 func TestCortexSimOpenAI(t *testing.T) {
 	hits := 0
-	srv := httptest.NewServer(cortex(&hits))
+	srv := httptest.NewServer(cortex(t, &hits))
 	defer srv.Close()
 	discoveryClient, err := httputil.NewModelDiscoveryClient(srv.URL)
 	require.NoError(t, err)
@@ -62,7 +63,7 @@ func TestCortexSimOpenAI(t *testing.T) {
 
 func TestCortexSimAnthropic(t *testing.T) {
 	hits := 0
-	srv := httptest.NewServer(cortex(&hits))
+	srv := httptest.NewServer(cortex(t, &hits))
 	defer srv.Close()
 	discoveryClient, err := httputil.NewModelDiscoveryClient(srv.URL)
 	require.NoError(t, err)

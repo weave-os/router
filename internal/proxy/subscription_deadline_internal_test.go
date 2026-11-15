@@ -44,7 +44,7 @@ func TestLinkedClaudeSubscriptionSurvivesSlowFirstOutput(t *testing.T) {
 		ctx := context.WithValue(WithManagedSubscriptionUsage(context.Background()), CredentialsContextKey{}, linked)
 		rec := httptest.NewRecorder()
 		buf := newPreludeBuffer(rec)
-		in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
+		in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 		in.initialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8"}
 		var seen []*Credentials
 		in.attempt = slowAttempt(buf, slowFirstOutput, "slow answer", &seen)
@@ -77,7 +77,7 @@ func TestManagedSubscriptionSurvivesSlowFirstOutput(t *testing.T) {
 				ctx := managedSubscriptionContext(tc.provider)
 				rec := httptest.NewRecorder()
 				buf := newPreludeBuffer(rec)
-				in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: tc.upstream}}, nil)
+				in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: tc.upstream}}, nil)
 				in.initialDecision = router.Decision{Provider: tc.upstream, Model: tc.model}
 				var seen []*Credentials
 				in.attempt = slowAttempt(buf, slowFirstOutput, "slow seat answer", &seen)
@@ -102,7 +102,7 @@ func TestSecondAccountAdmittedBeforeBudgetMayFinishAfterIt(t *testing.T) {
 		ctx := managedSubscriptionTestContext()
 		rec := httptest.NewRecorder()
 		buf := newPreludeBuffer(rec)
-		in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
+		in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 		in.initialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8"}
 		var seen []string
 		in.attempt = func(ctx context.Context, _ router.Decision, _ providers.Client) error {
@@ -136,7 +136,7 @@ func TestSlowFailedAttemptsRemainBoundedByDistinctSeats(t *testing.T) {
 		ctx := managedSubscriptionTestContext()
 		rec := httptest.NewRecorder()
 		buf := newPreludeBuffer(rec)
-		in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
+		in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 		in.initialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8"}
 		calls := 0
 		in.attempt = func(ctx context.Context, _ router.Decision, _ providers.Client) error {
@@ -164,7 +164,7 @@ func TestCallerCancellationDuringSubscriptionAttemptIsTerminal(t *testing.T) {
 		ctx := context.WithValue(parent, CredentialsContextKey{}, linked)
 		rec := httptest.NewRecorder()
 		buf := newPreludeBuffer(rec)
-		in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
+		in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 		in.initialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8"}
 		calls := 0
 		in.attempt = func(ctx context.Context, _ router.Decision, _ providers.Client) error {
@@ -209,7 +209,7 @@ func TestStateModelsTerminalRejectionAfterBudgetIsNotRescued(t *testing.T) {
 					time.Sleep(12 * time.Second)
 					require.NoError(t, attemptCtx.Err())
 					buf.Seal()
-					return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buf, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+					return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buf, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/messages", nil))
 				}, nil
 			},
 		})

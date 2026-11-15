@@ -41,7 +41,7 @@ func TestDispatchPlanned_TranslatedRejectionIsRouterOwned(t *testing.T) {
 	ctx := withAttemptTrace(context.Background(), inbound, http.Header{})
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderGoogle}, {Provider: providers.ProviderOpenRouter}}, translated)
+	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderGoogle}, {Provider: providers.ProviderOpenRouter}}, translated)
 	in.deferFlushOnExhaustion = true
 	_, err := s.dispatchWithFallback(ctx, in)
 	require.Error(t, err)
@@ -68,7 +68,7 @@ func TestDispatchPlanned_UntranslatedRejectionIsProviderOwned(t *testing.T) {
 	ctx := withAttemptTrace(context.Background(), body, http.Header{})
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}, {Provider: providers.ProviderOpenRouter}}, body)
+	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}, {Provider: providers.ProviderOpenRouter}}, body)
 	in.deferFlushOnExhaustion = true
 	_, err := s.dispatchWithFallback(ctx, in)
 	require.Error(t, err)
@@ -90,7 +90,7 @@ func TestDispatchPlanned_FailoverRecordsOwnerPerAttemptAndBadgeDetail(t *testing
 	ctx := withAttemptTrace(context.Background(), []byte(`{"model":"claude","messages":[]}`), http.Header{})
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	_, err := s.dispatchWithFallback(ctx, plannedInputs(rec, buf,
+	_, err := s.dispatchWithFallback(ctx, plannedInputs(t.Context(), rec, buf,
 		[]catalog.ProviderBinding{{Provider: providers.ProviderFireworks}, {Provider: providers.ProviderOpenRouter}}, body))
 	require.NoError(t, err)
 
@@ -132,7 +132,7 @@ func TestDispatchPlanned_ExhaustionNamesOwnerInTerminalMessage(t *testing.T) {
 			ctx := withAttemptTrace(context.Background(), body, tc.header)
 			rec := httptest.NewRecorder()
 			buf := newPreludeBuffer(rec)
-			in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}}, body)
+			in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}}, body)
 			in.deferFlushOnExhaustion = true
 			_, err := s.dispatchWithFallback(ctx, in)
 			require.Error(t, err)

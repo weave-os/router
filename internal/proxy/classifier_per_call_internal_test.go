@@ -128,7 +128,7 @@ func TestClassifierResponsesToolLoopSwitchesDispatchedModel(t *testing.T) {
 	const continuation = `{"model":"auto","stream":true,"input":[{"role":"user","content":"Synthetic task"},{"role":"assistant","content":[{"type":"output_text","text":"Checking"}]},{"type":"function_call","call_id":"c1","name":"exec_command","arguments":"{\"cmd\":\"exit 7\"}"},{"type":"function_call_output","call_id":"c1","output":"Chunk ID: abc123\nWall time: 0.0001 seconds\nProcess exited with code 7\nOriginal token count: 1\nOutput:\nSynthetic output\n"}]}`
 	for index, body := range []string{first, continuation, continuation} {
 		recorder := httptest.NewRecorder()
-		err := svc.ProxyOpenAIResponses(ctx, []byte(body), recorder, httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+		err := svc.ProxyOpenAIResponses(ctx, []byte(body), recorder, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
 		require.NoError(t, err)
 		expectedModel := largeModel
 		if index == 0 {

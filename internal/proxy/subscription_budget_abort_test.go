@@ -26,7 +26,7 @@ func TestExpiredAdmissionBudgetDoesNotAuthorizeAPI(t *testing.T) {
 	ctx := expiredRotationContext(auth.SubscriptionProviderCodex)
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderOpenAI}}, nil)
+	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderOpenAI}}, nil)
 	in.initialDecision = router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel}
 	var oauthCalls, apiCalls int
 	in.attempt = func(attemptCtx context.Context, _ router.Decision, _ providers.Client) error {
@@ -57,7 +57,7 @@ func TestExpiredRotationBudgetRendersCleanErrorWithoutAPI(t *testing.T) {
 	ctx := expiredRotationContext(auth.SubscriptionProviderCodex)
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderOpenAI}}, nil)
+	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderOpenAI}}, nil)
 	in.initialDecision = router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel}
 	in.flushErr = func(w http.ResponseWriter, err error) {
 		w.WriteHeader(http.StatusTooManyRequests)

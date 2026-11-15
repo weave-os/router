@@ -21,6 +21,8 @@ linters:
     - bodyclose
     - nilerr
     - exhaustive
+    - noctx
+    - thelper
   settings:
     testifylint:
       enable-all: true

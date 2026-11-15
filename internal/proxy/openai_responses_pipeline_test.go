@@ -59,7 +59,7 @@ func TestService_ProxyOpenAIChatCompletion_ResponsesUsageDebitsBilling(t *testin
 	ctx := proxyContextWithExternalID(t, "tenant-billing")
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(chatCacheableTurnBody), rec,
-		httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(chatCacheableTurnBody))))
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(chatCacheableTurnBody))))
 	require.Equal(t, providers.EndpointResponses, provider.proxyEndpoints[0])
 
 	price, ok := catalog.PriceFor(providers.ProviderOpenAI, "gpt-5.6-luna")
@@ -106,7 +106,7 @@ func TestService_ProxyMessages_HandoverSwitchToOpenAIEmitsResponses(t *testing.T
 
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyMessages(authedCtx(uuid.New().String()), largeBody(t), rec,
-		httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))))
 
 	require.Equal(t, int32(1), summarizer.calls.Load(), "the switch must invoke the summarizer")
 	require.Len(t, openAI.proxyEndpoints, 1)
@@ -144,7 +144,7 @@ func TestService_ProxyOpenAIChatCompletion_HandoverUsesResponsesEndpoint(t *test
 	).WithSummarizer(summarizer)
 	body := `{"model":"auto","stream":true,"max_tokens":256,"messages":[{"role":"user","content":"` + strings.Repeat("aaaa ", 8000) + `"}],"tools":[{"type":"function","function":{"name":"noop","parameters":{"type":"object"}}}],"reasoning_effort":"medium"}`
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(authedCtx(uuid.New().String()), []byte(body), rec, req))
 	require.Equal(t, int32(1), summarizer.calls.Load(), "the switch must invoke the summarizer")

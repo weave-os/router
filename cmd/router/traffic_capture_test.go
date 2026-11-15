@@ -91,7 +91,7 @@ func TestTrafficCaptureCorrelatesActualLocalHTTPExchanges(t *testing.T) {
 	router := httptest.NewServer(engine)
 	defer router.Close()
 
-	request, err := http.NewRequest(http.MethodPost, router.URL+"/v1/messages", strings.NewReader("synthetic prompt"))
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, router.URL+"/v1/messages", strings.NewReader("synthetic prompt"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -119,7 +119,7 @@ func TestNativeProxy_OutputStallAbortsRetryable_ByteAliveNoOutput(t *testing.T) 
 	const outputStall = 120 * time.Millisecond
 	c := google.NewNativeClientWithStallTimeouts("test-key", upstream.URL, byteIdle, outputStall)
 	w := &fakeProgressWriter{armReturns: true} // streaming translator; never marks output
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	start := time.Now()
 	err := c.Proxy(context.Background(), router.Decision{Model: "gemini-3.1-flash-lite-preview"}, geminiStreamPrep(), w, clientReq)
@@ -161,7 +161,7 @@ func TestNativeProxy_OutputFlowingStreamIsNotOutputStalled(t *testing.T) {
 	const outputStall = 60 * time.Millisecond // < frames*frameInterval, so total duration exceeds it
 	c := google.NewNativeClientWithStallTimeouts("test-key", upstream.URL, byteIdle, outputStall)
 	w := &fakeProgressWriter{armReturns: true, markOnWrite: true}
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	err := c.Proxy(context.Background(), router.Decision{Model: "gemini-3.1-flash-lite-preview"}, geminiStreamPrep(), w, clientReq)
 
@@ -186,7 +186,7 @@ func TestNativeProxy_NotArmedWriterStillByteIdleGuarded(t *testing.T) {
 	const outputStall = 5 * time.Second
 	c := google.NewNativeClientWithStallTimeouts("test-key", upstream.URL, byteIdle, outputStall)
 	w := &fakeProgressWriter{armReturns: false}
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	start := time.Now()
 	err := c.Proxy(context.Background(), router.Decision{Model: "gemini-3.1-flash-lite-preview"}, geminiStreamPrep(), w, clientReq)

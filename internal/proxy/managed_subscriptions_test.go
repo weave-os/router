@@ -113,7 +113,7 @@ func TestDispatchWithFallbackUsesOnlyMatchingManagedProviderFamily(t *testing.T)
 	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderOpenAI: client}).WithManagedSubscriptions(leaser)
 	recorder := httptest.NewRecorder()
 	buffer := newPreludeBuffer(recorder)
-	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", nil)
 	ctx := managedSubscriptionContext(auth.SubscriptionProviderCodex)
 
 	_, err := svc.dispatchWithFallback(ctx, failoverInputs{
@@ -433,7 +433,7 @@ func TestDispatchWithFallbackRotatesManagedAccountBeforeCommit(t *testing.T) {
 	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: client}).WithManagedSubscriptions(leaser)
 	recorder := httptest.NewRecorder()
 	buffer := newPreludeBuffer(recorder)
-	request := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	var tokens []string
 
 	var output bytes.Buffer
@@ -500,7 +500,7 @@ func TestDispatchWithFallbackDoesNotMarkFailedManagedAttemptServed(t *testing.T)
 		purpose:         inference.PurposeAnthropicMessages,
 		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
 		attempt: func(ctx context.Context, decision router.Decision, client providers.Client) error {
-			return client.Proxy(ctx, decision, providers.PreparedRequest{}, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+			return client.Proxy(ctx, decision, providers.PreparedRequest{}, httptest.NewRecorder(), httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil))
 		},
 	})
 
@@ -530,7 +530,7 @@ func TestDispatchWithFallbackRefusesPaidRecoveryAfterManagedModelDenial(t *testi
 			bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
 			attempt: func(ctx context.Context, decision router.Decision, client providers.Client) error {
 				buffer.Seal()
-				return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+				return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil))
 			},
 		})
 		if requestIndex == 0 {
@@ -567,7 +567,7 @@ func TestDispatchWithFallbackRotatesManagedModelDenialToEligibleAccount(t *testi
 		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
 		attempt: func(ctx context.Context, decision router.Decision, upstream providers.Client) error {
 			buffer.Seal()
-			return upstream.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+			return upstream.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil))
 		},
 	})
 
@@ -596,7 +596,7 @@ func TestDispatchWithFallbackKeepsManagedModelDenialModelSpecific(t *testing.T) 
 		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
 		attempt: func(ctx context.Context, decision router.Decision, upstream providers.Client) error {
 			buffer.Seal()
-			return upstream.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+			return upstream.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil))
 		},
 	})
 
@@ -636,7 +636,7 @@ func TestDispatchWithFallbackSlowInferenceDoesNotConsumeLeaseBudget(t *testing.T
 		purpose:         inference.PurposeAnthropicMessages,
 		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
 		attempt: func(ctx context.Context, decision router.Decision, client providers.Client) error {
-			return client.Proxy(ctx, decision, providers.PreparedRequest{}, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+			return client.Proxy(ctx, decision, providers.PreparedRequest{}, httptest.NewRecorder(), httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil))
 		},
 	})
 
@@ -657,7 +657,7 @@ func TestDispatchWithFallbackDisablesRejectedManagedAccountBeforeRotation(t *tes
 	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: client}).WithManagedSubscriptions(leaser)
 	recorder := httptest.NewRecorder()
 	buffer := newPreludeBuffer(recorder)
-	request := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
 	_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), failoverInputs{
 		w: recorder, buf: buffer,
@@ -687,7 +687,7 @@ func TestDispatchWithFallbackStrikesRejectedManagedAccountInsteadOfDisabling(t *
 	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: client}).WithManagedSubscriptions(leaser)
 	recorder := httptest.NewRecorder()
 	buffer := newPreludeBuffer(recorder)
-	request := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
 	_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), failoverInputs{
 		w: recorder, buf: buffer,
@@ -717,7 +717,7 @@ func TestDispatchWithFallbackDoesNotReplayCommittedManagedStream(t *testing.T) {
 	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: client}).WithManagedSubscriptions(leaser)
 	recorder := httptest.NewRecorder()
 	buffer := newPreludeBuffer(recorder)
-	request := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
 	_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), failoverInputs{
 		w: recorder, buf: buffer,
@@ -756,7 +756,7 @@ func TestDispatchWithFallbackNeverUsesPaidBindingAfterManagedExhaustion(t *testi
 		},
 		attempt: func(ctx context.Context, decision router.Decision, client providers.Client) error {
 			buffer.Seal()
-			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil))
 		},
 	})
 
@@ -777,7 +777,7 @@ func TestDispatchWithFallbackRotatesManagedTransientErrorOnSameBinding(t *testin
 	svc.retrySleep = noopSleep
 	recorder := httptest.NewRecorder()
 	buffer := newPreludeBuffer(recorder)
-	request := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
 	ctx := managedSubscriptionTestContext()
 	_, err := svc.dispatchWithFallback(ctx, failoverInputs{
