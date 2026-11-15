@@ -69,7 +69,7 @@ func (s *Service) verifySlimAPIKey(ctx context.Context, rawToken string, scope A
 			if cached.APIKey.Scope.Normalized() != scope {
 				return nil, nil, ErrWrongKeyScope
 			}
-			s.fireMarkUsed(cached.APIKey, cached.Installation)
+			s.fireMarkUsed(ctx, cached.APIKey, cached.Installation)
 			return cached.Installation, cached.APIKey, nil
 		}
 	}
@@ -92,6 +92,6 @@ func (s *Service) verifySlimAPIKey(ctx context.Context, rawToken string, scope A
 	if scope == ScopeAnalyticsRead {
 		s.cache.Set(keyHash, CachedKey{APIKey: apiKey, Installation: installation})
 	}
-	s.fireMarkUsed(apiKey, installation)
+	s.fireMarkUsed(ctx, apiKey, installation)
 	return installation, apiKey, nil
 }
