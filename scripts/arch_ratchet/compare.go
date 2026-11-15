@@ -13,9 +13,13 @@ type violation struct {
 	before  int
 	after   int
 	limit   int
+	note    string
 }
 
 func (v violation) String() string {
+	if v.note != "" {
+		return fmt.Sprintf("%s: %s; %s", v.subject, v.metric, v.note)
+	}
 	if v.limit < 0 {
 		return fmt.Sprintf("%s: %s %d -> %d (may not grow)", v.subject, v.metric, v.before, v.after)
 	}

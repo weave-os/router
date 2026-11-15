@@ -1,11 +1,7 @@
 package architecture_test
 
 import (
-	"encoding/json"
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -15,35 +11,18 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"weave-os/router/internal/architecture/commentban"
 )
 
-const (
-	commentBanAllowlistPath   = "comment_ban_allowlist.json"
-	commentBanSchemaVersion   = "comment_ban_allowlist_v1"
-	commentBanFix             = "move what it says into a name, type or test (or docs/ for operator knowledge), then delete it"
-	commentBanFixturePackage  = "testdata/comment_ban"
-	deprecatedParagraphPrefix = "// Deprecated:"
-)
+const commentBanFixturePackage = "testdata/comment_ban"
 
-var (
-	allowedDirectivePrefixes = []string{"//go:", "//line ", "//export ", "//extern "}
-	skippedSourceDirectories = map[string]bool{"node_modules": true, "vendor": true, "testdata": true}
-)
+var skippedSourceDirectories = map[string]bool{"node_modules": true, "vendor": true, "testdata": true}
 
 type bannedComment struct {
 	File  string
 	Line  int
 	Lines int
-}
-
-type commentBanAllowlist struct {
-	SchemaVersion string                  `json:"schema_version"`
-	Packages      []commentBanPackageDebt `json:"packages"`
-}
-
-type commentBanPackageDebt struct {
-	Package     string `json:"package"`
-	BannedLines int    `json:"banned_lines"`
 }
 
 func TestProductionGoHasNoComments(t *testing.T) {
@@ -52,9 +31,8 @@ func TestProductionGoHasNoComments(t *testing.T) {
 	allowlist := readCommentBanAllowlist(t)
 
 	var failures []string
-	budgets := make(map[string]int, len(allowlist.Packages))
+	budgets := allowlist.Budgets()
 	for _, debt := range allowlist.Packages {
-		budgets[debt.Package] = debt.BannedLines
 		failures = append(failures, allowlistedPackageFailure(debt, bannedLineCount(found[debt.Package]))...)
 	}
 	for _, pkg := range sortedKeys(found) {
@@ -62,7 +40,7 @@ func TestProductionGoHasNoComments(t *testing.T) {
 			continue
 		}
 		for _, comment := range found[pkg] {
-			failures = append(failures, fmt.Sprintf("%s:%d: comments are banned in production Go; %s", comment.File, comment.Line, commentBanFix))
+			failures = append(failures, fmt.Sprintf("%s:%d: comments are banned in production Go; %s", comment.File, comment.Line, commentban.Fix))
 		}
 	}
 	if len(failures) > 0 {
@@ -72,7 +50,7 @@ func TestProductionGoHasNoComments(t *testing.T) {
 
 func TestCommentBanAllowlistIsSortedAndUnique(t *testing.T) {
 	allowlist := readCommentBanAllowlist(t)
-	require.Equal(t, commentBanSchemaVersion, allowlist.SchemaVersion)
+	require.Equal(t, commentban.SchemaVersion, allowlist.SchemaVersion)
 	names := make([]string, len(allowlist.Packages))
 	for index, debt := range allowlist.Packages {
 		names[index] = debt.Package
@@ -104,23 +82,23 @@ func TestCommentBanKeepsOnlyToolAndSuppressionComments(t *testing.T) {
 }
 
 func TestCommentBanAllowlistOnlyShrinks(t *testing.T) {
-	debt := commentBanPackageDebt{Package: "internal/example", BannedLines: 10}
+	debt := commentban.PackageDebt{Package: "internal/example", BannedLines: 10}
 	comment := bannedComment{File: "internal/example/example.go", Line: 3, Lines: 1}
 
 	assert.Empty(t, allowlistedPackageFailure(debt, 10))
-	assert.Equal(t, []string{"internal/example has 11 banned comment lines but its budget in internal/architecture/comment_ban_allowlist.json is 10: new comments are banned in packages awaiting migration too; " + commentBanFix}, allowlistedPackageFailure(debt, 11))
+	assert.Equal(t, []string{"internal/example has 11 banned comment lines but its budget in internal/architecture/comment_ban_allowlist.json is 10: new comments are banned in packages awaiting migration too; " + commentban.Fix}, allowlistedPackageFailure(debt, 11))
 	assert.Equal(t, []string{"internal/example has 9 banned comment lines: lower its banned_lines in internal/architecture/comment_ban_allowlist.json from 10 to 9, the allowlist only shrinks"}, allowlistedPackageFailure(debt, 9))
 	assert.Equal(t, []string{"internal/example has no banned comments left: remove it from internal/architecture/comment_ban_allowlist.json"}, allowlistedPackageFailure(debt, bannedLineCount(nil)))
 	assert.Equal(t, 1, bannedLineCount([]bannedComment{comment}))
 }
 
-func allowlistedPackageFailure(debt commentBanPackageDebt, lines int) []string {
-	location := "internal/architecture/" + commentBanAllowlistPath
+func allowlistedPackageFailure(debt commentban.PackageDebt, lines int) []string {
+	location := commentban.AllowlistPath
 	switch {
 	case lines == 0:
 		return []string{fmt.Sprintf("%s has no banned comments left: remove it from %s", debt.Package, location)}
 	case lines > debt.BannedLines:
-		return []string{fmt.Sprintf("%s has %d banned comment lines but its budget in %s is %d: new comments are banned in packages awaiting migration too; %s", debt.Package, lines, location, debt.BannedLines, commentBanFix)}
+		return []string{fmt.Sprintf("%s has %d banned comment lines but its budget in %s is %d: new comments are banned in packages awaiting migration too; %s", debt.Package, lines, location, debt.BannedLines, commentban.Fix)}
 	case lines < debt.BannedLines:
 		return []string{fmt.Sprintf("%s has %d banned comment lines: lower its banned_lines in %s from %d to %d, the allowlist only shrinks", debt.Package, lines, location, debt.BannedLines, lines)}
 	}
@@ -166,43 +144,19 @@ func skippedSourceDirectory(name string) bool {
 }
 
 func bannedCommentsInFile(path, relative string) ([]bannedComment, error) {
-	fileSet := token.NewFileSet()
-	file, err := parser.ParseFile(fileSet, path, nil, parser.ParseComments|parser.SkipObjectResolution)
+	source, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	if ast.IsGenerated(file) {
-		return nil, nil
+	comments, err := commentban.InSource(path, source)
+	if err != nil {
+		return nil, err
 	}
-	var banned []bannedComment
-	for _, group := range file.Comments {
-		inDeprecatedParagraph := false
-		for _, comment := range group.List {
-			inDeprecatedParagraph = continuesDeprecatedParagraph(comment.Text, inDeprecatedParagraph)
-			if inDeprecatedParagraph || allowedComment(comment.Text) {
-				continue
-			}
-			start, end := fileSet.Position(comment.Pos()), fileSet.Position(comment.End())
-			banned = append(banned, bannedComment{File: relative, Line: start.Line, Lines: end.Line - start.Line + 1})
-		}
+	banned := make([]bannedComment, len(comments))
+	for index, comment := range comments {
+		banned[index] = bannedComment{File: relative, Line: comment.Line, Lines: comment.Lines}
 	}
 	return banned, nil
-}
-
-func continuesDeprecatedParagraph(text string, inParagraph bool) bool {
-	if strings.HasPrefix(text, deprecatedParagraphPrefix) {
-		return true
-	}
-	return inParagraph && strings.TrimSpace(text) != "//"
-}
-
-func allowedComment(text string) bool {
-	for _, prefix := range allowedDirectivePrefixes {
-		if strings.HasPrefix(text, prefix) {
-			return true
-		}
-	}
-	return strings.HasPrefix(text, "// codeql[")
 }
 
 func bannedLineCount(comments []bannedComment) int {
@@ -222,11 +176,11 @@ func sortedKeys(found map[string][]bannedComment) []string {
 	return keys
 }
 
-func readCommentBanAllowlist(t *testing.T) commentBanAllowlist {
+func readCommentBanAllowlist(t *testing.T) commentban.Allowlist {
 	t.Helper()
-	payload, err := os.ReadFile(commentBanAllowlistPath)
+	payload, err := os.ReadFile(filepath.Join(repositoryRoot(t), commentban.AllowlistPath))
 	require.NoError(t, err)
-	var allowlist commentBanAllowlist
-	require.NoError(t, json.Unmarshal(payload, &allowlist))
+	allowlist, err := commentban.ParseAllowlist(payload)
+	require.NoError(t, err)
 	return allowlist
 }

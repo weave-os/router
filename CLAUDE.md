@@ -33,7 +33,7 @@ ignored `.context/`; only authored, synthetic reproductions belong in public fix
 - **CLEAN architecture** (Martin) — especially dependency inversion
 - **DRY**
 - **Small expert team** — explicit composition, readable wiring; reject DI containers, reflection, framework magic
-- **No comments in production Go** — move what a comment would say into a name, type or test (or `docs/` for operator knowledge). Only `// Deprecated:` paragraphs, `codeql[...]` suppressions and tool directives (`//go:build`, `//go:generate`, `//go:embed`) are allowed; generated files are exempt. Enforced by `TestProductionGoHasNoComments` in `internal/architecture`; packages in `internal/architecture/comment_ban_allowlist.json` are awaiting migration, and that list only shrinks. Test files are not yet covered.
+- **No comments in production Go** — move what a comment would say into a name, type or test (or `docs/` for operator knowledge). Only `// Deprecated:` paragraphs, `codeql[...]` suppressions and tool directives (`//go:build`, `//go:generate`, `//go:embed`) are allowed; generated files are exempt. Enforced by `TestProductionGoHasNoComments` in `internal/architecture`; packages in `internal/architecture/comment_ban_allowlist.json` are awaiting migration, and that list only shrinks. `make arch-ratchet` also rejects any new or reworded comment and any budget increase against the merge base. Test files are not yet covered.
 - **Non-tautological tests** — every test must assert behavior that breaks if prod code deleted.
 
 ## Layer model and import rules
