@@ -18,10 +18,6 @@
       "banned_lines": 294
     },
     {
-      "package": "internal/dispatch",
-      "banned_lines": 278
-    },
-    {
       "package": "internal/policyregistry",
       "banned_lines": 491
     },
@@ -52,10 +48,6 @@
     {
       "package": "internal/router/catalog",
       "banned_lines": 537
-    },
-    {
-      "package": "internal/router/policy",
-      "banned_lines": 473
     },
     {
       "package": "internal/router/sessionpin",
