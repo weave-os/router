@@ -111,7 +111,7 @@ func (c *Client) call(ctx context.Context, revision policyregistry.RevisionBindi
 	if err != nil {
 		return fmt.Errorf("call private validation endpoint: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("private validation endpoint returned HTTP %d; exact serving attestation support and authorized internal ingress are required", response.StatusCode)
 	}

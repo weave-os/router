@@ -2,7 +2,6 @@ package proxy_test
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -53,7 +52,7 @@ func TestProxyMessages_WeaveCreditsDenied(t *testing.T) {
 			err := svc.ProxyMessages(ctx, body, httptest.NewRecorder(), req)
 
 			if tc.wantErr != nil {
-				require.True(t, errors.Is(err, tc.wantErr), "got %v", err)
+				require.ErrorIs(t, err, tc.wantErr, "got %v", err)
 				assert.Empty(t, p.proxyBodies, "a turn only Weave credits could fund must not reach the provider")
 				assert.Empty(t, repo.recordedDebits(), "a refused turn must not debit Weave credits")
 				class, ok := proxy.ClassifyDispatchError(err)

@@ -18,7 +18,21 @@
         "kind": 36,
         "status": 503,
         "message": "policy_pin_unavailable: the pinned policy artifact or roster is not loaded on this router."
-      }
+      },
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "DecisionReason": "policy_pin_unavailable",
+          "ErrorClass": "routing_refused",
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "PolicyPinRequested": true,
+          "RequestedModel": "claude-sonnet-4-5",
+          "SpanType": "router.upstream",
+          "Strategy": "hmm_embedding",
+          "TurnType": "main_loop",
+          "UserPrompt": true
+        }
+      ]
     }
   ],
   "scenario": "routing_policy_policy_pin_not_honoured_fails_closed"

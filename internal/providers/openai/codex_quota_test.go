@@ -12,9 +12,10 @@ import (
 	"time"
 	"weave-os/router/internal/requestcontext"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCodexIncludedQuotaPreflight(t *testing.T) {
@@ -71,7 +72,7 @@ func TestCodexIncludedQuotaPreflight(t *testing.T) {
 					require.Equal(t, providers.QuotaVerificationFailureInvalidResponse, unavailable.Failure)
 					require.Equal(t, http.StatusOK, unavailable.UpstreamStatus)
 				} else {
-					require.False(t, errors.As(err, &unavailable))
+					require.NotErrorAs(t, err, &unavailable)
 				}
 				if tc.status == http.StatusTooManyRequests {
 					require.Contains(t, string(upstream.Body), "Codex included quota is exhausted.")
@@ -143,7 +144,7 @@ func TestCodexQuotaPreflightPreservesAuthRejection(t *testing.T) {
 				require.Equal(t, status, upstream.Status)
 				require.Contains(t, string(upstream.Body), "Reconnect")
 				var unavailable *providers.QuotaVerificationUnavailableError
-				require.False(t, errors.As(err, &unavailable))
+				require.NotErrorAs(t, err, &unavailable)
 			}
 			require.NotContains(t, string(upstream.Body), "private upstream response")
 			require.Zero(t, inferenceCalls.Load())
@@ -254,7 +255,7 @@ func TestCodexQuotaVerificationFailureClassification(t *testing.T) {
 			require.Equal(t, fixture.failure, unavailable.Failure)
 			require.Equal(t, fixture.upstreamStatus, unavailable.UpstreamStatus)
 			require.NotContains(t, unavailable.Error(), "private upstream body")
-			require.False(t, errors.Is(err, context.DeadlineExceeded), "internal preflight timeout is not caller expiry")
+			require.NotErrorIs(t, err, context.DeadlineExceeded, "internal preflight timeout is not caller expiry")
 			require.True(t, providers.IsRetryable(err))
 			require.Zero(t, inferenceCalls)
 		})
@@ -288,7 +289,7 @@ func TestCodexQuotaParentCancellationIsNotRetryable(t *testing.T) {
 			require.ErrorIs(t, err, context.Canceled)
 			require.False(t, providers.IsRetryable(err))
 			var unavailable *providers.QuotaVerificationUnavailableError
-			require.False(t, errors.As(err, &unavailable))
+			require.NotErrorAs(t, err, &unavailable)
 		})
 	}
 	ctx, cancel := context.WithDeadline(codexCtx("synthetic-token", "synthetic-account"), time.Unix(1, 0))
@@ -311,7 +312,7 @@ func TestCodexReachedTypeKeepsWindowReset(t *testing.T) {
 	client.SetCodexBaseURL(server.URL)
 	err := client.checkCodexIncludedQuota(codexCtx("test-token", "test-account"), "gpt-6.1-sol")
 	var upstream *providers.UpstreamErrorResponse
-	require.True(t, errors.As(err, &upstream))
+	require.ErrorAs(t, err, &upstream)
 	require.Equal(t, http.StatusTooManyRequests, upstream.Status)
 	require.Contains(t, string(upstream.Body), "1792600000")
 }

@@ -112,7 +112,7 @@ func TestProxyGeminiGenerateContent_CrossFormatReturnsSentinel(t *testing.T) {
 	err := svc.ProxyGeminiGenerateContent(ctx, []byte(geminiInjectedBody), rec, httpReq)
 
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, proxy.ErrGeminiCrossFormatUnsupported))
+	assert.ErrorIs(t, err, proxy.ErrGeminiCrossFormatUnsupported)
 }
 
 func TestProxyGeminiGenerateContent_DelaysMarkerUntilFirstUpstreamEvent(t *testing.T) {
@@ -137,6 +137,29 @@ func TestProxyGeminiGenerateContent_DelaysMarkerUntilFirstUpstreamEvent(t *testi
 	assert.GreaterOrEqual(t, markerAt, 0)
 	assert.GreaterOrEqual(t, upstreamAt, 0)
 	assert.Less(t, markerAt, upstreamAt, "the first committed upstream event releases the marker")
+}
+
+func TestProxyGeminiGenerateContent_NoticeDeliveryHonoursAttemptCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(authedCtx("00000000-0000-0000-0000-000000000001"))
+	defer cancel()
+	googleProv := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+		cancel()
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"after-cancel\"}]}}]}\n\n"))
+	}}
+	svc := proxy.NewService(
+		&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-2.5-pro", Reason: "cluster"}},
+		map[string]providers.Client{providers.ProviderGoogle: googleProv},
+		nil, newFakePinStore(), false, providers.ProviderGoogle, "gemini-2.5-flash", nil,
+	).WithRetrySleep(noRetrySleep)
+	rec := httptest.NewRecorder()
+	body := strings.Replace(geminiInjectedBody, `"stream":false`, `"stream":true`, 1)
+	err := svc.ProxyGeminiGenerateContent(ctx, []byte(body), rec,
+		httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-1.5-pro:streamGenerateContent", nil))
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.NotContains(t, rec.Body.String(), "after-cancel", "a canceled attempt must not keep relaying upstream output")
 }
 
 func TestProxyGeminiGenerateContent_RetriesBuffered429WithoutMarkerLeak(t *testing.T) {

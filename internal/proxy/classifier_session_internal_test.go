@@ -486,9 +486,9 @@ func TestClassifierNativeWebSearchReplay(t *testing.T) {
 		for _, status := range []translate.EscalationToolStatus{translate.EscalationToolStatusCompleted, translate.EscalationToolStatusFailed} {
 			t.Run(fmt.Sprintf("%s/explicit_id=%t", status, callIDField != ""), func(t *testing.T) {
 				var classifications []router.AtomicClassificationRequest
-				svc, ctx, _ := classifierSessionFixture(t, func(_ context.Context, request router.AtomicClassificationRequest) (router.ClassifierPrediction, error) {
+				svc, ctx, _ := classifierSessionFixture(t, func(ctx context.Context, request router.AtomicClassificationRequest) (router.ClassifierPrediction, error) {
 					classifications = append(classifications, request)
-					return classifierMedium(context.Background(), request)
+					return classifierMedium(ctx, request)
 				})
 				ctx = classifierAdmit(t, svc, ctx)
 				first, err := classifierContextForCall(classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "find documentation")))
