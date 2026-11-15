@@ -17,7 +17,7 @@ import (
 // SessionPins reads and writes the session-sticky routing pins.
 type SessionPins struct{ store sessionpin.Store }
 
-// NewSessionPins wraps store.
+// NewSessionPins returns SessionPins backed by store.
 func NewSessionPins(store sessionpin.Store) SessionPins { return SessionPins{store: store} }
 
 // PinSessionTTL mirrors Anthropic's prompt-cache TTL on Sonnet/Haiku/Opus 4.5+
@@ -64,6 +64,7 @@ func DecisionPolicyGroup(dec router.Decision) string {
 	return dec.Metadata.PolicyGroup
 }
 
+// HMMHistoryRole is the pin role that stores role's HMM switch history.
 func HMMHistoryRole(role string) string {
 	if role == "" {
 		role = sessionpin.DefaultRole
@@ -71,11 +72,12 @@ func HMMHistoryRole(role string) string {
 	return role + "_hmm_history"
 }
 
+// IsUserForcedReason reports whether a decision reason is a /force-model pin.
 func IsUserForcedReason(reason string) bool {
 	return strings.HasPrefix(reason, translate.ReasonUserForceModel)
 }
 
-// loadPin returns the stored pin and whether it may actively serve this turn.
+// Load returns the stored pin and whether it may actively serve this turn.
 // Expired rows are misses for routing, but their history fields still protect
 // Anthropic emit from stale thinking-block signatures in the client transcript.
 func (sp SessionPins) Load(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (sessionpin.Pin, bool) {
@@ -83,7 +85,7 @@ func (sp SessionPins) Load(ctx context.Context, sessionKey [sessionpin.SessionKe
 	return pin, active
 }
 
-// loadPinWithStoreState is loadPin plus noStoredState: the store answered and
+// LoadWithStoreState is Load plus noStoredState: the store answered and
 // held nothing for this key. A store error routes exactly like a miss (fall
 // through to the scorer), but a caller that reads absence as session state —
 // first-turn telemetry capture — must not read an outage as a fresh session.
@@ -107,6 +109,8 @@ func (sp SessionPins) LoadWithStoreState(ctx context.Context, sessionKey [sessio
 	return pin, true, false
 }
 
+// LoadHMMHistory returns the session's HMM switch history, or the zero pin on
+// a miss, a store error, or a row from another strategy.
 func (sp SessionPins) LoadHMMHistory(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) sessionpin.Pin {
 	log := observability.FromContext(ctx)
 	pin, found, err := sp.store.Get(ctx, sessionKey, HMMHistoryRole(role))
@@ -123,17 +127,19 @@ func (sp SessionPins) LoadHMMHistory(ctx context.Context, sessionKey [sessionpin
 	return pin
 }
 
-// refreshPin extends the TTL on an existing pin. Carries the existing pin's
+// Refresh extends the TTL on an existing pin. Carries the existing pin's
 // usage forward so the planner has evidence before the next UpdateUsage
 // writeback lands.
 func (sp SessionPins) Refresh(ctx context.Context, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, existing sessionpin.Pin, role string, chosen router.Decision) {
 	sp.RefreshVotes(ctx, installationID, sessionKey, existing, role, chosen, 0, 0)
 }
 
+// RefreshDowngradeVotes is Refresh carrying a pending downgrade vote count.
 func (sp SessionPins) RefreshDowngradeVotes(ctx context.Context, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, existing sessionpin.Pin, role string, chosen router.Decision, downgradeVotes int) {
 	sp.RefreshVotes(ctx, installationID, sessionKey, existing, role, chosen, downgradeVotes, 0)
 }
 
+// RefreshVotes is Refresh carrying both pending vote counts.
 func (sp SessionPins) RefreshVotes(ctx context.Context, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, existing sessionpin.Pin, role string, chosen router.Decision, downgradeVotes, upgradeVotes int) {
 	if installationID == uuid.Nil {
 		return
@@ -174,7 +180,7 @@ func (sp SessionPins) RefreshVotes(ctx context.Context, installationID uuid.UUID
 	sp.Upsert(ctx, p)
 }
 
-// writeNewPin records a freshly-routed decision as the active pin. Used on
+// WriteNew records a freshly-routed decision as the active pin. Used on
 // first-turn routing and switch turns. UpdateUsage fills in usage stats later.
 func (sp SessionPins) WriteNew(ctx context.Context, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, role string, chosen router.Decision) {
 	log := observability.FromContext(ctx)
@@ -209,7 +215,7 @@ func (sp SessionPins) WriteNew(ctx context.Context, installationID uuid.UUID, se
 	sp.Upsert(ctx, p)
 }
 
-// upsertPin synchronously persists a pin write. context.Background() is used
+// Upsert synchronously persists a pin write. context.Background() is used
 // so the DB write survives request-ctx cancellation after the response has
 // finished streaming.
 func (sp SessionPins) Upsert(ctx context.Context, p sessionpin.Pin) {
@@ -229,6 +235,7 @@ const (
 	forceModelHistoryReason     = "force_model_history"
 )
 
+// ForceModelHistoryRole is the pin role that remembers role's forced model.
 func ForceModelHistoryRole(role string) string {
 	if role == "" {
 		role = sessionpin.DefaultRole
@@ -236,6 +243,8 @@ func ForceModelHistoryRole(role string) string {
 	return role + forceModelHistoryRoleSuffix
 }
 
+// AnchorForceModelHistory records forcedPin's provider and model as the
+// session's force-model history.
 func (sp SessionPins) AnchorForceModelHistory(
 	ctx context.Context,
 	installationID uuid.UUID,
