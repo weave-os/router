@@ -33,7 +33,7 @@ func main() {
 			checkFile(path, expected)
 			continue
 		}
-		if err := os.WriteFile(path, expected, 0o644); err != nil {
+		if err := os.WriteFile(path, expected, 0o600); err != nil {
 			fail(fmt.Errorf("write %s: %w", path, err))
 		}
 	}

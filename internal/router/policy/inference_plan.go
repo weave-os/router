@@ -467,32 +467,6 @@ func plannedBindingFor(resolved ResolvedCandidates, selected Binding) (plannedBi
 	return plannedBinding{}, false
 }
 
-func fallbackBindings(spec PolicySpec, selected plannedBinding, resolved ResolvedCandidates, maxSpendUSD float64) []plannedBinding {
-	var candidates []plannedBinding
-	switch spec.Fallback.Kind {
-	case FallbackKindBinding:
-		for _, binding := range resolved.bindingsByCatalogID[selected.CatalogID] {
-			candidates = append(candidates, plannedBinding(binding))
-		}
-	case FallbackKindPlanAlternatives:
-		for _, catalogID := range spec.Fallback.Alternatives {
-			for _, binding := range resolved.bindingsByCatalogID[catalogID] {
-				candidates = append(candidates, plannedBinding(binding))
-			}
-		}
-	}
-
-	alternatives := make([]plannedBinding, 0, len(candidates))
-	for _, candidate := range candidates {
-		if sameBinding(selected.Binding, candidate.Binding) || exceedsSpendBudget(candidate.estimatedCostUSD, maxSpendUSD) {
-			continue
-		}
-		candidate.Effort = selected.Effort
-		alternatives = append(alternatives, candidate)
-	}
-	return alternatives
-}
-
 func sameBinding(left, right Binding) bool {
 	return left.CatalogID == right.CatalogID && left.Provider == right.Provider && left.BindingIndex == right.BindingIndex
 }

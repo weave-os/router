@@ -120,7 +120,7 @@ func TestRoutingModelSelectsPolicyAndPreservesRequest(t *testing.T) {
 					ctx = policyregistry.WithServingSnapshot(ctx, snapshot)
 				}
 			}
-			req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body)).WithContext(ctx)
+			req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", strings.NewReader(body))
 			if tc.force {
 				req.Header.Set(proxy.ForceModelHeader, "gpt-6.1-sol")
 			}
@@ -156,7 +156,7 @@ func TestClassifierThreadsRemainExplicitlyEnrolled(t *testing.T) {
 			c.Status(http.StatusOK)
 		})
 	}
-	startRequest := httptest.NewRequest(http.MethodPost, "/v1/router/threads", strings.NewReader(`{"new_chat_id":"`+uuid.NewString()+`"}`)).WithContext(ctx)
+	startRequest := httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/router/threads", strings.NewReader(`{"new_chat_id":"`+uuid.NewString()+`"}`))
 	startResponse := httptest.NewRecorder()
 	engine.ServeHTTP(startResponse, startRequest)
 	require.Equal(t, http.StatusOK, startResponse.Code, startResponse.Body.String())
@@ -166,7 +166,7 @@ func TestClassifierThreadsRemainExplicitlyEnrolled(t *testing.T) {
 	require.NoError(t, json.Unmarshal(startResponse.Body.Bytes(), &ticket))
 	for _, path := range []string{"/v1/messages", "/v1/responses"} {
 		for _, token := range []string{"", "forged", ticket.Token} {
-			req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"`+string(router.ModelAutomatic)+`"}`)).WithContext(ctx)
+			req := httptest.NewRequestWithContext(ctx, http.MethodPost, path, strings.NewReader(`{"model":"`+string(router.ModelAutomatic)+`"}`))
 			if token != "" {
 				req.Header.Set(proxy.ClassifierThreadHeader, token)
 			}
@@ -201,7 +201,7 @@ func TestRoutingModelReadsGeminiURLModel(t *testing.T) {
 	identity := requestcontext.ServingIdentity{Target: string(policyregistry.TargetInternal), ReleaseID: "reviewed-release", BindingID: "reviewed-binding", CredentialIdentity: "test-principal"}
 	ctx := requestcontext.WithServingIdentity(context.Background(), identity)
 	ctx = policyregistry.WithServingSnapshot(ctx, &policyregistry.Snapshot{Routers: map[router.Strategy]router.Router{router.StrategyHMMQwen: routingModelTestRouter{}}})
-	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/"+string(router.ModelQwen)+":generateContent", strings.NewReader(body)).WithContext(ctx)
+	req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1beta/models/"+string(router.ModelQwen)+":generateContent", strings.NewReader(body))
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, req)
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
@@ -225,7 +225,7 @@ func TestRoutingModelGeminiURLOverridesBodyAndRejectsForceHeader(t *testing.T) {
 				ctx := requestcontext.WithServingIdentity(context.Background(), identity)
 				ctx = policyregistry.WithServingSnapshot(ctx, &policyregistry.Snapshot{Routers: map[router.Strategy]router.Router{router.StrategyHMMQwen: routingModelTestRouter{}}})
 				body := `{"model":"` + string(bodyModel) + `","contents":[{"role":"user","parts":[{"text":"hello"}]}]}`
-				request := httptest.NewRequest(http.MethodPost, "/v1beta/models/"+string(router.ModelQwen)+":generateContent", strings.NewReader(body)).WithContext(ctx)
+				request := httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1beta/models/"+string(router.ModelQwen)+":generateContent", strings.NewReader(body))
 				if forced {
 					request.Header.Set(proxy.ForceModelHeader, "gpt-6.1-sol")
 				}
@@ -267,7 +267,7 @@ func TestModelPassthroughHeaderServesClientSelectedModels(t *testing.T) {
 			if tc.model != "" {
 				body = `{"model":"` + tc.model + `","messages":[{"role":"user","content":"hello"}]}`
 			}
-			req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(body))
 			if tc.header != "" {
 				req.Header.Set(middleware.ModelPassthroughHeader, tc.header)
 			}
@@ -291,7 +291,7 @@ func TestModelPassthroughKeepsSubscriptionFundingGates(t *testing.T) {
 				require.True(t, auth.ClientModelPassthroughFrom(c.Request.Context()))
 				c.Status(http.StatusOK)
 			})
-			req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"claude-opus-5-5","messages":[{"role":"user","content":"hello"}]}`))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"claude-opus-5-5","messages":[{"role":"user","content":"hello"}]}`))
 			req.Header.Set(middleware.ModelPassthroughHeader, "1")
 			recorder := httptest.NewRecorder()
 			engine.ServeHTTP(recorder, req)

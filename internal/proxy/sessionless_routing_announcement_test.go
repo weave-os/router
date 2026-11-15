@@ -85,7 +85,7 @@ func TestSessionlessRoutingAnnouncementMessages(t *testing.T) {
 			ctx := requestcontext.WithClientIdentity(authedCtx("11111111-1111-1111-1111-111111111111"), proxy.ClientIdentity{ClientApp: sessionlessClientApp})
 			rec := httptest.NewRecorder()
 			require.NoError(t, svc.ProxyMessages(ctx, sessionlessMessagesBody(t, test.announcement), rec,
-				httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
+				httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))))
 			assert.Equal(t, test.wantBadge, strings.Contains(rec.Body.String(), "Weave Router** → "+earlyStopLowModel), rec.Body.String())
 			assert.Contains(t, rec.Body.String(), "There are two files.")
 			require.Len(t, *upstreamBodies, 1)
@@ -120,7 +120,7 @@ func TestSessionlessRoutingAnnouncementResponses(t *testing.T) {
 			ctx := requestcontext.WithClientIdentity(authedCtx("11111111-1111-1111-1111-111111111111"), proxy.ClientIdentity{ClientApp: sessionlessClientApp})
 			rec := httptest.NewRecorder()
 			require.NoError(t, svc.ProxyOpenAIResponses(ctx, announcementReplayBody(t, test.history...), rec,
-				httptest.NewRequest(http.MethodPost, "/v1/responses", nil)))
+				httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)))
 			text := strings.Join(responsesTextDeltas(t, rec.Body.Bytes()), "")
 			assert.Equal(t, test.wantBadge, strings.Contains(text, "✦ **Weave Router** → "+model), text)
 			assert.Contains(t, text, "two files")

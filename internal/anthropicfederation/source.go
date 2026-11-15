@@ -27,7 +27,7 @@ const jwtBearerGrant = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 const exchangeTimeout = 15 * time.Second
 const maxResponseBytes = 64 * 1024
 
-var errTemporaryExchange = errors.New("Anthropic token endpoint temporarily unavailable")
+var errTemporaryExchange = errors.New("anthropic token endpoint temporarily unavailable")
 
 type assertionKey struct {
 	issuer  string
@@ -118,7 +118,11 @@ func (s *Source) Token(ctx context.Context, key *auth.ExternalAPIKey) ([]byte, e
 		if flightResult.Err != nil {
 			return nil, flightResult.Err
 		}
-		return append([]byte(nil), flightResult.Val.([]byte)...), nil
+		token, ok := flightResult.Val.([]byte)
+		if !ok {
+			return nil, fmt.Errorf("anthropic federation token exchange returned %T", flightResult.Val)
+		}
+		return append([]byte(nil), token...), nil
 	}
 }
 

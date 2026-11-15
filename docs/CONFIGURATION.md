@@ -534,7 +534,9 @@ prepaid credits. Once enabled, a BYOK turn debits no inference cost (the
 customer paid their own provider). A platform fee can be charged on top,
 recorded as a separate `byok_fee` ledger row: set `BYOK_FEE_RATE` to a
 fraction of upstream cost (e.g. `0.05` for 5%). The default is `0` — no
-fee, and no `byok_fee` row is written.
+fee, and no `byok_fee` row is written. A BYOK turn served while credits are
+depleted or a spend cap is reached is never charged the fee, so it adds
+nothing to the balance or to any spend cap.
 
 ## Postgres
 

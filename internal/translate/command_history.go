@@ -38,17 +38,17 @@ func stripHistoricalDirective(text string) (stripped string, found bool) {
 // StripHistoricalCommands removes router directives from every user message
 // before the trailing user turn. The returned count is the number of messages
 // edited or dropped.
-func (env *RequestEnvelope) StripHistoricalCommands() (int, error) {
-	switch env.format {
+func (e *RequestEnvelope) StripHistoricalCommands() (int, error) {
+	switch e.format {
 	case FormatAnthropic, FormatOpenAI:
 	default:
 		return 0, nil
 	}
-	msgs := gjson.GetBytes(env.body, "messages")
+	msgs := gjson.GetBytes(e.body, "messages")
 	if !msgs.IsArray() {
 		return 0, nil
 	}
-	env.captureThreadDiscriminator()
+	e.captureThreadDiscriminator()
 	messages := msgs.Array()
 	lastUserIdx := trailingUserTurnIndex(messages, func(msg gjson.Result) bool {
 		return msg.Get("role").String() == "user"
@@ -114,7 +114,7 @@ func (env *RequestEnvelope) StripHistoricalCommands() (int, error) {
 	if changed == 0 {
 		return 0, nil
 	}
-	return env.setMessages(rebuilt, changed), nil
+	return e.setMessages(rebuilt, changed), nil
 }
 
 // trailingUserTurnIndex finds the user message that owns the current turn,

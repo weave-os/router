@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -103,7 +104,11 @@ func (s *hmmRosterSource) HMMDeployedModels(ctx context.Context) (entries []rout
 		if res.Err != nil {
 			return nil, res.Err
 		}
-		return cloneDeployedEntries(res.Val.([]router.DeployedEntry)), nil
+		entries, ok := res.Val.([]router.DeployedEntry)
+		if !ok {
+			return nil, fmt.Errorf("hmm roster refresh returned %T", res.Val)
+		}
+		return cloneDeployedEntries(entries), nil
 	}
 }
 

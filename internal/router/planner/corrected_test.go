@@ -14,10 +14,10 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 )
 
-func correctedCfg(horizon int) planner.EVConfig {
+func correctedCfg() planner.EVConfig {
 	return planner.EVConfig{
 		ThresholdUSD:           0.001,
-		ExpectedRemainingTurns: horizon,
+		ExpectedRemainingTurns: 3,
 		CorrectedEconomics:     true,
 	}
 }
@@ -50,7 +50,7 @@ func TestCorrectedEconomicsIsOffByDefault(t *testing.T) {
 	in := correctedInputs("claude-sonnet-5", "claude-haiku-4-5", 200_000, 80_000, 1200, false)
 
 	before := planner.Decide(in, legacyCfg(3))
-	after := planner.Decide(in, correctedCfg(3))
+	after := planner.Decide(in, correctedCfg())
 
 	assert.Equal(t, planner.OutcomeStay, before.Outcome,
 		"legacy prices the whole prompt at the read multiplier, so a 3x gap fails its 0.25 bar")
@@ -63,9 +63,9 @@ func TestCorrectedEconomicsIsOffByDefault(t *testing.T) {
 // price gap between two models applies undiscounted.
 func TestCorrectedEVRestoresTheUncachedTail(t *testing.T) {
 	highK := planner.Decide(
-		correctedInputs("claude-opus-5", "claude-haiku-4-5", 200_000, 180_000, 1200, false), correctedCfg(3))
+		correctedInputs("claude-opus-5", "claude-haiku-4-5", 200_000, 180_000, 1200, false), correctedCfg())
 	lowK := planner.Decide(
-		correctedInputs("claude-opus-5", "claude-haiku-4-5", 200_000, 80_000, 1200, false), correctedCfg(3))
+		correctedInputs("claude-opus-5", "claude-haiku-4-5", 200_000, 80_000, 1200, false), correctedCfg())
 
 	assert.Greater(t, lowK.ExpectedSavingsUSD, highK.ExpectedSavingsUSD,
 		"a smaller cacheable share leaves more prompt at full price, where the 5x gap bites")
@@ -107,12 +107,12 @@ func TestCorrectedEVGoldenVectors(t *testing.T) {
 // token can score EV-positive on input alone.
 func TestCorrectedEVCountsOutputPrice(t *testing.T) {
 	in := correctedInputs("claude-haiku-4-5", "claude-opus-5", 200_000, 180_000, 60_000, false)
-	withOutput := planner.Decide(in, correctedCfg(3))
+	withOutput := planner.Decide(in, correctedCfg())
 
 	noOutput := in
 	noOutput.PriorOutputTokens = 0
 	require.NotEqual(t, withOutput.ExpectedSavingsUSD,
-		planner.Decide(noOutput, correctedCfg(3)).ExpectedSavingsUSD,
+		planner.Decide(noOutput, correctedCfg()).ExpectedSavingsUSD,
 		"the output term must move the EV")
 	assert.Equal(t, planner.OutcomeStay, withOutput.Outcome,
 		"switching to a 5x-dearer-output model on a 60k-token completion is not a saving")
@@ -123,7 +123,7 @@ func TestCorrectedEVCountsOutputPrice(t *testing.T) {
 func TestCacheableShareFallsBackToLegacyWhenUninstrumented(t *testing.T) {
 	in := correctedInputs("claude-opus-5", "claude-haiku-4-5", 200_000, 0, 0, false)
 	in.CachePrefixKnown = false
-	corrected := planner.Decide(in, correctedCfg(3))
+	corrected := planner.Decide(in, correctedCfg())
 	legacy := planner.Decide(in, legacyCfg(3))
 	assert.InDelta(t, legacy.ExpectedSavingsUSD, corrected.ExpectedSavingsUSD, 1e-12,
 		"k=1 must collapse the corrected rate back onto price*multiplier")
@@ -139,8 +139,8 @@ func TestExplicitZeroPrefixIsNotTreatedAsFullyCached(t *testing.T) {
 	noEvidence := measuredZero
 	noEvidence.CachePrefixKnown = false
 
-	zero := planner.Decide(measuredZero, correctedCfg(3))
-	absent := planner.Decide(noEvidence, correctedCfg(3))
+	zero := planner.Decide(measuredZero, correctedCfg())
+	absent := planner.Decide(noEvidence, correctedCfg())
 
 	assert.Greater(t, zero.ExpectedSavingsUSD, absent.ExpectedSavingsUSD,
 		"an uncached prompt is billed at full rate on both sides, so the 5x gap is undiscounted")
@@ -154,7 +154,7 @@ func TestExplicitZeroPrefixIsNotTreatedAsFullyCached(t *testing.T) {
 // the legacy path charges.
 func TestCorrectedEVChargesWritePremiumNotFullPrice(t *testing.T) {
 	in := correctedInputs("claude-opus-5", "claude-haiku-4-5", 1_000_000, 1_000_000, 0, false)
-	got := planner.Decide(in, correctedCfg(3)).EvictionCostUSD
+	got := planner.Decide(in, correctedCfg()).EvictionCostUSD
 	// haiku $1/Mtok, write 1.25x, read 0.10x, whole prompt cacheable.
 	assert.InDelta(t, 1.0*(1.25-0.10), got, 1e-9)
 	assert.False(t, math.IsNaN(got))
@@ -163,7 +163,7 @@ func TestCorrectedEVChargesWritePremiumNotFullPrice(t *testing.T) {
 // Nothing live to destroy, so moving is free and both sides pay full rate.
 func TestCorrectedEVColdPinChargesNoEviction(t *testing.T) {
 	cold := planner.Decide(
-		correctedInputs("claude-opus-5", "claude-haiku-4-5", 200_000, 180_000, 1200, true), correctedCfg(3))
+		correctedInputs("claude-opus-5", "claude-haiku-4-5", 200_000, 180_000, 1200, true), correctedCfg())
 	assert.Zero(t, cold.EvictionCostUSD)
 	assert.Equal(t, planner.OutcomeSwitch, cold.Outcome)
 }

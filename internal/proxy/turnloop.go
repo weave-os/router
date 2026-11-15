@@ -356,8 +356,8 @@ type turnLoopResult struct {
 	DowngradeShadow downgradeGuardShadow
 }
 
-func (res turnLoopResult) releaseCooldownProbes() {
-	for _, release := range res.CooldownProbeReleases {
+func (r turnLoopResult) releaseCooldownProbes() {
+	for _, release := range r.CooldownProbeReleases {
 		release()
 	}
 }
@@ -839,7 +839,7 @@ func (s *Service) runTurnLoop(
 			applyAgreementShadowTelemetry(ctx, &params, res)
 			if params.agreementShadow != nil {
 				log := observability.FromContext(ctx)
-				observability.SafeGo(log, 5*time.Second, "agreementShadowRoutingFailure", func(shadowCtx context.Context) {
+				observability.SafeGoContext(ctx, log, 5*time.Second, "agreementShadowRoutingFailure", func(shadowCtx context.Context) {
 					s.recordAgreementShadow(shadowCtx, log, params)
 				})
 			}
@@ -2075,8 +2075,8 @@ func (s *Service) runTurnLoop(
 			if !slidingServed && s.evidenceUpgradeApplies(ctx, res.SessionKey) && res.UpgradeShadow != nil {
 				res.UpgradeShadow.Applied = true
 				switch res.UpgradeShadow.Verdict.Outcome {
-				case upgradeAllow:
-					// Fall through to serve the fresh model; the confidence floor does not run.
+				case upgradeAllow, upgradeExistingPolicy, upgradeNotApplicable, upgradeExcluded:
+					// Fall through to serve the fresh model; only upgradeAllow skips the confidence floor.
 				case upgradeHold:
 					decision := pinDecision(pin)
 					res.Decision = decision
@@ -3054,7 +3054,7 @@ func (s *Service) upsertPin(ctx context.Context, p sessionpin.Pin) {
 	if p.Strategy == "" {
 		p.Strategy = router.StrategyFromContext(ctx)
 	}
-	if err := s.pinStore.Upsert(context.Background(), p); err != nil {
+	if err := s.pinStore.Upsert(context.WithoutCancel(ctx), p); err != nil {
 		log.Error("session pin upsert failed", "err", err)
 		return
 	}

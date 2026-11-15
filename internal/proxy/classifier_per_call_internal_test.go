@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/policyclient"
@@ -78,9 +79,9 @@ func TestClassifierResponsesToolLoopSwitchesDispatchedModel(t *testing.T) {
 	fixture, principal, store := classifierSessionFixture(t, classifierMedium)
 	config := fixture.classifierSessions.config
 	classifierServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/classify", r.URL.Path)
+		assert.Equal(t, "/classify", r.URL.Path)
 		var input router.AtomicClassificationRequest
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&input))
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&input))
 		inputs = append(inputs, input)
 		complexity := router.ClassifierLow
 		if input.User.Features.ToolErrorCount > 0 {
@@ -88,7 +89,7 @@ func TestClassifierResponsesToolLoopSwitchesDispatchedModel(t *testing.T) {
 		}
 		probabilities := make([]float64, 4)
 		probabilities[complexity] = 1
-		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+		assert.NoError(t, json.NewEncoder(w).Encode(map[string]any{
 			"release": config.Release, "release_sha256": config.ReleaseSHA256,
 			"prediction": complexity, "probabilities": probabilities, "input_tokens": 600,
 			"history_source": router.ClassifierHistoricalPrediction,
@@ -127,7 +128,7 @@ func TestClassifierResponsesToolLoopSwitchesDispatchedModel(t *testing.T) {
 	const continuation = `{"model":"auto","stream":true,"input":[{"role":"user","content":"Synthetic task"},{"role":"assistant","content":[{"type":"output_text","text":"Checking"}]},{"type":"function_call","call_id":"c1","name":"exec_command","arguments":"{\"cmd\":\"exit 7\"}"},{"type":"function_call_output","call_id":"c1","output":"Chunk ID: abc123\nWall time: 0.0001 seconds\nProcess exited with code 7\nOriginal token count: 1\nOutput:\nSynthetic output\n"}]}`
 	for index, body := range []string{first, continuation, continuation} {
 		recorder := httptest.NewRecorder()
-		err := svc.ProxyOpenAIResponses(ctx, []byte(body), recorder, httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+		err := svc.ProxyOpenAIResponses(ctx, []byte(body), recorder, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
 		require.NoError(t, err)
 		expectedModel := largeModel
 		if index == 0 {
@@ -144,9 +145,9 @@ func TestClassifierResponsesToolLoopSwitchesDispatchedModel(t *testing.T) {
 
 func TestClassifierCodexExitErrorsAdvanceWithoutChangingReplay(t *testing.T) {
 	var inputs []router.AtomicClassificationRequest
-	svc, principal, _ := classifierSessionFixture(t, func(_ context.Context, input router.AtomicClassificationRequest) (router.ClassifierPrediction, error) {
+	svc, principal, _ := classifierSessionFixture(t, func(ctx context.Context, input router.AtomicClassificationRequest) (router.ClassifierPrediction, error) {
 		inputs = append(inputs, input)
-		return classifierMedium(context.Background(), input)
+		return classifierMedium(ctx, input)
 	})
 	ctx := classifierAdmit(t, svc, principal)
 	items := []json.RawMessage{json.RawMessage(`{"role":"user","content":"Synthetic task"}`)}
@@ -192,7 +193,7 @@ func TestClassifierLegacyPredictionsCannotBecomeCallHistory(t *testing.T) {
 	require.NoError(t, err)
 	prediction, err := svc.classifyThread(ctx, input)
 	require.NoError(t, err)
-	thread := ctx.Value(classifierThreadContextKey{}).(router.ClassifierThread)
+	thread := mustAs[router.ClassifierThread](t, ctx.Value(classifierThreadContextKey{}))
 	prediction.InputMessageCount = 0
 	store.turns[thread.ThreadID][prediction.TurnDigest] = prediction
 	_, err = svc.classifyThread(ctx, input)

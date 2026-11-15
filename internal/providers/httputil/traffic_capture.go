@@ -16,7 +16,8 @@ type trafficCaptureRoundTripper struct {
 }
 
 func (t *trafficCaptureRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
-	scope := trafficcapture.FromContext(request.Context())
+	ctx := request.Context()
+	scope := trafficcapture.FromContext(ctx)
 	if scope == nil {
 		return t.transport.RoundTrip(request)
 	}
@@ -95,9 +96,9 @@ func (t *trafficCaptureRoundTripper) RoundTrip(request *http.Request) (*http.Res
 					exchange.Error = joinCaptureError(exchange.Error, spoolErr.Error())
 				}
 			}
-			recordUpstreamExchange(request.Context(), scope, exchange)
-			closeBodySpool(request.Context(), exchangeID, responseBodySpool)
-			closeBodySpool(request.Context(), exchangeID, requestBody.spool)
+			recordUpstreamExchange(ctx, scope, exchange)
+			closeBodySpool(ctx, exchangeID, responseBodySpool)
+			closeBodySpool(ctx, exchangeID, requestBody.spool)
 		})
 	}
 	if transportErr != nil {

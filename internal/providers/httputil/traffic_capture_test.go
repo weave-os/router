@@ -35,7 +35,7 @@ func (reader *closingRequestReader) Close() error {
 
 func TestRequestCaptureCloseWaitsForInFlightRead(t *testing.T) {
 	reader := &closingRequestReader{started: make(chan struct{}), closed: make(chan struct{}), release: make(chan struct{})}
-	request, err := http.NewRequest(http.MethodPost, "https://provider.example", reader)
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://provider.example", reader)
 	require.NoError(t, err)
 	capture := captureRequestBody(request)
 	t.Cleanup(func() { require.NoError(t, capture.spool.Close()) })

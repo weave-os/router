@@ -48,7 +48,7 @@ func TestRoutingPolicyPassthroughServesGatewayAliasedRetiredModel(t *testing.T) 
 
 	rec := httptest.NewRecorder()
 	body := `{"model":"` + retired + `","max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`
-	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))))
 
 	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	assert.Equal(t, retired, rec.Header().Get(HeaderRouterModel))

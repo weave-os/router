@@ -118,7 +118,7 @@ func TestObserveEscalationHonorsConfiguredTimeoutWithoutRetry(t *testing.T) {
 	defer server.Close()
 	_, err := policyclient.New(server.URL, server.Client(), 50*time.Millisecond).ObserveEscalation(context.Background(), escalation.ObserveRequest{})
 	require.Error(t, err)
-	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.EqualValues(t, 1, attempts.Load())
 }
 

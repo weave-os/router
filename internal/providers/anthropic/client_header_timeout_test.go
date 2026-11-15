@@ -50,7 +50,7 @@ func TestProxy_LargePromptSurvivesSlowPrefill(t *testing.T) {
 	c := anthropic.NewClientWithHeaderTimeouts("test-key", upstream.URL, 50*time.Millisecond, 5*time.Second)
 
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	prep := providers.PreparedRequest{Body: messagesBody(2 << 20), Headers: make(http.Header)}
 	err := c.Proxy(context.Background(), router.Decision{Model: "claude-opus-5-5"}, prep, rec, clientReq)
 
@@ -64,7 +64,7 @@ func TestProxy_SmallPromptKeepsDefaultHeaderTimeout(t *testing.T) {
 	c := anthropic.NewClientWithHeaderTimeouts("test-key", upstream.URL, 50*time.Millisecond, 5*time.Second)
 
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	prep := providers.PreparedRequest{Body: messagesBody(1024), Headers: make(http.Header)}
 	err := c.Proxy(context.Background(), router.Decision{Model: "claude-opus-5-5"}, prep, rec, clientReq)
 
@@ -78,7 +78,7 @@ func TestPassthrough_LargePromptSurvivesSlowPrefill(t *testing.T) {
 	c := anthropic.NewClientWithHeaderTimeouts("test-key", upstream.URL, 50*time.Millisecond, 5*time.Second)
 
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	prep := providers.PreparedRequest{Body: messagesBody(2 << 20), Headers: make(http.Header)}
 	err := c.Passthrough(context.Background(), prep, rec, clientReq)
 

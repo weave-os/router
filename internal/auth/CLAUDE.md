@@ -15,7 +15,7 @@ Identity domain. Types, repos, `Service.VerifyAPIKey`, `APIKeyCache`, ID/hashing
 
 - **Domain types must not leak `pgtype` / `uuid` concerns.** Convert at the adapter boundary in [`../postgres/converters.go`](../postgres/converters.go).
 - **`fireMarkUsed` is the documented "log-and-continue" exception.** Best-effort, off the request path — see [`service.go`](service.go). Everywhere else, errors flow up.
-- **Clock injection.** Use `auth.Clock = func() time.Time` rather than calling `time.Now()` directly — lets tests pin time.
+- **Clock injection.** Use `auth.Clock`; `TestInjectedClockPackagesDoNotReadWallClock` rejects `time.Now` / `Since` / `Until`.
 - **Token safety.** Never log raw bearer tokens. 8-char prefix + 4-char suffix (`KeyPrefix` / `KeySuffix` columns on `auth.APIKey`) are the only safe form.
 - **BYOK secrets at rest** go through `auth.Encryptor` (Tink AES-256-GCM). Plaintext only in memory for the request lifetime.
 

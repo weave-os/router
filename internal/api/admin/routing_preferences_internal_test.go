@@ -36,8 +36,8 @@ func TestRoutingPreferencesFor(t *testing.T) {
 	t.Run("nil weight renders the neutral default", func(t *testing.T) {
 		got := routingPreferencesFor(&auth.Installation{})
 		assert.True(t, got.IsDefault)
-		assert.Equal(t, defaultQualityPct, got.Quality)
-		assert.Equal(t, defaultPricePct, got.Price)
+		assert.InDelta(t, defaultQualityPct, got.Quality, 1e-9)
+		assert.InDelta(t, defaultPricePct, got.Price, 1e-9)
 	})
 
 	t.Run("set weight renders as percentages with price as the remainder", func(t *testing.T) {

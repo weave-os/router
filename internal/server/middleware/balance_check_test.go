@@ -84,7 +84,7 @@ func withUsageBypassInstallation(c *gin.Context, externalID string) {
 	})
 }
 
-func runMiddleware(t *testing.T, repo billing.Repo, threshold int64, externalID string) (*httptest.ResponseRecorder, bool) {
+func runMiddleware(t *testing.T, repo billing.Repo, threshold int64) (*httptest.ResponseRecorder, bool) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	svc := billing.NewService(repo)
@@ -92,7 +92,7 @@ func runMiddleware(t *testing.T, repo billing.Repo, threshold int64, externalID 
 	reached := false
 	engine.GET("/probe", func(c *gin.Context) {
 		// Synthetic auth: pre-stash the installation the way WithAuth would.
-		withInstallation(c, externalID)
+		withInstallation(c, "org_x")
 		middleware.WithBalanceCheck(svc, threshold)(c)
 		if c.IsAborted() {
 			return
@@ -101,7 +101,7 @@ func runMiddleware(t *testing.T, repo billing.Repo, threshold int64, externalID 
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	engine.ServeHTTP(w, req)
 	return w, reached
 }
@@ -109,15 +109,15 @@ func runMiddleware(t *testing.T, repo billing.Repo, threshold int64, externalID 
 // runMiddlewareWith drives WithBalanceCheck on routePath (the gin route the
 // exemption's route-scoping keys off) with a caller-supplied installation setter
 // and an optional Authorization header. authHeader is set verbatim when non-empty.
-func runMiddlewareWith(t *testing.T, repo billing.Repo, threshold int64, routePath string, setInstall func(*gin.Context), authHeader string) (*httptest.ResponseRecorder, bool) {
+func runMiddlewareWith(t *testing.T, repo billing.Repo, setInstall func(*gin.Context), authHeader string) (*httptest.ResponseRecorder, bool) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	svc := billing.NewService(repo)
 	engine := gin.New()
 	reached := false
-	engine.GET(routePath, func(c *gin.Context) {
+	engine.GET("/v1/messages", func(c *gin.Context) {
 		setInstall(c)
-		middleware.WithBalanceCheck(svc, threshold)(c)
+		middleware.WithBalanceCheck(svc, 0)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -125,7 +125,7 @@ func runMiddlewareWith(t *testing.T, repo billing.Repo, threshold int64, routePa
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, routePath, nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/messages", nil)
 	if authHeader != "" {
 		req.Header.Set("Authorization", authHeader)
 	}
@@ -135,7 +135,7 @@ func runMiddlewareWith(t *testing.T, repo billing.Repo, threshold int64, routePa
 
 func TestWithBalanceCheck_402WhenBelowThreshold(t *testing.T) {
 	repo := &stubBillingRepo{balance: 999_999} // just under $1
-	w, reached := runMiddleware(t, repo, 1_000_000, "org_x")
+	w, reached := runMiddleware(t, repo, 1_000_000)
 	assert.False(t, reached, "handler must not be reached when balance is below threshold")
 	assert.Equal(t, http.StatusPaymentRequired, w.Code)
 
@@ -154,14 +154,14 @@ func TestWithBalanceCheck_402WhenBelowThreshold(t *testing.T) {
 
 func TestWithBalanceCheck_402WhenBalanceRowMissing(t *testing.T) {
 	repo := &stubBillingRepo{balanceErr: billing.ErrBalanceRowMissing}
-	w, reached := runMiddleware(t, repo, 1_000_000, "org_x")
+	w, reached := runMiddleware(t, repo, 1_000_000)
 	assert.False(t, reached)
 	assert.Equal(t, http.StatusPaymentRequired, w.Code)
 }
 
 func TestWithBalanceCheck_PassesWhenAboveThreshold(t *testing.T) {
 	repo := &stubBillingRepo{balance: 50_000_000} // $50
-	_, reached := runMiddleware(t, repo, 1_000_000, "org_x")
+	_, reached := runMiddleware(t, repo, 1_000_000)
 	assert.True(t, reached, "request must reach handler when balance is healthy")
 }
 
@@ -189,7 +189,7 @@ func TestWithBalanceCheck_FlagsOrganizationPrepaidAdmission(t *testing.T) {
 				c.Status(http.StatusOK)
 			})
 			w := httptest.NewRecorder()
-			engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/probe", nil))
+			engine.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil))
 			assert.Equal(t, http.StatusOK, w.Code)
 			assert.Equal(t, test.want, admitted)
 		})
@@ -215,7 +215,7 @@ func TestWithBalanceCheck_OverrideShortCircuitsAndFlagsContext(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	engine.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.True(t, hasOverride, "override flag must reach the request context")
@@ -228,7 +228,7 @@ func TestWithBalanceCheck_FailClosedOnRepoError(t *testing.T) {
 	// incurred but no debit is possible. 503 prompts the client to retry
 	// rather than silently spend against an unknown balance.
 	repo := &stubBillingRepo{balanceErr: errors.New("conn refused")}
-	w, reached := runMiddleware(t, repo, 1_000_000, "org_x")
+	w, reached := runMiddleware(t, repo, 1_000_000)
 	assert.False(t, reached, "infra error must not allow request through")
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 
@@ -245,14 +245,14 @@ func TestWithBalanceCheck_AllowsZeroThreshold(t *testing.T) {
 	// minBalanceMicros=0 means "only 402 when the balance is actually
 	// at or below zero". A small positive balance must pass through.
 	repo := &stubBillingRepo{balance: 1}
-	_, reached := runMiddleware(t, repo, 0, "org_x")
+	_, reached := runMiddleware(t, repo, 0)
 	assert.True(t, reached, "positive balance must pass when threshold is zero")
 }
 
 func TestWithBalanceCheck_BlocksAtZeroWhenThresholdIsZero(t *testing.T) {
 	// At threshold=0, balance=0 still trips the ≤ check and returns 402.
 	repo := &stubBillingRepo{balance: 0}
-	w, reached := runMiddleware(t, repo, 0, "org_x")
+	w, reached := runMiddleware(t, repo, 0)
 	assert.False(t, reached)
 	assert.Equal(t, http.StatusPaymentRequired, w.Code)
 }
@@ -275,7 +275,7 @@ func TestWithBalanceCheck_SkipsWhenInstallationMissing(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	engine.ServeHTTP(w, req)
 	assert.True(t, reached)
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -287,7 +287,7 @@ func TestWithBalanceCheck_ExemptsSubscriptionRequest(t *testing.T) {
 	// prepaid credits don't apply.
 	repo := &stubBillingRepo{balance: 0}
 	setInstall := func(c *gin.Context) { withInstallation(c, "org_sub") }
-	w, reached := runMiddlewareWith(t, repo, 0, "/v1/messages", setInstall, "Bearer sk-ant-oat-abc123")
+	w, reached := runMiddlewareWith(t, repo, setInstall, "Bearer sk-ant-oat-abc123")
 	assert.True(t, reached, "subscription request must pass even at zero balance")
 	assert.Equal(t, http.StatusOK, w.Code)
 }
@@ -297,7 +297,7 @@ func TestWithBalanceCheck_402sWithoutSubscriptionCredential(t *testing.T) {
 	// a paid model, so a depleted balance must still 402.
 	repo := &stubBillingRepo{balance: 0}
 	setInstall := func(c *gin.Context) { withInstallation(c, "org_sub") }
-	w, reached := runMiddlewareWith(t, repo, 0, "/v1/messages", setInstall, "")
+	w, reached := runMiddlewareWith(t, repo, setInstall, "")
 	assert.False(t, reached, "no subscription credential means the paid path is gated")
 	assert.Equal(t, http.StatusPaymentRequired, w.Code)
 }
@@ -310,7 +310,7 @@ func TestWithBalanceCheck_ExemptsSubscriptionRegardlessOfUsageBypass(t *testing.
 	// free for the org, so a depleted prepaid balance must NOT 402 it.
 	repo := &stubBillingRepo{balance: 0}
 	setInstall := func(c *gin.Context) { withInstallation(c, "org_prepaid") }
-	w, reached := runMiddlewareWith(t, repo, 0, "/v1/messages", setInstall, "Bearer sk-ant-oat-abc123")
+	w, reached := runMiddlewareWith(t, repo, setInstall, "Bearer sk-ant-oat-abc123")
 	assert.True(t, reached, "a subscription request must pass regardless of usage-bypass config")
 	assert.Equal(t, http.StatusOK, w.Code)
 }
@@ -320,7 +320,7 @@ func TestWithBalanceCheck_ExemptsSubscriptionWhenBalanceRowMissing(t *testing.T)
 	// Its turns are free, so a missing row must exempt, not 402.
 	repo := &stubBillingRepo{balanceErr: billing.ErrBalanceRowMissing}
 	setInstall := func(c *gin.Context) { withUsageBypassInstallation(c, "org_sub") }
-	w, reached := runMiddlewareWith(t, repo, 0, "/v1/messages", setInstall, "Bearer sk-ant-oat-abc123")
+	w, reached := runMiddlewareWith(t, repo, setInstall, "Bearer sk-ant-oat-abc123")
 	assert.True(t, reached, "subscription request with no balance row must pass")
 	assert.Equal(t, http.StatusOK, w.Code)
 }
@@ -329,7 +329,7 @@ func TestWithBalanceCheck_ExemptsSubscriptionWhenBalanceRowMissing(t *testing.T)
 // that runs before the middleware (to stash installation + request-context
 // values the way WithAuth would), returning the recorder, whether the handler
 // was reached, and whether the override context flag was planted.
-func runMiddlewarePrep(t *testing.T, repo billing.Repo, threshold int64, routePath string, prep func(*gin.Context)) (*httptest.ResponseRecorder, bool, bool) {
+func runMiddlewarePrep(t *testing.T, repo billing.Repo, routePath string, prep func(*gin.Context)) (*httptest.ResponseRecorder, bool, bool) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	svc := billing.NewService(repo)
@@ -338,7 +338,7 @@ func runMiddlewarePrep(t *testing.T, repo billing.Repo, threshold int64, routePa
 	hasOverride := false
 	engine.GET(routePath, func(c *gin.Context) {
 		prep(c)
-		middleware.WithBalanceCheck(svc, threshold)(c)
+		middleware.WithBalanceCheck(svc, 0)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -347,7 +347,7 @@ func runMiddlewarePrep(t *testing.T, repo billing.Repo, threshold int64, routePa
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, routePath, nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, routePath, nil)
 	engine.ServeHTTP(w, req)
 	return w, reached, hasOverride
 }
@@ -376,7 +376,7 @@ func TestWithBalanceCheck_402sJunkAnthropicOAuth(t *testing.T) {
 		withUsageBypassInstallation(c, "org_sub")
 		stashAnthropicSub(c, "not-a-real-token")
 	}
-	w, reached, _ := runMiddlewarePrep(t, repo, 0, "/v1/messages", prep)
+	w, reached, _ := runMiddlewarePrep(t, repo, "/v1/messages", prep)
 	assert.False(t, reached, "junk OAuth value must not exempt the gate")
 	assert.Equal(t, http.StatusPaymentRequired, w.Code)
 }
@@ -389,7 +389,7 @@ func TestWithBalanceCheck_ExemptsValidAnthropicOAuth(t *testing.T) {
 		withUsageBypassInstallation(c, "org_sub")
 		stashAnthropicSub(c, "sk-ant-oat01-valid-token")
 	}
-	w, reached, _ := runMiddlewarePrep(t, repo, 0, "/v1/messages", prep)
+	w, reached, _ := runMiddlewarePrep(t, repo, "/v1/messages", prep)
 	assert.True(t, reached, "a valid subscription must exempt the gate")
 	assert.Equal(t, http.StatusOK, w.Code)
 }
@@ -403,7 +403,7 @@ func TestWithBalanceCheck_OverrideFlagSetEvenForSubscriptionRequest(t *testing.T
 		withUsageBypassInstallation(c, "org_override")
 		stashAnthropicSub(c, "sk-ant-oat01-valid-token")
 	}
-	w, reached, hasOverride := runMiddlewarePrep(t, repo, 0, "/v1/messages", prep)
+	w, reached, hasOverride := runMiddlewarePrep(t, repo, "/v1/messages", prep)
 	assert.True(t, reached, "override org must reach the handler")
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.True(t, hasOverride, "override flag must be planted even when a subscription is present")
@@ -417,7 +417,7 @@ func TestWithBalanceCheck_ExemptsCodexSubscriptionOnOpenAIRoute(t *testing.T) {
 		withUsageBypassInstallation(c, "org_codex")
 		stashCodexSub(c, "eyJhbGciOi.codex.jwt", "acct-abc-123")
 	}
-	w, reached, _ := runMiddlewarePrep(t, repo, 0, "/v1/responses", prep)
+	w, reached, _ := runMiddlewarePrep(t, repo, "/v1/responses", prep)
 	assert.True(t, reached, "a Codex subscription must exempt an OpenAI-route request")
 	assert.Equal(t, http.StatusOK, w.Code)
 }
@@ -431,7 +431,7 @@ func TestWithBalanceCheck_402sCodexSubscriptionOnAnthropicRoute(t *testing.T) {
 		withUsageBypassInstallation(c, "org_codex")
 		stashCodexSub(c, "eyJhbGciOi.codex.jwt", "acct-abc-123")
 	}
-	w, reached, _ := runMiddlewarePrep(t, repo, 0, "/v1/messages", prep)
+	w, reached, _ := runMiddlewarePrep(t, repo, "/v1/messages", prep)
 	assert.False(t, reached, "a Codex sub must not exempt an Anthropic-route request")
 	assert.Equal(t, http.StatusPaymentRequired, w.Code)
 }
@@ -459,7 +459,7 @@ func TestWithBalanceCheck_SubscriptionOnlyAtDepletedBalance(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
-	engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/messages", nil))
+	engine.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/messages", nil))
 	assert.True(t, reached, "subscription request at the prepaid threshold must pass through")
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.True(t, subOnly, "at the prepaid threshold the request must be flagged subscription-only")
@@ -487,7 +487,7 @@ func TestWithBalanceCheck_SubscriptionOnlyWhenBalanceRowMissing(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
-	engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/messages", nil))
+	engine.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/messages", nil))
 	assert.True(t, reached, "subscription request with no balance row must pass through")
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.True(t, subOnly, "missing balance row must force subscription-only serving")
@@ -499,7 +499,7 @@ func TestWithBalanceCheck_NonSubscriptionStill402sBelowZero(t *testing.T) {
 	// must still 402.
 	repo := &stubBillingRepo{balance: -1}
 	setInstall := func(c *gin.Context) { withInstallation(c, "org_sub") }
-	w, reached := runMiddlewareWith(t, repo, 0, "/v1/messages", setInstall, "")
+	w, reached := runMiddlewareWith(t, repo, setInstall, "")
 	assert.False(t, reached, "a non-subscription request below zero must still gate")
 	assert.Equal(t, http.StatusPaymentRequired, w.Code)
 }
@@ -519,7 +519,7 @@ func TestWithBalanceCheck_ExemptsSubscriberAllowanceCoveredRequest(t *testing.T)
 	// A covered turn debits 0 on the org balance and settles against the
 	// subscriber's allowance, so a depleted org balance must not 402 it.
 	repo := &stubBillingRepo{balance: 0}
-	w, reached, _ := runMiddlewarePrep(t, repo, 0, "/v1/messages", func(c *gin.Context) {
+	w, reached, _ := runMiddlewarePrep(t, repo, "/v1/messages", func(c *gin.Context) {
 		withInstallation(c, "org_subscriber")
 		stashSubscriberCoverage(c)
 	})
@@ -539,7 +539,7 @@ func TestWithBalanceCheck_MarksWeaveCreditsDenied(t *testing.T) {
 			denied = billing.WeaveCreditsDeniedFromContext(c.Request.Context())
 			c.Status(http.StatusOK)
 		})
-		engine.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/probe", nil))
+		engine.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil))
 		assert.Equal(t, !allowed, denied, "allowed=%v", allowed)
 	}
 }
@@ -570,7 +570,7 @@ func TestWithBalanceCheck_CreditsDisabledIgnoresBalance(t *testing.T) {
 				c.Status(http.StatusOK)
 			})
 			w := httptest.NewRecorder()
-			engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/messages", nil))
+			engine.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/messages", nil))
 			assert.Equal(t, repo.override, override, "an override still exempts monthly spend caps")
 			assert.True(t, reached, "a credits-disabled installation must not be gated on its balance")
 			assert.Equal(t, http.StatusOK, w.Code)

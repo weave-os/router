@@ -40,7 +40,7 @@ func analyticsAuthEngine(t *testing.T, rawToken string, scope auth.APIKeyScope, 
 
 func analyticsProbe(t *testing.T, engine *gin.Engine, token string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rr := httptest.NewRecorder()
 	engine.ServeHTTP(rr, req)
@@ -79,7 +79,7 @@ func TestWithAnalyticsKeyRejectsMissingToken(t *testing.T) {
 		t.Error("an unauthenticated request must never reach the export handler")
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	rr := httptest.NewRecorder()
 	engine.ServeHTTP(rr, req)
 
@@ -110,7 +110,7 @@ func TestWithAuthRejectsAnalyticsKey(t *testing.T) {
 		t.Error("an analytics key must never reach an inference route")
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	req.Header.Set(middleware.RouterKeyHeader, token)
 	rr := httptest.NewRecorder()
 	engine.ServeHTTP(rr, req)
@@ -169,7 +169,7 @@ func TestWithReadKeyResolvesTheSameInstallationForRoutingAndAnalyticsKeys(t *tes
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			sawInstallation, sawKey = "", ""
-			req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 			req.Header.Set(test.header, test.token)
 			rr := httptest.NewRecorder()
 			engine.ServeHTTP(rr, req)

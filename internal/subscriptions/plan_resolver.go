@@ -2,14 +2,16 @@ package subscriptions
 
 import (
 	"context"
+	"fmt"
 	"time"
+
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy/usage"
 
 	"github.com/google/uuid"
 	lru "github.com/hashicorp/golang-lru/v2"
 	"golang.org/x/sync/singleflight"
-	"weave-os/router/internal/observability"
-	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy/usage"
 )
 
 type subscriptionPlanReading struct {
@@ -77,7 +79,11 @@ func (r *PlanResolver) Resolve(ctx context.Context, token []byte) providers.Subs
 	case <-ctx.Done():
 		return providers.SubscriptionPlanUnknown
 	case outcome := <-result:
-		reading := outcome.Val.(subscriptionPlanReading)
+		reading, ok := outcome.Val.(subscriptionPlanReading)
+		if !ok {
+			observability.FromContext(ctx).Error("Claude subscription plan lookup returned an unexpected value", "value_type", fmt.Sprintf("%T", outcome.Val))
+			return providers.SubscriptionPlanUnknown
+		}
 		return reading.plan
 	}
 }

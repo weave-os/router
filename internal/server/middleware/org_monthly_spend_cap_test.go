@@ -34,7 +34,7 @@ func runOrgMonthlyCap(t *testing.T, externalID string, repo *stubBillingRepo) (*
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	engine.ServeHTTP(w, req)
 	return w, reached
 }
@@ -83,14 +83,14 @@ func TestOrgMonthlySpendCap_NoInstallationPassesThrough(t *testing.T) {
 // caller-supplied installation setter and optional Authorization header,
 // returning the recorder, the reached flag, and whether the request context
 // was flagged subscription-only.
-func runOrgMonthlyCapSub(t *testing.T, routePath string, setInstall func(*gin.Context), authHeader string, repo *stubBillingRepo) (*httptest.ResponseRecorder, bool, bool) {
+func runOrgMonthlyCapSub(t *testing.T, setInstall func(*gin.Context), authHeader string, repo *stubBillingRepo) (*httptest.ResponseRecorder, bool, bool) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	svc := billing.NewService(repo)
 	engine := gin.New()
 	reached := false
 	subOnly := false
-	engine.GET(routePath, func(c *gin.Context) {
+	engine.GET("/v1/messages", func(c *gin.Context) {
 		setInstall(c)
 		middleware.WithOrgMonthlySpendCap(svc)(c)
 		if c.IsAborted() {
@@ -105,7 +105,7 @@ func runOrgMonthlyCapSub(t *testing.T, routePath string, setInstall func(*gin.Co
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, routePath, nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/messages", nil)
 	if authHeader != "" {
 		req.Header.Set("Authorization", authHeader)
 	}
@@ -118,7 +118,7 @@ func TestOrgMonthlySpendCap_CapReachedCoveringSubscriptionServesSubscriptionOnly
 	// pass through flagged subscription-only, not 402. The cap bounds paid spend.
 	repo := &stubBillingRepo{orgMonthSpent: 1_000_000, orgMonthLimit: capPtr(1_000_000)}
 	setInstall := func(c *gin.Context) { withUsageBypassInstallation(c, "org_sub") }
-	w, reached, subOnly := runOrgMonthlyCapSub(t, "/v1/messages", setInstall, "Bearer sk-ant-oat-abc123", repo)
+	w, reached, subOnly := runOrgMonthlyCapSub(t, setInstall, "Bearer sk-ant-oat-abc123", repo)
 	assert.True(t, reached, "a covered turn must pass even when the cap is reached")
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.True(t, subOnly, "the request must be flagged subscription-only")
@@ -127,7 +127,7 @@ func TestOrgMonthlySpendCap_CapReachedCoveringSubscriptionServesSubscriptionOnly
 func TestOrgMonthlySpendCap_CapReachedNoSubscriptionStillRejected(t *testing.T) {
 	repo := &stubBillingRepo{orgMonthSpent: 1_000_000, orgMonthLimit: capPtr(1_000_000)}
 	setInstall := func(c *gin.Context) { withUsageBypassInstallation(c, "org_sub") }
-	w, reached, _ := runOrgMonthlyCapSub(t, "/v1/messages", setInstall, "", repo)
+	w, reached, _ := runOrgMonthlyCapSub(t, setInstall, "", repo)
 	assert.False(t, reached, "no subscription credential means the paid path is gated")
 	assert.Equal(t, http.StatusPaymentRequired, w.Code)
 }
@@ -137,7 +137,7 @@ func TestOrgMonthlySpendCap_CapReachedSubscriptionWithoutBypassServesSubscriptio
 	// not on UsageBypassEnabled (matching WithBalanceCheck).
 	repo := &stubBillingRepo{orgMonthSpent: 1_000_000, orgMonthLimit: capPtr(1_000_000)}
 	setInstall := func(c *gin.Context) { withInstallation(c, "org_prepaid") }
-	w, reached, subOnly := runOrgMonthlyCapSub(t, "/v1/messages", setInstall, "Bearer sk-ant-oat-abc123", repo)
+	w, reached, subOnly := runOrgMonthlyCapSub(t, setInstall, "Bearer sk-ant-oat-abc123", repo)
 	assert.True(t, reached, "a covered turn must pass even when the org lacks the usage-bypass toggle")
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.True(t, subOnly, "the request must be flagged subscription-only")
@@ -162,7 +162,7 @@ func TestOrgMonthlySpendCap_OverridePassesThrough(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
-	engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/probe", nil))
+	engine.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil))
 	assert.True(t, reached, "billing-override orgs bypass the monthly cap")
 	assert.Equal(t, http.StatusOK, w.Code)
 }
@@ -175,7 +175,7 @@ func TestOrgMonthlySpendCap_ExemptsSubscriberAllowanceCoveredRequest(t *testing.
 		withInstallation(c, "org_subscriber")
 		stashSubscriberCoverage(c)
 	}
-	w, reached, _ := runOrgMonthlyCapSub(t, "/v1/messages", setInstall, "", repo)
+	w, reached, _ := runOrgMonthlyCapSub(t, setInstall, "", repo)
 	assert.True(t, reached, "an allowance-covered turn is not gated on the org monthly spend cap")
 	assert.Equal(t, http.StatusOK, w.Code)
 }

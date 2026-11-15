@@ -43,6 +43,7 @@ func (document *argumentDocument) lookupNode(node *argumentNode, path []string) 
 		if ok && index < len(node.arrayElements) {
 			return document.lookupNode(node.arrayElements[index].value, path[1:])
 		}
+	case argumentString, argumentNumber, argumentBoolean, argumentNull:
 	}
 	return nil
 }

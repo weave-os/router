@@ -52,7 +52,7 @@ func TestNativeCodexSubscriptionWithDepletedCredits(t *testing.T) {
 			ctx = WithManagedSubscriptionUsage(billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted))
 			body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"inspect synthetic input"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
 			recorder := httptest.NewRecorder()
-			err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), recorder, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body)))
+			err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), recorder, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(body)))
 			require.NoError(t, err)
 			require.Equal(t, []string{expectedBearer}, authorizations)
 			require.Equal(t, []string{codexTestAccountID}, accountIDs)

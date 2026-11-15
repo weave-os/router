@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSplitModelAction(t *testing.T) {
@@ -62,7 +63,15 @@ func TestSplitModelAction(t *testing.T) {
 func TestInjectModelAndStream(t *testing.T) {
 	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
 	out, err := injectModelAndStream(body, "gemini-1.5-pro", true)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Contains(t, string(out), `"model":"gemini-1.5-pro"`)
 	assert.Contains(t, string(out), `"stream":true`)
+}
+
+func TestInjectModelAndStreamRejectsBodiesThatAreNotAJSONObject(t *testing.T) {
+	const model = "gemini-2.5-flash"
+	for _, body := range []string{`{"contents":`, `[]`, `"contents"`, ``} {
+		_, err := injectModelAndStream([]byte(body), model, false)
+		assert.Error(t, err, "body %q", body)
+	}
 }

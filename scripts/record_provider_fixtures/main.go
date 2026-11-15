@@ -117,7 +117,7 @@ func record(client *http.Client, c recordCase, apiKey string) (err error) {
 		return fmt.Errorf("emit upstream request: %w", err)
 	}
 
-	url, hdr := endpoint(c, apiKey, prep)
+	url, hdr := endpoint(c, apiKey)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, bytes.NewReader(prep.Body))
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
@@ -142,10 +142,10 @@ func record(client *http.Client, c recordCase, apiKey string) (err error) {
 	}
 
 	path := filepath.Join(fixtureRoot, c.fixture)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
-	return os.WriteFile(path, body, 0o644)
+	return os.WriteFile(path, body, 0o600)
 }
 
 func prepare(env *translate.RequestEnvelope, f format, opts translate.EmitOptions) (providers.PreparedRequest, error) {
@@ -164,7 +164,7 @@ func prepare(env *translate.RequestEnvelope, f format, opts translate.EmitOption
 }
 
 // endpoint returns the live upstream URL and auth headers for a case.
-func endpoint(c recordCase, apiKey string, prep providers.PreparedRequest) (string, map[string]string) {
+func endpoint(c recordCase, apiKey string) (string, map[string]string) {
 	switch c.format {
 	case formatOpenAIChat:
 		if c.provider == providers.ProviderOpenRouter {

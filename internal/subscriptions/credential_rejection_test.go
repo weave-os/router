@@ -11,10 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/subscriptions"
+
+	"github.com/stretchr/testify/require"
 )
 
 func (s *runtimeStore) RecordSubscriptionCredentialRejection(_ context.Context, _ auth.SubscriptionOwner, accountID string, input auth.SubscriptionCredentialRejectionInput) (auth.SubscriptionCredentialRejection, error) {
@@ -170,11 +171,11 @@ func TestRuntimeCodexRefreshWithoutUserClaimKeepsAccount(t *testing.T) {
 
 // seedSustainedRejections leaves the account one strike short of reconnect,
 // with strikes spanning longer than the minimum span.
-func seedSustainedRejections(store *runtimeStore, accountID string) {
+func seedSustainedRejections(store *runtimeStore) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	store.rejections = map[string]auth.SubscriptionCredentialRejection{accountID: {Count: 2, FirstRejectedAt: time.Now().Add(-7 * time.Hour)}}
-	store.rejectionReasons = map[string]string{accountID: "refresh_http_401"}
+	store.rejections = map[string]auth.SubscriptionCredentialRejection{"account-1": {Count: 2, FirstRejectedAt: time.Now().Add(-7 * time.Hour)}}
+	store.rejectionReasons = map[string]string{"account-1": "refresh_http_401"}
 }
 
 func TestRuntimeStaleRefresherRecordsNoRejectionStrike(t *testing.T) {
@@ -260,7 +261,7 @@ func TestRuntimeReplicaDropsCachedTokenRejectedElsewhere(t *testing.T) {
 
 func TestRuntimeFailedDisconnectWriteDoesNotEmitCommittedDisconnect(t *testing.T) {
 	store := newRejectionStore(auth.SubscriptionProviderClaude)
-	seedSustainedRejections(store, "account-1")
+	seedSustainedRejections(store)
 	store.stateErr = fmt.Errorf("synthetic disconnect write rejected")
 	var output bytes.Buffer
 	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&output, nil)))
@@ -288,7 +289,7 @@ func (s *simultaneousCredentialRejections) RecordSubscriptionCredentialRejection
 
 func TestRuntimeConcurrentRejectionsEmitOneDisconnectSignal(t *testing.T) {
 	store := &simultaneousCredentialRejections{runtimeStore: newRejectionStore(auth.SubscriptionProviderClaude)}
-	seedSustainedRejections(store.runtimeStore, "account-1")
+	seedSustainedRejections(store.runtimeStore)
 	store.recorded.Add(2)
 	var output bytes.Buffer
 	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&output, nil)))
@@ -313,7 +314,7 @@ func TestRuntimeConcurrentRejectionsEmitOneDisconnectSignal(t *testing.T) {
 
 func TestRuntimeRejectedHealthWritePreservesEnabledState(t *testing.T) {
 	store := newRejectionStore(auth.SubscriptionProviderClaude)
-	seedSustainedRejections(store, "account-1")
+	seedSustainedRejections(store)
 	store.stateErr = fmt.Errorf("synthetic rejected health transition")
 	var output bytes.Buffer
 	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&output, nil)))

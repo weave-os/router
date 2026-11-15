@@ -46,7 +46,7 @@ func TestWithAuthInferenceOrganizationAllowlist(t *testing.T) {
 				handlerReached = true
 				c.Status(http.StatusNoContent)
 			})
-			request := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 			request.Header.Set("Authorization", "Bearer "+routerToken)
 			response := httptest.NewRecorder()
 			engine.ServeHTTP(response, request)

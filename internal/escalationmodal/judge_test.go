@@ -7,9 +7,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/escalationmodal"
 	"weave-os/router/internal/router/llmescalation"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestJudgeRecordsServedReleaseAndRejectsMalformedIdentity(t *testing.T) {
@@ -19,19 +21,19 @@ func TestJudgeRecordsServedReleaseAndRejectsMalformedIdentity(t *testing.T) {
 	promptHash := "6fc829a3bc36d3f5c2cd2705ee28ba3d4f61dc5380313adf2012bfab22a8f9a0"
 	served := map[string]any{"release_name": releaseName, "model_sha256": modelHash, "prompt_sha256": promptHash}
 	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		require.Equal(t, "/classify", request.URL.Path)
-		require.Equal(t, "Bearer "+apiKey, request.Header.Get("Authorization"))
-		require.Equal(t, llmescalation.QwenRendererVersion, request.Header.Get(llmescalation.QwenRendererHeader))
+		assert.Equal(t, "/classify", request.URL.Path)
+		assert.Equal(t, "Bearer "+apiKey, request.Header.Get("Authorization"))
+		assert.Equal(t, llmescalation.QwenRendererVersion, request.Header.Get(llmescalation.QwenRendererHeader))
 		var input struct {
 			User string `json:"user"`
 		}
-		require.NoError(t, json.NewDecoder(request.Body).Decode(&input))
-		require.Equal(t, "five completed turns", input.User)
+		assert.NoError(t, json.NewDecoder(request.Body).Decode(&input))
+		assert.Equal(t, "five completed turns", input.User)
 		response := map[string]any{"prediction": 1, "raw_is_digit": true, "probabilities": []float64{0.1, 0.9}, "input_tokens": 250}
 		for field, value := range served {
 			response[field] = value
 		}
-		require.NoError(t, json.NewEncoder(writer).Encode(response))
+		assert.NoError(t, json.NewEncoder(writer).Encode(response))
 	}))
 	defer server.Close()
 	judge, err := escalationmodal.NewJudge(server.URL, apiKey, server.Client())

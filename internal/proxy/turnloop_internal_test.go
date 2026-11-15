@@ -1470,7 +1470,7 @@ func TestService_NewService_HMMUpgradeConfidenceDefaults(t *testing.T) {
 		"anthropic", "claude-haiku-4-5",
 		nil,
 	)
-	assert.Equal(t, DefaultHMMUpgradeConfidenceThreshold, svc.hmmUpgradeConfidenceThreshold)
+	assert.InDelta(t, DefaultHMMUpgradeConfidenceThreshold, svc.hmmUpgradeConfidenceThreshold, 1e-9)
 }
 
 func TestService_WithHMMUpgradeConfidenceThreshold(t *testing.T) {
@@ -1485,16 +1485,16 @@ func TestService_WithHMMUpgradeConfidenceThreshold(t *testing.T) {
 	)
 
 	svc.WithHMMUpgradeConfidenceThreshold(0.50)
-	assert.Equal(t, 0.50, svc.hmmUpgradeConfidenceThreshold)
+	assert.InDelta(t, 0.50, svc.hmmUpgradeConfidenceThreshold, 1e-9)
 
 	svc.WithHMMUpgradeConfidenceThreshold(-0.10)
-	assert.Equal(t, 0.50, svc.hmmUpgradeConfidenceThreshold)
+	assert.InDelta(t, 0.50, svc.hmmUpgradeConfidenceThreshold, 1e-9)
 
 	svc.WithHMMUpgradeConfidenceThreshold(1.50)
-	assert.Equal(t, 0.50, svc.hmmUpgradeConfidenceThreshold)
+	assert.InDelta(t, 0.50, svc.hmmUpgradeConfidenceThreshold, 1e-9)
 
 	svc.WithHMMUpgradeConfidenceThreshold(0.0)
-	assert.Equal(t, 0.0, svc.hmmUpgradeConfidenceThreshold)
+	assert.InDelta(t, 0.0, svc.hmmUpgradeConfidenceThreshold, 1e-9)
 }
 
 func TestHMMCostGate_UpgradeThresholdConfigurable(t *testing.T) {

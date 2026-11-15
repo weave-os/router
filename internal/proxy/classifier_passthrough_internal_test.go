@@ -206,7 +206,7 @@ func TestBypass_ClassifierPassthrough_TelemetryReason(t *testing.T) {
 	require.NoError(t, err)
 	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	req.Header.Set("Authorization", "Bearer "+classifierTestSubToken)
 	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, uuid.New().String())
 

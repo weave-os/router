@@ -31,7 +31,7 @@ func activateCohort(t *testing.T) (*servingMemoryStore, policyregistry.Selection
 
 func TestExportServingTargetServesActiveDefaultLaneFromDirectory(t *testing.T) {
 	store, set := activateCohort(t)
-	candidate := store.object(t, policyregistry.ServingCandidate, set.Code.Candidate).(*policyregistry.CandidateV2)
+	candidate := mustAs[*policyregistry.CandidateV2](t, store.object(t, policyregistry.ServingCandidate, set.Code.Candidate))
 	dir := t.TempDir()
 	exported, err := policyregistry.ExportServingTarget(context.Background(), store, set.Target, dir, "")
 	require.NoError(t, err)
