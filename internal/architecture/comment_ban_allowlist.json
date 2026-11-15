@@ -38,10 +38,6 @@
       "banned_lines": 31
     },
     {
-      "package": "internal/flags",
-      "banned_lines": 108
-    },
-    {
       "package": "internal/inference",
       "banned_lines": 74
     },
@@ -50,16 +46,8 @@
       "banned_lines": 94
     },
     {
-      "package": "internal/observability",
-      "banned_lines": 123
-    },
-    {
       "package": "internal/observability/otel",
       "banned_lines": 62
-    },
-    {
-      "package": "internal/policyclient",
-      "banned_lines": 134
     },
     {
       "package": "internal/policyregistry",
@@ -178,20 +166,12 @@
       "banned_lines": 78
     },
     {
-      "package": "internal/server",
-      "banned_lines": 128
-    },
-    {
       "package": "internal/server/middleware",
       "banned_lines": 315
     },
     {
       "package": "internal/sse",
       "banned_lines": 77
-    },
-    {
-      "package": "internal/subscriptions",
-      "banned_lines": 163
     },
     {
       "package": "internal/subscriptions/entitlement",
