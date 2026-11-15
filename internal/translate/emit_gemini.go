@@ -256,30 +256,7 @@ func writeGeminiFromOpenAI(jw *jsonWriter, body []byte, opts EmitOptions) error 
 		})
 		return true
 	})
-	// Collect system text.
-	var sysParts []string
-	msgs.ForEach(func(_, msg gjson.Result) bool {
-		if msg.Get("role").String() != "system" {
-			return true
-		}
-		content := msg.Get("content")
-		switch content.Type {
-		case gjson.String:
-			if s := content.String(); s != "" {
-				sysParts = append(sysParts, s)
-			}
-		case gjson.JSON:
-			content.ForEach(func(_, part gjson.Result) bool {
-				if part.Get("type").String() == "text" {
-					if s := part.Get("text").String(); s != "" {
-						sysParts = append(sysParts, s)
-					}
-				}
-				return true
-			})
-		}
-		return true
-	})
+	sysParts := openAISystemTextParts(msgs)
 	if reminder := geminiSystemReminder(opts.TargetModel); reminder != "" && hasNonEmptyTools(body) {
 		sysParts = append(sysParts, reminder)
 	}
@@ -395,6 +372,7 @@ func openAIUserPartsGJSON(content gjson.Result) []string {
 			return true
 		})
 		return parts
+	default:
 	}
 	return nil
 }
@@ -633,6 +611,7 @@ func writeGeminiFromAnthropic(jw *jsonWriter, body []byte, opts EmitOptions) err
 			}
 			return true
 		})
+	default:
 	}
 	if reminder := geminiSystemReminder(opts.TargetModel); reminder != "" && hasNonEmptyTools(body) {
 		sysParts = append(sysParts, reminder)
@@ -866,6 +845,7 @@ func anthropicUserPartsGJSON(content gjson.Result, toolNames map[string]string) 
 			return true
 		})
 		return parts
+	default:
 	}
 	return nil
 }
@@ -938,6 +918,7 @@ func anthropicAssistantPartsGJSON(content gjson.Result) []string {
 			return true
 		})
 		return parts
+	default:
 	}
 	return nil
 }
@@ -1034,6 +1015,7 @@ func writeGeminiToolChoice(jw *jsonWriter, body []byte, model string, downgradeV
 		writeGeminiFunctionCallingMode(jw, "NONE", "")
 	case toolChoiceNamed:
 		writeGeminiFunctionCallingMode(jw, "ANY", name)
+	case toolChoiceAbsent, toolChoiceUnrecognized:
 	}
 }
 
@@ -1138,6 +1120,7 @@ func geminiThinkingActive(intent ReasoningIntent, opts EmitOptions) bool {
 		return intent.BudgetTokens > 0
 	case ReasoningLevel:
 		return intent.Level != "none"
+	case ReasoningAuto:
 	}
 	return true
 }

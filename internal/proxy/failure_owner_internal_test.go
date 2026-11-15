@@ -65,6 +65,7 @@ func TestDispatchErrorKindOwner_EveryKindLabeled(t *testing.T) {
 		switch kind {
 		case DispatchErrorNone, DispatchErrorUpstreamStatus:
 			continue
+		default:
 		}
 		assert.NotEqual(t, FailureOwnerUnknown, dispatchErrorKindOwner(kind), "%s has no failure owner", name)
 	}

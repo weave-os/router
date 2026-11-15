@@ -18,6 +18,7 @@ func (t *ResponsesWriter) validateNativeResponsesEvent(event gjson.Result) error
 			t.nativeEmptyRejected = true
 			return emptyCompletionOpenAIError()
 		}
+	default:
 	}
 	return nil
 }
@@ -36,6 +37,7 @@ func nativeResponsesEventHasUsableOutput(event gjson.Result) bool {
 		return event.Get("part.text").Str != ""
 	case responsesOutputItemAdded, responsesOutputItemDone:
 		return nativeResponsesItemHasUsableOutput(event.Get("item"))
+	default:
 	}
 	return false
 }
@@ -64,6 +66,21 @@ func (t *ResponsesWriter) writeNativeResponsesFrame(event, delimiter []byte) err
 	switch responsesEventType(root.Get("type").Str) {
 	case responsesCompleted, responsesIncomplete, responsesFailed:
 		t.completedEmitted = true
+	default:
 	}
 	return nil
+}
+
+func (t *ResponsesWriter) shouldHoldNativeEvent(eventType responsesEventType, itemType responsesItemType) bool {
+	if t.footerText == "" || t.sawToolCall {
+		return false
+	}
+	switch eventType {
+	case responsesOutputTextDone, responsesContentPartDone:
+		return true
+	case responsesOutputItemDone:
+		return itemType == responsesMessageItem || itemType == ""
+	default:
+	}
+	return false
 }

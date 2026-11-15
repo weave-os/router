@@ -15,6 +15,7 @@ linters:
     - errcheck
     - bodyclose
     - nilerr
+    - exhaustive
   settings:
     testifylint:
       enable-all: true
@@ -36,6 +37,8 @@ linters:
       comparison: true
       asserts: true
       errorf: false
+    exhaustive:
+      default-signifies-exhaustive: true
     depguard:
       rules:
         leaf:

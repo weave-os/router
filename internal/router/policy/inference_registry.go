@@ -393,32 +393,6 @@ func validateOverridePrecedence(spec PolicySpec) error {
 	return nil
 }
 
-func validateSelectionContract(spec PolicySpec) error {
-	switch spec.SelectionStrategy {
-	case SelectionStrategyRouter:
-		if spec.CandidateSource != CandidateSourceRoutableCatalog {
-			return fmt.Errorf("router-selected policy %q must use routable catalog candidates", spec.PolicyID)
-		}
-	case SelectionStrategyDeploymentHardPin:
-		if spec.CandidateSource != CandidateSourceDeployment {
-			return fmt.Errorf("deployment hard-pin policy %q must use deployment candidates", spec.PolicyID)
-		}
-	case SelectionStrategyClientAuthoritative:
-		if spec.CandidateSource != CandidateSourceRequest {
-			return fmt.Errorf("client-authoritative policy %q must use request candidates", spec.PolicyID)
-		}
-	case SelectionStrategyPassthrough:
-		if spec.CandidateSource != CandidateSourceRequest && spec.CandidateSource != CandidateSourceDeployment {
-			return fmt.Errorf("passthrough policy %q must use request or deployment candidates", spec.PolicyID)
-		}
-	case SelectionStrategyNone:
-		if spec.CandidateSource != CandidateSourceNone && spec.CandidateSource != CandidateSourceLocal && spec.CandidateSource != CandidateSourceDeployment {
-			return fmt.Errorf("non-selecting policy %q has an invalid candidate source", spec.PolicyID)
-		}
-	}
-	return nil
-}
-
 func registryRevision(specs []PolicySpec) (string, error) {
 	payload, err := json.Marshal(struct {
 		SchemaVersion string       `json:"schema_version"`
