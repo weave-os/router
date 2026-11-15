@@ -74,8 +74,8 @@ func subscriptionOnlyUnservable(ctx context.Context, provider, model string) boo
 	return !servedOnSubscription(ctx) && !servedOnUnfundedKey(ctx) && !managedSubscriptionCanServe(ctx, provider, model)
 }
 
-// servedOnUnfundedKey reports whether an unfunded organization's turn runs on
-// a customer key that may fund it.
+// servedOnUnfundedKey keeps subscriptionOnlyUnservable from refusing an unfunded turn
+// that unfundedKeyFunds lets the customer's own key serve.
 func servedOnUnfundedKey(ctx context.Context) bool {
 	return paidCapacityUnfunded(ctx) && unfundedKeyFunds(ctx, CredentialsFromContext(ctx))
 }
