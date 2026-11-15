@@ -6,16 +6,8 @@
       "banned_lines": 343
     },
     {
-      "package": "internal/analytics",
-      "banned_lines": 85
-    },
-    {
       "package": "internal/api/admin",
       "banned_lines": 303
-    },
-    {
-      "package": "internal/api/feedback",
-      "banned_lines": 31
     },
     {
       "package": "internal/auth",
@@ -26,16 +18,8 @@
       "banned_lines": 294
     },
     {
-      "package": "internal/credentials",
-      "banned_lines": 93
-    },
-    {
       "package": "internal/dispatch",
       "banned_lines": 278
-    },
-    {
-      "package": "internal/feedback",
-      "banned_lines": 31
     },
     {
       "package": "internal/policyregistry",
@@ -56,10 +40,6 @@
     {
       "package": "internal/proxy",
       "banned_lines": 5940
-    },
-    {
-      "package": "internal/refusal",
-      "banned_lines": 17
     },
     {
       "package": "internal/requestcontext",
@@ -130,24 +110,8 @@
       "banned_lines": 239
     },
     {
-      "package": "internal/telemetry",
-      "banned_lines": 87
-    },
-    {
-      "package": "internal/timing",
-      "banned_lines": 35
-    },
-    {
-      "package": "internal/trafficcapture",
-      "banned_lines": 35
-    },
-    {
       "package": "internal/translate",
       "banned_lines": 3422
-    },
-    {
-      "package": "internal/usage",
-      "banned_lines": 32
     },
     {
       "package": "internal/websearch",
