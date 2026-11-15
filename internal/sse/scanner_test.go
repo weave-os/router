@@ -257,7 +257,7 @@ func TestScanner_EventAliasesBufferAndKeepsCapacity(t *testing.T) {
 	require.Equal(t, "event", string(event))
 	require.Equal(t, len("event\n\n"), n)
 	assert.Equal(t, cap(buf), cap(event), "owners re-slice event[:n] to forward the delimiter, so capacity must survive")
-	assert.True(t, &buf[0] == &event[0])
+	assert.Same(t, &buf[0], &event[0])
 	assert.Equal(t, "event\n\n", string(event[:n]))
 }
 
@@ -289,6 +289,6 @@ func TestScanner_LargeFrameInFixedChunksDrainsOnce(t *testing.T) {
 	events, tail := drainIncrementally(chunks)
 
 	require.Len(t, events, 1)
-	assert.Equal(t, len("data: ")+len(payload), len(events[0]))
+	assert.Len(t, events[0], len("data: ")+len(payload))
 	assert.Equal(t, "data: tail", tail)
 }

@@ -215,7 +215,7 @@ func (sp SessionPins) WriteNew(ctx context.Context, installationID uuid.UUID, se
 	sp.Upsert(ctx, p)
 }
 
-// Upsert synchronously persists a pin write. context.Background() is used
+// Upsert synchronously persists a pin write. The context drops cancellation
 // so the DB write survives request-ctx cancellation after the response has
 // finished streaming.
 func (sp SessionPins) Upsert(ctx context.Context, p sessionpin.Pin) {
@@ -223,7 +223,7 @@ func (sp SessionPins) Upsert(ctx context.Context, p sessionpin.Pin) {
 	if p.Strategy == "" {
 		p.Strategy = router.StrategyFromContext(ctx)
 	}
-	if err := sp.store.Upsert(context.Background(), p); err != nil {
+	if err := sp.store.Upsert(context.WithoutCancel(ctx), p); err != nil {
 		log.Error("session pin upsert failed", "err", err)
 		return
 	}

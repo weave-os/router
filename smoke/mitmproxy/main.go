@@ -115,6 +115,6 @@ func healthcheck(listen string) int {
 		fmt.Fprintf(os.Stderr, "mitmproxy: healthcheck dial %s: %v\n", addr, err)
 		return 1
 	}
-	conn.Close()
+	_ = conn.Close()
 	return 0
 }

@@ -29,6 +29,8 @@ func CompilableSource(schema rosterdata.SchemaVersion) bool {
 	switch schema {
 	case rosterdata.SchemaVersionV7, rosterdata.SchemaVersionV75C, rosterdata.SchemaVersionPolicyV1:
 		return true
+	case rosterdata.SchemaVersionV6:
+		return false
 	}
 	return false
 }

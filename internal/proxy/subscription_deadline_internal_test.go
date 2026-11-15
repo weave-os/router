@@ -2,20 +2,20 @@ package proxy
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"testing/synctest"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
+
+	"github.com/stretchr/testify/require"
 )
 
 const slowFirstOutput = 12 * time.Second
@@ -177,7 +177,7 @@ func TestCallerCancellationDuringSubscriptionAttemptIsTerminal(t *testing.T) {
 
 		_, err := svc.dispatchWithFallback(ctx, in)
 
-		require.True(t, errors.Is(err, context.Canceled))
+		require.ErrorIs(t, err, context.Canceled)
 		require.Equal(t, 1, calls, "caller cancellation never triggers another attempt")
 	})
 }
