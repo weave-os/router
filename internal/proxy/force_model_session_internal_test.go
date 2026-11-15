@@ -63,7 +63,7 @@ func (s *forceModelMapStore) Consume(_ context.Context, sessionKey [sessionpin.S
 	defer s.mu.Unlock()
 	key := forceModelMapKey(sessionKey, role)
 	pin, found := s.pins[key]
-	if !found || !pin.PinnedUntil.After(time.Now()) || (pin.Strategy != expected && !(pin.Strategy == "" && expected != router.StrategyHMMBeta)) {
+	if !found || !pin.PinnedUntil.After(time.Now()) || (pin.Strategy != expected && (pin.Strategy != "" || expected == router.StrategyHMMBeta)) {
 		return sessionpin.Pin{}, false, nil
 	}
 	delete(s.pins, key)
@@ -94,7 +94,7 @@ func (s *forceModelMapStore) UpdateUsage(_ context.Context, sessionKey [sessionp
 	defer s.mu.Unlock()
 	key := forceModelMapKey(sessionKey, role)
 	pin, found := s.pins[key]
-	if !found || (pin.Strategy != usage.Strategy && !(pin.Strategy == "" && usage.Strategy != router.StrategyHMMBeta)) {
+	if !found || (pin.Strategy != usage.Strategy && (pin.Strategy != "" || usage.Strategy == router.StrategyHMMBeta)) {
 		return nil
 	}
 	s.usageKeys = append(s.usageKeys, sessionKey)

@@ -442,9 +442,9 @@ func TestUpstreamErrorBodyMessage(t *testing.T) {
 	raw := &providers.UpstreamErrorResponse{Status: 502, Body: []byte("Bad Gateway from LB")}
 	assert.Equal(t, "Bad Gateway from LB", providers.UpstreamErrorBodyMessage(raw))
 
-	assert.Equal(t, "", providers.UpstreamErrorBodyMessage(nil))
-	assert.Equal(t, "", providers.UpstreamErrorBodyMessage(&providers.UpstreamStatusError{Status: 400}))
-	assert.Equal(t, "", providers.UpstreamErrorBodyMessage(&providers.UpstreamErrorResponse{Status: 400}))
+	assert.Empty(t, providers.UpstreamErrorBodyMessage(nil))
+	assert.Empty(t, providers.UpstreamErrorBodyMessage(&providers.UpstreamStatusError{Status: 400}))
+	assert.Empty(t, providers.UpstreamErrorBodyMessage(&providers.UpstreamErrorResponse{Status: 400}))
 
 	big := &providers.UpstreamErrorResponse{Status: 400, Body: []byte(strings.Repeat("x", 5000))}
 	assert.LessOrEqual(t, len(providers.UpstreamErrorBodyMessage(big)), 1024, "body is capped")

@@ -24,7 +24,7 @@ func TestResolveDefaultBaselineModel(t *testing.T) {
 
 	t.Run("explicit empty disables substitution", func(t *testing.T) {
 		t.Setenv("ROUTER_DEFAULT_BASELINE_MODEL", "")
-		assert.Equal(t, "", resolveDefaultBaselineModel())
+		assert.Empty(t, resolveDefaultBaselineModel())
 	})
 
 	t.Run("explicit value wins", func(t *testing.T) {

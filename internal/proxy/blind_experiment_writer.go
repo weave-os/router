@@ -56,7 +56,7 @@ func (b *blindExperimentWriter) WriteHeader(code int) {
 		return
 	}
 	b.wroteHeader = true
-	h := b.ResponseWriter.Header()
+	h := b.Header()
 	stripRouterResponseHeaders(h)
 	b.stream = strings.Contains(h.Get("Content-Type"), "text/event-stream")
 	if !b.stream {
@@ -99,7 +99,7 @@ func (b *blindExperimentWriter) Flush() {
 
 func (b *blindExperimentWriter) finish() {
 	if !b.wroteHeader {
-		stripRouterResponseHeaders(b.ResponseWriter.Header())
+		stripRouterResponseHeaders(b.Header())
 		return
 	}
 	b.release()
