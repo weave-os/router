@@ -24,7 +24,9 @@ type HMMCostGate struct {
 // HMMHistoryReason marks the HMM history row that outlives the session pin.
 const HMMHistoryReason = "hmm_history"
 
-// HMMReason* are the planner reasons the HMM cost gate records on its verdict.
+// Planner reasons the HMM cost gate writes on its verdict. They are recorded
+// as the turn's planner reason in telemetry and golden traces, so the values
+// must not change.
 const (
 	HMMReasonConfidentUpgrade     = "hmm_confident_upgrade"
 	HMMReasonUpgradeConfidenceLow = "hmm_upgrade_confidence_low"
@@ -54,7 +56,7 @@ func (g HMMCostGate) Decide(
 	// because HMM clusters and catalog tiers are not the same axis.
 	cfg.TierUpgradeEnabled = false
 	stayPrefix, stayPrefixKnown := CacheablePrefixTokens(stayPin, estimatedInputTokens, prefixBroken)
-	base := planner.Decide(planner.Inputs{
+	plan := planner.Decide(planner.Inputs{
 		Pin:                   stayPin,
 		Fresh:                 fresh,
 		EstimatedInputTokens:  estimatedInputTokens,
@@ -68,28 +70,28 @@ func (g HMMCostGate) Decide(
 	if HMMFreshIsMoreExpensive(stayPin.Model, fresh.Model, estimatedInputTokens) {
 		confidence, ok := HMMDecisionConfidence(fresh)
 		if ok && confidence >= g.UpgradeConfidenceThreshold {
-			base.Outcome = planner.OutcomeSwitch
-			base.Reason = HMMReasonConfidentUpgrade
-		} else if base.Outcome != planner.OutcomeSwitch {
-			base.Outcome = planner.OutcomeStay
-			base.Reason = HMMReasonUpgradeConfidenceLow
+			plan.Outcome = planner.OutcomeSwitch
+			plan.Reason = HMMReasonConfidentUpgrade
+		} else if plan.Outcome != planner.OutcomeSwitch {
+			plan.Outcome = planner.OutcomeStay
+			plan.Reason = HMMReasonUpgradeConfidenceLow
 		}
 	}
 
 	// Runs after the upgrade block, so only a plain ReasonEVPositive switch
 	// reaches here; a confident upgrade has already changed Reason.
-	if g.SameTierPin && base.Outcome == planner.OutcomeSwitch && base.Reason == planner.ReasonEVPositive {
+	if g.SameTierPin && plan.Outcome == planner.OutcomeSwitch && plan.Reason == planner.ReasonEVPositive {
 		pinTier, freshTier := catalog.TierFor(stayPin.Model), catalog.TierFor(fresh.Model)
 		if pinTier != catalog.TierUnknown && pinTier == freshTier {
-			base.Outcome = planner.OutcomeStay
-			base.Reason = planner.ReasonSameTierPinned
+			plan.Outcome = planner.OutcomeStay
+			plan.Reason = planner.ReasonSameTierPinned
 		}
 	}
 
-	if base.Outcome == planner.OutcomeStay && stayPin.Model != fresh.Model {
-		return stayPin, base, true
+	if plan.Outcome == planner.OutcomeStay && stayPin.Model != fresh.Model {
+		return stayPin, plan, true
 	}
-	return stayPin, base, false
+	return stayPin, plan, false
 }
 
 // StayPin returns the most recent eligible HMM stay candidate among the
@@ -136,10 +138,8 @@ func (g HMMCostGate) NormalizeStayPin(req router.Request, p sessionpin.Pin) (ses
 	if MaxedOutServedModel(p) != "" {
 		return sessionpin.Pin{}, false
 	}
-	if req.ExcludedModels != nil {
-		if _, excluded := req.ExcludedModels[model]; excluded {
-			return sessionpin.Pin{}, false
-		}
+	if _, excluded := req.ExcludedModels[model]; excluded {
+		return sessionpin.Pin{}, false
 	}
 	// An HMM stay is the policy re-choosing the incumbent, so a deployment-wide
 	// disable applies to it exactly as it does to a fresh selection.
@@ -185,7 +185,9 @@ func IsHMMPinReason(reason string) bool {
 		strings.HasPrefix(strings.TrimSpace(reason), "hmm_policy")
 }
 
-// IsHMMToolExecutionReason reports whether reason marks an HMM tool-execution turn.
+// IsHMMToolExecutionReason reports whether reason, ignoring surrounding
+// whitespace, starts with "hmm_policy:tool_execution"; any suffix after the tag
+// still counts.
 func IsHMMToolExecutionReason(reason string) bool {
 	return strings.HasPrefix(strings.TrimSpace(reason), "hmm_policy:tool_execution")
 }
@@ -196,7 +198,9 @@ func HMMToolExecutionPhaseChanged(stayReason, freshReason string) bool {
 	return IsHMMToolExecutionReason(stayReason) != IsHMMToolExecutionReason(freshReason)
 }
 
-// HMMDecisionConfidence returns the policy's confidence in dec, if it reported one.
+// HMMDecisionConfidence returns dec.Metadata.ChosenScore as the policy's
+// confidence. It reports false when Metadata is nil or the score is not
+// positive.
 func HMMDecisionConfidence(dec router.Decision) (float64, bool) {
 	if dec.Metadata == nil {
 		return 0, false
@@ -222,9 +226,7 @@ func HMMEffectiveInputUSDPer1M(model string, inputTokens int) (float64, bool) {
 	if !ok {
 		return 0, false
 	}
-	price = price.ForInputTokens(inputTokens)
-	value := price.InputUSDPer1M
-	return value, true
+	return price.ForInputTokens(inputTokens).InputUSDPer1M, true
 }
 
 // CacheablePrefixTokens projects the pin's previous-turn cache-hit share

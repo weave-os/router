@@ -7,12 +7,7 @@ import (
 	"weave-os/router/internal/routingpolicy"
 )
 
-const (
-	hmmHistoryReason              = routingpolicy.HMMHistoryReason
-	hmmReasonConfidentUpgrade     = routingpolicy.HMMReasonConfidentUpgrade
-	hmmReasonUpgradeConfidenceLow = routingpolicy.HMMReasonUpgradeConfidenceLow
-	hmmReasonPhaseChange          = routingpolicy.HMMReasonPhaseChange
-)
+const hmmHistoryReason = routingpolicy.HMMHistoryReason
 
 func hmmCostGateFor(s *Service) routingpolicy.HMMCostGate {
 	return routingpolicy.HMMCostGate{

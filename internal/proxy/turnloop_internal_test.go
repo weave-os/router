@@ -844,7 +844,7 @@ func TestHMMCostGate_SameTierPinDoesNotBlockConfidentUpgrade(t *testing.T) {
 	assert.Equal(t, "claude-sonnet-5", decision.Model)
 	assert.Equal(t, "moonshotai/kimi-k2.7", stayModel)
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
-	assert.Equal(t, hmmReasonConfidentUpgrade, plan.Reason)
+	assert.Equal(t, routingpolicy.HMMReasonConfidentUpgrade, plan.Reason)
 }
 
 func TestHMMCostGate_SameTierPinIgnoresUnknownTierModels(t *testing.T) {
@@ -932,7 +932,7 @@ func TestHMMCostGate_PhaseChangeFollowsFreshDecision(t *testing.T) {
 	assert.Equal(t, "deepseek/deepseek-v4.1-flash", decision.Model)
 	assert.Equal(t, "claude-sonnet-5", stayModel)
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
-	assert.Equal(t, hmmReasonPhaseChange, plan.Reason)
+	assert.Equal(t, routingpolicy.HMMReasonPhaseChange, plan.Reason)
 }
 
 func TestHMMCostGate_HistoryPhaseChangeFollowsFreshDecision(t *testing.T) {
@@ -976,7 +976,7 @@ func TestHMMCostGate_HistoryPhaseChangeFollowsFreshDecision(t *testing.T) {
 	assert.Equal(t, "deepseek/deepseek-v4.1-flash", decision.Model)
 	assert.Equal(t, "claude-sonnet-5", stayModel)
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
-	assert.Equal(t, hmmReasonPhaseChange, plan.Reason)
+	assert.Equal(t, routingpolicy.HMMReasonPhaseChange, plan.Reason)
 }
 
 func TestHMMCostGate_ExpensiveUpgradeRequiresHighConfidence(t *testing.T) {
@@ -1018,7 +1018,7 @@ func TestHMMCostGate_ExpensiveUpgradeRequiresHighConfidence(t *testing.T) {
 	assert.Equal(t, "moonshotai/kimi-k2.7", decision.Model)
 	assert.Equal(t, "moonshotai/kimi-k2.7", stayModel)
 	assert.Equal(t, planner.OutcomeStay, plan.Outcome)
-	assert.Equal(t, hmmReasonUpgradeConfidenceLow, plan.Reason)
+	assert.Equal(t, routingpolicy.HMMReasonUpgradeConfidenceLow, plan.Reason)
 
 	fresh.Metadata.ChosenScore = 0.50
 	decision, plan, sticky, stayModel = hmmCostGatedDecision(svc,
@@ -1034,7 +1034,7 @@ func TestHMMCostGate_ExpensiveUpgradeRequiresHighConfidence(t *testing.T) {
 	assert.Equal(t, "claude-sonnet-5", decision.Model)
 	assert.Equal(t, "moonshotai/kimi-k2.7", stayModel)
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
-	assert.Equal(t, hmmReasonConfidentUpgrade, plan.Reason)
+	assert.Equal(t, routingpolicy.HMMReasonConfidentUpgrade, plan.Reason)
 }
 
 func TestHMMCostGate_LowConfidenceUpgradeKeepsIndependentPlannerSwitch(t *testing.T) {
@@ -1538,6 +1538,6 @@ func TestHMMCostGate_UpgradeThresholdConfigurable(t *testing.T) {
 	assert.False(t, sticky)
 	assert.Equal(t, "claude-sonnet-5", decision.Model)
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
-	assert.Equal(t, hmmReasonConfidentUpgrade, plan.Reason)
+	assert.Equal(t, routingpolicy.HMMReasonConfidentUpgrade, plan.Reason)
 	assert.Equal(t, "moonshotai/kimi-k2.7", stayModel)
 }
