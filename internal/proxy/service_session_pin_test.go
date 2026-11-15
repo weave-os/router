@@ -1464,7 +1464,7 @@ func TestService_LoopEscalationPin_HonoredAsImmutableSticky(t *testing.T) {
 }
 
 // buildCyclicLoopBody builds a wide re-read cycle (same files re-Read, no
-// edits) — enough to trip detectCyclicToolCallLoop.
+// edits) — enough to trip conversation.DetectCyclicToolCallLoop.
 func buildCyclicLoopBody(t *testing.T, nFiles, total int) []byte {
 	t.Helper()
 	msgs := []any{map[string]any{"role": "user", "content": "do the task"}}

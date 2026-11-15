@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/proxy"
@@ -346,9 +347,9 @@ func inferenceAttemptParams(installationID uuid.UUID, event inference.AttemptEve
 	return params
 }
 
-var _ proxy.LoopEscalationStore = (*TelemetryRepo)(nil)
+var _ conversation.LoopEscalationStore = (*TelemetryRepo)(nil)
 
-func (r *TelemetryRepo) InsertLoopEscalationEvent(ctx context.Context, p proxy.LoopEscalationEvent) error {
+func (r *TelemetryRepo) InsertLoopEscalationEvent(ctx context.Context, p conversation.LoopEscalationEvent) error {
 	id, err := uuid.Parse(p.InstallationID)
 	if err != nil {
 		return err
@@ -403,9 +404,9 @@ func (r *TelemetryRepo) InsertRouterFeedback(ctx context.Context, p proxy.Router
 	})
 }
 
-var _ proxy.SpiralShadowStore = (*TelemetryRepo)(nil)
+var _ conversation.SpiralShadowStore = (*TelemetryRepo)(nil)
 
-func (r *TelemetryRepo) InsertSpiralShadowEvent(ctx context.Context, p proxy.SpiralShadowEvent) error {
+func (r *TelemetryRepo) InsertSpiralShadowEvent(ctx context.Context, p conversation.SpiralShadowEvent) error {
 	id, err := uuid.Parse(p.InstallationID)
 	if err != nil {
 		return err
@@ -441,9 +442,9 @@ func (r *TelemetryRepo) CountSpiralShadowEvents(ctx context.Context, sessionKey 
 	})
 }
 
-var _ proxy.StruggleShadowStore = (*TelemetryRepo)(nil)
+var _ conversation.StruggleShadowStore = (*TelemetryRepo)(nil)
 
-func (r *TelemetryRepo) InsertStruggleShadowEvent(ctx context.Context, p proxy.StruggleShadowEvent) error {
+func (r *TelemetryRepo) InsertStruggleShadowEvent(ctx context.Context, p conversation.StruggleShadowEvent) error {
 	id, err := uuid.Parse(p.InstallationID)
 	if err != nil {
 		return err

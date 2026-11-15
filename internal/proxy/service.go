@@ -18,6 +18,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/feedback"
@@ -122,11 +123,11 @@ type Service struct {
 	// noProgress tracks per-session dispatch fingerprints to catch the
 	// cross-envelope subagent loop (parent agent re-spawning identical
 	// sub-conversations). Nil disables the detector.
-	noProgress *noProgressTracker
+	noProgress *conversation.NoProgressTracker
 	// compaction detects Claude Code context compaction events (message count
 	// drops) so the router can rewrite non-Anthropic requests with a handover
 	// summary before the model loses awareness of prior completed work.
-	compaction *compactionTracker
+	compaction *conversation.CompactionTracker
 	// prefixTrimFreeSwitch treats a detected client history trim as a
 	// free-switch window: the planner prices the pin's cache as cold on that
 	// turn and the switch handover is skipped. Kill switch:
@@ -338,7 +339,7 @@ type Service struct {
 	// loopEscalationStore persists loop detections (router.loop_escalation_events)
 	// and enforces the once-per-session budget. Nil disables persistence and the
 	// holdout (which needs a durable row for the withheld rescue).
-	loopEscalationStore LoopEscalationStore
+	loopEscalationStore conversation.LoopEscalationStore
 	// spiralShadowEnabled gates the shadow-mode spiral detector (log-only
 	// death-march signals; see spiral_detection.go). Defaults true — shadow mode
 	// changes no routing behavior.
@@ -353,22 +354,22 @@ type Service struct {
 	textRepetitionBreakEnabled bool
 	// spiralTracker de-duplicates shadow fires per (session, role, reason) on
 	// this replica.
-	spiralTracker *spiralTracker
+	spiralTracker *conversation.SpiralTracker
 	// struggleShadowEnabled gates the shadow-mode struggle detector (log-only
 	// session-level grind signals; see struggle_detection.go). Defaults true —
 	// shadow mode changes no routing behavior.
 	struggleShadowEnabled bool
 	// struggleTracker de-duplicates shadow fires per (session, role, reason) on
 	// this replica.
-	struggleTracker *struggleTracker
+	struggleTracker *conversation.StruggleTracker
 	// struggleShadowStore persists shadow struggle detections durably
 	// (router.struggle_shadow_events) and enforces the once-per-(session,
 	// reason) budget. Nil degrades to log-only fires.
-	struggleShadowStore StruggleShadowStore
+	struggleShadowStore conversation.StruggleShadowStore
 	// spiralShadowStore persists shadow spiral detections durably
 	// (router.spiral_shadow_events) and enforces the once-per-(session,
 	// reason) budget. Nil degrades to log-only fires.
-	spiralShadowStore SpiralShadowStore
+	spiralShadowStore conversation.SpiralShadowStore
 	// feedbackStore persists /router-feedback submissions durably
 	// (router.router_feedback). Nil degrades to span + log only.
 	feedbackStore RouterFeedbackStore
@@ -1645,15 +1646,15 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		emitter:                      emitter,
 		ingress:                      ingress.New(0),
 		pinStore:                     pinStore,
-		noProgress:                   newNoProgressTracker(),
+		noProgress:                   conversation.NewNoProgressTracker(),
 		searchUse:                    newSearchUseTracker(),
 		searchRequirementDecayTurns:  DefaultSearchRequirementDecayTurns,
-		compaction:                   newCompactionTracker(),
+		compaction:                   conversation.NewCompactionTracker(),
 		prefixTrimFreeSwitch:         true,
-		spiralTracker:                newSpiralTracker(),
+		spiralTracker:                conversation.NewSpiralTracker(),
 		spiralShadowEnabled:          true,
 		turnSignalCaptureEnabled:     true,
-		struggleTracker:              newStruggleTracker(),
+		struggleTracker:              conversation.NewStruggleTracker(),
 		struggleShadowEnabled:        true,
 		textRepetitionBreakEnabled:   true,
 		ccOrchToolsCrossVendor:       true,
@@ -2140,7 +2141,7 @@ func (s *Service) WithBandSwap(enabled bool) *Service {
 
 // WithLoopEscalationConfig sets the cyclic-loop escalation kill switch and the
 // log-not-act holdout percentage (clamped to [0, 100]). The holdout only takes
-// effect when a LoopEscalationStore is wired — otherwise a withheld rescue
+// effect when a conversation.LoopEscalationStore is wired — otherwise a withheld rescue
 // leaves no durable row and is pure loss, not a measurement.
 func (s *Service) WithLoopEscalationConfig(enabled bool, holdoutPct int) *Service {
 	s.loopEscalationEnabled = enabled
@@ -2157,7 +2158,7 @@ func (s *Service) WithLoopEscalationConfig(enabled bool, holdoutPct int) *Servic
 // WithLoopEscalationStore wires the durable sink for loop-escalation events
 // (router.loop_escalation_events). Nil disables persistence, the holdout, and
 // the cross-TTL once-per-session budget (the pin-reason check still applies).
-func (s *Service) WithLoopEscalationStore(store LoopEscalationStore) *Service {
+func (s *Service) WithLoopEscalationStore(store conversation.LoopEscalationStore) *Service {
 	s.loopEscalationStore = store
 	return s
 }
@@ -2189,7 +2190,7 @@ func (s *Service) WithTextRepetitionBreak(enabled bool) *Service {
 // WithSpiralShadowStore wires the durable sink for shadow spiral events
 // (router.spiral_shadow_events). Nil degrades to log-only fires with
 // replica-local de-duplication.
-func (s *Service) WithSpiralShadowStore(store SpiralShadowStore) *Service {
+func (s *Service) WithSpiralShadowStore(store conversation.SpiralShadowStore) *Service {
 	s.spiralShadowStore = store
 	return s
 }
@@ -2205,7 +2206,7 @@ func (s *Service) WithStruggleShadowConfig(enabled bool) *Service {
 // WithStruggleShadowStore wires the durable sink for shadow struggle events
 // (router.struggle_shadow_events). Nil degrades to log-only fires with
 // replica-local de-duplication.
-func (s *Service) WithStruggleShadowStore(store StruggleShadowStore) *Service {
+func (s *Service) WithStruggleShadowStore(store conversation.StruggleShadowStore) *Service {
 	s.struggleShadowStore = store
 	return s
 }
@@ -3656,7 +3657,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// Wide cyclic re-read loop (same few files, no edits, dozens of turns) on a
 	// cheap/mid model escalates the session to opus.
 	if !agentShadowMode && !callerModelPassthroughActive(ctx) && handoffFromContext(ctx) == nil {
-		if cyc, csig, ccount, cratio, cwin := detectCyclicToolCallLoop(env); cyc {
+		if cyc, csig, ccount, cratio, cwin := conversation.DetectCyclicToolCallLoop(env); cyc {
 			loopRole := roleForTier(catalog.TierFor(feats.Model))
 			s.handleLoopEscalation(ctx, csig, ccount, cratio, cwin, installationID, sessionKey, loopRole, feats.Model, turntype.IsSubAgent(env, subAgentHintForRequest(ctx, r.Header.Get("x-weave-subagent-type")), openCodeCaller(ClientIdentityFrom(ctx))), forceModelSessionKey)
 		}
@@ -3664,13 +3665,13 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	// All consumers need the original client history. Track computation
 	// separately because no threshold crossing is still a measured result.
-	var inboundSpiralSignals spiralSignals
-	var inboundSpiralReasons []spiralReason
+	var inboundSpiralSignals conversation.SpiralSignals
+	var inboundSpiralReasons []conversation.SpiralReason
 	inboundSpiralComputed := s.ResolveSpiralShadowEnabled(ctx) ||
 		s.ResolveTurnSignalCaptureEnabled(ctx)
 	if inboundSpiralComputed {
-		inboundSpiralSignals = computeSpiralSignals(env, feats.MessageCount)
-		inboundSpiralReasons = spiralReasons(inboundSpiralSignals)
+		inboundSpiralSignals = conversation.ComputeSpiralSignals(env, feats.MessageCount)
+		inboundSpiralReasons = conversation.SpiralReasons(inboundSpiralSignals)
 	}
 
 	// Surface inbound tool_use / tool_result blocks the model is about to see.
@@ -3898,9 +3899,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// can't collide on healthy text-only turns.
 	toolBearingTurn := inboundToolCallCount > 0 || inboundLastUser.HasToolResult
 	if !agentShadowMode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && toolBearingTurn && s.noProgress != nil {
-		fp := computeNoProgressFingerprint(decision, promptText, feats.MessageCount, toolProgressMarker(env))
+		fp := conversation.ComputeNoProgressFingerprint(decision, promptText, feats.MessageCount, conversation.ToolProgressMarker(env))
 		role := roleForTier(catalog.TierFor(feats.Model))
-		if looped, count := s.noProgress.recordAndDetect(routeRes.SessionKey, installationID, role, fp, time.Now()); looped {
+		if looped, count := s.noProgress.RecordAndDetect(routeRes.SessionKey, installationID, role, fp, time.Now()); looped {
 			return s.handleNoProgressBreak(ctx, w, env, count, installationID, routeRes.SessionKey, role, decision.Model, decision.Provider, feats.Tokens, routeRes.Decision.Reason)
 		}
 	}
@@ -3908,7 +3909,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// Text-repetition break: fresh tool calls each turn defeat the no-progress
 	// fingerprint; repeated narration is the durable tell. See text_repetition.go.
 	if !agentShadowMode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && s.ResolveTextRepetitionBreakEnabled(ctx) && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
-		if looped, count, sampleHash := detectTextRepetition(env); looped {
+		if looped, count, sampleHash := conversation.DetectTextRepetition(env); looped {
 			role := roleForTier(catalog.TierFor(feats.Model))
 			return s.handleTextRepetitionBreak(ctx, w, env, count, sampleHash, installationID, routeRes.SessionKey, role, decision.Model, decision.Provider, feats.Tokens)
 		}
@@ -3938,7 +3939,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if !routeRes.PinFirstPinnedAt.IsZero() {
 			wall = time.Since(routeRes.PinFirstPinnedAt)
 		}
-		if reasons := struggleReasons(routeRes.PinTurnCount, wall); len(reasons) > 0 {
+		if reasons := conversation.StruggleReasons(routeRes.PinTurnCount, wall); len(reasons) > 0 {
 			role := roleForTier(catalog.TierFor(feats.Model))
 			// Same session_key rationale as the spiral block above.
 			s.handleStruggleShadow(ctx, reasons[0], installationID, sessionKey, role,
@@ -6277,9 +6278,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 
 	// Wide cyclic re-read loop → escalate to opus (same path as the Anthropic
-	// ingress). See detectCyclicToolCallLoop / handleLoopEscalation.
+	// ingress). See conversation.DetectCyclicToolCallLoop / handleLoopEscalation.
 	if !callerModelPassthroughActive(ctx) {
-		if cyc, csig, ccount, cratio, cwin := detectCyclicToolCallLoop(env); cyc {
+		if cyc, csig, ccount, cratio, cwin := conversation.DetectCyclicToolCallLoop(env); cyc {
 			loopRole := roleForTier(catalog.TierFor(feats.Model))
 			s.handleLoopEscalation(ctx, csig, ccount, cratio, cwin, installationID, sessionKey, loopRole, feats.Model, turntype.IsSubAgent(env, subAgentHintForRequest(ctx, r.Header.Get("x-weave-subagent-type")), openCodeCaller(ClientIdentityFrom(ctx))), forceModelSessionKey)
 		}
@@ -6422,7 +6423,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	s.logPlannerOutcome(ctx, routeRes)
 
 	if clientID.ClientApp == ClientAppOpencode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && s.ResolveTextRepetitionBreakEnabled(ctx) && (tt == turntype.MainLoop || tt == turntype.ToolResult) {
-		if looped, count, sampleHash := detectTextRepetition(env); looped {
+		if looped, count, sampleHash := conversation.DetectTextRepetition(env); looped {
 			role := roleForTier(catalog.TierFor(feats.Model))
 			return s.handleTextRepetitionBreak(ctx, w, env, count, sampleHash, installationID, sessionKey, role, decision.Model, decision.Provider, feats.Tokens)
 		}

@@ -1262,7 +1262,7 @@ func (s *Service) runTurnLoop(
 	// Runs before routing so the planner can price the pin's cache as dead on
 	// the turn the client rewrote the prompt prefix; env isn't rewritten yet
 	// so counts match what the client sent.
-	res.PrefixTrimmed = s.compaction.checkAndRecord(
+	res.PrefixTrimmed = s.compaction.CheckAndRecord(
 		sessionKey, installationID, res.PinRole,
 		feats.MessageCount, len(env.AssistantToolCallSignatures()),
 	)

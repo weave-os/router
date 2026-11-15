@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
@@ -661,8 +662,8 @@ func turnSignalCaptureAllowed(trainingAllowed bool, capture ContentCaptureMode) 
 // the distinction between a measured zero and an absent snapshot.
 func applyTurnSignalTelemetry(
 	p *InsertTelemetryParams,
-	sig spiralSignals,
-	reasons []spiralReason,
+	sig conversation.SpiralSignals,
+	reasons []conversation.SpiralReason,
 	computed bool,
 	enabled bool,
 	trainingAllowed bool,
@@ -671,24 +672,24 @@ func applyTurnSignalTelemetry(
 	if p == nil || !computed || !enabled || !turnSignalCaptureAllowed(trainingAllowed, capture) {
 		return
 	}
-	p.SpiralErrStreak = int32Ptr(int32(sig.errStats.TrailingErrStreak))
-	p.SpiralErroredResults = int32Ptr(int32(sig.errStats.Errored))
-	p.SpiralToolResults = int32Ptr(int32(sig.errStats.Total))
-	p.SpiralMaxSameFileEdits = int32Ptr(int32(sig.maxSameFileEdits))
-	p.SpiralSameFilePathHash = sig.sameFilePathHash
-	repeatFrac := sig.repeatFrac
+	p.SpiralErrStreak = int32Ptr(int32(sig.ErrStats.TrailingErrStreak))
+	p.SpiralErroredResults = int32Ptr(int32(sig.ErrStats.Errored))
+	p.SpiralToolResults = int32Ptr(int32(sig.ErrStats.Total))
+	p.SpiralMaxSameFileEdits = int32Ptr(int32(sig.MaxSameFileEdits))
+	p.SpiralSameFilePathHash = sig.SameFilePathHash
+	repeatFrac := sig.RepeatFrac
 	p.SpiralRepeatFrac = &repeatFrac
-	p.SpiralMonologueLen = int32Ptr(int32(sig.monologueLen))
-	p.SpiralToolCallCount = int32Ptr(int32(sig.toolCallCount))
-	p.SpiralMessageCount = int32Ptr(int32(sig.messageCount))
-	p.SpiralPingPongLen = int32Ptr(int32(sig.pingPongLen))
-	p.SpiralStepsSinceProgress = int32Ptr(int32(sig.stepsSinceProgress))
-	editAttempted := sig.editAttempted
+	p.SpiralMonologueLen = int32Ptr(int32(sig.MonologueLen))
+	p.SpiralToolCallCount = int32Ptr(int32(sig.ToolCallCount))
+	p.SpiralMessageCount = int32Ptr(int32(sig.MessageCount))
+	p.SpiralPingPongLen = int32Ptr(int32(sig.PingPongLen))
+	p.SpiralStepsSinceProgress = int32Ptr(int32(sig.StepsSinceProgress))
+	editAttempted := sig.EditAttempted
 	p.SpiralEditAttempted = &editAttempted
 	if reasons == nil {
-		reasons = []spiralReason{}
+		reasons = []conversation.SpiralReason{}
 	}
-	p.SpiralReasons = spiralReasonStrings(reasons)
+	p.SpiralReasons = conversation.SpiralReasonStrings(reasons)
 }
 
 func int32Ptr(v int32) *int32 {

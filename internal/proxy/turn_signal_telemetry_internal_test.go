@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -38,28 +39,28 @@ func TestTurnSignalCaptureAllowed_FailsClosedOnDefaults(t *testing.T) {
 	assert.False(t, turnSignalCaptureAllowed(false, ParseCaptureMode("")))
 }
 
-func sampleSignals() spiralSignals {
-	return spiralSignals{
-		errStats: translate.ToolResultErrorStats{
+func sampleSignals() conversation.SpiralSignals {
+	return conversation.SpiralSignals{
+		ErrStats: translate.ToolResultErrorStats{
 			Total:             23,
 			Errored:           11,
 			TrailingErrStreak: 4,
 		},
-		maxSameFileEdits:   7,
-		sameFilePathHash:   "a1b2c3d4e5f60718",
-		repeatFrac:         0.42,
-		monologueLen:       3,
-		toolCallCount:      31,
-		messageCount:       64,
-		pingPongLen:        8,
-		stepsSinceProgress: 19,
-		editAttempted:      true,
+		MaxSameFileEdits:   7,
+		SameFilePathHash:   "a1b2c3d4e5f60718",
+		RepeatFrac:         0.42,
+		MonologueLen:       3,
+		ToolCallCount:      31,
+		MessageCount:       64,
+		PingPongLen:        8,
+		StepsSinceProgress: 19,
+		EditAttempted:      true,
 	}
 }
 
 func TestApplyTurnSignalTelemetry_CopiesFullSnapshot(t *testing.T) {
 	var telemetry InsertTelemetryParams
-	reasons := []spiralReason{spiralReasonErrStreak, spiralReasonPingPong}
+	reasons := []conversation.SpiralReason{conversation.SpiralReasonErrStreak, conversation.SpiralReasonPingPong}
 	applyTurnSignalTelemetry(&telemetry, sampleSignals(), reasons, true, true, true, CaptureFull)
 
 	assertInt32Ptr := func(field string, got *int32, want int32) {
@@ -81,12 +82,12 @@ func TestApplyTurnSignalTelemetry_CopiesFullSnapshot(t *testing.T) {
 	assert.Equal(t, 0.42, *telemetry.SpiralRepeatFrac)
 	require.NotNil(t, telemetry.SpiralEditAttempted)
 	assert.True(t, *telemetry.SpiralEditAttempted)
-	assert.Equal(t, []string{string(spiralReasonErrStreak), string(spiralReasonPingPong)}, telemetry.SpiralReasons)
+	assert.Equal(t, []string{string(conversation.SpiralReasonErrStreak), string(conversation.SpiralReasonPingPong)}, telemetry.SpiralReasons)
 }
 
 func TestApplyTurnSignalTelemetry_QuietTurnRecordsZeros(t *testing.T) {
 	var telemetry InsertTelemetryParams
-	applyTurnSignalTelemetry(&telemetry, spiralSignals{}, nil, true, true, true, CaptureFull)
+	applyTurnSignalTelemetry(&telemetry, conversation.SpiralSignals{}, nil, true, true, true, CaptureFull)
 
 	require.NotNil(t, telemetry.SpiralErrStreak)
 	assert.Zero(t, *telemetry.SpiralErrStreak)
@@ -114,7 +115,7 @@ func TestApplyTurnSignalTelemetry_SkipsIneligibleTurns(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			var telemetry InsertTelemetryParams
-			applyTurnSignalTelemetry(&telemetry, sampleSignals(), []spiralReason{spiralReasonErrStreak},
+			applyTurnSignalTelemetry(&telemetry, sampleSignals(), []conversation.SpiralReason{conversation.SpiralReasonErrStreak},
 				tc.computed, tc.enabled, tc.trainingAllowed, tc.capture)
 
 			assert.Nil(t, telemetry.SpiralErrStreak)
@@ -134,10 +135,10 @@ func TestApplyTurnSignalTelemetry_NilParamsIsNoOp(t *testing.T) {
 }
 
 type recordingSpiralStore struct {
-	events []SpiralShadowEvent
+	events []conversation.SpiralShadowEvent
 }
 
-func (s *recordingSpiralStore) InsertSpiralShadowEvent(_ context.Context, event SpiralShadowEvent) error {
+func (s *recordingSpiralStore) InsertSpiralShadowEvent(_ context.Context, event conversation.SpiralShadowEvent) error {
 	s.events = append(s.events, event)
 	return nil
 }
@@ -160,10 +161,10 @@ func TestHandleSpiralShadow_RespectsPrivacySettings(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &recordingSpiralStore{}
-			service := &Service{spiralTracker: newSpiralTracker(), spiralShadowStore: store}
+			service := &Service{spiralTracker: conversation.NewSpiralTracker(), spiralShadowStore: store}
 			var sessionKey [16]byte
 			service.handleSpiralShadow(context.Background(), sampleSignals(),
-				[]spiralReason{spiralReasonErrStreak}, uuid.New(), sessionKey,
+				[]conversation.SpiralReason{conversation.SpiralReasonErrStreak}, uuid.New(), sessionKey,
 				"default", "test-model", "tool_result", tc.trainingAllowed, tc.capture)
 			assert.Len(t, store.events, tc.wantEvents)
 		})

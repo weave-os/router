@@ -1,4 +1,4 @@
-package proxy
+package conversation
 
 import (
 	"encoding/json"
@@ -100,8 +100,8 @@ func readGrind(n, seed int) []string {
 
 func TestSpiralSignals_HealthySessionBelowThresholds(t *testing.T) {
 	env := parseSpiralEnv(t, readGrind(15, 0))
-	sig := computeSpiralSignals(env, 30)
-	if reasons := spiralReasons(sig); len(reasons) != 0 {
+	sig := ComputeSpiralSignals(env, 30)
+	if reasons := SpiralReasons(sig); len(reasons) != 0 {
 		t.Fatalf("healthy session fired %v (signals %+v)", reasons, sig)
 	}
 }
@@ -113,11 +113,11 @@ func TestSpiralSignals_BelowArmingFloorNeverFires(t *testing.T) {
 		turns = append(turns, fmt.Sprintf(`call:Bash:{"command":"make test%d"}`, i), "result:err")
 	}
 	env := parseSpiralEnv(t, turns)
-	sig := computeSpiralSignals(env, 10)
-	if sig.errStats.TrailingErrStreak != 5 {
-		t.Fatalf("err streak = %d, want 5", sig.errStats.TrailingErrStreak)
+	sig := ComputeSpiralSignals(env, 10)
+	if sig.ErrStats.TrailingErrStreak != 5 {
+		t.Fatalf("err streak = %d, want 5", sig.ErrStats.TrailingErrStreak)
 	}
-	if reasons := spiralReasons(sig); len(reasons) != 0 {
+	if reasons := SpiralReasons(sig); len(reasons) != 0 {
 		t.Fatalf("under-floor session fired %v", reasons)
 	}
 }
@@ -128,10 +128,10 @@ func TestSpiralSignals_ErrStreak(t *testing.T) {
 		turns = append(turns, fmt.Sprintf(`call:Bash:{"command":"pytest -k t%d"}`, i), "result:err")
 	}
 	env := parseSpiralEnv(t, turns)
-	sig := computeSpiralSignals(env, 30)
-	reasons := spiralReasons(sig)
-	if len(reasons) != 1 || reasons[0] != spiralReasonErrStreak {
-		t.Fatalf("reasons = %v, want [%s] (signals %+v)", reasons, spiralReasonErrStreak, sig)
+	sig := ComputeSpiralSignals(env, 30)
+	reasons := SpiralReasons(sig)
+	if len(reasons) != 1 || reasons[0] != SpiralReasonErrStreak {
+		t.Fatalf("reasons = %v, want [%s] (signals %+v)", reasons, SpiralReasonErrStreak, sig)
 	}
 }
 
@@ -145,15 +145,15 @@ func TestSpiralSignals_ErrStreakResetByHealthyResult(t *testing.T) {
 		)
 	}
 	env := parseSpiralEnv(t, turns)
-	sig := computeSpiralSignals(env, 40)
-	if sig.errStats.TrailingErrStreak != 0 {
-		t.Fatalf("trailing streak = %d, want 0", sig.errStats.TrailingErrStreak)
+	sig := ComputeSpiralSignals(env, 40)
+	if sig.ErrStats.TrailingErrStreak != 0 {
+		t.Fatalf("trailing streak = %d, want 0", sig.ErrStats.TrailingErrStreak)
 	}
-	if sig.errStats.Errored != 6 {
-		t.Fatalf("errored = %d, want 6", sig.errStats.Errored)
+	if sig.ErrStats.Errored != 6 {
+		t.Fatalf("errored = %d, want 6", sig.ErrStats.Errored)
 	}
-	for _, r := range spiralReasons(sig) {
-		if r == spiralReasonErrStreak {
+	for _, r := range SpiralReasons(sig) {
+		if r == SpiralReasonErrStreak {
 			t.Fatal("err_streak fired without a trailing streak")
 		}
 	}
@@ -168,9 +168,9 @@ func TestSpiralSignals_ErrorMarkerWithoutFlag(t *testing.T) {
 		)
 	}
 	env := parseSpiralEnv(t, turns)
-	sig := computeSpiralSignals(env, 30)
-	if sig.errStats.TrailingErrStreak != spiralErrStreakThreshold {
-		t.Fatalf("marker-only streak = %d, want %d", sig.errStats.TrailingErrStreak, spiralErrStreakThreshold)
+	sig := ComputeSpiralSignals(env, 30)
+	if sig.ErrStats.TrailingErrStreak != spiralErrStreakThreshold {
+		t.Fatalf("marker-only streak = %d, want %d", sig.ErrStats.TrailingErrStreak, spiralErrStreakThreshold)
 	}
 }
 
@@ -184,21 +184,21 @@ func TestSpiralSignals_SameFileThrash(t *testing.T) {
 		)
 	}
 	env := parseSpiralEnv(t, turns)
-	sig := computeSpiralSignals(env, 30)
-	if sig.maxSameFileEdits != spiralSameFileEditThreshold {
-		t.Fatalf("maxSameFileEdits = %d, want %d", sig.maxSameFileEdits, spiralSameFileEditThreshold)
+	sig := ComputeSpiralSignals(env, 30)
+	if sig.MaxSameFileEdits != spiralSameFileEditThreshold {
+		t.Fatalf("maxSameFileEdits = %d, want %d", sig.MaxSameFileEdits, spiralSameFileEditThreshold)
 	}
-	if sig.sameFilePathHash == "" {
+	if sig.SameFilePathHash == "" {
 		t.Fatal("sameFilePathHash empty")
 	}
 	found := false
-	for _, r := range spiralReasons(sig) {
+	for _, r := range SpiralReasons(sig) {
 		if r == spiralReasonSameFileThrash {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("same_file_thrash missing from %v", spiralReasons(sig))
+		t.Fatalf("same_file_thrash missing from %v", SpiralReasons(sig))
 	}
 }
 
@@ -212,8 +212,8 @@ func TestSpiralSignals_HealthyRefactorManyFilesNoThrash(t *testing.T) {
 		)
 	}
 	env := parseSpiralEnv(t, turns)
-	sig := computeSpiralSignals(env, 50)
-	if reasons := spiralReasons(sig); len(reasons) != 0 {
+	sig := ComputeSpiralSignals(env, 50)
+	if reasons := SpiralReasons(sig); len(reasons) != 0 {
 		t.Fatalf("healthy refactor fired %v (signals %+v)", reasons, sig)
 	}
 }
@@ -231,18 +231,18 @@ func TestSpiralSignals_Repetition(t *testing.T) {
 		}
 	}
 	env := parseSpiralEnv(t, turns)
-	sig := computeSpiralSignals(env, 60)
-	if sig.repeatFrac != 1.0 {
-		t.Fatalf("repeatFrac = %v, want 1.0", sig.repeatFrac)
+	sig := ComputeSpiralSignals(env, 60)
+	if sig.RepeatFrac != 1.0 {
+		t.Fatalf("repeatFrac = %v, want 1.0", sig.RepeatFrac)
 	}
 	found := false
-	for _, r := range spiralReasons(sig) {
+	for _, r := range SpiralReasons(sig) {
 		if r == spiralReasonRepetition {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("repetition missing from %v", spiralReasons(sig))
+		t.Fatalf("repetition missing from %v", SpiralReasons(sig))
 	}
 }
 
@@ -252,18 +252,18 @@ func TestSpiralSignals_Monologue(t *testing.T) {
 		turns = append(turns, fmt.Sprintf("text:Let me reconsider the approach, attempt %d.", i))
 	}
 	env := parseSpiralEnv(t, turns)
-	sig := computeSpiralSignals(env, 40)
-	if sig.monologueLen != spiralMonologueThreshold {
-		t.Fatalf("monologueLen = %d, want %d", sig.monologueLen, spiralMonologueThreshold)
+	sig := ComputeSpiralSignals(env, 40)
+	if sig.MonologueLen != spiralMonologueThreshold {
+		t.Fatalf("monologueLen = %d, want %d", sig.MonologueLen, spiralMonologueThreshold)
 	}
 	found := false
-	for _, r := range spiralReasons(sig) {
+	for _, r := range SpiralReasons(sig) {
 		if r == spiralReasonMonologue {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("monologue missing from %v", spiralReasons(sig))
+		t.Fatalf("monologue missing from %v", SpiralReasons(sig))
 	}
 }
 
@@ -273,9 +273,9 @@ func TestSpiralSignals_MonologueResetByUserTurn(t *testing.T) {
 	turns = append(turns, "user:try the other module")
 	turns = append(turns, "text:on it")
 	env := parseSpiralEnv(t, turns)
-	sig := computeSpiralSignals(env, 40)
-	if sig.monologueLen != 1 {
-		t.Fatalf("monologueLen = %d, want 1 (user turn resets)", sig.monologueLen)
+	sig := ComputeSpiralSignals(env, 40)
+	if sig.MonologueLen != 1 {
+		t.Fatalf("monologueLen = %d, want 1 (user turn resets)", sig.MonologueLen)
 	}
 }
 
@@ -290,18 +290,18 @@ func TestSpiralSignals_PingPong(t *testing.T) {
 		)
 	}
 	env := parseSpiralEnv(t, turns)
-	sig := computeSpiralSignals(env, 60)
-	if sig.pingPongLen != spiralPingPongThreshold {
-		t.Fatalf("pingPongLen = %d, want %d", sig.pingPongLen, spiralPingPongThreshold)
+	sig := ComputeSpiralSignals(env, 60)
+	if sig.PingPongLen != spiralPingPongThreshold {
+		t.Fatalf("pingPongLen = %d, want %d", sig.PingPongLen, spiralPingPongThreshold)
 	}
 	found := false
-	for _, r := range spiralReasons(sig) {
-		if r == spiralReasonPingPong {
+	for _, r := range SpiralReasons(sig) {
+		if r == SpiralReasonPingPong {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("ping_pong missing from %v", spiralReasons(sig))
+		t.Fatalf("ping_pong missing from %v", SpiralReasons(sig))
 	}
 }
 
@@ -313,9 +313,9 @@ func TestSpiralSignals_PingPongNeedsTwoDistinctActions(t *testing.T) {
 		turns = append(turns, `call:Bash:{"command":"make test"}`, "result:ok")
 	}
 	env := parseSpiralEnv(t, turns)
-	sig := computeSpiralSignals(env, 60)
-	if sig.pingPongLen != 0 {
-		t.Fatalf("pingPongLen = %d, want 0 for a single repeated signature", sig.pingPongLen)
+	sig := ComputeSpiralSignals(env, 60)
+	if sig.PingPongLen != 0 {
+		t.Fatalf("pingPongLen = %d, want 0 for a single repeated signature", sig.PingPongLen)
 	}
 }
 
@@ -329,9 +329,9 @@ func TestSpiralSignals_PingPongBrokenByThirdAction(t *testing.T) {
 	}
 	turns = append(turns, `call:Bash:{"command":"make build"}`, "result:ok")
 	env := parseSpiralEnv(t, turns)
-	sig := computeSpiralSignals(env, 60)
-	if sig.pingPongLen != 0 {
-		t.Fatalf("pingPongLen = %d, want 0 once a third action lands at the tail", sig.pingPongLen)
+	sig := ComputeSpiralSignals(env, 60)
+	if sig.PingPongLen != 0 {
+		t.Fatalf("pingPongLen = %d, want 0 once a third action lands at the tail", sig.PingPongLen)
 	}
 }
 
@@ -341,21 +341,21 @@ func TestSpiralSignals_NoProgressAfterFailedEdits(t *testing.T) {
 	}
 	turns = append(turns, readGrind(spiralNoProgressThreshold-1, 1)...)
 	env := parseSpiralEnv(t, turns)
-	sig := computeSpiralSignals(env, 60)
-	if !sig.editAttempted {
+	sig := ComputeSpiralSignals(env, 60)
+	if !sig.EditAttempted {
 		t.Fatal("editAttempted = false after an Edit call")
 	}
-	if sig.stepsSinceProgress != spiralNoProgressThreshold {
-		t.Fatalf("stepsSinceProgress = %d, want %d", sig.stepsSinceProgress, spiralNoProgressThreshold)
+	if sig.StepsSinceProgress != spiralNoProgressThreshold {
+		t.Fatalf("stepsSinceProgress = %d, want %d", sig.StepsSinceProgress, spiralNoProgressThreshold)
 	}
 	found := false
-	for _, r := range spiralReasons(sig) {
+	for _, r := range SpiralReasons(sig) {
 		if r == spiralReasonNoProgress {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("no_progress missing from %v", spiralReasons(sig))
+		t.Fatalf("no_progress missing from %v", SpiralReasons(sig))
 	}
 }
 
@@ -369,11 +369,11 @@ func TestSpiralSignals_NoProgressResetBySuccessfulEdit(t *testing.T) {
 	)
 	turns = append(turns, readGrind(2, 2)...)
 	env := parseSpiralEnv(t, turns)
-	sig := computeSpiralSignals(env, 60)
-	if sig.stepsSinceProgress != 2 {
-		t.Fatalf("stepsSinceProgress = %d, want 2 (counted from the landed edit)", sig.stepsSinceProgress)
+	sig := ComputeSpiralSignals(env, 60)
+	if sig.StepsSinceProgress != 2 {
+		t.Fatalf("stepsSinceProgress = %d, want 2 (counted from the landed edit)", sig.StepsSinceProgress)
 	}
-	for _, r := range spiralReasons(sig) {
+	for _, r := range SpiralReasons(sig) {
 		if r == spiralReasonNoProgress {
 			t.Fatalf("no_progress fired after a successful edit (signals %+v)", sig)
 		}
@@ -384,11 +384,11 @@ func TestSpiralSignals_LongExploreIsNotNoProgress(t *testing.T) {
 	// An Explore phase makes no edits at all; steps-since-progress has no
 	// baseline to measure against and must stay silent.
 	env := parseSpiralEnv(t, readGrind(spiralNoProgressThreshold*2, 3))
-	sig := computeSpiralSignals(env, 80)
-	if sig.editAttempted {
+	sig := ComputeSpiralSignals(env, 80)
+	if sig.EditAttempted {
 		t.Fatal("editAttempted = true without any edit call")
 	}
-	for _, r := range spiralReasons(sig) {
+	for _, r := range SpiralReasons(sig) {
 		if r == spiralReasonNoProgress {
 			t.Fatalf("no_progress fired on an edit-free session (signals %+v)", sig)
 		}

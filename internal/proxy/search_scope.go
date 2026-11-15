@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -25,7 +26,7 @@ type searchUseTracker struct {
 
 func newSearchUseTracker() *searchUseTracker {
 	return &searchUseTracker{
-		cache: lru.NewLRU[string, int](noProgressCacheSize, nil, noProgressCacheTTL),
+		cache: lru.NewLRU[string, int](conversation.NoProgressCacheSize, nil, conversation.NoProgressCacheTTL),
 	}
 }
 

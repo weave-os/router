@@ -1,4 +1,4 @@
-package proxy
+package conversation
 
 import (
 	"encoding/json"
@@ -25,7 +25,7 @@ func TestDetectTextRepetition_FiresOnRepeatedNarrationDespiteFreshToolCalls(t *t
 	}
 	env := parseSpiralEnv(t, turns)
 
-	looped, count, sample := detectTextRepetition(env)
+	looped, count, sample := DetectTextRepetition(env)
 	if !looped {
 		t.Fatalf("expected repetition loop to be detected; count=%d", count)
 	}
@@ -48,7 +48,7 @@ func TestDetectTextRepetition_IgnoresDistinctNarration(t *testing.T) {
 	}
 	env := parseSpiralEnv(t, turns)
 
-	if looped, count, _ := detectTextRepetition(env); looped {
+	if looped, count, _ := DetectTextRepetition(env); looped {
 		t.Fatalf("healthy distinct narration must not trip the break; count=%d", count)
 	}
 }
@@ -61,7 +61,7 @@ func TestDetectTextRepetition_BelowThresholdDoesNotFire(t *testing.T) {
 	}
 	env := parseSpiralEnv(t, turns)
 
-	if looped, count, _ := detectTextRepetition(env); looped {
+	if looped, count, _ := DetectTextRepetition(env); looped {
 		t.Fatalf("two restatements must not trip the break; count=%d", count)
 	}
 }
@@ -93,7 +93,7 @@ func TestDetectTextRepetition_FiresThroughSystemReminderToolResults(t *testing.T
 		t.Fatal(err)
 	}
 
-	looped, count, _ := detectTextRepetition(env)
+	looped, count, _ := DetectTextRepetition(env)
 	if !looped {
 		t.Fatalf("loop through reminder-bearing tool_result turns must fire; count=%d", count)
 	}
@@ -112,7 +112,7 @@ func TestDetectTextRepetition_RealUserTurnResetsWindow(t *testing.T) {
 	}
 	env := parseSpiralEnv(t, turns)
 
-	if looped, count, _ := detectTextRepetition(env); looped {
+	if looped, count, _ := DetectTextRepetition(env); looped {
 		t.Fatalf("a real user turn must reset the repetition window; count=%d", count)
 	}
 }
@@ -126,7 +126,7 @@ func TestDetectTextRepetition_IgnoresShortLines(t *testing.T) {
 	}
 	env := parseSpiralEnv(t, turns)
 
-	if looped, count, _ := detectTextRepetition(env); looped {
+	if looped, count, _ := DetectTextRepetition(env); looped {
 		t.Fatalf("short repeated lines must not trip the break; count=%d", count)
 	}
 }
@@ -141,7 +141,7 @@ func TestDetectTextRepetition_NormalizesCaseAndWhitespace(t *testing.T) {
 	}
 	env := parseSpiralEnv(t, turns)
 
-	looped, count, _ := detectTextRepetition(env)
+	looped, count, _ := DetectTextRepetition(env)
 	if !looped || count != 3 {
 		t.Fatalf("case/whitespace-variant restatements must all count; looped=%v count=%d", looped, count)
 	}
@@ -165,7 +165,7 @@ func TestDetectTextRepetition_FiresOnOpenAIAssistantOnlyContinuations(t *testing
 		t.Fatal(err)
 	}
 
-	looped, count, _ := detectTextRepetition(env)
+	looped, count, _ := DetectTextRepetition(env)
 	if !looped || count != 3 {
 		t.Fatalf("OpenAI assistant-only continuation loop must fire; looped=%v count=%d", looped, count)
 	}
