@@ -364,7 +364,7 @@ func TestPermanentErrorDiagnostics_BoundsAndRedactsErrorResponse(t *testing.T) {
 	attrs := attrsByTelemetryKey(permanentErrorDiagnosticAttrs(proxyErr, 1, redact))
 
 	assert.Equal(t, strings.Repeat("r", maxLoggedErrorResponseBytes), attrs["upstream.error_response"].GetStringValue())
-	assert.Equal(t, true, attrs["upstream.error_response_truncated"].GetBoolValue())
+	assert.True(t, attrs["upstream.error_response_truncated"].GetBoolValue())
 }
 
 func TestPermanentErrorDiagnostics_TruncatesOnUTF8Boundary(t *testing.T) {

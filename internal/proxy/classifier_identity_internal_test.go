@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/translate"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestClassifierInstructionIdentityAcrossProtocols(t *testing.T) {
@@ -119,6 +120,6 @@ func TestClassifierRejectsOmittedMediaAcrossProtocols(t *testing.T) {
 func TestClassifierExplicitEmptyUserTextIsNotOmittedMedia(t *testing.T) {
 	input, err := classifierContextForCall(classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "")))
 	require.NoError(t, err)
-	require.Equal(t, "", input.CurrentUserMessage)
+	require.Empty(t, input.CurrentUserMessage)
 	require.Equal(t, 1, input.Features.UserMessageCount)
 }

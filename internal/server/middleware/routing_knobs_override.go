@@ -129,11 +129,12 @@ func WithRoutingKnobsOverride() gin.HandlerFunc {
 
 		if raw := strings.TrimSpace(c.GetHeader(HeaderPerModelVerbosity)); raw != "" {
 			var val bool
-			if raw == "true" {
+			switch raw {
+			case "true":
 				val = true
-			} else if raw == "false" {
+			case "false":
 				val = false
-			} else {
+			default:
 				abortInvalidKnob(c, HeaderPerModelVerbosity+" must be either 'true' or 'false'.")
 				return
 			}

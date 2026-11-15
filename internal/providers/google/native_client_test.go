@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -144,7 +143,7 @@ func TestNativeClient_BuffersNon2xxBeforeTouchingDownstream(t *testing.T) {
 				httptest.NewRequest(http.MethodPost, "/v1/x", nil))
 
 			var upstreamErr *providers.UpstreamErrorResponse
-			require.True(t, errors.As(err, &upstreamErr))
+			require.ErrorAs(t, err, &upstreamErr)
 			assert.Equal(t, status, upstreamErr.Status)
 			assert.Equal(t, "redacted-id", upstreamErr.Headers.Get("X-Upstream-Request"))
 			assert.Equal(t, 0, rec.Body.Len(), "retry classification must happen before downstream commitment")

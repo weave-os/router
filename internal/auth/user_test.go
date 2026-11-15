@@ -95,7 +95,7 @@ func TestResolveAndStashUser_NoIdentitySignalIsNoOp(t *testing.T) {
 
 	assert.Empty(t, repo.upserts)
 	assert.Empty(t, repo.accountUpserts)
-	assert.Equal(t, "", auth.UserIDFrom(ctx))
+	assert.Empty(t, auth.UserIDFrom(ctx))
 }
 
 func TestResolveAndStashUser_AccountUUIDOnlyUsesAccountUpsert(t *testing.T) {
@@ -136,7 +136,7 @@ func TestResolveAndStashUser_NoInstallationIsNoOp(t *testing.T) {
 	ctx := svc.ResolveAndStashUser(context.Background(), "", "alice@example.com", "", "")
 
 	assert.Empty(t, repo.upserts)
-	assert.Equal(t, "", auth.UserIDFrom(ctx))
+	assert.Empty(t, auth.UserIDFrom(ctx))
 }
 
 func TestResolveAndStashUser_OmitsClaudeAccountWhenEmpty(t *testing.T) {
@@ -192,7 +192,7 @@ func TestResolveAndStashUser_RepoErrorDoesNotPropagate(t *testing.T) {
 	// Must return the original ctx unchanged so the request still proceeds.
 	ctx := svc.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", "")
 
-	assert.Equal(t, "", auth.UserIDFrom(ctx))
+	assert.Empty(t, auth.UserIDFrom(ctx))
 }
 
 func TestResolveAndStashUser_NilUsersIsNoOp(t *testing.T) {
@@ -200,7 +200,7 @@ func TestResolveAndStashUser_NilUsersIsNoOp(t *testing.T) {
 
 	ctx := svc.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", "")
 
-	assert.Equal(t, "", auth.UserIDFrom(ctx))
+	assert.Empty(t, auth.UserIDFrom(ctx))
 }
 
 func TestResolveAndStashUser_CacheHitSkipsRepo(t *testing.T) {
@@ -406,5 +406,5 @@ func TestResolveAndStashKeyOwner_RepoErrorLeavesRequestUnattributed(t *testing.T
 
 	ctx := svc.ResolveAndStashKeyOwner(context.Background(), "inst-1", "61f77e74-0000-4000-8000-000000000001", "")
 
-	assert.Equal(t, "", auth.UserIDFrom(ctx))
+	assert.Empty(t, auth.UserIDFrom(ctx))
 }

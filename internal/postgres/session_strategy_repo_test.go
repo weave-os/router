@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -136,7 +135,7 @@ func TestSessionStrategyRepoToggleAcceptsBetaClassifiers(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.True(t, enabled)
-	assert.True(t, strings.Contains(db.rowQuery, "ON CONFLICT (installation_id, session_key)"))
+	assert.Contains(t, db.rowQuery, "ON CONFLICT (installation_id, session_key)")
 	assert.Contains(t, db.rowQuery, "THEN NOT router.session_strategy_preferences.enabled ELSE TRUE END")
 	assert.Contains(t, db.rowQuery, "RETURNING enabled")
 	assert.Equal(t, []any{installationID, key[:], string(router.StrategyHMMBeta)}, db.rowArgs)

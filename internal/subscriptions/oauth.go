@@ -11,10 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
+
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 const (
@@ -148,7 +149,7 @@ func oauthProviderRequestID(headers http.Header) string {
 		}
 		valid := true
 		for _, char := range value {
-			if !(char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || char == '_' || char == '-' || char == '.') {
+			if (char < 'a' || char > 'z') && (char < 'A' || char > 'Z') && (char < '0' || char > '9') && char != '_' && char != '-' && char != '.' {
 				valid = false
 				break
 			}

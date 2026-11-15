@@ -173,7 +173,7 @@ func (s *Service) handleLoopEscalation(
 		existing, found, err := s.pinStore.Get(ctx, sessionKey, role)
 		if err != nil {
 			log.Error("loop-escalation: prior pin lookup failed", "err", err)
-		} else if found && pinMatchesEffectiveStrategy(ctx, existing) && !(forceModelCleared && isUserForcedReason(existing.Reason)) {
+		} else if found && pinMatchesEffectiveStrategy(ctx, existing) && (!forceModelCleared || !isUserForcedReason(existing.Reason)) {
 			if existing.Reason == translate.ReasonLoopEscalation {
 				return // already rescued this session; don't re-pin or double-log
 			}

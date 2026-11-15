@@ -2084,15 +2084,6 @@ func resolveHardPinModel() (provider, model string, resolutionErr error) {
 	return policy.UtilityHardPinDefaultProvider, policy.UtilityHardPinDefaultModel, nil
 }
 
-// envVarHint returns the env var name for a provider's API key, for log
-// warnings; falls back to a readable "unknown provider" string.
-func envVarHint(provider string) string {
-	if v := providers.APIKeyEnvVar(provider); v != "" {
-		return v
-	}
-	return "<unknown provider " + provider + ">"
-}
-
 // upstreamIDsForProvider maps public model ID -> upstream model ID for a
 // provider's bindings with a non-empty UpstreamID; nil if no rewriting is
 // needed (e.g. OpenRouter, where the slug IS the upstream ID).
