@@ -19,9 +19,31 @@ type MessagesRequest struct {
 	ModelVariant1M bool
 }
 
+// Anthropic is the native Anthropic Messages adapter. Its committed-stream
+// error frame is rendered from the dispatch error's class, which the
+// orchestrator owns.
+type Anthropic struct{}
+
+var _ Adapter = Anthropic{}
+
+// Format implements Adapter.
+func (Anthropic) Format() translate.Format { return translate.FormatAnthropic }
+
+// TraceBody implements Adapter; a Messages body is forwarded as received.
+func (Anthropic) TraceBody(body []byte) []byte { return body }
+
+// CheckTarget implements Adapter; Messages requests translate to every provider.
+func (Anthropic) CheckTarget(string) error { return nil }
+
+// Parse implements Adapter.
+func (a Anthropic) Parse(ctx context.Context, body []byte) (*translate.RequestEnvelope, []byte, error) {
+	req, err := a.ParseMessages(ctx, body)
+	return req.Envelope, req.Body, err
+}
+
 // ParseMessages strips the router's echoed feedback footer, canonicalizes the
 // model and parses the Messages body.
-func ParseMessages(ctx context.Context, body []byte) (MessagesRequest, error) {
+func (Anthropic) ParseMessages(ctx context.Context, body []byte) (MessagesRequest, error) {
 	log := observability.FromContext(ctx)
 	// Same for the one-click thumbs footer (and its signed rate URLs), which
 	// would otherwise shift assistant prefixes off the prompt cache.

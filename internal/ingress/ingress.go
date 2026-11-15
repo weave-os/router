@@ -23,13 +23,22 @@ type Adapter interface {
 	Parse(ctx context.Context, body []byte) (*translate.RequestEnvelope, []byte, error)
 	// CheckTarget rejects a routed provider the format cannot be served by.
 	CheckTarget(provider string) error
+}
+
+// StreamErrorWriter is a format whose committed-stream error frame does not
+// depend on how the dispatch failed.
+type StreamErrorWriter interface {
 	// WriteStreamError ends a committed stream with the format's error frame.
 	WriteStreamError(w http.ResponseWriter)
 }
 
 // Formats holds the adapters for the formats the orchestrator serves.
 type Formats struct {
-	Gemini Adapter
+	Gemini interface {
+		Adapter
+		StreamErrorWriter
+	}
+	Anthropic Anthropic
 	// Keepalive is the client-silence budget before a ping is injected into
 	// a committed stream (ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS); non-positive
 	// disables it.
@@ -38,5 +47,5 @@ type Formats struct {
 
 // New returns the adapters for every served format.
 func New(keepalive time.Duration) Formats {
-	return Formats{Gemini: Gemini{}, Keepalive: keepalive}
+	return Formats{Gemini: Gemini{}, Anthropic: Anthropic{}, Keepalive: keepalive}
 }

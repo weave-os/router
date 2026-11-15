@@ -3423,7 +3423,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if echoed, _ := ctx.Value(responsesFooterEchoedContextKey{}).(bool); echoed {
 		footerEchoed = true
 	}
-	parsed, parseErr := ingress.ParseMessages(ctx, body)
+	parsed, parseErr := s.ingress.Anthropic.ParseMessages(ctx, body)
 	if parseErr != nil {
 		log.Error("Failed to parse Anthropic request", "err", parseErr)
 		return fmt.Errorf("parse request: %w", parseErr)
