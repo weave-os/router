@@ -439,6 +439,8 @@ var ErrCreditsExhaustedSubscriptionUnavailable = errors.New("credits exhausted a
 // It wraps the credits sentinel so every errors.Is refusal check still matches.
 var ErrSpendCapSubscriptionUnavailable = fmt.Errorf("spend cap reached: %w", ErrCreditsExhaustedSubscriptionUnavailable)
 
+var ErrSubscriptionUnavailableForTurn = errors.New("subscription unavailable and paid fallback not permitted for this turn")
+
 // IncludedAllowanceSpentError is the subscription-only refusal for a Max or
 // Boost subscriber whose included allowance window is spent. That window, not
 // the organization gate it wraps, is why the turn reached the gate, so the

@@ -11,8 +11,9 @@ import (
 )
 
 var subscriptionLaneOrgGates = map[refusal.Kind]error{
-	refusal.CreditsExhausted: ErrCreditsExhaustedSubscriptionUnavailable,
-	refusal.SpendCapReached:  ErrSpendCapSubscriptionUnavailable,
+	refusal.CreditsExhausted:               ErrCreditsExhaustedSubscriptionUnavailable,
+	refusal.SpendCapReached:                ErrSpendCapSubscriptionUnavailable,
+	refusal.SubscriptionUnavailableForTurn: ErrSubscriptionUnavailableForTurn,
 }
 
 func linkedFirst(ctx context.Context) bool {
@@ -42,4 +43,13 @@ func subscriptionPoolExhausted(ctx context.Context) error {
 		return ErrSubscriptionPoolExhausted
 	}
 	return errors.Join(subscriptionOnlyUnavailable(ctx), ErrSubscriptionPoolExhausted)
+}
+
+func subscriptionLaneRefused(err error) bool {
+	for _, gate := range subscriptionLaneOrgGates {
+		if errors.Is(err, gate) {
+			return true
+		}
+	}
+	return false
 }

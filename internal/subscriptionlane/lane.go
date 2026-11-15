@@ -20,6 +20,7 @@ const (
 	RefusedCreditsExhausted
 	RefusedSpendCapReached
 	RefusedSubscriptionPoolExhausted
+	RefusedSubscriptionUnavailableForTurn
 	stateCount
 )
 
@@ -61,21 +62,22 @@ type stateSpec struct {
 }
 
 var states = [stateCount]stateSpec{
-	Funded:                           {name: "Funded"},
-	LinkedFirst:                      {name: "LinkedFirst"},
-	SpendCapReached:                  {name: "SpendCapReached"},
-	CreditsDepleted:                  {name: "CreditsDepleted"},
-	ServedOnSubscription:             {name: "ServedOnSubscription", outcome: Success},
-	ServedOnCustomerKey:              {name: "ServedOnCustomerKey", outcome: Success},
-	ServedOnOrganizationCredits:      {name: "ServedOnOrganizationCredits", outcome: Success},
-	RefusedInsufficientCredits:       {name: "RefusedInsufficientCredits", outcome: Refused, refusal: refusal.InsufficientCredits},
-	RefusedKeySpendCap:               {name: "RefusedKeySpendCap", outcome: Refused, refusal: refusal.KeySpendCapReached},
-	RefusedOrgMonthlySpendLimit:      {name: "RefusedOrgMonthlySpendLimit", outcome: Refused, refusal: refusal.OrgMonthlySpendLimitReached},
-	RefusedDelegatedSpendCap:         {name: "RefusedDelegatedSpendCap", outcome: Refused, refusal: refusal.DelegatedSpendCapReached},
-	RefusedUserSpendLimit:            {name: "RefusedUserSpendLimit", outcome: Refused, refusal: refusal.UserSpendLimitReached},
-	RefusedCreditsExhausted:          {name: "RefusedCreditsExhausted", outcome: Refused, refusal: refusal.CreditsExhausted},
-	RefusedSpendCapReached:           {name: "RefusedSpendCapReached", outcome: Refused, refusal: refusal.SpendCapReached},
-	RefusedSubscriptionPoolExhausted: {name: "RefusedSubscriptionPoolExhausted", outcome: Refused, refusal: refusal.SubscriptionPoolExhausted},
+	Funded:                                {name: "Funded"},
+	LinkedFirst:                           {name: "LinkedFirst"},
+	SpendCapReached:                       {name: "SpendCapReached"},
+	CreditsDepleted:                       {name: "CreditsDepleted"},
+	ServedOnSubscription:                  {name: "ServedOnSubscription", outcome: Success},
+	ServedOnCustomerKey:                   {name: "ServedOnCustomerKey", outcome: Success},
+	ServedOnOrganizationCredits:           {name: "ServedOnOrganizationCredits", outcome: Success},
+	RefusedInsufficientCredits:            {name: "RefusedInsufficientCredits", outcome: Refused, refusal: refusal.InsufficientCredits},
+	RefusedKeySpendCap:                    {name: "RefusedKeySpendCap", outcome: Refused, refusal: refusal.KeySpendCapReached},
+	RefusedOrgMonthlySpendLimit:           {name: "RefusedOrgMonthlySpendLimit", outcome: Refused, refusal: refusal.OrgMonthlySpendLimitReached},
+	RefusedDelegatedSpendCap:              {name: "RefusedDelegatedSpendCap", outcome: Refused, refusal: refusal.DelegatedSpendCapReached},
+	RefusedUserSpendLimit:                 {name: "RefusedUserSpendLimit", outcome: Refused, refusal: refusal.UserSpendLimitReached},
+	RefusedCreditsExhausted:               {name: "RefusedCreditsExhausted", outcome: Refused, refusal: refusal.CreditsExhausted},
+	RefusedSpendCapReached:                {name: "RefusedSpendCapReached", outcome: Refused, refusal: refusal.SpendCapReached},
+	RefusedSubscriptionPoolExhausted:      {name: "RefusedSubscriptionPoolExhausted", outcome: Refused, refusal: refusal.SubscriptionPoolExhausted},
+	RefusedSubscriptionUnavailableForTurn: {name: "RefusedSubscriptionUnavailableForTurn", outcome: Refused, refusal: refusal.SubscriptionUnavailableForTurn},
 }
 
 var eventNames = [eventCount]string{

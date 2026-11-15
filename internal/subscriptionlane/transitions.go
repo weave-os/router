@@ -35,7 +35,7 @@ var transitions = [eventCount][pendingStateCount]Transition{
 	SubscriptionServed:          {to(ServedOnSubscription), to(ServedOnSubscription), to(ServedOnSubscription), to(ServedOnSubscription)},
 	CustomerKeyServed:           {to(ServedOnCustomerKey), to(ServedOnCustomerKey), to(ServedOnCustomerKey), to(ServedOnCustomerKey)},
 	OrganizationCreditsServed:   {to(ServedOnOrganizationCredits), to(ServedOnOrganizationCredits), rejected, rejected},
-	SubscriptionUnservable:      {to(RefusedCreditsExhausted), to(RefusedCreditsExhausted), to(RefusedSpendCapReached), to(RefusedCreditsExhausted)},
+	SubscriptionUnservable:      {to(RefusedSubscriptionUnavailableForTurn), to(RefusedSubscriptionUnavailableForTurn), to(RefusedSpendCapReached), to(RefusedCreditsExhausted)},
 	SubscriptionPoolExhausted:   {to(RefusedSubscriptionPoolExhausted), to(RefusedSubscriptionPoolExhausted), to(RefusedSpendCapReached), to(RefusedCreditsExhausted)},
 }
 

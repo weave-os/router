@@ -7,6 +7,7 @@ import (
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/refusal"
+	"weave-os/router/internal/subscriptions/entitlement"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,12 +28,12 @@ func subscriptionLaneRefusalCases() map[string]subscriptionLaneRefusalCase {
 	return map[string]subscriptionLaneRefusalCase{
 		"unflagged": {
 			ctx:           context.Background(),
-			unavailable:   refusal.CreditsExhausted,
+			unavailable:   refusal.SubscriptionUnavailableForTurn,
 			poolExhausted: refusal.SubscriptionPoolExhausted,
 		},
 		"linked-first": {
 			ctx:              marked(billing.SubscriptionOnlyLinkedFirst),
-			unavailable:      refusal.CreditsExhausted,
+			unavailable:      refusal.SubscriptionUnavailableForTurn,
 			poolExhausted:    refusal.SubscriptionPoolExhausted,
 			linkedFirstStill: true,
 		},
@@ -73,4 +74,16 @@ func TestSubscriptionLaneRefusalsPerMark(t *testing.T) {
 
 func TestUserSpendLimitRefusalClassifiesAsUserSpendLimitReached(t *testing.T) {
 	assert.Equal(t, refusal.UserSpendLimitReached.Contract(), classifiedRefusal(t, fmt.Errorf("%w: spent", billing.ErrUserMonthlySpendLimitReached)))
+}
+
+func TestIncludedAllowanceSpentOnAFundedTurnIsNotACreditsRefusal(t *testing.T) {
+	ctx := entitlement.WithSpentWindow(context.Background(), entitlement.SpentWindow{})
+
+	err := subscriptionOnlyUnavailable(ctx)
+
+	var allowanceSpent *IncludedAllowanceSpentError
+	require.ErrorAs(t, err, &allowanceSpent)
+	assert.Equal(t, refusal.SubscriptionUnavailableForTurn.Contract(), classifiedRefusal(t, err))
+	cls, _ := ClassifyDispatchError(err)
+	assert.NotContains(t, cls.Message, topUpURL)
 }

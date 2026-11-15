@@ -261,6 +261,6 @@ func TestCodexOutOfRosterModel_ChatOnlyRequestWithoutAPICredentialRefusesBeforeD
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 
 	err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, req)
-	require.ErrorIs(t, err, ErrCreditsExhaustedSubscriptionUnavailable)
+	require.ErrorIs(t, err, ErrSubscriptionUnavailableForTurn)
 	assert.Empty(t, client.attempts, "the Codex token must not be sent to Chat Completions without an API fallback")
 }
