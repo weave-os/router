@@ -31,10 +31,11 @@ func (s *Service) grantPostCommandContinuation(
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
 ) {
+	sessionPins := routingpolicy.NewSessionPins(s.pinStore)
 	if s.pinStore == nil || installationID == uuid.Nil {
 		return
 	}
-	pin, found := routingpolicy.NewSessionPins(s.pinStore).Load(ctx, sessionKey, role)
+	pin, found := sessionPins.Load(ctx, sessionKey, role)
 	if !found || pin.Model == "" || pin.Provider == "" || isUserForcedReason(pin.Reason) {
 		return
 	}
@@ -55,7 +56,7 @@ func (s *Service) grantPostCommandContinuation(
 	// A slash command can arrive just before the active pin expires. Renew the
 	// one-shot independently so its immediate follow-up remains eligible.
 	pin.PinnedUntil = pinExpiry(pin.Reason)
-	routingpolicy.NewSessionPins(s.pinStore).Upsert(ctx, pin)
+	sessionPins.Upsert(ctx, pin)
 	observability.FromContext(ctx).Info("stored one-shot post-command continuation", "model", pin.Model, "provider", pin.Provider, "role", role)
 }
 

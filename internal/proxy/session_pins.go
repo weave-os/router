@@ -9,8 +9,6 @@ import (
 	"weave-os/router/internal/routingpolicy"
 )
 
-const pinSessionTTL = routingpolicy.PinSessionTTL
-
 var pinNeverExpires = routingpolicy.PinNeverExpires
 
 func pinExpiry(reason string) time.Time { return routingpolicy.PinExpiry(reason) }

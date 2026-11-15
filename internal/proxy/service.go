@@ -5149,6 +5149,7 @@ func isHMMTurn(res turnLoopResult) bool {
 }
 
 func (s *Service) recordHMMTurnHistory(ctx context.Context, res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int, outputLimitReached bool) {
+	sessionPins := routingpolicy.NewSessionPins(s.pinStore)
 	if servedModel == "" || res.InstallationID == uuid.Nil {
 		return
 	}
@@ -5162,14 +5163,14 @@ func (s *Service) recordHMMTurnHistory(ctx context.Context, res turnLoopResult, 
 	if !hasUsage {
 		// A failed turn has no usage writeback; preserve the prior provider to
 		// avoid an invalid model/provider pair on the next HMM stay.
-		if prior := routingpolicy.NewSessionPins(s.pinStore).LoadHMMHistory(strategyCtx, res.SessionKey, res.PinRole); prior.Provider != "" {
+		if prior := sessionPins.LoadHMMHistory(strategyCtx, res.SessionKey, res.PinRole); prior.Provider != "" {
 			historyProvider = prior.Provider
 		}
 	}
 	role := hmmHistoryRole(res.PinRole)
 	// The upsert only refreshes the row's TTL/turn_count/provider (ON CONFLICT
 	// leaves the usage columns untouched), so it is always safe to run.
-	routingpolicy.NewSessionPins(s.pinStore).Upsert(strategyCtx, sessionpin.Pin{
+	sessionPins.Upsert(strategyCtx, sessionpin.Pin{
 		SessionKey:     res.SessionKey,
 		Role:           role,
 		InstallationID: res.InstallationID,

@@ -804,7 +804,7 @@ func (s *Service) runTurnLoop(
 	req router.Request,
 ) (res turnLoopResult, routeErr error) {
 	subAgentHint = subAgentHintForRequest(ctx, subAgentHint)
-	shadowStartedAt := time.Now()
+	shadowStartedAt, sessionPins := time.Now(), routingpolicy.NewSessionPins(s.pinStore)
 	defer func() {
 		if routeErr == nil {
 			routeErr = policyPinServed(ctx, res)
@@ -990,7 +990,7 @@ func (s *Service) runTurnLoop(
 	if _, pinned := router.HonouredPolicyPin(ctx); pinned && (!s.isHardPinnedTurn(ctx, res.TurnType) || automaticProbe) {
 		if s.pinStore != nil && !isUnpinnedScoredTurn(res.TurnType) && !automaticProbe {
 			res.SessionKey = threadSessionKey
-			_, _, res.SessionFirstTurn = routingpolicy.NewSessionPins(s.pinStore).LoadWithStoreState(ctx, res.SessionKey, res.PinRole)
+			_, _, res.SessionFirstTurn = sessionPins.LoadWithStoreState(ctx, res.SessionKey, res.PinRole)
 		}
 		req.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{})
 		decision, err := s.routeFor(ctx, req)
@@ -1011,7 +1011,7 @@ func (s *Service) runTurnLoop(
 	// pins. Legacy thread-scoped forces keep their original thread boundary.
 	hardPinnedTurn := s.isHardPinnedTurn(ctx, res.TurnType)
 	if s.pinStore != nil && hardPinnedTurn && !forceModelFound && !forceModelCleared {
-		legacyPin, found := routingpolicy.NewSessionPins(s.pinStore).Load(ctx, threadSessionKey, res.PinRole)
+		legacyPin, found := sessionPins.Load(ctx, threadSessionKey, res.PinRole)
 		if found && isUserForcedReason(legacyPin.Reason) {
 			binding, reason := s.forcedModelBinding(ctx, legacyPin.Model, legacyPin.Provider)
 			if reason != "" {
@@ -1049,8 +1049,8 @@ func (s *Service) runTurnLoop(
 			res.Purpose = utilityPurposes[res.TurnType]
 			threadPin, hmmHistory, forceHistory := sessionpin.Pin{}, sessionpin.Pin{}, sessionpin.Pin{}
 			if s.pinStore != nil {
-				threadPin, _ = routingpolicy.NewSessionPins(s.pinStore).Load(ctx, threadSessionKey, res.PinRole)
-				hmmHistory = routingpolicy.NewSessionPins(s.pinStore).LoadHMMHistory(ctx, threadSessionKey, res.PinRole)
+				threadPin, _ = sessionPins.Load(ctx, threadSessionKey, res.PinRole)
+				hmmHistory = sessionPins.LoadHMMHistory(ctx, threadSessionKey, res.PinRole)
 				forceHistory = s.loadForceModelHistory(ctx, threadSessionKey, res.PinRole)
 			}
 			res.SessionKey = threadSessionKey
@@ -1063,7 +1063,7 @@ func (s *Service) runTurnLoop(
 			res.Decision.Reason = translate.ReasonUserForceModel
 			res.StickyHit = true
 			res.PinTier = translate.ReasonUserForceModel
-			routingpolicy.NewSessionPins(s.pinStore).AnchorForceModelHistory(ctx, installationID, threadSessionKey, res.PinRole, forceModelPin)
+			sessionPins.AnchorForceModelHistory(ctx, installationID, threadSessionKey, res.PinRole, forceModelPin)
 			return res, nil
 		}
 		res.SessionKey = threadSessionKey
@@ -1266,7 +1266,7 @@ func (s *Service) runTurnLoop(
 
 	res.SessionKey = sessionKey
 
-	pin, pinFound, noStoredState := routingpolicy.NewSessionPins(s.pinStore).LoadWithStoreState(ctx, res.SessionKey, res.PinRole)
+	pin, pinFound, noStoredState := sessionPins.LoadWithStoreState(ctx, res.SessionKey, res.PinRole)
 	res.SessionFirstTurn = noStoredState
 	// A deliberate clear is stored as an expired, blank pin with a reason.
 	// Natural expiry retains the model/provider and may still use a renewed
@@ -1276,7 +1276,7 @@ func (s *Service) runTurnLoop(
 	if !pinFound && pin.Model == "" && pin.Provider == "" && pin.Reason != "" {
 		clearedPinReason = pin.Reason
 	}
-	hmmHistory := routingpolicy.NewSessionPins(s.pinStore).LoadHMMHistory(ctx, res.SessionKey, res.PinRole)
+	hmmHistory := sessionPins.LoadHMMHistory(ctx, res.SessionKey, res.PinRole)
 	forceHistory := sessionpin.Pin{}
 	if forceModelFound || forceModelCleared {
 		forceHistory = s.loadForceModelHistory(ctx, res.SessionKey, res.PinRole)
@@ -1482,7 +1482,7 @@ func (s *Service) runTurnLoop(
 			res.Decision.Reason = translate.ReasonUserForceModel
 			res.StickyHit = true
 			res.PinTier = translate.ReasonUserForceModel
-			routingpolicy.NewSessionPins(s.pinStore).AnchorForceModelHistory(ctx, installationID, res.SessionKey, res.PinRole, forceModelPin)
+			sessionPins.AnchorForceModelHistory(ctx, installationID, res.SessionKey, res.PinRole, forceModelPin)
 			return res, nil
 		}
 		res.ForcedPinDropped = true
@@ -1521,7 +1521,7 @@ func (s *Service) runTurnLoop(
 			res.PinTier = pin.Reason
 			res.Decision = decision
 			res.StickyHit = true
-			routingpolicy.NewSessionPins(s.pinStore).Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, pinDecision(pin))
+			sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, pinDecision(pin))
 			return res, nil
 		}
 		// A forced pin is an explicit user instruction; dropping it silently reverts
@@ -1797,7 +1797,7 @@ func (s *Service) runTurnLoop(
 			"pin_model", commandContinuation.Model,
 			"pin_provider", commandContinuation.Provider,
 		)
-		routingpolicy.NewSessionPins(s.pinStore).Refresh(ctx, installationID, res.SessionKey, commandContinuation, res.PinRole, decision)
+		sessionPins.Refresh(ctx, installationID, res.SessionKey, commandContinuation, res.PinRole, decision)
 		return res, nil
 	}
 
@@ -1861,7 +1861,7 @@ func (s *Service) runTurnLoop(
 				res.PinTier = unscorableHMMStickyReason
 				log.Info("HMM turn has no user text; preserving eligible session pin",
 					"pin_model", pin.Model, "pin_provider", pin.Provider)
-				routingpolicy.NewSessionPins(s.pinStore).Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, pinDecision(pin))
+				sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, pinDecision(pin))
 				return res, nil
 			}
 		}
@@ -1878,7 +1878,7 @@ func (s *Service) runTurnLoop(
 			res.Decision = decision
 			res.StickyHit = true
 			res.PinTier = "postgres_tool_result_sc"
-			routingpolicy.NewSessionPins(s.pinStore).Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
+			sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
 			return res, nil
 		}
 
@@ -1888,7 +1888,7 @@ func (s *Service) runTurnLoop(
 			res.Decision = decision
 			res.StickyHit = true
 			res.PinTier = "postgres"
-			routingpolicy.NewSessionPins(s.pinStore).Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
+			sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
 			return res, nil
 		}
 
@@ -1943,7 +1943,7 @@ func (s *Service) runTurnLoop(
 						// isHMMPinReason gates later HMM stickiness on it.
 						refreshed := decision
 						refreshed.Reason = pin.Reason
-						routingpolicy.NewSessionPins(s.pinStore).Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, refreshed)
+						sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, refreshed)
 						return res, nil
 					}
 					if decision, ok := s.policyDeadlineDefaultDecision(req); ok {
@@ -1956,7 +1956,7 @@ func (s *Service) runTurnLoop(
 							"default_provider", decision.Provider,
 							"requested_model", req.RequestedModel,
 						)
-						routingpolicy.NewSessionPins(s.pinStore).WriteNew(ctx, installationID, res.SessionKey, res.PinRole, decision)
+						sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, decision)
 						return res, nil
 					}
 				}
@@ -2014,7 +2014,7 @@ func (s *Service) runTurnLoop(
 						"fresh_model", fresh.Model,
 						"reason", res.UpgradeShadow.Verdict.Reason,
 					)
-					routingpolicy.NewSessionPins(s.pinStore).Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
+					sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
 					return res, nil
 				}
 
@@ -2039,7 +2039,7 @@ func (s *Service) runTurnLoop(
 					"rerouted_model", rerouted.Model,
 					"reason", res.UpgradeShadow.Verdict.Reason,
 				)
-				routingpolicy.NewSessionPins(s.pinStore).WriteNew(ctx, installationID, res.SessionKey, res.PinRole, rerouted)
+				sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, rerouted)
 				return res, nil
 			}
 			slidingServed, slidingProbability := slidingThresholdServes(req, pin, fresh)
@@ -2070,7 +2070,7 @@ func (s *Service) runTurnLoop(
 						"reason", res.UpgradeShadow.Verdict.Reason,
 						"upgrade_votes", votes,
 					)
-					routingpolicy.NewSessionPins(s.pinStore).RefreshVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, 0, votes)
+					sessionPins.RefreshVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, 0, votes)
 					return res, nil
 				}
 			}
@@ -2096,7 +2096,7 @@ func (s *Service) runTurnLoop(
 						"confidence", confidence,
 						"threshold", s.hmmUpgradeConfidenceThreshold,
 					)
-					routingpolicy.NewSessionPins(s.pinStore).Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
+					sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
 					return res, nil
 				}
 			}
@@ -2122,7 +2122,7 @@ func (s *Service) runTurnLoop(
 						"downgrade_votes", pin.ConsecutiveDowngradeVotes,
 						"hysteresis_turns", hysteresisTurns,
 					)
-					routingpolicy.NewSessionPins(s.pinStore).RefreshDowngradeVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, pin.ConsecutiveDowngradeVotes)
+					sessionPins.RefreshDowngradeVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, pin.ConsecutiveDowngradeVotes)
 					return res, nil
 				}
 				votes := pin.ConsecutiveDowngradeVotes + 1
@@ -2141,7 +2141,7 @@ func (s *Service) runTurnLoop(
 						"downgrade_votes", votes,
 						"hysteresis_turns", hysteresisTurns,
 					)
-					routingpolicy.NewSessionPins(s.pinStore).RefreshDowngradeVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, votes)
+					sessionPins.RefreshDowngradeVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, votes)
 					return res, nil
 				}
 				// The downgrade is served. Shadow what the guards would have done at
@@ -2173,7 +2173,7 @@ func (s *Service) runTurnLoop(
 			if slidingServed {
 				res.PinTier = string(pinTierAuthoritativeSlidingThresholdUpgrade)
 			}
-			routingpolicy.NewSessionPins(s.pinStore).WriteNew(ctx, installationID, res.SessionKey, res.PinRole, fresh)
+			sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, fresh)
 			return res, nil
 		}
 		if isHMMDecision(fresh) {
@@ -2258,7 +2258,7 @@ func (s *Service) runTurnLoop(
 								res.Decision = priorDecision
 								res.StickyHit = true
 								res.PinTier = "postgres_reanchor"
-								routingpolicy.NewSessionPins(s.pinStore).WriteNew(ctx, installationID, res.SessionKey, res.PinRole, priorDecision)
+								sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, priorDecision)
 								log.Info("router re-anchored expired session pin",
 									"prior_model", pin.Model,
 									"prior_provider", pin.Provider,
@@ -2277,7 +2277,7 @@ func (s *Service) runTurnLoop(
 
 		if !s.ResolvePlannerEnabled(ctx) {
 			res.Decision = fresh
-			routingpolicy.NewSessionPins(s.pinStore).WriteNew(ctx, installationID, res.SessionKey, res.PinRole, fresh)
+			sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, fresh)
 			return res, nil
 		}
 
@@ -2308,7 +2308,7 @@ func (s *Service) runTurnLoop(
 			res.Decision = served
 			res.StickyHit = true
 			res.PinTier = "postgres_stay_" + decision.Reason
-			routingpolicy.NewSessionPins(s.pinStore).Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, anchor)
+			sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, anchor)
 			return res, nil
 		}
 
@@ -2384,7 +2384,7 @@ func (s *Service) runTurnLoop(
 		if pinFound {
 			res.PinTier = "switch_" + decision.Reason
 		}
-		routingpolicy.NewSessionPins(s.pinStore).WriteNew(ctx, installationID, res.SessionKey, res.PinRole, fresh)
+		sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, fresh)
 		return res, nil
 	}
 	res, routeErr = routeRemaining()

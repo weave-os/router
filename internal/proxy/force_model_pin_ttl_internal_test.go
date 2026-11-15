@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -71,7 +72,7 @@ func TestPinExpiry_UserForcedNeverExpires(t *testing.T) {
 
 	got := pinExpiry("cluster:v0.67 top_p=[2,4]")
 	assert.True(t, got.After(time.Now()), "cluster pin keeps a live TTL")
-	assert.True(t, got.Before(time.Now().Add(pinSessionTTL+time.Minute)),
+	assert.True(t, got.Before(time.Now().Add(routingpolicy.PinSessionTTL+time.Minute)),
 		"cluster pin keeps the bounded one-hour session TTL, not the sentinel")
 }
 
