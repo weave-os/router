@@ -107,8 +107,12 @@ func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, 
 	if err != nil {
 		return err
 	}
-	port := listener.Addr().(*net.TCPAddr).Port
+	addr, ok := listener.Addr().(*net.TCPAddr)
 	_ = listener.Close()
+	if !ok {
+		return fmt.Errorf("listener address is %T, not *net.TCPAddr", listener.Addr())
+	}
+	port := addr.Port
 	logFile, err := os.CreateTemp("", "router-legacy-"+string(mode)+"-*.log")
 	if err != nil {
 		return err

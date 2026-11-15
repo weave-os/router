@@ -1182,7 +1182,8 @@ func (s *Service) fetchBlindExperiment(ctx context.Context, installationID, rout
 		observability.FromContext(ctx).Warn("Failed to fetch blind router experiment assignment", "router_user_id", routerUserID, "err", result.Err)
 		return BlindExperimentState{}, false
 	}
-	return result.Val.(BlindExperimentState), true
+	state, ok := result.Val.(BlindExperimentState)
+	return state, ok
 }
 
 func userIdentityKey(email, claudeAccountUUID string) string {

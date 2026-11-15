@@ -77,7 +77,10 @@ func (r *PlanResolver) Resolve(ctx context.Context, token []byte) providers.Subs
 	case <-ctx.Done():
 		return providers.SubscriptionPlanUnknown
 	case outcome := <-result:
-		reading := outcome.Val.(subscriptionPlanReading)
+		reading, ok := outcome.Val.(subscriptionPlanReading)
+		if !ok {
+			return providers.SubscriptionPlanUnknown
+		}
 		return reading.plan
 	}
 }

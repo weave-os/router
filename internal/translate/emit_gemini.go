@@ -1340,7 +1340,7 @@ func sanitizeGeminiSchemaNode(v any, path string) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		base := mergeSchemaMaps(node, nil, false)
+		base := cloneSchemaMap(node)
 		delete(base, "allOf")
 		// The merged branches arrived here already nullability-normalized
 		// (type:["x","null"] lowered to type + nullable:true); the sibling map
@@ -1574,15 +1574,10 @@ func mergeGeminiAllOf(v any, path string) (merged map[string]any, widened bool, 
 	return stripEmptyNullable(merged), widened, nil
 }
 
-func mergeSchemaMaps(base, extra map[string]any, overwrite bool) map[string]any {
-	out := make(map[string]any, len(base)+len(extra))
+func cloneSchemaMap(base map[string]any) map[string]any {
+	out := make(map[string]any, len(base))
 	for key, value := range base {
 		out[key] = deepCopyJSON(value)
-	}
-	for key, value := range extra {
-		if _, exists := out[key]; !exists || overwrite {
-			out[key] = deepCopyJSON(value)
-		}
 	}
 	return out
 }
@@ -1615,7 +1610,7 @@ var geminiStricterBoundKeys = map[string]bool{
 func intersectGeminiSchemas(left, right map[string]any) (map[string]any, bool) {
 	left = clampNullableTyped(left)
 	right = clampNullableTyped(right)
-	out := mergeSchemaMaps(left, nil, false)
+	out := cloneSchemaMap(left)
 	for key, value := range right {
 		current, exists := out[key]
 		if !exists {
@@ -1708,7 +1703,7 @@ func clampNullableTyped(schema map[string]any) map[string]any {
 		if !ok {
 			return schema
 		}
-		out := mergeSchemaMaps(schema, nil, false)
+		out := cloneSchemaMap(schema)
 		out["type"] = primary
 		out["nullable"] = true
 		return out
@@ -1716,7 +1711,7 @@ func clampNullableTyped(schema map[string]any) map[string]any {
 	if _, hasNullable := schema["nullable"]; hasNullable {
 		return schema
 	}
-	out := mergeSchemaMaps(schema, nil, false)
+	out := cloneSchemaMap(schema)
 	out["nullable"] = false
 	return out
 }
@@ -1768,7 +1763,7 @@ func stripEmptyNullable(schema map[string]any) map[string]any {
 // mergeGeminiPropertyMaps merges two `properties` maps. A name declared by
 // both branches has its two subschemas intersected, not compared for equality.
 func mergeGeminiPropertyMaps(left, right map[string]any) (map[string]any, bool) {
-	out := mergeSchemaMaps(left, nil, false)
+	out := cloneSchemaMap(left)
 	for name, value := range right {
 		current, exists := out[name]
 		if !exists {
@@ -1834,7 +1829,7 @@ func stricterBound(left, right any, larger bool) (any, bool) {
 // to "produce some representable schema" — properties recurse, required unions,
 // any other conflict keeps left.
 func mergeSchemaMapsLenient(left, right map[string]any) map[string]any {
-	out := mergeSchemaMaps(left, nil, false)
+	out := cloneSchemaMap(left)
 	for key, value := range right {
 		current, exists := out[key]
 		if !exists {
