@@ -82,9 +82,10 @@ func TestCodexCompactionAfterAutoReview(t *testing.T) {
 	assert.Equal(t, compactionStrategyModel, turn.Decision.Model)
 	assert.Equal(t, policy.OverrideSourceSession, turn.Origin)
 
-	_, active := routingpolicy.NewSessionPins(svc.pinStore).Load(ctx, sessionKey, sessionpin.DefaultRole)
+	sessionPins := routingpolicy.NewSessionPins(svc.pinStore)
+	_, active := sessionPins.Load(ctx, sessionKey, sessionpin.DefaultRole)
 	assert.False(t, active, "ordinary routing must still reject another strategy's pin")
-	assert.Empty(t, routingpolicy.NewSessionPins(svc.pinStore).LoadHMMHistory(ctx, sessionKey, sessionpin.DefaultRole).LastServedModel)
+	assert.Empty(t, sessionPins.LoadHMMHistory(ctx, sessionKey, sessionpin.DefaultRole).LastServedModel)
 }
 
 func TestCodexCompactionDispatchAcrossStrategies(t *testing.T) {
