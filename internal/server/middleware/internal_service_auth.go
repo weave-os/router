@@ -2,8 +2,8 @@ package middleware
 
 import (
 	"crypto/subtle"
-	"net/http"
 	"strings"
+	"weave-os/router/internal/refusal"
 
 	"github.com/gin-gonic/gin"
 )
@@ -19,7 +19,7 @@ func WithInternalServiceAuth(token string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		presented := strings.TrimSpace(c.GetHeader(internalServiceTokenHeader))
 		if len(expected) == 0 || subtle.ConstantTimeCompare([]byte(presented), expected) != 1 {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid_key"})
+			abortRefusal(c, refusal.InvalidKey, nil)
 			return
 		}
 		c.Next()

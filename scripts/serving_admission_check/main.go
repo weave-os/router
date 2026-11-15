@@ -1,9 +1,3 @@
-// Command serving_admission_check exercises primary-database admission against a loopback fixture.
-// It refuses non-loopback databases, never logs routing credentials, and removes every fixture row
-// it wrote before returning, failing if any of them survives.
-//
-//	ROUTER_TEST_DATABASE_URL="postgres://router:router@127.0.0.1:5432/router?sslmode=disable&search_path=router" \
-//	  go run ./scripts/serving_admission_check
 package main
 
 import (
@@ -33,18 +27,13 @@ import (
 	"weave-os/router/internal/sqlc"
 )
 
-// databaseURLEnv gates the harness; it must name a loopback Postgres fixture.
 const databaseURLEnv = "ROUTER_TEST_DATABASE_URL"
 
-// fixture records every row the checks create so the run can remove them again.
-// The installation carries the cascades; a credential subject outlives them.
 type fixture struct {
 	installationID string
 	subjectIDs     []string
 }
 
-// fixtureTables enumerates the tables admission writes and how a row is scoped to this
-// run: $1 is the fixture installation, or the fixture subjects when subjectScoped.
 var fixtureTables = []struct {
 	table, scope  string
 	subjectScoped bool
@@ -66,7 +55,6 @@ func main() {
 	slog.Info("Serving admission integration passed")
 }
 
-// fixtureDSN accepts only a loopback DSN; the harness holds no production credentials.
 func fixtureDSN(dsn string) (string, error) {
 	parsed, err := url.Parse(dsn)
 	if err != nil || dsn == "" || (parsed.Hostname() != "127.0.0.1" && parsed.Hostname() != "localhost" && parsed.Hostname() != "::1") {
@@ -88,8 +76,6 @@ func run() (runErr error) {
 	}
 	defer pool.Close()
 	created := &fixture{}
-	// Removal runs on success and failure alike, on its own deadline so an
-	// exhausted check context cannot leave the rows behind.
 	defer func() { runErr = errors.Join(runErr, removeFixture(pool, created)) }()
 	return checkAdmission(ctx, pool, created)
 }
@@ -266,9 +252,6 @@ func checkAdmission(ctx context.Context, pool *pgxpool.Pool, created *fixture) e
 	return nil
 }
 
-// removeFixture deletes the fixture installation (whose cascades carry keys, access,
-// profile assignment, bindings and attribution), then the subjects the cascades leave
-// behind, and fails if any scoped row survives.
 func removeFixture(pool *pgxpool.Pool, created *fixture) error {
 	if created.installationID == "" {
 		return nil
@@ -344,15 +327,11 @@ func checkRetainedAdmissionClock(ctx context.Context, admissions *serving.Servin
 	return nil
 }
 
-// admissionTimingAttributes are the fields the timing record must carry, and
-// forbiddenTimingAttributes the identity-bearing fields it must never carry.
 var (
 	admissionTimingAttributes = []string{"admission_total_ms", "admission_tx_ms", "admission_lock_wait_ms", "admission_gcs_state_read_ms", "admission_gcs_selection_set_read_ms", "admission_gcs_selection_set_reads", "admission_decide_ms", "admission_projection_queries_ms", "admission_persistent", "admission_outcome", "target", "activation_id"}
 	forbiddenTimingAttributes = []string{"installation_id", "api_key_id", "key_id", "credential_identity", "subject_id", "conversation_digest", "client_session_id", "session_id", "binding", "err"}
 )
 
-// checkAdmissionTimingRecord asserts that both an admitted and a denied admission emit exactly
-// one measurement record carrying durations and no caller identity.
 func checkAdmissionTimingRecord(ctx context.Context, admissions *serving.ServingAdmissionRepo, installationID, keyID string, decide policyregistry.AdmissionDecision) error {
 	var logs bytes.Buffer
 	observed := observability.WithLogger(ctx, slog.New(slog.NewJSONHandler(&logs, nil)))

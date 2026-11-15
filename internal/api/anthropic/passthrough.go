@@ -40,7 +40,7 @@ func PassthroughHandler(svc *proxy.Service) gin.HandlerFunc {
 				return
 			}
 			if ok && cls.Kind == proxy.DispatchErrorNotImplemented {
-				writeAnthropicError(c, cls.Status, anthropicErrorType(cls.Kind), cls.Message)
+				writeAnthropicError(c, cls.Status, anthropicErrorType(cls), cls.Message)
 				return
 			}
 			log.Error("Passthrough failed", "err", err)

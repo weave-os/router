@@ -3,8 +3,8 @@ package middleware
 import (
 	"context"
 	"errors"
-	"net/http"
 	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/refusal"
 	"weave-os/router/internal/requestcontext"
 
 	"weave-os/router/internal/auth"
@@ -54,12 +54,12 @@ func WithAdminOrAuth(svc *auth.Service, byokRequiresOptIn bool) gin.HandlerFunc 
 func WithAdminOnly(svc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !svc.AdminLoginEnabled() {
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "admin_login_disabled"})
+			abortRefusal(c, refusal.AdminLoginDisabled, nil)
 			return
 		}
 		principal := tryAdminCookie(c, svc)
 		if principal == nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "admin_session_required"})
+			abortRefusal(c, refusal.AdminSessionRequired, nil)
 			return
 		}
 		c.Set(ctxKeyAdminPrincipal, principal)
@@ -87,7 +87,7 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 					handleAuthError(c, err)
 					return
 				}
-				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "test_scope_rejected"})
+				abortRefusal(c, refusal.TestScopeRejected, nil)
 				return
 			}
 			parentCtx = c.Request.Context()
@@ -105,7 +105,7 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 			return
 		}
 		if testPlan != nil && (apiKey.CredentialSubjectID != testPlan.SubjectID || apiKey.InstallationID != installation.ID) {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "test_identity_mismatch"})
+			abortRefusal(c, refusal.TestIdentityMismatch, nil)
 			return
 		}
 		c.Set(ctxKeyInstallation, installation)
@@ -116,8 +116,7 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 			if err != nil {
 				observability.FromContext(ctx).Error("Failed to load installation routing policy", "installation_id", installation.ID, "err", err)
 				finishAuthSpan(authSpan, err)
-				c.Header("Retry-After", "1")
-				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "routing_policy_unavailable"})
+				abortRefusal(c, refusal.RoutingPolicyUnavailable, nil)
 				return
 			}
 		}
@@ -294,16 +293,15 @@ func handleAuthError(c *gin.Context, err error) {
 		logger.Debug("Auth rejected: personal credential subject is disabled or revoked")
 	case errors.Is(err, errOrganizationNotAllowed):
 		logger.Info("Auth rejected: organization is not on the inference allowlist")
-		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "organization_not_allowed"})
+		abortRefusal(c, refusal.OrganizationNotAllowed, nil)
 		return
 	default:
 		// Infra failure — not a bad key. 503 so clients retry instead of treating it as terminal.
 		logger.Error("Auth check errored", "err", err)
-		c.Header("Retry-After", "1")
-		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "auth_unavailable"})
+		abortRefusal(c, refusal.AuthUnavailable, nil)
 		return
 	}
-	c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid_key"})
+	abortRefusal(c, refusal.InvalidKey, nil)
 }
 
 // InstallationFrom retrieves the authed installation set by WithAuth. Returns nil for admin-cookie sessions and unauthed requests.

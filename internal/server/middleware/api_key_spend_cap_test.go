@@ -23,7 +23,7 @@ func runSpendCap(t *testing.T, keyID string, repo *stubBillingRepo) (*httptest.R
 	svc := billing.NewService(repo)
 	engine := gin.New()
 	reached := false
-	engine.GET("/probe", func(c *gin.Context) {
+	engine.GET("/v1/messages", func(c *gin.Context) {
 		if keyID != "" {
 			c.Set("router_api_key", &auth.APIKey{ID: keyID})
 		}
@@ -35,7 +35,7 @@ func runSpendCap(t *testing.T, keyID string, repo *stubBillingRepo) (*httptest.R
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/messages", nil)
 	engine.ServeHTTP(w, req)
 	return w, reached
 }

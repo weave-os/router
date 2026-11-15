@@ -14,7 +14,6 @@ type schemaResponse struct {
 	Notes   schemaResponseNote `json:"notes"`
 }
 
-// schemaResponseNote carries semantics a consumer cannot infer from the field list.
 type schemaResponseNote struct {
 	Grain          string `json:"grain"`
 	Idempotency    string `json:"idempotency"`
@@ -25,8 +24,6 @@ type schemaResponseNote struct {
 	DecisionCaveat string `json:"decision_reason_caveat"`
 }
 
-// SchemaHandler serves GET /v1/analytics/schema: the machine-readable field
-// dictionary so a consumer can generate warehouse DDL.
 func SchemaHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.JSON(http.StatusOK, schemaResponse{
@@ -49,8 +46,6 @@ type modelsResponse struct {
 	Models []analytics.ModelPrice `json:"models"`
 }
 
-// ModelsHandler serves GET /v1/analytics/models: the current price book so a
-// consumer can recompute cost and savings columns independently.
 func ModelsHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.JSON(http.StatusOK, modelsResponse{Models: analytics.PriceBook()})

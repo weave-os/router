@@ -7,8 +7,8 @@ the full router-side feedback-link path minus the LLM proxy itself.
 This exercises actual SQL behavior (natural-key upsert dedup, blank-comment
 collapse to `NULL`, cascade delete on installation removal) that the
 in-memory `fakeFeedbackRepo` used by `internal/api/feedback/feedback_test.go`
-can't cover. Per [`../../CLAUDE.md`](../../CLAUDE.md) ("No DB-backed
-integration tests in `internal/`"), this lives here as a script rather than
+can't cover. DB-backed integration tests stay out of `internal/`, so this
+lives here as a script rather than
 `internal/api/feedback/integration_test.go`.
 
 It is **not** a test (`package main`), so `go test ./...` never touches
