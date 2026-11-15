@@ -83,15 +83,22 @@ func TestFundingNoticePolicyAndReplay(t *testing.T) {
 	const model = "synthetic-model"
 	const marker = "✦ **Weave Router** → synthetic-model\n\n"
 	for _, warning := range subscriptionFundingWarnings {
-		t.Run(string(warning.reason)+"/"+string(warning.source), func(t *testing.T) {
+		t.Run(fmt.Sprintf("%s/%s/key=%t", warning.reason, warning.source, warning.customerKey), func(t *testing.T) {
 			ctx := billing.WithSubscriptionOnly(context.Background(), warning.reason)
+			if warning.customerKey {
+				ctx = context.WithValue(ctx, CredentialsContextKey{}, &Credentials{APIKey: []byte("synthetic-key"), Source: credSourceBYOK})
+			}
 			notice := routerNoticeForRequest(ctx, http.Header{}, warning.source, model, marker)
 			assert.Equal(t, translate.NoticeFundingWarning, notice.Kind)
 			assert.Equal(t, translate.NoticeFromRouter, notice.Provenance)
 			assert.Equal(t, model, notice.Model)
-			if warning.source == subscriptions.ProviderClaude {
+			switch {
+			case warning.customerKey:
+				assert.Contains(t, notice.Text, "your own provider API key")
+				assert.NotContains(t, notice.Text, "subscription")
+			case warning.source == subscriptions.ProviderClaude:
 				assert.Contains(t, notice.Text, "Anthropic subscription")
-			} else {
+			default:
 				assert.Contains(t, notice.Text, "ChatGPT (Codex) subscription")
 			}
 			assert.Contains(t, notice.Text, "spend cap has been reached")

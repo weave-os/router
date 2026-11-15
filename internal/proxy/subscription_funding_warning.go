@@ -1,0 +1,48 @@
+package proxy
+
+import (
+	"weave-os/router/internal/billing"
+	"weave-os/router/internal/subscriptions"
+)
+
+// subscriptionSpendCapWarningMarker is prepended to a subscription-only turn
+// a spend cap barred from paid capacity. The organization may still hold
+// credits, so it names the cap and carries no top-up CTA.
+const subscriptionSpendCapWarningMarker = routingMarkerPrefix +
+	"a Weave router spend cap has been reached, so this turn is running on your own Anthropic subscription and paid model fallback is disabled.\n\n"
+
+const subscriptionSpendCapWarningMarkerCodex = routingMarkerPrefix +
+	"a Weave router spend cap has been reached, so this turn is running on your own ChatGPT (Codex) subscription and paid model fallback is disabled.\n\n"
+
+// subscriptionSpendCapKeyWarningMarker replaces the spend-cap warning when
+// the customer's own provider key, not their plan, serves the turn.
+const subscriptionSpendCapKeyWarningMarker = routingMarkerPrefix +
+	"a Weave router spend cap has been reached, so this turn is running on your own provider API key and paid model fallback is disabled.\n\n"
+
+// subscriptionFundingWarning keeps funding policy separate from notice encoding.
+type subscriptionFundingWarning struct {
+	reason      billing.SubscriptionOnlyReason
+	source      subscriptions.Provider
+	customerKey bool
+}
+
+func (w subscriptionFundingWarning) text() string {
+	switch w.reason {
+	case billing.SubscriptionOnlySpendCapReached:
+		if w.customerKey {
+			return subscriptionSpendCapKeyWarningMarker
+		}
+		if w.source == subscriptions.ProviderCodex {
+			return subscriptionSpendCapWarningMarkerCodex
+		}
+		return subscriptionSpendCapWarningMarker
+	default:
+		return ""
+	}
+}
+
+var subscriptionFundingWarnings = []subscriptionFundingWarning{
+	{reason: billing.SubscriptionOnlySpendCapReached, source: subscriptions.ProviderClaude},
+	{reason: billing.SubscriptionOnlySpendCapReached, source: subscriptions.ProviderCodex},
+	{reason: billing.SubscriptionOnlySpendCapReached, customerKey: true},
+}

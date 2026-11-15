@@ -24,22 +24,27 @@ func weaveCreditsDenied(ctx context.Context) bool {
 	return billing.WeaveCreditsDeniedFromContext(ctx)
 }
 
-// withWeaveCreditsFunding records, for an installation that denies Weave
-// credits, the providers a customer funding source can pay for: a usable
-// connected provider key, or a Claude/ChatGPT plan the caller presents or has
-// linked. A caller-sent API key is never forwarded on the router-key path, so
-// it is not a funding source here.
+// withWeaveCreditsFunding records customerFundedProviders for an
+// installation that denies Weave credits.
 func withWeaveCreditsFunding(ctx context.Context, headers http.Header) context.Context {
 	if !weaveCreditsDenied(ctx) {
 		return ctx
 	}
+	return context.WithValue(ctx, weaveCreditsFundedKey{}, customerFundedProviders(ctx, headers))
+}
+
+// customerFundedProviders returns the providers a customer funding source can
+// pay for: a usable connected provider key, or a Claude/ChatGPT plan the
+// caller presents or has linked. A caller-sent API key is never forwarded on
+// the router-key path, so it is not a funding source here.
+func customerFundedProviders(ctx context.Context, headers http.Header) map[string]struct{} {
 	funded := subscriptionServableProviders(ctx, headers)
 	for provider := range BuildCredentialsMap(externalKeysFromContext(ctx)) {
 		if usableBYOK(ctx, provider) != nil {
 			funded[provider] = struct{}{}
 		}
 	}
-	return context.WithValue(ctx, weaveCreditsFundedKey{}, funded)
+	return funded
 }
 
 // weaveCreditsFundedProviders returns the funded set recorded by
@@ -87,6 +92,19 @@ func customerFunded(creds *Credentials) bool {
 		return false
 	}
 	return creds.OAuth || creds.Source == credSourceBYOK || creds.Source == credSourceClient
+}
+
+// customerKeyFunded reports whether creds are the customer's own usable
+// connected provider key. A caller-sent key is excluded: an unfunded turn is
+// router-keyed, where the inbound bearer is never a funding source.
+func customerKeyFunded(creds *Credentials) bool {
+	return customerFunded(creds) && creds.Source == credSourceBYOK
+}
+
+// servedOnCustomerKey reports whether the turn's resolved credential is the
+// customer's own usable provider key.
+func servedOnCustomerKey(ctx context.Context) bool {
+	return customerKeyFunded(CredentialsFromContext(ctx))
 }
 
 // withPaidFallbackCredentials attaches the credential a paid-fallback probe is judged
