@@ -11,6 +11,17 @@ prompt-cache controls, and detailed usage. The initial hard checks are native
 Responses extension unions, native Gemini ingress, and image input on known
 text-only models.
 
+An upstream decrypts a reasoning item only under the account and model that
+produced it, and a rejected replay ends the client session. The signature the
+router mints therefore carries a scope fingerprint of provider, wire model,
+normalized endpoint (case, trailing slash and default port ignored) and the
+credential's stable principal, and the next turn replays reasoning only when
+the scope matches. The principal is never the per-request bearer: a refreshed
+workload-identity token still decrypts the same items. Without a request
+credential the provider adapter's deployment principal stands in, and a
+principal derived from key material is appended verbatim instead of being
+passed through a fast hash.
+
 ## Rollout modes
 
 `ROUTER_TRANSLATION_COMPATIBILITY_MODE` is validated at startup:
