@@ -6,11 +6,10 @@ import (
 	"strings"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
-
-	"github.com/google/uuid"
 )
 
 // Credential sources, for logging and precedence reasoning. Never log the key
@@ -81,57 +80,17 @@ type ExternalAPIKeysContextKey struct{}
 // reveals the charge. A plan-first key leaves subscriptions in play and only
 // funds turns no subscription can serve.
 func byokFirst(ctx context.Context, provider string) bool {
-	// Mirrors BuildCredentialsMap: usable or explicitly failed keys only, last one wins.
-	keyFirst := false
-	for _, key := range externalKeysFromContext(ctx) {
-		if key.Provider == provider && (len(key.Plaintext) > 0 || key.CredentialError != nil) {
-			keyFirst = key.FundingPriority == auth.FundingPriorityKeyFirst
-		}
-	}
-	return keyFirst
+	return credentials.KeyFirst(externalKeysFromContext(ctx), provider)
 }
 
 func anthropicBYOKFirst(ctx context.Context) bool {
 	return byokFirst(ctx, providers.ProviderAnthropic)
 }
 
-// BuildCredentialsMap builds provider -> Credentials from external keys.
-// Empty-plaintext entries are dropped except explicit provider-scoped failures,
-// which prevent fallback to a deployment credential.
+// BuildCredentialsMap builds provider -> Credentials from external keys. See
+// credentials.BuildCredentialsMap.
 func BuildCredentialsMap(keys []*auth.ExternalAPIKey) map[string]*Credentials {
-	if len(keys) == 0 {
-		return nil
-	}
-	m := make(map[string]*Credentials, len(keys))
-	for _, key := range keys {
-		if len(key.Plaintext) == 0 && key.CredentialError == nil {
-			continue
-		}
-		m[key.Provider] = &Credentials{
-			APIKey:       key.Plaintext,
-			Source:       credSourceBYOK,
-			BaseURL:      key.BaseURL,
-			ModelAliases: key.ModelAliases,
-
-			IdentityHeader:         key.IdentityHeader,
-			IdentityHeaderFormat:   key.IdentityHeaderFormat,
-			ForwardedClientHeaders: append([]string(nil), key.ForwardedClientHeaders...),
-			BaggageHeader:          key.BaggageHeader,
-			AuthType:               key.AuthType,
-			FundingPriority:        key.FundingPriority,
-			CredentialError:        key.CredentialError,
-			// The key row, not its plaintext: a WIF or keypair-JWT key's
-			// Plaintext is a per-request bearer. AuthAccount/AuthUser are
-			// folded in so repointing a key at another upstream account is
-			// a different principal.
-			PrincipalID:   strings.Join([]string{"external-key", key.ID, key.AuthAccount, key.AuthUser}, ":"),
-			ExternalKeyID: key.ID,
-		}
-	}
-	if len(m) == 0 {
-		return nil
-	}
-	return m
+	return credentials.BuildCredentialsMap(keys)
 }
 
 // ExtractClientCredentials extracts provider credentials from request
@@ -156,86 +115,38 @@ func clearCredentials(ctx context.Context) context.Context {
 	return context.WithValue(ctx, CredentialsContextKey{}, (*Credentials)(nil))
 }
 
-// resolveAndInjectCredentials resolves credentials for the selected provider
-// and model and stashes them on ctx. Claude OAuth applies to Anthropic models;
-// Codex OAuth applies to the native Codex roster plus catalog-approved
-// subscription-first fallback models. Other selections fall through to BYOK,
-// a client API key, or the deployment key.
-//
-// Without Anthropic BYOK, a caller's own Claude subscription pays for Claude
-// turns. Native harnesses leave a sk-ant-oat- bearer in Authorization (or
-// x-api-key) while the router key rides in X-Weave-Router-Key. Server-side
-// enrollment (`npx @weave-os/router login`) is a separate managed-account path.
-//
-// The inbound-bearer path is restricted to the OAuth subset: a general client
-// API key is NOT extracted on the router-key path, since that would forward
-// the client's inbound key to a different upstream provider. The deployment
-// env key is the correct fallback there.
+// resolveAndInjectCredentials stashes credentials.Resolve's pick for the
+// selected provider and model on ctx, where provider adapters read it. Claude
+// OAuth applies to Anthropic models; Codex OAuth applies to the native Codex
+// roster plus catalog-approved subscription-first fallback models.
 func resolveAndInjectCredentials(ctx context.Context, provider, model string, headers http.Header) context.Context {
-	byok := BuildCredentialsMap(externalKeysFromContext(ctx))
-	if byok[provider] != nil && byok[provider].FundingPriority == auth.FundingPriorityKeyFirst {
-		return context.WithValue(ctx, CredentialsContextKey{}, byok[provider])
-	}
-	routerKeyed := installationIDFromContext(ctx) != (uuid.UUID{})
-	// Skip subscription OAuth (fall through to BYOK / deployment key):
-	// exhausted (Anthropic-only, avoid re-429), toggle off (provider-wide), or
-	// an OpenAI-provider model outside the native Codex roster and catalog
-	// exceptions.
-	subDisabled := subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx)
-	suppressClaudeSub := claudeSubscriptionSuppressed(ctx) || subDisabled || claudeModelSuppressed(ctx, model)
-	suppressCodexSub := codexSubscriptionSuppressed(ctx) || codexModelSuppressed(ctx, model) || codexChatEndpoint(ctx) || subDisabled || !codexSubscriptionCanAttemptModel(model)
-	if provider == providers.ProviderAnthropic && !suppressClaudeSub {
-		if sub := subscriptionCredsFromToken(anthropicSubscriptionFromContext(ctx)); sub != nil {
-			return context.WithValue(ctx, CredentialsContextKey{}, sub)
+	res := credentials.Resolve(requestFactsFrom(ctx, headers), provider, subscriptionSuppression(ctx, model))
+	if res.Credentials == nil {
+		if res.Clear {
+			// The ctx may still carry an earlier attempt's subscription; the
+			// provider client only uses its deployment key when ctx has none.
+			return clearCredentials(ctx)
 		}
-		// A Claude subscription bearer (sk-ant-oat-) in the inbound Authorization
-		// is honored even on router-keyed requests: Claude Code keeps its own
-		// OAuth token there while the router key rides in X-Weave-Router-Key.
-		// Restricted to the OAuth subset — a general API key is still not
-		// forwarded on the router-key path (cross-provider-leak guard below).
-		if inbound := ExtractClientCredentials(provider, headers); inbound != nil && inbound.OAuth {
-			observability.FromContext(ctx).Info("Resolved Claude subscription credential",
-				"credential_source", inbound.Source)
-			return context.WithValue(ctx, CredentialsContextKey{}, inbound)
+		return ctx
+	}
+	if res.InboundSubscription {
+		log := observability.FromContext(ctx)
+		if provider == providers.ProviderAnthropic {
+			log.Info("Resolved Claude subscription credential", "credential_source", res.Credentials.Source)
+		} else {
+			log.Debug("Resolved Codex subscription credential for OpenAI turn", "credential_source", res.Credentials.Source)
 		}
 	}
-	if provider == providers.ProviderOpenAI && !suppressCodexSub {
-		if sub := codexSubscriptionFromContext(ctx); sub != nil {
-			return context.WithValue(ctx, CredentialsContextKey{}, sub)
-		}
-		// A Codex subscription bearer (ChatGPT OAuth JWT + ChatGPT-Account-ID) in
-		// the inbound Authorization is honored even on router-keyed requests:
-		// Codex CLI keeps its ChatGPT auth there while the router key rides in
-		// X-Weave-Router-Key. OAuth subset only — a general API key is still not
-		// forwarded on the router-key path (cross-provider-leak guard below).
-		if inbound := ExtractClientCredentials(provider, headers); inbound != nil && inbound.OAuth {
-			observability.FromContext(ctx).Debug("Resolved Codex subscription credential for OpenAI turn", "credential_source", inbound.Source)
-			return context.WithValue(ctx, CredentialsContextKey{}, inbound)
-		}
+	return context.WithValue(ctx, CredentialsContextKey{}, res.Credentials)
+}
+
+// subscriptionSuppression skips subscription OAuth when it is observed
+// exhausted or denied for model, turned off for the request, or (Codex) the
+// model is outside the native roster and catalog exceptions.
+func subscriptionSuppression(ctx context.Context, model string) credentials.Suppression {
+	disabled := subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx)
+	return credentials.Suppression{
+		Claude: claudeSubscriptionSuppressed(ctx) || disabled || claudeModelSuppressed(ctx, model),
+		Codex:  codexSubscriptionSuppressed(ctx) || codexModelSuppressed(ctx, model) || codexChatEndpoint(ctx) || disabled || !codexSubscriptionCanAttemptModel(model),
 	}
-	var creds *Credentials
-	if byok != nil {
-		creds = byok[provider]
-	}
-	if creds == nil && !routerKeyed {
-		client := ExtractClientCredentials(provider, headers)
-		// A suppressed subscription must not slip back in as the inbound OAuth
-		// bearer off the router-key path, undoing the skip above.
-		if client != nil && client.OAuth &&
-			((provider == providers.ProviderAnthropic && suppressClaudeSub) ||
-				(provider == providers.ProviderOpenAI && suppressCodexSub)) {
-			client = nil
-		}
-		creds = client
-	}
-	if creds != nil {
-		return context.WithValue(ctx, CredentialsContextKey{}, creds)
-	}
-	// Clear explicitly: router-keyed / no-BYOK ctx still carries the subscription credential from an earlier attempt;
-	// provider client only falls back to the deployment key when ctx carries NO credential.
-	if (suppressClaudeSub && provider == providers.ProviderAnthropic) ||
-		(suppressCodexSub && provider == providers.ProviderOpenAI) {
-		return clearCredentials(ctx)
-	}
-	return ctx
 }
