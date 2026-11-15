@@ -213,7 +213,7 @@ func (o *chatRescue) claudeRetry(ctx context.Context) {
 	log := o.log
 	routeRes := o.routeRes
 	preludeBuf := o.preludeBuf
-	if o.claudeRetryViable && !paidFallbackForbiddenForModelOn(ctx, o.decision.Provider, o.decision.Model) && o.proxyErr != nil && !preludeBuf.Committed() && (anthropicSubscriptionModelRejected(o.proxyErr) || anthropicSubscriptionThirdPartyRefused(o.proxyErr)) {
+	if o.claudeRetryViable && !paidFallbackForbiddenForModelOn(ctx, o.decision.Provider, o.decision.Model) && o.proxyErr != nil && !preludeBuf.Committed() && claudeRetryRefusal(ctx, o.proxyErr) {
 		subCtx := subscriptionStatePaidRescueContext(withSuppressedClaudeSubscription(ctx), o.decision.Model)
 		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderAnthropic, o.decision.Model, o.r.Header)
 		subOpts := o.opts

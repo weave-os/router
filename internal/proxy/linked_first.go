@@ -6,6 +6,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 )
 
@@ -133,4 +134,12 @@ func releaseThrottledLinkedFirst(ctx context.Context) (context.Context, bool) {
 	}
 	observability.FromContext(ctx).Info("Linked subscription rejected the turn; rerouting on organization credits")
 	return billing.ReleaseLinkedFirst(ctx), true
+}
+
+// claudeRetryRefusal reports whether a Claude subscription error on the Chat
+// surfaces earns a paid retry: a model-access or third-party refusal, or, on an
+// unfunded turn that can only recover on the customer's key, any live refusal.
+func claudeRetryRefusal(ctx context.Context, err error) bool {
+	return anthropicSubscriptionModelRejected(err) || anthropicSubscriptionThirdPartyRefused(err) ||
+		paidCapacityUnfunded(ctx) && (providers.IsRetryable(err) || anthropicOAuthCredentialRejected(err))
 }
