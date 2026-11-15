@@ -600,25 +600,7 @@ func main() {
 		WithFlagOverridesDisabled(flagOverridesDisabled).
 		WithSessionSpendCaps(billingSvc != nil)
 	subscriptionPoolsEnabled := config.GetOr("ROUTER_SUBSCRIPTION_POOLS_ENABLED", "false") == "true"
-	var subscriptionRuntime *subscriptions.Runtime
-	var subscriptionLogins admin.SubscriptionLoginFlow
-	if subscriptionPoolsEnabled {
-		authSvc.WithSubscriptionAccounts(repo.SubscriptionAccounts)
-		codexTokenURL := ""
-		if codexIssuer := strings.TrimRight(config.GetOr("WEAVE_CODEX_OAUTH_ISSUER", ""), "/"); codexIssuer != "" {
-			codexTokenURL = codexIssuer + "/oauth/token"
-		}
-		subscriptionOAuth := subscriptions.NewOAuthClient(
-			&http.Client{Timeout: subscriptions.RefreshHTTPTimeout}, codexTokenURL,
-			config.GetOr("WEAVE_ANTHROPIC_OAUTH_TOKEN", ""), time.Now,
-		)
-		authSvc.WithCodexEnrollmentVerifier(subscriptionOAuth)
-		subscriptionLogins = subscriptionOAuth
-		subscriptionRuntime = subscriptions.NewRuntime(authSvc, subscriptionOAuth, time.Now)
-		logger.Info("Server-side subscription account pools enabled")
-	} else {
-		logger.Info("Server-side subscription account pools disabled")
-	}
+	subscriptionRuntime, subscriptionLogins := buildSubscriptionRuntime(subscriptionPoolsEnabled, authSvc, repo.SubscriptionAccounts, logger)
 
 	// Fans out Pub/Sub invalidations to this replica's cache; the 5-min TTL
 	// is the safety net if the listener falls behind.
@@ -1433,7 +1415,7 @@ func main() {
 		logger.Error("Failed to configure atomic classifier", "err", err)
 		panic(err)
 	}
-	proxySvc = proxySvc.WithInferenceExecutor(inferenceExecutor).WithInferencePlans(inferencePlans).WithInferenceDeployment(inferenceDeployment)
+	proxySvc = withRoutingPolicy(proxySvc.WithInferenceExecutor(inferenceExecutor).WithInferencePlans(inferencePlans).WithInferenceDeployment(inferenceDeployment), inferencePlans)
 	if subscriptionRuntime != nil {
 		proxySvc.WithManagedSubscriptions(subscriptionRuntime)
 	}
@@ -1599,6 +1581,7 @@ func main() {
 	logger.Info("Router startup initialization complete")
 	serverFeatures := server.Features{
 		SubscriptionLogins:       subscriptionLogins,
+		SubscriptionRefresh:      subscriptionRuntime,
 		StartupDatabasePing:      pool.Ping,
 		TestPlans:                testPlans,
 		PolicyPinEnabled:         policyPinEnabled,
