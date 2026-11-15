@@ -10,12 +10,13 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 )
 
 func TestRequestFactsFromReadsTheBoundaryKeys(t *testing.T) {
 	installation := uuid.New()
-	keys := []*auth.ExternalAPIKey{{ID: "key-1", Provider: "anthropic"}}
+	keys := []*auth.ExternalAPIKey{{ID: "key-1", Provider: providers.ProviderAnthropic}}
 	client := requestcontext.ClientIdentity{SessionID: "session-1", ClientApp: ClientAppCodex}
 	headers := http.Header{"Authorization": []string{"Bearer inbound"}}
 	ctx := observability.WithRequestID(context.Background(), "req-1")
