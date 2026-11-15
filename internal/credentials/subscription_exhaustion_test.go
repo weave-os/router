@@ -50,12 +50,12 @@ func TestClaudeSnapshotUnservable(t *testing.T) {
 
 func TestClaudeSubscriptionObservedExhausted(t *testing.T) {
 	observed := fakeUsage{"k:spent": spentSnapshot(), "k:fresh": {}}
-	none := credentials.ClaudeSubscriptionFacts{}
+	noFacts := credentials.ClaudeSubscriptionFacts{}
 
-	assert.True(t, credentials.ClaudeSubscriptionObservedExhausted(observed, "spent", none))
-	assert.False(t, credentials.ClaudeSubscriptionObservedExhausted(observed, "fresh", none))
-	assert.False(t, credentials.ClaudeSubscriptionObservedExhausted(observed, "unseen", none), "an unobserved token is not exhausted")
-	assert.False(t, credentials.ClaudeSubscriptionObservedExhausted(observed, "", none), "no subscription token present")
-	assert.False(t, credentials.ClaudeSubscriptionObservedExhausted(nil, "spent", none), "no observer wired")
+	assert.True(t, credentials.ClaudeSubscriptionObservedExhausted(observed, "spent", noFacts))
+	assert.False(t, credentials.ClaudeSubscriptionObservedExhausted(observed, "fresh", noFacts))
+	assert.False(t, credentials.ClaudeSubscriptionObservedExhausted(observed, "unseen", noFacts), "an unobserved token is not exhausted")
+	assert.False(t, credentials.ClaudeSubscriptionObservedExhausted(observed, "", noFacts), "no subscription token present")
+	assert.False(t, credentials.ClaudeSubscriptionObservedExhausted(nil, "spent", noFacts), "no observer wired")
 	assert.False(t, credentials.ClaudeSubscriptionObservedExhausted(observed, "spent", credentials.ClaudeSubscriptionFacts{EnterpriseOnly: true}))
 }
