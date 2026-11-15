@@ -209,7 +209,7 @@ func TestStateModelsTerminalRejectionAfterBudgetIsNotRescued(t *testing.T) {
 					time.Sleep(12 * time.Second)
 					require.NoError(t, attemptCtx.Err())
 					buf.Seal()
-					return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buf, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
+					return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buf, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/messages", nil))
 				}, nil
 			},
 		})

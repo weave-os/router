@@ -88,7 +88,7 @@ func dispatchManagedThirdPartyTurnWithReason(t *testing.T, svc *Service, ctx con
 		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
 		attempt: func(ctx context.Context, decision router.Decision, client providers.Client) error {
 			buffer.Seal()
-			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
+			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil))
 		},
 	})
 	return recorder, err
@@ -342,7 +342,7 @@ func TestForcedThirdPartyRefusalPaysThroughSubscriptionStateModelsOnlyWhenKeyCon
 				buildAlternative: func(router.Decision) (dispatchAttempt, error) {
 					return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
 						buffer.Seal()
-						return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
+						return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/messages", nil))
 					}, nil
 				},
 			})

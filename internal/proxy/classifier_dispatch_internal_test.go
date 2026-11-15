@@ -214,7 +214,8 @@ func TestClassifierRecapServesWithoutAnchoringPin(t *testing.T) {
 	send := func(body string) {
 		t.Helper()
 		upstream.body = nil
-		err := svc.ProxyMessages(classifierAdmit(t, svc, principal), []byte(body), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
+		admitted := classifierAdmit(t, svc, principal)
+		err := svc.ProxyMessages(admitted, []byte(body), httptest.NewRecorder(), httptest.NewRequestWithContext(admitted, http.MethodPost, "/v1/messages", nil))
 		require.NoError(t, err)
 		require.NotEmpty(t, upstream.body, "selection must reach the dispatch boundary")
 	}
@@ -276,7 +277,7 @@ func TestClassifierUtilityRequestsDoNotEstablishThreadRoot(t *testing.T) {
 		{turntype.Compaction, `{"model":"auto","max_tokens":1024,"system":"Your task is to create a detailed summary","messages":[{"role":"user","content":"summary"}]}`},
 	} {
 		t.Run(string(utility.turn), func(t *testing.T) {
-			err := svc.ProxyMessages(ctx, []byte(utility.body), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
+			err := svc.ProxyMessages(ctx, []byte(utility.body), httptest.NewRecorder(), httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil))
 			require.ErrorIs(t, err, router.ErrClassifierHistoryUnavailable)
 			status, classified := ClassifyDispatchError(err)
 			require.True(t, classified)

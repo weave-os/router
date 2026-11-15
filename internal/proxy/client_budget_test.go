@@ -74,7 +74,7 @@ func TestClientCompactionGuidanceAndResumeReachProvider(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			body := []byte(fmt.Sprintf(`{"model":%q,"max_tokens":64000,"system":"existing rules","messages":[{"role":"user","content":%q}],"tools":[{"name":"Read","description":"read a file","input_schema":{"type":"object","properties":{"path":{"type":"string"}}}}]}`, tt.model, tt.user))
-			err := svc.ProxyMessages(ctx, body, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
+			err := svc.ProxyMessages(ctx, body, httptest.NewRecorder(), httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil))
 			require.NoError(t, err)
 			upstream := provider.proxyBodies[len(provider.proxyBodies)-1]
 			assert.Equal(t, tt.wantSerial, gjson.GetBytes(upstream, "tool_choice.disable_parallel_tool_use").Bool())

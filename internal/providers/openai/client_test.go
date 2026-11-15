@@ -409,3 +409,23 @@ func TestPassthrough_ForwardsPathAndAuth(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), `"object":"list"`)
 }
+
+func TestPassthrough_ErrorStatusLogsThroughContextLogger(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"type":"invalid_request_error"}}`))
+	}))
+	defer upstream.Close()
+
+	var logs bytes.Buffer
+	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&logs, nil)).With("request_id", "req-bound"))
+	clientReq := httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/models", strings.NewReader(`{}`))
+	prep := providers.PreparedRequest{Body: []byte(`{}`), Headers: make(http.Header)}
+
+	err := openai.NewClient("test-key", upstream.URL).Passthrough(ctx, prep, httptest.NewRecorder(), clientReq)
+
+	var statusErr *providers.UpstreamStatusError
+	require.ErrorAs(t, err, &statusErr)
+	assert.Contains(t, logs.String(), `"request_id":"req-bound"`)
+	assert.Contains(t, logs.String(), `"status":400`)
+}

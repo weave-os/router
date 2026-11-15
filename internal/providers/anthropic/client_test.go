@@ -1,15 +1,18 @@
 package anthropic_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/requestcontext"
@@ -665,4 +668,24 @@ func TestPassthrough_RelaysNothingFromARefusedRedirect(t *testing.T) {
 	assert.Equal(t, 0, redirectTargetCalls, "the redirect target must never be contacted")
 	assert.Empty(t, rec.Header().Get("Location"), "the unconfigured host must not reach the caller")
 	assert.Empty(t, rec.Body.String(), "no redirect body reaches the caller")
+}
+
+func TestPassthrough_ErrorStatusLogsThroughContextLogger(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"type":"invalid_request_error"}}`))
+	}))
+	defer upstream.Close()
+
+	var logs bytes.Buffer
+	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&logs, nil)).With("request_id", "req-bound"))
+	clientReq := httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(`{}`))
+	prep := providers.PreparedRequest{Body: []byte(`{}`), Headers: make(http.Header)}
+
+	err := anthropic.NewClient("test-key", upstream.URL).Passthrough(ctx, prep, httptest.NewRecorder(), clientReq)
+
+	var statusErr *providers.UpstreamStatusError
+	require.ErrorAs(t, err, &statusErr)
+	assert.Contains(t, logs.String(), `"request_id":"req-bound"`)
+	assert.Contains(t, logs.String(), `"status":400`)
 }

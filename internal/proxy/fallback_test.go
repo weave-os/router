@@ -140,7 +140,7 @@ func TestDispatchWithFallback_RejectsMissingPurposeBeforeAnyAttempt(t *testing.T
 		initialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
 		bindings:        []catalog.ProviderBinding{{Provider: "fireworks"}},
 		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
-			return p.Proxy(ctx, d, providers.PreparedRequest{}, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
+			return p.Proxy(ctx, d, providers.PreparedRequest{}, rec, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil))
 		},
 	})
 

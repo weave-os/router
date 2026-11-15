@@ -41,7 +41,7 @@ func handoffTestService() (*Service, *betaTestRouter, *betaCaptureProvider, cont
 func prepareTestHandoff(t *testing.T, svc *Service, ctx context.Context) preparedHandoff {
 	t.Helper()
 	recorder := httptest.NewRecorder()
-	require.NoError(t, svc.ProxyMessages(WithHandoffPreparation(ctx), []byte(handoffTestBody), recorder, httptest.NewRequestWithContext(t.Context(), "POST", "/v1/route/handoff", nil)))
+	require.NoError(t, svc.ProxyMessages(WithHandoffPreparation(ctx), []byte(handoffTestBody), recorder, httptest.NewRequestWithContext(ctx, "POST", "/v1/route/handoff", nil)))
 	var prepared preparedHandoff
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &prepared), recorder.Body.String())
 	require.NotEmpty(t, prepared.Token)

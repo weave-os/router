@@ -842,9 +842,9 @@ func TestBetaPreferenceSurvivesFirstMessageRewriteWithinClientSession(t *testing
 					"max_tokens": 4096,
 				})
 				require.NoError(t, err)
-				request := httptest.NewRequestWithContext(t.Context(), "POST", "/v1/messages", nil)
+				request := httptest.NewRequestWithContext(ctx, "POST", "/v1/messages", nil)
 				if tt.openAI {
-					request = httptest.NewRequestWithContext(t.Context(), "POST", "/v1/chat/completions", nil)
+					request = httptest.NewRequestWithContext(ctx, "POST", "/v1/chat/completions", nil)
 					err = svc.ProxyOpenAIChatCompletion(ctx, body, httptest.NewRecorder(), request)
 				} else {
 					err = svc.ProxyMessages(ctx, body, httptest.NewRecorder(), request)

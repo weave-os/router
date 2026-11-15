@@ -366,9 +366,9 @@ func TestBufferedTransportValidatesTargetAndDeliversResponse(t *testing.T) {
 	var consumed int
 	transport := dispatch.Buffered{
 		Reason: "test",
-		Prepare: func(_ context.Context, attempt dispatch.Attempt) (providers.PreparedRequest, *http.Request, error) {
+		Prepare: func(prepareCtx context.Context, attempt dispatch.Attempt) (providers.PreparedRequest, *http.Request, error) {
 			body := []byte(`{"model":"` + attempt.Target.CatalogID + `"}`)
-			return providers.PreparedRequest{Body: body}, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", bytes.NewReader(body)), nil
+			return providers.PreparedRequest{Body: body}, httptest.NewRequestWithContext(prepareCtx, http.MethodPost, "/v1/messages", bytes.NewReader(body)), nil
 		},
 		Consume: func(_ context.Context, _ dispatch.Attempt, resp *http.Response) error {
 			consumed = resp.StatusCode
@@ -382,8 +382,8 @@ func TestBufferedTransportValidatesTargetAndDeliversResponse(t *testing.T) {
 	assert.Equal(t, []string{"kimi-k2.5"}, fw.models)
 
 	mismatch := dispatch.Buffered{
-		Prepare: func(context.Context, dispatch.Attempt) (providers.PreparedRequest, *http.Request, error) {
-			return providers.PreparedRequest{Body: []byte(`{"model":"other"}`)}, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", nil), nil
+		Prepare: func(prepareCtx context.Context, _ dispatch.Attempt) (providers.PreparedRequest, *http.Request, error) {
+			return providers.PreparedRequest{Body: []byte(`{"model":"other"}`)}, httptest.NewRequestWithContext(prepareCtx, http.MethodPost, "/", nil), nil
 		},
 	}.Transport()
 	_, err = exec.Run(context.Background(), inference.InvocationRequest{}, fakePlan{selected: primary}, mismatch)

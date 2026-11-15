@@ -25,7 +25,7 @@ type cliReleaseFiles struct {
 
 func cliObject[T policyregistry.ServingManifest](t *testing.T, registry *cliServingRegistry, kind policyregistry.ServingKind, ref policyregistry.ObjectRef) T {
 	t.Helper()
-	manifest, _, err := registry.ReadServingObject(context.Background(), kind, ref)
+	manifest, _, err := registry.readServingObject(kind, ref)
 	require.NoError(t, err)
 	typed, ok := manifest.(T)
 	require.True(t, ok, "fixture object %s is not a %T", ref.SHA256, *new(T))

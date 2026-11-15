@@ -41,7 +41,7 @@ func proxyWithBody(ctx context.Context, t *testing.T, requestBody string) []byte
 	srv := upstreamBodyServer(t, &upstreamBody)
 	c := anthropic.NewClient("", srv.URL)
 	prep := providers.PreparedRequest{Body: []byte(requestBody), Headers: make(http.Header)}
-	inbound := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
+	inbound := httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, c.Proxy(ctx, router.Decision{Model: "claude-opus-5"}, prep, httptest.NewRecorder(), inbound))
 	return upstreamBody
 }

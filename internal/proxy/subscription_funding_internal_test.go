@@ -219,8 +219,8 @@ func TestSubscriptionFundingBufferedAuxiliaryCannotClearGuard(t *testing.T) {
 	summarizer := newTestSummarizer(t, upstream, policy.HandoverSummaryDefaultModel, time.Second)
 	plan, err := summarizer.plans.Resolve(policy.ResolutionRequest{Purpose: inference.PurposeHandoverSummary, RouterRequest: router.Request{EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}})
 	require.NoError(t, err)
-	transport := dispatch.Buffered{Prepare: func(context.Context, dispatch.Attempt) (providers.PreparedRequest, *http.Request, error) {
-		return providers.PreparedRequest{}, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil), nil
+	transport := dispatch.Buffered{Prepare: func(prepareCtx context.Context, _ dispatch.Attempt) (providers.PreparedRequest, *http.Request, error) {
+		return providers.PreparedRequest{}, httptest.NewRequestWithContext(prepareCtx, http.MethodPost, "/v1/messages", nil), nil
 	}}.Transport()
 	_, err = summarizer.executor.Run(ctx, inference.InvocationRequest{Purpose: plan.Purpose()}, plan, transport)
 	require.ErrorIs(t, err, dispatch.ErrAuthorizationDenied)

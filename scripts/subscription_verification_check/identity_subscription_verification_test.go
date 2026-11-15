@@ -110,7 +110,7 @@ func TestVerificationSQLUnsignedEmailCannotClaimPersonalServing(t *testing.T) {
 			before := len(bearers)
 			proxyErrorsBefore := len(proxyErrors)
 			body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"synthetic identity"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
-			request, err := http.NewRequestWithContext(t.Context(), "POST", actualIngress.URL+"/v1/chat/completions", strings.NewReader(body))
+			request, err := http.NewRequestWithContext(ctx, "POST", actualIngress.URL+"/v1/chat/completions", strings.NewReader(body))
 			require.NoError(t, err)
 			request.Header.Set("Authorization", "Bearer "+scenario.token)
 			request.Header.Set("X-Weave-User-Email", scenario.email)

@@ -113,10 +113,10 @@ func TestResponsesReasoningProgress_LongReasoningCompletes(t *testing.T) {
 			go func() {
 				defer close(joined)
 				if tc.chat {
-					req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(chatToolTurnBody))
+					req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/chat/completions", strings.NewReader(chatToolTurnBody))
 					finished <- svc.ProxyOpenAIChatCompletion(ctx, []byte(chatToolTurnBody), rec, req)
 				} else {
-					req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(gatewayToolTurn))
+					req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", strings.NewReader(gatewayToolTurn))
 					finished <- svc.ProxyMessages(ctx, []byte(gatewayToolTurn), rec, req)
 				}
 			}()

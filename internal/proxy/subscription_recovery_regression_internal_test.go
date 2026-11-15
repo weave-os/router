@@ -40,7 +40,7 @@ func TestSubscriptionRecoverySlowFailureUsesSecondSeat(t *testing.T) {
 				return &providers.UpstreamErrorResponse{Status: http.StatusBadGateway}
 			}
 			buf.Seal()
-			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buf, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
+			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buf, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil))
 		}
 		_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), in)
 		require.NoError(t, err)

@@ -40,20 +40,33 @@ func EscalationWithDeploymentShadow(ctx context.Context, classifier EscalationCl
 // EscalationFromContext preserves legacy behavior until an active selector is set.
 func EscalationFromContext(ctx context.Context) EscalationConfig {
 	overrides, _ := OverridesFromContext(ctx)
+	return EscalationFromOverrides(overrides)
+}
+
+// EscalationFromOverrides is EscalationFromContext for overrides that are not
+// carried by a request context, such as an installation's stored settings.
+func EscalationFromOverrides(overrides Overrides) EscalationConfig {
 	active, explicit := overrides.Strings[KeyEscalationActiveClassifier]
-	config := EscalationConfig{Active: EscalationClassifierNone, Shadow: EscalationClassifierNone, Cadence: IntOr(ctx, KeyEscalationCadence, 3), Epoch: IntOr(ctx, KeyEscalationEpoch, 0), Explicit: explicit}
+	config := EscalationConfig{Active: EscalationClassifierNone, Shadow: EscalationClassifierNone, Cadence: overrideOr(overrides.Ints, KeyEscalationCadence, 3), Epoch: overrideOr(overrides.Ints, KeyEscalationEpoch, 0), Explicit: explicit}
 	if explicit {
 		config.Active = EscalationClassifier(active)
-		config.Shadow = EscalationClassifier(StringOr(ctx, KeyEscalationShadowClassifier, string(EscalationClassifierNone)))
+		config.Shadow = EscalationClassifier(overrideOr(overrides.Strings, KeyEscalationShadowClassifier, string(EscalationClassifierNone)))
 		return config
 	}
-	config.Epoch = IntOr(ctx, KeyEscalationXGBoostEpoch, 0)
-	if BoolOr(ctx, KeyEscalationXGBoostEnabled, false) {
+	config.Epoch = overrideOr(overrides.Ints, KeyEscalationXGBoostEpoch, 0)
+	if overrideOr(overrides.Bools, KeyEscalationXGBoostEnabled, false) {
 		config.Active = EscalationClassifierXGB
-	} else if BoolOr(ctx, KeyEscalationXGBoostShadowEnabled, false) {
+	} else if overrideOr(overrides.Bools, KeyEscalationXGBoostShadowEnabled, false) {
 		config.Shadow = EscalationClassifierXGB
 	}
 	return config
+}
+
+func overrideOr[V any](values map[Key]V, key Key, deploymentDefault V) V {
+	if v, found := values[key]; found {
+		return v
+	}
+	return deploymentDefault
 }
 
 func validEscalationClassifier(classifier EscalationClassifier) bool {
