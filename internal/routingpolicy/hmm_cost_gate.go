@@ -21,8 +21,10 @@ type HMMCostGate struct {
 	SameTierPin                bool
 }
 
+// HMMHistoryReason marks the HMM history row that outlives the session pin.
 const HMMHistoryReason = "hmm_history"
 
+// HMMReason* are the planner reasons the HMM cost gate records on its verdict.
 const (
 	HMMReasonConfidentUpgrade     = "hmm_confident_upgrade"
 	HMMReasonUpgradeConfidenceLow = "hmm_upgrade_confidence_low"
