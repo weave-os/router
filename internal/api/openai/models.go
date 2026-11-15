@@ -14,8 +14,6 @@ type codexModelsResponse struct {
 	Models []struct{} `json:"models"`
 }
 
-// ModelsHandler adds Weave's automatic choice to the Codex catalog and
-// delegates other clients to the existing provider passthrough.
 func ModelsHandler(fallback gin.HandlerFunc, codexCatalog func(context.Context, http.Header, string) ([]byte, error)) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := proxy.ClientIdentityFromHeaders(c.Request.Header)
@@ -29,8 +27,6 @@ func ModelsHandler(fallback gin.HandlerFunc, codexCatalog func(context.Context, 
 		}
 		catalog, err := codexCatalog(c.Request.Context(), c.Request.Header, c.Query("client_version"))
 		if err != nil {
-			// Codex merges an empty response with its bundled catalog. Keep the
-			// picker usable when account discovery is unavailable.
 			observability.FromGin(c).Warn("Codex model catalog unavailable", "err", err)
 			c.JSON(http.StatusOK, codexModelsResponse{Models: []struct{}{}})
 			return
@@ -39,7 +35,6 @@ func ModelsHandler(fallback gin.HandlerFunc, codexCatalog func(context.Context, 
 	}
 }
 
-// CodexCatalogHandler serves the full Codex model catalog for model_catalog_url.
 func CodexCatalogHandler(catalog func(context.Context, http.Header, string) ([]byte, error)) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		body, err := catalog(c.Request.Context(), c.Request.Header, c.Query("client_version"))

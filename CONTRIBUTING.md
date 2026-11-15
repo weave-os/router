@@ -124,6 +124,10 @@ make dev                               # run the server with hot reload
 Prerequisites: Go 1.26+, [golang-migrate](https://github.com/golang-migrate/migrate),
 [CompileDaemon](https://github.com/githubnemo/CompileDaemon).
 
+`make seed` writes its `rk_` key into the admin installation, so the key and any
+BYOK keys added through the dashboard share one installation. An installation has
+one active key, so re-running it rotates the key.
+
 ### Tests
 
 - Use in-memory fakes for repos / routers / provider clients. See
