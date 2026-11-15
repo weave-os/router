@@ -132,6 +132,6 @@ func TestDistinctActionsReproducesTrainingDefaultdictQuirk(t *testing.T) {
 
 	s.Advance(ActionTypes[0], 1_000, 10, false)
 	call.Ts = 1_010
-	assert.Equal(t, float32(len(ActionTypes)), s.Features(call)[idx],
+	assert.InDelta(t, float32(len(ActionTypes)), s.Features(call)[idx], 0,
 		"features.py counts every taxonomy key once any prior call exists")
 }
