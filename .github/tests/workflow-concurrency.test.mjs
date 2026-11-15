@@ -7,7 +7,14 @@ const workflowsDir = new URL("../workflows/", import.meta.url);
 // Minimal evaluator for the GitHub expression subset used in concurrency keys:
 // context lookups, string/boolean literals, ==, !=, &&, || and parentheses.
 function evaluate(expression, context) {
-  const tokens = expression.match(/'(?:[^']|'')*'|==|!=|&&|\|\||[()]|[A-Za-z_][\w.-]*/g) ?? [];
+  const tokens = [];
+  const token = /\s*('(?:[^']|'')*'|==|!=|&&|\|\||[()]|[A-Za-z_][\w.-]*)\s*/y;
+  while (token.lastIndex < expression.length) {
+    const start = token.lastIndex;
+    const match = token.exec(expression);
+    assert.ok(match, `unsupported syntax at ${JSON.stringify(expression.slice(start))} in ${expression}`);
+    tokens.push(match[1]);
+  }
   let position = 0;
   const peek = () => tokens[position];
   const next = () => tokens[position++];
@@ -138,4 +145,9 @@ test("a newer pull request commit still cancels the superseded run of the same p
       assert.equal(render(block["cancel-in-progress"] ?? "false", later), true, `${name}: superseded PR runs keep running`);
     }
   }
+});
+
+test("expressions outside the supported subset fail instead of evaluating differently", () => {
+  assert.throws(() => evaluate("!(github.event_name != 'push')", pushToMain("a".repeat(40))), /unsupported syntax/);
+  assert.equal(evaluate(" github.event_name == 'push' ", pushToMain("a".repeat(40))), true);
 });
