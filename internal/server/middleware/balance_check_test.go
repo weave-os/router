@@ -579,3 +579,40 @@ func TestWithBalanceCheck_CreditsDisabledIgnoresBalance(t *testing.T) {
 		})
 	}
 }
+
+// runBalanceWithKeys runs WithBalanceCheck at a zero balance for a key-only
+// caller and reports the subscription-only reason the proxy would see.
+func runBalanceWithKeys(t *testing.T, keys []*auth.ExternalAPIKey) (*httptest.ResponseRecorder, billing.SubscriptionOnlyReason, bool) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	var reason billing.SubscriptionOnlyReason
+	reached := false
+	engine.GET("/v1/messages", func(c *gin.Context) {
+		withInstallation(c, "org_keys")
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), proxy.ExternalAPIKeysContextKey{}, keys))
+		middleware.WithBalanceCheck(billing.NewService(&stubBillingRepo{balance: 0}), 0)(c)
+		if c.IsAborted() {
+			return
+		}
+		reached = true
+		reason, _ = billing.SubscriptionOnlyReasonFromContext(c.Request.Context())
+		c.Status(http.StatusOK)
+	})
+	w := httptest.NewRecorder()
+	engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/messages", nil))
+	return w, reason, reached
+}
+
+func TestWithBalanceCheck_AdmitsKeyOnlyCallerAsUnfunded(t *testing.T) {
+	w, reason, reached := runBalanceWithKeys(t, []*auth.ExternalAPIKey{{ID: "k", Provider: "anthropic", Plaintext: []byte("sk-ant-byok")}})
+	assert.True(t, reached, "a usable provider key can serve the turn, so admission must not 402 it")
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, billing.SubscriptionOnlyCreditsDepleted, reason, "the proxy must see the turn as unfunded so only the customer's key serves it")
+}
+
+func TestWithBalanceCheck_UnusableKeyStill402s(t *testing.T) {
+	w, _, reached := runBalanceWithKeys(t, []*auth.ExternalAPIKey{{ID: "k", Provider: "anthropic", CredentialError: errors.New("decrypt failed")}})
+	assert.False(t, reached)
+	assert.Equal(t, http.StatusPaymentRequired, w.Code)
+}
