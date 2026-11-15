@@ -11,9 +11,22 @@ import (
 	"weave-os/router/internal/telemetry"
 )
 
+// turnAdmissionServices is what the shared turn preamble reaches on the proxy
+// service.
+type turnAdmissionServices interface {
+	withClassifierInput(ctx context.Context, body []byte, endpoint router.TranslationEndpoint) (context.Context, error)
+	effectiveCaptureMode(ctx context.Context) ContentCaptureMode
+	checkUserMonthlySpendLimit(ctx context.Context, headers http.Header, routePath string) (context.Context, error)
+	withUsageObserver(ctx context.Context, headers http.Header) context.Context
+	withRateLimitTurn(ctx context.Context) (context.Context, *dispatch.ThrottleLedger)
+	newTelemetryRecorder() telemetry.Recorder
+}
+
+var _ turnAdmissionServices = (*Service)(nil)
+
 // withTurnInput must see the body before the entrypoint rewrites it: the
 // attempt trace compares later dispatches against these exact bytes.
-func withTurnInput(ctx context.Context, s *Service, body []byte, headers http.Header, endpoint router.TranslationEndpoint) (context.Context, error) {
+func withTurnInput(ctx context.Context, s turnAdmissionServices, body []byte, headers http.Header, endpoint router.TranslationEndpoint) (context.Context, error) {
 	ctx = withAttemptTrace(ctx, body, headers)
 	ctx, err := s.withClassifierInput(ctx, body, endpoint)
 	if err != nil {
@@ -29,7 +42,7 @@ type admittedTurn struct {
 }
 
 // admitTurn rejects an over-cap user before any per-turn state is opened.
-func admitTurn(ctx context.Context, s *Service, r *http.Request) (context.Context, admittedTurn, error) {
+func admitTurn(ctx context.Context, s turnAdmissionServices, r *http.Request) (context.Context, admittedTurn, error) {
 	ctx, err := s.checkUserMonthlySpendLimit(ctx, r.Header, r.URL.Path)
 	if err != nil {
 		return ctx, admittedTurn{}, err
