@@ -2,10 +2,6 @@
   "schema_version": "comment_ban_allowlist_v1",
   "packages": [
     {
-      "package": "cmd/policyctl",
-      "banned_lines": 61
-    },
-    {
       "package": "cmd/router",
       "banned_lines": 343
     },
@@ -228,30 +224,6 @@
     {
       "package": "internal/websearch",
       "banned_lines": 78
-    },
-    {
-      "package": "scripts/arch_ratchet",
-      "banned_lines": 43
-    },
-    {
-      "package": "scripts/feedback_integration_check",
-      "banned_lines": 31
-    },
-    {
-      "package": "scripts/rotate_key_race_check",
-      "banned_lines": 31
-    },
-    {
-      "package": "scripts/rotate_key_race_ext_check",
-      "banned_lines": 53
-    },
-    {
-      "package": "scripts/session_pin_output_limit_check",
-      "banned_lines": 31
-    },
-    {
-      "package": "smoke/mitmproxy",
-      "banned_lines": 71
     }
   ]
 }

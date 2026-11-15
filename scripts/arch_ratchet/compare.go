@@ -27,10 +27,6 @@ func (v violation) String() string {
 		v.subject, v.metric, v.before, v.after, v.limit)
 }
 
-// indexFuncs keys every function by funcKey. When one key occurs more than once across
-// base and head combined (build tag variants of a function in different files, or a
-// variant added or removed by the diff), each occurrence is qualified with its file so
-// a surviving variant is never re-keyed and none overwrites another.
 func indexFuncs(files map[string]fileMetrics, occurrences map[string]int) map[string]funcMetrics {
 	funcs := map[string]funcMetrics{}
 	for _, filePath := range sortedKeys(files) {
@@ -48,9 +44,6 @@ func indexFuncs(files map[string]fileMetrics, occurrences map[string]int) map[st
 	return funcs
 }
 
-// compareFuncs flags each function metric over its limit that grew. A function new to
-// the diff passes as moved when it claims a distinct removed function at least as large
-// on every metric it exceeds; each removed function covers at most one move.
 func compareFuncs(base, head map[string]fileMetrics, allowed exceptionSet) []violation {
 	occurrences := map[string]int{}
 	for _, files := range []map[string]fileMetrics{base, head} {
@@ -95,8 +88,6 @@ func newMovePool(baseFuncs, headFuncs map[string]funcMetrics) movePool {
 	return pool
 }
 
-// claim removes and reports the removed function that best explains fn as a move:
-// one with the same name if possible, otherwise the smallest that covers fn.
 func (p movePool) claim(fn funcMetrics) bool {
 	var over []metric
 	for m, limit := range funcLimits {
@@ -137,8 +128,6 @@ func betterMove(fn funcMetrics, candidate, current string, p movePool) bool {
 	return candidateSize < currentSize
 }
 
-// shortName returns the bare function name from a funcKey such as "<dir>.<Recv>.<Name>"
-// or "<dir>.<Name>@<file>".
 func shortName(key string) string {
 	key, _, _ = strings.Cut(key, "@")
 	_, name, _ := strings.Cut(key[strings.LastIndex(key, "/")+1:], ".")
@@ -159,8 +148,6 @@ func compareFiles(base, head map[string]fileMetrics, allowed exceptionSet) []vio
 	return violations
 }
 
-// compareTotals sums counts over the changed files, so moving a line between files is
-// neutral while adding one is not.
 func compareTotals(base, head map[string]fileMetrics, allowed exceptionSet) []violation {
 	totals := func(files map[string]fileMetrics) (nolint, matching int) {
 		for _, file := range files {

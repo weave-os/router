@@ -14,6 +14,18 @@ lives here as a script rather than
 It is **not** a test (`package main`), so `go test ./...` never touches
 Postgres. It is gated on `ROUTER_TEST_DATABASE_URL` and is a no-op without it.
 
+## Checks
+
+1. **Feedback link end to end.** Seeds an installation and one `router.upstream`
+   telemetry row, then drives GET → POST → GET → POST: the first GET returns the
+   routing context with no feedback, a thumbs-down with a comment persists trimmed,
+   and revising to thumbs-up with a blank comment keeps one row (natural key) with
+   the comment collapsed to `NULL`. Cleanup deletes the installation; feedback rows
+   cascade.
+2. **Feedback without telemetry.** Regression guard: a saved rating must still be
+   returned when its request has no telemetry row (telemetry disabled or pruned, or
+   still in flight through the async telemetry write), with an empty routing context.
+
 ## Usage (from the repo root)
 
 Bring up the local `docker compose` Postgres stack with router migrations
