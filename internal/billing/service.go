@@ -134,6 +134,13 @@ func SubscriptionOnlyReasonFromContext(ctx context.Context) (reason Subscription
 	return reason, ok
 }
 
+// unfundedTurn reports whether the organization cannot pay for the turn: a
+// depleted balance or a reached spend cap, not a linked-first preference.
+func unfundedTurn(ctx context.Context) bool {
+	reason, ok := subscriptionOnlyReason(ctx)
+	return ok && reason != SubscriptionOnlyLinkedFirst
+}
+
 func subscriptionOnlyReason(ctx context.Context) (reason SubscriptionOnlyReason, ok bool) {
 	reason, ok = ctx.Value(SubscriptionOnlyContextKey).(SubscriptionOnlyReason)
 	return reason, ok
@@ -410,7 +417,8 @@ func (p DebitInferenceParams) requestedModel() string {
 //
 // A BYOK turn debits 0 on the inference row (the customer paid their own
 // provider) and adds a byok_fee row for the configured fee rate of the
-// upstream cost (no fee row when the rate is zero).
+// upstream cost (no fee row when the rate is zero, or when credits are
+// depleted or a spend cap is reached).
 // Override and subscription outrank BYOK.
 //
 // A turn funded by an individual Max/Boost allowance or subscriber prepaid
@@ -442,9 +450,12 @@ func (s *Service) DebitForInference(ctx context.Context, p DebitInferenceParams)
 		// Already paid for — debit nothing, but still record notional cost below.
 		delta = 0
 	case p.ByokServed:
-		// Customer paid their upstream directly; Weave charges only the fee.
+		// Customer paid their upstream directly; Weave charges only the fee,
+		// and none on a turn the organization could not pay for.
 		delta = 0
-		fee = -s.byokFeeMicros(notional)
+		if !unfundedTurn(ctx) {
+			fee = -s.byokFeeMicros(notional)
+		}
 	case subscriberCovered:
 		held, err := s.meterSubscriberAllowance(ctx, p, coverage, notional)
 		if err != nil {
