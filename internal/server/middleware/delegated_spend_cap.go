@@ -55,7 +55,7 @@ func WithDelegatedSpendCap(svc *billing.Service) gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		if proxy.RequestHasCustomerFunding(ctx, c.Request.Header, c.FullPath()) {
+		if proxy.RequestHasCustomerFunding(ctx, c.Request.Header, c.FullPath(), svc.ChargesByokFee()) {
 			log.Info("Delegated spend cap reached but subscription covers the route: serving subscription-only", "scope", scope)
 			c.Request = c.Request.WithContext(svc.WithUnfunded(ctx, billing.SubscriptionOnlySpendCapReached))
 			c.Next()

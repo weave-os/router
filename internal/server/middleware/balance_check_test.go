@@ -640,7 +640,7 @@ func runBalanceWithKeys(t *testing.T, feeRate float64, keys []*auth.ExternalAPIK
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
-	engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/messages", nil))
+	engine.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/messages", nil))
 	return w, reason, reached
 }
 

@@ -90,7 +90,7 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 		// prepaid credits is wrong. The check depends only on whether the request
 		// presents a covering credential — not on UsageBypassEnabled (routing config,
 		// not billing config).
-		subscriptionExempt := proxy.RequestHasCustomerFunding(c.Request.Context(), c.Request.Header, c.FullPath())
+		subscriptionExempt := proxy.RequestHasCustomerFunding(c.Request.Context(), c.Request.Header, c.FullPath(), svc.ChargesByokFee())
 
 		result, err := svc.CheckBalance(c.Request.Context(), orgID)
 		if err != nil {
