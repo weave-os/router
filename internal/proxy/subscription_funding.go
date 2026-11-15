@@ -84,7 +84,7 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 		if claudeEnterpriseTarget(callCtx, target) || claudeEnterpriseTurn(callCtx) {
 			return claudeEnterpriseFunding(callCtx, target, s.supportsSubscriptionTransport(target.Provider))
 		}
-		if creds := CredentialsFromContext(callCtx); creds != nil && creds.OAuth {
+		if attemptOwesNoQuotaProof(callCtx, CredentialsFromContext(callCtx)) {
 			return nil
 		}
 		if byokFirst(callCtx, target.Provider) {
@@ -366,4 +366,11 @@ func includedQuotaSpent(snapshot usage.Snapshot, now time.Time) bool {
 // retryable outage.
 func credentialRejectionStands(subscriptionErr, retryErr error, credentialRejected func(error) bool) bool {
 	return errors.Is(retryErr, dispatch.ErrAuthorizationDenied) && credentialRejected(subscriptionErr)
+}
+
+// attemptOwesNoQuotaProof reports whether an attempt on creds buys no Weave
+// capacity: the caller's own plan, or, on an unfunded turn the plan refused
+// live, the customer's own key.
+func attemptOwesNoQuotaProof(ctx context.Context, creds *Credentials) bool {
+	return creds != nil && creds.OAuth || paidCapacityUnfunded(ctx) && customerKeyFunded(creds)
 }

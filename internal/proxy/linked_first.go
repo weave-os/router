@@ -68,7 +68,15 @@ func subscriptionOnlyUnservable(ctx context.Context, provider, model string) boo
 }
 
 func paidFallbackForbiddenForModel(ctx context.Context, model string) bool {
-	if claudeEnterpriseTarget(ctx, inference.Target{CatalogID: model}) || pickedModelOnOwnPlan(ctx) || subscriptionAttemptOnly(ctx) || paidCapacityUnfunded(ctx) {
+	return paidFallbackForbiddenForModelOn(ctx, "", model)
+}
+
+// paidFallbackForbiddenForModelOn is paidFallbackForbiddenForModel for a
+// recovery onto provider: an unfunded organization's turn may still recover
+// on the customer's own usable key for provider.
+func paidFallbackForbiddenForModelOn(ctx context.Context, provider, model string) bool {
+	unfunded := paidCapacityUnfunded(ctx) && (provider == "" || usableBYOK(ctx, provider) == nil)
+	if claudeEnterpriseTarget(ctx, inference.Target{CatalogID: model}) || pickedModelOnOwnPlan(ctx) || subscriptionAttemptOnly(ctx) || unfunded {
 		return true
 	}
 	if !subscriptionStateModelsEnabled(ctx) || subscriptionAPIOnly(ctx) {

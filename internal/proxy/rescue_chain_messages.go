@@ -114,7 +114,7 @@ func (m *messagesRescue) armSubscriptionRetry(ctx context.Context) {
 	m.subscriptionRetryEligible = m.decision.Provider == providers.ProviderAnthropic &&
 		!m.agentShadowMode &&
 		servedOnSubscription(ctx) &&
-		!paidFallbackForbiddenForModel(ctx, m.decision.Model) &&
+		!paidFallbackForbiddenForModelOn(ctx, m.decision.Provider, m.decision.Model) &&
 		s.anthropicFallbackKeyAvailable(ctx)
 }
 
