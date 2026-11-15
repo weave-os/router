@@ -4,46 +4,25 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/sessionpin"
-	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
 )
 
-// rescueServices is what the rescue chain reaches on the proxy service. The
-// list keeps those dependencies explicit until they move behind dispatch ports.
+// rescueServices is what the rescue chain still reaches on the proxy service:
+// the dispatch and turn steps whose signatures carry proxy types. Credential
+// and routing needs go through dispatch.RescueCredentials and
+// dispatch.RescueRouting.
 type rescueServices interface {
 	dispatchWithFallback(ctx context.Context, in failoverInputs) (winnerIdx int, err error)
 	resolveEffort(ctx context.Context, decision router.Decision, caps router.ModelSpec, escalate bool) effortResolution
-	resolveCredentials(ctx context.Context, provider, model string, headers http.Header) context.Context
-	resolveBindingsForDispatch(ctx context.Context, decision router.Decision) []catalog.ProviderBinding
-	subscriptionAlternativeDecisions(ctx context.Context, req router.Request, selected router.Decision) []router.Decision
 	runCompactionHandover(ctx context.Context, env *translate.RequestEnvelope, reqHeaders http.Header, decisionModel string, scope router.Request) handoverOutcome
-	recordSubscriptionUnavailable(ctx context.Context, provider, model string, attemptErr error)
-	subscriptionPoolUnavailable(ctx context.Context, provider, model string) bool
-	noteRescueReadmission(ctx context.Context, failed, rescuer router.Decision)
-	baselineFor(ctx context.Context, requested string) string
-	excludedProvidersForRequest(ctx context.Context) map[string]struct{}
-	shouldFailover(ctx context.Context) bool
-	anthropicFallbackKeyAvailable(ctx context.Context) bool
-	claudeSubscriptionExhausted(ctx context.Context, headers http.Header) bool
-	siblingFailoverDecisions(ctx context.Context, failed router.Decision, est, sigSavings, outputReserve int) []router.Decision
-	overflowRescueDecisions(ctx context.Context, failed router.Decision, est, sigSavings, outputReserve int) []router.Decision
-	siblingRescueAllowed(ctx context.Context, gatewayHeld bool) bool
-	gatewaySiblingAllowed(ctx context.Context, sibling router.Decision) bool
-	subscriptionSiblingAllowed(ctx context.Context) bool
 	earlyStopRedoMode(ctx context.Context, routeRes turnLoopResult, decision router.Decision, streaming, agentShadow bool) flags.EarlyStopRedoMode
-	earlyStopRedoTarget(ctx context.Context, served router.Decision, est, sigSavings, outputReserve int) (router.Decision, bool)
 	redoEarlyStop(ctx context.Context, redo earlyStopRedo) (redone bool, err error)
-	ResolveCyberRefusalRetry(ctx context.Context) bool
-	isHardPinnedTurn(ctx context.Context, tt turntype.TurnType) bool
-	cyberRefusalRetryTarget(ctx context.Context, failed router.Decision, sessionKey [sessionpin.SessionKeyLen]byte, role string, est, sigSavings, outputReserve int) (router.Decision, bool)
-	openaiFallbackKeyAvailable(ctx context.Context) bool
-	recordCodexQuotaExhaustion(ctx context.Context, headers http.Header, err error)
 }
 
 // rescueChain is one turn's walk from the routed attempt through its rescues.
@@ -51,6 +30,8 @@ type rescueServices interface {
 // the entrypoint reads them back afterwards.
 type rescueChain struct {
 	svc              rescueServices
+	credentials      dispatch.RescueCredentials
+	routing          dispatch.RescueRouting
 	r                *http.Request
 	log              *slog.Logger
 	env              *translate.RequestEnvelope
@@ -114,7 +95,6 @@ type rescueChain struct {
 // armSiblings resolves the same-cluster and overflow rescue candidates.
 // rescueBlocked carries the entrypoint's own reasons the walk may not run.
 func (c *rescueChain) armSiblings(ctx context.Context, rescueBlocked bool) context.Context {
-	s := c.svc
 	env := c.env
 	// Same-cluster model failover: when the routed model's only binding is dark,
 	// degrade to a peer the policy already scored. Gated out for depleted-credit
@@ -124,19 +104,19 @@ func (c *rescueChain) armSiblings(ctx context.Context, rescueBlocked bool) conte
 	// The plan-capacity mark set during dispatch must be readable here.
 	ctx = withClaudeEnterpriseTurn(ctx, c.decision)
 	ctx = WithManagedSubscriptionUsage(ctx)
-	c.siblingDecisions = subscriptionStatePaidRescueDecisions(ctx, s.siblingFailoverDecisions(ctx, rescueBasisForTurn(c.decision, c.routeRes), c.overflowEstimate, env.SignatureTokenSavings(), c.outputReserve))
+	c.siblingDecisions = subscriptionStatePaidRescueDecisions(ctx, c.routing.SiblingFailoverDecisions(ctx, rescueBasisForTurn(c.decision, c.routeRes), c.overflowEstimate, env.SignatureTokenSavings(), c.outputReserve))
 	c.siblingViable = len(c.siblingDecisions) > 0 &&
 		!rescueBlocked &&
-		s.siblingRescueAllowed(ctx, s.gatewaySiblingAllowed(ctx, c.siblingDecisions[0]))
+		c.routing.SiblingRescueAllowed(ctx, c.routing.GatewaySiblingAllowed(ctx, c.siblingDecisions[0]))
 	// When the plan credential is the only reason the walk is open, the walk
 	// must wait for the plan's own 5xx mark: a 429 or timeout on the plan must
 	// not buy a paid sibling.
-	c.subscriptionOnlySibling = c.siblingViable && !s.shouldFailover(ctx) &&
-		!s.gatewaySiblingAllowed(ctx, c.siblingDecisions[0]) && s.subscriptionSiblingAllowed(ctx)
-	c.overflowRescue = s.overflowRescueDecisions(ctx, c.decision, c.overflowEstimate, env.SignatureTokenSavings(), c.outputReserve)
+	c.subscriptionOnlySibling = c.siblingViable && !c.routing.ShouldFailover(ctx) &&
+		!c.routing.GatewaySiblingAllowed(ctx, c.siblingDecisions[0]) && c.credentials.SubscriptionSiblingAllowed(ctx)
+	c.overflowRescue = c.routing.OverflowRescueDecisions(ctx, c.decision, c.overflowEstimate, env.SignatureTokenSavings(), c.outputReserve)
 	c.overflowRescueViable = len(c.overflowRescue) > 0 &&
 		!rescueBlocked &&
-		s.siblingRescueAllowed(ctx, true)
+		c.routing.SiblingRescueAllowed(ctx, true)
 	// Either rescue holds the primary's error until it knows whether it runs.
 	c.rescueArmed = c.siblingViable || c.overflowRescueViable
 	c.overflowRescueOnly = c.overflowRescueViable && !c.siblingViable
@@ -170,18 +150,18 @@ func (c *rescueChain) dispatchPrimaryAttempt(ctx context.Context, deferFlush boo
 			if routeRes.HardPinned || routeRes.AuthoritativePerTurn {
 				return nil
 			}
-			return s.subscriptionAlternativeDecisions(ctx, *c.req, c.decision)
+			return c.credentials.SubscriptionAlternativeDecisions(ctx, *c.req, c.decision)
 		}(),
 		buildAlternative: func(target router.Decision) (dispatchAttempt, error) {
 			alternativeOpts, _ := switchedAttemptOptions(ctx, c.opts, target, routeRes.EscalateEffort, s.resolveEffort)
 			alternativeMarker := subscriptionTargetMarker(ctx, r.Header, routeRes, c.primaryDecision, target, c.pickedMarker)
-			alternativeCtx := s.resolveCredentials(ctx, target.Provider, target.Model, r.Header)
+			alternativeCtx := c.credentials.ResolveCredentials(ctx, target.Provider, target.Model, r.Header)
 			return c.buildAttempt(target, alternativeOpts, alternativeMarker, alternativeCtx)
 		},
 		onAlternative: func(target router.Decision) {
 			overloadedModel := c.decision.Model
 			c.decision = target
-			c.bindings = s.resolveBindingsForDispatch(ctx, target)
+			c.bindings = c.routing.ResolveBindingsForDispatch(ctx, target)
 			c.marker = siblingMarkerFor(ctx, r.Header, routeRes, overloadedModel, target.Model)
 		},
 		onSubscriptionStateTarget: func(target router.Decision, targetBindings []catalog.ProviderBinding) {
@@ -209,7 +189,7 @@ func (c *rescueChain) notePrimaryFailure(ctx context.Context) {
 	c.primaryFailureErr = c.proxyErr
 	c.primarySubscriptionArmFailure = c.proxyErr
 	if (servedOnSubscription(ctx) || c.subscriptionOnlySibling) && !c.preludeBuf.Committed() {
-		c.svc.recordSubscriptionUnavailable(ctx, c.decision.Provider, c.decision.Model, c.proxyErr)
+		c.credentials.RecordSubscriptionUnavailable(ctx, c.decision.Provider, c.decision.Model, c.proxyErr)
 	}
 }
 
@@ -217,7 +197,6 @@ func (c *rescueChain) notePrimaryFailure(ctx context.Context) {
 // re-dispatch the policy candidates in order until one serves. Last in the
 // rescue chain.
 func (c *rescueChain) siblingRescue(ctx context.Context) {
-	s := c.svc
 	preludeBuf := c.preludeBuf
 	// Keyed off the flush, not off whether an earlier rescue ran: a failed
 	// subscription retry keeps the same dark model, so a cluster peer can still
@@ -225,7 +204,7 @@ func (c *rescueChain) siblingRescue(ctx context.Context) {
 	// Recorded after the plan attempt and its same-model paid retry, so a 5xx on
 	// either is what opens the plan-only sibling walk.
 	if (servedOnSubscription(ctx) || c.subscriptionOnlySibling) && !preludeBuf.Committed() {
-		s.recordSubscriptionUnavailable(ctx, c.decision.Provider, c.decision.Model, c.proxyErr)
+		c.credentials.RecordSubscriptionUnavailable(ctx, c.decision.Provider, c.decision.Model, c.proxyErr)
 	}
 	// A gateway overflow walks only the other gateways; same-gateway peers share the window that rejected it.
 	overflowRescued := c.overflowRescueViable && isUpstreamContextOverflow(c.proxyErr)
@@ -235,7 +214,7 @@ func (c *rescueChain) siblingRescue(ctx context.Context) {
 	}
 	c.siblingRescueOwed = (c.siblingViable || overflowRescued) && !c.baselineAttempted && !c.deferredErrFlushed &&
 		!(c.explicitRequestedModel && isSubscriptionPoolError(c.proxyErr)) &&
-		(!c.subscriptionOnlySibling || s.subscriptionPoolUnavailable(ctx, c.decision.Provider, c.decision.Model))
+		(!c.subscriptionOnlySibling || c.credentials.SubscriptionPoolUnavailable(ctx, c.decision.Provider, c.decision.Model))
 	if c.siblingRescueOwed && c.proxyErr != nil && !preludeBuf.Committed() &&
 		(providers.IsRetryable(c.proxyErr) ||
 			providers.IsUpstreamModelNotFound(c.proxyErr) ||
@@ -261,9 +240,9 @@ func (c *rescueChain) dispatchSibling(ctx context.Context, siblingDecision route
 	log := c.log
 	routeRes := c.routeRes
 	siblingOpts, siblingEffort := switchedAttemptOptions(ctx, c.opts, siblingDecision, routeRes.EscalateEffort, s.resolveEffort)
-	siblingCtx := s.resolveCredentials(subscriptionStatePaidRescueContext(rescueCredentialContext(ctx, siblingDecision.Provider), siblingDecision.Model), siblingDecision.Provider, siblingDecision.Model, r.Header)
+	siblingCtx := c.credentials.ResolveCredentials(subscriptionStatePaidRescueContext(rescueCredentialContext(ctx, siblingDecision.Provider), siblingDecision.Model), siblingDecision.Provider, siblingDecision.Model, r.Header)
 	siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
-	siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
+	siblingBindings := c.routing.ResolveBindingsForDispatch(siblingCtx, siblingDecision)
 	siblingMarker := withRescueDetail(siblingMarkerFor(ctx, r.Header, routeRes, c.decision.Model, siblingDecision.Model), lastFailureDetail(attemptTraceFromContext(ctx)))
 	siblingAttempt, siblingBuildErr := c.buildAttempt(siblingDecision, siblingOpts, siblingMarker, siblingCtx)
 	if siblingBuildErr != nil {
@@ -293,7 +272,7 @@ func (c *rescueChain) dispatchSibling(ctx context.Context, siblingDecision route
 		c.rescuedPrimaryErr = c.proxyErr
 	}
 	c.siblingRescueRan = true
-	s.noteRescueReadmission(ctx, c.decision, siblingDecision)
+	c.routing.NoteRescueReadmission(ctx, c.decision, siblingDecision)
 	c.effortServed = siblingEffort
 	*c.respSummary = translate.ResponseSummary{}
 	if c.reqStats != nil {

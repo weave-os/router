@@ -51,7 +51,6 @@ func (o *chatRescue) dispatchPrimary(ctx context.Context) {
 }
 
 func (o *chatRescue) armCyberRetry(ctx context.Context) {
-	s := o.svc
 	routeRes := o.routeRes
 	// OpenAI's cybersecurity classifier declines the turn itself, so the rescue
 	// has to leave the vendor — a retry on another OpenAI binding meets the same
@@ -59,16 +58,16 @@ func (o *chatRescue) armCyberRetry(ctx context.Context) {
 	// the first upstream byte, and the primary dispatch has to hold its
 	// exhaustion flush so the refusal envelope can still be swallowed.
 	_, o.explicitRequestedModel = catalog.ByID(o.req.RequestedModel)
-	cyberRetryEligible := s.ResolveCyberRefusalRetry(ctx) &&
+	cyberRetryEligible := o.routing.ResolveCyberRefusalRetry(ctx) &&
 		!routeRes.CallerModelPassthrough &&
 		o.decision.Provider == providers.ProviderOpenAI &&
 		!strings.HasPrefix(o.decision.Reason, translate.ReasonUserForceModel) &&
-		!s.isHardPinnedTurn(ctx, routeRes.TurnType) &&
+		!o.routing.IsHardPinnedTurn(ctx, routeRes.TurnType) &&
 		!billing.SubscriptionOnlyFromContext(ctx)
 	if cyberRetryEligible {
-		target, found := s.cyberRefusalRetryTarget(ctx, o.decision, routeRes.SessionKey, stickyStateRole(routeRes),
+		target, found := o.routing.CyberRefusalRetryTarget(ctx, o.decision, routeRes.SessionKey, stickyStateRole(routeRes),
 			o.overflowEstimate, o.env.SignatureTokenSavings(), o.outputReserve)
-		o.cyberRetryViable = found && (s.shouldFailover(ctx) || s.gatewaySiblingAllowed(ctx, target)) &&
+		o.cyberRetryViable = found && (o.routing.ShouldFailover(ctx) || o.routing.GatewaySiblingAllowed(ctx, target)) &&
 			(!subscriptionStateModelsEnabled(ctx) || !paidFallbackForbiddenForModel(ctx, target.Model))
 		o.cyberRetryTarget = target
 	}
@@ -76,7 +75,6 @@ func (o *chatRescue) armCyberRetry(ctx context.Context) {
 }
 
 func (o *chatRescue) armSubscriptionRetries(ctx context.Context) {
-	s := o.svc
 	// Codex-subscription failover: a turn served on the caller's ChatGPT plan is
 	// pinned to that one credential, so a plan throttle (429 usage_limit_reached)
 	// or a rejected OAuth token has no binding to walk and reaches Codex raw.
@@ -87,14 +85,14 @@ func (o *chatRescue) armSubscriptionRetries(ctx context.Context) {
 	o.codexRetryViable = o.decision.Provider == providers.ProviderOpenAI &&
 		servedOnCodexSubscription(ctx) &&
 		!paidFallbackForbiddenForModel(ctx, o.decision.Model) &&
-		s.openaiFallbackKeyAvailable(ctx)
+		o.credentials.OpenAIFallbackKeyAvailable(ctx)
 	// OpenAI-compatible callers can route to Anthropic too; give their Claude
 	// subscription model-access and third-party refusals the same paid recovery
 	// as /v1/messages.
 	o.claudeRetryViable = o.decision.Provider == providers.ProviderAnthropic &&
 		servedOnSubscription(ctx) &&
 		!paidFallbackForbiddenForModel(ctx, o.decision.Model) &&
-		s.anthropicFallbackKeyAvailable(ctx)
+		o.credentials.AnthropicFallbackKeyAvailable(ctx)
 }
 
 // A released prelude can only take an SSE error frame, so every dispatch in
@@ -158,13 +156,13 @@ func (o *chatRescue) codexRetry(ctx context.Context) {
 		(providers.IsRetryable(o.proxyErr) || codexOAuthCredentialRejected(o.proxyErr) || codexSubscriptionModelRejected(o.proxyErr)) {
 		// Remember the plan is spent so later turns suppress the token pre-dispatch
 		// instead of buying another rejected round-trip per turn until it resets.
-		s.recordCodexQuotaExhaustion(ctx, r.Header, o.proxyErr)
+		o.credentials.RecordCodexQuotaExhaustion(ctx, r.Header, o.proxyErr)
 		subCtx := subscriptionStatePaidRescueContext(withSuppressedCodexSubscription(ctx), o.decision.Model)
 		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderOpenAI, o.decision.Model, r.Header)
 		subOpts := o.opts
 		subOpts.FastMode = fastModeForAttempt(subCtx, o.decision.Model, providers.ProviderOpenAI)
 		subAttempt, subBuildErr := o.buildAttempt(o.decision, subOpts, o.marker, subCtx)
-		subBindings := s.resolveBindingsForDispatch(subCtx, o.decision)
+		subBindings := o.routing.ResolveBindingsForDispatch(subCtx, o.decision)
 		switch {
 		case subBuildErr != nil:
 			log.Error("Codex subscription failover: preparing the Weave-key retry failed; surfacing the original error",
@@ -219,7 +217,7 @@ func (o *chatRescue) claudeRetry(ctx context.Context) {
 		subOpts := o.opts
 		subOpts.FastMode = fastModeForAttempt(subCtx, o.decision.Model, providers.ProviderAnthropic)
 		subAttempt, subBuildErr := o.buildAttempt(o.decision, subOpts, o.marker, subCtx)
-		subBindings := s.resolveBindingsForDispatch(subCtx, o.decision)
+		subBindings := o.routing.ResolveBindingsForDispatch(subCtx, o.decision)
 		switch {
 		case subBuildErr != nil:
 			log.Error("Claude subscription failover: preparing the Weave-key retry failed; surfacing the original error",
@@ -271,7 +269,7 @@ func (o *chatRescue) cyberRetry(ctx context.Context) {
 		retryOpts, retryEffort := switchedAttemptOptions(ctx, o.opts, o.cyberRetryTarget, routeRes.EscalateEffort, s.resolveEffort)
 		retryCtx := resolveAndInjectCredentials(subscriptionStatePaidRescueContext(ctx, o.cyberRetryTarget.Model), o.cyberRetryTarget.Provider, o.cyberRetryTarget.Model, r.Header)
 		retryOpts.FastMode = fastModeForAttempt(retryCtx, o.cyberRetryTarget.Model, o.cyberRetryTarget.Provider)
-		retryBindings := s.resolveBindingsForDispatch(retryCtx, o.cyberRetryTarget)
+		retryBindings := o.routing.ResolveBindingsForDispatch(retryCtx, o.cyberRetryTarget)
 		retryMarker := withRescueDetail(suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, cyberRefusalRoutingMarkerFor(routeRes, o.cyberRetryTarget.Model), o.cyberRetryTarget.Model, markerReasonCyberRefusal)), lastFailureDetail(attemptTraceFromContext(ctx)))
 		retryAttempt, retryBuildErr := o.buildAttempt(o.cyberRetryTarget, retryOpts, retryMarker, retryCtx)
 		switch {

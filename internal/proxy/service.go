@@ -4487,6 +4487,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	rescue := &messagesRescue{
 		rescueChain: &rescueChain{
 			svc:              s,
+			credentials:      rescueCredentialPort{s},
+			routing:          rescueRoutingPort{s},
 			r:                r,
 			log:              log,
 			env:              env,
@@ -7133,6 +7135,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	rescue := &chatRescue{
 		rescueChain: &rescueChain{
 			svc:              s,
+			credentials:      rescueCredentialPort{s},
+			routing:          rescueRoutingPort{s},
 			r:                r,
 			log:              log,
 			env:              env,

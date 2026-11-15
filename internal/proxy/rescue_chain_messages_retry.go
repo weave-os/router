@@ -53,11 +53,11 @@ func (m *messagesRescue) dispatchBaseline(ctx context.Context) context.Context {
 	baselineOpts.ModelSwitched = baseModelOf(routeRes.PriorServedModel) != m.baselineModel ||
 		routeRes.SessionEverSwitched
 	baselineCtx := subscriptionStatePaidRescueContext(ctx, m.baselineModel)
-	baselineSubExhausted := s.claudeSubscriptionExhausted(ctx, r.Header)
+	baselineSubExhausted := m.credentials.ClaudeSubscriptionExhausted(ctx, r.Header)
 	if baselineSubExhausted {
 		baselineCtx = withSuppressedClaudeSubscription(baselineCtx)
 	}
-	baselineCtx = s.resolveCredentials(baselineCtx, providers.ProviderAnthropic, m.baselineModel, r.Header)
+	baselineCtx = m.credentials.ResolveCredentials(baselineCtx, providers.ProviderAnthropic, m.baselineModel, r.Header)
 	baselineOpts.FastMode = fastModeForAttempt(baselineCtx, m.baselineModel, providers.ProviderAnthropic)
 	baselinePrep, baselineEmitErr := env.PrepareAnthropic(r.Header, baselineOpts)
 	if baselineEmitErr != nil {
@@ -75,7 +75,7 @@ func (m *messagesRescue) dispatchBaseline(ctx context.Context) context.Context {
 			ctx = withSuppressedClaudeSubscription(ctx)
 		}
 		m.effortServed = baselineEffort
-		baselineBindings := s.resolveBindingsForDispatch(baselineCtx, baselineDecision)
+		baselineBindings := m.routing.ResolveBindingsForDispatch(baselineCtx, baselineDecision)
 		baselineMarker := withRescueDetail(suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, baselineRoutingMarkerFor(routeRes, m.baselineModel), m.baselineModel, markerReasonBaseline)), lastFailureDetail(attemptTraceFromContext(ctx)))
 		baselineNotice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, baselineOpts.TargetModel, baselineMarker)
 		baselineNotice = addRoutingFundingSource(baselineCtx, providers.ProviderAnthropic, baselineOpts.TargetModel, baselineNotice)
@@ -139,7 +139,7 @@ func (m *messagesRescue) subscriptionRetry(ctx context.Context) {
 			if !m.rescueArmed {
 				m.flushDeferredErr()
 			}
-		} else if subBindings := s.resolveBindingsForDispatch(subCtx, m.decision); len(subBindings) == 0 {
+		} else if subBindings := m.routing.ResolveBindingsForDispatch(subCtx, m.decision); len(subBindings) == 0 {
 			// No usable Anthropic binding under suppression — surface the
 			// original retryable error (real throttle) rather than a synthetic
 			// 502 that would mask it. No Weave key attempted, so attribution
