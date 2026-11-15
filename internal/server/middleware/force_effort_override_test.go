@@ -88,11 +88,11 @@ func TestForceEffortOverride_Absent(t *testing.T) {
 
 func TestForceEffortOverrideKeepsExistingRoutingKnobs(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	alpha, bias := 0.25, 0.75
+	alpha, qualityBias := 0.25, 0.75
 	var captured *router.Overrides
 	engine := gin.New()
 	engine.Use(func(c *gin.Context) {
-		c.Request = c.Request.WithContext(router.WithRoutingKnobs(c.Request.Context(), &router.Overrides{Alpha: &alpha, QualityBias: &bias}))
+		c.Request = c.Request.WithContext(router.WithRoutingKnobs(c.Request.Context(), &router.Overrides{Alpha: &alpha, QualityBias: &qualityBias}))
 	}, middleware.WithForceEffortOverride())
 	engine.POST("/v1/messages", func(c *gin.Context) {
 		captured = router.RoutingKnobsFromContext(c.Request.Context())
@@ -105,5 +105,5 @@ func TestForceEffortOverrideKeepsExistingRoutingKnobs(t *testing.T) {
 	require.NotNil(t, captured)
 	assert.Equal(t, "high", captured.ForceEffort)
 	assert.Equal(t, &alpha, captured.Alpha)
-	assert.Equal(t, &bias, captured.QualityBias)
+	assert.Equal(t, &qualityBias, captured.QualityBias)
 }
