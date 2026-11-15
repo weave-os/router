@@ -11,11 +11,11 @@ import (
 
 type outputProgressArmer struct {
 	*httptest.ResponseRecorder
-	armed func()
+	mark func()
 }
 
 func (a *outputProgressArmer) ArmOutputProgress(mark func()) bool {
-	a.armed = mark
+	a.mark = mark
 	return true
 }
 
@@ -26,8 +26,8 @@ func TestUsageExtractor_ForwardsOutputProgressArmingToInnerWriter(t *testing.T) 
 	armed := otel.NewUsageExtractor(inner, "anthropic").ArmOutputProgress(func() { marked = true })
 
 	assert.True(t, armed)
-	if assert.NotNil(t, inner.armed) {
-		inner.armed()
+	if assert.NotNil(t, inner.mark) {
+		inner.mark()
 	}
 	assert.True(t, marked)
 }
