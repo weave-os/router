@@ -84,21 +84,6 @@ func installationIDFromContext(ctx context.Context) uuid.UUID {
 	return id
 }
 
-// cacheWarm reports whether the pin's upstream prompt cache is still warm
-// (prior turn ended within the provider's cache TTL). Cold pins get no
-// cache-read discount in the planner's EV math.
-func cacheWarm(pin sessionpin.Pin) bool {
-	if pin.LastTurnEndedAt.IsZero() {
-		return false
-	}
-	return time.Since(pin.LastTurnEndedAt) < providers.CacheTTLFor(pin.Provider)
-}
-
-// pinCacheCold keeps ordinary and HMM paths on the same cache-economics rule.
-func pinCacheCold(pin sessionpin.Pin, prefixBroken bool) bool {
-	return !cacheWarm(pin) || prefixBroken
-}
-
 func applyPinEvidence(res *turnLoopResult, pin sessionpin.Pin) {
 	res.PinModel = pin.Model
 	res.PinProvider = pin.Provider
@@ -116,34 +101,6 @@ func clearPinEvidence(res *turnLoopResult) {
 	res.PinPolicyGroup = ""
 	res.PinAgeSec = 0
 	res.PriorTurnGapMS = nil
-}
-
-// cacheablePrefixTokens projects the pin's previous-turn cache-hit share
-// onto this turn's prompt. The share is a ratio of two measured counters, not
-// measured cached tokens over an estimated current total — the latter biases k
-// toward 1. Reports false when the pin carries no usage telemetry.
-func cacheablePrefixTokens(pin sessionpin.Pin, total int, prefixBroken bool) (int, bool) {
-	if prefixBroken {
-		return 0, true // a client trim really did evict the prefix
-	}
-	cached := pin.LastCachedReadTokens + pin.LastCachedWriteTokens
-	prior := priorPromptTokens(pin)
-	if prior <= 0 {
-		return 0, false
-	}
-	share := min(1.0, float64(cached)/float64(prior))
-	return int(share * float64(total)), true
-}
-
-// priorPromptTokens is the pin's previous-turn prompt size. Usage is
-// extracted by wire family: input_tokens is fresh-only on the Anthropic family
-// (disjoint from read/write) but is prompt_tokens — already cache-inclusive —
-// everywhere else.
-func priorPromptTokens(pin sessionpin.Pin) int {
-	if providers.FamilyFor(pin.Provider) == providers.FamilyAnthropic {
-		return pin.LastInputTokens + pin.LastCachedReadTokens + pin.LastCachedWriteTokens
-	}
-	return pin.LastInputTokens
 }
 
 // plannerInputTokens returns the planner's prompt-size estimate from
@@ -469,8 +426,6 @@ func isHMMDecision(dec router.Decision) bool {
 	return strings.HasPrefix(strings.TrimSpace(dec.Reason), "hmm_policy")
 }
 
-const hmmHistoryReason = "hmm_history"
-
 // DefaultHMMUpgradeConfidenceThreshold is the top-class classifier probability
 // an upgrade must reach: with four groups, 0.50 means the winner outweighs
 // every other group combined.
@@ -482,11 +437,8 @@ const DefaultHMMUpgradeConfidenceThreshold = 0.50
 const DefaultHMMDowngradeHysteresisTurns = 2
 
 const (
-	hmmReasonConfidentUpgrade        = "hmm_confident_upgrade"
-	hmmReasonUpgradeConfidenceLow    = "hmm_upgrade_confidence_low"
 	hmmReasonDowngradeConfidenceLow  = "hmm_downgrade_confidence_low"
 	hmmReasonDowngradeHysteresis     = "hmm_downgrade_hysteresis"
-	hmmReasonPhaseChange             = "hmm_phase_change"
 	nativeWebSearchPassthroughReason = "native_web_search_passthrough"
 )
 
@@ -723,15 +675,6 @@ func pinEligible(pin sessionpin.Pin, req router.Request) bool {
 	}
 	_, ok := req.EnabledProviders[pin.Provider]
 	return ok
-}
-
-// automaticallyDisabled reports whether a deployment-wide disable withdrew this
-// model from automatic selection. Every reuse of an automatically-chosen model
-// consults it, so a disable takes effect on sessions already pinned to that
-// model instead of only on sessions that route fresh.
-func automaticallyDisabled(req router.Request, model string) bool {
-	_, disabled := req.AutomaticExcludedModels[model]
-	return disabled
 }
 
 // automaticPinEligible gates reuse of a pin the router chose on the session's
@@ -1426,7 +1369,7 @@ func (s *Service) runTurnLoop(
 			"pin_provider", pin.Provider,
 			"pin_reason", pin.Reason,
 			"pin_age_s", res.PinAgeSec,
-			"pin_cache_warm", cacheWarm(pin),
+			"pin_cache_warm", routingpolicy.CacheWarm(pin),
 			"last_output_tokens", pin.LastOutputTokens,
 			"session_ever_switched", pin.HasEverSwitched,
 		)
@@ -2083,7 +2026,7 @@ func (s *Service) runTurnLoop(
 			upgradeGateActive := s.ResolveAuthoritativeUpgradeGate(ctx) && s.resolveUpgradePolicyMode(ctx) != flags.AuthoritativeUpgradePolicyOff && !evidenceServedFresh && !slidingServed
 			if upgradeGateActive && pinFound && pin.Model != "" && pin.Model != fresh.Model &&
 				hmmFreshIsMoreExpensive(pin.Model, fresh.Model, plannerTokens) {
-				if confidence, ok := hmmDecisionConfidence(fresh); ok && confidence < s.hmmUpgradeConfidenceThreshold {
+				if confidence, ok := routingpolicy.HMMDecisionConfidence(fresh); ok && confidence < s.hmmUpgradeConfidenceThreshold {
 					decision := pinDecision(pin)
 					res.Decision = decision
 					res.StickyHit = true
@@ -2106,7 +2049,7 @@ func (s *Service) runTurnLoop(
 			if pinFound && pin.Model != "" && pin.Model != fresh.Model &&
 				!hmmFreshIsMoreExpensive(pin.Model, fresh.Model, plannerTokens) {
 				hysteresisTurns := s.ResolveHMMDowngradeHysteresisTurns(ctx)
-				confidence, scored := hmmDecisionConfidence(fresh)
+				confidence, scored := routingpolicy.HMMDecisionConfidence(fresh)
 				if s.ResolveAuthoritativeDowngradeGate(ctx) && scored && confidence < s.hmmUpgradeConfidenceThreshold {
 					decision := pinDecision(pin)
 					res.Decision = decision
@@ -2181,7 +2124,7 @@ func (s *Service) runTurnLoop(
 			if pinFound {
 				activePin = pin
 			}
-			hmmDecision, hmmPlannerDecision, hmmSticky, hmmStayModel := s.hmmCostGatedDecision(
+			hmmDecision, hmmPlannerDecision, hmmSticky, hmmStayModel := hmmCostGateFor(s).Decide(
 				req,
 				activePin,
 				hmmHistory,
@@ -2204,7 +2147,7 @@ func (s *Service) runTurnLoop(
 			}
 			if hmmStayModel != "" {
 				res.PinModel = hmmStayModel
-				if hmmPin, ok := s.hmmStayPin(req, activePin, hmmHistory); ok && hmmPin.Model == hmmStayModel {
+				if hmmPin, ok := hmmCostGateFor(s).StayPin(req, activePin, hmmHistory); ok && hmmPin.Model == hmmStayModel {
 					applyPinEvidence(&res, hmmPin)
 				}
 			}
@@ -2428,65 +2371,6 @@ func modelExcludedForRecoveryProbe(req router.Request, model string) bool {
 		req.ImageCount > 0 && !catalog.AcceptsImageCount(model, req.ImageCount, req.EnabledProviders))
 }
 
-func (s *Service) hmmCostGatedDecision(
-	req router.Request,
-	activePin sessionpin.Pin,
-	hmmHistory sessionpin.Pin,
-	fresh router.Decision,
-	estimatedInputTokens int,
-	prefixBroken bool,
-) (router.Decision, planner.Decision, bool, string) {
-	stayPin, ok := s.hmmStayPin(req, activePin, hmmHistory)
-	if !ok {
-		return fresh, planner.Decision{Outcome: planner.OutcomeSwitch, Reason: planner.ReasonNoPin}, false, ""
-	}
-	if hmmToolExecutionPhaseChanged(stayPin.Reason, fresh.Reason) {
-		return fresh, planner.Decision{Outcome: planner.OutcomeSwitch, Reason: hmmReasonPhaseChange}, false, stayPin.Model
-	}
-
-	cfg := s.planner
-	// HMM owns semantic selection; the shared Go planner owns cache economics
-	// because HMM clusters and catalog tiers are not the same axis.
-	cfg.TierUpgradeEnabled = false
-	stayPrefix, stayPrefixKnown := cacheablePrefixTokens(stayPin, estimatedInputTokens, prefixBroken)
-	base := planner.Decide(planner.Inputs{
-		Pin:                   stayPin,
-		Fresh:                 fresh,
-		EstimatedInputTokens:  estimatedInputTokens,
-		CacheablePrefixTokens: stayPrefix,
-		CachePrefixKnown:      stayPrefixKnown,
-		PriorOutputTokens:     stayPin.LastOutputTokens,
-		AvailableModels:       s.availableModels,
-		PinCacheCold:          pinCacheCold(stayPin, prefixBroken),
-	}, cfg)
-
-	if hmmFreshIsMoreExpensive(stayPin.Model, fresh.Model, estimatedInputTokens) {
-		confidence, ok := hmmDecisionConfidence(fresh)
-		if ok && confidence >= s.hmmUpgradeConfidenceThreshold {
-			base.Outcome = planner.OutcomeSwitch
-			base.Reason = hmmReasonConfidentUpgrade
-		} else if base.Outcome != planner.OutcomeSwitch {
-			base.Outcome = planner.OutcomeStay
-			base.Reason = hmmReasonUpgradeConfidenceLow
-		}
-	}
-
-	// Runs after the upgrade block, so only a plain ReasonEVPositive switch
-	// reaches here; a confident upgrade has already changed Reason.
-	if s.hmmSameTierPin && base.Outcome == planner.OutcomeSwitch && base.Reason == planner.ReasonEVPositive {
-		pinTier, freshTier := catalog.TierFor(stayPin.Model), catalog.TierFor(fresh.Model)
-		if pinTier != catalog.TierUnknown && pinTier == freshTier {
-			base.Outcome = planner.OutcomeStay
-			base.Reason = planner.ReasonSameTierPinned
-		}
-	}
-
-	if base.Outcome == planner.OutcomeStay && stayPin.Model != fresh.Model {
-		return pinDecision(stayPin), base, true, stayPin.Model
-	}
-	return fresh, base, false, stayPin.Model
-}
-
 // authorityCacheShadowFor computes the HMM cache gate's verdict for an
 // authoritative-per-turn turn without changing the served decision. Calls
 // hmmCostGatedDecision unmodified -- a shadow that approximates the rule is not
@@ -2509,14 +2393,14 @@ func (s *Service) authorityCacheShadowFor(
 	if !isHMMDecision(fresh) {
 		return authorityCacheShadow{}
 	}
-	_, plannerDecision, sticky, stayModel := s.hmmCostGatedDecision(
+	_, plannerDecision, sticky, stayModel := hmmCostGateFor(s).Decide(
 		req, activePin, hmmHistory, fresh, estimatedInputTokens, prefixBroken,
 	)
 	// Re-resolve the provider; guard on model equality because normalizeHMMStayPin
 	// consults the clock and a concurrently expiring pin must not pair a stale
 	// binding with the model the gate actually priced.
 	stayProvider := activePin.Provider
-	stayPin, stayPinOK := s.hmmStayPin(req, activePin, hmmHistory)
+	stayPin, stayPinOK := hmmCostGateFor(s).StayPin(req, activePin, hmmHistory)
 	if stayPinOK && stayPin.Model == stayModel {
 		stayProvider = stayPin.Provider
 	}
@@ -2643,153 +2527,6 @@ func (s *Service) logAuthorityCacheShadow(ctx context.Context, res turnLoopResul
 	)
 }
 
-func (s *Service) hmmStayPin(req router.Request, activePin sessionpin.Pin, hmmHistory sessionpin.Pin) (sessionpin.Pin, bool) {
-	var (
-		best sessionpin.Pin
-		ok   bool
-	)
-	// Only HMM-written pins are stay candidates; a cluster/planner pin from a
-	// prior non-HMM stretch must not steer an HMM EV stay.
-	if !isHMMPinReason(activePin.Reason) {
-		activePin = sessionpin.Pin{}
-	}
-	for _, candidate := range []sessionpin.Pin{activePin, hmmHistory} {
-		normalized, candidateOK := s.normalizeHMMStayPin(req, candidate)
-		if !candidateOK {
-			continue
-		}
-		if !ok || normalized.LastTurnEndedAt.After(best.LastTurnEndedAt) {
-			best = normalized
-			ok = true
-		}
-	}
-	return best, ok
-}
-
-// isHMMPinReason reports whether reason is HMM-written (hmm_history or hmm_policy*);
-// guards against a stale cluster/planner pin steering an HMM turn's EV stay.
-func isHMMPinReason(reason string) bool {
-	return reason == hmmHistoryReason ||
-		strings.HasPrefix(strings.TrimSpace(reason), "hmm_policy")
-}
-
-func isHMMToolExecutionReason(reason string) bool {
-	return strings.HasPrefix(strings.TrimSpace(reason), "hmm_policy:tool_execution")
-}
-
-func hmmToolExecutionPhaseChanged(stayReason, freshReason string) bool {
-	return isHMMToolExecutionReason(stayReason) != isHMMToolExecutionReason(freshReason)
-}
-
-func (s *Service) normalizeHMMStayPin(req router.Request, p sessionpin.Pin) (sessionpin.Pin, bool) {
-	model := p.LastServedModel
-	if model == "" {
-		model = p.Model
-	}
-	if model == "" {
-		return sessionpin.Pin{}, false
-	}
-	if p.LastTurnEndedAt.IsZero() {
-		return sessionpin.Pin{}, false
-	}
-	if !p.PinnedUntil.IsZero() && !p.PinnedUntil.After(time.Now()) {
-		return sessionpin.Pin{}, false
-	}
-	if maxedOutServedModel(p) != "" {
-		return sessionpin.Pin{}, false
-	}
-	if req.ExcludedModels != nil {
-		if _, excluded := req.ExcludedModels[model]; excluded {
-			return sessionpin.Pin{}, false
-		}
-	}
-	// An HMM stay is the policy re-choosing the incumbent, so a deployment-wide
-	// disable applies to it exactly as it does to a fresh selection.
-	if automaticallyDisabled(req, model) {
-		return sessionpin.Pin{}, false
-	}
-	if s.availableModels != nil {
-		if _, available := s.availableModels[model]; !available {
-			return sessionpin.Pin{}, false
-		}
-	}
-	if req.HasImages && (!catalog.AcceptsImages(model) ||
-		req.ImageCount > 0 && !catalog.AcceptsImageCount(model, req.ImageCount, req.EnabledProviders)) {
-		return sessionpin.Pin{}, false
-	}
-	p.Model = model
-	providerSet := req.EnabledProviders
-	if providerSet == nil {
-		providerSet = s.clients.NameSet()
-	}
-	// A failed turn preserves the prior model but may leave an invalid provider
-	// binding; validate before reusing, or re-resolve against available providers.
-	if p.Provider != "" {
-		if _, enabled := providerSet[p.Provider]; enabled {
-			pinned := map[string]struct{}{p.Provider: {}}
-			if _, valid := catalog.ResolveBindingWithCustom(model, pinned, req.CustomBindings); valid {
-				return p, true
-			}
-		}
-	}
-	binding, ok := catalog.ResolveBindingWithCustom(model, providerSet, req.CustomBindings)
-	if !ok {
-		return sessionpin.Pin{}, false
-	}
-	p.Provider = binding.Provider
-	return p, true
-}
-
-func hmmDecisionConfidence(dec router.Decision) (float64, bool) {
-	if dec.Metadata == nil {
-		return 0, false
-	}
-	confidence := float64(dec.Metadata.ChosenScore)
-	if confidence <= 0 {
-		return 0, false
-	}
-	return confidence, true
-}
-
-func hmmFreshIsMoreExpensive(stayModel, freshModel string, inputTokens int) bool {
-	stay, okStay := hmmEffectiveInputUSDPer1M(stayModel, inputTokens)
-	fresh, okFresh := hmmEffectiveInputUSDPer1M(freshModel, inputTokens)
-	return okStay && okFresh && fresh > stay
-}
-
-func hmmEffectiveInputUSDPer1M(model string, inputTokens int) (float64, bool) {
-	price, ok := catalog.PrimaryPriceFor(model)
-	if !ok {
-		return 0, false
-	}
-	price = price.ForInputTokens(inputTokens)
-	value := price.InputUSDPer1M
-	return value, true
-}
-
-func maxedOutServedModel(pin sessionpin.Pin) string {
-	if pin.LastOutputLimitAt.IsZero() || !pin.LastOutputLimitAt.Equal(pin.LastTurnEndedAt) {
-		return ""
-	}
-	model := pin.LastServedModel
-	if model == "" {
-		model = pin.Model
-	}
-	// ExcludedModels / SafetyExcludedModels key on bare catalog IDs; strip effort
-	// so the exclusion matches. Exclusion is model-level: saturate at any effort
-	// and the model is barred at every effort for this turn.
-	return baseModelOf(model)
-}
-
-// baseModelOf strips a trailing ":effort" from a serving identity, returning the
-// bare catalog ID. Safe on inputs that carry no effort.
-func baseModelOf(servedIdentity string) string {
-	if idx := strings.LastIndex(servedIdentity, ":"); idx > 0 {
-		return servedIdentity[:idx]
-	}
-	return servedIdentity
-}
-
 // roleForTier maps a requested-model tier to its session-pin role. Each tier
 // gets its own row so separate-tier turns never share a pin. TierUnknown
 // falls back to DefaultRole.
@@ -2862,7 +2599,7 @@ func buildPolicyTurnContext(
 	var priorOutputTokens *int
 	if !previous.LastTurnEndedAt.IsZero() {
 		cacheState = router.PolicyCacheStateCold
-		if cacheWarm(previous) && !res.PrefixTrimmed && !req.HistoryTruncated {
+		if routingpolicy.CacheWarm(previous) && !res.PrefixTrimmed && !req.HistoryTruncated {
 			cacheState = router.PolicyCacheStateWarm
 		}
 		outputTokens := previous.LastOutputTokens
