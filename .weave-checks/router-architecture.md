@@ -12,11 +12,11 @@ Review only changed non-test Go under `internal/` or `cmd/`, excluding generated
 I/O behavior, a provider-shaped type, provider-specific business logic or an execution path;
 otherwise PASS immediately.
 
-The root `CLAUDE.md` names these I/O-free inner-ring packages: `internal/inference`,
+`TestIOFreePackagesDoNoIO` in `internal/architecture/prose_rules_test.go` names these I/O-free inner-ring packages: `internal/inference`,
 `internal/router`, `internal/providers` (the root interface package, not its adapters),
 `internal/translate`, `internal/sse`, `internal/timing`, `internal/requestcontext`,
 `internal/feedback`, `internal/router/{breaker,catalog,handover,planner,policy,sessionpin,turntype}`
-and `internal/proxy/usage`. It also describes `internal/websearch` as pure. This is not a ban on
+and `internal/proxy/usage`. `internal/websearch` is pure too. This is not a ban on
 I/O in every descendant: `internal/providers/<adapter>` packages are adapters.
 
 ## Flag
