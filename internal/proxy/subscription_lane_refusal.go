@@ -10,6 +10,8 @@ import (
 	"weave-os/router/internal/subscriptions/entitlement"
 )
 
+var ErrSubscriptionUnavailableForTurn = errors.New("subscription unavailable and paid fallback not permitted for this turn")
+
 var subscriptionLaneOrgGates = map[refusal.Kind]error{
 	refusal.CreditsExhausted:               ErrCreditsExhaustedSubscriptionUnavailable,
 	refusal.SpendCapReached:                ErrSpendCapSubscriptionUnavailable,
