@@ -22,9 +22,9 @@ import (
 
 const plannedTestModel = "deepseek/deepseek-v4-pro"
 
-func plannedInputs(rec *httptest.ResponseRecorder, buf *preludeBuffer, bindings []catalog.ProviderBinding, body []byte) failoverInputs {
+func plannedInputs(rec *httptest.ResponseRecorder, buf *preludeBuffer, bindings []catalog.ProviderBinding, body []byte) dispatch.FailoverInputs {
 	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-	return failoverInputs{
+	return dispatch.FailoverInputs{
 		Writer:          rec,
 		Prelude:         buf,
 		InitialDecision: router.Decision{Model: plannedTestModel, Provider: bindings[0].Provider},

@@ -393,9 +393,9 @@ var _ handover.Summarizer = (*ProviderSummarizer)(nil)
 // On any failure it logs and passes the compacted body through unchanged
 // (never trims it further, which would discard Claude Code's own compaction
 // summary). Returns a handoverOutcome so the caller can bill the summary call.
-func (s *Service) runCompactionHandover(ctx context.Context, env *translate.RequestEnvelope, reqHeaders http.Header, decisionModel string, scope router.Request) handoverOutcome {
+func (s *Service) runCompactionHandover(ctx context.Context, env *translate.RequestEnvelope, reqHeaders http.Header, decisionModel string, scope router.Request) dispatch.HandoverOutcome {
 	log := observability.FromContext(ctx)
-	var out handoverOutcome
+	var out dispatch.HandoverOutcome
 	out.Invoked = true
 
 	summarizer := s.summarizer

@@ -199,12 +199,12 @@ func TestStateModelsTerminalRejectionAfterBudgetIsNotRescued(t *testing.T) {
 		rec := httptest.NewRecorder()
 		buf := newPreludeBuffer(rec)
 		var served []string
-		_, err := svc.dispatchWithFallback(ctx, failoverInputs{
+		_, err := svc.dispatchWithFallback(ctx, dispatch.FailoverInputs{
 			Writer: rec, Prelude: buf, SubscriptionStateRequest: &req,
 			SubscriptionStateWinnerProvider: new(string),
 			InitialDecision:                 router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
 			Purpose:                         inference.PurposeAnthropicMessages,
-			BuildAlternative: func(router.Decision) (dispatchAttempt, error) {
+			BuildAlternative: func(router.Decision) (dispatch.UpstreamAttempt, error) {
 				return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
 					served = append(served, decision.Model)
 					// Simulate slow inference without spending credential-admission time.

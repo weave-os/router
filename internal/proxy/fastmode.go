@@ -25,7 +25,7 @@ type anthropicTierAttempt struct {
 	env           *translate.RequestEnvelope
 	r             *http.Request
 	opts          translate.EmitOptions
-	native        dispatchAttempt
+	native        dispatch.UpstreamAttempt
 	sink          http.ResponseWriter
 	preludeBuf    *preludeBuffer
 	preludeState  *requestNoticeStream
@@ -38,7 +38,7 @@ type anthropicTierAttempt struct {
 
 // forBinding returns the emit options and native attempt to dispatch d with,
 // plus whether that dispatch is fast.
-func (a *anthropicTierAttempt) forBinding(actx context.Context, d router.Decision) (translate.EmitOptions, dispatchAttempt, bool, error) {
+func (a *anthropicTierAttempt) forBinding(actx context.Context, d router.Decision) (translate.EmitOptions, dispatch.UpstreamAttempt, bool, error) {
 	fast := fastModeForAttempt(actx, d.Model, d.Provider)
 	if fast == a.opts.FastMode {
 		return a.opts, a.native, fast, nil
@@ -108,7 +108,7 @@ func retryAnthropicStandardSpeed(log *slog.Logger, buffer *preludeBuffer, target
 }
 
 // attempt is dispatch as a dispatchAttempt.
-func (a *anthropicTierAttempt) attempt(recordFast func(bool)) dispatchAttempt {
+func (a *anthropicTierAttempt) attempt(recordFast func(bool)) dispatch.UpstreamAttempt {
 	return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 		_, err := a.dispatch(actx, d, p, recordFast)
 		return err

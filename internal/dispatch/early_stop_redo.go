@@ -39,6 +39,8 @@ type EarlyStopServed struct {
 	Effort     *EffortResolution
 }
 
+// EarlyStopServedSnapshot is a copy of the served-attempt state, taken before a
+// redo overwrites it so a failed redo can put it back.
 type EarlyStopServedSnapshot struct {
 	Decision   router.Decision
 	Bindings   []catalog.ProviderBinding
@@ -51,6 +53,7 @@ type EarlyStopServedSnapshot struct {
 	Effort     EffortResolution
 }
 
+// Save copies the served-attempt state the pointers refer to.
 func (p *EarlyStopServed) Save() EarlyStopServedSnapshot {
 	return EarlyStopServedSnapshot{
 		Decision: *p.Decision, Bindings: *p.Bindings, Marker: *p.Marker, WinnerIdx: *p.WinnerIdx,
@@ -58,6 +61,7 @@ func (p *EarlyStopServed) Save() EarlyStopServedSnapshot {
 	}
 }
 
+// Restore writes a snapshot back through the pointers.
 func (p *EarlyStopServed) Restore(s EarlyStopServedSnapshot) {
 	*p.Decision, *p.Bindings, *p.Marker, *p.WinnerIdx = s.Decision, s.Bindings, s.Marker, s.WinnerIdx
 	*p.Extractor, *p.Summary, *p.ReqStats, *p.FastServed, *p.Effort = s.Extractor, s.Summary, s.ReqStats, s.FastServed, s.Effort

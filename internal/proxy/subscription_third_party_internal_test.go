@@ -81,7 +81,7 @@ func dispatchManagedThirdPartyTurnWithReason(t *testing.T, svc *Service, ctx con
 	t.Helper()
 	recorder := httptest.NewRecorder()
 	buffer := newPreludeBuffer(recorder)
-	_, err := svc.dispatchWithFallback(ctx, failoverInputs{
+	_, err := svc.dispatchWithFallback(ctx, dispatch.FailoverInputs{
 		Writer:          recorder,
 		Prelude:         buffer,
 		InitialDecision: router.Decision{Model: parityAnthropicModel, Provider: providers.ProviderAnthropic, Reason: reason},
@@ -334,13 +334,13 @@ func TestForcedThirdPartyRefusalPaysThroughSubscriptionStateModelsOnlyWhenKeyCon
 			recorder := httptest.NewRecorder()
 			buffer := newPreludeBuffer(recorder)
 
-			_, err := svc.dispatchWithFallback(ctx, failoverInputs{
+			_, err := svc.dispatchWithFallback(ctx, dispatch.FailoverInputs{
 				Writer: recorder, Prelude: buffer, SubscriptionStateRequest: &req,
 				SubscriptionStateWinnerProvider: new(string),
 				InitialDecision:                 router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic, Reason: translate.ReasonUserForceModel},
 				Purpose:                         inference.PurposeAnthropicMessages,
 				Origin:                          policy.OverrideSourceRequest,
-				BuildAlternative: func(router.Decision) (dispatchAttempt, error) {
+				BuildAlternative: func(router.Decision) (dispatch.UpstreamAttempt, error) {
 					return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
 						buffer.Seal()
 						return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))

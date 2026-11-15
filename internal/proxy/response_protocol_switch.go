@@ -25,7 +25,7 @@ const (
 	surfaceResponsesTranslated
 )
 
-type modelAttemptBuilder func(router.Decision, translate.EmitOptions, string, context.Context) (dispatchAttempt, error)
+type modelAttemptBuilder func(router.Decision, translate.EmitOptions, string, context.Context) (dispatch.UpstreamAttempt, error)
 
 // responseProtocolSwitch owns the client writer's protocol across model changes.
 // A synthetic routing prelude can remain visible while a failed provider
@@ -116,7 +116,7 @@ func (s responseProtocolSwitch) selectTarget(target router.Decision) error {
 }
 
 func (s *responseProtocolSwitch) wrapBuilder(build modelAttemptBuilder) modelAttemptBuilder {
-	return func(target router.Decision, opts translate.EmitOptions, marker string, fundingCtx context.Context) (dispatchAttempt, error) {
+	return func(target router.Decision, opts translate.EmitOptions, marker string, fundingCtx context.Context) (dispatch.UpstreamAttempt, error) {
 		if err := s.selectTarget(target); err != nil {
 			return nil, err
 		}

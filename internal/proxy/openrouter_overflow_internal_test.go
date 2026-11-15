@@ -44,7 +44,7 @@ func overflowContext(exhausted bool) context.Context {
 	return flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionExhaustedOpenRouterOnly: true, flags.KeyClaudeEnterpriseOnly: false}})
 }
 
-func (d *overflowDispatch) attempt() dispatchAttempt {
+func (d *overflowDispatch) attempt() dispatch.UpstreamAttempt {
 	return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
 		d.served = append(d.served, decision)
 		return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
@@ -53,13 +53,13 @@ func (d *overflowDispatch) attempt() dispatchAttempt {
 
 func (d *overflowDispatch) run(ctx context.Context, laneRequest bool) error {
 	rec := httptest.NewRecorder()
-	in := failoverInputs{
+	in := dispatch.FailoverInputs{
 		Writer: rec, Prelude: newPreludeBuffer(rec),
 		InitialDecision:  router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
 		Bindings:         []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
 		Attempt:          d.attempt(),
 		Purpose:          inference.PurposeAnthropicMessages,
-		BuildAlternative: func(router.Decision) (dispatchAttempt, error) { return d.attempt(), nil },
+		BuildAlternative: func(router.Decision) (dispatch.UpstreamAttempt, error) { return d.attempt(), nil },
 	}
 	if laneRequest {
 		in.SubscriptionStateRequest = &router.Request{

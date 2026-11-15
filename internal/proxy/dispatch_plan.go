@@ -105,7 +105,7 @@ func (e dispatchAbort) Unwrap() error { return e.err }
 // per-binding headers, credential re-resolution on fallback, managed
 // subscription leasing and account rotation, prelude discard on retry, and
 // the entry point's own error rendering on exhaustion.
-func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan inference.ResolvedPlan) (winnerIdx int, err error) {
+func (s *Service) dispatchPlanned(ctx context.Context, in dispatch.FailoverInputs, plan inference.ResolvedPlan) (winnerIdx int, err error) {
 	log := observability.FromContext(ctx)
 	executor, err := s.inferenceExecutor()
 	if err != nil {

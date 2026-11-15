@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -180,7 +181,7 @@ func (o *chatRescue) codexRetry(ctx context.Context) {
 			o.codexRetryRan = true
 			*o.respSummary = translate.ResponseSummary{}
 			subscriptionErr := o.proxyErr
-			o.winnerIdx, o.proxyErr = s.dispatchWithFallback(subCtx, failoverInputs{
+			o.winnerIdx, o.proxyErr = s.dispatchWithFallback(subCtx, dispatch.FailoverInputs{
 				Writer:          o.contentSink,
 				Prelude:         preludeBuf,
 				InitialDecision: o.decision,
@@ -232,7 +233,7 @@ func (o *chatRescue) claudeRetry(ctx context.Context) {
 				"upstream_status", upstreamStatus(o.proxyErr))
 			o.claudeRetryRan = true
 			*o.respSummary = translate.ResponseSummary{}
-			o.winnerIdx, o.proxyErr = s.dispatchWithFallback(subCtx, failoverInputs{
+			o.winnerIdx, o.proxyErr = s.dispatchWithFallback(subCtx, dispatch.FailoverInputs{
 				Writer:                 o.contentSink,
 				Prelude:                preludeBuf,
 				InitialDecision:        o.decision,
@@ -290,7 +291,7 @@ func (o *chatRescue) cyberRetry(ctx context.Context) {
 			o.cyberRetryRan = true
 			o.effortServed = retryEffort
 			*o.respSummary = translate.ResponseSummary{}
-			o.winnerIdx, o.proxyErr = s.dispatchWithFallback(retryCtx, failoverInputs{
+			o.winnerIdx, o.proxyErr = s.dispatchWithFallback(retryCtx, dispatch.FailoverInputs{
 				Writer:                 o.contentSink,
 				Prelude:                preludeBuf,
 				InitialDecision:        o.cyberRetryTarget,

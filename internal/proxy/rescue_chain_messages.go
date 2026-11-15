@@ -32,7 +32,7 @@ type messagesRescue struct {
 	fastServed  *bool
 	crossFormat *bool
 
-	compactionHandoverOutcome handoverOutcome
+	compactionHandoverOutcome dispatch.HandoverOutcome
 
 	baselineModel             string
 	baselineViable            bool
@@ -206,13 +206,13 @@ func (m *messagesRescue) redoIfStoppedEarly(ctx context.Context) {
 				"withheld", m.earlyStop.Withheld())
 		}
 		if stopped && m.earlyStop.Withheld() && !preludeBuf.Committed() {
-			m.earlyStopRedone, m.proxyErr = s.redoEarlyStop(ctx, earlyStopRedo{
+			m.earlyStopRedone, m.proxyErr = s.redoEarlyStop(ctx, dispatch.EarlyStopRedo{
 				Gate:    m.earlyStop,
 				Prelude: preludeBuf,
 				Header:  m.contentSink.Header(),
 				Log:     log,
 				Target:  m.earlyStopTarget,
-				Build: func(target router.Decision) (dispatchAttempt, []catalog.ProviderBinding, string, effortResolution, context.Context, error) {
+				Build: func(target router.Decision) (dispatch.UpstreamAttempt, []catalog.ProviderBinding, string, dispatch.EffortResolution, context.Context, error) {
 					redoOpts, redoEffort := switchedAttemptOptions(ctx, opts, target, routeRes.EscalateEffort, s.resolveEffort)
 					redoCtx := m.credentials.ResolveCredentials(subscriptionStatePaidRescueContext(rescueCredentialContext(ctx, target.Provider), target.Model), target.Provider, target.Model, r.Header)
 					redoOpts.FastMode = fastModeForAttempt(redoCtx, target.Model, target.Provider)
@@ -220,8 +220,8 @@ func (m *messagesRescue) redoIfStoppedEarly(ctx context.Context) {
 					redoAttempt, buildErr := m.buildAttempt(target, redoOpts, redoMarker, redoCtx)
 					return redoAttempt, m.routing.ResolveBindingsForDispatch(redoCtx, target), redoMarker, redoEffort, redoCtx, buildErr
 				},
-				Dispatch: func(redoCtx context.Context, target router.Decision, redoBindings []catalog.ProviderBinding, redoAttempt dispatchAttempt) (int, error) {
-					return s.dispatchWithFallback(redoCtx, failoverInputs{
+				Dispatch: func(redoCtx context.Context, target router.Decision, redoBindings []catalog.ProviderBinding, redoAttempt dispatch.UpstreamAttempt) (int, error) {
+					return s.dispatchWithFallback(redoCtx, dispatch.FailoverInputs{
 						Writer:                 m.contentSink,
 						Prelude:                preludeBuf,
 						InitialDecision:        target,
@@ -233,7 +233,7 @@ func (m *messagesRescue) redoIfStoppedEarly(ctx context.Context) {
 						Origin:                 routeRes.rescueOrigin(),
 					})
 				},
-				Served: &earlyStopServed{
+				Served: &dispatch.EarlyStopServed{
 					Decision:   &m.decision,
 					Bindings:   &m.bindings,
 					Marker:     &m.marker,

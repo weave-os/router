@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -106,7 +107,7 @@ func (s *Service) subscriptionStateTargetBindings(ctx context.Context, target ro
 
 // withOpenRouterOverflowTarget rewrites a paid dispatch outside the
 // subscription-state lane onto OpenRouter.
-func (s *Service) withOpenRouterOverflowTarget(ctx context.Context, in failoverInputs) (context.Context, failoverInputs, error) {
+func (s *Service) withOpenRouterOverflowTarget(ctx context.Context, in dispatch.FailoverInputs) (context.Context, dispatch.FailoverInputs, error) {
 	target := openRouterOverflowTarget(ctx, in.InitialDecision)
 	bindings := s.openRouterOverflowBindings(ctx, target)
 	if len(bindings) == 0 {

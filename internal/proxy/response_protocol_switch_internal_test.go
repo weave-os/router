@@ -20,7 +20,7 @@ func TestResponseProtocolSwitchUsesActualAttemptProvider(t *testing.T) {
 			switcher := responseProtocolSwitch{writer: writer}
 			switcher.native(false)
 			called := false
-			build := switcher.wrapBuilder(func(router.Decision, translate.EmitOptions, string, context.Context) (dispatchAttempt, error) {
+			build := switcher.wrapBuilder(func(router.Decision, translate.EmitOptions, string, context.Context) (dispatch.UpstreamAttempt, error) {
 				return func(_ context.Context, _ router.Decision, _ dispatch.Upstream) error {
 					called = true
 					require.Equal(t, provider == providers.ProviderOpenAI, writer.Passthrough())
@@ -43,7 +43,7 @@ func TestResponseProtocolSwitchRejectsCommittedNativeOutputBeforeBuilding(t *tes
 	_, err := writer.Write([]byte(`data: {"type":"response.created","response":{"id":"resp_synthetic"}}` + "\n\n"))
 	require.NoError(t, err)
 	built := false
-	build := switcher.wrapBuilder(func(router.Decision, translate.EmitOptions, string, context.Context) (dispatchAttempt, error) {
+	build := switcher.wrapBuilder(func(router.Decision, translate.EmitOptions, string, context.Context) (dispatch.UpstreamAttempt, error) {
 		built = true
 		return nil, nil
 	})
@@ -93,7 +93,7 @@ func TestResponseProtocolSwitchEndpointFallbackUpdatesExistingBuilder(t *testing
 	writer := translate.NewResponsesWriter(httptest.NewRecorder(), "synthetic")
 	switcher := responseProtocolSwitch{writer: writer, nativeRequest: true, promotedToResponses: true}
 	switcher.native(false)
-	build := switcher.wrapBuilder(func(router.Decision, translate.EmitOptions, string, context.Context) (dispatchAttempt, error) {
+	build := switcher.wrapBuilder(func(router.Decision, translate.EmitOptions, string, context.Context) (dispatch.UpstreamAttempt, error) {
 		return func(context.Context, router.Decision, dispatch.Upstream) error {
 			require.Equal(t, surfaceChat, switcher.surface(providers.ProviderOpenAI, false))
 			return nil

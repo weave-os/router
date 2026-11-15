@@ -27,10 +27,6 @@ type preludeBuffer = dispatch.PreludeBuffer
 
 func newPreludeBuffer(w http.ResponseWriter) *preludeBuffer { return dispatch.NewPreludeBuffer(w) }
 
-type dispatchAttempt = dispatch.UpstreamAttempt
-
-type failoverInputs = dispatch.FailoverInputs
-
 // errDispatchWithoutPurpose rejects a walk no registered purpose authorizes:
 // every dispatch must resolve a plan before bytes reach a provider.
 var errDispatchWithoutPurpose = errors.New("dispatchWithFallback: no inference purpose")
@@ -41,7 +37,7 @@ var errDispatchWithoutPurpose = errors.New("dispatchWithFallback: no inference p
 // have reached the client. Returns the winning (or last-tried) index and
 // error. On final-attempt error it flushes the upstream's own envelope to w
 // instead of a generic 502.
-func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (winnerIdx int, err error) {
+func (s *Service) dispatchWithFallback(ctx context.Context, in dispatch.FailoverInputs) (winnerIdx int, err error) {
 	ctx = withClaudeEnterpriseTurn(ctx, in.InitialDecision)
 	ctx = s.withSubscriptionFundingAuthorization(ctx, in.SubscriptionStateHeaders)
 	if in.SubscriptionStateRequest != nil && subscriptionStateModelsEnabled(ctx) && in.BuildAlternative != nil {
@@ -320,7 +316,7 @@ func subscriptionAPIOnly(ctx context.Context) bool {
 	value, _ := ctx.Value(subscriptionAPIOnlyKey{}).(bool)
 	return value
 }
-func (s *Service) dispatchSubscriptionAlternatives(ctx context.Context, in failoverInputs) (int, error) {
+func (s *Service) dispatchSubscriptionAlternatives(ctx context.Context, in dispatch.FailoverInputs) (int, error) {
 	ctx, budget := withSubscriptionAdmissionBudget(ctx)
 	selected := in.InitialDecision
 	if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil {

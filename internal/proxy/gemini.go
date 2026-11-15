@@ -322,7 +322,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		}
 		return err
 	}
-	winnerIdx, proxyErr := s.dispatchWithFallback(ctx, failoverInputs{
+	winnerIdx, proxyErr := s.dispatchWithFallback(ctx, dispatch.FailoverInputs{
 		Writer:          contentSink,
 		Prelude:         preludeBuf,
 		InitialDecision: decision,

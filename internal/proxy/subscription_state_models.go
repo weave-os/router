@@ -9,6 +9,7 @@ import (
 	"slices"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -135,7 +136,7 @@ func readmitSessionStrikes(ctx context.Context, request *router.Request) bool {
 	return true
 }
 
-func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failoverInputs) (int, error) {
+func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in dispatch.FailoverInputs) (int, error) {
 	request := *in.SubscriptionStateRequest
 	// The paid-target check below authorizes before dispatchPlanned marks the turn.
 	ctx = withClientAppRefusalPaidFallback(ctx, in.InitialDecision)
@@ -345,7 +346,7 @@ func (s *Service) subscriptionStatePaidTargetRefusal(ctx context.Context, header
 	return nil
 }
 
-func (s *Service) dispatchSubscriptionStateTarget(ctx context.Context, in failoverInputs, target router.Decision, usesIncludedSubscription bool) (int, error) {
+func (s *Service) dispatchSubscriptionStateTarget(ctx context.Context, in dispatch.FailoverInputs, target router.Decision, usesIncludedSubscription bool) (int, error) {
 	ctx = s.resolveCredentials(clearCredentials(ctx), target.Provider, target.Model, in.SubscriptionStateHeaders)
 	resolvedTargetBindings := s.subscriptionStateTargetBindings(ctx, target)
 	if !usesIncludedSubscription && in.OnSubscriptionStatePaidTarget != nil {

@@ -291,7 +291,7 @@ type turnLoopResult struct {
 	// StripThinkingBlocks forces signature removal when switch history is unavailable.
 	StripThinkingBlocks bool
 	// Handover captures the summarize-or-trim step when the planner switched.
-	Handover handoverOutcome
+	Handover dispatch.HandoverOutcome
 	// SuggestionMode suppresses the routing-marker badge for requests carrying
 	// the x-weave-suggestion-mode header.
 	SuggestionMode bool
@@ -528,8 +528,6 @@ func hmmHistoryRole(role string) string {
 	}
 	return role + "_hmm_history"
 }
-
-type handoverOutcome = dispatch.HandoverOutcome
 
 // hasSubAgentOverride reports whether both sub-agent override fields are set;
 // a partial override is treated as unconfigured.

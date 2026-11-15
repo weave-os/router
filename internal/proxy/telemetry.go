@@ -602,7 +602,7 @@ func applyPlannerTelemetry(p *InsertTelemetryParams, res turnLoopResult) {
 // applyEffortTelemetry copies the dispatched effort resolution onto p. No-ops
 // when nothing resolved, so a target that expresses no effort leaves the
 // columns NULL instead of claiming an empty level was sent.
-func applyEffortTelemetry(p *InsertTelemetryParams, e effortResolution) {
+func applyEffortTelemetry(p *InsertTelemetryParams, e dispatch.EffortResolution) {
 	if p == nil || e.Source == "" {
 		return
 	}

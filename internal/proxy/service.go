@@ -3138,7 +3138,7 @@ func (s *Service) anthropicNativeAttempt(
 	notice translate.RouterNotice,
 	setExtractor func(*telemetry.UsageExtractor),
 	setStreamCost func(router.Decision, bool, func() bool),
-) dispatchAttempt {
+) dispatch.UpstreamAttempt {
 	return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 		requestCacheTTL1h := func() bool { return translate.AnthropicRequestCacheTTL1h(prep.Body) }
 		setStreamCost(d, false, requestCacheTTL1h)
@@ -3958,7 +3958,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// (flat message count, tool-call count shrinks). Either leaves the
 	// non-Anthropic model unaware of elided edits/decisions, so rewrite the
 	// envelope with a handover summary before dispatch.
-	var compactionHandoverOutcome handoverOutcome
+	var compactionHandoverOutcome dispatch.HandoverOutcome
 	// Detection runs pre-routing in runTurnLoop; routeRes.PrefixTrimmed carries
 	// the verdict. Skip if a model-switch handover already rewrote env this
 	// turn — a second rewrite would double-trim it. Also skip when the proactive
@@ -4227,7 +4227,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// buildAttempt dispatches by translation family so new OpenAI-compat
 	// providers route automatically; a closure so in-turn model failover can
 	// re-emit for a candidate in a different family.
-	buildAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatchAttempt, error) {
+	buildAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatch.UpstreamAttempt, error) {
 		targetNotice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, target.Model, targetMarker)
 		targetNotice = addRoutingFundingSource(fundingCtx, target.Provider, target.Model, targetNotice)
 		switch providers.FamilyFor(target.Provider) {
@@ -5276,7 +5276,7 @@ func isAuthoritativePinHoldMismatch(res turnLoopResult, served router.Decision) 
 	}
 }
 
-func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, decision router.Decision, effort effortResolution, finalProvider string, servedFast bool, estimatedInputTokens, inputTokens, outputTokens, cacheCreation, cacheRead int, usageMods catalog.UsageModifiers, routeMs, proxyMs int64, proxyErr error, response *policyOutcomeResponse) {
+func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, decision router.Decision, effort dispatch.EffortResolution, finalProvider string, servedFast bool, estimatedInputTokens, inputTokens, outputTokens, cacheCreation, cacheRead int, usageMods catalog.UsageModifiers, routeMs, proxyMs int64, proxyErr error, response *policyOutcomeResponse) {
 	routeDecision, routeMetadata, reporter, ok := s.policyOutcomeRoute(res, decision)
 	if !ok {
 		return
@@ -6728,7 +6728,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// Dispatch keys off the provider's translation family, not a hardcoded name
 	// list, so a new OpenAI-compat provider routes here as soon as it has a
 	// ProviderFamilies entry (see internal/providers/provider.go).
-	buildProviderAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatchAttempt, error) {
+	buildProviderAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatch.UpstreamAttempt, error) {
 		targetNotice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderCodex, target.Model, targetMarker)
 		targetNotice = addRoutingFundingSource(fundingCtx, target.Provider, target.Model, targetNotice)
 		if isResponses {

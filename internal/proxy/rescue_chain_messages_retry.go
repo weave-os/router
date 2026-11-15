@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/subscriptions"
@@ -85,7 +86,7 @@ func (m *messagesRescue) dispatchBaseline(ctx context.Context) context.Context {
 		*m.respSummary = translate.ResponseSummary{}
 		*m.reqStats = providers.RequestMutationStats{}
 		logUpstreamBody(log, routeRes.SessionKey, baselineDecision, feats, baselinePrep.Body)
-		m.winnerIdx, m.proxyErr = s.dispatchWithFallback(baselineCtx, failoverInputs{
+		m.winnerIdx, m.proxyErr = s.dispatchWithFallback(baselineCtx, dispatch.FailoverInputs{
 			Writer:          m.contentSink,
 			Prelude:         preludeBuf,
 			InitialDecision: baselineDecision,
@@ -166,7 +167,7 @@ func (m *messagesRescue) subscriptionRetry(ctx context.Context) {
 			logUpstreamBody(log, routeRes.SessionKey, m.decision, feats, subPrep.Body)
 			m.subscriptionFailoverAttempted = true
 			subscriptionErr := m.proxyErr
-			m.winnerIdx, m.proxyErr = s.dispatchWithFallback(subCtx, failoverInputs{
+			m.winnerIdx, m.proxyErr = s.dispatchWithFallback(subCtx, dispatch.FailoverInputs{
 				Writer:          m.contentSink,
 				Prelude:         preludeBuf,
 				InitialDecision: m.decision,

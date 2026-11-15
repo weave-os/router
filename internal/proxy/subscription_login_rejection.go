@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 )
@@ -62,7 +63,7 @@ func includedLaneVerdict(ctx context.Context, includedFailure error, ownLoginRej
 
 // flushIncludedLaneVerdict renders a login rejection the way dispatch renders
 // an exhausted attempt; the ingress handler renders pool errors itself.
-func flushIncludedLaneVerdict(in failoverInputs, err error) error {
+func flushIncludedLaneVerdict(in dispatch.FailoverInputs, err error) error {
 	if !isSubscriptionPoolError(err) && in.FlushErr != nil && !in.DeferFlushOnExhaustion {
 		in.FlushErr(in.Writer, err)
 	}
