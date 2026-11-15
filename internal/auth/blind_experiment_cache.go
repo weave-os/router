@@ -7,7 +7,6 @@ import (
 	"github.com/hashicorp/golang-lru/v2/expirable"
 )
 
-// BlindExperimentCache caches active and inactive per-user experiment states.
 type BlindExperimentCache interface {
 	Enabled() bool
 	GetAtGeneration(installationID, routerUserID string, generation uint64) (BlindExperimentState, bool)
@@ -17,7 +16,6 @@ type BlindExperimentCache interface {
 	InvalidateInstallation(installationID string)
 }
 
-// NoOpBlindExperimentCache disables experiment caching.
 type NoOpBlindExperimentCache struct{}
 
 func (NoOpBlindExperimentCache) Enabled() bool { return false }
@@ -43,8 +41,6 @@ type blindExperimentErrorEntry struct {
 	generation     uint64
 }
 
-// LRUBlindExperimentCache is keyed by router user and secondarily indexed by
-// installation so Pub/Sub invalidation can evict a whole organization's cohort.
 type LRUBlindExperimentCache struct {
 	mu                      sync.Mutex
 	entries                 *expirable.LRU[string, blindExperimentCacheEntry]
@@ -58,7 +54,6 @@ type LRUBlindExperimentCache struct {
 	installationGenerations map[string]uint64
 }
 
-// NewLRUBlindExperimentCache constructs the per-user experiment cache.
 func NewLRUBlindExperimentCache(size int, ttl time.Duration, now Clock) *LRUBlindExperimentCache {
 	errorTTL := ttl
 	if errorTTL <= 0 || errorTTL > 10*time.Second {
@@ -83,8 +78,6 @@ func NewLRUBlindExperimentCache(size int, ttl time.Duration, now Clock) *LRUBlin
 
 func (*LRUBlindExperimentCache) Enabled() bool { return true }
 
-// GetAtGeneration reads the LRUs before the index mutex because expirable LRU
-// eviction callbacks run while holding the LRU's mutex.
 func (cache *LRUBlindExperimentCache) GetAtGeneration(installationID, routerUserID string, generation uint64) (BlindExperimentState, bool) {
 	entry, found := cache.entries.Get(routerUserID)
 	if found && entry.installationID == installationID && entry.generation == generation && cache.assignmentIsCurrent(installationID, routerUserID, generation) {
@@ -95,22 +88,16 @@ func (cache *LRUBlindExperimentCache) GetAtGeneration(installationID, routerUser
 		if cache.now().Before(errorEntry.expiresAt) {
 			return BlindExperimentState{}, true
 		}
-		// The injected clock can expire an entry before the LRU's wall-clock
-		// timer. A miss is enough to trigger a retry; the next Set or
-		// invalidation removes the stale index safely.
 	}
 	return BlindExperimentState{}, false
 }
 
-// InstallationGeneration returns the invalidation generation for one installation.
 func (cache *LRUBlindExperimentCache) InstallationGeneration(installationID string) uint64 {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	return cache.installationGenerations[installationID]
 }
 
-// SetAtGeneration publishes an assignment only if its installation has not
-// been invalidated since the caller began loading it.
 func (cache *LRUBlindExperimentCache) SetAtGeneration(installationID, routerUserID string, state BlindExperimentState, generation uint64) bool {
 	if installationID == "" || routerUserID == "" {
 		return false
@@ -149,8 +136,6 @@ func (cache *LRUBlindExperimentCache) SetAtGeneration(installationID, routerUser
 	return true
 }
 
-// SetErrorAtGeneration caches a failed assignment read in a separate
-// short-lived LRU so outages cannot evict valid assignments.
 func (cache *LRUBlindExperimentCache) SetErrorAtGeneration(installationID, routerUserID string, generation uint64) bool {
 	if installationID == "" || routerUserID == "" {
 		return false
@@ -215,7 +200,6 @@ func (cache *LRUBlindExperimentCache) removeErrorIfMatches(installationID, route
 	}
 }
 
-// InvalidateInstallation evicts every experiment state for an installation.
 func (cache *LRUBlindExperimentCache) InvalidateInstallation(installationID string) {
 	if installationID == "" {
 		return

@@ -10,10 +10,6 @@
       "banned_lines": 303
     },
     {
-      "package": "internal/auth",
-      "banned_lines": 883
-    },
-    {
       "package": "internal/billing",
       "banned_lines": 294
     },
