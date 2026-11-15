@@ -2017,99 +2017,10 @@ func (s *Service) runTurnLoop(
 					return res, nil
 				}
 			}
-			// Upgrade-confidence guard: authoritative selection bypasses the HMM
-			// cost gate, but the escalation floor still applies. A scored fresh
-			// decision that costs more than the pinned model only wins at
-			// confidence >= threshold; below it the session stays on its pin.
-			// Unscored decisions, downgrades, and unpinned turns pass through.
 			evidenceServedFresh := s.evidenceUpgradeApplies(ctx, res.SessionKey) && res.UpgradeShadow != nil && res.UpgradeShadow.Verdict.Outcome == upgradeAllow
-			upgradeGateActive := s.ResolveAuthoritativeUpgradeGate(ctx) && s.resolveUpgradePolicyMode(ctx) != flags.AuthoritativeUpgradePolicyOff && !evidenceServedFresh && !slidingServed
-			if upgradeGateActive && pinFound && pin.Model != "" && pin.Model != fresh.Model &&
-				hmmFreshIsMoreExpensive(pin.Model, fresh.Model, plannerTokens) {
-				if confidence, ok := routingpolicy.HMMDecisionConfidence(fresh); ok && confidence < s.hmmUpgradeConfidenceThreshold {
-					decision := pinDecision(pin)
-					res.Decision = decision
-					res.StickyHit = true
-					res.PinTier = string(pinTierAuthoritativeUpgradeConfidenceLow)
-					log.Info("turnloop suppressed low-confidence authoritative upgrade; keeping session pin",
-						"pin_model", pin.Model,
-						"pin_provider", pin.Provider,
-						"fresh_model", fresh.Model,
-						"fresh_provider", fresh.Provider,
-						"confidence", confidence,
-						"threshold", s.hmmUpgradeConfidenceThreshold,
-					)
-					sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
-					return res, nil
-				}
-			}
-			// Downgrade guards: the mirror image of the floor above, both off by
-			// default. Order matters -- an unconfident cheaper vote is discarded
-			// before hysteresis sees it, so noise cannot accumulate into a switch.
-			if pinFound && pin.Model != "" && pin.Model != fresh.Model &&
-				!hmmFreshIsMoreExpensive(pin.Model, fresh.Model, plannerTokens) {
-				hysteresisTurns := s.ResolveHMMDowngradeHysteresisTurns(ctx)
-				confidence, scored := routingpolicy.HMMDecisionConfidence(fresh)
-				if s.ResolveAuthoritativeDowngradeGate(ctx) && scored && confidence < s.hmmUpgradeConfidenceThreshold {
-					decision := pinDecision(pin)
-					res.Decision = decision
-					res.StickyHit = true
-					res.PinTier = string(pinTierAuthoritativeDowngradeConfidenceLow)
-					log.Info("turnloop suppressed low-confidence authoritative downgrade; keeping session pin",
-						"pin_model", pin.Model,
-						"pin_provider", pin.Provider,
-						"fresh_model", fresh.Model,
-						"fresh_provider", fresh.Provider,
-						"confidence", confidence,
-						"threshold", s.hmmUpgradeConfidenceThreshold,
-						"downgrade_votes", pin.ConsecutiveDowngradeVotes,
-						"hysteresis_turns", hysteresisTurns,
-					)
-					sessionPins.RefreshDowngradeVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, pin.ConsecutiveDowngradeVotes)
-					return res, nil
-				}
-				votes := pin.ConsecutiveDowngradeVotes + 1
-				if hysteresisTurns > 0 && votes < hysteresisTurns {
-					decision := pinDecision(pin)
-					res.Decision = decision
-					res.StickyHit = true
-					res.PinTier = string(pinTierAuthoritativeDowngradeHysteresis)
-					log.Info("turnloop held authoritative downgrade below the hysteresis threshold; keeping session pin",
-						"pin_model", pin.Model,
-						"pin_provider", pin.Provider,
-						"fresh_model", fresh.Model,
-						"fresh_provider", fresh.Provider,
-						"confidence", confidence,
-						"threshold", s.hmmUpgradeConfidenceThreshold,
-						"downgrade_votes", votes,
-						"hysteresis_turns", hysteresisTurns,
-					)
-					sessionPins.RefreshDowngradeVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, votes)
-					return res, nil
-				}
-				// The downgrade is served. Shadow what the guards would have done at
-				// the shadow threshold so a rollout can be sized before either lever
-				// is turned on.
-				shadowTurns := s.ResolveHMMDowngradeHysteresisShadowTurns(ctx)
-				res.DowngradeShadow = downgradeGuardShadow{
-					Served:              true,
-					Votes:               votes,
-					HysteresisWouldHold: shadowTurns > 0 && votes < shadowTurns,
-					ConfidenceWouldHold: scored && confidence < s.hmmUpgradeConfidenceThreshold,
-				}
-				log.Info("turnloop served authoritative downgrade",
-					"pin_model", pin.Model,
-					"pin_provider", pin.Provider,
-					"fresh_model", fresh.Model,
-					"fresh_provider", fresh.Provider,
-					"confidence", confidence,
-					"threshold", s.hmmUpgradeConfidenceThreshold,
-					"downgrade_votes", votes,
-					"hysteresis_turns", hysteresisTurns,
-					"shadow_hysteresis_turns", shadowTurns,
-					"shadow_hysteresis_would_hold", res.DowngradeShadow.HysteresisWouldHold,
-					"shadow_confidence_would_hold", res.DowngradeShadow.ConfidenceWouldHold,
-				)
+			verdict := authoritativeGuardsFor(ctx, s, evidenceServedFresh, slidingServed).Judge(pin, pinFound, fresh, plannerTokens)
+			if holdAuthoritativePin(ctx, sessionPins, installationID, &res, pin, fresh, verdict) {
+				return res, nil
 			}
 			res.Decision = fresh
 			res.PinTier = "authoritative_per_turn"

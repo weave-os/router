@@ -13,6 +13,9 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
+
+	"github.com/google/uuid"
 )
 
 // AuthoritativeUpgradeConfig holds evidence-policy calibration. Nil margin and
@@ -261,4 +264,74 @@ func logAuthoritativeUpgrade(ctx context.Context, res turnLoopResult) {
 		wouldDiverge = &diverges
 	}
 	observability.FromContext(ctx).Info("authoritative upgrade evidence", "installation_id", res.InstallationID.String(), "role", res.PinRole, "mode", decision.Mode, "applied", decision.Applied, "holdout_control", decision.HoldoutControl, "turn_type", res.TurnType, "fresh_model", res.Fresh.Model, "fresh_provider", res.Fresh.Provider, "fresh_score", decision.FreshScore, "pin_model", decision.PinModel, "pin_provider", decision.PinProvider, "fresh_group", decision.Evidence.FreshGroup, "pin_group", decision.Evidence.PinGroup, "margin", decision.Evidence.Margin, "margin_threshold", decision.MarginThreshold, "requested_tier", decision.RequestedTier.String(), "pin_tier", decision.PinTier.String(), "explicit_requested_group", decision.Evidence.RequestedGroup, "cache_cold", decision.Evidence.CacheCold, "prefix_broken", decision.Evidence.PrefixBroken, "pin_age_sec", decision.PinAgeSec, "stale_pin_after_sec", decision.StalePinAfterSec, "vote_count", decision.Evidence.VoteCount, "required_votes", decision.Evidence.RequiredVotes, "demoted", decision.Evidence.Demoted, "fresh_eligible", decision.Evidence.FreshEligible, "outcome", decision.Verdict.Outcome, "reason", decision.Verdict.Reason, "served_model", res.Decision.Model, "pin_tier_path", res.PinTier, "would_diverge", wouldDiverge)
+}
+
+func authoritativeGuardsFor(ctx context.Context, s *Service, evidenceServedFresh, slidingServed bool) routingpolicy.AuthoritativeGuards {
+	return routingpolicy.AuthoritativeGuards{
+		ConfidenceThreshold:   s.hmmUpgradeConfidenceThreshold,
+		UpgradeGate:           s.ResolveAuthoritativeUpgradeGate(ctx) && s.resolveUpgradePolicyMode(ctx) != flags.AuthoritativeUpgradePolicyOff && !evidenceServedFresh && !slidingServed,
+		DowngradeGate:         s.ResolveAuthoritativeDowngradeGate(ctx),
+		HysteresisTurns:       s.ResolveHMMDowngradeHysteresisTurns(ctx),
+		ShadowHysteresisTurns: s.ResolveHMMDowngradeHysteresisShadowTurns(ctx),
+	}
+}
+
+// holdAuthoritativePin keeps pin when verdict held the authoritative pick and
+// reports whether it did. A served downgrade records its guard shadow so a
+// rollout can be sized before either lever is turned on.
+func holdAuthoritativePin(
+	ctx context.Context,
+	sessionPins routingpolicy.SessionPins,
+	installationID uuid.UUID,
+	res *turnLoopResult,
+	pin sessionpin.Pin,
+	fresh router.Decision,
+	verdict routingpolicy.AuthoritativeVerdict,
+) bool {
+	log := observability.FromContext(ctx)
+	fields := []any{
+		"pin_model", pin.Model,
+		"pin_provider", pin.Provider,
+		"fresh_model", fresh.Model,
+		"fresh_provider", fresh.Provider,
+		"confidence", verdict.Confidence,
+		"threshold", verdict.Threshold,
+	}
+	if verdict.Downgrade {
+		fields = append(fields, "downgrade_votes", verdict.DowngradeVotes, "hysteresis_turns", verdict.HysteresisTurns)
+	}
+	if verdict.Hold == routingpolicy.AuthoritativeServe {
+		if verdict.Downgrade {
+			res.DowngradeShadow = downgradeGuardShadow{
+				Served:              true,
+				Votes:               verdict.DowngradeVotes,
+				HysteresisWouldHold: verdict.HysteresisWouldHold,
+				ConfidenceWouldHold: verdict.ConfidenceWouldHold,
+			}
+			log.Info("turnloop served authoritative downgrade", append(fields,
+				"shadow_hysteresis_turns", verdict.ShadowHysteresisTurns,
+				"shadow_hysteresis_would_hold", verdict.HysteresisWouldHold,
+				"shadow_confidence_would_hold", verdict.ConfidenceWouldHold,
+			)...)
+		}
+		return false
+	}
+	decision := pinDecision(pin)
+	res.Decision = decision
+	res.StickyHit = true
+	switch verdict.Hold {
+	case routingpolicy.AuthoritativeHoldUpgradeConfidenceLow:
+		res.PinTier = string(pinTierAuthoritativeUpgradeConfidenceLow)
+		log.Info("turnloop suppressed low-confidence authoritative upgrade; keeping session pin", fields...)
+		sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
+	case routingpolicy.AuthoritativeHoldDowngradeConfidenceLow:
+		res.PinTier = string(pinTierAuthoritativeDowngradeConfidenceLow)
+		log.Info("turnloop suppressed low-confidence authoritative downgrade; keeping session pin", fields...)
+		sessionPins.RefreshDowngradeVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, verdict.DowngradeVotes)
+	default:
+		res.PinTier = string(pinTierAuthoritativeDowngradeHysteresis)
+		log.Info("turnloop held authoritative downgrade below the hysteresis threshold; keeping session pin", fields...)
+		sessionPins.RefreshDowngradeVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, verdict.DowngradeVotes)
+	}
+	return true
 }
