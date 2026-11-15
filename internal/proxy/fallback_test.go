@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"testing"
 	"time"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 
 	"github.com/stretchr/testify/assert"
@@ -886,7 +887,7 @@ func TestShouldFailover(t *testing.T) {
 		assert.True(t, s.shouldFailover(context.Background()))
 	})
 	t.Run("BYOK-only deployment skips failover", func(t *testing.T) {
-		s := &Service{byokOnly: true}
+		s := &Service{credentials: credentials.Brokerage{BYOKOnly: true}}
 		assert.False(t, s.shouldFailover(context.Background()))
 	})
 	t.Run("inbound credentials in context skip failover", func(t *testing.T) {
@@ -929,14 +930,14 @@ func TestResolveBindingsForDispatch(t *testing.T) {
 		assert.Equal(t, "fireworks", bs[0].Provider)
 	})
 	t.Run("multi-binding model with both keys returns ordered list", func(t *testing.T) {
-		s := &Service{deploymentKeyedProviders: map[string]struct{}{"fireworks": {}, "openrouter": {}}}
+		s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{"fireworks": {}, "openrouter": {}}}}
 		bs := s.resolveBindingsForDispatch(context.Background(), router.Decision{Model: "deepseek/deepseek-v4-pro", Provider: "fireworks"})
 		require.GreaterOrEqual(t, len(bs), 2, "deepseek/deepseek-v4-pro must have at least 2 bindings in catalog")
 		assert.Equal(t, "fireworks", bs[0].Provider, "catalog order: fireworks primary")
 		assert.Equal(t, "openrouter", bs[1].Provider, "catalog order: openrouter fallback")
 	})
 	t.Run("selected temporal arm is first dispatch attempt", func(t *testing.T) {
-		s := &Service{deploymentKeyedProviders: map[string]struct{}{"fireworks": {}, "openrouter": {}}}
+		s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{"fireworks": {}, "openrouter": {}}}}
 		bs := s.resolveBindingsForDispatch(context.Background(), router.Decision{
 			Model:    "deepseek/deepseek-v4-pro",
 			Provider: "openrouter",
@@ -951,13 +952,13 @@ func TestResolveBindingsForDispatch(t *testing.T) {
 		assert.Equal(t, "fireworks", bs[1].Provider)
 	})
 	t.Run("single-binding Anthropic model returns one binding even with multiple keys wired", func(t *testing.T) {
-		s := &Service{deploymentKeyedProviders: map[string]struct{}{"anthropic": {}, "openrouter": {}}}
+		s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{"anthropic": {}, "openrouter": {}}}}
 		bs := s.resolveBindingsForDispatch(context.Background(), router.Decision{Model: "claude-opus-4-7", Provider: "anthropic"})
 		require.Len(t, bs, 1)
 		assert.Equal(t, "anthropic", bs[0].Provider)
 	})
 	t.Run("excluded provider cannot be resurrected as a fallback binding", func(t *testing.T) {
-		s := &Service{deploymentKeyedProviders: map[string]struct{}{"fireworks": {}, "openrouter": {}}}
+		s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{"fireworks": {}, "openrouter": {}}}}
 		ctx := context.WithValue(context.Background(), InstallationExcludedProvidersContextKey{}, []string{"openrouter"})
 		bs := s.resolveBindingsForDispatch(ctx, router.Decision{Model: "deepseek/deepseek-v4-pro", Provider: "fireworks"})
 		require.Len(t, bs, 1, "openrouter fallback binding must be filtered out by the provider exclusion")
@@ -966,14 +967,14 @@ func TestResolveBindingsForDispatch(t *testing.T) {
 	t.Run("all bindings excluded with excluded primary returns empty walk", func(t *testing.T) {
 		// If exclusion filters out every binding, the walk must be empty so
 		// dispatch 502s instead of serving a forbidden provider.
-		s := &Service{deploymentKeyedProviders: map[string]struct{}{"fireworks": {}, "openrouter": {}}}
+		s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{"fireworks": {}, "openrouter": {}}}}
 		ctx := context.WithValue(context.Background(), InstallationExcludedProvidersContextKey{}, []string{"fireworks", "openrouter"})
 		bs := s.resolveBindingsForDispatch(ctx, router.Decision{Model: "deepseek/deepseek-v4-pro", Provider: "fireworks"})
 		assert.Empty(t, bs, "no eligible binding may remain when the primary itself is excluded")
 	})
 	t.Run("catalog-miss model keeps legacy single-attempt primary", func(t *testing.T) {
 		// Catalog-miss model keeps the legacy [primary] walk when primary isn't excluded.
-		s := &Service{deploymentKeyedProviders: map[string]struct{}{"anthropic": {}}}
+		s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{"anthropic": {}}}}
 		ctx := context.WithValue(context.Background(), InstallationExcludedProvidersContextKey{}, []string{"openrouter"})
 		bs := s.resolveBindingsForDispatch(ctx, router.Decision{Model: "not-in-catalog", Provider: "anthropic"})
 		require.Len(t, bs, 1)
@@ -982,7 +983,7 @@ func TestResolveBindingsForDispatch(t *testing.T) {
 	t.Run("excluded primary is never re-added as the first attempt", func(t *testing.T) {
 		// Defense in depth: routing already filters excluded providers, so this
 		// would be an upstream bug — dispatch must not re-prepend the excluded primary.
-		s := &Service{deploymentKeyedProviders: map[string]struct{}{"fireworks": {}, "openrouter": {}}}
+		s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{"fireworks": {}, "openrouter": {}}}}
 		ctx := context.WithValue(context.Background(), InstallationExcludedProvidersContextKey{}, []string{"fireworks"})
 		bs := s.resolveBindingsForDispatch(ctx, router.Decision{Model: "deepseek/deepseek-v4-pro", Provider: "fireworks"})
 		require.NotEmpty(t, bs)
@@ -1185,14 +1186,14 @@ type fakeFlushTracker struct {
 func (f *fakeFlushTracker) Flush() { f.onFlush() }
 
 func TestResolveBindingsForDispatch_LinkedSubscriptionWithoutAPIKey(t *testing.T) {
-	svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: &fakeClient{}}), deploymentKeyedProviders: map[string]struct{}{}}
+	svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: &fakeClient{}}), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{}}}
 	ctx := managedSubscriptionContext(auth.SubscriptionProviderCodex)
 	decision := router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-6.1-sol", Reason: translate.ReasonUserForceModel}
 	t.Run("linked Codex supplies the forced model binding", func(t *testing.T) {
 		bindings := svc.resolveBindingsForDispatch(ctx, decision)
 		require.Len(t, bindings, 1)
 		assert.Equal(t, providers.ProviderOpenAI, bindings[0].Provider)
-		assert.Empty(t, svc.deploymentKeyedProviders, "linked request must not change deployment credentials")
+		assert.Empty(t, svc.credentials.KeyedProviders, "linked request must not change deployment credentials")
 	})
 	t.Run("provider exclusions still refuse the binding", func(t *testing.T) {
 		excluded := context.WithValue(ctx, InstallationExcludedProvidersContextKey{}, []string{providers.ProviderOpenAI})
@@ -1203,13 +1204,13 @@ func TestResolveBindingsForDispatch_LinkedSubscriptionWithoutAPIKey(t *testing.T
 		assert.Empty(t, svc.resolveBindingsForDispatch(paid, decision))
 	})
 	t.Run("unsupported transport cannot use linked binding", func(t *testing.T) {
-		unsupported := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: nil}), deploymentKeyedProviders: map[string]struct{}{}}
+		unsupported := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: nil}), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{}}}
 		assert.Empty(t, unsupported.resolveBindingsForDispatch(ctx, decision))
 	})
 }
 
 func TestResolveBindingsForDispatch_LinkedSubscriptionPreservesFundedBindings(t *testing.T) {
-	svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeClient{}}), deploymentKeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderAnthropicGateway: {}}}
+	svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeClient{}}), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderAnthropicGateway: {}}}}
 	decision := router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-5"}
 	before := svc.resolveBindingsForDispatch(context.Background(), decision)
 	require.Len(t, before, 2)

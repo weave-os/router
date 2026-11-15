@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 	"time"
+	"weave-os/router/internal/credentials"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -296,9 +297,9 @@ func TestPickedModelFundsOnCallersOwnPlan(t *testing.T) {
 
 func TestPickedModelKeepsSpentPlanAndRefusesMeteredRescue(t *testing.T) {
 	svc := &Service{
-		usageObserver:            observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()),
-		deploymentKeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
-		now:                      func() time.Time { return time.Unix(1_000_000, 0) },
+		usageObserver: observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()),
+		credentials:   credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}},
+		now:           func() time.Time { return time.Unix(1_000_000, 0) },
 	}
 	routed := withClaudeCreditFallback(context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, exhaustedSubToken))
 	picked := withPickedModelFunding(auth.WithClientModelPassthrough(routed), true, providers.ProviderAnthropic)

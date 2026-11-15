@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"weave-os/router/internal/credentials"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -282,7 +283,7 @@ func TestSubscriptionSiblingAllowed(t *testing.T) {
 		assert.False(t, s.subscriptionSiblingAllowed(ctx))
 	})
 	t.Run("BYOK-only deployment never rescues", func(t *testing.T) {
-		s := &Service{byokOnly: true}
+		s := &Service{credentials: credentials.Brokerage{BYOKOnly: true}}
 		ctx := context.WithValue(context.Background(), CredentialsContextKey{}, oauth)
 		assert.False(t, s.subscriptionSiblingAllowed(ctx))
 	})

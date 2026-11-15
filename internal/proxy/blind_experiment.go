@@ -263,7 +263,7 @@ func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router
 
 	availableProviders := req.EnabledProviders
 	if availableProviders == nil {
-		availableProviders = s.deploymentKeyedProviders
+		availableProviders = s.credentials.KeyedProviders
 	}
 	if availableProviders == nil {
 		if model.PrimaryProvider() == "" {
