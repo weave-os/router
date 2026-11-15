@@ -444,14 +444,14 @@ func goldenReflect(v reflect.Value) (any, bool) {
 	if !v.IsValid() {
 		return nil, false
 	}
-	switch v.Interface().(type) {
+	switch value := v.Interface().(type) {
 	case time.Time, time.Duration:
 		return nil, false
 	case error:
 		if v.Kind() == reflect.Pointer && v.IsNil() {
 			return nil, false
 		}
-		return v.Interface().(error).Error(), true
+		return value.Error(), true
 	}
 	switch v.Kind() {
 	case reflect.Pointer, reflect.Interface:

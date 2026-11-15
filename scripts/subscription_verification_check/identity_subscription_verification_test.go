@@ -3,11 +3,6 @@ package subscription_verification_check_test
 import (
 	"context"
 	"encoding/json"
-	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -23,6 +18,12 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions"
+
+	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/require"
 )
 
 func TestVerificationSQLUnsignedEmailCannotClaimPersonalServing(t *testing.T) {
@@ -94,7 +95,7 @@ func TestVerificationSQLUnsignedEmailCannotClaimPersonalServing(t *testing.T) {
 		body, _ := io.ReadAll(c.Request.Body)
 		resolvedOwners = append(resolvedOwners, middleware.SubscriptionOwnerFrom(c))
 		proxyErrors = append(proxyErrors, svc.ProxyOpenAIChatCompletion(c.Request.Context(), body, c.Writer, c.Request))
-		winners = append(winners, c.Request.Context().Value(proxy.ManagedSubscriptionUsageContextKey{}).(*proxy.ManagedSubscriptionUsage))
+		winners = append(winners, mustAs[*proxy.ManagedSubscriptionUsage](t, c.Request.Context().Value(proxy.ManagedSubscriptionUsageContextKey{})))
 	})
 	actualIngress := httptest.NewServer(engine)
 	defer actualIngress.Close()

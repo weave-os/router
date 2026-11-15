@@ -4,8 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/proxy/usage"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestSubscriptionCandidateSignalUsesNextExpiryAndBindingUtilization(t *testing.T) {
@@ -17,7 +18,7 @@ func TestSubscriptionCandidateSignalUsesNextExpiryAndBindingUtilization(t *testi
 	}, now)
 
 	require.True(t, signal.Observed)
-	require.Equal(t, 0.8, signal.UsedFraction)
+	require.InDelta(t, 0.8, signal.UsedFraction, 1e-9)
 	require.Equal(t, now.Add(5*time.Minute), signal.ResetAt)
 }
 
@@ -31,7 +32,7 @@ func TestSubscriptionCandidateSignalUsesEarlierResetWhenUtilizationTies(t *testi
 	}, now)
 
 	require.True(t, signal.Observed)
-	require.Equal(t, 0.7, signal.UsedFraction)
+	require.InDelta(t, 0.7, signal.UsedFraction, 1e-9)
 	require.Equal(t, earlierReset, signal.ResetAt)
 }
 
@@ -55,7 +56,7 @@ func TestSubscriptionCandidateSignalUsesUnifiedResetForBillableObservation(t *te
 
 	require.True(t, signal.Observed)
 	require.True(t, signal.Billable)
-	require.Equal(t, 1.0, signal.UsedFraction)
+	require.InDelta(t, 1.0, signal.UsedFraction, 1e-9)
 	require.Equal(t, unifiedReset, signal.ResetAt)
 }
 
@@ -71,7 +72,7 @@ func TestSubscriptionCandidateSignalIgnoresExpiredWindow(t *testing.T) {
 	signal := subscriptionCandidateSignal(usage.Snapshot{ObservedAt: now, Primary: usage.Window{UsedPercent: 1, WindowMinutes: 300, ResetAt: now.Add(-time.Minute)}, Secondary: usage.Window{UsedPercent: .4, WindowMinutes: 10080, ResetAt: resetAt}}, now)
 	require.True(t, signal.Observed)
 	require.False(t, signal.Exhausted)
-	require.Equal(t, .4, signal.UsedFraction)
+	require.InDelta(t, .4, signal.UsedFraction, 1e-9)
 	require.Equal(t, resetAt, signal.ResetAt)
 	require.Equal(t, now, signal.ObservedAt)
 }
@@ -81,5 +82,5 @@ func TestSubscriptionCandidateSignalInfersExpiryFromWindowObservation(t *testing
 	primaryObserved := now.Add(-4 * time.Hour)
 	signal := subscriptionCandidateSignal(usage.Snapshot{ObservedAt: now, Primary: usage.Window{UsedPercent: .2, WindowMinutes: 300, ObservedAt: primaryObserved}, Secondary: usage.Window{UsedPercent: .8, WindowMinutes: 10080}}, now)
 	require.Equal(t, now.Add(time.Hour), signal.ResetAt)
-	require.Equal(t, .8, signal.UsedFraction)
+	require.InDelta(t, .8, signal.UsedFraction, 1e-9)
 }

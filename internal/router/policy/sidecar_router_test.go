@@ -66,8 +66,8 @@ func TestSidecarRouterReportsImageLimitWhenNoBindingCanServe(t *testing.T) {
 		ImageCount:       17,
 	})
 	require.Error(t, err)
-	assert.ErrorIs(t, err, policy.ErrImageLimitExceeded)
-	assert.ErrorIs(t, err, policy.ErrNoRoutableModels)
+	require.ErrorIs(t, err, policy.ErrImageLimitExceeded)
+	require.ErrorIs(t, err, policy.ErrNoRoutableModels)
 
 	prefiltered := router.Request{
 		EnabledProviders:         set(providers.ProviderDeepInfra),
@@ -84,7 +84,7 @@ func TestSidecarRouterReportsImageLimitWhenNoBindingCanServe(t *testing.T) {
 	})
 	_, err = adapter.Route(context.Background(), prefiltered)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, policy.ErrImageLimitExceeded)
+	require.ErrorIs(t, err, policy.ErrImageLimitExceeded)
 	assert.ErrorIs(t, err, policy.ErrNoRoutableModels)
 }
 

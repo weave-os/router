@@ -93,10 +93,10 @@ func managedSubscriptionContext(provider auth.SubscriptionProvider) context.Cont
 	return withClaudeCreditFallback(WithManagedSubscriptionUsage(ctx))
 }
 
-func exhaustedManagedSubscriptionContext(provider auth.SubscriptionProvider) context.Context {
+func exhaustedManagedSubscriptionContext() context.Context {
 	resetAt := time.Now().Add(time.Hour)
-	return WithManagedSubscriptionCandidates(managedSubscriptionContext(provider), []*auth.SubscriptionAccount{{
-		ID: "exhausted-account", Provider: provider, Enabled: true,
+	return WithManagedSubscriptionCandidates(managedSubscriptionContext(auth.SubscriptionProviderClaude), []*auth.SubscriptionAccount{{
+		ID: "exhausted-account", Provider: auth.SubscriptionProviderClaude, Enabled: true,
 		State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &resetAt,
 	}})
 }
@@ -337,7 +337,7 @@ func TestManagedSubscriptionAllPlansExhaustedPreservesSubscriptionOnly(t *testin
 	leaser := &scriptedSubscriptionLeaser{}
 	svc := newServiceWithProviders(t, nil).
 		WithManagedSubscriptions(leaser)
-	ctx := billing.WithSubscriptionOnly(exhaustedManagedSubscriptionContext(auth.SubscriptionProviderClaude), billing.SubscriptionOnlyCreditsDepleted)
+	ctx := billing.WithSubscriptionOnly(exhaustedManagedSubscriptionContext(), billing.SubscriptionOnlyCreditsDepleted)
 	ctx = flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionPlanAwareRouting: true, flags.KeyClaudeEnterpriseOnly: false}})
 
 	out, _, managed, err := svc.leaseManagedSubscription(
@@ -358,7 +358,7 @@ func TestLeaseManagedSubscription_LinkedFirstExhaustedPool_FallsThroughToCredits
 		WithManagedSubscriptions(leaser).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 	ctx := flags.WithOverrides(
-		billing.WithSubscriptionOnly(exhaustedManagedSubscriptionContext(auth.SubscriptionProviderClaude), billing.SubscriptionOnlyLinkedFirst),
+		billing.WithSubscriptionOnly(exhaustedManagedSubscriptionContext(), billing.SubscriptionOnlyLinkedFirst),
 		flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionPlanAwareRouting: true, flags.KeyClaudeEnterpriseOnly: false}},
 	)
 
@@ -372,7 +372,7 @@ func TestLeaseManagedSubscription_LinkedFirstExhaustedPool_NoFallbackKey_Refuses
 	leaser := &scriptedSubscriptionLeaser{}
 	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
 	ctx := flags.WithOverrides(
-		billing.WithSubscriptionOnly(exhaustedManagedSubscriptionContext(auth.SubscriptionProviderClaude), billing.SubscriptionOnlyLinkedFirst),
+		billing.WithSubscriptionOnly(exhaustedManagedSubscriptionContext(), billing.SubscriptionOnlyLinkedFirst),
 		flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionPlanAwareRouting: true, flags.KeyClaudeEnterpriseOnly: false}},
 	)
 
@@ -390,7 +390,7 @@ func TestLeaseManagedSubscription_CreditsDepletedExhaustedPool_StillRefuses(t *t
 		WithManagedSubscriptions(leaser).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 	ctx := flags.WithOverrides(
-		billing.WithSubscriptionOnly(exhaustedManagedSubscriptionContext(auth.SubscriptionProviderClaude), billing.SubscriptionOnlyCreditsDepleted),
+		billing.WithSubscriptionOnly(exhaustedManagedSubscriptionContext(), billing.SubscriptionOnlyCreditsDepleted),
 		flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionPlanAwareRouting: true, flags.KeyClaudeEnterpriseOnly: false}},
 	)
 

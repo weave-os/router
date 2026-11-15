@@ -9,14 +9,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/switchpolicy"
 	"weave-os/router/internal/sqlc"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func advanceShadowDatabaseFixture(ctx context.Context, store switchpolicy.ShadowStore, key switchpolicy.ShadowKey, event switchpolicy.ShadowObservation) (switchpolicy.ShadowOutcome, error) {

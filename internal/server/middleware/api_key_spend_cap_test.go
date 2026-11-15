@@ -95,14 +95,14 @@ func TestAPIKeySpendCap_NoKeyPassesThrough(t *testing.T) {
 // returning the recorder, the reached flag, and whether the request context was
 // flagged subscription-only. The gate keys off the api key but reads the
 // installation from context for the subscription exemption.
-func runSpendCapSub(t *testing.T, routePath, keyID string, setInstall func(*gin.Context), authHeader string, repo *stubBillingRepo) (*httptest.ResponseRecorder, bool, bool) {
+func runSpendCapSub(t *testing.T, keyID string, setInstall func(*gin.Context), authHeader string, repo *stubBillingRepo) (*httptest.ResponseRecorder, bool, bool) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	svc := billing.NewService(repo)
 	engine := gin.New()
 	reached := false
 	subOnly := false
-	engine.GET(routePath, func(c *gin.Context) {
+	engine.GET("/v1/messages", func(c *gin.Context) {
 		setInstall(c)
 		c.Set("router_api_key", &auth.APIKey{ID: keyID})
 		middleware.WithAPIKeySpendCap(svc)(c)
@@ -118,7 +118,7 @@ func runSpendCapSub(t *testing.T, routePath, keyID string, setInstall func(*gin.
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, routePath, nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/messages", nil)
 	if authHeader != "" {
 		req.Header.Set("Authorization", authHeader)
 	}
@@ -131,7 +131,7 @@ func TestAPIKeySpendCap_CapReachedCoveringSubscriptionServesSubscriptionOnly(t *
 	// pass through flagged subscription-only, not 402. The cap bounds paid spend.
 	repo := &stubBillingRepo{spendFound: true, capMicros: capPtr(1_000_000), spendMicros: 1_000_000}
 	setInstall := func(c *gin.Context) { withUsageBypassInstallation(c, "org_sub") }
-	w, reached, subOnly := runSpendCapSub(t, "/v1/messages", "k7", setInstall, "Bearer sk-ant-oat-abc123", repo)
+	w, reached, subOnly := runSpendCapSub(t, "k7", setInstall, "Bearer sk-ant-oat-abc123", repo)
 	assert.True(t, reached, "a covered turn must pass even when the cap is reached")
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.True(t, subOnly, "the request must be flagged subscription-only")
@@ -140,7 +140,7 @@ func TestAPIKeySpendCap_CapReachedCoveringSubscriptionServesSubscriptionOnly(t *
 func TestAPIKeySpendCap_CapReachedNoSubscriptionStillRejected(t *testing.T) {
 	repo := &stubBillingRepo{spendFound: true, capMicros: capPtr(1_000_000), spendMicros: 1_000_000}
 	setInstall := func(c *gin.Context) { withUsageBypassInstallation(c, "org_sub") }
-	w, reached, _ := runSpendCapSub(t, "/v1/messages", "k8", setInstall, "", repo)
+	w, reached, _ := runSpendCapSub(t, "k8", setInstall, "", repo)
 	assert.False(t, reached, "no subscription credential means the paid path is gated")
 	assert.Equal(t, http.StatusPaymentRequired, w.Code)
 }
@@ -150,7 +150,7 @@ func TestAPIKeySpendCap_CapReachedSubscriptionWithoutBypassServesSubscriptionOnl
 	// not on UsageBypassEnabled (matching WithBalanceCheck).
 	repo := &stubBillingRepo{spendFound: true, capMicros: capPtr(1_000_000), spendMicros: 1_000_000}
 	setInstall := func(c *gin.Context) { withInstallation(c, "org_prepaid") }
-	w, reached, subOnly := runSpendCapSub(t, "/v1/messages", "k9", setInstall, "Bearer sk-ant-oat-abc123", repo)
+	w, reached, subOnly := runSpendCapSub(t, "k9", setInstall, "Bearer sk-ant-oat-abc123", repo)
 	assert.True(t, reached, "a covered turn must pass even when the org lacks the usage-bypass toggle")
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.True(t, subOnly, "the request must be flagged subscription-only")
@@ -164,7 +164,7 @@ func TestAPIKeySpendCap_ExemptsSubscriberAllowanceCoveredRequest(t *testing.T) {
 		withInstallation(c, "org_subscriber")
 		stashSubscriberCoverage(c)
 	}
-	w, reached, _ := runSpendCapSub(t, "/v1/messages", "k7", setInstall, "", repo)
+	w, reached, _ := runSpendCapSub(t, "k7", setInstall, "", repo)
 	assert.True(t, reached, "an allowance-covered turn is not gated on the key's paid spend cap")
 	assert.Equal(t, http.StatusOK, w.Code)
 }

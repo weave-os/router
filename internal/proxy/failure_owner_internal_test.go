@@ -38,7 +38,7 @@ func declaredConstsOfType(t *testing.T, typeName string) []string {
 			}
 			current := ""
 			for _, spec := range gen.Specs {
-				value := spec.(*ast.ValueSpec)
+				value := mustAs[*ast.ValueSpec](t, spec)
 				if ident, ok := value.Type.(*ast.Ident); ok {
 					current = ident.Name
 				} else if value.Type != nil || len(value.Values) > 0 {
@@ -181,6 +181,6 @@ func TestLeaveResponsesPassthrough(t *testing.T) {
 	forwarded.Header().Set("Content-Type", "text/event-stream")
 	_, err := forwarded.Write([]byte(`data: {"type":"response.created","response":{"id":"resp_synthetic"}}` + "\n\n"))
 	require.NoError(t, err)
-	assert.ErrorIs(t, (responseProtocolSwitch{writer: forwarded}).leavePassthrough(), errResponsesPassthroughStuck)
+	require.ErrorIs(t, (responseProtocolSwitch{writer: forwarded}).leavePassthrough(), errResponsesPassthroughStuck)
 	assert.True(t, forwarded.Passthrough())
 }

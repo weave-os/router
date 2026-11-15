@@ -110,7 +110,7 @@ func TestClientCredentialsSourceToken_RejectsInvalidResponse(t *testing.T) {
 
 	_, err := source.Token(context.Background(), entraKey())
 	require.Error(t, err)
-	assert.ErrorIs(t, err, auth.ErrEntraUnavailable)
+	require.ErrorIs(t, err, auth.ErrEntraUnavailable)
 	assert.NotContains(t, err.Error(), "client-secret")
 }
 

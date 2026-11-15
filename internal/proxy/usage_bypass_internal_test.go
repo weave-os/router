@@ -337,7 +337,7 @@ func TestBypass_429_ReturnsErrBypassRetryable_NoBytesWritten(t *testing.T) {
 
 	err := svc.bypassToAnthropic(context.Background(), env, feats, false, time.Now(), "req-1", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
 
-	assert.ErrorIs(t, err, errBypassRetryable, "a retryable 429 must signal fall-through to routed dispatch")
+	require.ErrorIs(t, err, errBypassRetryable, "a retryable 429 must signal fall-through to routed dispatch")
 	assert.Equal(t, 1, upstream.dispatches, "the bypass attempt must hit the upstream exactly once")
 
 	// No status code, no body bytes — the routed path needs a pristine writer.
@@ -430,7 +430,7 @@ func TestBypass_TransportError_ReroutesViaScorer(t *testing.T) {
 
 	err := svc.bypassToAnthropic(context.Background(), env, feats, false, time.Now(), "req-1", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
 
-	assert.ErrorIs(t, err, errBypassRetryable, "a transport error must signal fall-through to routed dispatch")
+	require.ErrorIs(t, err, errBypassRetryable, "a transport error must signal fall-through to routed dispatch")
 	assert.Equal(t, 1, upstream.dispatches, "the bypass attempt must hit the upstream exactly once")
 	assert.Equal(t, http.StatusOK, rec.Code, "no status header must be written — the routed path needs a pristine writer")
 	assert.Empty(t, rec.Body.Bytes(), "no body bytes must be flushed on a transport-error bypass failure")
@@ -511,13 +511,13 @@ func newBypassSpanCollector(t *testing.T) *bypassSpanCollector {
 	c := &bypassSpanCollector{byName: make(map[string][]*tracev1.Span)}
 	c.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
+		assert.NoError(t, err)
 		if r.URL.Path != "/v1/traces" {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
 		var req coltracepb.ExportTraceServiceRequest
-		require.NoError(t, proto.Unmarshal(body, &req))
+		assert.NoError(t, proto.Unmarshal(body, &req))
 		c.mu.Lock()
 		for _, rs := range req.ResourceSpans {
 			for _, ss := range rs.ScopeSpans {

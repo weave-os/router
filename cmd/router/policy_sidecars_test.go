@@ -34,8 +34,8 @@ func TestBuildConfiguredPolicySidecarsOnboardsFutureStrategy(t *testing.T) {
 					Provider string `json:"provider"`
 				} `json:"candidates"`
 			}
-			require.NoError(t, json.NewDecoder(request.Body).Decode(&payload))
-			require.NotEmpty(t, payload.Candidates)
+			assert.NoError(t, json.NewDecoder(request.Body).Decode(&payload))
+			assert.NotEmpty(t, payload.Candidates)
 			assert.Equal(t, policy.ExecutionModeServing, payload.ExecutionMode)
 			assert.NotEqual(t, providers.ProviderOpenRouter, payload.Candidates[0].Provider)
 			_ = json.NewEncoder(w).Encode(map[string]any{

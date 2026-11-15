@@ -73,7 +73,7 @@ func TestProxy_RewritesModelAndForwardsAuth(t *testing.T) {
 		gotPath = r.URL.Path
 		gotAuth = r.Header.Get("Authorization")
 		body, _ := io.ReadAll(r.Body)
-		require.NoError(t, json.Unmarshal(body, &gotBody))
+		assert.NoError(t, json.Unmarshal(body, &gotBody))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"id":"chatcmpl-1","object":"chat.completion"}`))
@@ -112,7 +112,7 @@ func TestProxy_RewritesMappedModelForChatAndResponses(t *testing.T) {
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				gotPath = r.URL.Path
 				body, _ := io.ReadAll(r.Body)
-				require.NoError(t, json.Unmarshal(body, &gotBody))
+				assert.NoError(t, json.Unmarshal(body, &gotBody))
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusOK)
 				_, _ = w.Write([]byte(`{"id":"mapped-model","object":"response"}`))
@@ -143,7 +143,7 @@ func TestProxy_BYOKModelAliasOverridesCatalogModelIDMap(t *testing.T) {
 	var gotBody map[string]any
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		require.NoError(t, json.Unmarshal(body, &gotBody))
+		assert.NoError(t, json.Unmarshal(body, &gotBody))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"id":"byok-alias","object":"chat.completion"}`))
@@ -176,7 +176,7 @@ func TestProxy_ForwardsUnmappedModelUnchanged(t *testing.T) {
 	var gotBody map[string]any
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		require.NoError(t, json.Unmarshal(body, &gotBody))
+		assert.NoError(t, json.Unmarshal(body, &gotBody))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"id":"unmapped-model","object":"chat.completion"}`))
@@ -233,7 +233,7 @@ func TestProxy_StreamsAndFlushes(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		flusher, ok := w.(http.Flusher)
-		require.True(t, ok)
+		assert.True(t, ok)
 		for i := 0; i < 3; i++ {
 			_, _ = w.Write([]byte("data: {\"id\":\"chatcmpl-1\"}\n\n"))
 			flusher.Flush()

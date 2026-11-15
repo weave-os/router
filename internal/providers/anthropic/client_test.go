@@ -33,7 +33,7 @@ func TestProxy_RewritesModelAndForwardsAuth(t *testing.T) {
 		gotAPIKey = r.Header.Get("x-api-key")
 		gotVersion = r.Header.Get("anthropic-version")
 		body, _ := io.ReadAll(r.Body)
-		require.NoError(t, json.Unmarshal(body, &gotBody))
+		assert.NoError(t, json.Unmarshal(body, &gotBody))
 		w.Header().Set("content-type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"id":"msg_1"}`))
@@ -444,7 +444,7 @@ func TestProxy_StreamsAndFlushes(t *testing.T) {
 		w.Header().Set("content-type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		flusher, ok := w.(http.Flusher)
-		require.True(t, ok)
+		assert.True(t, ok)
 		for i := 0; i < 3; i++ {
 			_, _ = w.Write([]byte("event: ping\ndata: {}\n\n"))
 			flusher.Flush()
@@ -515,7 +515,7 @@ func TestProxy_RewritesModelForAliasedBYOKEndpoint(t *testing.T) {
 	var gotBody map[string]any
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		require.NoError(t, json.Unmarshal(body, &gotBody))
+		assert.NoError(t, json.Unmarshal(body, &gotBody))
 		w.Header().Set("content-type", "application/json")
 		_, _ = w.Write([]byte(`{"id":"msg_1"}`))
 	}))

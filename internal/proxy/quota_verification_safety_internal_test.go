@@ -98,7 +98,7 @@ func TestQuotaVerificationFailureNeverBuysPaidCapacity(t *testing.T) {
 					require.Zero(t, paidCalls.Load(), "uncertainty must not buy inference")
 					require.Empty(t, repo.snapshot(), "uncertainty must not debit customer credit")
 					require.Error(t, err)
-					state := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+					state := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{}))
 					require.Empty(t, state.UnavailableProviders)
 					require.Empty(t, state.QuotaExhaustedAccounts)
 					require.Empty(t, state.QuotaExhaustedProviders)
@@ -213,7 +213,7 @@ func TestQuotaVerificationRotationAndRealOverloadFunding(t *testing.T) {
 					require.Zero(t, paidCalls.Load())
 					require.Empty(t, repo.snapshot())
 				}
-				state := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+				state := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{}))
 				_, capacityMarked := state.UnavailableProviders[subscriptions.ProviderCodex]
 				require.Equal(t, scenario.capacityOverload, capacityMarked)
 				require.False(t, svc.subscriptionPoolUnavailable(ctx, providers.ProviderAnthropic, overloadRescuerModel), "capacity evidence cannot cross pools")

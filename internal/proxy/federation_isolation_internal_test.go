@@ -8,12 +8,13 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/router"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestUnavailableFederationIsIsolatedToItsProvider(t *testing.T) {
@@ -26,14 +27,14 @@ func TestUnavailableFederationIsIsolatedToItsProvider(t *testing.T) {
 	resolvedAnthropic := resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, model, nil)
 	anthropicCredential := CredentialsFromContext(resolvedAnthropic)
 	require.NotNil(t, anthropicCredential)
-	assert.ErrorIs(t, anthropicCredential.CredentialError, auth.ErrAnthropicFederationUnavailable)
+	require.ErrorIs(t, anthropicCredential.CredentialError, auth.ErrAnthropicFederationUnavailable)
 	assert.Empty(t, anthropicCredential.APIKey)
 
 	resolvedOpenAI := resolveAndInjectCredentials(ctx, providers.ProviderOpenAI, "gpt-5", nil)
 	openAICredential := CredentialsFromContext(resolvedOpenAI)
 	require.NotNil(t, openAICredential)
 	assert.Equal(t, "synthetic-openai-key", string(openAICredential.APIKey))
-	assert.NoError(t, openAICredential.CredentialError)
+	require.NoError(t, openAICredential.CredentialError)
 
 	var upstreamCalls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

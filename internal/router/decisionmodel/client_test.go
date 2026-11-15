@@ -9,13 +9,14 @@ import (
 
 	"weave-os/router/internal/router/decisionmodel"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestClientSendsZeroRetentionChoiceQuestions(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/api/v1/systemone", r.URL.Path)
-		require.Equal(t, "Bearer key", r.Header.Get("Authorization"))
+		assert.Equal(t, "/api/v1/systemone", r.URL.Path)
+		assert.Equal(t, "Bearer key", r.Header.Get("Authorization"))
 		var body struct {
 			Model    string `json:"model"`
 			Provider struct {
@@ -28,13 +29,13 @@ func TestClientSendsZeroRetentionChoiceQuestions(t *testing.T) {
 				Criteria map[string]string `json:"criteria"`
 			} `json:"questions"`
 		}
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
-		require.Equal(t, decisionmodel.Model, body.Model)
-		require.Equal(t, []string{"typesafe"}, body.Provider.Only)
-		require.False(t, body.Provider.AllowFallbacks)
-		require.True(t, body.Provider.ZDR)
-		require.Equal(t, "deny", body.Provider.DataCollection)
-		require.Contains(t, body.Questions["call_complexity"].Criteria, "high")
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		assert.Equal(t, decisionmodel.Model, body.Model)
+		assert.Equal(t, []string{"typesafe"}, body.Provider.Only)
+		assert.False(t, body.Provider.AllowFallbacks)
+		assert.True(t, body.Provider.ZDR)
+		assert.Equal(t, "deny", body.Provider.DataCollection)
+		assert.Contains(t, body.Questions["call_complexity"].Criteria, "high")
 		_, _ = w.Write([]byte(`{"answers":{"call_complexity":{"type":"choice","choice":"low","probabilities":{"high":0.2,"low":0.8},"confidence":0.6}}}`))
 	}))
 	defer server.Close()

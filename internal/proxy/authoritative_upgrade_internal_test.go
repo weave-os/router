@@ -243,8 +243,8 @@ func TestUpgradeShadowLogsNullableEvidence(t *testing.T) {
 	require.NoError(t, json.Unmarshal(output.Bytes(), &record))
 	assert.Equal(t, string(upgradeExistingPolicy), record["outcome"])
 	assert.Equal(t, string(upgradeUncalibratedMargin), record["reason"])
-	assert.Equal(t, 0.2, record["margin"])
-	assert.Equal(t, float64(0), record["vote_count"])
+	assert.InDelta(t, 0.2, record["margin"], 1e-9)
+	assert.InDelta(t, float64(0), record["vote_count"], 1e-9)
 	assert.Nil(t, record["margin_threshold"])
 	assert.Nil(t, record["would_diverge"], "unknown evidence is not a measured non-divergence")
 	assert.NotContains(t, record, "shadow_expected_savings_usd")
@@ -265,7 +265,7 @@ func TestUpgradeShadowCapturesMarginOnStayButNotReplay(t *testing.T) {
 	for _, attr := range builder.Build() {
 		if attr.Key == "routing.fresh_classifier_margin" {
 			found = true
-			assert.Equal(t, 0.0, attr.Value.GetDoubleValue())
+			assert.InDelta(t, 0.0, attr.Value.GetDoubleValue(), 1e-9)
 		}
 	}
 	assert.True(t, found)

@@ -210,7 +210,7 @@ func TestCodexPlanThrottle_DoesNotBuyPaidSibling(t *testing.T) {
 			require.Error(t, err)
 			assert.Equal(t, 0, sibling.calls, "no paid sibling without a plan 5xx")
 			assert.Empty(t, repo.snapshot())
-			state := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+			state := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{}))
 			assert.Empty(t, state.UnavailableProviders)
 		})
 	}

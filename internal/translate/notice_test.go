@@ -10,10 +10,11 @@ import (
 	"sync"
 	"testing"
 
+	"weave-os/router/internal/translate"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
-	"weave-os/router/internal/translate"
 )
 
 const syntheticNoticeKind translate.NoticeKind = "synthetic_status"
@@ -85,7 +86,7 @@ func TestNoticeWritersEscapeProviderHTMLWithoutChangingJSONText(t *testing.T) {
 					consumed, err := writer.Write([]byte(payload))
 					require.NoError(t, err)
 					assert.Equal(t, len(payload), consumed)
-					writer.(http.Flusher).Flush()
+					mustAs[http.Flusher](t, writer).Flush()
 					assert.NotContains(t, rec.Body.String(), "<script>")
 					assert.Equal(t, contentType, rec.Result().Header.Get("Content-Type"))
 					assert.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))

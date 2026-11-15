@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
@@ -20,6 +19,9 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCodexQuotaPreflightRotatesBeforeInference(t *testing.T) {
@@ -127,7 +129,7 @@ func TestCodexExtraCreditsManagedAccountWithSpentObservation(t *testing.T) {
 		t.Run(map[bool]string{false: "included_only", true: "extra_credits"}[allowed], func(t *testing.T) {
 			var inference, quotaChecks atomic.Int32
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				require.Equal(t, "Bearer synthetic-subscription", r.Header.Get("Authorization"))
+				assert.Equal(t, "Bearer synthetic-subscription", r.Header.Get("Authorization"))
 				if r.URL.Path == "/wham/usage" {
 					quotaChecks.Add(1)
 					_, _ = io.WriteString(w, `{"rate_limit":{"allowed":false,"limit_reached":true,"primary_window":{"used_percent":100}},"credits":{"has_credits":true,"balance":"20"}}`)
@@ -195,14 +197,14 @@ func TestCodexExtraCreditsCallerLoginPrecedesAPIFallback(t *testing.T) {
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path == "/wham/usage" {
 					quotaChecks.Add(1)
-					require.Equal(t, "Bearer "+codexTestToken, r.Header.Get("Authorization"))
+					assert.Equal(t, "Bearer "+codexTestToken, r.Header.Get("Authorization"))
 					_, _ = io.WriteString(w, `{"rate_limit":{"allowed":false,"limit_reached":true,"primary_window":{"used_percent":100}},"credits":{"has_credits":true,"balance":"20"}}`)
 					return
 				}
 				if r.Header.Get("Authorization") == "Bearer "+codexTestToken {
 					subscriptionCalls.Add(1)
 				} else {
-					require.Equal(t, "Bearer synthetic-api-key", r.Header.Get("Authorization"))
+					assert.Equal(t, "Bearer synthetic-api-key", r.Header.Get("Authorization"))
 					apiCalls.Add(1)
 				}
 				w.Header().Set("Content-Type", "text/event-stream")

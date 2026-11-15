@@ -44,8 +44,8 @@ func TestPrepareGemini_SchemaFidelity(t *testing.T) {
 			name:   "allOf merges disjoint object properties",
 			schema: `{"allOf":[{"type":"object","properties":{"left":{"type":"string"}},"required":["left"]},{"type":"object","properties":{"right":{"type":"boolean"}},"required":["right"]}]}`,
 			check: func(t *testing.T, schema map[string]any) {
-				assert.Contains(t, schema["properties"].(map[string]any), "left")
-				assert.Contains(t, schema["properties"].(map[string]any), "right")
+				assert.Contains(t, mustAs[map[string]any](t, schema["properties"]), "left")
+				assert.Contains(t, mustAs[map[string]any](t, schema["properties"]), "right")
 				assert.ElementsMatch(t, []any{"left", "right"}, schema["required"])
 			},
 		},
@@ -72,7 +72,7 @@ func TestPrepareGemini_SchemaFidelity(t *testing.T) {
 			name:   "required is pruned when the branch that declared it is dropped",
 			schema: `{"type":"object","required":["b"],"allOf":[{"type":"object","properties":{"a":{"type":"string"}},"pattern":"^1"},{"type":"object","properties":{"b":{"type":"string"}},"pattern":"^2"}]}`,
 			check: func(t *testing.T, schema map[string]any) {
-				props := schema["properties"].(map[string]any)
+				props := mustAs[map[string]any](t, schema["properties"])
 				assert.Contains(t, props, "a")
 				assert.NotContains(t, props, "b")
 				assert.NotContains(t, schema, "required")
@@ -83,7 +83,7 @@ func TestPrepareGemini_SchemaFidelity(t *testing.T) {
 			name:   "allOf branches disagreeing on annotations merge",
 			schema: `{"type":"object","properties":{"to":{"allOf":[{"type":"string","description":"A","title":"T1"},{"type":"string","description":"B","title":"T2"}]}}}`,
 			check: func(t *testing.T, schema map[string]any) {
-				to := schema["properties"].(map[string]any)["to"].(map[string]any)
+				to := mustAs[map[string]any](t, mustAs[map[string]any](t, schema["properties"])["to"])
 				assert.Equal(t, "string", to["type"])
 				assert.Equal(t, "A", to["description"])
 				assert.Equal(t, "T1", to["title"])
@@ -93,16 +93,16 @@ func TestPrepareGemini_SchemaFidelity(t *testing.T) {
 			name:   "allOf bounds narrow to the stricter of each pair",
 			schema: `{"allOf":[{"type":"string","minLength":1,"maxLength":10},{"type":"string","minLength":5,"maxLength":8}]}`,
 			check: func(t *testing.T, schema map[string]any) {
-				assert.Equal(t, float64(5), schema["minLength"])
-				assert.Equal(t, float64(8), schema["maxLength"])
+				assert.InDelta(t, float64(5), schema["minLength"], 1e-9)
+				assert.InDelta(t, float64(8), schema["maxLength"], 1e-9)
 			},
 		},
 		{
 			name:   "allOf numeric bounds narrow regardless of branch order",
 			schema: `{"allOf":[{"type":"integer","minimum":10,"maximum":20},{"type":"integer","minimum":2,"maximum":50}]}`,
 			check: func(t *testing.T, schema map[string]any) {
-				assert.Equal(t, float64(10), schema["minimum"])
-				assert.Equal(t, float64(20), schema["maximum"])
+				assert.InDelta(t, float64(10), schema["minimum"], 1e-9)
+				assert.InDelta(t, float64(20), schema["maximum"], 1e-9)
 			},
 		},
 		{
@@ -143,9 +143,9 @@ func TestPrepareGemini_SchemaFidelity(t *testing.T) {
 			name:   "allOf intersects a property declared by both branches",
 			schema: `{"allOf":[{"type":"object","properties":{"id":{"type":"string","minLength":1}}},{"type":"object","properties":{"id":{"type":"string","minLength":4}}}]}`,
 			check: func(t *testing.T, schema map[string]any) {
-				id := schema["properties"].(map[string]any)["id"].(map[string]any)
+				id := mustAs[map[string]any](t, mustAs[map[string]any](t, schema["properties"])["id"])
 				assert.Equal(t, "string", id["type"])
-				assert.Equal(t, float64(4), id["minLength"])
+				assert.InDelta(t, float64(4), id["minLength"], 1e-9)
 			},
 		},
 		{
@@ -154,7 +154,7 @@ func TestPrepareGemini_SchemaFidelity(t *testing.T) {
 			name:   "allOf conflict nested under a shared property widens",
 			schema: `{"allOf":[{"type":"object","properties":{"id":{"type":"string"}}},{"type":"object","properties":{"id":{"type":"number"}}}]}`,
 			check: func(t *testing.T, schema map[string]any) {
-				id := schema["properties"].(map[string]any)["id"].(map[string]any)
+				id := mustAs[map[string]any](t, mustAs[map[string]any](t, schema["properties"])["id"])
 				assert.Equal(t, "string", id["type"])
 			},
 		},
@@ -162,9 +162,9 @@ func TestPrepareGemini_SchemaFidelity(t *testing.T) {
 			name:   "allOf array item schemas intersect",
 			schema: `{"allOf":[{"type":"array","items":{"type":"string","minLength":2}},{"type":"array","items":{"type":"string","minLength":6}}]}`,
 			check: func(t *testing.T, schema map[string]any) {
-				items := schema["items"].(map[string]any)
+				items := mustAs[map[string]any](t, schema["items"])
 				assert.Equal(t, "string", items["type"])
-				assert.Equal(t, float64(6), items["minLength"])
+				assert.InDelta(t, float64(6), items["minLength"], 1e-9)
 			},
 		},
 		{
@@ -205,9 +205,9 @@ func TestPrepareGemini_SchemaFidelity(t *testing.T) {
 			name:   "raw nullable type array on a nested sibling property still intersects",
 			schema: `{"type":"object","properties":{"id":{"type":["string","null"]}},"allOf":[{"type":"object","properties":{"id":{"type":"string","minLength":4}}}]}`,
 			check: func(t *testing.T, schema map[string]any) {
-				id := schema["properties"].(map[string]any)["id"].(map[string]any)
+				id := mustAs[map[string]any](t, mustAs[map[string]any](t, schema["properties"])["id"])
 				assert.Equal(t, "string", id["type"])
-				assert.Equal(t, float64(4), id["minLength"])
+				assert.InDelta(t, float64(4), id["minLength"], 1e-9)
 				assert.NotContains(t, id, "nullable")
 			},
 		},
@@ -266,12 +266,12 @@ func TestPrepareGemini_SchemaFidelity(t *testing.T) {
 			require.NoError(t, err)
 			var out map[string]any
 			require.NoError(t, json.Unmarshal(prep.Body, &out))
-			declaration := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)[0].(map[string]any)
+			declaration := mustAs[map[string]any](t, mustAs[[]any](t, mustAs[map[string]any](t, mustAs[[]any](t, out["tools"])[0])["functionDeclarations"])[0])
 			if tt.wantDegraded {
 				assert.NotContains(t, declaration, "parameters")
 				return
 			}
-			tt.check(t, declaration["parameters"].(map[string]any))
+			tt.check(t, mustAs[map[string]any](t, declaration["parameters"]))
 		})
 	}
 }
@@ -289,7 +289,7 @@ func TestPrepareGemini_DeduplicatesFunctionDeclarations(t *testing.T) {
 			body:  []byte(`{"messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"read","description":"read","parameters":{"type":"object"}}},{"type":"function","function":{"name":"read","description":"read","parameters":{"type":"object"}}}]}`),
 			parse: translate.ParseOpenAI,
 			declaration: func(out map[string]any) []any {
-				return out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)
+				return mustAs[[]any](t, mustAs[map[string]any](t, mustAs[[]any](t, out["tools"])[0])["functionDeclarations"])
 			},
 		},
 		{
@@ -303,7 +303,7 @@ func TestPrepareGemini_DeduplicatesFunctionDeclarations(t *testing.T) {
 			body:  []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"tools":[{"functionDeclarations":[{"name":"read","description":"read","parameters":{"type":"object"}},{"name":"read","description":"read","parameters":{"type":"object"}}]}]}`),
 			parse: translate.ParseGemini,
 			declaration: func(out map[string]any) []any {
-				return out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)
+				return mustAs[[]any](t, mustAs[map[string]any](t, mustAs[[]any](t, out["tools"])[0])["functionDeclarations"])
 			},
 		},
 	}
@@ -331,7 +331,7 @@ func TestPrepareOpenAIResponses_PreservesMediumReasoningEffort(t *testing.T) {
 	require.NoError(t, err)
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(prep.Body, &out))
-	assert.Equal(t, "medium", out["reasoning"].(map[string]any)["effort"])
+	assert.Equal(t, "medium", mustAs[map[string]any](t, out["reasoning"])["effort"])
 }
 
 func TestAdaptiveReasoningDelegatesToCrossFormatTargetDefault(t *testing.T) {
@@ -391,10 +391,10 @@ func TestPrepareAnthropic_ClientCacheControlFidelity(t *testing.T) {
 		require.NoError(t, err)
 		var out map[string]any
 		require.NoError(t, json.Unmarshal(prep.Body, &out))
-		system := out["system"].([]any)
-		assert.Equal(t, map[string]any{"type": "ephemeral", "ttl": "1h"}, system[0].(map[string]any)["cache_control"])
-		lastMessage := out["messages"].([]any)[0].(map[string]any)
-		lastBlock := lastMessage["content"].([]any)[0].(map[string]any)
+		system := mustAs[[]any](t, out["system"])
+		assert.Equal(t, map[string]any{"type": "ephemeral", "ttl": "1h"}, mustAs[map[string]any](t, system[0])["cache_control"])
+		lastMessage := mustAs[map[string]any](t, mustAs[[]any](t, out["messages"])[0])
+		lastBlock := mustAs[map[string]any](t, mustAs[[]any](t, lastMessage["content"])[0])
 		assert.Equal(t, map[string]any{"type": "ephemeral"}, lastBlock["cache_control"])
 	})
 

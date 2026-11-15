@@ -33,10 +33,10 @@ func TestCloseOpenAISchemaObjects_LeavesAllOfBranchesOpen(t *testing.T) {
 
 	closed, ok := closeOpenAISchemaObjects(schema)
 	require.True(t, ok)
-	root := closed.(map[string]any)
-	branches := root["allOf"].([]any)
+	root := mustAs[map[string]any](t, closed)
+	branches := mustAs[[]any](t, root["allOf"])
 	for _, branch := range branches {
-		branchSchema := branch.(map[string]any)
+		branchSchema := mustAs[map[string]any](t, branch)
 		assert.NotContains(t, branchSchema, "additionalProperties",
 			"each branch must allow properties declared by its allOf siblings")
 	}
@@ -54,13 +54,13 @@ func TestStrictify_OptionalBecomesNullableAndRequired(t *testing.T) {
 	require.True(t, ok)
 
 	assert.Equal(t, false, out["additionalProperties"])
-	assert.ElementsMatch(t, []any{"file_path", "pages"}, out["required"].([]any),
+	assert.ElementsMatch(t, []any{"file_path", "pages"}, mustAs[[]any](t, out["required"]),
 		"strict mode requires every property listed in required")
 
-	props := out["properties"].(map[string]any)
-	filePath := props["file_path"].(map[string]any)
+	props := mustAs[map[string]any](t, out["properties"])
+	filePath := mustAs[map[string]any](t, props["file_path"])
 	assert.Equal(t, "string", filePath["type"], "originally-required props keep their type")
-	pages := props["pages"].(map[string]any)
+	pages := mustAs[map[string]any](t, props["pages"])
 	assert.Equal(t, []any{"string", "null"}, pages["type"],
 		"originally-optional props become nullable so the model can still 'omit' them")
 }
@@ -79,9 +79,9 @@ func TestStrictify_NestedObjectsGetAdditionalPropertiesFalse(t *testing.T) {
 	}`)
 	require.True(t, ok)
 
-	opts := out["properties"].(map[string]any)["opts"].(map[string]any)
+	opts := mustAs[map[string]any](t, mustAs[map[string]any](t, out["properties"])["opts"])
 	assert.Equal(t, false, opts["additionalProperties"], "every object node is closed, not just the root")
-	assert.Equal(t, []any{"depth"}, opts["required"].([]any))
+	assert.Equal(t, []any{"depth"}, mustAs[[]any](t, opts["required"]))
 }
 
 func TestStrictify_DroppedConstraintsMoveToDescription(t *testing.T) {
@@ -95,13 +95,13 @@ func TestStrictify_DroppedConstraintsMoveToDescription(t *testing.T) {
 	}`)
 	require.True(t, ok)
 
-	props := out["properties"].(map[string]any)
-	pf := props["pattern_field"].(map[string]any)
+	props := mustAs[map[string]any](t, out["properties"])
+	pf := mustAs[map[string]any](t, props["pattern_field"])
 	assert.NotContains(t, pf, "pattern", "strict mode rejects pattern — it must be stripped")
 	assert.Contains(t, pf["description"], "letters", "original description survives")
 	assert.Contains(t, pf["description"], "pattern: ^a+$", "the constraint stays visible as guidance")
 
-	bounded := props["bounded"].(map[string]any)
+	bounded := mustAs[map[string]any](t, props["bounded"])
 	assert.NotContains(t, bounded, "minimum")
 	assert.NotContains(t, bounded, "maximum")
 	assert.Contains(t, bounded["description"], "minimum: 1")
@@ -118,8 +118,8 @@ func TestStrictify_ArrayItemsRecurse(t *testing.T) {
 	}`)
 	require.True(t, ok)
 
-	edits := out["properties"].(map[string]any)["edits"].(map[string]any)
-	items := edits["items"].(map[string]any)
+	edits := mustAs[map[string]any](t, mustAs[map[string]any](t, out["properties"])["edits"])
+	items := mustAs[map[string]any](t, edits["items"])
 	assert.Equal(t, false, items["additionalProperties"])
 }
 
@@ -157,7 +157,7 @@ func TestStrictify_EnumOptionalWrapsInAnyOf(t *testing.T) {
 	}`)
 	require.True(t, ok)
 
-	mode := out["properties"].(map[string]any)["mode"].(map[string]any)
+	mode := mustAs[map[string]any](t, mustAs[map[string]any](t, out["properties"])["mode"])
 	branches, has := mode["anyOf"].([]any)
 	require.True(t, has, "a typeless enum optional is made nullable via anyOf")
 	require.Len(t, branches, 2)
@@ -203,14 +203,14 @@ func TestStrictify_TypedEnumOptionalAdmitsNull(t *testing.T) {
 	}`)
 	require.True(t, ok)
 
-	props := out["properties"].(map[string]any)
-	isolation := props["isolation"].(map[string]any)
+	props := mustAs[map[string]any](t, out["properties"])
+	isolation := mustAs[map[string]any](t, props["isolation"])
 	assert.Equal(t, []any{"string", "null"}, isolation["type"])
 	assert.Equal(t, []any{"worktree", "remote", nil}, isolation["enum"],
 		"enum constrains the value independently of type; null must be a member or the model is forced to pick one")
 	assert.Equal(t, "Isolation mode. "+optionalNote, isolation["description"])
 
-	level := props["level"].(map[string]any)
+	level := mustAs[map[string]any](t, props["level"])
 	assert.Equal(t, "string", level["type"])
 	assert.Equal(t, []any{"low", "high"}, level["enum"], "a required enum is left alone")
 	_, hasDesc := level["description"]
@@ -228,16 +228,16 @@ func TestStrictify_OptionalNoteAppendedOnce(t *testing.T) {
 	}`)
 	require.True(t, ok)
 
-	props := out["properties"].(map[string]any)
-	assert.Equal(t, "Optional timeout in ms "+optionalNote, props["timeout"].(map[string]any)["description"])
-	assert.Equal(t, optionalNote, props["limit"].(map[string]any)["description"],
+	props := mustAs[map[string]any](t, out["properties"])
+	assert.Equal(t, "Optional timeout in ms "+optionalNote, mustAs[map[string]any](t, props["timeout"])["description"])
+	assert.Equal(t, optionalNote, mustAs[map[string]any](t, props["limit"])["description"],
 		"a property without a description still gets the note")
 
 	// Re-strictifying the output is stable.
 	again, ok := strictifyOpenAISchema(out)
 	require.True(t, ok)
-	againProps := again.(map[string]any)["properties"].(map[string]any)
-	assert.Equal(t, "Optional timeout in ms "+optionalNote, againProps["timeout"].(map[string]any)["description"])
+	againProps := mustAs[map[string]any](t, mustAs[map[string]any](t, again)["properties"])
+	assert.Equal(t, "Optional timeout in ms "+optionalNote, mustAs[map[string]any](t, againProps["timeout"])["description"])
 }
 
 func TestStrictify_DoesNotMutateInputEnum(t *testing.T) {
@@ -285,8 +285,8 @@ func TestStrictify_PropertyNamesDroppedToDescription(t *testing.T) {
 	}`)
 	require.True(t, ok, "propertyNames must not make the schema non-strictifiable")
 
-	props := out["properties"].(map[string]any)
-	data := props["data"].(map[string]any)
+	props := mustAs[map[string]any](t, out["properties"])
+	data := mustAs[map[string]any](t, props["data"])
 	_, present := data["propertyNames"]
 	assert.False(t, present, "propertyNames must be stripped for strict mode")
 	desc, _ := data["description"].(string)
@@ -329,9 +329,9 @@ func TestStrictify_ObjectBranchGetsExplicitType(t *testing.T) {
 	}`)
 	require.True(t, ok)
 
-	payload := out["properties"].(map[string]any)["payload"].(map[string]any)
-	branches := payload["anyOf"].([]any)
-	objBranch := branches[0].(map[string]any)
+	payload := mustAs[map[string]any](t, mustAs[map[string]any](t, out["properties"])["payload"])
+	branches := mustAs[[]any](t, payload["anyOf"])
+	objBranch := mustAs[map[string]any](t, branches[0])
 	assert.Equal(t, "object", objBranch["type"],
 		"an object-by-properties branch must be stamped type:object for strict mode")
 	assert.Equal(t, false, objBranch["additionalProperties"])

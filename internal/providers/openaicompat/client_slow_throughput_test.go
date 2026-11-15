@@ -40,7 +40,11 @@ func streamsContentForever(interval time.Duration) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
-		f := w.(http.Flusher)
+		f, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+			return
+		}
 		f.Flush()
 		for {
 			select {
@@ -74,7 +78,7 @@ func TestProxy_SlowThroughputAbortsRetryable(t *testing.T) {
 	elapsed := time.Since(start)
 
 	require.Error(t, err, "a sustained sub-throughput stream must surface an error, not hang")
-	assert.ErrorIs(t, err, httputil.ErrUpstreamSlowThroughput)
+	require.ErrorIs(t, err, httputil.ErrUpstreamSlowThroughput)
 	assert.True(t, providers.IsRetryable(err),
 		"the slow-throughput stall must classify retryable so dispatchWithFallback can re-attempt")
 	assert.Less(t, elapsed, 5*time.Second, "must abort promptly after warmup, not ride to the cap")
@@ -90,7 +94,7 @@ func TestProxy_HealthyThroughputIsNotAborted(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
-		f := w.(http.Flusher)
+		f := assertAs[http.Flusher](t, w)
 		f.Flush()
 		for range frames {
 			select {

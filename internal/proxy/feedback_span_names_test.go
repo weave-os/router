@@ -40,9 +40,9 @@ func newSpanCollector(t *testing.T) *spanCollector {
 	c := &spanCollector{byName: make(map[string][]*tracev1.Span)}
 	c.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
+		assert.NoError(t, err)
 		var req coltracepb.ExportTraceServiceRequest
-		require.NoError(t, proto.Unmarshal(body, &req))
+		assert.NoError(t, proto.Unmarshal(body, &req))
 		c.mu.Lock()
 		for _, rs := range req.ResourceSpans {
 			for _, ss := range rs.ScopeSpans {

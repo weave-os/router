@@ -87,7 +87,7 @@ func requireUSDPer1MEqual(t *testing.T, wantPer1M, gotPer1k float64, label strin
 	t.Helper()
 	got := gotPer1k * 1000
 	if wantPer1M == 0 {
-		require.Equal(t, 0.0, got, label)
+		require.InDelta(t, 0.0, got, 1e-9, label)
 		return
 	}
 	rel := math.Abs(got-wantPer1M) / wantPer1M

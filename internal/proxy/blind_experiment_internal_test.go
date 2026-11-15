@@ -216,7 +216,7 @@ func TestCallerModelPassthroughHonorsExcludedModels(t *testing.T) {
 	)
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, router.ErrNoEligibleProvider)
+	require.ErrorIs(t, err, router.ErrNoEligibleProvider)
 	assert.Zero(t, routerSpy.routeCalls, "an excluded requested model must fail directly instead of falling through to automatic routing")
 }
 

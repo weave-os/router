@@ -200,7 +200,7 @@ func TestEscalationObservationExcludesOpaqueReasoningAndMedia(t *testing.T) {
 func TestEscalationObservationRejectsUnsupportedEvidence(t *testing.T) {
 	for _, body := range []string{`{"input":[{"type":"future_tool"}]}`, `{"input":[{"type":"item_reference"}]}`, `{"input":{}}`, `{"messages":[]}`} {
 		_, err := translate.ParseResponsesEscalationObservation([]byte(body))
-		assert.Error(t, err)
+		require.Error(t, err)
 	}
 	envelope, err := translate.ParseAnthropic([]byte(`{"messages":[{"role":"user","content":[{"type":"future_block"}]}]}`))
 	require.NoError(t, err)

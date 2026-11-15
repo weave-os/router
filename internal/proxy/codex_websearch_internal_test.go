@@ -76,7 +76,7 @@ func TestNativeSearchErrorsUseAnthropicEnvelope(t *testing.T) {
 		cause := errors.New("synthetic dispatch failure")
 		response := nativeSearchErrorResponse(status, []byte(`{"error":{"message":"synthetic provider detail","type":"invalid_request","code":"provider-specific"}}`), cause)
 		assert.Equal(t, status, response.Status)
-		assert.ErrorIs(t, response, cause)
+		require.ErrorIs(t, response, cause)
 		assert.Equal(t, "error", gjson.GetBytes(response.Body, "type").String())
 		assert.Equal(t, kind, gjson.GetBytes(response.Body, "error.type").String())
 		assert.Equal(t, "synthetic provider detail", gjson.GetBytes(response.Body, "error.message").String())

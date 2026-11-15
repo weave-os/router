@@ -454,7 +454,7 @@ func TestProxyMessages_ChosenScoreZeroIsPersisted(t *testing.T) {
 
 	row := telem.firstRow(t)
 	require.NotNil(t, row.ChosenScore, "zero ChosenScore must persist as &0, not be dropped")
-	assert.Equal(t, 0.0, *row.ChosenScore)
+	assert.InDelta(t, 0.0, *row.ChosenScore, 1e-9)
 }
 
 // TestProxyMessages_NoMetadataOmitsClusterFields: pinned/heuristic decisions

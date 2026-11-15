@@ -122,7 +122,7 @@ func TestClearWithheldPassthrough_KeepsDeliveredHeaders(t *testing.T) {
 	}
 
 	withheld := newPreludeBuffer(httptest.NewRecorder())
-	assert.NoError(t, (responseProtocolSwitch{writer: newPassthroughWriter(withheld), buffer: withheld}).leavePassthrough(), "a withheld header is not a commitment")
+	require.NoError(t, (responseProtocolSwitch{writer: newPassthroughWriter(withheld), buffer: withheld}).leavePassthrough(), "a withheld header is not a commitment")
 
 	delivered := newPreludeBuffer(httptest.NewRecorder())
 	rw := newPassthroughWriter(delivered)

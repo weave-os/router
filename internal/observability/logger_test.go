@@ -119,7 +119,7 @@ func TestAccessLogCarriesRequestID(t *testing.T) {
 	line := findLogLine(t, buf.String(), "http request")
 	assert.NotEmpty(t, line["request_id"], "access log must carry request_id")
 	assert.Equal(t, rec.Header().Get("X-Request-Id"), line["request_id"])
-	assert.Equal(t, float64(http.StatusTeapot), line["status"])
+	assert.InDelta(t, float64(http.StatusTeapot), line["status"], 1e-9)
 }
 
 func TestRequestIDFromContextEmptyWithoutMiddleware(t *testing.T) {

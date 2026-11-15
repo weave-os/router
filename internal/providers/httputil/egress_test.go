@@ -33,7 +33,7 @@ func TestRestrictedTransportRefusesANonPublicDestination(t *testing.T) {
 	restricted := &http.Client{Transport: newTransport(time.Second, time.Second, time.Second, true)}
 	_, err := restricted.Get(upstream.URL)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrRestrictedDestination)
+	require.ErrorIs(t, err, ErrRestrictedDestination)
 
 	unrestricted := &http.Client{Transport: newTransport(time.Second, time.Second, time.Second, false)}
 	resp, err := unrestricted.Get(upstream.URL)
@@ -67,7 +67,7 @@ func TestRestrictDestinationClassifiesAddresses(t *testing.T) {
 	} {
 		err := restrictDestination("tcp", tc.address, nil)
 		if tc.allowed {
-			assert.NoError(t, err, tc.address)
+			require.NoError(t, err, tc.address)
 			continue
 		}
 		assert.ErrorIs(t, err, ErrRestrictedDestination, tc.address)
@@ -173,7 +173,7 @@ func TestModelDiscoveryRejectsRestrictedAndMixedDNSAnswersBeforeDial(t *testing.
 				response.Body.Close()
 			}
 			require.Error(t, requestErr)
-			assert.ErrorIs(t, requestErr, providers.ErrModelDiscoveryDestination)
+			require.ErrorIs(t, requestErr, providers.ErrModelDiscoveryDestination)
 			assert.Zero(t, dialCalls.Load(), "a rejected answer must not reach the dialer")
 			assert.Zero(t, sinkRequests.Load(), "a rejected answer must not reach the controlled sink")
 		})
@@ -238,7 +238,7 @@ func TestModelDiscoveryPrivateOriginExceptionIsExact(t *testing.T) {
 		response.Body.Close()
 	}
 	require.Error(t, err)
-	assert.ErrorIs(t, err, providers.ErrModelDiscoveryDestination)
+	require.ErrorIs(t, err, providers.ErrModelDiscoveryDestination)
 	assert.Equal(t, int32(1), dialCalls.Load(), "a different origin must not inherit the exception")
 }
 
@@ -276,7 +276,7 @@ func TestModelDiscoveryRevalidatesDNSOnEachNewConnection(t *testing.T) {
 		response.Body.Close()
 	}
 	require.Error(t, err)
-	assert.ErrorIs(t, err, providers.ErrModelDiscoveryDestination)
+	require.ErrorIs(t, err, providers.ErrModelDiscoveryDestination)
 	assert.Equal(t, int32(1), sinkRequests.Load())
 }
 
@@ -329,7 +329,7 @@ func TestModelDiscoveryPrivateOriginConfigurationValidation(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := NewModelDiscoveryClient(configured)
-			assert.Error(t, err)
+			require.Error(t, err)
 			assert.NotContains(t, err.Error(), configured)
 		})
 	}

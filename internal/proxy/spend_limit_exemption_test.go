@@ -178,7 +178,7 @@ func TestProxyMessages_OverEngineerCap_NoSubscription_402s(t *testing.T) {
 
 	err := svc.ProxyMessages(ctx, body, rec, req)
 	require.Error(t, err, "an over-cap engineer with no covering subscription must be rejected")
-	assert.ErrorIs(t, err, billing.ErrUserMonthlySpendLimitReached)
+	require.ErrorIs(t, err, billing.ErrUserMonthlySpendLimitReached)
 	assert.Empty(t, p.proxyBodies, "no dispatch may occur when the cap rejects the turn")
 }
 
@@ -222,7 +222,7 @@ func TestProxyMessages_OverEngineerCap_ExhaustedSubscription_Refuses402(t *testi
 
 	err := svc.ProxyMessages(claudeCreditFallbackContext(ctx), body, rec, req)
 	require.Error(t, err, "over-cap engineer with an exhausted subscription must be refused")
-	assert.ErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable,
+	require.ErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable,
 		"the refusal must be the credits-exhausted sentinel so the API mapper emits HTTP 402 with the top-up CTA")
 	assert.Empty(t, p.proxyBodies, "no dispatch may occur when both the cap and the subscription are spent")
 	assert.Empty(t, repo.recordedDebits(),

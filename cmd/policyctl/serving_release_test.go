@@ -103,7 +103,7 @@ func TestServingCLIPublishReleaseFillsReferencesFromWhatItPublished(t *testing.T
 	seeded := registry.objectWrites
 
 	require.NoError(t, runServingWith(ctx, args, dependencies))
-	refs := output.(servingReleaseRefs)
+	refs := mustAs[servingReleaseRefs](t, output)
 	require.Equal(t, cliCandidateDigest(t, files), refs.Candidate.SHA256)
 	require.Equal(t, seeded+3, registry.objectWrites, "the release publishes exactly the candidate, selection set and proposal")
 	for _, ref := range []policyregistry.ObjectRef{refs.Candidate, refs.SelectionSet, refs.Proposal} {
@@ -120,7 +120,7 @@ func TestServingCLIPublishReleaseFillsReferencesFromWhatItPublished(t *testing.T
 
 	output = nil
 	require.NoError(t, runServingWith(ctx, args, dependencies))
-	require.Equal(t, refs, output.(servingReleaseRefs), "a re-run re-derives the same bytes and reports the same references")
+	require.Equal(t, refs, mustAs[servingReleaseRefs](t, output), "a re-run re-derives the same bytes and reports the same references")
 	require.Equal(t, seeded+3, registry.objectWrites, "a re-run issues no new writes")
 }
 
@@ -138,7 +138,7 @@ func TestServingCLIPublishReleaseResumesAfterPartialPublish(t *testing.T) {
 	seeded := registry.objectWrites
 
 	require.NoError(t, runServingWith(ctx, cliReleaseArgs(t, files), dependencies))
-	refs := output.(servingReleaseRefs)
+	refs := mustAs[servingReleaseRefs](t, output)
 	require.Equal(t, candidateRef, refs.Candidate)
 	require.Equal(t, seeded+2, registry.objectWrites, "only the objects still missing are written")
 }
@@ -156,7 +156,7 @@ func TestServingCLIPublishReleaseRejectsManifestsNamingAnotherRelease(t *testing
 	}{
 		{
 			name:     "no lane names the candidate",
-			mutate:   func(files cliReleaseFiles) { lane(files)["candidate"] = staleReference },
+			mutate:   func(files cliReleaseFiles) { lane(t, files)["candidate"] = staleReference },
 			contains: "no selection set lane references the candidate",
 			writes:   1,
 		},
@@ -200,7 +200,7 @@ func TestServingCLIPublishReleaseLeavesLanesPinnedToAnotherCandidate(t *testing.
 	pinnedRef, err := registry.PublishServingManifest(context.Background(), policyregistry.ServingCandidate, pinnedPayload)
 	require.NoError(t, err)
 	profileKey := uuid.NewString()
-	profile := cliDocument(t, lane(files))
+	profile := cliDocument(t, lane(t, files))
 	profile["candidate"] = map[string]any{"uri": pinnedRef.URI, "sha256": pinnedRef.SHA256, "generation": pinnedRef.Generation}
 	profile["profile_key"] = profileKey
 	profile["profile_policy"] = cliDocument(t, files.candidate.Policy)
@@ -210,7 +210,7 @@ func TestServingCLIPublishReleaseLeavesLanesPinnedToAnotherCandidate(t *testing.
 	dependencies := cliDependencies(registry, nil, &output, nil)
 
 	require.NoError(t, runServingWith(context.Background(), cliReleaseArgs(t, files), dependencies))
-	refs := output.(servingReleaseRefs)
+	refs := mustAs[servingReleaseRefs](t, output)
 	published := cliObject[*policyregistry.SelectionSetV2](t, registry, policyregistry.ServingSelectionSet, refs.SelectionSet)
 	require.Equal(t, refs.Candidate, published.Default.Candidate)
 	require.Equal(t, pinnedRef, published.Profiles[profileKey].Candidate, "a lane pinned to another candidate keeps it")
@@ -248,7 +248,7 @@ func TestServingCLIPublishReleaseDryRunAcceptsATrailingSlashRegistryRoot(t *test
 	args := append(cliReleaseArgs(t, files), "--dry-run", "--registry", defaultRegistryURI+"/")
 
 	require.NoError(t, runServingWith(context.Background(), args, dependencies))
-	require.Equal(t, cliCandidateDigest(t, files), output.(servingReleaseDigests).Candidate.SHA256)
+	require.Equal(t, cliCandidateDigest(t, files), mustAs[servingReleaseDigests](t, output).Candidate.SHA256)
 }
 
 // A caller may state the reference it expects; only the generation is left to this command, so a
@@ -282,7 +282,7 @@ func TestServingCLIPublishReleaseRejectsReferencesNamingAnotherURI(t *testing.T)
 		t.Run(scenario.name, func(t *testing.T) {
 			registry, _, v1 := cliServingFixture(t)
 			files := cliReleaseFixture(t, registry, v1)
-			lane(files)["candidate"] = scenario.reference
+			lane(t, files)["candidate"] = scenario.reference
 			var output any
 			dependencies := cliDependencies(registry, nil, &output, nil)
 
@@ -293,7 +293,7 @@ func TestServingCLIPublishReleaseRejectsReferencesNamingAnotherURI(t *testing.T)
 				return
 			}
 			require.NoError(t, err, "a reference that names the object being published is accepted")
-			require.Equal(t, published, output.(servingReleaseRefs).Candidate.URI)
+			require.Equal(t, published, mustAs[servingReleaseRefs](t, output).Candidate.URI)
 		})
 	}
 }
@@ -308,7 +308,7 @@ func TestServingCLIPublishReleaseRejectsMalformedReferences(t *testing.T) {
 		{
 			name: "lane candidate",
 			mutate: func(files cliReleaseFiles, digest string) {
-				lane(files)["candidate"] = map[string]any{"sha256": digest, "generaton": 1}
+				lane(t, files)["candidate"] = map[string]any{"sha256": digest, "generaton": 1}
 			},
 		},
 		{
@@ -345,8 +345,9 @@ func TestServingCLIPublishReleaseRequiresEveryManifestFlag(t *testing.T) {
 	require.Nil(t, output)
 }
 
-func lane(files cliReleaseFiles) map[string]any {
-	return files.selectionSet["default"].(map[string]any)
+func lane(t *testing.T, files cliReleaseFiles) map[string]any {
+	t.Helper()
+	return mustAs[map[string]any](t, files.selectionSet["default"])
 }
 
 func TestServingCLIPublishReleaseV3BindsOnlySharedCode(t *testing.T) {
@@ -365,7 +366,7 @@ func TestServingCLIPublishReleaseV3BindsOnlySharedCode(t *testing.T) {
 	require.NoError(t, runServingWith(context.Background(), append(args, "--dry-run"), dependencies))
 	require.Zero(t, opens)
 	require.NoError(t, runServingWith(context.Background(), args, dependencies))
-	refs := output.(servingReleaseRefs)
+	refs := mustAs[servingReleaseRefs](t, output)
 	published := cliObject[*policyregistry.SelectionSetV3](t, registry, policyregistry.ServingSelectionSet, refs.SelectionSet)
 	require.Equal(t, refs.Candidate, published.Code.Candidate)
 	require.GreaterOrEqual(t, published.Code.Candidate.Generation, cliFirstGeneration)
@@ -373,5 +374,5 @@ func TestServingCLIPublishReleaseV3BindsOnlySharedCode(t *testing.T) {
 	require.Equal(t, files.candidate.Policy, published.Profiles["10000000-0000-4000-8000-000000000001"])
 	require.Zero(t, registry.writes)
 	require.NoError(t, runServingWith(context.Background(), args, dependencies))
-	require.Equal(t, refs, output.(servingReleaseRefs))
+	require.Equal(t, refs, mustAs[servingReleaseRefs](t, output))
 }

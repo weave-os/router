@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestSafeGoRecoversFromPanic proves a panic inside the wrapped fn is
@@ -58,7 +59,7 @@ func TestSafeGoContextRetainsSnapshotValuesAfterCancellation(t *testing.T) {
 	cancel()
 	completed := make(chan context.Context, 1)
 	SafeGoContext(parent, slog.Default(), time.Second, "admitted-outcome", func(ctx context.Context) {
-		assert.NoError(t, ctx.Err())
+		require.NoError(t, ctx.Err())
 		assert.Equal(t, "admitted-release", ctx.Value(snapshotKey{}))
 		_, bounded := ctx.Deadline()
 		assert.True(t, bounded)

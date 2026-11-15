@@ -2,8 +2,6 @@ package proxy
 
 import (
 	"context"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +13,9 @@ import (
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestVerificationNonstreamFailedJSONCannotWin(t *testing.T) {
@@ -50,14 +51,14 @@ func TestVerificationNonstreamFailedJSONCannotWin(t *testing.T) {
 			ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 			rec := httptest.NewRecorder()
 			err := fixture.run(svc, ctx, []byte(fixture.body), rec, httptest.NewRequest(http.MethodPost, fixture.path, strings.NewReader(fixture.body)))
-			assert.Error(t, err, "failed provider JSON must not become successful request")
+			require.Error(t, err, "failed provider JSON must not become successful request")
 			capturesMu.Lock()
 			defer capturesMu.Unlock()
 			require.Equal(t, []string{"Bearer first-seat", "Bearer second-seat"}, bearers,
 				"uncommitted failed JSON rotates included seats without authorizing API")
 			require.Equal(t, "/responses", paths[0], "the personal subscription attempt uses the Codex Responses endpoint")
 			require.Equal(t, "first-provider", providerAccounts[0], "the personal lease keeps its provider account identity")
-			winner := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+			winner := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{}))
 			assert.False(t, winner.Served, "failure must not count as an included winner")
 			require.False(t, winner.OverageInUse)
 			require.NotContains(t, rec.Body.String(), `"status":"completed"`)

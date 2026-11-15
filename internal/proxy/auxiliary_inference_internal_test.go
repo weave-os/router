@@ -177,11 +177,11 @@ func auxTestService(t *testing.T) (*Service, *auxBillingRepo, *auxTelemetryRepo)
 
 // auxTestContext carries the installation + client identity the router's auth
 // middleware would have stashed on a real request.
-func auxTestContext(installationID uuid.UUID, sessionID string) context.Context {
+func auxTestContext(installationID uuid.UUID) context.Context {
 	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, installationID.String())
 	ctx = context.WithValue(ctx, ExternalIDContextKey{}, auxTestOrgID)
 	return context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{
-		SessionID: sessionID,
+		SessionID: auxTestSessionID,
 		DeviceID:  "device-aux-1",
 		ClientApp: "claude_code",
 	})
@@ -196,7 +196,7 @@ func TestBillAuxiliaryInferenceTagsSessionAndCost(t *testing.T) {
 	installationID := uuid.New()
 	usage := auxTestUsage()
 
-	s.billAuxiliaryInference(auxTestContext(installationID, auxTestSessionID),
+	s.billAuxiliaryInference(auxTestContext(installationID),
 		auxTestRequestID, auxSuffixHandoverSummary, auxTestOrgID, usage)
 
 	rows := telemetryRepo.waitForRows(1)
@@ -271,7 +271,7 @@ func TestBillAuxiliaryInferenceMatchesLedgerAmount(t *testing.T) {
 	s, billingRepo, telemetryRepo := auxTestService(t)
 	usage := auxTestUsage()
 
-	s.billAuxiliaryInference(auxTestContext(uuid.New(), auxTestSessionID),
+	s.billAuxiliaryInference(auxTestContext(uuid.New()),
 		auxTestRequestID, auxSuffixPrecompactionSummary, auxTestOrgID, usage)
 
 	rows := telemetryRepo.waitForRows(1)
@@ -303,7 +303,7 @@ func TestBillAuxiliaryInferenceSkipsNonCalls(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s, billingRepo, telemetryRepo := auxTestService(t)
 
-			s.billAuxiliaryInference(auxTestContext(uuid.New(), auxTestSessionID),
+			s.billAuxiliaryInference(auxTestContext(uuid.New()),
 				auxTestRequestID, auxSuffixHandoverSummary, auxTestOrgID, tc.usage)
 
 			// Give the async telemetry write a chance to land if it were fired.
@@ -335,7 +335,7 @@ func TestBillAuxiliaryInferenceBillsWithoutInstallation(t *testing.T) {
 func TestBillAuxiliaryInferenceUsesSummarizerProviderForBYOK(t *testing.T) {
 	s, billingRepo, _ := auxTestService(t)
 
-	ctx := auxTestContext(uuid.New(), auxTestSessionID)
+	ctx := auxTestContext(uuid.New())
 	ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: "anthropic", Plaintext: []byte("sk-ant-byok")},
 	})
@@ -375,7 +375,7 @@ func (*auxTelemetryRepo) GetTelemetryDashboardIndividualFacts(context.Context, s
 func TestBillAuxiliaryInferenceNeverDebitsWhenWeaveCreditsDenied(t *testing.T) {
 	s, billingRepo, _ := auxTestService(t)
 
-	ctx := billing.WithWeaveCreditsDenied(auxTestContext(uuid.New(), auxTestSessionID))
+	ctx := billing.WithWeaveCreditsDenied(auxTestContext(uuid.New()))
 	s.billAuxiliaryInference(ctx, auxTestRequestID, auxSuffixHandoverSummary, auxTestOrgID, auxTestUsage())
 
 	debits := billingRepo.snapshot()

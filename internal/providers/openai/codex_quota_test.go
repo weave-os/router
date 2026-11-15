@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -44,11 +45,11 @@ func TestCodexIncludedQuotaPreflight(t *testing.T) {
 			var inferenceCalls atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path == "/wham/usage" {
-					require.Equal(t, http.MethodGet, r.Method)
-					require.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
-					require.Equal(t, "test-account", r.Header.Get("ChatGPT-Account-ID"))
-					require.Equal(t, codexOriginatorValue, r.Header.Get(codexOriginatorHeader))
-					require.Equal(t, codexUserAgentValue, r.Header.Get(codexUserAgentHeader))
+					assert.Equal(t, http.MethodGet, r.Method)
+					assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
+					assert.Equal(t, "test-account", r.Header.Get("ChatGPT-Account-ID"))
+					assert.Equal(t, codexOriginatorValue, r.Header.Get(codexOriginatorHeader))
+					assert.Equal(t, codexUserAgentValue, r.Header.Get(codexUserAgentHeader))
 					_, _ = io.WriteString(w, tc.quota)
 					return
 				}
@@ -333,7 +334,7 @@ func TestCodexPreflightPublishesAccountQuotaBeforeDenial(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				require.Equal(t, "/wham/usage", r.URL.Path)
+				assert.Equal(t, "/wham/usage", r.URL.Path)
 				_, _ = io.WriteString(w, tc.payload)
 			}))
 			defer server.Close()

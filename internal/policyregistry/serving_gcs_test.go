@@ -198,7 +198,7 @@ func TestGCSManagedServingV2ObjectsRoundTripThroughReadServingObjectAndReadPrepa
 	ctx := context.Background()
 	store, _, set := controllerFixture(t)
 	v2 := newV2Fixture(t, store, set)
-	candidate := store.object(t, policyregistry.ServingCandidate, v2.candidate).(*policyregistry.CandidateV2)
+	candidate := mustAs[*policyregistry.CandidateV2](t, store.object(t, policyregistry.ServingCandidate, v2.candidate))
 	policy, err := store.ReadServingPolicy(ctx, policyregistry.ObjectRef{URI: candidate.Policy.URI, SHA256: candidate.Policy.SHA256, Generation: candidate.Policy.Generation})
 	require.NoError(t, err)
 	policyBytes, err := rosterdata.CanonicalBytes(policy)

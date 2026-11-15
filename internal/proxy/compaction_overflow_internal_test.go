@@ -174,7 +174,7 @@ func TestStreamingCompactionOverflowingEverywhereNeverAsksToCompact(t *testing.T
 
 			require.Error(t, err)
 			require.NotEmpty(t, append(anthropicGateway.models, openAIGateway.models...))
-			assert.ErrorAs(t, err, new(*CompactionUnservableError))
+			require.ErrorAs(t, err, new(*CompactionUnservableError))
 			assert.NotContains(t, rec.Body.String(), "Compact the conversation")
 			assert.NotContains(t, rec.Body.String(), "context_length_exceeded")
 			assert.NotContains(t, rec.Body.String(), "prompt is too long")

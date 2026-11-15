@@ -43,13 +43,13 @@ func (r *spendLimitRepo) GetAutopayConfig(context.Context, billing.Owner) (bool,
 }
 func (r *spendLimitRepo) BillingTablesExist(context.Context) (bool, error) { return true, nil }
 
-func spendLimitCtx(userID, orgID string) context.Context {
+func spendLimitCtx(userID string) context.Context {
 	ctx := context.Background()
 	if userID != "" {
 		ctx = context.WithValue(ctx, auth.UserIDContextKey{}, userID)
 	}
-	if orgID != "" {
-		ctx = context.WithValue(ctx, ExternalIDContextKey{}, orgID)
+	if "org-1" != "" {
+		ctx = context.WithValue(ctx, ExternalIDContextKey{}, "org-1")
 	}
 	return ctx
 }
@@ -65,42 +65,42 @@ func spendLimitCheck(s *Service, ctx context.Context) error {
 
 // withUsageBypassSubscription layers a usage-bypass config plus a valid Claude
 // subscription token onto ctx, exactly as the auth middleware would.
-func withUsageBypassSubscription(ctx context.Context, token string) context.Context {
+func withUsageBypassSubscription(ctx context.Context) context.Context {
 	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
-	return context.WithValue(ctx, AnthropicSubscriptionContextKey{}, token)
+	return context.WithValue(ctx, AnthropicSubscriptionContextKey{}, "sk-ant-oat01-valid-token")
 }
 
 func TestCheckUserMonthlySpendLimit_NoBillingSkips(t *testing.T) {
 	s := &Service{}
-	assert.NoError(t, spendLimitCheck(s, spendLimitCtx("u1", "org-1")))
+	assert.NoError(t, spendLimitCheck(s, spendLimitCtx("u1")))
 }
 
 func TestCheckUserMonthlySpendLimit_NoIdentitySkips(t *testing.T) {
 	s := &Service{billing: billing.NewService(&spendLimitRepo{spent: 10, limit: micros(1), err: errors.New("must not be called")})}
-	assert.NoError(t, spendLimitCheck(s, spendLimitCtx("", "org-1")),
+	assert.NoError(t, spendLimitCheck(s, spendLimitCtx("")),
 		"a request with no resolvable user identity passes through")
 }
 
 func TestCheckUserMonthlySpendLimit_NoLimitPasses(t *testing.T) {
 	s := &Service{billing: billing.NewService(&spendLimitRepo{spent: 999_999_999, limit: nil})}
-	assert.NoError(t, spendLimitCheck(s, spendLimitCtx("u1", "org-1")))
+	assert.NoError(t, spendLimitCheck(s, spendLimitCtx("u1")))
 }
 
 func TestCheckUserMonthlySpendLimit_UnderLimitPasses(t *testing.T) {
 	s := &Service{billing: billing.NewService(&spendLimitRepo{spent: 999_999, limit: micros(1_000_000)})}
-	assert.NoError(t, spendLimitCheck(s, spendLimitCtx("u1", "org-1")))
+	assert.NoError(t, spendLimitCheck(s, spendLimitCtx("u1")))
 }
 
 func TestCheckUserMonthlySpendLimit_AtLimitRejected(t *testing.T) {
 	s := &Service{billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
-	err := spendLimitCheck(s, spendLimitCtx("u1", "org-1"))
+	err := spendLimitCheck(s, spendLimitCtx("u1"))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, billing.ErrUserMonthlySpendLimitReached)
 }
 
 func TestCheckUserMonthlySpendLimit_ReadErrorFailsClosed(t *testing.T) {
 	s := &Service{billing: billing.NewService(&spendLimitRepo{err: errors.New("pg down")})}
-	err := spendLimitCheck(s, spendLimitCtx("u1", "org-1"))
+	err := spendLimitCheck(s, spendLimitCtx("u1"))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, billing.ErrSpendLimitCheckUnavailable)
 }
@@ -109,7 +109,7 @@ func TestCheckUserMonthlySpendLimit_OverrideSkips(t *testing.T) {
 	// Even over the limit (and with a repo that would error), a billing-override
 	// request bypasses engineer enforcement — WithBalanceCheck already let it in.
 	s := &Service{billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000), err: errors.New("must not be called")})}
-	ctx := context.WithValue(spendLimitCtx("u1", "org-1"), billing.HasOverrideContextKey, true)
+	ctx := context.WithValue(spendLimitCtx("u1"), billing.HasOverrideContextKey, true)
 	assert.NoError(t, spendLimitCheck(s, ctx))
 }
 
@@ -118,7 +118,7 @@ func TestCheckUserMonthlySpendLimit_CapReachedCoveringSubscriptionServesSubscrip
 	// that covers /v1/messages. Don't 402 — flag the returned ctx subscription-only
 	// so the proxy serves free on the caller's own plan. Paid spend stays capped.
 	s := &Service{billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
-	ctx := withUsageBypassSubscription(spendLimitCtx("u1", "org-1"), "sk-ant-oat01-valid-token")
+	ctx := withUsageBypassSubscription(spendLimitCtx("u1"))
 	outCtx, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathMessages)
 	require.NoError(t, err, "a covered turn must not 402 when the cap is reached")
 	assert.True(t, billing.SubscriptionOnlyFromContext(outCtx), "the returned ctx must carry the subscription-only flag")
@@ -130,7 +130,7 @@ func TestCheckUserMonthlySpendLimit_CapReachedNoSubscriptionStillRejects(t *test
 	// Usage-bypass on, but no subscription credential present: the turn would route
 	// to a paid model, so a reached cap must still 402.
 	s := &Service{billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
-	ctx := context.WithValue(spendLimitCtx("u1", "org-1"), InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
+	ctx := context.WithValue(spendLimitCtx("u1"), InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
 	_, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathMessages)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, billing.ErrUserMonthlySpendLimitReached)
@@ -140,7 +140,7 @@ func TestCheckUserMonthlySpendLimit_CapReachedSubscriptionWithoutBypassRejects(t
 	// Subscription present, but the org has NOT enabled usage-bypass. The exemption
 	// is scoped to bypass orgs, so a reached cap must still 402.
 	s := &Service{billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
-	ctx := context.WithValue(spendLimitCtx("u1", "org-1"), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-valid-token")
+	ctx := context.WithValue(spendLimitCtx("u1"), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-valid-token")
 	_, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathMessages)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, billing.ErrUserMonthlySpendLimitReached)
@@ -150,7 +150,7 @@ func TestCheckUserMonthlySpendLimit_CapReachedSubscriptionUncoveredRouteRejects(
 	// A Claude subscription can't serve the OpenAI chat route, so the exemption is
 	// route-scoped: a reached cap on an uncovered route must still 402.
 	s := &Service{billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
-	ctx := withUsageBypassSubscription(spendLimitCtx("u1", "org-1"), "sk-ant-oat01-valid-token")
+	ctx := withUsageBypassSubscription(spendLimitCtx("u1"))
 	_, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathChatCompletions)
 	require.Error(t, err, "a Claude sub must not exempt an OpenAI-route request")
 	assert.ErrorIs(t, err, billing.ErrUserMonthlySpendLimitReached)
@@ -160,7 +160,7 @@ func TestCheckUserMonthlySpendLimit_UnderLimitDoesNotFlagSubscriptionOnly(t *tes
 	// Below the cap, a subscription request routes normally: the returned ctx must
 	// NOT be flagged subscription-only (that flag disables paid failover).
 	s := &Service{billing: billing.NewService(&spendLimitRepo{spent: 500_000, limit: micros(1_000_000)})}
-	ctx := withUsageBypassSubscription(spendLimitCtx("u1", "org-1"), "sk-ant-oat01-valid-token")
+	ctx := withUsageBypassSubscription(spendLimitCtx("u1"))
 	outCtx, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathMessages)
 	require.NoError(t, err)
 	assert.False(t, billing.SubscriptionOnlyFromContext(outCtx), "an under-cap turn must not be forced subscription-only")
@@ -171,7 +171,7 @@ func TestCheckUserMonthlySpendLimit_ExemptsSubscriberAllowanceCoveredTurn(t *tes
 	// settles against that allowance, so it never adds to the engineer's paid
 	// spend and a reached cap must not 402 it.
 	s := &Service{billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
-	ctx := entitlement.WithCoverage(spendLimitCtx("u1", "org-1"), entitlement.Coverage{
+	ctx := entitlement.WithCoverage(spendLimitCtx("u1"), entitlement.Coverage{
 		SubscriberID:       "cs_max",
 		EntitlementVersion: 1,
 		Plan:               entitlement.PlanMax,
@@ -182,7 +182,7 @@ func TestCheckUserMonthlySpendLimit_ExemptsSubscriberAllowanceCoveredTurn(t *tes
 
 func TestCheckUserMonthlySpendLimit_AppliesToSubscriberPaidFallback(t *testing.T) {
 	s := &Service{billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
-	ctx := entitlement.WithProductScope(spendLimitCtx("u1", "org-1"), entitlement.PlanMax)
+	ctx := entitlement.WithProductScope(spendLimitCtx("u1"), entitlement.PlanMax)
 
 	_, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathMessages)
 
@@ -192,7 +192,7 @@ func TestCheckUserMonthlySpendLimit_AppliesToSubscriberPaidFallback(t *testing.T
 
 func TestCheckUserMonthlySpendLimit_MaxCoveringSubscriptionDoesNotExempt(t *testing.T) {
 	s := &Service{billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
-	ctx := entitlement.WithProductScope(withUsageBypassSubscription(spendLimitCtx("u1", "org-1"), "sk-ant-oat01-valid-token"), entitlement.PlanMax)
+	ctx := entitlement.WithProductScope(withUsageBypassSubscription(spendLimitCtx("u1")), entitlement.PlanMax)
 	_, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathMessages)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, billing.ErrUserMonthlySpendLimitReached)

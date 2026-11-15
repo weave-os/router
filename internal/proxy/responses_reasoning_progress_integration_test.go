@@ -32,7 +32,11 @@ func completedReasoningFrame(index int) string {
 
 func flushResponsesFrame(w http.ResponseWriter, frame string) bool {
 	_, err := io.WriteString(w, "data: "+frame+"\n\n")
-	w.(http.Flusher).Flush()
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		return false
+	}
+	flusher.Flush()
 	return err == nil
 }
 
@@ -197,7 +201,7 @@ func TestResponsesReasoningProgress_StallAndCancellation(t *testing.T) {
 				attempts.Add(1)
 				w.Header().Set("Content-Type", "text/event-stream")
 				w.WriteHeader(http.StatusOK)
-				w.(http.Flusher).Flush()
+				assertAs[http.Flusher](t, w).Flush()
 				if tc.initialReasoning {
 					// Progress after 200ms proves that the stall clock resets,
 					// rather than measuring only time since response headers.
@@ -237,7 +241,7 @@ func TestResponsesReasoningProgress_StallAndCancellation(t *testing.T) {
 					if _, err := io.WriteString(w, ": ping\n\n"); err != nil {
 						return
 					}
-					w.(http.Flusher).Flush()
+					assertAs[http.Flusher](t, w).Flush()
 				}
 			}))
 			defer upstream.Close()

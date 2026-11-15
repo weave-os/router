@@ -2,11 +2,6 @@ package proxy
 
 import (
 	"context"
-	"github.com/stretchr/testify/require"
-	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
-	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +15,13 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/router"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestVerificationAdmissionFailureExportsDecisionWithoutUpstream(t *testing.T) {
@@ -29,7 +31,7 @@ func TestVerificationAdmissionFailureExportsDecisionWithoutUpstream(t *testing.T
 	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		var exported coltracepb.ExportTraceServiceRequest
-		require.NoError(t, proto.Unmarshal(body, &exported))
+		assert.NoError(t, proto.Unmarshal(body, &exported))
 		mu.Lock()
 		defer mu.Unlock()
 		for _, resource := range exported.ResourceSpans {

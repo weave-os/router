@@ -44,7 +44,7 @@ func TestProxy_ForwardsToChatCompletionsUnderVersionedBaseURL(t *testing.T) {
 		gotPath = r.URL.Path
 		gotAuth = r.Header.Get("Authorization")
 		body, _ := io.ReadAll(r.Body)
-		require.NoError(t, json.Unmarshal(body, &gotBody))
+		assert.NoError(t, json.Unmarshal(body, &gotBody))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"id":"chatcmpl-1","object":"chat.completion"}`))
@@ -88,7 +88,7 @@ func TestProxy_RewritesMappedCatalogModelIDs(t *testing.T) {
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				body, _ := io.ReadAll(r.Body)
 				var parsed map[string]any
-				require.NoError(t, json.Unmarshal(body, &parsed))
+				assert.NoError(t, json.Unmarshal(body, &parsed))
 				gotModel, _ = parsed["model"].(string)
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusOK)
@@ -111,7 +111,7 @@ func TestProxy_RewritesMappedCatalogModelIDs(t *testing.T) {
 		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			body, _ := io.ReadAll(r.Body)
 			var parsed map[string]any
-			require.NoError(t, json.Unmarshal(body, &parsed))
+			assert.NoError(t, json.Unmarshal(body, &parsed))
 			gotModel, _ = parsed["model"].(string)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
@@ -306,7 +306,7 @@ func TestProxy_BuffersErrorBodyAndDoesNotTouchWriter(t *testing.T) {
 	// ResponseRecorder reports Code=200 by default even without WriteHeader,
 	// so check that nothing was actually written instead.
 	assert.Equal(t, 0, rec.Body.Len(), "writer must not be touched on retryable upstream error")
-	assert.Equal(t, rec.HeaderMap.Get("Content-Type"), "", "writer headers must not be set on retryable upstream error")
+	assert.Empty(t, rec.HeaderMap.Get("Content-Type"), "writer headers must not be set on retryable upstream error")
 }
 
 // TestProxy_BuffersErrorBodyTruncatedAtCap: a chatty upstream can't OOM us —

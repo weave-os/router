@@ -89,7 +89,7 @@ func TestManagedSubscriptionSurvivesSlowFirstOutput(t *testing.T) {
 				require.Len(t, seen, 1)
 				require.Equal(t, "seat-a", seen[0].SubscriptionAccountID)
 				require.Empty(t, leaser.cooldownIDs, "a slow success must not cool down the account")
-				require.True(t, ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage).Served)
+				require.True(t, mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{})).Served)
 			})
 		})
 	}

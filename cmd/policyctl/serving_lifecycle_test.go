@@ -229,7 +229,7 @@ func TestServingCLIPublishDryRunReportsStoredDigestWithoutWriting(t *testing.T) 
 	require.Len(t, registry.objects, seeded, "a dry run writes nothing")
 
 	require.NoError(t, runServingWith(ctx, args, dependencies))
-	ref := output.(policyregistry.ObjectRef)
+	ref := mustAs[policyregistry.ObjectRef](t, output)
 	require.Equal(t, policyregistry.Digest(drifted), ref.SHA256, "publish stores exactly the bytes the dry run digested")
 	require.Equal(t, defaultRegistryURI+"/artifacts/"+ref.SHA256+".json", ref.URI)
 	require.Equal(t, 1, opened)
@@ -317,7 +317,7 @@ func TestServingCLIApplyResolvesDigestDryRunsActivatesAndReplays(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, runServingWith(ctx, []string{string(commandApply), "--dry-run", "--proposal-sha256", ref.SHA256}, dependencies))
-	prepared := output.(policyregistry.PreparationResult)
+	prepared := mustAs[policyregistry.PreparationResult](t, output)
 	require.True(t, prepared.Prepared)
 	require.Equal(t, ref, prepared.Proposal, "--proposal-sha256 resolves to the exact artifacts/ reference")
 	require.Nil(t, prepared.Activation)
@@ -326,7 +326,7 @@ func TestServingCLIApplyResolvesDigestDryRunsActivatesAndReplays(t *testing.T) {
 	require.Zero(t, invalidations)
 
 	require.NoError(t, runServingWith(ctx, []string{string(commandApply), "--proposal", path}, dependencies))
-	first := output.(policyregistry.ActivationResult)
+	first := mustAs[policyregistry.ActivationResult](t, output)
 	require.False(t, first.Replayed)
 	require.Equal(t, policyregistry.ActivationCurrent, first.Outcome)
 	require.Equal(t, ref, first.Activation.Proposal)
@@ -338,22 +338,22 @@ func TestServingCLIApplyResolvesDigestDryRunsActivatesAndReplays(t *testing.T) {
 
 	endpoints.err = errors.New("destination offline")
 	require.NoError(t, runServingWith(ctx, []string{string(commandApply), "--proposal-sha256", ref.SHA256}, dependencies))
-	replayed := output.(policyregistry.ActivationResult)
+	replayed := mustAs[policyregistry.ActivationResult](t, output)
 	require.True(t, replayed.Replayed, "the same proposal replays its original outcome without revalidating destinations")
 	require.Equal(t, 2, invalidations, "replay repairs a lost invalidation broadcast")
 	require.Equal(t, first.Activation.ID, replayed.Activation.ID)
 	require.Equal(t, 1, registry.writes)
 	require.NoError(t, runServingWith(ctx, []string{string(commandApply), "--dry-run", "--proposal", path}, dependencies))
-	reconciled := output.(policyregistry.PreparationResult)
+	reconciled := mustAs[policyregistry.PreparationResult](t, output)
 	require.False(t, reconciled.Prepared)
 	require.Equal(t, first.Activation.ID, reconciled.Activation.Activation.ID)
 
 	require.NoError(t, runServingWith(ctx, []string{string(commandStatus), "--proposal", path}, dependencies))
-	status := output.(policyregistry.ActivationResult)
+	status := mustAs[policyregistry.ActivationResult](t, output)
 	require.True(t, status.Replayed)
 	require.Equal(t, first.Activation.ID, status.Activation.ID)
 	require.NoError(t, runServingWith(ctx, []string{string(commandStatus), "--target", string(fixture.Target)}, dependencies))
-	require.Equal(t, first.Activation.ID, output.(policyregistry.ServingStateSnapshot).State.CurrentActivationID)
+	require.Equal(t, first.Activation.ID, mustAs[policyregistry.ServingStateSnapshot](t, output).State.CurrentActivationID)
 
 	pending := cliProposalFile(t, cliPublish(t, registry, policyregistry.ServingProposal, cliV2Proposal(registry, fixture, "run-2:lane-0")))
 	require.NoError(t, runServingWith(ctx, []string{string(commandStatus), "--proposal", pending}, dependencies))
@@ -374,7 +374,7 @@ func TestServingCLIApplyValidatesAndCommitsRollbackScopedProposals(t *testing.T)
 	dependencies := cliDependencies(registry, endpoints, &output, map[string]string{"USER": "local-operator"})
 	ctx := context.Background()
 	require.NoError(t, runServingWith(ctx, []string{string(commandApply), "--proposal", cliProposalFile(t, cliPublish(t, registry, policyregistry.ServingProposal, cliV2Proposal(registry, fixture, "run-1:lane-0")))}, dependencies))
-	first := output.(policyregistry.ActivationResult)
+	first := mustAs[policyregistry.ActivationResult](t, output)
 
 	rollback := cliV2Proposal(registry, fixture, "run-2:lane-0")
 	rollback.PreviousSelectionSet = &registry.selection
@@ -391,7 +391,7 @@ func TestServingCLIApplyValidatesAndCommitsRollbackScopedProposals(t *testing.T)
 	rollback.RequestID = "run-3:lane-0"
 	rollbackPath := cliProposalFile(t, cliPublish(t, registry, policyregistry.ServingProposal, rollback))
 	require.NoError(t, runServingWith(ctx, []string{string(commandApply), "--proposal", rollbackPath}, dependencies))
-	rolled := output.(policyregistry.ActivationResult)
+	rolled := mustAs[policyregistry.ActivationResult](t, output)
 	require.NotEqual(t, first.Activation.ID, rolled.Activation.ID)
 	require.Equal(t, "local-operator", rolled.Activation.WorkflowActor, "$USER is the fallback when no GitHub run is present")
 	require.Equal(t, rolled.Activation.ID, rolled.Snapshot.State.Activations[first.Activation.ID].ReplacementID)
@@ -400,9 +400,9 @@ func TestServingCLIApplyValidatesAndCommitsRollbackScopedProposals(t *testing.T)
 	require.Equal(t, 2, registry.writes)
 
 	require.NoError(t, runServingWith(ctx, []string{string(commandApply), "--proposal", rollbackPath}, dependencies))
-	require.True(t, output.(policyregistry.ActivationResult).Replayed)
+	require.True(t, mustAs[policyregistry.ActivationResult](t, output).Replayed)
 	require.NoError(t, runServingWith(ctx, []string{string(commandStatus), "--proposal", rollbackPath}, dependencies))
-	require.Equal(t, rolled.Activation.ID, output.(policyregistry.ActivationResult).Activation.ID, "status reconciles by proposal ref, not request ID")
+	require.Equal(t, rolled.Activation.ID, mustAs[policyregistry.ActivationResult](t, output).Activation.ID, "status reconciles by proposal ref, not request ID")
 	require.Equal(t, 2, registry.writes)
 }
 
@@ -424,7 +424,7 @@ func TestServingCLIApplyFloorsLegacySelectionSetsBeforeAnyWrite(t *testing.T) {
 
 	// The same proposal contents over the folded artifacts/ selection set activate normally.
 	require.NoError(t, runServingWith(ctx, []string{string(commandApply), "--proposal", cliProposalFile(t, cliPublish(t, registry, policyregistry.ServingProposal, cliV2Proposal(registry, proposal, "run-2:lane-0")))}, dependencies))
-	require.EqualValues(t, 1, output.(policyregistry.ActivationResult).Snapshot.Generation)
+	require.EqualValues(t, 1, mustAs[policyregistry.ActivationResult](t, output).Snapshot.Generation)
 	require.Equal(t, 1, registry.writes)
 }
 
@@ -447,7 +447,7 @@ func TestServingCLIApplyCommittedOutputFailureReconcilesThroughStatus(t *testing
 	require.Equal(t, 1, registry.writes)
 	failOutput = false
 	require.NoError(t, runServingWith(ctx, []string{string(commandStatus), "--proposal", path}, dependencies))
-	reconciled := output.(policyregistry.ActivationResult)
+	reconciled := mustAs[policyregistry.ActivationResult](t, output)
 	require.True(t, reconciled.Replayed)
 	require.Equal(t, "v2-operator", reconciled.Activation.WorkflowActor, "without a GitHub run or $USER the proposal operator is the executing identity")
 	require.Equal(t, policyregistry.ActivationCurrent, reconciled.Outcome)

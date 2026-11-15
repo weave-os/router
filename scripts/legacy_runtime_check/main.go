@@ -102,17 +102,24 @@ type policyFixture struct {
 	classifierURL string
 }
 
-func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, policy policyFixture, mode server.DeploymentMode) error {
+func reserveLocalPort() (int, error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		return err
+		return 0, err
 	}
 	addr, ok := listener.Addr().(*net.TCPAddr)
 	_ = listener.Close()
 	if !ok {
-		return fmt.Errorf("listener address is %T, not *net.TCPAddr", listener.Addr())
+		return 0, fmt.Errorf("listener address is %T, not *net.TCPAddr", listener.Addr())
 	}
-	port := addr.Port
+	return addr.Port, nil
+}
+
+func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, policy policyFixture, mode server.DeploymentMode) error {
+	port, err := reserveLocalPort()
+	if err != nil {
+		return err
+	}
 	logFile, err := os.CreateTemp("", "router-legacy-"+string(mode)+"-*.log")
 	if err != nil {
 		return err

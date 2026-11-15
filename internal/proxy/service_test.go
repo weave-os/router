@@ -1191,7 +1191,7 @@ func TestService_ProxyOpenAIChatCompletion_AnthropicCrossFormat(t *testing.T) {
 	require.Len(t, provider.proxyBodies, 1)
 	var translated map[string]any
 	require.NoError(t, json.Unmarshal(provider.proxyBodies[0], &translated))
-	assert.Equal(t, float64(100), translated["max_tokens"], "max_tokens preserved on translated body")
+	assert.InDelta(t, float64(100), translated["max_tokens"], 1e-9, "max_tokens preserved on translated body")
 	msgs, _ := translated["messages"].([]any)
 	require.Len(t, msgs, 1)
 

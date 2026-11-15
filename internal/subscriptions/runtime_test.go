@@ -11,12 +11,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var testOwner = auth.SubscriptionOwner{SubscriberID: "subscriber-1", APIKeyID: "key-1"}
@@ -417,10 +419,10 @@ func TestRuntimeCoalescesRefreshAndPersistsRotation(t *testing.T) {
 		go func() {
 			defer wait.Done()
 			lease, present, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderCodex, "session-1")
-			require.NoError(t, err)
-			require.True(t, present)
-			require.Equal(t, "access", lease.AccessToken)
-			require.Equal(t, "chatgpt-1", lease.ProviderAccount)
+			assert.NoError(t, err)
+			assert.True(t, present)
+			assert.Equal(t, "access", lease.AccessToken)
+			assert.Equal(t, "chatgpt-1", lease.ProviderAccount)
 			lease.Release()
 		}()
 	}
@@ -518,7 +520,7 @@ func TestRuntimeTakesOverExpiredRefreshLease(t *testing.T) {
 	store.refreshTokens["account-1"] = []byte("refresh-old")
 	store.leaseIDs["account-1"] = "expired-holder"
 	store.leaseUntil["account-1"] = time.Now().Add(-time.Second)
-	seedSustainedRejections(store, "account-1")
+	seedSustainedRejections(store)
 	var refreshes atomic.Int32
 	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
 		refreshes.Add(1)
@@ -565,7 +567,7 @@ func TestRuntimeDisablesAccountAfterSustainedRefreshRejections(t *testing.T) {
 		ExternalAccountID: "claude-1", Enabled: true,
 	})
 	store.refreshTokens["account-1"] = []byte("rejected")
-	seedSustainedRejections(store, "account-1")
+	seedSustainedRejections(store)
 	refresher := runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
 		return subscriptions.RefreshedToken{}, &subscriptions.OAuthRefreshError{Provider: subscriptions.ProviderClaude, Status: 401}
 	})
@@ -598,7 +600,7 @@ func TestRuntimePreservesTerminalClassificationWhenStatePersistenceFails(t *test
 		ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
 	})
 	store.refreshTokens["account-1"] = []byte("refresh-secret")
-	seedSustainedRejections(store, "account-1")
+	seedSustainedRejections(store)
 	store.stateErr = errors.New("database unavailable")
 	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
 		return subscriptions.RefreshedToken{}, &subscriptions.OAuthRefreshError{Provider: subscriptions.ProviderClaude, Status: 401}
@@ -976,7 +978,7 @@ func TestRuntimeTakeoverTerminalRefreshDoesNotDisable(t *testing.T) {
 	store.refreshTokens["account-1"] = []byte("refresh-spent")
 	store.leaseIDs["account-1"] = "crashed-holder"
 	store.leaseUntil["account-1"] = time.Now().Add(-time.Second)
-	seedSustainedRejections(store, "account-1")
+	seedSustainedRejections(store)
 	var refreshes atomic.Int32
 	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
 		refreshes.Add(1)
@@ -1004,7 +1006,7 @@ func TestRuntimeTakeoverTerminalRefreshAdoptsWinnerOnRetry(t *testing.T) {
 	store.refreshTokens["account-1"] = []byte("refresh-spent")
 	store.leaseIDs["account-1"] = "slow-holder"
 	store.leaseUntil["account-1"] = time.Now().Add(-time.Second)
-	seedSustainedRejections(store, "account-1")
+	seedSustainedRejections(store)
 	var refreshes atomic.Int32
 	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
 		refreshes.Add(1)

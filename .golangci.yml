@@ -9,7 +9,15 @@ linters:
     - depguard
     - dupl
     - errorlint
+    - forcetypeassert
+    - testifylint
+    - unparam
   settings:
+    testifylint:
+      enable-all: true
+      disable:
+        # translate tests assert byte-exact JSON output; JSONEq would hide key order and whitespace changes.
+        - encoded-compare
     dupl:
       threshold: 100
     errorlint:

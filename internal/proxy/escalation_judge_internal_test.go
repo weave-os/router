@@ -6,10 +6,6 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -17,6 +13,11 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/llmescalation"
 	"weave-os/router/internal/router/policy"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 func TestEscalationJudgmentKeepsUsageOnInvalidVerdict(t *testing.T) {
@@ -41,7 +42,7 @@ func TestEscalationJudgmentPrefersProviderReportedCost(t *testing.T) {
 	require.NoError(t, err)
 	judgment, err := parseEscalationJudgment(encoded)
 	require.NoError(t, err)
-	assert.Equal(t, 0.123, judgment.CostUSD)
+	assert.InDelta(t, 0.123, judgment.CostUSD, 1e-9)
 	assert.Equal(t, llmescalation.CostSourceProviderReported, judgment.CostSource)
 }
 

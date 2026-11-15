@@ -61,7 +61,7 @@ func TestApplyForceClusterHeader_RejectsNonSidecarStrategy(t *testing.T) {
 	label, err := applyForceClusterHeader(ctx, forceClusterRequest(t, "maximum"))
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrForcedClusterUnsupportedStrategy)
+	require.ErrorIs(t, err, ErrForcedClusterUnsupportedStrategy)
 	assert.Empty(t, label)
 
 	cls, ok := ClassifyDispatchError(err)

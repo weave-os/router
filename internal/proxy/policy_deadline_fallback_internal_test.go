@@ -216,7 +216,7 @@ func TestTurnLoop_DeadlineFallbackDefaultExcludedFailsClosed(t *testing.T) {
 	_, err := runPolicyDeadlineFallbackTurnLoop(t, svc, strategy, defaultModel)
 
 	require.Error(t, err, "an excluded tier-3 default must fail closed, not be served")
-	assert.ErrorIs(t, err, hmm.ErrHMMUnavailable)
+	require.ErrorIs(t, err, hmm.ErrHMMUnavailable)
 
 	store.mu.Lock()
 	upserts := append([]sessionpin.Pin(nil), store.upserts...)
