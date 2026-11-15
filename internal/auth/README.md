@@ -28,7 +28,9 @@ subscription serving in [SUBSCRIPTION_ROUTING.md](../../docs/SUBSCRIPTION_ROUTIN
   backend's `weaverouter` crypto helper; `TestAADFor_GoldenBytes` pins it.
 - Derived credentials (key-pair JWTs, WIF, Entra, Anthropic federation) are set
   on a copy, so the cached stored secret is never overwritten. A key whose
-  credential cannot be derived is dropped, never sent as stored.
+  credential cannot be derived is never sent as stored: it is dropped, except
+  an Anthropic federation key, which stays with `CredentialError` set so the
+  turn cannot fall back to deployment credentials.
 - Key-pair JWTs backdate `iat` by 30s and cap the signed window under the
   upstream one-hour limit. The issuer binds the public-key fingerprint, so a
   rotated key stops validating at once.
@@ -38,9 +40,11 @@ subscription serving in [SUBSCRIPTION_ROUTING.md](../../docs/SUBSCRIPTION_ROUTIN
 - Positive API-key entries live 5 minutes, negative ones shorter so a new key is
   not refused for long. Deleting a key or changing installation settings
   invalidates the installation on every replica.
-- A record is cached only when it was loaded with its BYOK keys and its cluster
-  model lists loaded cleanly; otherwise a transient miss would strip keys or
-  restrictions for the whole TTL.
+- A record is cached only when it was loaded for inference (`VerifyAPIKey`, not
+  `VerifyPlatformAPIKey`) and its cluster model lists loaded cleanly, so a
+  platform lookup or a transient list miss cannot strip keys or restrictions for
+  the whole TTL. A failed BYOK key fetch is only logged; that record is still
+  cached with no BYOK keys.
 - `LRUAPIKeyCache` and `LRUUserClusterListCache` index entries by installation.
   The LRU eviction callback takes the index mutex, so `Set` cannot hold it
   across the LRU insert; an invalidation generation drops an entry inserted
