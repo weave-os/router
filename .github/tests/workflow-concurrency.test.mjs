@@ -8,10 +8,10 @@ const workflowsDir = new URL("../workflows/", import.meta.url);
 // context lookups, string/boolean literals, ==, !=, &&, || and parentheses.
 function evaluate(expression, context) {
   const tokens = [];
-  const token = /\s*('(?:[^']|'')*'|==|!=|&&|\|\||[()]|[A-Za-z_][\w.-]*)\s*/y;
-  while (token.lastIndex < expression.length) {
-    const start = token.lastIndex;
-    const match = token.exec(expression);
+  const tokenPattern = /\s*('(?:[^']|'')*'|==|!=|&&|\|\||[()]|[A-Za-z_][\w.-]*)\s*/y;
+  while (tokenPattern.lastIndex < expression.length) {
+    const start = tokenPattern.lastIndex;
+    const match = tokenPattern.exec(expression);
     assert.ok(match, `unsupported syntax at ${JSON.stringify(expression.slice(start))} in ${expression}`);
     tokens.push(match[1]);
   }
