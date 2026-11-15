@@ -117,3 +117,32 @@ func TestEnabledProviders_MatchesEligibility(t *testing.T) {
 	assert.Equal(t, want, b.EnabledProviders(req))
 	assert.Equal(t, want, b.Eligibility(context.Background(), req).EnabledProviders)
 }
+
+func bearerHeaders(token string) http.Header {
+	h := http.Header{}
+	h.Set("Authorization", "Bearer "+token)
+	return h
+}
+
+func TestUsesNonDeploymentCreds_AnyClientCredentialKeepsDeploymentSideCallsOff(t *testing.T) {
+	b := credentials.Brokerage{}
+	assert.True(t, b.UsesNonDeploymentCreds(nil, bearerHeaders("client-openai-compat-key")),
+		"a client bearer for any provider must skip the deployment-keyed handover summarizer")
+	assert.True(t, b.UsesNonDeploymentCreds(nil, apiKeyHeaders("sk-ant-api-client")))
+	assert.True(t, b.UsesNonDeploymentCreds([]*auth.ExternalAPIKey{{Provider: providers.ProviderOpenAI, Plaintext: []byte("byok")}}, http.Header{}))
+	assert.True(t, credentials.Brokerage{BYOKOnly: true}.UsesNonDeploymentCreds(nil, http.Header{}))
+	assert.False(t, b.UsesNonDeploymentCreds(nil, http.Header{}))
+}
+
+func TestEligibility_ClaudeSubscriptionBearerEnrollsAnthropicOnRouterKeyedRequests(t *testing.T) {
+	b := credentials.Brokerage{KeyedProviders: set()}
+	got := b.Eligibility(context.Background(), credentials.EligibilityRequest{
+		RouterKeyAuthed: true, Headers: bearerHeaders("sk-ant-oat01-client"),
+	})
+	assert.Equal(t, set(providers.ProviderAnthropic), got.EnabledProviders)
+
+	got = b.Eligibility(context.Background(), credentials.EligibilityRequest{
+		RouterKeyAuthed: true, SurfaceProvider: providers.ProviderAnthropic, Headers: bearerHeaders("sk-ant-api03-client"),
+	})
+	assert.Empty(t, got.EnabledProviders, "a plain API key never enrolls a provider on the router-key path")
+}

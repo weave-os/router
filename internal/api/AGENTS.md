@@ -11,7 +11,7 @@ Presentation layer. Handlers adapt HTTP ↔ Service. Read [root CLAUDE.md](../..
 - `openai/` — OpenAI Chat Completions (`/v1/chat/completions`)
 - `gemini/` — Gemini native (`/v1beta/models/:modelAction`)
 - `analytics/` — read-only routing-decision export (`/v1/analytics/routing-decisions`, `/models`, `/schema`). Authed by `ra_` analytics keys via `middleware.WithAnalyticsKey` **only** — no `WithAuth`, no balance check, no spend cap, since nothing here can route or spend.
-- `feedback/` — no-login feedback-link surface (`/f/<token>`, rating submit). The token itself (signed via [`internal/feedback`](../feedback)) is the sole credential, so this is the one subpackage that **deliberately carries no auth middleware** — do not add `WithAuth`/`WithAdminOnly` here; that would break the whole point of a shareable no-login link.
+- `feedback/` — no-login feedback-link surface (`/f/<token>`, rating submit). The token itself (signed via [`internal/feedback`](../feedback)) is the sole credential, so this is the one subpackage that **deliberately carries no auth middleware** — do not add `WithAuth`/`WithAdminOnly` here; that would break the whole point of a shareable no-login link. The one-click `GET /v1/feedback/rate?t=<token>&r=up|down` footer link records the rating straight from the GET; link prefetchers can trigger it, which is accepted because the token is unguessable and per-request, so the blast radius is that request's own rating.
 
 ## Import rules
 
