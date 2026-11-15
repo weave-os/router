@@ -152,9 +152,9 @@ func (s *Service) handleStruggleShadow(
 			SessionEverSwitched: sessionEverSwitched,
 			EstInputTokens:      int32(estInputTokens),
 		}
-		// context.Background(): the request ctx may already be canceled; losing
+		// context.WithoutCancel: the request ctx may already be canceled; losing
 		// the row would skew the shadow fire-rate corpus.
-		if err := s.struggleShadowStore.InsertStruggleShadowEvent(context.Background(), event); err != nil {
+		if err := s.struggleShadowStore.InsertStruggleShadowEvent(context.WithoutCancel(ctx), event); err != nil {
 			log.Error("struggle-shadow: event insert failed", "err", err)
 			return // leave the LRU unset so the next turn retries
 		}

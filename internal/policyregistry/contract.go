@@ -78,6 +78,7 @@ func (c ClassifierIdentity) validateVariants() error {
 			if err != nil || endpoint.Scheme != "https" || !strings.HasSuffix(endpoint.Hostname(), ".modal.run") || endpoint.User != nil || endpoint.Port() != "" || endpoint.Path != "" && endpoint.Path != "/" || endpoint.RawQuery != "" || endpoint.Fragment != "" || strings.TrimSpace(artifact.Audience) == "" || artifact.ServingRevision != "" && !validDigest(artifact.ServingRevision) {
 				return fmt.Errorf("invalid alternate Qwen classifier")
 			}
+		default:
 		}
 	}
 	return nil

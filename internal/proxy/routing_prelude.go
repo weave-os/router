@@ -109,6 +109,7 @@ func addRoutingFundingSource(ctx context.Context, provider, model string, notice
 		return setFundingSource(notice, "Weave Router allowance")
 	case entitlement.CapacitySourceBillingOverride:
 		return setFundingSource(notice, "Weave-managed billing")
+	case entitlement.CapacitySourceLinkedClaude, entitlement.CapacitySourceLinkedCodex:
 	}
 	if billing.OrganizationPrepaidFromContext(ctx) {
 		return setFundingSource(notice, "Weave credits")

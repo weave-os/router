@@ -40,6 +40,7 @@ func (e *RequestEnvelope) TranslationRequirements(endpoint router.TranslationEnd
 		req.StructuredOutput = gjson.GetBytes(e.body, "generationConfig.responseSchema").Exists()
 		req.CitationsOrSearch = len(e.NativeServerTools()) > 0
 		req.Audio, req.Files = geminiMediaRequirements(e.body)
+	case FormatOpenAIResponses:
 	}
 	return req
 }

@@ -52,7 +52,7 @@ func ReadAnthropicIdentityToken(ctx context.Context, path string) (string, error
 	if err != nil {
 		return "", fmt.Errorf("open OIDC token file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	const maxIdentityFileBytes = 64 * 1024
 	raw, err := io.ReadAll(io.LimitReader(file, maxIdentityFileBytes+1))
 	if err != nil {

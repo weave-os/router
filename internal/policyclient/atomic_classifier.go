@@ -62,7 +62,7 @@ func (c *AtomicClassifier) Classify(ctx context.Context, input router.AtomicClas
 	if err != nil {
 		return router.ClassifierPrediction{}, fmt.Errorf("classifier transport: %w: %w", err, router.ErrClassifierUnavailable)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode == http.StatusRequestEntityTooLarge {
 		return router.ClassifierPrediction{}, router.ErrClassifierInputTooLong
 	}
