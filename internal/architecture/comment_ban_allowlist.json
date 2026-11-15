@@ -138,10 +138,6 @@
       "banned_lines": 537
     },
     {
-      "package": "internal/router/llmescalation",
-      "banned_lines": 3
-    },
-    {
       "package": "internal/router/percallband",
       "banned_lines": 114
     },
