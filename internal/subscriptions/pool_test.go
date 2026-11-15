@@ -1,13 +1,16 @@
 package subscriptions_test
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions"
 
@@ -234,10 +237,12 @@ func TestPoolPanickingRefresherReleasesWaitingLeases(t *testing.T) {
 		<-unblock
 		panic("synthetic-refresh-token")
 	}
+	var logs bytes.Buffer
+	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&logs, nil)))
 	errs := make(chan error, 2)
 	for range 2 {
 		go func() {
-			_, _, err := p.Lease(context.Background(), subscriptions.ProviderClaude, "", refresh)
+			_, _, err := p.Lease(ctx, subscriptions.ProviderClaude, "", refresh)
 			errs <- err
 		}()
 	}
@@ -252,4 +257,6 @@ func TestPoolPanickingRefresherReleasesWaitingLeases(t *testing.T) {
 			t.Fatal("a panicking refresher left a lease waiting")
 		}
 	}
+	assert.Contains(t, logs.String(), "Subscription refresh panicked")
+	assert.NotContains(t, logs.String(), "synthetic-refresh-token")
 }
