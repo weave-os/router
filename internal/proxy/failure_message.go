@@ -92,6 +92,9 @@ func failureWordingFor(a dispatch.TracedAttempt) failureWording {
 	if providers.IsUpstreamCyberPolicyRefusal(a.Err) {
 		return failureWording{"declined the request", "declined the request"}
 	}
+	if errors.Is(a.Err, ErrSubscriptionPoolExhausted) && (status == http.StatusUnauthorized || status == http.StatusForbidden) {
+		return failureWording{"rejected the subscription login", "subscription login rejected"}
+	}
 	if errors.Is(a.Err, ErrSubscriptionPoolExhausted) {
 		return failureWording{"had no subscription capacity", "subscription capacity exhausted"}
 	}

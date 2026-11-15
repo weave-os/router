@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -166,6 +167,11 @@ func TestRouterOwnedFailureWording(t *testing.T) {
 		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(TurnErrorOther), FailureOwner: string(FailureOwnerRouter)}}
 	assert.Equal(t, "↳ switched: Anthropic had no subscription capacity (router issue)\n\n", rescueDetailLine(pool))
 	assert.Equal(t, "Router error: Anthropic subscription capacity exhausted.", terminalMessageFor(pool))
+
+	rejected := dispatch.TracedAttempt{Target: inference.Target{Provider: providers.ProviderOpenAI},
+		Err:       errors.Join(ErrSubscriptionPoolExhausted, &providers.UpstreamErrorResponse{Status: http.StatusUnauthorized}),
+		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(TurnErrorOther), FailureOwner: string(FailureOwnerRouter)}}
+	assert.Equal(t, "↳ switched: OpenAI rejected the subscription login (router issue)\n\n", rescueDetailLine(rejected))
 
 }
 
