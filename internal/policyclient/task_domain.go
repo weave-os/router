@@ -19,7 +19,6 @@ import (
 
 var taskDomainOutput = regexp.MustCompile(`^[01](,[01]){4}$`)
 
-// TaskDomainClassifier calls an authenticated, immutable five-bit Qwen release.
 type TaskDomainClassifier struct {
 	endpoint      string
 	bearer        string
@@ -27,7 +26,6 @@ type TaskDomainClassifier struct {
 	client        *http.Client
 }
 
-// NewTaskDomainClassifier forbids redirects and request-selected endpoints or models.
 func NewTaskDomainClassifier(endpoint, bearer, releaseSHA256 string, client *http.Client) (*TaskDomainClassifier, error) {
 	parsed, err := url.Parse(endpoint)
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") || len(bearer) < 32 || strings.ContainsAny(bearer, "\r\n") || !taskdomain.ValidDigest(releaseSHA256) {
@@ -40,7 +38,6 @@ func NewTaskDomainClassifier(endpoint, bearer, releaseSHA256 string, client *htt
 	return &TaskDomainClassifier{endpoint: strings.TrimRight(endpoint, "/") + "/classify", bearer: bearer, releaseSHA256: releaseSHA256, client: &http.Client{Transport: transport, Timeout: taskdomain.Timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 
-// Classify validates the release identity and exact output grammar on every call.
 func (c *TaskDomainClassifier) Classify(ctx context.Context, userText string) (taskdomain.Profile, error) {
 	if userText == "" || len(userText) > taskdomain.MaxInputBytes {
 		return nil, errors.New("invalid task classifier input size")

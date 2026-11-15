@@ -15,6 +15,7 @@ This page is the exhaustive reference; the [README](../README.md) has the
 - [Server](#server)
 - [Managed serving (`ROUTER_SERVING_*`)](#managed-serving-router_serving_)
 - [Routing](#routing)
+- [Per-organization flag overrides](#per-organization-flag-overrides)
 - [Plan-aware subscription routing](#plan-aware-subscription-routing)
 - [Provider and model exclusions](#provider-and-model-exclusions)
 - [Policy sidecars](#policy-sidecars)
@@ -689,6 +690,25 @@ turn was already served by one of these models.
 the installation's flag overrides (no environment variable), default `false`. When on, authoritative per-turn selection
 scores only the first call after a user message; that turn's tool-result calls
 reuse the session pin unless escalation constrains the request.
+
+## Per-organization flag overrides
+
+`internal/flags` layers a sparse per-organization override on top of each
+behavioral flag's deployment default, so a flag can be piloted or disabled for
+one installation without a global rollout. Precedence at a read site is header
+override, then organization override, then deployment default.
+
+- A flag `Key` is the JSON object key in the installation's `flag_overrides`
+  column and the primary key in `router.flag_definitions`; renaming one orphans
+  existing overrides.
+- A retired key stays parse-only, so an installation row written by an older
+  revision cannot invalidate unrelated overrides during a rolling deploy. It is
+  never registered, published, or read by routing code.
+- `flags.RegistryVersion` changes whenever registry membership changes. Publish
+  uses it so a revision with an older registry cannot prune definitions
+  published by a newer one.
+- `hmm_tool_result_hold` is an eval control owned by router policy: promote or
+  remove it after the escalation benchmark comparison.
 
 ## Plan-aware subscription routing
 

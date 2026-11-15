@@ -27,18 +27,11 @@ const (
 	defaultTokenLifetime  = time.Hour
 	maxTokenResponseBytes = 1 << 20
 
-	// RefreshHTTPTimeout bounds one provider token exchange. It must stay below
-	// the cross-replica refresh lease TTL so a live holder always finishes or
-	// fails before its lease could be taken over.
 	RefreshHTTPTimeout = 15 * time.Second
 
-	// tokenUserAgent identifies the router on provider token endpoints. Both
-	// issuers rate-limit generic client user agents, so refresh must not rely on
-	// the transport default.
 	tokenUserAgent = "weave-router/1.0"
 )
 
-// RefreshedToken is the provider response needed to serve a subscription turn.
 type RefreshedToken struct {
 	AccessToken  string
 	RefreshToken string
@@ -47,10 +40,6 @@ type RefreshedToken struct {
 	ExpiresAt    time.Time
 }
 
-// ClaudeExternalAccountID returns the stable identity used to deduplicate a
-// Claude account within one organization. Claude account UUIDs can belong to
-// multiple organizations, and each organization has its own subscription
-// entitlement and refresh credential.
 func ClaudeExternalAccountID(accountUUID, organizationUUID string) string {
 	account, accountErr := uuid.Parse(accountUUID)
 	organization, organizationErr := uuid.Parse(organizationUUID)
@@ -60,12 +49,10 @@ func ClaudeExternalAccountID(accountUUID, organizationUUID string) string {
 	return account.String() + ":" + organization.String()
 }
 
-// TokenRefresher exchanges provider refresh tokens for short-lived access tokens.
 type TokenRefresher interface {
 	Refresh(context.Context, Provider, string) (RefreshedToken, error)
 }
 
-// OAuthClient refreshes Claude and Codex subscription credentials.
 type OAuthClient struct {
 	httpClient         *http.Client
 	codexTokenURL      string
@@ -74,8 +61,6 @@ type OAuthClient struct {
 	now                func() time.Time
 }
 
-// NewOAuthClient constructs the provider token client. Empty URLs select the
-// public provider endpoints; explicit URLs support self-hosted tests.
 func NewOAuthClient(httpClient *http.Client, codexTokenURL, claudeTokenURL string, now func() time.Time) *OAuthClient {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
@@ -93,8 +78,6 @@ func NewOAuthClient(httpClient *http.Client, codexTokenURL, claudeTokenURL strin
 	return &OAuthClient{httpClient: httpClient, codexTokenURL: codexTokenURL, claudeTokenURL: claudeTokenURL, claudeAuthorizeURL: DefaultClaudeAuthorizeURL, now: now}
 }
 
-// OAuthRefreshError classifies provider token failures without retaining a
-// response body that could contain credential material.
 type OAuthRefreshError struct {
 	Provider  Provider
 	Status    int
@@ -114,7 +97,6 @@ func (e *OAuthRefreshError) Error() string {
 	return message
 }
 
-// Provider descriptions may echo credentials. Retain only bounded machine identifiers.
 func oauthErrorDetails(body []byte) (code, errorType string) {
 	var envelope struct {
 		Error json.RawMessage `json:"error"`
@@ -161,7 +143,6 @@ func oauthProviderRequestID(headers http.Header) string {
 	return ""
 }
 
-// Terminal reports whether retrying the same refresh token is unsafe or futile.
 func (e *OAuthRefreshError) Terminal() bool {
 	return e.Status == http.StatusBadRequest || e.Status == http.StatusUnauthorized || e.Status == http.StatusForbidden
 }
@@ -327,8 +308,6 @@ func accountIDFromJWT(token string) string {
 	return ""
 }
 
-// VerifyCodexEnrollment derives identity from the provider HTTPS token exchange,
-// never from enrollment labels or client-supplied JWT claims.
 func (c *OAuthClient) VerifyCodexEnrollment(ctx context.Context, workspaceID string, refreshToken []byte) (auth.VerifiedCodexEnrollment, error) {
 	token, err := c.Refresh(ctx, ProviderCodex, string(refreshToken))
 	if err != nil {
