@@ -408,3 +408,40 @@ func TestResponsesWriter_WithoutCodexMappingsPreservesLegacyFunctionShape(t *tes
 		assert.False(t, hasNamespace, "non-Codex translated Responses output must retain its legacy shape")
 	}
 }
+
+// Anthropic streams no input_json_delta when max_tokens lands inside a
+// tool_use block, so the call surfaces with its `{}` placeholder and a
+// length finish; that is a truncation, not a malformed call.
+func TestResponsesWriter_CustomToolCutOffByOutputLimitIsTruncation(t *testing.T) {
+	w := translate.NewResponsesWriter(httptest.NewRecorder(), "synthetic-model")
+	w.SetToolMappings(customExecToolMappings(t))
+	require.NoError(t, w.Prelude(true))
+	_, err := w.Write(customExecToolChunk(t, `{}`, true, "length"))
+	if err == nil {
+		err = w.Finalize()
+	}
+	require.ErrorIs(t, err, translate.ErrToolCallTruncated)
+	require.ErrorIs(t, err, translate.ErrCustomToolArguments)
+}
+
+func TestResponsesWriter_NonStreamingCustomToolCutOffByOutputLimitIsTruncation(t *testing.T) {
+	w := translate.NewResponsesWriter(httptest.NewRecorder(), "synthetic-model")
+	w.SetToolMappings(customExecToolMappings(t))
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	raw, err := json.Marshal(map[string]any{
+		"choices": []any{map[string]any{
+			"finish_reason": "length",
+			"message": map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{
+				"id": "call_exec", "type": "function",
+				"function": map[string]any{"name": "exec", "arguments": "{}"},
+			}}},
+		}},
+	})
+	require.NoError(t, err)
+	_, err = w.Write(raw)
+	require.NoError(t, err)
+	err = w.Finalize()
+	require.ErrorIs(t, err, translate.ErrToolCallTruncated)
+	require.ErrorIs(t, err, translate.ErrCustomToolArguments)
+}

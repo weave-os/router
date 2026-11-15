@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/sse"
@@ -19,7 +20,7 @@ func TestResponseWritersEscapeHTMLWithoutChangingJSON(t *testing.T) {
 		"capture":  func(w http.ResponseWriter) http.ResponseWriter { return newCaptureWriter(w, 4096) },
 		"prelude":  func(w http.ResponseWriter) http.ResponseWriter { b := newPreludeBuffer(w); b.Seal(); return b },
 		"refusal":  func(w http.ResponseWriter) http.ResponseWriter { return newRefusalObserver(w) },
-		"terminal": func(w http.ResponseWriter) http.ResponseWriter { return newResponsesTerminalObserver(w) },
+		"terminal": func(w http.ResponseWriter) http.ResponseWriter { return ingress.NewResponsesTerminalObserver(w) },
 		"cost":     func(w http.ResponseWriter) http.ResponseWriter { return newStreamCostWriter(w) },
 		"usage": func(w http.ResponseWriter) http.ResponseWriter {
 			return otel.NewUsageExtractor(w, providers.ProviderOpenAI)

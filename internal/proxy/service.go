@@ -18,10 +18,12 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
@@ -41,6 +43,7 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/sessionstrategy"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/sse"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -166,36 +169,21 @@ type Service struct {
 	captureMaxBytes int
 	// redactor scrubs captured content before export. Nil passes through.
 	redactor Redactor
-	// byokOnly disables deployment-level credential fallback so customer
-	// requests never silently consume the platform's API key budget.
-	byokOnly bool
 	// gatewayCaps memoizes gateway endpoints that rejected the Responses API
 	// or prompt_cache_key. Keyed by gatewayResponsesKey.
 	gatewayCaps dispatch.GatewayCapabilities
 	// unservedGatewayModels memos (endpoint, model) pairs a gateway answered
 	// model-not-found for. Keyed by gatewayModelKey.
 	unservedGatewayModels sync.Map
-	// excludedModelsOverride, when non-nil, replaces the per-installation
-	// exclusion list on every request. Set from ROUTER_EXCLUDED_MODELS at boot.
-	excludedModelsOverride map[string]struct{}
-	// excludedProvidersOverride, when non-nil, replaces the per-installation
-	// provider exclusion list on every request. Set from
-	// ROUTER_EXCLUDED_PROVIDERS at boot.
-	excludedProvidersOverride map[string]struct{}
+	routing               *routingpolicy.Policy
 	// globalAutomaticExclusions caches the deployment-wide models the control
 	// plane withdrew from automatic routing. Nil leaves every model automatically
 	// selectable.
 	globalAutomaticExclusions *globalAutomaticExclusionCache
-	// deploymentKeyedProviders is the subset of registered providers whose
-	// upstream API key is configured at the deployment level. When nil, all
-	// registered providers are treated as deployment-keyed (legacy behavior).
-	deploymentKeyedProviders map[string]struct{}
-	// passthroughEligibleProviders is the subset of registered providers
-	// reachable via client-supplied auth headers (no deployment key, no
-	// BYOK). Surface-scoped: only enabled when the inbound surface matches,
-	// otherwise an Anthropic-surface `x-api-key` could forward to
-	// api.openai.com (and vice versa) — a cross-provider credential leak.
-	passthroughEligibleProviders map[string]struct{}
+	// credentials is the deployment's Credential Brokerage configuration. A nil
+	// KeyedProviders means legacy all-keyed; PassthroughEligible is
+	// surface-scoped so one vendor's client key never reaches another vendor's API.
+	credentials credentials.Brokerage
 	// planner parameterizes the Prism-style EV policy for stay-vs-switch.
 	planner planner.EVConfig
 	// hmmUpgradeConfidenceThreshold is the minimum classifier confidence needed
@@ -305,9 +293,8 @@ type Service struct {
 	// 529 circuit registry. See ResolveProviderOverloaded.
 	providerOverloaded bool
 	overloadBreaker    *breaker.Registry
-	// sseKeepalive is the client-silence budget before a ping is injected
-	// (ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS; 0 disables). See sse.KeepaliveWriter.
-	sseKeepalive time.Duration
+	// ingress holds the client wire-format adapters and the keepalive budget.
+	ingress ingress.Formats
 	// cyberRefusalFallbackModel is the model to re-pin to on a cyber refusal
 	// when the session pin carries no runner-up (PairedModel). Set from
 	// ROUTER_CYBER_REFUSAL_FALLBACK_MODEL; defaults to claude-sonnet-5.
@@ -1161,29 +1148,6 @@ func routingKnobsForRequest(ctx context.Context) *router.Overrides {
 	return nil
 }
 
-// safetyExcludedModels returns the hard request-time safety exclusion set
-// (context-overflow + image-limit + gemini-unsigned-history + advisor pairing). It re-runs the filters
-// against an EMPTY base — the routing-path filters skip models already in
-// excluded_models, so a policy-excluded overflow model would be absent from
-// those lists yet must still block bypass (it would 400 on the subscription).
-// Returns nil when neither filter fires.
-func (s *Service) safetyExcludedModels(env *translate.RequestEnvelope, outputReserve int, enabledProviders map[string]struct{}, customBindings map[string][]string) map[string]struct{} {
-	_, overflowed := excludeContextOverflowModels(env.ContextOverflowTokenEstimate(), env.SignatureTokenSavings(), outputReserve, enabledProviders, nil, s.availableModels)
-	_, imageLimited := excludeImageLimitModels(env.ImageCount(), enabledProviders, customBindings, nil, s.availableModels)
-	_, geminiUnsigned := excludeGemini3xOnUnsignedHistory(env, nil, s.availableModels)
-	_, advisorOutranking := excludeAdvisorOutrankingModels(env, nil, s.routableUniverse())
-	if len(overflowed) == 0 && len(imageLimited) == 0 && len(geminiUnsigned) == 0 && len(advisorOutranking) == 0 {
-		return nil
-	}
-	out := make(map[string]struct{}, len(overflowed)+len(imageLimited)+len(geminiUnsigned)+len(advisorOutranking))
-	for _, models := range [][]string{overflowed, imageLimited, geminiUnsigned, advisorOutranking} {
-		for _, m := range models {
-			out[m] = struct{}{}
-		}
-	}
-	return out
-}
-
 // excludedModelsForRequest returns the request's model exclusion set.
 // Env override wins (intentional escape hatch, not an oversight).
 // Otherwise desugars the positive allowlists into the exclusion set: every
@@ -1204,8 +1168,8 @@ func (s *Service) excludedModelsFor(ctx context.Context, allowed map[string]stru
 	// product boundary is what the caller bought, so no installation-side
 	// override may widen it back out.
 	ineligible := s.productIneligibleModels(ctx)
-	if s.excludedModelsOverride != nil {
-		return mergeExcludedModels(s.excludedModelsOverride, ineligible)
+	if override := s.routing.ExcludedModelsOverride(); override != nil {
+		return mergeExcludedModels(override, ineligible)
 	}
 	// Plan-owned serving drops the installation's positive routing controls,
 	// but an explicit exclusion is the customer's hard opt-out and always applies.
@@ -1295,40 +1259,8 @@ func sessionCooldownModelsFromContext(ctx context.Context) map[string]time.Time 
 	return out
 }
 
-// policyExcludedProviders returns configured exclusions only. Session
-// strike-outs are omitted — transient 529 evidence must not veto a force
-// the operator permits.
-func (s *Service) policyExcludedProviders(ctx context.Context) map[string]struct{} {
-	if s.excludedProvidersOverride != nil {
-		return s.excludedProvidersOverride
-	}
-	excluded := installationExcludedProvidersFromContext(ctx)
-	if len(excluded) == 0 {
-		return nil
-	}
-	out := make(map[string]struct{}, len(excluded))
-	for _, p := range excluded {
-		out[p] = struct{}{}
-	}
-	return out
-}
-
-// excludedProvidersForRequest merges the deployment/installation exclusion list
-// with any providers this session has struck out for repeated 529 exhaustion.
 func (s *Service) excludedProvidersForRequest(ctx context.Context) map[string]struct{} {
-	base := s.policyExcludedProviders(ctx)
-	sessionDisabled := sessionDisabledProvidersFromContext(ctx)
-	if len(sessionDisabled) == 0 {
-		return base
-	}
-	out := make(map[string]struct{}, len(base))
-	for p := range base {
-		out[p] = struct{}{}
-	}
-	for _, p := range sessionDisabled {
-		out[p] = struct{}{}
-	}
-	return out
+	return s.credentials.ExcludedProviders(installationExcludedProvidersFromContext(ctx), sessionDisabledProvidersFromContext(ctx))
 }
 
 // installationPreferredModelsFromContext returns the per-installation model
@@ -1437,241 +1369,6 @@ const extendedContextTriggerTokens = 140_000
 // ÷5 undercount can't let a genuinely-near-200K request slip through.
 func shouldEnableExtendedContext(est, outputReserve int) bool {
 	return est+outputReserve > extendedContextTriggerTokens
-}
-
-// contextWindowForRequest returns the effective context window for a model.
-// CapExtendedContext models (Opus 4.6+, Sonnet 4.6) always report 1M since the
-// proxy unconditionally injects the context-1m beta for them — gating on the
-// client's beta header or the token estimate instead would let a large
-// request slip onto 200K and overflow on the first turn.
-func contextWindowForRequest(modelID string, provider ...string) int {
-	if router.Lookup(modelID).Supports(router.CapExtendedContext) {
-		return 1_000_000
-	}
-	if len(provider) > 0 && provider[0] != "" {
-		return catalog.ContextWindowForBinding(modelID, provider[0])
-	}
-	return catalog.ContextWindowFor(modelID)
-}
-
-// minContextWindowForModel returns the smallest context window any enabled
-// binding can serve. Uses MIN because the primary binding dispatches first —
-// a 512K primary blocks even when a 1M fallback exists. Nil enabledProviders
-// falls back to the model-level window.
-func minContextWindowForModel(model string, enabledProviders map[string]struct{}) int {
-	cw := contextWindowForRequest(model)
-	if len(enabledProviders) == 0 {
-		return cw
-	}
-	m, ok := catalog.ByID(model)
-	if !ok || len(m.Providers) == 0 {
-		return cw
-	}
-	for _, b := range catalog.RoutableBindings(m) {
-		if _, enabled := enabledProviders[b.Provider]; !enabled {
-			continue
-		}
-		if w := contextWindowForRequest(model, b.Provider); w < cw {
-			cw = w
-		}
-	}
-	return cw
-}
-
-// modelStripsAnthropicSignatures reports whether dispatching to model drops
-// the Anthropic-only thought-signature blocks (every non-Anthropic-family
-// target does). Lets the overflow check discount those bytes for stripping
-// targets while counting them for Anthropic passthrough. Unknown models
-// default to "keeps" (the conservative side).
-func modelStripsAnthropicSignatures(model string) bool {
-	m, ok := catalog.ByID(model)
-	if !ok {
-		return false
-	}
-	return providers.FamilyFor(m.PrimaryProvider()) != providers.FamilyAnthropic
-}
-
-// excludeContextOverflowModels returns a copy of excluded augmented with every
-// model in available whose context window is too small for the request, plus
-// the sorted IDs newly excluded (for logging). est is the full-body token
-// estimate; sigSavings (tokens a signature-stripping target saves) is
-// subtracted only for stripping targets, so Anthropic passthrough is still
-// checked against the full body. Returns excluded unchanged and nil when
-// nothing is added.
-func excludeContextOverflowModels(est, sigSavings, outputReserve int, enabledProviders, excluded, available map[string]struct{}) (map[string]struct{}, []string) {
-	if est <= 0 {
-		return excluded, nil
-	}
-	var out map[string]struct{}
-	var overflowed []string
-	for model := range available {
-		if _, alreadyExcluded := excluded[model]; alreadyExcluded {
-			continue
-		}
-		needed := est + outputReserve
-		if sigSavings > 0 && modelStripsAnthropicSignatures(model) {
-			needed -= sigSavings
-		}
-		cw := minContextWindowForModel(model, enabledProviders)
-		if needed <= cw {
-			continue
-		}
-		if out == nil {
-			out = make(map[string]struct{}, len(excluded))
-			for k := range excluded {
-				out[k] = struct{}{}
-			}
-		}
-		out[model] = struct{}{}
-		overflowed = append(overflowed, model)
-	}
-	if len(overflowed) == 0 {
-		return excluded, nil
-	}
-	sort.Strings(overflowed)
-	return out, overflowed
-}
-
-// admitWidestOnTotalOverflow reports the largest-window overflowed models to
-// re-admit when the context pre-filter left no model in available routable.
-// The estimate overcounts (÷4 over JSON bytes), so it alone never rules out
-// every model: the upstream decides, and a real overflow reaches the client as
-// its native prompt-too-long error so the client compacts. Only models the
-// request can be served on count: one it cannot reach neither hides a total
-// overflow nor sets the widest window.
-func admitWidestOnTotalOverflow(ruledOut map[string]struct{}, overflowed []string, available, enabledProviders map[string]struct{}, bindings router.RequestBindings) []string {
-	if len(overflowed) == 0 {
-		return nil
-	}
-	for model := range available {
-		if _, out := ruledOut[model]; !out && servableUnder(model, enabledProviders, bindings) {
-			return nil
-		}
-	}
-	widest := 0
-	var servable []string
-	for _, model := range overflowed {
-		if !servableUnder(model, enabledProviders, bindings) {
-			continue
-		}
-		servable = append(servable, model)
-		widest = max(widest, minContextWindowForModel(model, enabledProviders))
-	}
-	var admitted []string
-	for _, model := range servable {
-		if minContextWindowForModel(model, enabledProviders) == widest {
-			admitted = append(admitted, model)
-		}
-	}
-	return admitted
-}
-
-// servableUnder reports whether an enabled provider serves model through a
-// catalog or configuration-declared binding; a gateway-exclusive request is
-// served only through its gateways' aliases. No enabled set, or a model
-// without catalog bindings, counts as servable.
-func servableUnder(model string, enabledProviders map[string]struct{}, bindings router.RequestBindings) bool {
-	if len(bindings.Gateways) > 0 {
-		for _, provider := range bindings.Custom[model] {
-			if _, gateway := bindings.Gateways[provider]; gateway {
-				return true
-			}
-		}
-		return false
-	}
-	if len(enabledProviders) == 0 {
-		return true
-	}
-	for _, provider := range bindings.Custom[model] {
-		if _, enabled := enabledProviders[provider]; enabled {
-			return true
-		}
-	}
-	m, ok := catalog.ByID(model)
-	if !ok || len(m.Providers) == 0 {
-		return true
-	}
-	for _, b := range catalog.RoutableBindings(m) {
-		if _, enabled := enabledProviders[b.Provider]; enabled {
-			return true
-		}
-	}
-	return false
-}
-
-// withoutModels returns set minus models, copying only when it must change.
-func withoutModels(set map[string]struct{}, models []string) map[string]struct{} {
-	if len(set) == 0 || len(models) == 0 {
-		return set
-	}
-	out := make(map[string]struct{}, len(set))
-	for model := range set {
-		out[model] = struct{}{}
-	}
-	for _, model := range models {
-		delete(out, model)
-	}
-	return out
-}
-
-// withoutModelsKeep is withoutModels but leaves keep IDs in the set.
-func withoutModelsKeep(set map[string]struct{}, models, keep []string) map[string]struct{} {
-	if len(keep) == 0 {
-		return withoutModels(set, models)
-	}
-	kept := make(map[string]struct{}, len(keep))
-	for _, model := range keep {
-		kept[model] = struct{}{}
-	}
-	filtered := make([]string, 0, len(models))
-	for _, model := range models {
-		if _, ok := kept[model]; !ok {
-			filtered = append(filtered, model)
-		}
-	}
-	return withoutModels(set, filtered)
-}
-
-// gemini3xRequiresSignedHistory reports whether model is a Gemini 3.x model,
-// which 400s (INVALID_ARGUMENT) when the request history carries function-call
-// parts lacking the thoughtSignature Gemini issued. Scoped by family name; if
-// the catalog later grows a per-model capability flag this should move there.
-func gemini3xRequiresSignedHistory(model string) bool {
-	return strings.HasPrefix(model, "gemini-3") || model == router.ModelGemini4Argon
-}
-
-// excludeGemini3xOnUnsignedHistory augments excluded with every Gemini 3.x
-// model when the request history carries an assistant tool call lacking a
-// Gemini thoughtSignature (guaranteed 400 on foreign/cross-model history).
-// Native Gemini continuations round-trip their own signature and are
-// unaffected. Returns excluded unchanged (and nil) when nothing is added.
-func excludeGemini3xOnUnsignedHistory(env *translate.RequestEnvelope, excluded, available map[string]struct{}) (map[string]struct{}, []string) {
-	if env == nil || !env.HasUnsignedToolCallHistory() {
-		return excluded, nil
-	}
-	var out map[string]struct{}
-	var added []string
-	for model := range available {
-		if !gemini3xRequiresSignedHistory(model) {
-			continue
-		}
-		if _, already := excluded[model]; already {
-			continue
-		}
-		if out == nil {
-			out = make(map[string]struct{}, len(excluded))
-			for k := range excluded {
-				out[k] = struct{}{}
-			}
-		}
-		out[model] = struct{}{}
-		added = append(added, model)
-	}
-	if len(added) == 0 {
-		return excluded, nil
-	}
-	sort.Strings(added)
-	return out, added
 }
 
 // restrictToTier returns a copy of excluded augmented with every routable
@@ -1946,6 +1643,7 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		clients:                      dispatch.NewClients(providerMap),
 		translationCompatibilityMode: TranslationCompatibilityShadow,
 		emitter:                      emitter,
+		ingress:                      ingress.New(0),
 		pinStore:                     pinStore,
 		noProgress:                   newNoProgressTracker(),
 		searchUse:                    newSearchUseTracker(),
@@ -1986,6 +1684,7 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		nativeOpenAIResponseSignals:    true,
 		cyberRefusalFallbackModel:      "claude-sonnet-5",
 	}
+	s.routing = routingpolicy.New(nil)
 	if r == nil {
 		return s
 	}
@@ -2230,13 +1929,6 @@ func (s *Service) WithNativeOpenAIResponseSignals(enabled bool) *Service {
 // x-weave-allowed-models header (ROUTER_ALLOWED_MODELS_HEADER).
 func (s *Service) WithAllowedModelsHeader(enabled bool) *Service {
 	s.allowedModelsHeader = enabled
-	return s
-}
-
-// WithSSEKeepalive sets the client-facing silence budget before a `ping` is
-// injected into a committed Anthropic stream. Non-positive disables it.
-func (s *Service) WithSSEKeepalive(interval time.Duration) *Service {
-	s.sseKeepalive = interval
 	return s
 }
 
@@ -2707,28 +2399,27 @@ func (s *Service) InferenceExecutor() *dispatch.Executor {
 // WithByokOnly enables BYOK-only credential resolution: providers without
 // caller-supplied credentials are ineligible.
 func (s *Service) WithByokOnly(byokOnly bool) *Service {
-	s.byokOnly = byokOnly
+	s.credentials.BYOKOnly = byokOnly
 	return s
 }
 
 // WithExcludedModelsOverride pins the per-request model exclusion list to a
 // deployment-wide set. Pass nil or empty slice to clear the override.
 func (s *Service) WithExcludedModelsOverride(models []string) *Service {
-	if len(models) == 0 {
-		s.excludedModelsOverride = nil
-		return s
-	}
-	set := make(map[string]struct{}, len(models))
-	for _, m := range models {
-		set[m] = struct{}{}
-	}
-	s.excludedModelsOverride = set
+	s.routing = s.routing.WithExcludedModelsOverride(models)
+	return s
+}
+
+// WithRoutingPolicy wires the Routing Policy collaborator, keeping any
+// excluded-models override already set.
+func (s *Service) WithRoutingPolicy(p *routingpolicy.Policy) *Service {
+	s.routing = p.WithExcludedModelsOverride(s.ExcludedModelsOverride())
 	return s
 }
 
 // HasExcludedModelsOverride reports whether an excluded-models override is active.
 func (s *Service) HasExcludedModelsOverride() bool {
-	return s.excludedModelsOverride != nil
+	return s.routing.ExcludedModelsOverride() != nil
 }
 
 // WithGlobalAutomaticExclusions wires the deployment-wide soft exclusion list
@@ -2762,11 +2453,12 @@ func (s *Service) RoutableModels() map[string]struct{} {
 
 // ExcludedModelsOverride returns a sorted copy of the override list.
 func (s *Service) ExcludedModelsOverride() []string {
-	if s.excludedModelsOverride == nil {
+	override := s.routing.ExcludedModelsOverride()
+	if override == nil {
 		return nil
 	}
-	out := make([]string, 0, len(s.excludedModelsOverride))
-	for m := range s.excludedModelsOverride {
+	out := make([]string, 0, len(override))
+	for m := range override {
 		out = append(out, m)
 	}
 	sort.Strings(out)
@@ -2777,29 +2469,29 @@ func (s *Service) ExcludedModelsOverride() []string {
 // to a deployment-wide set. Pass nil or empty slice to clear the override.
 func (s *Service) WithExcludedProvidersOverride(providerNames []string) *Service {
 	if len(providerNames) == 0 {
-		s.excludedProvidersOverride = nil
+		s.credentials.ExcludedProvidersOverride = nil
 		return s
 	}
 	set := make(map[string]struct{}, len(providerNames))
 	for _, p := range providerNames {
 		set[p] = struct{}{}
 	}
-	s.excludedProvidersOverride = set
+	s.credentials.ExcludedProvidersOverride = set
 	return s
 }
 
 // HasExcludedProvidersOverride reports whether an excluded-providers override is active.
 func (s *Service) HasExcludedProvidersOverride() bool {
-	return s.excludedProvidersOverride != nil
+	return s.credentials.ExcludedProvidersOverride != nil
 }
 
 // ExcludedProvidersOverride returns a sorted copy of the override list.
 func (s *Service) ExcludedProvidersOverride() []string {
-	if s.excludedProvidersOverride == nil {
+	if s.credentials.ExcludedProvidersOverride == nil {
 		return nil
 	}
-	out := make([]string, 0, len(s.excludedProvidersOverride))
-	for p := range s.excludedProvidersOverride {
+	out := make([]string, 0, len(s.credentials.ExcludedProvidersOverride))
+	for p := range s.credentials.ExcludedProvidersOverride {
 		out = append(out, p)
 	}
 	sort.Strings(out)
@@ -2906,14 +2598,14 @@ func (s *Service) WithManagedSubscriptions(pool subscriptions.Leaser) *Service {
 // (all registered providers eligible).
 func (s *Service) WithDeploymentKeyedProviders(set map[string]struct{}) *Service {
 	if set == nil {
-		s.deploymentKeyedProviders = nil
+		s.credentials.KeyedProviders = nil
 		return s
 	}
 	copied := make(map[string]struct{}, len(set))
 	for p := range set {
 		copied[p] = struct{}{}
 	}
-	s.deploymentKeyedProviders = copied
+	s.credentials.KeyedProviders = copied
 	return s
 }
 
@@ -2925,14 +2617,14 @@ func (s *Service) WithDeploymentKeyedProviders(set map[string]struct{}) *Service
 // wrong credential type to a third-party API.
 func (s *Service) WithPassthroughEligibleProviders(set map[string]struct{}) *Service {
 	if set == nil {
-		s.passthroughEligibleProviders = nil
+		s.credentials.PassthroughEligible = nil
 		return s
 	}
 	copied := make(map[string]struct{}, len(set))
 	for p := range set {
 		copied[p] = struct{}{}
 	}
-	s.passthroughEligibleProviders = copied
+	s.credentials.PassthroughEligible = copied
 	return s
 }
 
@@ -3354,7 +3046,7 @@ func (s *Service) anthropicCredentialReachable(ctx context.Context, headers http
 	}
 	// nil deploymentKeyedProviders means every registered provider is
 	// deployment-keyed (legacy behavior, mirrors enabledProvidersForRequest).
-	if s.deploymentKeyedProviders == nil && !s.byokOnly {
+	if s.credentials.KeyedProviders == nil && !s.credentials.BYOKOnly {
 		if s.clients.Has(providers.ProviderAnthropic) {
 			return true
 		}
@@ -3990,17 +3682,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	// Anthropic packs sub-agent identity into metadata.user_id; the
 	// x-weave-subagent-type header is for non-Anthropic ingress only.
-	enabledProviders := s.enabledProvidersForRequest(ctx, providers.ProviderAnthropic, r.Header)
-
-	// Linked-first is a funding preference; only depleted capacity restricts
-	// selection to providers the caller's subscription can serve.
-	if billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
-		enabledProviders = restrictToSubscriptionProviders(ctx, r.Header, enabledProviders)
+	eligibility, eligibilityErr := requestEligibility(ctx, s, providers.ProviderAnthropic, r.Header)
+	if eligibilityErr != nil {
+		return eligibilityErr
 	}
-	var creditsErr error
-	if enabledProviders, creditsErr = applyWeaveCreditsPolicy(ctx, enabledProviders); creditsErr != nil {
-		return creditsErr
-	}
+	enabledProviders := eligibility.EnabledProviders
 
 	// Anthropic's native web-search server tool, when no enabled provider runs
 	// it. Served before routing: the scorer's only lever is picking a model,
@@ -4033,44 +3719,13 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	inboundUserPrompt := routingEndsWithUserPrompt(ctx, env)
 	inboundLatestToolCalls := latestToolCallCountsJSON(env)
 
-	// Hard exclusions run first so a model the request can never use does not
-	// count as fitting and suppress the total-overflow admission below.
-	excluded, geminiUnsigned := excludeGemini3xOnUnsignedHistory(env, baseExcluded, s.availableModels)
-	if len(geminiUnsigned) > 0 {
-		log.Info("gemini pre-filter: excluded gemini-3.x for unsigned tool-call history",
-			"excluded_models", strings.Join(geminiUnsigned, ","),
-		)
-	}
-	excluded, advisorOutranking := excludeAdvisorOutrankingModels(env, excluded, s.routableUniverse())
-	if len(advisorOutranking) > 0 {
-		log.Info("advisor pre-filter: excluded models the advisor tool cannot advise",
-			"advisor_model", env.AdvisorToolModel(),
-			"excluded_models", strings.Join(advisorOutranking, ","),
-		)
-	}
-	customBindings := s.customBindingsForRequest(ctx)
-	excluded, imageLimitExcluded := excludeImageLimitModels(feats.ImageCount, enabledProviders, customBindings, excluded, s.availableModels)
-	if len(imageLimitExcluded) > 0 {
-		log.Info("image limit pre-filter: excluded models whose bindings cap images below the request count",
-			"image_count", feats.ImageCount,
-			"excluded_models", strings.Join(imageLimitExcluded, ","),
-		)
-	}
-	overflowEstimate := env.ContextOverflowTokenEstimate()
-	gatewayProviders := s.gatewayProvidersForRequest(ctx)
-	excluded, ctxOverflowed := excludeContextOverflowModels(overflowEstimate, env.SignatureTokenSavings(), outputReserve, enabledProviders, excluded, s.availableModels)
-	overflowAdmitted := admitWidestOnTotalOverflow(excluded, ctxOverflowed, s.availableModels, enabledProviders, router.RequestBindings{Custom: customBindings, Gateways: gatewayProviders})
-	excluded = withoutModels(excluded, overflowAdmitted)
-	if len(ctxOverflowed) > 0 {
-		log.Info("context window pre-filter: excluded over-capacity models",
-			"overflow_token_estimate", overflowEstimate,
-			"output_reserve", outputReserve,
-			"excluded_count", len(ctxOverflowed)-len(overflowAdmitted),
-			"excluded_models", strings.Join(ctxOverflowed, ","),
-			"admitted_for_upstream", strings.Join(overflowAdmitted, ","),
-		)
-	}
-	hardExcluded := append(append(append([]string(nil), geminiUnsigned...), advisorOutranking...), imageLimitExcluded...)
+	prefiltered := routingpolicy.Prefilter(routingpolicy.PrefilterRequest{
+		Envelope: env, ImageCount: feats.ImageCount, OutputReserve: outputReserve, Eligibility: eligibility,
+		Excluded: baseExcluded, Available: s.availableModels,
+		AdvisorExclusions: advisorExclusions(env, s.routableUniverse()), ExcludeAdvisorOutranking: true,
+	})
+	logPrefilter(log, env, feats.ImageCount, outputReserve, prefiltered)
+	excluded, overflowEstimate := prefiltered.Excluded, prefiltered.OverflowEstimate
 
 	routeStart := time.Now()
 	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText)
@@ -4097,16 +3752,16 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		FeedbackRole:                  roleForTier(catalog.TierFor(feats.Model)),
 		ClientSessionID:               clientSessionIDForRequest(ctx, env),
 		EnabledProviders:              enabledProviders,
-		CustomBindings:                customBindings,
-		GatewayProviders:              gatewayProviders,
+		CustomBindings:                eligibility.CustomBindings,
+		GatewayProviders:              eligibility.GatewayProviders,
 		SubscriptionProviders:         s.selectableSubscriptionProviders(ctx, r.Header),
 		ExcludedModels:                excluded,
 		AllowedModels:                 allowedModelsForRequest(ctx),
-		SafetyExcludedModels:          withoutModelsKeep(s.safetyExcludedModels(env, outputReserve, enabledProviders, customBindings), overflowAdmitted, hardExcluded),
-		ContextWindowExcludedModels:   contextWindowOnlyExclusions(ctxOverflowed, overflowAdmitted, hardExcluded),
-		ImageLimitExcludedModels:      modelSet(imageLimitExcluded),
-		UnsignedHistoryExcludedModels: modelSet(geminiUnsigned),
-		OverflowAdmittedModels:        modelSet(overflowAdmitted),
+		SafetyExcludedModels:          prefiltered.Safety,
+		ContextWindowExcludedModels:   prefiltered.ContextWindowOnly,
+		ImageLimitExcludedModels:      modelSet(prefiltered.ImageLimited),
+		UnsignedHistoryExcludedModels: modelSet(prefiltered.UnsignedHistory),
+		OverflowAdmittedModels:        modelSet(prefiltered.OverflowAdmitted),
 		PreferredModels:               s.preferredModelsForRequest(ctx),
 		RoutingKnobs:                  routingKnobsForRequest(ctx),
 		ClusterArmOverrides:           clusterArmOverridesForRequest(ctx),
@@ -4467,8 +4122,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		clientSink = streamCost
 		// Innermost wrap: arms only once preludeBuffer commits, so a keepalive
 		// can never strand a response the router still wants to retry.
-		if s.sseKeepalive > 0 {
-			keepalive := sse.NewKeepaliveWriter(clientSink, anthropicPingFrame, s.sseKeepalive)
+		if s.ingress.Keepalive > 0 {
+			keepalive := sse.NewKeepaliveWriter(clientSink, anthropicPingFrame, s.ingress.Keepalive)
 			defer keepalive.Close()
 			clientSink = keepalive
 		}
@@ -4761,12 +4416,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			}
 			crossFormat = true
 			logUpstreamBody(log, routeRes.SessionKey, target, feats, prep.Body)
-			// geminiUsedValidated marks a request sent with
-			// functionCallingConfig.mode=VALIDATED (Gemini 3.x, tools, unforced
-			// choice): Gemini compiles each tool schema into a decode-time grammar,
-			// and one it can't compile 400s the whole request. Retried once below
-			// with mode=AUTO if nothing has reached the client yet.
-			geminiUsedValidated := prep.Stats.GeminiValidatedToolMode
 			// dispatchGemini does one call and returns the raw upstream error plus a
 			// finalize thunk, split so the attempt can inspect a pre-commit 400
 			// before finalize commits the prelude buffer and forecloses the retry.
@@ -4814,30 +4463,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				return rawErr, finalize
 			}
 			return func(actx context.Context, d router.Decision, p providers.Client) error {
-				rawErr, finalize := dispatchGemini(actx, d, p, prep)
-				// VALIDATED-mode schema-grammar 400: retry once with mode=AUTO while
-				// pre-commit. AUTO only drops the grammar constraint, so it can't make
-				// things worse — a non-schema 400 just 400s again normally. The first
-				// attempt's translators are abandoned (Discard).
-				if rawErr != nil && geminiUsedValidated && !committed(preludeBuf) && upstreamStatus(rawErr) == http.StatusBadRequest {
-					autoOpts := targetOpts
-					autoOpts.DowngradeGeminiValidatedToAuto = true
-					autoPrep, autoErr := env.PrepareGemini(r.Header, autoOpts)
-					if autoErr != nil {
-						log.Error("Failed to re-translate Gemini request with tool mode AUTO", "err", autoErr)
-						return finalize(rawErr)
-					}
-					log.Warn("Retrying Gemini request with functionCallingConfig.mode=AUTO after VALIDATED-mode 400",
-						"model", d.Model,
-						"request_id", requestID)
-					if preludeBuf != nil {
-						preludeBuf.Discard()
-					}
-					reqStats = autoPrep.Stats
-					logUpstreamBody(log, routeRes.SessionKey, d, feats, autoPrep.Body)
-					rawErr, finalize = dispatchGemini(actx, d, p, autoPrep)
-				}
-				return finalize(rawErr)
+				retry := geminiToolModeAttempt{log: log, buffer: preludeBuf, env: env, headers: r.Header, opts: targetOpts}
+				return retry.dispatch(prep, func(prepared providers.PreparedRequest) (error, func(error) error) {
+					reqStats = prepared.Stats
+					logUpstreamBody(log, routeRes.SessionKey, d, feats, prepared.Body)
+					return dispatchGemini(actx, d, p, prepared)
+				})
 			}, nil
 		default:
 			return nil, fmt.Errorf("%w: %s (no translation path defined for inbound Anthropic Messages)", ErrProviderNotConfigured, target.Provider)
@@ -4900,7 +4531,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	rescue.redoIfStoppedEarly(ctx)
 	rescue.notePrimaryFailure(ctx)
 	rescue.classifyPrimaryFailure()
-	ctx = rescue.baseline(ctx)
+	ctx = rescue.baselineRescue(ctx)
 	rescue.subscriptionRetry(ctx)
 	rescue.siblingRescue(ctx)
 	rescue.finish(ctx)
@@ -5938,127 +5569,34 @@ func externalKeysFromContext(ctx context.Context) []*auth.ExternalAPIKey {
 	return keys
 }
 
-// requestUsesNonDeploymentCreds reports whether the request would use BYOK
-// or client-supplied creds. The summarizer is wired with deployment-level
-// creds, so calling it on a BYOK request would route conversation context
-// through the platform account — the orchestrator skips the summarizer here.
 func (s *Service) requestUsesNonDeploymentCreds(ctx context.Context, headers http.Header) bool {
-	if s.byokOnly {
-		return true
-	}
-	if len(externalKeysFromContext(ctx)) > 0 {
-		return true
-	}
-	// Scan every known provider (not a hand-maintained subset) so a newly-added
-	// provider's client-supplied credential can't slip past the BYOK guard.
-	for _, p := range providers.AllProviders() {
-		if ExtractClientCredentials(p, headers) != nil {
-			return true
-		}
-	}
-	return false
+	return s.credentials.UsesNonDeploymentCreds(externalKeysFromContext(ctx), headers)
 }
 
 // enabledProvidersForRequest returns providers with resolvable credentials
-// for this request (deployment key, BYOK, client header, or linked subscription).
-// surfaceProvider is the inbound wire-format's natural provider. A
-// client-supplied bearer header is treated as creds for that surface only —
-// never a licence to enable other OpenAI-compat upstreams sharing the same
-// Authorization format.
+// for this request.
 func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvider string, headers http.Header) map[string]struct{} {
-	out := make(map[string]struct{}, s.clients.Len())
-	if !s.byokOnly {
-		if s.deploymentKeyedProviders != nil {
-			for p := range s.deploymentKeyedProviders {
-				out[p] = struct{}{}
-			}
-		} else {
-			for p := range s.clients.NameSet() {
-				out[p] = struct{}{}
-			}
-		}
-	}
-	for _, k := range externalKeysFromContext(ctx) {
-		// Explicit failures stay eligible so selecting that provider returns
-		// its credential error instead of using a deployment key.
-		if len(k.Plaintext) == 0 && k.CredentialError == nil {
-			continue
-		}
-		out[k.Provider] = struct{}{}
-	}
-	// A Claude subscription bearer (sk-ant-oat-) in the inbound
-	// Authorization enrolls Anthropic even on router-keyed requests — Claude
-	// Code keeps its OAuth token there while the router key rides in
-	// X-Weave-Router-Key. OAuth-subset only: a general API key still can't
-	// enroll a provider on the router-key path.
-	if c := ExtractClientCredentials(providers.ProviderAnthropic, headers); c != nil && c.OAuth {
-		out[providers.ProviderAnthropic] = struct{}{}
-	}
-	// A Codex subscription bearer
-	// in Authorization (paired with ChatGPT-Account-ID) enrolls OpenAI even on
-	// router-keyed requests. OAuth-subset only: a plain API key still can't
-	// enroll OpenAI on the router-key path.
-	if c := ExtractClientCredentials(providers.ProviderOpenAI, headers); c != nil && c.OAuth {
-		out[providers.ProviderOpenAI] = struct{}{}
-	}
-	// Passthrough-eligible providers are surface-scoped: a provider without a
-	// deployment key joins the eligible set only when the inbound surface
-	// matches, else an Anthropic-surface `x-api-key` could leak to
-	// api.openai.com (and vice versa). Skipped for router-key-authed requests
-	// not already BYOK-enrolled: the inbound auth header IS the router key
-	// there (stripped by setAuth), so dispatch would 401 unauthenticated
-	// instead of failing fast with a 503.
-	if surfaceProvider != "" {
-		if _, ok := s.passthroughEligibleProviders[surfaceProvider]; ok {
-			_, alreadyByok := out[surfaceProvider]
-			routerKeyAuthed := installationIDFromContext(ctx) != (uuid.UUID{})
-			if !routerKeyAuthed || alreadyByok {
-				out[surfaceProvider] = struct{}{}
-			}
-		}
-	}
-	if subscriptionCredsFromToken(anthropicSubscriptionFromContext(ctx)) != nil {
-		out[providers.ProviderAnthropic] = struct{}{}
-	}
-	if codexSubscriptionFromContext(ctx) != nil {
-		out[providers.ProviderOpenAI] = struct{}{}
-	}
-	// Client-supplied headers are only consulted when NOT authed via a
-	// router key. A router-key-authed request carrying an inbound bearer
-	// must not enable OpenAI-compat upstreams that share the Authorization
-	// header format.
-	if installationIDFromContext(ctx) == (uuid.UUID{}) && surfaceProvider != "" {
-		if _, already := out[surfaceProvider]; !already {
-			if ExtractClientCredentials(surfaceProvider, headers) != nil {
-				out[surfaceProvider] = struct{}{}
-			}
-		}
-	}
+	subscriptionLanes := make(map[string]struct{}, 2)
 	// Linked subscription pools provide credentials independently of the
-	// inbound harness's native bearer. Enroll their native provider lanes
-	// before applying installation exclusions and gateway exclusivity.
-	if managedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude) && s.supportsSubscriptionTransport(providers.ProviderAnthropic) {
-		out[providers.ProviderAnthropic] = struct{}{}
+	// inbound harness's native bearer.
+	if subscriptionCredsFromToken(anthropicSubscriptionFromContext(ctx)) != nil ||
+		managedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude) && s.supportsSubscriptionTransport(providers.ProviderAnthropic) {
+		subscriptionLanes[providers.ProviderAnthropic] = struct{}{}
 	}
-	if managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) && !codexChatEndpoint(ctx) && s.supportsSubscriptionTransport(providers.ProviderOpenAI) {
-		out[providers.ProviderOpenAI] = struct{}{}
+	if codexSubscriptionFromContext(ctx) != nil ||
+		managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) && !codexChatEndpoint(ctx) && s.supportsSubscriptionTransport(providers.ProviderOpenAI) {
+		subscriptionLanes[providers.ProviderOpenAI] = struct{}{}
 	}
-	// Provider exclusions trump every enrollment path above: an excluded
-	// provider must not be served even when credentials exist for it. The
-	// scorer, hard-pin resolver, session pins, and tier clamp all consume
-	// this set, so subtracting here enforces the exclusion everywhere a
-	// routing decision is made.
-	for p := range s.excludedProvidersForRequest(ctx) {
-		delete(out, p)
-	}
-	// A BYOK gateway is the tenant's own endpoint and displaces every other
-	// upstream: routing through a vendor would send their traffic outside the
-	// gateway they mandated. Applied last so no enrollment path above can
-	// re-admit a vendor, and their provider exclusions become moot.
-	if gateways := s.gatewayProvidersForRequest(ctx); len(gateways) > 0 {
-		return gateways
-	}
-	return out
+	return s.credentials.EnabledProviders(credentials.EligibilityRequest{
+		Registered:                    s.clients.NameSet(),
+		SurfaceProvider:               surfaceProvider,
+		Headers:                       headers,
+		ExternalKeys:                  externalKeysFromContext(ctx),
+		RouterKeyAuthed:               installationIDFromContext(ctx) != (uuid.UUID{}),
+		SubscriptionLanes:             subscriptionLanes,
+		InstallationExcludedProviders: installationExcludedProvidersFromContext(ctx),
+		SessionDisabledProviders:      sessionDisabledProvidersFromContext(ctx),
+	})
 }
 
 // hasOpenAIInfrastructureCredential reports whether an OpenAI model can be
@@ -6068,12 +5606,12 @@ func (s *Service) hasOpenAIInfrastructureCredential(ctx context.Context, headers
 	if byokServedForProvider(ctx, providers.ProviderOpenAI) {
 		return true
 	}
-	if !s.byokOnly {
-		if s.deploymentKeyedProviders == nil {
+	if !s.credentials.BYOKOnly {
+		if s.credentials.KeyedProviders == nil {
 			if s.clients.Has(providers.ProviderOpenAI) {
 				return true
 			}
-		} else if _, keyed := s.deploymentKeyedProviders[providers.ProviderOpenAI]; keyed {
+		} else if _, keyed := s.credentials.KeyedProviders[providers.ProviderOpenAI]; keyed {
 			return true
 		}
 	}
@@ -6493,21 +6031,6 @@ func finalizeAfterProxy(proxyErr error, fn func() error) error {
 	return finErr
 }
 
-// openAISurface names which OpenAI endpoint an attempt POSTs to and in what
-// representation; the three cases differ in both emit and response handling.
-type openAISurface int
-
-const (
-	// surfaceChat is /v1/chat/completions with the client's own format.
-	surfaceChat openAISurface = iota
-	// surfaceResponsesNative is /v1/responses with a Responses caller's
-	// original bytes, streamed back verbatim.
-	surfaceResponsesNative
-	// surfaceResponsesTranslated is /v1/responses emitted from a
-	// chat/completions request, with the response translated back to chat.
-	surfaceResponsesTranslated
-)
-
 // ProxyOpenAIChatCompletion routes an OpenAI Chat Completion request,
 // translating cross-format when the decision picks a non-OpenAI provider.
 func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
@@ -6769,22 +6292,16 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// OpenAI signals sub-agent identity via x-weave-subagent-type (no metadata.user_id).
 	subAgentHint := r.Header.Get("x-weave-subagent-type")
 
-	enabledProviders := s.enabledProvidersForRequest(ctx, providers.ProviderOpenAI, r.Header)
-
-	// Linked-first is a funding preference; only depleted capacity restricts
-	// selection to providers the caller's subscription can serve.
-	if billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
-		enabledProviders = restrictToSubscriptionProviders(ctx, r.Header, enabledProviders)
+	eligibility, eligibilityErr := requestEligibility(ctx, s, providers.ProviderOpenAI, r.Header)
+	if eligibilityErr != nil {
+		return eligibilityErr
 	}
-	var creditsErr error
-	if enabledProviders, creditsErr = applyWeaveCreditsPolicy(ctx, enabledProviders); creditsErr != nil {
-		return creditsErr
-	}
+	enabledProviders := eligibility.EnabledProviders
 
 	// Codex (ChatGPT) subscription passthrough: ProxyOpenAIResponses stashed the
 	// caller's original Responses body. Such turns skip the routing marker +
 	// semantic cache below, and dispatch the verbatim body to the Codex
-	// backend when routed to an OpenAI model (see responsesPassthrough branch).
+	// backend when routed to an OpenAI model (see the native Responses dispatch branch).
 	//
 	// Deliberately not forcing OpenAI-only routing: enabledProviders already
 	// scopes to providers the caller can pay for, so a dual Codex+Claude
@@ -6792,7 +6309,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// Subscriptions are credentials scoped to the routed model, not a pinned
 	// provider.
 	responsesBody, _ := ctx.Value(codexResponsesBodyContextKey{}).([]byte)
-	responsesPassthrough := len(responsesBody) > 0
 	reasoningConfigurationHash := env.ReasoningConfigurationSHA256()
 	if nativeResponsesHash, ok := ctx.Value(nativeResponsesReasoningHashContextKey{}).(string); ok {
 		reasoningConfigurationHash = nativeResponsesHash
@@ -6814,34 +6330,13 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	inboundLastUser := env.LastUserMessage()
 	inboundUserPromptOAI := routingEndsWithUserPrompt(ctx, env)
 
-	excludedOAI, geminiUnsignedOAI := excludeGemini3xOnUnsignedHistory(env, baseExcludedOAI, s.availableModels)
-	if len(geminiUnsignedOAI) > 0 {
-		log.Info("gemini pre-filter: excluded gemini-3.x for unsigned tool-call history",
-			"excluded_models", strings.Join(geminiUnsignedOAI, ","),
-		)
-	}
-	customBindingsOAI := s.customBindingsForRequest(ctx)
-	excludedOAI, imageLimitExcludedOAI := excludeImageLimitModels(feats.ImageCount, enabledProviders, customBindingsOAI, excludedOAI, s.availableModels)
-	if len(imageLimitExcludedOAI) > 0 {
-		log.Info("image limit pre-filter: excluded models whose bindings cap images below the request count",
-			"image_count", feats.ImageCount,
-			"excluded_models", strings.Join(imageLimitExcludedOAI, ","),
-		)
-	}
-	hardExcludedOAI := append(append([]string(nil), geminiUnsignedOAI...), imageLimitExcludedOAI...)
-	overflowEstimateOAI := env.ContextOverflowTokenEstimate()
-	excludedOAI, ctxOverflowedOAI := excludeContextOverflowModels(overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI, enabledProviders, excludedOAI, s.availableModels)
-	overflowAdmittedOAI := admitWidestOnTotalOverflow(excludedOAI, ctxOverflowedOAI, s.availableModels, enabledProviders, router.RequestBindings{Custom: s.customBindingsForRequest(ctx), Gateways: s.gatewayProvidersForRequest(ctx)})
-	excludedOAI = withoutModels(excludedOAI, overflowAdmittedOAI)
-	if len(ctxOverflowedOAI) > 0 {
-		log.Info("context window pre-filter: excluded over-capacity models",
-			"overflow_token_estimate", overflowEstimateOAI,
-			"output_reserve", outputReserveOAI,
-			"excluded_count", len(ctxOverflowedOAI)-len(overflowAdmittedOAI),
-			"excluded_models", strings.Join(ctxOverflowedOAI, ","),
-			"admitted_for_upstream", strings.Join(overflowAdmittedOAI, ","),
-		)
-	}
+	prefiltered := routingpolicy.Prefilter(routingpolicy.PrefilterRequest{
+		Envelope: env, ImageCount: feats.ImageCount, OutputReserve: outputReserveOAI, Eligibility: eligibility,
+		Excluded: baseExcludedOAI, Available: s.availableModels,
+		AdvisorExclusions: advisorExclusions(env, s.routableUniverse()),
+	})
+	logPrefilter(log, env, feats.ImageCount, outputReserveOAI, prefiltered)
+	excludedOAI, overflowEstimateOAI := prefiltered.Excluded, prefiltered.OverflowEstimate
 
 	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText)
 	routeRequest := router.Request{
@@ -6865,16 +6360,16 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		FeedbackRole:                  roleForTier(catalog.TierFor(feats.Model)),
 		ClientSessionID:               clientSessionIDForRequest(ctx, env),
 		EnabledProviders:              enabledProviders,
-		CustomBindings:                customBindingsOAI,
+		CustomBindings:                eligibility.CustomBindings,
 		GatewayProviders:              s.gatewayProvidersForRequest(ctx),
 		SubscriptionProviders:         s.selectableSubscriptionProviders(ctx, r.Header),
 		ExcludedModels:                excludedOAI,
 		AllowedModels:                 allowedModelsForRequest(ctx),
-		SafetyExcludedModels:          withoutModelsKeep(s.safetyExcludedModels(env, outputReserveOAI, enabledProviders, customBindingsOAI), overflowAdmittedOAI, hardExcludedOAI),
-		ContextWindowExcludedModels:   contextWindowOnlyExclusions(ctxOverflowedOAI, overflowAdmittedOAI, hardExcludedOAI),
-		ImageLimitExcludedModels:      modelSet(imageLimitExcludedOAI),
-		UnsignedHistoryExcludedModels: modelSet(geminiUnsignedOAI),
-		OverflowAdmittedModels:        modelSet(overflowAdmittedOAI),
+		SafetyExcludedModels:          prefiltered.Safety,
+		ContextWindowExcludedModels:   prefiltered.ContextWindowOnly,
+		ImageLimitExcludedModels:      modelSet(prefiltered.ImageLimited),
+		UnsignedHistoryExcludedModels: modelSet(prefiltered.UnsignedHistory),
+		OverflowAdmittedModels:        modelSet(prefiltered.OverflowAdmitted),
 		PreferredModels:               s.preferredModelsForRequest(ctx),
 		RoutingKnobs:                  routingKnobsForRequest(ctx),
 		ClusterArmOverrides:           clusterArmOverridesForRequest(ctx),
@@ -7020,7 +6515,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	resolvedCtx := s.resolveCredentials(ctx, decision.Provider, decision.Model, r.Header)
 	responsesEndpointKey := EffectiveBaseURL(resolvedCtx, decision.Provider)
-	openAIResponsesEndpoint := responsesPassthrough
+	openAIResponsesEndpoint := len(responsesBody) > 0
 	if !openAIResponsesEndpoint && decision.Provider == providers.ProviderOpenAI {
 		openAIResponsesEndpoint = translate.UseOpenAIResponsesAPI(translate.ResponsesRoute{
 			Provider:       decision.Provider,
@@ -7103,26 +6598,32 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// gpt-5.6 applies its own effort on chat/completions, so a /v1/responses
 	// caller's original bytes serve it natively — preserving reasoning the chat
 	// projection drops. Skip when compaction or a handover rewrote the envelope
-	// (stale bytes); pre-routing readers of responsesPassthrough already ran.
+	// (stale bytes); pre-routing readers of the native body already ran.
 	promotedToResponses := false
-	if !responsesPassthrough && !routeRes.Handover.Invoked && openAIResponsesEndpoint {
+	if len(responsesBody) == 0 && !routeRes.Handover.Invoked && openAIResponsesEndpoint {
 		if native, ok := ctx.Value(nativeResponsesBodyContextKey{}).([]byte); ok && len(native) > 0 {
 			responsesBody = native
-			responsesPassthrough = true
 			promotedToResponses = true
 		}
 	}
 
 	// Previously gated on policy debug; ordinary Codex turns fell through to
 	// ResponsesWriter's legacy badge that ignored suppression and never showed the routing reason.
-	verbatimPassthrough := responsesPassthrough && decision.Provider == providers.ProviderOpenAI
+	responsesWriter, isResponses := w.(*translate.ResponsesWriter)
+	responseSwitch := responseProtocolSwitch{
+		writer:              responsesWriter,
+		nativeRequest:       len(responsesBody) > 0,
+		translatedResponses: !isResponses && len(responsesBody) == 0 && openAIResponsesEndpoint,
+		promotedToResponses: promotedToResponses,
+	}
+	initialNativeResponses := responseSwitch.nativeRequest && decision.Provider == providers.ProviderOpenAI
 	if rw, ok := w.(*translate.ResponsesWriter); ok {
 		if footer := s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoed); footer != "" {
 			rw.SetFooterText(footer)
 		}
 	}
-	responsesPreludeWillEmit := env.Stream() && !verbatimPassthrough && (len(bindings) <= 1 || marker != "")
-	if verbatimPassthrough {
+	responsesPreludeWillEmit := env.Stream() && !initialNativeResponses && (len(bindings) <= 1 || marker != "")
+	if initialNativeResponses {
 		responsesPreludeWillEmit = env.Stream() && supportsResponsesTerminalSurfaces(clientID.ClientApp) && marker != ""
 	}
 
@@ -7133,7 +6634,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		rw.WrapInner(func(inner http.ResponseWriter) http.ResponseWriter {
 			responsesPreludeBuf = newPreludeBuffer(inner)
 			notice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderCodex, decision.Model, marker)
-			if verbatimPassthrough && !supportsResponsesTerminalSurfaces(clientID.ClientApp) {
+			if initialNativeResponses && !supportsResponsesTerminalSurfaces(clientID.ClientApp) {
 				notice.Text = ""
 			}
 			noticeSink, prepareErr := responsesNotices.prepare(r.Context(), responsesPreludeBuf, responsesPreludeBuf, translate.FormatOpenAIResponses, env.Stream(), notice)
@@ -7159,10 +6660,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		rootSink = preludeBuf
 	}
 
-	responsesWriter, isResponses := w.(*translate.ResponsesWriter)
-	responseSwitch := responseProtocolSwitch{writer: responsesWriter, buffer: preludeBuf}
+	responseSwitch.buffer = preludeBuf
 	if isResponses {
-		if verbatimPassthrough {
+		if initialNativeResponses {
 			responseSwitch.native(supportsResponsesTerminalSurfaces(clientID.ClientApp) &&
 				(marker != "" || s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoed) != ""))
 		}
@@ -7182,10 +6682,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	openAIPrelude := &requestNoticeStream{}
 
 	makeMarkerSink := func(notice translate.RouterNotice) (http.ResponseWriter, error) {
-		if isResponses || verbatimPassthrough {
+		if isResponses || responseSwitch.passthrough() {
 			// Responses notices go out before dispatch; only a reconnect nudge
 			// raised by this attempt's funding still needs delivering.
-			if isResponses && responsesPreludeBuf != nil && notice.Kind == translate.NoticeSubscriptionReconnect && (!verbatimPassthrough || supportsResponsesTerminalSurfaces(clientID.ClientApp)) {
+			if isResponses && responsesPreludeBuf != nil && notice.Kind == translate.NoticeSubscriptionReconnect && (!responseSwitch.passthrough() || supportsResponsesTerminalSurfaces(clientID.ClientApp)) {
 				return sink, responsesNotices.deliver(notice)
 			}
 			return sink, nil
@@ -7194,8 +6694,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		return noticeSink, noticeErr
 	}
 
-	// Chat caller: emit onto Responses and translate back; skipped for Responses-ingress (handled above).
-	translateToResponses := !isResponses && !responsesPassthrough && openAIResponsesEndpoint
 	// nil when the request has no tools; the translator treats nil as syntax-check-only.
 	toolValidator := env.ToolValidator()
 
@@ -7234,7 +6732,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		targetNotice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderCodex, target.Model, targetMarker)
 		targetNotice = addRoutingFundingSource(fundingCtx, target.Provider, target.Model, targetNotice)
 		if isResponses {
-			if targetMarker != "" && (!verbatimPassthrough || supportsResponsesTerminalSurfaces(clientID.ClientApp)) {
+			if targetMarker != "" && (!responseSwitch.passthrough() || supportsResponsesTerminalSurfaces(clientID.ClientApp)) {
 				_, noticeErr := responsesNotices.prepare(r.Context(), responsesPreludeBuf, responsesPreludeBuf, translate.FormatOpenAIResponses, env.Stream(), targetNotice)
 				if noticeErr != nil {
 					return nil, fmt.Errorf("emit Responses router notice: %w", noticeErr)
@@ -7336,7 +6834,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				var toolNames *translate.ToolNameWriter
 				// A native attempt has no translator, so its terminal Responses event
 				// is the only source for the turn's finish reason.
-				var nativeTerminal *responsesTerminalObserver
+				var nativeTerminal *ingress.ResponsesTerminalObserver
 				switch {
 				case surface == surfaceResponsesTranslated:
 					var usage translate.UsageSink
@@ -7359,7 +6857,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					toolNames = translate.NewOpenAIToolNameWriter(translator, prep.ResponseToolNames)
 					proxyWriter = toolNames
 				case surface == surfaceResponsesNative:
-					nativeTerminal = newResponsesTerminalObserver(attemptSink)
+					nativeTerminal = ingress.NewResponsesTerminalObserver(attemptSink)
 					proxyWriter = nativeTerminal
 					if s.usageRequired() {
 						extractor, proxyWriter = s.newUsageExtractor(nativeTerminal, d.Provider)
@@ -7381,7 +6879,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					preludeBuf.Seal()
 				}
 				err := p.Proxy(actx, d, prep, proxyWriter, r)
-				if nativeTerminal != nil && nativeTerminal.observed && errors.Is(err, context.Canceled) {
+				if nativeTerminal != nil && nativeTerminal.Observed() && errors.Is(err, context.Canceled) {
 					err = nil
 				}
 				if seedToolCalls != nil {
@@ -7419,21 +6917,21 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					// A post-commit verdict is rendered as response.failed by the
 					// Responses ingress, which owns the native stream's terminal.
 					if err == nil && env.Stream() {
-						err = nativeTerminal.state.err()
+						err = nativeTerminal.Err()
 					}
 					if isStreamTerminalMissing(err) {
 						// Releasing a withheld preamble would commit the client to a
 						// response that never finishes, ruling out the retry.
 						refusalGate.Abandon()
 					}
-					if nativeTerminal.observed && nativeTerminal.signals.OutputLimitReached {
+					if nativeTerminal.Observed() && nativeTerminal.Signals().OutputLimitReached {
 						extractor.RecordOutputLimitReached()
 					}
-					respSummary = translate.ResponseSummary{UpstreamFinishReason: nativeTerminal.signals.FinishReason}
+					respSummary = translate.ResponseSummary{UpstreamFinishReason: nativeTerminal.Signals().FinishReason}
 					nativeRespSummary = false
-					if nativeTerminal.observed && s.ResolveNativeOpenAIResponseSignals(actx) {
-						respSummary.StopReason = nativeTerminal.signals.FinishReason
-						respSummary.ToolUseBlocks = nativeTerminal.signals.ToolCalls
+					if nativeTerminal.Observed() && s.ResolveNativeOpenAIResponseSignals(actx) {
+						respSummary.StopReason = nativeTerminal.Signals().FinishReason
+						respSummary.ToolUseBlocks = nativeTerminal.Signals().ToolCalls
 						nativeRespSummary = true
 					}
 				}
@@ -7460,18 +6958,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				return err
 			}
 			return func(actx context.Context, d router.Decision, p providers.Client) error {
-				surface := surfaceChat
-				if d.Provider == providers.ProviderOpenAI {
-					switch {
-					// Native bytes need a passthrough writer. One set up for a
-					// cross-family pick only parses Chat Completions chunks, so an
-					// OpenAI attempt that replaces it is translated back instead.
-					case responsesPassthrough && (!isResponses || responsesWriter.Passthrough()):
-						surface = surfaceResponsesNative
-					case responsesPassthrough || translateToResponses || servedOnCodexSubscription(actx):
-						surface = surfaceResponsesTranslated
-					}
-				}
+				surface := responseSwitch.surface(d.Provider, servedOnCodexSubscription(actx))
 				gatewayKey := gatewayResponsesKey(actx, d.Provider)
 				stripPCK := s.gatewayCaps.RejectsPromptCacheKey(gatewayKey)
 				err := dispatchOpenAI(actx, d, p, surface, stripPCK)
@@ -7499,13 +6986,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					codexSubscriptionModelRejected(err) {
 					return err
 				}
-				if surface == surfaceResponsesNative {
-					if !promotedToResponses || !isResponses || responseSwitch.leavePassthrough() != nil {
-						return err
-					}
-					responsesPassthrough = false
+				if responseSwitch.fallbackToChat(surface) != nil {
+					return err
 				}
-				translateToResponses = false
 				s.gatewayCaps.RememberLacksResponses(responsesEndpointKey)
 				log.Warn("OpenAI endpoint rejected the Responses API; retrying on chat/completions",
 					"model", d.Model,
@@ -7526,7 +7009,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			// See ProxyMessages' Gemini case: a VALIDATED-mode request can 400 with a
 			// generic INVALID_ARGUMENT when Gemini can't compile a tool schema into
 			// its decode-time grammar. Retry once with mode=AUTO when pre-commit.
-			geminiUsedValidated := prep.Stats.GeminiValidatedToolMode
 			dispatchGemini := func(actx context.Context, d router.Decision, p providers.Client, pr providers.PreparedRequest) (error, func(error) error) {
 				var usage translate.UsageSink
 				if s.usageRequired() {
@@ -7555,24 +7037,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				return rawErr, finalize
 			}
 			return func(actx context.Context, d router.Decision, p providers.Client) error {
-				rawErr, finalize := dispatchGemini(actx, d, p, prep)
-				if rawErr != nil && geminiUsedValidated && !committed(preludeBuf) && upstreamStatus(rawErr) == http.StatusBadRequest {
-					autoOpts := targetOpts
-					autoOpts.DowngradeGeminiValidatedToAuto = true
-					autoPrep, autoErr := env.PrepareGemini(r.Header, autoOpts)
-					if autoErr != nil {
-						log.Error("Failed to re-translate Gemini request with tool mode AUTO", "err", autoErr)
-						return finalize(rawErr)
-					}
-					log.Warn("Retrying Gemini request with functionCallingConfig.mode=AUTO after VALIDATED-mode 400",
-						"model", d.Model,
-						"request_id", requestID)
-					if preludeBuf != nil {
-						preludeBuf.Discard()
-					}
-					rawErr, finalize = dispatchGemini(actx, d, p, autoPrep)
-				}
-				return finalize(rawErr)
+				retry := geminiToolModeAttempt{log: log, buffer: preludeBuf, env: env, headers: r.Header, opts: targetOpts}
+				return retry.dispatch(prep, func(prepared providers.PreparedRequest) (error, func(error) error) {
+					return dispatchGemini(actx, d, p, prepared)
+				})
 			}, nil
 		case providers.FamilyAnthropic:
 			crossFormat = true
@@ -7584,20 +7052,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			// One send on the given tier, split into the raw upstream error plus a
 			// finalize thunk so a fast send refused for lack of fast-mode allocation
 			// can be re-sent at standard speed before finalize commits the prelude.
-			dispatchAnthropic := func(actx context.Context, d router.Decision, p providers.Client, fast bool) (error, func(error) error) {
+			dispatchAnthropic := func(actx context.Context, d router.Decision, p providers.Client, attemptPrep providers.PreparedRequest, fast bool) (error, func(error) error) {
 				fastServed = fast
-				attemptPrep := prep
-				if fast != targetOpts.FastMode {
-					attemptOpts := targetOpts
-					attemptOpts.TargetProvider = d.Provider
-					attemptOpts.FastMode = fast
-					var attemptEmitErr error
-					attemptPrep, attemptEmitErr = env.PrepareAnthropic(r.Header, attemptOpts)
-					if attemptEmitErr != nil {
-						log.Error("Failed to re-translate OpenAI request to Anthropic format for fast-tier change", "err", attemptEmitErr)
-						return fmt.Errorf("translate openai request: %w", attemptEmitErr), func(err error) error { return err }
-					}
-				}
 				var usage translate.UsageSink
 				if s.usageRequired() {
 					extractor = telemetry.NewUsageExtractor(providers.ProviderAnthropic)
@@ -7630,17 +7086,30 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				return rawErr, finalize
 			}
 			return func(actx context.Context, d router.Decision, p providers.Client) error {
-				fast := fastModeForAttempt(actx, d.Model, d.Provider)
-				rawErr, finalize := dispatchAnthropic(actx, d, p, fast)
-				if rawErr != nil && fast && !committed(preludeBuf) && providers.IsAnthropicFastModeQuotaRejection(rawErr) {
-					log.Warn("Retrying Anthropic request at standard speed after fast-mode quota rejection",
-						"model", d.Model,
-						"request_id", requestID)
-					if preludeBuf != nil {
-						preludeBuf.Discard()
+				attemptOpts := targetOpts
+				attemptOpts.TargetProvider = d.Provider
+				attemptOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)
+				attemptPrep := prep
+				if attemptOpts.FastMode != targetOpts.FastMode {
+					var emitErr error
+					attemptPrep, emitErr = env.PrepareAnthropic(r.Header, attemptOpts)
+					if emitErr != nil {
+						log.Error("Failed to re-translate OpenAI request to Anthropic format for fast-tier change", "err", emitErr)
+						return fmt.Errorf("translate openai request: %w", emitErr)
 					}
-					rawErr, finalize = dispatchAnthropic(actx, d, p, false)
 				}
+				rawErr, finalize := dispatchAnthropic(actx, d, p, attemptPrep, attemptOpts.FastMode)
+				rawErr, _ = retryAnthropicStandardSpeed(log, preludeBuf, d, attemptOpts, rawErr, func(standardOpts translate.EmitOptions) (func() error, error) {
+					standardPrep, emitErr := env.PrepareAnthropic(r.Header, standardOpts)
+					if emitErr != nil {
+						return nil, emitErr
+					}
+					return func() error {
+						var standardErr error
+						standardErr, finalize = dispatchAnthropic(actx, d, p, standardPrep, false)
+						return standardErr
+					}, nil
+				})
 				return finalize(rawErr)
 			}, nil
 		default:
@@ -7686,14 +7155,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		},
 		isResponses:          isResponses,
 		responsesPreludeBuf:  responsesPreludeBuf,
-		verbatimPassthrough:  &verbatimPassthrough,
-		responsesPassthrough: &responsesPassthrough,
 		cyberRefusalSeen:     &cyberRefusalSeen,
 		cyberRetryArmed:      &cyberRetryArmed,
 		preOutputRescueArmed: &preOutputRescueArmed,
 	}
 	rescue.flushErr = rescue.flushErrAsOpenAI
-	rescue.onSiblingBuilt = rescue.leaveVerbatimPassthrough
 	rescue.armCyberRetry(ctx)
 	rescue.armSubscriptionRetries(ctx)
 	ctx = rescue.armRescues(ctx)
@@ -8119,7 +7585,7 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	}
 	if conversion.Requirements.NativeOnly {
 		observability.FromContext(ctx).Info("Responses request restricted to its native wire family",
-			"native_only_reasons", nativeOnlyReasons(conversion.Report, conversionBody))
+			"native_only_reasons", ingress.NativeOnlyReasons(conversion.Report, conversionBody))
 	}
 	if portableCodex && codexModelSwitched(r.Header, conversion) {
 		ctx = withCodexSelectedModel(ctx, model, nativeBody)
@@ -8199,4 +7665,16 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	}
 	deferredLog.run()
 	return finErr
+}
+
+func contextWindowForRequest(modelID string, provider ...string) int {
+	return routingpolicy.ContextWindow(modelID, provider...)
+}
+
+func modelStripsAnthropicSignatures(model string) bool {
+	return routingpolicy.StripsAnthropicSignatures(model)
+}
+
+func withoutModels(set map[string]struct{}, models []string) map[string]struct{} {
+	return routingpolicy.WithoutModels(set, models)
 }

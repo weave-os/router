@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/translate"
 
@@ -48,7 +49,7 @@ func TestClassifyStreamFailure(t *testing.T) {
 		{name: "http/2 response-header timeout", err: http2HeaderTimeout(), want: streamFailureUpstreamTimeout},
 		{name: "transport read timeout", err: &url.Error{Op: "Post", URL: "https://upstream.test", Err: headerTimeoutError{msg: "read tcp 10.0.0.1:443: i/o timeout"}}, want: streamFailureUpstreamTimeout},
 		{name: "upstream status after commit", err: &providers.UpstreamStatusError{Status: 502}, want: streamFailureUpstreamErrorFrame},
-		{name: "upstream error event then transport failure", err: errors.New("stream closed"), lastEvent: streamCutErrorEvent, want: streamFailureUpstreamErrorFrame},
+		{name: "upstream error event then transport failure", err: errors.New("stream closed"), lastEvent: ingress.StreamErrorEvent, want: streamFailureUpstreamErrorFrame},
 		{name: "http/2 keepalive ping lost", err: http2LostPing(), want: streamFailureUpstreamReset},
 		{name: "http/2 keepalive ping lost mid-stream", err: fmt.Errorf("read upstream stream: %w", errors.New("http2: client connection lost")), lastEvent: "content_block_delta", want: streamFailureUpstreamReset},
 		{name: "http/2 stream reset by the peer", err: http2PeerStreamReset(), want: streamFailureUpstreamReset},

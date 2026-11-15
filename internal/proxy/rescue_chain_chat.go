@@ -19,8 +19,6 @@ type chatRescue struct {
 	isResponses         bool
 	responsesPreludeBuf *preludeBuffer
 	// Shared with the entrypoint's attempt closures, which read or write them too.
-	verbatimPassthrough  *bool
-	responsesPassthrough *bool
 	cyberRefusalSeen     *bool
 	cyberRetryArmed      *bool
 	preOutputRescueArmed *bool
@@ -50,15 +48,6 @@ func (o *chatRescue) dispatchPrimary(ctx context.Context) {
 		o.claudeRetryViable = false
 	}
 	*o.cyberRefusalSeen = *o.cyberRefusalSeen || providers.IsUpstreamCyberPolicyRefusal(o.proxyErr)
-}
-
-// leaveVerbatimPassthrough drops native Responses passthrough for a rescuer
-// off the OpenAI vendor, which cannot take the caller's original body.
-func (o *chatRescue) leaveVerbatimPassthrough(target router.Decision) {
-	if *o.verbatimPassthrough && target.Provider != providers.ProviderOpenAI {
-		*o.verbatimPassthrough = false
-		*o.responsesPassthrough = false
-	}
 }
 
 func (o *chatRescue) armCyberRetry(ctx context.Context) {
@@ -279,15 +268,7 @@ func (o *chatRescue) cyberRetry(ctx context.Context) {
 	preludeBuf := o.preludeBuf
 	if o.cyberRetryViable && o.proxyErr != nil && !preludeBuf.Committed() &&
 		providers.IsUpstreamCyberPolicyRefusal(o.proxyErr) {
-		retryOpts := o.opts
-		retryOpts.TargetModel = o.cyberRetryTarget.Model
-		retryOpts.TargetProvider = o.cyberRetryTarget.Provider
-		retryOpts.Capabilities = router.Lookup(o.cyberRetryTarget.Model)
-		// The turn now serves a model the session hasn't seen, so signed
-		// reasoning from the refusing model must not be replayed verbatim.
-		retryOpts.ModelSwitched = true
-		retryEffort := s.resolveEffort(ctx, o.cyberRetryTarget, retryOpts.Capabilities, routeRes.EscalateEffort)
-		retryEffort.apply(&retryOpts)
+		retryOpts, retryEffort := switchedAttemptOptions(ctx, o.opts, o.cyberRetryTarget, routeRes.EscalateEffort, s.resolveEffort)
 		retryCtx := resolveAndInjectCredentials(subscriptionStatePaidRescueContext(ctx, o.cyberRetryTarget.Model), o.cyberRetryTarget.Provider, o.cyberRetryTarget.Model, r.Header)
 		retryOpts.FastMode = fastModeForAttempt(retryCtx, o.cyberRetryTarget.Model, o.cyberRetryTarget.Provider)
 		retryBindings := s.resolveBindingsForDispatch(retryCtx, o.cyberRetryTarget)
@@ -308,10 +289,6 @@ func (o *chatRescue) cyberRetry(ctx context.Context) {
 				"failed_provider", o.primaryProvider,
 				"fallback_model", o.cyberRetryTarget.Model,
 				"fallback_provider", o.cyberRetryTarget.Provider)
-			if *o.verbatimPassthrough {
-				*o.verbatimPassthrough = false
-				*o.responsesPassthrough = false
-			}
 			o.cyberRetryRan = true
 			o.effortServed = retryEffort
 			*o.respSummary = translate.ResponseSummary{}
