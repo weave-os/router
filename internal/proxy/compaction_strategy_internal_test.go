@@ -103,7 +103,7 @@ func TestCodexCompactionDispatchAcrossStrategies(t *testing.T) {
 		{"type":"agent_message","author":"child","recipient":"parent","content":[{"type":"encrypted_content","encrypted_content":"synthetic-opaque-content"}]},
 		{"type":"message","role":"user","content":[{"type":"input_text","text":"You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary."}]}]}`)
 	rec := httptest.NewRecorder()
-	err := svc.ProxyOpenAIResponses(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+	err := svc.ProxyOpenAIResponses(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, compactionStrategyModel, rec.Header().Get(HeaderRouterModel))

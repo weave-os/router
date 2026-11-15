@@ -46,7 +46,10 @@ func TestIsRetryable_ResponseHeaderTimeout(t *testing.T) {
 	defer close(release)
 
 	client := &http.Client{Transport: &http.Transport{ResponseHeaderTimeout: 10 * time.Millisecond}}
-	_, err := client.Post(upstream.URL, "application/json", strings.NewReader(`{}`))
+	request, buildErr := http.NewRequestWithContext(t.Context(), http.MethodPost, upstream.URL, strings.NewReader(`{}`))
+	require.NoError(t, buildErr)
+	request.Header.Set("Content-Type", "application/json")
+	_, err := client.Do(request)
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, context.DeadlineExceeded)

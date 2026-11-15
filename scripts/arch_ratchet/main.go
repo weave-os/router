@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -15,13 +16,14 @@ import (
 func main() {
 	base := flag.String("base", "origin/main", "ref whose merge base with HEAD is the comparison point")
 	flag.Parse()
-	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	ctx := context.Background()
+	out, err := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel").Output()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "arch_ratchet: locate repository root:", err)
 		os.Exit(2)
 	}
 	root := strings.TrimSpace(string(out))
-	result, err := run(repo{root: root}, *base)
+	result, err := run(ctx, repo{root: root}, *base)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "arch_ratchet:", err)
 		os.Exit(2)

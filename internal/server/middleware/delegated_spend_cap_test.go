@@ -44,7 +44,7 @@ func runDelegatedSpendCap(t *testing.T, reader *stubDelegatedSpend, session *aut
 		c.Status(http.StatusOK)
 	})
 	rr := httptest.NewRecorder()
-	engine.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+	engine.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
 	return rr, reached
 }
 

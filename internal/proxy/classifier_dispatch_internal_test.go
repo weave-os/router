@@ -100,7 +100,7 @@ func TestClassifierDispatchAcrossProtocols(t *testing.T) {
 			for _, body := range []string{test.firstBody, test.firstBody, test.nextBody} {
 				upstream.body = nil
 				recorder := httptest.NewRecorder()
-				err := test.proxyRequest(svc, ctx, []byte(body), recorder, httptest.NewRequest(http.MethodPost, test.path, nil))
+				err := test.proxyRequest(svc, ctx, []byte(body), recorder, httptest.NewRequestWithContext(t.Context(), http.MethodPost, test.path, nil))
 				require.NoError(t, err)
 				require.NotEmpty(t, upstream.body, "selection must reach the dispatch boundary")
 				require.Equal(t, test.model, recorder.Header().Get("X-Router-Model"))
@@ -115,7 +115,7 @@ func TestClassifierDispatchAcrossProtocols(t *testing.T) {
 			third := strings.TrimSuffix(toolLoop, "]}") + "," + test.thirdUser + "]}"
 			for index, body := range []string{toolLoop, toolLoop, third} {
 				upstream.body = nil
-				err := test.proxyRequest(svc, ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, test.path, nil))
+				err := test.proxyRequest(svc, ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, test.path, nil))
 				require.NoError(t, err)
 				require.NotEmpty(t, upstream.body)
 				if index < 2 {
@@ -130,7 +130,7 @@ func TestClassifierDispatchAcrossProtocols(t *testing.T) {
 			if test.name == "messages" {
 				for _, body := range []string{classifierSearchBody, classifierSearchBody, third} {
 					upstream.body = nil
-					err := test.proxyRequest(svc, ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, test.path, nil))
+					err := test.proxyRequest(svc, ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, test.path, nil))
 					require.NoError(t, err)
 					require.NotEmpty(t, upstream.body)
 					if body == classifierSearchBody {
@@ -145,7 +145,7 @@ func TestClassifierDispatchAcrossProtocols(t *testing.T) {
 			classificationCount := len(inputs)
 			upstream.body = nil
 			compacted := strings.ReplaceAll(test.firstBody, "first", "compacted")
-			err := test.proxyRequest(svc, ctx, []byte(compacted), httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, test.path, nil))
+			err := test.proxyRequest(svc, ctx, []byte(compacted), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, test.path, nil))
 			require.ErrorIs(t, err, router.ErrClassifierHistoryUnavailable)
 			require.Empty(t, upstream.body)
 			require.Len(t, inputs, classificationCount)
@@ -154,7 +154,7 @@ func TestClassifierDispatchAcrossProtocols(t *testing.T) {
 					return router.ClassifierPrediction{}, failure
 				})
 				failureCtx := classifierAdmit(t, svc, principal)
-				err := test.proxyRequest(svc, failureCtx, []byte(test.firstBody), httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, test.path, nil))
+				err := test.proxyRequest(svc, failureCtx, []byte(test.firstBody), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, test.path, nil))
 				require.ErrorIs(t, err, failure)
 				require.Empty(t, upstream.body, "classification failure must not dispatch a provider")
 				require.Zero(t, baseline.calls)
@@ -186,7 +186,7 @@ func TestClassifierDispatchUsesConfiguredSubscriptionState(t *testing.T) {
 	routing := policy.NewSidecarRouter(policy.SidecarRouterConfig{Strategy: router.StrategyLLMClassifier, Unavailable: router.ErrClassifierUnavailable, ClassifierArtifactID: "llm-classifier-v1.0.0", ClassifierArtifactSHA256: strings.Repeat("a", 64), SelectionPolicyReleaseID: "llm-classifier-v1.0.0", SelectionPolicySHA256: roster.SHA256}, policy.AtomicClassifierFacts{Release: "llm-classifier-v1.0.0", ReleaseSHA256: strings.Repeat("a", 64)}, resolver).WithCapabilities(capabilities).WithArmSelector(selection.Selector(roster))
 	svc.WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyLLMClassifier, Router: routing, Capabilities: capabilities, Unavailable: router.ErrClassifierUnavailable})
 	recorder := httptest.NewRecorder()
-	err := svc.ProxyMessages(ctx, []byte(`{"model":"claude-sonnet-4-6","max_tokens":1024,"messages":[{"role":"user","content":"first"}]}`), recorder, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+	err := svc.ProxyMessages(ctx, []byte(`{"model":"claude-sonnet-4-6","max_tokens":1024,"messages":[{"role":"user","content":"first"}]}`), recorder, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
 	require.ErrorIs(t, err, router.ErrAllowlistEmptiesPool, "a classifier-selected model outside both configured state sets must be refused")
 	require.Empty(t, upstream.body)
 }
@@ -214,7 +214,7 @@ func TestClassifierRecapServesWithoutAnchoringPin(t *testing.T) {
 	send := func(body string) {
 		t.Helper()
 		upstream.body = nil
-		err := svc.ProxyMessages(classifierAdmit(t, svc, principal), []byte(body), httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+		err := svc.ProxyMessages(classifierAdmit(t, svc, principal), []byte(body), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
 		require.NoError(t, err)
 		require.NotEmpty(t, upstream.body, "selection must reach the dispatch boundary")
 	}
@@ -245,7 +245,7 @@ func TestClassifierInputRejectsControlBypasses(t *testing.T) {
 	}
 	for _, command := range []string{"/beta", "/force-model example", "/router-session", "/router-models"} {
 		body := fmt.Sprintf(`{"model":"auto","input":[{"role":"user","content":%q}]}`, command)
-		err := svc.ProxyOpenAIResponses(ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+		err := svc.ProxyOpenAIResponses(ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
 		require.Error(t, err, command)
 	}
 	for _, override := range []context.Context{
@@ -276,7 +276,7 @@ func TestClassifierUtilityRequestsDoNotEstablishThreadRoot(t *testing.T) {
 		{turntype.Compaction, `{"model":"auto","max_tokens":1024,"system":"Your task is to create a detailed summary","messages":[{"role":"user","content":"summary"}]}`},
 	} {
 		t.Run(string(utility.turn), func(t *testing.T) {
-			err := svc.ProxyMessages(ctx, []byte(utility.body), httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+			err := svc.ProxyMessages(ctx, []byte(utility.body), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
 			require.ErrorIs(t, err, router.ErrClassifierHistoryUnavailable)
 			status, classified := ClassifyDispatchError(err)
 			require.True(t, classified)

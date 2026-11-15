@@ -68,7 +68,8 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	var listenConfig net.ListenConfig
+	listener, err := listenConfig.Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		return err
 	}
@@ -97,13 +98,22 @@ func run() error {
 	return nil
 }
 
+func getReadiness(ctx context.Context, client *http.Client, readyURL string) (*http.Response, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, readyURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	return client.Do(request)
+}
+
 type policyFixture struct {
 	releaseDir    string
 	classifierURL string
 }
 
 func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, policy policyFixture, mode server.DeploymentMode) error {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	var listenConfig net.ListenConfig
+	listener, err := listenConfig.Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		return err
 	}
@@ -133,7 +143,7 @@ func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, 
 	defer cancel()
 	lastReadiness := "no readiness response"
 	for {
-		response, err := client.Get(baseURL + "/readyz")
+		response, err := getReadiness(readyCtx, client, baseURL+"/readyz")
 		if err == nil {
 			body, readErr := io.ReadAll(io.LimitReader(response.Body, 8192))
 			_ = response.Body.Close()

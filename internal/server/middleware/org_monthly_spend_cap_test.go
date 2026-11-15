@@ -34,7 +34,7 @@ func runOrgMonthlyCap(t *testing.T, externalID string, repo *stubBillingRepo) (*
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	engine.ServeHTTP(w, req)
 	return w, reached
 }
@@ -105,7 +105,7 @@ func runOrgMonthlyCapSub(t *testing.T, routePath string, setInstall func(*gin.Co
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, routePath, nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, routePath, nil)
 	if authHeader != "" {
 		req.Header.Set("Authorization", authHeader)
 	}
@@ -162,7 +162,7 @@ func TestOrgMonthlySpendCap_OverridePassesThrough(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
-	engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/probe", nil))
+	engine.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil))
 	assert.True(t, reached, "billing-override orgs bypass the monthly cap")
 	assert.Equal(t, http.StatusOK, w.Code)
 }

@@ -67,7 +67,7 @@ func (j *EscalationJudge) Judge(ctx context.Context, request llmescalation.Judge
 	judgment := llmescalation.Judgment{CostSource: llmescalation.CostSourceUnknown}
 	transport := dispatch.Buffered{
 		Reason: string(policy.PurposeEscalationJudge),
-		Prepare: func(_ context.Context, attempt dispatch.Attempt) (providers.PreparedRequest, *http.Request, error) {
+		Prepare: func(prepareCtx context.Context, attempt dispatch.Attempt) (providers.PreparedRequest, *http.Request, error) {
 			body, encodeErr := json.Marshal(struct {
 				Model          string                   `json:"model"`
 				Messages       []escalationJudgeMessage `json:"messages"`
@@ -78,7 +78,7 @@ func (j *EscalationJudge) Judge(ctx context.Context, request llmescalation.Judge
 			if encodeErr != nil {
 				return providers.PreparedRequest{}, nil, encodeErr
 			}
-			upstream := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+			upstream := httptest.NewRequestWithContext(prepareCtx, http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 			upstream.Header.Set("Content-Type", "application/json")
 			return providers.PreparedRequest{Body: body, Headers: make(http.Header)}, upstream, nil
 		},

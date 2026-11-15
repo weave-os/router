@@ -32,7 +32,7 @@ func TestSelfHostedDistributionComesFromConfiguredRosterSource(t *testing.T) {
 	engine := gin.New()
 	server.RegisterWithFeatures(engine, nil, nil, fakeHMMRosterSource{}, server.DeploymentModeSelfHosted, nil, nil, nil, nil, server.Features{RoutingDistribution: unavailableDistributionRoster{}})
 	recorder := httptest.NewRecorder()
-	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/v1/router/routing-distribution?grid=2", nil))
+	engine.ServeHTTP(recorder, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/router/routing-distribution?grid=2", nil))
 	assert.Equal(t, http.StatusServiceUnavailable, recorder.Code, "the configured roster source must back the route")
 }
 
@@ -42,6 +42,6 @@ func TestServingDistributionMountsWithoutLegacyScorerAndRequiresAuthentication(t
 	server.RegisterWithFeatures(engine, nil, nil, nil, server.DeploymentModeManaged, nil, nil, nil, nil, server.Features{ServingAdmission: &middleware.ServingAdmissionConfig{}})
 	assert.Contains(t, routeSet(engine), "GET /v1/router/routing-distribution")
 	recorder := httptest.NewRecorder()
-	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/v1/router/routing-distribution?grid=2", nil))
+	engine.ServeHTTP(recorder, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/router/routing-distribution?grid=2", nil))
 	assert.Equal(t, http.StatusUnauthorized, recorder.Code)
 }

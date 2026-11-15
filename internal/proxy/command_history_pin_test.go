@@ -52,7 +52,7 @@ func TestService_HistoricalDirective_KeepsSessionPin(t *testing.T) {
 			send := func(body string) *httptest.ResponseRecorder {
 				t.Helper()
 				rec := httptest.NewRecorder()
-				req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 				require.NoError(t, svc.ProxyOpenAIResponses(ctx, []byte(body), rec, req))
 				return rec
 			}

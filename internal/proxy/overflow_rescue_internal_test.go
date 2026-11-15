@@ -69,7 +69,7 @@ func TestGatewayOverflowOnOrdinaryTurnRescuesAcrossGateways(t *testing.T) {
 			body := []byte(ingress.body)
 			rec := httptest.NewRecorder()
 
-			err := ingress.proxy(svc)(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/x", bytes.NewReader(body)))
+			err := ingress.proxy(svc)(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/x", bytes.NewReader(body)))
 
 			require.NoError(t, err)
 			assert.Equal(t, []string{gatewayCompactionOpusModel}, anthropicGateway.models, "same-gateway peers share the window that rejected it")
@@ -94,7 +94,7 @@ func TestGatewayOverflowEverywhereOnOrdinaryTurnStillAsksToCompact(t *testing.T)
 			body := []byte(ingress.body)
 			rec := httptest.NewRecorder()
 
-			err := ingress.proxy(svc)(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/x", bytes.NewReader(body)))
+			err := ingress.proxy(svc)(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/x", bytes.NewReader(body)))
 
 			require.Error(t, err)
 			assert.Equal(t, []string{catalog.ModelGPT6Luna}, openAIGateway.models)
@@ -118,7 +118,7 @@ func TestGatewayNonOverflowRejectionOnOrdinaryTurnIsNotRescuedAcrossGateways(t *
 			body := []byte(ingress.body)
 			rec := httptest.NewRecorder()
 
-			err := ingress.proxy(svc)(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/x", bytes.NewReader(body)))
+			err := ingress.proxy(svc)(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/x", bytes.NewReader(body)))
 
 			require.Error(t, err)
 			assert.NotEmpty(t, anthropicGateway.models)

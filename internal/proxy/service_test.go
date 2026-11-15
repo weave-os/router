@@ -208,7 +208,7 @@ func TestService_AgentShadowEvaluationForcesEphemerallyWithoutServingRouter(t *t
 	})
 	require.NoError(t, err)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
 	assert.Zero(t, servingRouter.routeCalls)
@@ -260,7 +260,7 @@ func TestService_AgentShadowEvaluationNeverSubstitutesRequestedBaseline(t *testi
 	})
 	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"inspect this repository"}],"max_tokens":512}`)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
 	_ = svc.ProxyMessages(ctx, body, rec, req)
 
@@ -286,7 +286,7 @@ func TestService_AgentShadowEvaluationNeverRetriesSubscriptionOnDeploymentKey(t 
 	ctx = context.WithValue(ctx, proxy.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-subscription-token")
 	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"inspect this repository"}],"max_tokens":512}`)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
 	_ = svc.ProxyMessages(ctx, body, rec, req)
 
@@ -308,7 +308,7 @@ func TestService_ProxyOpenAIResponses_CustomToolUsesNativeOpenAIFamily(t *testin
 
 	body := []byte(`{"model":"gpt-5.5","input":"apply a patch","reasoning":{"effort":"high"},"tools":[{"type":"custom","name":"apply_patch"}]}`)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 	require.NoError(t, svc.ProxyOpenAIResponses(context.Background(), body, rec, req))
 
 	require.NotNil(t, fr.capturedReq)
@@ -332,7 +332,7 @@ func TestService_ProxyOpenAIResponses_CodexFeedbackSkillIsSynthetic(t *testing.T
 	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
 	body := []byte(`{"model":"gpt-5.6-terra","input":[{"type":"message","role":"user","content":"$rf +"},{"type":"message","role":"user","content":"<skill>\n<name>rf</name>\nrun the feedback skill\n</skill>"},{"type":"custom_tool_call","call_id":"call_skill","name":"exec","input":"..."},{"type":"custom_tool_call_output","call_id":"call_skill","output":[{"type":"input_text","text":"Script completed\nOutput:\n /router-feedback +\n"}]}]}`)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 	assert.Empty(t, provider.proxyBodies, "a Codex feedback skill must not dispatch a model turn")
@@ -381,7 +381,7 @@ func TestService_ProxyOpenAIResponses_StaysNativeForDirectOpenAI(t *testing.T) {
 			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
 			body := []byte(`{"model":"auto","input":"remove the router","reasoning":{"effort":"medium"}` + tc.tools + `}`)
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 
 			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 			assertContextHeaders(t, rec.Header())
@@ -427,7 +427,7 @@ func TestService_ProxyOpenAIResponses_BroadRolloutOffKeepsNarrowPromotion(t *tes
 			})
 			body := []byte(`{"model":"auto","input":"remove the router","reasoning":{"effort":"medium"}` + tc.tools + `}`)
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 
 			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 			require.Len(t, provider.proxyBodies, 1)
@@ -475,7 +475,7 @@ func TestService_ProxyOpenAIResponses_ToolTurnFallsBackWhenEndpointLacksResponse
 		provider.proxyEndpoints = nil
 		provider.proxyBodies = nil
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 
 		require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 		assert.Equal(t, want, provider.proxyEndpoints)
@@ -533,7 +533,7 @@ func TestService_ProxyOpenAIResponses_NativeBadgeForTerminalClientsHonorsSuppres
 			ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: tc.clientApp})
 			body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"\u2063\u2060\u2063\u2060**Weave Router** — gpt-5.6-sol\n\nold answer\n\n_Weave Router feedback:_ /rf + good experience"}]},{"type":"message","role":"user","content":"continue"},{"type":"message","role":"assistant","content":[{"type":"output_text","text":""}]},{"type":"function_call","call_id":"call_shell","name":"shell","arguments":"{}"}]}`)
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 			if tc.marker != "" {
 				req.Header.Set("X-Weave-Routing-Marker", tc.marker)
 			}
@@ -582,7 +582,7 @@ func TestService_ProxyOpenAIResponses_OpenCodeStripsTerminalArtifactsBeforeTrans
 	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
 	body := []byte(`{"model":"auto","input":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"⁣⁠⁣⁠**Weave Router** — gpt-5.6-sol\n\nold answer\n\n_Weave Router feedback:_ /rf + good experience"}]},{"type":"message","role":"user","content":"continue"}]}`)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 	require.Len(t, provider.proxyBodies, 1)
@@ -613,7 +613,7 @@ func TestService_ProxyOpenAIResponses_TranslatedMarkerOptOutPreservesStream(t *t
 	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
 	body := []byte(`{"model":"gpt-5.6-luna","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"say hello"}]}]}`)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 	req.Header.Set("X-Weave-Routing-Marker", "off")
 
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
@@ -637,7 +637,7 @@ func TestService_ProxyOpenAIResponses_NativeMarkerOptOutPreservesContentType(t *
 
 	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"reasoning","id":"rs_0","encrypted_content":"opaque"},{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}]}`)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 	req.Header.Set("X-Weave-Routing-Marker", "off")
 
 	require.NoError(t, svc.ProxyOpenAIResponses(codexNativeResponsesCtx(), body, rec, req))
@@ -687,7 +687,7 @@ func TestService_ProxyOpenAIResponses_EmitsRoutingMarkerForCodex(t *testing.T) {
 			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
 			body := []byte(`{"model":"gpt-5.6-luna","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"do the thing"}]}]}`)
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 
 			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 
@@ -744,7 +744,7 @@ func TestService_CodexRequestRoutesInfrastructureOpenAIModelWithoutOAuth(t *test
 	ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, "acct-123")
 	body := []byte(`{"model":"gpt-5.6-sol","input":"route this turn"}`)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 	require.Len(t, provider.proxyBodies, 1)
@@ -787,7 +787,7 @@ func TestService_CodexForcedModelUsesModelScopedCredential(t *testing.T) {
 			ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, "acct-123")
 			body := []byte(`{"model":"gpt-5.6-sol","input":"use the forced model"}`)
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 
 			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 			assert.Zero(t, fr.routeCalls, "the stored user-forced model must bypass automatic routing")
@@ -821,7 +821,7 @@ func TestService_ProxyOpenAIResponses_CodexPassthroughUsesChatForOpenAICompatPro
 	ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, "acct-123")
 	body := []byte(`{"model":"gpt-5.5","input":[{"role":"user","content":[{"type":"input_text","text":"hi"}]}]}`)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 
 	require.Len(t, openRouter.proxyBodies, 1)
@@ -882,7 +882,7 @@ func TestService_ProxyOpenAIResponses_CodexPortableBridgeKeepsHMMProvidersAndRes
 		]}]
 	}`)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 	require.NotNil(t, fr.capturedReq)
@@ -935,7 +935,7 @@ func TestService_PassthroughToNamedProvider_ResolvesBYOKCredential(t *testing.T)
 	ctx := context.WithValue(context.Background(), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-byok"), BaseURL: "https://byok.example.com"},
 	})
-	httpReq := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models", nil)
 	rec := httptest.NewRecorder()
 
 	err := svc.PassthroughToNamedProvider(ctx, providers.ProviderAnthropic, nil, rec, httpReq)
@@ -958,7 +958,7 @@ func TestService_PassthroughToProvider_CountTokensLocalFallback(t *testing.T) {
 	}).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropicGateway: {}})
 
 	body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello world"}]}`)
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(""))
 	rec := httptest.NewRecorder()
 
 	require.NoError(t, svc.PassthroughToProvider(context.Background(), body, rec, httpReq))
@@ -979,7 +979,7 @@ func TestService_PassthroughToProvider_CountTokensForwardsWithCredential(t *test
 		provider := &fakeProvider{}
 		svc := makeProxyService(router.Decision{}, map[string]providers.Client{providers.ProviderAnthropic: provider}).
 			WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
-		httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(""))
+		httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(""))
 		rec := httptest.NewRecorder()
 
 		require.NoError(t, svc.PassthroughToProvider(context.Background(), body, rec, httpReq))
@@ -993,7 +993,7 @@ func TestService_PassthroughToProvider_CountTokensForwardsWithCredential(t *test
 		ctx := context.WithValue(context.Background(), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 			{Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-byok")},
 		})
-		httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(""))
+		httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(""))
 		rec := httptest.NewRecorder()
 
 		require.NoError(t, svc.PassthroughToProvider(ctx, body, rec, httpReq))
@@ -1010,7 +1010,7 @@ func TestService_ProxyMessages_PropagatesUpstreamStatusError(t *testing.T) {
 	)
 
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}]}`)
 
 	err := svc.ProxyMessages(context.Background(), body, rec, httpReq)
@@ -1041,7 +1041,7 @@ func TestService_ProxyMessages_CrossFormatUpstreamErrorBodyReachesClient(t *test
 	)
 
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}]}`)
 
 	err := svc.ProxyMessages(context.Background(), body, rec, httpReq)
@@ -1084,7 +1084,7 @@ func TestService_ProxyMessages_StripsRoutingMarkerFromInboundHistory(t *testing.
 	)
 
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(context.Background(), body, rec, httpReq))
 
 	require.Len(t, provider.proxyBodies, 1)
@@ -1131,7 +1131,7 @@ func TestService_ProxyMessages_RoutesOnUserRoleTextOnly(t *testing.T) {
 		)
 
 		rec := httptest.NewRecorder()
-		httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+		httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 		require.NoError(t, svc.ProxyMessages(context.Background(), body, rec, httpReq))
 
 		require.NotNil(t, fr.capturedReq)
@@ -1160,7 +1160,7 @@ func TestService_ProxyMessages_NoPinStoreRunsScorerEveryTurn(t *testing.T) {
 	ctx := context.WithValue(context.Background(), proxy.APIKeyIDContextKey{}, "key-1")
 	for range 2 {
 		rec := httptest.NewRecorder()
-		httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+		httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 		require.NoError(t, svc.ProxyMessages(ctx, body, rec, httpReq))
 	}
 	assert.Equal(t, 2, fr.routeCalls, "without a pin store, both turns must consult the scorer")
@@ -1183,7 +1183,7 @@ func TestService_ProxyOpenAIChatCompletion_AnthropicCrossFormat(t *testing.T) {
 
 	openAIReq := `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"max_tokens":100}`
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(openAIReq))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(openAIReq))
 
 	err := svc.ProxyOpenAIChatCompletion(context.Background(), []byte(openAIReq), rec, httpReq)
 	require.NoError(t, err)
@@ -1218,7 +1218,7 @@ func TestService_ProxyOpenAIChatCompletion_AnthropicProxyError_PropagatesError(t
 
 	body := `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 
 	err := svc.ProxyOpenAIChatCompletion(context.Background(), []byte(body), rec, httpReq)
 
@@ -1242,7 +1242,7 @@ func TestService_ProxyOpenAIChatCompletion_NativeOpenAI(t *testing.T) {
 
 	body := `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 
 	// Broad rollout off: this asserts the untranslated same-format path, which
 	// stays reachable as the kill switch's target.
@@ -1281,7 +1281,7 @@ func TestService_ProxyOpenAIChatCompletion_NativeOpenRouter(t *testing.T) {
 
 	body := `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 
 	err := svc.ProxyOpenAIChatCompletion(context.Background(), []byte(body), rec, httpReq)
 	require.NoError(t, err)
@@ -1326,7 +1326,7 @@ func TestService_ProxyMessages_DispatchesBedrockMakoraTogether(t *testing.T) {
 			// so the test exercises the widened switch, not the fallback.
 			body := []byte(`{"model":"claude-opus-4-7","max_tokens":16,"tools":[{"name":"calc","description":"add","input_schema":{"type":"object","properties":{"a":{"type":"integer"},"b":{"type":"integer"}},"required":["a","b"]}}],"messages":[{"role":"user","content":"What is 7+5? Use calc."}]}`)
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(body)))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(string(body)))
 			require.NoError(t, svc.ProxyMessages(context.Background(), body, rec, req))
 			require.Len(t, p.proxyBodies, 1, "%s must reach the upstream", tc.provider)
 		})
@@ -1358,7 +1358,7 @@ func TestService_ProxyOpenAIChatCompletion_DispatchesBedrockMakoraTogether(t *te
 			)
 			body := `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 			require.NoError(t, svc.ProxyOpenAIChatCompletion(context.Background(), []byte(body), rec, req))
 			require.Len(t, p.proxyBodies, 1, "%s must reach the upstream", tc.provider)
 		})
@@ -1394,7 +1394,7 @@ func TestService_CodexPassthrough_RoutesFreelyWithBothSubs(t *testing.T) {
 
 	body := []byte(`{"model":"gpt-5.5","input":[{"role":"user","content":[{"type":"input_text","text":"hi"}]}]}`)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 
 	require.NotNil(t, fr.capturedReq)
@@ -1425,7 +1425,7 @@ func TestService_WithByokOnly_FiltersUnauthedProvidersFromScorer(t *testing.T) {
 		svc := proxy.NewService(fr, providerMap, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 		rec := httptest.NewRecorder()
-		httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+		httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 		require.NoError(t, svc.ProxyMessages(context.Background(), body, rec, httpReq))
 
 		require.NotNil(t, fr.capturedReq)
@@ -1439,7 +1439,7 @@ func TestService_WithByokOnly_FiltersUnauthedProvidersFromScorer(t *testing.T) {
 			WithByokOnly(true)
 
 		rec := httptest.NewRecorder()
-		httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+		httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 		require.NoError(t, svc.ProxyMessages(context.Background(), body, rec, httpReq))
 
 		require.NotNil(t, fr.capturedReq)
@@ -1455,7 +1455,7 @@ func TestService_WithByokOnly_FiltersUnauthedProvidersFromScorer(t *testing.T) {
 			WithByokOnly(true)
 
 		rec := httptest.NewRecorder()
-		httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+		httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 		httpReq.Header.Set("x-api-key", "sk-ant-customer-key")
 		_ = svc.ProxyMessages(context.Background(), body, rec, httpReq)
 
@@ -1476,7 +1476,7 @@ func TestService_WithByokOnly_FiltersUnauthedProvidersFromScorer(t *testing.T) {
 			WithByokOnly(true)
 
 		rec := httptest.NewRecorder()
-		httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+		httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 		httpReq.Header.Set("Authorization", "Bearer sk-ant-oat01-claude-code-token")
 		_ = svc.ProxyMessages(context.Background(), body, rec, httpReq)
 
@@ -1499,7 +1499,7 @@ func TestService_ExcludedModelsThroughRequest(t *testing.T) {
 		svc := proxy.NewService(fr, providerMap, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 		rec := httptest.NewRecorder()
-		httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+		httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 		require.NoError(t, svc.ProxyMessages(context.Background(), body, rec, httpReq))
 
 		require.NotNil(t, fr.capturedReq)
@@ -1512,7 +1512,7 @@ func TestService_ExcludedModelsThroughRequest(t *testing.T) {
 
 		ctx := context.WithValue(context.Background(), proxy.InstallationExcludedModelsContextKey{}, []string{"claude-opus-4-7", "gpt-5"})
 		rec := httptest.NewRecorder()
-		httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+		httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 		require.NoError(t, svc.ProxyMessages(ctx, body, rec, httpReq))
 
 		require.NotNil(t, fr.capturedReq)
@@ -1528,7 +1528,7 @@ func TestService_ExcludedModelsThroughRequest(t *testing.T) {
 		// Installation list says one thing; override says another. Override wins.
 		ctx := context.WithValue(context.Background(), proxy.InstallationExcludedModelsContextKey{}, []string{"claude-opus-4-7"})
 		rec := httptest.NewRecorder()
-		httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+		httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 		require.NoError(t, svc.ProxyMessages(ctx, body, rec, httpReq))
 
 		require.NotNil(t, fr.capturedReq)
@@ -1570,7 +1570,7 @@ func TestService_ProxyOpenAIResponses_NativeDispatchAppliesArmEffort(t *testing.
 			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
 			body := []byte(`{"model":"auto","input":"remove the router","reasoning":{"effort":"medium","summary":"auto"}}`)
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 
 			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 			require.Len(t, provider.proxyBodies, 1)

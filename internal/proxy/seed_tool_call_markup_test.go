@@ -106,7 +106,7 @@ func proxySeedChat(t *testing.T, body []byte, frames []string) *httptest.Respons
 	provider := scriptedStream(frames)
 	svc := nativeSurfaceService(provider, providers.ProviderOpenRouter, seedMarkupModel)
 	rec := httptest.NewRecorder()
-	require.NoError(t, svc.ProxyOpenAIChatCompletion(authedCtx(uuid.NewString()), body, rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)))
+	require.NoError(t, svc.ProxyOpenAIChatCompletion(authedCtx(uuid.NewString()), body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", nil)))
 	return rec
 }
 
@@ -192,7 +192,7 @@ func TestProxyOpenAIChatCompletion_SeedToolCallMarkupNonStreaming(t *testing.T) 
 	}}
 	svc := nativeSurfaceService(provider, providers.ProviderOpenRouter, seedMarkupModel)
 	rec := httptest.NewRecorder()
-	require.NoError(t, svc.ProxyOpenAIChatCompletion(authedCtx(uuid.NewString()), seedMarkupChatBody(false), rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)))
+	require.NoError(t, svc.ProxyOpenAIChatCompletion(authedCtx(uuid.NewString()), seedMarkupChatBody(false), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", nil)))
 
 	body := rec.Body.Bytes()
 	require.True(t, gjson.ValidBytes(body), "%s", body)
@@ -230,7 +230,7 @@ func TestProxyMessages_SeedToolCallMarkupBecomesToolUse(t *testing.T) {
 	)
 	body := seedMarkupMessagesBody(true)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(body)))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(string(body)))
 	require.NoError(t, svc.ProxyMessages(authedCtx(uuid.NewString()), body, rec, req))
 
 	out := rec.Body.String()

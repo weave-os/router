@@ -58,7 +58,7 @@ func TestProxyOpenAIChatCompletion_StripRoutingMarkerFailure_ReturnsError(t *tes
 
 	body := `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 
 	err := svc.ProxyOpenAIChatCompletion(context.Background(), []byte(body), rec, httpReq)
 
@@ -82,7 +82,7 @@ func TestProxyMessages_StripRoutingMarkerFailure_ReturnsError(t *testing.T) {
 
 	body := `{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}]}`
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(body))
 
 	err := svc.ProxyMessages(context.Background(), []byte(body), rec, httpReq)
 

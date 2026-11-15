@@ -90,7 +90,7 @@ func TestRoutingModelDispatchesConcreteModelAcrossClientProtocols(t *testing.T) 
 				svc := NewService(defaultRouter, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, nil, false, providers.ProviderAnthropic, completionModel, nil).
 					WithPolicyStrategy(policy.StrategySpec{Strategy: choice.strategy, Router: hmmRouter})
 				ctx := router.WithRoutingModel(router.WithStrategy(context.Background(), choice.strategy), choice.model)
-				request := httptest.NewRequest(http.MethodPost, tc.path, nil)
+				request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, tc.path, nil)
 				response := httptest.NewRecorder()
 				require.NoError(t, tc.call(svc, ctx, []byte(tc.body), response, request))
 				require.Zero(t, defaultRouter.calls)

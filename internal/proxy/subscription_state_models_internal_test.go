@@ -187,7 +187,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 						servedModels = append(servedModels, decision.Model)
 						subscriptionFunding = append(subscriptionFunding, servedOnSubscription(attemptCtx))
 						buffer.Seal()
-						return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+						return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
 					}, nil
 				},
 				onAlternative: func(decision router.Decision) { winner = decision },
@@ -256,7 +256,7 @@ func TestSubscriptionStateRateLimitedIncludedLaneKeepsUpstreamStatus(t *testing.
 		buildAlternative: func(router.Decision) (dispatchAttempt, error) {
 			return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
 				buffer.Seal()
-				return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+				return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
 			}, nil
 		},
 	}
@@ -337,7 +337,7 @@ func TestSubscriptionStateModelsHTTPIngress(t *testing.T) {
 					body = `{"model":"auto","stream":true,"input":[{"role":"user","content":"synthetic task"}]}`
 				}
 				rec := httptest.NewRecorder()
-				req := httptest.NewRequest(http.MethodPost, surface, strings.NewReader(body))
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, surface, strings.NewReader(body))
 				var err error
 				switch surface {
 				case routePathMessages:
@@ -389,7 +389,7 @@ func TestSubscriptionStateModelsClassifierUsesPaidSet(t *testing.T) {
 	body := `{"model":"` + stateClaudeModel + `","stream":true,"max_tokens":64,"thinking":{"type":"disabled"},"system":"You are a security monitor.","messages":[{"role":"user","content":"grade this action"}]}`
 	rec := httptest.NewRecorder()
 
-	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, routePathMessages, strings.NewReader(body))))
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathMessages, strings.NewReader(body))))
 
 	require.Equal(t, statePaidModel, rec.Header().Get(HeaderRouterModel))
 	require.Equal(t, []string{statePaidModel}, models)
@@ -422,7 +422,7 @@ func TestSubscriptionStateModelsPaidFallbackSkipsUnavailableProvider(t *testing.
 			return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
 				servedModels = append(servedModels, decision.Model)
 				buffer.Seal()
-				return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+				return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
 			}, nil
 		},
 		onSubscriptionStateTarget: func(decision router.Decision, _ []catalog.ProviderBinding) { winner = decision },
@@ -544,7 +544,7 @@ func TestSubscriptionStateModelsStrictDirectSubscription(t *testing.T) {
 				require.True(t, servedOnSubscription(attemptCtx))
 				require.Equal(t, conditionalModelsSubscriptionToken, string(CredentialsFromContext(attemptCtx).APIKey))
 				buffer.Seal()
-				return upstream.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, routePathMessages, nil))
+				return upstream.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathMessages, nil))
 			}, nil
 		},
 		onAlternative: func(target router.Decision) { winner = target },
@@ -608,7 +608,7 @@ func TestSubscriptionStateModelsCodexNativeAttemptAfterCrossFamilyPick(t *testin
 
 	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic task"}]}],"tools":[{"type":"custom","name":"exec"}]}`
 	rec := httptest.NewRecorder()
-	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, routePathResponses, strings.NewReader(body)))
+	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathResponses, strings.NewReader(body)))
 
 	require.NoError(t, err)
 	require.Equal(t, []string{stateCodexModel}, models, "the included Codex plan serves the turn")
@@ -663,7 +663,7 @@ func TestSubscriptionStateModelsRevokedCodexLoginFailsTurn(t *testing.T) {
 
 			body := fmt.Sprintf(`{"model":"auto","stream":%v,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic task"}]}]}`, tc.stream)
 			rec := httptest.NewRecorder()
-			err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, routePathResponses, strings.NewReader(body)))
+			err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathResponses, strings.NewReader(body)))
 
 			if tc.client != ClientAppCodex {
 				assert.Equal(t, 1, paidCalls, "a client that does not depend on its linked Codex login keeps the exhausted model set")
@@ -727,7 +727,7 @@ func TestSubscriptionStateModelsCodexCustomToolAfterCrossFamilyPick(t *testing.T
 
 	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"list files"}]}],"tools":[{"type":"custom","name":"exec","description":"run a script"}]}`
 	rec := httptest.NewRecorder()
-	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, routePathResponses, strings.NewReader(body)))
+	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathResponses, strings.NewReader(body)))
 
 	require.NoError(t, err)
 	require.Equal(t, []string{"function"}, toolTypes, "the swapped attempt is emitted onto Responses from the chat projection")
@@ -814,7 +814,7 @@ func TestSubscriptionStateModelsResponsesClientGrid(t *testing.T) {
 
 					body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic task"}]}]` + toolsJSON + `}`
 					rec := httptest.NewRecorder()
-					err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, routePathResponses, strings.NewReader(body)))
+					err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathResponses, strings.NewReader(body)))
 
 					require.NoError(t, err)
 					require.Len(t, models, 1, "one attempt serves the turn")

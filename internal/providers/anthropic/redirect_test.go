@@ -33,7 +33,7 @@ func TestProxy_RefusedRedirectFailsRetryablyWithoutTouchingWriter(t *testing.T) 
 
 	c := anthropic.NewClient("deployment-key", upstream.URL)
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	prep := providers.PreparedRequest{Body: []byte(`{"model":"x"}`), Headers: make(http.Header)}
 
 	err := c.Proxy(context.Background(), router.Decision{Model: "claude-opus-4-8"}, prep, rec, clientReq)

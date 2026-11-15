@@ -47,9 +47,9 @@ func TestGeminiToolModeRecoveryAcrossOpenAIFormats(t *testing.T) {
 			var err error
 			if tc.format == translate.FormatOpenAIResponses {
 				body = `{"model":"auto","stream":true,"input":"synthetic task","tools":[{"type":"function","name":"read_file","parameters":{"type":"object","properties":{"path":{"type":"string"}}}}]}`
-				err = svc.ProxyOpenAIResponses(context.Background(), []byte(body), rec, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body)))
+				err = svc.ProxyOpenAIResponses(context.Background(), []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(body)))
 			} else {
-				err = svc.ProxyOpenAIChatCompletion(context.Background(), []byte(body), rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body)))
+				err = svc.ProxyOpenAIChatCompletion(context.Background(), []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(body)))
 			}
 			require.NoError(t, err)
 			require.Len(t, client.bodies, 2)

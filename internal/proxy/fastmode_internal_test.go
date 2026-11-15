@@ -93,7 +93,7 @@ func TestProxyMessages_FastModeAnthropicDispatchesFastAndBillsFastRate(t *testin
 	svc, _ := newFastModeService(router.Decision{Provider: providers.ProviderAnthropic, Model: fastOpusModel}, upstream)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}]}`)
 	require.NoError(t, svc.ProxyMessages(fastModeCtx(fastOpusModel), body, rec, req))
 
@@ -115,7 +115,7 @@ func TestProxyMessages_FastModeOffLeavesRequestAndListPrice(t *testing.T) {
 	svc, _ := newFastModeService(router.Decision{Provider: providers.ProviderAnthropic, Model: fastOpusModel}, upstream)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}]}`)
 	require.NoError(t, svc.ProxyMessages(fastModeCtx(fastLunaModel), body, rec, req))
 
@@ -136,7 +136,7 @@ func TestProxyMessages_ReportedFastSpeedBillsFastRateWithoutOptIn(t *testing.T) 
 	svc, _ := newFastModeService(router.Decision{Provider: providers.ProviderAnthropic, Model: fastOpusModel}, upstream)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-opus-4-7","speed":"fast","messages":[{"role":"user","content":"hi"}]}`)
 	require.NoError(t, svc.ProxyMessages(fastModeCtx(fastLunaModel), body, rec, req))
 
@@ -151,7 +151,7 @@ func TestProxyMessages_UnreportedCacheSplitUsesRequestTTL(t *testing.T) {
 	svc, _ := newFastModeService(router.Decision{Provider: providers.ProviderAnthropic, Model: fastOpusModel}, upstream)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-opus-4-7","system":[{"type":"text","text":"stable prefix","cache_control":{"type":"ephemeral","ttl":"1h"}}],"messages":[{"role":"user","content":[{"type":"text","text":"hi","cache_control":{"type":"ephemeral","ttl":"1h"}}]}]}`)
 	require.NoError(t, svc.ProxyMessages(fastModeCtx(fastLunaModel), body, rec, req))
 
@@ -166,7 +166,7 @@ func TestProxyMessages_UnreportedCacheSplitWithFiveMinuteRequestStaysFiveMinute(
 	svc, _ := newFastModeService(router.Decision{Provider: providers.ProviderAnthropic, Model: fastOpusModel}, upstream)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-opus-4-7","system":[{"type":"text","text":"stable prefix","cache_control":{"type":"ephemeral","ttl":"5m"}}],"messages":[{"role":"user","content":[{"type":"text","text":"hi","cache_control":{"type":"ephemeral","ttl":"5m"}}]}]}`)
 	require.NoError(t, svc.ProxyMessages(fastModeCtx(fastLunaModel), body, rec, req))
 
@@ -206,7 +206,7 @@ func TestProxyMessages_FastModeQuotaRejectionRetriesAtStandardSpeedAndBillsListP
 	svc, _ := newFastModeService(router.Decision{Provider: providers.ProviderAnthropic, Model: fastOpusModel}, upstream)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}]}`)
 	require.NoError(t, svc.ProxyMessages(fastModeCtx(fastOpusModel), body, rec, req))
 
@@ -237,9 +237,9 @@ func TestOpenAIFormats_FastModeQuotaRejectionRetriesAtStandardSpeed(t *testing.T
 			var err error
 			if tc.format == translate.FormatOpenAIResponses {
 				body = []byte(`{"model":"auto","input":"hi"}`)
-				err = svc.ProxyOpenAIResponses(fastModeCtx(fastOpusModel), body, rec, httptest.NewRequest(http.MethodPost, routePathResponses, strings.NewReader("")))
+				err = svc.ProxyOpenAIResponses(fastModeCtx(fastOpusModel), body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathResponses, strings.NewReader("")))
 			} else {
-				err = svc.ProxyOpenAIChatCompletion(fastModeCtx(fastOpusModel), body, rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("")))
+				err = svc.ProxyOpenAIChatCompletion(fastModeCtx(fastOpusModel), body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader("")))
 			}
 			require.NoError(t, err)
 			require.Len(t, upstream.bodies, 2)
@@ -261,7 +261,7 @@ func TestOpenAIFormats_FastModeQuotaRejectionRetriesAtStandardSpeed(t *testing.T
 func TestAnthropicTierAttempt_OrdinaryRateLimitStaysFast(t *testing.T) {
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-5","max_tokens":64,"messages":[{"role":"user","content":"hi"}]}`))
 	require.NoError(t, err)
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	opts := translate.EmitOptions{
 		TargetModel:    fastOpusModel,
 		TargetProvider: providers.ProviderAnthropic,
@@ -299,7 +299,7 @@ func TestProxyMessages_FastModeOpenAICrossFormatSetsPriorityTier(t *testing.T) {
 	svc, _ := newFastModeService(router.Decision{Provider: providers.ProviderOpenAI, Model: fastLunaModel}, upstream)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}]}`)
 	require.NoError(t, svc.ProxyMessages(fastModeCtx(fastLunaModel), body, rec, req))
 
@@ -312,7 +312,7 @@ func TestProxyOpenAIChatCompletion_FastModeSetsPriorityTier(t *testing.T) {
 	svc, _ := newFastModeService(router.Decision{Provider: providers.ProviderOpenAI, Model: fastLunaModel}, upstream)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	body := []byte(`{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"hi"}]}`)
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(fastModeCtx(fastLunaModel), body, rec, req))
 
@@ -326,7 +326,7 @@ func TestProxyOpenAIChatCompletion_FastModeSetsPriorityTier(t *testing.T) {
 func TestAnthropicTierAttempt_ReemitsWhenBindingLosesFastTier(t *testing.T) {
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-5","max_tokens":64,"messages":[{"role":"user","content":"hi"}]}`))
 	require.NoError(t, err)
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	opts := translate.EmitOptions{
 		TargetModel:    fastOpusModel,
 		TargetProvider: providers.ProviderAnthropic,
@@ -373,7 +373,7 @@ func TestProxyMessages_FastModeGatewayNeverGetsFastFields(t *testing.T) {
 	svc, _ := newFastModeService(router.Decision{Provider: providers.ProviderOpenRouter, Model: "qwen/qwen3-235b-a22b-2507"}, upstream)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}]}`)
 	require.NoError(t, svc.ProxyMessages(fastModeCtx("qwen/qwen3-235b-a22b-2507", fastOpusModel), body, rec, req))
 

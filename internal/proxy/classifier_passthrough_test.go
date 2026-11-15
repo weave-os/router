@@ -54,8 +54,8 @@ func classifierSubscriptionCtx() context.Context {
 	return claudeCreditFallbackContext(context.WithValue(authedCtx(uuid.New().String()), proxy.AnthropicSubscriptionContextKey{}, bypassSubToken))
 }
 
-func classifierRequest() (*httptest.ResponseRecorder, *http.Request) {
-	return httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+func classifierRequest(ctx context.Context) (*httptest.ResponseRecorder, *http.Request) {
+	return httptest.NewRecorder(), httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", strings.NewReader(""))
 }
 
 func exhaustedObserver() *usage.Observer {
@@ -80,7 +80,7 @@ func assertNoPinWrite(t *testing.T, store *fakePinStore) {
 // to the requested model: no scorer, no opt-in, no session pin.
 func TestClassifier_SubscriptionPassthrough_SkipsScorer(t *testing.T) {
 	svc, fr, p, store := classifierPassthroughFixture(t, nil)
-	rec, req := classifierRequest()
+	rec, req := classifierRequest(t.Context())
 
 	require.NoError(t, svc.ProxyMessages(classifierSubscriptionCtx(), []byte(classifierBody), rec, req))
 
@@ -100,7 +100,7 @@ func TestClassifier_SubscriptionPassthrough_SkipsScorer(t *testing.T) {
 // scorer substitute: Claude Code picks its classifier model deliberately.
 func TestClassifier_NoSubscription_ServesClassifierModel(t *testing.T) {
 	svc, fr, p, store := classifierPassthroughFixture(t, nil)
-	rec, req := classifierRequest()
+	rec, req := classifierRequest(t.Context())
 
 	require.NoError(t, svc.ProxyMessages(claudeCreditFallbackContext(authedCtx(uuid.New().String())), []byte(classifierBody), rec, req))
 
@@ -116,7 +116,7 @@ func TestClassifier_NoSubscription_ServesClassifierModel(t *testing.T) {
 // classifier to the scorer instead of refusing it.
 func TestClassifier_ClassifierModelNotAllowed_IsScored(t *testing.T) {
 	svc, fr, _, store := classifierPassthroughFixture(t, nil)
-	rec, req := classifierRequest()
+	rec, req := classifierRequest(t.Context())
 	ctx := context.WithValue(authedCtx(uuid.New().String()), proxy.InstallationAllowedModelsContextKey{}, []string{classifierRequestedMdl, classifierScorerPickMdl})
 
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(classifierBody), rec, req))
@@ -131,7 +131,7 @@ func TestClassifier_ClassifierModelNotAllowed_IsScored(t *testing.T) {
 func TestClassifier_ExhaustedHeaderSubscription_IsScored(t *testing.T) {
 	svc, fr, _, _ := classifierPassthroughFixture(t, exhaustedObserver())
 	svc = svc.WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
-	rec, req := classifierRequest()
+	rec, req := classifierRequest(t.Context())
 	req.Header.Set("Authorization", "Bearer "+bypassSubToken)
 
 	require.NoError(t, svc.ProxyMessages(claudeCreditFallbackContext(authedCtx(uuid.New().String())), []byte(classifierBody), rec, req))
@@ -144,7 +144,7 @@ func TestClassifier_ExhaustedHeaderSubscription_IsScored(t *testing.T) {
 // unchanged: the classifier lane must not widen into a general passthrough.
 func TestClassifier_MainLoopWithSubscription_StillScored(t *testing.T) {
 	svc, fr, _, _ := classifierPassthroughFixture(t, nil)
-	rec, req := classifierRequest()
+	rec, req := classifierRequest(t.Context())
 	mainLoop := `{"model":"` + classifierRequestedMdl + `","max_tokens":4096,"messages":[{"role":"user","content":"hello"}]}`
 
 	require.NoError(t, svc.ProxyMessages(classifierSubscriptionCtx(), []byte(mainLoop), rec, req))
@@ -162,7 +162,7 @@ func TestClassifier_ForceModel_OutranksPassthrough(t *testing.T) {
 		Provider: providers.ProviderAnthropic, Model: classifierScorerPickMdl,
 		Reason: translate.ReasonUserForceModel, PinnedUntil: time.Now().Add(24 * time.Hour),
 	}
-	rec, req := classifierRequest()
+	rec, req := classifierRequest(t.Context())
 
 	require.NoError(t, svc.ProxyMessages(classifierSubscriptionCtx(), []byte(classifierBody), rec, req))
 
@@ -178,7 +178,7 @@ func TestClassifier_ForceModel_OutranksPassthrough(t *testing.T) {
 func TestClassifier_ExhaustedSubscription_ServesOnDeploymentKey(t *testing.T) {
 	svc, fr, p, store := classifierPassthroughFixture(t, exhaustedObserver())
 	svc = svc.WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
-	rec, req := classifierRequest()
+	rec, req := classifierRequest(t.Context())
 
 	require.NoError(t, svc.ProxyMessages(classifierSubscriptionCtx(), []byte(classifierBody), rec, req))
 
@@ -195,7 +195,7 @@ func TestClassifier_ExhaustedSubscription_ServesOnDeploymentKey(t *testing.T) {
 // before dispatch instead of sending the spent subscription.
 func TestClassifier_ExhaustedSubscription_NoFallbackRefusesBeforeDispatch(t *testing.T) {
 	svc, fr, p, _ := classifierPassthroughFixture(t, exhaustedObserver())
-	rec, req := classifierRequest()
+	rec, req := classifierRequest(t.Context())
 
 	require.ErrorIs(t, svc.ProxyMessages(classifierSubscriptionCtx(), []byte(classifierBody), rec, req), proxy.ErrSubscriptionPoolExhausted)
 	assert.Equal(t, 1, fr.routeCalls)
@@ -204,7 +204,7 @@ func TestClassifier_ExhaustedSubscription_NoFallbackRefusesBeforeDispatch(t *tes
 
 func TestClassifier_SubscriptionOnly_Exhausted_Refuses402(t *testing.T) {
 	svc, _, p, _ := classifierPassthroughFixture(t, exhaustedObserver())
-	rec, req := classifierRequest()
+	rec, req := classifierRequest(t.Context())
 
 	err := svc.ProxyMessages(billing.WithSubscriptionOnly(classifierSubscriptionCtx(), billing.SubscriptionOnlyCreditsDepleted), []byte(classifierBody), rec, req)
 
@@ -222,7 +222,7 @@ func TestClassifier_SubscriptionOnly_VerifiedEnterpriseOverage_PassesThrough(t *
 	})
 	svc, fr, p, _ := classifierPassthroughFixture(t, obs)
 	svc.WithClaudeSubscriptionPlanReader(fixedSubscriptionPlanReader{providers.SubscriptionPlanEnterprise})
-	rec, req := classifierRequest()
+	rec, req := classifierRequest(t.Context())
 
 	require.NoError(t, svc.ProxyMessages(billing.WithSubscriptionOnly(classifierSubscriptionCtx(), billing.SubscriptionOnlyCreditsDepleted), []byte(classifierBody), rec, req))
 
@@ -253,7 +253,7 @@ func TestClassifier_PassthroughRetryable_FallsBackToRoutedDispatch_NoPin(t *test
 	upstream := &swapErrProvider{first: limit, second: nil, inner: inner}
 	store := newFakePinStore()
 	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, store, false, providers.ProviderAnthropic, classifierRequestedMdl, nil)
-	rec, req := classifierRequest()
+	rec, req := classifierRequest(t.Context())
 
 	require.NoError(t, svc.ProxyMessages(classifierSubscriptionCtx(), []byte(classifierBody), rec, req))
 

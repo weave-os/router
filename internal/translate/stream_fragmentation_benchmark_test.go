@@ -76,6 +76,7 @@ func writerChainBenchmarks() []writerChainBenchmark {
 }
 
 func runWriterChain(b *testing.B, chain writerChainBenchmark, chunks [][]byte) *httptest.ResponseRecorder {
+	b.Helper()
 	rec := httptest.NewRecorder()
 	w, finalize := chain.build(b, rec)
 	for _, chunk := range chunks {
@@ -102,6 +103,7 @@ func requireWriterChainOutput(b *testing.B, chain writerChainBenchmark, chunks [
 }
 
 func benchmarkWriterChain(b *testing.B, chain writerChainBenchmark, chunks [][]byte) {
+	b.Helper()
 	requireWriterChainOutput(b, chain, chunks)
 	b.SetBytes(int64(len(chain.body)))
 	b.ReportAllocs()
@@ -153,6 +155,7 @@ func BenchmarkStreamWriterFullChain(b *testing.B) {
 				body:   body,
 				expect: "Weave Router feedback",
 				build: func(b *testing.B, rec *httptest.ResponseRecorder) (http.ResponseWriter, func() error) {
+					b.Helper()
 					footer := translate.NewAnthropicRoutingFooterWriter(rec, testFooter)
 					marker := translate.NewAnthropicRoutingMarkerWriter(footer, "gpt-x", testMarker)
 					writer := translate.NewAnthropicSSETranslator(marker, "gpt-x", nil)

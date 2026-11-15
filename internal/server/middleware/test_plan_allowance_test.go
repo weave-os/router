@@ -36,7 +36,7 @@ func TestVerifiedInternalTestSkipsAllSubscriberAllowanceAndProductReads(t *testi
 		require.False(t, covered)
 		c.Status(http.StatusNoContent)
 	})
-	request := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	request.Header.Set("X-Weave-User-Email", "customer@example.com")
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, request)

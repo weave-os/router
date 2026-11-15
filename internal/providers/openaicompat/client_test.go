@@ -53,7 +53,7 @@ func TestProxy_ForwardsToChatCompletionsUnderVersionedBaseURL(t *testing.T) {
 
 	c := openaicompat.NewClient("test-key", upstream.URL+"/api/v1/")
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 
 	body := []byte(`{"model":"qwen/qwen3-30b-a3b-instruct-2507","messages":[{"role":"user","content":"hi"}]}`)
 	prep := providers.PreparedRequest{Body: body, Headers: make(http.Header)}
@@ -98,7 +98,7 @@ func TestProxy_RewritesMappedCatalogModelIDs(t *testing.T) {
 
 			c := openaicompat.NewClientWithModelIDMap("test-key", upstream.URL, idMap)
 			rec := httptest.NewRecorder()
-			clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+			clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 			body := []byte(`{"model":"` + tc.catalog + `","messages":[{"role":"user","content":"hi"}]}`)
 			err := c.Proxy(context.Background(), router.Decision{Model: tc.catalog}, providers.PreparedRequest{Body: body, Headers: make(http.Header)}, rec, clientReq)
 			require.NoError(t, err)
@@ -121,7 +121,7 @@ func TestProxy_RewritesMappedCatalogModelIDs(t *testing.T) {
 
 		c := openaicompat.NewClientWithModelIDMap("test-key", upstream.URL, idMap)
 		rec := httptest.NewRecorder()
-		clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+		clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 		body := []byte(`{"model":"qwen/qwen3-coder","messages":[{"role":"user","content":"hi"}]}`)
 		err := c.Proxy(context.Background(), router.Decision{Model: "qwen/qwen3-coder"}, providers.PreparedRequest{Body: body, Headers: make(http.Header)}, rec, clientReq)
 		require.NoError(t, err)
@@ -147,7 +147,7 @@ func TestProxy_BYOKCredentialsOverrideEnvKey(t *testing.T) {
 	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, byok)
 
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	prep := providers.PreparedRequest{Body: []byte(`{"model":"m","messages":[]}`), Headers: make(http.Header)}
 	err := c.Proxy(ctx, router.Decision{Model: "m"}, prep, rec, clientReq)
 
@@ -188,7 +188,7 @@ func TestProxy_BYOKBaseURLOverridesDeploymentBaseURL(t *testing.T) {
 	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, byok)
 
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	prep := providers.PreparedRequest{Body: []byte(`{"model":"m","messages":[]}`), Headers: make(http.Header)}
 	err := c.Proxy(ctx, router.Decision{Model: "m"}, prep, rec, clientReq)
 
@@ -215,7 +215,7 @@ func TestProxy_DeploymentBaseURLUsedWhenBYOKOmitsIt(t *testing.T) {
 	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, byok)
 
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	prep := providers.PreparedRequest{Body: []byte(`{"model":"m","messages":[]}`), Headers: make(http.Header)}
 	err := c.Proxy(ctx, router.Decision{Model: "m"}, prep, rec, clientReq)
 
@@ -242,7 +242,7 @@ func TestProxy_DevModeEnvKeyUsedWhenNoCredentialsOnContext(t *testing.T) {
 	// context.Background() has no credentials — simulates ROUTER_DEV_MODE=true
 	// where WithAuth is skipped and CredentialsFromContext returns nil.
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	// Inbound has only x-api-key (Anthropic-format client like Claude Code).
 	// No Authorization header — ExtractClientCredentials returns nil for OpenRouter.
 	clientReq.Header.Set("X-Api-Key", "rk_router_key")
@@ -266,7 +266,7 @@ func TestPassthrough_StripsInboundV1Prefix(t *testing.T) {
 
 	c := openaicompat.NewClient("test-key", upstream.URL+"/api/v1")
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models", nil)
 
 	prep := providers.PreparedRequest{Headers: make(http.Header)}
 	err := c.Passthrough(context.Background(), prep, rec, clientReq)
@@ -291,7 +291,7 @@ func TestProxy_BuffersErrorBodyAndDoesNotTouchWriter(t *testing.T) {
 
 	c := openaicompat.NewClient("test-key", upstream.URL+"/api/v1")
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	prep := providers.PreparedRequest{Body: []byte(`{"model":"deepseek/deepseek-v4-pro","messages":[]}`), Headers: make(http.Header)}
 
 	err := c.Proxy(context.Background(), router.Decision{Model: "deepseek/deepseek-v4-pro"}, prep, rec, clientReq)
@@ -324,7 +324,7 @@ func TestProxy_BuffersErrorBodyTruncatedAtCap(t *testing.T) {
 
 	c := openaicompat.NewClient("test-key", upstream.URL+"/api/v1")
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	prep := providers.PreparedRequest{Body: []byte(`{"model":"x","messages":[]}`), Headers: make(http.Header)}
 
 	err := c.Proxy(context.Background(), router.Decision{Model: "x"}, prep, rec, clientReq)
@@ -347,7 +347,7 @@ func TestProxy_4xxStillBuffered(t *testing.T) {
 
 	c := openaicompat.NewClient("test-key", upstream.URL+"/api/v1")
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	prep := providers.PreparedRequest{Body: []byte(`{"model":"x"}`), Headers: make(http.Header)}
 
 	err := c.Proxy(context.Background(), router.Decision{Model: "x"}, prep, rec, clientReq)
@@ -364,7 +364,7 @@ func TestProxy_4xxStillBuffered(t *testing.T) {
 func TestGatewayClient_UnconfiguredBaseURLDoesNotFallBackToOpenRouter(t *testing.T) {
 	c := openaicompat.NewGatewayClient("gateway-token", "")
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	prep := providers.PreparedRequest{Body: []byte(`{"model":"gpt-5","messages":[]}`), Headers: make(http.Header)}
 
 	err := c.Proxy(context.Background(), router.Decision{Model: "gpt-5"}, prep, rec, clientReq)
@@ -387,7 +387,7 @@ func TestGatewayClient_DispatchesToConfiguredEndpoint(t *testing.T) {
 
 	c := openaicompat.NewGatewayClient("gateway-token", upstream.URL+"/api/v2/cortex/v1")
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	prep := providers.PreparedRequest{Body: []byte(`{"model":"gpt-5","messages":[]}`), Headers: make(http.Header)}
 
 	require.NoError(t, c.Proxy(context.Background(), router.Decision{Model: "gpt-5"}, prep, rec, clientReq))
@@ -411,7 +411,7 @@ func TestProxy_DefaultHeadersSentOnEveryRequest(t *testing.T) {
 	c := openaicompat.NewClient("test-key", upstream.URL+"/v1").
 		WithDefaultHeaders(http.Header{"Wafer-ZDR": []string{"required"}})
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	prep := providers.PreparedRequest{Body: []byte(`{"model":"GLM-5.2","messages":[]}`), Headers: make(http.Header)}
 
 	require.NoError(t, c.Proxy(context.Background(), router.Decision{Model: "z-ai/glm-5.2"}, prep, rec, clientReq))
@@ -433,7 +433,7 @@ func TestPassthrough_DefaultHeadersSentOnEveryRequest(t *testing.T) {
 	c := openaicompat.NewClient("test-key", upstream.URL+"/v1").
 		WithDefaultHeaders(http.Header{"Wafer-ZDR": []string{"required"}})
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models", nil)
 
 	require.NoError(t, c.Passthrough(context.Background(), providers.PreparedRequest{Headers: make(http.Header)}, rec, clientReq))
 	assert.Equal(t, "required", gotZDR)
@@ -455,7 +455,7 @@ func TestProxy_PreparedHeadersOverrideDefaults(t *testing.T) {
 	c := openaicompat.NewClient("test-key", upstream.URL+"/v1").
 		WithDefaultHeaders(http.Header{"X-Custom": []string{"default"}})
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	prepHeaders := http.Header{}
 	prepHeaders.Set("X-Custom", "per-request")
 	prep := providers.PreparedRequest{Body: []byte(`{"model":"m","messages":[]}`), Headers: prepHeaders}
@@ -494,9 +494,9 @@ func TestProxyAndPassthrough_ProtectedHeadersOverridePreparedHeaders(t *testing.
 				prep.Body = []byte(`{"object":"list","data":[]}`)
 			}
 			prep.Headers.Set("Wafer-ZDR", "disabled")
-			clientReq := httptest.NewRequest(http.MethodPost, path, strings.NewReader(""))
+			clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, path, strings.NewReader(""))
 			if !routed {
-				clientReq = httptest.NewRequest(http.MethodGet, path, nil)
+				clientReq = httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
 			}
 
 			var err error

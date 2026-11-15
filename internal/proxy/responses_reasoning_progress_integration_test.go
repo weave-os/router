@@ -113,10 +113,10 @@ func TestResponsesReasoningProgress_LongReasoningCompletes(t *testing.T) {
 			go func() {
 				defer close(joined)
 				if tc.chat {
-					req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(chatToolTurnBody))
+					req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(chatToolTurnBody))
 					finished <- svc.ProxyOpenAIChatCompletion(ctx, []byte(chatToolTurnBody), rec, req)
 				} else {
-					req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(gatewayToolTurn))
+					req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(gatewayToolTurn))
 					finished <- svc.ProxyMessages(ctx, []byte(gatewayToolTurn), rec, req)
 				}
 			}()
@@ -249,7 +249,7 @@ func TestResponsesReasoningProgress_StallAndCancellation(t *testing.T) {
 			client := openai.NewClientWithStallTimeouts("test-key", upstream.URL, time.Second, idle, stall)
 			svc := makeProxyService(router.Decision{Provider: providers.ProviderOpenAI, Model: reasoningProgressModel}, map[string]providers.Client{providers.ProviderOpenAI: client})
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(gatewayToolTurn))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(gatewayToolTurn))
 			started := time.Now()
 			err := svc.ProxyMessages(ctx, []byte(gatewayToolTurn), rec, req)
 			elapsed := time.Since(started)

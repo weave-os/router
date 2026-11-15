@@ -84,7 +84,7 @@ func bypassCtx(threshold float64) context.Context {
 func bypassRequest(t *testing.T) (*httptest.ResponseRecorder, *http.Request, []byte) {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"` + bypassRequestedMdl + `","messages":[{"role":"user","content":"hi"}]}`)
 	return rec, req, body
 }
@@ -108,7 +108,7 @@ func TestUsageBypass_BelowThreshold_SkipsScorer(t *testing.T) {
 func TestUsageBypass_NativeWebSearchSubTurnUsesSubscription(t *testing.T) {
 	svc, fr, p := bypassFixture(t, 0.20)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	require.NoError(t, svc.ProxyMessages(bypassCtx(0.80), []byte(nativeWebSearchSubTurnBody), rec, req))
 
@@ -166,7 +166,7 @@ func TestUsageBypass_CodexSubscriptionPreservesRequestedModel(t *testing.T) {
 	})
 	body := []byte(`{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"hi"}]}`)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, body, rec, req))
 
@@ -318,7 +318,7 @@ func TestUsageBypass_ToolResult_BeatsStalePin(t *testing.T) {
 		`{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"x","input":{}}]},` +
 		`{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}]}`)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	require.NoError(t, svc.ProxyMessages(ctx, toolResultBody, rec, req))
 

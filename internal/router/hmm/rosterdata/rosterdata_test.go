@@ -81,13 +81,19 @@ func TestParseSchemaErrors(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name:    "not json",
-			mutate:  func(t *testing.T, doc []byte) []byte { return []byte("{not json") },
+			name: "not json",
+			mutate: func(t *testing.T, doc []byte) []byte {
+				t.Helper()
+				return []byte("{not json")
+			},
 			wantErr: "parse roster",
 		},
 		{
-			name:    "wrong type for clusters",
-			mutate:  func(t *testing.T, doc []byte) []byte { return []byte(`{"schema_version":"v6","clusters":[1,2]}`) },
+			name: "wrong type for clusters",
+			mutate: func(t *testing.T, doc []byte) []byte {
+				t.Helper()
+				return []byte(`{"schema_version":"v6","clusters":[1,2]}`)
+			},
 			wantErr: "parse roster",
 		},
 		{
@@ -98,6 +104,7 @@ func TestParseSchemaErrors(t *testing.T) {
 		{
 			name: "no clusters",
 			mutate: func(t *testing.T, doc []byte) []byte {
+				t.Helper()
 				return []byte(`{"schema_version":"hmm_router_cluster_roster_v6","clusters":{}}`)
 			},
 			wantErr: "no clusters",

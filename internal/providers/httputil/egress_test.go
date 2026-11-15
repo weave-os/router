@@ -31,12 +31,16 @@ func TestRestrictedTransportRefusesANonPublicDestination(t *testing.T) {
 	defer upstream.Close()
 
 	restricted := &http.Client{Transport: newTransport(time.Second, time.Second, time.Second, true)}
-	_, err := restricted.Get(upstream.URL)
+	request, buildErr := http.NewRequestWithContext(t.Context(), http.MethodGet, upstream.URL, nil)
+	require.NoError(t, buildErr)
+	_, err := restricted.Do(request)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrRestrictedDestination)
 
 	unrestricted := &http.Client{Transport: newTransport(time.Second, time.Second, time.Second, false)}
-	resp, err := unrestricted.Get(upstream.URL)
+	request2, build2Err := http.NewRequestWithContext(t.Context(), http.MethodGet, upstream.URL, nil)
+	require.NoError(t, build2Err)
+	resp, err := unrestricted.Do(request2)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -168,7 +172,9 @@ func TestModelDiscoveryRejectsRestrictedAndMixedDNSAnswersBeforeDial(t *testing.
 			)
 			require.NoError(t, err)
 
-			response, requestErr := client.Get("http://models.example:" + serverPort(t, target) + "/models")
+			request, buildErr := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://models.example:"+serverPort(t, target)+"/models", nil)
+			require.NoError(t, buildErr)
+			response, requestErr := client.Do(request)
 			if response != nil {
 				response.Body.Close()
 			}
@@ -201,7 +207,9 @@ func TestModelDiscoveryDialsValidatedAddressWithoutChangingTheRequestOrigin(t *t
 	)
 	require.NoError(t, err)
 
-	response, err := client.Get("http://models.example:" + port + "/models")
+	request, buildErr := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://models.example:"+port+"/models", nil)
+	require.NoError(t, buildErr)
+	response, err := client.Do(request)
 	require.NoError(t, err)
 	response.Body.Close()
 	assert.Equal(t, "models.example:"+port, receivedHost)
@@ -227,13 +235,17 @@ func TestModelDiscoveryPrivateOriginExceptionIsExact(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	response, err := client.Get(origin + "/gateway/models?limit=1000")
+	request, buildErr := http.NewRequestWithContext(t.Context(), http.MethodGet, origin+"/gateway/models?limit=1000", nil)
+	require.NoError(t, buildErr)
+	response, err := client.Do(request)
 	require.NoError(t, err)
 	response.Body.Close()
 	assert.Equal(t, int32(1), dialCalls.Load())
 
 	otherPort := strconv.Itoa(mustPortNumber(t, port) + 1)
-	response, err = client.Get("http://models.internal:" + otherPort + "/models")
+	request2, build2Err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://models.internal:"+otherPort+"/models", nil)
+	require.NoError(t, build2Err)
+	response, err = client.Do(request2)
 	if response != nil {
 		response.Body.Close()
 	}
@@ -265,13 +277,15 @@ func TestModelDiscoveryRevalidatesDNSOnEachNewConnection(t *testing.T) {
 	require.NoError(t, err)
 	requestURL := "http://models.example:" + serverPort(t, target) + "/models"
 
-	firstRequest, err := http.NewRequest(http.MethodGet, requestURL, nil)
+	firstRequest, err := http.NewRequestWithContext(t.Context(), http.MethodGet, requestURL, nil)
 	require.NoError(t, err)
 	firstRequest.Close = true
 	response, err := client.Do(firstRequest)
 	require.NoError(t, err)
 	response.Body.Close()
-	response, err = client.Get(requestURL)
+	request, buildErr := http.NewRequestWithContext(t.Context(), http.MethodGet, requestURL, nil)
+	require.NoError(t, buildErr)
+	response, err = client.Do(request)
 	if response != nil {
 		response.Body.Close()
 	}
@@ -309,7 +323,9 @@ func TestModelDiscoveryIgnoresAmbientProxyConfiguration(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	response, err := client.Get("http://models.example:" + serverPort(t, target) + "/models")
+	request, buildErr := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://models.example:"+serverPort(t, target)+"/models", nil)
+	require.NoError(t, buildErr)
+	response, err := client.Do(request)
 	require.NoError(t, err)
 	response.Body.Close()
 	assert.Zero(t, proxyRequests.Load())

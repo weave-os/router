@@ -41,7 +41,7 @@ func proxyClientGitContextTurn(t *testing.T, ctx context.Context, store *fakePin
 	svc := newPinSvcWithTelemetry(fr, store, telem)
 
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(clientGitContextBody), rec, httpReq))
 	return telem.firstRow(t)
 }

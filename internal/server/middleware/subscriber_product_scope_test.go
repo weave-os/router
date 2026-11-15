@@ -45,7 +45,7 @@ func runProductScopeMiddleware(
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	if authHeader != "" {
 		req.Header.Set("Authorization", authHeader)
 	}
@@ -78,7 +78,7 @@ func TestWithSubscriberProductScope_StampsDryRunsWithoutAllowanceAccounting(t *t
 			})
 
 			response := httptest.NewRecorder()
-			engine.ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, nil))
+			engine.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodPost, path, nil))
 
 			require.Equal(t, http.StatusOK, response.Code)
 			plan, scoped := entitlement.ProductScopeFromContext(observed)
@@ -100,7 +100,7 @@ func TestWithSubscriberProductScope_RejectsUnreadableProjection(t *testing.T) {
 	engine.POST("/v1/route", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	response := httptest.NewRecorder()
-	engine.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/route", nil))
+	engine.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/route", nil))
 
 	assert.Equal(t, http.StatusServiceUnavailable, response.Code)
 }
@@ -197,7 +197,7 @@ func TestWithSubscriberAllowance_ScopesAgentShadowWithoutSpendingAllowance(t *te
 		observed = c.Request.Context()
 		c.Status(http.StatusOK)
 	})
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	req.Header.Set("Authorization", "Bearer sk-ant-oat01-covering-subscription")
 	engine.ServeHTTP(httptest.NewRecorder(), req)
 

@@ -50,7 +50,7 @@ func TestWaferMessages_SendsBearerAuthZDRAndRewritesModel(t *testing.T) {
 		WithProtectedHeaders(http.Header{"Wafer-ZDR": []string{"required"}}).
 		WithModelIDMap(map[string]string{"z-ai/glm-5.2": "GLM-5.2"})
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	prep := providers.PreparedRequest{
 		Body:    []byte(`{"model":"z-ai/glm-5.2","messages":[{"role":"user","content":"hi"}]}`),
 		Headers: make(http.Header),
@@ -73,7 +73,7 @@ func TestWaferMessages_PreferredModelNotMappedForwardsVerbatim(t *testing.T) {
 	c := anthropic.NewClient("wfr_…", upstream.URL, anthropic.WithAuthScheme(anthropic.AuthBearer)).
 		WithModelIDMap(map[string]string{"z-ai/glm-5.2": "GLM-5.2"})
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	prep := providers.PreparedRequest{
 		Body:    []byte(`{"model":"some-other","messages":[{"role":"user","content":"hi"}]}`),
 		Headers: make(http.Header),
@@ -100,11 +100,11 @@ func TestWaferMessages_ProtectedZDRSurvivesPreparedHeaders(t *testing.T) {
 			prep := providers.PreparedRequest{Headers: make(http.Header)}
 			prep.Headers.Set("Wafer-ZDR", "disabled")
 			path := "/v1/messages"
-			clientReq := httptest.NewRequest(http.MethodPost, path, strings.NewReader(""))
+			clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, path, strings.NewReader(""))
 			if routed {
 				prep.Body = []byte(`{"model":"m","messages":[]}`)
 			} else {
-				clientReq = httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"m"}`))
+				clientReq = httptest.NewRequestWithContext(t.Context(), http.MethodPost, path, strings.NewReader(`{"model":"m"}`))
 				prep.Body = []byte(`{"model":"m"}`)
 			}
 

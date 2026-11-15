@@ -40,7 +40,7 @@ func TestNativeClient_GenerateContentURLAndAuth(t *testing.T) {
 
 	c := google.NewNativeClient("test-key", upstream.URL)
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	prep := providers.PreparedRequest{
 		Body:    []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`),
@@ -74,7 +74,7 @@ func TestNativeClient_StreamingHintFlipsToStreamGenerateContent(t *testing.T) {
 	prep := providers.PreparedRequest{Body: []byte(`{"contents":[]}`), Headers: make(http.Header)}
 	prep.Headers.Set(translate.GeminiStreamHintHeader, "true")
 	err := c.Proxy(context.Background(), router.Decision{Model: "gemini-x"},
-		prep, rec, httptest.NewRequest(http.MethodPost, "/v1/x", strings.NewReader("")))
+		prep, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/x", strings.NewReader("")))
 	require.NoError(t, err)
 
 	assert.Equal(t, "/v1beta/models/gemini-x:streamGenerateContent", gotPath)
@@ -94,7 +94,7 @@ func TestNativeClient_StreamHintHeaderStrippedFromUpstream(t *testing.T) {
 	prep := providers.PreparedRequest{Body: []byte(`{}`), Headers: make(http.Header)}
 	prep.Headers.Set(translate.GeminiStreamHintHeader, "true")
 	_ = c.Proxy(context.Background(), router.Decision{Model: "g"}, prep, rec,
-		httptest.NewRequest(http.MethodPost, "/v1/x", strings.NewReader("")))
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/x", strings.NewReader("")))
 }
 
 func TestNativeClient_BYOKCredentialsOverrideDeploymentKey(t *testing.T) {
@@ -113,7 +113,7 @@ func TestNativeClient_BYOKCredentialsOverrideDeploymentKey(t *testing.T) {
 	rec := httptest.NewRecorder()
 	prep := providers.PreparedRequest{Body: []byte(`{}`), Headers: make(http.Header)}
 	_ = c.Proxy(ctx, router.Decision{Model: "g"}, prep, rec,
-		httptest.NewRequest(http.MethodPost, "/v1/x", strings.NewReader("")))
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/x", strings.NewReader("")))
 	assert.Equal(t, "byok-key", gotKey,
 		"BYOK credentials on context must take precedence over the deployment-level key")
 }
@@ -138,7 +138,7 @@ func TestNativeClient_BuffersNon2xxBeforeTouchingDownstream(t *testing.T) {
 			rec := httptest.NewRecorder()
 			err := client.Proxy(context.Background(), router.Decision{Model: "gemini-x"},
 				providers.PreparedRequest{Body: []byte(`{}`), Headers: make(http.Header)}, rec,
-				httptest.NewRequest(http.MethodPost, "/v1/x", nil))
+				httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/x", nil))
 
 			var upstreamErr *providers.UpstreamErrorResponse
 			require.True(t, errors.As(err, &upstreamErr))

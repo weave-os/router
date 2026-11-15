@@ -70,7 +70,7 @@ func TestService_GatewayForcedPinOutsideAllowlistServes(t *testing.T) {
 	ctx := gatewayAllowlistCtx([]string{"claude-opus-5-5"}, "claude-opus-5", "claude-opus-5-5")
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec,
-		httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))))
 
 	assert.Equal(t, 0, fr.routeCalls, "the force must not fall through to automatic routing")
 	assert.Equal(t, "claude-opus-5", rec.Header().Get(proxy.HeaderRouterModel))
@@ -90,7 +90,7 @@ func TestService_GatewayForceCommandOutsideAllowlistApplies(t *testing.T) {
 	ctx := gatewayAllowlistCtx([]string{"claude-opus-5-5"}, "claude-opus-5", "claude-opus-5-5")
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec,
-		httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))))
 
 	assert.NotContains(t, rec.Body.String(), "force-model rejected")
 	waitForUpsert(t, store)
@@ -114,7 +114,7 @@ func TestService_GatewayForceCommandUnaliasedModelStillRejected(t *testing.T) {
 	ctx := gatewayAllowlistCtx([]string{"claude-opus-5-5"}, "claude-opus-5", "claude-opus-5-5")
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec,
-		httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))))
 
 	assert.Contains(t, rec.Body.String(), "force-model rejected")
 	assert.Contains(t, rec.Body.String(), "gateway keys")

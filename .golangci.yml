@@ -9,6 +9,8 @@ linters:
     - depguard
     - dupl
     - errorlint
+    - noctx
+    - thelper
   settings:
     dupl:
       threshold: 100

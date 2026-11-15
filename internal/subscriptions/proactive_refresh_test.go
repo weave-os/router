@@ -68,6 +68,7 @@ type proactiveRefreshFixture struct {
 }
 
 func newProactiveRefreshFixture(t *testing.T, hardSession, earlyRefresh bool) *proactiveRefreshFixture {
+	t.Helper()
 	f := &proactiveRefreshFixture{started: time.Now().UTC()}
 	f.now.Store(f.started.UnixNano())
 	clock := func() time.Time { return time.Unix(0, f.now.Load()).UTC() }

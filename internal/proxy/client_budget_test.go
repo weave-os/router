@@ -40,7 +40,7 @@ func TestClientBudgetServingAndPreviewUseOriginalVariantEachTurn(t *testing.T) {
 		{"[1m]", 1_000_000}, {"", 200_000}, {"[1m]", 1_000_000},
 	} {
 		body := []byte(fmt.Sprintf(`{"model":%q,"max_tokens":64000,"messages":[{"role":"user","content":"continue the approved task"}]}`, budgetIngressModel+tt.suffix))
-		r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 		err := svc.ProxyMessages(ctx, body, httptest.NewRecorder(), r)
 		require.NoError(t, err)
 		require.NotNil(t, serving.capturedReq)
@@ -74,7 +74,7 @@ func TestClientCompactionGuidanceAndResumeReachProvider(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			body := []byte(fmt.Sprintf(`{"model":%q,"max_tokens":64000,"system":"existing rules","messages":[{"role":"user","content":%q}],"tools":[{"name":"Read","description":"read a file","input_schema":{"type":"object","properties":{"path":{"type":"string"}}}}]}`, tt.model, tt.user))
-			err := svc.ProxyMessages(ctx, body, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+			err := svc.ProxyMessages(ctx, body, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
 			require.NoError(t, err)
 			upstream := provider.proxyBodies[len(provider.proxyBodies)-1]
 			assert.Equal(t, tt.wantSerial, gjson.GetBytes(upstream, "tool_choice.disable_parallel_tool_use").Bool())
