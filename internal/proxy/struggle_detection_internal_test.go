@@ -73,14 +73,14 @@ func TestHandleStruggleShadow_RecordsEventWithSnapshot(t *testing.T) {
 	installationID := uuid.New()
 	key := [sessionpin.SessionKeyLen]byte{1, 2, 3}
 
-	fireStruggle(svc, conversation.StruggleReasonLateStr, installationID, key)
+	fireStruggle(svc, conversation.StruggleReasonLate, installationID, key)
 
 	if len(store.events) != 1 {
 		t.Fatalf("events = %d, want 1", len(store.events))
 	}
 	got := store.events[0]
-	if got.Reason != conversation.StruggleReasonLateStr {
-		t.Errorf("reason = %q, want %q", got.Reason, conversation.StruggleReasonLateStr)
+	if got.Reason != conversation.StruggleReasonLate {
+		t.Errorf("reason = %q, want %q", got.Reason, conversation.StruggleReasonLate)
 	}
 	if got.TurnCount != 95 {
 		t.Errorf("turn_count = %d, want 95", got.TurnCount)
@@ -106,7 +106,7 @@ func TestHandleStruggleShadow_OncePerSessionRoleReason(t *testing.T) {
 	key := [sessionpin.SessionKeyLen]byte{9}
 
 	for i := 0; i < 5; i++ {
-		fireStruggle(svc, conversation.StruggleReasonLateStr, installationID, key)
+		fireStruggle(svc, conversation.StruggleReasonLate, installationID, key)
 	}
 
 	if len(store.events) != 1 {
@@ -125,7 +125,7 @@ func TestHandleStruggleShadow_ReplicaCacheAvoidsBudgetQueryPerTurn(t *testing.T)
 	key := [sessionpin.SessionKeyLen]byte{11}
 
 	for i := 0; i < 4; i++ {
-		fireStruggle(svc, conversation.StruggleReasonLateStr, installationID, key)
+		fireStruggle(svc, conversation.StruggleReasonLate, installationID, key)
 	}
 
 	if len(store.events) != 1 {
@@ -142,8 +142,8 @@ func TestHandleStruggleShadow_EarlyAndLateRecordSeparately(t *testing.T) {
 	installationID := uuid.New()
 	key := [sessionpin.SessionKeyLen]byte{7}
 
-	fireStruggle(svc, conversation.StruggleReasonEarlyStr, installationID, key)
-	fireStruggle(svc, conversation.StruggleReasonLateStr, installationID, key)
+	fireStruggle(svc, conversation.StruggleReasonEarly, installationID, key)
+	fireStruggle(svc, conversation.StruggleReasonLate, installationID, key)
 
 	if len(store.events) != 2 {
 		t.Fatalf("events = %d, want 2 (operating points are independent budgets)", len(store.events))
@@ -153,10 +153,10 @@ func TestHandleStruggleShadow_EarlyAndLateRecordSeparately(t *testing.T) {
 func TestHandleStruggleShadow_DurableBudgetSuppressesAcrossReplicas(t *testing.T) {
 	store := newFakeStruggleStore()
 	// A sibling replica already recorded this session's late event.
-	store.counts["default_high\x00"+conversation.StruggleReasonLateStr] = 1
+	store.counts["default_high\x00"+conversation.StruggleReasonLate] = 1
 	svc := newStruggleTestService(store)
 
-	fireStruggle(svc, conversation.StruggleReasonLateStr, uuid.New(), [sessionpin.SessionKeyLen]byte{4})
+	fireStruggle(svc, conversation.StruggleReasonLate, uuid.New(), [sessionpin.SessionKeyLen]byte{4})
 
 	if len(store.events) != 0 {
 		t.Fatalf("events = %d, want 0 (durable budget must suppress)", len(store.events))
@@ -170,11 +170,11 @@ func TestHandleStruggleShadow_InsertFailureRetriesNextTurn(t *testing.T) {
 	installationID := uuid.New()
 	key := [sessionpin.SessionKeyLen]byte{5}
 
-	fireStruggle(svc, conversation.StruggleReasonLateStr, installationID, key)
+	fireStruggle(svc, conversation.StruggleReasonLate, installationID, key)
 	// The failed insert must not latch the replica-local cache, so a later turn
 	// gets another chance once the store recovers.
 	store.insertErr = nil
-	fireStruggle(svc, conversation.StruggleReasonLateStr, installationID, key)
+	fireStruggle(svc, conversation.StruggleReasonLate, installationID, key)
 
 	if len(store.events) != 1 {
 		t.Fatalf("events = %d, want 1 (retry after a failed insert)", len(store.events))
@@ -186,7 +186,7 @@ func TestHandleStruggleShadow_BudgetLookupErrorStillRecords(t *testing.T) {
 	store.countErr = context.DeadlineExceeded
 	svc := newStruggleTestService(store)
 
-	fireStruggle(svc, conversation.StruggleReasonLateStr, uuid.New(), [sessionpin.SessionKeyLen]byte{6})
+	fireStruggle(svc, conversation.StruggleReasonLate, uuid.New(), [sessionpin.SessionKeyLen]byte{6})
 
 	// Fail-open: in shadow mode an extra row beats a lost one.
 	if len(store.events) != 1 {
@@ -197,14 +197,14 @@ func TestHandleStruggleShadow_BudgetLookupErrorStillRecords(t *testing.T) {
 func TestHandleStruggleShadow_NilStoreLogsWithoutPanic(t *testing.T) {
 	svc := newStruggleTestService(nil)
 	// Nil store degrades to log-only; the replica-local cache still de-dupes.
-	fireStruggle(svc, conversation.StruggleReasonLateStr, uuid.New(), [sessionpin.SessionKeyLen]byte{8})
+	fireStruggle(svc, conversation.StruggleReasonLate, uuid.New(), [sessionpin.SessionKeyLen]byte{8})
 }
 
 func TestHandleStruggleShadow_NilInstallationSkipsStore(t *testing.T) {
 	store := newFakeStruggleStore()
 	svc := newStruggleTestService(store)
 
-	fireStruggle(svc, conversation.StruggleReasonLateStr, uuid.Nil, [sessionpin.SessionKeyLen]byte{10})
+	fireStruggle(svc, conversation.StruggleReasonLate, uuid.Nil, [sessionpin.SessionKeyLen]byte{10})
 
 	// A row without a valid installation would violate the FK.
 	if len(store.events) != 0 {

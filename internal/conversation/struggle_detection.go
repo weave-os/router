@@ -15,19 +15,19 @@ import (
 // per operating point per session; joined offline against telemetry to pick an
 // operating point before arming.
 const (
-	// struggleReasonEarly is the cheap operating point: sessions where users
+	// StruggleReasonEarly is the cheap operating point: sessions where users
 	// most often bail. Arms the escalation move — the next cluster up, or a
 	// same-cluster "sideways" arm when nothing above can serve the session.
-	StruggleEarlyTurns     = 30
-	StruggleEarlyWall      = 10 * time.Minute
-	StruggleReasonEarlyStr = "early"
+	StruggleEarlyTurns  = 30
+	StruggleEarlyWall   = 10 * time.Minute
+	StruggleReasonEarly = "early"
 
-	// struggleReasonLate is the high-precision operating point: strong human-
+	// StruggleReasonLate is the high-precision operating point: strong human-
 	// takeover enrichment (Phase 0 measured ~97x over baseline). Reserved for
 	// the expensive "up" move (next cluster).
-	struggleLateTurns     = 80
-	struggleLateWall      = 30 * time.Minute
-	StruggleReasonLateStr = "late"
+	struggleLateTurns  = 80
+	struggleLateWall   = 30 * time.Minute
+	StruggleReasonLate = "late"
 )
 
 // StruggleShadowStore persists shadow struggle detections
@@ -71,6 +71,7 @@ type StruggleTracker struct {
 	fired *lru.LRU[string, struct{}]
 }
 
+// NewStruggleTracker returns an empty replica-local fire cache.
 func NewStruggleTracker() *StruggleTracker {
 	return &StruggleTracker{
 		fired: lru.NewLRU[string, struct{}](struggleFiredCacheSize, nil, struggleFiredCacheTTL),
@@ -83,7 +84,8 @@ func (t *StruggleTracker) Fired(key string) bool {
 	return seen
 }
 
-// MarkFired records that key fired.
+// MarkFired records a fire on this replica only; CountStruggleShadowEvents
+// enforces the budget across replicas.
 func (t *StruggleTracker) MarkFired(key string) {
 	t.fired.Add(key, struct{}{})
 }
@@ -98,10 +100,10 @@ func StruggleFiredKey(sessionKey [sessionpin.SessionKeyLen]byte, role, reason st
 // A missing pin yields zero values that fall below every threshold.
 func StruggleReasons(turnCount int, wall time.Duration) []string {
 	if turnCount >= struggleLateTurns && wall >= struggleLateWall {
-		return []string{StruggleReasonLateStr}
+		return []string{StruggleReasonLate}
 	}
 	if turnCount >= StruggleEarlyTurns && wall >= StruggleEarlyWall {
-		return []string{StruggleReasonEarlyStr}
+		return []string{StruggleReasonEarly}
 	}
 	return nil
 }

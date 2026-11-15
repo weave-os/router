@@ -90,7 +90,7 @@ type fingerprintRing struct {
 	entries []fingerprintEntry
 }
 
-func (r *fingerprintRing) RecordAndDetect(fp NoProgressFingerprint, now time.Time) (looped bool, count int) {
+func (r *fingerprintRing) recordAndDetect(fp NoProgressFingerprint, now time.Time) (looped bool, count int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.entries = append(r.entries, fingerprintEntry{fp: fp, when: now})
@@ -120,6 +120,8 @@ type NoProgressTracker struct {
 	cache *lru.LRU[string, *fingerprintRing]
 }
 
+// NewNoProgressTracker returns an empty tracker whose buckets expire after
+// NoProgressCacheTTL.
 func NewNoProgressTracker() *NoProgressTracker {
 	return &NoProgressTracker{
 		cache: lru.NewLRU[string, *fingerprintRing](NoProgressCacheSize, nil, NoProgressCacheTTL),
@@ -165,6 +167,8 @@ type CompactionTracker struct {
 	cache *lru.LRU[string, compactionState]
 }
 
+// NewCompactionTracker returns an empty tracker sharing the no-progress cache
+// bounds.
 func NewCompactionTracker() *CompactionTracker {
 	return &CompactionTracker{
 		cache: lru.NewLRU[string, compactionState](NoProgressCacheSize, nil, NoProgressCacheTTL),
@@ -243,7 +247,7 @@ func (t *NoProgressTracker) RecordAndDetect(sessionKey [sessionpin.SessionKeyLen
 	}
 	t.mu.Unlock()
 
-	return ring.RecordAndDetect(fp, now)
+	return ring.recordAndDetect(fp, now)
 }
 
 // noProgressBucketKey picks the LRU bucket key. ok=false means no anchor is

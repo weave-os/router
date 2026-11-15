@@ -38,8 +38,8 @@ func TestStruggleReasons_ZeroWallNeverFires(t *testing.T) {
 
 func TestStruggleReasons_EarlyOperatingPoint(t *testing.T) {
 	reasons := StruggleReasons(StruggleEarlyTurns, StruggleEarlyWall)
-	if len(reasons) != 1 || reasons[0] != StruggleReasonEarlyStr {
-		t.Fatalf("reasons = %v, want [%s]", reasons, StruggleReasonEarlyStr)
+	if len(reasons) != 1 || reasons[0] != StruggleReasonEarly {
+		t.Fatalf("reasons = %v, want [%s]", reasons, StruggleReasonEarly)
 	}
 }
 
@@ -47,8 +47,8 @@ func TestStruggleReasons_LateOperatingPointSupersedesEarly(t *testing.T) {
 	// A session crossing both points reports only the later one, so the two
 	// escalation stages map to distinct rows rather than double-reporting.
 	reasons := StruggleReasons(struggleLateTurns, struggleLateWall)
-	if len(reasons) != 1 || reasons[0] != StruggleReasonLateStr {
-		t.Fatalf("reasons = %v, want [%s]", reasons, StruggleReasonLateStr)
+	if len(reasons) != 1 || reasons[0] != StruggleReasonLate {
+		t.Fatalf("reasons = %v, want [%s]", reasons, StruggleReasonLate)
 	}
 }
 
@@ -56,8 +56,8 @@ func TestStruggleReasons_LateTurnsButEarlyWallStaysEarly(t *testing.T) {
 	// Enough turns for the late point but not enough elapsed time: the late
 	// point requires BOTH, so this must degrade to early, not fire late.
 	reasons := StruggleReasons(struggleLateTurns, StruggleEarlyWall)
-	if len(reasons) != 1 || reasons[0] != StruggleReasonEarlyStr {
-		t.Fatalf("reasons = %v, want [%s]", reasons, StruggleReasonEarlyStr)
+	if len(reasons) != 1 || reasons[0] != StruggleReasonEarly {
+		t.Fatalf("reasons = %v, want [%s]", reasons, StruggleReasonEarly)
 	}
 }
 

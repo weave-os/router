@@ -54,6 +54,7 @@ const (
 	spiralNoProgressThreshold = 15
 )
 
+// SpiralReason names one spiral signal class.
 type SpiralReason string
 
 // Spiral signal-class taxonomy. One event per (session, role, reason).
@@ -66,6 +67,7 @@ const (
 	spiralReasonNoProgress                  = "no_progress"
 )
 
+// SpiralReasonStrings converts reasons for persistence.
 func SpiralReasonStrings(reasons []SpiralReason) []string {
 	if reasons == nil {
 		return nil
@@ -263,6 +265,7 @@ type SpiralTracker struct {
 	fired *lru.LRU[string, struct{}]
 }
 
+// NewSpiralTracker returns an empty replica-local fire cache.
 func NewSpiralTracker() *SpiralTracker {
 	return &SpiralTracker{
 		fired: lru.NewLRU[string, struct{}](spiralFiredCacheSize, nil, spiralFiredCacheTTL),
@@ -275,7 +278,8 @@ func (t *SpiralTracker) Fired(key string) bool {
 	return seen
 }
 
-// MarkFired records that key fired.
+// MarkFired records a fire on this replica only; CountSpiralShadowEvents
+// enforces the budget across replicas.
 func (t *SpiralTracker) MarkFired(key string) {
 	t.fired.Add(key, struct{}{})
 }
