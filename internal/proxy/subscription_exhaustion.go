@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 )
@@ -20,37 +21,28 @@ func (s *Service) claudeSubscriptionExhausted(ctx context.Context, headers http.
 	return s.anthropicSubscriptionObservedExhausted(ctx, headers)
 }
 
-// anthropicSubscriptionObservedExhausted reports whether the caller's present
-// Claude subscription should not serve the turn per the observer (see
-// claudeSnapshotUnservable), independent of whether a fallback key exists.
-// Subscription-only refusal uses this bare signal: an exhausted sub can only
-// 429, so the turn is refused with a controlled 402.
+// anthropicSubscriptionObservedExhausted is credentials.ClaudeSubscriptionObservedExhausted
+// for the caller's present Claude subscription. Subscription-only refusal uses
+// this bare signal: an exhausted sub can only 429, so the turn is refused with
+// a controlled 402.
 func (s *Service) anthropicSubscriptionObservedExhausted(ctx context.Context, headers http.Header) bool {
 	if s.usageObserver == nil {
 		return false
 	}
 	_, anthroTok := presentSubscriptionTokens(ctx, headers)
-	if anthroTok == "" {
-		return false
-	}
-	snap, ok := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(anthroTok)))
-	return ok && claudeSnapshotUnservable(ctx, snap)
+	return credentials.ClaudeSubscriptionObservedExhausted(s.usageObserver, anthroTok, claudeSubscriptionFacts(ctx))
 }
 
-// claudeSnapshotUnservable reports whether an observed Claude subscription
-// should leave the turn. A usage-billed seat has no plan quota to exhaust, so
-// once paid fallback is off its overage is the caller's only lane; plan
-// overage still leaves the subscription. A picked model on the caller's own
-// login lets Anthropic decide, as the native client would.
 func claudeSnapshotUnservable(ctx context.Context, snap usage.Snapshot) bool {
-	if claudeEnterpriseOnly(ctx) {
-		return false
+	return credentials.ClaudeSnapshotUnservable(claudeSubscriptionFacts(ctx), snap)
+}
+
+func claudeSubscriptionFacts(ctx context.Context) credentials.ClaudeSubscriptionFacts {
+	reason, subscriptionOnly := billing.SubscriptionOnlyReasonFromContext(ctx)
+	return credentials.ClaudeSubscriptionFacts{
+		EnterpriseOnly:       claudeEnterpriseOnly(ctx),
+		PickedModelOnOwnPlan: pickedModelOnOwnPlan(ctx),
+		EnterpriseSubscriptionOnly: subscriptionOnly && reason != billing.SubscriptionOnlyLinkedFirst &&
+			claudeSubscriptionPlan(ctx) == providers.SubscriptionPlanEnterprise,
 	}
-	if pickedModelOnOwnPlan(ctx) {
-		return false
-	}
-	if reason, ok := billing.SubscriptionOnlyReasonFromContext(ctx); ok && reason != billing.SubscriptionOnlyLinkedFirst && claudeSubscriptionPlan(ctx) == providers.SubscriptionPlanEnterprise {
-		return false
-	}
-	return snap.BillableOrExhausted()
 }
