@@ -2,10 +2,6 @@
   "schema_version": "comment_ban_allowlist_v1",
   "packages": [
     {
-      "package": "cmd/genprices",
-      "banned_lines": 21
-    },
-    {
       "package": "cmd/policyctl",
       "banned_lines": 61
     },
@@ -14,36 +10,16 @@
       "banned_lines": 343
     },
     {
-      "package": "cmd/seed",
-      "banned_lines": 16
-    },
-    {
       "package": "internal/analytics",
       "banned_lines": 85
-    },
-    {
-      "package": "internal/anthropicfederation",
-      "banned_lines": 15
     },
     {
       "package": "internal/api/admin",
       "banned_lines": 303
     },
     {
-      "package": "internal/api/analytics",
-      "banned_lines": 17
-    },
-    {
-      "package": "internal/api/anthropic",
-      "banned_lines": 16
-    },
-    {
       "package": "internal/api/feedback",
       "banned_lines": 31
-    },
-    {
-      "package": "internal/api/openai",
-      "banned_lines": 17
     },
     {
       "package": "internal/auth",
@@ -52,10 +28,6 @@
     {
       "package": "internal/billing",
       "banned_lines": 294
-    },
-    {
-      "package": "internal/config",
-      "banned_lines": 16
     },
     {
       "package": "internal/credentials",
@@ -86,10 +58,6 @@
       "banned_lines": 123
     },
     {
-      "package": "internal/observability/apm",
-      "banned_lines": 29
-    },
-    {
       "package": "internal/observability/otel",
       "banned_lines": 62
     },
@@ -104,10 +72,6 @@
     {
       "package": "internal/postgres",
       "banned_lines": 320
-    },
-    {
-      "package": "internal/postgres/pgtls",
-      "banned_lines": 21
     },
     {
       "package": "internal/postgres/serving",
@@ -166,10 +130,6 @@
       "banned_lines": 408
     },
     {
-      "package": "internal/router/bandswap",
-      "banned_lines": 30
-    },
-    {
       "package": "internal/router/breaker",
       "banned_lines": 106
     },
@@ -186,28 +146,12 @@
       "banned_lines": 45
     },
     {
-      "package": "internal/router/escalation",
-      "banned_lines": 27
-    },
-    {
-      "package": "internal/router/escalationdashboard",
-      "banned_lines": 17
-    },
-    {
       "package": "internal/router/gitcontext",
       "banned_lines": 36
     },
     {
       "package": "internal/router/handover",
       "banned_lines": 36
-    },
-    {
-      "package": "internal/router/hmm",
-      "banned_lines": 25
-    },
-    {
-      "package": "internal/router/hmm/armid",
-      "banned_lines": 18
     },
     {
       "package": "internal/router/hmm/rosterdata",
@@ -240,18 +184,6 @@
     {
       "package": "internal/router/sessionpin",
       "banned_lines": 211
-    },
-    {
-      "package": "internal/router/sessionstrategy",
-      "banned_lines": 11
-    },
-    {
-      "package": "internal/router/switchpolicy",
-      "banned_lines": 11
-    },
-    {
-      "package": "internal/router/taskdomain",
-      "banned_lines": 17
     },
     {
       "package": "internal/router/turntype",
@@ -306,16 +238,8 @@
       "banned_lines": 32
     },
     {
-      "package": "internal/version",
-      "banned_lines": 16
-    },
-    {
       "package": "internal/websearch",
       "banned_lines": 78
-    },
-    {
-      "package": "internal/wif",
-      "banned_lines": 18
     },
     {
       "package": "scripts/arch_ratchet",
@@ -326,14 +250,6 @@
       "banned_lines": 31
     },
     {
-      "package": "scripts/legacy_runtime_check",
-      "banned_lines": 12
-    },
-    {
-      "package": "scripts/record_provider_fixtures",
-      "banned_lines": 26
-    },
-    {
       "package": "scripts/rotate_key_race_check",
       "banned_lines": 31
     },
@@ -342,16 +258,8 @@
       "banned_lines": 53
     },
     {
-      "package": "scripts/serving_admission_check",
-      "banned_lines": 21
-    },
-    {
       "package": "scripts/session_pin_output_limit_check",
       "banned_lines": 31
-    },
-    {
-      "package": "scripts/upsert_external_key_race_check",
-      "banned_lines": 17
     },
     {
       "package": "smoke/mitmproxy",

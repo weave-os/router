@@ -552,6 +552,10 @@ Set `DATABASE_URL` directly, or compose it from the individual vars:
 | `POSTGRES_PORT`            | `5432`                            | Port. |
 | `POSTGRES_SSLMODE`         | `require`                         | TLS mode. Use `disable` for local Docker. |
 | `POSTGRES_CONNECTION_NAME` | *(none)*                          | Cloud SQL Auth Proxy instance connection name. |
+| `POSTGRES_CLIENT_CERT`     | *(none)*                          | PEM client certificate for mutual TLS. Set with `POSTGRES_CLIENT_KEY` and `POSTGRES_SERVER_CA_CERT`, or none of them. Required by Cloud SQL instances in `TRUSTED_CLIENT_CERTIFICATE_REQUIRED` mode. |
+| `POSTGRES_CLIENT_KEY`      | *(none)*                          | PEM private key for `POSTGRES_CLIENT_CERT`. |
+| `POSTGRES_SERVER_CA_CERT`  | *(none)*                          | PEM CA the server certificate must chain to. Cloud SQL certificates name the instance, not the dialed IP, so the chain is checked instead of the hostname, and pgx's sslmode fallbacks are disabled. |
+| `POSTGRES_SERVER_NAME`     | *(none)*                          | Identity (subject CN or DNS SAN) the server certificate must carry, e.g. the instance connection name. Set it whenever the CA signs more than one endpoint. |
 
 ## Server
 
@@ -1005,6 +1009,13 @@ asking for `full` under a `hashed` deployment still gets `hashed`.
 | `OTEL_BSP_MAX_EXPORT_BATCH_SIZE` | `50`         | Max spans per OTLP POST. |
 | `OTEL_BSP_SCHEDULE_DELAY`        | `500`        | Partial-batch flush interval in ms. |
 | `OTEL_EXPORT_WORKERS`            | `2`          | Export-goroutine count (spans and logs each get this many workers). |
+
+APM (HTTP server spans and Go runtime metrics, independent of the emitter above):
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `WV_APM_OTLP_ENDPOINT` | *(disabled)* | OTLP/gRPC `host:port`. W3C trace context still propagates when unset. Health probes and `/validate` are not traced. |
+| `WV_APM_OTLP_INSECURE` | `false` | Plaintext gRPC. TLS is the default because span attributes carry key IDs, models and decision reasons; enable only on trusted networks. |
 
 The first five follow the [OTel SDK env spec](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/);
 `OTEL_BSP_*` follows the [Batch Span Processor spec](https://opentelemetry.io/docs/specs/otel/trace/sdk/#batch-span-processor).

@@ -1,4 +1,3 @@
-// Package anthropic holds HTTP handlers for the Anthropic Messages surface.
 package anthropic
 
 import (
@@ -17,7 +16,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// PrepareHandoffHandler applies Messages authentication and validation before route preparation.
 func PrepareHandoffHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc {
 	messages := MessagesHandler(svc, authSvc)
 	return func(c *gin.Context) {
@@ -53,7 +51,6 @@ func MessagesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc 
 		)
 
 		ctx := stashClientIdentity(c.Request.Context(), c.Request.Header, body)
-		// Skip identity upsert for agent-shadow eval requests to avoid mutating production router-user state.
 		if _, agentShadow := proxy.AgentShadowEvalFromContext(ctx); !agentShadow {
 			ctx = proxy.ResolveUserFromContext(ctx, authSvc, middleware.InstallationFrom(c), middleware.APIKeyFrom(c))
 			ctx, err = proxy.ResolveRoutingAssignment(ctx, authSvc, middleware.InstallationFrom(c))
@@ -101,11 +98,6 @@ func stashClientIdentity(ctx context.Context, h http.Header, body []byte) contex
 	metaRaw := gjson.GetBytes(body, "metadata.user_id").String()
 	meta := proxy.ParseClaudeCodeMetadata(metaRaw)
 
-	// Start from the header-only identity, then overlay the body-derived
-	// fields Claude Code's metadata.user_id carries that no other surface
-	// sends: DeviceID/AccountID always win; SessionID/Email only override
-	// when the body actually has a value, else the header-derived one from
-	// ClientIdentityFromHeaders stands.
 	id := proxy.ClientIdentityFromHeaders(h)
 	id.DeviceID = proxy.NormalizeClientIdentifier(meta.DeviceID)
 	id.AccountID = proxy.NormalizeClientIdentifier(meta.AccountID)
@@ -128,10 +120,6 @@ func stashClientIdentity(ctx context.Context, h http.Header, body []byte) contex
 	return requestcontext.WithClientIdentity(ctx, id)
 }
 
-// anthropicErrorType maps a classified dispatch error to the Anthropic
-// Messages error envelope's "type" field: refusals take the type for their
-// status; other errors split client-input problems ("invalid_request_error")
-// from everything else ("api_error").
 func anthropicErrorType(cls proxy.DispatchErrorClass) string {
 	if cls.Refusal != nil {
 		return cls.Refusal.AnthropicType()
@@ -142,8 +130,6 @@ func anthropicErrorType(cls proxy.DispatchErrorClass) string {
 	return "api_error"
 }
 
-// logOversizeBody logs a body-cap rejection. Pre-dispatch rejections emit no
-// per-request telemetry, so without this they are invisible to alerting.
 func logOversizeBody(log *slog.Logger, r *http.Request) {
 	log.Warn("Request body too large",
 		"content_length", r.ContentLength,

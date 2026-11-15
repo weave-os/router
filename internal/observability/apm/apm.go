@@ -1,10 +1,3 @@
-// Package apm wires the OpenTelemetry SDK against an OTLP/gRPC collector so
-// HTTP spans and Go runtime metrics show up in the shared SigNoz instance
-// alongside the rest of Weave's services. It's independent of the router's
-// own custom OTLP/HTTP emitter (internal/observability/otel), which keeps
-// publishing high-cardinality per-decision spans separately.
-//
-// Enable via WV_APM_OTLP_ENDPOINT (SigNoz OTLP/gRPC host:port); unset = no-op.
 package apm
 
 import (
@@ -30,8 +23,6 @@ import (
 	"weave-os/router/internal/version"
 )
 
-// serviceName is the resource attribute the SigNoz UI groups spans + metrics
-// by. Matches the convention from backend/internal/app/telemetry/otel.go.
 const serviceName = "router"
 
 var (
@@ -40,12 +31,6 @@ var (
 	meterProvider  *sdkmetric.MeterProvider
 )
 
-// Init wires the OTel SDK against the SigNoz collector using
-// WV_APM_OTLP_ENDPOINT (host:port for OTLP/gRPC). With an empty endpoint it
-// still enables W3C trace-context propagation but does not export telemetry.
-// Idempotent.
-// Mirrors backend/internal/app/telemetry/otel.go's init() so the router
-// reports the same resource attribute shape as the rest of Weave.
 func Init() {
 	initOnce.Do(initLocked)
 }
@@ -53,9 +38,6 @@ func Init() {
 func initLocked() {
 	log := observability.Get()
 
-	// Configure extraction/injection even when exporting is disabled. This
-	// keeps distributed trace headers flowing through the router in no-op APM
-	// deployments, and lets request logs retain an inbound parent trace.
 	otel.SetTextMapPropagator(propagation.TraceContext{})
 
 	endpoint := config.GetOr("WV_APM_OTLP_ENDPOINT", "")
@@ -81,10 +63,6 @@ func initLocked() {
 		return
 	}
 
-	// TLS by default: some deployments run the router outside the SigNoz
-	// collector's cluster, and plaintext gRPC would leak span attributes
-	// (api_key_id, model names, decision reasons) on-path. Opt into insecure
-	// transport explicitly via WV_APM_OTLP_INSECURE=true on trusted networks.
 	insecure := config.GetOr("WV_APM_OTLP_INSECURE", "false") == "true"
 
 	traceExporter, err := newTraceExporter(ctx, endpoint, insecure)
@@ -112,8 +90,6 @@ func initLocked() {
 	)
 	otel.SetMeterProvider(meterProvider)
 
-	// Hooks runtime/metrics (goroutines, heap, GC, cgo calls) into the
-	// MeterProvider just set above — without it SigNoz gets no metrics at all.
 	if err := otelruntime.Start(otelruntime.WithMinimumReadMemStatsInterval(15 * time.Second)); err != nil {
 		log.Warn("APM init: runtime instrumentation failed; SDK traces still active", "err", err)
 	}
@@ -143,9 +119,6 @@ func metricGRPCOpts(endpoint string, insecure bool) []otlpmetricgrpc.Option {
 	return opts
 }
 
-// Middleware wraps each request in an HTTP server span tagged with
-// method/route/status, excluding health probes and /validate (infra polling would
-// swamp trace volume). No-op when Init was never called.
 func Middleware() gin.HandlerFunc {
 	return otelgin.Middleware(
 		serviceName,
@@ -156,8 +129,6 @@ func Middleware() gin.HandlerFunc {
 	)
 }
 
-// ShutdownWithContext flushes the trace + metric pipelines under the
-// caller's deadline.
 func ShutdownWithContext(ctx context.Context) {
 	if tracerProvider != nil {
 		_ = tracerProvider.Shutdown(ctx)
