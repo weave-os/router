@@ -1990,7 +1990,7 @@ func runSessionPinSweep(ctx context.Context, store sessionpin.Store) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			sweepCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			sweepCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 			if err := store.SweepExpired(sweepCtx); err != nil {
 				logger.Error("Session pin sweep failed", "err", err)
 			}
