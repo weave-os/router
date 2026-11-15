@@ -22,10 +22,6 @@
       "banned_lines": 278
     },
     {
-      "package": "internal/policyregistry",
-      "banned_lines": 491
-    },
-    {
       "package": "internal/postgres",
       "banned_lines": 320
     },

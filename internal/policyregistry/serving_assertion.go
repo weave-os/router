@@ -10,24 +10,17 @@ import (
 	"time"
 )
 
-// ServingAssertionHeader is a legacy wire header stripped by direct worker auth.
 const ServingAssertionHeader = "X-Weave-Serving-Assertion"
 
-// ServerlessAuthorizationHeader carries IAM separately from client subscription credentials.
 const ServerlessAuthorizationHeader = "X-Serverless-Authorization"
 
-// ServingAssertionV1 binds one admission to the exact original request and credential.
 const ServingAssertionV1 ServingSchema = "router_serving_assertion_v1"
 
-// ServingAssertionV2 adds isolated test scope and requires compatible readers.
 const ServingAssertionV2 ServingSchema = "router_serving_assertion_v2"
 
 const assertionLifetime = 2 * time.Minute
 const maxAssertionBytes = 16 * 1024
 
-// ServingAssertion is request-scoped authority; it is never accepted directly from a client.
-// Direct workers construct this scope after primary admission; legacy signing
-// helpers remain for historical compatibility and are not an ingress trust path.
 type ServingAssertion struct {
 	TestPlan         *TestPlanScope        `json:"test_plan,omitempty"`
 	SchemaVersion    ServingSchema         `json:"schema_version"`
@@ -42,14 +35,11 @@ type ServingAssertion struct {
 	ExpiresAt        time.Time             `json:"expires_at"`
 }
 
-// AssertionSigner requires a separate shared gateway/worker key, supplied through a secret reference.
-// No signing key is needed by legacy workers or artifact preparation/validation identities.
 type AssertionSigner struct {
 	key   []byte
 	clock func() time.Time
 }
 
-// NewAssertionSigner rejects weak/missing keys rather than allowing unsigned managed traffic.
 func NewAssertionSigner(key []byte, clock func() time.Time) (*AssertionSigner, error) {
 	if len(key) < 32 || clock == nil {
 		return nil, errors.New("serving assertion signing requires at least 32 key bytes and a clock")
@@ -57,7 +47,6 @@ func NewAssertionSigner(key []byte, clock func() time.Time) (*AssertionSigner, e
 	return &AssertionSigner{key: append([]byte(nil), key...), clock: clock}, nil
 }
 
-// Sign binds the admitted selection to request bytes, not mutable client release headers.
 func (s *AssertionSigner) Sign(assertion ServingAssertion, request *http.Request, body []byte, credential string) (string, error) {
 	assertion.SchemaVersion = ServingAssertionV1
 	if assertion.TestPlan != nil {
@@ -84,8 +73,6 @@ func (s *AssertionSigner) Sign(assertion ServingAssertion, request *http.Request
 	return base64.RawURLEncoding.EncodeToString(payload) + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
 }
 
-// Verify authenticates admission before any worker snapshot or provider lookup.
-// Expiry is checked only at entry; it does not cancel an already admitted stream.
 func (s *AssertionSigner) Verify(encoded string, request *http.Request, body []byte, credential string) (ServingAssertion, error) {
 	var assertion ServingAssertion
 	if len(encoded) > 2*maxAssertionBytes {
@@ -158,7 +145,6 @@ func (a ServingAssertion) validate() error {
 	return nil
 }
 
-// StripServingHeaders removes caller assertions and IAM tokens before authentication/forwarding.
 func StripServingHeaders(headers http.Header) {
 	for name := range headers {
 		lower := strings.ToLower(name)
