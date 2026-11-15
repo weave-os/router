@@ -21,7 +21,11 @@ func main() {
 	if *healthcheck {
 		client := &http.Client{Timeout: 2 * time.Second}
 		response, err := client.Get("http://" + *listen + "/readyz")
-		if err != nil || response.StatusCode != http.StatusOK {
+		if err != nil {
+			os.Exit(1)
+		}
+		_ = response.Body.Close()
+		if response.StatusCode != http.StatusOK {
 			os.Exit(1)
 		}
 		return

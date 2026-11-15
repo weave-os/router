@@ -629,7 +629,7 @@ func TestUsageExtractor_OpenAIChatResponse(t *testing.T) {
 func TestUsageExtractor_OpenAIChatResponse_NilReceiver(t *testing.T) {
 	var ext *otel.UsageExtractor
 	finishReason, toolCalls, observed := ext.OpenAIChatResponse()
-	assert.Equal(t, "", finishReason)
+	assert.Empty(t, finishReason)
 	assert.Equal(t, 0, toolCalls)
 	assert.False(t, observed)
 }
@@ -637,7 +637,7 @@ func TestUsageExtractor_OpenAIChatResponse_NilReceiver(t *testing.T) {
 func TestUsageExtractor_AnthropicResponse_NilReceiver(t *testing.T) {
 	var ext *otel.UsageExtractor
 	stopReason, toolUseBlocks, observed := ext.AnthropicResponse()
-	assert.Equal(t, "", stopReason)
+	assert.Empty(t, stopReason)
 	assert.Equal(t, 0, toolUseBlocks)
 	assert.False(t, observed)
 }
@@ -687,6 +687,8 @@ func TestUsageExtractor_OutputLimitEvidence(t *testing.T) {
 					if stream {
 						body = "data: " + body + "\n\n"
 					}
+				case providers.FamilyUnknown:
+					t.Fatalf("no fixture body for provider %q", tc.provider)
 				}
 				rec := httptest.NewRecorder()
 				ext := otel.NewUsageExtractor(rec, tc.provider)

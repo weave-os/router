@@ -61,7 +61,7 @@ func check(ctx context.Context, dsn string) (checkErr error) {
 	cleaned := false
 	defer func() {
 		if !cleaned {
-			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 			defer cancel()
 			checkErr = errors.Join(checkErr, cleanup.Cleanup(cleanupCtx))
 		}

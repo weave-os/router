@@ -21,7 +21,7 @@ type EarlyStopRedo struct {
 	Header   http.Header
 	Log      *slog.Logger
 	Target   router.Decision
-	Build    func(target router.Decision) (UpstreamAttempt, []catalog.ProviderBinding, string, EffortResolution, context.Context, error)
+	Build    func(ctx context.Context, target router.Decision) (UpstreamAttempt, []catalog.ProviderBinding, string, EffortResolution, context.Context, error)
 	Dispatch func(ctx context.Context, target router.Decision, bindings []catalog.ProviderBinding, attempt UpstreamAttempt) (int, error)
 	Served   *EarlyStopServed
 }

@@ -83,6 +83,7 @@ func (ack commandAcknowledgment) render(format translate.Format) string {
 		case feedbackRecorded:
 			return routerFeedbackAck(format, ack.rating)
 		}
+	case translate.CommandLoopStop:
 	}
 	return ""
 }
@@ -209,7 +210,7 @@ func routerModelsMessage(routable, excluded, automaticExcluded map[string]struct
 			default:
 				enabled++
 			}
-			b.WriteString(fmt.Sprintf("  [%s] %s\n", mark, id))
+			fmt.Fprintf(&b, "  [%s] %s\n", mark, id)
 		}
 	}
 

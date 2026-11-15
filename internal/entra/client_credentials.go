@@ -137,7 +137,7 @@ func (s *ClientCredentialsSource) mint(ctx context.Context, key *auth.ExternalAP
 	if err != nil {
 		return nil, fmt.Errorf("%w: request token: %v", auth.ErrEntraUnavailable, err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	body, readErr := io.ReadAll(io.LimitReader(response.Body, maxErrorBody))
 	if readErr != nil {

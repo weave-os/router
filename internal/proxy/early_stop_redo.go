@@ -99,7 +99,7 @@ func (s *Service) earlyStopRedoMode(ctx context.Context, routeRes turnLoopResult
 // response. If the redo fails before output, the stopped response is
 // delivered instead, so the client never loses a turn the router discarded.
 func (s *Service) redoEarlyStop(ctx context.Context, redo dispatch.EarlyStopRedo) (redone bool, err error) {
-	attempt, bindings, marker, effort, redoCtx, buildErr := redo.Build(redo.Target)
+	attempt, bindings, marker, effort, redoCtx, buildErr := redo.Build(ctx, redo.Target)
 	if buildErr != nil || len(bindings) == 0 {
 		redo.Log.Warn("Early-stop redo: candidate is not dispatchable; serving the stopped response",
 			"redo_model", redo.Target.Model, "redo_provider", redo.Target.Provider, "err", buildErr)

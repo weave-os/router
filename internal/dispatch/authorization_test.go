@@ -2,7 +2,6 @@ package dispatch_test
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"testing"
 
@@ -51,7 +50,7 @@ func TestFundingAuthorizationSurvivesReplacedAttemptContext(t *testing.T) {
 				require.Equal(t, []string{primary.CatalogID}, upstream.models)
 			} else {
 				require.ErrorIs(t, err, dispatch.ErrAuthorizationDenied)
-				require.True(t, errors.Is(err, quotaUnknown))
+				require.ErrorIs(t, err, quotaUnknown)
 				require.Equal(t, string(dispatch.FailureReasonAuthorization), result.Summary.FallbackReason)
 				require.Empty(t, upstream.models)
 			}

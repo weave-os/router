@@ -39,9 +39,13 @@ func run(path string, out io.Writer) (bool, error) {
 	}
 	diagnostics := hmm.ValidateRosterIDs(arms)
 	for _, d := range diagnostics {
-		fmt.Fprintf(out, "invalid roster arm %q: %s\n", d.RosterID, d.Reason)
+		if _, err := fmt.Fprintf(out, "invalid roster arm %q: %s\n", d.RosterID, d.Reason); err != nil {
+			return false, err
+		}
 	}
-	fmt.Fprintf(out, "validated %d roster arms: %d invalid\n", len(arms), len(diagnostics))
+	if _, err := fmt.Fprintf(out, "validated %d roster arms: %d invalid\n", len(arms), len(diagnostics)); err != nil {
+		return false, err
+	}
 	return len(diagnostics) == 0, nil
 }
 
