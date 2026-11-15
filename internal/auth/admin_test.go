@@ -2,7 +2,6 @@ package auth
 
 import (
 	"encoding/base64"
-	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -241,5 +240,5 @@ func TestAdminSession_RotatingPasswordInvalidatesExistingSessions(t *testing.T) 
 
 	_, err = svc.VerifyAdminSession(token)
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrAdminSessionInvalid))
+	assert.ErrorIs(t, err, ErrAdminSessionInvalid)
 }

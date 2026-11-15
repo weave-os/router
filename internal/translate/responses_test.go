@@ -270,8 +270,8 @@ func TestStripRouterCommandsFromResponsesInput_RemovesAgentToolCommand(t *testin
 	body := []byte(`{"model":"gpt-5.6-sol","input":[{"type":"custom_tool_call_output","call_id":"call_skill","output":" /router-feedback too slow"},{"type":"function_call_output","call_id":"call_fm","output":[{"type":"input_text","text":" /force-model gpt-5"}]}]}`)
 	out, err := translate.StripRouterCommandsFromResponsesInput(body)
 	require.NoError(t, err)
-	assert.Equal(t, "", gjson.GetBytes(out, "input.0.output").String())
-	assert.Equal(t, "", gjson.GetBytes(out, "input.1.output.0.text").String())
+	assert.Empty(t, gjson.GetBytes(out, "input.0.output").String())
+	assert.Empty(t, gjson.GetBytes(out, "input.1.output.0.text").String())
 }
 
 func TestStripRouterCommandsFromResponsesInput_RemovesCollapsedExecCommand(t *testing.T) {
@@ -343,7 +343,7 @@ func TestStripRoutingBadgeFromResponsesInput_KeepsItemWithRemainingContent(t *te
 
 	input := gjson.GetBytes(out, "input").Array()
 	require.Len(t, input, 1)
-	assert.Equal(t, "", input[0].Get("content.0.text").Str)
+	assert.Empty(t, input[0].Get("content.0.text").Str)
 	assert.Equal(t, "the answer", input[0].Get("content.1.text").Str)
 }
 

@@ -144,9 +144,9 @@ func TestClassifierResponsesToolLoopSwitchesDispatchedModel(t *testing.T) {
 
 func TestClassifierCodexExitErrorsAdvanceWithoutChangingReplay(t *testing.T) {
 	var inputs []router.AtomicClassificationRequest
-	svc, principal, _ := classifierSessionFixture(t, func(_ context.Context, input router.AtomicClassificationRequest) (router.ClassifierPrediction, error) {
+	svc, principal, _ := classifierSessionFixture(t, func(ctx context.Context, input router.AtomicClassificationRequest) (router.ClassifierPrediction, error) {
 		inputs = append(inputs, input)
-		return classifierMedium(context.Background(), input)
+		return classifierMedium(ctx, input)
 	})
 	ctx := classifierAdmit(t, svc, principal)
 	items := []json.RawMessage{json.RawMessage(`{"role":"user","content":"Synthetic task"}`)}

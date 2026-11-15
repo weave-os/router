@@ -240,9 +240,9 @@ func (s *Service) demoteArmForSession(
 		expired := expiredSessionPin(installationID, sessionKey, strikeRole, string(reason), strategy)
 		var err error
 		if cooldownUntil.IsZero() {
-			err = s.pinStore.ExpireAndDemoteModel(context.Background(), expired, model, reason)
+			err = s.pinStore.ExpireAndDemoteModel(context.WithoutCancel(ctx), expired, model, reason)
 		} else {
-			err = cooldownStore.ExpireAndCoolDownModel(context.Background(), expired, model, cooldownUntil, reason)
+			err = cooldownStore.ExpireAndCoolDownModel(context.WithoutCancel(ctx), expired, model, cooldownUntil, reason)
 		}
 		if err != nil {
 			log.Error("session model demotion failed", "err", err, "role", strikeRole, "model", model, "reason", string(reason))

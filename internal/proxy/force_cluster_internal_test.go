@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -62,7 +61,7 @@ func TestApplyForceClusterHeader_RejectsNonSidecarStrategy(t *testing.T) {
 	label, err := applyForceClusterHeader(ctx, forceClusterRequest(t, "maximum"))
 
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrForcedClusterUnsupportedStrategy))
+	assert.ErrorIs(t, err, ErrForcedClusterUnsupportedStrategy)
 	assert.Empty(t, label)
 
 	cls, ok := ClassifyDispatchError(err)

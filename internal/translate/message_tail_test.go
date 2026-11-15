@@ -148,7 +148,7 @@ func TestSystemTextTail_Short(t *testing.T) {
 	length, head, tail := env.SystemTextTail(100)
 	assert.Equal(t, 2, length)
 	assert.Equal(t, "Hi", head)
-	assert.Equal(t, "", tail)
+	assert.Empty(t, tail)
 }
 
 func TestSystemBlocks_AnthropicKeepsBlockBoundaries(t *testing.T) {

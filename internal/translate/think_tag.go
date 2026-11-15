@@ -127,6 +127,7 @@ func (s *thinkTagSplitter) Flush() []thinkSegment {
 		if s.tail.Len() > 0 {
 			segments = append(segments, thinkSegment{kind: segThinking, text: s.tail.String()})
 		}
+	case thPassthrough:
 	}
 	s.accum.Reset()
 	s.tail.Reset()

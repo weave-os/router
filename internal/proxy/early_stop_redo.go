@@ -106,7 +106,7 @@ type earlyStopRedo struct {
 	header   http.Header
 	log      *slog.Logger
 	target   router.Decision
-	build    func(target router.Decision) (dispatchAttempt, []catalog.ProviderBinding, string, effortResolution, context.Context, error)
+	build    func(ctx context.Context, target router.Decision) (dispatchAttempt, []catalog.ProviderBinding, string, effortResolution, context.Context, error)
 	dispatch func(ctx context.Context, target router.Decision, bindings []catalog.ProviderBinding, attempt dispatchAttempt) (int, error)
 	served   *earlyStopServed
 }
@@ -153,7 +153,7 @@ func (p *earlyStopServed) restore(s earlyStopServedSnapshot) {
 // response. If the redo fails before output, the stopped response is
 // delivered instead, so the client never loses a turn the router discarded.
 func (s *Service) redoEarlyStop(ctx context.Context, redo earlyStopRedo) (redone bool, err error) {
-	attempt, bindings, marker, effort, redoCtx, buildErr := redo.build(redo.target)
+	attempt, bindings, marker, effort, redoCtx, buildErr := redo.build(ctx, redo.target)
 	if buildErr != nil || len(bindings) == 0 {
 		redo.log.Warn("Early-stop redo: candidate is not dispatchable; serving the stopped response",
 			"redo_model", redo.target.Model, "redo_provider", redo.target.Provider, "err", buildErr)

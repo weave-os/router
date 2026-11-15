@@ -157,7 +157,7 @@ func (b *nativeSearchBuffer) Write(p []byte) (int, error) {
 			_, data := sse.ParseEvent(event)
 			value := gjson.ParseBytes(data)
 			kind := value.Get("type").String()
-			if kind != "response.web_search_call.in_progress" && !(kind == "response.output_item.added" && value.Get("item.type").String() == "web_search_call") {
+			if kind != "response.web_search_call.in_progress" && (kind != "response.output_item.added" || value.Get("item.type").String() != "web_search_call") {
 				continue
 			}
 			id := value.Get("item_id").String()

@@ -151,7 +151,7 @@ func (r *taskDomainMetadataReader) read(ctx context.Context, path, expectedDiges
 	if err != nil {
 		return nil, fmt.Errorf("open task %s metadata: %w", kind, err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	payload, err := io.ReadAll(io.LimitReader(file, maxTaskDomainMetadataBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read task %s metadata: %w", kind, err)

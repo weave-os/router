@@ -85,6 +85,7 @@ func benchmarkValidator(_ int, kind benchmarkToolKind) *Validator {
 		schema = `{"type":"object","properties":{"known":{"type":"string"}},"patternProperties":{"^optional_":{"type":"string"}},"required":["known"],"additionalProperties":false}`
 	case benchmarkCoercions:
 		schema = `{"type":"object","properties":{"known":{"type":"string"}},"patternProperties":{"^number_":{"type":"integer"}},"required":["known"],"additionalProperties":false}`
+	case benchmarkUnknownKeys:
 	}
 	return Compile([]byte(`[{"name":"Bench","input_schema":` + schema + `}]`))
 }
