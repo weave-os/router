@@ -29,15 +29,6 @@ type subscriptionFundingWarning struct {
 	customerKey bool
 }
 
-// newSubscriptionFundingWarning names the warning for a turn on model. A
-// customer-key warning carries no source, so its echo matches on either ingress.
-func newSubscriptionFundingWarning(ctx context.Context, reason billing.SubscriptionOnlyReason, source subscriptions.Provider, model string) subscriptionFundingWarning {
-	if fundedByCustomerKey(ctx, model) {
-		return subscriptionFundingWarning{reason: reason, customerKey: true}
-	}
-	return subscriptionFundingWarning{reason: reason, source: source}
-}
-
 // fundedByCustomerKey reports whether the customer's own provider key, not a
 // linked plan the dispatcher would lease for model, funds the turn.
 func fundedByCustomerKey(ctx context.Context, model string) bool {

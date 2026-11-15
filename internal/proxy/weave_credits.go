@@ -24,8 +24,6 @@ func weaveCreditsDenied(ctx context.Context) bool {
 	return billing.WeaveCreditsDeniedFromContext(ctx)
 }
 
-// withWeaveCreditsFunding records customerFundedProviders for an
-// installation that denies Weave credits.
 func withWeaveCreditsFunding(ctx context.Context, headers http.Header) context.Context {
 	if !weaveCreditsDenied(ctx) {
 		return ctx
@@ -101,8 +99,6 @@ func customerKeyFunded(creds *Credentials) bool {
 	return customerFunded(creds) && creds.Source == credSourceBYOK
 }
 
-// servedOnCustomerKey reports whether the turn's resolved credential is the
-// customer's own usable provider key.
 func servedOnCustomerKey(ctx context.Context) bool {
 	return customerKeyFunded(CredentialsFromContext(ctx))
 }

@@ -50,7 +50,7 @@ func requireServedOnBYOK(t *testing.T, trace goldenRequestTrace) {
 }
 
 func TestSubscriptionOnly_KeyFirstBYOKServes(t *testing.T) {
-	for name, reason := range map[string]func(context.Context) context.Context{
+	for name, withFunding := range map[string]func(context.Context) context.Context{
 		"credits_depleted":  goldenSubscriptionOnlyCtx,
 		"spend_cap_reached": goldenSpendCapCtx,
 	} {
@@ -58,7 +58,7 @@ func TestSubscriptionOnly_KeyFirstBYOKServes(t *testing.T) {
 			trace := serveCustomerFunded(t, credentialCase{
 				name: "key_first", supplies: []string{goldenSubscription, goldenBYOKAnthropic},
 				decisions: []router.Decision{goldenAnthropicDecision}, upstreams: anthropicUp(anthropicOK(false, "ok")),
-				ctx: chainCtx(reason, goldenSubscriptionCtx, withBYOK(byokKey(providers.ProviderAnthropic, goldenBYOKAnthropic, auth.FundingPriorityKeyFirst))),
+				ctx: chainCtx(withFunding, goldenSubscriptionCtx, withBYOK(byokKey(providers.ProviderAnthropic, goldenBYOKAnthropic, auth.FundingPriorityKeyFirst))),
 			})
 			requireServedOnBYOK(t, trace)
 			assert.Len(t, trace.Attempts, 1, "a key_first key is spent before the plan")
