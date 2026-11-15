@@ -2,10 +2,8 @@ package proxy
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 
@@ -145,7 +143,7 @@ func TestProviderSummarizer_TimeoutReturnsError(t *testing.T) {
 	assert.Empty(t, got)
 	// Either the ctx.Err() bubble or the fake's own ctx-aware return both
 	// surface DeadlineExceeded.
-	assert.True(t, errors.Is(err, context.DeadlineExceeded), "expected DeadlineExceeded, got %v", err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded, "expected DeadlineExceeded, got %v", err)
 }
 
 func TestProviderSummarizer_Non2xxReturnsError(t *testing.T) {
@@ -163,7 +161,7 @@ func TestProviderSummarizer_Non2xxReturnsError(t *testing.T) {
 	got, _, err := s.Summarize(context.Background(), env, router.Request{})
 	require.Error(t, err)
 	assert.Empty(t, got)
-	assert.True(t, strings.Contains(err.Error(), "500"), "error must mention upstream status 500; got %v", err)
+	assert.Contains(t, err.Error(), "500", "error must mention upstream status 500; got %v", err)
 }
 
 func TestProviderSummarizer_EmptyContentReturnsErrEmptySummary(t *testing.T) {
@@ -182,7 +180,7 @@ func TestProviderSummarizer_EmptyContentReturnsErrEmptySummary(t *testing.T) {
 
 	got, _, err := s.Summarize(context.Background(), env, router.Request{})
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrEmptySummary)
+	require.ErrorIs(t, err, ErrEmptySummary)
 	assert.Empty(t, got)
 }
 

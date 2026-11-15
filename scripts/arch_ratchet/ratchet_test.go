@@ -246,7 +246,7 @@ func TestLoadExceptionsRejectsEntriesWithoutReason(t *testing.T) {
 func TestRunComparesWorkingTreeWithMergeBase(t *testing.T) {
 	root := t.TempDir()
 	git := func(args ...string) {
-		cmd := exec.Command("git", append([]string{"-c", "user.name=test", "-c", "user.email=test@invalid"}, args...)...)
+		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-c", "user.name=test", "-c", "user.email=test@invalid"}, args...)...)
 		cmd.Dir = root
 		out, err := cmd.CombinedOutput()
 		require.NoError(t, err, string(out))
@@ -262,20 +262,71 @@ func TestRunComparesWorkingTreeWithMergeBase(t *testing.T) {
 	git("commit", "-q", "-m", "base")
 
 	write("internal/proxy/service.go", "package proxy\n\ntype Service struct{}\n\nfunc (s *Service) Big() {\n"+statements(110)+"}\n")
-	result, err := run(repo{root: root}, "main")
+	result, err := run(t.Context(), repo{root: root}, "main")
 	require.NoError(t, err)
 	assert.Empty(t, result.violations)
 
 	write("internal/proxy/extra.go", "package proxy\n\nfunc (s *Service) Extra() {}\n")
-	result, err = run(repo{root: root}, "main")
+	result, err = run(t.Context(), repo{root: root}, "main")
 	require.NoError(t, err)
 	require.Len(t, result.violations, 1)
 	assert.Equal(t, metricServiceMethods, result.violations[0].metric)
 
 	require.NoError(t, os.Remove(filepath.Join(root, "internal/proxy/extra.go")))
 	write("internal/other/ünïcode.go", "package other\n\nfunc Long() {\n"+statements(120)+"}\n")
-	result, err = run(repo{root: root}, "main")
+	result, err = run(t.Context(), repo{root: root}, "main")
 	require.NoError(t, err)
 	require.Len(t, result.violations, 1)
 	assert.Equal(t, "internal/other.Long", result.violations[0].subject)
+}
+
+func TestCompareCommentsFlagsNewAndReplacedCommentsButNotMoves(t *testing.T) {
+	base := map[string][]byte{
+		"internal/x/a.go":      []byte("package x\n\n// Old explains A.\nfunc A() {}\n"),
+		"internal/x/b.go":      []byte("package x\n\n// Moves within the package.\nfunc B() {}\n"),
+		"internal/x/x_test.go": []byte("package x\n"),
+	}
+	head := map[string][]byte{
+		"internal/x/a.go":      []byte("package x\n\n// Moves within the package.\nfunc B() {}\n\n// New explains A.\nfunc A() {}\n"),
+		"internal/x/b.go":      []byte("package x\n\n//go:generate echo allowed\n"),
+		"internal/x/x_test.go": []byte("package x\n\n// Test files join the ban later.\n"),
+	}
+	got, err := compareComments(base, head)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "internal/x/a.go:6", got[0].subject)
+	assert.Equal(t, metricNewComment, got[0].metric)
+	assert.Contains(t, got[0].String(), "move what it says into a name, type or test")
+}
+
+func TestRunFlagsGrowingCommentBanBudgets(t *testing.T) {
+	root := t.TempDir()
+	git := func(args ...string) {
+		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-c", "user.name=test", "-c", "user.email=test@invalid"}, args...)...)
+		cmd.Dir = root
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+	}
+	writeAllowlist := func(packages string) {
+		full := filepath.Join(root, "internal/architecture/comment_ban_allowlist.json")
+		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o750))
+		require.NoError(t, os.WriteFile(full, []byte(`{"schema_version":"comment_ban_allowlist_v1","packages":[`+packages+`]}`), 0o600))
+	}
+	git("init", "-q", "-b", "main")
+	writeAllowlist(`{"package":"internal/a","banned_lines":5}`)
+	git("add", ".")
+	git("commit", "-q", "-m", "base")
+
+	writeAllowlist(`{"package":"internal/a","banned_lines":4}`)
+	result, err := run(t.Context(), repo{root: root}, "main")
+	require.NoError(t, err)
+	assert.Empty(t, result.violations)
+
+	writeAllowlist(`{"package":"internal/a","banned_lines":6},{"package":"internal/b","banned_lines":1}`)
+	result, err = run(t.Context(), repo{root: root}, "main")
+	require.NoError(t, err)
+	assert.Equal(t, []violation{
+		{subject: "internal/a", metric: metricCommentBudget, before: 5, after: 6, limit: -1},
+		{subject: "internal/b", metric: metricCommentBudget, before: 0, after: 1, limit: -1},
+	}, result.violations)
 }

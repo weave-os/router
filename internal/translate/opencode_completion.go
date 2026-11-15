@@ -97,7 +97,7 @@ func validOpenCodeCompletionSession(id string) bool {
 		return false
 	}
 	for _, char := range id[len(openCodeSessionPrefix):] {
-		if !((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || char == '_' || char == '-') {
+		if !isIdentifierChar(char) {
 			return false
 		}
 	}

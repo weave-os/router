@@ -50,7 +50,7 @@ func TestNormalizeBaseURL(t *testing.T) {
 			"non-numeric port":   "https://gateway.example.com:not-a-port",
 		} {
 			_, err := auth.NormalizeBaseURL(ptr(in))
-			assert.ErrorIs(t, err, auth.ErrInvalidBaseURL, name)
+			require.ErrorIs(t, err, auth.ErrInvalidBaseURL, name)
 			assert.NotContains(t, err.Error(), in, name)
 		}
 	})
@@ -81,9 +81,9 @@ func TestForwardingHeaderSafetyPolicy(t *testing.T) {
 		t.Run(protected, func(t *testing.T) {
 			assert.False(t, auth.IsSafeForwardingHeader(protected))
 			_, forwardedErr := auth.NormalizeForwardedClientHeaders([]string{"  " + protected + "  "})
-			assert.ErrorIs(t, forwardedErr, auth.ErrInvalidForwardedHeader)
+			require.ErrorIs(t, forwardedErr, auth.ErrInvalidForwardedHeader)
 			_, baggageErr := auth.NormalizeBaggageHeader(ptr("  " + protected + "  "))
-			assert.ErrorIs(t, baggageErr, auth.ErrInvalidForwardedHeader)
+			require.ErrorIs(t, baggageErr, auth.ErrInvalidForwardedHeader)
 			_, _, identityErr := auth.NormalizeIdentityHeader(ptr("  "+protected+"  "), ptr(auth.IdentityFormatEmail))
 			assert.ErrorIs(t, identityErr, auth.ErrInvalidIdentityHeader)
 		})
@@ -93,7 +93,7 @@ func TestForwardingHeaderSafetyPolicy(t *testing.T) {
 }
 
 func TestValidateForwardingHeaderConfiguration(t *testing.T) {
-	assert.NoError(t, auth.ValidateForwardingHeaderConfiguration(
+	require.NoError(t, auth.ValidateForwardingHeaderConfiguration(
 		[]string{"X-Correlation-ID"}, "X-Request-Baggage", "X-Caller-Identity",
 	))
 	for name, testCase := range map[string]struct {

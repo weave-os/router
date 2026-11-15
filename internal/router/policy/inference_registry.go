@@ -393,32 +393,6 @@ func validateOverridePrecedence(spec PolicySpec) error {
 	return nil
 }
 
-func validateSelectionContract(spec PolicySpec) error {
-	switch spec.SelectionStrategy {
-	case SelectionStrategyRouter:
-		if spec.CandidateSource != CandidateSourceRoutableCatalog {
-			return fmt.Errorf("router-selected policy %q must use routable catalog candidates", spec.PolicyID)
-		}
-	case SelectionStrategyDeploymentHardPin:
-		if spec.CandidateSource != CandidateSourceDeployment {
-			return fmt.Errorf("deployment hard-pin policy %q must use deployment candidates", spec.PolicyID)
-		}
-	case SelectionStrategyClientAuthoritative:
-		if spec.CandidateSource != CandidateSourceRequest {
-			return fmt.Errorf("client-authoritative policy %q must use request candidates", spec.PolicyID)
-		}
-	case SelectionStrategyPassthrough:
-		if spec.CandidateSource != CandidateSourceRequest && spec.CandidateSource != CandidateSourceDeployment {
-			return fmt.Errorf("passthrough policy %q must use request or deployment candidates", spec.PolicyID)
-		}
-	case SelectionStrategyNone:
-		if spec.CandidateSource != CandidateSourceNone && spec.CandidateSource != CandidateSourceLocal && spec.CandidateSource != CandidateSourceDeployment {
-			return fmt.Errorf("non-selecting policy %q has an invalid candidate source", spec.PolicyID)
-		}
-	}
-	return nil
-}
-
 func registryRevision(specs []PolicySpec) (string, error) {
 	payload, err := json.Marshal(struct {
 		SchemaVersion string       `json:"schema_version"`
@@ -478,12 +452,12 @@ func defaultPolicySpecs() []PolicySpec {
 		SoftPreferenceCacheAffinity,
 		SoftPreferenceSubscriptionCapacity,
 	}
-	mainPolicy := func(purpose Purpose, id PolicyID, revision PolicyRevision, status MigrationStatus, rationale string) PolicySpec {
+	mainPolicy := func(purpose Purpose, id PolicyID, rationale string) PolicySpec {
 		return PolicySpec{
 			Purpose:            purpose,
 			DispatchClass:      DispatchClassMainInference,
 			PolicyID:           id,
-			PolicyRevision:     revision,
+			PolicyRevision:     "3",
 			Owner:              inferencePolicyOwner,
 			Rationale:          rationale,
 			SelectionStrategy:  SelectionStrategyRouter,
@@ -493,7 +467,7 @@ func defaultPolicySpecs() []PolicySpec {
 			OverridePrecedence: append([]OverrideSource(nil), mainOverrides...),
 			Budget:             BudgetSpec{Source: BudgetSourceRequest},
 			Fallback:           FallbackSpec{Kind: FallbackKindBinding},
-			MigrationStatus:    status,
+			MigrationStatus:    MigrationStatusExecutor,
 		}
 	}
 	hardPinPolicy := func(purpose Purpose, id PolicyID, rationale string) PolicySpec {
@@ -563,10 +537,10 @@ func defaultPolicySpecs() []PolicySpec {
 			Fallback:           FallbackSpec{Kind: FallbackKindNone},
 			MigrationStatus:    MigrationStatusExecutor,
 		},
-		mainPolicy(PurposeAnthropicMessages, "main-anthropic-messages", "3", MigrationStatusExecutor, "Select an eligible catalog binding for Anthropic Messages while preserving request semantics and tenant boundaries."),
-		mainPolicy(PurposeOpenAIChatCompletions, "main-openai-chat-completions", "3", MigrationStatusExecutor, "Select an eligible catalog binding for OpenAI Chat Completions while preserving request semantics and tenant boundaries."),
-		mainPolicy(PurposeOpenAIResponses, "main-openai-responses", "3", MigrationStatusExecutor, "Select an eligible catalog binding and compatible endpoint for OpenAI Responses requests."),
-		mainPolicy(PurposeGeminiGenerateContent, "main-gemini-generate-content", "3", MigrationStatusExecutor, "Select an eligible catalog binding for Gemini Generate Content while preserving native URL and body semantics."),
+		mainPolicy(PurposeAnthropicMessages, "main-anthropic-messages", "Select an eligible catalog binding for Anthropic Messages while preserving request semantics and tenant boundaries."),
+		mainPolicy(PurposeOpenAIChatCompletions, "main-openai-chat-completions", "Select an eligible catalog binding for OpenAI Chat Completions while preserving request semantics and tenant boundaries."),
+		mainPolicy(PurposeOpenAIResponses, "main-openai-responses", "Select an eligible catalog binding and compatible endpoint for OpenAI Responses requests."),
+		mainPolicy(PurposeGeminiGenerateContent, "main-gemini-generate-content", "Select an eligible catalog binding for Gemini Generate Content while preserving native URL and body semantics."),
 		{
 			Purpose:            PurposeHandoverSummary,
 			DispatchClass:      DispatchClassAuxiliaryInference,

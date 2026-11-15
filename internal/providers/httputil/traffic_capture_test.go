@@ -35,7 +35,7 @@ func (reader *closingRequestReader) Close() error {
 
 func TestRequestCaptureCloseWaitsForInFlightRead(t *testing.T) {
 	reader := &closingRequestReader{started: make(chan struct{}), closed: make(chan struct{}), release: make(chan struct{})}
-	request, err := http.NewRequest(http.MethodPost, "https://provider.example", reader)
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://provider.example", reader)
 	require.NoError(t, err)
 	capture := captureRequestBody(request)
 	t.Cleanup(func() { require.NoError(t, capture.spool.Close()) })
@@ -251,7 +251,10 @@ func TestNewClientRecordsTransportFailureWithoutChangingError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.Do(request)
+	response, err := client.Do(request)
+	if response != nil {
+		_ = response.Body.Close()
+	}
 	if !errors.Is(err, upstreamErr) {
 		t.Fatalf("client error = %v, want wrapped provider error", err)
 	}

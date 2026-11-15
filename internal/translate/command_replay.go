@@ -31,12 +31,12 @@ func stripCommandReference(text string) string {
 
 // StripCommandOutcomes removes harness-only evidence from replayed assistant
 // messages. It does not interpret that evidence as a new command application.
-func (env *RequestEnvelope) StripCommandOutcomes() error {
-	body, err := stripCommandOutcomes(env.body, "messages")
+func (e *RequestEnvelope) StripCommandOutcomes() error {
+	body, err := stripCommandOutcomes(e.body, "messages")
 	if err != nil {
 		return err
 	}
-	env.body = body
+	e.body = body
 	return nil
 }
 

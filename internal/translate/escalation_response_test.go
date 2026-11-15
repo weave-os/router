@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"testing"
 
+	"weave-os/router/internal/translate"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"weave-os/router/internal/translate"
 )
 
 func TestEscalationResponsesCompletionReconstructsContinuation(t *testing.T) {
@@ -96,7 +97,7 @@ func TestEscalationResponseRejectsUnparsedSSETails(t *testing.T) {
 		terminal + "\ndata: {\"unexpected\":true}\n\n",
 	} {
 		_, err := translate.ParseEscalationResponse([]byte(body), translate.EscalationResponseResponses)
-		assert.Error(t, err)
+		require.Error(t, err)
 	}
 	response, err := translate.ParseEscalationResponse([]byte(terminal+"\n\n: keepalive\n\n"), translate.EscalationResponseResponses)
 	require.NoError(t, err)

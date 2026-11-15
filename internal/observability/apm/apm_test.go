@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/observability/apm"
 
 	"github.com/stretchr/testify/assert"
+	"go.opentelemetry.io/otel"
 )
 
 // Init is guarded by a sync.Once, so only one of these tests can ever
@@ -22,6 +23,7 @@ func TestInit_NoEndpointIsNoOp(t *testing.T) {
 	assert.NotPanics(t, func() {
 		apm.Init()
 	}, "Init must not panic when WV_APM_OTLP_ENDPOINT is unset")
+	assert.Contains(t, otel.GetTextMapPropagator().Fields(), "traceparent", "trace context must propagate even with export disabled")
 }
 
 func TestShutdownWithContext_SafeWhenInitNeverCalled(t *testing.T) {

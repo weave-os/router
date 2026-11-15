@@ -65,7 +65,7 @@ func (s *Service) expireSessionPinRow(
 	invalidateContinuation bool,
 ) error {
 	expired := expiredSessionPin(installationID, sessionKey, role, reason, router.StrategyFromContext(ctx))
-	if err := s.pinStore.Upsert(context.Background(), expired); err != nil {
+	if err := s.pinStore.Upsert(context.WithoutCancel(ctx), expired); err != nil {
 		return err
 	}
 	if !invalidateContinuation {
@@ -248,9 +248,9 @@ func (s *Service) maybeEvictPinAfterUpstreamErr(
 	log := observability.FromContext(ctx)
 
 	if proxyErr == nil {
-		// context.Background(): the request ctx is already canceled by the
+		// context.WithoutCancel: the request ctx is already canceled by the
 		// time streaming finishes, but this reset must still go through.
-		if err := s.pinStore.ResetUpstreamErrors(context.Background(), sessionKey, role, router.StrategyFromContext(ctx)); err != nil {
+		if err := s.pinStore.ResetUpstreamErrors(context.WithoutCancel(ctx), sessionKey, role, router.StrategyFromContext(ctx)); err != nil {
 			log.Error("pin error-counter reset failed", "err", err, "role", role)
 		}
 		return
@@ -266,7 +266,7 @@ func (s *Service) maybeEvictPinAfterUpstreamErr(
 		return
 	}
 
-	count, err := s.pinStore.IncrementUpstreamErrors(context.Background(), sessionKey, role, router.StrategyFromContext(ctx))
+	count, err := s.pinStore.IncrementUpstreamErrors(context.WithoutCancel(ctx), sessionKey, role, router.StrategyFromContext(ctx))
 	if err != nil {
 		log.Error("pin error-counter increment failed", "err", err, "role", role, "upstream_status", status)
 		return

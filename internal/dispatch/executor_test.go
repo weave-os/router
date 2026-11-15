@@ -331,7 +331,7 @@ func TestRunAbortsWhenPrepareFails(t *testing.T) {
 func TestBindSatisfiesInferenceExecutor(t *testing.T) {
 	fw := &fakeUpstream{}
 	exec := newExecutor(t, map[string]providers.Client{providers.ProviderFireworks: fw}, &recorder{})
-	var bound inference.Executor = exec.Bind(dispatch.Transport{Attempt: attemptWith([]byte(`{"model":"kimi-k2.5"}`))})
+	var bound = exec.Bind(dispatch.Transport{Attempt: attemptWith([]byte(`{"model":"kimi-k2.5"}`))})
 	outcome, err := bound.Execute(context.Background(), inference.InvocationRequest{}, fakePlan{selected: primary})
 	require.NoError(t, err)
 	assert.Equal(t, primary, outcome.ServedTarget)
@@ -366,9 +366,9 @@ func TestBufferedTransportValidatesTargetAndDeliversResponse(t *testing.T) {
 	var consumed int
 	transport := dispatch.Buffered{
 		Reason: "test",
-		Prepare: func(_ context.Context, attempt dispatch.Attempt) (providers.PreparedRequest, *http.Request, error) {
+		Prepare: func(prepareCtx context.Context, attempt dispatch.Attempt) (providers.PreparedRequest, *http.Request, error) {
 			body := []byte(`{"model":"` + attempt.Target.CatalogID + `"}`)
-			return providers.PreparedRequest{Body: body}, httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body)), nil
+			return providers.PreparedRequest{Body: body}, httptest.NewRequestWithContext(prepareCtx, http.MethodPost, "/v1/messages", bytes.NewReader(body)), nil
 		},
 		Consume: func(_ context.Context, _ dispatch.Attempt, resp *http.Response) error {
 			consumed = resp.StatusCode
@@ -382,8 +382,8 @@ func TestBufferedTransportValidatesTargetAndDeliversResponse(t *testing.T) {
 	assert.Equal(t, []string{"kimi-k2.5"}, fw.models)
 
 	mismatch := dispatch.Buffered{
-		Prepare: func(context.Context, dispatch.Attempt) (providers.PreparedRequest, *http.Request, error) {
-			return providers.PreparedRequest{Body: []byte(`{"model":"other"}`)}, httptest.NewRequest(http.MethodPost, "/", nil), nil
+		Prepare: func(prepareCtx context.Context, _ dispatch.Attempt) (providers.PreparedRequest, *http.Request, error) {
+			return providers.PreparedRequest{Body: []byte(`{"model":"other"}`)}, httptest.NewRequestWithContext(prepareCtx, http.MethodPost, "/", nil), nil
 		},
 	}.Transport()
 	_, err = exec.Run(context.Background(), inference.InvocationRequest{}, fakePlan{selected: primary}, mismatch)
@@ -425,7 +425,7 @@ func TestRunTerminalStopsSameTargetRetryAndFailover(t *testing.T) {
 func TestRunBoundRetriesSameTargetButNeverFailsOver(t *testing.T) {
 	transient := &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests}
 	slept := 0
-	sleep := func(context.Context, time.Duration) error { slept++; return nil }
+	sleep := func(ctx context.Context, _ time.Duration) error { slept++; return ctx.Err() }
 
 	t.Run("single target keeps same-target retries", func(t *testing.T) {
 		slept = 0

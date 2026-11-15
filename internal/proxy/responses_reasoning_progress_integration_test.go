@@ -32,7 +32,11 @@ func completedReasoningFrame(index int) string {
 
 func flushResponsesFrame(w http.ResponseWriter, frame string) bool {
 	_, err := io.WriteString(w, "data: "+frame+"\n\n")
-	w.(http.Flusher).Flush()
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		return false
+	}
+	flusher.Flush()
 	return err == nil
 }
 
@@ -113,10 +117,10 @@ func TestResponsesReasoningProgress_LongReasoningCompletes(t *testing.T) {
 			go func() {
 				defer close(joined)
 				if tc.chat {
-					req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(chatToolTurnBody))
+					req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/chat/completions", strings.NewReader(chatToolTurnBody))
 					finished <- svc.ProxyOpenAIChatCompletion(ctx, []byte(chatToolTurnBody), rec, req)
 				} else {
-					req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(gatewayToolTurn))
+					req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", strings.NewReader(gatewayToolTurn))
 					finished <- svc.ProxyMessages(ctx, []byte(gatewayToolTurn), rec, req)
 				}
 			}()
@@ -197,7 +201,7 @@ func TestResponsesReasoningProgress_StallAndCancellation(t *testing.T) {
 				attempts.Add(1)
 				w.Header().Set("Content-Type", "text/event-stream")
 				w.WriteHeader(http.StatusOK)
-				w.(http.Flusher).Flush()
+				assertAs[http.Flusher](t, w).Flush()
 				if tc.initialReasoning {
 					// Progress after 200ms proves that the stall clock resets,
 					// rather than measuring only time since response headers.
@@ -237,7 +241,7 @@ func TestResponsesReasoningProgress_StallAndCancellation(t *testing.T) {
 					if _, err := io.WriteString(w, ": ping\n\n"); err != nil {
 						return
 					}
-					w.(http.Flusher).Flush()
+					assertAs[http.Flusher](t, w).Flush()
 				}
 			}))
 			defer upstream.Close()
@@ -249,7 +253,7 @@ func TestResponsesReasoningProgress_StallAndCancellation(t *testing.T) {
 			client := openai.NewClientWithStallTimeouts("test-key", upstream.URL, time.Second, idle, stall)
 			svc := makeProxyService(router.Decision{Provider: providers.ProviderOpenAI, Model: reasoningProgressModel}, map[string]providers.Client{providers.ProviderOpenAI: client})
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(gatewayToolTurn))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(gatewayToolTurn))
 			started := time.Now()
 			err := svc.ProxyMessages(ctx, []byte(gatewayToolTurn), rec, req)
 			elapsed := time.Since(started)

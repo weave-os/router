@@ -2,7 +2,6 @@ package ingress_test
 
 import (
 	"context"
-	"errors"
 	"net/http/httptest"
 	"testing"
 
@@ -33,7 +32,7 @@ func TestGeminiCheckTargetAllowsOnlyGoogle(t *testing.T) {
 	gemini := ingress.Gemini{}
 	require.NoError(t, gemini.CheckTarget(providers.ProviderGoogle))
 	err := gemini.CheckTarget(providers.ProviderAnthropic)
-	assert.True(t, errors.Is(err, ingress.ErrGeminiCrossFormatUnsupported))
+	require.ErrorIs(t, err, ingress.ErrGeminiCrossFormatUnsupported)
 	assert.Contains(t, err.Error(), `"anthropic"`)
 }
 

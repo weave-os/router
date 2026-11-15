@@ -134,7 +134,7 @@ func TestStreamBody_WatchdogFiresOnStall(t *testing.T) {
 	elapsed := time.Since(start)
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrUpstreamIdleTimeout)
+	require.ErrorIs(t, err, ErrUpstreamIdleTimeout)
 	// Generous upper bound (watchdog ticks at idleTimeout/3 = 50ms).
 	assert.Less(t, elapsed, 500*time.Millisecond, "stall should surface well before any deadlock")
 	assert.GreaterOrEqual(t, elapsed, 100*time.Millisecond, "stall should not surface before idleTimeout")
@@ -207,7 +207,7 @@ func TestStartIdleWatchdog_DoesNotFireWhenMarked(t *testing.T) {
 		mark()
 		time.Sleep(20 * time.Millisecond)
 	}
-	assert.NoError(t, ctx.Err(), "watchdog should not cancel while mark is being called")
+	require.NoError(t, ctx.Err(), "watchdog should not cancel while mark is being called")
 
 	// After stop, the ctx should still be alive (no watchdog cancellation).
 	stop()
@@ -227,7 +227,7 @@ func TestStartIdleWatchdog_ExpiresAtLastProgressDeadline(t *testing.T) {
 
 	select {
 	case <-ctx.Done():
-		assert.ErrorIs(t, context.Cause(ctx), ErrUpstreamIdleTimeout)
+		require.ErrorIs(t, context.Cause(ctx), ErrUpstreamIdleTimeout)
 		assert.GreaterOrEqual(t, time.Since(markAt), idleTimeout-15*time.Millisecond,
 			"accepted progress must receive the full idle budget")
 	case <-time.After(idleTimeout + 110*time.Millisecond):
@@ -316,7 +316,7 @@ func TestH2KeepaliveFor_EnvOverridesCannotReachTheHeaderGuard(t *testing.T) {
 // this is what lets dispatchWithFallback rescue a mid-stream stall on the
 // next binding (prod incident 2026-06-09).
 func TestErrUpstreamIdleTimeout_AliasIsRetryable(t *testing.T) {
-	assert.True(t, errors.Is(ErrUpstreamIdleTimeout, providers.ErrUpstreamIdleTimeout))
+	require.ErrorIs(t, ErrUpstreamIdleTimeout, providers.ErrUpstreamIdleTimeout)
 	assert.True(t, providers.IsRetryable(ErrUpstreamIdleTimeout))
 }
 
@@ -330,7 +330,7 @@ func TestStartThroughputWatchdog_NoOpWhenDisabled(t *testing.T) {
 	mark, stop := StartThroughputWatchdog(ctx, cancel, 50*time.Millisecond, 0, 0, ErrUpstreamSlowThroughput)
 	mark()
 	stop()
-	assert.NoError(t, context.Cause(ctx))
+	require.NoError(t, context.Cause(ctx))
 
 	// window <= 0 also disables.
 	mark2, stop2 := StartThroughputWatchdog(ctx, cancel, 0, 0, 5, ErrUpstreamSlowThroughput)
@@ -445,7 +445,7 @@ func TestStartThroughputWatchdog_DoesNotFireOnBurstThenSilence(t *testing.T) {
 }
 
 func TestErrUpstreamSlowThroughput_AliasIsRetryable(t *testing.T) {
-	assert.True(t, errors.Is(ErrUpstreamSlowThroughput, providers.ErrUpstreamSlowThroughput))
+	require.ErrorIs(t, ErrUpstreamSlowThroughput, providers.ErrUpstreamSlowThroughput)
 	assert.True(t, providers.IsRetryable(ErrUpstreamSlowThroughput))
 }
 

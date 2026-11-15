@@ -1,8 +1,6 @@
 package middleware
 
 import (
-	"net/http"
-
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
@@ -57,10 +55,7 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 		admission, err := svc.Admit(c.Request.Context(), subscriberID)
 		if err != nil {
 			log.Error("Subscriber allowance check failed; refusing request", "err", err, "subscriber_id", subscriberID)
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
-				"error":   "billing_unavailable",
-				"message": "Billing system is temporarily unavailable. Retry in a few moments.",
-			})
+			abortBillingUnavailable(c)
 			return
 		}
 

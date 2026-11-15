@@ -21,12 +21,12 @@ func TestInlineSchemaDefs_resolvesDefsRef(t *testing.T) {
 		},
 	}
 
-	out := inlineSchemaDefs(in).(map[string]any)
+	out := mustAs[map[string]any](t, inlineSchemaDefs(in))
 
 	if _, ok := out["$defs"]; ok {
 		t.Fatalf("$defs not stripped: %#v", out)
 	}
-	got := out["properties"].(map[string]any)["attachment"]
+	got := mustAs[map[string]any](t, out["properties"])["attachment"]
 	want := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -47,11 +47,11 @@ func TestInlineSchemaDefs_resolvesDefinitionsRef(t *testing.T) {
 			"Foo": map[string]any{"type": "string"},
 		},
 	}
-	out := inlineSchemaDefs(in).(map[string]any)
+	out := mustAs[map[string]any](t, inlineSchemaDefs(in))
 	if _, ok := out["definitions"]; ok {
 		t.Fatalf("definitions not stripped")
 	}
-	got := out["properties"].(map[string]any)["x"]
+	got := mustAs[map[string]any](t, out["properties"])["x"]
 	want := map[string]any{"type": "string"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got=%#v want=%#v", got, want)
@@ -73,9 +73,9 @@ func TestInlineSchemaDefs_resolvesNestedRef(t *testing.T) {
 			"Inner": map[string]any{"type": "integer"},
 		},
 	}
-	out := inlineSchemaDefs(in).(map[string]any)
-	outer := out["properties"].(map[string]any)["outer"].(map[string]any)
-	inner := outer["properties"].(map[string]any)["inner"]
+	out := mustAs[map[string]any](t, inlineSchemaDefs(in))
+	outer := mustAs[map[string]any](t, mustAs[map[string]any](t, out["properties"])["outer"])
+	inner := mustAs[map[string]any](t, outer["properties"])["inner"]
 	want := map[string]any{"type": "integer"}
 	if !reflect.DeepEqual(inner, want) {
 		t.Fatalf("nested ref not inlined: %#v", inner)
@@ -98,9 +98,9 @@ func TestInlineSchemaDefs_handlesCycle(t *testing.T) {
 		},
 	}
 	// Must not infinite-loop. The inner $ref is left intact when cycle detected.
-	out := inlineSchemaDefs(in).(map[string]any)
-	root := out["properties"].(map[string]any)["root"].(map[string]any)
-	next := root["properties"].(map[string]any)["next"].(map[string]any)
+	out := mustAs[map[string]any](t, inlineSchemaDefs(in))
+	root := mustAs[map[string]any](t, mustAs[map[string]any](t, out["properties"])["root"])
+	next := mustAs[map[string]any](t, mustAs[map[string]any](t, root["properties"])["next"])
 	if next["$ref"] != "#/$defs/Node" {
 		t.Fatalf("expected cyclic $ref preserved, got %#v", next)
 	}
@@ -115,8 +115,8 @@ func TestInlineSchemaDefs_unresolvedRefPreserved(t *testing.T) {
 			"Other": map[string]any{"type": "string"},
 		},
 	}
-	out := inlineSchemaDefs(in).(map[string]any)
-	got := out["properties"].(map[string]any)["x"].(map[string]any)
+	out := mustAs[map[string]any](t, inlineSchemaDefs(in))
+	got := mustAs[map[string]any](t, mustAs[map[string]any](t, out["properties"])["x"])
 	if got["$ref"] != "#/$defs/Missing" {
 		t.Fatalf("unresolved $ref dropped: %#v", got)
 	}
@@ -157,11 +157,11 @@ func TestInlineSchemaDefs_resolvesRefWithSiblingKeys(t *testing.T) {
 			},
 		},
 	}
-	out := inlineSchemaDefs(in).(map[string]any)
+	out := mustAs[map[string]any](t, inlineSchemaDefs(in))
 	if _, ok := out["$defs"]; ok {
 		t.Fatalf("$defs not stripped: %#v", out)
 	}
-	got := out["properties"].(map[string]any)["payment_link_type"].(map[string]any)
+	got := mustAs[map[string]any](t, mustAs[map[string]any](t, out["properties"])["payment_link_type"])
 	if _, hasRef := got["$ref"]; hasRef {
 		t.Fatalf("unresolved $ref remains alongside siblings: %#v", got)
 	}
@@ -182,9 +182,9 @@ func TestInlineSchemaDefs_inlineCopiesNotShares(t *testing.T) {
 			"T": map[string]any{"type": "array"},
 		},
 	}
-	out := inlineSchemaDefs(in).(map[string]any)
-	a := out["properties"].(map[string]any)["a"].(map[string]any)
-	b := out["properties"].(map[string]any)["b"].(map[string]any)
+	out := mustAs[map[string]any](t, inlineSchemaDefs(in))
+	a := mustAs[map[string]any](t, mustAs[map[string]any](t, out["properties"])["a"])
+	b := mustAs[map[string]any](t, mustAs[map[string]any](t, out["properties"])["b"])
 	a["mutated"] = true
 	if _, leaked := b["mutated"]; leaked {
 		t.Fatalf("inlined refs share underlying map: %#v", b)

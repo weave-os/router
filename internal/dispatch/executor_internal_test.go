@@ -6,10 +6,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSleepWithContext(t *testing.T) {
-	assert.NoError(t, sleepWithContext(context.Background(), time.Millisecond))
+	require.NoError(t, sleepWithContext(context.Background(), time.Millisecond))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

@@ -34,7 +34,7 @@ func TestService_ProxyOpenAIResponses_BreaksRepeatedOpenCodeAnswers(t *testing.T
 			{"role":"assistant","content":[{"type":"output_text","text":"` + repeatedOpenCodeAnswer + `"}]}
 		]
 	}`)
-	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(string(body)))
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(string(body)))
 	response := httptest.NewRecorder()
 	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
 

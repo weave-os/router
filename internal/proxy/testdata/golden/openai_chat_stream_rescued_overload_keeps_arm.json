@@ -596,10 +596,11 @@
           {
             "data": {
               "error": {
+                "code": null,
                 "message": "Anthropic returned 529 (overloaded) after 2 router retries: Overloaded",
+                "param": null,
                 "type": "overloaded_error"
-              },
-              "type": "error"
+              }
             }
           }
         ]

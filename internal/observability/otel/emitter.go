@@ -54,9 +54,10 @@ type Emitter struct {
 	// calls so a late Enqueue cannot panic with "send on closed channel".
 	// Enqueue acquires RLock for the lifetime of the send; Shutdown takes
 	// Lock to flip closed and close(queue) atomically.
-	closeMu            sync.RWMutex
-	closed             atomic.Bool
-	translationMetrics translationMetrics
+	closeMu      sync.RWMutex
+	closed       atomic.Bool
+	exportCtx    context.Context
+	cancelExport context.CancelFunc
 }
 
 // NewEmitter starts the worker pool and returns a ready emitter. Returns
@@ -85,16 +86,19 @@ func NewEmitter(cfg EmitterConfig) (*Emitter, error) {
 		cfg.ServiceName = "router"
 	}
 
+	exportCtx, cancelExport := context.WithCancel(context.Background())
 	e := &Emitter{
-		queue:       make(chan *tracev1.Span, cfg.QueueSize),
-		logQueue:    make(chan *logsv1.LogRecord, cfg.QueueSize),
-		client:      &http.Client{Timeout: cfg.ExportTimeout},
-		endpoint:    strings.TrimRight(cfg.Endpoint, "/") + "/v1/traces",
-		logEndpoint: strings.TrimRight(cfg.Endpoint, "/") + "/v1/logs",
-		headers:     cfg.Headers,
-		resource:    buildResource(cfg.ServiceName, cfg.ResourceAttrs),
-		batchSz:     cfg.BatchSize,
-		flushInt:    cfg.FlushInterval,
+		exportCtx:    exportCtx,
+		cancelExport: cancelExport,
+		queue:        make(chan *tracev1.Span, cfg.QueueSize),
+		logQueue:     make(chan *logsv1.LogRecord, cfg.QueueSize),
+		client:       &http.Client{Timeout: cfg.ExportTimeout},
+		endpoint:     strings.TrimRight(cfg.Endpoint, "/") + "/v1/traces",
+		logEndpoint:  strings.TrimRight(cfg.Endpoint, "/") + "/v1/logs",
+		headers:      cfg.Headers,
+		resource:     buildResource(cfg.ServiceName, cfg.ResourceAttrs),
+		batchSz:      cfg.BatchSize,
+		flushInt:     cfg.FlushInterval,
 	}
 
 	e.wg.Add(cfg.Workers * 2)
@@ -188,7 +192,9 @@ func (e *Emitter) Shutdown(c context.Context) error {
 
 	select {
 	case <-done:
+		e.cancelExport()
 	case <-c.Done():
+		e.cancelExport()
 		return c.Err()
 	}
 
@@ -309,7 +315,7 @@ func (e *Emitter) exportLogBatch(records []*logsv1.LogRecord) {
 // post sends a marshaled OTLP protobuf body to endpoint. Failures are logged,
 // not returned: telemetry export is best-effort and never blocks the request.
 func (e *Emitter) post(endpoint string, body []byte) {
-	httpReq, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(e.exportCtx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		observability.Get().Warn("Failed to create OTLP export HTTP request", "err", err)
 		return
@@ -324,7 +330,7 @@ func (e *Emitter) post(endpoint string, body []byte) {
 		observability.Get().Warn("OTLP export request failed", "err", err)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		observability.Get().Warn("OTLP export returned non-2xx status", "status", resp.StatusCode)

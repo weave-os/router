@@ -64,9 +64,11 @@ func TestPrepareJSONResponseRemovesCommittedLength(t *testing.T) {
 		writeErrors <- err
 	}))
 	defer server.Close()
-	response, err := server.Client().Get(server.URL)
+	request, buildErr := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, nil)
+	require.NoError(t, buildErr)
+	response, err := server.Client().Do(request)
 	require.NoError(t, err)
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	body, err := io.ReadAll(response.Body)
 	require.NoError(t, err)
 	require.NoError(t, <-writeErrors)

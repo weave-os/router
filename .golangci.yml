@@ -7,15 +7,72 @@ linters:
   default: none
   enable:
     - depguard
+    - contextcheck
     - dupl
     - errorlint
+    - forcetypeassert
+    - testifylint
+    - unparam
+    - ineffassign
+    - staticcheck
+    - unused
+    - wastedassign
+    - errcheck
+    - bodyclose
+    - nilerr
+    - exhaustive
+    - gosec
+    - noctx
+    - thelper
+    - forbidigo
   settings:
+    testifylint:
+      enable-all: true
+      disable:
+        # translate tests assert byte-exact JSON output; JSONEq would hide key order and whitespace changes.
+        - encoded-compare
+    staticcheck:
+      checks:
+        - all
+        - -ST1000
+        - -ST1003
+        - -ST1020
+        - -ST1021
+        - -ST1022
+    errcheck:
+      exclude-functions:
+        - (*bufio.Writer).WriteString
+        - (*bufio.Writer).WriteByte
+        - (*bufio.Writer).WriteRune
+        - (*bufio.Writer).Write
+        - (*strings.Builder).WriteString
+        - (*strings.Builder).WriteByte
+        - (*bytes.Buffer).WriteString
     dupl:
       threshold: 100
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: ^(fmt\.Print(f|ln)?|log\.(Print|Fatal|Panic)(f|ln)?|print|println)$
+          msg: log with slog through observability.FromContext(ctx) (observability.FromGin(c) in handlers, observability.Get() only off the request path)
+    gosec:
+      excludes:
+        - G115
+        - G101
+        - G117
+        - G704
+        - G304
+        - G104
+        - G703
+        - G705
+        - G204
+        - G702
     errorlint:
       comparison: true
       asserts: true
       errorf: false
+    exhaustive:
+      default-signifies-exhaustive: true
     depguard:
       rules:
         leaf:
@@ -85,9 +142,23 @@ linters:
               desc: routing policy never touches provider clients
   exclusions:
     rules:
+      # Only the router process logs through slog; CLI tools, scripts and smoke stubs print their output.
+      - path-except: ^(internal|cmd/router)/
+        linters:
+          - forbidigo
       - path: _test\.go
         linters:
           - dupl
+      # Cloud SQL certificates cannot pass hostname verification; VerifyConnection checks the CA chain and identity instead.
+      - path: internal/postgres/pgtls/pgtls\.go
+        linters:
+          - gosec
+        text: G402
+      # Read by other containers or executed as a stub binary.
+      - path: (internal/policyregistry/directory\.go|smoke/mitmproxy/(main|store)\.go|scripts/subscription_enrollment_check/enrollment_test\.go)
+        linters:
+          - gosec
+        text: G30[126]
 
 issues:
   # Duplicate-code findings apply to new code only; existing clones are tracked for removal.

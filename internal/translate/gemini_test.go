@@ -34,14 +34,14 @@ func TestPrepareGemini_FromOpenAI_SimpleText(t *testing.T) {
 
 	out := mustUnmarshal(t, prep.Body)
 	sys := must(t, out, "systemInstruction")
-	assert.Equal(t, "You are helpful.", sys.(map[string]any)["parts"].([]any)[0].(map[string]any)["text"])
+	assert.Equal(t, "You are helpful.", mustAs[map[string]any](t, mustAs[[]any](t, mustAs[map[string]any](t, sys)["parts"])[0])["text"])
 
-	contents := must(t, out, "contents").([]any)
+	contents := mustAs[[]any](t, must(t, out, "contents"))
 	require.Len(t, contents, 1)
-	first := contents[0].(map[string]any)
+	first := mustAs[map[string]any](t, contents[0])
 	assert.Equal(t, "user", first["role"])
-	parts := first["parts"].([]any)
-	assert.Equal(t, "list /tmp", parts[0].(map[string]any)["text"])
+	parts := mustAs[[]any](t, first["parts"])
+	assert.Equal(t, "list /tmp", mustAs[map[string]any](t, parts[0])["text"])
 }
 
 func TestPrepareGemini_MultipleSystemMessagesConcatenated(t *testing.T) {
@@ -57,8 +57,8 @@ func TestPrepareGemini_MultipleSystemMessagesConcatenated(t *testing.T) {
 	require.NoError(t, err)
 
 	out := mustUnmarshal(t, prep.Body)
-	sys := out["systemInstruction"].(map[string]any)
-	text := sys["parts"].([]any)[0].(map[string]any)["text"].(string)
+	sys := mustAs[map[string]any](t, out["systemInstruction"])
+	text := mustAs[string](t, mustAs[map[string]any](t, mustAs[[]any](t, sys["parts"])[0])["text"])
 	assert.Equal(t, "rule one\nrule two", text)
 }
 
@@ -81,28 +81,28 @@ func TestPrepareGemini_AssistantToolCallsRoundTripsThoughtSignature(t *testing.T
 	require.NoError(t, err)
 
 	out := mustUnmarshal(t, prep.Body)
-	contents := out["contents"].([]any)
+	contents := mustAs[[]any](t, out["contents"])
 	require.Len(t, contents, 3)
 
 	// model turn carries functionCall + thoughtSignature.
-	model := contents[1].(map[string]any)
+	model := mustAs[map[string]any](t, contents[1])
 	assert.Equal(t, "model", model["role"])
-	parts := model["parts"].([]any)
+	parts := mustAs[[]any](t, model["parts"])
 	require.Len(t, parts, 1)
-	p := parts[0].(map[string]any)
-	fc := p["functionCall"].(map[string]any)
+	p := mustAs[map[string]any](t, parts[0])
+	fc := mustAs[map[string]any](t, p["functionCall"])
 	assert.Equal(t, "bash", fc["name"])
-	args := fc["args"].(map[string]any)
+	args := mustAs[map[string]any](t, fc["args"])
 	assert.Equal(t, "ls /tmp", args["command"])
 	assert.Equal(t, "OPAQUE_SIG_BYTES", p["thoughtSignature"])
 
 	// tool turn must surface as user-role functionResponse with the same name.
-	toolTurn := contents[2].(map[string]any)
+	toolTurn := mustAs[map[string]any](t, contents[2])
 	assert.Equal(t, "user", toolTurn["role"])
-	tps := toolTurn["parts"].([]any)
-	fr := tps[0].(map[string]any)["functionResponse"].(map[string]any)
+	tps := mustAs[[]any](t, toolTurn["parts"])
+	fr := mustAs[map[string]any](t, mustAs[map[string]any](t, tps[0])["functionResponse"])
 	assert.Equal(t, "bash", fr["name"])
-	assert.Equal(t, "f1\nf2", fr["response"].(map[string]any)["result"])
+	assert.Equal(t, "f1\nf2", mustAs[map[string]any](t, fr["response"])["result"])
 }
 
 func TestPrepareGemini_ToolsMappedToFunctionDeclarations(t *testing.T) {
@@ -120,11 +120,11 @@ func TestPrepareGemini_ToolsMappedToFunctionDeclarations(t *testing.T) {
 	require.NoError(t, err)
 
 	out := mustUnmarshal(t, prep.Body)
-	tools := out["tools"].([]any)
+	tools := mustAs[[]any](t, out["tools"])
 	require.Len(t, tools, 1)
-	decls := tools[0].(map[string]any)["functionDeclarations"].([]any)
+	decls := mustAs[[]any](t, mustAs[map[string]any](t, tools[0])["functionDeclarations"])
 	require.Len(t, decls, 1)
-	d := decls[0].(map[string]any)
+	d := mustAs[map[string]any](t, decls[0])
 	assert.Equal(t, "bash", d["name"])
 	assert.Equal(t, "Run bash", d["description"])
 	assert.NotNil(t, d["parameters"])
@@ -143,7 +143,7 @@ func TestPrepareGemini_ToolChoiceVariants(t *testing.T) {
 		prep, err := env.PrepareGemini(http.Header{}, translate.EmitOptions{})
 		require.NoError(t, err, tc)
 		out := mustUnmarshal(t, prep.Body)
-		got := out["toolConfig"].(map[string]any)["functionCallingConfig"].(map[string]any)["mode"]
+		got := mustAs[map[string]any](t, mustAs[map[string]any](t, out["toolConfig"])["functionCallingConfig"])["mode"]
 		assert.Equal(t, mode, got, tc)
 	}
 }
@@ -161,7 +161,7 @@ func TestPrepareGemini_FromAnthropic_ToolChoiceVariants(t *testing.T) {
 		prep, err := env.PrepareGemini(http.Header{}, translate.EmitOptions{})
 		require.NoError(t, err, tc)
 		out := mustUnmarshal(t, prep.Body)
-		got := out["toolConfig"].(map[string]any)["functionCallingConfig"].(map[string]any)["mode"]
+		got := mustAs[map[string]any](t, mustAs[map[string]any](t, out["toolConfig"])["functionCallingConfig"])["mode"]
 		assert.Equal(t, mode, got, tc)
 	}
 }
@@ -207,8 +207,8 @@ func TestPrepareGemini_ReasoningEffortMapsToThinkingBudget(t *testing.T) {
 		prep, err := env.PrepareGemini(http.Header{}, translate.EmitOptions{TargetModel: "gemini-2.5-pro"})
 		require.NoError(t, err, effort)
 		out := mustUnmarshal(t, prep.Body)
-		gc := out["generationConfig"].(map[string]any)
-		tc := gc["thinkingConfig"].(map[string]any)
+		gc := mustAs[map[string]any](t, out["generationConfig"])
+		tc := mustAs[map[string]any](t, gc["thinkingConfig"])
 		assert.EqualValues(t, budget, tc["thinkingBudget"], effort)
 	}
 }
@@ -222,8 +222,8 @@ func TestPrepareGemini_ReasoningEffortMapsToThinkingLevel_Gemini3x(t *testing.T)
 		prep, err := env.PrepareGemini(http.Header{}, translate.EmitOptions{TargetModel: "gemini-3.1-pro-preview"})
 		require.NoError(t, err, effort)
 		out := mustUnmarshal(t, prep.Body)
-		gc := out["generationConfig"].(map[string]any)
-		tc := gc["thinkingConfig"].(map[string]any)
+		gc := mustAs[map[string]any](t, out["generationConfig"])
+		tc := mustAs[map[string]any](t, gc["thinkingConfig"])
 		assert.Equal(t, effort, tc["thinkingLevel"], effort)
 		_, hasBudget := tc["thinkingBudget"]
 		assert.False(t, hasBudget, "gemini-3.x must not send thinkingBudget (%s)", effort)
@@ -244,8 +244,8 @@ func TestPrepareGemini_AnthropicAdaptiveThinkingMapsToGemini35Flash(t *testing.T
 	prep, err := env.PrepareGemini(http.Header{}, translate.EmitOptions{TargetModel: "gemini-3.5-flash"})
 	require.NoError(t, err)
 	out := mustUnmarshal(t, prep.Body)
-	generationConfig := out["generationConfig"].(map[string]any)
-	thinkingConfig := generationConfig["thinkingConfig"].(map[string]any)
+	generationConfig := mustAs[map[string]any](t, out["generationConfig"])
+	thinkingConfig := mustAs[map[string]any](t, generationConfig["thinkingConfig"])
 	assert.Equal(t, "high", thinkingConfig["thinkingLevel"])
 	assert.NotContains(t, thinkingConfig, "thinkingBudget")
 }
@@ -291,19 +291,19 @@ func TestPrepareGemini_FromAnthropic_SystemAndToolUseRoundTripsSignature(t *test
 	out := mustUnmarshal(t, prep.Body)
 	assert.NotNil(t, out["systemInstruction"])
 
-	contents := out["contents"].([]any)
+	contents := mustAs[[]any](t, out["contents"])
 	require.Len(t, contents, 3)
 
-	model := contents[1].(map[string]any)
-	parts := model["parts"].([]any)
-	p := parts[0].(map[string]any)
+	model := mustAs[map[string]any](t, contents[1])
+	parts := mustAs[[]any](t, model["parts"])
+	p := mustAs[map[string]any](t, parts[0])
 	assert.Equal(t, "ANTHROPIC_SIG", p["thoughtSignature"])
-	fc := p["functionCall"].(map[string]any)
+	fc := mustAs[map[string]any](t, p["functionCall"])
 	assert.Equal(t, "bash", fc["name"])
 
-	tr := contents[2].(map[string]any)
-	frPart := tr["parts"].([]any)[0].(map[string]any)
-	fr := frPart["functionResponse"].(map[string]any)
+	tr := mustAs[map[string]any](t, contents[2])
+	frPart := mustAs[map[string]any](t, mustAs[[]any](t, tr["parts"])[0])
+	fr := mustAs[map[string]any](t, frPart["functionResponse"])
 	assert.Equal(t, "bash", fr["name"])
 }
 
@@ -323,11 +323,11 @@ func TestPrepareGemini_FromAnthropic_DropsOrphanedToolResult(t *testing.T) {
 	require.NoError(t, err)
 
 	out := mustUnmarshal(t, prep.Body)
-	contents := out["contents"].([]any)
+	contents := mustAs[[]any](t, out["contents"])
 	require.Len(t, contents, 1)
-	parts := contents[0].(map[string]any)["parts"].([]any)
+	parts := mustAs[[]any](t, mustAs[map[string]any](t, contents[0])["parts"])
 	require.Len(t, parts, 1, "orphaned tool_result must be dropped")
-	assert.NotNil(t, parts[0].(map[string]any)["text"], "only the text part should remain")
+	assert.NotNil(t, mustAs[map[string]any](t, parts[0])["text"], "only the text part should remain")
 }
 
 func TestPrepareGemini_FromOpenAI_DropsOrphanedToolMessage(t *testing.T) {
@@ -345,13 +345,13 @@ func TestPrepareGemini_FromOpenAI_DropsOrphanedToolMessage(t *testing.T) {
 	require.NoError(t, err)
 
 	out := mustUnmarshal(t, prep.Body)
-	contents := out["contents"].([]any)
+	contents := mustAs[[]any](t, out["contents"])
 	// user "hi", model "done", user "next" — orphaned tool message skipped.
 	require.Len(t, contents, 3)
 	for _, c := range contents {
-		entry := c.(map[string]any)
-		for _, p := range entry["parts"].([]any) {
-			part := p.(map[string]any)
+		entry := mustAs[map[string]any](t, c)
+		for _, p := range mustAs[[]any](t, entry["parts"]) {
+			part := mustAs[map[string]any](t, p)
 			_, hasFR := part["functionResponse"]
 			assert.False(t, hasFR, "orphaned functionResponse must not appear")
 		}
@@ -370,15 +370,15 @@ func TestGeminiToOpenAIResponse_TextOnly(t *testing.T) {
 	resp := mustUnmarshal(t, out)
 	assert.Equal(t, "chat.completion", resp["object"])
 	assert.Equal(t, "gemini-3.1-flash-lite-preview", resp["model"])
-	choice := resp["choices"].([]any)[0].(map[string]any)
-	msg := choice["message"].(map[string]any)
+	choice := mustAs[map[string]any](t, mustAs[[]any](t, resp["choices"])[0])
+	msg := mustAs[map[string]any](t, choice["message"])
 	assert.Equal(t, "hi", msg["content"])
 	assert.Equal(t, "stop", choice["finish_reason"])
-	usage := resp["usage"].(map[string]any)
+	usage := mustAs[map[string]any](t, resp["usage"])
 	assert.EqualValues(t, 3, usage["prompt_tokens"])
 	assert.EqualValues(t, 1, usage["completion_tokens"])
 	assert.EqualValues(t, 4, usage["total_tokens"])
-	id := resp["id"].(string)
+	id := mustAs[string](t, resp["id"])
 	assert.True(t, strings.HasPrefix(id, "chatcmpl-"))
 	assert.Len(t, id, len("chatcmpl-")+16)
 }
@@ -394,16 +394,16 @@ func TestGeminiToOpenAIResponse_ToolCallPreservesThoughtSignature(t *testing.T) 
 	out, err := translate.GeminiToOpenAIResponse(body, "gemini-3.1-flash-lite-preview")
 	require.NoError(t, err)
 	resp := mustUnmarshal(t, out)
-	choice := resp["choices"].([]any)[0].(map[string]any)
+	choice := mustAs[map[string]any](t, mustAs[[]any](t, resp["choices"])[0])
 	assert.Equal(t, "tool_calls", choice["finish_reason"])
-	tc := choice["message"].(map[string]any)["tool_calls"].([]any)[0].(map[string]any)
-	fn := tc["function"].(map[string]any)
+	tc := mustAs[map[string]any](t, mustAs[[]any](t, mustAs[map[string]any](t, choice["message"])["tool_calls"])[0])
+	fn := mustAs[map[string]any](t, tc["function"])
 	assert.Equal(t, "bash", fn["name"])
 	assert.Equal(t, `{"command":"ls /tmp"}`, fn["arguments"])
 	assert.NotContains(t, fn, "thought_signature", "off-spec field must not be emitted")
 	assert.NotContains(t, tc, "thought_signature", "off-spec field must not be emitted")
 	encoded := base64.RawURLEncoding.EncodeToString([]byte("GEMINI_SIG"))
-	assert.Contains(t, tc["id"].(string), encoded, "signature rides in the tool-call id")
+	assert.Contains(t, mustAs[string](t, tc["id"]), encoded, "signature rides in the tool-call id")
 }
 
 func TestGeminiToOpenAIResponse_FinishReasonMapping(t *testing.T) {
@@ -418,7 +418,7 @@ func TestGeminiToOpenAIResponse_FinishReasonMapping(t *testing.T) {
 		body := []byte(`{"candidates":[{"content":{"parts":[{"text":"x"}]},"finishReason":"` + fr + `"}]}`)
 		out, _ := translate.GeminiToOpenAIResponse(body, "m")
 		resp := mustUnmarshal(t, out)
-		got := resp["choices"].([]any)[0].(map[string]any)["finish_reason"]
+		got := mustAs[map[string]any](t, mustAs[[]any](t, resp["choices"])[0])["finish_reason"]
 		assert.Equal(t, want, got, fr)
 	}
 }
@@ -458,19 +458,19 @@ func TestPrepareGemini_FromAnthropic_ToolUseSignatureSurvivesUnknownFieldStrippi
 	require.NoError(t, err)
 
 	out := mustUnmarshal(t, prep.Body)
-	contents := out["contents"].([]any)
+	contents := mustAs[[]any](t, out["contents"])
 	require.Len(t, contents, 3)
-	model := contents[1].(map[string]any)
-	parts := model["parts"].([]any)
-	p := parts[0].(map[string]any)
+	model := mustAs[map[string]any](t, contents[1])
+	parts := mustAs[[]any](t, model["parts"])
+	p := mustAs[map[string]any](t, parts[0])
 	// The signature is what Gemini 3.x rejects requests for when missing.
 	assert.Equal(t, "OPAQUE_GEMINI_SIG", p["thoughtSignature"])
-	fc := p["functionCall"].(map[string]any)
+	fc := mustAs[map[string]any](t, p["functionCall"])
 	assert.Equal(t, "bash", fc["name"])
 	// And the functionResponse must still resolve the name from the smuggled id.
-	tr := contents[2].(map[string]any)
-	frPart := tr["parts"].([]any)[0].(map[string]any)
-	fr := frPart["functionResponse"].(map[string]any)
+	tr := mustAs[map[string]any](t, contents[2])
+	frPart := mustAs[map[string]any](t, mustAs[[]any](t, tr["parts"])[0])
+	fr := mustAs[map[string]any](t, frPart["functionResponse"])
 	assert.Equal(t, "bash", fr["name"])
 }
 
@@ -486,15 +486,15 @@ func TestPrepareGemini_FromOpenAI_ToolCallSignatureSurvivesUnknownFieldStripping
 	openaiOut, err := translate.GeminiToOpenAIResponse(geminiResp, "gemini-3.1-pro-preview")
 	require.NoError(t, err)
 	resp := mustUnmarshal(t, openaiOut)
-	choice := resp["choices"].([]any)[0].(map[string]any)
-	tc := choice["message"].(map[string]any)["tool_calls"].([]any)[0].(map[string]any)
-	smuggledID := tc["id"].(string)
+	choice := mustAs[map[string]any](t, mustAs[[]any](t, resp["choices"])[0])
+	tc := mustAs[map[string]any](t, mustAs[[]any](t, mustAs[map[string]any](t, choice["message"])["tool_calls"])[0])
+	smuggledID := mustAs[string](t, tc["id"])
 	require.Contains(t, smuggledID, "__thought__")
 
 	// Strip the explicit signature fields on both the tool_call and the
 	// nested function — simulating a client that only preserves spec fields.
 	delete(tc, "thought_signature")
-	fn := tc["function"].(map[string]any)
+	fn := mustAs[map[string]any](t, tc["function"])
 	delete(fn, "thought_signature")
 
 	req := map[string]any{
@@ -512,11 +512,11 @@ func TestPrepareGemini_FromOpenAI_ToolCallSignatureSurvivesUnknownFieldStripping
 	prep, err := env.PrepareGemini(http.Header{}, translate.EmitOptions{TargetModel: "gemini-3.1-pro-preview"})
 	require.NoError(t, err)
 	out := mustUnmarshal(t, prep.Body)
-	contents := out["contents"].([]any)
+	contents := mustAs[[]any](t, out["contents"])
 	require.GreaterOrEqual(t, len(contents), 2)
-	model := contents[1].(map[string]any)
-	parts := model["parts"].([]any)
-	p := parts[0].(map[string]any)
+	model := mustAs[map[string]any](t, contents[1])
+	parts := mustAs[[]any](t, model["parts"])
+	p := mustAs[map[string]any](t, parts[0])
 	assert.Equal(t, "OPAQUE_SIG_2", p["thoughtSignature"])
 }
 
@@ -579,7 +579,7 @@ func TestGeminiStream_NonStreamingErrorTranslated(t *testing.T) {
 	require.NoError(t, tr.Finalize())
 
 	resp := mustUnmarshal(t, rec.Body.Bytes())
-	e := resp["error"].(map[string]any)
+	e := mustAs[map[string]any](t, resp["error"])
 	assert.Equal(t, "bad", e["message"])
 	assert.Equal(t, "invalid_argument", e["type"])
 }
@@ -638,24 +638,24 @@ func TestPrepareGemini_StripsJSONSchemaFieldsGoogleRejects(t *testing.T) {
 	require.NoError(t, err)
 
 	out := mustUnmarshal(t, prep.Body)
-	tools := out["tools"].([]any)
+	tools := mustAs[[]any](t, out["tools"])
 	require.Len(t, tools, 1)
-	decls := tools[0].(map[string]any)["functionDeclarations"].([]any)
+	decls := mustAs[[]any](t, mustAs[map[string]any](t, tools[0])["functionDeclarations"])
 	require.Len(t, decls, 1)
-	params := decls[0].(map[string]any)["parameters"].(map[string]any)
+	params := mustAs[map[string]any](t, mustAs[map[string]any](t, decls[0])["parameters"])
 
 	// The rejected keys are gone at every level...
 	assert.NotContains(t, params, "$schema")
 	assert.NotContains(t, params, "additionalProperties")
-	nested := params["properties"].(map[string]any)["params"].(map[string]any)
+	nested := mustAs[map[string]any](t, mustAs[map[string]any](t, params["properties"])["params"])
 	assert.NotContains(t, nested, "additionalProperties")
 	assert.NotContains(t, nested, "propertyNames")
 
 	// ...but the schema's actual meaning survives.
 	assert.Equal(t, "object", params["type"])
 	assert.Equal(t, []any{"url"}, params["required"])
-	props := params["properties"].(map[string]any)
-	assert.Equal(t, "string", props["url"].(map[string]any)["type"])
+	props := mustAs[map[string]any](t, params["properties"])
+	assert.Equal(t, "string", mustAs[map[string]any](t, props["url"])["type"])
 }
 
 func TestPrepareGemini_WidensExclusiveBoundsToInclusive(t *testing.T) {
@@ -682,31 +682,31 @@ func TestPrepareGemini_WidensExclusiveBoundsToInclusive(t *testing.T) {
 	require.NoError(t, err)
 
 	out := mustUnmarshal(t, prep.Body)
-	decls := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)
-	props := decls[0].(map[string]any)["parameters"].(map[string]any)["properties"].(map[string]any)
+	decls := mustAs[[]any](t, mustAs[map[string]any](t, mustAs[[]any](t, out["tools"])[0])["functionDeclarations"])
+	props := mustAs[map[string]any](t, mustAs[map[string]any](t, mustAs[map[string]any](t, decls[0])["parameters"])["properties"])
 
-	limit := props["limit"].(map[string]any)
+	limit := mustAs[map[string]any](t, props["limit"])
 	assert.NotContains(t, limit, "exclusiveMinimum")
-	assert.Equal(t, float64(0), limit["minimum"], "exclusiveMinimum widens to the same-valued inclusive minimum")
+	assert.InDelta(t, float64(0), limit["minimum"], 1e-9, "exclusiveMinimum widens to the same-valued inclusive minimum")
 
 	// exclusiveMaximum widens to maximum with the same value when there's no
 	// sibling maximum to preserve; the untouched sibling minimum survives.
-	offset := props["offset"].(map[string]any)
+	offset := mustAs[map[string]any](t, props["offset"])
 	assert.NotContains(t, offset, "exclusiveMaximum")
-	assert.Equal(t, float64(0), offset["minimum"])
-	assert.Equal(t, float64(100), offset["maximum"])
+	assert.InDelta(t, float64(0), offset["minimum"], 1e-9)
+	assert.InDelta(t, float64(100), offset["maximum"], 1e-9)
 
 	// When the explicit sibling is the tighter bound, it wins over the
 	// widened (weaker) exclusive value.
-	page := props["page"].(map[string]any)
+	page := mustAs[map[string]any](t, props["page"])
 	assert.NotContains(t, page, "exclusiveMinimum")
-	assert.Equal(t, float64(5), page["minimum"], "explicit minimum (5) is tighter than widened exclusiveMinimum (0)")
+	assert.InDelta(t, float64(5), page["minimum"], 1e-9, "explicit minimum (5) is tighter than widened exclusiveMinimum (0)")
 
 	// When the exclusive bound is the tighter one, the widened value wins
 	// over the weaker explicit sibling instead of being discarded.
-	strict := props["strict"].(map[string]any)
+	strict := mustAs[map[string]any](t, props["strict"])
 	assert.NotContains(t, strict, "exclusiveMinimum")
-	assert.Equal(t, float64(5), strict["minimum"], "widened exclusiveMinimum (5) is tighter than explicit minimum (0)")
+	assert.InDelta(t, float64(5), strict["minimum"], 1e-9, "widened exclusiveMinimum (5) is tighter than explicit minimum (0)")
 }
 
 func TestPrepareGemini_DanglingRequiredDegradesToNoParameters(t *testing.T) {
@@ -739,12 +739,12 @@ func TestPrepareGemini_DanglingRequiredDegradesToNoParameters(t *testing.T) {
 	require.NoError(t, err)
 
 	out := mustUnmarshal(t, prep.Body)
-	decls := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)
+	decls := mustAs[[]any](t, mustAs[map[string]any](t, mustAs[[]any](t, out["tools"])[0])["functionDeclarations"])
 	require.Len(t, decls, 2)
 	byName := make(map[string]map[string]any, len(decls))
 	for _, d := range decls {
-		decl := d.(map[string]any)
-		byName[decl["name"].(string)] = decl
+		decl := mustAs[map[string]any](t, d)
+		byName[mustAs[string](t, decl["name"])] = decl
 	}
 	assert.NotContains(t, byName["DoThing"], "parameters", "dangling required degrades that tool only")
 	assert.Contains(t, byName["Healthy"], "parameters")
@@ -777,13 +777,13 @@ func TestPrepareGemini_PreservesPropertyNamedRequired(t *testing.T) {
 	require.NoError(t, err)
 
 	out := mustUnmarshal(t, prep.Body)
-	params := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)[0].(map[string]any)["parameters"].(map[string]any)
+	params := mustAs[map[string]any](t, mustAs[map[string]any](t, mustAs[[]any](t, mustAs[map[string]any](t, mustAs[[]any](t, out["tools"])[0])["functionDeclarations"])[0])["parameters"])
 
 	// The schema-level "required" naming the real "required" property is kept.
 	assert.Equal(t, []any{"required"}, params["required"])
 	// The property named "required" is preserved as an object schema, not
 	// rewritten into an array or deleted.
-	prop, ok := params["properties"].(map[string]any)["required"].(map[string]any)
+	prop, ok := mustAs[map[string]any](t, params["properties"])["required"].(map[string]any)
 	require.True(t, ok, `parameter named "required" must remain a schema object`)
 	assert.Equal(t, "object", prop["type"])
 	// Its own nested "required" keyword (valid: "inner" exists) is intact.
@@ -826,7 +826,7 @@ func TestPrepareGemini_VendorExtensionKeysDegradeToNoParameters(t *testing.T) {
 	require.NoError(t, err)
 
 	out := mustUnmarshal(t, prep.Body)
-	decl := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)[0].(map[string]any)
+	decl := mustAs[map[string]any](t, mustAs[[]any](t, mustAs[map[string]any](t, mustAs[[]any](t, out["tools"])[0])["functionDeclarations"])[0])
 	assert.Equal(t, "sheets_get", decl["name"])
 	assert.NotContains(t, decl, "parameters")
 }
@@ -855,14 +855,14 @@ func TestSanitizeSchemaForGemini_PreservesSupportedFields(t *testing.T) {
 	require.NoError(t, err)
 
 	out := mustUnmarshal(t, prep.Body)
-	params := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)[0].(map[string]any)["parameters"].(map[string]any)
+	params := mustAs[map[string]any](t, mustAs[map[string]any](t, mustAs[[]any](t, mustAs[map[string]any](t, mustAs[[]any](t, out["tools"])[0])["functionDeclarations"])[0])["parameters"])
 
 	assert.Equal(t, "object", params["type"])
 	assert.Equal(t, "Edit a file", params["description"])
-	props := params["properties"].(map[string]any)
-	assert.Equal(t, "date-time", props["path"].(map[string]any)["format"], "supported format must survive")
-	assert.Equal(t, []any{"replace", "append"}, props["mode"].(map[string]any)["enum"], "enum must survive")
-	assert.Equal(t, true, props["line"].(map[string]any)["nullable"], "nullable must survive")
+	props := mustAs[map[string]any](t, params["properties"])
+	assert.Equal(t, "date-time", mustAs[map[string]any](t, props["path"])["format"], "supported format must survive")
+	assert.Equal(t, []any{"replace", "append"}, mustAs[map[string]any](t, props["mode"])["enum"], "enum must survive")
+	assert.Equal(t, true, mustAs[map[string]any](t, props["line"])["nullable"], "nullable must survive")
 	assert.Equal(t, []any{"path", "mode"}, params["required"], "required must survive")
 }
 
@@ -893,22 +893,22 @@ func TestPrepareGemini_DropsUnsupportedFormatValues(t *testing.T) {
 	require.NoError(t, err)
 
 	out := mustUnmarshal(t, prep.Body)
-	decls := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)
-	props := decls[0].(map[string]any)["parameters"].(map[string]any)["properties"].(map[string]any)
+	decls := mustAs[[]any](t, mustAs[map[string]any](t, mustAs[[]any](t, out["tools"])[0])["functionDeclarations"])
+	props := mustAs[map[string]any](t, mustAs[map[string]any](t, mustAs[map[string]any](t, decls[0])["parameters"])["properties"])
 
-	homepage := props["homepage"].(map[string]any)
+	homepage := mustAs[map[string]any](t, props["homepage"])
 	assert.Equal(t, "string", homepage["type"])
 	assert.Equal(t, "site", homepage["description"])
 	assert.NotContains(t, homepage, "format", "unsupported format value 'uri' must be dropped silently")
 
-	contact := props["contact"].(map[string]any)
+	contact := mustAs[map[string]any](t, props["contact"])
 	assert.Equal(t, "string", contact["type"])
 	assert.NotContains(t, contact, "format", "unsupported format value 'email' must be dropped silently")
 
 	// Supported formats survive untouched.
-	when := props["when"].(map[string]any)
+	when := mustAs[map[string]any](t, props["when"])
 	assert.Equal(t, "date-time", when["format"])
-	score := props["score"].(map[string]any)
+	score := mustAs[map[string]any](t, props["score"])
 	assert.Equal(t, "double", score["format"])
 }
 
@@ -952,17 +952,17 @@ func TestPrepareGemini_ItemsFalseDegradesToNoParameters(t *testing.T) {
 	require.NoError(t, err)
 
 	out := mustUnmarshal(t, prep.Body)
-	decls := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)
+	decls := mustAs[[]any](t, mustAs[map[string]any](t, mustAs[[]any](t, out["tools"])[0])["functionDeclarations"])
 	require.Len(t, decls, 2)
 	byName := make(map[string]map[string]any, len(decls))
 	for _, d := range decls {
-		decl := d.(map[string]any)
-		byName[decl["name"].(string)] = decl
+		decl := mustAs[map[string]any](t, d)
+		byName[mustAs[string](t, decl["name"])] = decl
 	}
 
 	// items:true collapses to the permissive empty schema.
-	params := byName["create_dashboard"]["parameters"].(map[string]any)
-	args := params["properties"].(map[string]any)["args"].(map[string]any)
+	params := mustAs[map[string]any](t, byName["create_dashboard"]["parameters"])
+	args := mustAs[map[string]any](t, mustAs[map[string]any](t, params["properties"])["args"])
 	assert.Equal(t, map[string]any{}, args["items"])
 
 	// items:false degrades only the tool that carries it.
@@ -996,17 +996,17 @@ func TestPrepareGemini_CollapsesArrayTypeField(t *testing.T) {
 	require.NoError(t, err)
 
 	out := mustUnmarshal(t, prep.Body)
-	params := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)[0].(map[string]any)["parameters"].(map[string]any)
-	props := params["properties"].(map[string]any)
+	params := mustAs[map[string]any](t, mustAs[map[string]any](t, mustAs[[]any](t, mustAs[map[string]any](t, mustAs[[]any](t, out["tools"])[0])["functionDeclarations"])[0])["parameters"])
+	props := mustAs[map[string]any](t, params["properties"])
 
-	tags := props["tags"].(map[string]any)
+	tags := mustAs[map[string]any](t, props["tags"])
 	assert.Equal(t, "array", tags["type"], "array-type type must collapse to primary non-null type")
 	assert.Equal(t, true, tags["nullable"], "nullable must be set when null appears in type array")
 	assert.NotNil(t, tags["items"], "items must survive collapseTypeArray")
 
-	assert.Equal(t, "string", props["title"].(map[string]any)["type"], "single-string type must be unchanged")
+	assert.Equal(t, "string", mustAs[map[string]any](t, props["title"])["type"], "single-string type must be unchanged")
 
-	score := props["score"].(map[string]any)
+	score := mustAs[map[string]any](t, props["score"])
 	assert.Equal(t, "number", score["type"], "number type must survive")
 	assert.Equal(t, true, score["nullable"], "nullable must be set for [number, null]")
 }
@@ -1038,14 +1038,14 @@ func TestPrepareGemini_PreservesArrayMissingItems(t *testing.T) {
 	require.NoError(t, err)
 
 	out := mustUnmarshal(t, prep.Body)
-	params := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)[0].(map[string]any)["parameters"].(map[string]any)
-	props := params["properties"].(map[string]any)
+	params := mustAs[map[string]any](t, mustAs[map[string]any](t, mustAs[[]any](t, mustAs[map[string]any](t, mustAs[[]any](t, out["tools"])[0])["functionDeclarations"])[0])["parameters"])
+	props := mustAs[map[string]any](t, params["properties"])
 
-	toolsField := props["tools"].(map[string]any)
+	toolsField := mustAs[map[string]any](t, props["tools"])
 	assert.Equal(t, "array", toolsField["type"])
 	assert.NotContains(t, toolsField, "items")
 
-	nestedItems := props["nested"].(map[string]any)["properties"].(map[string]any)["items"].(map[string]any)
+	nestedItems := mustAs[map[string]any](t, mustAs[map[string]any](t, mustAs[map[string]any](t, props["nested"])["properties"])["items"])
 	assert.Equal(t, "array", nestedItems["type"])
 	assert.NotContains(t, nestedItems, "items")
 }
@@ -1073,16 +1073,16 @@ func TestPrepareGemini_DropsEmptyStringEnumEntries(t *testing.T) {
 	require.NoError(t, err)
 
 	out := mustUnmarshal(t, prep.Body)
-	params := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)[0].(map[string]any)["parameters"].(map[string]any)
-	props := params["properties"].(map[string]any)
+	params := mustAs[map[string]any](t, mustAs[map[string]any](t, mustAs[[]any](t, mustAs[map[string]any](t, mustAs[[]any](t, out["tools"])[0])["functionDeclarations"])[0])["parameters"])
+	props := mustAs[map[string]any](t, params["properties"])
 
-	operator := props["operator"].(map[string]any)
+	operator := mustAs[map[string]any](t, props["operator"])
 	assert.Equal(t, []any{"eq", "neq", "gt"}, operator["enum"], "empty string must be filtered out")
 
-	allEmpty := props["all_empty"].(map[string]any)
+	allEmpty := mustAs[map[string]any](t, props["all_empty"])
 	assert.NotContains(t, allEmpty, "enum", "enum with only empty strings must be dropped entirely")
 
-	normal := props["normal"].(map[string]any)
+	normal := mustAs[map[string]any](t, props["normal"])
 	assert.Equal(t, []any{"a", "b"}, normal["enum"], "well-formed enums must pass through unchanged")
 }
 
@@ -1110,31 +1110,31 @@ func TestPrepareGemini_CollapsesNullableAnyOfDates(t *testing.T) {
 	require.NoError(t, err)
 
 	out := mustUnmarshal(t, prep.Body)
-	params := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)[0].(map[string]any)["parameters"].(map[string]any)
-	props := params["properties"].(map[string]any)
+	params := mustAs[map[string]any](t, mustAs[map[string]any](t, mustAs[[]any](t, mustAs[map[string]any](t, mustAs[[]any](t, out["tools"])[0])["functionDeclarations"])[0])["parameters"])
+	props := mustAs[map[string]any](t, params["properties"])
 
-	due := props["due_date"].(map[string]any)
+	due := mustAs[map[string]any](t, props["due_date"])
 	assert.Equal(t, "string", due["type"])
 	assert.Equal(t, "date-time", due["format"])
 	assert.Equal(t, true, due["nullable"])
 	assert.NotContains(t, due, "anyOf")
 	assert.NotContains(t, due, "enum")
 
-	start := props["start_date"].(map[string]any)
+	start := mustAs[map[string]any](t, props["start_date"])
 	assert.Equal(t, "string", start["type"])
 	assert.Equal(t, true, start["nullable"])
 	assert.NotContains(t, start, "anyOf")
 	assert.NotContains(t, start, "enum")
 
-	priority := props["priority"].(map[string]any)
+	priority := mustAs[map[string]any](t, props["priority"])
 	assert.Equal(t, "string", priority["type"])
 	assert.Equal(t, true, priority["nullable"])
 	assert.Equal(t, []any{"low", "high"}, priority["enum"])
 	assert.NotContains(t, priority, "anyOf")
 
-	title := props["title"].(map[string]any)
+	title := mustAs[map[string]any](t, props["title"])
 	assert.Equal(t, "string", title["type"])
-	assert.Equal(t, float64(10), title["minLength"])
+	assert.InDelta(t, float64(10), title["minLength"], 1e-9)
 	assert.NotContains(t, title, "anyOf")
 }
 
@@ -1157,8 +1157,8 @@ func TestPrepareGemini_PreservesNumericAnyOfEnum(t *testing.T) {
 	require.NoError(t, err)
 
 	out := mustUnmarshal(t, prep.Body)
-	params := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)[0].(map[string]any)["parameters"].(map[string]any)
-	priority := params["properties"].(map[string]any)["priority"].(map[string]any)
+	params := mustAs[map[string]any](t, mustAs[map[string]any](t, mustAs[[]any](t, mustAs[map[string]any](t, mustAs[[]any](t, out["tools"])[0])["functionDeclarations"])[0])["parameters"])
+	priority := mustAs[map[string]any](t, mustAs[map[string]any](t, params["properties"])["priority"])
 	assert.Equal(t, true, priority["nullable"])
 	assert.NotContains(t, priority, "enum", "non-string enums still drop, but the branch itself must survive")
 	assert.NotContains(t, priority, "type", "dropping a numeric enum must not invent type:string")
@@ -1183,8 +1183,8 @@ func TestPrepareGemini_KeepsTypeArrayAnyOfBranch(t *testing.T) {
 	require.NoError(t, err)
 
 	out := mustUnmarshal(t, prep.Body)
-	params := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)[0].(map[string]any)["parameters"].(map[string]any)
-	due := params["properties"].(map[string]any)["due_date"].(map[string]any)
+	params := mustAs[map[string]any](t, mustAs[map[string]any](t, mustAs[[]any](t, mustAs[map[string]any](t, mustAs[[]any](t, out["tools"])[0])["functionDeclarations"])[0])["parameters"])
+	due := mustAs[map[string]any](t, mustAs[map[string]any](t, params["properties"])["due_date"])
 	assert.Equal(t, "string", due["type"])
 	assert.Equal(t, "date-time", due["format"])
 	assert.Equal(t, true, due["nullable"])
@@ -1217,21 +1217,21 @@ func TestPrepareGemini_DropsNonStringEnums(t *testing.T) {
 	require.NoError(t, err, "an unrepresentable enum must not fail the whole tool")
 
 	out := mustUnmarshal(t, prep.Body)
-	params := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)[0].(map[string]any)["parameters"].(map[string]any)
-	props := params["properties"].(map[string]any)
+	params := mustAs[map[string]any](t, mustAs[map[string]any](t, mustAs[[]any](t, mustAs[map[string]any](t, mustAs[[]any](t, out["tools"])[0])["functionDeclarations"])[0])["parameters"])
+	props := mustAs[map[string]any](t, params["properties"])
 
 	for _, name := range []string{"untyped_numeric", "typed_numeric", "mixed", "boolean", "nullable", "format_enum"} {
 		assert.NotContains(t, props[name], "enum", "%s: non-string enum must be dropped", name)
 	}
 
 	// Only the enum is dropped — the rest of each property survives.
-	assert.Equal(t, "integer", props["typed_numeric"].(map[string]any)["type"])
-	assert.Equal(t, "boolean", props["boolean"].(map[string]any)["type"])
+	assert.Equal(t, "integer", mustAs[map[string]any](t, props["typed_numeric"])["type"])
+	assert.Equal(t, "boolean", mustAs[map[string]any](t, props["boolean"])["type"])
 
 	// format:"enum" is meaningless once the enum is gone, so it goes too.
 	assert.NotContains(t, props["format_enum"], "format")
 
-	assert.Equal(t, []any{"day", "week"}, props["strings"].(map[string]any)["enum"],
+	assert.Equal(t, []any{"day", "week"}, mustAs[map[string]any](t, props["strings"])["enum"],
 		"all-string enums must pass through unchanged")
 }
 
@@ -1263,9 +1263,9 @@ func TestPrepareGemini_UserDefinedPropertyNamedProperties(t *testing.T) {
 	require.NoError(t, err)
 
 	out := mustUnmarshal(t, prep.Body)
-	decls := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)
-	params := decls[0].(map[string]any)["parameters"].(map[string]any)
-	properties := params["properties"].(map[string]any)
+	decls := mustAs[[]any](t, mustAs[map[string]any](t, mustAs[[]any](t, out["tools"])[0])["functionDeclarations"])
+	params := mustAs[map[string]any](t, mustAs[map[string]any](t, decls[0])["parameters"])
+	properties := mustAs[map[string]any](t, params["properties"])
 
 	nested, ok := properties["properties"].(map[string]any)
 	require.True(t, ok, `the user-defined "properties" key must survive as an object schema`)
@@ -1299,8 +1299,8 @@ func TestPrepareGemini_GeminiFormatSanitizesTools(t *testing.T) {
 	require.NoError(t, err)
 
 	out := mustUnmarshal(t, prep.Body)
-	decls := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)
-	params := decls[0].(map[string]any)["parameters"].(map[string]any)
+	decls := mustAs[[]any](t, mustAs[map[string]any](t, mustAs[[]any](t, out["tools"])[0])["functionDeclarations"])
+	params := mustAs[map[string]any](t, mustAs[map[string]any](t, decls[0])["parameters"])
 	assert.NotContains(t, params, "additionalProperties")
 	assert.Equal(t, "object", params["type"])
 }
@@ -1332,8 +1332,8 @@ func TestPrepareGemini_GeminiFormatInlinesSchemaRefs(t *testing.T) {
 	require.NoError(t, err)
 
 	out := mustUnmarshal(t, prep.Body)
-	params := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)[0].(map[string]any)["parameters"].(map[string]any)
-	item := params["properties"].(map[string]any)["item"].(map[string]any)
+	params := mustAs[map[string]any](t, mustAs[map[string]any](t, mustAs[[]any](t, mustAs[map[string]any](t, mustAs[[]any](t, out["tools"])[0])["functionDeclarations"])[0])["parameters"])
+	item := mustAs[map[string]any](t, mustAs[map[string]any](t, params["properties"])["item"])
 	assert.NotContains(t, item, "$ref", "$ref must be inlined, not left as pointer")
 	assert.Equal(t, "object", item["type"], "inlined item should have type:object")
 	assert.NotContains(t, params, "$defs", "$defs must be removed after inlining")
@@ -1362,8 +1362,8 @@ func TestPrepareGemini_ConvertsBoolPropertySchemas(t *testing.T) {
 	require.NoError(t, err)
 
 	out := mustUnmarshal(t, prep.Body)
-	params := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)[0].(map[string]any)["parameters"].(map[string]any)
-	props := params["properties"].(map[string]any)
+	params := mustAs[map[string]any](t, mustAs[map[string]any](t, mustAs[[]any](t, mustAs[map[string]any](t, mustAs[[]any](t, out["tools"])[0])["functionDeclarations"])[0])["parameters"])
+	props := mustAs[map[string]any](t, params["properties"])
 
 	// Boolean true → empty Schema {}
 	qd, ok := props["queryData"].(map[string]any)
@@ -1409,11 +1409,11 @@ func TestPrepareGemini_ToolAllOfAnnotationRegression(t *testing.T) {
 	require.NoError(t, err)
 
 	out := mustUnmarshal(t, prep.Body)
-	decls := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)
-	params := decls[0].(map[string]any)["parameters"].(map[string]any)
-	props := params["properties"].(map[string]any)
+	decls := mustAs[[]any](t, mustAs[map[string]any](t, mustAs[[]any](t, out["tools"])[0])["functionDeclarations"])
+	params := mustAs[map[string]any](t, mustAs[map[string]any](t, decls[0])["parameters"])
+	props := mustAs[map[string]any](t, params["properties"])
 
-	to := props["to"].(map[string]any)
+	to := mustAs[map[string]any](t, props["to"])
 	assert.Equal(t, "string", to["type"])
 	assert.Equal(t, "Teammate recipient", to["description"], "earlier branch's annotation wins")
 	assert.ElementsMatch(t, []any{"message", "to"}, params["required"])
@@ -1434,13 +1434,13 @@ func TestPrepareGemini_UnrepresentableToolSchemaDegradesToNoParameters(t *testin
 	require.NoError(t, err)
 
 	out := mustUnmarshal(t, prep.Body)
-	decls := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)
+	decls := mustAs[[]any](t, mustAs[map[string]any](t, mustAs[[]any](t, out["tools"])[0])["functionDeclarations"])
 	require.Len(t, decls, 2)
 
 	byName := make(map[string]map[string]any, len(decls))
 	for _, d := range decls {
-		decl := d.(map[string]any)
-		byName[decl["name"].(string)] = decl
+		decl := mustAs[map[string]any](t, d)
+		byName[mustAs[string](t, decl["name"])] = decl
 	}
 
 	healthy, ok := byName["healthy"]

@@ -112,6 +112,23 @@ func TestLogUpstreamStatus_DropsBodyPreviewWhenContentLoggingDisallowed(t *testi
 	assert.Contains(t, buf.String(), "model=m")
 }
 
+func TestLogUpstreamStatus_DropsNonStringBodyPreviewWithoutPanicking(t *testing.T) {
+	var buf strings.Builder
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+	ctx := observability.WithLogger(
+		requestcontext.WithContentLogging(context.Background(), false),
+		log,
+	)
+
+	require.NotPanics(t, func() {
+		LogUpstreamStatus(ctx, "upstream failed", http.StatusBadRequest, "body_preview", []byte("secret-echo"), "model", "m")
+	})
+
+	assert.NotContains(t, buf.String(), "secret-echo")
+	assert.NotContains(t, buf.String(), "body_preview")
+	assert.Contains(t, buf.String(), "model=m")
+}
+
 func TestLogUpstreamStatus_KeepsBodyPreviewWhenContentLoggingAllowed(t *testing.T) {
 	var buf strings.Builder
 	log := slog.New(slog.NewTextHandler(&buf, nil))

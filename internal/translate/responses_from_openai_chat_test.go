@@ -118,7 +118,7 @@ func TestPrepareOpenAIResponses_FromChatCompletions_ClosesNestedWorkflowArgsSche
 	params, _ := tool["parameters"].(map[string]any)
 	require.NotNil(t, params)
 	assert.Equal(t, false, params["additionalProperties"])
-	args := params["properties"].(map[string]any)["args"].(map[string]any)
+	args := mustAs[map[string]any](t, mustAs[map[string]any](t, params["properties"])["args"])
 	assert.Equal(t, false, args["additionalProperties"], "nested args objects must be closed for OpenAI")
 	assert.Equal(t, false, tool["strict"], "object unions stay non-strict when strictification cannot preserve their semantics")
 }
@@ -163,7 +163,7 @@ func TestPrepareOpenAIResponses_FromChatCompletions_MultimodalParts(t *testing.T
 	types := make([]string, 0, 3)
 	for _, p := range parts {
 		pm, _ := p.(map[string]any)
-		types = append(types, pm["type"].(string))
+		types = append(types, mustAs[string](t, pm["type"]))
 	}
 	assert.Equal(t, []string{"input_text", "input_image", "input_file"}, types)
 	img, _ := parts[1].(map[string]any)

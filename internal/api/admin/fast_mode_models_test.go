@@ -101,7 +101,7 @@ func putFastModeModels(t *testing.T, engine *gin.Engine, models []string) *httpt
 	t.Helper()
 	body, err := json.Marshal(map[string][]string{"fast_mode": models})
 	require.NoError(t, err)
-	req := httptest.NewRequest(http.MethodPut, "/admin/v1/fast-mode-models", bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/admin/v1/fast-mode-models", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, req)
@@ -112,7 +112,7 @@ func TestGetFastModeModelsHandler_ListsOnlyFastCapableCatalog(t *testing.T) {
 	engine := fastModeEngine(&fastModeInstallationRepo{}, &auth.Installation{ID: "inst-1", FastModeModels: []string{"gpt-5.6-luna", "claude-opus-5"}})
 
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/v1/fast-mode-models", nil))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/admin/v1/fast-mode-models", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var got fastModeModelsBody

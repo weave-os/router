@@ -9,10 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cenkalti/backoff/v5"
-	"golang.org/x/sync/errgroup"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/httputil"
+
+	"github.com/cenkalti/backoff/v5"
+	"golang.org/x/sync/errgroup"
 )
 
 const startupEgressTimeout = 10 * time.Second
@@ -38,7 +39,11 @@ func newStartupEgressProbe(rawOrigins string) (*startupEgressProbe, error) {
 		}
 		probe.origins = append(probe.origins, parsed.Scheme+"://"+parsed.Host)
 	}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return nil, fmt.Errorf("http.DefaultTransport is %T, not *http.Transport", http.DefaultTransport)
+	}
+	transport := defaultTransport.Clone()
 	transport.Proxy = nil
 	transport.DisableKeepAlives = true
 	probe.client = &http.Client{Transport: transport, Timeout: 5 * time.Second}

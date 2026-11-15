@@ -1,5 +1,3 @@
-// Command classifier_session_check verifies locking and persistence on a migrated
-// disposable database. Set ROUTER_TEST_DATABASE_URL; it never reads production config.
 package main
 
 import (
@@ -61,7 +59,7 @@ func check(ctx context.Context, dsn string) (checkErr error) {
 	cleaned := false
 	defer func() {
 		if !cleaned {
-			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 			defer cancel()
 			checkErr = errors.Join(checkErr, cleanup.Cleanup(cleanupCtx))
 		}

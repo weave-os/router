@@ -1,8 +1,6 @@
 package middleware
 
 import (
-	"net/http"
-
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/subscriptions/entitlement"
 
@@ -22,10 +20,7 @@ func WithSubscriberProductScope(svc *entitlement.Service) gin.HandlerFunc {
 		plan, err := svc.ProductScope(c.Request.Context(), entitlement.SubscriberID(owner.SubscriberID))
 		if err != nil {
 			observability.FromGin(c).Error("Subscriber product scope check failed; refusing request", "err", err, "subscriber_id", owner.SubscriberID)
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
-				"error":   "billing_unavailable",
-				"message": "Billing system is temporarily unavailable. Retry in a few moments.",
-			})
+			abortBillingUnavailable(c)
 			return
 		}
 		if plan != "" {

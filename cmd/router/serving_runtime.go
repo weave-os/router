@@ -16,7 +16,8 @@ import (
 )
 
 const (
-	envDefaultStrategy = "ROUTER_DEFAULT_STRATEGY"
+	envDefaultStrategy   = "ROUTER_DEFAULT_STRATEGY"
+	hmmAttemptTimeoutEnv = "ROUTER_HMM_SIDECAR_ATTEMPT_TIMEOUT_MS"
 )
 
 // managedServingStrategies are the policy strategies a managed serving worker
@@ -117,7 +118,7 @@ func buildManagedServingRuntime(ctx context.Context, availableProviders map[stri
 	}
 	closeRegistry := func() { _ = registry.Close() }
 	timeout := parseEnvDurationMs("ROUTER_HMM_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout)
-	attemptTimeout := parseEnvAttemptTimeoutMs("ROUTER_HMM_SIDECAR_ATTEMPT_TIMEOUT_MS", policyclient.DeriveAttemptTimeout(timeout))
+	attemptTimeout := parseEnvAttemptTimeoutMs(policyclient.DeriveAttemptTimeout(timeout))
 	cache, err := policyregistry.NewServingRuntimeCache(registry, hmmPolicySnapshotBuilder(
 		availableProviders, append(slices.Clone(managedServingStrategies), router.StrategyHMMBeta, router.StrategyHMMQwen),
 		config.GetOr("ROUTER_HMM_SIDECAR_AUTH", policySidecarAuthGoogleIDToken), timeout, attemptTimeout,

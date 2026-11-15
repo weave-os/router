@@ -1,11 +1,10 @@
 package middleware
 
 import (
-	"net/http"
-
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/refusal"
 
 	"github.com/gin-gonic/gin"
 )
@@ -54,10 +53,7 @@ func WithAPIKeySpendCap(svc *billing.Service) gin.HandlerFunc {
 		result, err := svc.CheckAPIKeySpendCap(c.Request.Context(), apiKey.ID)
 		if err != nil {
 			log.Error("API key spend-cap check failed; refusing request", "err", err, "api_key_id", apiKey.ID)
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
-				"error":   "billing_unavailable",
-				"message": "Billing system is temporarily unavailable. Retry in a few moments.",
-			})
+			abortBillingUnavailable(c)
 			return
 		}
 
@@ -85,8 +81,7 @@ func WithAPIKeySpendCap(svc *billing.Service) gin.HandlerFunc {
 				"spent_usd_micros", result.SpentMicros,
 				"spend_cap_usd_micros", *result.CapMicros,
 			)
-			c.AbortWithStatusJSON(http.StatusPaymentRequired, gin.H{
-				"error":                "key_spend_cap_reached",
+			abortRefusal(c, refusal.KeySpendCapReached, gin.H{
 				"spent_usd_micros":     result.SpentMicros,
 				"spend_cap_usd_micros": *result.CapMicros,
 				"message":              "This router key has reached its spend cap. Mint a new key or raise the cap to continue.",

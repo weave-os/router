@@ -80,7 +80,7 @@ func TestWriteRetiredBetaRequestKeepsProtocolReplyAvailableBeforeAdmission(t *te
 	body := []byte(`{"model":"claude-sonnet-4-5","max_tokens":1,"messages":[{"role":"user","content":"/beta"}]}`)
 	for _, path := range []string{"/v1/messages", "/v1/route/handoff"} {
 		t.Run(path, func(t *testing.T) {
-			request := httptest.NewRequest(http.MethodPost, path, nil)
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, path, nil)
 			response := httptest.NewRecorder()
 			retired, err := WriteRetiredBetaRequest(response, request, body)
 			require.NoError(t, err)
@@ -347,10 +347,10 @@ func TestHandleBetaCommandOverlappingTogglesAcknowledgeDistinctStates(t *testing
 	acknowledgements := make(chan string, 2)
 	var toggles sync.WaitGroup
 	for range 2 {
+		env := betaTestEnvelope(t, "/beta", true)
 		toggles.Add(1)
 		go func() {
 			defer toggles.Done()
-			env := betaTestEnvelope(t, "/beta", true)
 			cmd, found := env.ExtractBetaCommand()
 			assert.True(t, found)
 			response := httptest.NewRecorder()
@@ -496,10 +496,10 @@ func TestHandleBetaCommandOverlappingTogglesCannotReenableUnavailableBeta(t *tes
 	acknowledgements := make(chan string, 2)
 	var commands sync.WaitGroup
 	for range 2 {
+		env := betaTestEnvelope(t, "/beta", true)
 		commands.Add(1)
 		go func() {
 			defer commands.Done()
-			env := betaTestEnvelope(t, "/beta", true)
 			cmd, found := env.ExtractBetaCommand()
 			assert.True(t, found)
 			response := httptest.NewRecorder()
@@ -546,9 +546,10 @@ func TestApplySessionStrategyOnlyUsesPersistedPreference(t *testing.T) {
 	assert.Equal(t, router.StrategyHMMBeta, router.StrategyFromContext(ctx))
 }
 
+type betaMarkerKey struct{}
+
 func TestApplySessionStrategyReturnsOriginalContextOnStoreError(t *testing.T) {
-	marker := struct{}{}
-	ctx := context.WithValue(context.Background(), marker, "kept")
+	ctx := context.WithValue(context.Background(), betaMarkerKey{}, "kept")
 	svc := (&Service{}).WithSessionStrategyStore(&betaTestPreferenceStore{getErr: errors.New("db down")})
 	var sessionKey [sessionstrategy.SessionKeyLen]byte
 	sessionKey[0] = 1
@@ -557,7 +558,7 @@ func TestApplySessionStrategyReturnsOriginalContextOnStoreError(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Same(t, ctx, got)
-	assert.Equal(t, "kept", got.Value(marker))
+	assert.Equal(t, "kept", got.Value(betaMarkerKey{}))
 }
 
 func TestPersistedBetaPreferenceFailsClosedWhenBetaRouterUnavailable(t *testing.T) {
@@ -608,12 +609,12 @@ func TestProxyEntrypointsInterceptBetaWithoutRoutingUpstream(t *testing.T) {
 			ctx := context.WithValue(context.Background(), APIKeyIDContextKey{}, "beta-test-key")
 			ctx = context.WithValue(ctx, InstallationIDContextKey{}, uuid.NewString())
 			body := []byte(`{"model":"claude-sonnet-5","messages":[{"role":"user","content":"/beta"}],"max_tokens":128,"metadata":{"user_id":"user_account__session_4dbee464-ebf7-437f-9f20-db5a6f7fe3b4"}}`)
-			request := httptest.NewRequest("POST", "/v1/messages", nil)
+			request := httptest.NewRequestWithContext(t.Context(), "POST", "/v1/messages", nil)
 			response := httptest.NewRecorder()
 
 			var err error
 			if tt.openAI {
-				request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+				request = httptest.NewRequestWithContext(t.Context(), "POST", "/v1/chat/completions", nil)
 				err = svc.ProxyOpenAIChatCompletion(ctx, body, response, request)
 			} else {
 				err = svc.ProxyMessages(ctx, body, response, request)
@@ -725,10 +726,10 @@ func TestProxyEntrypointsStripHistoricalBetaArtifactsBeforeRouting(t *testing.T)
 				"max_tokens": 4096,
 			})
 			require.NoError(t, err)
-			request := httptest.NewRequest("POST", "/v1/messages", nil)
+			request := httptest.NewRequestWithContext(t.Context(), "POST", "/v1/messages", nil)
 			response := httptest.NewRecorder()
 			if tt.openAI {
-				request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+				request = httptest.NewRequestWithContext(t.Context(), "POST", "/v1/chat/completions", nil)
 				err = svc.ProxyOpenAIChatCompletion(context.Background(), body, response, request)
 			} else {
 				err = svc.ProxyMessages(context.Background(), body, response, request)
@@ -780,7 +781,7 @@ func TestHistoricalBetaArtifactsStripStaleThinkingSignatures(t *testing.T) {
 				"max_tokens":4096,
 				"thinking":{"type":"adaptive"}
 			}`)
-			request := httptest.NewRequest("POST", "/v1/messages", nil)
+			request := httptest.NewRequestWithContext(t.Context(), "POST", "/v1/messages", nil)
 			response := httptest.NewRecorder()
 
 			require.NoError(t, svc.ProxyMessages(context.Background(), body, response, request))
@@ -842,9 +843,9 @@ func TestBetaPreferenceSurvivesFirstMessageRewriteWithinClientSession(t *testing
 					"max_tokens": 4096,
 				})
 				require.NoError(t, err)
-				request := httptest.NewRequest("POST", "/v1/messages", nil)
+				request := httptest.NewRequestWithContext(ctx, "POST", "/v1/messages", nil)
 				if tt.openAI {
-					request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+					request = httptest.NewRequestWithContext(ctx, "POST", "/v1/chat/completions", nil)
 					err = svc.ProxyOpenAIChatCompletion(ctx, body, httptest.NewRecorder(), request)
 				} else {
 					err = svc.ProxyMessages(ctx, body, httptest.NewRecorder(), request)

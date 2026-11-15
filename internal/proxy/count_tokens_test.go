@@ -24,8 +24,8 @@ func countTokensService(provider *fakeProvider) *proxy.Service {
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 }
 
-func countTokensRequest() *http.Request {
-	return httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(""))
+func countTokensRequest(ctx context.Context) *http.Request {
+	return httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(""))
 }
 
 func assertLocalEstimate(t *testing.T, rec *httptest.ResponseRecorder) {
@@ -45,7 +45,7 @@ func TestCountTokens_RoutingModelNeverReachesUpstream(t *testing.T) {
 	for _, model := range []router.RoutingModel{router.ModelAutomatic, router.ModelHMM, router.ModelQwen} {
 		rec := httptest.NewRecorder()
 		body := strings.Replace(countTokensBody, "claude-sonnet-4-6", string(model), 1)
-		require.NoError(t, countTokensService(provider).PassthroughToProvider(context.Background(), []byte(body), rec, countTokensRequest()))
+		require.NoError(t, countTokensService(provider).PassthroughToProvider(context.Background(), []byte(body), rec, countTokensRequest(t.Context())))
 		assertLocalEstimate(t, rec)
 	}
 }
@@ -60,7 +60,7 @@ func TestCountTokens_UpstreamAnswerIsForwardedVerbatim(t *testing.T) {
 	}}
 	rec := httptest.NewRecorder()
 
-	require.NoError(t, countTokensService(provider).PassthroughToProvider(context.Background(), []byte(countTokensBody), rec, countTokensRequest()))
+	require.NoError(t, countTokensService(provider).PassthroughToProvider(context.Background(), []byte(countTokensBody), rec, countTokensRequest(t.Context())))
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, `{"input_tokens":42}`, rec.Body.String())
@@ -76,7 +76,7 @@ func TestCountTokens_UpstreamTimeoutFallsBackToLocalEstimate(t *testing.T) {
 	}}
 	rec := httptest.NewRecorder()
 
-	require.NoError(t, countTokensService(provider).PassthroughToProvider(context.Background(), []byte(countTokensBody), rec, countTokensRequest()))
+	require.NoError(t, countTokensService(provider).PassthroughToProvider(context.Background(), []byte(countTokensBody), rec, countTokensRequest(t.Context())))
 
 	assertLocalEstimate(t, rec)
 }
@@ -89,7 +89,7 @@ func TestCountTokens_UpstreamBudgetIsBoundedBelowRouteTimeout(t *testing.T) {
 	}}
 	rec := httptest.NewRecorder()
 
-	require.NoError(t, countTokensService(provider).PassthroughToProvider(context.Background(), []byte(countTokensBody), rec, countTokensRequest()))
+	require.NoError(t, countTokensService(provider).PassthroughToProvider(context.Background(), []byte(countTokensBody), rec, countTokensRequest(t.Context())))
 
 	assert.True(t, sawDeadline, "upstream attempt must carry its own deadline so the fallback still fits in the route budget")
 	assertLocalEstimate(t, rec)
@@ -106,7 +106,7 @@ func TestCountTokens_RetryableUpstreamStatusFallsBackToLocalEstimate(t *testing.
 			}}
 			rec := httptest.NewRecorder()
 
-			require.NoError(t, countTokensService(provider).PassthroughToProvider(context.Background(), []byte(countTokensBody), rec, countTokensRequest()))
+			require.NoError(t, countTokensService(provider).PassthroughToProvider(context.Background(), []byte(countTokensBody), rec, countTokensRequest(t.Context())))
 
 			assertLocalEstimate(t, rec)
 			assert.NotContains(t, rec.Body.String(), "overloaded_error", "upstream error body must not leak past the local answer")
@@ -126,7 +126,7 @@ func TestCountTokens_ClientFaultStatusIsReplayedVerbatim(t *testing.T) {
 			}}
 			rec := httptest.NewRecorder()
 
-			err := countTokensService(provider).PassthroughToProvider(context.Background(), []byte(countTokensBody), rec, countTokensRequest())
+			err := countTokensService(provider).PassthroughToProvider(context.Background(), []byte(countTokensBody), rec, countTokensRequest(t.Context()))
 
 			var got *providers.UpstreamStatusError
 			require.ErrorAs(t, err, &got)
@@ -143,7 +143,7 @@ func TestCountTokens_DeploymentFaultIsNotMasked(t *testing.T) {
 	}}
 	rec := httptest.NewRecorder()
 
-	err := countTokensService(provider).PassthroughToProvider(context.Background(), []byte(countTokensBody), rec, countTokensRequest())
+	err := countTokensService(provider).PassthroughToProvider(context.Background(), []byte(countTokensBody), rec, countTokensRequest(t.Context()))
 
 	require.ErrorIs(t, err, providers.ErrNotImplemented)
 	assert.Empty(t, rec.Body.String())
@@ -156,7 +156,7 @@ func TestCountTokens_UnparseableBodyReplaysUpstreamFailure(t *testing.T) {
 	}}
 	rec := httptest.NewRecorder()
 
-	err := countTokensService(provider).PassthroughToProvider(context.Background(), []byte(`not json`), rec, countTokensRequest())
+	err := countTokensService(provider).PassthroughToProvider(context.Background(), []byte(`not json`), rec, countTokensRequest(t.Context()))
 
 	require.ErrorIs(t, err, transportErr)
 	assert.Empty(t, rec.Body.String())

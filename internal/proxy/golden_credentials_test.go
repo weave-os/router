@@ -183,6 +183,7 @@ func writeRawText(buf *bytes.Buffer, v reflect.Value, depth int) {
 			writeRawText(buf, iter.Key(), depth+1)
 			writeRawText(buf, iter.Value(), depth+1)
 		}
+	default:
 	}
 }
 
@@ -354,7 +355,7 @@ func goldenCredentialScenarios() []goldenScenario {
 			ctx: chainCtx(goldenSubscriptionOnlyCtx, goldenSubscriptionCtx)},
 		{name: "subscription_only_exhausted_paid_refused", supplies: []string{goldenSubscription}, refused: true, decisions: anthropicDecisions, upstreams: anthropicUp(ok),
 			ctx: chainCtx(goldenSubscriptionOnlyCtx, goldenSubscriptionCtx), configure: exhaustSubscription},
-		{name: "subscription_only_key_first_byok", supplies: []string{goldenBYOKAnthropic}, refused: true, decisions: anthropicDecisions, upstreams: anthropicUp(ok),
+		{name: "subscription_only_key_first_byok", supplies: []string{goldenBYOKAnthropic}, decisions: anthropicDecisions, upstreams: anthropicUp(ok),
 			ctx: chainCtx(goldenSubscriptionOnlyCtx, withBYOK(byokKey(providers.ProviderAnthropic, goldenBYOKAnthropic, auth.FundingPriorityKeyFirst)))},
 		{name: "unkeyed_oauth_bearer", supplies: []string{goldenClientOAuth}, refused: true, decisions: anthropicDecisions, upstreams: anthropicUp(ok),
 			ctx: goldenUnkeyedCtx, headers: map[string]string{"Authorization": "Bearer " + goldenClientOAuth}},

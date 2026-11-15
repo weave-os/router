@@ -5,9 +5,10 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
+
+	"github.com/stretchr/testify/require"
 )
 
 func enterpriseCapRefusalHeaders() http.Header {
@@ -30,9 +31,9 @@ func enterpriseCapUpstream(ingress parityIngress, headers http.Header) *parityUp
 	}
 }
 
-func withAnthropicKey(ctx context.Context, priority auth.FundingPriority) context.Context {
+func withAnthropicKey(ctx context.Context) context.Context {
 	return context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
-		{Provider: providers.ProviderAnthropic, Plaintext: []byte(parityAnthropicBYOK), FundingPriority: priority},
+		{Provider: providers.ProviderAnthropic, Plaintext: []byte(parityAnthropicBYOK), FundingPriority: auth.FundingPriorityPlanFirst},
 	})
 }
 
@@ -40,7 +41,7 @@ func TestClaudeEnterpriseOverageCapRefusalFallsBackToPlanFirstKey(t *testing.T) 
 	ingress := parityAnthropicIngress()
 	upstream := enterpriseCapUpstream(ingress, enterpriseCapRefusalHeaders())
 	service := ingress.quotaService(upstream)
-	ctx := withAnthropicKey(enterpriseOnlyContext(ingress.subCtx()), auth.FundingPriorityPlanFirst)
+	ctx := withAnthropicKey(enterpriseOnlyContext(ingress.subCtx()))
 	recorder, request, body := ingress.request(t, false)
 	require.NoError(t, ingress.call(service, ctx, body, recorder, request))
 	require.Equal(t, http.StatusOK, recorder.Code)
@@ -62,7 +63,7 @@ func TestClaudeEnterpriseRateLimitWithoutCapRefusalKeepsPlanFirstKeyIdle(t *test
 	ingress := parityAnthropicIngress()
 	upstream := enterpriseCapUpstream(ingress, http.Header{})
 	service := ingress.quotaService(upstream)
-	ctx := withAnthropicKey(enterpriseOnlyContext(ingress.subCtx()), auth.FundingPriorityPlanFirst)
+	ctx := withAnthropicKey(enterpriseOnlyContext(ingress.subCtx()))
 	recorder, request, body := ingress.request(t, false)
 	require.Error(t, ingress.call(service, ctx, body, recorder, request))
 	require.Positive(t, upstream.subDispatches)
@@ -74,7 +75,7 @@ func TestClaudeEnterpriseOverageCapKeyFailureDoesNotReachWeaveCredits(t *testing
 	upstream := enterpriseCapUpstream(ingress, enterpriseCapRefusalHeaders())
 	upstream.paidErr = upstreamErr(http.StatusServiceUnavailable, `{"error":{"type":"overloaded_error"}}`)
 	service := ingress.quotaService(upstream)
-	ctx := withAnthropicKey(enterpriseOnlyContext(ingress.subCtx()), auth.FundingPriorityPlanFirst)
+	ctx := withAnthropicKey(enterpriseOnlyContext(ingress.subCtx()))
 	recorder, request, body := ingress.request(t, false)
 	require.Error(t, ingress.call(service, ctx, body, recorder, request))
 	require.NotEmpty(t, upstream.paidKeys)
@@ -87,7 +88,7 @@ func TestClaudeEnterpriseOverageCapRescueSurvivesEmptyLinkedPool(t *testing.T) {
 	ingress := parityAnthropicIngress()
 	upstream := enterpriseCapUpstream(ingress, enterpriseCapRefusalHeaders())
 	service := ingress.quotaService(upstream).WithManagedSubscriptions(&scriptedSubscriptionLeaser{})
-	ctx := withAnthropicKey(enterpriseOnlyContext(ingress.subCtx()), auth.FundingPriorityPlanFirst)
+	ctx := withAnthropicKey(enterpriseOnlyContext(ingress.subCtx()))
 	ctx = context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
 	recorder, request, body := ingress.request(t, false)
 	require.NoError(t, ingress.call(service, ctx, body, recorder, request))
@@ -99,7 +100,7 @@ func TestClaudeEnterpriseOverageCapBypassReroutesToPlanFirstKey(t *testing.T) {
 	upstream := enterpriseCapUpstream(ingress, enterpriseCapRefusalHeaders())
 	service := ingress.quotaService(upstream)
 	threshold := 0.9
-	ctx := withAnthropicKey(enterpriseOnlyContext(ingress.subCtx()), auth.FundingPriorityPlanFirst)
+	ctx := withAnthropicKey(enterpriseOnlyContext(ingress.subCtx()))
 	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true, Threshold: &threshold})
 	recorder, request, body := ingress.request(t, false)
 	require.NoError(t, ingress.call(service, ctx, body, recorder, request))

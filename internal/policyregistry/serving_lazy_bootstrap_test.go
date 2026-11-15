@@ -18,7 +18,7 @@ import (
 func TestServingControllerLazilyBootstrapsStatePathFromLegacyState(t *testing.T) {
 	ctx := context.Background()
 	store, controller, initialSet := controllerFixture(t)
-	legacy, _ := storedActivateFixture(t, store, policyregistry.ServingStateSnapshot{}, initialSet, servingEpoch)
+	legacy := storedActivateFixture(t, store, policyregistry.ServingStateSnapshot{}, initialSet, servingEpoch)
 	legacy.Generation = 7
 	store.legacyStates[initialSet.Target] = legacy
 	legacyBefore, err := json.Marshal(legacy.State)
@@ -130,7 +130,7 @@ func TestActivationRejectsV2ProposalBindingIncumbentOnEmptyTarget(t *testing.T) 
 
 	_, err := policyregistry.NextServingActivation(policyregistry.ServingStateSnapshot{}, servingPayload(t, proposal), store.publishArtifact(t, policyregistry.ServingProposal, proposal), testRegistryRoot, "workflow", servingEpoch)
 	require.ErrorIs(t, err, policyregistry.ErrConflict)
-	assert.ErrorContains(t, err, "no activation")
+	require.ErrorContains(t, err, "no activation")
 
 	_, err = controller.Activate(ctx, store.publishArtifact(t, policyregistry.ServingProposal, proposal), "workflow")
 	require.ErrorIs(t, err, policyregistry.ErrConflict)
