@@ -16,9 +16,7 @@ import (
 func TestUpstreamProxySendsThroughWrappedClient(t *testing.T) {
 	sentinel := assert.AnError
 	client := &fakeUpstream{errs: []error{sentinel}}
-	upstream := dispatch.NewUpstream(client)
-
-	err := upstream.Proxy(context.Background(), router.Decision{Provider: providers.ProviderFireworks, Model: "kimi-k2.5"},
+	err := dispatch.NewUpstream(client).Proxy(context.Background(), router.Decision{Provider: providers.ProviderFireworks, Model: "kimi-k2.5"},
 		providers.PreparedRequest{}, httptest.NewRecorder(), httptest.NewRequest("POST", "/v1/messages", nil))
 
 	require.ErrorIs(t, err, sentinel)
@@ -27,9 +25,7 @@ func TestUpstreamProxySendsThroughWrappedClient(t *testing.T) {
 
 func TestUpstreamKeepsTargetGuard(t *testing.T) {
 	client := &fakeUpstream{}
-	upstream := dispatch.NewUpstream(dispatch.GuardTarget(client, primary))
-
-	err := upstream.Proxy(context.Background(), router.Decision{Provider: providers.ProviderOpenRouter, Model: "kimi-k2.5"},
+	err := dispatch.NewUpstream(dispatch.GuardTarget(client, primary)).Proxy(context.Background(), router.Decision{Provider: providers.ProviderOpenRouter, Model: "kimi-k2.5"},
 		providers.PreparedRequest{}, httptest.NewRecorder(), httptest.NewRequest("POST", "/v1/messages", nil))
 
 	require.ErrorIs(t, err, dispatch.ErrTargetMismatch)
