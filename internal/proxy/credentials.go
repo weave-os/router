@@ -144,9 +144,9 @@ func resolveAndInjectCredentials(ctx context.Context, provider, model string, he
 // exhausted or denied for model, turned off for the request, or (Codex) the
 // model is outside the native roster and catalog exceptions.
 func subscriptionSuppression(ctx context.Context, model string) credentials.Suppression {
-	disabled := subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx)
+	subDisabled := subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx)
 	return credentials.Suppression{
-		Claude: claudeSubscriptionSuppressed(ctx) || disabled || claudeModelSuppressed(ctx, model),
-		Codex:  codexSubscriptionSuppressed(ctx) || codexModelSuppressed(ctx, model) || codexChatEndpoint(ctx) || disabled || !codexSubscriptionCanAttemptModel(model),
+		Claude: claudeSubscriptionSuppressed(ctx) || subDisabled || claudeModelSuppressed(ctx, model),
+		Codex:  codexSubscriptionSuppressed(ctx) || codexModelSuppressed(ctx, model) || codexChatEndpoint(ctx) || subDisabled || !codexSubscriptionCanAttemptModel(model),
 	}
 }

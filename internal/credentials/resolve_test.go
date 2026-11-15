@@ -14,9 +14,9 @@ import (
 )
 
 const (
-	claudeToken = "sk-ant-oat01-caller"
-	codexToken  = "codex-jwt"
-	codexAcct   = "acct-1"
+	claudeToken    = "sk-ant-oat01-caller"
+	codexToken     = "codex-jwt"
+	codexAccountID = "acct-1"
 )
 
 func bearer(token string) http.Header {
@@ -97,7 +97,7 @@ func TestResolve_SuppressedSubscriptionIsClearedNotForwarded(t *testing.T) {
 }
 
 func TestResolve_SuppressionIsPerProvider(t *testing.T) {
-	facts := requestcontext.RequestFacts{AnthropicSubscription: claudeToken, OpenAISubscription: codexToken, OpenAIAccountID: codexAcct}
+	facts := requestcontext.RequestFacts{AnthropicSubscription: claudeToken, OpenAISubscription: codexToken, OpenAIAccountID: codexAccountID}
 	res := credentials.Resolve(facts, providers.ProviderOpenAI, credentials.Suppression{Claude: true})
 	assert.Equal(t, codexToken, spent(t, res))
 	assert.Equal(t, requestcontext.SourceCodexSubscription, res.Credentials.Source)
