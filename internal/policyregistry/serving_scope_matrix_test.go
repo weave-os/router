@@ -133,7 +133,7 @@ func TestServingProposalScopeMatrixPreservesCompleteProfileInventory(t *testing.
 				nextClassifierBinding := oldBinding.Classifier
 				defaultRelease := base
 				switch scope {
-				case policyregistry.ChangeFull, policyregistry.ChangeCustom:
+				case policyregistry.ChangeFull, policyregistry.ChangeRollback, policyregistry.ChangeCustom:
 					defaultRelease = source
 					nextRouter.Name = "worker-0002"
 					nextRouter.ImageDigest = source.RouterImageDigest

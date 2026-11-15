@@ -12,6 +12,7 @@ linters:
     - errcheck
     - bodyclose
     - nilerr
+    - exhaustive
   settings:
     errcheck:
       exclude-functions:
@@ -28,6 +29,8 @@ linters:
       comparison: true
       asserts: true
       errorf: false
+    exhaustive:
+      default-signifies-exhaustive: true
     depguard:
       rules:
         leaf:

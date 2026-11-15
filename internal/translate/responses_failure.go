@@ -97,3 +97,37 @@ func splitBufferedResponsesEvent(buf []byte) (event []byte, n int) {
 	}
 	return buf, len(buf)
 }
+
+func responsesTerminalIsFailure(resp gjson.Result) bool {
+	if !resp.Exists() {
+		return true
+	}
+	if resp.Get("status").String() == "failed" {
+		return true
+	}
+	if err := resp.Get("error"); err.Exists() && err.Type != gjson.Null {
+		return true
+	}
+	return resp.Get("status").String() == "incomplete" && resp.Get("incomplete_details.reason").String() != "max_output_tokens"
+}
+
+// openAIErrorBody builds a chat/completions-shape error envelope.
+func openAIErrorBody(errType, msg string) []byte {
+	if errType == "" {
+		errType = "api_error"
+	}
+	if msg == "" {
+		msg = "upstream Responses request failed"
+	}
+	jw := newJSONWriter()
+	jw.Obj()
+	jw.Key("error")
+	jw.Obj()
+	jw.Key("message")
+	jw.Str(msg)
+	jw.Key("type")
+	jw.Str(errType)
+	jw.EndObj()
+	jw.EndObj()
+	return jw.Bytes()
+}
