@@ -142,7 +142,7 @@ func TestEligibility_ClaudeSubscriptionBearerEnrollsAnthropicOnRouterKeyedReques
 	assert.Equal(t, set(providers.ProviderAnthropic), got.EnabledProviders)
 
 	got = b.Eligibility(context.Background(), credentials.EligibilityRequest{
-		RouterKeyAuthed: true, SurfaceProvider: providers.ProviderAnthropic, Headers: bearerHeaders("sk-ant-api03-client"),
+		RouterKeyAuthed: true, SurfaceProvider: providers.ProviderAnthropic, Headers: apiKeyHeaders("sk-ant-api-client"),
 	})
 	assert.Empty(t, got.EnabledProviders, "a plain API key never enrolls a provider on the router-key path")
 }

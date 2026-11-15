@@ -18,6 +18,7 @@ var (
 	ifExistsGuard     = regexp.MustCompile(`(?i)\bIF\s+EXISTS\b`)
 	numberedParameter = regexp.MustCompile(`\$[0-9]+`)
 	queryName         = regexp.MustCompile(`(?m)^-- name: (\w+) :`)
+	dollarQuoteTag    = regexp.MustCompile(`^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$`)
 	queryNamePrefix   = regexp.MustCompile(`^(` + strings.Join(queryNameVerbs, "|") + `)[A-Z]`)
 )
 
@@ -108,6 +109,9 @@ func sqlCode(sql string) string {
 			i += skipUntil(sql[i+2:], "*/") + 1
 		case sql[i] == '\'':
 			i += skipUntil(sql[i+1:], "'")
+		case dollarQuoteTag.MatchString(sql[i:]):
+			tag := dollarQuoteTag.FindString(sql[i:])
+			i += len(tag) - 1 + skipUntil(sql[i+len(tag):], tag)
 		default:
 			code.WriteByte(sql[i])
 			continue
