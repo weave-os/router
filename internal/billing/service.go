@@ -49,9 +49,11 @@ func OrganizationPrepaidFromContext(ctx context.Context) bool {
 type subscriptionOnlyContextKeyT struct{}
 
 // SubscriptionOnlyReason names why a request was flagged subscription-only.
-// Every reason is served identically — on the caller's own subscription, with
-// no paid failover and no debit. The reason decides what a refused turn tells
-// the caller (top-up CTA, cap notice) and which marker a served turn carries.
+// Every reason is served identically — on the caller's own subscription or,
+// for credits_depleted and spend_cap_reached, their own usable provider key in
+// its funding-priority order — with no Weave-funded failover and no inference
+// debit. The reason decides what a refused turn tells the caller (top-up CTA,
+// cap notice) and which marker a served turn carries.
 type SubscriptionOnlyReason string
 
 const (

@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
 
@@ -116,7 +117,12 @@ func splitModelAction(modelAction string) (model string, stream bool, ok bool) {
 	return model, stream, true
 }
 
+var errBodyNotJSONObject = errors.New("request body is not a JSON object")
+
 func injectModelAndStream(body []byte, model string, stream bool) ([]byte, error) {
+	if !gjson.ValidBytes(body) || !gjson.ParseBytes(body).IsObject() {
+		return nil, errBodyNotJSONObject
+	}
 	out, err := sjson.SetBytes(body, "model", model)
 	if err != nil {
 		return nil, err

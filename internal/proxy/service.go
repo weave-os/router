@@ -4096,7 +4096,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// can't reroute onto a paid provider.
 	if billing.SubscriptionOnlyFromContext(ctx) && !routeRes.UsageBypass && !subscriptionStateModelsEnabled(ctx) {
 		switch {
-		case !servedOnSubscription(ctx) && !managedSubscriptionCanServe(ctx, decision.Provider, decision.Model):
+		case subscriptionOnlyUnservable(ctx, decision.Provider, decision.Model):
 			released, ok := releaseUnservableLinkedFirst(ctx, decision)
 			if !ok {
 				log.Info("Subscription-only request cannot be served on the subscription; refusing",
@@ -4104,7 +4104,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				return subscriptionOnlyUnavailable(ctx)
 			}
 			ctx = released
-		case s.anthropicSubscriptionObservedExhausted(ctx, r.Header) && !claudeSubscriptionSuppressed(ctx):
+		case !servedOnCustomerKey(ctx) && s.anthropicSubscriptionObservedExhausted(ctx, r.Header) && !claudeSubscriptionSuppressed(ctx):
 			log.Info("Subscription-only request cannot be served on the subscription; refusing",
 				"requested_model", feats.Model, "external_id", externalID, "decision_provider", decision.Provider)
 			return subscriptionOnlyUnavailable(ctx)
@@ -5644,7 +5644,7 @@ func (s *Service) excludeCodexOAuthOnlyModels(
 	excluded map[string]struct{},
 ) map[string]struct{} {
 	_, codexAvailable := subscriptionServableProviders(ctx, headers)[providers.ProviderOpenAI]
-	if !codexAvailable || (!paidFallbackForbidden(ctx) && s.openAIPaidCredentialAvailable(ctx, headers)) {
+	if !codexAvailable || (!paidFallbackForbiddenFor(ctx, providers.ProviderOpenAI) && s.openAIPaidCredentialAvailable(ctx, headers)) {
 		return excluded
 	}
 	for _, model := range catalog.Models {
@@ -6556,7 +6556,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// continues paid instead. When it did, pin dispatch to that single binding
 	// so failover can't reroute onto a paid provider.
 	if billing.SubscriptionOnlyFromContext(ctx) && !subscriptionStateModelsEnabled(ctx) {
-		if !servedOnSubscription(ctx) && !managedSubscriptionCanServe(ctx, decision.Provider, decision.Model) {
+		if subscriptionOnlyUnservable(ctx, decision.Provider, decision.Model) {
 			released, ok := releaseUnservableLinkedFirst(ctx, decision)
 			if !ok {
 				log.Info("Subscription-only request cannot be served on the subscription; refusing",
