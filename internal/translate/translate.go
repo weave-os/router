@@ -405,6 +405,17 @@ func OpenAIToAnthropicError(body []byte) []byte {
 	return jw.Bytes()
 }
 
+// AnthropicErrorAsOpenAI re-wraps an Anthropic error envelope
+// ({"type":"error","error":{"type","message"}}) as an OpenAI one and returns
+// any other body unchanged. A Responses "error" event shares the top-level
+// type but carries error.code, which must survive.
+func AnthropicErrorAsOpenAI(body []byte) []byte {
+	if gjson.GetBytes(body, "type").String() != "error" || gjson.GetBytes(body, "error.code").Exists() {
+		return body
+	}
+	return AnthropicToOpenAIError(body)
+}
+
 type chatFinishReason string
 
 const (
