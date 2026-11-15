@@ -143,7 +143,7 @@
     },
     {
       "package": "internal/proxy",
-      "banned_lines": 5936
+      "banned_lines": 5940
     },
     {
       "package": "internal/proxy/usage",
@@ -152,6 +152,10 @@
     {
       "package": "internal/pubsub",
       "banned_lines": 61
+    },
+    {
+      "package": "internal/refusal",
+      "banned_lines": 17
     },
     {
       "package": "internal/requestcontext",
@@ -263,7 +267,7 @@
     },
     {
       "package": "internal/server/middleware",
-      "banned_lines": 307
+      "banned_lines": 315
     },
     {
       "package": "internal/sse",
