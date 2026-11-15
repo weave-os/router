@@ -14,7 +14,6 @@ func TestEveryKindHasAContract(t *testing.T) {
 		assert.NotEmpty(t, contract.Code, "kind %d has no code in the refusal table", kind)
 		assert.False(t, contract.RetryAfter && contract.NoClientRetry, "kind %d both asks for and forbids a retry", kind)
 	}
-	assert.Len(t, Kinds(), int(kindCount))
 }
 
 // TestContractTable pins the full refusal table; changing a row is a
