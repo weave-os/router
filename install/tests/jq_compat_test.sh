@@ -15,8 +15,8 @@ arg_binding="--(arg|argjson|slurpfile|rawfile)[[:space:]]+${keywords}([[:space:]
 pattern_binding="(as|label)[[:space:]]+[$]${keywords}([^[:alnum:]_]|$)"
 
 cd "$repo_root"
-tracked="$(git ls-files install | grep -v '^install/tests/')"
-mapfile -t files <<<"$tracked"
+tracked_files="$(git ls-files install | grep -v '^install/tests/')"
+mapfile -t files <<<"$tracked_files"
 scan_status=0
 hits="$(grep -InE -e "$arg_binding" -e "$pattern_binding" -- "${files[@]}")" || scan_status=$?
 [ "$scan_status" -le 1 ] || { echo "FAIL: grep could not scan the installer files (exit $scan_status)" >&2; exit 1; }
