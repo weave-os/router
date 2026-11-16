@@ -103,8 +103,7 @@ func TestSubscriptionPoolUnavailableAndThrottledRefusalsIgnoreTheLaneMark(t *tes
 
 func TestOnlyACallerPlanThrottleIsCustomerOwned(t *testing.T) {
 	for name, pin := range poolRefusalPins() {
-		err := pin.err(context.Background())
-		owner := classifyFailureOwner(failureOwnerInput{Err: err})
+		owner := classifyFailureOwner(failureOwnerInput{Err: pin.err(context.Background())})
 		assert.Equal(t, errors.Is(pin.sentinel, errCallerPlanThrottled), owner == FailureOwnerClient, name)
 	}
 }

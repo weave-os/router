@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/eligibility"
+	"weave-os/router/internal/subscriptionlane"
 	"weave-os/router/internal/subscriptions/entitlement"
 
 	"github.com/stretchr/testify/assert"
@@ -81,11 +82,19 @@ func TestDispatchRefusesAnIneligibleDecisionUnderEveryLaneMark(t *testing.T) {
 	}
 }
 
-func TestEveryEligibilityVerdictSentinelClassifiesAsItsRefusedState(t *testing.T) {
-	for on, verdict := range subscriptionEligibilityVerdicts {
-		kind, refused := verdict.refused.Refusal()
-		require.True(t, refused, "%s", on)
-		assert.Equal(t, kind.Contract(), classifiedRefusal(t, verdict.sentinel), "%s", on)
-		assert.Equal(t, verdict.sentinel, subscriptionEligibilityRefusal(context.Background(), on), "%s", on)
+func TestEligibilityRefusalSentinelsClassifyAsTheirRefusedState(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		refuse   func(context.Context) error
+		refused  subscriptionlane.State
+		sentinel error
+	}{
+		{name: "client app", refuse: subscriptionClientAppRefusal, refused: subscriptionlane.RefusedSubscriptionClientApp, sentinel: ErrSubscriptionClientAppRefused},
+		{name: "claude enterprise", refuse: claudeEnterpriseRefusal, refused: subscriptionlane.RefusedClaudeEnterpriseOnly, sentinel: ErrClaudeEnterpriseSubscriptionUnavailable},
+	} {
+		kind, refused := tc.refused.Refusal()
+		require.True(t, refused, tc.name)
+		assert.Equal(t, kind.Contract(), classifiedRefusal(t, tc.sentinel), tc.name)
+		assert.Equal(t, tc.sentinel, tc.refuse(context.Background()), tc.name)
 	}
 }

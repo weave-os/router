@@ -10,30 +10,19 @@ import (
 	"weave-os/router/internal/subscriptionlane"
 )
 
-type subscriptionEligibilityVerdict struct {
-	refused  subscriptionlane.State
-	sentinel error
-}
-
-var subscriptionEligibilityVerdicts = map[subscriptionlane.Event]subscriptionEligibilityVerdict{
-	subscriptionlane.ClientAppRefused:           {refused: subscriptionlane.RefusedSubscriptionClientApp, sentinel: ErrSubscriptionClientAppRefused},
-	subscriptionlane.ClaudeEnterpriseUnservable: {refused: subscriptionlane.RefusedClaudeEnterpriseOnly, sentinel: ErrClaudeEnterpriseSubscriptionUnavailable},
-}
-
-func subscriptionEligibilityRefusal(ctx context.Context, on subscriptionlane.Event) error {
-	verdict := subscriptionEligibilityVerdicts[on]
-	if next, _ := subscriptionlane.Step(billing.SubscriptionLaneFromContext(ctx), on); next == verdict.refused {
-		return verdict.sentinel
+func laneRefusal(ctx context.Context, on subscriptionlane.Event, refused subscriptionlane.State, sentinel error) error {
+	if next, _ := subscriptionlane.Step(billing.SubscriptionLaneFromContext(ctx), on); next == refused {
+		return sentinel
 	}
-	return errors.Join(subscriptionOnlyUnavailable(ctx), verdict.sentinel)
+	return errors.Join(subscriptionOnlyUnavailable(ctx), sentinel)
 }
 
 func subscriptionClientAppRefusal(ctx context.Context) error {
-	return subscriptionEligibilityRefusal(ctx, subscriptionlane.ClientAppRefused)
+	return laneRefusal(ctx, subscriptionlane.ClientAppRefused, subscriptionlane.RefusedSubscriptionClientApp, ErrSubscriptionClientAppRefused)
 }
 
 func claudeEnterpriseRefusal(ctx context.Context) error {
-	return subscriptionEligibilityRefusal(ctx, subscriptionlane.ClaudeEnterpriseUnservable)
+	return laneRefusal(ctx, subscriptionlane.ClaudeEnterpriseUnservable, subscriptionlane.RefusedClaudeEnterpriseOnly, ErrClaudeEnterpriseSubscriptionUnavailable)
 }
 
 func productEligibilityRefusal(ctx context.Context, boundary eligibility.Boundary, model string) error {
@@ -41,8 +30,5 @@ func productEligibilityRefusal(ctx context.Context, boundary eligibility.Boundar
 	if ineligible == nil {
 		return nil
 	}
-	if next, _ := subscriptionlane.Step(billing.SubscriptionLaneFromContext(ctx), subscriptionlane.ModelOutsidePlan); next == subscriptionlane.RefusedProductIneligible {
-		return ineligible
-	}
-	return errors.Join(subscriptionOnlyUnavailable(ctx), ineligible)
+	return laneRefusal(ctx, subscriptionlane.ModelOutsidePlan, subscriptionlane.RefusedProductIneligible, ineligible)
 }
