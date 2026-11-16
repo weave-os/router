@@ -9,19 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// WithAPIKeySpendCap enforces a per-key lifetime spend cap. Attached only in
-// managed mode and only after WithAuth, so the key below is populated and its
-// spent_usd_micros is metered by the debit hook.
-//
-// The cap and spend-to-date are read FRESH from Postgres each request (via the
-// billing service), not from the cached auth key — a cached key's spend would
-// be stale for the cache TTL, letting a hot key overrun its cap. This mirrors
-// the per-request balance read in WithBalanceCheck.
-//
-// A key with no cap passes through. A read error fails closed with 503, like
-// the balance gate: a prepaid cap that lets requests through on read errors is
-// an unbilled-usage hole. Spend is only known after a response settles, so a
-// key can still overshoot by at most one in-flight request's cost.
 func WithAPIKeySpendCap(svc *billing.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
@@ -30,8 +17,6 @@ func WithAPIKeySpendCap(svc *billing.Service) gin.HandlerFunc {
 			return
 		}
 
-		// A turn covered by an individual Max/Boost allowance debits 0, so it
-		// adds nothing to the key's paid spend and the cap does not bound it.
 		if subscriberAllowanceCovers(c) {
 			c.Next()
 			return
@@ -39,15 +24,10 @@ func WithAPIKeySpendCap(svc *billing.Service) gin.HandlerFunc {
 
 		apiKey := APIKeyFrom(c)
 		if apiKey == nil || apiKey.ID == "" {
-			// Admin-cookie sessions and other non-keyed paths carry no api key.
 			c.Next()
 			return
 		}
 
-		// The cap bounds PAID spend, not free subscription usage: a request
-		// presenting a Claude/Codex credential that covers this route serves at
-		// $0 on the caller's own plan, so exempt it from the cap-reached 402 below
-		// (mirrors WithBalanceCheck).
 		subscriptionExempt := proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath())
 
 		result, err := svc.CheckAPIKeySpendCap(c.Request.Context(), apiKey.ID)
@@ -64,9 +44,6 @@ func WithAPIKeySpendCap(svc *billing.Service) gin.HandlerFunc {
 
 		if result.SpentMicros >= *result.CapMicros {
 			if subscriptionExempt {
-				// Not 402'd: flag subscription-only so the proxy serves on the
-				// caller's own subscription (or refuses a would-be-paid turn) and
-				// never fails over to a paid model. Paid spend stays bounded at the cap.
 				log.Info("API key spend cap reached but subscription covers the route: serving subscription-only",
 					"api_key_id", apiKey.ID,
 					"spent_usd_micros", result.SpentMicros,
