@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"time"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
@@ -42,6 +43,7 @@ type rescueServices interface {
 	cyberRefusalRetryTarget(ctx context.Context, failed router.Decision, sessionKey [sessionpin.SessionKeyLen]byte, role string, est, sigSavings, outputReserve int) (router.Decision, bool)
 	openaiFallbackKeyAvailable(ctx context.Context) bool
 	recordCodexQuotaExhaustion(ctx context.Context, headers http.Header, err error)
+	clockNow() time.Time
 }
 
 type rescueChain struct {

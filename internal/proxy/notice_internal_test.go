@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -50,6 +51,7 @@ func TestNoticePreludeDoesNotCommitProviderAttempt(t *testing.T) {
 }
 
 func TestAddRoutingFundingSource(t *testing.T) {
+	spentSeatReset := time.Now().Add(time.Hour)
 	tests := []struct {
 		name      string
 		ctx       context.Context
@@ -94,6 +96,16 @@ func TestAddRoutingFundingSource(t *testing.T) {
 			provider: providers.ProviderAnthropic,
 			model:    "claude-opus-5",
 			want:     "funded by Claude subscription",
+		},
+		{
+			name: "managed Claude pool whose only seat is spent is not labelled as the funding",
+			ctx: WithManagedSubscriptionCandidates(WithManagedSubscriptionUsage(context.Background()), []*auth.SubscriptionAccount{{
+				ID: "claude-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true,
+				State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &spentSeatReset,
+			}}),
+			provider: providers.ProviderAnthropic,
+			model:    "claude-opus-5",
+			absent:   true,
 		},
 		{
 			name: "managed Codex subscription is selected over BYOK",
@@ -157,7 +169,7 @@ func TestAddRoutingFundingSource(t *testing.T) {
 			}
 			text += "\n\n"
 			notice := translate.NewRouterNotice(translate.NoticeModelSelection, text, "gpt-6-luna", "")
-			got := addRoutingFundingSource(test.ctx, test.provider, test.model, notice)
+			got := addRoutingFundingSource(test.ctx, time.Now(), test.provider, test.model, notice)
 			if test.absent {
 				assert.Equal(t, "✦ **Weave Router** → gpt-6-luna · best pick for this turn\n\n", got.Text)
 				return
