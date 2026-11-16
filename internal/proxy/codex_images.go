@@ -120,7 +120,10 @@ func (c CodexImages) forwardOnLinkedSubscription(ctx context.Context, forwarder 
 	if attemptErr == nil {
 		svc.markManagedSubscriptionServed(ctx, credentialCtx, lease)
 	}
-	recordCodexImageUsage(bookkeepingCtx, svc, gjson.GetBytes(body, "model").String(), started, attemptErr)
+	var unsent *providers.UpstreamErrorResponse
+	if !errors.As(attemptErr, &unsent) {
+		recordCodexImageUsage(bookkeepingCtx, svc, gjson.GetBytes(body, "model").String(), started, attemptErr)
+	}
 	return true, attemptErr
 }
 
