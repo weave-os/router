@@ -7,8 +7,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// WithSubscriberProductScope applies a subscriber's model boundary without
-// reserving or consuming included allowance.
 func WithSubscriberProductScope(svc *entitlement.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		owner := SubscriptionOwnerFrom(c)
