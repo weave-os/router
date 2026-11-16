@@ -134,22 +134,25 @@ const (
 )
 
 func callerRoutingState(ctx context.Context) (passthrough bool, source callerRoutingSource) {
-	if auth.ClientModelPassthroughFrom(ctx) {
-		return true, callerRoutingSourceClientModel
-	}
 	mode := auth.RoutingPolicyFrom(ctx).Mode
 	if mode == auth.RoutingPolicyPassthrough || mode == auth.RoutingPolicyAssigned {
+		if auth.ClientModelPassthroughFrom(ctx) {
+			return true, callerRoutingSourceClientModel
+		}
 		return auth.RoutingPassthroughFrom(ctx), callerRoutingSourceRoutingPolicy
 	}
 	state, active := auth.BlindExperimentFrom(ctx)
-	if !active {
-		return false, callerRoutingSourceDefault
+	if active {
+		source = callerRoutingSourceExperiment
+		if state.CohortExperimentID != "" {
+			source = callerRoutingSourceCohort
+		}
+		return state.Arm == auth.BlindExperimentArmPassthrough, source
 	}
-	source = callerRoutingSourceExperiment
-	if state.CohortExperimentID != "" {
-		source = callerRoutingSourceCohort
+	if auth.ClientModelPassthroughFrom(ctx) {
+		return true, callerRoutingSourceClientModel
 	}
-	return state.Arm == auth.BlindExperimentArmPassthrough, source
+	return false, callerRoutingSourceDefault
 }
 
 func applyCallerRoutingAttrs(ctx context.Context, b *telemetry.AttrBuilder) {
