@@ -701,13 +701,16 @@ func geminiEmitsValidatedToolMode(body []byte, model string, format Format) bool
 func geminiEntryFromAnthropicMessage(msg gjson.Result, toolNames map[string]string) (contentEntry, bool, error) {
 	var parts []string
 	var err error
-	role := "user"
+	var role string
 	switch msg.Get("role").String() {
 	case "user":
+		role = "user"
 		parts, err = anthropicUserPartsGJSON(msg.Get("content"), toolNames)
 	case "assistant":
 		role = "model"
 		parts = anthropicAssistantPartsGJSON(msg.Get("content"))
+	default:
+		return contentEntry{}, false, nil
 	}
 	return contentEntry{role: role, parts: parts}, err == nil && len(parts) > 0, err
 }
