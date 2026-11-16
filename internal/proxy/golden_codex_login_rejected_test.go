@@ -97,6 +97,9 @@ func TestRejectedCodexLoginRescueDispatchesLadderTarget(t *testing.T) {
 	require.NotEmpty(t, served.Response.Events)
 	terminal := served.Response.Events[len(served.Response.Events)-1]
 	require.Equal(t, "response.completed", terminal.Event)
+	completed, err := json.Marshal(terminal.Data)
+	require.NoError(t, err)
+	require.Contains(t, string(completed), `"model":"`+goldenCodexModel+`"`, "response.completed names the model that served the turn")
 	events, err := json.Marshal(served.Response.Events)
 	require.NoError(t, err)
 	require.Contains(t, string(events), "ChatGPT (Codex) login was rejected")

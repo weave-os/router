@@ -725,7 +725,7 @@
             "data": {
               "response": {
                 "id": "resp_\u003cid\u003e",
-                "model": "claude-haiku-4-5",
+                "model": "gpt-5.6-sol",
                 "object": "response",
                 "output": [
                   {

@@ -247,7 +247,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 			break
 		}
 		if hasFixedTarget {
-			return -1, cmp.Or(includedFailure, refusal)
+			return -1, attributeCodexLoginRejection(cmp.Or(includedFailure, refusal))
 		}
 		if _, permitted := paidReq.AllowedModels[target.Model]; permitted {
 			request.ExcludedModels = mergeExcludedModels(request.ExcludedModels, map[string]struct{}{target.Model: {}})
@@ -274,7 +274,7 @@ func includedFailureOr(includedFailure, paidErr error) error {
 	if includedFailure == nil || !paidLaneEmpty(paidErr) {
 		return paidErr
 	}
-	return includedFailure
+	return attributeCodexLoginRejection(includedFailure)
 }
 
 func paidLaneEmpty(err error) bool {

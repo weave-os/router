@@ -9,6 +9,19 @@ import (
 	"weave-os/router/internal/proxy/usage"
 )
 
+const codexLoginRejectedMessage = "Your ChatGPT (Codex) login was rejected. Sign in to Codex again or reconnect your Codex seat: " +
+	SubscriptionsDashboardURL + "?reconnect=codex"
+
+var codexLoginRejectedBody = []byte(`{"error":{"type":"authentication_error","code":"token_revoked","message":"` + codexLoginRejectedMessage + `"}}`)
+
+func attributeCodexLoginRejection(err error) error {
+	if !codexOAuthCredentialRejected(err) {
+		return err
+	}
+	rejection := &providers.UpstreamErrorResponse{Status: http.StatusUnauthorized, Body: codexLoginRejectedBody}
+	return attributedError{err: rejection, message: codexLoginRejectedMessage}
+}
+
 func ownCodexLoginRejected(ctx context.Context, headers http.Header, observer *usage.Observer) bool {
 	if ClientIdentityFrom(ctx).ClientApp != ClientAppCodex {
 		return false

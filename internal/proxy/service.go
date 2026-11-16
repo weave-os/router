@@ -5152,17 +5152,17 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 
 	responsesWriter, isResponses := w.(*translate.ResponsesWriter)
+	responsesNotices := &requestNoticeStream{}
 	responseSwitch := responseProtocolSwitch{
+		notices:             responsesNotices,
 		writer:              responsesWriter,
 		nativeRequest:       len(responsesBody) > 0,
 		translatedResponses: !isResponses && len(responsesBody) == 0 && openAIResponsesEndpoint,
 		promotedToResponses: promotedToResponses,
 	}
 	initialNativeResponses := responseSwitch.nativeRequest && decision.Provider == providers.ProviderOpenAI
-	if rw, ok := w.(*translate.ResponsesWriter); ok {
-		if footer := s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoed); footer != "" {
-			rw.SetFooterText(footer)
-		}
+	if footer := s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoed); isResponses && footer != "" {
+		responsesWriter.SetFooterText(footer)
 	}
 	responsesPreludeWillEmit := env.Stream() && !initialNativeResponses && (len(bindings) <= 1 || marker != "")
 	if initialNativeResponses {
@@ -5170,7 +5170,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 
 	var responsesPreludeBuf *preludeBuffer
-	responsesNotices := &requestNoticeStream{}
 	if rw, ok := contentSink.(*translate.ResponsesWriter); ok {
 		var noticeErr error
 		rw.WrapInner(func(inner http.ResponseWriter) http.ResponseWriter {

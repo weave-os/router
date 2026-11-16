@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/router"
 )
 
 func TestOwnSubscriptionLoginRejectionServesOnCreditsWithReconnectNotice(t *testing.T) {
@@ -62,4 +63,13 @@ func TestRecordOwnClaudeLoginRejectedOnlyHoldsTheCallersOwnLogin(t *testing.T) {
 			assert.Equal(t, tc.held, ownClaudeLoginRejected(ctx, headers, observer))
 		})
 	}
+}
+
+func TestIncludedFailureOrNamesCodexReconnectWhenNothingElseCanServe(t *testing.T) {
+	rejected := upstreamErr(http.StatusUnauthorized, `{"error":{"code":"token_revoked"}}`)
+	err := includedFailureOr(rejected, router.ErrAllowlistEmptiesPool)
+	class, ok := ClassifyDispatchError(err)
+	require.True(t, ok)
+	assert.Equal(t, http.StatusUnauthorized, class.Status)
+	assert.Contains(t, class.Message, "reconnect=codex")
 }
