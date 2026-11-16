@@ -30,6 +30,7 @@ func TestRefusalContract_Dispatch(t *testing.T) {
 		{err: proxy.ErrSubscriptionClientAppRefused, kind: proxy.DispatchErrorSubscriptionClientAppRefused, status: http.StatusForbidden, clientError: true},
 		{err: proxy.ErrSpendCapSubscriptionUnavailable, kind: proxy.DispatchErrorSpendCapReached, status: http.StatusPaymentRequired, noClientRetry: true},
 		{err: proxy.ErrCreditsExhaustedSubscriptionUnavailable, kind: proxy.DispatchErrorCreditsExhausted, status: http.StatusPaymentRequired, noClientRetry: true},
+		{err: proxy.ErrSubscriptionUnavailableForTurn, kind: proxy.DispatchErrorSubscriptionUnavailableForTurn, status: http.StatusPaymentRequired, noClientRetry: true},
 		{err: proxy.ErrWeaveCreditsDisabled, kind: proxy.DispatchErrorWeaveCreditsDisabled, status: http.StatusPaymentRequired, noClientRetry: true},
 		{err: proxy.ErrClaudeEnterpriseSubscriptionUnavailable, kind: proxy.DispatchErrorClaudeEnterpriseOnly, status: http.StatusPaymentRequired, noClientRetry: true},
 		{err: proxy.ErrSubscriptionPoolExhausted, kind: proxy.DispatchErrorSubscriptionPoolExhausted, status: http.StatusTooManyRequests, retryAfter: true},
