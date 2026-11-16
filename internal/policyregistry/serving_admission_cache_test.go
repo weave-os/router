@@ -10,10 +10,11 @@ import (
 )
 
 type cacheAdmissionStore struct {
-	calls   atomic.Int64
-	enter   chan struct{}
-	release chan struct{}
-	err     error
+	calls            atomic.Int64
+	enter            chan struct{}
+	release          chan struct{}
+	err              error
+	alwaysPersistent bool
 }
 
 func (s *cacheAdmissionStore) Admit(ctx context.Context, installation, key, session string, _ AdmissionDecision) (AdmissionScope, SessionReleaseBinding, error) {
@@ -26,7 +27,7 @@ func (s *cacheAdmissionStore) Admit(ctx context.Context, installation, key, sess
 			return AdmissionScope{}, SessionReleaseBinding{}, ctx.Err()
 		}
 	}
-	return AdmissionScope{InstallationID: installation, CredentialIdentity: key, Persistent: session != ""}, SessionReleaseBinding{BindingGeneration: call}, s.err
+	return AdmissionScope{InstallationID: installation, CredentialIdentity: key, Persistent: s.alwaysPersistent || session != ""}, SessionReleaseBinding{BindingGeneration: call}, s.err
 }
 func TestAdmissionCacheHitsExpiryInvalidationAndCapacity(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -168,5 +169,42 @@ func TestAdmissionCacheCallerCancellationDoesNotCancelSharedBinding(t *testing.T
 	_, binding, err := cache.Admit(context.Background(), "org", "key", "session", nil)
 	if err != nil || binding.BindingGeneration != 1 || store.calls.Load() != 1 {
 		t.Fatalf("shared binding=%+v err=%v calls=%d", binding, err, store.calls.Load())
+	}
+}
+
+func TestAdmissionCacheSendsEveryAnonymousTurnToPrimaryAdmission(t *testing.T) {
+	store := &cacheAdmissionStore{alwaysPersistent: true}
+	cache, err := NewAdmissionDecisionCache(store, 10, time.Minute, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for want := int64(1); want <= 2; want++ {
+		_, binding, err := cache.Admit(context.Background(), "org", "key", "", nil)
+		if err != nil || binding.BindingGeneration != want {
+			t.Fatalf("anonymous turn reused a cached release: binding=%+v err=%v", binding, err)
+		}
+	}
+}
+
+func TestAdmissionCacheGlobalInvalidationDuringMissDoesNotRepopulate(t *testing.T) {
+	store := &cacheAdmissionStore{enter: make(chan struct{}, 1), release: make(chan struct{})}
+	cache, err := NewAdmissionDecisionCache(store, 10, time.Minute, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if _, _, err := cache.Admit(context.Background(), "org", "key", "session", nil); err != nil {
+			t.Error(err)
+		}
+	}()
+	<-store.enter
+	cache.InvalidateAll()
+	close(store.release)
+	<-done
+	_, binding, err := cache.Admit(context.Background(), "org", "key", "session", nil)
+	if err != nil || binding.BindingGeneration != 2 {
+		t.Fatalf("release lifecycle invalidation was repopulated by a racing miss: binding=%+v err=%v", binding, err)
 	}
 }

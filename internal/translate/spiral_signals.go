@@ -6,17 +6,8 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// Spiral-signal extraction: cheap per-request scans of message history feeding
-// the proxy's shadow-mode spiral detector (internal/proxy/spiral_detection.go).
-// Pure functions of the request body — no cross-turn state needed.
-
-// toolResultErrorScanLimit caps bytes of tool_result content scanned for error
-// markers; results can be hundreds of KB but errors show up early.
 const toolResultErrorScanLimit = 2048
 
-// toolResultErrorMarkers catch errored tool_results where is_error wasn't set
-// (e.g. a test suite that ran fine but returned red). Kept short/high-precision;
-// offline audit graded the combined flag+marker signal at AUC 0.73-0.86.
 var toolResultErrorMarkers = []string{
 	"Traceback (most recent call last)",
 	"FAILED",
@@ -24,18 +15,12 @@ var toolResultErrorMarkers = []string{
 	"error:",
 }
 
-// ToolResultErrorStats summarizes tool_result error evidence. TrailingErrStreak
-// counts consecutive errored results from the end of history; one healthy
-// result resets it.
 type ToolResultErrorStats struct {
 	Total             int
 	Errored           int
 	TrailingErrStreak int
 }
 
-// ToolResultErrors scans user-role tool_result blocks (Anthropic format) for
-// error evidence: the is_error flag, or an error marker in the first
-// toolResultErrorScanLimit bytes. Returns zero stats for non-Anthropic formats.
 func (e *RequestEnvelope) ToolResultErrors() ToolResultErrorStats {
 	if e.format != FormatAnthropic {
 		return ToolResultErrorStats{}
@@ -71,8 +56,6 @@ func (e *RequestEnvelope) ToolResultErrors() ToolResultErrorStats {
 	return stats
 }
 
-// toolResultIsErrored checks the is_error flag or an early error marker.
-// Content may be a plain string or an array of text blocks.
 func toolResultIsErrored(block gjson.Result) bool {
 	if block.Get("is_error").Bool() {
 		return true
@@ -105,17 +88,12 @@ func toolResultIsErrored(block gjson.Result) bool {
 	return false
 }
 
-// ToolCallOutcome is one assistant tool invocation paired with how its
-// tool_result came back. Resolved is false while the call is still in flight
-// (the last call of a tool-use turn) or when the client dropped the result.
 type ToolCallOutcome struct {
 	Name     string
 	Resolved bool
 	Errored  bool
 }
 
-// AssistantToolCallOutcomes returns every assistant tool_use in history order
-// paired with its tool_result outcome (matched by tool_use_id). Anthropic format only.
 func (e *RequestEnvelope) AssistantToolCallOutcomes() []ToolCallOutcome {
 	if e.format != FormatAnthropic {
 		return nil
@@ -151,7 +129,6 @@ func (e *RequestEnvelope) AssistantToolCallOutcomes() []ToolCallOutcome {
 	return out
 }
 
-// toolResultOutcomesByID maps tool_use_id to whether that result errored.
 func toolResultOutcomesByID(msgs gjson.Result) map[string]bool {
 	out := make(map[string]bool)
 	msgs.ForEach(func(_, msg gjson.Result) bool {
@@ -178,16 +155,11 @@ func toolResultOutcomesByID(msgs gjson.Result) map[string]bool {
 	return out
 }
 
-// ToolCallFilePath is one assistant tool invocation that targets a file:
-// the tool name plus the file path argument it carried.
 type ToolCallFilePath struct {
 	Name string
 	Path string
 }
 
-// AssistantToolCallFilePaths returns, in order, every assistant tool_use call
-// carrying a file_path or notebook_path arg. Used to detect same-file-thrash.
-// Anthropic format only.
 func (e *RequestEnvelope) AssistantToolCallFilePaths() []ToolCallFilePath {
 	if e.format != FormatAnthropic {
 		return nil
@@ -228,10 +200,6 @@ func (e *RequestEnvelope) AssistantToolCallFilePaths() []ToolCallFilePath {
 	return out
 }
 
-// TrailingAssistantMonologue counts consecutive tool-less assistant messages
-// at the tail of history — "turns since the last real progress or user input"
-// (the OpenHands monologue shape). Stops at an assistant tool call (including
-// router-synthesized nudges) or a user message with non-tool_result content.
 func (e *RequestEnvelope) TrailingAssistantMonologue() int {
 	if e.format != FormatAnthropic {
 		return 0
@@ -259,8 +227,6 @@ func (e *RequestEnvelope) TrailingAssistantMonologue() int {
 	return streak
 }
 
-// assistantHasRealToolUse reports whether msg carries a tool_use block.
-// Router-synthesized nudges count as tool activity too.
 func assistantHasRealToolUse(msg gjson.Result) bool {
 	content := msg.Get("content")
 	if !content.IsArray() {
@@ -277,8 +243,6 @@ func assistantHasRealToolUse(msg gjson.Result) bool {
 	return has
 }
 
-// userHasNonToolResultContent reports whether msg carries real user input
-// (anything besides tool_result blocks).
 func userHasNonToolResultContent(msg gjson.Result) bool {
 	content := msg.Get("content")
 	if content.Type == gjson.String {

@@ -8,25 +8,17 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// MessageBlockPreview is a one-block snapshot of a request-side message,
-// suitable for log diagnostics. Type is the block's wire type ("text",
-// "tool_use", "tool_result", "thinking", etc.). Name carries the tool name
-// for tool_use and the tool_use_id for tool_result; empty otherwise.
-// Preview is a short excerpt of the block's salient payload.
 type MessageBlockPreview struct {
 	Type    string
 	Name    string
 	Preview string
 }
 
-// MessagePreview is a role-tagged window into one request message.
 type MessagePreview struct {
 	Role   string
 	Blocks []MessageBlockPreview
 }
 
-// MessageTailPreview returns the last n messages with each block summarized
-// for log output.
 func (e *RequestEnvelope) MessageTailPreview(n, maxLen int) []MessagePreview {
 	if n <= 0 || maxLen <= 0 {
 		return nil
@@ -95,7 +87,6 @@ func anthropicBlockPreview(block gjson.Result, maxLen int) MessageBlockPreview {
 			Preview: observability.Preview(toolResultContentText(block.Get("content")), maxLen),
 		}
 	default:
-		// thinking / redacted_thinking / image / etc — record presence only.
 		return MessageBlockPreview{Type: t}
 	}
 }
@@ -162,7 +153,6 @@ func openAIMessageTailPreview(body []byte, n, maxLen int) []MessagePreview {
 				})
 			}
 		case "tool":
-			// Surface as tool_result for symmetry with the Anthropic shape.
 			id := observability.Preview(msg.Get("tool_call_id").String(), blockNameMaxLen)
 			if len(mp.Blocks) > 0 {
 				mp.Blocks[0].Type = "tool_result"
@@ -237,10 +227,6 @@ func geminiPartPreview(part gjson.Result, maxLen int) MessageBlockPreview {
 	return MessageBlockPreview{Type: "part"}
 }
 
-// SystemTextTail returns the system-prompt length plus head and tail
-// excerpts of up to maxLen bytes each. Tail is empty when the system text
-// fits inside maxLen. Lets log readers spot transient <system-reminder>
-// injections without dumping the static prompt body.
 func (e *RequestEnvelope) SystemTextTail(maxLen int) (length int, head, tail string) {
 	s := e.SystemText()
 	length = len(s)
@@ -253,8 +239,4 @@ func (e *RequestEnvelope) SystemTextTail(maxLen int) (length int, head, tail str
 	return length, s[:maxLen], s[length-maxLen:]
 }
 
-// blockNameMaxLen caps tool names and tool_use_ids in the conversation tail
-// log. The Anthropic→OpenAI translator packs thoughtSignatures into
-// tool_use_ids and the resulting base64 string can exceed 4 KB, dwarfing
-// every other block in the log line.
 const blockNameMaxLen = 48

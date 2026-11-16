@@ -7,15 +7,11 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// AppendClientCompactionInstruction adds guidance only to the summarization call,
-// whose output replaces history. It never rewrites an ordinary inference prefix.
 func (e *RequestEnvelope) AppendClientCompactionInstruction(instruction string) error {
 	messages := gjson.GetBytes(e.body, "messages")
 	if !messages.IsArray() || len(messages.Array()) == 0 {
 		return fmt.Errorf("client compaction requires conversation messages")
 	}
-	// The client may end with a system instruction rather than a user message.
-	// Append instead of altering the retained history or its system instructions.
 	updated, err := sjson.SetBytes(e.body, "messages.-1", map[string]string{"role": "user", "content": instruction})
 	if err != nil {
 		return fmt.Errorf("append client compaction instruction: %w", err)
@@ -24,8 +20,6 @@ func (e *RequestEnvelope) AppendClientCompactionInstruction(instruction string) 
 	return nil
 }
 
-// DisableParallelToolUse bounds the next retained batch on Anthropic/OpenAI
-// targets. Gemini has no equivalent switch; continuation guidance remains advisory there.
 func (e *RequestEnvelope) DisableParallelToolUse() (bool, error) {
 	if !e.HasTools() {
 		return false, nil
