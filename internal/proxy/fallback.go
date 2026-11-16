@@ -111,7 +111,7 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 	// outside the routed pool — a session pin, a hard-pinned auxiliary turn,
 	// a /force-model, a fallback table. Refusing beats serving what the plan
 	// does not sell.
-	if err := catalog.CheckEligibility(entitlement.ModelBoundaryFromContext(ctx), in.initialDecision.Model); err != nil {
+	if err := productEligibilityRefusal(ctx, entitlement.ModelBoundaryFromContext(ctx), in.initialDecision.Model); err != nil {
 		return -1, err
 	}
 	if len(in.bindings) == 0 {

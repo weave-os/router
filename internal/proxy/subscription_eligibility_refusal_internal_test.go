@@ -69,7 +69,7 @@ func TestDispatchRefusesAnIneligibleDecisionUnderEveryLaneMark(t *testing.T) {
 			anthropic := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{{writeBytes: []byte("served")}}}
 			svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: anthropic})
 			rec := httptest.NewRecorder()
-			in := plannedInputs(t.Context(), rec, newPreludeBuffer(rec), []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
+			in := plannedInputs(ctx, rec, newPreludeBuffer(rec), []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 			in.initialDecision = router.Decision{Model: catalog.ModelIDClaudeOpus48.String(), Provider: providers.ProviderAnthropic}
 
 			_, err := svc.dispatchWithFallback(entitlement.WithProductScope(ctx, entitlement.PlanMax), in)
@@ -78,5 +78,14 @@ func TestDispatchRefusesAnIneligibleDecisionUnderEveryLaneMark(t *testing.T) {
 			assert.Equal(t, refusal.ProductIneligible.Contract(), classifiedRefusal(t, err))
 			assert.Zero(t, anthropic.calls)
 		})
+	}
+}
+
+func TestEveryEligibilityVerdictSentinelClassifiesAsItsRefusedState(t *testing.T) {
+	for on, verdict := range subscriptionEligibilityVerdicts {
+		kind, refused := verdict.refused.Refusal()
+		require.True(t, refused, "%s", on)
+		assert.Equal(t, kind.Contract(), classifiedRefusal(t, verdict.sentinel), "%s", on)
+		assert.Equal(t, verdict.sentinel, subscriptionEligibilityRefusal(context.Background(), on), "%s", on)
 	}
 }

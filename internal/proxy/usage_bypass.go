@@ -488,7 +488,7 @@ func (s *Service) bypassToAnthropic(
 	// This lane skips routing entirely, so it needs its own product gate: a
 	// plan that does not sell this model must not serve it even on the
 	// caller's own subscription quota.
-	if err := catalog.CheckEligibility(entitlement.ModelBoundaryFromContext(ctx), decision.Model); err != nil {
+	if err := productEligibilityRefusal(ctx, entitlement.ModelBoundaryFromContext(ctx), decision.Model); err != nil {
 		return err
 	}
 	w.Header().Set(HeaderRouterDecision, decision.Reason)
@@ -508,7 +508,7 @@ func (s *Service) bypassToAnthropic(
 	// token the upstream call sends.
 	ctx = s.resolveCredentials(ctx, decision.Provider, decision.Model, r.Header)
 	if claudeEnterpriseOnly(ctx) && !servedOnSubscription(ctx) {
-		return ErrClaudeEnterpriseSubscriptionUnavailable
+		return claudeEnterpriseRefusal(ctx)
 	}
 
 	outputReserve := contextWindowOutputReserve

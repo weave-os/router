@@ -40,6 +40,9 @@ var transitions = [eventCount][pendingStateCount]Transition{
 	SubscriptionPoolUnavailable: {to(RefusedSubscriptionPoolUnavailable), to(RefusedSubscriptionPoolUnavailable), to(RefusedSubscriptionPoolUnavailable), to(RefusedSubscriptionPoolUnavailable)},
 	SubscriptionPoolThrottled:   {to(RefusedSubscriptionPoolThrottled), to(RefusedSubscriptionPoolThrottled), to(RefusedSubscriptionPoolThrottled), to(RefusedSubscriptionPoolThrottled)},
 	CallerPlanThrottled:         {to(RefusedSubscriptionPoolThrottled), to(RefusedSubscriptionPoolThrottled), to(RefusedSubscriptionPoolThrottled), to(RefusedSubscriptionPoolThrottled)},
+	ModelOutsidePlan:            {to(RefusedProductIneligible), to(RefusedProductIneligible), to(RefusedProductIneligible), to(RefusedProductIneligible)},
+	ClientAppRefused:            {to(RefusedSubscriptionClientApp), to(RefusedSubscriptionClientApp), to(RefusedSubscriptionClientApp), to(RefusedSubscriptionClientApp)},
+	ClaudeEnterpriseUnservable:  {to(RefusedClaudeEnterpriseOnly), to(RefusedClaudeEnterpriseOnly), to(RefusedClaudeEnterpriseOnly), to(RefusedClaudeEnterpriseOnly)},
 }
 
 func Lookup(from State, on Event) Transition {

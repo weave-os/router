@@ -2912,7 +2912,7 @@ func (s *Service) routeWithStrategy(ctx context.Context, strategy router.Strateg
 	// ineligible models, so this only catches a router that produced a model
 	// from somewhere other than the filtered pool (a pin, a fallback table, a
 	// deployed-set default). Refusing beats serving what the plan doesn't sell.
-	if err := catalog.CheckEligibility(req.ProductEligibility, decision.Model); err != nil {
+	if err := productEligibilityRefusal(ctx, req.ProductEligibility, decision.Model); err != nil {
 		return router.Decision{}, fmt.Errorf("strategy %q: %w", strategy, err)
 	}
 	if pin, pinned := router.HonouredPolicyPin(ctx); pinned && (decision.Metadata == nil || !decision.Metadata.PolicyPinHonoured) {
