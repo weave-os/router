@@ -3,9 +3,7 @@ package subscriptionlane
 type Allowance int
 
 const (
-	AllowanceUnscoped Allowance = iota
-	AllowanceNotSubscribed
-	AllowanceCovered
+	AllowanceUnspent Allowance = iota
 	AllowanceSixHourSpent
 	AllowanceWeeklySpent
 	AllowanceBillingSpent
@@ -15,29 +13,23 @@ const (
 type AllowanceEvent int
 
 const (
-	PlanScoped AllowanceEvent = iota
-	IncludedUsageCovered
-	SixHourWindowSpent
+	SixHourWindowSpent AllowanceEvent = iota
 	WeeklyWindowSpent
 	BillingWindowSpent
 	allowanceEventCount
 )
 
 var allowanceNames = [allowanceCount]string{
-	AllowanceUnscoped:      "AllowanceUnscoped",
-	AllowanceNotSubscribed: "AllowanceNotSubscribed",
-	AllowanceCovered:       "AllowanceCovered",
-	AllowanceSixHourSpent:  "AllowanceSixHourSpent",
-	AllowanceWeeklySpent:   "AllowanceWeeklySpent",
-	AllowanceBillingSpent:  "AllowanceBillingSpent",
+	AllowanceUnspent:      "AllowanceUnspent",
+	AllowanceSixHourSpent: "AllowanceSixHourSpent",
+	AllowanceWeeklySpent:  "AllowanceWeeklySpent",
+	AllowanceBillingSpent: "AllowanceBillingSpent",
 }
 
 var allowanceEventNames = [allowanceEventCount]string{
-	PlanScoped:           "PlanScoped",
-	IncludedUsageCovered: "IncludedUsageCovered",
-	SixHourWindowSpent:   "SixHourWindowSpent",
-	WeeklyWindowSpent:    "WeeklyWindowSpent",
-	BillingWindowSpent:   "BillingWindowSpent",
+	SixHourWindowSpent: "SixHourWindowSpent",
+	WeeklyWindowSpent:  "WeeklyWindowSpent",
+	BillingWindowSpent: "BillingWindowSpent",
 }
 
 type AllowanceTransition struct {
@@ -49,23 +41,15 @@ func toAllowance(a Allowance) AllowanceTransition {
 	return AllowanceTransition{Verdict: Allowed, To: a}
 }
 
-var allowanceRejected = AllowanceTransition{Verdict: Rejected}
-
 var allowanceTransitions = [allowanceEventCount][allowanceCount]AllowanceTransition{
-	PlanScoped:           {toAllowance(AllowanceNotSubscribed), toAllowance(AllowanceNotSubscribed), toAllowance(AllowanceCovered), toAllowance(AllowanceSixHourSpent), toAllowance(AllowanceWeeklySpent), toAllowance(AllowanceBillingSpent)},
-	IncludedUsageCovered: {allowanceRejected, toAllowance(AllowanceCovered), toAllowance(AllowanceCovered), allowanceRejected, allowanceRejected, allowanceRejected},
-	SixHourWindowSpent:   {allowanceRejected, toAllowance(AllowanceSixHourSpent), allowanceRejected, toAllowance(AllowanceSixHourSpent), toAllowance(AllowanceWeeklySpent), toAllowance(AllowanceBillingSpent)},
-	WeeklyWindowSpent:    {allowanceRejected, toAllowance(AllowanceWeeklySpent), allowanceRejected, toAllowance(AllowanceWeeklySpent), toAllowance(AllowanceWeeklySpent), toAllowance(AllowanceBillingSpent)},
-	BillingWindowSpent:   {allowanceRejected, toAllowance(AllowanceBillingSpent), allowanceRejected, toAllowance(AllowanceBillingSpent), toAllowance(AllowanceBillingSpent), toAllowance(AllowanceBillingSpent)},
+	SixHourWindowSpent: {toAllowance(AllowanceSixHourSpent), toAllowance(AllowanceSixHourSpent), toAllowance(AllowanceWeeklySpent), toAllowance(AllowanceBillingSpent)},
+	WeeklyWindowSpent:  {toAllowance(AllowanceWeeklySpent), toAllowance(AllowanceWeeklySpent), toAllowance(AllowanceWeeklySpent), toAllowance(AllowanceBillingSpent)},
+	BillingWindowSpent: {toAllowance(AllowanceBillingSpent), toAllowance(AllowanceBillingSpent), toAllowance(AllowanceBillingSpent), toAllowance(AllowanceBillingSpent)},
 }
 
 func (a Allowance) String() string { return allowanceNames[a] }
 
 func (e AllowanceEvent) String() string { return allowanceEventNames[e] }
-
-func (a Allowance) Covers() bool { return a == AllowanceCovered }
-
-func (a Allowance) Spent() bool { return a >= AllowanceSixHourSpent }
 
 func Allowances() []Allowance {
 	all := make([]Allowance, allowanceCount)
