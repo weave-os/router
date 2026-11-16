@@ -26,11 +26,6 @@ func EscalatingRescueGroups(selectedGroup, forcedGroup string, rankedFallback []
 	return groups
 }
 
-// RescueModelOrder lists the catalog models an in-turn rescue may fall back to
-// once the served model's bindings fail, in ranked-fallback order: each group's
-// effective arms (per-key allowlists applied, so a model the key excluded never
-// re-enters through a rescue) mapped back to catalog IDs, first occurrence wins.
-// Nil when the sidecar reports no ranked fallback.
 func RescueModelOrder(
 	overrides map[string][]string,
 	rankedFallback []PreviewGroup,
@@ -59,8 +54,6 @@ func RescueModelOrder(
 	return order
 }
 
-// RescueCoolingPool contains automatically excluded models that are still
-// request-eligible members of the selected and higher roster groups.
 func RescueCoolingPool(overrides map[string][]string, groups []PreviewGroup, resolved ResolvedCandidates) []string {
 	softExcluded := make(map[string]string)
 	softExcludedCatalog := make(map[string]struct{})

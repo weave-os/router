@@ -19,13 +19,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ---------------------------------------------------------------------------
-// 3. HTTP-level race
-// ---------------------------------------------------------------------------
-
-// httpRotateRace is the gin harness for checkHTTPRotateRace. It is built
-// outside any context-scoped function because gin handlers derive their
-// context from each request.
 type httpRotateRace struct {
 	n      int
 	repo   *postgres.Repository
@@ -58,7 +51,6 @@ func newHTTPRotateRace(pool *pgxpool.Pool) httpRotateRace {
 func checkHTTPRotateRace(ctx context.Context, race httpRotateRace) error {
 	n, repo, svc, engine := race.n, race.repo, race.svc, race.engine
 
-	// Admin cookie sessions operate on EnsureAdminInstallation's singleton.
 	install, err := svc.EnsureAdminInstallation(ctx)
 	if err != nil {
 		return fmt.Errorf("ensure admin installation: %w", err)
@@ -92,7 +84,7 @@ func checkHTTPRotateRace(ctx context.Context, race httpRotateRace) error {
 			<-start
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/admin/v1/keys/"+issued.ID+"/rotate", nil)
-			req.AddCookie(&http.Cookie{Name: auth.AdminSessionCookieName, Value: session})
+			req.AddCookie(&http.Cookie{Name: auth.AdminSessionCookieName, Value: session, Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 			engine.ServeHTTP(rec, req)
 			statusMu.Lock()
 			statuses[rec.Code]++
@@ -110,7 +102,6 @@ func checkHTTPRotateRace(ctx context.Context, race httpRotateRace) error {
 	if err != nil {
 		return fmt.Errorf("list keys: %w", err)
 	}
-	// Count only keys from this race (name match) — admin install may have leftovers.
 	activeNamed := 0
 	for _, k := range keys {
 		if k.Name != nil && *k.Name == name {

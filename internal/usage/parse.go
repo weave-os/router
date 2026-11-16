@@ -13,7 +13,6 @@ func count(field gjson.Result) Count {
 	return Reported(int(field.Int()))
 }
 
-// ParseAnthropic reads a Messages usage object, including rate modifiers.
 func ParseAnthropic(object gjson.Result) Facts {
 	if !object.IsObject() {
 		return Facts{}
@@ -29,8 +28,6 @@ func ParseAnthropic(object gjson.Result) Facts {
 	}
 }
 
-// ParseOpenAI reads Chat or Responses usage. Native shape fields take
-// precedence over compatibility aliases, including when they report zero.
 func ParseOpenAI(object gjson.Result) Facts {
 	if !object.IsObject() {
 		return Facts{}
@@ -66,8 +63,6 @@ func ParseOpenAI(object gjson.Result) Facts {
 	return f
 }
 
-// ParseGemini retains candidates and thoughts separately so partial cumulative
-// snapshots can update either count without erasing the other.
 func ParseGemini(object gjson.Result) Facts {
 	if !object.IsObject() {
 		return Facts{}

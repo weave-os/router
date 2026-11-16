@@ -31,14 +31,13 @@ var globalLoggerBudget = map[string]int{
 
 	// The exporter itself: logging its own transport failures. A ctx here
 	// would be the export's, not the request's.
-	"internal/observability/otel": 8,
+	"internal/observability/otel": 6,
 	"internal/observability/apm":  1,
 
 	// Background Pub/Sub listeners; no inbound request.
 	"internal/pubsub": 4,
 
-	// Fire-and-forget writebacks (SafeGo) + a pure predicate. Documented in
-	// root CLAUDE.md as the off-request-path exception.
+	// Fire-and-forget writebacks (SafeGo) + a pure predicate.
 	"internal/proxy": 4,
 	"internal/auth":  2,
 

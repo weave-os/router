@@ -534,3 +534,30 @@ func TestPassthrough_ErrorStatusLogsThroughContextLogger(t *testing.T) {
 	assert.Contains(t, logs.String(), `"request_id":"req-bound"`)
 	assert.Contains(t, logs.String(), `"status":400`)
 }
+
+func TestProxy_BYOKModelAliasOverridesCatalogModelIDMap(t *testing.T) {
+	var gotModel string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var parsed map[string]any
+		assert.NoError(t, json.Unmarshal(body, &parsed))
+		gotModel, _ = parsed["model"].(string)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-1","object":"chat.completion"}`))
+	}))
+	defer upstream.Close()
+
+	c := openaicompat.NewClientWithModelIDMap("deployment-key", upstream.URL, map[string]string{"z-ai/glm-5.2": "glm-5.2"})
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
+		APIKey:       []byte("byok-key"),
+		Source:       "byok",
+		ModelAliases: map[string]string{"z-ai/glm-5.2": "customer-glm"},
+	})
+	body := []byte(`{"model":"z-ai/glm-5.2","messages":[{"role":"user","content":"hi"}]}`)
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+
+	err := c.Proxy(ctx, router.Decision{Model: "z-ai/glm-5.2"}, providers.PreparedRequest{Body: body, Headers: make(http.Header)}, httptest.NewRecorder(), clientReq)
+
+	require.NoError(t, err)
+	assert.Equal(t, "customer-glm", gotModel, "the BYOK endpoint alias must override the deployment catalog mapping")
+}

@@ -15,6 +15,7 @@ This page is the exhaustive reference; the [README](../README.md) has the
 - [Server](#server)
 - [Managed serving (`ROUTER_SERVING_*`)](#managed-serving-router_serving_)
 - [Routing](#routing)
+- [Per-organization flag overrides](#per-organization-flag-overrides)
 - [Plan-aware subscription routing](#plan-aware-subscription-routing)
 - [Provider and model exclusions](#provider-and-model-exclusions)
 - [Policy sidecars](#policy-sidecars)
@@ -65,6 +66,11 @@ Claude Code keep using the user's logged-in plan.
 | `OPENAI_GATEWAY_TOKEN`       | *(none)*                                           | Token for that gateway, sent as `Authorization: Bearer`. Only used when `OPENAI_GATEWAY_BASE_URL` is also set. |
 | `WAFER_API_KEY`   | *(none)*                                                  | Enables Wafer Serverless (both its OpenAI-compatible `wafer` and Anthropic-compatible `wafer_anthropic` surfaces; one key covers both). |
 | `WAFER_BASE_URL`  | `https://pass.wafer.ai/v1`                                | Override for the Wafer OpenAI-compatible endpoint (`wafer_anthropic` uses the fixed `/v1/messages` endpoint). |
+| `AWS_BEARER_TOKEN_BEDROCK` | *(none)* | Enables Bedrock through its OpenAI-compatible `bedrock-mantle` surface, which AWS recommends over `bedrock-runtime` for OpenAI-format traffic. The value is a long-term Bedrock API key sent as a bearer token, not SigV4 access keys. Model IDs are rewritten to Bedrock's dot form from the catalog. |
+| `AWS_REGION` | `us-east-1` | Region of the default Bedrock endpoint, `https://bedrock-mantle.<region>.api.aws/v1`. |
+| `BEDROCK_BASE_URL` | regional default | Override the Bedrock endpoint. |
+| `ROUTER_GROK_HEADER_TIMEOUT_SECONDS` | `90` | Time-to-first-byte guard for Grok models on OpenAI-compatible upstreams (30s for every other model). Snowflake Cortex prefill can push Grok's first byte past 30s; stream inactivity stays bounded by the SSE idle watchdog. |
+| `ROUTER_ANTHROPIC_LARGE_PROMPT_HEADER_TIMEOUT_SECONDS` | `120` | Time-to-first-byte guard for Anthropic Messages request bodies over 1 MiB (30s for smaller bodies). Anthropic withholds response headers until prefill completes, even when streaming, and cache-miss prefill near the 1M-token window can run past 30s. Dead connections are still caught by the HTTP/2 keepalive PING and stream inactivity by the SSE idle watchdog. |
 
 **Anthropic-compatible gateway.** Some enterprises front Claude with their own
 gateway that speaks the Anthropic Messages spec but authenticates with a bearer
@@ -553,6 +559,10 @@ Set `DATABASE_URL` directly, or compose it from the individual vars:
 | `POSTGRES_PORT`            | `5432`                            | Port. |
 | `POSTGRES_SSLMODE`         | `require`                         | TLS mode. Use `disable` for local Docker. |
 | `POSTGRES_CONNECTION_NAME` | *(none)*                          | Cloud SQL Auth Proxy instance connection name. |
+| `POSTGRES_CLIENT_CERT`     | *(none)*                          | PEM client certificate for mutual TLS. Set with `POSTGRES_CLIENT_KEY` and `POSTGRES_SERVER_CA_CERT`, or none of them. Required by Cloud SQL instances in `TRUSTED_CLIENT_CERTIFICATE_REQUIRED` mode. |
+| `POSTGRES_CLIENT_KEY`      | *(none)*                          | PEM private key for `POSTGRES_CLIENT_CERT`. |
+| `POSTGRES_SERVER_CA_CERT`  | *(none)*                          | PEM CA the server certificate must chain to. Cloud SQL certificates name the instance, not the dialed IP, so the chain is checked instead of the hostname, and pgx's sslmode fallbacks are disabled. |
+| `POSTGRES_SERVER_NAME`     | *(none)*                          | Identity (subject CN or DNS SAN) the server certificate must carry, e.g. the instance connection name. Set it whenever the CA signs more than one endpoint. |
 
 ## Server
 
@@ -561,9 +571,18 @@ Set `DATABASE_URL` directly, or compose it from the individual vars:
 | `PORT`                   | `8080`       | HTTP listen port. |
 | `ROUTER_DEPLOYMENT_MODE` | `selfhosted` | `selfhosted` mounts `/ui/*` and `/admin/v1/*`. `managed` skips both (for SaaS deployments with a separate admin UI). |
 | `ROUTER_ADMIN_PASSWORD`  | *(none)*     | Dashboard password. When unset, inference stays available but dashboard login and management endpoints return `admin_login_disabled`. |
+| `ROUTER_COOKIE_INSECURE` | `false`      | Set to `true` only for plain-HTTP local development; otherwise the admin session cookie is always `Secure`, `HttpOnly` and `SameSite=Lax`. |
 | `ROUTER_RESTRICT_UPSTREAM_EGRESS` | follows `ROUTER_DEPLOYMENT_MODE` | When true, provider adapters refuse to dial an upstream that resolves outside the public internet (loopback, private, link-local, CGNAT). Defaults to true in `managed` mode and false in `selfhosted`, where pointing a provider at an in-cluster or loopback gateway is normal. While on, provider adapters also ignore `HTTP_PROXY`/`HTTPS_PROXY`, since a proxied connection makes the destination unverifiable. |
 | `ROUTER_INFERENCE_ORGANIZATION_ALLOWLIST` | *(none)* | Comma-separated organization IDs (installation external IDs) allowed to authenticate. When set, router keys and session tokens for any other organization get `403 organization_not_allowed` before routing or dispatch. Signed internal test plans are exempt. Use it on shared non-production deployments so self-serve signups cannot spend provider keys. |
 | `ROUTER_MODEL_DISCOVERY_PRIVATE_ORIGINS` | *(none)* | Comma-separated exact origins allowed to use private addresses for model discovery (for example, `https://gateway.internal:8443`). Discovery always blocks non-public destinations otherwise and always ignores ambient proxies, regardless of `ROUTER_RESTRICT_UPSTREAM_EGRESS`. Entries may contain only scheme, host, and port; paths, wildcards, and CIDRs are rejected at startup. |
+
+### Admin authentication
+
+- Inference routes accept a router key (`rk_` as a bearer token, `x-api-key` or the router key header) or a delegated session token, never the admin cookie. `/v1/analytics/*` takes only `ra_` analytics keys, and public discovery routes such as `/v1/version` need no key.
+- Read-only `/admin/v1/*` routes accept the admin cookie or a router key. A missing, stale or tampered cookie falls through to router-key auth.
+- Control-plane mutations (minting or rotating keys, provider credentials) require the admin cookie; a leaked router key is rejected.
+- Login is throttled per immediate TCP peer, not `X-Forwarded-For`, so rotating that header cannot bypass the failure limit.
+- Router-key routes scope every lookup to the key's installation; an ID from another installation answers `404`, the same as an unknown ID.
 
 ## Managed serving (`ROUTER_SERVING_*`)
 
@@ -616,6 +635,17 @@ The `policyctl serving` runner and worker fleets must also share `PUBSUB_PROJECT
 and `PUBSUB_TOPIC_ROUTER_POLICY_INVALIDATION` so activation invalidations reach
 the admission caches using the same Pub/Sub project and topic.
 
+Cache invalidation is a broadcast: each replica creates its own subscription
+(with an expiration TTL that reclaims subscriptions leaked by a crashed replica)
+because a shared subscription would load-balance messages and leave other
+replicas stale. Shutdown deletes the replica's subscription even after the
+serving context is canceled. Publishing is fire-and-forget: a lost message is
+recovered by the cache TTL, never by blocking the request that changed state.
+Publishers must be stopped at shutdown; closing the client does not flush them.
+Autopay recharge signals follow the same rule: the debit has already committed,
+so a failed publish is logged and dropped, and the control plane's reconciliation
+sweep backstops any lost signal.
+
 ## Routing
 
 | Variable                          | Default                      | Purpose |
@@ -638,7 +668,7 @@ the admission caches using the same Pub/Sub project and topic.
 | `ROUTER_ESCALATION_JUDGE_ENABLED` | `false` | Enables the optional Weave-funded Switchyard LLM judge and requires `FIREWORKS_API_KEY`. The judge uses only the Fireworks binding for `z-ai/glm-5.3-flash`. |
 | `ROUTER_ESCALATION_SHADOW_CLASSIFIER_DEFAULT` | `none` | Shadow classifier (`llm_escalation` or `switchyard_llm_v1`) for installations with no escalation selection and no active classifier. `switchyard_llm_v1` requires `ROUTER_ESCALATION_JUDGE_ENABLED=true`; `llm_escalation` requires `ROUTER_LLM_ESCALATION_URL` and `ROUTER_LLM_ESCALATION_API_KEY`; startup fails otherwise. Shadow judging uses its own pool of 8 slots per instance. Each successful verdict is written to the judge's auxiliary telemetry row (`classifier_predicted_label`); failed judgments keep their cost row with no label. |
 | `ROUTER_ESCALATION_JUDGE_ACTIVE_ENABLED` | `false` | Allows `switchyard_llm_v1` to be selected as the active classifier. Keep false during shadow evaluation; requires `ROUTER_ESCALATION_JUDGE_ENABLED=true`. |
-| `ROUTER_PROVIDER_OVERLOADED`      | `true`                       | Per-model 529 circuit breaker. Provider-direct overloaded responses from every organization feed one shared circuit per model (3 overloaded operations within 2 minutes open it); once it opens, the model leaves automatic selection only for organizations that have each observed 2 overloads themselves. Traffic through an organization's own gateway gets a circuit of its own that no other organization feeds or sees. `/force-model` still reaches the model, and one request probes it after 30s, doubling to a 10-minute cap on each failed probe. Thresholds are fixed in `internal/router/breaker/thresholds.go`. Org-overridable as `provider_overloaded`. |
+| `ROUTER_PROVIDER_OVERLOADED`      | `true`                       | Per-model 529 circuit breaker. Provider-direct overloaded responses from every organization feed one shared circuit per model (3 overloaded operations within 2 minutes open it); once it opens, the model leaves automatic selection only for organizations that have each observed 2 overloads themselves. Traffic through an organization's own gateway gets a circuit of its own that no other organization feeds or sees. `/force-model` still reaches the model, and one request probes it after 30s, doubling to a 10-minute cap on each failed probe. Retries on the same binding count as one overloaded operation, and a claimed probe holds the slot for up to 15 minutes (a long streamed turn) before another request may claim it. Thresholds are fixed in `internal/router/breaker/thresholds.go` rather than configurable, because every replica pools organizations' evidence about the same provider and a per-deployment knob would only let replicas disagree; change them there, with a test, when production evidence says so. Org-overridable as `provider_overloaded`. |
 
 If the routing policy can't decide (sidecar unavailable, invalid decision,
 etc.), the router returns HTTP 503 — it does *not* silently fall back to a
@@ -686,6 +716,25 @@ turn was already served by one of these models.
 the installation's flag overrides (no environment variable), default `false`. When on, authoritative per-turn selection
 scores only the first call after a user message; that turn's tool-result calls
 reuse the session pin unless escalation constrains the request.
+
+## Per-organization flag overrides
+
+`internal/flags` layers a sparse per-organization override on top of each
+behavioral flag's deployment default, so a flag can be piloted or disabled for
+one installation without a global rollout. Precedence at a read site is header
+override, then organization override, then deployment default.
+
+- A flag `Key` is the JSON object key in the installation's `flag_overrides`
+  column and the primary key in `router.flag_definitions`; renaming one orphans
+  existing overrides.
+- A retired key stays parse-only, so an installation row written by an older
+  revision cannot invalidate unrelated overrides during a rolling deploy. It is
+  never registered, published, or read by routing code.
+- `flags.RegistryVersion` changes whenever registry membership changes. Publish
+  uses it so a revision with an older registry cannot prune definitions
+  published by a newer one.
+- `hmm_tool_result_hold` is an eval control owned by router policy: promote or
+  remove it after the escalation benchmark comparison.
 
 ## Plan-aware subscription routing
 
@@ -1006,6 +1055,13 @@ asking for `full` under a `hashed` deployment still gets `hashed`.
 | `OTEL_BSP_MAX_EXPORT_BATCH_SIZE` | `50`         | Max spans per OTLP POST. |
 | `OTEL_BSP_SCHEDULE_DELAY`        | `500`        | Partial-batch flush interval in ms. |
 | `OTEL_EXPORT_WORKERS`            | `2`          | Export-goroutine count (spans and logs each get this many workers). |
+
+APM (HTTP server spans and Go runtime metrics, independent of the emitter above):
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `WV_APM_OTLP_ENDPOINT` | *(disabled)* | OTLP/gRPC `host:port`. W3C trace context still propagates when unset. Health probes and `/validate` are not traced. |
+| `WV_APM_OTLP_INSECURE` | `false` | Plaintext gRPC. TLS is the default because span attributes carry key IDs, models and decision reasons; enable only on trusted networks. |
 
 The first five follow the [OTel SDK env spec](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/);
 `OTEL_BSP_*` follows the [Batch Span Processor spec](https://opentelemetry.io/docs/specs/otel/trace/sdk/#batch-span-processor).

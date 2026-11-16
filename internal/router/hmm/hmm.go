@@ -1,7 +1,3 @@
-// Package hmm delegates model selection to a policy sidecar.
-//
-// The router builds the eligible candidate set from its catalog, delegates the
-// choice, and dispatches through its normal provider machinery.
 package hmm
 
 import (
@@ -32,11 +28,6 @@ func New(decider Decider, availableProviders map[string]struct{}) *Router {
 	return NewForStrategy(router.StrategyHMM, decider, availableProviders)
 }
 
-// NewForStrategy constructs an HMM adapter with a separately selectable
-// strategy ID while preserving the HMM roster mapping and lifecycle behavior.
-// Its candidate universe comes from the catalog and registered providers; the
-// HMM sidecar owns roster membership and intersects these candidates with the
-// selected cluster's arms.
 func NewForStrategy(strategy router.Strategy, decider Decider, availableProviders map[string]struct{}) *Router {
 	return newWithRoutingTargets(
 		strategy,
@@ -46,7 +37,6 @@ func NewForStrategy(strategy router.Strategy, decider Decider, availableProvider
 	)
 }
 
-// newWithRoutingTargets allows focused tests to inject a fixed target set.
 func newWithRoutingTargets(strategy router.Strategy, decider Decider, routingTargets, availableProviders map[string]struct{}) *Router {
 	resolver := policy.NewResolver(routingTargets, availableProviders, rosterIDFor, policy.ManagedProviderPolicy())
 	return &Router{
@@ -75,11 +65,6 @@ func reasonFor(res Result) string {
 
 func isToolExecutionResult(res Result) bool {
 	group := strings.TrimSpace(strings.ToLower(res.PolicyGroup))
-	// "explore" is the retired five-class label (roster_v2, still the pinned
-	// prod package); "low" is its four-class successor (roster_v4) that the
-	// retired explore cluster was merged into. Both carry the same
-	// tool-execution semantics, so both must be recognized during the
-	// migration window where either package can be deployed.
 	if group == "explore" || group == "low" {
 		return true
 	}

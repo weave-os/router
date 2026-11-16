@@ -1,7 +1,7 @@
 package translate
 
 import (
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -78,8 +78,8 @@ func clampOpenAIToolCallID(id string) string {
 	if len(cleanID) <= maxToolCallIDLen {
 		return cleanID
 	}
-	sum := sha1.Sum([]byte(cleanID))
-	return "tc_" + hex.EncodeToString(sum[:])
+	sum := sha256.Sum256([]byte(cleanID))
+	return "tc_" + hex.EncodeToString(sum[:20])
 }
 
 func hasNonEmptyTools(body []byte) bool {
@@ -223,7 +223,7 @@ func applySessionAffinity(body []byte, headers http.Header, opts EmitOptions) ([
 // cacheable prefix, so prefix-less requests stay unhinted rather than all
 // hashing to the same synthetic key.
 func stablePromptCacheKey(body []byte) string {
-	h := sha1.New()
+	h := sha256.New()
 	var hasPrefix bool
 	gjson.GetBytes(body, "messages").ForEach(func(_, msg gjson.Result) bool {
 		if msg.Get("role").String() == "system" {
@@ -244,7 +244,7 @@ func stablePromptCacheKey(body []byte) string {
 	if !hasPrefix {
 		return ""
 	}
-	return "wv_" + hex.EncodeToString(h.Sum(nil))
+	return "wv_" + hex.EncodeToString(h.Sum(nil)[:20])
 }
 
 func (e *RequestEnvelope) buildOpenAIFromOpenAI(opts EmitOptions) ([]byte, error) {
@@ -1073,7 +1073,7 @@ func appendSchemaConstraintDescription(node map[string]any, key string, value an
 	// schema — description included — so verbatim patterns in description text
 	// cause "Conflict in schema definitions" 400s. Hashing also prevents leak.
 	raw := compactJSONValue(value)
-	fingerprint := sha1.Sum([]byte(key + "|" + raw))
+	fingerprint := sha256.Sum256([]byte(key + "|" + raw))
 	note := fmt.Sprintf("(%s constraint %s)", key, hex.EncodeToString(fingerprint[:4]))
 	if desc, _ := node["description"].(string); desc != "" {
 		node["description"] = desc + " " + note

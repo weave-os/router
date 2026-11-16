@@ -1,5 +1,3 @@
-// Command llm_escalation_state_check verifies durable async judge fencing.
-// Run against a migrated disposable database with ROUTER_TEST_DATABASE_URL.
 package main
 
 import (
