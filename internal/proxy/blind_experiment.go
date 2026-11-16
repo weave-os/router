@@ -147,11 +147,6 @@ const (
 	callerRoutingSourceClientModel   callerRoutingSource = "client_model"
 )
 
-// callerRoutingState mirrors withUserSettings precedence: an explicit routing
-// policy suppresses the blind experiment, which otherwise decides the arm. A
-// client-picked model is attributed to the client only when no experiment
-// assigned the state: during an active experiment the pick is kept only on the
-// passthrough arm, so the experiment's control group must stay labeled as such.
 func callerRoutingState(ctx context.Context) (passthrough bool, source callerRoutingSource) {
 	mode := auth.RoutingPolicyFrom(ctx).Mode
 	if mode == auth.RoutingPolicyPassthrough || mode == auth.RoutingPolicyAssigned {
