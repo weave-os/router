@@ -673,12 +673,11 @@ func anthropicContentHasContainerUpload(content gjson.Result) bool {
 }
 
 func buildOpenAIFilePartFromBase64PDFDocument(block gjson.Result) string {
-	src := block.Get("source")
-	if src.Get("type").String() != "base64" {
+	if block.Get("source.type").String() != "base64" {
 		return ""
 	}
-	mediaType := src.Get("media_type").String()
-	data := src.Get("data").String()
+	mediaType := block.Get("source.media_type").String()
+	data := block.Get("source.data").String()
 	if mediaType != "application/pdf" || data == "" {
 		return ""
 	}
