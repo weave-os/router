@@ -663,41 +663,6 @@ func collectOpenAIMessagesFromAnthropicUserBlocks(content gjson.Result) (toolRes
 	return toolResultRaws, userPartRaws
 }
 
-func anthropicContentHasContainerUpload(content gjson.Result) bool {
-	found := false
-	content.ForEach(func(_, block gjson.Result) bool {
-		found = block.Get("type").String() == "container_upload"
-		return !found
-	})
-	return found
-}
-
-func buildOpenAIFilePartFromBase64PDFDocument(block gjson.Result) string {
-	if block.Get("source.type").String() != "base64" {
-		return ""
-	}
-	mediaType := block.Get("source.media_type").String()
-	data := block.Get("source.data").String()
-	if mediaType != "application/pdf" || data == "" {
-		return ""
-	}
-	inner := newJSONWriter()
-	inner.Obj()
-	inner.Key("type")
-	inner.Str("file")
-	inner.Key("file")
-	inner.Obj()
-	inner.Key("file_data")
-	inner.Str("data:" + mediaType + ";base64," + data)
-	if title := block.Get("title").String(); title != "" {
-		inner.Key("filename")
-		inner.Str(title)
-	}
-	inner.EndObj()
-	inner.EndObj()
-	return string(inner.Bytes())
-}
-
 func buildOpenAIToolResultMessage(block gjson.Result) string {
 	inner := newJSONWriter()
 	inner.Obj()
@@ -707,43 +672,6 @@ func buildOpenAIToolResultMessage(block gjson.Result) string {
 	inner.Str(clampOpenAIToolCallID(block.Get("tool_use_id").String()))
 	inner.Key("content")
 	inner.Str(toolResultContentGJSON(block.Get("content")))
-	inner.EndObj()
-	return string(inner.Bytes())
-}
-
-func buildOpenAIImagePart(block gjson.Result) string {
-	src := block.Get("source")
-	if !src.Exists() {
-		return ""
-	}
-	inner := newJSONWriter()
-	inner.Obj()
-	inner.Key("type")
-	inner.Str("image_url")
-	inner.Key("image_url")
-	inner.Obj()
-	inner.Key("url")
-	switch src.Get("type").String() {
-	case "base64":
-		mediaType := src.Get("media_type").String()
-		if mediaType == "" {
-			mediaType = "image/jpeg"
-		}
-		data := src.Get("data").String()
-		if data == "" {
-			return ""
-		}
-		inner.Str("data:" + mediaType + ";base64," + data)
-	case "url":
-		urlStr := src.Get("url").String()
-		if urlStr == "" {
-			return ""
-		}
-		inner.Str(urlStr)
-	default:
-		return ""
-	}
-	inner.EndObj()
 	inner.EndObj()
 	return string(inner.Bytes())
 }

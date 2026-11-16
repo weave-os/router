@@ -231,22 +231,8 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "warn",
 			LogMessage: "Rejected request: Chat Completions body posted to /v1/responses",
 		}, true
-	case errors.Is(err, translate.ErrAnthropicCacheControlOverflow), errors.Is(err, translate.ErrAnthropicCacheControlInvalid):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorAnthropicCacheControlInvalid,
-			Status:     http.StatusBadRequest,
-			Message:    unwrapToSentinelMessage(err),
-			LogLevel:   "warn",
-			LogMessage: "Rejected request: invalid Anthropic cache_control",
-		}, true
-	case errors.Is(err, translate.ErrUntranslatableUserContent):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorUntranslatableUserContent,
-			Status:     http.StatusBadRequest,
-			Message:    "The request contains a content part that cannot be sent to the selected provider: " + unwrapToSentinelMessage(err) + ". Remove the part or pick a provider that accepts it.",
-			LogLevel:   "warn",
-			LogMessage: "Rejected request: untranslatable user content part",
-		}, true
+	case errors.Is(err, translate.ErrAnthropicCacheControlOverflow), errors.Is(err, translate.ErrAnthropicCacheControlInvalid), errors.Is(err, translate.ErrUntranslatableUserContent):
+		return translatedRequestRejectionClass(err), true
 	case errors.Is(err, ErrTranslationIntrinsicallyIncompatible):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorTranslationIntrinsicallyIncompatible,
@@ -379,6 +365,25 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 		}, true
 	default:
 		return DispatchErrorClass{}, false
+	}
+}
+
+func translatedRequestRejectionClass(err error) DispatchErrorClass {
+	if errors.Is(err, translate.ErrAnthropicCacheControlOverflow) || errors.Is(err, translate.ErrAnthropicCacheControlInvalid) {
+		return DispatchErrorClass{
+			Kind:       DispatchErrorAnthropicCacheControlInvalid,
+			Status:     http.StatusBadRequest,
+			Message:    unwrapToSentinelMessage(err),
+			LogLevel:   "warn",
+			LogMessage: "Rejected request: invalid Anthropic cache_control",
+		}
+	}
+	return DispatchErrorClass{
+		Kind:       DispatchErrorUntranslatableUserContent,
+		Status:     http.StatusBadRequest,
+		Message:    "The request contains a content part that cannot be sent to the selected provider: " + unwrapToSentinelMessage(err) + ". Remove the part or pick a provider that accepts it.",
+		LogLevel:   "warn",
+		LogMessage: "Rejected request: untranslatable user content part",
 	}
 }
 
