@@ -315,24 +315,6 @@ func (e *IncludedAllowanceSpentError) Error() string {
 
 func (e *IncludedAllowanceSpentError) Unwrap() error { return e.orgGate }
 
-func subscriptionOnlyUnavailable(ctx context.Context) error {
-	orgGate := ErrCreditsExhaustedSubscriptionUnavailable
-	if reason, _ := billing.SubscriptionOnlyReasonFromContext(ctx); reason == billing.SubscriptionOnlySpendCapReached {
-		orgGate = ErrSpendCapSubscriptionUnavailable
-	}
-	if window, spent := entitlement.SpentWindowFromContext(ctx); spent {
-		return &IncludedAllowanceSpentError{Window: window, orgGate: orgGate}
-	}
-	return orgGate
-}
-
-func subscriptionPoolExhausted(ctx context.Context) error {
-	if reason, ok := billing.SubscriptionOnlyReasonFromContext(ctx); ok && reason != billing.SubscriptionOnlyLinkedFirst {
-		return errors.Join(subscriptionOnlyUnavailable(ctx), ErrSubscriptionPoolExhausted)
-	}
-	return ErrSubscriptionPoolExhausted
-}
-
 var errBypassRetryable = errors.New("usage bypass: retryable error, fall back to routed dispatch")
 
 func (s *Service) bypassToAnthropic(
