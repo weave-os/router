@@ -7,31 +7,16 @@ import (
 	"weave-os/router/internal/router/catalog"
 )
 
-// BindingRequest carries the request facts OrderedBindings needs to choose
-// which provider bindings one decision may walk.
 type BindingRequest struct {
-	Decision router.Decision
-	// DeploymentKeyedProviders is nil when the
-	// request may not fail over (caller credentials, failover disabled, or
-	// the legacy all-registered mode), which serves the decision's provider only.
+	Decision                 router.Decision
 	DeploymentKeyedProviders map[string]struct{}
-	// SubscriptionServes reports that a linked subscription serves the
-	// decision's provider natively without a deployment key.
-	SubscriptionServes bool
-	// Excluded lists the providers this request may not reach.
-	Excluded   map[string]struct{}
-	ImageCount int
-	// UserForced reports a /force-model decision (any forced reason), which
-	// keeps an image-capped binding instead of failing.
-	UserForced bool
-	// ForceModel reports the plain /force-model reason, which never falls
-	// back to an unbound provider for a known catalog model.
-	ForceModel bool
+	SubscriptionServes       bool
+	Excluded                 map[string]struct{}
+	ImageCount               int
+	UserForced               bool
+	ForceModel               bool
 }
 
-// OrderedBindings returns the ordered binding list to walk. With no failover
-// it returns a single-element slice carrying the decision's provider, and nil
-// when no binding may serve the decision.
 func OrderedBindings(req BindingRequest) []catalog.ProviderBinding {
 	decision := req.Decision
 	primary := catalog.ProviderBinding{Provider: decision.Provider}
@@ -54,9 +39,6 @@ func OrderedBindings(req BindingRequest) []catalog.ProviderBinding {
 	}
 	if len(bindings) == 0 {
 		if primaryExcluded {
-			// Decision names an excluded provider with no other bindings (a
-			// bug upstream) — return nil so dispatch 502s instead of
-			// dispatching to the forbidden provider.
 			return nil
 		}
 		if req.ForceModel {
@@ -81,12 +63,6 @@ func OrderedBindings(req BindingRequest) []catalog.ProviderBinding {
 	return withPrimaryFirst(bindings, primary, primaryExcluded)
 }
 
-// eligibleProviders narrows the keyed providers to the ones this request may
-// reach. A linked subscription makes the selected native binding available
-// without a deployment API key; lease/funding guards still control
-// subscription exhaustion and fallback. Exclusions must hold during failover
-// too, or a fallback binding could resurrect a provider the scorer already
-// filtered out.
 func eligibleProviders(req BindingRequest) map[string]struct{} {
 	available := req.DeploymentKeyedProviders
 	if req.SubscriptionServes {
@@ -105,10 +81,6 @@ func eligibleProviders(req BindingRequest) map[string]struct{} {
 	return filtered
 }
 
-// imageCapableBindings drops bindings whose per-request image cap is below
-// the request's image count, reporting whether that dropped the decision's
-// own provider. ok is false when the cap leaves nothing to serve; a forced
-// decision instead keeps every binding.
 func imageCapableBindings(indexedBindings []catalog.IndexedBinding, req BindingRequest) (_ []catalog.IndexedBinding, primaryExcluded, ok bool) {
 	if req.ImageCount <= 0 {
 		return indexedBindings, false, true
@@ -134,10 +106,6 @@ func imageCapableBindings(indexedBindings []catalog.IndexedBinding, req BindingR
 	return nil, false, false
 }
 
-// withPrimaryFirst keeps the decision's provider first. Defensive: if the
-// runtime decision's provider differs from bindings[0], keep the decision's
-// as primary and dedupe the rest — unless it's excluded, in which case serve
-// only eligible bindings.
 func withPrimaryFirst(bindings []catalog.ProviderBinding, primary catalog.ProviderBinding, primaryExcluded bool) []catalog.ProviderBinding {
 	if len(bindings) == 1 && !primaryExcluded {
 		return []catalog.ProviderBinding{primary}
