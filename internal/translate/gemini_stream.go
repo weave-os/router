@@ -14,9 +14,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// GeminiToOpenAISSETranslator translates Gemini :streamGenerateContent SSE into
-// OpenAI chat.completion.chunk on the fly, chaining with an inner AnthropicSSETranslator
-// for Anthropic-inbound requests.
 type GeminiToOpenAISSETranslator struct {
 	providerUsageState
 	inner   http.ResponseWriter
@@ -38,19 +35,13 @@ type GeminiToOpenAISSETranslator struct {
 	lifecycle       *StreamLifecycle
 	toolLedger      *ToolCallLedger
 	toolSourceIndex int
-	// pendingSig is a thoughtSignature from a text part with no functionCall
-	// sibling, held for the next tool_call chunk.
-	pendingSig string
+	pendingSig      string
 
 	usageSink UsageSink
 
-	// onOutputProgress, set via ArmOutputProgress, fires on output-bearing events
-	// (text delta, tool-call chunk, finish) to feed the output-progress watchdog.
-	// nil disables it.
 	onOutputProgress func()
 }
 
-// NewGeminiToOpenAISSETranslator wraps w. Call Finalize after upstream returns.
 func NewGeminiToOpenAISSETranslator(w http.ResponseWriter, model string, sink UsageSink) *GeminiToOpenAISSETranslator {
 	flusher, _ := w.(http.Flusher)
 	return &GeminiToOpenAISSETranslator{
@@ -66,10 +57,6 @@ func NewGeminiToOpenAISSETranslator(w http.ResponseWriter, model string, sink Us
 	}
 }
 
-// ArmOutputProgress installs mark to fire on output-bearing events (not on
-// role-only, usage-only, or [DONE] frames). Returns false if not streaming,
-// since the buffered path only translates at Finalize and would false-trip a
-// watchdog. Call after WriteHeader, which sets the streaming flag.
 func (t *GeminiToOpenAISSETranslator) ArmOutputProgress(mark func()) (armed bool) {
 	if !t.streaming {
 		return false
@@ -120,8 +107,6 @@ func (t *GeminiToOpenAISSETranslator) Flush() {
 	}
 }
 
-// Finalize flushes non-streaming responses. Streaming success requires an
-// explicit Gemini finishReason; EOF alone is an incomplete upstream stream.
 func (t *GeminiToOpenAISSETranslator) Finalize() error {
 	if t.streaming {
 		if t.closed {
@@ -211,9 +196,6 @@ func (t *GeminiToOpenAISSETranslator) translateEvent(raw []byte) error {
 				if sig == "" && t.pendingSig != "" {
 					sig = t.pendingSig
 				} else if sig != "" {
-					// Latch it: Gemini 3.x rejects next-turn requests missing a
-					// thoughtSignature on any functionCall, but only the first
-					// part in a turn carries one.
 					t.pendingSig = sig
 				}
 				call := t.toolLedger.Close(t.toolSourceIndex, generateToolCallID(), name, argsRaw).Accept(nil)
@@ -256,7 +238,6 @@ func (t *GeminiToOpenAISSETranslator) translateEvent(raw []byte) error {
 		return t.emitDone()
 	}
 	if facts.Present {
-		// Gemini can send usage in a trailing chunk with no finishReason.
 		if err := t.emitUsageOnlyChunk(facts); err != nil {
 			return err
 		}
@@ -280,10 +261,6 @@ func (t *GeminiToOpenAISSETranslator) emitTextDelta(text string) error {
 	return t.flushEvent()
 }
 
-// emitToolCallChunk emits an OpenAI tool_calls delta with the full arguments
-// JSON in one chunk. The Gemini thoughtSignature is smuggled into the tool-call
-// id (embedSignatureInID) so it replays on the next request without an
-// off-spec field that typed SDKs drop and Anthropic upstreams reject.
 func (t *GeminiToOpenAISSETranslator) emitToolCallChunk(idx int, callID, name, argsRaw, sig string) error {
 	if err := t.ensureStarted(); err != nil {
 		return err
@@ -301,7 +278,6 @@ func (t *GeminiToOpenAISSETranslator) emitToolCallChunk(idx int, callID, name, a
 	t.bw.WriteString(`,"type":"function","function":{"name":`)
 	sse.WriteJSONString(t.bw, name)
 	t.bw.WriteString(`,"arguments":`)
-	// arguments must be a JSON-encoded string in OpenAI's wire format.
 	sse.WriteJSONString(t.bw, argsRaw)
 	t.bw.WriteString(`}}]},"finish_reason":null}]}`)
 	t.bw.WriteString("\n\n")

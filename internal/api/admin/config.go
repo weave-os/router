@@ -11,13 +11,9 @@ import (
 )
 
 type configResponse struct {
-	StickyDecisionTTL string `json:"sticky_decision_ttl_ms"`
-	OtelEnabled       bool   `json:"otel_enabled"`
-	// EnvProviderKeys lists provider names whose upstream API key is set
-	// via env var on the deployment (e.g. OPENAI_API_KEY). The dashboard
-	// renders these as read-only entries — they aren't stored in Postgres
-	// and can only be unset by editing the deployment env + restarting.
-	EnvProviderKeys []string `json:"env_provider_keys"`
+	StickyDecisionTTL string   `json:"sticky_decision_ttl_ms"`
+	OtelEnabled       bool     `json:"otel_enabled"`
+	EnvProviderKeys   []string `json:"env_provider_keys"`
 }
 
 func ConfigHandler(c *gin.Context) {
@@ -25,9 +21,6 @@ func ConfigHandler(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid_key"})
 		return
 	}
-	// Iterate every known provider (sorted) rather than a hand-maintained
-	// display list, so a newly-added provider's env key shows up in the
-	// dashboard without a separate edit here.
 	providerOrder := providers.AllProviders()
 	envKeyed := make([]string, 0, len(providerOrder))
 	for _, p := range providerOrder {

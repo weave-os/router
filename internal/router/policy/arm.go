@@ -10,8 +10,6 @@ import (
 	"weave-os/router/internal/router"
 )
 
-// ArmIdentity is the complete immutable identity of one dispatchable temporal-Q
-// action. It intentionally mirrors temporal_q.ids.make_arm_id.
 type ArmIdentity struct {
 	CanonicalModel               string `json:"canonical_model"`
 	Endpoint                     string `json:"endpoint"`
@@ -22,15 +20,12 @@ type ArmIdentity struct {
 	UpstreamID                   string `json:"upstream_id"`
 }
 
-// ArmContext identifies request-scoped compatibility settings that affect a
-// dispatched model action.
 type ArmContext struct {
 	Endpoint                     string
 	ReasoningConfigurationSHA256 string
 	ToolConfigurationSHA256      string
 }
 
-// MakeArmID returns a deterministic cross-language identity for an arm.
 func MakeArmID(identity ArmIdentity) string {
 	payload, err := json.Marshal(identity)
 	if err != nil {
@@ -40,7 +35,6 @@ func MakeArmID(identity ArmIdentity) string {
 	return "tq_arm_" + hex.EncodeToString(sum[:])
 }
 
-// DeriveArmContext combines privacy-safe ingress and routing-level configuration.
 func DeriveArmContext(req router.Request) ArmContext {
 	context := ArmContext{
 		Endpoint:                     string(req.TranslationRequirements.Endpoint),
