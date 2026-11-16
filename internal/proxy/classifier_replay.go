@@ -13,8 +13,6 @@ var classifierClaudeCurrentDate = regexp.MustCompile(`(\n# currentDate\nToday's 
 
 var classifierClaudeGitSnapshot = regexp.MustCompile(`\n\ngitStatus: This is the git status at the start of the conversation\. Note that this status is a snapshot in time, and will not update during the conversation\.\n\nCurrent branch: [^\n]*\n\nMain branch \(you will usually use this for PRs\): [^\n]*\n\nStatus:\n(?:\(clean\)|[ MADRCU?!]{2} [^\n]*(?:\n[ MADRCU?!]{2} [^\n]*)*)\n\nRecent commits:\n(?:[0-9a-f]{7,40} [^\n]+(?:\n|$))*$`)
 
-// classifierReplayMessage excludes refreshed CLI environment metadata from
-// identity only. It does not rewrite provider bytes or classifier input text.
 func classifierReplayMessage(message translate.EscalationMessage, index int) translate.EscalationMessage {
 	if (index != 0 || message.Role != translate.EscalationRoleSystem) && (index != 1 || message.Role != translate.EscalationRoleUser) {
 		return message
