@@ -6,12 +6,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// Gemini wire format reference:
-//   - systemInstruction: { parts: [ {text: ...} ] }
-//   - contents: [ { role: "user"|"model", parts: [...] } ]
-//   - tools / generationConfig: top-level
-// Streaming choice is encoded in the URL path, not the body.
-
 func (e *RequestEnvelope) geminiRoutingFeatures() RoutingFeatures {
 	contents := gjson.GetBytes(e.body, "contents")
 
@@ -60,9 +54,6 @@ func (e *RequestEnvelope) geminiRoutingFeatures() RoutingFeatures {
 	return feats
 }
 
-// classifyLastMessageGemini maps a Gemini contents[] entry to the shared
-// LastKind enum. Mirrors the Anthropic classifier: any functionResponse part
-// makes the turn a tool-flow continuation regardless of accompanying text.
 func classifyLastMessageGemini(msg gjson.Result) string {
 	if msg.Get("role").String() == "model" {
 		return "assistant"
@@ -88,7 +79,7 @@ func classifyLastMessageGemini(msg gjson.Result) string {
 func geminiSystemText(body []byte) string {
 	parts := gjson.GetBytes(body, "systemInstruction.parts")
 	if !parts.IsArray() {
-		// Some clients send systemInstruction as a bare string or {text}.
+
 		text := gjson.GetBytes(body, "systemInstruction.text")
 		if text.Exists() {
 			return text.String()
@@ -110,7 +101,6 @@ func geminiSystemText(body []byte) string {
 	return b.String()
 }
 
-// geminiPartsText concatenates every text-bearing part.
 func geminiPartsText(parts gjson.Result) string {
 	if !parts.IsArray() {
 		return ""
@@ -130,8 +120,6 @@ func geminiPartsText(parts gjson.Result) string {
 	return b.String()
 }
 
-// geminiImageCount counts contents[] parts carrying inline or referenced
-// media, in either camelCase or snake_case spelling.
 func geminiImageCount(body []byte) int {
 	count := 0
 	gjson.GetBytes(body, "contents").ForEach(func(_, content gjson.Result) bool {
@@ -147,7 +135,6 @@ func geminiImageCount(body []byte) int {
 	return count
 }
 
-// geminiLastUserMessage walks contents[] backwards for the last role=="user" entry.
 func geminiLastUserMessage(body []byte) LastUserMessageInfo {
 	contents := gjson.GetBytes(body, "contents")
 	if !contents.IsArray() {
@@ -193,7 +180,6 @@ func geminiLastUserMessage(body []byte) LastUserMessageInfo {
 	return info
 }
 
-// geminiFirstUserMessageText returns the text of the first role=="user" contents entry.
 func geminiFirstUserMessageText(body []byte) string {
 	contents := gjson.GetBytes(body, "contents")
 	if !contents.IsArray() {

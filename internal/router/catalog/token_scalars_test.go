@@ -1,9 +1,13 @@
 package catalog
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // The scalar table's keys are copied verbatim into WorkWeave, where a key that
@@ -65,5 +69,15 @@ func TestRouterTokenScalarTable_EveryRowCoversTheSameBaselines(t *testing.T) {
 			continue
 		}
 		assert.ElementsMatchf(t, reference, baselines, "row %q covers different baselines than row %q", servedModelID, referenceRow)
+	}
+}
+
+func TestTokenScalarsFile_StaysCopyableVerbatim(t *testing.T) {
+	file, err := parser.ParseFile(token.NewFileSet(), "token_scalars.go", nil, parser.SkipObjectResolution)
+	require.NoError(t, err)
+	assert.Empty(t, file.Imports, "scripts/sync_router_pricing.py copies token_scalars.go verbatim, so it must not import anything")
+	for _, decl := range file.Decls {
+		_, isFunc := decl.(*ast.FuncDecl)
+		assert.False(t, isFunc, "token_scalars.go must stay data-only: the copied file has no package helpers to call")
 	}
 }
