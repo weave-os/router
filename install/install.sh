@@ -4041,7 +4041,7 @@ run_login_claude() {
     else $organization end
   ')"
   external_account_id="${account_uuid}:${organization_uuid}"
-  body="$(jq -nc --arg provider claude --arg account "$external_account_id" --arg token "$refresh_token" --arg label "$display_name" '{provider:$provider,external_account_id:$account,refresh_token:$token} | if $label != "" then .display_name = $label else . end')"
+  body="$(jq -nc --arg provider claude --arg account "$external_account_id" --arg token "$refresh_token" --arg display_name "$display_name" '{provider:$provider,external_account_id:$account,refresh_token:$token} | if $display_name != "" then .display_name = $display_name else . end')"
   models_api POST "/v1/subscriptions/accounts" "$body" || models_fail "enrolling Claude subscription"
   forget_plan_warning claude
   ok "Claude subscription enrolled."
@@ -4119,7 +4119,7 @@ run_login_codex() {
     err "Codex token exchange omitted account identity or refresh credentials."
     exit 1
   fi
-  body="$(jq -nc --arg provider codex --arg account "$account_id" --arg token "$refresh_token" --arg label "$display_name" '{provider:$provider,external_account_id:$account,refresh_token:$token} | if $label != "" then .display_name = $label else . end')"
+  body="$(jq -nc --arg provider codex --arg account "$account_id" --arg token "$refresh_token" --arg display_name "$display_name" '{provider:$provider,external_account_id:$account,refresh_token:$token} | if $display_name != "" then .display_name = $display_name else . end')"
   models_api POST "/v1/subscriptions/accounts" "$body" || models_fail "enrolling Codex subscription"
   forget_plan_warning codex
   ok "Codex subscription enrolled."
