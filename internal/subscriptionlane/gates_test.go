@@ -22,9 +22,9 @@ func TestTrippedGateRefusesUncoveredAndMarksCovered(t *testing.T) {
 	}
 	assert.Len(t, want, len(subscriptionlane.Gates()))
 	for _, gate := range subscriptionlane.Gates() {
-		covered, ok := subscriptionlane.Step(subscriptionlane.Funded, gate.Tripped(true))
+		next, ok := subscriptionlane.Step(subscriptionlane.Funded, gate.Tripped(true))
 		assert.True(t, ok)
-		assert.Equal(t, want[gate].covered, covered)
+		assert.Equal(t, want[gate].covered, next)
 
 		for _, from := range subscriptionlane.States() {
 			if from.Terminal() {
