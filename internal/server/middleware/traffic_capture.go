@@ -22,8 +22,6 @@ const (
 	trafficCaptureRoutePrefix           = "/v1/route"
 )
 
-// WithTrafficCapture records conversation HTTP exchanges without changing the
-// body or streaming behavior seen by handlers and clients.
 func WithTrafficCapture(recorder trafficcapture.Recorder) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !isConversationRequest(c.Request.Method, c.Request.URL.Path) {
@@ -176,8 +174,7 @@ type trafficCaptureResponseWriter struct {
 }
 
 func (w *trafficCaptureResponseWriter) Write(body []byte) (int, error) {
-	// Conversation endpoints return protocol JSON or SSE; escaping would corrupt their wire format.
-	// lgtm [go/reflected-xss]
+	// codeql[go/reflected-xss]
 	written, err := w.ResponseWriter.Write(body)
 	w.bytesWritten += int64(written)
 	if written > 0 {

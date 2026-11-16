@@ -14,8 +14,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Quota headers the router persists per subscription-served turn:
-// unified_limit_headers for Claude, codex_limit_headers for Codex.
 const (
 	claudeSessionUtilizationHeader = "anthropic-ratelimit-unified-5h-utilization"
 	claudeSessionResetHeader       = "anthropic-ratelimit-unified-5h-reset"
@@ -37,9 +35,7 @@ const (
 	sessionLimitWindowMinutes = 5 * 60
 	weeklyLimitWindowMinutes  = 7 * 24 * 60
 
-	// Served counts span the weekly window they draw down.
-	subscriptionPoolServedWindow = 7 * 24 * time.Hour
-	// One day past the weekly window keeps a seat idle since its last reset visible.
+	subscriptionPoolServedWindow    = 7 * 24 * time.Hour
 	subscriptionPoolReadingLookback = 8 * 24 * time.Hour
 )
 
@@ -67,8 +63,6 @@ type subscriptionPoolResponse struct {
 	Seats   []subscriptionPoolSeat `json:"seats"`
 }
 
-// SubscriptionPoolHandler serves GET /admin/v1/subscription-pool: every
-// Claude/Codex seat in the pool with the limit windows its newest turn reported.
 func SubscriptionPoolHandler(proxySvc *proxy.Service, poolsEnabled bool, now func() time.Time) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installationID, ok := dashboardScope(c)
@@ -113,8 +107,6 @@ func formatOptionalTime(value *time.Time) *string {
 	return &formatted
 }
 
-// subscriptionLimitWindows normalizes a seat's newest limit headers into
-// windows, shortest first. Windows the provider did not report are omitted.
 func subscriptionLimitWindows(provider string, claudeHeaders, codexHeaders map[string]string) []subscriptionLimitWindow {
 	windows := make([]subscriptionLimitWindow, 0, 2)
 	appendWindow := func(windowMinutes int, usedFraction float64, isReported bool, resetsAt *string) {
@@ -159,7 +151,6 @@ func headerFloat(headers map[string]string, name string) (float64, bool) {
 	return value, true
 }
 
-// Codex reports a window the plan lacks as zero minutes; zero means no such window.
 func headerWindowMinutes(headers map[string]string, name string, fallback int) int {
 	raw, isPresent := headers[name]
 	if !isPresent {

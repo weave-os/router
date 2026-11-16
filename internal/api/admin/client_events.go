@@ -15,10 +15,6 @@ type clientEventRequest struct {
 	Harness auth.LifecycleHarness       `json:"harness"`
 }
 
-// ClientEventHandler accepts a harness CLI's report that a local off/on/
-// uninstall already succeeded, or a local proxy's report that its harness is
-// connected. Clients fire it fail-open, so this only logs and exports the
-// event; nothing is persisted.
 func ClientEventHandler(authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation := middleware.InstallationFrom(c)
