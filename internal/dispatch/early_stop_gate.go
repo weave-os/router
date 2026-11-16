@@ -14,49 +14,28 @@ import (
 	"weave-os/router/internal/sse"
 )
 
-// earlyStopHoldCap bounds the response bytes the gate withholds; a longer
-// response is released and served as is.
 const earlyStopHoldCap = 1 << 20
 
-// earlyStopHoldMax bounds how long the gate withholds a response. Claude Code
-// drops a stream after 180s without bytes, and a redo still has to stream
-// inside that window. A timer enforces it, since an upstream that is only
-// reasoning may write nothing the gate could check against.
 const earlyStopHoldMax = 60 * time.Second
 
-// EarlyStopGate sits above PreludeBuffer on a Claude Code tool-result turn and
-// classifies the Anthropic stream the client would receive. Armed, it
-// withholds the stream until the turn proves it calls a tool (released at the
-// first tool_use block) or stops for another reason; a turn that ends on
-// end_turn without one stays withheld, so the caller can re-serve it before
-// the client has seen any of it. Shadow, it only observes.
 type EarlyStopGate struct {
-	inner http.ResponseWriter
-	// body is inner's write half. Forwarding through io.Writer keeps upstream
-	// SSE bytes out of CodeQL's reflected-XSS sink model, which reads every
-	// ResponseWriter.Write in a proxy chain as an HTML response.
-	body io.Writer
-	// mu serializes the attempt's writes with the hold timer's release.
+	inner   http.ResponseWriter
+	body    io.Writer
 	mu      sync.Mutex
 	holdMax time.Duration
 	timer   *time.Timer
-	// log is the request logger; the hold timer has no ctx of its own.
-	log *slog.Logger
-	// active turns classification on; armed additionally withholds.
+	log     *slog.Logger
 	active  bool
 	armed   bool
 	holding bool
 	held    bytes.Buffer
-	// status is the attempt's buffered HTTP status, restored with held bytes.
-	status int
+	status  int
 
-	// scan holds the unconsumed tail of the stream for frame parsing.
 	scan    []byte
 	framing sse.Scanner
 
-	toolUse    bool
-	stopReason string
-	// releaseCause names what ended the withholding, for logs.
+	toolUse      bool
+	stopReason   string
 	releaseCause string
 }
 
@@ -64,7 +43,6 @@ func NewEarlyStopGate(inner http.ResponseWriter, log *slog.Logger) *EarlyStopGat
 	return &EarlyStopGate{inner: inner, body: inner, holdMax: earlyStopHoldMax, log: log}
 }
 
-// Observe starts classifying the stream; withhold additionally holds it back.
 func (g *EarlyStopGate) Observe(withhold bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -111,7 +89,6 @@ func (g *EarlyStopGate) Write(p []byte) (int, error) {
 
 const stopReasonEndTurn = "end_turn"
 
-// classify records the tool-call and stop-reason signals of complete frames.
 func (g *EarlyStopGate) classify(p []byte) {
 	if !g.active || (g.toolUse && g.stopReason != "") {
 		return
@@ -145,29 +122,24 @@ func (g *EarlyStopGate) classify(p []byte) {
 	}
 }
 
-// EarlyStop reports a complete response that ended the turn without a tool
-// call. Only a withheld one can still be re-served.
 func (g *EarlyStopGate) EarlyStop() bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.stopReason == stopReasonEndTurn && !g.toolUse
 }
 
-// Withheld reports whether the client has seen none of the response.
 func (g *EarlyStopGate) Withheld() bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.holding
 }
 
-// ReleaseReason names what ended the withholding, or "" while withheld.
 func (g *EarlyStopGate) ReleaseReason() string {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.releaseCause
 }
 
-// releaseOnTimeout gives up the redo once the hold has lasted holdMax.
 func (g *EarlyStopGate) releaseOnTimeout() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -195,8 +167,6 @@ func (g *EarlyStopGate) flushLocked() {
 	}
 }
 
-// ArmOutputProgress forwards the stall-watchdog hook to the writer below, so
-// withheld bytes do not count as client-visible progress.
 func (g *EarlyStopGate) ArmOutputProgress(mark func()) (armed bool) {
 	arm, ok := g.inner.(interface{ ArmOutputProgress(func()) bool })
 	if !ok {
@@ -205,8 +175,6 @@ func (g *EarlyStopGate) ArmOutputProgress(mark func()) (armed bool) {
 	return arm.ArmOutputProgress(mark)
 }
 
-// release delivers anything withheld and passes the rest through. Callers
-// hold mu.
 func (g *EarlyStopGate) release() error {
 	g.stopTimer()
 	g.holding = false
@@ -229,8 +197,6 @@ func (g *EarlyStopGate) stopTimer() {
 	}
 }
 
-// TakeWithheld hands the withheld response to the caller and stops gating, so
-// a re-serve streams straight through.
 func (g *EarlyStopGate) TakeWithheld() (status int, body []byte) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -241,8 +207,6 @@ func (g *EarlyStopGate) TakeWithheld() (status int, body []byte) {
 	return status, body
 }
 
-// Disarm releases anything still withheld and stops gating, for the rescues
-// that run after the primary dispatch.
 func (g *EarlyStopGate) Disarm() error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -250,8 +214,6 @@ func (g *EarlyStopGate) Disarm() error {
 	return g.release()
 }
 
-// ResetAttempt drops a failed attempt's withheld bytes and signals; wired as
-// the prelude buffer's discard hook so retries start clean.
 func (g *EarlyStopGate) ResetAttempt() {
 	g.mu.Lock()
 	defer g.mu.Unlock()

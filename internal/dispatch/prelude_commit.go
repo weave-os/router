@@ -8,15 +8,6 @@ import (
 	"weave-os/router/internal/sse"
 )
 
-// PreludeBuffer absorbs pre-upstream writes (the eager SSE Prelude) so
-// per-request failover can retry on another binding without the client
-// having seen bytes from a primary that ultimately failed.
-//
-// Flow: Seal() ends the buffering phase; the first Write/WriteHeader after
-// that calls commit(), flushing the buffered status+body to inner and going
-// pass-through. If the attempt errors before ever writing, Committed() is
-// false and the caller can Discard() and retry or render the error itself.
-// Committed() is the retry gate.
 type PreludeBuffer struct {
 	inner          http.ResponseWriter
 	initialHeaders http.Header
@@ -25,14 +16,10 @@ type PreludeBuffer struct {
 	sealed         bool
 	preludeSent    bool
 	committed      atomic.Bool
-	// OnDiscard lets a writer holding output above this buffer drop it with
-	// the failed attempt, so a retry never appends to a stale response.
-	OnDiscard func()
+	OnDiscard      func()
 }
 
 func NewPreludeBuffer(w http.ResponseWriter) *PreludeBuffer {
-	// Snapshot headers so Discard() can restore them; Prelude only
-	// Set/Del's, never appends, so sharing the inner []string is safe.
 	snap := make(http.Header, len(w.Header()))
 	for k, vs := range w.Header() {
 		cp := make([]string, len(vs))
@@ -63,15 +50,11 @@ func (b *PreludeBuffer) WriteHeader(status int) {
 		b.inner.WriteHeader(status)
 		return
 	}
-	// Buffer success headers so an empty or retryable stream can still
-	// avoid committing a downstream 200 before upstream output arrives.
 	b.bufStatus = status
 }
 
 func (b *PreludeBuffer) Flush() {
 	if !b.preludeSent && !b.committed.Load() {
-		// Pre-commit Flush is a no-op — we don't want partial Prelude bytes
-		// reaching the client before commit decides.
 		return
 	}
 	if f, ok := b.inner.(http.Flusher); ok {
@@ -79,15 +62,10 @@ func (b *PreludeBuffer) Flush() {
 	}
 }
 
-// Seal marks the end of the Prelude phase. The next Write or WriteHeader
-// will trigger commit().
 func (b *PreludeBuffer) Seal() { b.sealed = true }
 
-// PreludeSent reports whether the buffered prelude is already client-visible.
 func (b *PreludeBuffer) PreludeSent() bool { return b.preludeSent }
 
-// CommitPrelude makes the buffered prelude client-visible without marking the
-// attempt committed. A later provider error can still be retried or fail over.
 func (b *PreludeBuffer) CommitPrelude() error {
 	if !b.preludeSent && b.bufStatus != 0 {
 		sse.PrepareJSONResponse(b.inner)
@@ -107,12 +85,8 @@ func (b *PreludeBuffer) CommitPrelude() error {
 	return nil
 }
 
-// Committed reports whether provider output has reached the inner writer.
 func (b *PreludeBuffer) Committed() bool { return b.committed.Load() }
 
-// Discard resets buffered Prelude bytes and headers to the construction-time
-// snapshot. No-op once committed. Called between failed attempts and before
-// the exhaustion error renderer writes via the unwrapped inner writer.
 func (b *PreludeBuffer) Discard() {
 	if b.committed.Load() {
 		return

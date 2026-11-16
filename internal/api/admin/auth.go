@@ -13,8 +13,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// remotePeerIP returns the immediate TCP peer's IP so rate limiting can't be bypassed by spoofing
-// X-Forwarded-For. Returns the unstripped address if the peer lacks "host:port" shape.
 func remotePeerIP(c *gin.Context) string {
 	addr := c.Request.RemoteAddr
 	if host, _, err := net.SplitHostPort(addr); err == nil {
@@ -37,8 +35,6 @@ type meResponse struct {
 	Subject       string `json:"subject,omitempty"`
 }
 
-// LoginHandler verifies the password against ROUTER_ADMIN_PASSWORD and sets a signed HttpOnly session cookie.
-// Returns 503 when admin login isn't configured so the dashboard can render a hint instead of a 401 loop.
 func LoginHandler(authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !authSvc.AdminLoginEnabled() {
@@ -53,8 +49,6 @@ func LoginHandler(authSvc *auth.Service) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "missing_password"})
 			return
 		}
-		// Use raw TCP peer (not c.ClientIP) — X-Forwarded-For is attacker-controlled when the
-		// router is reached directly, letting a brute-forcer rotate IPs and bypass the per-IP cap.
 		peerIP := remotePeerIP(c)
 		if err := authSvc.VerifyAdminPasswordFromIP(peerIP, req.Password); err != nil {
 			if errors.Is(err, auth.ErrAdminLoginRateLimited) {
@@ -112,10 +106,6 @@ func MeHandler(authSvc *auth.Service) gin.HandlerFunc {
 	}
 }
 
-// cookieSecure controls whether admin session cookies are minted with the Secure flag. Default true so
-// self-hosters never accidentally serve plaintext cookies; dev behind non-HTTPS can set
-// ROUTER_COOKIE_INSECURE=true. Not derived from X-Forwarded-Proto: that header is attacker-controlled
-// when the router is reached directly, and a wrong value silently downgrades cookie transport.
 var cookieSecure = os.Getenv("ROUTER_COOKIE_INSECURE") != "true"
 
 func setAdminSessionCookie(c *gin.Context, token string, expiresAt time.Time) {

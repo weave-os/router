@@ -11,6 +11,9 @@ prompt-cache controls, and detailed usage. The initial hard checks are native
 Responses extension unions, native Gemini ingress, and image input on known
 text-only models.
 
+Responses-specific projection, passthrough and stream translation behavior is
+described in [RESPONSES_TRANSLATION.md](RESPONSES_TRANSLATION.md).
+
 An upstream decrypts a reasoning item only under the account and model that
 produced it, and a rejected replay ends the client session. The signature the
 router mints therefore carries a scope fingerprint of provider, wire model,
