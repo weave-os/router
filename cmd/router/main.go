@@ -63,6 +63,7 @@ import (
 	"weave-os/router/internal/router/llmescalation"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
+	randomrouter "weave-os/router/internal/router/random_router"
 	"weave-os/router/internal/router/rl"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/sessionstrategy"
@@ -1324,6 +1325,7 @@ func main() {
 		WithEscalationShadowDefault(escalationShadowDefault).
 		WithTranslationCompatibilityMode(proxy.TranslationCompatibilityMode(translationCompatibilityMode)).
 		WithScopedSearchRequirement(scopedSearchRequirement, searchRequirementDecayTurns).
+		WithRandomBenchmark(nil, randomrouter.New(randomBenchmarkDraw)).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyRL, Router: rlRouter, Unavailable: rl.ErrPolicyUnavailable}).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: router.StrategyHMM, Router: hmmRouter, Unavailable: hmm.ErrHMMUnavailable,

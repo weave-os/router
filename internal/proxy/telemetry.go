@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/gitcontext"
+	randomrouter "weave-os/router/internal/router/random_router"
 	"weave-os/router/internal/router/turntype"
 )
 
@@ -739,7 +740,7 @@ const DecisionReasonRoutingFailed = "routing_failed"
 // honoured=false even though no upstream dispatch happened. Unauthorized pins
 // and other routing failures write no row.
 func (s *Service) recordPolicyPinRouteFailure(ctx context.Context, requestID string, requestStart time.Time, requestedModel string, turnType turntype.TurnType, userPrompt bool, routeErr error) {
-	if _, honoured := router.HonouredPolicyPin(ctx); !honoured {
+	if _, honoured := router.HonouredPolicyPin(ctx); !honoured && randomBenchmarkFrom(ctx) == nil {
 		return
 	}
 	installationID := installationIDFromContext(ctx)
@@ -763,6 +764,13 @@ func (s *Service) recordPolicyPinRouteFailure(ctx context.Context, requestID str
 	}
 	if !errors.Is(routeErr, router.ErrPolicyPinUnavailable) {
 		params.DecisionReason = DecisionReasonRoutingFailed
+	}
+	if profile := randomBenchmarkFrom(ctx); profile != nil {
+		params.PolicyArtifactID = randomrouter.PolicyID
+		params.PolicyArtifactSHA256 = profile.config.PolicySHA256
+		params.Strategy = string(router.StrategyRandomBenchmark)
+		params.SessionID = ClientIdentityFrom(ctx).SessionID
+		params.RolloutID = ClientIdentityFrom(ctx).RolloutID
 	}
 	applyBlindExperimentTelemetry(ctx, &params, nil)
 	applyPolicyPinTelemetry(ctx, &params, nil)

@@ -321,6 +321,9 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 			middleware.WithBillingSpanEnd(),
 		)
 	}
+	randomBenchmarkMiddleware := append([]gin.HandlerFunc(nil), chatCompletionMiddleware...)
+	randomBenchmarkGroup := engine.Group("", randomBenchmarkMiddleware...)
+	randomBenchmarkGroup.POST("/v1/random-router/responses", openaiapi.RandomRouterGate(proxySvc), openaiapi.ResponsesHandler(proxySvc, authSvc))
 	chatCompletionMiddleware = append(chatCompletionMiddleware,
 		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
 		middleware.WithPolicyDebugOverride(),
@@ -344,6 +347,8 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	passthroughGroup.Use(servingAdmissionMiddleware...)
 	passthroughGroup.POST("/v1/messages/count_tokens", anthropicapi.PassthroughHandler(proxySvc))
 	passthroughGroup.GET("/v1/models", openaiapi.ModelsHandler(anthropicapi.PassthroughHandler(proxySvc), proxySvc.CodexModelCatalog))
+	passthroughGroup.GET("/v1/random-router/identity", openaiapi.RandomRouterIdentityHandler(proxySvc))
+	passthroughGroup.POST("/v1/random-router/preflight", openaiapi.RandomRouterGate(proxySvc), openaiapi.RandomRouterIdentityHandler(proxySvc))
 	passthroughGroup.GET("/v1/models/:model", anthropicapi.PassthroughHandler(proxySvc))
 	passthroughGroup.GET("/v1/codex/models", openaiapi.CodexCatalogHandler(proxySvc.CodexSelectionCatalog))
 	passthroughGroup.GET("/v1/display-settings", admin.DisplaySettingsHandler(authSvc, func(c *gin.Context) context.Context {

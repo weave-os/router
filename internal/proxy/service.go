@@ -67,6 +67,7 @@ type TelemetryEmitter interface {
 
 // Service orchestrates routing decisions and provider dispatch.
 type Service struct {
+	randomBenchmark     *randomBenchmark
 	externalKeyUsage    ExternalKeyUsageRecorder
 	recoveryProbeMu     sync.Mutex
 	recoveryProbeLeases map[string]localRecoveryProbeLease
@@ -5123,6 +5124,9 @@ func (s *Service) logPlannerOutcome(ctx context.Context, res turnLoopResult) {
 }
 
 func (s *Service) recordTurnUsage(ctx context.Context, res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int, outputLimitReached bool) {
+	if randomBenchmarkFrom(ctx) != nil {
+		return
+	}
 	if s.pinStore == nil || res.HardPinned || res.CallerModelPassthrough {
 		return
 	}
@@ -6091,6 +6095,14 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		log.Error("Failed to parse OpenAI request", "err", parseErr)
 		return fmt.Errorf("parse request: %w", parseErr)
 	}
+	if randomBenchmarkFrom(ctx) != nil {
+		_, betaCommand := env.ExtractBetaCommand()
+		_, forceCommand := env.ExtractForceModelCommand()
+		_, feedbackCommand := env.ExtractRouterFeedbackCommand()
+		if betaCommand || forceCommand || feedbackCommand || env.ExtractRouterSessionCommand() || env.ExtractRouterModelsCommand() || env.ExtractListModelsCommand() {
+			return fmt.Errorf("random benchmark refuses router commands: %w", rl.ErrPolicyUnavailable)
+		}
+	}
 	var responseBuffer *responseCostBuffer
 	_, isResponsesWriter := w.(*translate.ResponsesWriter)
 	if !env.Stream() && !isResponsesWriter {
@@ -6276,7 +6288,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	// Wide cyclic re-read loop → escalate to opus (same path as the Anthropic
 	// ingress). See detectCyclicToolCallLoop / handleLoopEscalation.
-	if !callerModelPassthroughActive(ctx) {
+	if !callerModelPassthroughActive(ctx) && randomBenchmarkFrom(ctx) == nil {
 		if cyc, csig, ccount, cratio, cwin := detectCyclicToolCallLoop(env); cyc {
 			loopRole := roleForTier(catalog.TierFor(feats.Model))
 			s.handleLoopEscalation(ctx, csig, ccount, cratio, cwin, installationID, sessionKey, loopRole, feats.Model, turntype.IsSubAgent(env, subAgentHintForRequest(ctx, r.Header.Get("x-weave-subagent-type")), openCodeCaller(ClientIdentityFrom(ctx))), forceModelSessionKey)
@@ -6960,6 +6972,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				gatewayKey := gatewayResponsesKey(actx, d.Provider)
 				stripPCK := s.gatewayCaps.RejectsPromptCacheKey(gatewayKey)
 				err := dispatchOpenAI(actx, d, p, surface, stripPCK)
+				if randomBenchmarkFrom(actx) != nil {
+					return err
+				}
 				// Same prompt_cache_key unknown-field class as ProxyMessages' OpenAI-compat
 				// path: re-emit once without the hint while pre-commit; memoize the endpoint.
 				if err != nil && !stripPCK && gatewayKey != "" && !committed(preludeBuf) &&
@@ -7532,6 +7547,9 @@ func stripResponsesTerminalArtifacts(body []byte) ([]byte, error) {
 // re-emitted as Responses-shaped SSE / JSON. This keeps the turn loop, cache,
 // pricing, and translation matrix unchanged.
 func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
+	if randomBenchmarkFrom(ctx) != nil {
+		ctx = router.WithStrategy(ctx, router.StrategyRandomBenchmark)
+	}
 	w, finishBlindExperimentWriter := withBlindExperimentWriter(ctx, w, body)
 	defer finishBlindExperimentWriter()
 	ctx = withAttemptTrace(ctx, body, r.Header)

@@ -252,6 +252,10 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 		return fmt.Errorf("build upstream request: %w", err)
 	}
 	upstream.Header.Set("Content-Type", "application/json")
+	if requestcontext.IncludedSubscriptionOnlyFrom(ctx) {
+		upstream.GetBody = nil
+		upstream.Close = true
+	}
 	c.setAuth(ctx, upstream, r)
 	for k, vs := range prep.Headers {
 		upstream.Header[http.CanonicalHeaderKey(k)] = vs

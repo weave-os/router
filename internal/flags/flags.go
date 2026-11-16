@@ -56,6 +56,7 @@ func ParseEarlyStopRedoMode(raw string) (EarlyStopRedoMode, error) {
 }
 
 const (
+	KeyRandomBenchmarkConfig                Key = "random_benchmark_config"
 	KeyEscalationActiveClassifier           Key = "escalation_active_classifier"
 	KeyEscalationShadowClassifier           Key = "escalation_shadow_classifier"
 	KeyEscalationCadence                    Key = "escalation_cadence"
@@ -135,9 +136,10 @@ type Definition struct {
 	OrgOverridable bool
 }
 
-const RegistryVersion = 30
+const RegistryVersion = 31
 
 var Registry = []Definition{
+	{Key: KeyRandomBenchmarkConfig, Kind: KindString, Description: "Expiring strict random benchmark identity. Empty disables; only the exact configured key may use the dedicated endpoint.", OrgOverridable: true},
 	{Key: KeyEscalationActiveClassifier, Kind: KindString, Description: "Active escalation classifier: none, xgb, switchyard_llm_v1, or llm_escalation. Absent preserves legacy XGB flags.", OrgOverridable: true},
 	{Key: KeyEscalationShadowClassifier, Kind: KindString, Description: "Independent shadow escalation classifier: none, xgb, switchyard_llm_v1, or llm_escalation.", OrgOverridable: true},
 	{Key: KeyEscalationCadence, Kind: KindInt, Description: "Completed turns between LLM checkpoints: 3, 4, or 5. Default 3.", OrgOverridable: true},

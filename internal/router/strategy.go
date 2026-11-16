@@ -14,6 +14,7 @@ var ErrStrategyUnavailable = errors.New("router: strategy unavailable")
 type Strategy string
 
 const (
+	StrategyRandomBenchmark Strategy = "random_benchmark"
 	// StrategyRL routes via the trained RL/DPO policy served by the
 	// out-of-process policy sidecar. Opt-in only; never the silent default.
 	StrategyRL Strategy = "rl"

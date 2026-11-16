@@ -64,6 +64,7 @@ func (s *Service) expireSessionPinRow(
 	reason string,
 	invalidateContinuation bool,
 ) error {
+if randomBenchmarkFrom(ctx) != nil { return nil }
 	expired := expiredSessionPin(installationID, sessionKey, role, reason, router.StrategyFromContext(ctx))
 	if err := s.pinStore.Upsert(context.WithoutCancel(ctx), expired); err != nil {
 		return err

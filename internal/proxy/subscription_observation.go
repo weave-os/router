@@ -143,7 +143,7 @@ func RequestPresentsCoveringSubscription(ctx context.Context, headers http.Heade
 	switch routePath {
 	case routePathMessages:
 		return anthropic != "" || managedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude)
-	case routePathChatCompletions, routePathResponses:
+	case routePathChatCompletions, routePathResponses, "/v1/random-router/responses":
 		return codex != "" || managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex)
 	default:
 		return false

@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
+	randomrouter "weave-os/router/internal/router/random_router"
 
 	"github.com/tidwall/sjson"
 
@@ -84,6 +86,16 @@ var errDispatchWithoutPurpose = errors.New("dispatchWithFallback: no inference p
 // error. On final-attempt error it flushes the upstream's own envelope to w
 // instead of a generic 502.
 func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (winnerIdx int, err error) {
+	strictRandom := randomBenchmarkFrom(ctx) != nil
+	if strictRandom {
+		if !slices.Contains(randomrouter.Models(), in.initialDecision.Model) || in.initialDecision.Provider != providers.ProviderOpenAI {
+			return -1, randomrouter.ErrUnavailable
+		}
+		in.subscriptionStateRequest = nil
+		in.alternatives = nil
+		in.origin = ""
+		in.bindings = []catalog.ProviderBinding{{Provider: providers.ProviderOpenAI}}
+	}
 	ctx = withClaudeEnterpriseTurn(ctx, in.initialDecision)
 	ctx = s.withSubscriptionFundingAuthorization(ctx, in.subscriptionStateHeaders)
 	if in.subscriptionStateRequest != nil && subscriptionStateModelsEnabled(ctx) && in.buildAlternative != nil {
@@ -132,11 +144,16 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 	if err != nil {
 		return -1, err
 	}
+	var budget *policy.BudgetOverride
+	if strictRandom {
+		budget = &policy.BudgetOverride{Source: policy.BudgetSourceRequest, MaxAttempts: 1}
+	}
 	plan, err := plans.ResolveRouted(policy.RoutedResolutionRequest{
 		Purpose:  policy.Purpose(in.purpose),
 		Decision: in.initialDecision,
 		Bindings: in.bindings,
 		Origin:   in.origin,
+		Budget:   budget,
 	})
 	if err != nil {
 		return -1, err
@@ -174,6 +191,9 @@ func (s *Service) clockNow() time.Time {
 // provider disables it too: a failover binding re-resolves credentials and
 // would prefer that key even if the primary binding used the deployment key.
 func (s *Service) shouldFailover(ctx context.Context) bool {
+	if randomBenchmarkFrom(ctx) != nil {
+		return false
+	}
 	if s.credentials.BYOKOnly {
 		return false
 	}

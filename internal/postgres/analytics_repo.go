@@ -6,6 +6,8 @@ import (
 	"weave-os/router/internal/analytics"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/postgres/dbbudget"
+	"weave-os/router/internal/requestcontext"
+	randomrouter "weave-os/router/internal/router/random_router"
 	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
@@ -49,20 +51,31 @@ func (r *AnalyticsRepo) GetRoutingDecisions(ctx context.Context, q analytics.Que
 }
 
 func decisionFromExportRow(row sqlc.GetRoutingDecisionsForExportRow) analytics.Decision {
+	strictRandom := row.PolicyArtifactID != nil && *row.PolicyArtifactID == randomrouter.PolicyID
+	includedOnlyAttempt := strictRandom && row.CredentialSource != nil && *row.CredentialSource == requestcontext.SourceCodexSubscription
+	var attemptCount *int64
+	if strictRandom {
+		attemptCount = &row.InferenceAttemptCount
+	}
 	return analytics.Decision{
-		ID:              row.ID.String(),
-		RecordedAt:      row.CreatedAt.Time,
-		RequestedAt:     row.Timestamp.Time,
-		RequestID:       row.RequestID,
-		TraceID:         row.TraceID,
-		SessionID:       row.SessionID,
-		RolloutID:       row.RolloutID,
-		DeviceID:        row.DeviceID,
-		ClientApp:       row.ClientApp,
-		TurnType:        row.TurnType,
-		UserID:          uuidStringPtr(row.RouterUserID),
-		UserEmail:       row.UserEmail,
-		UserAccountUUID: uuidStringPtr(row.UserAccountUUID),
+		ID:                     row.ID.String(),
+		APIKeyID:               uuidStringPtr(row.APIKeyID),
+		Propensity:             row.Propensity,
+		PlannerOutcome:         row.PlannerOutcome,
+		InferenceAttemptCount:  attemptCount,
+		InferenceAttemptModels: row.InferenceAttemptModels,
+		RecordedAt:             row.CreatedAt.Time,
+		RequestedAt:            row.Timestamp.Time,
+		RequestID:              row.RequestID,
+		TraceID:                row.TraceID,
+		SessionID:              row.SessionID,
+		RolloutID:              row.RolloutID,
+		DeviceID:               row.DeviceID,
+		ClientApp:              row.ClientApp,
+		TurnType:               row.TurnType,
+		UserID:                 uuidStringPtr(row.RouterUserID),
+		UserEmail:              row.UserEmail,
+		UserAccountUUID:        uuidStringPtr(row.UserAccountUUID),
 
 		RequestedModel:                  row.RequestedModel,
 		DecisionModel:                   row.DecisionModel,
@@ -115,8 +128,8 @@ func decisionFromExportRow(row sqlc.GetRoutingDecisionsForExportRow) analytics.D
 		SubscriptionTier:      subscriptionTierPtr(row.SubscriptionTier),
 		IntendedModelFamily:   row.IntendedModelFamily,
 		FinalModelFamily:      row.FinalModelFamily,
-		ActualInputCostUSD:    servedCostUSD(row.ActualInputCostUsd, row.SubscriptionServed),
-		ActualOutputCostUSD:   servedCostUSD(row.ActualOutputCostUsd, row.SubscriptionServed),
+		ActualInputCostUSD:    servedCostUSD(row.ActualInputCostUsd, row.SubscriptionServed || includedOnlyAttempt),
+		ActualOutputCostUSD:   servedCostUSD(row.ActualOutputCostUsd, row.SubscriptionServed || includedOnlyAttempt),
 		APIRateInputCostUSD:   microsPtrToUSD(row.ActualInputCostUsd),
 		APIRateOutputCostUSD:  microsPtrToUSD(row.ActualOutputCostUsd),
 

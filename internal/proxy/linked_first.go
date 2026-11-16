@@ -32,6 +32,9 @@ func paidFallbackForbidden(ctx context.Context) bool {
 // organization: these turns stay on the caller's subscription even when the
 // customer holds a provider key.
 func paidFallbackForbiddenByPlan(ctx context.Context) bool {
+	if randomBenchmarkFrom(ctx) != nil {
+		return true
+	}
 	return claudeEnterpriseTurn(ctx) && !claudeEnterpriseCapRescue(ctx) || pickedModelOnOwnPlan(ctx) || subscriptionAttemptOnly(ctx) || subscriptionStateModelsEnabled(ctx) && !subscriptionAPIOnly(ctx)
 }
 
@@ -68,6 +71,9 @@ func subscriptionOnlyUnservable(ctx context.Context, provider, model string) boo
 }
 
 func paidFallbackForbiddenForModel(ctx context.Context, model string) bool {
+	if randomBenchmarkFrom(ctx) != nil {
+		return true
+	}
 	if claudeEnterpriseTarget(ctx, inference.Target{CatalogID: model}) || pickedModelOnOwnPlan(ctx) || subscriptionAttemptOnly(ctx) || paidCapacityUnfunded(ctx) {
 		return true
 	}

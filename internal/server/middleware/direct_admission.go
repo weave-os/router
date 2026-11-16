@@ -109,7 +109,7 @@ func directConversationID(r *http.Request, body []byte) string {
 	switch r.URL.Path {
 	case "/v1/messages", "/v1/messages/count_tokens", "/v1/route", "/v1/route/preview", "/v1/route/handoff":
 		surface = requestcontext.ConversationAnthropic
-	case "/v1/responses":
+	case "/v1/responses", "/v1/random-router/responses":
 		surface = requestcontext.ConversationResponses
 	default:
 		if strings.HasPrefix(r.URL.Path, "/v1beta/models/") {
