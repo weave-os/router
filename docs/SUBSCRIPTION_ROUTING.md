@@ -360,6 +360,20 @@ version, last successful refresh timestamp, reported access-token expiry and nex
 tokens. Manual failures return an error without replacing quota or credential health;
 ordinary serving continues to own credential-health decisions.
 
+Keep-warm runs whenever subscription pools are enabled: each replica sweeps
+about every 15 minutes (jittered ±25%). A sweep refreshes up
+to 10 enabled Claude and Codex seats, in random order and 2 seconds apart, whose last
+successful refresh is older than `ROUTER_SUBSCRIPTION_KEEP_WARM_MAX_AGE` (default
+`168h`, minimum `1h`), whether or not the seat is in use. Rows without
+`token_refreshed_at` count as due. Exhausted seats are included; cooling-down,
+leased, reconnect-required and disabled seats are skipped. Each seat goes through the
+manual refresh path: the cross-replica refresh-holder lease, heartbeat, identity
+check and version-fenced token save still apply, so a sweep and a request-path
+refresh never both exchange the same generation. The exchange runs on a context
+detached from the sweep, bounded by the lease TTL, so a rotated token is always
+saved. A failed sweep refresh never strikes the seat; ordinary serving still owns
+credential health.
+
 Early refresh is off by default. To select a canary, set both
 `ROUTER_SUBSCRIPTION_EARLY_REFRESH_ACCOUNT_IDS` to explicit subscription-account
 UUIDs and `ROUTER_SUBSCRIPTION_EARLY_REFRESH_MAX_AGE` to a Go duration such as
