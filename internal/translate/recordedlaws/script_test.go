@@ -19,7 +19,6 @@ type scriptTurn struct {
 type script struct {
 	system string
 	tools  []gjson.Result
-	model  string
 	turns  []scriptTurn
 }
 
@@ -32,7 +31,6 @@ func recordedScript(t *testing.T) script {
 	return script{
 		system: echo.Get("instructions").String(),
 		tools:  echo.Get("tools").Array(),
-		model:  echo.Get("model").String(),
 		turns: []scriptTurn{
 			{role: "user", text: "List the working directory."},
 			{role: "assistant", call: &call},

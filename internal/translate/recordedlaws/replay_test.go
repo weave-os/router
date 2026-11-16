@@ -117,22 +117,52 @@ func upstreamRequestTarget(upstream wireFormat) (wireFormat, string) {
 	return responsesReq, ""
 }
 
-func emitReplay(hops []requestHop, req replayRequest, upstream wireFormat) (string, facts) {
+type emittedReplay struct {
+	emitter string
+	format  wireFormat
+	body    []byte
+	facts   facts
+}
+
+func emitReplay(hops []requestHop, req replayRequest, upstream wireFormat) emittedReplay {
 	target, via := upstreamRequestTarget(upstream)
 	body, from := req.body, req.format
 	if from == responsesReq {
 		converted, err := convertResponses(body)
 		if err != nil {
-			return "", facts{"error": err.Error()}
+			return emittedReplay{facts: facts{"error": err.Error()}}
 		}
 		body, from = converted, chatReq
 	}
 	h := findRequestHop(hops, from, target, via)
-	out, err := h.try(body)
+	out, err := h.emit(body)
 	if err != nil {
-		return h.name(), facts{"error": err.Error()}
+		return emittedReplay{emitter: h.name(), facts: facts{"error": err.Error()}}
 	}
-	return h.name(), assistantReplayFacts(requestFacts(target, out))
+	return emittedReplay{emitter: h.name(), format: target, body: out, facts: assistantReplayFacts(requestFacts(target, out))}
+}
+
+func emittedCallIDProblems(format wireFormat, body []byte) []string {
+	var p problems
+	if format != chatReq && format != responsesReq {
+		return p
+	}
+	for _, tc := range requestConversation(format, body).messages {
+		for _, call := range tc.turn.tools {
+			p.require(len(call.id) <= 64, "emitted call id %q is longer than 64 characters", call.id)
+		}
+		for _, result := range tc.results {
+			p.require(len(result.id) <= 64, "emitted result call id %q is longer than 64 characters", result.id)
+		}
+	}
+	return p
+}
+
+func (e emittedReplay) problems() []string {
+	if e.body == nil {
+		return nil
+	}
+	return append(validateRequest(e.format, e.body), emittedCallIDProblems(e.format, e.body)...)
 }
 
 func assistantReplayFacts(all facts) facts {
@@ -165,9 +195,12 @@ func TestRecordedTurnsReplayIntoTheNextRequest(t *testing.T) {
 				for _, problem := range validateClientReplay(req.format, req.body) {
 					t.Errorf("client replay request is not valid %s: %s", req.format, problem)
 				}
-				emitter, got := emitReplay(hops, req, rec.format)
-				name := "replay:" + h.name() + "+" + emitter
-				for _, d := range ledger.unexplained(name, diffFacts(want, got)) {
+				emitted := emitReplay(hops, req, rec.format)
+				name := "replay:" + h.name() + "+" + emitted.emitter
+				for _, problem := range emitted.problems() {
+					t.Errorf("%s emits an invalid %s request: %s", name, emitted.format, problem)
+				}
+				for _, d := range ledger.unexplained(name, diffFacts(want, emitted.facts)) {
 					t.Errorf("%s does not return the recorded turn: %s", name, d)
 				}
 			})
