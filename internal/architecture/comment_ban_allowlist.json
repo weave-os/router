@@ -34,14 +34,6 @@
       "banned_lines": 5249
     },
     {
-      "package": "internal/requestcontext",
-      "banned_lines": 212
-    },
-    {
-      "package": "internal/router",
-      "banned_lines": 408
-    },
-    {
       "package": "internal/router/catalog",
       "banned_lines": 537
     },
