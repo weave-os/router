@@ -3002,9 +3002,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if s.claudeSubscriptionExhausted(ctx, r.Header) {
 		ctx = withSuppressedClaudeSubscription(ctx)
 		if s.linkedSeatCanCover(ctx, decision.Provider, decision.Model) {
-			ctx = withDeferredReconnectNudge(ctx, ownClaudePlanSpentNudge)
+			ctx = withDeferredReconnectNudge(ctx, claudeSubscriptionReconnectNudge(ctx, r.Header, s.usageObserver))
 		} else {
-			ctx = withSubscriptionReconnectNudge(ctx, ownClaudePlanSpentNudge)
+			ctx = withSubscriptionReconnectNudge(ctx, claudeSubscriptionReconnectNudge(ctx, r.Header, s.usageObserver))
 		}
 	}
 	ctx = s.resolveCredentials(ctx, decision.Provider, decision.Model, r.Header)
@@ -3339,7 +3339,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	rescue := &messagesRescue{
 		rescueChain: &rescueChain{
-			svc: s, seats: seatAdmissionOf(s),
+			svc: s, seats: seatAdmissionOf(s), usageObserver: s.usageObserver,
 			r:                r,
 			log:              log,
 			env:              env,
