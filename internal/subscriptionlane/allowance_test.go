@@ -9,10 +9,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var spentEvents = []subscriptionlane.AllowanceEvent{
-	subscriptionlane.SixHourWindowSpent,
-	subscriptionlane.WeeklyWindowSpent,
-	subscriptionlane.BillingWindowSpent,
+var windowRank = map[subscriptionlane.AllowanceEvent]int{
+	subscriptionlane.SixHourWindowSpent: 1,
+	subscriptionlane.WeeklyWindowSpent:  2,
+	subscriptionlane.BillingWindowSpent: 3,
+}
+
+var allowanceRank = map[subscriptionlane.Allowance]int{
+	subscriptionlane.AllowanceUnspent:      0,
+	subscriptionlane.AllowanceSixHourSpent: 1,
+	subscriptionlane.AllowanceWeeklySpent:  2,
+	subscriptionlane.AllowanceBillingSpent: 3,
 }
 
 func TestAllowanceRulesEnumerateEveryPairOnceWithAVerdict(t *testing.T) {
@@ -27,11 +34,13 @@ func TestAllowanceRulesEnumerateEveryPairOnceWithAVerdict(t *testing.T) {
 		}
 	}
 	assert.Len(t, seen, len(subscriptionlane.Allowances())*len(subscriptionlane.AllowanceEvents()))
+	assert.Len(t, allowanceRank, len(subscriptionlane.Allowances()))
+	assert.Len(t, windowRank, len(subscriptionlane.AllowanceEvents()))
 }
 
-func TestEveryAllowanceIsReachableFromUnscoped(t *testing.T) {
-	reached := map[subscriptionlane.Allowance]bool{subscriptionlane.AllowanceUnscoped: true}
-	frontier := []subscriptionlane.Allowance{subscriptionlane.AllowanceUnscoped}
+func TestEveryAllowanceIsReachableFromUnspent(t *testing.T) {
+	reached := map[subscriptionlane.Allowance]bool{subscriptionlane.AllowanceUnspent: true}
+	frontier := []subscriptionlane.Allowance{subscriptionlane.AllowanceUnspent}
 	for len(frontier) > 0 {
 		from := frontier[0]
 		frontier = frontier[1:]
@@ -47,72 +56,29 @@ func TestEveryAllowanceIsReachableFromUnscoped(t *testing.T) {
 	}
 }
 
-func TestAllowanceIsAdmittedOnlyAfterThePlanIsScoped(t *testing.T) {
-	for _, on := range subscriptionlane.AllowanceEvents() {
-		next, ok := subscriptionlane.StepAllowance(subscriptionlane.AllowanceUnscoped, on)
-		if on == subscriptionlane.PlanScoped {
-			assert.True(t, ok)
-			assert.Equal(t, subscriptionlane.AllowanceNotSubscribed, next)
-			continue
-		}
-		assert.False(t, ok, "%s", on)
-		assert.Equal(t, subscriptionlane.AllowanceUnscoped, next, "%s", on)
+func TestASpentWindowKeepsTheLongerOfTheTwo(t *testing.T) {
+	for _, rule := range subscriptionlane.AllowanceRules() {
+		require.Equal(t, subscriptionlane.Allowed, rule.Transition.Verdict, "%s on %s", rule.From, rule.On)
+		assert.Equal(t, max(allowanceRank[rule.From], windowRank[rule.On]), allowanceRank[rule.Transition.To], "%s on %s", rule.From, rule.On)
 	}
-}
-
-func TestPlanScopingNeverChangesAnAdmission(t *testing.T) {
-	for _, from := range subscriptionlane.Allowances() {
-		if from == subscriptionlane.AllowanceUnscoped {
-			continue
-		}
-		next, ok := subscriptionlane.StepAllowance(from, subscriptionlane.PlanScoped)
-		assert.True(t, ok, "%s", from)
-		assert.Equal(t, from, next, "%s", from)
-	}
-}
-
-func TestCoveredAndSpentAllowancesNeverMeet(t *testing.T) {
-	for _, on := range spentEvents {
-		_, ok := subscriptionlane.StepAllowance(subscriptionlane.AllowanceCovered, on)
-		assert.False(t, ok, "covered allowance took %s", on)
-	}
-	for _, from := range subscriptionlane.Allowances() {
-		if !from.Spent() {
-			continue
-		}
-		_, ok := subscriptionlane.StepAllowance(from, subscriptionlane.IncludedUsageCovered)
-		assert.False(t, ok, "%s became covered", from)
-		assert.False(t, from.Covers(), "%s", from)
-	}
-	assert.True(t, subscriptionlane.AllowanceCovered.Covers())
-	assert.False(t, subscriptionlane.AllowanceCovered.Spent())
 }
 
 func TestSpentWindowsSettleOnTheLongestInAnyOrder(t *testing.T) {
-	longest := map[subscriptionlane.AllowanceEvent]int{
-		subscriptionlane.SixHourWindowSpent: 1,
-		subscriptionlane.WeeklyWindowSpent:  2,
-		subscriptionlane.BillingWindowSpent: 3,
-	}
-	settled := map[int]subscriptionlane.Allowance{
-		1: subscriptionlane.AllowanceSixHourSpent,
-		2: subscriptionlane.AllowanceWeeklySpent,
-		3: subscriptionlane.AllowanceBillingSpent,
-	}
+	events := subscriptionlane.AllowanceEvents()
 	for seed := range uint64(2000) {
 		rng := splitMix64(seed)
-		allowance := subscriptionlane.AllowanceNotSubscribed
+		allowance := subscriptionlane.AllowanceUnspent
 		rank := 0
 		var walk []string
 		for range 1 + rng.next(8) {
-			on := spentEvents[rng.next(len(spentEvents))]
+			on := events[rng.next(len(events))]
 			walk = append(walk, on.String())
 			next, ok := subscriptionlane.StepAllowance(allowance, on)
 			require.True(t, ok, "%v", walk)
+			require.GreaterOrEqual(t, allowanceRank[next], allowanceRank[allowance], "%v: a spent window was forgotten", walk)
 			allowance = next
-			rank = max(rank, longest[on])
-			require.True(t, allowance.Spent(), "%v", walk)
+			rank = max(rank, windowRank[on])
 		}
-		assert.Equal(t, settled[rank], allowance, "%v", walk)
+		assert.Equal(t, rank, allowanceRank[allowance], "%v", walk)
 	}
 }
