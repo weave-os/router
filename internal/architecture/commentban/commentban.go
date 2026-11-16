@@ -16,6 +16,7 @@ const (
 
 	deprecatedParagraphPrefix = "// Deprecated:"
 	codeQLSuppressionPrefix   = "// codeql["
+	spdxHeaderPrefix          = "// SPDX-"
 )
 
 var allowedDirectivePrefixes = []string{"//go:", "//line ", "//export ", "//extern "}
@@ -66,7 +67,7 @@ func InSource(filename string, source []byte) ([]Comment, error) {
 		inDeprecatedParagraph := false
 		for _, comment := range group.List {
 			inDeprecatedParagraph = continuesDeprecatedParagraph(comment.Text, inDeprecatedParagraph)
-			if inDeprecatedParagraph || isAllowedComment(comment.Text) {
+			if inDeprecatedParagraph || isAllowedComment(comment.Text) || isSPDXFileHeader(comment, file) {
 				continue
 			}
 			start, end := fileSet.Position(comment.Pos()), fileSet.Position(comment.End())
@@ -81,6 +82,10 @@ func continuesDeprecatedParagraph(text string, inParagraph bool) bool {
 		return true
 	}
 	return inParagraph && strings.HasPrefix(text, "//") && strings.TrimSpace(text) != "//"
+}
+
+func isSPDXFileHeader(comment *ast.Comment, file *ast.File) bool {
+	return comment.Pos() < file.Package && strings.HasPrefix(comment.Text, spdxHeaderPrefix)
 }
 
 func isAllowedComment(text string) bool {

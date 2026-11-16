@@ -1,12 +1,7 @@
-// Package refusal is the single contract for how the router refuses a request
-// for auth, billing, entitlement and policy reasons: each Kind maps to exactly
-// one HTTP status, machine-readable code and retry signal. Refusal sites name a
-// Kind and never pick a status themselves.
 package refusal
 
 import "net/http"
 
-// Kind identifies one reason the router refuses a request.
 type Kind int
 
 const (
@@ -46,18 +41,12 @@ const (
 	kindCount
 )
 
-// Contract is the observable result of a refusal.
 type Contract struct {
-	Status int
-	// Code names the refusal on the wire where the envelope carries a code.
-	Code string
-	// RetryAfter means the response carries Retry-After: 1.
-	RetryAfter bool
-	// NoClientRetry means the response carries x-should-retry: false, telling
-	// SDK clients the identical request cannot succeed.
+	Status        int
+	Code          string
+	RetryAfter    bool
 	NoClientRetry bool
-	// Message is the human-readable text a site sends unless it supplies its own.
-	Message string
+	Message       string
 }
 
 var contracts = [kindCount]Contract{
@@ -96,12 +85,10 @@ var contracts = [kindCount]Contract{
 	SubscriptionUnavailableForTurn: {Status: http.StatusPaymentRequired, Code: "subscription_unavailable_for_turn", NoClientRetry: true, Message: "Your subscription can't serve this turn."},
 }
 
-// Contract returns the kind's entry in the refusal table.
 func (k Kind) Contract() Contract {
 	return contracts[k]
 }
 
-// Kinds lists every refusal kind.
 func Kinds() []Kind {
 	kinds := make([]Kind, 0, kindCount)
 	for k := range kindCount {
@@ -110,7 +97,6 @@ func Kinds() []Kind {
 	return kinds
 }
 
-// AnthropicType is the Anthropic Messages error "type" for the refusal.
 func (c Contract) AnthropicType() string {
 	switch c.Status {
 	case http.StatusBadRequest:
@@ -128,7 +114,6 @@ func (c Contract) AnthropicType() string {
 	}
 }
 
-// OpenAIType is the OpenAI error "type" for the refusal.
 func (c Contract) OpenAIType() string {
 	switch c.Status {
 	case http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden:
@@ -138,8 +123,6 @@ func (c Contract) OpenAIType() string {
 	}
 }
 
-// GeminiStatus is the google.rpc status name Gemini clients expect for the
-// refusal.
 func (c Contract) GeminiStatus() string {
 	switch c.Status {
 	case http.StatusBadRequest:

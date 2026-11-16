@@ -6,8 +6,6 @@ import (
 	"weave-os/router/internal/telemetry"
 )
 
-// Buffer accumulates spans for a single request and flushes them to an Emitter
-// in bulk. All methods are nil-safe (zero overhead when disabled).
 type Buffer struct {
 	emitter *Emitter
 	traceID [16]byte
@@ -16,8 +14,6 @@ type Buffer struct {
 	logs    []telemetry.LogRecord
 }
 
-// NewBuffer creates a request-scoped span buffer. Returns nil when emitter is
-// nil (OTel disabled).
 func NewBuffer(emitter *Emitter) *Buffer {
 	if emitter == nil {
 		return nil
@@ -28,7 +24,6 @@ func NewBuffer(emitter *Emitter) *Buffer {
 	}
 }
 
-// Record appends a span to the buffer. Safe for concurrent use.
 func (b *Buffer) Record(s telemetry.Span) {
 	if b == nil {
 		return
@@ -38,7 +33,6 @@ func (b *Buffer) Record(s telemetry.Span) {
 	b.mu.Unlock()
 }
 
-// RecordLog appends a log record to the buffer. Safe for concurrent use.
 func (b *Buffer) RecordLog(r telemetry.LogRecord) {
 	if b == nil {
 		return
@@ -48,8 +42,6 @@ func (b *Buffer) RecordLog(r telemetry.LogRecord) {
 	b.mu.Unlock()
 }
 
-// Flush drains all buffered spans and log records into the emitter's async
-// export queues. Spans and logs share this request's traceID.
 func (b *Buffer) Flush() {
 	if b == nil {
 		return

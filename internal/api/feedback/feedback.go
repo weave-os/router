@@ -1,7 +1,3 @@
-// Package feedback holds the HTTP handlers for the no-login feedback link
-// surface (`/v1/feedback/link`). The signed HMAC token in the URL / body is the
-// sole credential — these routes carry no auth middleware — and is verified via
-// the proxy service, which also reads routing context and persists submissions.
 package feedback
 
 import (
@@ -20,8 +16,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// maxBodyBytes caps the feedback submission payload. A rating + short comment is
-// tiny; this only guards against a hostile client streaming an unbounded body.
 const maxBodyBytes = 64 * 1024
 
 type submittedFeedback struct {
@@ -29,8 +23,6 @@ type submittedFeedback struct {
 	Comment *string `json:"comment,omitempty"`
 }
 
-// contextResponse is the JSON shape the public feedback page consumes
-// (RouterFeedbackContext on the frontend). Field names are the contract.
 type contextResponse struct {
 	RequestID      string             `json:"request_id"`
 	ChosenModel    string             `json:"chosen_model,omitempty"`
@@ -46,8 +38,6 @@ type submitRequest struct {
 	Comment *string `json:"comment"`
 }
 
-// GetContextHandler serves GET /v1/feedback/link/:token: verify the token and
-// return the request's routing context plus any prior feedback.
 func GetContextHandler(svc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
@@ -60,9 +50,6 @@ func GetContextHandler(svc *proxy.Service) gin.HandlerFunc {
 
 		fctx, err := svc.GetFeedbackContext(c.Request.Context(), claims.InstallationID, claims.RequestID)
 		if errors.Is(err, sql.ErrNoRows) {
-			// Token is valid but no telemetry row exists (telemetry disabled or
-			// pruned past retention). Render the page with just the request id
-			// so the user can still leave feedback.
 			c.JSON(http.StatusOK, contextResponse{RequestID: claims.RequestID})
 			return
 		}
@@ -75,8 +62,6 @@ func GetContextHandler(svc *proxy.Service) gin.HandlerFunc {
 	}
 }
 
-// SubmitHandler serves POST /v1/feedback/link: verify the token in the body and
-// persist the rating + optional comment.
 func SubmitHandler(svc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
@@ -119,12 +104,6 @@ func SubmitHandler(svc *proxy.Service) gin.HandlerFunc {
 	}
 }
 
-// RateHandler serves GET /v1/feedback/rate?t=<token>&r=up|down: the one-click
-// thumb link embedded in a response footer. It records the rating straight from
-// the GET (no form page) and returns a tiny HTML confirmation. The signed token
-// is the sole credential, so these links carry no auth middleware. Note: a GET
-// that mutates can be triggered by link prefetchers, but the token is
-// unguessable and per-request, so the blast radius is one request's own rating.
 func RateHandler(svc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
@@ -182,8 +161,6 @@ func toContextResponse(f proxy.FeedbackContext) contextResponse {
 	return resp
 }
 
-// normalizeComment trims whitespace and collapses an empty comment to nil so
-// "" and "no comment" are indistinguishable downstream.
 func normalizeComment(comment *string) *string {
 	if comment == nil {
 		return nil
@@ -195,8 +172,6 @@ func normalizeComment(comment *string) *string {
 	return &trimmed
 }
 
-// writeTokenError maps token verification failures to the HTTP status codes the
-// frontend distinguishes: 410 for an expired link, 404 for anything else.
 func writeTokenError(c *gin.Context, err error) {
 	if errors.Is(err, token.ErrExpiredToken) {
 		c.AbortWithStatusJSON(http.StatusGone, gin.H{"error": "expired"})

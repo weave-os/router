@@ -11,10 +11,8 @@ import (
 	"weave-os/router/internal/sqlc"
 )
 
-// FeedbackLookup recovers only persisted request attribution, never the current lane head.
 type FeedbackLookup struct{ Queries *sqlc.Queries }
 
-// GetFeedbackAdmission preserves a feedback token's original serving tuple after rebinding.
 func (r FeedbackLookup) GetFeedbackAdmission(ctx context.Context, installationID, requestID string) (policyregistry.SessionReleaseBinding, error) {
 	var admission policyregistry.SessionReleaseBinding
 	installation, err := uuid.Parse(installationID)
