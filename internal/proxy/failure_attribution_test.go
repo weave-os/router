@@ -61,7 +61,7 @@ func TestDispatchPlanned_TranslatedRejectionIsRouterOwned(t *testing.T) {
 func TestDispatchPlanned_TranslatedRejectionOfAnUnchangedClientFieldIsClientOwned(t *testing.T) {
 	inbound := []byte(`{"model":"claude","max_tokens":"lots","messages":[{"role":"user","content":"hi"}]}`)
 	translated := []byte(`{"model":"` + plannedTestModel + `","max_tokens":"lots","contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
-	rejection := &providers.UpstreamErrorResponse{Status: 400, Body: []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"max_tokens: Input should be a valid integer"}}`)}
+	rejection := &providers.UpstreamErrorResponse{Status: 400, Rejection: providers.UpstreamRejection{Kind: providers.UpstreamRejectionField, Field: "max_tokens"}}
 	primary := &fakeClient{name: providers.ProviderGoogle, outcomes: []fakeOutcome{{err: rejection}}}
 	fallback := &fakeClient{name: providers.ProviderOpenRouter, outcomes: []fakeOutcome{{writeBytes: []byte("ok")}}}
 	sink := &recordingAttemptSink{}

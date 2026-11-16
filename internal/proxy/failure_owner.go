@@ -46,12 +46,12 @@ func classifyFailureOwner(in failureOwnerInput) FailureOwner {
 	if errors.Is(err, errCallerPlanThrottled) {
 		return FailureOwnerClient
 	}
-	if errors.Is(err, ErrSubscriptionPoolExhausted) && upstreamStatus(err) == http.StatusTooManyRequests {
-		return FailureOwnerProvider
-	}
 	if cls, ok := ClassifyDispatchError(err); ok && cls.Kind != DispatchErrorUpstreamStatus {
-		if cls.Kind == DispatchErrorHandoff && errors.Is(err, ErrHandoffUnavailable) {
+		switch {
+		case cls.Kind == DispatchErrorHandoff && errors.Is(err, ErrHandoffUnavailable):
 			return FailureOwnerRouter
+		case cls.Kind == DispatchErrorSubscriptionPoolExhausted && upstreamStatus(err) == http.StatusTooManyRequests:
+			return FailureOwnerProvider
 		}
 		return dispatchErrorKindOwner(cls.Kind)
 	}
