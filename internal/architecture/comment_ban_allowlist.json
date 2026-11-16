@@ -3,7 +3,7 @@
   "packages": [
     {
       "package": "internal/proxy",
-      "banned_lines": 2198
+      "banned_lines": 1586
     }
   ]
 }
