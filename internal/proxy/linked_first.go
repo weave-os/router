@@ -80,9 +80,6 @@ func paidFallbackForbiddenForModel(ctx context.Context, model string) bool {
 	return paidFallbackForbiddenForModelOnProvider(ctx, "", model)
 }
 
-// paidFallbackForbiddenForModelOnProvider is paidFallbackForbiddenForModel for a
-// recovery onto provider: an unfunded organization's turn may still recover
-// on the customer's own usable key for provider.
 func paidFallbackForbiddenForModelOnProvider(ctx context.Context, provider, model string) bool {
 	unfunded := paidCapacityUnfunded(ctx) && (provider == "" || !unfundedKeyFunds(ctx, usableBYOK(ctx, provider)))
 	if claudeEnterpriseTarget(ctx, inference.Target{CatalogID: model}) || pickedModelOnOwnPlan(ctx) || subscriptionAttemptOnly(ctx) || unfunded {
@@ -144,9 +141,6 @@ func releaseThrottledLinkedFirst(ctx context.Context) (context.Context, bool) {
 	return billing.ReleaseLinkedFirst(ctx), true
 }
 
-// claudeRetryRefusal reports whether a Claude subscription error on the Chat
-// surfaces earns a paid retry: a model-access or third-party refusal, or, on an
-// unfunded turn that can only recover on the customer's key, any live refusal.
 func claudeRetryRefusal(ctx context.Context, err error) bool {
 	return anthropicSubscriptionModelRejected(err) || anthropicSubscriptionThirdPartyRefused(err) ||
 		paidCapacityUnfunded(ctx) && (providers.IsRetryable(err) || anthropicOAuthCredentialRejected(err))

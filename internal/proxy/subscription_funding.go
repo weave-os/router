@@ -368,9 +368,6 @@ func credentialRejectionStands(subscriptionErr, retryErr error, credentialReject
 	return errors.Is(retryErr, dispatch.ErrAuthorizationDenied) && credentialRejected(subscriptionErr)
 }
 
-// attemptOwesNoQuotaProof reports whether an attempt on creds buys no Weave
-// capacity: the caller's own plan, or, on an unfunded turn the plan refused
-// live, the customer's own key.
 func attemptOwesNoQuotaProof(ctx context.Context, creds *Credentials) bool {
 	return creds != nil && creds.OAuth || paidCapacityUnfunded(ctx) && unfundedKeyFunds(ctx, creds)
 }
