@@ -11,7 +11,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// WithAgentShadowEvaluation validates the evaluation header triplet; partial headers fail closed, absent headers pass through.
 func WithAgentShadowEvaluation() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		model := strings.TrimSpace(c.GetHeader(proxy.AgentShadowModelHeader))
