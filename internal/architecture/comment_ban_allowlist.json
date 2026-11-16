@@ -20,10 +20,6 @@
     {
       "package": "internal/subscriptions/entitlement",
       "banned_lines": 239
-    },
-    {
-      "package": "internal/translate",
-      "banned_lines": 1154
     }
   ]
 }

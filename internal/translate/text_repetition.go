@@ -6,11 +6,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// TrailingAssistantTexts returns, in order, the narration text of each
-// assistant message since the last real human turn — the concatenation of a
-// message's text blocks, with reasoning and tool calls ignored and empty
-// messages dropped. Tool-result turns with harness-injected wrapper text are
-// not treated as human boundaries (see userIsHumanTurn).
 func (e *RequestEnvelope) TrailingAssistantTexts() []string {
 	switch e.format {
 	case FormatAnthropic, FormatOpenAI:
@@ -37,17 +32,12 @@ loop:
 			}
 		}
 	}
-	// Collected tail-first; reverse to chronological order so callers can take
-	// the most-recent window off the end.
 	for l, r := 0, len(rev)-1; l < r; l, r = l+1, r-1 {
 		rev[l], rev[r] = rev[r], rev[l]
 	}
 	return rev
 }
 
-// userIsHumanTurn reports whether a user message carries genuine human input:
-// text that is neither a tool_result nor a CC-injected wrapper block.
-// Injected turns must not reset the window or the backward scan collects nothing.
 func userIsHumanTurn(msg gjson.Result) bool {
 	content := msg.Get("content")
 	if content.Type == gjson.String {
@@ -59,7 +49,7 @@ func userIsHumanTurn(msg gjson.Result) bool {
 	found := false
 	content.ForEach(func(_, block gjson.Result) bool {
 		if block.Get("type").String() != "text" {
-			return true // tool_result / image / etc. are not human input
+			return true
 		}
 		if isHumanText(block.Get("text").String()) {
 			found = true
@@ -70,14 +60,10 @@ func userIsHumanTurn(msg gjson.Result) bool {
 	return found
 }
 
-// isHumanText reports whether s is real human input rather than empty text or
-// one of Claude Code's injected wrapper blocks (<system-reminder>, <command-name>, <local-command-*>, …).
 func isHumanText(s string) bool {
 	return strings.TrimSpace(s) != "" && !isClaudeCodeInjectedBlock(s)
 }
 
-// assistantMessageText joins the text blocks of one assistant message,
-// skipping thinking/tool_use. A plain-string content is the text itself.
 func assistantMessageText(msg gjson.Result) string {
 	content := msg.Get("content")
 	if content.Type == gjson.String {

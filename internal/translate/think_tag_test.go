@@ -175,3 +175,11 @@ func TestThinkTagPassthroughAfterMatch(t *testing.T) {
 		{kind: segText, text: "bcd"},
 	}, segs)
 }
+
+func TestThinkTagStreamsThinkingBeforeCloseTag(t *testing.T) {
+	var s thinkTagSplitter
+	s.Feed("<think>")
+	segs := s.Feed("reasoning so far")
+	assert.Equal(t, []thinkSegment{{kind: segThinking, text: "reasoning"}}, segs,
+		"thinking streams as it arrives; only a close-tag-length tail is held back")
+}
