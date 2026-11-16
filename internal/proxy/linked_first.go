@@ -9,21 +9,12 @@ import (
 	"weave-os/router/internal/router"
 )
 
-func linkedFirst(ctx context.Context) bool {
-	reason, ok := billing.SubscriptionOnlyReasonFromContext(ctx)
-	return ok && reason == billing.SubscriptionOnlyLinkedFirst
-}
-
 func paidFallbackForbidden(ctx context.Context) bool {
 	return paidFallbackForbiddenByPlan(ctx) || paidCapacityUnfunded(ctx)
 }
 
 func paidFallbackForbiddenByPlan(ctx context.Context) bool {
 	return claudeEnterpriseTurn(ctx) && !claudeEnterpriseCapRescue(ctx) || pickedModelOnOwnPlan(ctx) || subscriptionAttemptOnly(ctx) || subscriptionStateModelsEnabled(ctx) && !subscriptionAPIOnly(ctx)
-}
-
-func paidCapacityUnfunded(ctx context.Context) bool {
-	return billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx)
 }
 
 func paidFallbackForbiddenFor(ctx context.Context, provider string) bool {

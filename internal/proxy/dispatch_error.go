@@ -72,6 +72,7 @@ const (
 	DispatchErrorCompactionUnservable
 	DispatchErrorClaudeEnterpriseOnly
 	DispatchErrorWeaveCreditsDisabled
+	DispatchErrorSubscriptionUnavailableForTurn
 )
 
 type DispatchErrorClass struct {
@@ -95,7 +96,6 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	var forcedClusterUnservable *policy.ForcedClusterUnservableError
 	var resolution *policy.ResolutionError
 	var compactionUnservable *CompactionUnservableError
-	var allowanceSpent *IncludedAllowanceSpentError
 	switch {
 	case errors.Is(err, auth.ErrAnthropicFederationUnavailable):
 		return DispatchErrorClass{Kind: DispatchErrorAnthropicFederationUnavailable, Status: http.StatusServiceUnavailable, Message: "Anthropic workload federation is unavailable.", RetryAfter: true}, true
@@ -116,21 +116,8 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 		return refusalClass(DispatchErrorSubscriptionClientAppRefused, refusal.SubscriptionClientAppRefused,
 			"Anthropic only lets Claude Code use Claude subscription plan limits, so this app can't use them for the forced Claude model. Use Claude Code, add extra usage at claude.ai/settings/usage, or pick a non-Claude model.",
 			"warn", "Rejected forced Claude turn: subscriptions refused third-party client"), true
-	case errors.As(err, &allowanceSpent):
-		kind, reason := DispatchErrorCreditsExhausted, refusal.CreditsExhausted
-		if errors.Is(err, ErrSpendCapSubscriptionUnavailable) {
-			kind, reason = DispatchErrorSpendCapReached, refusal.SpendCapReached
-		}
-		return refusalClass(kind, reason, includedAllowanceSpentMessage(allowanceSpent),
-			"warn", "Subscription-only request refused: included allowance spent and subscription unavailable"), true
-	case errors.Is(err, ErrSpendCapSubscriptionUnavailable):
-		return refusalClass(DispatchErrorSpendCapReached, refusal.SpendCapReached,
-			"A Weave router spend cap has been reached and your subscription can't serve this turn (rate-limited, or the requested model isn't subscription-covered).",
-			"warn", "Subscription-only request refused: spend cap reached and subscription unavailable"), true
-	case errors.Is(err, ErrCreditsExhaustedSubscriptionUnavailable):
-		return refusalClass(DispatchErrorCreditsExhausted, refusal.CreditsExhausted,
-			"Your Weave router credits are exhausted and your subscription can't serve this turn (rate-limited, or the requested model isn't subscription-covered). Add credits to re-enable paid routing: "+topUpURL,
-			"warn", "Subscription-only request refused: credits exhausted and subscription unavailable"), true
+	case subscriptionLaneRefused(err):
+		return subscriptionLaneRefusalClass(err), true
 	case errors.Is(err, ErrWeaveCreditsDisabled):
 		return refusalClass(DispatchErrorWeaveCreditsDisabled, refusal.WeaveCreditsDisabled,
 			"Weave credits are turned off for your organization, and none of your plans or provider API keys can serve this request. Connect a provider key or plan for this model, or allow Weave credits in settings.",
@@ -442,6 +429,9 @@ func includedAllowanceSpentMessage(e *IncludedAllowanceSpentError) string {
 	}
 	if errors.Is(e.orgGate, ErrSpendCapSubscriptionUnavailable) {
 		return message + " A Weave router spend cap blocks paid routing until then."
+	}
+	if errors.Is(e.orgGate, ErrSubscriptionUnavailableForTurn) {
+		return message
 	}
 	return message + " To keep routing until then, add credits: " + topUpURL
 }
