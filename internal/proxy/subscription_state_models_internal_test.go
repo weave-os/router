@@ -838,3 +838,47 @@ func assertResponsesClientGridOutcome(t *testing.T, cell string, err error, mode
 	assert.Contains(t, out, `"type":"response.completed"`)
 	assert.NotContains(t, out, "response.failed")
 }
+
+func TestSubscriptionStateModelsSkipSpentSeatPoolsBeforeDispatch(t *testing.T) {
+	claude := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{{writeBytes: []byte("included Claude answer")}}}
+	codex := &fakeClient{name: providers.ProviderOpenAI, outcomes: []fakeOutcome{{writeBytes: []byte("included Codex answer")}}}
+	paid := &fakeClient{name: providers.ProviderOpenRouter, outcomes: []fakeOutcome{{writeBytes: []byte("cheap paid answer")}}}
+	leaser := &scriptedSubscriptionLeaser{}
+	svc := NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderAnthropic: claude, providers.ProviderOpenAI: codex, providers.ProviderOpenRouter: paid}, nil, nil, false, "", "", nil).
+		WithManagedSubscriptions(leaser)
+	resetAt := time.Now().Add(48 * time.Hour)
+	ctx := WithManagedSubscriptionCandidates(managedSubscriptionTestContext(), []*auth.SubscriptionAccount{
+		{ID: "synthetic-spent-claude", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &resetAt},
+		{ID: "synthetic-spent-codex", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &resetAt},
+		{ID: "synthetic-reconnect-codex", Provider: auth.SubscriptionProviderCodex, State: auth.SubscriptionAccountStateReconnectRequired},
+	})
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel, stateClaudeModel})
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
+	ctx = withTurnFailures(ctx)
+	req := router.Request{AllowedModels: allowedModelsForRequest(ctx), EnabledProviders: modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter})}
+	rec := httptest.NewRecorder()
+	buffer := newPreludeBuffer(rec)
+	var attempted []string
+	var winner router.Decision
+	_, err := svc.dispatchWithFallback(ctx, failoverInputs{
+		w: rec, buf: buffer, subscriptionStateRequest: &req,
+		subscriptionStateWinnerProvider: new(string),
+		initialDecision:                 router.Decision{Model: stateCodexModel, Provider: providers.ProviderOpenAI},
+		purpose:                         inference.PurposeAnthropicMessages,
+		buildAlternative: func(router.Decision) (dispatchAttempt, error) {
+			return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
+				attempted = append(attempted, decision.Model)
+				buffer.Seal()
+				return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/messages", nil))
+			}, nil
+		},
+		onAlternative: func(decision router.Decision) { winner = decision },
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, statePaidModel, winner.Model)
+	require.Equal(t, []string{statePaidModel}, attempted)
+	require.Empty(t, leaser.providers, "pools whose every seat is spent must not be leased again on each request")
+	require.Zero(t, claude.calls)
+	require.Zero(t, codex.calls)
+}

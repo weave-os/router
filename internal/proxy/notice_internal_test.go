@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -168,4 +169,18 @@ func TestAddRoutingFundingSource(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRoutingFundingSourceSkipsSpentManagedSeats(t *testing.T) {
+	resetAt := time.Now().Add(48 * time.Hour)
+	ctx := WithManagedSubscriptionCandidates(billing.WithOrganizationPrepaid(WithManagedSubscriptionUsage(context.Background())), []*auth.SubscriptionAccount{
+		{ID: "synthetic-spent-codex", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &resetAt},
+		{ID: "synthetic-reconnect-codex", Provider: auth.SubscriptionProviderCodex, State: auth.SubscriptionAccountStateReconnectRequired},
+	})
+	notice := translate.NewRouterNotice(translate.NoticeModelSelection, "✦ **Weave Router** → gpt-6-luna · model selected for this turn\n\n", "gpt-6-luna", "")
+
+	got := addRoutingFundingSource(ctx, providers.ProviderOpenAI, "gpt-6-luna", notice)
+
+	assert.Contains(t, got.Text, "funded by Weave credits")
+	assert.NotContains(t, got.Text, "Codex subscription")
 }

@@ -263,6 +263,22 @@ func (s *Service) linkedSeatCanCover(ctx context.Context, provider, model string
 	}
 	pool, _ := managedSubscriptionProviderFromUpstream(provider, model)
 	now := s.clockNow()
+	return managedSeatCanCover(ctx, pool, now, func(candidate managedSubscriptionCandidate) bool {
+		return s.managedAccountQuotaExhausted(ctx, candidate, now)
+	})
+}
+
+func recordedSeatCanCover(ctx context.Context, provider, model string, now time.Time) bool {
+	if !managedSubscriptionCanServe(ctx, provider, model) || managedSubscriptionEnrollmentUnavailable(ctx) {
+		return false
+	}
+	pool, _ := managedSubscriptionProviderFromUpstream(provider, model)
+	return managedSeatCanCover(ctx, pool, now, func(candidate managedSubscriptionCandidate) bool {
+		return recordedQuotaExhausted(ctx, candidate, now)
+	})
+}
+
+func managedSeatCanCover(ctx context.Context, pool subscriptions.Provider, now time.Time, quotaExhausted func(managedSubscriptionCandidate) bool) bool {
 	if subscriptionProviderUnavailable(ctx, pool, now) {
 		return false
 	}
@@ -277,7 +293,7 @@ func (s *Service) linkedSeatCanCover(ctx context.Context, provider, model string
 		if candidate.state == auth.SubscriptionAccountStateCooldown && candidate.resetAt.After(now) {
 			continue
 		}
-		if !s.managedAccountQuotaExhausted(ctx, candidate, now) {
+		if !quotaExhausted(candidate) {
 			return true
 		}
 	}
@@ -298,6 +314,20 @@ func managedAccountCredentialCooling(candidate managedSubscriptionCandidate, now
 }
 
 func (s *Service) managedAccountQuotaExhausted(ctx context.Context, candidate managedSubscriptionCandidate, now time.Time) bool {
+	if recordedQuotaExhausted(ctx, candidate, now) {
+		return true
+	}
+	if candidate.provider == auth.SubscriptionProviderClaude && claudeEnterpriseOnly(ctx) {
+		return false
+	}
+	if s.usageObserver != nil {
+		snapshot, observed := s.usageObserver.Snapshot(s.usageObserver.Key([]byte("subscription-account:" + candidate.accountID)))
+		return observed && includedQuotaSpent(snapshot, now)
+	}
+	return false
+}
+
+func recordedQuotaExhausted(ctx context.Context, candidate managedSubscriptionCandidate, now time.Time) bool {
 	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
 		if state.QuotaExhaustedAccounts[candidate.accountID].After(now) {
 			return true
@@ -306,14 +336,7 @@ func (s *Service) managedAccountQuotaExhausted(ctx context.Context, candidate ma
 	if candidate.provider == auth.SubscriptionProviderClaude && claudeEnterpriseOnly(ctx) {
 		return false
 	}
-	if candidate.state == auth.SubscriptionAccountStateExhausted && candidate.resetAt.After(now) {
-		return true
-	}
-	if s.usageObserver != nil {
-		snapshot, observed := s.usageObserver.Snapshot(s.usageObserver.Key([]byte("subscription-account:" + candidate.accountID)))
-		return observed && includedQuotaSpent(snapshot, now)
-	}
-	return false
+	return candidate.state == auth.SubscriptionAccountStateExhausted && candidate.resetAt.After(now)
 }
 
 func includedQuotaSpent(snapshot usage.Snapshot, now time.Time) bool {
