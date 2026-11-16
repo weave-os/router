@@ -35,7 +35,9 @@ func TestRandomResponsesDrawForMainToolAndSubagent(t *testing.T) {
 		toolResult bool
 	}{{"/root", false}, {"/root", true}, {"/root/worker", true}} {
 		nativeCtx, _ := codexRoutingEnvelope(t, shape.agent, shape.toolResult)
-		body, err := sjson.SetBytes(nativeCtx.Value(nativeResponsesBodyContextKey{}).([]byte), "stream", true)
+		nativeBody, ok := nativeCtx.Value(nativeResponsesBodyContextKey{}).([]byte)
+		require.True(t, ok)
+		body, err := sjson.SetBytes(nativeBody, "stream", true)
 		require.NoError(t, err)
 		ctx := flags.WithOverrides(randomTestContext(config), flags.Overrides{Strings: map[flags.Key]string{flags.KeyRandomBenchmarkConfig: string(encoded)}})
 		ctx, _, err = BeginRandomBenchmark(svc, ctx, config.PolicySHA256)
@@ -52,6 +54,6 @@ func TestRandomResponsesDrawForMainToolAndSubagent(t *testing.T) {
 		require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, response, request))
 		require.Equal(t, index+1, draws)
 		require.Equal(t, index+1, client.calls)
-		require.Equal(t, randomrouter.Models()[index], response.Header().Get(HeaderRouterModel))
+		require.Equal(t, []string{catalog.ModelGPT6Luna, catalog.ModelGPT61Sol.String(), catalog.ModelGPT61Terra.String()}[index], response.Header().Get(HeaderRouterModel))
 	}
 }
