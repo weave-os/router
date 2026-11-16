@@ -2,20 +2,12 @@
   "schema_version": "comment_ban_allowlist_v1",
   "packages": [
     {
-      "package": "internal/api/admin",
-      "banned_lines": 303
-    },
-    {
       "package": "internal/auth",
       "banned_lines": 883
     },
     {
       "package": "internal/billing",
       "banned_lines": 294
-    },
-    {
-      "package": "internal/dispatch",
-      "banned_lines": 278
     },
     {
       "package": "internal/policyregistry",
@@ -31,7 +23,7 @@
     },
     {
       "package": "internal/proxy",
-      "banned_lines": 5940
+      "banned_lines": 5938
     },
     {
       "package": "internal/requestcontext",
@@ -46,16 +38,8 @@
       "banned_lines": 537
     },
     {
-      "package": "internal/router/policy",
-      "banned_lines": 473
-    },
-    {
       "package": "internal/router/sessionpin",
       "banned_lines": 211
-    },
-    {
-      "package": "internal/server/middleware",
-      "banned_lines": 315
     },
     {
       "package": "internal/subscriptions/entitlement",
@@ -63,7 +47,7 @@
     },
     {
       "package": "internal/translate",
-      "banned_lines": 3422
+      "banned_lines": 2920
     }
   ]
 }
