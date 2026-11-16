@@ -36,6 +36,7 @@ Index of Markdown documentation in the `router/` repo.
 | [HMM_GO_SELECTION.md](HMM_GO_SELECTION.md) | Architecture, `policy_router_v3` split, and rollback story for Go-owned HMM roster ownership and deterministic arm selection. |
 | [REQUEST_ENVELOPE.md](REQUEST_ENVELOPE.md) | Request envelope, emit overrides, model id normalization, in-band commands and history repair in `internal/translate`. |
 | [TRANSLATION_COMPATIBILITY.md](TRANSLATION_COMPATIBILITY.md) | Cross-format translation requirements and rollout modes. |
+| [RESPONSES_TRANSLATION.md](RESPONSES_TRANSLATION.md) | Responses API ingress, Codex portable projection, passthrough, and Responses-upstream translation for Anthropic and Chat clients. |
 | [ROUTER_NOTICES.md](ROUTER_NOTICES.md) | Typed router notices, client-protocol sinks, capabilities, and retry lifecycle. |
 | [SMOKE.md](SMOKE.md) | Pre-merge record/replay smoke-suite scenarios, cassettes, and local workflow. |
 | [CI.md](CI.md) | CI timing baseline, completed improvements, and the remaining optimization backlog. |

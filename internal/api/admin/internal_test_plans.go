@@ -15,7 +15,6 @@ func testPlanFailure(c *gin.Context, err error) {
 	c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "Test identity, budget or pinned selection is unavailable. Preview a new launch."})
 }
 
-// InternalTestPlanIdentitiesHandler lists funded eligible subjects behind internal service auth.
 func InternalTestPlanIdentitiesHandler(tools *policyregistry.TestPlanTools) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		identities, err := tools.Repository.ListTestIdentities(c.Request.Context())
@@ -28,7 +27,6 @@ func InternalTestPlanIdentitiesHandler(tools *policyregistry.TestPlanTools) gin.
 	}
 }
 
-// InternalTestPlanPreviewHandler resolves an exact production selection without inference.
 func InternalTestPlanPreviewHandler(tools *policyregistry.TestPlanTools) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var request struct {
@@ -49,7 +47,6 @@ func InternalTestPlanPreviewHandler(tools *policyregistry.TestPlanTools) gin.Han
 	}
 }
 
-// InternalTestPlanPrepareHandler prepares a confirmed, expiring bearer grant.
 func InternalTestPlanPrepareHandler(tools *policyregistry.TestPlanTools) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var request struct {
@@ -70,7 +67,6 @@ func InternalTestPlanPrepareHandler(tools *policyregistry.TestPlanTools) gin.Han
 	}
 }
 
-// InternalTestPlanRevokeHandler revokes only the ephemeral launch grant.
 func InternalTestPlanRevokeHandler(tools *policyregistry.TestPlanTools) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		err := tools.Repository.RevokeTestLaunch(c.Request.Context(), c.Param("id"))
@@ -86,7 +82,6 @@ func InternalTestPlanRevokeHandler(tools *policyregistry.TestPlanTools) gin.Hand
 	}
 }
 
-// TestPlanValidationHandler returns the verified scope after the worker snapshot loads.
 func TestPlanValidationHandler(c *gin.Context) {
 	assertion := policyregistry.ServingAssertionFromContext(c.Request.Context())
 	if assertion == nil || assertion.TestPlan == nil {

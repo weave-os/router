@@ -14,8 +14,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ExclusionOverrideSource reports the deployment-wide ROUTER_EXCLUDED_MODELS
-// override, if active. Implemented by *proxy.Service.
 type ExclusionOverrideSource interface {
 	HasExcludedModelsOverride() bool
 	ExcludedModelsOverride() []string
@@ -33,8 +31,6 @@ type updateExcludedModelsRequest struct {
 	Excluded []string `json:"excluded"`
 }
 
-// entriesToDTO converts deployed entries to sorted DTO form, matching the
-// catalog listings' wire shape.
 func entriesToDTO(entries []router.DeployedEntry) []deployedModelDTO {
 	out := make([]deployedModelDTO, 0, len(entries))
 	for _, e := range entries {
@@ -44,8 +40,6 @@ func entriesToDTO(entries []router.DeployedEntry) []deployedModelDTO {
 	return out
 }
 
-// GetExcludedModelsHandler returns the model catalog and the installation's
-// exclusion list. `env_override_active` tells the UI to render read-only.
 func GetExcludedModelsHandler(authSvc *auth.Service, override ExclusionOverrideSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
@@ -75,8 +69,6 @@ func GetExcludedModelsHandler(authSvc *auth.Service, override ExclusionOverrideS
 	}
 }
 
-// UpdateExcludedModelsHandler replaces the installation's exclusion list.
-// 400 on unknown model IDs; 403 if the env override is active.
 func UpdateExcludedModelsHandler(authSvc *auth.Service, override ExclusionOverrideSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
