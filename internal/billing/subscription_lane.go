@@ -93,8 +93,8 @@ func unfundedTurn(ctx context.Context) bool {
 
 type byokFeeUnpayableKey struct{}
 
-func (s *Service) TripSubscriptionLane(ctx context.Context, on subscriptionlane.Event) (context.Context, subscriptionlane.State) {
-	ctx, lane := StepSubscriptionLane(ctx, on)
+func (s *Service) TripSubscriptionLane(ctx context.Context, event subscriptionlane.Event) (context.Context, subscriptionlane.State) {
+	ctx, lane := StepSubscriptionLane(ctx, event)
 	if s.ByokFeeOwed(ctx) && unfundedTurn(ctx) {
 		ctx = context.WithValue(ctx, byokFeeUnpayableKey{}, true)
 	}
