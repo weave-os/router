@@ -784,6 +784,11 @@ const (
 )
 
 func modelSelectionReason(res turnLoopResult, failoverReason string) string {
+	if failoverReason == "" {
+		if reason := slidingUpgradeReason(res); reason != "" {
+			return reason
+		}
+	}
 	if res.Decision.Metadata != nil {
 		for _, label := range []string{res.Decision.Metadata.ClassifierPredictedLabel, res.Decision.Metadata.PolicyGroup} {
 			classification := modelSelectionComplexity(strings.ToLower(strings.TrimSpace(label)))
@@ -951,6 +956,9 @@ func cyberRefusalRoutingMarkerFor(res turnLoopResult, fallbackModel string) stri
 // routingReasonShort returns a short user-facing reason for the routing
 // decision, or empty when the underlying code is internal recovery noise.
 func routingReasonShort(res turnLoopResult) string {
+	if reason := slidingUpgradeReason(res); reason != "" {
+		return reason
+	}
 	if res.PlannerDecision.Reason != "" {
 		return humanReasonFromPlanner(res.PlannerDecision.Reason)
 	}
@@ -5060,7 +5068,7 @@ func plannerLogFields(res turnLoopResult) []any {
 	if res.PlannerDecision.Reason != "" {
 		pinCacheWarm = !res.PlannerDecision.PinCacheCold
 	}
-	return []any{
+	return append([]any{
 		"planner_outcome", plannerOutcomeAttr(res),
 		"planner_reason", res.PlannerDecision.Reason,
 		"planner_expected_savings_usd", res.PlannerDecision.ExpectedSavingsUSD,
@@ -5075,7 +5083,7 @@ func plannerLogFields(res turnLoopResult) []any {
 		"cache_prior_turn_gap_ms", res.PriorTurnGapMS,
 		"planner_pin_price_fallback", res.PlannerDecision.PinPriceFallback,
 		"planner_fresh_price_fallback", res.PlannerDecision.FreshPriceFallback,
-	}
+	}, slidingUpgradeLogFields(res)...)
 }
 
 func stickyStateRole(res turnLoopResult) string {
