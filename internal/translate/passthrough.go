@@ -8,9 +8,6 @@ import (
 	"weave-os/router/internal/providers"
 )
 
-// PrepareAnthropicPassthrough builds a PreparedRequest for non-routing
-// Anthropic endpoints, stripping inference-time fields, unsupported tool
-// schema constraints, and thinking betas.
 func (e *RequestEnvelope) PrepareAnthropicPassthrough(in http.Header) (providers.PreparedRequest, error) {
 	ov, _ := resolvePassthroughOverrides(e.body)
 	ov.SanitizeAnthropicToolSchemas = true
@@ -29,13 +26,10 @@ func (e *RequestEnvelope) PrepareAnthropicPassthrough(in http.Header) (providers
 	return providers.PreparedRequest{Body: body, Headers: AnthropicPassthroughHeadersForBody(in, body)}, nil
 }
 
-// AnthropicPassthroughHeaders returns header overrides for the passthrough path.
 func AnthropicPassthroughHeaders(in http.Header) http.Header {
 	return AnthropicPassthroughHeadersForBody(in, nil)
 }
 
-// AnthropicPassthroughHeadersForBody returns passthrough headers and enables
-// Anthropic's mid-conversation tool-change beta when the body uses its blocks.
 func AnthropicPassthroughHeadersForBody(in http.Header, body []byte) http.Header {
 	h := make(http.Header)
 	if v := in.Get("anthropic-version"); v != "" {

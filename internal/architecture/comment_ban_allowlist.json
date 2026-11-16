@@ -12,10 +12,6 @@
     {
       "package": "internal/proxy",
       "banned_lines": 5222
-    },
-    {
-      "package": "internal/translate",
-      "banned_lines": 1154
     }
   ]
 }

@@ -2,7 +2,6 @@ package translate
 
 import "strings"
 
-// RoutingHistoryProfile selects native client lifecycle semantics.
 type RoutingHistoryProfile uint8
 
 const (
@@ -20,7 +19,6 @@ func (e *RequestEnvelope) routingMessages(profile RoutingHistoryProfile) ([]Conv
 	return messages, projected
 }
 
-// RoutingInput projects client lifecycle messages without changing provider input.
 func (e *RequestEnvelope) RoutingInput(profile RoutingHistoryProfile, promptText string) (string, []ConversationMessage) {
 	messages, projected := e.routingMessages(profile)
 	if projected {
@@ -35,7 +33,6 @@ func (e *RequestEnvelope) RoutingInput(profile RoutingHistoryProfile, promptText
 	return promptText, messages
 }
 
-// RoutingEndsWithUserPrompt excludes correlated background completions from user boundaries.
 func (e *RequestEnvelope) RoutingEndsWithUserPrompt(profile RoutingHistoryProfile) bool {
 	if profile == RoutingHistoryOpenCode {
 		messages, projected := e.routingMessages(profile)
