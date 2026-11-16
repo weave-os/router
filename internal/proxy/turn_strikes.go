@@ -31,6 +31,13 @@ func turnFailuresFromContext(ctx context.Context) *turnFailures {
 	return failures
 }
 
+func recordModelTurnFailure(ctx context.Context, model string, err error) {
+	if subscriptionFundingFailure(err) {
+		return
+	}
+	recordTurnFailure(ctx, model)
+}
+
 func recordTurnFailure(ctx context.Context, model string) {
 	failures := turnFailuresFromContext(ctx)
 	if failures == nil || model == "" {
