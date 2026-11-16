@@ -294,7 +294,7 @@ func (a seatAdmission) mayAdmit(ctx context.Context, provider, model string) boo
 		case pool == subscriptions.ProviderCodex && a.codexExtraCredits:
 			return false
 		default:
-			return observedQuotaSpent(a.observer, candidate, a.now)
+			return includedQuotaObservedSpent(a.observer, candidate, a.now)
 		}
 	})
 }
@@ -341,10 +341,10 @@ func (s *Service) managedAccountQuotaExhausted(ctx context.Context, candidate ma
 	if candidate.provider == auth.SubscriptionProviderClaude && claudeEnterpriseOnly(ctx) {
 		return false
 	}
-	return observedQuotaSpent(s.usageObserver, candidate, now)
+	return includedQuotaObservedSpent(s.usageObserver, candidate, now)
 }
 
-func observedQuotaSpent(observer *usage.Observer, candidate managedSubscriptionCandidate, now time.Time) bool {
+func includedQuotaObservedSpent(observer *usage.Observer, candidate managedSubscriptionCandidate, now time.Time) bool {
 	if observer == nil {
 		return false
 	}
