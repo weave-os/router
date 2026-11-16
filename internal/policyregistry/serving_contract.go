@@ -13,7 +13,6 @@ import (
 	"weave-os/router/internal/router/hmm/rosterdata"
 )
 
-// ServingTarget is a managed runtime destination, independent of routing strategy.
 type ServingTarget string
 
 const (
@@ -22,7 +21,6 @@ const (
 	TargetInternal ServingTarget = "prod/weave-internal"
 )
 
-// Environment rejects legacy beta and cross-environment target combinations.
 func (t ServingTarget) Environment() (Environment, error) {
 	switch t {
 	case TargetStaging:
@@ -34,7 +32,6 @@ func (t ServingTarget) Environment() (Environment, error) {
 	}
 }
 
-// ServingKind selects a content-addressed namespace, never a mutable alias.
 type ServingKind string
 
 const (
@@ -47,7 +44,6 @@ const (
 	ServingClassifierReleases ServingKind = "classifier_releases"
 )
 
-// ServingSchema versions managed contracts without changing published policy v1 bytes.
 type ServingSchema string
 
 const (
@@ -63,7 +59,6 @@ const (
 	ServingSelectionSetV4      ServingSchema = "router_serving_selection_set_v4"
 )
 
-// ChangeScope specifies which destination components a proposal may replace.
 type ChangeScope string
 
 const (
@@ -76,7 +71,6 @@ const (
 	ChangeRollback   ChangeScope = "rollback"
 )
 
-// ServingRequirements are checked against the selected image and classifier, not current main.
 type ServingRequirements struct {
 	RuntimeContract      ServingSchema            `json:"runtime_contract"`
 	PolicySchema         rosterdata.SchemaVersion `json:"policy_schema"`
@@ -84,18 +78,14 @@ type ServingRequirements struct {
 	TaxonomySHA256       string                   `json:"taxonomy_sha256"`
 }
 
-// ManagedRuntimeContractV1 is the first exact-snapshot worker assertion contract.
 const ManagedRuntimeContractV1 ServingSchema = "router_managed_runtime_v1"
 
-// ServingProvenance keeps both source identities separate from artifact identity.
 type ServingProvenance struct {
 	RouterRevision   string    `json:"router_revision"`
 	WeaveRevision    string    `json:"weave_revision"`
 	BuildAttestation ObjectRef `json:"build_attestation"`
 }
 
-// ClassifierBundle binds every behavior-affecting model and configuration object.
-// Configuration contains no secrets; secret references belong to target bindings.
 type ClassifierBundle struct {
 	SchemaVersion   ServingSchema        `json:"schema_version"`
 	Identity        ClassifierIdentity   `json:"identity"`
@@ -104,7 +94,6 @@ type ClassifierBundle struct {
 	Configuration   ObjectRef            `json:"configuration"`
 }
 
-// ServingRelease is an environment-neutral immutable base or effective profile tuple.
 type ServingRelease struct {
 	SchemaVersion     ServingSchema       `json:"schema_version"`
 	RouterImageDigest string              `json:"router_image_digest"`
@@ -114,7 +103,6 @@ type ServingRelease struct {
 	Provenance        ServingProvenance   `json:"provenance"`
 }
 
-// RoutingProfile owns a stable opaque selection key; its bytes define one revision.
 type RoutingProfile struct {
 	SchemaVersion ServingSchema       `json:"schema_version"`
 	ProfileKey    string              `json:"profile_key"`
@@ -122,7 +110,6 @@ type RoutingProfile struct {
 	Requirements  ServingRequirements `json:"requirements"`
 }
 
-// RevisionBinding identifies a prepared immutable revision, including effective configuration.
 type RevisionBinding struct {
 	Name          string    `json:"name"`
 	URL           string    `json:"url"`
@@ -131,7 +118,6 @@ type RevisionBinding struct {
 	Configuration ObjectRef `json:"configuration"`
 }
 
-// DeploymentBinding realizes one release locally without changing its identity.
 type DeploymentBinding struct {
 	SchemaVersion          ServingSchema   `json:"schema_version"`
 	Target                 ServingTarget   `json:"target"`
@@ -144,14 +130,12 @@ type DeploymentBinding struct {
 	Attestation            ObjectRef       `json:"attestation"`
 }
 
-// ServingSelection pins the exact release, binding and optional profile revision.
 type ServingSelection struct {
 	Release ObjectRef  `json:"release"`
 	Binding ObjectRef  `json:"binding"`
 	Profile *ObjectRef `json:"profile,omitempty"`
 }
 
-// SelectionSet is activated atomically, including all registered organization-owned keys.
 type SelectionSet struct {
 	SchemaVersion ServingSchema               `json:"schema_version"`
 	Target        ServingTarget               `json:"target"`
@@ -159,7 +143,6 @@ type SelectionSet struct {
 	Profiles      map[string]ServingSelection `json:"profiles"`
 }
 
-// DeploymentProposal freezes the entire preview before approval or queueing.
 type DeploymentProposal struct {
 	SchemaVersion        ServingSchema `json:"schema_version"`
 	Target               ServingTarget `json:"target"`
@@ -207,8 +190,6 @@ func servingLegacyNamespace(kind ServingKind) string {
 	return "router_serving/v1/" + string(kind) + "/sha256/"
 }
 
-// servingNamespaces lists every content-addressed layout a kind may be read from. The first
-// entry is the layout new objects of that kind are published to.
 func servingNamespaces(kind ServingKind) ([]string, error) {
 	switch kind {
 	case ServingReleases, ServingClassifiers, ServingBindings, ServingProfiles, ServingSelectionSets, ServingProposals:
@@ -226,14 +207,11 @@ func servingNamespaces(kind ServingKind) ([]string, error) {
 	}
 }
 
-// ValidateServingRef prevents cross-kind substitution and paths outside the registry. A v2 kind
-// admits both the artifacts/ layout and the legacy namespace of the v1 object it folds.
 func ValidateServingRef(ref ObjectRef, root string, kind ServingKind) error {
 	_, err := servingRefNamespace(ref, root, kind)
 	return err
 }
 
-// servingRefNamespace returns the layout a reference of the given kind lives in.
 func servingRefNamespace(ref ObjectRef, root string, kind ServingKind) (string, error) {
 	namespaces, err := servingNamespaces(kind)
 	if err != nil {
@@ -254,7 +232,6 @@ func validImageDigest(digest string) bool {
 	return strings.HasPrefix(digest, "sha256:") && validDigest(strings.TrimPrefix(digest, "sha256:"))
 }
 
-// Validate rejects partial classifier identities, including unpinned auxiliary models.
 func (b ClassifierBundle) Validate(string) error {
 	if b.SchemaVersion != ServingClassifierV1 {
 		return errors.New("invalid classifier bundle identity or schema")
@@ -264,7 +241,6 @@ func (b ClassifierBundle) Validate(string) error {
 
 var sourceRevisionPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
-// Validate enforces immutable release references and complete source provenance.
 func (r ServingRelease) Validate(root string) error {
 	if r.SchemaVersion != ServingReleaseV1 || !validImageDigest(r.RouterImageDigest) {
 		return errors.New("invalid serving release schema or router image digest")
@@ -289,7 +265,6 @@ func validateProfileKey(key string) error {
 	return nil
 }
 
-// Validate checks a profile revision independently of enrollment or authorization.
 func (p RoutingProfile) Validate(root string) error {
 	if p.SchemaVersion != ServingProfileV1 {
 		return errors.New("unsupported routing profile schema")
@@ -315,7 +290,6 @@ func (r RevisionBinding) validate() error {
 	return validateArtifactRef(r.Configuration)
 }
 
-// Validate checks target-local realization; readiness separately verifies actual revision identity.
 func (b DeploymentBinding) Validate(root string) error {
 	if b.SchemaVersion != ServingBindingV1 || strings.TrimSpace(b.Project) == "" || strings.TrimSpace(b.Region) == "" || !validDigest(b.ClassifierBundleSHA256) {
 		return errors.New("invalid deployment binding schema, location or classifier bundle")
@@ -335,8 +309,6 @@ func (b DeploymentBinding) Validate(root string) error {
 	return validateArtifactRef(b.Attestation)
 }
 
-// validate accepts either a v1 tuple (release, binding, profile revision) or the normalized
-// form of a v2 lane, whose binding and profile revision are both the selection set that embeds it.
 func (s ServingSelection) validate(root string, profile bool) error {
 	if profile != (s.Profile != nil) {
 		return errors.New("only named profile selections must carry an exact profile revision")
@@ -365,12 +337,10 @@ func (s ServingSelection) validate(root string, profile bool) error {
 	return nil
 }
 
-// isLane reports whether the selection names a lane embedded in a v2 selection set.
 func (s ServingSelection) isLane(root string) bool {
 	return isServingArtifactURI(s.Binding.URI, root)
 }
 
-// Validate requires an explicit profile inventory, including for default-only activations.
 func (s SelectionSet) Validate(root string) error {
 	if s.SchemaVersion != ServingSelectionSetV1 || s.Profiles == nil {
 		return errors.New("selection set requires a supported schema and explicit profile map")
@@ -392,7 +362,6 @@ func (s SelectionSet) Validate(root string) error {
 	return nil
 }
 
-// Validate freezes actor, idempotency identity, scope and expected destination state.
 func (p DeploymentProposal) Validate(root string) error {
 	if p.SchemaVersion != ServingProposalV1 || p.ExpectedGeneration < 0 || strings.TrimSpace(p.Actor) == "" || strings.TrimSpace(p.Reason) == "" || p.CreatedAt.IsZero() {
 		return errors.New("invalid proposal schema, generation or audit identity")
@@ -469,16 +438,10 @@ func validateWithdrawals(activationIDs []string) error {
 	return nil
 }
 
-// ServingManifest is the common strict validation boundary for immutable managed objects.
 type ServingManifest interface {
 	Validate(string) error
 }
 
-// DecodeServingManifest validates manifest bytes, whether supplied for publication or read
-// back from the registry: strict decode, supported schema and semantic contract. The JSON
-// encoding is not part of the contract; an object's identity is the digest of the exact
-// bytes it was published with. A v1 kind decodes exactly its own type; a v2 kind selects the
-// v1 or v2 type from the declared schema_version.
 func DecodeServingManifest(payload []byte, root string, kind ServingKind) (ServingManifest, error) {
 	var manifest ServingManifest
 	switch kind {
@@ -532,9 +495,6 @@ func DecodeServingManifest(payload []byte, root string, kind ServingKind) (Servi
 	return manifest, nil
 }
 
-// DecodeServingObject decodes stored bytes for a reference and binds the object's version to
-// its layout: artifacts/ holds only v2 objects and legacy namespaces only v1 objects, so a
-// reference cannot be relabeled across layouts.
 func DecodeServingObject(payload []byte, root string, kind ServingKind, ref ObjectRef) (ServingManifest, error) {
 	if err := ValidateServingRef(ref, root, kind); err != nil {
 		return nil, err

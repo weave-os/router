@@ -187,3 +187,13 @@ func TestQwenServingRevisionChangesReleaseIdentity(t *testing.T) {
 	release.Classifier.Variants[router.StrategyHMMQwen] = variant
 	require.Error(t, release.Validate(testRegistryRoot))
 }
+
+func TestClassifierIdentityEqualityIncludesAlternateVariants(t *testing.T) {
+	retained := validRelease().Classifier
+	retained.Variants = map[router.Strategy]policy.ClassifierArtifact{router.StrategyHMMBeta: {ArtifactID: "candidate-hmm", PackageSHA256: strings.Repeat("b", 64)}}
+	changed := validRelease().Classifier
+	changed.Variants = map[router.Strategy]policy.ClassifierArtifact{router.StrategyHMMBeta: {ArtifactID: "candidate-hmm-2", PackageSHA256: strings.Repeat("c", 64)}}
+
+	assert.True(t, retained.Equal(retained))
+	assert.False(t, retained.Equal(changed), "a retained release must not swap its alternate classifier")
+}

@@ -10,24 +10,12 @@
       "banned_lines": 883
     },
     {
-      "package": "internal/policyregistry",
-      "banned_lines": 491
-    },
-    {
       "package": "internal/postgres",
       "banned_lines": 320
     },
     {
-      "package": "internal/providers",
-      "banned_lines": 352
-    },
-    {
-      "package": "internal/providers/httputil",
-      "banned_lines": 214
-    },
-    {
       "package": "internal/proxy",
-      "banned_lines": 5225
+      "banned_lines": 5222
     },
     {
       "package": "internal/router/catalog",
@@ -39,7 +27,7 @@
     },
     {
       "package": "internal/translate",
-      "banned_lines": 2001
+      "banned_lines": 1154
     }
   ]
 }
