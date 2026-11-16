@@ -17,13 +17,8 @@ import (
 	"time"
 )
 
-// caCertFilename is written to certDir; the server container's SSL_CERT_DIR
-// points there so crypto/x509 picks it up without update-ca-certificates.
 const caCertFilename = "smoke-mitm-ca.pem"
 
-// ca mints TLS leaf certificates on demand for whatever host the client is
-// CONNECT-ing to, signed by an in-memory root that exists only for this
-// process's lifetime. Never touches disk except for the public cert.
 type ca struct {
 	cert *x509.Certificate
 	key  *ecdsa.PrivateKey
@@ -65,8 +60,6 @@ func newCA() (*ca, error) {
 	return &ca{cert: cert, key: key, leaves: make(map[string]*tls.Certificate)}, nil
 }
 
-// writePublicCert writes only the public CA certificate (PEM) to dir. No
-// private key material ever leaves the process.
 func (c *ca) writePublicCert(dir string) error {
 	f, err := os.Create(filepath.Join(dir, caCertFilename))
 	if err != nil {
@@ -76,8 +69,6 @@ func (c *ca) writePublicCert(dir string) error {
 	return pem.Encode(f, &pem.Block{Type: "CERTIFICATE", Bytes: c.cert.Raw})
 }
 
-// leafFor returns a TLS certificate for host (from the CONNECT target),
-// minting and caching it on first use.
 func (c *ca) leafFor(host string) (*tls.Certificate, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -118,8 +109,6 @@ func (c *ca) leafFor(host string) (*tls.Certificate, error) {
 	return leaf, nil
 }
 
-// tlsConfigFor returns a tls.Config that serves a host-matching leaf cert via
-// GetCertificate, so SNI selects the right identity per CONNECT target.
 func (c *ca) tlsConfigFor() *tls.Config {
 	return &tls.Config{
 		GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {

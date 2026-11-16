@@ -429,3 +429,24 @@ func TestPassthrough_ErrorStatusLogsThroughContextLogger(t *testing.T) {
 	assert.Contains(t, logs.String(), `"request_id":"req-bound"`)
 	assert.Contains(t, logs.String(), `"status":400`)
 }
+
+func TestProxy_ObservesUpstreamHeadersOnRateLimitedResponse(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("x-codex-primary-used-percent", "100")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"type":"rate_limit_exceeded","message":"slow down"}}`))
+	}))
+	defer upstream.Close()
+
+	var observed http.Header
+	ctx := providers.WithUpstreamHeaderObserver(context.Background(), func(_ context.Context, h http.Header) { observed = h.Clone() })
+	prep := providers.PreparedRequest{Body: []byte(`{"model":"gpt-5.6-sol","messages":[]}`), Headers: make(http.Header)}
+
+	err := openai.NewClient("deployment-key", upstream.URL).Proxy(ctx, router.Decision{Model: "gpt-5.6-sol"}, prep, httptest.NewRecorder(),
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader("")))
+
+	var buffered *providers.UpstreamErrorResponse
+	require.ErrorAs(t, err, &buffered)
+	require.NotNil(t, observed, "a 429 carries the rate-limit headroom the usage observer needs most")
+	assert.Equal(t, "100", observed.Get("x-codex-primary-used-percent"))
+}
