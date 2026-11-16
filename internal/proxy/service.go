@@ -3116,7 +3116,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	recordFastServed := func(fast bool) { fastServed = fast }
 
 	buildAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatchAttempt, error) {
-		targetNotice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, target.Model, targetMarker)
+		targetNotice := routerNoticeForRequest(withOwnClaudeRejectionNudge(ctx, r.Header, s.usageObserver), r.Header, subscriptions.ProviderClaude, target.Model, targetMarker)
 		targetNotice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(s), target.Provider, target.Model, targetNotice)
 		switch providers.FamilyFor(target.Provider) {
 		case providers.FamilyAnthropic:
