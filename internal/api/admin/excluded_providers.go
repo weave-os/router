@@ -13,8 +13,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ProviderExclusionOverrideSource reports the deployment-wide ROUTER_EXCLUDED_PROVIDERS
-// override, if active. Implemented by *proxy.Service.
 type ProviderExclusionOverrideSource interface {
 	HasExcludedProvidersOverride() bool
 	ExcludedProvidersOverride() []string
@@ -30,8 +28,6 @@ type updateExcludedProvidersRequest struct {
 	Excluded []string `json:"excluded"`
 }
 
-// deployedProvidersDTO returns distinct provider names from the serving
-// roster, sorted, so GET and PUT responses can't drift apart.
 func deployedProvidersDTO(ctx context.Context, models HMMRosterSource) ([]string, error) {
 	entries, err := models.HMMDeployedModels(ctx)
 	if err != nil {
@@ -50,8 +46,6 @@ func deployedProvidersDTO(ctx context.Context, models HMMRosterSource) ([]string
 	return out, nil
 }
 
-// GetExcludedProvidersHandler returns deployed providers and the installation's
-// exclusion list. `env_override_active` tells the UI to render read-only.
 func GetExcludedProvidersHandler(authSvc *auth.Service, models HMMRosterSource, override ProviderExclusionOverrideSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
@@ -85,8 +79,6 @@ func GetExcludedProvidersHandler(authSvc *auth.Service, models HMMRosterSource, 
 	}
 }
 
-// UpdateExcludedProvidersHandler replaces the installation's exclusion list.
-// 400 on unknown providers; 403 if the env override is active.
 func UpdateExcludedProvidersHandler(authSvc *auth.Service, models HMMRosterSource, override ProviderExclusionOverrideSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
@@ -136,8 +128,6 @@ func UpdateExcludedProvidersHandler(authSvc *auth.Service, models HMMRosterSourc
 	}
 }
 
-// abortRosterUnavailable maps a roster fetch failure to 503: validation needs
-// the serving universe and must not accept or reject against a guess.
 func abortRosterUnavailable(c *gin.Context, err error) {
 	observability.FromGin(c).Error("Serving model roster unavailable", "err", err)
 	c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "Model roster unavailable; retry shortly."})
