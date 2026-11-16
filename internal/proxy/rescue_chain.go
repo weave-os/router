@@ -48,6 +48,7 @@ type rescueServices interface {
 
 type rescueChain struct {
 	svc              rescueServices
+	seats            seatAdmission
 	r                *http.Request
 	log              *slog.Logger
 	env              *translate.RequestEnvelope

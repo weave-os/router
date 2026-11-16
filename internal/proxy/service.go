@@ -3081,7 +3081,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		fundingCtx = credentialCtx
 	}
 	notice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, decision.Model, marker)
-	notice = addRoutingFundingSource(fundingCtx, s.clockNow(), decision.Provider, decision.Model, notice)
+	notice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(s), decision.Provider, decision.Model, notice)
 	marker = notice.Text
 	toolValidator := env.ToolValidator()
 	setExtractor := func(e *telemetry.UsageExtractor) { extractor = e }
@@ -3117,7 +3117,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	buildAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatchAttempt, error) {
 		targetNotice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, target.Model, targetMarker)
-		targetNotice = addRoutingFundingSource(fundingCtx, s.clockNow(), target.Provider, target.Model, targetNotice)
+		targetNotice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(s), target.Provider, target.Model, targetNotice)
 		switch providers.FamilyFor(target.Provider) {
 		case providers.FamilyAnthropic:
 			prep, emitErr := env.PrepareAnthropic(r.Header, targetOpts)
@@ -3339,7 +3339,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	rescue := &messagesRescue{
 		rescueChain: &rescueChain{
-			svc:              s,
+			svc: s, seats: seatAdmissionOf(s),
 			r:                r,
 			log:              log,
 			env:              env,
@@ -5140,7 +5140,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		fundingCtx = credentialCtx
 	}
 	notice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderCodex, decision.Model, marker)
-	notice = addRoutingFundingSource(fundingCtx, s.clockNow(), decision.Provider, decision.Model, notice)
+	notice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(s), decision.Provider, decision.Model, notice)
 	marker = notice.Text
 
 	promotedToResponses := false
@@ -5249,7 +5249,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	cyberRefusalSeen := false
 	buildProviderAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatchAttempt, error) {
 		targetNotice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderCodex, target.Model, targetMarker)
-		targetNotice = addRoutingFundingSource(fundingCtx, s.clockNow(), target.Provider, target.Model, targetNotice)
+		targetNotice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(s), target.Provider, target.Model, targetNotice)
 		if isResponses {
 			if targetMarker != "" && (!responseSwitch.passthrough() || supportsResponsesTerminalSurfaces(clientID.ClientApp)) {
 				_, noticeErr := responsesNotices.prepare(ctx, responsesPreludeBuf, responsesPreludeBuf, translate.FormatOpenAIResponses, env.Stream(), targetNotice)
@@ -5603,7 +5603,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	rescue := &chatRescue{
 		rescueChain: &rescueChain{
-			svc:              s,
+			svc: s, seats: seatAdmissionOf(s),
 			r:                r,
 			log:              log,
 			env:              env,

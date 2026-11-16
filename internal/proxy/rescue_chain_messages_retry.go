@@ -62,7 +62,7 @@ func (m *messagesRescue) dispatchBaseline(ctx context.Context) context.Context {
 		baselineBindings := s.resolveBindingsForDispatch(baselineCtx, baselineDecision)
 		baselineMarker := withRescueDetail(suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, baselineRoutingMarkerFor(routeRes, m.baselineModel), m.baselineModel, markerReasonBaseline)), lastFailureDetail(attemptTraceFromContext(ctx)))
 		baselineNotice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, baselineOpts.TargetModel, baselineMarker)
-		baselineNotice = addRoutingFundingSource(baselineCtx, s.clockNow(), providers.ProviderAnthropic, baselineOpts.TargetModel, baselineNotice)
+		baselineNotice = addRoutingFundingSource(baselineCtx, m.seats, providers.ProviderAnthropic, baselineOpts.TargetModel, baselineNotice)
 		baselineAttempt := m.anthropicTierAttemptFor(baselineOpts, baselinePrep, baselineNotice).attempt(m.recordFastServed)
 		*m.fastServed = baselineOpts.FastMode
 		*m.crossFormat = false
@@ -125,7 +125,7 @@ func (m *messagesRescue) subscriptionRetry(ctx context.Context) {
 				"err", m.proxyErr,
 				"upstream_status", upstreamStatus(m.proxyErr))
 			subNotice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, subOpts.TargetModel, m.marker)
-			subNotice = addRoutingFundingSource(subCtx, s.clockNow(), providers.ProviderAnthropic, subOpts.TargetModel, subNotice)
+			subNotice = addRoutingFundingSource(subCtx, m.seats, providers.ProviderAnthropic, subOpts.TargetModel, subNotice)
 			subAttempt := m.anthropicTierAttemptFor(subOpts, subPrep, subNotice).attempt(m.recordFastServed)
 			*m.fastServed = subOpts.FastMode
 			*m.crossFormat = false

@@ -1062,7 +1062,7 @@
           "FinalModelFamily": "claude-haiku",
           "FreshDecisionModel": "gpt-5.6-sol",
           "InstallationID": "00000000-0000-4000-8000-000000000001",
-          "IntendedModelFamily": "claude-haiku",
+          "IntendedModelFamily": "gpt-sol",
           "PinTier": "postgres_stay_same_model",
           "PlannerOutcome": "stay",
           "PlannerPinModel": "gpt-5.6-sol",
