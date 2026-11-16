@@ -843,9 +843,14 @@ overload circuit is open joins the same soft set.
 
 `x-weave-allowed-models` narrows one request to a comma-separated list of
 catalog IDs or aliases. The list is intersected with the installation's
-`allowed_models` and never widens it. An unknown entry, a blank list or an
-empty intersection fails the request with HTTP 400 instead of falling back to
-the full roster. A narrowed decision's persisted reason gets the
+`allowed_models` and never widens it. Only installations with policy-header
+overrides enabled, or organizations with the `allowed_models_header` flag on,
+may send it; any other caller gets HTTP 403. The header is ignored, and the
+request routes normally, when its value is empty or whitespace-only, when the
+request has no installation, and on managed plans that have a serving
+profile. Otherwise an unknown entry, a list of only empty entries (such as
+`,`) or an empty intersection fails the request with HTTP 400 instead of
+falling back to the full roster. A narrowed decision's persisted reason gets the
 `allowlist_override:` prefix; a user force is a strict pin, ignores the subset
 and keeps its reason. Requests carrying the header bypass the semantic cache,
 because the subset is not part of the cache key.
