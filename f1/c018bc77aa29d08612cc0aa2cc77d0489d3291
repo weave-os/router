@@ -1,0 +1,46 @@
+scripts/smoke/test_runner.py
+  s_2a05efb374be75::t_30444d526d517a 570-573,577-584
+  s_e23e2ec615f7c5::t_ea145553e5b1eb 114,574-576
+scripts/test_agent_checks.py
+  s_2a05efb374be75::t_be5de0b6eaff34 9,69,207,219
+  s_2a05efb374be75::t_fb010b116ec570 4-5,266-313
+  s_2a05efb374be75::t_30444d526d517a 225-226,230-251,256-265,314
+  s_e23e2ec615f7c5::t_ea145553e5b1eb 227-229,252-255
+scripts/smoke/runner.py
+  s_2a05efb374be75::t_706cfa7801a314 24,37-42,47,107,200,202,237,285,287,304,330,358,364,374,393,401
+  s_2a05efb374be75::t_b9f041a395cce3 27,141,148
+  s_e23e2ec615f7c5::t_ea145553e5b1eb 43-46,84,346-350,371-373
+AGENTS.md
+  s_e23e2ec615f7c5::t_5274dd51d4fef3 9-10
+CLAUDE.md
+  s_2a05efb374be75::t_fb88cb774da5c9 9-10
+scripts/agent_checks.py
+  s_2a05efb374be75::t_a4f583355a762b 62,65-69,71,73-74,76,79-104,507
+  s_2a05efb374be75::t_706cfa7801a314 56-57,105-106,466,506
+  s_2a05efb374be75::t_b9f041a395cce3 11,58-60,64,70,72,75,77-78,499-500
+  s_e23e2ec615f7c5::t_ea145553e5b1eb 61,63,487-492
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f1c018bc77aa29d08612cc0aa2cc77d0489d3291",
+  "prompts": {},
+  "sessions": {
+    "s_2a05efb374be75": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e9e5-5891-7b40-8cb6-3fc254b09418",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_e23e2ec615f7c5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a0e9e5-5891-7b40-8cb6-3fc254b09418",
+        "model": "unknown"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

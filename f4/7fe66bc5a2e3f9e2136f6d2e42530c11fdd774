@@ -1,0 +1,106 @@
+internal/subscriptions/early_refresh_test.go
+  s_cf030de1c35ef8::t_2ac88cb85055a7 30,33
+  s_cf030de1c35ef8::t_d0a9a50dfb734f 34-36
+  s_cf030de1c35ef8::t_b30066f6e5ec8d 1-29,31-32,37
+internal/server/server.go
+  s_cf030de1c35ef8::t_53db4b3f746698 31,151-152,282-283
+internal/api/admin/internal_subscription_refresh.go
+  s_cf030de1c35ef8::t_790fcb353c9ee7 1-13,23-30,32-35,37-39,41-44,46-50
+  s_cf030de1c35ef8::t_9ce0153adb880b 14-22,31,36,40,45
+cmd/router/subscription_refresh.go
+  s_cf030de1c35ef8::t_790fcb353c9ee7 1-35,41,46,51-53,57
+  s_cf030de1c35ef8::t_e64274b95c038c 36-40,42-45,47-50,54-56
+internal/subscriptions/early_refresh.go
+  s_cf030de1c35ef8::t_2ac88cb85055a7 38,42,44-46,67
+  s_cf030de1c35ef8::t_b30066f6e5ec8d 43,49,54-60
+  s_cf030de1c35ef8::t_0b93ca518d7985 61-62
+  s_cf030de1c35ef8::t_741bd548ebcf3c 1-37,39-41,47-48,50-53,63-66,68-75
+internal/subscriptions/refresh_operation.go
+  s_cf030de1c35ef8::t_50c0d76184ff46 46,77,92,178-190
+  s_cf030de1c35ef8::t_94b0df8684faba 154-156,158
+  s_cf030de1c35ef8::t_2ac88cb85055a7 144-145,148
+  s_cf030de1c35ef8::t_49ebb3da434de9 122,169-177
+  s_cf030de1c35ef8::t_741bd548ebcf3c 1-45,47-76,78-91,93-121,123-143,146-147,149-153,157,159-168,191
+internal/api/admin/internal_subscription_refresh_test.go
+  s_cf030de1c35ef8::t_5e5c5d1f9814dd 38,40-41
+  s_cf030de1c35ef8::t_15d900c3bdfe07 1-37,39,42-73
+internal/subscriptions/manual_refresh.go
+  s_cf030de1c35ef8::t_2ac88cb85055a7 12-15,17,47,58
+  s_cf030de1c35ef8::t_790fcb353c9ee7 1-7,9-11,16,18-46,48-57,71
+  s_cf030de1c35ef8::t_94b0df8684faba 8,59-70
+internal/postgres/subscription_credentials_test.go
+  s_cf030de1c35ef8::t_d0a9a50dfb734f 1-48
+  s_cf030de1c35ef8::t_e199cbfe225a64 49-60,62,64-84
+  s_cf030de1c35ef8::t_2393d7d7eba228 61,63
+internal/subscriptions/runtime.go
+  s_cf030de1c35ef8::t_50c0d76184ff46 48
+  s_cf030de1c35ef8::t_82a261e7b3259b 110
+internal/postgres/subscription_repo.go
+  s_cf030de1c35ef8::t_50c0d76184ff46 216-221
+db/queries/model_router_subscription_accounts.sql
+  s_cf030de1c35ef8::t_50c0d76184ff46 256-257
+  s_cf030de1c35ef8::t_da8a3d4e816824 36,214,299,318
+internal/subscriptions/manual_refresh_test.go
+  s_cf030de1c35ef8::t_218793f717d060 86-134,136-141,144,146-147
+  s_cf030de1c35ef8::t_705e967b3074bf 7
+  s_cf030de1c35ef8::t_50c0d76184ff46 19,135,142-143,145
+  s_cf030de1c35ef8::t_c60a1740717fc0 148-156,158-166
+  s_cf030de1c35ef8::t_9a1ba77cb2fd92 1-5,8-18,20-85
+  s_cf030de1c35ef8::t_d54df8625b2b7b 6,157
+docs/SUBSCRIPTION_ROUTING.md
+  s_cf030de1c35ef8::t_d54df8625b2b7b 290-293,300-301,306-307
+  s_cf030de1c35ef8::t_53db4b3f746698 283-289,294-299,302-305,308-332
+internal/subscriptions/runtime_test.go
+  s_cf030de1c35ef8::t_2ac88cb85055a7 35-36,202-204,235-239,299
+  s_cf030de1c35ef8::t_50c0d76184ff46 117-125,130
+internal/auth/subscription_credentials.go
+  s_cf030de1c35ef8::t_50c0d76184ff46 5,40,49,78,88,101-113
+  s_cf030de1c35ef8::t_2ac88cb85055a7 3-4,6-34,62
+  s_cf030de1c35ef8::t_d6de21afc78979 1-2,35-39,41-48,50-61,63-77,79-87,89-100
+internal/server/subscription_routes_test.go
+  s_cf030de1c35ef8::t_e199cbfe225a64 1-46
+  s_cf030de1c35ef8::t_f2b69f27756feb 47-48
+internal/server/subscription_routes.go
+  s_cf030de1c35ef8::t_53db4b3f746698 5,8,11,19-20
+  s_cf030de1c35ef8::t_790fcb353c9ee7 1-4,6-7,9-10,12-18,21-26
+internal/auth/subscription.go
+  s_cf030de1c35ef8::t_2ac88cb85055a7 420
+internal/subscriptions/proactive_refresh_test.go
+  s_cf030de1c35ef8::t_659cfa0d03c939 23,70,74,85-90,108,131,134,138
+  s_cf030de1c35ef8::t_a3427b54672fd1 42
+  s_cf030de1c35ef8::t_8fb7a83e46bbf0 1-11,13-22,24-41,44-69,71-73,75-82,84,91-107,109-130,132-133,135-137,139-140
+  s_cf030de1c35ef8::t_2ac88cb85055a7 12,43,83
+cmd/router/subscription_refresh_test.go
+  s_cf030de1c35ef8::t_9a1ba77cb2fd92 1-30
+internal/postgres/subscription_credentials.go
+  s_cf030de1c35ef8::t_2ac88cb85055a7 1-11,13-78,107
+  s_cf030de1c35ef8::t_50c0d76184ff46 12,79-106
+.env.example
+  s_cf030de1c35ef8::t_c3c9f13304bf84 345-349
+cmd/router/main.go
+  s_cf030de1c35ef8::t_a66ac86a80327a 603,1584
+db/migrations/0152_subscription-token-refreshed-at.down.sql
+  s_cf030de1c35ef8::t_368112e3b87a1f 1-4
+db/migrations/0152_subscription-token-refreshed-at.up.sql
+  s_cf030de1c35ef8::t_ab6a13536aba1f 1-4
+internal/sqlc/model_router_subscription_accounts.sql.go
+  s_cf030de1c35ef8::t_095ec025b7cc17 110,156,242,267,284,304,613,647,708,792,899-900,916,946-947,962,1041,1110,1230,1257,1310,1425
+internal/sqlc/models.go
+  s_cf030de1c35ef8::t_c9d190f6369908 780
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f47fe66bc5a2e3f9e2136f6d2e42530c11fdd774",
+  "prompts": {},
+  "sessions": {
+    "s_cf030de1c35ef8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1db6f-b08e-7e82-b7c6-b03ed10b6515",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+internal/router/llmescalation/qwen_interval.go
+  s_be532d4e3d3cf3::t_83907ad129268c 30-33,70
+internal/router/llmescalation/qwen_interval_test.go
+  s_be532d4e3d3cf3::t_83907ad129268c 33-36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c7397384e09b35aad421adffce0a512bfacf2f52",
+  "prompts": {},
+  "sessions": {
+    "s_be532d4e3d3cf3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "400b4548-4142-4a3c-9695-517482338390",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

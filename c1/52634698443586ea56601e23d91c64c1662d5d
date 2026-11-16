@@ -1,0 +1,28 @@
+install/npm/package.json
+  s_787cf7fc928eb8::t_95cab1baa413e6 3
+install/install.sh
+  s_787cf7fc928eb8::t_3b103de0d8dd8d 267,278-281,376,398
+install/tests/jq_bootstrap_test.py
+  s_787cf7fc928eb8::t_1f238f73969e4a 12,21-25,30,67-76
+  s_787cf7fc928eb8::t_d2dcb4272cead7 37-38,41
+  s_787cf7fc928eb8::t_3b103de0d8dd8d 49-50
+  s_787cf7fc928eb8::t_b3fcef68a19998 77-78
+install/npm/README.md
+  s_787cf7fc928eb8::t_3b103de0d8dd8d 160
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c152634698443586ea56601e23d91c64c1662d5d",
+  "prompts": {},
+  "sessions": {
+    "s_787cf7fc928eb8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11340-f757-7f13-811d-6144d7b9238b",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,39 @@
+internal/translate/responses_from_openai_chat_test.go
+  s_7597b41f89257c::t_f2574c124be454 110
+  s_7597b41f89257c::t_cb896426fbe65c 104-109,111-122,124-125
+  s_7597b41f89257c::t_406787169c4389 123
+internal/translate/emit_openai.go
+  s_7597b41f89257c::t_14d2873d65d4ba 61-66
+  s_7597b41f89257c::t_a879420b1f57c3 57,60
+internal/translate/reasoning_samplers_test.go
+  s_7597b41f89257c::t_1f499a972a6343 115-127
+  s_7597b41f89257c::t_958fb30f4914c9 128-150
+  s_7597b41f89257c::t_cb896426fbe65c 94-114
+internal/translate/strictify_openai.go
+  s_7597b41f89257c::t_1366abf3990346 93-94
+  s_7597b41f89257c::t_5a6665b0b8515d 69
+  s_7597b41f89257c::t_f1b569c9734fd4 86-87
+  s_7597b41f89257c::t_78b7c77f8542d2 71-72,77,81,83
+  s_7597b41f89257c::t_fd72c89c345f4b 58-66,97-98,100,102-104
+  s_7597b41f89257c::t_af2afebc049c33 67-68,70,73-76,78-80,82,84-85,88-92,95-96,99,101
+internal/translate/emit_openai_responses.go
+  s_7597b41f89257c::t_294e5166dbc83a 623-625
+internal/translate/strict_decode_emit_test.go
+  s_7597b41f89257c::t_8dbacf9e6fcf9c 88-89
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "57832c7f53ba24cbceeeb5a600e18cc3e1b3d425",
+  "prompts": {},
+  "sessions": {
+    "s_7597b41f89257c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11859-0d8f-79d2-b65c-7f5de75d27f3",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

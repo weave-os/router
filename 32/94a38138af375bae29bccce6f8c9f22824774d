@@ -1,0 +1,26 @@
+internal/auth/session_token.go
+  s_b5ee423ff75a2d::t_c0b16f6e952393 51-53,229-230
+internal/auth/session_token_test.go
+  s_b5ee423ff75a2d::t_5c3e98a15d60e4 62,176-190
+  s_b5ee423ff75a2d::t_850087c4ce46b9 249-255
+internal/server/middleware/session_token_auth_test.go
+  s_b5ee423ff75a2d::t_79e472ee059fdb 37
+docs/DELEGATED_SESSION_TOKENS.md
+  s_b5ee423ff75a2d::t_91d2f35dffa456 25,35-37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3294a38138af375bae29bccce6f8c9f22824774d",
+  "prompts": {},
+  "sessions": {
+    "s_b5ee423ff75a2d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a179b2-87fe-74d0-a095-06b95be696e9",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

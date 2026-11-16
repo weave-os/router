@@ -1,0 +1,19 @@
+install/install.sh
+  s_b1931d2e578d24::t_b0d85d923109b7 6226-6227
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0a6de889f80bc9ca7e3d99686e0b92b63e748c27",
+  "prompts": {},
+  "sessions": {
+    "s_b1931d2e578d24": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10e2e-131f-7810-9724-179c8c8de9f4",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Wesley Lin <wesley@workweave.ai>"
+    }
+  }
+}

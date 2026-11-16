@@ -1,0 +1,28 @@
+internal/proxy/routing_prelude.go
+  s_7b9abf1e136c0a::t_2a95850b2cfa89 91-97,99,102
+internal/proxy/service.go
+  s_7b9abf1e136c0a::t_d90ec0fda23a61 4499-4502,4504,4817,7519-7522,7524,8070
+  s_7b9abf1e136c0a::t_4817d31e414952 4547,4549,4966-4967,5112-5114,5189-5191,5274
+  s_7b9abf1e136c0a::t_0ee26682dbe4f1 7673,7675,8194-8195,8273,8319,8377,8482
+internal/proxy/service_test.go
+  s_7b9abf1e136c0a::t_27ee2a821b5abe 694
+internal/proxy/notice_internal_test.go
+  s_7b9abf1e136c0a::t_c1ca25c29e286b 105,108-120,125-129,132-134
+  s_7b9abf1e136c0a::t_3ba11dd648ae8c 106-107
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1c6fe5af4dd7b8141d199888290d5e15962b1223",
+  "prompts": {},
+  "sessions": {
+    "s_7b9abf1e136c0a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17e62-4649-7293-9ddb-0c06a653f242",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
