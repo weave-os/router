@@ -55,7 +55,7 @@
     },
     {
       "package": "internal/translate",
-      "banned_lines": 2073
+      "banned_lines": 1154
     }
   ]
 }
