@@ -1,29 +1,4 @@
 {
   "schema_version": "comment_ban_allowlist_v1",
-  "packages": [
-    {
-      "package": "cmd/router",
-      "banned_lines": 343
-    },
-    {
-      "package": "internal/billing",
-      "banned_lines": 248
-    },
-    {
-      "package": "internal/postgres",
-      "banned_lines": 320
-    },
-    {
-      "package": "internal/proxy",
-      "banned_lines": 5222
-    },
-    {
-      "package": "internal/subscriptions/entitlement",
-      "banned_lines": 239
-    },
-    {
-      "package": "internal/translate",
-      "banned_lines": 1154
-    }
-  ]
+  "packages": []
 }

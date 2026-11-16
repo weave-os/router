@@ -9,14 +9,10 @@ import (
 	"weave-os/router/internal/router/catalog"
 )
 
-// openRouterOverflowEnabled reports whether the installation serves exhausted
-// Claude/Codex subscriptions only through OpenRouter.
 func openRouterOverflowEnabled(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeySubscriptionExhaustedOpenRouterOnly, false)
 }
 
-// openRouterOverflowModels narrows the exhausted-state set to models OpenRouter
-// serves; an unconfigured set admits every such model.
 func openRouterOverflowModels(configured []string) []string {
 	candidates := configured
 	if len(candidates) == 0 {
@@ -34,7 +30,6 @@ func openRouterOverflowModels(configured []string) []string {
 	return out
 }
 
-// openRouterOverflowTarget moves a paid target onto its OpenRouter binding.
 func openRouterOverflowTarget(ctx context.Context, target router.Decision) router.Decision {
 	if !openRouterOverflowEnabled(ctx) || target.Provider == providers.ProviderOpenRouter {
 		return target
@@ -43,14 +38,10 @@ func openRouterOverflowTarget(ctx context.Context, target router.Decision) route
 		return target
 	}
 	target.Provider = providers.ProviderOpenRouter
-	// Arm and binding metadata name the replaced provider's binding.
 	target.Metadata = nil
 	return target
 }
 
-// openRouterOverflowFallbackTarget picks the first allowed exhausted-state model
-// OpenRouter can serve when routing cannot: overflow-only bindings are invisible
-// to the router, so a model reachable only through them never routes.
 func (s *Service) openRouterOverflowFallbackTarget(ctx context.Context, req router.Request, models []string, initial router.Decision) (router.Decision, bool) {
 	if !openRouterOverflowEnabled(ctx) {
 		return router.Decision{}, false
@@ -70,8 +61,6 @@ func (s *Service) openRouterOverflowFallbackTarget(ctx context.Context, req rout
 	return router.Decision{}, false
 }
 
-// openRouterOverflowBindings returns the only binding a paid overflow target
-// may dispatch on, or nil when OpenRouter cannot serve it for this request.
 func (s *Service) openRouterOverflowBindings(ctx context.Context, target router.Decision) []catalog.ProviderBinding {
 	if target.Provider != providers.ProviderOpenRouter {
 		return nil
@@ -95,8 +84,6 @@ func (s *Service) openRouterOverflowBindings(ctx context.Context, target router.
 	return []catalog.ProviderBinding{binding}
 }
 
-// subscriptionStateTargetBindings keeps included-subscription attempts on their
-// native binding walk and pins every paid overflow attempt to OpenRouter.
 func (s *Service) subscriptionStateTargetBindings(ctx context.Context, target router.Decision) []catalog.ProviderBinding {
 	if !openRouterOverflowEnabled(ctx) || subscriptionAttemptOnly(ctx) {
 		return s.resolveBindingsForDispatch(ctx, target)
@@ -104,8 +91,6 @@ func (s *Service) subscriptionStateTargetBindings(ctx context.Context, target ro
 	return s.openRouterOverflowBindings(ctx, target)
 }
 
-// withOpenRouterOverflowTarget rewrites a paid dispatch outside the
-// subscription-state lane onto OpenRouter.
 func (s *Service) withOpenRouterOverflowTarget(ctx context.Context, in failoverInputs) (context.Context, failoverInputs, error) {
 	target := openRouterOverflowTarget(ctx, in.initialDecision)
 	bindings := s.openRouterOverflowBindings(ctx, target)

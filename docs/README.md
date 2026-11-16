@@ -29,17 +29,21 @@ Index of Markdown documentation in the `router/` repo.
 | [ANALYTICS_EXPORT.md](ANALYTICS_EXPORT.md) | `/v1/analytics/*` raw routing-decision export: read-only keys, cursor paging, row grain, field reference. |
 | [SUBSCRIPTION_ROUTING.md](SUBSCRIPTION_ROUTING.md) | Personal and shared subscription candidate admission, alternatives, native OAuth dispatch with quota checks, and API fallback. |
 | [DELEGATED_SESSION_TOKENS.md](DELEGATED_SESSION_TOKENS.md) | Experimental `rs_` session JWTs signed by a registered Ed25519 issuer: token claims, issuer registration and revocation. |
+| [TURN_SIGNALS.md](TURN_SIGNALS.md) | Turn signals, stuck-session detectors, telemetry row NULL conventions, cross-tokenizer usage reporting and the feedback footer. |
 | [SESSION_COST.md](SESSION_COST.md) | `GET /v1/sessions/:session_id/cost`: `rk_`/`ra_` auth, installation scope, response fields, errors, rate limit. |
 | [POLICY_ROUTER_HARNESS.md](POLICY_ROUTER_HARNESS.md) | Contract for out-of-process policy sidecars. |
 | [LLM_CLASSIFIER_CONTEXT.md](LLM_CLASSIFIER_CONTEXT.md) | Staged atomic-response classifier input contract and unresolved admission/recovery requirements; not serving-enabled. |
 | [SERVING_CONTROL.md](SERVING_CONTROL.md) | Immutable managed releases, gateway admission, activation, rollback, and deployment prerequisites. |
 | [HMM_GO_SELECTION.md](HMM_GO_SELECTION.md) | Architecture, `policy_router_v3` split, and rollback story for Go-owned HMM roster ownership and deterministic arm selection. |
+| [FAILOVER.md](FAILOVER.md) | Proxy rescue chain, strikes and cooldowns, overload circuit, context overflow and dispatch error classification. |
 | [REQUEST_ENVELOPE.md](REQUEST_ENVELOPE.md) | Request envelope, emit overrides, model id normalization, in-band commands and history repair in `internal/translate`. |
 | [TRANSLATION_COMPATIBILITY.md](TRANSLATION_COMPATIBILITY.md) | Cross-format translation requirements and rollout modes. |
+| [TRANSLATION_REWRITES.md](TRANSLATION_REWRITES.md) | Why translation rewrites requests and responses: markers, footers, directives, reasoning, cache control, tool history. |
 | [RESPONSES_TRANSLATION.md](RESPONSES_TRANSLATION.md) | Responses API ingress, Codex portable projection, passthrough, and Responses-upstream translation for Anthropic and Chat clients. |
 | [ROUTER_NOTICES.md](ROUTER_NOTICES.md) | Typed router notices, client-protocol sinks, capabilities, and retry lifecycle. |
 | [SMOKE.md](SMOKE.md) | Pre-merge record/replay smoke-suite scenarios, cassettes, and local workflow. |
 | [CI.md](CI.md) | CI timing baseline, completed improvements, and the remaining optimization backlog. |
+| [PROXY_TURN_LOOP.md](PROXY_TURN_LOOP.md) | Turn-loop precedence, session-key derivation, force-model resolution and the handover credential boundary. |
 
 For engineering conventions (layer model, package layout, recipes), see the
 root [`CLAUDE.md`](../CLAUDE.md) (and its mirror [`AGENTS.md`](../AGENTS.md)).

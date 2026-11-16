@@ -10,11 +10,8 @@ import (
 	"weave-os/router/internal/requestcontext"
 )
 
-// BetaRetiredMessage is shared with historical-control stripping so replies never become prompts.
 const BetaRetiredMessage = "Beta has been retired. Internal routing requires authenticated account enrollment."
 
-// WriteRetiredBetaRequest recognizes only the legacy control shape and emits a protocol-local reply.
-// Ordinary request bytes are never emitted from the temporary parsing envelope.
 func WriteRetiredBetaRequest(w http.ResponseWriter, r *http.Request, body []byte, surface requestcontext.ConversationSurface) (bool, error) {
 	var envelope *RequestEnvelope
 	var err error

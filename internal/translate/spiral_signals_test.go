@@ -447,3 +447,12 @@ func TestEndsWithUserPrompt_OpenAIToolMessageIsNotAPrompt(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, typedEnv.EndsWithUserPrompt())
 }
+
+func TestEndsWithUserPrompt_GeminiFunctionResponseIsNotAPrompt(t *testing.T) {
+	env, err := translate.ParseGemini([]byte(`{"contents":[
+		{"role":"user","parts":[{"text":"run it"}]},
+		{"role":"model","parts":[{"functionCall":{"name":"Bash","args":{}}}]},
+		{"role":"user","parts":[{"functionResponse":{"name":"Bash","response":{"ok":true}}},{"text":"tool output follows"}]}]}`))
+	require.NoError(t, err)
+	assert.False(t, env.EndsWithUserPrompt())
+}
