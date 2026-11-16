@@ -929,17 +929,6 @@ func subscriptionProvidersForRequest(ctx context.Context) map[string]struct{} {
 	return available
 }
 
-func (s *Service) selectableSubscriptionProviders(ctx context.Context, headers http.Header) map[string]struct{} {
-	available := subscriptionProvidersForRequest(ctx)
-	if s.anthropicSubscriptionObservedExhausted(ctx, headers) {
-		delete(available, providers.ProviderAnthropic)
-	}
-	if s.codexSubscriptionExhausted(ctx, headers) {
-		delete(available, providers.ProviderOpenAI)
-	}
-	return available
-}
-
 func anthropicSubscriptionFromContext(ctx context.Context) string {
 	if anthropicBYOKFirst(ctx) {
 		return ""

@@ -20,10 +20,8 @@ import (
 
 const defaultPollInterval = time.Minute
 
-// ErrNoActivePolicy means the requested lane has no validated runtime snapshot.
 var ErrNoActivePolicy = errors.New("no active router policy snapshot")
 
-// Loader is the exact registry read surface needed for one atomic refresh.
 type Loader interface {
 	RootURI() string
 	ReadHead(context.Context, Environment, Lane) (HeadSnapshot, error)
@@ -31,15 +29,13 @@ type Loader interface {
 	ReadPolicy(context.Context, ObjectRef) (*rosterdata.Roster, error)
 }
 
-// Candidate is a fully read and cross-validated release awaiting runtime construction.
 type Candidate struct {
-	AuxiliaryModels       map[string]ObjectRef
-	HeadSnapshot          HeadSnapshot
-	Release               Release
-	ClassifierReleaseV5   *ClassifierReleaseManifestV1
-	ClassifierReleaseID   string
-	ClassifierSelectionID string
-	// ClassifierWorkerURL and ClassifierWorkerAudience come only from the release's runtime binding.
+	AuxiliaryModels           map[string]ObjectRef
+	HeadSnapshot              HeadSnapshot
+	Release                   Release
+	ClassifierReleaseV5       *ClassifierReleaseManifestV1
+	ClassifierReleaseID       string
+	ClassifierSelectionID     string
 	ClassifierWorkerURL       string
 	ClassifierWorkerAudience  string
 	ClassifierEnabledVariants []policy.ClassifierVariantID
@@ -49,17 +45,13 @@ type Candidate struct {
 	ClassifierAudience        string
 }
 
-// Snapshot is the immutable policy, classifier binding, and executable routers
-// installed together at one lane-head generation.
 type Snapshot struct {
 	Candidate
 	Routers map[router.Strategy]router.Router
 }
 
-// Builder probes the tagged classifier revision and assembles strategy routers.
 type Builder func(context.Context, Candidate) (map[router.Strategy]router.Router, error)
 
-// ManagerStatus is the live control-plane diagnostic projection.
 type ManagerStatus struct {
 	Environment              Environment `json:"environment"`
 	Lane                     Lane        `json:"lane"`
@@ -73,7 +65,6 @@ type ManagerStatus struct {
 	Polling                  bool        `json:"polling"`
 }
 
-// Manager polls one facet and swaps only complete validated snapshots.
 type Manager struct {
 	loader      Loader
 	environment Environment
@@ -88,7 +79,6 @@ type Manager struct {
 	status      ManagerStatus
 }
 
-// NewManager constructs an isolated stable or beta policy manager.
 func NewManager(loader Loader, environment Environment, lane Lane, builder Builder, logger *slog.Logger) (*Manager, error) {
 	if loader == nil || builder == nil {
 		return nil, errors.New("router policy manager requires a loader and builder")
@@ -109,10 +99,8 @@ func NewManager(loader Loader, environment Environment, lane Lane, builder Build
 	}, nil
 }
 
-// Active returns the immutable snapshot currently serving this lane.
 func (m *Manager) Active() *Snapshot { return m.active.Load() }
 
-// Refresh validates the complete candidate before one atomic swap.
 func (m *Manager) Refresh(ctx context.Context) error {
 	m.refreshMu.Lock()
 	defer m.refreshMu.Unlock()
@@ -169,7 +157,6 @@ func (m *Manager) Refresh(ctx context.Context) error {
 	return nil
 }
 
-// Run polls authoritatively and accepts best-effort invalidation triggers.
 func (m *Manager) Run(ctx context.Context) {
 	m.setPolling(true)
 	defer m.setPolling(false)
@@ -195,7 +182,6 @@ func (m *Manager) Run(ctx context.Context) {
 	}
 }
 
-// Trigger requests an immediate best-effort refresh without blocking a listener.
 func (m *Manager) Trigger() {
 	select {
 	case m.trigger <- struct{}{}:
@@ -203,14 +189,12 @@ func (m *Manager) Trigger() {
 	}
 }
 
-// Status returns a race-free control-plane diagnostic snapshot.
 func (m *Manager) Status() ManagerStatus {
 	m.statusMu.RLock()
 	defer m.statusMu.RUnlock()
 	return m.status
 }
 
-// CheckHealth fails only when no complete snapshot has ever activated.
 func (m *Manager) CheckHealth(context.Context) error {
 	if m.active.Load() == nil {
 		return ErrNoActivePolicy
@@ -218,7 +202,6 @@ func (m *Manager) CheckHealth(context.Context) error {
 	return nil
 }
 
-// ClusterRoster returns the same Go policy currently used for selection.
 func (m *Manager) ClusterRoster(ctx context.Context) (policy.RosterSnapshot, error) {
 	snapshot := ServingSnapshotFromContext(ctx)
 	if snapshot == nil {
@@ -265,7 +248,6 @@ func snapshotRoster(snapshot *Snapshot, strategy router.Strategy) policy.RosterS
 	}
 }
 
-// AllRosterArms returns the active policy's complete harness-aware arm union.
 func (m *Manager) AllRosterArms() ([]string, error) {
 	snapshot := m.active.Load()
 	if snapshot == nil {
@@ -274,10 +256,8 @@ func (m *Manager) AllRosterArms() ([]string, error) {
 	return snapshot.Policy.AllArms(), nil
 }
 
-// Roster returns the active harness-aware arm union for deployed-model discovery.
 func (m *Manager) Roster(context.Context) ([]string, error) { return m.AllRosterArms() }
 
-// DistributionRoster exposes the active policy for the dial preview.
 func (m *Manager) DistributionRoster(ctx context.Context) (*rosterdata.Roster, error) {
 	snapshot := m.Active()
 	if snapshot == nil || snapshot.Policy == nil {
@@ -287,30 +267,24 @@ func (m *Manager) DistributionRoster(ctx context.Context) (*rosterdata.Roster, e
 	return roster, nil
 }
 
-// DynamicRouter loads one snapshot once per operation and delegates to its bound router.
 type DynamicRouter struct {
 	manager  *Manager
 	strategy router.Strategy
 	prepared *Snapshot
 }
 
-// NewAdmittedRouter requires a request-bound runtime for dispatch. The bootstrap
-// closure proves local readiness only; it never becomes a request fallback.
 func NewAdmittedRouter(strategy router.Strategy, prepared *Snapshot) *DynamicRouter {
 	return &DynamicRouter{strategy: strategy, prepared: prepared}
 }
 
-// NewDynamicRouter binds one strategy to a hot-swappable policy manager.
 func NewDynamicRouter(manager *Manager, strategy router.Strategy) *DynamicRouter {
 	return &DynamicRouter{manager: manager, strategy: strategy}
 }
 
-// Available reports whether this lane has a validated snapshot to serve.
 func (r *DynamicRouter) Available() bool {
 	return r != nil && (r.prepared != nil || r.manager != nil && r.manager.Active() != nil)
 }
 
-// Route delegates the complete request to one immutable runtime snapshot.
 func (r *DynamicRouter) Route(ctx context.Context, request router.Request) (router.Decision, error) {
 	activeRouter, err := r.activeRouter(ctx)
 	if err != nil {
@@ -319,7 +293,6 @@ func (r *DynamicRouter) Route(ctx context.Context, request router.Request) (rout
 	return activeRouter.Route(ctx, request)
 }
 
-// PreviewRoute delegates preview to the same immutable router used for serving.
 func (r *DynamicRouter) PreviewRoute(ctx context.Context, request router.Request) (policy.PreviewResult, error) {
 	activeRouter, err := r.activeRouter(ctx)
 	if err != nil {
@@ -332,7 +305,6 @@ func (r *DynamicRouter) PreviewRoute(ctx context.Context, request router.Request
 	return previewer.PreviewRoute(ctx, request)
 }
 
-// CurrentCapabilities reports the active immutable classifier contract.
 func (r *DynamicRouter) CurrentCapabilities() policy.Capabilities {
 	if r != nil && r.prepared != nil {
 		return r.CapabilitiesForRequest(WithServingSnapshot(context.Background(), r.prepared))
@@ -340,7 +312,6 @@ func (r *DynamicRouter) CurrentCapabilities() policy.Capabilities {
 	return r.CapabilitiesForRequest(context.Background())
 }
 
-// CapabilitiesForRequest reads the admitted runtime, including retained profiles.
 func (r *DynamicRouter) CapabilitiesForRequest(ctx context.Context) policy.Capabilities {
 	activeRouter, err := r.activeRouter(ctx)
 	if err != nil {
@@ -353,7 +324,6 @@ func (r *DynamicRouter) CapabilitiesForRequest(ctx context.Context) policy.Capab
 	return source.CurrentCapabilities()
 }
 
-// ReportOutcome forwards classifier-learning outcomes without granting Python selection authority.
 func (r *DynamicRouter) ReportOutcome(ctx context.Context, payload map[string]interface{}) error {
 	activeRouter, err := r.activeRouter(ctx)
 	if err != nil {
@@ -366,7 +336,6 @@ func (r *DynamicRouter) ReportOutcome(ctx context.Context, payload map[string]in
 	return reporter.ReportOutcome(ctx, payload)
 }
 
-// ReportFeedback forwards explicit classifier feedback to the active revision.
 func (r *DynamicRouter) ReportFeedback(ctx context.Context, payload map[string]interface{}) error {
 	activeRouter, err := r.activeRouter(ctx)
 	if err != nil {
@@ -379,7 +348,6 @@ func (r *DynamicRouter) ReportFeedback(ctx context.Context, payload map[string]i
 	return reporter.ReportFeedback(ctx, payload)
 }
 
-// ObserveEscalation forwards one observation to the classifier revision in the active snapshot.
 func (r *DynamicRouter) ObserveEscalation(ctx context.Context, request escalation.ObserveRequest) (escalation.ObserveResponse, error) {
 	activeRouter, err := r.activeRouter(ctx)
 	if err != nil {

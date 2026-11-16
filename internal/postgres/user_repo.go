@@ -15,7 +15,6 @@ type userRepo struct {
 	tx sqlc.DBTX
 }
 
-// NewUserRepository wires the SQLC user queries to auth.UserRepository.
 func NewUserRepository(tx sqlc.DBTX) auth.UserRepository {
 	return &userRepo{tx: tx}
 }
@@ -35,8 +34,6 @@ func (r *userRepo) UpsertByEmail(ctx context.Context, params auth.UpsertUserPara
 	if err != nil {
 		return nil, err
 	}
-	// The merge-or-insert CTE returns a generated UNION row type with the
-	// same fields as RouterModelRouterUser; map by field to reuse toAuthUser.
 	return toAuthUser(sqlc.RouterModelRouterUser(row)), nil
 }
 
@@ -144,9 +141,6 @@ func claudeAccountUUIDArg(s *string) pgtype.UUID {
 	return pgtype.UUID{Bytes: parsed, Valid: true}
 }
 
-// nullableTextArg lifts an optional Go string into the *string shape SQLC
-// generates for sqlc.narg('display_name')::text. Empty values map to NULL so
-// COALESCE on conflict preserves the row's existing value.
 func nullableTextArg(s *string) *string {
 	if s == nil || *s == "" {
 		return nil

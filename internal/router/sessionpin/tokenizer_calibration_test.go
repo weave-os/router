@@ -136,3 +136,16 @@ func TestTokenizerCalibration_ProjectedPromptNeedsAnEstimate(t *testing.T) {
 	_, ok := cal.ProjectedPrompt(anthropicFamily, 950_000)
 	assert.False(t, ok, "observations written before estimates were recorded cannot project")
 }
+
+func TestTokenizerCalibration_UnmeasuredProjectionUnderstatesTheTargetFamily(t *testing.T) {
+	t0 := time.Date(2026, 10, 24, 23, 10, 0, 0, time.UTC)
+	fromClaude := sessionpin.TokenizerCalibration{}.Observe(anthropicFamily, 900_000, 900_000, t0)
+	gptTokens, ok := fromClaude.ProjectedPrompt(openAIFamily, 900_000)
+	require.True(t, ok)
+	assert.Equal(t, 500_000, gptTokens, "Claude->GPT converts at the 1.8x end of the spread so a context-window filter never overstates GPT's count")
+
+	fromGPT := sessionpin.TokenizerCalibration{}.Observe(openAIFamily, 600_000, 600_000, t0)
+	claudeTokens, ok := fromGPT.ProjectedPrompt(anthropicFamily, 600_000)
+	require.True(t, ok)
+	assert.Equal(t, 900_000, claudeTokens, "GPT->Claude converts at the 1.5x end of the spread")
+}

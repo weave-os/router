@@ -9,13 +9,8 @@ import (
 	"weave-os/router/internal/providers"
 )
 
-// ErrWeaveCreditsDisabled refuses a turn that only Weave's own provider keys
-// could serve while the installation does not allow Weave credits.
 var ErrWeaveCreditsDisabled = errors.New("weave credits are disabled and no customer plan or provider key can serve this request")
 
-// forcedModelUnfundedReason is the ForcedModelExcludedError reason for a
-// forced model no customer funding source can pay for; it also unwraps to
-// ErrWeaveCreditsDisabled.
 const forcedModelUnfundedReason = "Weave credits are turned off for your organization, and none of your plans or provider API keys can serve the forced model"
 
 type weaveCreditsFundedKey struct{}
@@ -31,10 +26,6 @@ func withWeaveCreditsFunding(ctx context.Context, headers http.Header) context.C
 	return context.WithValue(ctx, weaveCreditsFundedKey{}, customerFundedProviders(ctx, headers))
 }
 
-// customerFundedProviders returns the providers a customer funding source can
-// pay for: a usable connected provider key, or a Claude/ChatGPT plan the
-// caller presents or has linked. A caller-sent API key is never forwarded on
-// the router-key path, so it is not a funding source here.
 func customerFundedProviders(ctx context.Context, headers http.Header) map[string]struct{} {
 	funded := subscriptionServableProviders(ctx, headers)
 	for provider := range BuildCredentialsMap(externalKeysFromContext(ctx)) {
@@ -45,16 +36,11 @@ func customerFundedProviders(ctx context.Context, headers http.Header) map[strin
 	return funded
 }
 
-// weaveCreditsFundedProviders returns the funded set recorded by
-// withWeaveCreditsFunding, or ok=false when Weave credits are allowed.
 func weaveCreditsFundedProviders(ctx context.Context) (funded map[string]struct{}, ok bool) {
 	funded, ok = ctx.Value(weaveCreditsFundedKey{}).(map[string]struct{})
 	return funded, ok
 }
 
-// applyWeaveCreditsPolicy narrows enabled to customer-funded providers.
-// Dispatch still checks the final credential, since a plan may not cover
-// every model of its provider.
 func applyWeaveCreditsPolicy(ctx context.Context, enabled map[string]struct{}) (map[string]struct{}, error) {
 	funded, ok := weaveCreditsFundedProviders(ctx)
 	if !ok {
@@ -72,8 +58,6 @@ func applyWeaveCreditsPolicy(ctx context.Context, enabled map[string]struct{}) (
 	return out, nil
 }
 
-// usableBYOK returns the customer's connected key for provider when it can
-// authenticate an upstream call.
 func usableBYOK(ctx context.Context, provider string) *Credentials {
 	creds := BuildCredentialsMap(externalKeysFromContext(ctx))[provider]
 	if creds == nil || creds.CredentialError != nil || len(creds.APIKey) == 0 {
@@ -82,9 +66,6 @@ func usableBYOK(ctx context.Context, provider string) *Credentials {
 	return creds
 }
 
-// customerFunded reports whether creds are the customer's own and usable: a
-// provider key, a client-supplied key, or a subscription login. Nil creds
-// mean the deployment key, which Weave credits pay for.
 func customerFunded(creds *Credentials) bool {
 	if creds == nil || creds.CredentialError != nil || len(creds.APIKey) == 0 {
 		return false
@@ -92,9 +73,6 @@ func customerFunded(creds *Credentials) bool {
 	return creds.OAuth || creds.Source == credSourceBYOK || creds.Source == credSourceClient
 }
 
-// customerKeyFunded reports whether creds are the customer's own usable
-// connected provider key. A caller-sent key is excluded: an unfunded turn is
-// router-keyed, where the inbound bearer is never a funding source.
 func customerKeyFunded(creds *Credentials) bool {
 	return customerFunded(creds) && creds.Source == credSourceBYOK
 }
@@ -103,10 +81,6 @@ func servedOnCustomerKey(ctx context.Context) bool {
 	return customerKeyFunded(CredentialsFromContext(ctx))
 }
 
-// withPaidFallbackCredentials attaches the credential a paid-fallback probe is judged
-// on: the customer's usable provider key when Weave credits are denied or an
-// Enterprise seat's overage cap hands the turn to that key, otherwise none
-// (the deployment key).
 func withPaidFallbackCredentials(ctx context.Context, provider string) context.Context {
 	if weaveCreditsDenied(ctx) || provider == providers.ProviderAnthropic && claudeEnterpriseCapRescue(ctx) {
 		if byok := usableBYOK(ctx, provider); byok != nil {
