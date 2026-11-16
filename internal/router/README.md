@@ -35,8 +35,9 @@ dependency-free.
   classification; `PreviousPolicyGroup` is used only when a continuation has no
   user text and escalation is active; `SlidingThresholdPinGroup` lets selection
   step up from the pin's group on an authoritative turn.
-- Request hashes (`ReasoningConfigurationSHA256`, `ToolConfigurationSHA256`) are
-  privacy-safe; raw content is never stored on the request.
+- `ReasoningConfigurationSHA256` and `ToolConfigurationSHA256` are privacy-safe
+  hashes. The request still carries raw text (`PromptText`,
+  `ConversationMessages`), so it is not safe to log or persist as a whole.
 - `TrainingAllowed` is false unless the org is eligible for policy learning;
   serving continues either way. `ShadowMode` decisions are never served traffic
   nor online-learning input.

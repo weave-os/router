@@ -14,7 +14,7 @@ router-issued key (`auth.APIKeyPrefix`, which clients send on the same headers):
 | --- | --- | --- |
 | Anthropic | `x-api-key` starting `sk-ant-`; `Authorization: Bearer sk-ant-api-…`; a Claude subscription bearer (`SubscriptionTokenPrefix`, OAuth) | any other `x-api-key` (e.g. an OpenAI key) |
 | OpenAI-compatible, Gemini | `Authorization: Bearer` | `sk-ant-` keys and OAuth bearers; unknown families get nil |
-| OpenAI only | a ChatGPT JWT plus `ChatGPTAccountIDHeader` becomes Codex subscription credentials (principal `chatgpt-account:<id>`, stable across token refresh) | `sk-` keys, router keys, a JWT without an account id (the Codex backend 401/403s) |
+| OpenAI only | `CodexSubscriptionCreds` turns a ChatGPT JWT plus `ChatGPTAccountIDHeader` into Codex subscription credentials (principal `chatgpt-account:<id>`, stable across token refresh) | not a rejection: `sk-` keys and a JWT without an account id (which the Codex backend would 401/403) fail only the subscription check and are still returned as ordinary `SourceClient` bearer credentials |
 
 `Credentials` notes:
 
