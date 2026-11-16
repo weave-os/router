@@ -6,12 +6,8 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// dataURLBase64Marker precedes an OpenAI data-URL's base64 payload.
 const dataURLBase64Marker = ";base64,"
 
-// base64ImageStats returns the total base64 payload byte length and image
-// count, dispatched by inbound format. Referenced media (http URLs, Gemini
-// fileData URIs) carry no in-body bytes and are skipped.
 func (e *RequestEnvelope) base64ImageStats() (bytes, count int) {
 	switch e.format {
 	case FormatAnthropic:
@@ -25,9 +21,6 @@ func (e *RequestEnvelope) base64ImageStats() (bytes, count int) {
 	}
 }
 
-// jsonStringBytes returns a JSON string value's byte length without
-// materializing it. Base64 payloads contain no JSON escapes, so the raw quoted
-// length minus the two surrounding quotes is exact.
 func jsonStringBytes(v gjson.Result) int {
 	if n := len(v.Raw); n >= 2 {
 		return n - 2
@@ -35,8 +28,6 @@ func jsonStringBytes(v gjson.Result) int {
 	return 0
 }
 
-// anthropicImageBytes sums base64 image payloads in an Anthropic body,
-// including images nested inside tool_result content blocks.
 func anthropicImageBytes(body []byte) (total, count int) {
 	addImage := func(block gjson.Result) {
 		if data := block.Get("source.data"); data.Exists() {
@@ -64,8 +55,6 @@ func anthropicImageBytes(body []byte) (total, count int) {
 	return total, count
 }
 
-// openAIImageBytes sums base64 payloads carried in OpenAI image_url data URLs.
-// http(s) image URLs carry no in-body bytes and are skipped.
 func openAIImageBytes(body []byte) (total, count int) {
 	gjson.GetBytes(body, "messages").ForEach(func(_, msg gjson.Result) bool {
 		msg.Get("content").ForEach(func(_, part gjson.Result) bool {
@@ -77,7 +66,7 @@ func openAIImageBytes(body []byte) (total, count int) {
 			if i < 0 {
 				return true
 			}
-			// From just after the marker to the closing quote.
+
 			if n := len(raw) - i - len(dataURLBase64Marker) - 1; n > 0 {
 				total += n
 				count++
@@ -89,8 +78,6 @@ func openAIImageBytes(body []byte) (total, count int) {
 	return total, count
 }
 
-// geminiImageBytes sums base64 payloads in Gemini inlineData parts (camelCase
-// and snake_case). fileData URIs carry no in-body payload and are skipped.
 func geminiImageBytes(body []byte) (total, count int) {
 	gjson.GetBytes(body, "contents").ForEach(func(_, content gjson.Result) bool {
 		content.Get("parts").ForEach(func(_, part gjson.Result) bool {
