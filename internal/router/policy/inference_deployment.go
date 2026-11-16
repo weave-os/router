@@ -7,23 +7,16 @@ import (
 	"weave-os/router/internal/router/catalog"
 )
 
-// PurposeTargetOverride associates a typed target override with one registered
-// purpose for boot-time validation.
 type PurposeTargetOverride struct {
 	Purpose Purpose
 	Target  TargetOverride
 }
 
-// DeploymentPolicyConfig contains the non-secret deployment facts required to
-// prove that boot-resolved policies can produce a dispatchable catalog binding.
 type DeploymentPolicyConfig struct {
 	AvailableProviders      map[string]struct{}
 	EnabledOptionalPurposes map[Purpose]bool
 	TargetOverrides         []PurposeTargetOverride
-	// RoutableModels is the universe router-selected purposes actually serve
-	// (generic routing targets plus any strategy-only rows such as HMM
-	// targets). Nil means the generic catalog routing set.
-	RoutableModels map[string]struct{}
+	RoutableModels          map[string]struct{}
 }
 
 func (c DeploymentPolicyConfig) routableModels() map[string]struct{} {
@@ -33,9 +26,6 @@ func (c DeploymentPolicyConfig) routableModels() map[string]struct{} {
 	return catalog.RoutingTargetSet(c.AvailableProviders)
 }
 
-// ValidateDeployment rejects policy/configuration combinations that cannot
-// produce a target in this deployment. Request-scoped credentials, tenant
-// restrictions, and request requirements remain request-time validation.
 func (r Registry) ValidateDeployment(config DeploymentPolicyConfig) error {
 	overrides := make(map[Purpose]TargetOverride, len(config.TargetOverrides))
 	for _, purposeOverride := range config.TargetOverrides {
@@ -65,8 +55,6 @@ func (r Registry) ValidateDeployment(config DeploymentPolicyConfig) error {
 		}
 		override, hasOverride := overrides[spec.Purpose]
 		if hasOverride {
-			// Fixed-catalog policies own their membership (checked below), so a
-			// reviewed untiered row such as a large-window summarizer is valid there.
 			if _, routable := routingTargets[override.CatalogID]; !routable && spec.SelectionStrategy != SelectionStrategyFixedCatalog {
 				return fmt.Errorf("deployment inference policy %q target %q is not a routable catalog model in this deployment", spec.PolicyID, override.CatalogID)
 			}

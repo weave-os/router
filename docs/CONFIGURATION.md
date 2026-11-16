@@ -571,9 +571,18 @@ Set `DATABASE_URL` directly, or compose it from the individual vars:
 | `PORT`                   | `8080`       | HTTP listen port. |
 | `ROUTER_DEPLOYMENT_MODE` | `selfhosted` | `selfhosted` mounts `/ui/*` and `/admin/v1/*`. `managed` skips both (for SaaS deployments with a separate admin UI). |
 | `ROUTER_ADMIN_PASSWORD`  | *(none)*     | Dashboard password. When unset, inference stays available but dashboard login and management endpoints return `admin_login_disabled`. |
+| `ROUTER_COOKIE_INSECURE` | `false`      | Set to `true` only for plain-HTTP local development; otherwise the admin session cookie is always `Secure`, `HttpOnly` and `SameSite=Lax`. |
 | `ROUTER_RESTRICT_UPSTREAM_EGRESS` | follows `ROUTER_DEPLOYMENT_MODE` | When true, provider adapters refuse to dial an upstream that resolves outside the public internet (loopback, private, link-local, CGNAT). Defaults to true in `managed` mode and false in `selfhosted`, where pointing a provider at an in-cluster or loopback gateway is normal. While on, provider adapters also ignore `HTTP_PROXY`/`HTTPS_PROXY`, since a proxied connection makes the destination unverifiable. |
 | `ROUTER_INFERENCE_ORGANIZATION_ALLOWLIST` | *(none)* | Comma-separated organization IDs (installation external IDs) allowed to authenticate. When set, router keys and session tokens for any other organization get `403 organization_not_allowed` before routing or dispatch. Signed internal test plans are exempt. Use it on shared non-production deployments so self-serve signups cannot spend provider keys. |
 | `ROUTER_MODEL_DISCOVERY_PRIVATE_ORIGINS` | *(none)* | Comma-separated exact origins allowed to use private addresses for model discovery (for example, `https://gateway.internal:8443`). Discovery always blocks non-public destinations otherwise and always ignores ambient proxies, regardless of `ROUTER_RESTRICT_UPSTREAM_EGRESS`. Entries may contain only scheme, host, and port; paths, wildcards, and CIDRs are rejected at startup. |
+
+### Admin authentication
+
+- Inference routes accept a router key (`rk_` as a bearer token, `x-api-key` or the router key header) or a delegated session token, never the admin cookie. `/v1/analytics/*` takes only `ra_` analytics keys, and public discovery routes such as `/v1/version` need no key.
+- Read-only `/admin/v1/*` routes accept the admin cookie or a router key. A missing, stale or tampered cookie falls through to router-key auth.
+- Control-plane mutations (minting or rotating keys, provider credentials) require the admin cookie; a leaked router key is rejected.
+- Login is throttled per immediate TCP peer, not `X-Forwarded-For`, so rotating that header cannot bypass the failure limit.
+- Router-key routes scope every lookup to the key's installation; an ID from another installation answers `404`, the same as an unknown ID.
 
 ## Upstream transport and stream watchdogs
 

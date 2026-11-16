@@ -24,9 +24,7 @@ type apiKeyResponse struct {
 }
 
 type issueAPIKeyRequest struct {
-	Name string `json:"name"`
-	// Scope defaults to routing when omitted, so existing clients keep issuing
-	// data-plane keys.
+	Name  string `json:"name"`
 	Scope string `json:"scope"`
 }
 
@@ -66,10 +64,6 @@ func ListAPIKeysHandler(authSvc *auth.Service) gin.HandlerFunc {
 	}
 }
 
-// IssueAPIKeyHandler creates a new router API key for the installation. An
-// installation may hold multiple active keys at a time; callers issue, rotate,
-// and revoke them individually. The optional scope picks between a routing
-// (rk_) key and a read-only analytics (ra_) key.
 func IssueAPIKeyHandler(authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
@@ -102,9 +96,6 @@ func IssueAPIKeyHandler(authSvc *auth.Service) gin.HandlerFunc {
 	}
 }
 
-// RotateAPIKeyHandler soft-deletes the specified key and issues a replacement
-// against the same installation, carrying forward the previous key's name.
-// 404 when the id is not owned by the caller's installation.
 func RotateAPIKeyHandler(authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
@@ -132,9 +123,6 @@ func RotateAPIKeyHandler(authSvc *auth.Service) gin.HandlerFunc {
 	}
 }
 
-// DeleteAPIKeyHandler soft-deletes a router API key. Returns 404 for keys
-// owned by another installation so a tenant who learns a foreign key UUID
-// cannot revoke it.
 func DeleteAPIKeyHandler(authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
@@ -193,31 +181,20 @@ type externalKeyResponse struct {
 }
 
 type upsertExternalKeyRequest struct {
-	Provider string `json:"provider" binding:"required"`
-	// Federation modes carry no stored secret;
-	// the binding can't express that, so the emptiness check lives below.
-	Key  string  `json:"key"`
-	Name *string `json:"name"`
-	// BaseURL points this key at a non-default endpoint. Required for gateway
-	// providers, which have no deployment default to fall back to.
-	BaseURL *string `json:"base_url"`
-	// ModelAliases maps catalog model IDs to the IDs this endpoint publishes
-	// them under, for endpoints with their own naming scheme.
-	ModelAliases map[string]string `json:"model_aliases"`
-	// IdentityHeader names the header carrying the caller's identity to this endpoint;
-	// for service-authenticated endpoints that attribute spend per user. Format: "email" or "json".
-	IdentityHeader       *string `json:"identity_header"`
-	IdentityHeaderFormat *string `json:"identity_header_format"`
-	// ForwardedClientHeaders and BaggageHeader configure client-header passthrough to this endpoint.
-	ForwardedClientHeaders []string `json:"forwarded_client_headers"`
-	BaggageHeader          *string  `json:"baggage_header"`
-	// AuthType selects stored-secret, gateway, or native Anthropic federation authentication.
-	AuthType         auth.AuthType                   `json:"auth_type"`
-	FederationConfig *auth.AnthropicFederationConfig `json:"federation_config"`
-	AuthAccount      *string                         `json:"auth_account"`
-	AuthUser         *string                         `json:"auth_user"`
-	// FundingPriority is key_first or plan_first; omitted means plan_first.
-	FundingPriority auth.FundingPriority `json:"funding_priority"`
+	Provider               string                          `json:"provider" binding:"required"`
+	Key                    string                          `json:"key"`
+	Name                   *string                         `json:"name"`
+	BaseURL                *string                         `json:"base_url"`
+	ModelAliases           map[string]string               `json:"model_aliases"`
+	IdentityHeader         *string                         `json:"identity_header"`
+	IdentityHeaderFormat   *string                         `json:"identity_header_format"`
+	ForwardedClientHeaders []string                        `json:"forwarded_client_headers"`
+	BaggageHeader          *string                         `json:"baggage_header"`
+	AuthType               auth.AuthType                   `json:"auth_type"`
+	FederationConfig       *auth.AnthropicFederationConfig `json:"federation_config"`
+	AuthAccount            *string                         `json:"auth_account"`
+	AuthUser               *string                         `json:"auth_user"`
+	FundingPriority        auth.FundingPriority            `json:"funding_priority"`
 }
 
 func toExternalKeyResponse(k *auth.ExternalAPIKey) externalKeyResponse {
@@ -263,8 +240,6 @@ func ListExternalKeysHandler(authSvc *auth.Service) gin.HandlerFunc {
 	}
 }
 
-// UpsertExternalKeyHandler stores a BYOK provider key; models (non-nil) validates aliases
-// against the serving roster so a typo'd ID fails at write time, not silently at runtime.
 func UpsertExternalKeyHandler(authSvc *auth.Service, models HMMRosterSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
@@ -280,8 +255,6 @@ func UpsertExternalKeyHandler(authSvc *auth.Service, models HMMRosterSource) gin
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Provider and key are required."})
 			return
 		}
-		// Federation is an explicit separate principal; static BYOK credentials
-		// must not silently shadow a deployment key.
 		anthropicFederation := req.Provider == providers.ProviderAnthropic && req.AuthType == auth.AuthTypeAnthropicWIF
 		if !anthropicFederation && config.GetOr(providers.APIKeyEnvVar(req.Provider), "") != "" {
 			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "Provider already configured via deployment environment variable. Remove the env var before adding a dashboard key."})
@@ -336,12 +309,9 @@ func UpsertExternalKeyHandler(authSvc *auth.Service, models HMMRosterSource) gin
 }
 
 type updateExternalKeyAliasesRequest struct {
-	// ModelAliases replaces the key's whole map; an empty object clears it.
 	ModelAliases map[string]string `json:"model_aliases"`
 }
 
-// UpdateExternalKeyAliasesHandler edits a stored key's model aliases without re-entering
-// the credential; returns 404 for missing or cross-tenant ids.
 func UpdateExternalKeyAliasesHandler(authSvc *auth.Service, models HMMRosterSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
@@ -384,8 +354,6 @@ type updateExternalKeyFundingPriorityRequest struct {
 	FundingPriority auth.FundingPriority `json:"funding_priority"`
 }
 
-// UpdateExternalKeyFundingPriorityHandler sets whether a stored key is spent
-// before or after the caller's subscription; returns 404 for missing or cross-tenant ids.
 func UpdateExternalKeyFundingPriorityHandler(authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
@@ -419,8 +387,6 @@ func UpdateExternalKeyFundingPriorityHandler(authSvc *auth.Service) gin.HandlerF
 	}
 }
 
-// deployedModelIDs is the alias-validation set; nil source (tests only: the
-// self-hosted composition root always wires one) means skip validation.
 func deployedModelIDs(ctx context.Context, models HMMRosterSource) (map[string]struct{}, error) {
 	if models == nil {
 		return nil, nil

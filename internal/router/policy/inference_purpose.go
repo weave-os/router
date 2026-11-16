@@ -58,7 +58,6 @@ var knownPurposes = []Purpose{
 	PurposeNativeWebSearch,
 }
 
-// KnownPurposes returns every purpose the registry must cover.
 func KnownPurposes() []Purpose {
 	return append([]Purpose(nil), knownPurposes...)
 }
@@ -86,7 +85,6 @@ const (
 	SelectionStrategyNone                = inference.SelectionStrategyNone
 )
 
-// CandidateSource identifies where the selectable target set originates.
 type CandidateSource string
 
 const (
@@ -98,7 +96,6 @@ const (
 	CandidateSourceNone            CandidateSource = "none"
 )
 
-// FallbackKind identifies the only fallback family a policy permits.
 type FallbackKind string
 
 const (
@@ -121,7 +118,6 @@ const (
 	OverrideSourceClientAuthoritative = inference.OverrideSourceClientAuthoritative
 )
 
-// MigrationStatus records which execution boundary currently owns a purpose.
 type MigrationStatus string
 
 const (

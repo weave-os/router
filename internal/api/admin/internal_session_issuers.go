@@ -22,8 +22,6 @@ type internalSessionIssuerResponse struct {
 	KID      string `json:"kid"`
 }
 
-// InternalRegisterSessionIssuerHandler registers the control plane's Ed25519
-// public JWK as a session issuer for an installation. Idempotent per key.
 func InternalRegisterSessionIssuerHandler(authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req internalRegisterSessionIssuerRequest
@@ -52,8 +50,6 @@ func InternalRegisterSessionIssuerHandler(authSvc *auth.Service) gin.HandlerFunc
 	}
 }
 
-// InternalRevokeSessionIssuerHandler revokes an issuer and with it every
-// session token it signed.
 func InternalRevokeSessionIssuerHandler(authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installationID, kid := c.Param("installationID"), c.Param("kid")
