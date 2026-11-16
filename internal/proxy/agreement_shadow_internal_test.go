@@ -33,18 +33,18 @@ func agreementFixture() (InsertTelemetryParams, turnLoopResult) {
 	luna := catalog.ModelGPT6Luna
 	solArm := "openai/" + agreementSol
 	return InsertTelemetryParams{InstallationID: uuid.NewString(), RequestID: "synthetic-request", Timestamp: time.Date(2026, 1, 1, 0, 0, 1, 0, time.UTC),
-		SessionKey: []byte("synthetic-thread"), Role: sessionpin.DefaultRole, TurnType: string(turntype.ToolResult), UpstreamStatusCode: http.StatusOK,
-		DecisionModel: luna, DecisionProvider: providers.ProviderOpenAI}, turnLoopResult{
-		AuthoritativePerTurn: true, PinModel: luna, PinProvider: providers.ProviderOpenAI, PinPolicyGroup: string(escalation.Low),
-		Decision: router.Decision{Model: luna, Provider: providers.ProviderOpenAI},
-		Fresh: router.Decision{Model: agreementSol, Provider: providers.ProviderOpenAI, Metadata: &router.RoutingMetadata{
-			Strategy: string(router.StrategyHMM), ClassifierArtifactSHA256: "synthetic-classifier", SelectionPolicySHA256: "synthetic-policy", RosterVersion: "synthetic-roster",
-			ClassifierPredictedLabel: string(escalation.High), ClassifierProbabilities: map[string]float64{string(escalation.High): .9},
-			CandidateProviders: map[string]string{agreementSol: providers.ProviderOpenAI, luna: providers.ProviderOpenAI},
-			SelectionTrace: &router.SelectionTrace{SelectedGroup: string(escalation.High), SelectedArm: solArm + ":high", CandidateRosterIDs: []string{solArm, "openai/" + luna},
-				EffectiveOrders: map[string][]string{string(escalation.High): {solArm + ":high"}}},
-		}},
-	}
+			SessionKey: []byte("synthetic-thread"), Role: sessionpin.DefaultRole, TurnType: string(turntype.ToolResult), UpstreamStatusCode: http.StatusOK,
+			DecisionModel: luna, DecisionProvider: providers.ProviderOpenAI}, turnLoopResult{
+			AuthoritativePerTurn: true, PinModel: luna, PinProvider: providers.ProviderOpenAI, PinPolicyGroup: string(escalation.Low),
+			Decision: router.Decision{Model: luna, Provider: providers.ProviderOpenAI},
+			Fresh: router.Decision{Model: agreementSol, Provider: providers.ProviderOpenAI, Metadata: &router.RoutingMetadata{
+				Strategy: string(router.StrategyHMM), ClassifierArtifactSHA256: "synthetic-classifier", SelectionPolicySHA256: "synthetic-policy", RosterVersion: "synthetic-roster",
+				ClassifierPredictedLabel: string(escalation.High), ClassifierProbabilities: map[string]float64{string(escalation.High): .9},
+				CandidateProviders: map[string]string{agreementSol: providers.ProviderOpenAI, luna: providers.ProviderOpenAI},
+				SelectionTrace: &router.SelectionTrace{SelectedGroup: string(escalation.High), SelectedArm: solArm + ":high", CandidateRosterIDs: []string{solArm, "openai/" + luna},
+					EffectiveOrders: map[string][]string{string(escalation.High): {solArm + ":high"}}},
+			}},
+		}
 }
 
 func agreementContext(target policyregistry.ServingTarget, enabled bool) context.Context {
