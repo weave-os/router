@@ -10,7 +10,6 @@ import (
 	"weave-os/router/internal/auth"
 )
 
-// Wire shape agreed with Snowflake Cortex: raw JSON, no percent-encoding.
 const (
 	baggageOnBehalfOf  = "on-behalf-of"
 	baggagePassthrough = "passthrough"
@@ -18,22 +17,14 @@ const (
 
 type callerModelPassthroughContextKey struct{}
 
-// WithCallerModelPassthrough records whether this request kept the caller's model without routing.
 func WithCallerModelPassthrough(ctx context.Context, enabled bool) context.Context {
 	return context.WithValue(ctx, callerModelPassthroughContextKey{}, enabled)
 }
 
-// ClaudeCodeSessionHeader carries Claude Code's session id. Older CLI builds
-// omit it and embed the id in metadata.user_id; ClientIdentity resolves both.
 const ClaudeCodeSessionHeader = "X-Claude-Code-Session-Id"
 
-// ForwardedHeaderSnapshotContextKey is the request-context key for the inbound
-// correlation headers captured at ingress.
 type ForwardedHeaderSnapshotContextKey struct{}
 
-// WithForwardedHeaderSnapshot captures inbound values of every header the
-// installation's external keys forward, so router-built requests (compaction
-// summaries, Cortex web search) reach the tenant's endpoint correlated.
 func WithForwardedHeaderSnapshot(ctx context.Context, keys []*auth.ExternalAPIKey, inbound http.Header) context.Context {
 	var snapshot http.Header
 	capture := func(name string) {
@@ -68,14 +59,11 @@ func WithForwardedHeaderSnapshot(ctx context.Context, keys []*auth.ExternalAPIKe
 	return context.WithValue(ctx, ForwardedHeaderSnapshotContextKey{}, snapshot)
 }
 
-// ForwardedHeaderSnapshotFrom reads the ingress header snapshot stashed on ctx.
 func ForwardedHeaderSnapshotFrom(ctx context.Context) http.Header {
 	h, _ := ctx.Value(ForwardedHeaderSnapshotContextKey{}).(http.Header)
 	return h
 }
 
-// ApplyForwardedClientHeaders copies configured inbound headers and re-emits the baggage header
-// with router-owned request metadata. Must run after protected headers are reapplied.
 func ApplyForwardedClientHeaders(ctx context.Context, upstream *http.Request, inbound http.Header) {
 	creds := CredentialsFromContext(ctx)
 	if creds == nil {
@@ -103,9 +91,6 @@ func callerModelPassthroughFrom(ctx context.Context) bool {
 	return enabled
 }
 
-// forwardedValue returns the first non-empty value from: inbound header,
-// ingress snapshot, or (for X-Claude-Code-Session-Id only) the resolved
-// identity — covering clients that embed the id in the body, not a header.
 func forwardedValue(ctx context.Context, inbound http.Header, name string) string {
 	if !auth.IsSafeForwardingHeader(name) {
 		return ""
@@ -161,15 +146,12 @@ func headerFieldExists(headers http.Header, name string) bool {
 	return false
 }
 
-// mergeBaggage injects router-owned request metadata, overwriting client-supplied
-// values so forged attribution and routing state cannot survive. Non-JSON bags pass through.
 func mergeBaggage(baggage, email string, passthrough bool) string {
 	bag := map[string]json.RawMessage{}
 	if baggage != "" {
 		if err := json.Unmarshal([]byte(baggage), &bag); err != nil {
 			return baggage
 		}
-		// JSON null decodes without error but nils the map.
 		if bag == nil {
 			return baggage
 		}
@@ -186,7 +168,5 @@ func mergeBaggage(baggage, email string, passthrough bool) string {
 	if err != nil {
 		return baggage
 	}
-	// A header value cannot carry the control characters json.Marshal escapes
-	// anyway, so the encoded bag is safe to emit verbatim.
 	return string(merged)
 }
