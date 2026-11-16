@@ -48,8 +48,7 @@ type failoverInputs struct {
 	// bindings is the ordered (provider, upstream-id, price) list, filtered
 	// to providers wired in this deploy. Index 0 is primary, >0 fallbacks.
 	bindings []catalog.ProviderBinding
-	// attempt does one per-binding dispatch.
-	attempt dispatchAttempt
+	attempt  dispatchAttempt
 	// flushErr renders the final-attempt upstream error to w in the
 	// entry point's wire format. Optional — nil means do nothing on
 	// exhaustion (the error is still returned to the caller).
@@ -58,9 +57,7 @@ type failoverInputs struct {
 	// discards the buffer and returns the error), letting the caller run a
 	// higher-level fallback instead (e.g. ProxyMessages' baseline failover
 	// re-dispatching the Anthropic model when a routed OSS model exhausts).
-	deferFlushOnExhaustion bool
-	// purpose names the registered operation the walk is authorized under;
-	// origin names the override source that fixed the decision's model.
+	deferFlushOnExhaustion          bool
 	purpose                         inference.Purpose
 	origin                          policy.OverrideSource
 	subscriptionStateRequest        *router.Request
