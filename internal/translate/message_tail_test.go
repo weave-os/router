@@ -187,3 +187,10 @@ func TestSystemBlocks_OpenAISingleBlock(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"You are helpful."}, env.SystemBlocks())
 }
+
+func TestMessageTailPreview_NonPositiveLengthReturnsNothing(t *testing.T) {
+	env, err := ParseAnthropic([]byte(`{"model":"m","messages":[{"role":"user","content":"hi"}]}`))
+	require.NoError(t, err)
+	assert.Nil(t, env.MessageTailPreview(1, 0))
+	assert.Nil(t, env.MessageTailPreview(0, 100))
+}

@@ -11,20 +11,16 @@ import (
 )
 
 const (
-	// WorkerValidationPath loads and validates an exact snapshot without admitting inference.
-	WorkerValidationPath = "/internal/serving/validate"
-	// ClassifierAttestationPath must report loaded models/configuration, not expected environment values.
+	WorkerValidationPath      = "/internal/serving/validate"
 	ClassifierAttestationPath = "/internal/serving/attestation"
 )
 
-// WorkerValidationRequest never selects a mutable head or accepts caller-supplied policy bytes.
 type WorkerValidationRequest struct {
 	Target     ServingTarget    `json:"target"`
 	ProfileKey string           `json:"profile_key,omitempty"`
 	Selection  ServingSelection `json:"selection"`
 }
 
-// WorkerAttestation reports capabilities from the selected destination binary after snapshot smoke.
 type WorkerAttestation struct {
 	Identity           WorkerIdentity              `json:"identity"`
 	Requirements       ServingRequirements         `json:"requirements"`
@@ -34,7 +30,6 @@ type WorkerAttestation struct {
 	Ready              bool                        `json:"ready"`
 }
 
-// ClassifierServiceAttestation is the strict v5 capability contract returned by a classifier worker.
 type ClassifierServiceAttestation struct {
 	SchemaVersion         string                       `json:"schema_version"`
 	APIMajor              policy.ClassifierAPIMajor    `json:"api_major"`
@@ -47,19 +42,15 @@ type ClassifierServiceAttestation struct {
 	SupportsPreview       bool                         `json:"supports_preview"`
 }
 
-// ClassifierWorkerAttestationSchemaV1 tags a worker's attestation payload; a worker reporting any other schema fails activation.
 const ClassifierWorkerAttestationSchemaV1 = "router_classifier_worker_attestation_v1"
 
-// ClassifierWorkerReady is the only status a worker may report for activation.
 const ClassifierWorkerReady = "ready"
 
-// ClassifierWorkerVariantAttestation is one variant artifact a worker revision loaded.
 type ClassifierWorkerVariantAttestation struct {
 	ArtifactID     string `json:"artifact_id"`
 	ArtifactSHA256 string `json:"artifact_sha256"`
 }
 
-// ClassifierWorkerAttestation reports the release, image and configuration one tagged worker revision loaded.
 type ClassifierWorkerAttestation struct {
 	SchemaVersion       string                                                            `json:"schema_version"`
 	Status              string                                                            `json:"status"`
@@ -71,7 +62,6 @@ type ClassifierWorkerAttestation struct {
 	Variants            map[policy.ClassifierVariantID]ClassifierWorkerVariantAttestation `json:"variants"`
 }
 
-// ClassifierAttestation includes the complete loaded bundle so auxiliary/config changes cannot hide behind image reuse.
 type ClassifierAttestation struct {
 	Identity        ClassifierIdentity   `json:"identity"`
 	Package         ObjectRef            `json:"package"`
@@ -81,45 +71,34 @@ type ClassifierAttestation struct {
 	Ready           bool                 `json:"ready"`
 }
 
-// DestinationEndpoints performs authenticated private calls to the exact prepared revisions.
 type DestinationEndpoints interface {
 	ValidateWorker(context.Context, RevisionBinding, WorkerValidationRequest) (WorkerAttestation, error)
 	AttestClassifier(context.Context, RevisionBinding) (ClassifierAttestation, error)
 }
 
-// ClassifierServiceAttestationEndpoints validates a logical release on the worker revision its
-// runtime binding names: v5 capabilities for the selection, then the worker's loaded identity.
 type ClassifierServiceAttestationEndpoints interface {
 	AttestClassifierService(context.Context, ClassifierRuntimeBinding, string) (ClassifierServiceAttestation, error)
 	AttestClassifierWorker(context.Context, ClassifierRuntimeBinding) (ClassifierWorkerAttestation, error)
 }
 
-// DestinationValidator validates destination runtime capabilities rather than the controller's catalog.
 type DestinationValidator struct {
 	Endpoints DestinationEndpoints
 }
 
-// ValidationStats reports how many destination attestations one activation issued.
 type ValidationStats struct {
 	HTTPCalls int
 	CacheHits int
 }
 
-// ActivationValidator validates every lane of a single activation and reports its destination
-// attestation counts. Implementations may memoize attestations across the lanes of that one
-// activation; they must never outlive it.
 type ActivationValidator interface {
 	ServingValidator
 	Stats() ValidationStats
 }
 
-// ActivationScopedValidator builds a fresh ActivationValidator for one proposal validation.
 type ActivationScopedValidator interface {
 	BeginActivation() ActivationValidator
 }
 
-// BeginActivation returns a validator whose destination attestations are memoized for the lanes
-// of one activation only.
 func (v DestinationValidator) BeginActivation() ActivationValidator {
 	return &activationValidator{
 		endpoints: v.Endpoints, classifiers: map[RevisionBinding]classifierAttestationResult{},
@@ -129,10 +108,6 @@ func (v DestinationValidator) BeginActivation() ActivationValidator {
 	}
 }
 
-// workerAttestationKey identifies one worker attestation. ValidateWorkerSelection derives the
-// attested requirements, catalog arms and echoed snapshot from the request, so the key carries
-// the full request as well as the revision identity it was sent to. ServingSelection holds a
-// profile pointer, so the key stores that reference by value and presence.
 type workerAttestationKey struct {
 	Binding    RevisionBinding
 	Target     ServingTarget
@@ -161,11 +136,6 @@ type workerAttestationResult struct {
 	err         error
 }
 
-// activationValidator memoizes raw destination attestations, keyed by the complete revision
-// identity they were obtained from, for the lanes of one activation. Failures are memoized too:
-// an unreachable or rejecting destination already fails every lane today, so replaying the stored
-// failure keeps the activation closed instead of admitting a lane on an endpoint retry. Every
-// per-lane comparison still runs against each lane's own candidate composition.
 type activationValidator struct {
 	endpoints          DestinationEndpoints
 	classifiers        map[RevisionBinding]classifierAttestationResult
@@ -175,7 +145,6 @@ type activationValidator struct {
 	stats              ValidationStats
 }
 
-// classifierWorkerKey is the comparable dispatch identity of a runtime binding.
 type classifierWorkerKey struct {
 	Environment         Environment
 	ReleaseSHA256       string
@@ -275,8 +244,6 @@ func (a *activationValidator) ValidateWorker(ctx context.Context, binding Revisi
 	return attestation, err
 }
 
-// ValidatePreparedSelection requires complete classifier attestation and an exact worker snapshot smoke.
-// ServingController verifies immutable proposal evidence before invoking this destination-only validator.
 func (v DestinationValidator) ValidatePreparedSelection(ctx context.Context, prepared PreparedSelection) error {
 	if v.Endpoints == nil {
 		return errors.New("destination validator requires private revision endpoints")

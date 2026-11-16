@@ -16,7 +16,6 @@ type ConversationMessage struct {
 }
 
 type ConversationToolCall struct {
-	// ToolUseID links native tool calls and results before policy projection.
 	ToolUseID string
 	Name      string
 	InputKeys []string
@@ -29,7 +28,6 @@ type ConversationToolResult struct {
 	Text      string
 }
 
-// ConversationMessages returns provider-neutral visible message history.
 func (e *RequestEnvelope) ConversationMessages() []ConversationMessage {
 	if e == nil {
 		return nil
@@ -47,9 +45,6 @@ func (e *RequestEnvelope) ConversationMessages() []ConversationMessage {
 	}
 }
 
-// ConversationMessagesWithClientText retains injected-only messages so callers
-// can distinguish command acknowledgements from truncated conversation history.
-// Messages with visible user text keep the normal injected-block filtering.
 func (e *RequestEnvelope) ConversationMessagesWithClientText() []ConversationMessage {
 	if e != nil && e.format == FormatAnthropic {
 		messages, _ := e.anthropicConversationMessages(true, false)
@@ -58,8 +53,6 @@ func (e *RequestEnvelope) ConversationMessagesWithClientText() []ConversationMes
 	return e.ConversationMessages()
 }
 
-// ClaudeCodeRoutingMessages excludes complete client wrappers only for an
-// identified Claude Code request, without changing its provider envelope.
 func (e *RequestEnvelope) ClaudeCodeRoutingMessages() ([]ConversationMessage, bool) {
 	if e.format != FormatAnthropic {
 		return e.ConversationMessages(), false

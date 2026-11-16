@@ -8,12 +8,8 @@ import (
 	"weave-os/router/internal/observability"
 )
 
-// externalKeyMarkInterval bounds last_used_at writes to one per key per
-// interval per replica; the dashboard shows the value at day granularity.
 const externalKeyMarkInterval = time.Minute
 
-// externalKeyMarks holds each key's last claimed write slot. Entries older than
-// the interval are dropped on every claim, so only recently used keys stay.
 type externalKeyMarks struct {
 	mu   sync.Mutex
 	last map[string]time.Time
@@ -37,7 +33,6 @@ func (m *externalKeyMarks) claim(id string, now time.Time) bool {
 	return true
 }
 
-// release frees a slot whose write failed, unless a newer claim replaced it.
 func (m *externalKeyMarks) release(id string, claimedAt time.Time) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -46,8 +41,6 @@ func (m *externalKeyMarks) release(id string, claimedAt time.Time) {
 	}
 }
 
-// MarkExternalAPIKeyUsed stamps a customer provider key's last_used_at after it
-// served a request. Best-effort and off the request path, like fireMarkUsed.
 func (s *Service) MarkExternalAPIKeyUsed(ctx context.Context, id string) {
 	if s.externalKeys == nil {
 		return
