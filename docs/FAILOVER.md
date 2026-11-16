@@ -54,7 +54,7 @@ OpenAI's cybersecurity classifier declines the turn itself, so the retry must le
 ## Provider overload (529)
 
 - `maybeDisableProviderAfterOverload` expires both the active pin and the HMM history row, because `hmmStayPin` treats each as a stay candidate.
-- The per-model circuit breaker (`ROUTER_PROVIDER_OVERLOADED`, overridable per organization) opens after `providerOverloadStrikeThreshold` overloads. Organizations see shared circuits they confirmed with their own failures plus their own gateway circuits. A half-open probe readmits the model for one request; a 529 through an organization's own gateway is evidence about that endpoint only.
+- The per-model circuit breaker (`ROUTER_PROVIDER_OVERLOADED`, overridable per organization) uses `breaker.Defaults()`: three overloads within two minutes open the circuit. Separately, `providerOverloadStrikeThreshold` disables a provider for one session after two consecutive overload-exhausted turns. Organizations see shared circuits they confirmed with their own failures plus their own gateway circuits. A half-open probe readmits the model for one request; a 529 through an organization's own gateway is evidence about that endpoint only.
 
 ## Context overflow
 
