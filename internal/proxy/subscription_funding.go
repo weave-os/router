@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/subscriptionlane"
 	"weave-os/router/internal/subscriptions"
 )
 
@@ -105,7 +106,7 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 			return nil
 		}
 		if pickedModelOnOwnPlan(callCtx) {
-			return fmt.Errorf("%w: picked model runs on the caller's own plan", ErrSubscriptionPoolUnavailable)
+			return subscriptionPoolUnavailableBecause(callCtx, "picked model runs on the caller's own plan")
 		}
 		refusal := clientAppRefusalFunding{counts: clientAppRefusalPaidFallback(callCtx), poolRefused: claudePoolRefusesClientApp(callCtx), clientApp: ClientIdentityFrom(callCtx).ClientApp}
 		if err := s.authorizeSubscriptionAPI(admissionCtx, pool, codexToken, claudeToken, refusal); err != nil {
@@ -133,7 +134,7 @@ type clientAppRefusalFunding struct {
 
 func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptions.Provider, codexToken, claudeToken string, refusal clientAppRefusalFunding) error {
 	if managedSubscriptionEnrollmentUnavailable(ctx) {
-		return fmt.Errorf("%w: subscription enrollment could not be verified", ErrSubscriptionPoolUnavailable)
+		return subscriptionPoolUnavailableBecause(ctx, "subscription enrollment could not be verified")
 	}
 	now := s.clockNow()
 	if subscriptionProviderUnavailable(ctx, pool, now) {
@@ -156,7 +157,7 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 			throttledBlocker = true
 			continue
 		}
-		return fmt.Errorf("%w: included quota is available or unknown", ErrSubscriptionPoolUnavailable)
+		return subscriptionPoolUnavailableBecause(ctx, "included quota is available or unknown")
 	}
 	token := claudeToken
 	if pool == subscriptions.ProviderCodex {
@@ -167,12 +168,12 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 		if err := callerPlanRefusal(ctx, pool, callerQuotaUnproven, now); err != nil {
 			return err
 		}
-		return ErrSubscriptionPoolThrottled
+		return subscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolThrottled)
 	}
 	if !snapshotPresent {
 		enrolled, _ := ctx.Value(ManagedSubscriptionProvidersContextKey{}).(map[auth.SubscriptionProvider]struct{})
 		if _, present := enrolled[auth.SubscriptionProvider(pool)]; present {
-			return fmt.Errorf("%w: enrolled pool has no quota snapshot", ErrSubscriptionPoolUnavailable)
+			return subscriptionPoolUnavailableBecause(ctx, "enrolled pool has no quota snapshot")
 		}
 	}
 	return callerPlanRefusal(ctx, pool, callerQuotaUnproven, now)
@@ -185,9 +186,9 @@ func callerPlanRefusal(ctx context.Context, pool subscriptions.Provider, callerQ
 		return nil
 	}
 	if callerPlanThrottled(ctx, pool, now) {
-		return errCallerPlanThrottled
+		return subscriptionPoolRefusal(ctx, subscriptionlane.CallerPlanThrottled)
 	}
-	return fmt.Errorf("%w: caller subscription quota is available or unknown", ErrSubscriptionPoolUnavailable)
+	return subscriptionPoolUnavailableBecause(ctx, "caller subscription quota is available or unknown")
 }
 
 func (s *Service) callerQuotaSpent(ctx context.Context, pool subscriptions.Provider, token string, now time.Time) bool {

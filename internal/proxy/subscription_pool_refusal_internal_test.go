@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -104,7 +105,7 @@ func TestOnlyACallerPlanThrottleIsCustomerOwned(t *testing.T) {
 	for name, pin := range poolRefusalPins() {
 		err := pin.err(context.Background())
 		owner := classifyFailureOwner(failureOwnerInput{Err: err})
-		assert.Equal(t, pin.sentinel == errCallerPlanThrottled, owner == FailureOwnerClient, name)
+		assert.Equal(t, errors.Is(pin.sentinel, errCallerPlanThrottled), owner == FailureOwnerClient, name)
 	}
 }
 
@@ -117,5 +118,14 @@ func TestManagedSubscriptionCommitMarksTheTurnServed(t *testing.T) {
 
 		assert.True(t, managedSubscriptionServed(ctx), mark)
 		assert.True(t, servedOnSubscription(ctx), mark)
+	}
+}
+
+func TestEveryPoolVerdictSentinelClassifiesAsItsRefusedState(t *testing.T) {
+	for on, verdict := range subscriptionPoolVerdicts {
+		kind, refused := verdict.refused.Refusal()
+		require.True(t, refused, "%s", on)
+		assert.Equal(t, kind.Contract(), classifiedRefusal(t, verdict.sentinel), "%s", on)
+		assert.Equal(t, verdict.sentinel, subscriptionPoolRefusal(context.Background(), on), "%s", on)
 	}
 }

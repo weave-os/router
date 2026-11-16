@@ -21,6 +21,8 @@ const (
 	RefusedSpendCapReached
 	RefusedSubscriptionPoolExhausted
 	RefusedSubscriptionUnavailableForTurn
+	RefusedSubscriptionPoolUnavailable
+	RefusedSubscriptionPoolThrottled
 	stateCount
 )
 
@@ -44,6 +46,9 @@ const (
 	OrganizationCreditsServed
 	SubscriptionUnservable
 	SubscriptionPoolExhausted
+	SubscriptionPoolUnavailable
+	SubscriptionPoolThrottled
+	CallerPlanThrottled
 	eventCount
 )
 
@@ -78,6 +83,8 @@ var states = [stateCount]stateSpec{
 	RefusedSpendCapReached:                {name: "RefusedSpendCapReached", outcome: Refused, refusal: refusal.SpendCapReached},
 	RefusedSubscriptionPoolExhausted:      {name: "RefusedSubscriptionPoolExhausted", outcome: Refused, refusal: refusal.SubscriptionPoolExhausted},
 	RefusedSubscriptionUnavailableForTurn: {name: "RefusedSubscriptionUnavailableForTurn", outcome: Refused, refusal: refusal.SubscriptionUnavailableForTurn},
+	RefusedSubscriptionPoolUnavailable:    {name: "RefusedSubscriptionPoolUnavailable", outcome: Refused, refusal: refusal.SubscriptionPoolUnavailable},
+	RefusedSubscriptionPoolThrottled:      {name: "RefusedSubscriptionPoolThrottled", outcome: Refused, refusal: refusal.SubscriptionPoolThrottled},
 }
 
 var eventNames = [eventCount]string{
@@ -98,6 +105,9 @@ var eventNames = [eventCount]string{
 	OrganizationCreditsServed:   "OrganizationCreditsServed",
 	SubscriptionUnservable:      "SubscriptionUnservable",
 	SubscriptionPoolExhausted:   "SubscriptionPoolExhausted",
+	SubscriptionPoolUnavailable: "SubscriptionPoolUnavailable",
+	SubscriptionPoolThrottled:   "SubscriptionPoolThrottled",
+	CallerPlanThrottled:         "CallerPlanThrottled",
 }
 
 func (s State) String() string { return states[s].name }
