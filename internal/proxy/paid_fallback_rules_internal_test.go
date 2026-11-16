@@ -24,14 +24,14 @@ type paidFallbackFacts struct {
 }
 
 func paidFallbackLanes() []paidFallbackFacts {
-	marked := func(reason billing.SubscriptionOnlyReason) func(context.Context) context.Context {
+	withSubscriptionOnly := func(reason billing.SubscriptionOnlyReason) func(context.Context) context.Context {
 		return func(ctx context.Context) context.Context { return billing.WithSubscriptionOnly(ctx, reason) }
 	}
 	return []paidFallbackFacts{
 		{"funded", func(ctx context.Context) context.Context { return ctx }},
-		{"linked-first", marked(billing.SubscriptionOnlyLinkedFirst)},
-		{"spend-cap", marked(billing.SubscriptionOnlySpendCapReached)},
-		{"depleted", marked(billing.SubscriptionOnlyCreditsDepleted)},
+		{"linked-first", withSubscriptionOnly(billing.SubscriptionOnlyLinkedFirst)},
+		{"spend-cap", withSubscriptionOnly(billing.SubscriptionOnlySpendCapReached)},
+		{"depleted", withSubscriptionOnly(billing.SubscriptionOnlyCreditsDepleted)},
 		{"credits-denied", billing.WithWeaveCreditsDenied},
 		{"depleted-credits-denied", func(ctx context.Context) context.Context {
 			return billing.WithWeaveCreditsDenied(billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted))
@@ -40,11 +40,11 @@ func paidFallbackLanes() []paidFallbackFacts {
 }
 
 func paidFallbackBindings() []paidFallbackFacts {
-	stateModels := func(ctx context.Context) context.Context {
+	withIncludedStateModels := func(ctx context.Context) context.Context {
 		ctx = context.WithValue(ctx, InstallationSubscriptionStateModelsEnabledContextKey{}, true)
 		return context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
 	}
-	enterpriseSeat := func(ctx context.Context) context.Context {
+	withEnterpriseSeat := func(ctx context.Context) context.Context {
 		return context.WithValue(enterpriseOnlyContext(ctx), claudeEnterpriseTurnKey{}, true)
 	}
 	return []paidFallbackFacts{
@@ -58,26 +58,26 @@ func paidFallbackBindings() []paidFallbackFacts {
 		{"own-plan-pick", func(ctx context.Context) context.Context {
 			return context.WithValue(ctx, pickedModelOnOwnPlanContextKey{}, true)
 		}},
-		{"included-lane", stateModels},
+		{"included-lane", withIncludedStateModels},
 		{"exhausted-set", func(ctx context.Context) context.Context {
-			return context.WithValue(stateModels(ctx), subscriptionAPIOnlyKey{}, true)
+			return context.WithValue(withIncludedStateModels(ctx), subscriptionAPIOnlyKey{}, true)
 		}},
 		{"included-lane-attempt", func(ctx context.Context) context.Context {
-			return context.WithValue(stateModels(ctx), subscriptionOnlyAttemptKey{}, true)
+			return context.WithValue(withIncludedStateModels(ctx), subscriptionOnlyAttemptKey{}, true)
 		}},
-		{"enterprise-seat", enterpriseSeat},
+		{"enterprise-seat", withEnterpriseSeat},
 		{"enterprise-cap-refused", func(ctx context.Context) context.Context {
-			return context.WithValue(enterpriseSeat(ctx), ManagedSubscriptionUsageContextKey{}, &ManagedSubscriptionUsage{ClaudeEnterpriseCapRefused: true})
+			return context.WithValue(withEnterpriseSeat(ctx), ManagedSubscriptionUsageContextKey{}, &ManagedSubscriptionUsage{ClaudeEnterpriseCapRefused: true})
 		}},
 		{"enterprise-cap-refused-attempt", func(ctx context.Context) context.Context {
-			ctx = context.WithValue(enterpriseSeat(ctx), ManagedSubscriptionUsageContextKey{}, &ManagedSubscriptionUsage{ClaudeEnterpriseCapRefused: true})
+			ctx = context.WithValue(withEnterpriseSeat(ctx), ManagedSubscriptionUsageContextKey{}, &ManagedSubscriptionUsage{ClaudeEnterpriseCapRefused: true})
 			return context.WithValue(ctx, subscriptionOnlyAttemptKey{}, true)
 		}},
 	}
 }
 
 func paidFallbackCustomerKeys() []paidFallbackFacts {
-	row := func(priority auth.FundingPriority) func(context.Context) context.Context {
+	withAnthropicCustomerKey := func(priority auth.FundingPriority) func(context.Context) context.Context {
 		return func(ctx context.Context) context.Context {
 			return context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 				{Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-customer"), FundingPriority: priority},
@@ -86,8 +86,8 @@ func paidFallbackCustomerKeys() []paidFallbackFacts {
 	}
 	return []paidFallbackFacts{
 		{"none", func(ctx context.Context) context.Context { return ctx }},
-		{"anthropic-plan-first", row(auth.FundingPriorityPlanFirst)},
-		{"anthropic-key-first", row(auth.FundingPriorityKeyFirst)},
+		{"anthropic-plan-first", withAnthropicCustomerKey(auth.FundingPriorityPlanFirst)},
+		{"anthropic-key-first", withAnthropicCustomerKey(auth.FundingPriorityKeyFirst)},
 	}
 }
 
@@ -115,8 +115,7 @@ func paidFallbackBit(value bool) string {
 }
 
 func paidFallbackHandover(ctx context.Context, provider string) string {
-	handed := withPaidFallbackCredentials(ctx, provider)
-	creds := CredentialsFromContext(handed)
+	creds := CredentialsFromContext(withPaidFallbackCredentials(ctx, provider))
 	switch {
 	case creds == nil:
 		return "deployment"
@@ -142,9 +141,9 @@ func paidFallbackRulesRow(ctx context.Context) string {
 	attempts := make([]string, 0, len(paidFallbackServingCredentials()))
 	unservable := make([]string, 0, len(paidFallbackServingCredentials()))
 	for _, serving := range paidFallbackServingCredentials() {
-		served := context.WithValue(ctx, CredentialsContextKey{}, serving.creds)
+		servingCtx := context.WithValue(ctx, CredentialsContextKey{}, serving.creds)
 		attempts = append(attempts, serving.name+":"+paidFallbackBit(paidAttemptForbidden(ctx, serving.creds)))
-		unservable = append(unservable, serving.name+":"+paidFallbackBit(subscriptionOnlyUnservable(served, providers.ProviderAnthropic, stateClaudeModel)))
+		unservable = append(unservable, serving.name+":"+paidFallbackBit(subscriptionOnlyUnservable(servingCtx, providers.ProviderAnthropic, stateClaudeModel)))
 	}
 	fields = append(fields, "attempt-forbidden=["+strings.Join(attempts, " ")+"]", "unservable=["+strings.Join(unservable, " ")+"]")
 	return strings.Join(fields, " ")
