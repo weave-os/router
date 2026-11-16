@@ -110,8 +110,8 @@ func TestVerificationSQLConcurrentSharedRefreshAndReset(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"id_token": verificationCodexIDToken(t, strings.SplitN(r.Form.Get("refresh_token"), ":", 2)[1]), "access_token": "synthetic-access-refreshed", "refresh_token": "synthetic-refresh-rotated", "expires_in": 3600, "token_type": "Bearer"})
 	}))
 	defer tokenServer.Close()
-	oauth := subscriptions.NewOAuthClient(tokenServer.Client(), tokenServer.URL, tokenServer.URL, time.Now)
-	runtimes := []*subscriptions.Runtime{subscriptions.NewRuntime(service, oauth, time.Now), subscriptions.NewRuntime(service, oauth, time.Now)}
+	clock, oauth := newClockBehindDatabase(), subscriptions.NewOAuthClient(tokenServer.Client(), tokenServer.URL, tokenServer.URL, time.Now)
+	runtimes := []*subscriptions.Runtime{subscriptions.NewRuntime(service, oauth, clock.Now), subscriptions.NewRuntime(service, oauth, clock.Now)}
 	requesters := []auth.SubscriptionOwner{{InstallationID: org.String(), SubscriberID: borrowerA.String(), APIKeyID: key.String()}, {InstallationID: org.String(), SubscriberID: borrowerB.String(), APIKeyID: key.String()}}
 	leases := make([]subscriptions.Lease, 2)
 	errs := make([]error, 2)
@@ -140,10 +140,10 @@ func TestVerificationSQLConcurrentSharedRefreshAndReset(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT token_refresh_version,token_refresh_lease_id IS NULL FROM router.model_router_subscription_accounts WHERE id=$1`, account.ID).Scan(&version, &leaseReleased))
 	require.Equal(t, int64(1), version)
 	require.True(t, leaseReleased)
-	require.NoError(t, runtimes[0].Exhaust(ctx, requesters[0], subscriptions.ProviderCodex, account.ID, time.Now().Add(100*time.Millisecond)))
+	require.NoError(t, runtimes[0].Exhaust(ctx, requesters[0], subscriptions.ProviderCodex, account.ID, clock.Now().Add(time.Minute)))
 	_, _, err = runtimes[1].Lease(ctx, requesters[1], subscriptions.ProviderCodex, "exhausted")
 	require.ErrorIs(t, err, subscriptions.ErrNoAvailableAccount)
-	time.Sleep(150 * time.Millisecond)
+	clock.Advance(2 * time.Minute)
 	resetLease, _, err := runtimes[1].Lease(ctx, requesters[1], subscriptions.ProviderCodex, "reset")
 	require.NoError(t, err)
 	require.Equal(t, "synthetic-access-refreshed", resetLease.AccessToken)
@@ -157,7 +157,7 @@ func TestVerificationSQLConcurrentSharedRefreshAndReset(t *testing.T) {
 	_, err = pool.Exec(ctx, `UPDATE router.model_router_installations SET subscription_sharing_enabled=true WHERE id=$1`, org)
 	require.NoError(t, err)
 	require.Equal(t, int32(1), refreshes.Load())
-	verifySQLTierLocalAffinity(t, service, runtimes[0], requesters[0], borrowerB, account.ID)
+	verifySQLTierLocalAffinity(t, service, runtimes[0], clock, requesters[0], borrowerB, account.ID)
 	verifyDispatchBilling(t, pool, service, oauth, requesters[0], owner, org, key)
 	_, err = pool.Exec(ctx, `UPDATE router.credential_subject_installations SET access_enabled=false WHERE subject_id=$1 AND installation_id=$2`, owner, org)
 	require.NoError(t, err)
@@ -269,7 +269,7 @@ func verifyDispatchBilling(t *testing.T, pool *pgxpool.Pool, authService *auth.S
 	}
 }
 
-func verifySQLTierLocalAffinity(t *testing.T, service *auth.Service, runtime *subscriptions.Runtime, requester auth.SubscriptionOwner, secondOwner uuid.UUID, firstAccountID string) {
+func verifySQLTierLocalAffinity(t *testing.T, service *auth.Service, runtime *subscriptions.Runtime, clock *steppedClock, requester auth.SubscriptionOwner, secondOwner uuid.UUID, firstAccountID string) {
 	t.Helper()
 	ctx := context.Background()
 	require.NoError(t, runtime.Activate(ctx, requester, subscriptions.ProviderCodex, firstAccountID))
@@ -283,13 +283,13 @@ func verifySQLTierLocalAffinity(t *testing.T, service *auth.Service, runtime *su
 	require.Equal(t, firstAccountID, first.AccountID)
 	require.Equal(t, auth.SubscriptionTierShared, first.Tier)
 	first.Release()
-	require.NoError(t, runtime.Exhaust(ctx, requester, subscriptions.ProviderCodex, firstAccountID, time.Now().Add(100*time.Millisecond)))
+	require.NoError(t, runtime.Exhaust(ctx, requester, subscriptions.ProviderCodex, firstAccountID, clock.Now().Add(time.Minute)))
 	rotated, _, err := runtime.Lease(ctx, requester, subscriptions.ProviderCodex, "synthetic-affinity-session")
 	require.NoError(t, err)
 	require.Equal(t, second.ID, rotated.AccountID)
 	require.Equal(t, secondOwner.String(), rotated.OwnerID)
 	rotated.Release()
-	time.Sleep(150 * time.Millisecond)
+	clock.Advance(2 * time.Minute)
 	retained, _, err := runtime.Lease(ctx, requester, subscriptions.ProviderCodex, "synthetic-affinity-session")
 	require.NoError(t, err)
 	require.Equal(t, second.ID, retained.AccountID, "quota-reset earlier shared account cannot break session affinity within same tier")
@@ -303,4 +303,29 @@ func verifySQLTierLocalAffinity(t *testing.T, service *auth.Service, runtime *su
 	require.Equal(t, requester.SubscriberID, promoted.OwnerID)
 	require.Equal(t, auth.SubscriptionTierPersonal, promoted.Tier)
 	promoted.Release()
+}
+
+// steppedClock drives runtime cooldown decisions without wall-clock sleeps.
+// It starts an hour behind the database so every cooldown_until it produces is
+// already in the past for SQL predicates that compare against CURRENT_TIMESTAMP,
+// matching the state the runtime sees after Advance.
+type steppedClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func newClockBehindDatabase() *steppedClock {
+	return &steppedClock{now: time.Now().Add(-time.Hour)}
+}
+
+func (c *steppedClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *steppedClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(d)
 }
