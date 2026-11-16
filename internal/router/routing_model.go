@@ -2,7 +2,6 @@ package router
 
 import "context"
 
-// RoutingModel names an automatic router instead of an upstream completion model.
 type RoutingModel string
 
 const (
@@ -13,14 +12,10 @@ const (
 	ModelDecision  RoutingModel = "weave-decision-model-20261019-0001v1"
 )
 
-// PrimaryRoutingStrategy is the main HMM classifier every managed release serves.
 const PrimaryRoutingStrategy = StrategyHMM
 
-// RoutingModelPolicy binds an explicit routing model to the strategy serving it.
 type RoutingModelPolicy struct {
-	Strategy Strategy
-	// FallsBackToPrimary serves PrimaryRoutingStrategy when the variant is absent,
-	// so releases can add and drop experiments without breaking selections.
+	Strategy           Strategy
 	FallsBackToPrimary bool
 	UnavailableError   string
 }
@@ -32,13 +27,11 @@ var routingModelPolicies = map[RoutingModel]RoutingModelPolicy{
 	ModelDecision: {Strategy: StrategyDecisionModel, FallsBackToPrimary: true, UnavailableError: "decision_model_unavailable"},
 }
 
-// RoutingModelPolicyFor returns the policy for an explicit non-automatic routing model.
 func RoutingModelPolicyFor(model RoutingModel) (RoutingModelPolicy, bool) {
 	selection, found := routingModelPolicies[model]
 	return selection, found
 }
 
-// IsRoutingModel reports whether model selects an automatic routing policy.
 func IsRoutingModel(model string) bool {
 	if RoutingModel(model) == ModelAutomatic {
 		return true
@@ -49,12 +42,10 @@ func IsRoutingModel(model string) bool {
 
 type routingModelContextKey struct{}
 
-// WithRoutingModel records explicit selection so legacy preferences cannot override it.
 func WithRoutingModel(ctx context.Context, model RoutingModel) context.Context {
 	return context.WithValue(ctx, routingModelContextKey{}, model)
 }
 
-// RoutingModelFromContext returns the routing model explicitly selected by the client.
 func RoutingModelFromContext(ctx context.Context) (RoutingModel, bool) {
 	model, ok := ctx.Value(routingModelContextKey{}).(RoutingModel)
 	return model, ok
