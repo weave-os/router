@@ -5,7 +5,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
-	"weave-os/router/internal/refusal"
+	"weave-os/router/internal/subscriptionlane"
 
 	"github.com/gin-gonic/gin"
 )
@@ -41,14 +41,15 @@ func WithDelegatedSpendCap(svc *billing.Service) gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		if proxy.RequestPresentsCoveringSubscription(ctx, c.Request.Header, c.FullPath()) {
+		kind, refused := tripSubscriptionLane(c, subscriptionlane.DelegatedSpendCapGate,
+			proxy.RequestPresentsCoveringSubscription(ctx, c.Request.Header, c.FullPath()))
+		if !refused {
 			log.Info("Delegated spend cap reached but subscription covers the route: serving subscription-only", "scope", scope)
-			c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlySpendCapReached))
 			c.Next()
 			return
 		}
 		log.Info("Request rejected: delegated spend cap reached", "scope", scope, "spent_usd_micros", spent, "spend_cap_usd_micros", capMicros)
-		abortRefusal(c, refusal.DelegatedSpendCapReached, gin.H{
+		abortRefusal(c, kind, gin.H{
 			"scope":                scope,
 			"spent_usd_micros":     spent,
 			"spend_cap_usd_micros": capMicros,
