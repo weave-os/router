@@ -20,7 +20,6 @@ import (
 const tracerName = "weave-os/router/internal/postgres"
 
 var (
-	// ErrDatabaseNameEmpty is returned when a Postgres tracer has no database namespace.
 	ErrDatabaseNameEmpty = errors.New("database name is empty")
 
 	sqlcQueryPattern = regexp.MustCompile(`^(?:--|/\*)\s+name:\s+(\w+) :(\w+)`)
@@ -33,7 +32,6 @@ var (
 	sqlcQueryCommandKey     = attribute.Key("sqlc.query.command")
 )
 
-// PGXTracer emits OpenTelemetry spans for pool acquisition and SQL queries.
 type PGXTracer interface {
 	pgx.QueryTracer
 	pgxpool.AcquireTracer
@@ -60,7 +58,6 @@ type acquireTrace struct {
 type queryTraceKey struct{}
 type acquireTraceKey struct{}
 
-// NewPGXTracer returns a pgx tracer using the process-wide OpenTelemetry provider.
 func NewPGXTracer(databaseName string) (PGXTracer, error) {
 	return newPGXTracer(databaseName, otel.GetTracerProvider())
 }
