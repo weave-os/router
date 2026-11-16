@@ -2,24 +2,12 @@
   "schema_version": "comment_ban_allowlist_v1",
   "packages": [
     {
-      "package": "cmd/policyctl",
-      "banned_lines": 61
-    },
-    {
       "package": "cmd/router",
       "banned_lines": 343
     },
     {
-      "package": "internal/analytics",
-      "banned_lines": 85
-    },
-    {
       "package": "internal/api/admin",
       "banned_lines": 303
-    },
-    {
-      "package": "internal/api/feedback",
-      "banned_lines": 31
     },
     {
       "package": "internal/auth",
@@ -30,40 +18,8 @@
       "banned_lines": 294
     },
     {
-      "package": "internal/credentials",
-      "banned_lines": 93
-    },
-    {
       "package": "internal/dispatch",
       "banned_lines": 278
-    },
-    {
-      "package": "internal/feedback",
-      "banned_lines": 31
-    },
-    {
-      "package": "internal/flags",
-      "banned_lines": 108
-    },
-    {
-      "package": "internal/inference",
-      "banned_lines": 74
-    },
-    {
-      "package": "internal/ingress",
-      "banned_lines": 94
-    },
-    {
-      "package": "internal/observability",
-      "banned_lines": 123
-    },
-    {
-      "package": "internal/observability/otel",
-      "banned_lines": 62
-    },
-    {
-      "package": "internal/policyclient",
-      "banned_lines": 134
     },
     {
       "package": "internal/policyregistry",
@@ -74,52 +30,16 @@
       "banned_lines": 320
     },
     {
-      "package": "internal/postgres/serving",
-      "banned_lines": 36
-    },
-    {
       "package": "internal/providers",
       "banned_lines": 352
-    },
-    {
-      "package": "internal/providers/anthropic",
-      "banned_lines": 146
-    },
-    {
-      "package": "internal/providers/cortexagents",
-      "banned_lines": 49
-    },
-    {
-      "package": "internal/providers/google",
-      "banned_lines": 34
     },
     {
       "package": "internal/providers/httputil",
       "banned_lines": 214
     },
     {
-      "package": "internal/providers/openai",
-      "banned_lines": 136
-    },
-    {
-      "package": "internal/providers/openaicompat",
-      "banned_lines": 115
-    },
-    {
       "package": "internal/proxy",
-      "banned_lines": 5733
-    },
-    {
-      "package": "internal/proxy/usage",
-      "banned_lines": 155
-    },
-    {
-      "package": "internal/pubsub",
-      "banned_lines": 61
-    },
-    {
-      "package": "internal/refusal",
-      "banned_lines": 17
+      "banned_lines": 5731
     },
     {
       "package": "internal/requestcontext",
@@ -130,140 +50,28 @@
       "banned_lines": 408
     },
     {
-      "package": "internal/router/breaker",
-      "banned_lines": 106
-    },
-    {
       "package": "internal/router/catalog",
       "banned_lines": 537
-    },
-    {
-      "package": "internal/router/decisionmodel",
-      "banned_lines": 42
-    },
-    {
-      "package": "internal/router/eligibility",
-      "banned_lines": 45
-    },
-    {
-      "package": "internal/router/gitcontext",
-      "banned_lines": 36
-    },
-    {
-      "package": "internal/router/handover",
-      "banned_lines": 36
-    },
-    {
-      "package": "internal/router/hmm/rosterdata",
-      "banned_lines": 45
-    },
-    {
-      "package": "internal/router/hmm/selection",
-      "banned_lines": 99
-    },
-    {
-      "package": "internal/router/llmescalation",
-      "banned_lines": 59
-    },
-    {
-      "package": "internal/router/percallband",
-      "banned_lines": 114
-    },
-    {
-      "package": "internal/router/planner",
-      "banned_lines": 87
     },
     {
       "package": "internal/router/policy",
       "banned_lines": 473
     },
     {
-      "package": "internal/router/rl",
-      "banned_lines": 68
-    },
-    {
       "package": "internal/router/sessionpin",
       "banned_lines": 211
-    },
-    {
-      "package": "internal/router/turntype",
-      "banned_lines": 103
-    },
-    {
-      "package": "internal/routingpolicy",
-      "banned_lines": 78
-    },
-    {
-      "package": "internal/server",
-      "banned_lines": 128
     },
     {
       "package": "internal/server/middleware",
       "banned_lines": 315
     },
     {
-      "package": "internal/sse",
-      "banned_lines": 77
-    },
-    {
-      "package": "internal/subscriptions",
-      "banned_lines": 163
-    },
-    {
       "package": "internal/subscriptions/entitlement",
       "banned_lines": 239
     },
     {
-      "package": "internal/telemetry",
-      "banned_lines": 87
-    },
-    {
-      "package": "internal/timing",
-      "banned_lines": 35
-    },
-    {
-      "package": "internal/trafficcapture",
-      "banned_lines": 35
-    },
-    {
       "package": "internal/translate",
       "banned_lines": 3422
-    },
-    {
-      "package": "internal/translate/toolcheck",
-      "banned_lines": 170
-    },
-    {
-      "package": "internal/usage",
-      "banned_lines": 32
-    },
-    {
-      "package": "internal/websearch",
-      "banned_lines": 78
-    },
-    {
-      "package": "scripts/arch_ratchet",
-      "banned_lines": 43
-    },
-    {
-      "package": "scripts/feedback_integration_check",
-      "banned_lines": 31
-    },
-    {
-      "package": "scripts/rotate_key_race_check",
-      "banned_lines": 31
-    },
-    {
-      "package": "scripts/rotate_key_race_ext_check",
-      "banned_lines": 53
-    },
-    {
-      "package": "scripts/session_pin_output_limit_check",
-      "banned_lines": 31
-    },
-    {
-      "package": "smoke/mitmproxy",
-      "banned_lines": 71
     }
   ]
 }

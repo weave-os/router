@@ -17,19 +17,14 @@ import (
 	"weave-os/router/internal/router/taskdomain"
 )
 
-// ErrNoEligibleArm is returned when no ranked group holds an eligible arm.
 var ErrNoEligibleArm = policy.ErrNoEligibleArm
 
-// ErrClassifierTaxonomyMismatch means the classifier and Go policy disagree on
-// the ordered class taxonomy; retrying another fallback group cannot fix it.
 var ErrClassifierTaxonomyMismatch = errors.New("classifier taxonomy does not match serving roster")
 
-// Selector returns the deterministic arm selector backed by roster.
 func Selector(roster *rosterdata.Roster) policy.ArmSelector {
 	return SelectorWithDomainEvidence(roster, nil, "")
 }
 
-// SelectorWithDomainEvidence binds task scoring to one validated serving roster.
 func SelectorWithDomainEvidence(roster *rosterdata.Roster, evidence *DomainEvidence, evidenceSHA256 string) policy.ArmSelector {
 	return func(ctx context.Context, input policy.SelectionInput) (policy.SelectionPick, error) {
 		log := observability.FromContext(ctx)
@@ -132,8 +127,6 @@ func SelectorWithDomainEvidence(roster *rosterdata.Roster, evidence *DomainEvide
 	}
 }
 
-// unscorableGroups selects only from the promoted roster. A session floor
-// cannot fall through to a weaker group when its eligible arms are exhausted.
 func unscorableGroups(roster *rosterdata.Roster, input policy.SelectionInput) ([]string, error) {
 	groups := append([]string(nil), roster.ClassOrder...)
 	if len(groups) == 0 {

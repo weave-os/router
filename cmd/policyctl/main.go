@@ -1,5 +1,3 @@
-// Command policyctl compiles, validates, publishes, promotes, rolls back, and
-// inspects atomic Go-owned HMM policy releases.
 package main
 
 import (

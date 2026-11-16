@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 Example Authors
+// SPDX-License-Identifier: Apache-2.0
+
 //go:build !windows
 
 package allowed

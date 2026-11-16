@@ -2,7 +2,11 @@ package flags_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"sort"
+	"strings"
 	"testing"
 
 	"weave-os/router/internal/flags"
@@ -286,4 +290,17 @@ func TestAuthoritativeDowngradeControlsAreOrgOverridable(t *testing.T) {
 	assert.True(t, flags.BoolOr(ctx, flags.KeyAuthoritativeDowngradeGate, false))
 	assert.Equal(t, 3, flags.IntOr(ctx, flags.KeyHMMDowngradeHysteresisTurns, 0))
 	assert.Equal(t, 0, flags.IntOr(ctx, flags.KeyHMMDowngradeHysteresisShadowTurns, 2))
+}
+
+func TestRegistryVersionTracksRegistryMembership(t *testing.T) {
+	const membershipAtVersion30 = "5ffa40f90a156fdc182b4f76aadc2bb85eb49c863b1959357f3bc5b9c5aa61b6"
+	keys := make([]string, 0, len(flags.Registry))
+	for _, def := range flags.Registry {
+		keys = append(keys, string(def.Key))
+	}
+	sort.Strings(keys)
+	digest := sha256.Sum256([]byte(strings.Join(keys, "\n")))
+	require.Equal(t, 30, flags.RegistryVersion, "re-pin the membership digest for the new RegistryVersion")
+	assert.Equal(t, membershipAtVersion30, hex.EncodeToString(digest[:]),
+		"Registry membership changed: bump flags.RegistryVersion (currently %d) and re-pin this digest", flags.RegistryVersion)
 }

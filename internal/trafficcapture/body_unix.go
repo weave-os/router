@@ -7,9 +7,6 @@ import (
 	"os"
 )
 
-// createSpoolFile opens an anonymous temporary file: the name is unlinked
-// while the handle stays open, so the captured bytes are reclaimed on close
-// and no payload is left behind if the process exits early.
 func createSpoolFile() (*os.File, error) {
 	bodyFile, err := os.CreateTemp("", spoolFilePattern)
 	if err != nil {
@@ -24,5 +21,4 @@ func createSpoolFile() (*os.File, error) {
 	return bodyFile, nil
 }
 
-// removeSpoolFile is a no-op because createSpoolFile already unlinked the name.
 func removeSpoolFile(*os.File) error { return nil }
