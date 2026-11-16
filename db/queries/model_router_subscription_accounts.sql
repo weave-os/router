@@ -505,7 +505,7 @@ WHERE k.credential_subject_id = @subscriber_id::uuid
 ORDER BY k.created_at DESC, k.id
 LIMIT 1;
 
--- Seats idle past the keep-warm age, oldest first. Cooling-down and mid-refresh seats are skipped.
+-- Seats idle past the keep-warm age, in random order so seats that keep failing cannot starve the rest. Cooling-down and mid-refresh seats are skipped.
 -- name: ListModelRouterSubscriptionAccountsDueForKeepWarm :many
 SELECT id,
        subscriber_id,
@@ -527,5 +527,5 @@ WHERE enabled = TRUE
   AND (token_refreshed_at IS NULL OR token_refreshed_at < @refreshed_before::timestamp)
   AND (cooldown_until IS NULL OR cooldown_until < CURRENT_TIMESTAMP OR health_state = 'exhausted')
   AND (token_refresh_lease_until IS NULL OR token_refresh_lease_until < CURRENT_TIMESTAMP)
-ORDER BY token_refreshed_at NULLS FIRST, id
+ORDER BY random()
 LIMIT @row_limit::int;

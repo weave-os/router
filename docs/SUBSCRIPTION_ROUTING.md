@@ -362,7 +362,7 @@ ordinary serving continues to own credential-health decisions.
 
 Keep-warm is off by default. Set `ROUTER_SUBSCRIPTION_KEEP_WARM_ENABLED=true` to
 have each replica sweep about every 15 minutes (jittered ±25%). A sweep refreshes up
-to 10 enabled Claude and Codex seats, oldest first and 2 seconds apart, whose last
+to 10 enabled Claude and Codex seats, in random order and 2 seconds apart, whose last
 successful refresh is older than `ROUTER_SUBSCRIPTION_KEEP_WARM_MAX_AGE` (default
 `168h`, minimum `1h`), whether or not the seat is in use. Rows without
 `token_refreshed_at` count as due. Exhausted seats are included; cooling-down,
