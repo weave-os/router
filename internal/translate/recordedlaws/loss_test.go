@@ -72,13 +72,13 @@ func (r lossRule) hopMatches(hop string) bool {
 	return err == nil && ok
 }
 
-func dotted(pattern, value string) bool {
+func dottedKeyMatches(pattern, value string) bool {
 	ok, err := path.Match(strings.ReplaceAll(pattern, ".", "/"), strings.ReplaceAll(value, ".", "/"))
 	return err == nil && ok
 }
 
 func (r lossRule) explains(hop string, d factDiff) bool {
-	if !r.hopMatches(hop) || r.kind != d.kind || !dotted(r.key, d.key) {
+	if !r.hopMatches(hop) || r.kind != d.kind || !dottedKeyMatches(r.key, d.key) {
 		return false
 	}
 	return r.holds == nil || r.holds(d.before, d.after)
