@@ -65,6 +65,28 @@ installed_email() { # installed_email <settings_file>
     | sed -n 's/^X-Weave-User-Email: //p'
 }
 
+installed_name() { # installed_name <settings_file>
+  jq -r '.env.ANTHROPIC_CUSTOM_HEADERS // ""' "$1" 2>/dev/null \
+    | sed -n 's/^X-Weave-User-Name: //p'
+}
+
+codex_email() { # codex_email <config.toml>
+  sed -n 's/.*"X-Weave-User-Email"[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$1" 2>/dev/null | head -n 1
+}
+
+# run_identity <home> -- <installer args...>
+# Like run, but with no git identity, as on a machine where a fleet tool pushes
+# the installer: only the install's own files can supply the person.
+run_identity() {
+  local home="$1"; shift
+  local key=""
+  if [ "${1:-}" != "--" ]; then key="$1"; shift; fi
+  [ "${1:-}" = "--" ] && shift
+  HOME="$home" XDG_CACHE_HOME="$home/.cache" PATH="$test_path" NO_COLOR=1 \
+    GIT_CONFIG_GLOBAL=/dev/null WEAVE_ROUTER_KEY="$key" WEAVE_USER_EMAIL="" \
+    bash "$installer" "$@" --base-url http://127.0.0.1:9 </dev/null >/dev/null 2>&1
+}
+
 # Per-target readers for the same key, each pulling from where that client's
 # install actually stores it. Deliberately independent of install.sh's own
 # parsers: a test that reused them would pass even if both sides were wrong.
@@ -473,6 +495,38 @@ fi
 # has to fail rather than quietly resurrect the old key.
 run_dir "$gone_home" "$gone_dir" -- --pi --quiet --non-interactive
 check "pi: re-run after uninstall finds no key to reuse" "$?" 1
+
+# ---------- identity carry-over ----------
+#
+# A prompt-less re-run with no git identity used to rewrite the headers without
+# the email and name the first install planted, so traffic fell back to
+# anonymous account UUIDs.
+
+id_home="$work/identity"; mkdir -p "$id_home"
+id_settings="$id_home/.claude/settings.json"
+WEAVE_USER_NAME="Ada Lovelace" run_identity "$id_home" rk_id -- \
+  --claude --scope user --quiet --non-interactive --email ada@example.com
+run_identity "$id_home" -- update --claude
+check "update without a git identity keeps the installed email" \
+  "$(installed_email "$id_settings")" "ada@example.com"
+check "update without a git identity keeps the installed name" \
+  "$(installed_name "$id_settings")" "Ada Lovelace"
+check "update without a git identity keeps the key" \
+  "$(installed_key "$id_settings")" "rk_id"
+
+run_identity "$id_home" -- --claude --scope user --quiet --non-interactive
+check "non-interactive re-install keeps the installed email" \
+  "$(installed_email "$id_settings")" "ada@example.com"
+
+run_identity "$id_home" -- update --claude --email grace@example.com
+check "--email on update replaces the installed email" \
+  "$(installed_email "$id_settings")" "grace@example.com"
+
+id_codex_home="$work/identity-codex"; mkdir -p "$id_codex_home"
+run_identity "$id_codex_home" rk_idc -- --codex --quiet --non-interactive --email ada@example.com
+run_identity "$id_codex_home" -- update --codex
+check "codex: update without a git identity keeps the installed email" \
+  "$(codex_email "$id_codex_home/.codex/config.toml")" "ada@example.com"
 
 echo
 echo "$pass passed, $fail failed"
