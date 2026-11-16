@@ -43,6 +43,7 @@ func (s *Service) recordPolicyPinRouteFailure(ctx context.Context, requestID str
 		params.Strategy = string(router.StrategyRandomBenchmark)
 		params.SessionID = ClientIdentityFrom(ctx).SessionID
 		params.RolloutID = ClientIdentityFrom(ctx).RolloutID
+		applySubscriberTelemetry(ctx, &params)
 	}
 	applyBlindExperimentTelemetry(ctx, &params, nil)
 	applyPolicyPinTelemetry(ctx, &params, nil)

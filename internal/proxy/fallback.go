@@ -57,7 +57,9 @@ type failoverInputs struct {
 	// discards the buffer and returns the error), letting the caller run a
 	// higher-level fallback instead (e.g. ProxyMessages' baseline failover
 	// re-dispatching the Anthropic model when a routed OSS model exhausts).
-	deferFlushOnExhaustion          bool
+	deferFlushOnExhaustion bool
+	// purpose names the registered operation the walk is authorized under;
+	// origin names the override source that fixed the decision's model.
 	purpose                         inference.Purpose
 	origin                          policy.OverrideSource
 	subscriptionStateRequest        *router.Request

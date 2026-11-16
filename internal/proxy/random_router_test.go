@@ -148,3 +148,16 @@ func TestRandomPolicyUnavailableRefusesClientRetry(t *testing.T) {
 	require.True(t, classification.NoClientRetry)
 	require.False(t, classification.RetryAfter)
 }
+
+func TestRandomUndispatchedFailureRetainsFundingIdentity(t *testing.T) {
+	config := randomTestConfig()
+	state := &randomrouter.RequestState{Config: config, Prepared: true, Lease: subscriptions.Lease{AccountID: config.SubscriptionAccountID}, Credentials: &Credentials{Source: credSourceCodexSubscription}}
+	ctx := randomrouter.WithRequest(randomTestContext(config), state)
+	telemetry := InsertTelemetryParams{}
+	applySubscriberTelemetry(ctx, &telemetry)
+	require.Equal(t, config.SubscriptionAccountID, telemetry.SubscriptionAccountID)
+	require.Equal(t, credSourceCodexSubscription, telemetry.CredentialSource)
+	require.Equal(t, "linked_codex", telemetry.CapacitySource)
+	require.False(t, servedOnSubscription(ctx))
+	require.Equal(t, "skipped", telemetry.PlannerOutcome)
+}

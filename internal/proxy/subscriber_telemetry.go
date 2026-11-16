@@ -141,7 +141,7 @@ func canonicalTelemetryModelFamily(model string) string {
 }
 
 func applySubscriptionWinnerTelemetry(ctx context.Context, telemetry *InsertTelemetryParams) {
-	if execution := randomrouter.RequestFrom(ctx); execution != nil && execution.ProviderCalls > 0 {
+	if execution := randomrouter.RequestFrom(ctx); execution != nil && execution.Prepared {
 		telemetry.SubscriptionAccountID = execution.Lease.AccountID
 		telemetry.SubscriptionOwnerID = execution.Lease.OwnerID
 		telemetry.SubscriptionTier = execution.Lease.Tier

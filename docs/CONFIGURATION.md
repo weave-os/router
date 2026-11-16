@@ -570,9 +570,18 @@ Set `DATABASE_URL` directly, or compose it from the individual vars:
 | `PORT`                   | `8080`       | HTTP listen port. |
 | `ROUTER_DEPLOYMENT_MODE` | `selfhosted` | `selfhosted` mounts `/ui/*` and `/admin/v1/*`. `managed` skips both (for SaaS deployments with a separate admin UI). |
 | `ROUTER_ADMIN_PASSWORD`  | *(none)*     | Dashboard password. When unset, inference stays available but dashboard login and management endpoints return `admin_login_disabled`. |
+| `ROUTER_COOKIE_INSECURE` | `false`      | Set to `true` only for plain-HTTP local development; otherwise the admin session cookie is always `Secure`, `HttpOnly` and `SameSite=Lax`. |
 | `ROUTER_RESTRICT_UPSTREAM_EGRESS` | follows `ROUTER_DEPLOYMENT_MODE` | When true, provider adapters refuse to dial an upstream that resolves outside the public internet (loopback, private, link-local, CGNAT). Defaults to true in `managed` mode and false in `selfhosted`, where pointing a provider at an in-cluster or loopback gateway is normal. While on, provider adapters also ignore `HTTP_PROXY`/`HTTPS_PROXY`, since a proxied connection makes the destination unverifiable. |
 | `ROUTER_INFERENCE_ORGANIZATION_ALLOWLIST` | *(none)* | Comma-separated organization IDs (installation external IDs) allowed to authenticate. When set, router keys and session tokens for any other organization get `403 organization_not_allowed` before routing or dispatch. Signed internal test plans are exempt. Use it on shared non-production deployments so self-serve signups cannot spend provider keys. |
 | `ROUTER_MODEL_DISCOVERY_PRIVATE_ORIGINS` | *(none)* | Comma-separated exact origins allowed to use private addresses for model discovery (for example, `https://gateway.internal:8443`). Discovery always blocks non-public destinations otherwise and always ignores ambient proxies, regardless of `ROUTER_RESTRICT_UPSTREAM_EGRESS`. Entries may contain only scheme, host, and port; paths, wildcards, and CIDRs are rejected at startup. |
+
+### Admin authentication
+
+- Inference routes accept a router key (`rk_` as a bearer token, `x-api-key` or the router key header) or a delegated session token, never the admin cookie. `/v1/analytics/*` takes only `ra_` analytics keys, and public discovery routes such as `/v1/version` need no key.
+- Read-only `/admin/v1/*` routes accept the admin cookie or a router key. A missing, stale or tampered cookie falls through to router-key auth.
+- Control-plane mutations (minting or rotating keys, provider credentials) require the admin cookie; a leaked router key is rejected.
+- Login is throttled per immediate TCP peer, not `X-Forwarded-For`, so rotating that header cannot bypass the failure limit.
+- Router-key routes scope every lookup to the key's installation; an ID from another installation answers `404`, the same as an unknown ID.
 
 ## Managed serving (`ROUTER_SERVING_*`)
 
@@ -725,6 +734,9 @@ override, then organization override, then deployment default.
   published by a newer one.
 - `hmm_tool_result_hold` is an eval control owned by router policy: promote or
   remove it after the escalation benchmark comparison.
+- Routing code reads a flag through the `Resolve*` helpers in
+  `internal/proxy/flag_resolution.go`. Reading the deployment default off
+  `proxy.Service` directly silently ignores any organization override.
 
 ## Plan-aware subscription routing
 
@@ -817,6 +829,31 @@ cluster](#forcing-a-model-or-a-routing-cluster)).
 
 Excluding every provider that serves the models you route to leaves requests
 with nowhere to go (HTTP 503), so exclude deliberately.
+
+The control plane also keeps a deployment-wide list of models removed from
+automatic routing. Each replica serves it from a snapshot refreshed every
+minute, so an edit takes up to that long to reach every replica. A failed
+refresh keeps the previous snapshot, and a replica whose first read fails
+excludes nothing rather than refusing traffic. These are soft exclusions: the
+router never picks such a model, but an explicit force still serves it, and
+`/router-models` marks it separately from hard exclusions. A model whose
+overload circuit is open joins the same soft set.
+
+### Request-scoped model subset (`x-weave-allowed-models`)
+
+`x-weave-allowed-models` narrows one request to a comma-separated list of
+catalog IDs or aliases. The list is intersected with the installation's
+`allowed_models` and never widens it. Only installations with policy-header
+overrides enabled, or organizations with the `allowed_models_header` flag on,
+may send it; any other caller gets HTTP 403. The header is ignored, and the
+request routes normally, when its value is empty or whitespace-only, when the
+request has no installation, and on managed plans that have a serving
+profile. Otherwise an unknown entry, a list of only empty entries (such as
+`,`) or an empty intersection fails the request with HTTP 400 instead of
+falling back to the full roster. A narrowed decision's persisted reason gets the
+`allowlist_override:` prefix; a user force is a strict pin, ignores the subset
+and keeps its reason. Requests carrying the header bypass the semantic cache,
+because the subset is not part of the cache key.
 
 ## Forcing a model or a routing cluster
 
@@ -1005,6 +1042,16 @@ with routing decisions, token usage, cost estimates, and latency. Export is
 async/non-blocking; when `OTEL_EXPORTER_OTLP_ENDPOINT` is unset, OTel is
 fully disabled at zero runtime cost. Everything the router records leaves the
 process over OTLP only — there is no hardcoded analytics endpoint.
+
+Router-originated provider calls that are not the client's turn (switch
+handover, pre-compaction and compaction-handover summaries) are billed to the
+customer and recorded with span type `router.auxiliary_inference`, never
+`router.upstream`, so request counts and policy training data exclude them.
+Weave-funded overhead uses `router.platform_auxiliary_inference` and stays out
+of customer session cost. An auxiliary row's request id carries the same
+suffix as its credit-ledger debit, so the two join on `request_id`. A
+summarizer call with no model or no tokens records nothing, and its requested
+cost equals its actual cost so it never counts as router savings.
 
 ### High-fidelity content capture (`router.call` log records)
 

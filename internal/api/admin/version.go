@@ -10,27 +10,19 @@ import (
 )
 
 type versionResponse struct {
-	Commit      string `json:"commit"`
-	CommitShort string `json:"commit_short"`
-	PR          string `json:"pr"`
-	Display     string `json:"display"`
-	BuildTime   string `json:"build_time"`
-	// PolicyReleaseID and PolicySHA256 identify the stable-lane policy release
-	// this replica serves; it can change without a binary deploy.
+	Commit          string `json:"commit"`
+	CommitShort     string `json:"commit_short"`
+	PR              string `json:"pr"`
+	Display         string `json:"display"`
+	BuildTime       string `json:"build_time"`
 	PolicyReleaseID string `json:"policy_release_id,omitempty"`
 	PolicySHA256    string `json:"policy_sha256,omitempty"`
 }
 
-// PolicyStatusSource reports the policy release a lane manager is serving.
 type PolicyStatusSource interface {
 	Status() policyregistry.ManagerStatus
 }
 
-// VersionHandler reports the running binary's build identity — the git commit
-// it was built from and the build timestamp — plus the active policy release when policy is non-nil, so operators (and the
-// managed-deployment badge in the README) can tell what is live. Unauthed and
-// mounted in both deployment modes, like /health; every field is public
-// metadata with no leak risk.
 func VersionHandler(policy PolicyStatusSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		response := versionResponse{

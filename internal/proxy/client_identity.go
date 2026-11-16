@@ -14,23 +14,14 @@ import (
 	"weave-os/router/internal/router/turntype"
 )
 
-// ClientIdentity holds per-request user identification signals; defined in
-// internal/requestcontext so provider adapters can read it.
 type ClientIdentity = requestcontext.ClientIdentity
 
-// ClientIdentityContextKey is the request-context key for client identity.
 type ClientIdentityContextKey = requestcontext.ClientIdentityContextKey
 
-// ClientIdentityFrom reads the ClientIdentity stashed on ctx.
 func ClientIdentityFrom(ctx context.Context) ClientIdentity {
 	return requestcontext.ClientIdentityFrom(ctx)
 }
 
-// ClientIdentityFromHeaders builds a ClientIdentity from the headers common
-// to every surface (OpenAI, Gemini, and the Anthropic header-only fields).
-// DeviceID and AccountID are left zero — only Claude Code's
-// metadata.user_id body field carries them; callers with a body (see
-// anthropic.stashClientIdentity) overlay those after calling this.
 func ClientIdentityFromHeaders(h http.Header) ClientIdentity {
 	xApp, eval := splitEvalClientApp(h.Get("X-App"))
 	id := ClientIdentity{
@@ -51,8 +42,6 @@ func ClientIdentityFromHeaders(h http.Header) ClientIdentity {
 	return id
 }
 
-// ChatClientIdentity is ClientIdentityFromHeaders plus the Cursor agent id
-// from a Chat Completions body when no header names the session.
 func ChatClientIdentity(h http.Header, body []byte) ClientIdentity {
 	id := ClientIdentityFromHeaders(h)
 	if id.ClientApp == ClientAppCursor && id.SessionID == "" {
@@ -66,12 +55,8 @@ func openCodeCaller(id ClientIdentity) turntype.OpenCodeCaller {
 	return turntype.OpenCodeCaller{IsClient: isClient, IsSubagent: isClient && id.OpenCodeSubagent}
 }
 
-// EvalClientAppPrefix is re-exported for callers building identities by hand.
 const EvalClientAppPrefix = requestcontext.EvalClientAppPrefix
 
-// splitEvalClientApp peels the eval-harness prefix off a raw X-App value so
-// "weave-eval-codex" resolves to the codex harness with Eval set, rather than
-// to an unknown client that falls off every codex-keyed code path.
 func splitEvalClientApp(xApp string) (string, bool) {
 	trimmed := strings.ToLower(strings.TrimSpace(xApp))
 	if !strings.HasPrefix(trimmed, EvalClientAppPrefix) || len(trimmed) > MaxClientAppLen {
@@ -80,12 +65,6 @@ func splitEvalClientApp(xApp string) (string, bool) {
 	return strings.TrimPrefix(trimmed, EvalClientAppPrefix), true
 }
 
-// ResolveUserFromContext dispatches identity signals from ctx to
-// auth.Service.ResolveAndStashUser. Either email or account_uuid is enough —
-// Claude CLI v2.1.x sends account_uuid only, so gating on email alone would
-// break that path. With neither (GitHub Copilot, Cursor, raw API calls), a
-// personal key attributes the request to its authenticated owner; a shared
-// key leaves the request unattributed.
 func ResolveUserFromContext(ctx context.Context, authSvc *auth.Service, installation *auth.Installation, apiKey *auth.APIKey) context.Context {
 	return withBlindExperimentSession(resolveUserFromContext(ctx, authSvc, installation, apiKey), authSvc, installation, apiKey)
 }
@@ -139,8 +118,6 @@ func resolveUserFromContext(ctx context.Context, authSvc *auth.Service, installa
 	return authSvc.ResolveAndStashUser(ctx, installation.ID, id.Email, id.AccountID, id.DisplayName)
 }
 
-// ResolveRoutingAssignment applies generic per-user policy after the identity has been resolved.
-// A request carrying an identity that could not be resolved must not silently inherit routing.
 func ResolveRoutingAssignment(ctx context.Context, authSvc *auth.Service, installation *auth.Installation) (context.Context, error) {
 	if randomBenchmarkFrom(ctx) != nil {
 		return ctx, nil
@@ -159,38 +136,24 @@ func ResolveRoutingAssignment(ctx context.Context, authSvc *auth.Service, instal
 	return authSvc.WithRoutingAssignment(ctx, installation.ID, routerUserID)
 }
 
-// ClaudeCodeMetadata mirrors the JSON Claude Code encodes into
-// metadata.user_id. Email is promoted to router.model_router_users.
 type ClaudeCodeMetadata = requestcontext.ClaudeCodeMetadata
 
-// ParseClaudeCodeMetadata extracts identity fields from the JSON in
-// metadata.user_id. Best-effort: returns zero on parse failure.
 func ParseClaudeCodeMetadata(raw string) ClaudeCodeMetadata {
 	return requestcontext.ParseClaudeCodeMetadata(raw)
 }
 
-// MaxEmailLen caps email length per RFC 5321 §4.5.3.1.3 (256 bytes).
 const MaxEmailLen = 254
 
-// MaxClientIdentifierLen bounds caller-controlled opaque identifiers.
-// Claude Code emits ~36-char UUIDs; 128 leaves flood-protection headroom.
 const MaxClientIdentifierLen = requestcontext.MaxClientIdentifierLen
 
-// NormalizeClientIdentifier returns s unchanged if within bounds, else "".
-// Rejects rather than truncates: a truncated id looks valid but no longer correlates.
 func NormalizeClientIdentifier(s string) string {
 	return requestcontext.NormalizeClientIdentifier(s)
 }
 
-// RolloutIDHeader carries the eval/training-harness rollout correlation id.
 const RolloutIDHeader = "X-Weave-Rollout-Id"
 
-// MaxRolloutIDLen bounds the rollout correlation id. Harness ids compose
-// run_id/condition/seed/instance_id, exceeding the 128-byte client id cap.
 const MaxRolloutIDLen = 256
 
-// NormalizeRolloutID trims and bounds a rollout id, rejecting (not
-// truncating) oversized values — same reasoning as NormalizeClientIdentifier.
 func NormalizeRolloutID(s string) string {
 	s = strings.TrimSpace(s)
 	if len(s) > MaxRolloutIDLen {
@@ -199,10 +162,6 @@ func NormalizeRolloutID(s string) string {
 	return s
 }
 
-// NormalizeEmail trims, lower-cases, and structurally validates an email to
-// match the case-sensitive unique index on (installation_id, email).
-// Returns "" when empty, oversized, or malformed. Deliverability isn't
-// checked — email is treated as an opaque identifier.
 func NormalizeEmail(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	if s == "" || len(s) > MaxEmailLen {
@@ -218,8 +177,6 @@ func NormalizeEmail(s string) string {
 	return s
 }
 
-// Canonical client_app values. Kept in one place so telemetry, dashboards,
-// and tests don't drift on capitalization.
 const (
 	ClientAppClaudeCode = "claude-code"
 	ClientAppCodex      = "codex"
@@ -228,9 +185,6 @@ const (
 	ClientAppOpencode   = "opencode"
 )
 
-// completionLogClientApp is the client_app completion-log field, which log
-// metrics use as a label. X-App is caller-controlled, so anything but a
-// canonical app collapses to one value.
 func completionLogClientApp(id ClientIdentity) string {
 	if id.ClientApp == "" {
 		return ""
@@ -258,16 +212,6 @@ func supportsResponsesTerminalSurfaces(clientApp string) bool {
 	return clientApp == ClientAppCodex || clientApp == ClientAppOpencode
 }
 
-// directivePrefix returns the sigil a client's user has to type to reach the
-// router. Codex reserves a leading "/" for its own built-ins: it answers
-// "Unrecognized command" and never forwards the line, so a hint naming the
-// slash form there sends the user down a dead end. Every other client passes
-// "/" through untouched.
-//
-// Ingress accepts both spellings from every client regardless (see
-// translate.parseForceModelCommandFromSource) -- this only decides which one we print
-// back. Unknown clients get "/", the form the docs and every non-Codex client
-// use.
 func directivePrefix(clientApp string) string {
 	if clientApp == ClientAppCodex {
 		return "$"
@@ -275,21 +219,13 @@ func directivePrefix(clientApp string) string {
 	return "/"
 }
 
-// clientAppAliases maps the raw X-App values some clients send to their
-// canonical client_app. Claude Code sends "cli", which would otherwise store
-// verbatim and miss the dashboard's label map.
 var clientAppAliases = map[string]string{
 	"cli":    ClientAppClaudeCode,
 	"cli-bg": ClientAppClaudeCode,
 }
 
-// MaxClientAppLen bounds the X-App header. Canonical values are short
-// (claude-code, codex, cursor); longer values suggest header smuggling.
 const MaxClientAppLen = 32
 
-// NormalizeClientApp trusts an explicit, in-bounds X-App header (lower-cased);
-// otherwise falls back to a coarse User-Agent classifier for older installs
-// that don't send X-App. Returns "" when neither signal is recognized.
 func NormalizeClientApp(xApp, userAgent string) string {
 	xApp = strings.ToLower(strings.TrimSpace(xApp))
 	if xApp != "" && len(xApp) <= MaxClientAppLen {
@@ -316,19 +252,13 @@ func NormalizeClientApp(xApp, userAgent string) string {
 	return ""
 }
 
-// MaxDisplayNameLen bounds the free-form display name, mirroring the
-// installer-side cap; longer values suggest header smuggling, not a real name.
 const MaxDisplayNameLen = 128
 
-// NormalizeDisplayName trims and strips control characters (so a malicious
-// header can't smuggle bytes) from a display name. Returns "" if empty or
-// oversized. Not case-folded — names are free-form, not lookup keys.
 func NormalizeDisplayName(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" || len(s) > MaxDisplayNameLen {
 		return ""
 	}
-	// Node clients (Claude Code) send header values as Latin-1 bytes, not UTF-8.
 	if !utf8.ValidString(s) {
 		if decoded, err := charmap.ISO8859_1.NewDecoder().String(s); err == nil {
 			s = decoded
@@ -337,8 +267,6 @@ func NormalizeDisplayName(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
 	for _, r := range s {
-		// Drop ASCII control chars (incl. CR/LF) and the C1 block. Printable
-		// Unicode passes through so non-ASCII names render correctly.
 		if r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) {
 			continue
 		}

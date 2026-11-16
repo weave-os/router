@@ -21,8 +21,6 @@ import (
 
 var _ providers.OutputProgressArmer = (*AnthropicSSETranslator)(nil)
 
-// SSETranslator translates Anthropic streaming SSE to OpenAI chat.completion.chunk
-// on the fly. Non-streaming responses buffer for Finalize.
 type SSETranslator struct {
 	providerUsageState
 	inner   http.ResponseWriter
@@ -34,10 +32,9 @@ type SSETranslator struct {
 	buf        bytes.Buffer
 	scanner    sse.Scanner
 
-	msgID   string
-	model   string
-	created int64
-	// toolIdx advances on content_block_stop for tool_use blocks.
+	msgID                string
+	model                string
+	created              int64
 	toolIdx              int
 	currentIsTool        bool
 	toolLedger           *ToolCallLedger
@@ -47,8 +44,6 @@ type SSETranslator struct {
 	usageSink UsageSink
 	lifecycle *StreamLifecycle
 
-	// pendingStopReason/pendingFinishReason hold message_delta's stop until
-	// message_stop confirms the upstream finished the stream.
 	pendingStopReason   string
 	pendingFinishReason string
 	upstreamStopReason  string
@@ -56,7 +51,6 @@ type SSETranslator struct {
 	toolCallIssues      []toolcheck.Issue
 }
 
-// NewSSETranslator wraps w. Call Finalize after upstream returns.
 func NewSSETranslator(w http.ResponseWriter, model string, sink UsageSink) *SSETranslator {
 	flusher, _ := w.(http.Flusher)
 	return &SSETranslator{
@@ -75,13 +69,11 @@ func (t *SSETranslator) Header() http.Header {
 	return t.inner.Header()
 }
 
-// WriteHeader routes streaming success responses through SSE.
 func (t *SSETranslator) WriteHeader(code int) {
 	t.statusCode = code
 	ct := t.inner.Header().Get("Content-Type")
 	t.streaming = strings.Contains(ct, "text/event-stream") && code < 400
 
-	// Content-Length and Content-Encoding are stale once we re-encode.
 	t.inner.Header().Del("Content-Length")
 	t.inner.Header().Del("Content-Encoding")
 
@@ -100,7 +92,6 @@ func (t *SSETranslator) Write(data []byte) (int, error) {
 	return n, t.processSSEBuffer()
 }
 
-// Flush only forwards once streaming is committed.
 func (t *SSETranslator) Flush() {
 	if !t.streaming {
 		return
@@ -110,7 +101,6 @@ func (t *SSETranslator) Flush() {
 	}
 }
 
-// Finalize writes the buffered body for non-streaming responses.
 func (t *SSETranslator) Finalize() error {
 	if t.streaming {
 		if err := t.processFinalSSETail(); err != nil {
@@ -159,8 +149,6 @@ func (t *SSETranslator) Finalize() error {
 	return err
 }
 
-// Summary reports the translated turn's terminal signals; StopReason stays
-// empty when the upstream never sent a terminal stop_reason.
 func (t *SSETranslator) Summary() ResponseSummary {
 	facts := t.UsageFacts()
 	return ResponseSummary{
@@ -240,13 +228,9 @@ func (t *SSETranslator) handleMessageStart(data []byte) error {
 	if err := t.lifecycle.Output(0); err != nil {
 		return err
 	}
-	// strings.Clone: gjson returns strings backed by the buffer via unsafe;
-	// these fields outlive the event, so copy to survive buffer compaction.
 	if id := gjson.GetBytes(data, "message.id").Str; id != "" {
 		t.msgID = strings.Clone(id)
 	}
-	// Only when the route named no model: the upstream reports a BYOK
-	// endpoint's alias, which must not reach the client.
 	if m := gjson.GetBytes(data, "message.model").Str; m != "" && t.model == "" {
 		t.model = strings.Clone(m)
 	}
@@ -325,8 +309,6 @@ func (t *SSETranslator) handleContentBlockStop() error {
 	}
 	t.currentIsTool = false
 	entry, _ := t.toolLedger.Entry(t.currentToolSource)
-	// Anthropic's initial input is commonly an empty placeholder, not an
-	// authoritative terminal snapshot. Use it only when no delta supplied args.
 	fallback := ""
 	if entry.Arguments.Len() == 0 {
 		fallback = t.toolInitialArguments
@@ -356,8 +338,6 @@ func (t *SSETranslator) handleMessageDelta(data []byte) error {
 	}
 
 	rawStopReason := delta.Get("stop_reason").Str
-	// A terminal delta can be the last usable boundary when a provider omits
-	// content_block_stop. Settle buffered arguments before choosing tool intent.
 	if rawStopReason != "" {
 		if err := t.handleContentBlockStop(); err != nil {
 			return err
@@ -419,8 +399,6 @@ func (t *SSETranslator) flushEvent() error {
 var _ http.ResponseWriter = (*SSETranslator)(nil)
 var _ http.Flusher = (*SSETranslator)(nil)
 
-// AnthropicSSETranslator translates OpenAI Chat Completions SSE to Anthropic
-// Messages format on the fly. Non-streaming responses buffer for Finalize.
 type AnthropicSSETranslator struct {
 	providerUsageState
 	inner   http.ResponseWriter
@@ -435,35 +413,17 @@ type AnthropicSSETranslator struct {
 
 	requestModel string
 
-	started bool
-	// closed guards against double-emission after [DONE] triggers finishStream.
-	closed   bool
-	blockIdx int
-	// textOpen avoids empty text blocks for tool-only responses.
-	textOpen bool
-	// thinkingOpen tracks an open thinking block for upstream reasoning
-	// (OpenRouter `reasoning`, DeepSeek/Qwen `reasoning_content`) — without it,
-	// reasoning leaks into the visible text channel.
-	thinkingOpen bool
-	// pendingText buffers whitespace-only deltas that arrive before real text.
-	// DeepSeek-v4 et al emit a bare "\n\n" between reasoning and tool_calls;
-	// opening a text block for it would render as an empty block. Flushed once
-	// real text arrives, or dropped if only whitespace ever comes.
-	pendingText strings.Builder
-	toolBlocks  map[int]int
-	// toolValidator validates/repairs buffered tool args (see toolcheck). Nil
-	// means syntax-check-only.
-	toolValidator *toolcheck.Validator
-	// toolCallIssues collects validation/repair findings for Summary.
-	toolCallIssues []toolcheck.Issue
-	// toolUseEmitted latches on first tool_use block opened. finishStream
-	// clears toolBlocks before emitMessageDelta, so this outlives the map.
-	toolUseEmitted bool
-	// toolUseCount counts tool_use blocks opened; like toolUseEmitted it
-	// outlives toolBlocks for post-stream reporting.
-	toolUseCount int
-	// emittedStopReason is the stop_reason emitMessageDelta actually wrote
-	// (post tool_use promotion), surfaced via Summary.
+	started           bool
+	closed            bool
+	blockIdx          int
+	textOpen          bool
+	thinkingOpen      bool
+	pendingText       strings.Builder
+	toolBlocks        map[int]int
+	toolValidator     *toolcheck.Validator
+	toolCallIssues    []toolcheck.Issue
+	toolUseEmitted    bool
+	toolUseCount      int
 	emittedStopReason string
 
 	finishReason      string
@@ -473,88 +433,39 @@ type AnthropicSSETranslator struct {
 
 	usageSink UsageSink
 
-	// onOutputProgress fires on every output-bearing delta (text, reasoning,
-	// tool-call args, terminal finish), never on keepalives/empty deltas. Feeds
-	// the output-progress watchdog (httputil.DefaultOutputStallTimeout). nil
-	// disables it.
 	onOutputProgress func()
 
-	// estimatedInputTokens seeds message_start.usage.input_tokens for
-	// cross-format paths where real usage arrives later, at message_delta.
 	estimatedInputTokens int
 
-	// requestHadTools is true when the inbound request carried tools. Used at
-	// finishStream to detect "model produced no tool_use though tools were
-	// available" (Gemini-3.1, Mimo-v2.5 sometimes emit prose/<think> instead)
-	// and synthesize a recovery nudge.
 	requestHadTools bool
 
-	// thinkTagReasoning reroutes a leading <think>…</think> in content into
-	// thinking blocks, for upstreams (e.g. mimo-v2.5-pro) that stream
-	// chain-of-thought as inline tags instead of reasoning_content/reasoning.
-	// Off by default.
 	thinkTagReasoning bool
 	splitter          thinkTagSplitter
 
-	// seedToolNames enables recovery of a leading Seed-style tool call
-	// streamed as content text (see seed_tool_call.go); maps callable wire
-	// names to client tool names (RequestEnvelope.SeedToolCallNames).
 	seedToolNames          map[string]string
 	seedGate               seedToolCallGate
 	seedToolCallsRecovered int
 
-	// escapeNormalize repairs literal `\n`/`\t`/`\r` sequences that upstream
-	// models occasionally double-escape (`\\n` on the wire) in file-edit tool
-	// args (Edit/Write/MultiEdit). Off by default: the transform can corrupt
-	// legitimate source containing literal `\n`/`\t` (e.g. a Python string
-	// `"\\n"`).
 	escapeNormalize bool
 
-	// nudgeEmitted latches when finishStream emits the text-only recovery
-	// nudge, surfaced via Summary.
 	nudgeEmitted bool
 
-	// sawText latches once any non-empty text delta is emitted, so
-	// synthesizeTextOnlyTurnNudge can distinguish a real tool-free answer from
-	// a turn that emitted nothing.
 	sawText bool
 
-	// leadingContent keeps up to leadingContentCap bytes of the turn's opening
-	// text so the nudge can check whether it *leads* with tool-call/reasoning
-	// markup (a model leaking <think> or an unstructured tool call instead of
-	// routing to the proper channel). Anchored to the start — a legitimate
-	// answer that merely mentions "<think>" mid-prose must not trip it.
 	leadingContent strings.Builder
 
-	// stopReasonDemoted latches when emitMessageDelta demotes a
-	// finish_reason="tool_calls" turn to end_turn because no tool_use block
-	// survived — the degenerate case that used to dead-end agent clients.
 	stopReasonDemoted bool
 
-	// upstreamErrorStatus is set when WriteHeader sees a >=400 status after the
-	// Prelude already committed SSE headers + message_start (wire status can no
-	// longer change). Without it the error body would parse as empty SSE and
-	// finishStream would emit a clean end_turn, masking the failure. When set,
-	// Write diverts the body into upstreamErrorBody and finishStream emits an
-	// Anthropic `error` event instead.
 	upstreamErrorStatus int
 	upstreamErrorBody   strings.Builder
 
-	// toolIDNonce is a per-response suffix appended to every translated
-	// tool_use.id so deterministic upstreams don't repeat ids across turns
-	// (see uniqueToolUseIDWithNonce). Lazily seeded on first use.
 	toolIDNonce string
 	lifecycle   *StreamLifecycle
 	toolLedger  *ToolCallLedger
 
-	// logger carries the request-scoped correlation fields (session_key,
-	// request_id). Nil until WithLogger is called; log() falls back to the
-	// global so a translator built without one still emits.
 	logger *slog.Logger
 }
 
-// log returns the request-scoped logger, or the global default when the
-// translator was built without one (tests, direct construction).
 func (t *AnthropicSSETranslator) log() *slog.Logger {
 	if t.logger != nil {
 		return t.logger
@@ -562,11 +473,8 @@ func (t *AnthropicSSETranslator) log() *slog.Logger {
 	return observability.Get()
 }
 
-// upstreamErrorBodyCap bounds how much of an upstream error body is retained
-// for the surfaced error message, so a pathological body can't grow unbounded.
 const upstreamErrorBodyCap = 8 << 10
 
-// NewAnthropicSSETranslator wraps w. Call Finalize after upstream returns.
 func NewAnthropicSSETranslator(w http.ResponseWriter, requestModel string, sink UsageSink) *AnthropicSSETranslator {
 	flusher, _ := w.(http.Flusher)
 	return &AnthropicSSETranslator{
@@ -581,22 +489,16 @@ func NewAnthropicSSETranslator(w http.ResponseWriter, requestModel string, sink 
 	}
 }
 
-// WithToolValidator installs the compiled tool-schema validator so buffered
-// tool args are validated (and repaired) before emission. Pass nil to disable.
 func (t *AnthropicSSETranslator) WithToolValidator(v *toolcheck.Validator) *AnthropicSSETranslator {
 	t.toolValidator = v
 	return t
 }
 
-// WithLogger installs the request-scoped logger so this translator's lines
-// carry the same correlation fields as the rest of the request.
 func (t *AnthropicSSETranslator) WithLogger(log *slog.Logger) *AnthropicSSETranslator {
 	t.logger = log
 	return t
 }
 
-// WithEstimatedInputTokens seeds message_start.usage.input_tokens for cross-format
-// paths where upstream usage arrives after message_start.
 func (t *AnthropicSSETranslator) WithEstimatedInputTokens(n int) *AnthropicSSETranslator {
 	if n > 0 {
 		t.estimatedInputTokens = n
@@ -604,42 +506,26 @@ func (t *AnthropicSSETranslator) WithEstimatedInputTokens(n int) *AnthropicSSETr
 	return t
 }
 
-// WithRequestHadTools tells the translator whether the inbound request
-// carried tools. Enables the finishStream recovery nudge for prose-only
-// turns — the dominant empty-patch failure on Gemini-3.1-Pro/Mimo-v2.5-Pro
-// after PRs #280/#281.
 func (t *AnthropicSSETranslator) WithRequestHadTools(hadTools bool) *AnthropicSSETranslator {
 	t.requestHadTools = hadTools
 	return t
 }
 
-// WithThinkTagReasoning enables rerouting of a leading <think>…</think> into
-// thinking blocks. Only for upstreams (e.g. xiaomi/mimo-v2.5-pro) that stream
-// chain-of-thought as inline content tags rather than reasoning_content.
 func (t *AnthropicSSETranslator) WithThinkTagReasoning(on bool) *AnthropicSSETranslator {
 	t.thinkTagReasoning = on
 	return t
 }
 
-// WithSeedToolCallMarkup enables recovery of Seed-style tool-call markup
-// streamed as content into tool_use blocks, for calls naming a key of names.
 func (t *AnthropicSSETranslator) WithSeedToolCallMarkup(names map[string]string) *AnthropicSSETranslator {
 	t.seedToolNames = names
 	return t
 }
 
-// WithEscapeNormalize enables the escape-repair pass on file-edit tool
-// (Edit/Write/MultiEdit) args for the buffered non-streaming response path.
 func (t *AnthropicSSETranslator) WithEscapeNormalize(on bool) *AnthropicSSETranslator {
 	t.escapeNormalize = on
 	return t
 }
 
-// ArmOutputProgress installs mark to fire on output-bearing upstream deltas
-// (text, reasoning, tool-call args, terminal finish), never on keepalives —
-// so the watchdog tracks time-since-last-output, not time-since-last-byte.
-// Returns false when the client isn't streaming, since the buffered path only
-// translates at Finalize and would false-trip. Call after Prelude/WriteHeader.
 func (t *AnthropicSSETranslator) ArmOutputProgress(mark func()) (armed bool) {
 	if !t.streaming {
 		return false
@@ -654,58 +540,23 @@ func (t *AnthropicSSETranslator) markOutputProgress() {
 	}
 }
 
-// ResponseSummary reports translated-response signals for post-stream
-// logging: what the upstream returned and whether stop_reason promotion
-// (see emitMessageDelta) fired for this turn.
 type ResponseSummary struct {
-	// UpstreamFinishReason is the raw OpenAI finish_reason as received
-	// ("stop", "tool_calls", "length", ""), before any Anthropic mapping.
-	UpstreamFinishReason string
-	// StopReason is the Anthropic stop_reason actually emitted to the client
-	// (post tool_use promotion). Empty if the stream ended before message_delta.
-	StopReason string
-	// StopReasonPromoted is true when tool_use blocks forced stop_reason to
-	// "tool_use" over an upstream finish_reason that mapped to something else.
-	StopReasonPromoted bool
-	// ToolUseBlocks is the number of tool_use content blocks emitted.
-	ToolUseBlocks int
-	// InvalidToolArgsBlocks counts tool_use blocks whose buffered args failed
-	// JSON validation at content_block_stop — a malformed upstream payload.
-	InvalidToolArgsBlocks int
-	// TextOnlyTurnNudged is true when finishStream synthesized a Bash recovery
-	// nudge for a tool-free turn on a request that had tools. See
-	// synthesizeTextOnlyTurnNudge.
-	TextOnlyTurnNudged bool
-	// StopReasonDemoted is true when a finish_reason="tool_calls" turn was
-	// demoted to end_turn because no tool_use block survived (see
-	// emitMessageDelta) — the degenerate case that used to dead-end clients.
-	StopReasonDemoted bool
-	// SuppressedToolCalls counts tool_calls dropped for carrying no function
-	// name (see emitDelta). Distinguishes the nameless-call case from the
-	// call-emitted-as-text case when paired with StopReasonDemoted.
-	SuppressedToolCalls int
-	// ToolCallIssues lists every tool_use block that failed toolcheck
-	// validation, including ones repair recovered. Logged as
-	// router.tool_call_invalid per entry.
-	ToolCallIssues []toolcheck.Issue
-	// SeedToolCallsRecovered counts tool_use blocks recovered from Seed-style
-	// tool-call markup the upstream streamed as text.
+	UpstreamFinishReason   string
+	StopReason             string
+	StopReasonPromoted     bool
+	ToolUseBlocks          int
+	InvalidToolArgsBlocks  int
+	TextOnlyTurnNudged     bool
+	StopReasonDemoted      bool
+	SuppressedToolCalls    int
+	ToolCallIssues         []toolcheck.Issue
 	SeedToolCallsRecovered int
-	// OutputTokens is the upstream completion_tokens count, when reported.
-	OutputTokens int
-	// InputTokens is the upstream prompt_tokens count, when reported.
-	InputTokens int
-	// CacheReadTokens is cache_read_input_tokens (Anthropic) or cached_tokens
-	// (OpenAI), when reported.
-	CacheReadTokens int
-	// CacheCreationTokens is cache_creation_input_tokens (Anthropic) or
-	// cache_write_tokens (OpenAI GPT-5.6+), when reported.
-	CacheCreationTokens int
+	OutputTokens           int
+	InputTokens            int
+	CacheReadTokens        int
+	CacheCreationTokens    int
 }
 
-// countUnrepairableToolArgs counts the findings whose argument payload could
-// not be parsed or repaired, i.e. the calls that reached the client with empty
-// args. A repaired finding is reported but not counted.
 func countUnrepairableToolArgs(issues []toolcheck.Issue) int {
 	n := 0
 	for _, issue := range issues {
@@ -716,8 +567,6 @@ func countUnrepairableToolArgs(issues []toolcheck.Issue) int {
 	return n
 }
 
-// Summary returns the response summary for observability. Call after Finalize;
-// before the stream completes the fields reflect partial state.
 func (t *AnthropicSSETranslator) Summary() ResponseSummary {
 	return ResponseSummary{
 		UpstreamFinishReason:   t.finishReason,
@@ -741,11 +590,7 @@ func (t *AnthropicSSETranslator) Header() http.Header {
 	return t.inner.Header()
 }
 
-// WriteHeader routes streaming success responses through SSE.
 func (t *AnthropicSSETranslator) WriteHeader(code int) {
-	// Capture the error status even if Prelude already emitted headers (status
-	// is then dropped from the wire); finishStream needs it to surface an
-	// `error` event instead of a clean end_turn.
 	if code >= 400 {
 		t.upstreamErrorStatus = code
 	}
@@ -771,9 +616,6 @@ func (t *AnthropicSSETranslator) WriteHeader(code int) {
 	)
 }
 
-// Prelude commits SSE headers and emits message_start
-// immediately so the client sees the message envelope while upstream is
-// still doing prefill. Call after the routing decision when streaming=true.
 func (t *AnthropicSSETranslator) Prelude(streaming bool) error {
 	if !streaming || t.started {
 		return nil
@@ -797,10 +639,6 @@ func (t *AnthropicSSETranslator) Prelude(streaming bool) error {
 
 func (t *AnthropicSSETranslator) Write(data []byte) (int, error) {
 	n := len(data)
-	// Once streaming and an error status has been seen, subsequent bytes are
-	// the upstream error body, not SSE content — divert them (bounded) so
-	// finishStream can surface an `error` event instead of feeding a non-SSE
-	// body to the SSE parser (which would silently yield nothing).
 	if t.upstreamErrorStatus != 0 && t.streaming {
 		if remaining := upstreamErrorBodyCap - t.upstreamErrorBody.Len(); remaining > 0 {
 			capped := data
@@ -827,8 +665,6 @@ func (t *AnthropicSSETranslator) Flush() {
 	}
 }
 
-// Finalize writes the buffered body for non-streaming responses, or emits
-// trailing message_delta/message_stop for streaming.
 func (t *AnthropicSSETranslator) Finalize() error {
 	t.log().Debug("AnthropicSSE Finalize entry",
 		"streaming", t.streaming,
@@ -853,8 +689,6 @@ func (t *AnthropicSSETranslator) Finalize() error {
 			return t.finishStream()
 		}
 		if err := t.lifecycle.EOF(); err != nil {
-			// Prelude is still buffered until first output; emitting an error
-			// frame here would commit the response and foreclose failover.
 			if t.lifecycle.OutputStarted() {
 				if emitErr := t.emitIncompleteErrorEvent(); emitErr != nil {
 					return emitErr
@@ -882,8 +716,6 @@ func (t *AnthropicSSETranslator) Finalize() error {
 
 	t.observeUsage(gjson.GetBytes(body, "usage"), usage.ParseOpenAI, t.usageSink)
 
-	// Raw upstream cap, observed before openAIToAnthropicResponse promotes a
-	// surviving tool call to stop_reason=tool_use.
 	recordOutputLimit(t.usageSink, gjson.GetBytes(body, "choices.0.finish_reason").Str == "length")
 
 	translated, issues, err := openAIToAnthropicResponse(body, t.requestModel, t.toolValidator, t.thinkTagReasoning, t.escapeNormalize, t.seedToolNames, t.UsageFacts(), t.clientInputTokenScale())
@@ -945,12 +777,6 @@ func (t *AnthropicSSETranslator) translateOpenAIEvent(raw []byte) error {
 		return t.finishStream()
 	}
 
-	// strings.Clone: gjson strings are unsafe-backed by the buffer; these
-	// outlive the event, so copy them.
-	//
-	// Check Str != "" not Exists(): some upstreams (e.g. OpenRouter) send
-	// early frames with `"id": ""` before settling on a real id; Exists()
-	// would latch the empty value and block the later real id. Same for model.
 	if id := gjson.GetBytes(data, "id"); id.Str != "" && t.messageID == "" {
 		t.messageID = strings.Clone(id.Str)
 	}
@@ -988,13 +814,10 @@ func (t *AnthropicSSETranslator) translateOpenAIEvent(raw []byte) error {
 
 	if fr := firstChoice.Get("finish_reason").Str; fr != "" {
 		t.finishReason = strings.Clone(fr)
-		// Raw upstream cap, observed before emitMessageDelta promotes a
-		// surviving tool_use block over finish_reason=length.
 		recordOutputLimit(t.usageSink, fr == "length")
 		if err := t.lifecycle.Terminal(); err != nil {
 			return err
 		}
-		// Terminal output: the upstream signaled the turn is ending.
 		t.markOutputProgress()
 	}
 	t.extractAndForwardUsage(data)
@@ -1010,9 +833,6 @@ func (t *AnthropicSSETranslator) extractAndForwardUsage(data []byte) {
 	t.hasUsage = facts.Present
 }
 
-// appendThinking emits text into a thinking block, closing an open text block
-// first if needed. Shared by the reasoning_content branch and the
-// <think>-tag splitter.
 func (t *AnthropicSSETranslator) appendThinking(text string) error {
 	if t.textOpen {
 		if err := t.emitContentBlockStop(t.blockIdx - 1); err != nil {
@@ -1030,10 +850,6 @@ func (t *AnthropicSSETranslator) appendThinking(text string) error {
 	return t.emitContentBlockDeltaThinking(t.blockIdx-1, text)
 }
 
-// appendText emits text into a text content block. Whitespace-only content
-// with no block open yet is buffered in pendingText (see field doc) rather
-// than opening an empty block; whitespace inside an already-open block emits
-// normally as legitimate formatting.
 func (t *AnthropicSSETranslator) appendText(content string) error {
 	if !t.textOpen && strings.TrimSpace(content) == "" {
 		t.pendingText.WriteString(content)
@@ -1068,8 +884,6 @@ func (t *AnthropicSSETranslator) appendText(content string) error {
 }
 
 func (t *AnthropicSSETranslator) emitDelta(delta gjson.Result) error {
-	// Reasoning arrives as `reasoning` (OpenRouter) or `reasoning_content`
-	// (DeepSeek/Qwen native); either way it must surface as a thinking block.
 	reasoning := delta.Get("reasoning_content").Str
 	if reasoning == "" {
 		reasoning = delta.Get("reasoning").Str
@@ -1078,8 +892,6 @@ func (t *AnthropicSSETranslator) emitDelta(delta gjson.Result) error {
 		if err := t.lifecycle.Output(t.blockIdx); err != nil {
 			return err
 		}
-		// Streamed reasoning is real upstream output (rendered as a thinking
-		// block), so it counts as output progress and resets the stall watchdog.
 		t.markOutputProgress()
 		if err := t.appendThinking(reasoning); err != nil {
 			return err
@@ -1090,11 +902,8 @@ func (t *AnthropicSSETranslator) emitDelta(delta gjson.Result) error {
 		if err := t.lifecycle.Output(t.blockIdx); err != nil {
 			return err
 		}
-		// Even whitespace-only content is real output, distinct from a keepalive.
 		t.markOutputProgress()
 		if t.thinkTagReasoning {
-			// Reroute a leading <think>…</think> into thinking blocks; the
-			// splitter passes everything else through as text (see think_tag.go).
 			for _, seg := range t.splitter.Feed(content) {
 				switch seg.kind {
 				case segThinking:
@@ -1112,10 +921,6 @@ func (t *AnthropicSSETranslator) emitDelta(delta gjson.Result) error {
 		}
 	}
 
-	// GLM-5.1 (and other vLLM/SGLang upstreams) emit `"tool_calls": null` on
-	// plain-text deltas. gjson's ForEach over null yields one zero-value
-	// iteration (index=0, name=""), which would allocate a phantom call and
-	// identity before the real tool_call arrives. Only iterate real arrays.
 	toolCalls := delta.Get("tool_calls")
 	if !toolCalls.IsArray() {
 		return nil
@@ -1148,8 +953,6 @@ func (t *AnthropicSSETranslator) emitDelta(delta gjson.Result) error {
 	return emitErr
 }
 
-// openToolUseBlock closes any open text/thinking block and starts the
-// tool_use block for ledger entry idx; finishStream emits its arguments.
 func (t *AnthropicSSETranslator) openToolUseBlock(idx int, name, sig string) error {
 	id := t.toolLedger.ProjectID(idx, t.uniqueToolUseID)
 	if t.textOpen {
@@ -1172,8 +975,6 @@ func (t *AnthropicSSETranslator) openToolUseBlock(idx int, name, sig string) err
 	return t.emitContentBlockStartTool(blockIdx, id, name, sig)
 }
 
-// appendContentText routes visible content text through the Seed tool-call
-// gate, which holds a leading <seed:tool_call> until finishStream.
 func (t *AnthropicSSETranslator) appendContentText(text string) error {
 	if len(t.seedToolNames) > 0 {
 		if text = t.seedGate.Feed(text); text == "" {
@@ -1183,9 +984,6 @@ func (t *AnthropicSSETranslator) appendContentText(text string) error {
 	return t.appendText(text)
 }
 
-// resolveSeedToolCalls turns held Seed tool-call markup into tool_use blocks,
-// or releases it as text when it does not parse, names an undeclared tool,
-// or the upstream also sent structured calls.
 func (t *AnthropicSSETranslator) resolveSeedToolCalls() error {
 	if len(t.seedToolNames) == 0 {
 		return nil
@@ -1221,34 +1019,10 @@ func (t *AnthropicSSETranslator) emitValidatedToolArgsDelta(sourceIndex, blockId
 	return t.emitContentBlockDeltaJSON(blockIdx, call.Arguments)
 }
 
-// routerNudgeCommand is the Bash payload synthesized when the upstream
-// produced no tool_use on a request that had tools. Bash is used because
-// every Claude Code request includes it, so the fabricated call is always
-// dispatchable; the echo surfaces as a tool_result nudging the model to act.
 const routerNudgeCommand = "echo '[router] previous turn produced no tool_use; use Edit/Write/Read/Bash/Grep — do not respond with prose or thinking tags only.'"
 
-// leadingContentCap bounds retained opening text for leadsWithToolishMarkup —
-// enough for any marker plus leading whitespace.
 const leadingContentCap = 64
 
-// toolishMarkupMarkers are tokens of a tool call leaked into the content
-// channel as XML instead of a structured tool_use block; Claude Code's strict
-// parser rejects these and dead-ends the turn, which the nudge rescues.
-// Matched only at the turn's start (see leadsWithToolishMarkup) so a
-// legitimate answer that discusses these tags mid-prose isn't misflagged.
-//
-// Closing and child tags are included because a leak does not reliably start
-// at the call's opening tag: GLM-5.3 streams the tool name as reasoning and
-// the arguments as content, so the visible turn opens mid-call on a closing
-// child tag.
-//
-// Matching stays anchored: quoted completed markup (`</tool_call>`,
-// `<arg_value>…</arg_value>`) is indistinguishable from a real leak by containment.
-//
-// Reasoning markup (<think>) is deliberately excluded: models like Mimo-v2.5
-// stream visible chain-of-thought as <think>…</think> then a real answer with
-// finish_reason="stop" — a valid turn, not a parse failure. Nudging on it
-// looped the session (echo -> re-pin -> another <think>+answer -> repeat).
 var toolishMarkupMarkers = []string{
 	"<seed:tool_call", "</seed",
 	"<tool_call", "</tool_call",
@@ -1258,9 +1032,6 @@ var toolishMarkupMarkers = []string{
 	"<arg_value", "</arg_value",
 }
 
-// leadsWithToolishMarkup reports whether content opens (ignoring leading
-// whitespace) with tool-call markup — anchored to the start so a substring
-// scan doesn't misfire on prose that merely mentions the tag.
 func leadsWithToolishMarkup(content string) bool {
 	s := strings.TrimLeft(content, " \t\r\n")
 	for _, m := range toolishMarkupMarkers {
@@ -1271,45 +1042,17 @@ func leadsWithToolishMarkup(content string) bool {
 	return false
 }
 
-// synthesizeTextOnlyTurnNudge fabricates a Bash tool_use block when the
-// upstream produced no tool_use on a request that had tools. Targets
-// Gemini-3.1-Pro/Mimo-v2.5-Pro sometimes emitting prose+XML thinking tags as
-// plain text, which Claude Code's strict parser rejects, killing the session.
-// The synthetic Bash echo turns that dead-end into a normal tool_use turn
-// the client can dispatch, keeping the agentic loop alive.
-//
-// No-op if a tool_use was already emitted, the request had no tools, or
-// nothing has streamed yet.
-//
-// Final-answer guard: suppressed when finish_reason is "stop"/"" and the text
-// is clean prose (no tool-call markup) — that's a legitimate finished answer,
-// and nudging it would revive an already-done turn. finish_reason="length"
-// never nudges (truncation, not a parse failure).
-//
-// Gemini-3.x is excluded entirely: the synthesized tool_use has no
-// thoughtSignature, and Gemini-3.x requires one on every functionCall across
-// turns. A sig-less nudge makes writeGeminiFromAnthropic drop the whole
-// tool_use/tool_result history (emit_gemini.go dropToolBlocks), wiping prior
-// context and looping the model to the turn ceiling — empirically far worse
-// (≥90-turn loops 4→46 in the v0.59 bake-off). OpenAI-compat models this was
-// built for have no such guard and still benefit.
 func (t *AnthropicSSETranslator) synthesizeTextOnlyTurnNudge() error {
 	if t.toolUseEmitted || !t.requestHadTools || !t.started {
 		return nil
 	}
-	// A structured tool call was already suppressed for missing a name;
-	// nudging on top would re-add a tool_use the model
-	// never sent and loop degenerate-shape upstreams to the turn ceiling.
 	if t.toolLedger.SuppressedCount() > 0 {
 		return nil
 	}
 	switch t.finishReason {
 	case "length":
-		// Truncated mid-output — needs continuation, not a Bash echo.
 		return nil
 	case "stop", "":
-		// Ambiguous: a genuine finished answer and a leaked-tool-call-as-XML
-		// turn both land here. Only nudge the latter.
 		if t.sawText && !leadsWithToolishMarkup(t.leadingContent.String()) {
 			return nil
 		}
@@ -1360,8 +1103,6 @@ func (t *AnthropicSSETranslator) finishStream() error {
 		t.started = true
 	}
 	if t.thinkTagReasoning {
-		// Drain any buffered <think> content (an unclosed tag surfaces as
-		// thinking; a buffered partial open-tag surfaces as text).
 		for _, seg := range t.splitter.Flush() {
 			switch seg.kind {
 			case segThinking:
@@ -1405,9 +1146,6 @@ func (t *AnthropicSSETranslator) finishStream() error {
 	}
 	t.toolBlocks = map[int]int{}
 
-	// Upstream error seen after Prelude committed: surface it as an `error`
-	// event, not a clean end_turn (which agent harnesses would silently accept
-	// as an empty turn).
 	if t.upstreamErrorStatus != 0 {
 		if err := t.emitErrorEvent(); err != nil {
 			return err
@@ -1439,8 +1177,6 @@ func (t *AnthropicSSETranslator) emitIncompleteErrorEvent() error {
 	return t.flushEvent()
 }
 
-// emitErrorEvent emits an Anthropic `error` event from the captured upstream
-// status/body, so clients treat it as a retryable turn error, not a success.
 func (t *AnthropicSSETranslator) emitErrorEvent() error {
 	errType := anthropicErrorTypeForStatus(t.upstreamErrorStatus)
 	msg := upstreamErrorMessage(t.upstreamErrorBody.String(), t.upstreamErrorStatus)
@@ -1457,8 +1193,6 @@ func (t *AnthropicSSETranslator) emitErrorEvent() error {
 	return t.flushEvent()
 }
 
-// anthropicErrorTypeForStatus maps an upstream HTTP status to the closest
-// Anthropic error type so clients apply the right retry/backoff semantics.
 func anthropicErrorTypeForStatus(status int) string {
 	switch {
 	case status == http.StatusTooManyRequests:
@@ -1474,8 +1208,6 @@ func anthropicErrorTypeForStatus(status int) string {
 	}
 }
 
-// upstreamErrorMessage extracts a message from an OpenAI- or Anthropic-shaped
-// error body, falling back to a generic status line.
 func upstreamErrorMessage(body string, status int) string {
 	if body != "" {
 		if m := gjson.Get(body, "error.message"); m.Exists() && m.String() != "" {
@@ -1490,10 +1222,6 @@ func upstreamErrorMessage(body string, status int) string {
 
 func (t *AnthropicSSETranslator) emitMessageStart() error {
 	model := clientFacingModel(t.requestModel, t.modelFromUpstream)
-	// Fires eagerly from Prelude before any upstream id arrives, so a
-	// generated fallback is the common case. Must be unique per response:
-	// clients like ccusage dedupe usage records by message id, so a constant
-	// placeholder would collapse every turn into one record.
 	id := t.messageID
 	if id == "" {
 		id = "msg_translated_" + randomHex(8)
@@ -1518,11 +1246,6 @@ func (t *AnthropicSSETranslator) emitContentBlockStartText(index int) error {
 	return t.flushEvent()
 }
 
-// emitContentBlockStartTool emits a tool_use content_block_start. sig, when
-// non-empty, is a Gemini 3.x thoughtSignature smuggled into the tool id
-// (embedSignatureInID) rather than an off-spec block field, which Anthropic
-// upstreams reject with a 400 when the history routes back to them.
-// embedSignatureInID is idempotent.
 func (t *AnthropicSSETranslator) emitContentBlockStartTool(index int, id, name, sig string) error {
 	t.log().Debug("AnthropicSSE emit", "event", "content_block_start", "type", "tool_use", "tool_name", name)
 	t.bw.WriteString("event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":")
@@ -1535,9 +1258,6 @@ func (t *AnthropicSSETranslator) emitContentBlockStartTool(index int, id, name, 
 	return t.flushEvent()
 }
 
-// uniqueToolUseID wraps uniqueToolUseIDWithNonce with this response's nonce,
-// seeding it once on first use so all blocks in the response share one nonce.
-// Kept short (12 hex chars) to stay under clampOpenAIToolCallID's 64-char limit.
 func (t *AnthropicSSETranslator) uniqueToolUseID(id string) string {
 	if t.toolIDNonce == "" {
 		t.toolIDNonce = randomHex(6)
@@ -1593,17 +1313,9 @@ func (t *AnthropicSSETranslator) emitContentBlockStop(index int) error {
 
 func (t *AnthropicSSETranslator) emitMessageDelta() error {
 	stopReason := openAIFinishToAnthropic(t.finishReason)
-	// Anthropic invariant: tool_use blocks require stop_reason="tool_use".
-	// Some OpenAI-compat upstreams (GLM-5.1, Qwen, MiMo) close a tool turn
-	// with finish_reason="stop"/"" instead of "tool_calls" — promote it.
 	if t.toolUseEmitted {
 		stopReason = "tool_use"
 	} else if stopReason == "tool_use" {
-		// finish_reason="tool_calls" but no tool_use block survived (all
-		// nameless-dropped, or emitted as unstructured text). Relaying
-		// stop_reason="tool_use" with zero blocks dead-ends agent clients
-		// waiting on a call that never arrives, so demote to end_turn —
-		// keeping the invariant symmetric in both directions.
 		stopReason = "end_turn"
 		t.stopReasonDemoted = true
 	}

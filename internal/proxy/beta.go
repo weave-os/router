@@ -31,8 +31,6 @@ const (
 	qwenUnavailable     = "Qwen beta is unavailable for this session."
 )
 
-// WriteRetiredBetaRequest keeps this protocol-specific, non-inference reply
-// after authenticated admission and ahead of inference and billing gates.
 func WriteRetiredBetaRequest(w http.ResponseWriter, r *http.Request, body []byte) (bool, error) {
 	var surface requestcontext.ConversationSurface
 	switch r.URL.Path {
@@ -54,8 +52,6 @@ func WriteRetiredBetaRequest(w http.ResponseWriter, r *http.Request, body []byte
 
 type betaArtifactHistoryContextKey struct{}
 
-// Historical /beta control turns prove this transcript crossed a policy
-// boundary even though its strategy-specific pin history was invalidated.
 func withBetaArtifactHistory(ctx context.Context) context.Context {
 	return context.WithValue(ctx, betaArtifactHistoryContextKey{}, true)
 }
@@ -70,15 +66,11 @@ func internalBetaSession(ctx context.Context) bool {
 	return managed && policyregistry.ExperimentalRoutingModelsPermitted(policyregistry.ServingTarget(identity.Target), entitlement.Plan(identity.Plan)) && identity.ReleaseID != "" && identity.BindingID != "" && identity.CredentialIdentity != ""
 }
 
-// WithSessionStrategyStore wires durable per-session routing preferences.
-// A nil store leaves normal routing unchanged and makes /beta unavailable.
 func (s *Service) WithSessionStrategyStore(store sessionstrategy.Store) *Service {
 	s.sessionStrategyStore = store
 	return s
 }
 
-// applySessionStrategy reads the /beta preference stored under preferenceKey
-// (see deriveBetaSessionKeyForRequest), not the per-thread pin key.
 func (s *Service) applySessionStrategy(
 	ctx context.Context,
 	installationID uuid.UUID,
@@ -153,15 +145,10 @@ func (s *Service) handleBetaCommand(
 	if found {
 		previousStrategy = previous.Strategy
 	}
-	// Runs before applySessionStrategy, so the context strategy here is the
-	// installation's baseline; a session toggle cannot leave an installation pin.
 	if router.StrategyFromContext(ctx) == strategy {
 		return writeBetaCommandResponse(w, env, betaPinnedMessage, inputTokens)
 	}
 
-	// Both branches decide from what the store persisted rather than a prior
-	// read, so overlapping /beta commands for one session cannot act on the
-	// same stale state: an unavailable beta policy can only ever be left.
 	nowEnabled := false
 	available := s.PolicyStrategyAvailable(strategy)
 	if snapshot := policyregistry.ServingSnapshotFromContext(ctx); snapshot != nil {
@@ -194,9 +181,6 @@ func (s *Service) handleBetaCommand(
 	}
 
 	log := observability.FromContext(ctx)
-	// Persist first: strategy-bound reads make old-strategy pins ineligible
-	// immediately, so cleanup cannot overwrite a concurrent new-mode pin.
-	// Pins stay keyed per thread, so only this thread's state is dropped.
 	if err := s.invalidateSessionRoutingState(
 		router.WithStrategy(ctx, previousStrategy),
 		sessionKey,

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"weave-os/router/internal/observability"
@@ -44,6 +45,7 @@ func RandomRouterGate(svc *proxy.Service) gin.HandlerFunc {
 		}
 		c.Header(randomrouter.PolicyHeader, config.PolicySHA256)
 		ctx, release, err := proxy.PrepareRandomBenchmark(svc, ctx)
+		c.Header("X-Weave-Random-Capacity-Ready", strconv.FormatBool(err == nil))
 		if err != nil {
 			c.Header("x-should-retry", "false")
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "random_benchmark_capacity_unavailable"})
