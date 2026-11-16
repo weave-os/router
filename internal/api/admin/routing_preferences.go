@@ -9,8 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Neutral starting point shown when no preference is stored. Mirrors the
-// managed control plane's defaults so both surfaces present the same dial.
 const (
 	defaultQualityPct = 70.0
 	defaultPricePct   = 30.0
@@ -22,9 +20,6 @@ type routingPreferencesResponse struct {
 	IsDefault bool    `json:"is_default"`
 }
 
-// updateRoutingPreferencesRequest carries the raw slider values. They need not
-// sum to 100 -- the server normalizes them into a quality weight. reset=true
-// clears the preference so the scorer reverts to its tuned defaults.
 type updateRoutingPreferencesRequest struct {
 	Reset   bool    `json:"reset"`
 	Quality float64 `json:"quality"`
@@ -39,8 +34,6 @@ func defaultRoutingPreferences() routingPreferencesResponse {
 	}
 }
 
-// routingPreferencesFor renders the stored quality weight as percentages (price
-// is the implied remainder), or the neutral default when no preference is set.
 func routingPreferencesFor(installation *auth.Installation) routingPreferencesResponse {
 	if installation.RoutingQualityWeight == nil {
 		return defaultRoutingPreferences()
@@ -57,10 +50,6 @@ func routingPreferencesFor(installation *auth.Installation) routingPreferencesRe
 	}
 }
 
-// normalizeRoutingWeight converts the raw quality/price slider values into a
-// quality weight in [0, 1] (price is the implied remainder). ok is false when
-// either value is negative or the total is non-positive, so the weight can't be
-// normalized.
 func normalizeRoutingWeight(quality, price float64) (qualityWeight float64, ok bool) {
 	if quality < 0 || price < 0 {
 		return 0, false
@@ -72,8 +61,6 @@ func normalizeRoutingWeight(quality, price float64) (qualityWeight float64, ok b
 	return quality / total, true
 }
 
-// GetRoutingPreferencesHandler returns the installation's routing dial as
-// percentages, or the neutral default when none is stored.
 func GetRoutingPreferencesHandler(authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
@@ -84,9 +71,6 @@ func GetRoutingPreferencesHandler(authSvc *auth.Service) gin.HandlerFunc {
 	}
 }
 
-// UpdateRoutingPreferencesHandler normalizes the raw slider values into a
-// quality weight and persists it. reset=true clears the preference. Rejects a
-// non-positive total with 400.
 func UpdateRoutingPreferencesHandler(authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)

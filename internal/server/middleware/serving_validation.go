@@ -10,8 +10,6 @@ import (
 	"weave-os/router/internal/policyregistry"
 )
 
-// ServingValidationHandler is mounted only on the private managed worker.
-// Cloud Run IAM admits validation identities; no routing key or signing secret is issued to them.
 func ServingValidationHandler(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var request policyregistry.WorkerValidationRequest

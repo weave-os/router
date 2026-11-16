@@ -10,62 +10,30 @@ import (
 	"weave-os/router/internal/providers"
 )
 
-// AttemptFunc performs one upstream attempt against client for target. It
-// must not fall back on its own: returning the upstream error unmodified lets
-// the executor apply the retry and failover rules.
 type AttemptFunc func(ctx context.Context, attempt Attempt, client providers.Client) error
 
-// Attempt identifies one upstream attempt of an operation.
 type Attempt struct {
-	Index  int
-	Target inference.Target
-	// SameBindingRetry is >0 when the executor re-tries the same target after
-	// a transient error.
+	Index            int
+	Target           inference.Target
 	SameBindingRetry int
 }
 
-// Transport is the per-operation adapter between the executor and the
-// response sink. Committed reports whether response bytes already reached the
-// client (retry is then forbidden); Reset drops buffered pre-commit output and
-// header mutations before another attempt writes. Both are optional.
 type Transport struct {
-	Attempt   AttemptFunc
-	Committed func() bool
-	Reset     func()
-	// Prepare, when set, runs before each attempt's context is handed to the
-	// adapter (credential injection, per-attempt headers). Returning an error
-	// aborts the operation.
-	Prepare func(ctx context.Context, attempt Attempt) (context.Context, error)
-	// Terminal, when set, reports that a failed attempt must end the
-	// operation even though the error class would otherwise permit a
-	// same-target retry or failover (a credential lease could not be
-	// obtained, for example).
-	Terminal func(attempt Attempt, err error) bool
-	// Bound, when set, reports that the operation must stay on the attempted
-	// target: a transient error may still be retried against it, but never
-	// failed over to another target (a caller-bound credential served it, for
-	// example).
-	Bound func(attempt Attempt, err error) bool
-	// RetryDelay, when set, decides the wait before a same-target retry of a
-	// transient failure. backoff is the executor's default for this retry;
-	// returning retry=false ends same-target retries so the operation moves
-	// on to failover. The budget still bounds the returned delay.
-	RetryDelay func(attempt Attempt, err error, backoff time.Duration) (delay time.Duration, retry bool)
-	// OperationID distinguishes this operation from others in the same
-	// request; empty means the purpose is used.
+	Attempt     AttemptFunc
+	Committed   func() bool
+	Reset       func()
+	Prepare     func(ctx context.Context, attempt Attempt) (context.Context, error)
+	Terminal    func(attempt Attempt, err error) bool
+	Bound       func(attempt Attempt, err error) bool
+	RetryDelay  func(attempt Attempt, err error, backoff time.Duration) (delay time.Duration, retry bool)
 	OperationID string
-	// Describe, when set, diagnoses each recorded attempt for its event; err
-	// is nil on a served attempt.
-	Describe func(attempt Attempt, err error) inference.AttemptDiagnosis
+	Describe    func(attempt Attempt, err error) inference.AttemptDiagnosis
 }
 
-// AttemptSink receives ordered attempt events. Sinks must not block dispatch
-// on persistence failures.
 type AttemptSink interface {
 	RecordAttempt(ctx context.Context, event inference.AttemptEvent)
 }
 
-// AttemptSinkFunc adapts a function to AttemptSink.
 type AttemptSinkFunc func(ctx context.Context, event inference.AttemptEvent)
 
 func (f AttemptSinkFunc) RecordAttempt(ctx context.Context, event inference.AttemptEvent) {
@@ -73,16 +41,11 @@ func (f AttemptSinkFunc) RecordAttempt(ctx context.Context, event inference.Atte
 }
 
 const (
-	// MaxSameBindingRetries bounds same-binding retries after a transient
-	// error; the only failover a single-target plan gets.
 	MaxSameBindingRetries  = 2
 	sameBindingBackoffBase = 250 * time.Millisecond
-	// sameBindingRetryBudget caps wall-clock across retries of one target so a
-	// hung upstream does not burn a full header timeout per attempt.
 	sameBindingRetryBudget = 10 * time.Second
 )
 
-// FailureReason is a bounded machine reason recorded on attempt events.
 type FailureReason string
 
 const (
@@ -99,15 +62,12 @@ const (
 	FailureReasonAuthorization         FailureReason = "funding_authorization"
 )
 
-// Result is the executor's report for one operation.
 type Result struct {
-	Outcome inference.ExecutionOutcome
-	Summary inference.OperationSummary
-	// FinalError is the error of the last attempt when the operation failed.
+	Outcome    inference.ExecutionOutcome
+	Summary    inference.OperationSummary
 	FinalError error
 }
 
-// Executor walks a plan's targets with the shared retry/failover rules.
 type Executor struct {
 	clients *Clients
 	sink    AttemptSink
@@ -115,21 +75,16 @@ type Executor struct {
 	sleep   func(context.Context, time.Duration) error
 }
 
-// Option configures an Executor.
 type Option func(*Executor)
 
-// WithAttemptSink records ordered attempt events.
 func WithAttemptSink(sink AttemptSink) Option { return func(e *Executor) { e.sink = sink } }
 
-// WithClock injects the clock used for retry budgets.
 func WithClock(now func() time.Time) Option { return func(e *Executor) { e.now = now } }
 
-// WithSleep injects the backoff wait.
 func WithSleep(sleep func(context.Context, time.Duration) error) Option {
 	return func(e *Executor) { e.sleep = sleep }
 }
 
-// NewExecutor builds the executor over the boot-time client registry.
 func NewExecutor(clients *Clients, opts ...Option) (*Executor, error) {
 	if clients == nil {
 		return nil, errors.New("dispatch executor requires a client registry")
@@ -141,12 +96,8 @@ func NewExecutor(clients *Clients, opts ...Option) (*Executor, error) {
 	return e, nil
 }
 
-// Clients exposes the registry so composition can share it with callers that
-// only need provider presence (eligibility filters, admin views).
 func (e *Executor) Clients() *Clients { return e.clients }
 
-// Bind returns an inference.Executor whose Execute drives transport for every
-// attempt. The bound value is per operation and must not be reused.
 func (e *Executor) Bind(transport Transport) inference.Executor {
 	return boundExecutor{executor: e, transport: transport}
 }
@@ -161,13 +112,6 @@ func (b boundExecutor) Execute(ctx context.Context, req inference.InvocationRequ
 	return result.Outcome, err
 }
 
-// Run executes plan for req: the selected target first, then each policy
-// alternative in order. A target is retried in place only when it is the sole
-// target and the error is transient; otherwise a retryable, model-not-found,
-// or billing-blocked error fails over to the next target while nothing has
-// been committed to the client. Budget().MaxAttempts, when positive, bounds
-// the total attempts including same-target retries. Attempt events are
-// emitted in order.
 func (e *Executor) Run(ctx context.Context, req inference.InvocationRequest, plan inference.ResolvedPlan, transport Transport) (Result, error) {
 	if plan == nil {
 		return Result{}, errors.New("dispatch: nil plan")
@@ -360,7 +304,6 @@ func (t Transport) reset() {
 	}
 }
 
-// failureReason maps an attempt error to a bounded machine reason.
 func failureReason(err error) string {
 	switch {
 	case err == nil:
