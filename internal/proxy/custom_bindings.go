@@ -10,22 +10,14 @@ import (
 	"weave-os/router/internal/router/catalog"
 )
 
-// customBindingsForRequest derives configuration-declared provider bindings
-// from BYOK keys: model_aliases names the catalog models a custom endpoint
-// serves; catalog bindings rank first so a direct vendor still wins.
 func (s *Service) customBindingsForRequest(ctx context.Context) map[string][]string {
 	return credentials.CustomBindings(externalKeysFromContext(ctx))
 }
 
-// gatewayProvidersForRequest returns BYOK gateway providers for this request.
-// Deployment-level gateway keys are excluded: they keep serving catalog bindings.
 func (s *Service) gatewayProvidersForRequest(ctx context.Context) map[string]struct{} {
 	return credentials.GatewayProviders(externalKeysFromContext(ctx))
 }
 
-// gatewayUnservedModelsForRequest returns aliased catalog models every
-// gateway key for this request has answered model-not-found for. Only
-// non-nil when at least one gateway provider is active.
 func (s *Service) gatewayUnservedModelsForRequest(ctx context.Context) map[string]struct{} {
 	keys := externalKeysFromContext(ctx)
 	if len(credentials.GatewayProviders(keys)) == 0 {
@@ -50,8 +42,6 @@ func (s *Service) gatewayUnservedModelsForRequest(ctx context.Context) map[strin
 	}
 	var out map[string]struct{}
 	for model, count := range unserved {
-		// A second gateway may still serve it; only drop the model when every
-		// endpoint aliasing it has refused.
 		if count < declared[model] {
 			continue
 		}
@@ -63,8 +53,6 @@ func (s *Service) gatewayUnservedModelsForRequest(ctx context.Context) map[strin
 	return out
 }
 
-// cortexGatewayProvidersForRequest returns the gateway providers whose BYOK
-// key points at Cortex, the only gateways with measured windows.
 func cortexGatewayProvidersForRequest(ctx context.Context) map[string]struct{} {
 	var out map[string]struct{}
 	for _, key := range externalKeysFromContext(ctx) {
@@ -84,8 +72,6 @@ func isCortexHost(baseURL string) bool {
 	return err == nil && strings.HasSuffix(strings.ToLower(u.Hostname()), ".snowflakecomputing.com")
 }
 
-// gatewayContextWindow is contextWindowForRequest with the measured window of
-// a Cortex gateway, which can cap a model below the vendor's window.
 func gatewayContextWindow(cortexGateways map[string]struct{}, modelID, provider string) int {
 	if _, measured := cortexGateways[provider]; measured {
 		if w, ok := catalog.CortexGatewayContextWindow(modelID, provider); ok {
