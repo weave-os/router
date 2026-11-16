@@ -104,7 +104,7 @@ func TestRandomResponsesNeverRepairOrRescue(t *testing.T) {
 		t.Run(scenario.name, func(t *testing.T) {
 			config := randomTestConfig()
 			client := &fakeClient{name: providers.ProviderOpenAI, outcomes: []fakeOutcome{scenario.outcome}}
-			svc := NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, catalog.ModelGPT61Sol, nil).
+			svc := NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, catalog.ModelGPT61Sol.String(), nil).
 				WithManagedSubscriptions(&scriptedSubscriptionLeaser{}).
 				WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyRandomBenchmark, Router: randomrouter.New(func(int) (int, error) { return 0, nil }), Unavailable: randomrouter.ErrUnavailable})
 			encoded, err := json.Marshal(config)
@@ -138,4 +138,13 @@ func TestRandomInputRejectsNonstreamBeforeDispatch(t *testing.T) {
 	headers := http.Header{"Session-Id": []string{"synthetic"}}
 	require.ErrorIs(t, ValidateRandomBenchmarkInput(ctx, []byte(`{"model":"gpt-6.1-sol","stream":false,"input":"synthetic"}`), headers), randomrouter.ErrUnavailable)
 	require.NoError(t, ValidateRandomBenchmarkInput(ctx, []byte(`{"model":"gpt-6.1-sol","stream":true,"input":"synthetic"}`), headers))
+}
+
+func TestRandomPolicyUnavailableRefusesClientRetry(t *testing.T) {
+	classification, matched := ClassifyDispatchError(randomrouter.ErrUnavailable)
+	require.True(t, matched)
+	require.Equal(t, DispatchErrorPolicyUnavailable, classification.Kind)
+	require.Equal(t, http.StatusServiceUnavailable, classification.Status)
+	require.True(t, classification.NoClientRetry)
+	require.False(t, classification.RetryAfter)
 }

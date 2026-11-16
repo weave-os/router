@@ -1,7 +1,7 @@
 package catalog
 
-const ModelGPT61Sol = "gpt-6.1-sol"
-const ModelGPT61Terra = "gpt-6.1-terra"
+const ModelGPT61Sol ModelID = "gpt-6.1-sol"
+const ModelGPT61Terra ModelID = "gpt-6.1-terra"
 
 // ModelGPT6Luna is the canonical GPT-6 Luna model ID.
 const ModelGPT6Luna = "gpt-6-luna"

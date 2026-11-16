@@ -20,7 +20,7 @@ const ResponsesPath = "/v1/random-router/responses"
 const IdentityPath = "/v1/random-router/identity"
 
 func Models() []string {
-	return []string{catalog.ModelGPT6Luna, catalog.ModelGPT61Sol, catalog.ModelGPT61Terra}
+	return []string{catalog.ModelGPT6Luna, catalog.ModelGPT61Sol.String(), catalog.ModelGPT61Terra.String()}
 }
 
 type Config struct {

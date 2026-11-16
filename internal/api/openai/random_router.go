@@ -14,6 +14,7 @@ import (
 
 func RandomRouterGate(svc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		c.Header("x-should-retry", "false")
 		if c.GetHeader("Session-Id") == "" || c.GetHeader("x-weave-force-model") != "" || c.GetHeader("x-weave-force-cluster") != "" || c.GetHeader("x-weave-policy-pin") != "" || c.GetHeader("x-weave-model-passthrough") != "" {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "random_benchmark_invalid_headers"})
 			return

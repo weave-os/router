@@ -46,6 +46,9 @@ func (c *Client) CheckIncludedSubscriptionModels(ctx context.Context, models []s
 		if err := json.Unmarshal(body, &mapped); err != nil {
 			return err
 		}
+		if mapped.Model == "" || slices.Contains(wireModels, mapped.Model) {
+			return errors.New("included subscription roster requires distinct upstream models")
+		}
 		wireModels = append(wireModels, mapped.Model)
 	}
 	if err := c.checkCodexIncludedQuota(requestcontext.WithIncludedSubscriptionOnly(ctx), wireModels...); err != nil {
@@ -184,7 +187,7 @@ func (c *Client) checkCodexIncludedQuota(ctx context.Context, models ...string) 
 	}
 	for _, modelRateLimit := range quotaStatus.AdditionalRateLimits {
 		if slices.Contains(models, modelRateLimit.Model) {
-			if err = validateCodexIncludedQuota(modelRateLimit.RateLimit, planReported); err != nil {
+			if err = validateCodexIncludedQuota(modelRateLimit.RateLimit, planReported && !requestcontext.IncludedSubscriptionOnlyFrom(ctx)); err != nil {
 				logCodexQuotaDenial(log, err, "plan_type", quotaStatus.PlanType, "model", model, "has_rate_limit", modelRateLimit.RateLimit != nil)
 				var upstream *providers.UpstreamErrorResponse
 				if errors.As(err, &upstream) && upstream.Status == http.StatusTooManyRequests {

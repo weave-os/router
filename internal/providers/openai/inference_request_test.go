@@ -10,8 +10,8 @@ import (
 )
 
 func TestIncludedInferenceUsesFreshConnections(t *testing.T) {
-	for _, strict := range []bool{false, true} {
-		t.Run(map[bool]string{false: "ordinary", true: "included_only"}[strict], func(t *testing.T) {
+	for _, includedOnly := range []bool{false, true} {
+		t.Run(map[bool]string{false: "ordinary", true: "included_only"}[includedOnly], func(t *testing.T) {
 			addresses := make(chan string, 2)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				addresses <- r.RemoteAddr
@@ -19,7 +19,7 @@ func TestIncludedInferenceUsesFreshConnections(t *testing.T) {
 			}))
 			defer server.Close()
 			ctx := context.Background()
-			if strict {
+			if includedOnly {
 				ctx = requestcontext.WithIncludedSubscriptionOnly(ctx)
 			}
 			for range 2 {
@@ -30,7 +30,7 @@ func TestIncludedInferenceUsesFreshConnections(t *testing.T) {
 				require.NoError(t, response.Body.Close())
 			}
 			first, second := <-addresses, <-addresses
-			if strict {
+			if includedOnly {
 				require.NotEqual(t, first, second)
 			} else {
 				require.Equal(t, first, second)
