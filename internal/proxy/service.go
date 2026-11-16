@@ -7534,12 +7534,12 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		ctx = context.WithValue(ctx, responsesFooterEchoedContextKey{}, true)
 	}
 	ctx = withSubscriptionOnlyWarningEcho(ctx, body)
-	nativeBody := body
+	nativeBody := translate.StripRouterReasoningFromResponsesInput(body)
 	conversionBody := body
 	var err error
 	if terminalResponses {
 		ctx = context.WithValue(ctx, responsesLastAnnouncedModelContextKey{}, translate.LastAnnouncedResponsesModel(body))
-		nativeBody, err = stripResponsesTerminalArtifacts(body)
+		nativeBody, err = stripResponsesTerminalArtifacts(nativeBody)
 		if err != nil {
 			return err
 		}
