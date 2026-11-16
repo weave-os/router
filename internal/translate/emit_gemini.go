@@ -592,11 +592,16 @@ func writeGeminiFromAnthropic(jw *jsonWriter, body []byte, opts EmitOptions) err
 		return true
 	})
 	entries := make([]contentEntry, 0, 8)
+	var walkErr error
 	msgs.ForEach(func(_, msg gjson.Result) bool {
 		role := msg.Get("role").String()
 		switch role {
 		case "user":
-			parts := anthropicUserPartsGJSON(msg.Get("content"), toolNames)
+			parts, err := anthropicUserPartsGJSON(msg.Get("content"), toolNames)
+			if err != nil {
+				walkErr = err
+				return false
+			}
 			if len(parts) == 0 {
 				return true
 			}
@@ -610,6 +615,9 @@ func writeGeminiFromAnthropic(jw *jsonWriter, body []byte, opts EmitOptions) err
 		}
 		return true
 	})
+	if walkErr != nil {
+		return walkErr
+	}
 	emitGeminiContents(jw, collapseConsecutiveRoles(entries))
 
 	if err := writeGeminiToolsFromAnthropic(jw, body); err != nil {
@@ -723,16 +731,17 @@ func geminiEmitsValidatedToolMode(body []byte, model string, format Format) bool
 	return kind == toolChoiceAbsent || kind == toolChoiceAuto
 }
 
-func anthropicUserPartsGJSON(content gjson.Result, toolNames map[string]string) []string {
+func anthropicUserPartsGJSON(content gjson.Result, toolNames map[string]string) ([]string, error) {
 	switch content.Type {
 	case gjson.String:
 		s := content.String()
 		if s == "" {
-			return nil
+			return nil, nil
 		}
-		return []string{geminiTextPart(s)}
+		return []string{geminiTextPart(s)}, nil
 	case gjson.JSON:
 		var parts []string
+		var partErr error
 		content.ForEach(func(_, block gjson.Result) bool {
 			switch block.Get("type").String() {
 			case "text":
@@ -752,6 +761,13 @@ func anthropicUserPartsGJSON(content gjson.Result, toolNames map[string]string) 
 					mime = "image/jpeg"
 				}
 				parts = append(parts, geminiInlineDataPart(mime, data))
+			case "document":
+				if part := geminiPartFromAnthropicBase64PDFDocument(block); part != "" {
+					parts = append(parts, part)
+				}
+			case "container_upload":
+				partErr = fmt.Errorf("anthropic→gemini: container_upload: %w", ErrUntranslatableUserContent)
+				return false
 			case "tool_result":
 				id := block.Get("tool_use_id").String()
 				name := toolNames[id]
@@ -762,10 +778,28 @@ func anthropicUserPartsGJSON(content gjson.Result, toolNames map[string]string) 
 			}
 			return true
 		})
-		return parts
+		if partErr != nil {
+			return nil, partErr
+		}
+		return parts, nil
 	default:
 	}
-	return nil
+	return nil, nil
+}
+
+func geminiPartFromAnthropicBase64PDFDocument(block gjson.Result) string {
+	if block.Get("source.type").String() != "base64" {
+		return ""
+	}
+	mime := block.Get("source.media_type").String()
+	if mime != "application/pdf" {
+		return ""
+	}
+	data := block.Get("source.data").String()
+	if data == "" {
+		return ""
+	}
+	return geminiInlineDataPart(mime, data)
 }
 
 func anthropicAssistantPartsGJSON(content gjson.Result) []string {
