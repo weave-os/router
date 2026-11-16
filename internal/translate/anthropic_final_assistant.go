@@ -9,9 +9,6 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// prepareAnthropicMessageTail places system messages before final-assistant
-// handling, since placement can move a system message ahead of a trailing
-// assistant turn and so expose it as a prefill.
 func prepareAnthropicMessageTail(body []byte, supportsPrefill bool) ([]byte, error) {
 	body, err := placeAnthropicSystemMessagesBytes(body)
 	if err != nil {
@@ -31,9 +28,6 @@ func prepareAnthropicMessageTail(body []byte, supportsPrefill bool) ([]byte, err
 	return body, nil
 }
 
-// Anthropic treats a final assistant message as a prefill and rejects terminal
-// whitespace. Empty text suffixes have no prefill to preserve; non-text blocks
-// and earlier history must retain their exact content.
 func normalizeAnthropicFinalAssistant(body []byte) ([]byte, error) {
 	messages := gjson.GetBytes(body, "messages").Array()
 	for messageIndex := len(messages) - 1; messageIndex >= 0; messageIndex-- {
@@ -89,10 +83,6 @@ func normalizeAnthropicFinalAssistant(body []byte) ([]byte, error) {
 	return body, nil
 }
 
-// dropAnthropicFinalAssistant removes a trailing assistant turn for models that
-// reject prefill. Clients resend a stream-cut turn's partial commentary as the
-// last message (Codex retries); the model regenerates it instead of the turn
-// failing. A trailing tool_use has no result, so it goes too.
 func dropAnthropicFinalAssistant(body []byte) ([]byte, error) {
 	for {
 		messages := gjson.GetBytes(body, "messages").Array()

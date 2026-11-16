@@ -9,7 +9,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// ToolConfigurationSHA256 returns a privacy-safe hash of the inbound tool configuration; raw schema text is never persisted.
 func (e *RequestEnvelope) ToolConfigurationSHA256() string {
 	if e == nil {
 		return sha256String("")
@@ -22,7 +21,6 @@ func (e *RequestEnvelope) ToolConfigurationSHA256() string {
 	return sha256Bytes(canonical)
 }
 
-// ReasoningConfigurationSHA256 returns a normalized hash; equivalent wire syntaxes (reasoning_effort vs reasoning.effort) produce the same value via ReasoningIntent.
 func (e *RequestEnvelope) ReasoningConfigurationSHA256() string {
 	if e == nil {
 		return sha256String("")

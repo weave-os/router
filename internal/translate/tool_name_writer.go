@@ -19,8 +19,6 @@ var (
 	_ providers.ReasoningProgressArmer = (*ToolNameWriter)(nil)
 )
 
-// ToolNameWriter restores wire aliases before protocol translation or
-// client delivery. Each dispatch attempt owns its buffer and alias mapping.
 type ToolNameWriter struct {
 	inner          http.ResponseWriter
 	flusher        http.Flusher
@@ -33,12 +31,10 @@ type ToolNameWriter struct {
 	headersEmitted bool
 }
 
-// NewAnthropicToolNameWriter restores aliases in an upstream Anthropic Messages response.
 func NewAnthropicToolNameWriter(inner http.ResponseWriter, names map[string]string) *ToolNameWriter {
 	return newToolNameWriter(inner, names, restoreAnthropicResponseToolNames)
 }
 
-// NewOpenAIToolNameWriter restores aliases in an upstream OpenAI Chat or Responses response.
 func NewOpenAIToolNameWriter(inner http.ResponseWriter, names map[string]string) *ToolNameWriter {
 	return newToolNameWriter(inner, names, restoreOpenAIResponseToolNames)
 }
@@ -73,7 +69,6 @@ func (w *ToolNameWriter) Flush() {
 	}
 }
 
-// ArmOutputProgress forwards output-bearing progress to the wrapped writer.
 func (w *ToolNameWriter) ArmOutputProgress(mark func()) bool {
 	arm, ok := w.inner.(providers.OutputProgressArmer)
 	if !ok {
@@ -82,7 +77,6 @@ func (w *ToolNameWriter) ArmOutputProgress(mark func()) bool {
 	return arm.ArmOutputProgress(mark)
 }
 
-// ArmReasoningProgress forwards reasoning progress to the wrapped writer.
 func (w *ToolNameWriter) ArmReasoningProgress(mark func()) bool {
 	arm, ok := w.inner.(providers.ReasoningProgressArmer)
 	if !ok {
@@ -134,7 +128,6 @@ func (w *ToolNameWriter) Finalize() error {
 	}
 	body := w.pending.Bytes()
 	if w.streaming {
-		// An unterminated final record may be truncated JSON; forward it unchanged then.
 		if restored, err := w.restoreRecord(body); err == nil {
 			body = restored
 		}

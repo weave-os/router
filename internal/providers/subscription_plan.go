@@ -2,7 +2,6 @@ package providers
 
 import "context"
 
-// SubscriptionPlan is an account's plan verified by its subscription provider.
 type SubscriptionPlan string
 
 const (
@@ -13,7 +12,6 @@ const (
 	SubscriptionPlanEnterprise SubscriptionPlan = "enterprise"
 )
 
-// SubscriptionPlanReader reads account identity without performing inference.
 type SubscriptionPlanReader interface {
 	SubscriptionPlan(context.Context, []byte) (SubscriptionPlan, error)
 }

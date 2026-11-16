@@ -10,26 +10,18 @@ import (
 
 const blindExperimentSessionArmCacheSize = 100_000
 
-// BlindExperimentSessionRepository reads installation-wide session-mode
-// configuration and records the first arm served to each session.
 type BlindExperimentSessionRepository interface {
 	GetForInstallation(ctx context.Context, installationID string) (BlindExperimentRecord, error)
 	ClaimSessionArm(ctx context.Context, installationID, sessionSubjectKey string, arm BlindExperimentArm) (BlindExperimentArm, error)
 }
 
-// WithBlindExperimentSessions stores repo and allocates the in-process LRU of
-// frozen session arms.
 func (s *Service) WithBlindExperimentSessions(repo BlindExperimentSessionRepository) *Service {
-	// lru.New only errors for a non-positive size; the cache size is a positive constant.
 	arms, _ := lru.New[string, BlindExperimentArm](blindExperimentSessionArmCacheSize)
 	s.blindExperimentSessions = repo
 	s.blindExperimentSessionArms = arms
 	return s
 }
 
-// WithBlindExperimentSession applies the session-mode draw for a
-// credential-scoped client session. The first arm recorded for a session is
-// kept, so configuration changes only affect new sessions.
 func (s *Service) WithBlindExperimentSession(ctx context.Context, installationID, sessionSubjectKey string) context.Context {
 	if sessionSubjectKey == "" {
 		return ctx

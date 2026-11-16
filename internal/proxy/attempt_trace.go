@@ -20,8 +20,6 @@ func attemptOwner(a dispatch.TracedAttempt) FailureOwner {
 	return FailureOwner(a.Diagnosis.FailureOwner)
 }
 
-// withAttemptTrace starts tracing the attempts that dispatch inbound. A
-// surface that delegates to another keeps the outer surface's inbound body.
 func withAttemptTrace(ctx context.Context, inbound []byte, h http.Header) context.Context {
 	if attemptTraceFromContext(ctx) != nil {
 		return ctx
@@ -34,9 +32,6 @@ func attemptTraceFromContext(ctx context.Context) *dispatch.AttemptTrace {
 	return trace
 }
 
-// customerOwnedCredential reports whether the attempt authenticated with the
-// customer's own key or subscription rather than a Weave-managed key or a
-// Weave-leased subscription account.
 func customerOwnedCredential(ctx context.Context) bool {
 	if managedSubscriptionCredentialSource(ctx) != "" {
 		return false
@@ -52,18 +47,12 @@ func customerOwnedCredential(ctx context.Context) bool {
 	return false
 }
 
-// observeAttemptSent keeps the prepared body so describeAttempt can blame a
-// rejected router rewrite on the router, and the credential owner so an auth
-// failure on a customer's own key is blamed on the client.
 func observeAttemptSent(trace *dispatch.AttemptTrace) func(context.Context, []byte) {
 	return func(ctx context.Context, body []byte) {
 		trace.ObserveSent(ctx, body, customerOwnedCredential(ctx))
 	}
 }
 
-// describeAttempt diagnoses the attempt dispatch just recorded and logs a
-// failure with its owner; an unowned failure is logged loudly so a rule can be
-// added.
 func describeAttempt(ctx context.Context, trace *dispatch.AttemptTrace, attempt dispatch.Attempt, err error) inference.AttemptDiagnosis {
 	return trace.Record(attempt, err, func(inbound, sent []byte, customerCredential bool) inference.AttemptDiagnosis {
 		diagnosis := inference.AttemptDiagnosis{BodyTranslated: bodyRewritten(inbound, sent)}
@@ -80,9 +69,6 @@ func describeAttempt(ctx context.Context, trace *dispatch.AttemptTrace, attempt 
 	})
 }
 
-// lastFailureOn is the newest failed attempt on model's base model, so a marker
-// cites that model's own failure rather than a later candidate's. Models match
-// by base model (baseModelOf), so catalog variants of one model count.
 func lastFailureOn(trace *dispatch.AttemptTrace, model string) (dispatch.TracedAttempt, bool) {
 	return trace.LastFailureWhere(func(target inference.Target) bool {
 		return baseModelOf(target.CatalogID) == baseModelOf(model)
@@ -108,8 +94,6 @@ func logAttemptFailure(ctx context.Context, attempt dispatch.Attempt, err error,
 	observability.FromContext(ctx).Log(ctx, level, msg, fields...)
 }
 
-// turnFailureOwnerFor names the owner of a turn's final outcome: the last
-// failed attempt's owner when dispatch failed, else the error class's owner.
 func turnFailureOwnerFor(ctx context.Context, err error, class TurnErrorClass) FailureOwner {
 	if err == nil {
 		return turnFailureOwner(class)
@@ -120,9 +104,6 @@ func turnFailureOwnerFor(ctx context.Context, err error, class TurnErrorClass) F
 	return classifyFailureOwner(failureOwnerInput{Err: err})
 }
 
-// bodyRewritten reports whether sent differs from the inbound body beyond the
-// top-level model field, which every routed dispatch rewrites. A nil sent
-// body means nothing reached the adapter.
 func bodyRewritten(inbound, sent []byte) bool {
 	if sent == nil || bytes.Equal(inbound, sent) {
 		return false
