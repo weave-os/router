@@ -272,6 +272,7 @@ type seatAdmission struct {
 	now               time.Time
 	observer          *usage.Observer
 	codexExtraCredits bool
+	verifiedPlanOnly  bool
 }
 
 func seatAdmissionOf(s *Service) seatAdmission {
@@ -283,7 +284,7 @@ func (a seatAdmission) mayAdmit(ctx context.Context, provider, model string) boo
 		return false
 	}
 	pool, _ := managedSubscriptionProviderFromUpstream(provider, model)
-	enterpriseOverage := pool == subscriptions.ProviderClaude && claudeEnterpriseEnabled(ctx)
+	enterpriseOverage := pool == subscriptions.ProviderClaude && (claudeEnterpriseOnly(ctx) || !a.verifiedPlanOnly && claudeEnterpriseEnabled(ctx))
 	return managedSeatCanCover(ctx, pool, a.now, func(candidate managedSubscriptionCandidate) bool {
 		switch {
 		case enterpriseOverage:

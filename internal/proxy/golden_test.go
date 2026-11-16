@@ -553,6 +553,7 @@ func TestGolden(t *testing.T) {
 	scenarios = append(scenarios, goldenRoutingPolicyScenarios()...)
 	scenarios = append(scenarios, goldenConversationScenarios()...)
 	scenarios = append(scenarios, goldenSubscriptionExhaustionScenarios()...)
+	scenarios = append(scenarios, goldenCodexLoginRejectedScenarios()...)
 	for _, sc := range append(scenarios, goldenIngressScenarios()...) {
 		require.False(t, names[sc.name], "duplicate golden scenario %s", sc.name)
 		names[sc.name] = true

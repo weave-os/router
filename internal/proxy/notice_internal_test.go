@@ -200,3 +200,15 @@ func TestRoutingFundingSourceSkipsObservedSpentManagedSeats(t *testing.T) {
 	assert.Contains(t, spent.Text, "funded by Weave credits")
 	assert.Contains(t, credited.Text, "funded by Codex subscription", "extra credits keep an observed-spent seat fundable")
 }
+
+func TestAddRoutingFundingSourceSkipsSpentManagedPool(t *testing.T) {
+	now := time.Now()
+	spentSeatReset := now.Add(time.Hour)
+	ctx := WithManagedSubscriptionCandidates(WithManagedSubscriptionUsage(context.Background()), []*auth.SubscriptionAccount{{
+		ID: "claude-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true,
+		State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &spentSeatReset,
+	}})
+	notice := translate.NewRouterNotice(translate.NoticeModelSelection, "✦ **Weave Router** → claude-opus-5 · best pick for this turn\n\n", "claude-opus-5", "")
+	got := addRoutingFundingSource(ctx, seatAdmission{now: now}, providers.ProviderAnthropic, "claude-opus-5", notice)
+	assert.NotContains(t, got.Text, "funded by Claude subscription")
+}

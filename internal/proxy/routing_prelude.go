@@ -73,6 +73,7 @@ func addRoutingFundingSource(ctx context.Context, seats seatAdmission, provider,
 	if credentials := CredentialsFromContext(ctx); credentials != nil {
 		credentialSource = credentials.Source
 	}
+	seats.verifiedPlanOnly = true
 	if seats.mayAdmit(ctx, provider, model) {
 		if source, eligible := managedSubscriptionProviderFromUpstream(provider, model); eligible {
 			switch source {
