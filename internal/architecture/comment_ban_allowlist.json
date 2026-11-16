@@ -15,7 +15,7 @@
     },
     {
       "package": "internal/proxy",
-      "banned_lines": 5222
+      "banned_lines": 4297
     },
     {
       "package": "internal/subscriptions/entitlement",
