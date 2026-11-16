@@ -2767,11 +2767,18 @@ read_installed_header() {
           in_provider = ($0 ~ /^[[:space:]]*\[[[:space:]]*model_providers[[:space:]]*\.[[:space:]]*weave[[:space:]]*(\.[^]]*)?\][[:space:]]*(#.*)?$/)
           next
         }
-        in_provider && match($0, "\"?" header "\"?[[:space:]]*=[[:space:]]*\"[^\"]*\"") {
+        in_provider && match($0, "\"?" header "\"?[[:space:]]*=[[:space:]]*\"([^\"\\\\]|\\\\.)*\"") {
           hdr = substr($0, RSTART, RLENGTH)
-          sub(/^.*=[[:space:]]*"/, "", hdr)
+          sub(/^[^=]*=[[:space:]]*"/, "", hdr)
           sub(/"$/, "", hdr)
-          print hdr
+          # Undo toml_escape so the writer does not escape the value twice.
+          value = ""
+          for (i = 1; i <= length(hdr); i++) {
+            c = substr(hdr, i, 1)
+            if (c == "\\") { i++; c = substr(hdr, i, 1) }
+            value = value c
+          }
+          print value
           exit
         }
       ' "$codex_config_file" 2>/dev/null || true)"
