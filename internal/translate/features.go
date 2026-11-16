@@ -11,27 +11,14 @@ import (
 
 const previewMaxChars = 120
 
-// contentBytesPerToken is the measured bytes/token ratio (~4.2) for dense
-// Claude Code request bodies, used by ContextOverflowTokenEstimate. Lower
-// than FullTokenEstimate's ÷6 because that divisor is tuned to avoid
-// over-counting base64 thought-signatures; here we subtract signature bytes
-// explicitly instead, so the rest can divide at its true ratio.
 const contentBytesPerToken = 4
 
-// fullBytesPerToken is FullTokenEstimate's looser bytes/token divisor, tuned so
-// base64 thought-signatures don't falsely evict extended-context models.
 const fullBytesPerToken = 6
 
-// imageTokenEstimate is a conservative per-image token cost. Providers
-// tokenize images by pixel dimensions (Anthropic ≈ (w·h)/750, capped ~1600),
-// not by base64 transport size.
 const imageTokenEstimate = 1600
 
-// signatureFieldMarker precedes a base64 thought-signature payload in an
-// Anthropic request body.
 var signatureFieldMarker = []byte(`"signature":"`)
 
-// RoutingFeatures bundles router inputs and per-request metadata for logging.
 type RoutingFeatures struct {
 	Tokens       int
 	Model        string
@@ -40,69 +27,41 @@ type RoutingFeatures struct {
 	ImageCount   int
 	PromptText   string
 	MessageCount int
-	// MaxTokens is the caller's requested output cap. 0 means unset.
-	// Probe detection keys off this — Anthropic SDK quota probes set max_tokens=1.
+
 	MaxTokens int
-	// TitleGenHint marks a Codex Responses title-generation request. The
-	// Responses ingress sets this only for the Codex client after matching the
-	// native request's schema or hidden-session prompt fingerprint.
+
 	TitleGenHint bool
-	// LastKind: "user_prompt", "tool_result", or "assistant".
+
 	LastKind string
-	// LastPreview: first previewMaxChars of the last message's text.
+
 	LastPreview string
-	// OnlyUserMessageText: user-message text with system/assistant/tool_result excluded.
+
 	OnlyUserMessageText string
 }
 
-// FullTokenEstimate estimates tokens for the whole request body — including
-// tool defs/calls/results that RoutingFeatures.Tokens (text-only) misses.
-// Used only for context-window pre-filtering, not routing.
 func (e *RequestEnvelope) FullTokenEstimate() int {
-	// ÷6, not ÷4: base64 thought signatures otherwise inflate byte length and
-	// falsely evict Opus for exceeding its context window. Base64 image payloads
-	// are repriced separately (÷6 still over-counts them).
+
 	imgBytes, imgCount := e.base64ImageStats()
 	signatureBytes, idBytes := e.routerReasoningTransportBytes()
 	return (len(e.body)-imgBytes-signatureBytes-idBytes)/fullBytesPerToken + imgCount*imageTokenEstimate
 }
 
-// ContextOverflowTokenEstimate estimates tokens for context-window overflow
-// pre-filtering, for a signature-KEEPING (Anthropic-family) target. Uses
-// contentBytesPerToken rather than FullTokenEstimate's ÷6: ÷6 undercounted a
-// genuinely large, signature-light ~263K-token body to ~175K and 400'd on a
-// 256K OSS model. FullTokenEstimate stays ÷6 for its own (extended-context
-// beta) calibration. Signature-STRIPPING targets subtract
-// SignatureTokenSavings from this — see excludeContextOverflowModels.
 func (e *RequestEnvelope) ContextOverflowTokenEstimate() int {
-	// Base64 image bytes are transport, not tokens; subtract them and reprice
-	// per image to avoid phantom token inflation on multi-page PDF reads.
+
 	imgBytes, imgCount := e.base64ImageStats()
 	signatureBytes, idBytes := e.routerReasoningTransportBytes()
 	return (len(e.body)-imgBytes-signatureBytes-idBytes)/contentBytesPerToken + imgCount*imageTokenEstimate
 }
 
-// SignatureTokenSavings returns the tokens a signature-STRIPPING target saves
-// vs ContextOverflowTokenEstimate, since we drop thought-signature blocks
-// before dispatch to non-Anthropic models. Zero for non-Anthropic inbound
-// formats: a stray "signature" field there is caller data, not ours to strip.
 func (e *RequestEnvelope) SignatureTokenSavings() int {
 	if e.format != FormatAnthropic {
 		return 0
 	}
-	// Router-minted signatures are already excluded from the base estimate. The
-	// byte scan only matches compact JSON, so it can undercount what the block
-	// walk found; savings never go negative.
+
 	routerSignatureBytes, _ := e.routerReasoningTransportBytes()
 	return max(0, base64SignatureBytes(e.body)-routerSignatureBytes) / contentBytesPerToken
 }
 
-// routerReasoningTransportBytes sums the router-minted OpenAI reasoning an
-// Anthropic-format client echoes back, in thinking signatures and in tool-id
-// carriers. Only payloads that decode as router envelopes count: Anthropic
-// targets strip exactly those and OpenAI targets consume them as reasoning, so
-// neither reaches an upstream as prompt text. Forged markers, marker text in
-// message content, and undecodable suffixes stay in the estimate.
 func (e *RequestEnvelope) routerReasoningTransportBytes() (signatureBytes, idBytes int) {
 	if e.format != FormatAnthropic {
 		return 0, 0
@@ -133,9 +92,6 @@ func (e *RequestEnvelope) routerReasoningTransportBytes() (signatureBytes, idByt
 	return signatureBytes, idBytes
 }
 
-// base64SignatureBytes sums the byte length of every base64 thought-signature
-// payload in body. Signatures contain no quotes/backslashes, so each payload
-// runs from its field marker to the next double quote.
 func base64SignatureBytes(body []byte) int {
 	total := 0
 	for i := 0; ; {
@@ -154,7 +110,6 @@ func base64SignatureBytes(body []byte) int {
 	return total
 }
 
-// RoutingFeatures extracts routing inputs from the envelope.
 func (e *RequestEnvelope) RoutingFeatures() RoutingFeatures {
 	switch e.format {
 	case FormatAnthropic:
@@ -261,8 +216,6 @@ func (e *RequestEnvelope) openAIRoutingFeatures() RoutingFeatures {
 	return feats
 }
 
-// intGJSON returns the integer value of a JSON number, or 0 when absent/non-numeric.
-// Fractional values (invalid for token caps) are treated as unset.
 func intGJSON(v gjson.Result) int {
 	if !v.Exists() || v.Type != gjson.Number {
 		return 0
@@ -274,8 +227,6 @@ func intGJSON(v gjson.Result) int {
 	return int(n)
 }
 
-// openAIMaxTokens reads the output token cap from an OpenAI body.
-// Reads max_completion_tokens first, falling back to max_tokens.
 func openAIMaxTokens(body []byte) int {
 	if n := intGJSON(gjson.GetBytes(body, "max_completion_tokens")); n > 0 {
 		return n
@@ -283,7 +234,6 @@ func openAIMaxTokens(body []byte) int {
 	return intGJSON(gjson.GetBytes(body, "max_tokens"))
 }
 
-// classifyLastMessageOpenAI maps an OpenAI message role to the shared LastKind enum.
 func classifyLastMessageOpenAI(role string) string {
 	switch role {
 	case "assistant":
@@ -295,7 +245,6 @@ func classifyLastMessageOpenAI(role string) string {
 	}
 }
 
-// previewText collapses newlines to spaces, then truncates to previewMaxChars.
 func previewText(text string) string {
 	if text == "" {
 		return ""
@@ -303,7 +252,6 @@ func previewText(text string) string {
 	return observability.Preview(strings.Join(strings.Fields(text), " "), previewMaxChars)
 }
 
-// anthropicLastUserMessage walks messages backwards for the last user entry.
 func anthropicLastUserMessage(body []byte) LastUserMessageInfo {
 	msgs := gjson.GetBytes(body, "messages")
 	if !msgs.IsArray() {
@@ -354,8 +302,6 @@ func anthropicLastUserMessage(body []byte) LastUserMessageInfo {
 	return info
 }
 
-// openAILastUserMessage scans the trailing run of role=="tool" messages and the
-// most recent role=="user" message.
 func openAILastUserMessage(body []byte) LastUserMessageInfo {
 	msgs := gjson.GetBytes(body, "messages")
 	if !msgs.IsArray() {
@@ -386,7 +332,6 @@ func openAILastUserMessage(body []byte) LastUserMessageInfo {
 	return info
 }
 
-// openAISystemText concatenates every role=="system" message's text content.
 func openAISystemText(body []byte) string {
 	msgs := gjson.GetBytes(body, "messages")
 	if !msgs.IsArray() {
@@ -445,11 +390,6 @@ func contentTextGJSON(v gjson.Result) string {
 	return b.String()
 }
 
-// classifyLastMessageGJSON maps an Anthropic message to the shared LastKind
-// enum. Any user message with a tool_result block classifies as "tool_result"
-// even alongside other text (e.g. Claude Code's <system-reminder> blocks) —
-// switching models mid tool-flow would hand the new model a tool_result meant
-// for the old model's tool_use, so these must stay pinned to the session.
 func classifyLastMessageGJSON(role string, content gjson.Result) string {
 	if role == "assistant" {
 		return "assistant"
@@ -519,8 +459,6 @@ func userPromptTextWithClientWrappers(content gjson.Result, normalizeKnownWrappe
 	return b.String()
 }
 
-// claudeCodeInjectedBlockPrefixes are wrapper tags Claude Code injects into
-// user messages; skipped since they dwarf the user's typed text and add no signal.
 var claudeCodeInjectedBlockPrefixes = []string{
 	"<system-reminder>",
 	"<command-name>",
@@ -543,10 +481,6 @@ func isClaudeCodeInjectedBlock(text string) bool {
 	return false
 }
 
-// leadingClaudeCodeInjectedBlockEnd returns the end of a complete known
-// injected block at the start of trimmed text. The quoted-result envelope is
-// a continuation fragment rather than an opening tag, so it needs its own
-// closing-tag handling instead of the ordinary tag-name rule.
 func leadingClaudeCodeInjectedBlockEnd(trimmed string) int {
 	if strings.HasPrefix(trimmed, "</summary>\n<result>") {
 		resultEnd := strings.Index(trimmed, "</result>")
@@ -617,8 +551,6 @@ func appendText(b *strings.Builder, s string) {
 	b.WriteString(s)
 }
 
-// anthropicImageCount counts image blocks, including images nested in a
-// tool_result. String content never has an image.
 func anthropicImageCount(body []byte) int {
 	count := 0
 	gjson.GetBytes(body, "messages").ForEach(func(_, msg gjson.Result) bool {
@@ -645,8 +577,6 @@ func anthropicImageCount(body []byte) int {
 	return count
 }
 
-// openAIImageCount counts image_url content parts. String content never has
-// an image.
 func openAIImageCount(body []byte) int {
 	count := 0
 	gjson.GetBytes(body, "messages").ForEach(func(_, msg gjson.Result) bool {
