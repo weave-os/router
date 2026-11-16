@@ -510,3 +510,25 @@ func TestIsUpstreamResponsesUnsupported(t *testing.T) {
 	assert.False(t, providers.IsUpstreamResponsesUnsupported(nil))
 	assert.False(t, providers.IsUpstreamResponsesUnsupported(fmt.Errorf("transport blew up")))
 }
+
+func TestIsUpstreamCredentialRefusal(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		body   string
+		want   bool
+	}{
+		{"api usage limit reached", http.StatusBadRequest, `{"type":"error","error":{"type":"invalid_request_error","message":"You have reached your specified API usage limits. You will regain access on 2026-12-01 at 00:00 UTC."}}`, true},
+		{"plan out of extra usage", http.StatusBadRequest, `{"type":"error","error":{"type":"invalid_request_error","message":"You're out of extra usage. Add more at claude.ai/admin-settings/usage and keep going."}}`, true},
+		{"key not scoped to a workspace", http.StatusBadRequest, `{"type":"error","error":{"type":"invalid_request_error","message":"This API key is not scoped to a workspace, so this request must name one."}}`, true},
+		{"ordinary validation 400", http.StatusBadRequest, `{"type":"error","error":{"type":"invalid_request_error","message":"max_tokens: Input should be a valid integer"}}`, false},
+		{"same phrasing on a 500 is an outage", http.StatusInternalServerError, `{"error":{"message":"You have reached your specified API usage limits."}}`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, providers.IsUpstreamCredentialRefusal(&providers.UpstreamErrorResponse{Status: tc.status, Body: []byte(tc.body)}))
+		})
+	}
+	assert.False(t, providers.IsUpstreamCredentialRefusal(nil))
+	assert.False(t, providers.IsUpstreamCredentialRefusal(fmt.Errorf("transport blew up")))
+}

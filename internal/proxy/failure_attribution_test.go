@@ -58,6 +58,28 @@ func TestDispatchPlanned_TranslatedRejectionIsRouterOwned(t *testing.T) {
 	assert.Equal(t, "↳ switched: Gemini rejected our translated request (router issue)\n\n", lastFailureDetail(attemptTraceFromContext(ctx)))
 }
 
+func TestDispatchPlanned_TranslatedRejectionOfAnUnchangedClientFieldIsClientOwned(t *testing.T) {
+	inbound := []byte(`{"model":"claude","max_tokens":"lots","messages":[{"role":"user","content":"hi"}]}`)
+	translated := []byte(`{"model":"` + plannedTestModel + `","max_tokens":"lots","contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+	rejection := &providers.UpstreamErrorResponse{Status: 400, Body: []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"max_tokens: Input should be a valid integer"}}`)}
+	primary := &fakeClient{name: providers.ProviderGoogle, outcomes: []fakeOutcome{{err: rejection}}}
+	fallback := &fakeClient{name: providers.ProviderOpenRouter, outcomes: []fakeOutcome{{writeBytes: []byte("ok")}}}
+	sink := &recordingAttemptSink{}
+	s := attributionService(t, sink, map[string]providers.Client{providers.ProviderGoogle: primary, providers.ProviderOpenRouter: fallback})
+
+	ctx := withAttemptTrace(context.Background(), inbound, http.Header{})
+	rec := httptest.NewRecorder()
+	buf := newPreludeBuffer(rec)
+	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderGoogle}, {Provider: providers.ProviderOpenRouter}}, translated)
+	in.deferFlushOnExhaustion = true
+	_, err := s.dispatchWithFallback(ctx, in)
+	require.Error(t, err)
+
+	require.Len(t, sink.events, 1)
+	assert.True(t, sink.events[0].Diagnosis.BodyTranslated)
+	assert.Equal(t, string(FailureOwnerClient), sink.events[0].Diagnosis.FailureOwner)
+}
+
 func TestDispatchPlanned_UntranslatedRejectionIsProviderOwned(t *testing.T) {
 	body := []byte(`{"model":"` + plannedTestModel + `","messages":[]}`)
 	primary := &fakeClient{name: providers.ProviderFireworks, outcomes: []fakeOutcome{{err: &providers.UpstreamErrorResponse{Status: 400, Body: []byte(`bad`)}}}}
