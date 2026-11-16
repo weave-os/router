@@ -89,7 +89,7 @@ func validateResponsesRequest(body gjson.Result) []string {
 	for _, item := range body.Get("input").Array() {
 		switch item.Get("type").String() {
 		case "function_call":
-			p.require(len(item.Get("call_id").String()) <= 64, "call_id %q is longer than 64 characters", item.Get("call_id").String())
+			p.require(len(withoutThoughtCarrier(item.Get("call_id").String())) <= 64, "call_id %q is longer than 64 characters", item.Get("call_id").String())
 			pr.call("function_call", item.Get("call_id").String())
 		case "function_call_output":
 			pr.result("function_call_output", item.Get("call_id").String())

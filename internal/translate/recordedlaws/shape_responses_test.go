@@ -15,7 +15,7 @@ func validateResponsesItem(p *problems, i int, item gjson.Result) {
 		}
 	case "function_call":
 		p.require(item.Get("call_id").String() != "", "output[%d] function_call has no call_id", i)
-		p.require(len(item.Get("call_id").String()) <= 64, "output[%d] call_id is longer than 64 characters", i)
+		p.require(len(withoutThoughtCarrier(item.Get("call_id").String())) <= 64, "output[%d] call_id is longer than 64 characters", i)
 		p.require(item.Get("name").String() != "", "output[%d] function_call has no name", i)
 		p.require(gjson.Parse(item.Get("arguments").String()).IsObject(), "output[%d] arguments are not a JSON object string", i)
 	case "reasoning":

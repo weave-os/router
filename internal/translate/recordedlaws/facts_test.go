@@ -43,6 +43,11 @@ func splitThoughtCarrier(id string) (string, string) {
 	return clean, string(sig)
 }
 
+func withoutThoughtCarrier(id string) string {
+	clean, _ := splitThoughtCarrier(id)
+	return clean
+}
+
 func canonicalJSON(raw string) string {
 	if strings.TrimSpace(raw) == "" {
 		raw = "{}"
