@@ -7,7 +7,7 @@
     },
     {
       "package": "internal/auth",
-      "banned_lines": 883
+      "banned_lines": 881
     },
     {
       "package": "internal/billing",
