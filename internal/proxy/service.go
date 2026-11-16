@@ -6814,7 +6814,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					toolNames = translate.NewOpenAIToolNameWriter(translator, prep.ResponseToolNames)
 					proxyWriter = toolNames
 				case surface == surfaceResponsesNative:
-					nativeTerminal = ingress.NewResponsesTerminalObserver(attemptSink).WithRequiredCompletion(requestcontext.IncludedSubscriptionOnlyFrom(actx))
+					nativeTerminal = ingress.NewResponsesTerminalObserver(attemptSink, requestcontext.IncludedSubscriptionOnlyFrom(actx))
 					proxyWriter = nativeTerminal
 					if s.usageRequired() {
 						extractor, proxyWriter = s.newUsageExtractor(nativeTerminal, d.Provider)

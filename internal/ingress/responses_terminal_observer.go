@@ -28,13 +28,12 @@ type ResponsesTerminalObserver struct {
 	failed           bool
 }
 
-func NewResponsesTerminalObserver(inner http.ResponseWriter) *ResponsesTerminalObserver {
-	return &ResponsesTerminalObserver{inner: inner}
-}
-
-func (o *ResponsesTerminalObserver) WithRequiredCompletion(required bool) *ResponsesTerminalObserver {
-	o.requireCompleted = required
-	return o
+func NewResponsesTerminalObserver(inner http.ResponseWriter, requireCompleted ...bool) *ResponsesTerminalObserver {
+	observer := &ResponsesTerminalObserver{inner: inner}
+	if len(requireCompleted) > 0 {
+		observer.requireCompleted = requireCompleted[0]
+	}
+	return observer
 }
 
 func (o *ResponsesTerminalObserver) Header() http.Header { return o.inner.Header() }

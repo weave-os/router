@@ -20,6 +20,9 @@ func ValidateRandomBenchmarkInput(ctx context.Context, body []byte, headers http
 	if err != nil {
 		return err
 	}
+	if !env.Stream() {
+		return randomrouter.ErrUnavailable
+	}
 	_, beta := env.ExtractBetaCommand()
 	_, forced := env.ExtractForceModelCommand()
 	_, feedback := env.ExtractRouterFeedbackCommand()

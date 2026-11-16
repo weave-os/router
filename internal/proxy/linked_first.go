@@ -6,6 +6,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 )
 
@@ -32,7 +33,7 @@ func paidFallbackForbidden(ctx context.Context) bool {
 // organization: these turns stay on the caller's subscription even when the
 // customer holds a provider key.
 func paidFallbackForbiddenByPlan(ctx context.Context) bool {
-	if randomBenchmarkFrom(ctx) != nil {
+	if requestcontext.IncludedSubscriptionOnlyFrom(ctx) {
 		return true
 	}
 	return claudeEnterpriseTurn(ctx) && !claudeEnterpriseCapRescue(ctx) || pickedModelOnOwnPlan(ctx) || subscriptionAttemptOnly(ctx) || subscriptionStateModelsEnabled(ctx) && !subscriptionAPIOnly(ctx)
@@ -71,7 +72,7 @@ func subscriptionOnlyUnservable(ctx context.Context, provider, model string) boo
 }
 
 func paidFallbackForbiddenForModel(ctx context.Context, model string) bool {
-	if randomBenchmarkFrom(ctx) != nil {
+	if requestcontext.IncludedSubscriptionOnlyFrom(ctx) {
 		return true
 	}
 	if claudeEnterpriseTarget(ctx, inference.Target{CatalogID: model}) || pickedModelOnOwnPlan(ctx) || subscriptionAttemptOnly(ctx) || paidCapacityUnfunded(ctx) {

@@ -132,3 +132,10 @@ func TestRandomResponsesNeverRepairOrRescue(t *testing.T) {
 		})
 	}
 }
+
+func TestRandomInputRejectsNonstreamBeforeDispatch(t *testing.T) {
+	ctx := randomrouter.WithRequest(context.Background(), &randomrouter.RequestState{})
+	headers := http.Header{"Session-Id": []string{"synthetic"}}
+	require.ErrorIs(t, ValidateRandomBenchmarkInput(ctx, []byte(`{"model":"gpt-6.1-sol","stream":false,"input":"synthetic"}`), headers), randomrouter.ErrUnavailable)
+	require.NoError(t, ValidateRandomBenchmarkInput(ctx, []byte(`{"model":"gpt-6.1-sol","stream":true,"input":"synthetic"}`), headers))
+}

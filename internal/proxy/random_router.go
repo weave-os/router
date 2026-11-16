@@ -91,9 +91,8 @@ func PrepareRandomBenchmark(s *Service, ctx context.Context) (context.Context, f
 		lease.Release()
 		return ctx, func() {}, err
 	}
-	borrowed := subscriptions.Lease{AccountID: lease.AccountID, OwnerID: lease.OwnerID, Tier: lease.Tier, AccessToken: lease.AccessToken, ProviderAccount: lease.ProviderAccount, State: lease.State, CooldownUntil: lease.CooldownUntil}
 	execution := randomrouter.RequestFrom(ctx)
-	execution.Lease = borrowed
+	execution.Lease = subscriptions.Lease{AccountID: lease.AccountID, OwnerID: lease.OwnerID, Tier: lease.Tier, AccessToken: lease.AccessToken, ProviderAccount: lease.ProviderAccount, State: lease.State, CooldownUntil: lease.CooldownUntil}
 	execution.Credentials = CredentialsFromContext(credentialCtx)
 	execution.Prepared = true
 	return ctx, lease.Release, nil
