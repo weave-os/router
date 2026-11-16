@@ -178,15 +178,17 @@ func TestCodexImageRequest_RejectsUnknownOperation(t *testing.T) {
 }
 
 type linkedCodexSeat struct {
-	cooled []string
+	cooled      []string
+	cooledUntil time.Time
 }
 
 func (l *linkedCodexSeat) Lease(context.Context, auth.SubscriptionOwner, subscriptions.Provider, string) (subscriptions.Lease, bool, error) {
 	return subscriptions.Lease{AccountID: "seat-1", OwnerID: "owner-1", AccessToken: "linked-token", ProviderAccount: "linked-account", State: auth.SubscriptionAccountStateActive}, true, nil
 }
 
-func (l *linkedCodexSeat) Cooldown(_ context.Context, _ auth.SubscriptionOwner, _ subscriptions.Provider, accountID string, _ time.Time) error {
+func (l *linkedCodexSeat) Cooldown(_ context.Context, _ auth.SubscriptionOwner, _ subscriptions.Provider, accountID string, until time.Time) error {
 	l.cooled = append(l.cooled, accountID)
+	l.cooledUntil = until
 	return nil
 }
 
@@ -216,6 +218,7 @@ func TestCodexImageRequest_ServesOnLinkedCodexSubscription(t *testing.T) {
 			upstream := newCodexImagesUpstream(t, allowedCodexQuota, func(w http.ResponseWriter, r *http.Request) {
 				assert.Equal(t, "Bearer linked-token", r.Header.Get("Authorization"))
 				assert.Equal(t, "linked-account", r.Header.Get("ChatGPT-Account-ID"))
+				w.Header().Set("Retry-After", "600")
 				w.WriteHeader(tc.status)
 				_, _ = w.Write([]byte(`{"created":1,"data":[]}`))
 			})
@@ -235,10 +238,14 @@ func TestCodexImageRequest_ServesOnLinkedCodexSubscription(t *testing.T) {
 				require.Error(t, err)
 			}
 			assert.Equal(t, tc.wantCooled, seat.cooled)
+			if tc.wantCooled != nil {
+				assert.True(t, seat.cooledUntil.After(time.Now().Add(9*time.Minute)), "cooldown must honor the upstream Retry-After")
+			}
 			select {
 			case row := <-telemetry.rows:
 				assert.Equal(t, "gpt-image-2", row.DecisionModel)
 				assert.Equal(t, int32(tc.status), row.UpstreamStatusCode)
+				assert.Equal(t, "codex_subscription", row.CredentialSource)
 				if tc.status == http.StatusOK {
 					assert.Equal(t, "seat-1", row.SubscriptionAccountID)
 				}
@@ -247,4 +254,28 @@ func TestCodexImageRequest_ServesOnLinkedCodexSubscription(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCodexImageRequest_FallsBackToSavedKeyWhenLinkedCodexQuotaIsSpent(t *testing.T) {
+	exhausted := `{"rate_limit":{"allowed":false,"limit_reached":true,"primary_window":{"used_percent":100}}}`
+	var gotKey string
+	upstream := newCodexImagesUpstream(t, exhausted, func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("a spent linked Codex seat must not reach the image backend")
+	})
+	mux, ok := upstream.Config.Handler.(*http.ServeMux)
+	require.True(t, ok)
+	mux.HandleFunc("/v1/images/generations", func(w http.ResponseWriter, r *http.Request) {
+		gotKey = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte(`{"created":1,"data":[]}`))
+	})
+	client := openai.NewClient("deployment-key", upstream.URL)
+	client.SetCodexBaseURL(upstream.URL + "/codex")
+	svc := proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil).WithManagedSubscriptions(&linkedCodexSeat{})
+	ctx := context.WithValue(context.Background(), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderOpenAI, Plaintext: []byte("sk-synthetic-byok")}})
+	ctx = proxy.WithManagedSubscriptionCandidates(proxy.WithManagedSubscriptionUsage(ctx), []*auth.SubscriptionAccount{{ID: "seat-1", Provider: auth.SubscriptionProvider(subscriptions.ProviderCodex), Enabled: true}})
+
+	err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(ctx, http.Header{}, proxy.CodexImageGenerations, []byte(`{"model":"gpt-image-2"}`), httptest.NewRecorder())
+
+	require.NoError(t, err)
+	assert.Equal(t, "Bearer sk-synthetic-byok", gotKey)
 }

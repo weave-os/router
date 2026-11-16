@@ -60,11 +60,16 @@ func (c CodexImages) ForwardWithCallerCredential(ctx context.Context, headers ht
 	if creds := codexImageCallerCredential(ctx, headers); creds != nil {
 		return forwarder.ForwardCodexImageRequest(requestcontext.WithCredentials(ctx, creds), operation, body, headers, w)
 	}
-	if served, err := c.forwardOnLinkedSubscription(ctx, forwarder, operation, body, headers, w); served {
+	served, err := c.forwardOnLinkedSubscription(ctx, forwarder, operation, body, headers, w)
+	var unsent *providers.UpstreamErrorResponse
+	if served && !errors.As(err, &unsent) {
 		return err
 	}
 	if byok := codexImageBYOK(ctx); byok != nil {
 		return forwarder.ForwardCodexImageRequest(requestcontext.WithCredentials(ctx, byok), operation, body, headers, w)
+	}
+	if served {
+		return err
 	}
 	return ErrCodexImagesRequireOwnCredential
 }
@@ -120,6 +125,10 @@ func (c CodexImages) forwardOnLinkedSubscription(ctx context.Context, forwarder 
 }
 
 func recordCodexImageLeaseOutcome(ctx context.Context, svc *Service, owner auth.SubscriptionOwner, lease subscriptions.Lease, attemptErr error) {
+	var relayed *providers.UpstreamStatusError
+	if errors.As(attemptErr, &relayed) {
+		attemptErr = &providers.UpstreamErrorResponse{Status: relayed.Status, Headers: relayed.Headers, Body: relayed.Body, BodyBytes: relayed.BodyBytes}
+	}
 	pool := subscriptions.ProviderCodex
 	log := observability.FromContext(ctx).With("provider", pool, "account_id", lease.AccountID)
 	switch upstreamStatus(attemptErr) {
@@ -173,6 +182,7 @@ func recordCodexImageUsage(ctx context.Context, svc *Service, model string, star
 		UpstreamLatencyMs:  latency,
 		TotalLatencyMs:     latency,
 		UpstreamStatusCode: int32(upstreamStatus(attemptErr)),
+		CredentialSource:   credSourceCodexSubscription,
 		CapacitySource:     string(entitlement.CapacitySourceLinkedCodex),
 	}
 	applySubscriptionWinnerTelemetry(ctx, &params)
