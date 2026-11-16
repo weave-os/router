@@ -7,8 +7,6 @@ import (
 	"strings"
 )
 
-// argumentSource indexes only container boundaries. Scalars and keys still use
-// GJSON's decoding, and nodes retain slices of this immutable source.
 type argumentSource struct {
 	raw           string
 	spans         map[int]int
@@ -74,8 +72,6 @@ func (source *argumentSource) indexContainers() error {
 	}
 }
 
-// skipArgumentSeparators only advances within a previously validated container;
-// it does not decide whether a JSON document is valid.
 func skipArgumentSeparators(raw string, offset int) int {
 	for offset < len(raw) {
 		if raw[offset] > ' ' && raw[offset] != ',' && raw[offset] != ':' {

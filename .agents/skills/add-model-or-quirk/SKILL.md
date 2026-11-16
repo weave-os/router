@@ -9,7 +9,7 @@ description: Add a model, provider binding, price or per-model behavior quirk as
 
 ## Steps
 
-1. Read [internal/router/catalog/CLAUDE.md](../../../internal/router/catalog/CLAUDE.md) and find the existing fields:
+1. Find the existing fields:
    ```bash
    rg -n 'type (Model|ProviderBinding) struct' -A40 internal/router/catalog --type go
    ```

@@ -408,3 +408,38 @@ func TestProxy_CodexSubscriptionStreamingCallerStillStreams(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, frames, rec.Body.String())
 }
+
+func TestProxy_CodexSubscriptionIgnoresBYOKBaseURL(t *testing.T) {
+	var codexPath string
+	codex := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSyntheticCodexQuota(w, r) {
+			return
+		}
+		codexPath = r.URL.Path
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "event: response.completed\ndata: {\"type\":\"response.completed\"}\n\n")
+	}))
+	defer codex.Close()
+	customerEndpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("a Codex subscription bearer must never reach a BYOK base URL, got %s", r.URL.Path)
+		w.WriteHeader(http.StatusTeapot)
+	}))
+	defer customerEndpoint.Close()
+
+	c := NewClient("deployment-key", "https://api.openai.example.invalid")
+	c.codexBaseURL = codex.URL
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
+		APIKey:    []byte("eyJhbGciOiJ-codex-jwt"),
+		AccountID: []byte("acct-12345"),
+		Source:    "codex_subscription",
+		OAuth:     true,
+		BaseURL:   customerEndpoint.URL,
+	})
+	prep := providers.PreparedRequest{Body: []byte(`{"model":"gpt-5.6-sol","input":"hi","stream":true}`), Endpoint: providers.EndpointResponses, Headers: make(http.Header)}
+
+	err := c.Proxy(ctx, router.Decision{Model: "gpt-5.6-sol", Provider: providers.ProviderOpenAI}, prep, httptest.NewRecorder(),
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader("")))
+
+	require.NoError(t, err)
+	assert.Equal(t, "/responses", codexPath)
+}
