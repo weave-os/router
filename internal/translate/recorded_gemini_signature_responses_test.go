@@ -14,9 +14,9 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-const candidateGeminiSignedCalls = "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"name\":\"Read\",\"args\":{\"file_path\":\"/tmp/a.go\"}},\"thoughtSignature\":\"c3ludGhldGljLWdlbWluaS1zaWduYXR1cmUtMQ==\"}]},\"finishReason\":\"STOP\",\"index\":0}],\"usageMetadata\":{\"promptTokenCount\":10,\"candidatesTokenCount\":5,\"totalTokenCount\":15}}\n\n"
+const geminiSigReplayUpstream = "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"name\":\"Read\",\"args\":{\"file_path\":\"/tmp/a.go\"}},\"thoughtSignature\":\"c3ludGhldGljLWdlbWluaS1zaWduYXR1cmUtMQ==\"}]},\"finishReason\":\"STOP\",\"index\":0}],\"usageMetadata\":{\"promptTokenCount\":10,\"candidatesTokenCount\":5,\"totalTokenCount\":15}}\n\n"
 
-func candidateDrive(t *testing.T, w interface {
+func geminiSigReplayDrive(t *testing.T, w interface {
 	http.ResponseWriter
 	Finalize() error
 }, contentType, body string) {
@@ -28,7 +28,7 @@ func candidateDrive(t *testing.T, w interface {
 	require.NoError(t, w.Finalize())
 }
 
-func candidateDataFrames(body string) []gjson.Result {
+func geminiSigReplayDataFrames(body string) []gjson.Result {
 	var out []gjson.Result
 	for _, line := range strings.Split(body, "\n") {
 		if data, ok := strings.CutPrefix(line, "data: "); ok && gjson.Valid(data) {
@@ -40,14 +40,14 @@ func candidateDataFrames(body string) []gjson.Result {
 
 func TestCandidate_ResponsesClientKeepsGeminiThoughtSignatureForTheNextTurn(t *testing.T) {
 	chat := httptest.NewRecorder()
-	candidateDrive(t, translate.NewGeminiToOpenAISSETranslator(chat, "client-model", nil), "text/event-stream", candidateGeminiSignedCalls)
+	geminiSigReplayDrive(t, translate.NewGeminiToOpenAISSETranslator(chat, "client-model", nil), "text/event-stream", geminiSigReplayUpstream)
 	codex := httptest.NewRecorder()
 	responses := translate.NewResponsesWriter(codex, "client-model")
 	require.NoError(t, responses.Prelude(true))
-	candidateDrive(t, responses, "text/event-stream", chat.Body.String())
+	geminiSigReplayDrive(t, responses, "text/event-stream", chat.Body.String())
 
 	var call gjson.Result
-	for _, frame := range candidateDataFrames(codex.Body.String()) {
+	for _, frame := range geminiSigReplayDataFrames(codex.Body.String()) {
 		if frame.Get("type").String() == "response.output_item.done" && frame.Get("item.type").String() == "function_call" {
 			call = frame.Get("item")
 		}
