@@ -9,11 +9,6 @@ import (
 	"weave-os/router/internal/auth"
 )
 
-// EarlyRefreshPolicy shortens the cached lifetime for explicitly enrolled Codex
-// seats. JWT issuance only schedules refresh; it never grants authorization.
-// Canary owner: Credential Brokerage maintainers. After crossing the observed
-// weekly boundary, review promotion versus removal; disable the controls if
-// refresh failures increase or the issuer enforces a hard session cutoff.
 type EarlyRefreshPolicy struct {
 	accountIDs map[string]struct{}
 	maxAge     time.Duration

@@ -1,4 +1,3 @@
-// Package serving isolates gateway admission persistence from worker telemetry and inference adapters.
 package serving
 
 import (
@@ -23,14 +22,11 @@ import (
 	"weave-os/router/internal/subscriptions/entitlement"
 )
 
-// ServingAdmissionRepo serializes identity and session selection on the router primary.
-// Lock order is installation, key, subject/access, then conversation for every admission.
 type ServingAdmissionRepo struct {
 	pool        *pgxpool.Pool
 	environment policyregistry.Environment
 }
 
-// NewServingAdmissionRepo is wired only for managed gateway mode; legacy startup never calls it.
 func NewServingAdmissionRepo(pool *pgxpool.Pool, environment policyregistry.Environment) (*ServingAdmissionRepo, error) {
 	if pool == nil {
 		return nil, errors.New("serving admission requires router primary pool")
@@ -41,7 +37,6 @@ func NewServingAdmissionRepo(pool *pgxpool.Pool, environment policyregistry.Envi
 	return &ServingAdmissionRepo{pool: pool, environment: environment}, nil
 }
 
-// Admit fails the entire request if either persistence or the authoritative release read fails.
 func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKeyID, clientSessionID string, decide policyregistry.AdmissionDecision) (policyregistry.AdmissionScope, policyregistry.SessionReleaseBinding, error) {
 	timing := admissionTiming{started: time.Now(), outcome: admissionFailed}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -63,8 +58,6 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 	transactionStart := time.Now()
 	err = pgx.BeginTxFunc(ctx, dbbudget.NewDBTX(r.pool), pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
 		projectionStart := time.Now()
-		// The projection span ends before the conversation lock so a slow lock or session-binding
-		// read cannot be mistaken for projection SQL.
 		recordProjection := func() {
 			if timing.projection == 0 {
 				timing.projection = time.Since(projectionStart)
@@ -252,8 +245,6 @@ func subscriberPlanProjection(planValue string, version int64) (policyregistry.A
 	}, nil
 }
 
-// enrollmentProjection routes to the internal lane when either the installation or the subject is enrolled.
-// Both generations only ever increase, so their sum changes whenever either enrollment flips.
 func enrollmentProjection(lane sqlc.GetServingInstallationLaneEnrollmentRow, subject *auth.CredentialSubject) policyregistry.AdmissionProjection {
 	projection := policyregistry.AdmissionProjection{Target: policyregistry.TargetStable, EnrollmentGeneration: lane.EnrollmentGeneration}
 	if lane.InternalEnrolled {
