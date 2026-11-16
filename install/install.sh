@@ -602,7 +602,8 @@ normalize_name() {
 
 # resolve_user_email picks the email to plant in router request headers so the
 # router can attribute traffic to a person even on shared API keys. Priority:
-# explicit --email → WEAVE_USER_EMAIL env override → git config user.email →
+# explicit --email → WEAVE_USER_EMAIL env override → the email this install
+# already carries → git config user.email →
 # interactive prompt (pre-filled with whatever we found). In --non-interactive
 # mode we never prompt, so unset/invalid means we ship no header (router treats
 # that as account_uuid-only, same as today). Echoes the validated email on stdout.
@@ -625,6 +626,9 @@ resolve_user_email() {
     if [ -z "$candidate" ]; then
       warn "WEAVE_USER_EMAIL=\"$WEAVE_USER_EMAIL\" is not a valid email; ignoring."
     fi
+  fi
+  if [ -z "$candidate" ]; then
+    candidate="$(normalize_email "$(read_installed_identity X-Weave-User-Email)")"
   fi
   if [ -z "$candidate" ]; then
     local git_email
@@ -1464,10 +1468,10 @@ install_lsp_servers() {
 }
 
 # resolve_user_name mirrors resolve_user_email but for display name. Priority:
-# WEAVE_USER_NAME env override → git config user.name → empty. We don't
-# prompt for name independently: if email prompting yielded nothing, name
-# almost certainly will too, and a second prompt is noise. Echoes the
-# validated name on stdout.
+# WEAVE_USER_NAME env override → the installed name → git config user.name →
+# empty. We don't prompt for name independently: if email prompting yielded
+# nothing, name almost certainly will too, and a second prompt is noise.
+# Echoes the validated name on stdout.
 resolve_user_name() {
   local candidate=""
   if [ -n "${WEAVE_USER_NAME:-}" ]; then
@@ -1475,6 +1479,9 @@ resolve_user_name() {
     if [ -z "$candidate" ]; then
       warn "WEAVE_USER_NAME=\"$WEAVE_USER_NAME\" is not a usable name; ignoring."
     fi
+  fi
+  if [ -z "$candidate" ]; then
+    candidate="$(normalize_name "$(read_installed_identity X-Weave-User-Name)")"
   fi
   if [ -z "$candidate" ]; then
     local git_name
@@ -2737,6 +2744,62 @@ read_installed_key() {
     copilot)  read_copilot_key ;;
     claude-desktop) json_get "$desktop_shim_config" '.router_key' ;;
   esac
+}
+
+# read_installed_identity prints identity header $1 (X-Weave-User-Email or
+# X-Weave-User-Name) from this target's existing install, or nothing. A
+# prompt-less re-run with no git identity (an MDM-pushed `update`) would
+# otherwise rewrite the config without it and drop attribution. Files git
+# tracks are skipped for every target, Claude Code included: a committed
+# identity belongs to whoever committed it, not to this user.
+read_installed_identity() {
+  local header="$1" candidate value=""
+  case "$target" in
+    claude)
+      while IFS= read -r candidate; do
+        [ -n "$candidate" ] || continue
+        key_source_is_own "$candidate" || continue
+        value="$(json_get "$candidate" '.env.ANTHROPIC_CUSTOM_HEADERS' \
+          | sed -n "s/^[[:space:]]*${header}:[[:space:]]*//p" | head -n 1)"
+        [ -z "$value" ] || break
+      done <<<"$(models_key_file_order)"
+      ;;
+    codex)
+      if key_source_is_own "$codex_config_file"; then
+        value="$(awk -v header="$header" '
+          /^[[:space:]]*\[/ {
+            in_provider = ($0 ~ /^[[:space:]]*\[[[:space:]]*model_providers[[:space:]]*\.[[:space:]]*weave[[:space:]]*(\.[^]]*)?\][[:space:]]*(#.*)?$/)
+            next
+          }
+          in_provider && match($0, "\"?" header "\"?[[:space:]]*=[[:space:]]*\"[^\"]*\"") {
+            v = substr($0, RSTART, RLENGTH)
+            sub(/^.*=[[:space:]]*"/, "", v)
+            sub(/"$/, "", v)
+            print v
+            exit
+          }
+        ' "$codex_config_file" 2>/dev/null || true)"
+      fi
+      ;;
+    opencode)
+      if key_source_is_own "$opencode_config_file"; then
+        value="$(json_get "$opencode_config_file" ".provider.weave.options.headers[\"$header\"]")"
+      fi
+      ;;
+    pi)
+      if key_source_is_own "$pi_models_file"; then
+        value="$(json_get "$pi_models_file" ".providers.weave.headers[\"$header\"]")"
+      fi
+      ;;
+    copilot)
+      if key_source_is_own "$copilot_providers_file"; then
+        value="$(jq -r --arg header "$header" \
+          '[(.providers // [])[] | select(.name == "weave") | .headers[$header] // empty][0] // empty' \
+          "$copilot_providers_file" 2>/dev/null || true)"
+      fi
+      ;;
+  esac
+  printf '%s' "$value"
 }
 
 # resolve_installed_base_url prints the router endpoint this Claude Code install
