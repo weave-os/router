@@ -8,8 +8,6 @@ import (
 	"weave-os/router/internal/router"
 )
 
-// ObservePrepared wraps client so observe sees each prepared body before it
-// reaches the adapter.
 func ObservePrepared(client providers.Client, observe func(ctx context.Context, body []byte)) providers.Client {
 	return preparedObserver{Client: client, observe: observe}
 }

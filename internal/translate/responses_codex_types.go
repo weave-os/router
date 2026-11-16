@@ -10,18 +10,10 @@ import (
 	"strings"
 )
 
-// ErrCustomToolArguments marks model tool-call arguments that cannot be
-// unwrapped into a Codex custom tool input.
 var ErrCustomToolArguments = errors.New("decode custom tool arguments")
 
-// ErrToolCallTruncated marks a tool call the output token limit cut off
-// before its arguments completed. It wraps ErrCustomToolArguments.
 var ErrToolCallTruncated = errors.New("tool call cut off by the output token limit")
 
-// ResponsesToolMapping describes one Responses tool after it has been
-// projected into a flat Chat Completions function. Alias is the synthetic Chat
-// function name. Name and Namespace are restored on the way back to Codex;
-// Custom marks a function projected from a Responses custom tool.
 type ResponsesToolMapping struct {
 	Alias     string
 	Name      string
@@ -64,8 +56,6 @@ func customToolInput(arguments string) (string, error) {
 
 var argumentKeyName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,31}$`)
 
-// argumentKeyNames lists the wrapper's keys for diagnostics. Model output can
-// put arbitrary text in a key, so only short identifiers are named.
 func argumentKeyNames(wrapper map[string]json.RawMessage) []string {
 	names := make([]string, 0, len(wrapper))
 	for _, key := range slices.Sorted(maps.Keys(wrapper)) {
@@ -77,9 +67,6 @@ func argumentKeyNames(wrapper map[string]json.RawMessage) []string {
 	return names
 }
 
-// truncationAwareCustomToolInput attributes an unwrap failure on a
-// length-finished turn to truncation: Anthropic sends no argument deltas for a
-// tool_use block that max_tokens cuts off, leaving only its "{}" placeholder.
 func truncationAwareCustomToolInput(arguments, finishReason string) (string, error) {
 	input, err := customToolInput(arguments)
 	if err != nil && finishReason == "length" {

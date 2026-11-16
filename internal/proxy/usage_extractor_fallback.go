@@ -7,8 +7,6 @@ import (
 	"weave-os/router/internal/telemetry"
 )
 
-// fallbackUsageResponseWriter keeps usage parsing functional when a service is
-// constructed without an observability emitter, as in lightweight callers.
 type fallbackUsageResponseWriter struct {
 	inner     http.ResponseWriter
 	extractor *telemetry.UsageExtractor

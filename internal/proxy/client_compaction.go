@@ -24,7 +24,6 @@ func applyClientCompactionRecovery(ctx context.Context, env *translate.RequestEn
 	}
 	log := observability.FromContext(ctx)
 	if turn == turntype.Compaction {
-		// A textual target leaves room for reasoning and does not cut off a valid handoff.
 		summaryTargetTokens := min(DefaultCompactionMaxTokens, budget.DefaultWindow/100)
 		err := env.AppendClientCompactionInstruction(fmt.Sprintf(clientCompactionGuidance, summaryTargetTokens))
 		if err != nil {
@@ -45,8 +44,6 @@ func applyClientCompactionRecovery(ctx context.Context, env *translate.RequestEn
 		!env.HasTools() || !strings.HasPrefix(continuation, clientCompactContinuationPrefix) {
 		return false, nil
 	}
-	// Bound the recovery period from this request's history, not a session cache.
-	// Include the preserved assistant batch; ordinary parallel work resumes after it.
 	assistantTurns := 0
 	for _, message := range history {
 		if message.Role == "assistant" {
@@ -56,8 +53,6 @@ func applyClientCompactionRecovery(ctx context.Context, env *translate.RequestEn
 	if assistantTurns > clientRecoveryAssistantTurns {
 		return false, nil
 	}
-	// Only a request parameter changes: editing the resumed transcript would
-	// invalidate signed thinking and would not change the client's retained batch.
 	changed, err := env.DisableParallelToolUse()
 	if err != nil {
 		log.Error("Failed to constrain compaction recovery tool batch", "err", err)

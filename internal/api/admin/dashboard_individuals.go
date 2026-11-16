@@ -10,7 +10,6 @@ import (
 	"weave-os/router/internal/proxy"
 )
 
-// individualTopModels matches the hosted Individuals page's routed-models column.
 const individualTopModels = 3
 
 type dashboardActivityPoint struct {
@@ -47,9 +46,6 @@ type dashboardIndividualsResponse struct {
 	Individuals []dashboardIndividual `json:"individuals"`
 }
 
-// MetricsIndividualsHandler serves each person's usage totals, per-bucket
-// activity and routed-model mix over the window, plus everyone who can route
-// but sent nothing in it.
 func MetricsIndividualsHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		granularity := c.DefaultQuery("granularity", "day")
@@ -142,7 +138,6 @@ func activityPoints(values map[int64]float64) []dashboardActivityPoint {
 	return points
 }
 
-// topModels keeps the most-requested routed models and sums the rest.
 func topModels(requestsByModel map[string]int64) ([]dashboardIndividualModel, int64) {
 	models := make([]dashboardIndividualModel, 0, len(requestsByModel))
 	for model, requests := range requestsByModel {
