@@ -16,8 +16,8 @@ func (s *Service) markManagedSubscriptionServed(ctx context.Context, credentialC
 	}
 	usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	if usage != nil {
-		served, _ := subscriptionlane.Step(billing.SubscriptionLaneFromContext(ctx), subscriptionlane.SubscriptionServed)
-		usage.Served = served == subscriptionlane.ServedOnSubscription
+		served, stepped := subscriptionlane.Step(billing.SubscriptionLaneFromContext(ctx), subscriptionlane.SubscriptionServed)
+		usage.Served = stepped && served == subscriptionlane.ServedOnSubscription
 		usage.SubscriptionAccountID = lease.AccountID
 		usage.SubscriptionOwnerID = lease.OwnerID
 		usage.SubscriptionTier = lease.Tier
