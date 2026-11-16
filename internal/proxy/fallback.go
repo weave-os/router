@@ -163,28 +163,33 @@ func flushUpstreamErrorRendered(w http.ResponseWriter, err error, render func([]
 	if !errors.As(err, &resp) || isContextOverflow(err) {
 		return
 	}
-	for k, vs := range resp.Headers {
-		canon := http.CanonicalHeaderKey(k)
-		if _, hop := providers.HopByHopHeaders[canon]; hop {
-			continue
-		}
-		if canon == "Content-Length" || canon == "Content-Encoding" {
-			continue
-		}
-		for _, v := range vs {
-			w.Header().Add(k, v)
-		}
-	}
 	body := resp.Body
 	if render != nil {
 		body = render(body)
 	}
 	body = attributedErrorBody(body, err)
-	if !bytes.Equal(body, resp.Body) {
+	rewritten := !bytes.Equal(body, resp.Body)
+	copyReplayedErrorHeaders(w.Header(), resp.Headers, rewritten)
+	if rewritten {
 		w.Header().Set("Content-Type", "application/json")
 	}
 	w.WriteHeader(resp.Status)
 	_, _ = w.Write(body)
+}
+
+func copyReplayedErrorHeaders(dst, upstream http.Header, bodyRewritten bool) {
+	for k, vs := range upstream {
+		canon := http.CanonicalHeaderKey(k)
+		if _, hop := providers.HopByHopHeaders[canon]; hop || canon == "Content-Length" {
+			continue
+		}
+		if bodyRewritten && (canon == "Content-Encoding" || canon == "Content-Type") {
+			continue
+		}
+		for _, v := range vs {
+			dst.Add(k, v)
+		}
+	}
 }
 
 func emitAnthropicSSEErrorEvent(sink http.ResponseWriter, err error) error {
@@ -261,21 +266,11 @@ func flushUpstreamErrorAsAnthropic(w http.ResponseWriter, err error) {
 	if !errors.As(err, &resp) || isContextOverflow(err) {
 		return
 	}
-	for k, vs := range resp.Headers {
-		canon := http.CanonicalHeaderKey(k)
-		if _, hop := providers.HopByHopHeaders[canon]; hop {
-			continue
-		}
-		if canon == "Content-Type" || canon == "Content-Length" {
-			continue
-		}
-		for _, v := range vs {
-			w.Header().Add(k, v)
-		}
-	}
+	body := attributedErrorBody(translate.OpenAIToAnthropicError(resp.Body), err)
+	copyReplayedErrorHeaders(w.Header(), resp.Headers, !bytes.Equal(body, resp.Body))
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.Status)
-	_, _ = w.Write(attributedErrorBody(translate.OpenAIToAnthropicError(resp.Body), err))
+	_, _ = w.Write(body)
 }
 
 func attemptIdxLabel(i int) string {

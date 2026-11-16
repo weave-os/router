@@ -113,7 +113,7 @@ func TestReplayedUpstreamErrorDropsBodyFraming(t *testing.T) {
 		flush(rec, upstream())
 		assert.Equal(t, http.StatusBadRequest, rec.Code, name)
 		assert.Empty(t, rec.Header().Get("Content-Length"), name)
-		assert.Empty(t, rec.Header().Get("Content-Encoding"), name)
+		assert.Equal(t, "gzip", rec.Header().Get("Content-Encoding"), "%s forwards the upstream bytes, so their encoding stays", name)
 		assert.Equal(t, "req_synthetic", rec.Header().Get("X-Request-Id"), name)
 	}
 
@@ -121,6 +121,7 @@ func TestReplayedUpstreamErrorDropsBodyFraming(t *testing.T) {
 	flushUpstreamErrorAsAnthropic(rec, upstream())
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Empty(t, rec.Header().Get("Content-Length"))
+	assert.Empty(t, rec.Header().Get("Content-Encoding"), "a rewritten body drops the upstream encoding")
 	assert.Equal(t, "req_synthetic", rec.Header().Get("X-Request-Id"))
 }
 
