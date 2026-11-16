@@ -24,8 +24,8 @@ func registerClientPassthroughRoutes(engine *gin.Engine, authSvc *auth.Service, 
 	)
 	codexImagesGroup.Use(servingAdmissionMiddleware...)
 	codexImages := proxy.NewCodexImages(proxySvc)
-	codexImagesGroup.POST("/v1/images/generations", openaiapi.ImagesHandler(proxy.CodexImageGenerations, codexImages.ForwardWithCallerChatGPTLogin))
-	codexImagesGroup.POST("/v1/images/edits", openaiapi.ImagesHandler(proxy.CodexImageEdits, codexImages.ForwardWithCallerChatGPTLogin))
+	codexImagesGroup.POST("/v1/images/generations", openaiapi.ImagesHandler(proxy.CodexImageGenerations, codexImages.ForwardWithCallerCredential))
+	codexImagesGroup.POST("/v1/images/edits", openaiapi.ImagesHandler(proxy.CodexImageEdits, codexImages.ForwardWithCallerCredential))
 
 	passthroughGroup := engine.Group("",
 		middleware.WithTimeout(passthroughTimeout),

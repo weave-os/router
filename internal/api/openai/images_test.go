@@ -25,7 +25,8 @@ func TestImagesHandler_StatusByForwardOutcome(t *testing.T) {
 		wantStatus int
 	}{
 		{"served", nil, http.StatusOK},
-		{"missing ChatGPT login", proxy.ErrCodexImagesRequireChatGPT, http.StatusForbidden},
+		{"missing own credential", proxy.ErrCodexImagesRequireOwnCredential, http.StatusForbidden},
+		{"gateway tenancy", proxy.ErrCodexImagesUnavailableWithGateway, http.StatusForbidden},
 		{"transport failure", errors.New("dial upstream"), http.StatusBadGateway},
 		{"included quota exhausted", &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"error":{"type":"usage_limit_reached","message":"Codex included quota is exhausted."}}`)}, http.StatusTooManyRequests},
 	}

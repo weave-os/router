@@ -30,7 +30,7 @@ func ImagesHandler(operation string, forward CodexImageForwarder) gin.HandlerFun
 		if err == nil || c.Writer.Written() {
 			return
 		}
-		if errors.Is(err, proxy.ErrCodexImagesRequireChatGPT) {
+		if errors.Is(err, proxy.ErrCodexImagesRequireOwnCredential) || errors.Is(err, proxy.ErrCodexImagesUnavailableWithGateway) {
 			writeOpenAIError(c, http.StatusForbidden, "invalid_request_error", err.Error())
 			return
 		}

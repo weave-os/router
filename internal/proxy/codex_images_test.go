@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/proxy"
@@ -54,7 +55,7 @@ func TestCodexImageRequest_ForwardsWithCallerOAuth(t *testing.T) {
 			headers.Set("X-Weave-Router-Key", "rk-synthetic")
 			rec := httptest.NewRecorder()
 
-			err := proxy.NewCodexImages(svc).ForwardWithCallerChatGPTLogin(context.Background(), headers, operation, []byte(`{"model":"gpt-image-2","prompt":"a red square"}`), rec)
+			err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(context.Background(), headers, operation, []byte(`{"model":"gpt-image-2","prompt":"a red square"}`), rec)
 
 			require.NoError(t, err)
 			assert.Equal(t, http.StatusOK, rec.Code)
@@ -76,7 +77,7 @@ func TestCodexImageRequest_RelaysUpstreamError(t *testing.T) {
 	headers.Set("ChatGPT-Account-ID", "account-123")
 	rec := httptest.NewRecorder()
 
-	err := proxy.NewCodexImages(svc).ForwardWithCallerChatGPTLogin(context.Background(), headers, proxy.CodexImageGenerations, []byte(`{}`), rec)
+	err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(context.Background(), headers, proxy.CodexImageGenerations, []byte(`{}`), rec)
 
 	var statusErr *providers.UpstreamStatusError
 	require.ErrorAs(t, err, &statusErr)
@@ -96,29 +97,70 @@ func TestCodexImageRequest_EnforcesIncludedQuotaGate(t *testing.T) {
 	headers.Set("Authorization", "Bearer subscription-token")
 	headers.Set("ChatGPT-Account-ID", "account-123")
 
-	err := proxy.NewCodexImages(svc).ForwardWithCallerChatGPTLogin(context.Background(), headers, proxy.CodexImageGenerations, []byte(`{"model":"gpt-image-2"}`), httptest.NewRecorder())
+	err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(context.Background(), headers, proxy.CodexImageGenerations, []byte(`{"model":"gpt-image-2"}`), httptest.NewRecorder())
 
 	var quotaErr *providers.UpstreamErrorResponse
 	require.ErrorAs(t, err, &quotaErr)
 	assert.Equal(t, http.StatusTooManyRequests, quotaErr.Status)
 }
 
-func TestCodexImageRequest_RequiresCallerChatGPTLogin(t *testing.T) {
+func TestCodexImageRequest_ForwardsCallerAPIKeyToOpenAI(t *testing.T) {
+	cases := map[string]struct {
+		headers http.Header
+		ctx     context.Context
+		wantKey string
+	}{
+		"client API key": {headers: http.Header{"Authorization": {"Bearer sk-synthetic-client"}}, ctx: context.Background(), wantKey: "sk-synthetic-client"},
+		"saved BYOK key": {headers: http.Header{}, ctx: context.WithValue(context.Background(), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderOpenAI, Plaintext: []byte("sk-synthetic-byok")}}), wantKey: "sk-synthetic-byok"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			mux.HandleFunc("/v1/images/edits", func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, "Bearer "+tc.wantKey, r.Header.Get("Authorization"))
+				assert.Empty(t, r.Header.Get("ChatGPT-Account-ID"))
+				_, _ = w.Write([]byte(`{"created":1,"data":[]}`))
+			})
+			mux.HandleFunc("/", func(_ http.ResponseWriter, r *http.Request) {
+				t.Errorf("API-key image requests must only reach the OpenAI images API, got %s", r.URL.Path)
+			})
+			upstream := httptest.NewServer(mux)
+			defer upstream.Close()
+			client := openai.NewClient("deployment-key", upstream.URL)
+			client.SetCodexBaseURL(upstream.URL + "/codex")
+			svc := proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+			rec := httptest.NewRecorder()
+
+			err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(tc.ctx, tc.headers, proxy.CodexImageEdits, []byte(`{"model":"gpt-image-2"}`), rec)
+
+			require.NoError(t, err)
+			assert.Equal(t, http.StatusOK, rec.Code)
+		})
+	}
+}
+
+func TestCodexImageRequest_RequiresCallerOwnCredential(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		t.Fatal("image requests without the caller's ChatGPT login must not reach any upstream")
+		t.Error("image requests without the caller's own credential must not reach any upstream")
 	}))
 	defer upstream.Close()
 	client := openai.NewClient("deployment-key", upstream.URL)
 	client.SetCodexBaseURL(upstream.URL)
 	svc := proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
-	for name, headers := range map[string]http.Header{
-		"no credentials":        {},
-		"token without account": {"Authorization": {"Bearer subscription-token"}},
-		"api key":               {"Authorization": {"Bearer sk-synthetic"}},
-	} {
+	gatewayCtx := context.WithValue(context.Background(), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderOpenAIGateway, Plaintext: []byte("synthetic-gateway"), BaseURL: "https://gateway.example"}})
+	cases := map[string]struct {
+		ctx     context.Context
+		headers http.Header
+		want    error
+	}{
+		"no credentials":  {context.Background(), http.Header{}, proxy.ErrCodexImagesRequireOwnCredential},
+		"router key only": {context.Background(), http.Header{"X-Weave-Router-Key": {"rk-synthetic"}}, proxy.ErrCodexImagesRequireOwnCredential},
+		"gateway tenancy": {gatewayCtx, http.Header{"Authorization": {"Bearer subscription-token"}, "Chatgpt-Account-Id": {"account-123"}}, proxy.ErrCodexImagesUnavailableWithGateway},
+	}
+	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			err := proxy.NewCodexImages(svc).ForwardWithCallerChatGPTLogin(context.Background(), headers, proxy.CodexImageGenerations, []byte(`{}`), httptest.NewRecorder())
-			require.ErrorIs(t, err, proxy.ErrCodexImagesRequireChatGPT)
+			err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(tc.ctx, tc.headers, proxy.CodexImageGenerations, []byte(`{}`), httptest.NewRecorder())
+			require.ErrorIs(t, err, tc.want)
 		})
 	}
 }
@@ -129,6 +171,6 @@ func TestCodexImageRequest_RejectsUnknownOperation(t *testing.T) {
 	headers := make(http.Header)
 	headers.Set("Authorization", "Bearer subscription-token")
 	headers.Set("ChatGPT-Account-ID", "account-123")
-	err := proxy.NewCodexImages(svc).ForwardWithCallerChatGPTLogin(context.Background(), headers, "variations", []byte(`{}`), httptest.NewRecorder())
+	err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(context.Background(), headers, "variations", []byte(`{}`), httptest.NewRecorder())
 	require.Error(t, err)
 }
