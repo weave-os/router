@@ -107,7 +107,7 @@ func (s *Service) beginEscalation(ctx context.Context, env *translate.RequestEnv
 			}, backoff.WithBackOff(retryBackoff), backoff.WithMaxTries(5), backoff.WithMaxElapsedTime(100*time.Millisecond))
 		}
 		if _, managed := requestcontext.ServingIdentityFromContext(ctx); lookupErr == nil && !found && !managed {
-			legacyActivation := sha256.Sum256([]byte(fmt.Sprintf("%s/%s/%s/%s/%d", res.InstallationID, apiKeyID, res.Strategy, mode, selection.Epoch))) // lgtm[go/weak-sensitive-data-hashing]
+			legacyActivation := sha256.Sum256([]byte(fmt.Sprintf("%s/%s/%s/%s/%d", res.InstallationID, apiKeyID, res.Strategy, mode, selection.Epoch))) // codeql[go/weak-sensitive-data-hashing]
 			priorScope, history, found, lookupErr = s.escalationStore.Continuation(claimCtx, legacyActivation, observation.ContinuationID)
 		}
 		if lookupErr != nil || !found {
