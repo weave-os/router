@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/decisionmodel"
 	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/hmm/selection"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/rl"
 	"weave-os/router/internal/translate"
@@ -434,6 +435,32 @@ func TestClassifyDispatchError_NoRoutableModels(t *testing.T) {
 	assert.Equal(t, proxy.DispatchErrorNoRoutableModels, cls.Kind)
 	assert.Equal(t, http.StatusBadRequest, cls.Status)
 	assert.False(t, cls.RetryAfter)
+}
+
+func TestClassifyDispatchError_NoEligibleArmIsNotAnOutage(t *testing.T) {
+	err := fmt.Errorf("hmm_embedding: arm selection: %w: %w",
+		policy.ErrNoEligibleArm, hmm.ErrHMMUnavailable)
+
+	cls, ok := proxy.ClassifyDispatchError(err)
+
+	require.True(t, ok)
+	assert.Equal(t, http.StatusBadRequest, cls.Status)
+	assert.False(t, cls.RetryAfter, "every retry of the same turn meets the same eligibility")
+	assert.True(t, cls.NoClientRetry)
+	assert.NotContains(t, cls.Message, "Router unavailable")
+	assert.Contains(t, cls.Message, "No model can serve this request")
+}
+
+func TestClassifyDispatchError_InvalidClassifierOutputStaysAnOutage(t *testing.T) {
+	err := fmt.Errorf("hmm_embedding: arm selection: %w: %w",
+		selection.ErrInvalidClassifierOutput, hmm.ErrHMMUnavailable)
+
+	cls, ok := proxy.ClassifyDispatchError(err)
+
+	require.True(t, ok)
+	assert.Equal(t, proxy.DispatchErrorHMMUnavailable, cls.Kind)
+	assert.Equal(t, http.StatusServiceUnavailable, cls.Status)
+	assert.True(t, cls.RetryAfter)
 }
 
 func TestClassifyDispatchError_NoProviderCredentials(t *testing.T) {

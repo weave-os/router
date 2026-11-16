@@ -175,9 +175,10 @@ type goldenRouteCall struct {
 
 // goldenRouter returns the first decision whose model is not excluded.
 type goldenRouter struct {
-	decisions []router.Decision
-	err       error
-	rec       *goldenRecorder
+	decisions      []router.Decision
+	err            error
+	noCandidateErr error
+	rec            *goldenRecorder
 }
 
 func (g *goldenRouter) Route(_ context.Context, req router.Request) (router.Decision, error) {
@@ -215,6 +216,11 @@ func (g *goldenRouter) Route(_ context.Context, req router.Request) (router.Deci
 			d = candidate
 			break
 		}
+	}
+	if d.Model == "" && g.noCandidateErr != nil {
+		call.Error = g.noCandidateErr.Error()
+		g.rec.routes = append(g.rec.routes, call)
+		return router.Decision{}, g.noCandidateErr
 	}
 	if d.Model == "" && providerIneligible {
 		call.Error = router.ErrNoEligibleProvider.Error()

@@ -138,7 +138,7 @@ func (c *rescueChain) dispatchPrimaryAttempt(ctx context.Context, deferFlush boo
 		w:                               c.contentSink,
 		buf:                             c.preludeBuf,
 		initialDecision:                 c.decision,
-		subscriptionStateRequest:        c.req,
+		subscriptionStateRequest:        c.translationEligibleRequest(),
 		subscriptionStateHeaders:        r.Header,
 		subscriptionStateWinnerProvider: &c.subscriptionStateWinnerProvider,
 		alternatives: func() []router.Decision {
@@ -288,4 +288,13 @@ func (c *rescueChain) servedProvider(fallback string) string {
 		return c.bindings[c.winnerIdx].Provider
 	}
 	return fallback
+}
+
+func (c *rescueChain) translationEligibleRequest() *router.Request {
+	if c.routeRes.TranslationEnabledProviders == nil {
+		return c.req
+	}
+	req := *c.req
+	req.EnabledProviders = c.routeRes.TranslationEnabledProviders
+	return &req
 }

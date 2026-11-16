@@ -44,9 +44,12 @@ type goldenScenario struct {
 	ingress   string
 	decisions []router.Decision
 	routeErr  error
-	upstreams map[string][]goldenStep
-	requests  []goldenRequest
-	configure func(*proxy.Service, *goldenHarness) *proxy.Service
+	// noCandidateErr replaces the fake router's error when no decision survives
+	// the request's provider and model exclusions.
+	noCandidateErr error
+	upstreams      map[string][]goldenStep
+	requests       []goldenRequest
+	configure      func(*proxy.Service, *goldenHarness) *proxy.Service
 	// credentials labels the secrets a scenario supplies; non-nil records the
 	// resolved credential per attempt and fails if an attempt carries any other
 	// credential or a known secret reaches client bytes, logs, billing or telemetry.
@@ -154,7 +157,7 @@ func newGoldenHarness(t *testing.T, sc goldenScenario) *goldenHarness {
 		auxiliary, available, func(m catalog.Model) string { return m.ID }, policy.ProviderPolicy{}))
 	require.NoError(t, err)
 
-	rt := &goldenRouter{decisions: sc.decisions, err: sc.routeErr, rec: h.rec}
+	rt := &goldenRouter{decisions: sc.decisions, err: sc.routeErr, noCandidateErr: sc.noCandidateErr, rec: h.rec}
 	svc := proxy.NewService(rt, providerMap, nil, h.pins, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", h.telemetry).
 		WithDeploymentKeyedProviders(available).
@@ -549,6 +552,7 @@ func TestGolden(t *testing.T) {
 	scenarios = append(scenarios, goldenCredentialScenarios()...)
 	scenarios = append(scenarios, goldenRoutingPolicyScenarios()...)
 	scenarios = append(scenarios, goldenConversationScenarios()...)
+	scenarios = append(scenarios, goldenSubscriptionExhaustionScenarios()...)
 	for _, sc := range append(scenarios, goldenIngressScenarios()...) {
 		require.False(t, names[sc.name], "duplicate golden scenario %s", sc.name)
 		names[sc.name] = true

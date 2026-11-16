@@ -2,9 +2,11 @@ package proxy
 
 import (
 	"context"
+	"strings"
 
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/translate"
 )
 
 func pinMatchesEffectiveStrategy(ctx context.Context, pin sessionpin.Pin) bool {
@@ -32,4 +34,8 @@ func strategyForTurnLoopResult(res turnLoopResult) router.Strategy {
 		}
 	}
 	return router.StrategyHMMEmbedding
+}
+
+func isUserForcedReason(reason string) bool {
+	return strings.HasPrefix(reason, translate.ReasonUserForceModel)
 }

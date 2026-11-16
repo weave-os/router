@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"errors"
 	"fmt"
 )
@@ -14,4 +15,17 @@ var (
 
 func isSubscriptionPoolError(err error) bool {
 	return errors.Is(err, ErrSubscriptionPoolExhausted) || errors.Is(err, ErrSubscriptionPoolUnavailable) || errors.Is(err, ErrClaudeEnterpriseSubscriptionUnavailable)
+}
+
+func subscriptionFundingFailure(err error) bool {
+	return isSubscriptionPoolError(err) || subscriptionLaneRefused(err) ||
+		codexSubscriptionModelRejected(err) || anthropicSubscriptionModelRejected(err) ||
+		codexOAuthCredentialRejected(err) || anthropicOAuthCredentialRejected(err) || anthropicSubscriptionThirdPartyRefused(err)
+}
+
+func strikeModelUnlessFundingFailure(ctx context.Context, model string, err error) {
+	if subscriptionFundingFailure(err) {
+		return
+	}
+	recordTurnFailure(ctx, model)
 }
