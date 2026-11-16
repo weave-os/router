@@ -4,9 +4,9 @@ import (
 	"crypto/rand"
 	"math/big"
 	"weave-os/router/internal/proxy"
-	randomrouter "weave-os/router/internal/random_router"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
+	randomrouter "weave-os/router/internal/router/random_router"
 )
 
 func randomBenchmarkDraw(size int) (int, error) {

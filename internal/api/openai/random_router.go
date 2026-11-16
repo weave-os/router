@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
-	randomrouter "weave-os/router/internal/random_router"
+	randomrouter "weave-os/router/internal/router/random_router"
 )
 
 func RandomRouterGate(svc *proxy.Service) gin.HandlerFunc {

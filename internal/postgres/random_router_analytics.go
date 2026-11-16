@@ -2,9 +2,9 @@ package postgres
 
 import (
 	"weave-os/router/internal/analytics"
-	randomrouter "weave-os/router/internal/random_router"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	randomrouter "weave-os/router/internal/router/random_router"
 	"weave-os/router/internal/sqlc"
 )
 

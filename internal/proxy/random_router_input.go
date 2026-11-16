@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"weave-os/router/internal/providers"
-	randomrouter "weave-os/router/internal/random_router"
+	randomrouter "weave-os/router/internal/router/random_router"
 	"weave-os/router/internal/translate"
 )
 

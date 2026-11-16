@@ -13,10 +13,10 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/providers"
-	randomrouter "weave-os/router/internal/random_router"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	randomrouter "weave-os/router/internal/router/random_router"
 
 	"weave-os/router/internal/subscriptions"
 )

@@ -9,10 +9,10 @@ import (
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
-	randomrouter "weave-os/router/internal/random_router"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
+	randomrouter "weave-os/router/internal/router/random_router"
 )
 
 func dispatchRandomPlanned(s *Service, ctx context.Context, in failoverInputs, plan inference.ResolvedPlan) (int, error) {
@@ -71,7 +71,7 @@ func dispatchRandomRequest(s *Service, ctx context.Context, in failoverInputs) (
 	if randomBenchmarkFrom(ctx) == nil {
 		return -1, randomrouter.ErrUnavailable
 	}
-	if in.purpose == "" || in.initialDecision.Provider != providers.ProviderOpenAI || !slices.Contains(randomrouter.Models(), in.initialDecision.Model) {
+	if in.purpose != inference.PurposeOpenAIResponses || in.initialDecision.Provider != providers.ProviderOpenAI || !slices.Contains(randomrouter.Models(), in.initialDecision.Model) {
 		return -1, randomrouter.ErrUnavailable
 	}
 	ctx = s.withSubscriptionFundingAuthorization(ctx, in.subscriptionStateHeaders)
@@ -80,7 +80,7 @@ func dispatchRandomRequest(s *Service, ctx context.Context, in failoverInputs) (
 		return -1, err
 	}
 	in.bindings = []catalog.ProviderBinding{{Provider: providers.ProviderOpenAI}}
-	plan, err := plans.ResolveRouted(policy.RoutedResolutionRequest{Purpose: policy.Purpose(in.purpose), Decision: in.initialDecision, Bindings: in.bindings, Budget: &policy.BudgetOverride{Source: policy.BudgetSourceRequest, MaxAttempts: 1}})
+	plan, err := plans.ResolveRouted(policy.RoutedResolutionRequest{Purpose: policy.PurposeOpenAIResponses, Decision: in.initialDecision, Bindings: in.bindings, Budget: &policy.BudgetOverride{Source: policy.BudgetSourceRequest, MaxAttempts: 1}})
 	if err != nil {
 		return -1, err
 	}

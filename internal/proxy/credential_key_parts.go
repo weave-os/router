@@ -2,7 +2,7 @@ package proxy
 
 import (
 	"context"
-	randomrouter "weave-os/router/internal/random_router"
+	randomrouter "weave-os/router/internal/router/random_router"
 
 	"weave-os/router/internal/credentials"
 )

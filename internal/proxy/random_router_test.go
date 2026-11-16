@@ -15,11 +15,11 @@ import (
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/providers"
-	randomrouter "weave-os/router/internal/random_router"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
+	randomrouter "weave-os/router/internal/router/random_router"
 	"weave-os/router/internal/subscriptions"
 )
 

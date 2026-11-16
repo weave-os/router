@@ -6,8 +6,8 @@ import (
 	"github.com/google/uuid"
 	"time"
 	"weave-os/router/internal/auth"
-	randomrouter "weave-os/router/internal/random_router"
 	"weave-os/router/internal/router"
+	randomrouter "weave-os/router/internal/router/random_router"
 	"weave-os/router/internal/router/turntype"
 )
 
