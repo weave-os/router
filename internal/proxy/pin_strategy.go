@@ -7,9 +7,6 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 )
 
-// pinMatchesEffectiveStrategy reports whether a stored pin belongs to the
-// strategy serving this request. An explicit user force is policy-independent;
-// legacy empty-strategy rows remain eligible outside beta during rollout.
 func pinMatchesEffectiveStrategy(ctx context.Context, pin sessionpin.Pin) bool {
 	if isUserForcedReason(pin.Reason) {
 		return true
