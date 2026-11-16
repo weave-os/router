@@ -40,9 +40,6 @@ func paidFallbackLanes() []paidFallbackFacts {
 }
 
 func paidFallbackBindings() []paidFallbackFacts {
-	with := func(key, value any) func(context.Context) context.Context {
-		return func(ctx context.Context) context.Context { return context.WithValue(ctx, key, value) }
-	}
 	stateModels := func(ctx context.Context) context.Context {
 		ctx = context.WithValue(ctx, InstallationSubscriptionStateModelsEnabledContextKey{}, true)
 		return context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
@@ -52,9 +49,15 @@ func paidFallbackBindings() []paidFallbackFacts {
 	}
 	return []paidFallbackFacts{
 		{"open", func(ctx context.Context) context.Context { return ctx }},
-		{"api-only", with(subscriptionAPIOnlyKey{}, true)},
-		{"subscription-attempt", with(subscriptionOnlyAttemptKey{}, true)},
-		{"own-plan-pick", with(pickedModelOnOwnPlanContextKey{}, true)},
+		{"api-only", func(ctx context.Context) context.Context {
+			return context.WithValue(ctx, subscriptionAPIOnlyKey{}, true)
+		}},
+		{"subscription-attempt", func(ctx context.Context) context.Context {
+			return context.WithValue(ctx, subscriptionOnlyAttemptKey{}, true)
+		}},
+		{"own-plan-pick", func(ctx context.Context) context.Context {
+			return context.WithValue(ctx, pickedModelOnOwnPlanContextKey{}, true)
+		}},
 		{"included-lane", stateModels},
 		{"exhausted-set", func(ctx context.Context) context.Context {
 			return context.WithValue(stateModels(ctx), subscriptionAPIOnlyKey{}, true)
