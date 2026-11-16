@@ -56,3 +56,17 @@ func TestHasUnsignedToolCallHistory_OpenAISigned(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, env.HasUnsignedToolCallHistory())
 }
+
+func TestHasUnsignedToolCallHistory_GeminiUnsignedFunctionCall(t *testing.T) {
+	unsigned, err := translate.ParseGemini([]byte(`{"contents":[
+		{"role":"user","parts":[{"text":"hi"}]},
+		{"role":"model","parts":[{"functionCall":{"name":"Bash","args":{}}}]}]}`))
+	require.NoError(t, err)
+	assert.True(t, unsigned.HasUnsignedToolCallHistory())
+
+	signed, err := translate.ParseGemini([]byte(`{"contents":[
+		{"role":"user","parts":[{"text":"hi"}]},
+		{"role":"model","parts":[{"functionCall":{"name":"Bash","args":{}},"thoughtSignature":"sig"}]}]}`))
+	require.NoError(t, err)
+	assert.False(t, signed.HasUnsignedToolCallHistory())
+}

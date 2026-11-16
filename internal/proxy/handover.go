@@ -26,53 +26,29 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// DefaultHandoverTimeout bounds the summarizer call. Tuned for ~5-7s p95
-// observed for haiku-class summarization of ~20k-token sessions.
 const DefaultHandoverTimeout = 8 * time.Second
 
-// DefaultHandoverMaxTokens caps the synthesized summary length.
 const DefaultHandoverMaxTokens = 800
 
-// handoverInstruction elicits the summary as a final user message, explicit
-// about what must survive the switch (decisions, paths, latest intent).
 const handoverInstruction = "Summarize the conversation so far in <= 800 tokens. " +
 	"Preserve all decisions, file paths, code snippets, and the user's latest intent. " +
 	"Output only the summary text — no preamble, no closing remark."
 
-// DefaultCompactionMaxTokens caps the structured compaction summary. Larger
-// than the switch handover cap because the compaction summary is the ONLY
-// record of the elided history the model keeps — it must carry task state, not
-// just a gist.
 const DefaultCompactionMaxTokens = 4000
 
-// DefaultCompactionTimeout bounds one compaction summary call. A Sonnet-class
-// summary over a near-full context window routinely takes tens of seconds;
-// the client is blocked on the compaction either way.
 const DefaultCompactionTimeout = 90 * time.Second
 
-// ProviderSummarizer implements handover.Summarizer by resolving a reviewed
-// policy plan for the summary purpose and running the Anthropic Messages
-// request through the dispatch executor. Only the executor touches the
-// provider client; this type never selects a provider on its own.
 type ProviderSummarizer struct {
-	plans     *policy.PlanResolver
-	executor  *dispatch.Executor
-	provider  string
-	model     string
-	timeout   time.Duration
-	maxTokens int
-	// compactionTimeout bounds SummarizeForCompaction separately: a
-	// Sonnet-class summary of a near-full window is far slower than the
-	// 800-token handover call.
+	plans             *policy.PlanResolver
+	executor          *dispatch.Executor
+	provider          string
+	model             string
+	timeout           time.Duration
+	maxTokens         int
 	compactionTimeout time.Duration
-	// compactionModel is the deployment override recorded on the compaction
-	// policies (ROUTER_COMPACTION_MODEL); empty means the policy default.
-	compactionModel string
+	compactionModel   string
 }
 
-// NewProviderSummarizer constructs the summarizer over the plan resolver and
-// executor. provider/model are the deployment override recorded on the
-// handover-summary policy; empty/zero args fall back to defaults.
 func NewProviderSummarizer(plans *policy.PlanResolver, executor *dispatch.Executor, provider, model string, timeout time.Duration) *ProviderSummarizer {
 	if provider == "" {
 		provider = providers.ProviderAnthropic
@@ -94,8 +70,6 @@ func NewProviderSummarizer(plans *policy.PlanResolver, executor *dispatch.Execut
 	}
 }
 
-// WithCompactionTimeout overrides the hard timeout for compaction summaries
-// (ROUTER_COMPACTION_TIMEOUT_MS). Zero/negative leaves the default.
 func (s *ProviderSummarizer) WithCompactionTimeout(d time.Duration) *ProviderSummarizer {
 	if d > 0 {
 		s.compactionTimeout = d
@@ -103,15 +77,11 @@ func (s *ProviderSummarizer) WithCompactionTimeout(d time.Duration) *ProviderSum
 	return s
 }
 
-// WithCompactionModel records the deployment's compaction summarizer model,
-// used as the deployment override for the compaction-handover purpose.
 func (s *ProviderSummarizer) WithCompactionModel(model string) *ProviderSummarizer {
 	s.compactionModel = model
 	return s
 }
 
-// WithMaxTokens overrides the per-summary output cap. Zero/negative
-// leaves the default.
 func (s *ProviderSummarizer) WithMaxTokens(n int) *ProviderSummarizer {
 	if n > 0 {
 		s.maxTokens = n
@@ -119,20 +89,12 @@ func (s *ProviderSummarizer) WithMaxTokens(n int) *ProviderSummarizer {
 	return s
 }
 
-// Provider returns the upstream provider this summarizer dispatches to.
 func (s *ProviderSummarizer) Provider() string {
 	return s.provider
 }
 
-// ErrEmptySummary is returned when the upstream call succeeded but no
-// assistant text was extractable.
 var ErrEmptySummary = errors.New("handover: upstream returned no summary text")
 
-// Summarize implements handover.Summarizer: resolves the handover-summary
-// plan within the request's scope and runs the Anthropic Messages call
-// through the executor under the plan's budget, returning summary text plus
-// usage for a separate ledger row. On failure returns ("", zero Usage, err)
-// so the caller falls back to the full prior history.
 func (s *ProviderSummarizer) Summarize(ctx context.Context, env *translate.RequestEnvelope, scope router.Request) (string, handover.Usage, error) {
 	plan, err := s.resolve(ctx, policy.ResolutionRequest{
 		Purpose:       policy.PurposeHandoverSummary,
@@ -145,10 +107,6 @@ func (s *ProviderSummarizer) Summarize(ctx context.Context, env *translate.Reque
 	return s.run(ctx, env, plan, handoverInstruction, s.maxTokens, s.timeout)
 }
 
-// CompactionHandover returns a Summarizer for the compaction-handover purpose
-// (a client-compacted turn routed off Anthropic). It runs the handover prompt
-// on the compaction policy's reviewed model under the compaction timeout: the
-// elided turns are gone client-side, so the summary is the only record.
 func (s *ProviderSummarizer) CompactionHandover() handover.Summarizer {
 	return compactionHandoverSummarizer{s}
 }
@@ -170,9 +128,6 @@ func (c compactionHandoverSummarizer) Summarize(ctx context.Context, env *transl
 	return c.run(ctx, env, plan, handoverInstruction, c.maxTokens, c.compactionTimeout)
 }
 
-// summarizerRequest is the candidate-resolution input for a summary call:
-// the tenant's eligibility from scope plus the size of the history the
-// summarizer must ingest, measured on env at call time.
 func summarizerRequest(scope router.Request, env *translate.RequestEnvelope) router.Request {
 	request := router.Request{
 		EnabledProviders: scope.EnabledProviders,
@@ -191,8 +146,6 @@ func (s *ProviderSummarizer) resolve(ctx context.Context, request policy.Resolut
 		return policy.ResolvedPlan{}, errors.New("handover: summarizer has no plan resolver or executor")
 	}
 	if subscriptionStateModelsEnabled(ctx) {
-		// Summaries use deployment credentials, so active-only models cannot
-		// authorize their paid inference as a side effect of switching models.
 		paidCtx := context.WithValue(ctx, subscriptionStateAllowedModelsKey{}, modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx)))
 		allowed := allowedModelsForRequest(paidCtx)
 		request.RouterRequest.ExcludedModels = cloneStringSet(request.RouterRequest.ExcludedModels)
@@ -213,9 +166,6 @@ func (s *ProviderSummarizer) resolve(ctx context.Context, request policy.Resolut
 	return plan, nil
 }
 
-// run executes one buffered Anthropic Messages summary through the executor.
-// The policy budget tightens (never loosens) the configured timeout and
-// output cap. On any failure returns ("", zero, err) so callers fall back.
 func (s *ProviderSummarizer) run(ctx context.Context, env *translate.RequestEnvelope, plan policy.ResolvedPlan, instruction string, maxTokens int, timeout time.Duration) (string, handover.Usage, error) {
 	log := observability.FromContext(ctx)
 	if env == nil {
@@ -252,8 +202,6 @@ func (s *ProviderSummarizer) run(ctx context.Context, env *translate.RequestEnve
 	return text, usage, nil
 }
 
-// prepareSummaryCall builds the non-streaming Anthropic Messages request for
-// target; dispatch checks the wire model against the plan before any I/O.
 func prepareSummaryCall(ctx context.Context, env *translate.RequestEnvelope, target inference.Target, instruction string, maxTokens int) (providers.PreparedRequest, *http.Request, error) {
 	body, err := buildSummaryRequestBody(env, target.CatalogID, instruction, maxTokens)
 	if err != nil {
@@ -266,9 +214,6 @@ func prepareSummaryCall(ctx context.Context, env *translate.RequestEnvelope, tar
 	return prep, req, nil
 }
 
-// summaryFromResponse extracts the assistant text and usage from a buffered
-// non-streaming Anthropic response, reporting non-2xx as an upstream status
-// error so the executor can classify it.
 func summaryFromResponse(resp *http.Response, target inference.Target) (string, handover.Usage, error) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
@@ -288,8 +233,6 @@ func summaryFromResponse(resp *http.Response, target inference.Target) (string, 
 	return text, usage, nil
 }
 
-// extractAnthropicUsage pulls the usage block from an Anthropic non-streaming
-// Messages response. Missing fields are zero; we don't distinguish "absent".
 func extractAnthropicUsage(body []byte) handover.Usage {
 	if !gjson.ValidBytes(body) {
 		return handover.Usage{}
@@ -305,9 +248,6 @@ func extractAnthropicUsage(body []byte) handover.Usage {
 	}
 }
 
-// buildSummaryRequestBody builds a non-streaming Anthropic Messages request
-// from the envelope's prior conversation, injecting the given summary
-// instruction and overriding model/max_tokens/stream.
 func buildSummaryRequestBody(env *translate.RequestEnvelope, model, instruction string, maxTokens int) ([]byte, error) {
 	prep, err := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: model})
 	if err != nil {
@@ -340,7 +280,6 @@ func buildSummaryRequestBody(env *translate.RequestEnvelope, model, instruction 
 	return body, nil
 }
 
-// appendUserInstruction appends a role=user text message to the messages array.
 func appendUserInstruction(body []byte, text string) ([]byte, error) {
 	msg := map[string]any{
 		"role": "user",
@@ -355,8 +294,6 @@ func appendUserInstruction(body []byte, text string) ([]byte, error) {
 	return sjson.SetRawBytes(body, "messages.-1", raw)
 }
 
-// extractAnthropicAssistantText pulls concatenated text from an Anthropic
-// Messages non-streaming response. All text blocks are joined with newlines.
 func extractAnthropicAssistantText(body []byte) string {
 	if !gjson.ValidBytes(body) {
 		return ""
@@ -385,14 +322,6 @@ func extractAnthropicAssistantText(body []byte) string {
 
 var _ handover.Summarizer = (*ProviderSummarizer)(nil)
 
-// runCompactionHandover rewrites env in-place with a handover summary when
-// Claude Code context compaction is detected on a non-Anthropic route —
-// compaction already dropped old turns, so without this the non-Anthropic
-// model loses awareness of edits/decisions from those elided turns.
-//
-// On any failure it logs and passes the compacted body through unchanged
-// (never trims it further, which would discard Claude Code's own compaction
-// summary). Returns a handoverOutcome so the caller can bill the summary call.
 func (s *Service) runCompactionHandover(ctx context.Context, env *translate.RequestEnvelope, reqHeaders http.Header, decisionModel string, scope router.Request) handoverOutcome {
 	log := observability.FromContext(ctx)
 	var out handoverOutcome
@@ -426,9 +355,6 @@ func (s *Service) runCompactionHandover(ctx context.Context, env *translate.Requ
 		if sumCreds != nil {
 			summCtx = context.WithValue(ctx, CredentialsContextKey{}, sumCreds)
 		} else {
-			// Strip any request credential (e.g. subscription OAuth token) so
-			// this synthetic call runs on the deployment key instead of
-			// inheriting one that could 401 or cross a tenant boundary.
 			summCtx = clearCredentials(ctx)
 		}
 		start := time.Now()

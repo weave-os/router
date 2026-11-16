@@ -21,8 +21,6 @@ func latestToolCallCountsJSON(env *translate.RequestEnvelope) []byte {
 	return counts
 }
 
-// selection_trace can describe a fresh recommendation on a sticky turn. Keep
-// the served group separate; a rescue to a different model has no known group.
 func applyServedGroupTelemetry(ctx context.Context, params *InsertTelemetryParams, routed turnLoopResult, served router.Decision) {
 	group := ""
 	if served.Model == routed.Decision.Model && !isUserForcedReason(routed.Decision.Reason) {

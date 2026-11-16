@@ -13,7 +13,6 @@ import (
 	"weave-os/router/internal/router/policy"
 )
 
-// ClassifierVariantKind selects the source format: an HMM package referenced through WeaveData, or a Qwen bundle identified only by its digest.
 type ClassifierVariantKind string
 
 const (
@@ -21,17 +20,14 @@ const (
 	ClassifierVariantKindQwenBundle ClassifierVariantKind = "qwen_bundle"
 )
 
-// ModelArtifactDataKind is the WeaveData kind for published HMM package archives.
 type ModelArtifactDataKind string
 
 const ClassifierModelArtifactDataKind ModelArtifactDataKind = "model_artifact"
 
-// ClassifierModelArtifactRole is the canonical publication role for HMM packages.
 type ClassifierModelArtifactRole string
 
 const ClassifierModelArtifactRoleTrainedPolicy ClassifierModelArtifactRole = "trained_policy_artifact"
 
-// WeaveDataModelArtifactRef mirrors the canonical WeaveDataRef JSON without importing ml_infra.
 type WeaveDataModelArtifactRef struct {
 	DataID        string                      `json:"data_id"`
 	DataKind      ModelArtifactDataKind       `json:"data_kind"`
@@ -44,14 +40,11 @@ type WeaveDataModelArtifactRef struct {
 	Required      bool                        `json:"required"`
 }
 
-// ClassifierTaxonomy binds the exact ordered classifier labels to one digest.
 type ClassifierTaxonomy struct {
 	ClassOrder []string `json:"class_order"`
 	SHA256     string   `json:"sha256"`
 }
 
-// ClassifierVariantManifest pins one HMM package or Qwen classifier bundle.
-// Qwen has a source bundle digest rather than a fabricated GCS package object.
 type ClassifierVariantManifest struct {
 	Kind                        ClassifierVariantKind      `json:"kind"`
 	ArtifactID                  string                     `json:"artifact_id"`
@@ -63,15 +56,12 @@ type ClassifierVariantManifest struct {
 	EmbeddingContractSHA256     string                     `json:"embedding_contract_sha256,omitempty"`
 }
 
-// ClassifierReleaseProvenance records immutable public source and build evidence.
 type ClassifierReleaseProvenance struct {
 	RouterRevision   string    `json:"router_revision"`
 	WeaveRevision    string    `json:"weave_revision"`
 	BuildAttestation ObjectRef `json:"build_attestation"`
 }
 
-// ClassifierReleaseManifestV1 is an immutable logical classifier release.
-// Its release ID is ObjectRef.SHA256 over the exact serialized manifest bytes.
 type ClassifierReleaseManifestV1 struct {
 	SchemaVersion      ServingSchema                                            `json:"schema_version"`
 	APIMajor           policy.ClassifierAPIMajor                                `json:"api_major"`
@@ -82,7 +72,6 @@ type ClassifierReleaseManifestV1 struct {
 	Provenance         ClassifierReleaseProvenance                              `json:"provenance"`
 }
 
-// Validate enforces content identity without embedding deployment URLs or secrets.
 func (m ClassifierReleaseManifestV1) Validate(root string) error {
 	if m.SchemaVersion != ServingClassifierReleaseV1 || m.APIMajor != policy.ClassifierAPIMajorV5 || m.WireSchema != policy.SchemaVersionV5 {
 		return errors.New("unsupported classifier release schema or API contract")
@@ -143,27 +132,21 @@ func (m ClassifierReleaseManifestV1) Validate(root string) error {
 	return validateArtifactRef(m.Provenance.BuildAttestation)
 }
 
-// CandidateRequirementsV3 declares immutable worker/API compatibility only.
 type CandidateRequirementsV3 struct {
 	RuntimeContract    ServingSchema               `json:"runtime_contract"`
 	PolicySchema       rosterdata.SchemaVersion    `json:"policy_schema"`
 	SupportedAPIMajors []policy.ClassifierAPIMajor `json:"supported_api_majors"`
 }
 
-// RouterCandidateRequirementsDeclarationV1 is the schema_version written to RouterCandidateRequirementsPath; the checked-in file must carry this exact value.
 const RouterCandidateRequirementsDeclarationV1 ServingSchema = "router_candidate_requirements_v1"
 
-// RouterCandidateRequirementsPath is the checked-in declaration publishers read at a Router commit.
 const RouterCandidateRequirementsPath = "docs/ROUTER_CANDIDATE_REQUIREMENTS.json"
 
-// RouterCandidateRequirementsDeclaration states what this Router build supports; a publisher copies
-// Requirements verbatim into the CandidateV3 it builds from the same commit.
 type RouterCandidateRequirementsDeclaration struct {
 	SchemaVersion ServingSchema           `json:"schema_version"`
 	Requirements  CandidateRequirementsV3 `json:"requirements"`
 }
 
-// BuiltRouterCandidateRequirements derives the requirements from the runtime contract, policy schema, and classifier API majors compiled into this build.
 func BuiltRouterCandidateRequirements() CandidateRequirementsV3 {
 	return CandidateRequirementsV3{
 		RuntimeContract:    ManagedRuntimeContractV1,
@@ -172,7 +155,6 @@ func BuiltRouterCandidateRequirements() CandidateRequirementsV3 {
 	}
 }
 
-// RouterCandidateRequirementsJSON renders the declaration written to RouterCandidateRequirementsPath.
 func RouterCandidateRequirementsJSON() ([]byte, error) {
 	encoded, err := json.MarshalIndent(RouterCandidateRequirementsDeclaration{SchemaVersion: RouterCandidateRequirementsDeclarationV1, Requirements: BuiltRouterCandidateRequirements()}, "", "  ")
 	if err != nil {
@@ -181,7 +163,6 @@ func RouterCandidateRequirementsJSON() ([]byte, error) {
 	return append(encoded, '\n'), nil
 }
 
-// CandidateV3 contains Router worker code and policy only; classifier releases are target-bound.
 type CandidateV3 struct {
 	SchemaVersion     ServingSchema           `json:"schema_version"`
 	RouterImageDigest string                  `json:"router_image_digest"`
@@ -189,7 +170,6 @@ type CandidateV3 struct {
 	Provenance        ServingProvenance       `json:"provenance"`
 }
 
-// Validate checks worker and classifier API compatibility independently of classifier content.
 func (c CandidateV3) Validate(root string) error {
 	if c.SchemaVersion != ServingCandidateV3 || !validImageDigest(c.RouterImageDigest) {
 		return errors.New("invalid v3 candidate schema or Router image digest")
@@ -206,9 +186,6 @@ func (c CandidateV3) Validate(root string) error {
 	return c.Provenance.validate()
 }
 
-// ClassifierServiceBinding is one immutable target's logical release and variant allowlist.
-// ServiceURL and Audience are retired gateway fields: both present or both omitted, accepted
-// for historical selections but never dispatched to; the release's runtime binding names the worker.
 type ClassifierServiceBinding struct {
 	Release         ObjectRef                    `json:"release"`
 	ServiceURL      string                       `json:"service_url,omitempty"`
@@ -245,7 +222,6 @@ func (b ClassifierServiceBinding) validate(root string) error {
 	return nil
 }
 
-// CandidateCodeV4 is the target-specific Router worker binding for a v4 set.
 type CandidateCodeV4 struct {
 	Candidate   ObjectRef       `json:"candidate"`
 	Project     string          `json:"project"`
@@ -267,7 +243,6 @@ func (b CandidateCodeV4) validate(root string) error {
 	return validateArtifactRef(b.Attestation)
 }
 
-// SelectionSetV4 atomically selects target policy and logical classifier release.
 type SelectionSetV4 struct {
 	SchemaVersion    ServingSchema                    `json:"schema_version"`
 	Target           ServingTarget                    `json:"target"`
@@ -278,7 +253,6 @@ type SelectionSetV4 struct {
 	Profiles         map[string]PolicyObject          `json:"profiles"`
 }
 
-// Validate checks all target-level immutable identities and enabled variants.
 func (s SelectionSetV4) Validate(root string) error {
 	if s.SchemaVersion != ServingSelectionSetV4 || s.Profiles == nil || s.StrategyPolicies == nil {
 		return errors.New("v4 selection set requires a supported schema and explicit policy maps")
@@ -324,7 +298,6 @@ func (s SelectionSetV4) Validate(root string) error {
 	return nil
 }
 
-// View preserves the exact persisted session binding shape used by v1-v3 readers.
 func (s SelectionSetV4) View(ref ObjectRef) SelectionSetView {
 	profiles := make(map[string]ServingSelection, len(s.Profiles))
 	for key := range s.Profiles {
@@ -334,7 +307,6 @@ func (s SelectionSetV4) View(ref ObjectRef) SelectionSetView {
 	return SelectionSetView{Target: s.Target, Default: ServingSelection{Release: s.Code.Candidate, Binding: ref}, Profiles: profiles}
 }
 
-// PolicyFor returns the default policy for an empty profile key, otherwise the named profile's policy.
 func (s SelectionSetV4) PolicyFor(profileKey string) (PolicyObject, bool) {
 	if profileKey == "" {
 		return s.DefaultPolicy, true

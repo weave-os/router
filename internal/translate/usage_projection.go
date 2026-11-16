@@ -47,13 +47,6 @@ func writeOpenAIUsage(jw *jsonWriter, facts usage.Facts, inputKey, outputKey, in
 	jw.EndObj()
 }
 
-// writeAnthropicUsageScaled projects facts onto Anthropic usage with input
-// categories multiplied by inputScale. A cross-tokenizer serve reports input
-// in the requested model's tokens, so a client budgeting compaction against
-// that model's window sees the history it would actually have to fit. Output
-// stays in served-model tokens: it is not resent and does not drive
-// compaction. Billing reads provider facts through UsageSink, never this
-// projection.
 func writeAnthropicUsageScaled(jw *jsonWriter, facts usage.Facts, inputScale float64) {
 	scale := func(n int) int64 {
 		if inputScale == 1 {
@@ -83,25 +76,17 @@ func chatUsageJSON(facts usage.Facts) []byte {
 	return jw.Bytes()
 }
 
-// providerUsageState shares source facts across chained protocol encoders.
-// A downstream adapter never records an intermediate representation as provider usage.
 type providerUsageState struct {
-	facts       usage.Facts
-	source      func() usage.Facts
-	outputBasis usage.OutputBasis
-	// clientInputScale converts served-model input tokens into the requested
-	// model's tokenizer for client-visible Anthropic usage. Zero means 1.
+	facts            usage.Facts
+	source           func() usage.Facts
+	outputBasis      usage.OutputBasis
 	clientInputScale float64
 }
 
-// SetUsageSource binds a downstream encoder to its provider-side usage owner.
 func (s *providerUsageState) SetUsageSource(source func() usage.Facts) { s.source = source }
 
-// SetUsageOutputBasis supplies the provider's output inclusion convention.
 func (s *providerUsageState) SetUsageOutputBasis(basis usage.OutputBasis) { s.outputBasis = basis }
 
-// SetClientInputTokenScale reports client-visible input usage in the
-// requested model's tokens. A zero scale (the default) reports usage unscaled.
 func (s *providerUsageState) SetClientInputTokenScale(scale float64) {
 	s.clientInputScale = scale
 }
@@ -113,7 +98,6 @@ func (s *providerUsageState) clientInputTokenScale() float64 {
 	return s.clientInputScale
 }
 
-// UsageFacts returns the accumulated provider facts for downstream projection.
 func (s *providerUsageState) UsageFacts() usage.Facts {
 	if s.source != nil {
 		return s.source()

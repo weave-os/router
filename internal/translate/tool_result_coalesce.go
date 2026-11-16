@@ -7,15 +7,6 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// CoalesceDuplicateToolResults merges every tool result answering the same
-// tool call into the first one, appending later contents in order and
-// removing the later results. Codex code-mode records each notify() from an
-// exec script as another output under the running call's id; OpenAI accepts
-// that, but Anthropic 400s on a tool_use with more than one tool_result, and
-// Codex resends the history every turn, so one such call bricks the session.
-// A later assistant call that reuses an id starts a new group. Returns the
-// number of duplicate results removed; the body is untouched when zero.
-// Gemini-format envelopes are left alone.
 func (e *RequestEnvelope) CoalesceDuplicateToolResults() int {
 	if e == nil {
 		return 0
@@ -30,8 +21,6 @@ func (e *RequestEnvelope) CoalesceDuplicateToolResults() int {
 	}
 }
 
-// toolResultKey identifies the call a result answers: its id plus how many
-// assistant calls with that id precede it, so a reused id is a distinct call.
 type toolResultKey struct {
 	id   string
 	call int
@@ -100,8 +89,6 @@ func (e *RequestEnvelope) coalesceOpenAIToolResults() int {
 	return removed
 }
 
-// anthropicToolResult is one tool_result block; pos is its ordinal among all
-// message content blocks.
 type anthropicToolResult struct {
 	content      gjson.Result
 	isError      bool
@@ -109,8 +96,6 @@ type anthropicToolResult struct {
 	pos          int
 }
 
-// anthropicCacheMarker is a message block carrying a top-level cache_control.
-// key is set when that block is a tool_result.
 type anthropicCacheMarker struct {
 	pos int
 	key toolResultKey
@@ -248,8 +233,6 @@ func mergeAnthropicToolResultBlock(first gjson.Result, k toolResultKey, group []
 		if r.cacheControl == "" {
 			continue
 		}
-		// Anthropic requires 1h breakpoints before 5m ones, so a marker may only
-		// move up to the survivor when no other breakpoint sits in between.
 		if cacheMarkerBetween(markers, k, group[0].pos, r.pos) {
 			break
 		}
@@ -281,10 +264,6 @@ func textPart(text string) string {
 	return string(jw.Bytes())
 }
 
-// mergeToolResultContents returns the raw JSON for the concatenation of
-// contents: a "\n\n"-joined string when every content is a string, otherwise
-// a part array with strings promoted to text parts. Empty and missing
-// contents are skipped.
 func mergeToolResultContents(contents []gjson.Result) string {
 	allStrings := true
 	for _, c := range contents {

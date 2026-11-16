@@ -154,3 +154,21 @@ func TestStripBetaArtifactsRemovesInvalidControlTurnButKeepsDiscussion(t *testin
 	assert.Equal(t, "Please explain /beta instead of toggling it.", gjson.GetBytes(prepared.Body, "messages.0.content").String())
 	assert.Contains(t, gjson.GetBytes(prepared.Body, "messages.1.content").String(), "quoted documentation")
 }
+
+func TestStripBetaArtifactsKeepsEmptyAssistantTurnNotFollowingACommand(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "claude-sonnet-5",
+		"messages": []any{
+			map[string]any{"role": "user", "content": "hello"},
+			map[string]any{"role": "assistant", "content": ""},
+			map[string]any{"role": "user", "content": "/beta"},
+			map[string]any{"role": "assistant", "content": ""},
+			map[string]any{"role": "user", "content": "continue"},
+		},
+		"max_tokens": 128,
+	})
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+
+	assert.Equal(t, 2, env.StripBetaArtifacts())
+}

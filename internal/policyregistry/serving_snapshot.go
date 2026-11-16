@@ -16,7 +16,6 @@ import (
 type servingSnapshotContextKey struct{}
 type servingAssertionContextKey struct{}
 
-// ServingAssertionFromContext returns the verified test admission for cost-free preflight.
 func ServingAssertionFromContext(ctx context.Context) *ServingAssertion {
 	assertion, _ := ctx.Value(servingAssertionContextKey{}).(*ServingAssertion)
 	return assertion
@@ -24,7 +23,6 @@ func ServingAssertionFromContext(ctx context.Context) *ServingAssertion {
 
 const servingRuntimeCacheSize = 128
 
-// WithServingAssertion derives attribution and isolated state keys from verified admission.
 func WithServingAssertion(ctx context.Context, assertion ServingAssertion) context.Context {
 	if assertion.TestPlan != nil {
 		ctx = context.WithValue(ctx, servingAssertionContextKey{}, &assertion)
@@ -45,8 +43,6 @@ func WithServingAssertion(ctx context.Context, assertion ServingAssertion) conte
 		StateNamespace:     Digest(namespace),
 		CredentialIdentity: assertion.Scope.CredentialIdentity,
 	}
-	// Shared credentials retain legacy preference key bytes. Personal subjects
-	// survive key rotation but must not share preferences across installations.
 	if assertion.Scope.CredentialIdentity != assertion.APIKeyID {
 		credentialScope, _ := CanonicalBytes(struct {
 			Installation string
@@ -63,7 +59,6 @@ func WithServingAssertion(ctx context.Context, assertion ServingAssertion) conte
 	return requestcontext.WithServingIdentity(ctx, identity)
 }
 
-// WithServingSnapshot pins every routing/outcome/feedback call on one admitted runtime.
 func WithServingSnapshot(ctx context.Context, snapshot *Snapshot) context.Context {
 	if snapshot == nil {
 		return ctx
@@ -71,13 +66,11 @@ func WithServingSnapshot(ctx context.Context, snapshot *Snapshot) context.Contex
 	return context.WithValue(ctx, servingSnapshotContextKey{}, snapshot)
 }
 
-// ServingSnapshotFromContext returns the request-bound snapshot, if any.
 func ServingSnapshotFromContext(ctx context.Context) *Snapshot {
 	snapshot, _ := ctx.Value(servingSnapshotContextKey{}).(*Snapshot)
 	return snapshot
 }
 
-// ServingRuntimeCache materializes exact admitted releases instead of the latest lane head.
 type ServingRuntimeCache struct {
 	store   ServingStore
 	builder Builder
@@ -93,7 +86,6 @@ type servingSnapshotKey struct {
 	HasProfile bool
 }
 
-// NewServingRuntimeCache keeps independently validated snapshots for concurrent old and new sessions.
 func NewServingRuntimeCache(store ServingStore, builder Builder) (*ServingRuntimeCache, error) {
 	if store == nil || builder == nil {
 		return nil, errors.New("serving runtime cache requires a store and snapshot builder")
@@ -102,12 +94,9 @@ func NewServingRuntimeCache(store ServingStore, builder Builder) (*ServingRuntim
 	if err != nil {
 		return nil, err
 	}
-	// Eviction drops only cache ownership: requests keep their snapshot, and later
-	// admissions rebuild the exact immutable selection. Idle HTTP connections time out.
 	return &ServingRuntimeCache{store: store, builder: builder, loaded: loaded}, nil
 }
 
-// Snapshot loads or reuses the immutable runtime for one admission binding.
 func (c *ServingRuntimeCache) Snapshot(ctx context.Context, admission SessionReleaseBinding) (*Snapshot, error) {
 	if c == nil {
 		return nil, errors.New("serving runtime cache is required for managed admission")
@@ -130,7 +119,6 @@ func (c *ServingRuntimeCache) Snapshot(ctx context.Context, admission SessionRel
 	candidate := Candidate{
 		AuxiliaryModels: maps.Clone(prepared.Candidate.Classifier.AuxiliaryModels),
 		HeadSnapshot: HeadSnapshot{
-			// Binding generations are request-scoped, not properties of cached bytes.
 			Generation: 0,
 			Head: LaneHead{
 				ReleaseURI:            admission.Selection.Release.URI,
