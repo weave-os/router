@@ -15,8 +15,6 @@ import (
 
 const classifierThreadField = "weave_classifier_thread"
 
-// WithClassifierThread runs after authentication and ordinary strategy selection.
-// The ticket is consumed here and never enters provider-forwarded headers.
 func WithClassifierThread(service *proxy.Service, availability StrategyAvailability) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		threadToken := c.GetHeader(proxy.ClassifierThreadHeader)
@@ -46,8 +44,6 @@ func WithClassifierThread(service *proxy.Service, availability StrategyAvailabil
 			var fields map[string]json.RawMessage
 			var bodyToken string
 			if json.Unmarshal(body, &fields) != nil || json.Unmarshal(fields[classifierThreadField], &bodyToken) != nil || bodyToken == "" || (threadToken != "" && threadToken != bodyToken) {
-				// Decode errors can echo attacker-controlled content; record the
-				// rejection boundary without logging input or token bytes.
 				observability.FromGin(c).Debug("Invalid classifier body token or conflicting header", "path", c.FullPath())
 				c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "invalid_classifier_thread"})
 				return
@@ -61,8 +57,6 @@ func WithClassifierThread(service *proxy.Service, availability StrategyAvailabil
 				return
 			}
 		}
-		// The body transport supports clients whose SDK binds headers before its
-		// request hook. Consume it before any protocol translation or call logging.
 		c.Request.Body = io.NopCloser(bytes.NewReader(body))
 		c.Request.ContentLength = int64(len(body))
 		if threadToken != "" && (c.FullPath() == "/v1/route/handoff" || c.FullPath() == "/v1/route" || c.FullPath() == "/v1/route/preview") {

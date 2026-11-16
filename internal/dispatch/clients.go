@@ -1,9 +1,3 @@
-// Package dispatch is the single execution boundary between policy-resolved
-// plans and provider adapters. It owns the provider client registry, walks a
-// plan's targets with the retry/failover rules, checks that the prepared wire
-// request names the plan target before any upstream I/O, and emits ordered
-// attempt events and the operation summary. Feature packages depend on
-// inference.Executor; only this package dereferences providers.Client.
 package dispatch
 
 import (
@@ -14,18 +8,12 @@ import (
 	"weave-os/router/internal/providers"
 )
 
-// ErrProviderNotConfigured is returned when a target names a provider that
-// has no client in this deployment.
 var ErrProviderNotConfigured = errors.New("provider not configured")
 
-// Clients is the read-only registry of provider clients wired at boot.
 type Clients struct {
 	byName map[string]providers.Client
 }
 
-// NewClients copies the boot-time provider map so later mutation of the
-// caller's map cannot change dispatch behavior. A name mapped to a nil client
-// counts as registered for eligibility but can never be dispatched to.
 func NewClients(byName map[string]providers.Client) *Clients {
 	copied := make(map[string]providers.Client, len(byName))
 	for name, client := range byName {
@@ -34,7 +22,6 @@ func NewClients(byName map[string]providers.Client) *Clients {
 	return &Clients{byName: copied}
 }
 
-// Client returns the adapter registered for provider name.
 func (c *Clients) Client(name string) (providers.Client, error) {
 	if c == nil {
 		return nil, fmt.Errorf("%w: %s", ErrProviderNotConfigured, name)
@@ -46,7 +33,6 @@ func (c *Clients) Client(name string) (providers.Client, error) {
 	return client, nil
 }
 
-// Has reports whether provider name has a registered client.
 func (c *Clients) Has(name string) bool {
 	if c == nil {
 		return false
@@ -55,7 +41,6 @@ func (c *Clients) Has(name string) bool {
 	return ok
 }
 
-// Names returns the registered provider names in sorted order.
 func (c *Clients) Names() []string {
 	if c == nil {
 		return nil
@@ -68,7 +53,6 @@ func (c *Clients) Names() []string {
 	return names
 }
 
-// NameSet returns the registered provider names as a set.
 func (c *Clients) NameSet() map[string]struct{} {
 	if c == nil {
 		return map[string]struct{}{}
@@ -80,7 +64,6 @@ func (c *Clients) NameSet() map[string]struct{} {
 	return set
 }
 
-// Len returns the number of registered providers.
 func (c *Clients) Len() int {
 	if c == nil {
 		return 0

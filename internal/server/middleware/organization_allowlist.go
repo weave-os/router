@@ -10,9 +10,6 @@ import (
 	"weave-os/router/internal/policyregistry"
 )
 
-// inferenceOrganizationAllowlistEnv restricts a deployment to the listed
-// organizations so shared non-production fleets cannot spend provider keys on
-// self-serve signups. Unset admits every organization.
 const inferenceOrganizationAllowlistEnv = "ROUTER_INFERENCE_ORGANIZATION_ALLOWLIST"
 
 var errOrganizationNotAllowed = errors.New("organization is not allowed on this deployment")
@@ -43,8 +40,6 @@ func (a organizationAllowlist) admit(installation *auth.Installation) error {
 	return errOrganizationNotAllowed
 }
 
-// verifyCredential resolves the bearer credential. Signed internal test plans
-// were already admitted by the policy registry, so the allowlist skips them.
 func verifyCredential(ctx context.Context, svc *auth.Service, token string, testPlan *policyregistry.TestPlanScope, allowed organizationAllowlist) (installation *auth.Installation, apiKey *auth.APIKey, externalKeys []*auth.ExternalAPIKey, clusterModelLists []auth.ClusterModelList, delegatedSession *auth.DelegatedSession, err error) {
 	switch {
 	case auth.IsSessionToken(token):
