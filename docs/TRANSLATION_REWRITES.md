@@ -123,9 +123,10 @@ a removed command, are dropped; other empty assistant turns are kept.
 
 ### Cache control
 
-`dropUnsupportedCacheControlFields` removes cache-control fields the target
-rejects: all of them on gateways, and on Anthropic any field whose beta the
-client did not send. Longer TTLs must precede shorter ones and the breakpoint
+`dropUnsupportedCacheControlFields` removes the first-party cache-control
+fields `scope` and `evict_on_complete` when the target rejects them: always on
+gateways, and on Anthropic when the client did not send the field's beta. `type`
+and `ttl` are kept. Longer TTLs must precede shorter ones and the breakpoint
 count is capped. `AnthropicRequestCacheTTL1h` is true only when every breakpoint
 asks for 1h; it prices cache writes when the upstream omits the breakdown.
 
