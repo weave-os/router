@@ -329,7 +329,7 @@ func (c *rescueChain) servedProvider(fallback string) string {
 }
 
 func (c *rescueChain) translationEligibleRequest() *router.Request {
-	if c.req == nil || c.routeRes.TranslationEnabledProviders == nil {
+	if c.routeRes.TranslationEnabledProviders == nil {
 		return c.req
 	}
 	req := *c.req

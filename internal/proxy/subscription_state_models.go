@@ -229,7 +229,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 		}
 		includedFailure = includedFailureAfter(includedFailure, err, ownCodexLoginRejected(ctx, in.subscriptionStateHeaders, s.usageObserver))
 		observability.FromContext(ctx).Info("Subscription model unavailable; selecting another included target", "model", target.Model, "provider", target.Provider)
-		recordModelTurnFailure(ctx, target.Model, err)
+		strikeModelUnlessFundingFailure(ctx, target.Model, err)
 		if !hasFixedTarget {
 			s.holdSessionOffSubscriptionPool(ctx, target.Provider, target.Model)
 		}
@@ -294,12 +294,6 @@ func includedFailureOr(includedFailure, paidErr error) error {
 		return paidErr
 	}
 	return includedFailure
-}
-
-func subscriptionFundingFailure(err error) bool {
-	return isSubscriptionPoolError(err) || subscriptionLaneRefused(err) ||
-		codexSubscriptionModelRejected(err) || anthropicSubscriptionModelRejected(err) ||
-		codexOAuthCredentialRejected(err) || anthropicOAuthCredentialRejected(err) || anthropicSubscriptionThirdPartyRefused(err)
 }
 
 func paidLaneEmpty(err error) bool {
