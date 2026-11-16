@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"weave-os/router/internal/providers"
 	randomrouter "weave-os/router/internal/router/random_router"
 	"weave-os/router/internal/translate"
 )
@@ -35,11 +34,4 @@ func detectCyclicToolCallLoopForRequest(ctx context.Context, env *translate.Requ
 		return
 	}
 	return detectCyclicToolCallLoop(env)
-}
-
-func promptCacheKeyRepairable(ctx context.Context, err error) bool {
-	return randomBenchmarkFrom(ctx) == nil && providers.IsUpstreamPromptCacheKeyRejection(err)
-}
-func responseRetryForbidden(ctx context.Context, err error) bool {
-	return randomBenchmarkFrom(ctx) != nil || codexSubscriptionModelRejected(err)
 }

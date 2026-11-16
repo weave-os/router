@@ -5,25 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"slices"
 	"weave-os/router/internal/requestcontext"
 )
 
-type codexQuotaModelsKey struct{}
-
-func withCodexQuotaModels(ctx context.Context, models []string) context.Context {
-	return context.WithValue(ctx, codexQuotaModelsKey{}, append([]string(nil), models...))
-}
-func codexQuotaModelSelected(ctx context.Context, candidate, selected string) bool {
-	models, _ := ctx.Value(codexQuotaModelsKey{}).([]string)
-	if len(models) == 0 {
-		return candidate == selected
-	}
-	return slices.Contains(models, candidate)
-}
-func codexExtraUsagePermitted(ctx context.Context, deployment bool) bool {
-	return !requestcontext.IncludedSubscriptionOnlyFrom(ctx) && (deployment || requestcontext.SubscriptionExtraUsageFrom(ctx))
-}
 func decodeCodexQuota(ctx context.Context, body []byte, target any) error {
 	if requestcontext.IncludedSubscriptionOnlyFrom(ctx) {
 		var metadata struct {
@@ -49,4 +33,19 @@ func decodeCodexQuota(ctx context.Context, body []byte, target any) error {
 func codexWindowPresent(window json.RawMessage) bool {
 	value := bytes.TrimSpace(window)
 	return len(value) > 0 && !bytes.Equal(value, []byte("null"))
+}
+
+func codexQuotaCreditAdmission(ctx context.Context, body []byte, deployment bool) (string, error) {
+	if requestcontext.IncludedSubscriptionOnlyFrom(ctx) || (!deployment && !requestcontext.SubscriptionExtraUsageFrom(ctx)) {
+		return codexCreditsDisabled, nil
+	}
+	var metadata struct {
+		Credits      json.RawMessage `json:"credits"`
+		SpendControl json.RawMessage `json:"spend_control"`
+		ReachedType  json.RawMessage `json:"rate_limit_reached_type"`
+	}
+	if err := json.Unmarshal(body, &metadata); err != nil {
+		return codexCreditsDisabled, err
+	}
+	return codexCreditAdmissionReason(metadata.Credits, metadata.SpendControl, metadata.ReachedType), nil
 }

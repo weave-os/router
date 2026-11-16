@@ -148,21 +148,8 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 	if sessionID != "" {
 		preferred, _ = r.affinity.Get(affinityKey)
 	}
-	present := false
-	eligible := make([]*auth.SubscriptionAccount, 0, len(accounts))
-	for _, candidate := range accounts {
-		if candidate.SubscriberID == "" || Provider(candidate.Provider) != provider || subscriptionAccountDenied(requester, candidate.ID) {
-			continue
-		}
-		present = true
-		var cooldown time.Time
-		if candidate.CooldownUntil != nil {
-			cooldown = *candidate.CooldownUntil
-		}
-		if candidate.Enabled && subscriptionAccountEligible(ctx, provider, candidate.State, cooldown, r.clock()) {
-			eligible = append(eligible, candidate)
-		}
-	}
+	eligible, present := eligibleSubscriptionAccounts(ctx, requester, provider, accounts, r.clock())
+
 	for len(eligible) > 0 {
 		if err := ctx.Err(); err != nil {
 			return Lease{}, present, err

@@ -29,8 +29,28 @@ func New(draw Draw) *Policy {
 
 func (p *Policy) Route(ctx context.Context, request router.Request) (router.Decision, error) {
 	state := RequestFrom(ctx)
-	if state == nil || !state.Prepared || state.Config.PolicySHA256 != PolicySHA256 {
+	if state == nil || state.Config.PolicySHA256 != PolicySHA256 {
 		return router.Decision{}, ErrUnavailable
+	}
+	if len(request.GatewayProviders) != 0 {
+		return router.Decision{}, ErrUnavailable
+	}
+	if request.EnabledProviders != nil {
+		if _, allowed := request.EnabledProviders[providers.ProviderOpenAI]; !allowed {
+			return router.Decision{}, ErrUnavailable
+		}
+	}
+	for _, model := range Models() {
+		if request.AllowedModels != nil {
+			if _, allowed := request.AllowedModels[model]; !allowed {
+				return router.Decision{}, ErrUnavailable
+			}
+		}
+		for _, excluded := range []map[string]struct{}{request.ExcludedModels, request.AutomaticExcludedModels, request.SafetyExcludedModels} {
+			if _, denied := excluded[model]; denied {
+				return router.Decision{}, ErrUnavailable
+			}
+		}
 	}
 	resolved := p.resolver.Resolve(request)
 	if len(resolved.Candidates) != 3 {

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -47,7 +48,7 @@ func (c *Client) CheckIncludedSubscriptionModels(ctx context.Context, models []s
 		}
 		wireModels = append(wireModels, mapped.Model)
 	}
-	if err := c.checkCodexIncludedQuota(withCodexQuotaModels(requestcontext.WithIncludedSubscriptionOnly(ctx), wireModels), wireModels[0]); err != nil {
+	if err := c.checkCodexIncludedQuota(requestcontext.WithIncludedSubscriptionOnly(ctx), wireModels...); err != nil {
 		return err
 	}
 	catalogBytes, err := c.FetchCodexModelCatalog(ctx, "0.153.0")
@@ -63,10 +64,11 @@ func (c *Client) CheckIncludedSubscriptionModels(ctx context.Context, models []s
 		return err
 	}
 	for _, model := range wireModels {
-		found := false
-		for _, candidate := range catalog.Models {
-			found = found || candidate.Slug == model
-		}
+		found := slices.ContainsFunc(catalog.Models, func(candidate struct {
+			Slug string `json:"slug"`
+		}) bool {
+			return candidate.Slug == model
+		})
 		if !found {
 			return fmt.Errorf("Codex subscription does not advertise required model %s", model)
 		}
@@ -74,7 +76,8 @@ func (c *Client) CheckIncludedSubscriptionModels(ctx context.Context, models []s
 	return nil
 }
 
-func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) (quotaErr error) {
+func (c *Client) checkCodexIncludedQuota(ctx context.Context, models ...string) (quotaErr error) {
+	model := models[0]
 	started := time.Now()
 	upstreamStatus := 0
 	defer func() {
@@ -142,17 +145,9 @@ func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) (quo
 	planReported := quotaStatus.PlanType != ""
 	limitReached := (quotaStatus.SpendControl != nil && quotaStatus.SpendControl.Reached) ||
 		(quotaStatus.RateLimitReachedType != nil && codexReachedTypes[quotaStatus.RateLimitReachedType.Type])
-	creditReason := codexCreditsDisabled
-	if codexExtraUsagePermitted(ctx, c.allowCodexExtraCredits) {
-		var metadata struct {
-			Credits      json.RawMessage `json:"credits"`
-			SpendControl json.RawMessage `json:"spend_control"`
-			ReachedType  json.RawMessage `json:"rate_limit_reached_type"`
-		}
-		if err := json.Unmarshal(body, &metadata); err != nil {
-			return codexQuotaUnavailable(providers.QuotaVerificationFailureInvalidResponse, resp.StatusCode)
-		}
-		creditReason = codexCreditAdmissionReason(metadata.Credits, metadata.SpendControl, metadata.ReachedType)
+	creditReason, creditErr := codexQuotaCreditAdmission(ctx, body, c.allowCodexExtraCredits)
+	if creditErr != nil {
+		return codexQuotaUnavailable(providers.QuotaVerificationFailureInvalidResponse, resp.StatusCode)
 	}
 	allowCredits := creditReason == codexCreditsAvailable && quotaStatus.RateLimit != nil &&
 		(quotaStatus.RateLimit.Primary != nil || quotaStatus.RateLimit.Secondary != nil)
@@ -188,7 +183,7 @@ func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) (quo
 		return codexQuotaExhausted(0)
 	}
 	for _, modelRateLimit := range quotaStatus.AdditionalRateLimits {
-		if codexQuotaModelSelected(ctx, modelRateLimit.Model, model) {
+		if slices.Contains(models, modelRateLimit.Model) {
 			if err = validateCodexIncludedQuota(modelRateLimit.RateLimit, planReported); err != nil {
 				logCodexQuotaDenial(log, err, "plan_type", quotaStatus.PlanType, "model", model, "has_rate_limit", modelRateLimit.RateLimit != nil)
 				var upstream *providers.UpstreamErrorResponse

@@ -48,7 +48,6 @@ func TestRandomBenchmarkIdentityAndFundingBoundary(t *testing.T) {
 	require.True(t, paidFallbackForbidden(strict))
 	require.True(t, requestcontext.IncludedSubscriptionOnlyFrom(strict))
 	require.Equal(t, config.SubscriptionAccountID, subscriptionOwnerFromContext(strict).RequiredAccountID)
-	require.Len(t, strict.Value(managedSubscriptionCandidatesKey{}), 1)
 	_, _, err = BeginRandomBenchmark(svc, context.WithValue(ctx, APIKeyIDContextKey{}, "another-key"), config.PolicySHA256)
 	require.Error(t, err)
 	_, _, err = BeginRandomBenchmark(svc, ctx, strings.Repeat("b", 64))

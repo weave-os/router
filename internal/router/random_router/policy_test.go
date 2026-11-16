@@ -41,3 +41,19 @@ func TestInvalidDrawFailsClosed(t *testing.T) {
 		require.ErrorIs(t, err, ErrUnavailable)
 	}
 }
+
+func TestStrictCandidateConstraints(t *testing.T) {
+	for _, model := range Models() {
+		for _, request := range []router.Request{
+			{AllowedModels: map[string]struct{}{}},
+			{EnabledProviders: map[string]struct{}{}},
+			{GatewayProviders: map[string]struct{}{providers.ProviderOpenAI: {}}},
+			{AutomaticExcludedModels: map[string]struct{}{model: {}}},
+			{SafetyExcludedModels: map[string]struct{}{model: {}}},
+		} {
+			p := New(func(int) (int, error) { t.Fatal("ineligible roster reached draw"); return 0, nil })
+			_, err := p.Route(WithRequest(context.Background(), &RequestState{Config: Config{PolicySHA256: PolicySHA256}}), request)
+			require.ErrorIs(t, err, ErrUnavailable)
+		}
+	}
+}

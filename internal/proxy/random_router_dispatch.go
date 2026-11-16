@@ -17,7 +17,7 @@ import (
 
 func dispatchRandomPlanned(s *Service, ctx context.Context, in failoverInputs, plan inference.ResolvedPlan) (int, error) {
 	state := randomrouter.RequestFrom(ctx)
-	if state == nil || !state.Prepared || state.ProviderCalls != 0 || state.Lease.AccountID != state.Config.SubscriptionAccountID || !state.Config.ExpiresAt.After(s.clockNow()) {
+	if state == nil || !state.Prepared || state.ProviderCalls != 0 || !state.Config.ExpiresAt.After(s.clockNow()) {
 		return -1, ErrSubscriptionPoolUnavailable
 	}
 	executor, err := s.inferenceExecutor()
@@ -26,7 +26,7 @@ func dispatchRandomPlanned(s *Service, ctx context.Context, in failoverInputs, p
 	}
 	trace := attemptTraceFromContext(ctx)
 	ctx = context.WithValue(ctx, CredentialsContextKey{}, state.Credentials)
-	transport := dispatch.Transport{OperationID: string(in.purpose), Committed: func() bool { return committed(in.buf) }, Terminal: func(dispatch.Attempt, error) bool { return true }}
+	transport := dispatch.Transport{OperationID: string(in.purpose), Committed: func() bool { return committed(in.buf) }}
 	transport.Attempt = func(callCtx context.Context, attempt dispatch.Attempt, client providers.Client) error {
 		if state.ProviderCalls != 0 {
 			return ErrSubscriptionPoolUnavailable
@@ -85,8 +85,4 @@ func dispatchRandomRequest(s *Service, ctx context.Context, in failoverInputs) (
 		return -1, err
 	}
 	return dispatchRandomPlanned(s, ctx, in, plan)
-}
-
-func subscriptionStateDispatchEnabled(ctx context.Context, in failoverInputs) bool {
-	return in.subscriptionStateRequest != nil && subscriptionStateModelsEnabled(ctx) && in.buildAlternative != nil
 }

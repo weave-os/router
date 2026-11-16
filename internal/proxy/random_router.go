@@ -42,18 +42,7 @@ func BeginRandomBenchmark(s *Service, ctx context.Context, digest string) (conte
 	if key != config.APIKeyID || org != config.OrganizationID || s.installationID(ctx) != config.InstallationID || digest != config.PolicySHA256 || !present || identity.Target != string(policyregistry.TargetInternal) {
 		return ctx, nil, errors.New("random benchmark identity or policy mismatch")
 	}
-	candidates, _ := ctx.Value(managedSubscriptionCandidatesKey{}).([]managedSubscriptionCandidate)
-	var selected []managedSubscriptionCandidate
-	for _, candidate := range candidates {
-		if candidate.accountID == config.SubscriptionAccountID && candidate.provider == auth.SubscriptionProviderCodex && candidate.enabled && candidate.state == auth.SubscriptionAccountStateActive && !candidate.resetAt.After(s.clockNow()) {
-			selected = append(selected, candidate)
-		}
-	}
-	if len(selected) != 1 {
-		return ctx, nil, ErrSubscriptionPoolUnavailable
-	}
 	ctx = randomrouter.WithRequest(ctx, profile)
-	ctx = context.WithValue(ctx, managedSubscriptionCandidatesKey{}, selected)
 	ctx = context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderCodex: {}})
 	owner := subscriptionOwnerFromContext(ctx)
 	owner.RequiredAccountID = config.SubscriptionAccountID
@@ -113,36 +102,10 @@ func PrepareRandomBenchmark(s *Service, ctx context.Context) (context.Context, f
 
 func routeRandomBenchmark(s *Service, ctx context.Context, request router.Request) (router.Decision, error) {
 	profile := randomBenchmarkFrom(ctx)
-	if profile == nil {
+	if profile == nil || !profile.Prepared {
 		return router.Decision{}, randomrouter.ErrUnavailable
 	}
 	models := randomrouter.Models()
-	if len(request.GatewayProviders) != 0 {
-		return router.Decision{}, randomrouter.ErrUnavailable
-	}
-	if request.EnabledProviders != nil {
-		if _, allowed := request.EnabledProviders[providers.ProviderOpenAI]; !allowed {
-			return router.Decision{}, randomrouter.ErrUnavailable
-		}
-	}
-	for _, model := range models {
-		if s.subscriptionModels.managedDenied("account:"+profile.Config.SubscriptionAccountID, profile.Config.SubscriptionAccountID, providers.ProviderOpenAI, model, s.clockNow()) || s.subscriptionModels.managedDenied(managedOverloadOwner(profile.Config.SubscriptionAccountID), profile.Config.SubscriptionAccountID, providers.ProviderOpenAI, model, s.clockNow()) {
-			return router.Decision{}, ErrSubscriptionPoolUnavailable
-		}
-		if request.AllowedModels != nil {
-			if _, permitted := request.AllowedModels[model]; !permitted {
-				return router.Decision{}, randomrouter.ErrUnavailable
-			}
-		}
-		for _, excluded := range []map[string]struct{}{request.ExcludedModels, request.AutomaticExcludedModels, request.SafetyExcludedModels} {
-			if _, denied := excluded[model]; denied {
-				return router.Decision{}, randomrouter.ErrUnavailable
-			}
-		}
-	}
-	request.AllowedModels = modelSet(models)
-	request.EnabledProviders = map[string]struct{}{providers.ProviderOpenAI: {}}
-	request.GatewayProviders = nil
 	request.OverflowAdmittedModels = nil
 	request.ForceModel, request.ForceCluster = "", ""
 	request.PromptText, request.ConversationMessages = "", nil
@@ -167,17 +130,13 @@ func leaseRandomSubscription(s *Service, ctx context.Context, provider, model st
 	}
 	owner := subscriptionOwnerFromContext(ctx)
 	owner.RequiredAccountID = profile.Config.SubscriptionAccountID
-	lease, present, err := s.managedSubscriptions.Lease(ctx, owner, subscriptions.ProviderCodex, ClientIdentityFrom(ctx).SessionID)
-	if err != nil || !present || lease.AccountID != profile.Config.SubscriptionAccountID || lease.AccessToken == "" || lease.ProviderAccount == "" || lease.State != auth.SubscriptionAccountStateActive {
+	lease, present, err := subscriptions.LeaseRequired(ctx, s.managedSubscriptions, owner, subscriptions.ProviderCodex, ClientIdentityFrom(ctx).SessionID)
+	if err != nil || !present {
 		lease.Release()
 		return ctx, subscriptions.Lease{}, true, errors.Join(ErrSubscriptionPoolUnavailable, err)
 	}
 	creds := &Credentials{APIKey: []byte(lease.AccessToken), OAuth: true, Source: credSourceCodexSubscription, AccountID: []byte(lease.ProviderAccount), PrincipalID: "chatgpt-account:" + lease.ProviderAccount, SubscriptionAccountID: lease.AccountID}
 	ctx = context.WithValue(ctx, CredentialsContextKey{}, creds)
-	if snapshot, found := s.managedSubscriptionUsageSnapshot(lease.AccountID, lease.AccessToken); found && (snapshot.OverageInUse || snapshot.ExhaustedAsOf(s.clockNow())) {
-		lease.Release()
-		return ctx, subscriptions.Lease{}, true, ErrSubscriptionPoolUnavailable
-	}
 	return ctx, lease, true, nil
 }
 
@@ -191,11 +150,4 @@ func randomBenchmarkHeaders(headers http.Header) bool {
 		}
 	}
 	return true
-}
-
-func leaseSubscriptionForRequest(s *Service, ctx context.Context, provider, model string) (context.Context, subscriptions.Lease, bool, error) {
-	if randomBenchmarkFrom(ctx) != nil {
-		return leaseRandomSubscription(s, ctx, provider, model)
-	}
-	return s.leaseManagedSubscription(ctx, provider, model)
 }
