@@ -11,6 +11,8 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/httputil"
+
+	"github.com/tidwall/gjson"
 )
 
 const codexImagesResponseHeaderTimeout = 300 * time.Second
@@ -21,6 +23,9 @@ func (c *Client) ForwardCodexImageRequest(ctx context.Context, operation string,
 	creds := codexSubscriptionCreds(ctx)
 	if creds == nil {
 		return errors.New("codex image requests require ChatGPT OAuth and account ID")
+	}
+	if err := c.checkCodexIncludedQuota(ctx, gjson.GetBytes(body, "model").String()); err != nil {
+		return err
 	}
 	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, c.codexBaseURL+"/images/"+operation, bytes.NewReader(body))
 	if err != nil {

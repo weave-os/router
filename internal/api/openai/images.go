@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 
 	"github.com/gin-gonic/gin"
@@ -31,6 +32,11 @@ func ImagesHandler(operation string, forward CodexImageForwarder) gin.HandlerFun
 		}
 		if errors.Is(err, proxy.ErrCodexImagesRequireChatGPT) {
 			writeOpenAIError(c, http.StatusForbidden, "invalid_request_error", err.Error())
+			return
+		}
+		var upstreamErr *providers.UpstreamErrorResponse
+		if errors.As(err, &upstreamErr) {
+			c.Data(upstreamErr.Status, "application/json", upstreamErr.Body)
 			return
 		}
 		observability.FromGin(c).Error("Codex image request failed", "operation", operation, "err", err)

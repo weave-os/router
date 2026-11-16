@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/api/openai"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 
 	"github.com/gin-gonic/gin"
@@ -26,6 +27,7 @@ func TestImagesHandler_StatusByForwardOutcome(t *testing.T) {
 		{"served", nil, http.StatusOK},
 		{"missing ChatGPT login", proxy.ErrCodexImagesRequireChatGPT, http.StatusForbidden},
 		{"transport failure", errors.New("dial upstream"), http.StatusBadGateway},
+		{"included quota exhausted", &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"error":{"type":"usage_limit_reached","message":"Codex included quota is exhausted."}}`)}, http.StatusTooManyRequests},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

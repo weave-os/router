@@ -15,12 +15,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const allowedCodexQuota = `{"plan_type":"pro","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":10,"reset_at":4102444800,"limit_window_seconds":18000}}}`
+
+func newCodexImagesUpstream(t *testing.T, quota string, images http.HandlerFunc) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/wham/usage", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(quota)) })
+	mux.HandleFunc("/codex/images/", images)
+	upstream := httptest.NewServer(mux)
+	t.Cleanup(upstream.Close)
+	return upstream
+}
+
 func TestCodexImageRequest_ForwardsWithCallerOAuth(t *testing.T) {
 	for _, operation := range []string{proxy.CodexImageGenerations, proxy.CodexImageEdits} {
 		t.Run(operation, func(t *testing.T) {
-			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			upstream := newCodexImagesUpstream(t, allowedCodexQuota, func(w http.ResponseWriter, r *http.Request) {
 				assert.Equal(t, http.MethodPost, r.Method)
-				assert.Equal(t, "/images/"+operation, r.URL.Path)
+				assert.Equal(t, "/codex/images/"+operation, r.URL.Path)
 				assert.Equal(t, "Bearer subscription-token", r.Header.Get("Authorization"))
 				assert.Equal(t, "account-123", r.Header.Get("ChatGPT-Account-ID"))
 				assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
@@ -30,10 +42,9 @@ func TestCodexImageRequest_ForwardsWithCallerOAuth(t *testing.T) {
 				assert.JSONEq(t, `{"model":"gpt-image-2","prompt":"a red square"}`, string(body))
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = w.Write([]byte(`{"created":1,"data":[{"b64_json":"aW1n"}]}`))
-			}))
-			defer upstream.Close()
+			})
 			client := openai.NewClient("deployment-key", "https://api.openai.com")
-			client.SetCodexBaseURL(upstream.URL)
+			client.SetCodexBaseURL(upstream.URL + "/codex")
 			svc := proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
 			headers := make(http.Header)
 			headers.Set("Authorization", "Bearer subscription-token")
@@ -53,13 +64,12 @@ func TestCodexImageRequest_ForwardsWithCallerOAuth(t *testing.T) {
 }
 
 func TestCodexImageRequest_RelaysUpstreamError(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	upstream := newCodexImagesUpstream(t, allowedCodexQuota, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)
 		_, _ = w.Write([]byte(`{"error":{"message":"usage limit"}}`))
-	}))
-	defer upstream.Close()
+	})
 	client := openai.NewClient("deployment-key", "https://api.openai.com")
-	client.SetCodexBaseURL(upstream.URL)
+	client.SetCodexBaseURL(upstream.URL + "/codex")
 	svc := proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
 	headers := make(http.Header)
 	headers.Set("Authorization", "Bearer subscription-token")
@@ -72,6 +82,25 @@ func TestCodexImageRequest_RelaysUpstreamError(t *testing.T) {
 	require.ErrorAs(t, err, &statusErr)
 	assert.Equal(t, http.StatusTooManyRequests, rec.Code)
 	assert.Contains(t, rec.Body.String(), "usage limit")
+}
+
+func TestCodexImageRequest_EnforcesIncludedQuotaGate(t *testing.T) {
+	exhausted := `{"rate_limit":{"allowed":false,"limit_reached":true,"primary_window":{"used_percent":100}},"credits":{"has_credits":true,"balance":"5"}}`
+	upstream := newCodexImagesUpstream(t, exhausted, func(http.ResponseWriter, *http.Request) {
+		t.Error("image requests must not reach upstream once included Codex quota is exhausted")
+	})
+	client := openai.NewClient("deployment-key", "https://api.openai.com")
+	client.SetCodexBaseURL(upstream.URL + "/codex")
+	svc := proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+	headers := make(http.Header)
+	headers.Set("Authorization", "Bearer subscription-token")
+	headers.Set("ChatGPT-Account-ID", "account-123")
+
+	err := proxy.NewCodexImages(svc).ForwardWithCallerChatGPTLogin(context.Background(), headers, proxy.CodexImageGenerations, []byte(`{"model":"gpt-image-2"}`), httptest.NewRecorder())
+
+	var quotaErr *providers.UpstreamErrorResponse
+	require.ErrorAs(t, err, &quotaErr)
+	assert.Equal(t, http.StatusTooManyRequests, quotaErr.Status)
 }
 
 func TestCodexImageRequest_RequiresCallerChatGPTLogin(t *testing.T) {
