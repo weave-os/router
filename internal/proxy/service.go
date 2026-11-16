@@ -3002,9 +3002,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if s.claudeSubscriptionExhausted(ctx, r.Header) {
 		ctx = withSuppressedClaudeSubscription(ctx)
 		if s.linkedSeatCanCover(ctx, decision.Provider, decision.Model) {
-			ctx = withDeferredReconnectNudge(ctx, ownClaudePlanSpentNudge)
+			ctx = withDeferredReconnectNudge(ctx, claudeSubscriptionReconnectNudge(ctx, r.Header, s.usageObserver))
 		} else {
-			ctx = withSubscriptionReconnectNudge(ctx, ownClaudePlanSpentNudge)
+			ctx = withSubscriptionReconnectNudge(ctx, claudeSubscriptionReconnectNudge(ctx, r.Header, s.usageObserver))
 		}
 	}
 	ctx = s.resolveCredentials(ctx, decision.Provider, decision.Model, r.Header)
@@ -3116,7 +3116,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	recordFastServed := func(fast bool) { fastServed = fast }
 
 	buildAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatchAttempt, error) {
-		targetNotice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, target.Model, targetMarker)
+		targetNotice := routerNoticeForRequest(withOwnClaudeRejectionNudge(ctx, r.Header, s.usageObserver), r.Header, subscriptions.ProviderClaude, target.Model, targetMarker)
 		targetNotice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(s), target.Provider, target.Model, targetNotice)
 		switch providers.FamilyFor(target.Provider) {
 		case providers.FamilyAnthropic:
@@ -3339,7 +3339,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	rescue := &messagesRescue{
 		rescueChain: &rescueChain{
-			svc: s, seats: seatAdmissionOf(s),
+			svc: s, seats: seatAdmissionOf(s), usageObserver: s.usageObserver,
 			r:                r,
 			log:              log,
 			env:              env,
@@ -5152,17 +5152,17 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 
 	responsesWriter, isResponses := w.(*translate.ResponsesWriter)
+	responsesNotices := &requestNoticeStream{}
 	responseSwitch := responseProtocolSwitch{
+		notices:             responsesNotices,
 		writer:              responsesWriter,
 		nativeRequest:       len(responsesBody) > 0,
 		translatedResponses: !isResponses && len(responsesBody) == 0 && openAIResponsesEndpoint,
 		promotedToResponses: promotedToResponses,
 	}
 	initialNativeResponses := responseSwitch.nativeRequest && decision.Provider == providers.ProviderOpenAI
-	if rw, ok := w.(*translate.ResponsesWriter); ok {
-		if footer := s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoed); footer != "" {
-			rw.SetFooterText(footer)
-		}
+	if footer := s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoed); isResponses && footer != "" {
+		responsesWriter.SetFooterText(footer)
 	}
 	responsesPreludeWillEmit := env.Stream() && !initialNativeResponses && (len(bindings) <= 1 || marker != "")
 	if initialNativeResponses {
@@ -5170,7 +5170,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 
 	var responsesPreludeBuf *preludeBuffer
-	responsesNotices := &requestNoticeStream{}
 	if rw, ok := contentSink.(*translate.ResponsesWriter); ok {
 		var noticeErr error
 		rw.WrapInner(func(inner http.ResponseWriter) http.ResponseWriter {
@@ -5248,7 +5247,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	preOutputRescueArmed := false
 	cyberRefusalSeen := false
 	buildProviderAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatchAttempt, error) {
-		targetNotice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderCodex, target.Model, targetMarker)
+		targetNotice := routerNoticeForRequest(withOwnCodexRejectionNudge(ctx, r.Header, s.usageObserver), r.Header, subscriptions.ProviderCodex, target.Model, targetMarker)
 		targetNotice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(s), target.Provider, target.Model, targetNotice)
 		if isResponses {
 			if targetMarker != "" && (!responseSwitch.passthrough() || supportsResponsesTerminalSurfaces(clientID.ClientApp)) {

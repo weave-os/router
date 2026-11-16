@@ -184,7 +184,11 @@ func (s *Service) callerQuotaSpent(ctx context.Context, pool subscriptions.Provi
 		return true
 	}
 	if s.usageObserver != nil {
-		if snapshot, observed := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(token))); observed && includedQuotaSpent(snapshot, now) {
+		key := s.usageObserver.Key([]byte(token))
+		if s.usageObserver.Rejected(key) {
+			return true
+		}
+		if snapshot, observed := s.usageObserver.Snapshot(key); observed && includedQuotaSpent(snapshot, now) {
 			return true
 		}
 	}

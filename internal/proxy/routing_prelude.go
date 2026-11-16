@@ -46,6 +46,12 @@ func (s *requestNoticeStream) prepare(ctx context.Context, sink http.ResponseWri
 	return s.delivery, nil
 }
 
+func (s *requestNoticeStream) selectModel(model string) {
+	if s != nil && s.delivery != nil {
+		s.delivery.SetRoutedModel(model)
+	}
+}
+
 func (s *requestNoticeStream) suppressed(notice translate.RouterNotice) bool {
 	return notice.Text == "" || (notice.Kind == s.lastNotice.Kind && notice.Text == s.lastNotice.Text)
 }

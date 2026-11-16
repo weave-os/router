@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
@@ -49,6 +50,7 @@ type rescueServices interface {
 type rescueChain struct {
 	svc              rescueServices
 	seats            seatAdmission
+	usageObserver    *usage.Observer
 	r                *http.Request
 	log              *slog.Logger
 	env              *translate.RequestEnvelope

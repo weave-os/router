@@ -326,6 +326,29 @@
             "stream": true
           },
           "outcome": "upstream_status_401"
+        },
+        {
+          "provider": "openai",
+          "wire_model": "gpt-5.6-sol",
+          "endpoint": "responses",
+          "outbound_body": {
+            "input": [
+              {
+                "content": [
+                  {
+                    "text": "Say hi",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "model": "gpt-5.6-sol",
+            "prompt_cache_key": "4dbe9a4ce040ae135b0cd2c50ce8b33b",
+            "store": false,
+            "stream": true
+          },
+          "outcome": "ok"
         }
       ],
       "attempt_events": [
@@ -390,12 +413,9 @@
         },
         {
           "Diagnosis": {
-            "BodyTranslated": true,
-            "ErrorClass": "other",
-            "FailureOwner": "router"
+            "BodyTranslated": true
           },
-          "FailureReason": "funding_authorization",
-          "Outcome": "failed",
+          "Outcome": "served",
           "Provenance": {
             "PolicyID": "main-openai-responses",
             "PolicyRevision": "3",
@@ -403,9 +423,9 @@
             "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
           },
           "Target": {
-            "CatalogID": "gpt-6-sol",
+            "CatalogID": "gpt-5.6-sol",
             "Provider": "openai",
-            "UpstreamID": "gpt-6-sol"
+            "UpstreamID": "gpt-5.6-sol"
           }
         }
       ],
@@ -525,13 +545,185 @@
             }
           },
           {
-            "event": "response.failed",
+            "event": "response.output_item.added",
+            "data": {
+              "item": {
+                "content": [],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "in_progress",
+                "type": "message"
+              },
+              "output_index": 1,
+              "sequence_number": 7,
+              "type": "response.output_item.added"
+            }
+          },
+          {
+            "event": "response.content_part.added",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 1,
+              "part": {
+                "annotations": [],
+                "text": "",
+                "type": "output_text"
+              },
+              "sequence_number": 8,
+              "type": "response.content_part.added"
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "content_index": 0,
+              "delta": "⁣⁠⁣⁠✦ **Weave Router** → your ChatGPT (Codex) login was rejected. Reconnect your Codex seat: https://app.weaveos.com/organization/settings/weave-router/subscriptions?reconnect=codex\n\n",
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 1,
+              "sequence_number": 9,
+              "type": "response.output_text.delta"
+            }
+          },
+          {
+            "event": "response.output_text.done",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 1,
+              "sequence_number": 10,
+              "text": "⁣⁠⁣⁠✦ **Weave Router** → your ChatGPT (Codex) login was rejected. Reconnect your Codex seat: https://app.weaveos.com/organization/settings/weave-router/subscriptions?reconnect=codex\n\n",
+              "type": "response.output_text.done"
+            }
+          },
+          {
+            "event": "response.content_part.done",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 1,
+              "part": {
+                "annotations": [],
+                "text": "⁣⁠⁣⁠✦ **Weave Router** → your ChatGPT (Codex) login was rejected. Reconnect your Codex seat: https://app.weaveos.com/organization/settings/weave-router/subscriptions?reconnect=codex\n\n",
+                "type": "output_text"
+              },
+              "sequence_number": 11,
+              "type": "response.content_part.done"
+            }
+          },
+          {
+            "event": "response.output_item.done",
+            "data": {
+              "item": {
+                "content": [
+                  {
+                    "annotations": [],
+                    "text": "⁣⁠⁣⁠✦ **Weave Router** → your ChatGPT (Codex) login was rejected. Reconnect your Codex seat: https://app.weaveos.com/organization/settings/weave-router/subscriptions?reconnect=codex\n\n",
+                    "type": "output_text"
+                  }
+                ],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "completed",
+                "type": "message"
+              },
+              "output_index": 1,
+              "sequence_number": 12,
+              "type": "response.output_item.done"
+            }
+          },
+          {
+            "event": "response.output_item.added",
+            "data": {
+              "item": {
+                "content": [],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "in_progress",
+                "type": "message"
+              },
+              "output_index": 2,
+              "sequence_number": 13,
+              "type": "response.output_item.added"
+            }
+          },
+          {
+            "event": "response.content_part.added",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 2,
+              "part": {
+                "annotations": [],
+                "text": "",
+                "type": "output_text"
+              },
+              "sequence_number": 14,
+              "type": "response.content_part.added"
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "content_index": 0,
+              "delta": "served on credits",
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 2,
+              "sequence_number": 15,
+              "type": "response.output_text.delta"
+            }
+          },
+          {
+            "event": "response.output_text.done",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 2,
+              "sequence_number": 16,
+              "text": "served on credits",
+              "type": "response.output_text.done"
+            }
+          },
+          {
+            "event": "response.content_part.done",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 2,
+              "part": {
+                "annotations": [],
+                "text": "served on credits",
+                "type": "output_text"
+              },
+              "sequence_number": 17,
+              "type": "response.content_part.done"
+            }
+          },
+          {
+            "event": "response.output_item.done",
+            "data": {
+              "item": {
+                "content": [
+                  {
+                    "annotations": [],
+                    "text": "served on credits",
+                    "type": "output_text"
+                  }
+                ],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "completed",
+                "type": "message"
+              },
+              "output_index": 2,
+              "sequence_number": 18,
+              "type": "response.output_item.done"
+            }
+          },
+          {
+            "event": "response.completed",
             "data": {
               "response": {
-                "error": {
-                  "code": "upstream_error",
-                  "message": "Your ChatGPT (Codex) login was rejected. Sign in to Codex again or reconnect your Codex seat: https://app.weaveos.com/organization/settings/weave-router/subscriptions?reconnect=codex"
-                },
                 "id": "resp_\u003cid\u003e",
                 "model": "gpt-5.6-sol",
                 "object": "response",
@@ -548,12 +740,43 @@
                     "role": "assistant",
                     "status": "completed",
                     "type": "message"
+                  },
+                  {
+                    "content": [
+                      {
+                        "annotations": [],
+                        "text": "⁣⁠⁣⁠✦ **Weave Router** → your ChatGPT (Codex) login was rejected. Reconnect your Codex seat: https://app.weaveos.com/organization/settings/weave-router/subscriptions?reconnect=codex\n\n",
+                        "type": "output_text"
+                      }
+                    ],
+                    "id": "\u003cid\u003e",
+                    "role": "assistant",
+                    "status": "completed",
+                    "type": "message"
+                  },
+                  {
+                    "content": [
+                      {
+                        "annotations": [],
+                        "text": "served on credits",
+                        "type": "output_text"
+                      }
+                    ],
+                    "id": "\u003cid\u003e",
+                    "role": "assistant",
+                    "status": "completed",
+                    "type": "message"
                   }
                 ],
-                "status": "failed"
+                "status": "completed",
+                "usage": {
+                  "input_tokens": 12,
+                  "output_tokens": 7,
+                  "total_tokens": 19
+                }
               },
-              "sequence_number": 7,
-              "type": "response.failed"
+              "sequence_number": 19,
+              "type": "response.completed"
             }
           }
         ]
@@ -588,41 +811,67 @@
             "Strategy": "hmm_embedding",
             "TurnCount": 1
           }
+        },
+        {
+          "op": "update_usage",
+          "role": "default_high",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "ServedModel": "gpt-5.6-sol",
+            "ServedProvider": "openai",
+            "Strategy": "hmm_embedding"
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -188,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 188,
+          "OrganizationID": "golden-org",
+          "RouterModel": "gpt-5.6-sol"
         }
       ],
       "telemetry": [
         {
           "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.000048,
+          "ActualOutputCostUSD": 0.00014,
           "CaptureMode": "off",
           "ClientApp": "codex",
-          "CredentialKeyPrefix": "eyJhbGci",
-          "CredentialKeySuffix": "ture",
-          "CredentialSource": "codex_subscription",
           "CrossFormat": true,
-          "DecisionModel": "gpt-6-sol",
+          "DecisionModel": "gpt-5.6-sol",
           "DecisionProvider": "openai",
           "DecisionReason": "golden_route",
           "EmbedInput": "only_user_message",
-          "ErrorClass": "auth_rejected",
           "EstimatedInputTokens": 1,
           "FailoverAttempted": true,
-          "FailureOwner": "router",
+          "FailoverUsed": true,
           "FinalModelFamily": "gpt-sol",
           "FreshDecisionModel": "gpt-5.6-sol",
+          "InputTokens": 12,
           "InstallationID": "00000000-0000-4000-8000-000000000001",
           "IntendedModelFamily": "gpt-sol",
+          "OutputTokens": 7,
           "PinTier": "miss",
           "PlannerOutcome": "switch",
           "PlannerReason": "no_pin",
+          "RequestedInputCostUSD": 0.00003,
           "RequestedModel": "gpt-5",
+          "RequestedOutputCostUSD": 0.00007,
           "Role": "default_high",
           "SelectionTrace": {
             "served_group": ""
           },
           "SpanType": "router.upstream",
+          "StopReason": "stop",
           "Strategy": "hmm_embedding",
           "TurnType": "main_loop",
-          "UpstreamStatusCode": 401,
+          "UpstreamFinishReason": "stop",
+          "UpstreamStatusCode": 200,
           "UserPrompt": true
         }
       ]
@@ -836,7 +1085,31 @@
           "error": "hmm_embedding: arm selection: no eligible arm in any ranked group: hmm: policy router unavailable"
         }
       ],
-      "dispatch_attempts": [],
+      "dispatch_attempts": [
+        {
+          "provider": "openai",
+          "wire_model": "gpt-5.6-sol",
+          "endpoint": "responses",
+          "outbound_body": {
+            "input": [
+              {
+                "content": [
+                  {
+                    "text": "Say hi",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "model": "gpt-5.6-sol",
+            "prompt_cache_key": "4dbe9a4ce040ae135b0cd2c50ce8b33b",
+            "store": false,
+            "stream": true
+          },
+          "outcome": "ok"
+        }
+      ],
       "attempt_events": [
         {
           "Diagnosis": {
@@ -855,6 +1128,23 @@
             "CatalogID": "claude-haiku-4-5",
             "Provider": "anthropic",
             "UpstreamID": "claude-haiku-4-5"
+          }
+        },
+        {
+          "Diagnosis": {
+            "BodyTranslated": true
+          },
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-openai-responses",
+            "PolicyRevision": "3",
+            "Purpose": "openai_responses",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "gpt-5.6-sol",
+            "Provider": "openai",
+            "UpstreamID": "gpt-5.6-sol"
           }
         }
       ],
@@ -974,13 +1264,97 @@
             }
           },
           {
-            "event": "response.failed",
+            "event": "response.output_item.added",
+            "data": {
+              "item": {
+                "content": [],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "in_progress",
+                "type": "message"
+              },
+              "output_index": 1,
+              "sequence_number": 7,
+              "type": "response.output_item.added"
+            }
+          },
+          {
+            "event": "response.content_part.added",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 1,
+              "part": {
+                "annotations": [],
+                "text": "",
+                "type": "output_text"
+              },
+              "sequence_number": 8,
+              "type": "response.content_part.added"
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "content_index": 0,
+              "delta": "served on credits",
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 1,
+              "sequence_number": 9,
+              "type": "response.output_text.delta"
+            }
+          },
+          {
+            "event": "response.output_text.done",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 1,
+              "sequence_number": 10,
+              "text": "served on credits",
+              "type": "response.output_text.done"
+            }
+          },
+          {
+            "event": "response.content_part.done",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 1,
+              "part": {
+                "annotations": [],
+                "text": "served on credits",
+                "type": "output_text"
+              },
+              "sequence_number": 11,
+              "type": "response.content_part.done"
+            }
+          },
+          {
+            "event": "response.output_item.done",
+            "data": {
+              "item": {
+                "content": [
+                  {
+                    "annotations": [],
+                    "text": "served on credits",
+                    "type": "output_text"
+                  }
+                ],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "completed",
+                "type": "message"
+              },
+              "output_index": 1,
+              "sequence_number": 12,
+              "type": "response.output_item.done"
+            }
+          },
+          {
+            "event": "response.completed",
             "data": {
               "response": {
-                "error": {
-                  "code": "upstream_error",
-                  "message": "Your ChatGPT (Codex) login was rejected. Sign in to Codex again or reconnect your Codex seat: https://app.weaveos.com/organization/settings/weave-router/subscriptions?reconnect=codex"
-                },
                 "id": "resp_\u003cid\u003e",
                 "model": "gpt-5.6-sol",
                 "object": "response",
@@ -997,12 +1371,30 @@
                     "role": "assistant",
                     "status": "completed",
                     "type": "message"
+                  },
+                  {
+                    "content": [
+                      {
+                        "annotations": [],
+                        "text": "served on credits",
+                        "type": "output_text"
+                      }
+                    ],
+                    "id": "\u003cid\u003e",
+                    "role": "assistant",
+                    "status": "completed",
+                    "type": "message"
                   }
                 ],
-                "status": "failed"
+                "status": "completed",
+                "usage": {
+                  "input_tokens": 12,
+                  "output_tokens": 7,
+                  "total_tokens": 19
+                }
               },
-              "sequence_number": 7,
-              "type": "response.failed"
+              "sequence_number": 13,
+              "type": "response.completed"
             }
           }
         ]
@@ -1030,6 +1422,9 @@
               null,
               1
             ],
+            "LastInputTokens": 12,
+            "LastOutputTokens": 7,
+            "LastServedModel": "gpt-5.6-sol",
             "Model": "gpt-5.6-sol",
             "Provider": "openai",
             "Reason": "golden_route",
@@ -1039,45 +1434,67 @@
           }
         },
         {
-          "op": "increment_upstream_errors",
+          "op": "update_usage",
           "role": "default_high",
-          "detail": 1
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "PriorServedModel": "gpt-5.6-sol",
+            "ServedModel": "gpt-5.6-sol",
+            "ServedProvider": "openai",
+            "Strategy": "hmm_embedding"
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -188,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 188,
+          "OrganizationID": "golden-org",
+          "RouterModel": "gpt-5.6-sol"
         }
       ],
       "telemetry": [
         {
           "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.000048,
+          "ActualOutputCostUSD": 0.00014,
           "CaptureMode": "off",
           "ClientApp": "codex",
           "CrossFormat": true,
-          "DecisionModel": "claude-haiku-4-5",
-          "DecisionProvider": "anthropic",
+          "DecisionModel": "gpt-5.6-sol",
+          "DecisionProvider": "openai",
           "DecisionReason": "golden_route",
           "EmbedInput": "only_user_message",
-          "ErrorClass": "auth_rejected",
           "EstimatedInputTokens": 1,
-          "FailoverAttempted": true,
-          "FailoverUsed": true,
-          "FailureOwner": "router",
-          "FinalModelFamily": "claude-haiku",
+          "FinalModelFamily": "gpt-sol",
           "FreshDecisionModel": "gpt-5.6-sol",
+          "InputTokens": 12,
           "InstallationID": "00000000-0000-4000-8000-000000000001",
           "IntendedModelFamily": "gpt-sol",
+          "OutputTokens": 7,
           "PinTier": "postgres_stay_same_model",
           "PlannerOutcome": "stay",
           "PlannerPinModel": "gpt-5.6-sol",
           "PlannerPinProvider": "openai",
           "PlannerReason": "same_model",
+          "RequestedInputCostUSD": 0.00003,
           "RequestedModel": "gpt-5",
+          "RequestedOutputCostUSD": 0.00007,
           "Role": "default_high",
           "SelectionTrace": {
             "served_group": ""
           },
           "SpanType": "router.upstream",
           "StickyHit": true,
+          "StopReason": "stop",
           "Strategy": "hmm_embedding",
           "TurnType": "main_loop",
-          "UpstreamStatusCode": 401,
+          "UpstreamFinishReason": "stop",
+          "UpstreamStatusCode": 200,
           "UserPrompt": true
         }
       ]

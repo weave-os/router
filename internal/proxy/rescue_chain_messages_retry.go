@@ -101,6 +101,7 @@ func (m *messagesRescue) subscriptionRetry(ctx context.Context) {
 		!preludeBuf.Committed() &&
 		(providers.IsRetryable(m.proxyErr) || anthropicOAuthCredentialRejected(m.proxyErr) || anthropicSubscriptionModelRejected(m.proxyErr) || anthropicSubscriptionThirdPartyRefused(m.proxyErr)) {
 		m.subscriptionRetryRan = true
+		recordOwnClaudeLoginRejected(ctx, r.Header, m.usageObserver, s.clockNow(), m.proxyErr)
 		subCtx := subscriptionStatePaidRescueContext(withSuppressedClaudeSubscription(ctx), m.decision.Model)
 		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderAnthropic, m.decision.Model, r.Header)
 		subOpts := opts
@@ -124,7 +125,7 @@ func (m *messagesRescue) subscriptionRetry(ctx context.Context) {
 				"model", m.decision.Model,
 				"err", m.proxyErr,
 				"upstream_status", upstreamStatus(m.proxyErr))
-			subNotice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, subOpts.TargetModel, m.marker)
+			subNotice := routerNoticeForRequest(withOwnClaudeRejectionNudge(ctx, r.Header, m.usageObserver), r.Header, subscriptions.ProviderClaude, subOpts.TargetModel, m.marker)
 			subNotice = addRoutingFundingSource(subCtx, m.seats, providers.ProviderAnthropic, subOpts.TargetModel, subNotice)
 			subAttempt := m.anthropicTierAttemptFor(subOpts, subPrep, subNotice).attempt(m.recordFastServed)
 			*m.fastServed = subOpts.FastMode

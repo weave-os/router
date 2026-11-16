@@ -154,7 +154,7 @@ func subscriptionCoveredTarget(ctx context.Context, headers http.Header, req rou
 }
 
 func (s *Service) claudeSubscriptionExhausted(ctx context.Context, headers http.Header) bool {
-	return s.anthropicSubscriptionObservedExhausted(ctx, headers)
+	return ownClaudeLoginRejected(ctx, headers, s.usageObserver) && !pickedModelOnOwnPlan(ctx) || s.anthropicSubscriptionObservedExhausted(ctx, headers)
 }
 
 func (s *Service) anthropicSubscriptionObservedExhausted(ctx context.Context, headers http.Header) bool {
@@ -247,7 +247,7 @@ const ownClaudePlanSpentNudge = routingMarkerPrefix +
 	"your own Claude plan is out of usage for now. Connect or reconnect a Claude seat to keep this on a subscription: " +
 	SubscriptionsDashboardURL + "?reconnect=claude\n\n"
 
-var subscriptionReconnectNudges = []string{ownCodexPlanSpentNudge, ownCodexCredentialRejectedNudge, ownClaudePlanSpentNudge}
+var subscriptionReconnectNudges = []string{ownCodexPlanSpentNudge, ownCodexCredentialRejectedNudge, ownClaudePlanSpentNudge, ownClaudeCredentialRejectedNudge}
 
 type subscriptionReconnectNudgeContextKey struct{}
 

@@ -80,9 +80,9 @@ func goldenCodexLoginRejectedScenarios() []goldenScenario {
 }
 
 // TestRejectedCodexLoginRescueDispatchesLadderTarget states the invariant the
-// scenario pins: once the subscription ladder has moved the turn to another
-// model, the Weave-credit rescue prepares that model's request, so a rejected
-// login surfaces its reconnect instruction instead of a generic router error.
+// scenario pins: a rejected own login cannot serve the turn, so once the
+// subscription ladder has moved the turn to another model, Weave credits serve
+// that model and the stream still carries the reconnect instruction.
 func TestRejectedCodexLoginRescueDispatchesLadderTarget(t *testing.T) {
 	t.Parallel()
 	sc := goldenCodexLoginRejectedScenarios()[0]
@@ -96,8 +96,11 @@ func TestRejectedCodexLoginRescueDispatchesLadderTarget(t *testing.T) {
 
 	require.NotEmpty(t, served.Response.Events)
 	terminal := served.Response.Events[len(served.Response.Events)-1]
-	require.Equal(t, "response.failed", terminal.Event)
-	payload, err := json.Marshal(terminal.Data)
+	require.Equal(t, "response.completed", terminal.Event)
+	completed, err := json.Marshal(terminal.Data)
 	require.NoError(t, err)
-	require.Contains(t, string(payload), "ChatGPT (Codex) login was rejected")
+	require.Contains(t, string(completed), `"model":"`+goldenCodexModel+`"`, "response.completed names the model that served the turn")
+	events, err := json.Marshal(served.Response.Events)
+	require.NoError(t, err)
+	require.Contains(t, string(events), "ChatGPT (Codex) login was rejected")
 }
