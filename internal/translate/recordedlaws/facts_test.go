@@ -150,12 +150,12 @@ func chatTurn(body gjson.Result) turn {
 	for _, tc := range msg.Get("tool_calls").Array() {
 		tr.tools = append(tr.tools, newToolCall(tc.Get("id").String(), tc.Get("function.name").String(), tc.Get("function.arguments").String(), tc.Get("function.thought_signature").String()))
 	}
-	tr.stop = mapped(chatStops, "chat", body.Get("choices.0.finish_reason").String())
+	tr.stop = mapStopReason(chatStops, "chat", body.Get("choices.0.finish_reason").String())
 	tr.usage = usageFrom(body.Get("usage"), chatUsageFields)
 	return tr
 }
 
-func mapped(table map[string]string, family, value string) string {
+func mapStopReason(table map[string]string, family, value string) string {
 	if v, ok := table[value]; ok {
 		return v
 	}
@@ -240,6 +240,6 @@ func geminiStop(reason string, hasTools bool) string {
 	case reason == "MAX_TOKENS":
 		return "max_tokens"
 	default:
-		return mapped(nil, "gemini", reason)
+		return mapStopReason(nil, "gemini", reason)
 	}
 }
