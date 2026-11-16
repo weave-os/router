@@ -525,3 +525,18 @@ func TestClassifyDispatchError_PassthroughModelUnknownOutsideRoutingPolicyIsNeut
 	assert.NotContains(t, cls.Message, "passthrough")
 	assert.NotContains(t, cls.Message, "routing")
 }
+
+func TestClassifyDispatchError_UntranslatableUserContentIs400(t *testing.T) {
+	err := fmt.Errorf("emit body: %w", fmt.Errorf("openai→anthropic: input_audio: %w", translate.ErrUntranslatableUserContent))
+
+	cls, ok := proxy.ClassifyDispatchError(err)
+
+	require.True(t, ok)
+	assert.Equal(t, proxy.DispatchErrorUntranslatableUserContent, cls.Kind)
+	assert.Equal(t, http.StatusBadRequest, cls.Status)
+	assert.True(t, cls.Kind.IsClientError(), "the caller sent a part the selected provider cannot accept")
+	assert.Equal(t, "warn", cls.LogLevel)
+	assert.False(t, cls.RetryAfter)
+	assert.Contains(t, cls.Message, "input_audio")
+	assert.NotContains(t, cls.Message, "emit body:")
+}
