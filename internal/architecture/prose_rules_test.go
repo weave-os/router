@@ -36,6 +36,7 @@ var ioFreePackagePatterns = []string{
 	"./internal/feedback/...",
 	"./internal/proxy/usage/...",
 	"./internal/routingpolicy/...",
+	"./internal/subscriptionlane/...",
 }
 
 var injectedClockPackagePatterns = []string{

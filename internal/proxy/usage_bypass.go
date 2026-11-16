@@ -454,30 +454,6 @@ func (e *IncludedAllowanceSpentError) Error() string {
 
 func (e *IncludedAllowanceSpentError) Unwrap() error { return e.orgGate }
 
-// subscriptionOnlyUnavailable returns the refusal for a subscription-only
-// turn the caller's subscription cannot serve, naming the gate that disabled
-// paid fallback.
-func subscriptionOnlyUnavailable(ctx context.Context) error {
-	orgGate := ErrCreditsExhaustedSubscriptionUnavailable
-	if reason, _ := billing.SubscriptionOnlyReasonFromContext(ctx); reason == billing.SubscriptionOnlySpendCapReached {
-		orgGate = ErrSpendCapSubscriptionUnavailable
-	}
-	if window, spent := entitlement.SpentWindowFromContext(ctx); spent {
-		return &IncludedAllowanceSpentError{Window: window, orgGate: orgGate}
-	}
-	return orgGate
-}
-
-// subscriptionPoolExhausted is the pool-exhaustion refusal. When a depleted
-// balance or reached cap disabled paid fallback, it also carries that gate's
-// refusal so the client is told why, not just to retry.
-func subscriptionPoolExhausted(ctx context.Context) error {
-	if reason, ok := billing.SubscriptionOnlyReasonFromContext(ctx); ok && reason != billing.SubscriptionOnlyLinkedFirst {
-		return errors.Join(subscriptionOnlyUnavailable(ctx), ErrSubscriptionPoolExhausted)
-	}
-	return ErrSubscriptionPoolExhausted
-}
-
 // errBypassRetryable is returned by bypassToAnthropic when the bypass attempt
 // hit a retryable upstream error (e.g., Anthropic 429 weekly-limit) BEFORE
 // writing any response bytes. The caller should fall through to the normal

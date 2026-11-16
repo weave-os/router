@@ -9,14 +9,6 @@ import (
 	"weave-os/router/internal/router"
 )
 
-// linkedFirst reports whether the turn is subscription-only because the
-// caller's linked plan pays by preference — the one reason that still has
-// organization credits behind it.
-func linkedFirst(ctx context.Context) bool {
-	reason, ok := billing.SubscriptionOnlyReasonFromContext(ctx)
-	return ok && reason == billing.SubscriptionOnlyLinkedFirst
-}
-
 // paidFallbackForbidden reports whether a live subscription failure may not be
 // rescued on metered capacity. A credits_depleted turn has nowhere to fall
 // through to, and a picked model stays on the caller's own login. Configured
@@ -33,13 +25,6 @@ func paidFallbackForbidden(ctx context.Context) bool {
 // customer holds a provider key.
 func paidFallbackForbiddenByPlan(ctx context.Context) bool {
 	return claudeEnterpriseTurn(ctx) && !claudeEnterpriseCapRescue(ctx) || pickedModelOnOwnPlan(ctx) || subscriptionAttemptOnly(ctx) || subscriptionStateModelsEnabled(ctx) && !subscriptionAPIOnly(ctx)
-}
-
-// paidCapacityUnfunded reports whether the organization cannot pay for the
-// turn (credits depleted or a spend cap reached). Only customer-funded
-// credentials may serve it; Weave's deployment keys never do.
-func paidCapacityUnfunded(ctx context.Context) bool {
-	return billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx)
 }
 
 // paidFallbackForbiddenFor is paidFallbackForbidden for a fallback onto

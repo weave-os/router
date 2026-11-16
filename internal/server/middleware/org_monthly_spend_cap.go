@@ -4,7 +4,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
-	"weave-os/router/internal/refusal"
+	"weave-os/router/internal/subscriptionlane"
 
 	"github.com/gin-gonic/gin"
 )
@@ -49,13 +49,13 @@ func WithOrgMonthlySpendCap(svc *billing.Service) gin.HandlerFunc {
 		}
 
 		if result.LimitReached() {
-			if subscriptionExempt {
+			kind, refused := tripSubscriptionLane(c, subscriptionlane.OrgMonthlySpendCapGate, subscriptionExempt)
+			if !refused {
 				log.Info("Org monthly cap reached but subscription covers the route: serving subscription-only",
 					"organization_id", orgID,
 					"spent_usd_micros", result.SpentMicros,
 					"monthly_limit_usd_micros", *result.LimitMicros,
 				)
-				c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context(), billing.SubscriptionOnlySpendCapReached))
 				c.Next()
 				return
 			}
@@ -64,7 +64,7 @@ func WithOrgMonthlySpendCap(svc *billing.Service) gin.HandlerFunc {
 				"spent_usd_micros", result.SpentMicros,
 				"monthly_limit_usd_micros", *result.LimitMicros,
 			)
-			abortRefusal(c, refusal.OrgMonthlySpendLimitReached, gin.H{
+			abortRefusal(c, kind, gin.H{
 				"spent_usd_micros":         result.SpentMicros,
 				"monthly_limit_usd_micros": *result.LimitMicros,
 				"message":                  "Your organization has reached its monthly Weave Router spend limit. An org admin can raise the limit, or it resets next month.",
