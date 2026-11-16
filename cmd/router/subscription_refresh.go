@@ -8,7 +8,6 @@ import (
 	"math/big"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -46,28 +45,20 @@ const (
 	subscriptionKeepWarmTimeout       = 5 * time.Minute
 )
 
-func subscriptionKeepWarmPolicy(rawEnabled, rawAge string) (subscriptions.KeepWarmPolicy, bool, error) {
-	enabled := false
-	if raw := strings.TrimSpace(rawEnabled); raw != "" {
-		parsed, err := strconv.ParseBool(raw)
-		if err != nil {
-			return subscriptions.KeepWarmPolicy{}, false, fmt.Errorf("invalid ROUTER_SUBSCRIPTION_KEEP_WARM_ENABLED: %w", err)
-		}
-		enabled = parsed
-	}
+func subscriptionKeepWarmPolicy(rawAge string) (subscriptions.KeepWarmPolicy, error) {
 	policy := subscriptions.KeepWarmPolicy{MaxAge: defaultSubscriptionKeepWarmMaxAge, BatchLimit: subscriptionKeepWarmBatchLimit,
 		SeatSpacing: subscriptionKeepWarmSeatSpacing}
 	if raw := strings.TrimSpace(rawAge); raw != "" {
 		age, err := time.ParseDuration(raw)
 		if err != nil {
-			return subscriptions.KeepWarmPolicy{}, false, fmt.Errorf("invalid ROUTER_SUBSCRIPTION_KEEP_WARM_MAX_AGE: %w", err)
+			return subscriptions.KeepWarmPolicy{}, fmt.Errorf("invalid ROUTER_SUBSCRIPTION_KEEP_WARM_MAX_AGE: %w", err)
 		}
 		if age < time.Hour {
-			return subscriptions.KeepWarmPolicy{}, false, fmt.Errorf("ROUTER_SUBSCRIPTION_KEEP_WARM_MAX_AGE must be at least 1h, got %s", age)
+			return subscriptions.KeepWarmPolicy{}, fmt.Errorf("ROUTER_SUBSCRIPTION_KEEP_WARM_MAX_AGE must be at least 1h, got %s", age)
 		}
 		policy.MaxAge = age
 	}
-	return policy, enabled, nil
+	return policy, nil
 }
 
 func jitteredKeepWarmDelay(low, span time.Duration) time.Duration {
@@ -124,13 +115,12 @@ func buildSubscriptionRuntime(enabled bool, authSvc *auth.Service, accounts auth
 }
 
 func startSubscriptionKeepWarm(ctx context.Context, runtime *subscriptions.Runtime, logger *slog.Logger) func(context.Context) {
-	policy, enabled, err := subscriptionKeepWarmPolicy(config.GetOr("ROUTER_SUBSCRIPTION_KEEP_WARM_ENABLED", "false"),
-		config.GetOr("ROUTER_SUBSCRIPTION_KEEP_WARM_MAX_AGE", ""))
+	if runtime == nil {
+		return func(context.Context) {}
+	}
+	policy, err := subscriptionKeepWarmPolicy(config.GetOr("ROUTER_SUBSCRIPTION_KEEP_WARM_MAX_AGE", ""))
 	if err != nil {
 		panic(err)
-	}
-	if runtime == nil || !enabled {
-		return func(context.Context) {}
 	}
 	logger.Info("Subscription keep-warm enabled", "max_age", policy.MaxAge)
 	done := make(chan struct{})
