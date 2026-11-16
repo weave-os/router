@@ -22,16 +22,13 @@ var allowanceRank = map[subscriptionlane.Allowance]int{
 	subscriptionlane.AllowanceBillingSpent: 3,
 }
 
-func TestAllowanceRulesEnumerateEveryPairOnceWithAVerdict(t *testing.T) {
+func TestAllowanceRulesEnumerateEveryPairOnceWithAKnownTarget(t *testing.T) {
 	seen := make(map[[2]int]bool)
 	for _, rule := range subscriptionlane.AllowanceRules() {
 		key := [2]int{int(rule.From), int(rule.On)}
 		require.False(t, seen[key], "%s on %s listed twice", rule.From, rule.On)
 		seen[key] = true
-		require.Contains(t, []subscriptionlane.Verdict{subscriptionlane.Allowed, subscriptionlane.Rejected}, rule.Transition.Verdict, "%s on %s", rule.From, rule.On)
-		if rule.Transition.Verdict == subscriptionlane.Rejected {
-			assert.Zero(t, rule.Transition.To, "%s on %s", rule.From, rule.On)
-		}
+		assert.Contains(t, subscriptionlane.Allowances(), rule.To, "%s on %s", rule.From, rule.On)
 	}
 	assert.Len(t, seen, len(subscriptionlane.Allowances())*len(subscriptionlane.AllowanceEvents()))
 	assert.Len(t, allowanceRank, len(subscriptionlane.Allowances()))
@@ -45,7 +42,7 @@ func TestEveryAllowanceIsReachableFromUnspent(t *testing.T) {
 		from := frontier[0]
 		frontier = frontier[1:]
 		for _, on := range subscriptionlane.AllowanceEvents() {
-			if next, ok := subscriptionlane.StepAllowance(from, on); ok && !reached[next] {
+			if next := subscriptionlane.StepAllowance(from, on); !reached[next] {
 				reached[next] = true
 				frontier = append(frontier, next)
 			}
@@ -58,8 +55,7 @@ func TestEveryAllowanceIsReachableFromUnspent(t *testing.T) {
 
 func TestASpentWindowKeepsTheLongerOfTheTwo(t *testing.T) {
 	for _, rule := range subscriptionlane.AllowanceRules() {
-		require.Equal(t, subscriptionlane.Allowed, rule.Transition.Verdict, "%s on %s", rule.From, rule.On)
-		assert.Equal(t, max(allowanceRank[rule.From], windowRank[rule.On]), allowanceRank[rule.Transition.To], "%s on %s", rule.From, rule.On)
+		assert.Equal(t, max(allowanceRank[rule.From], windowRank[rule.On]), allowanceRank[rule.To], "%s on %s", rule.From, rule.On)
 	}
 }
 
@@ -73,8 +69,7 @@ func TestSpentWindowsSettleOnTheLongestInAnyOrder(t *testing.T) {
 		for range 1 + rng.next(8) {
 			on := events[rng.next(len(events))]
 			walk = append(walk, on.String())
-			next, ok := subscriptionlane.StepAllowance(allowance, on)
-			require.True(t, ok, "%v", walk)
+			next := subscriptionlane.StepAllowance(allowance, on)
 			require.GreaterOrEqual(t, allowanceRank[next], allowanceRank[allowance], "%v: a spent window was forgotten", walk)
 			allowance = next
 			rank = max(rank, windowRank[on])

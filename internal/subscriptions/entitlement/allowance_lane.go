@@ -19,7 +19,7 @@ func spentWindow(usage Usage) (bool, PeriodKind) {
 		{usage: usage.SixHour, on: subscriptionlane.SixHourWindowSpent},
 	} {
 		if window.usage.ConsumedUsdMicros() >= window.usage.LimitUsdMicros {
-			allowance, _ = subscriptionlane.StepAllowance(allowance, window.on)
+			allowance = subscriptionlane.StepAllowance(allowance, window.on)
 		}
 	}
 	kind, spent := spentAllowancePeriods[allowance]
