@@ -591,7 +591,10 @@ func writeOpenAIUserFromAnthropic(jw *jsonWriter, msg gjson.Result) error {
 		return fmt.Errorf("anthropic→openai: container_upload: %w", ErrUntranslatableUserContent)
 	}
 
-	toolResultRaws, userPartRaws := collectOpenAIMessagesFromAnthropicUserBlocks(content)
+	toolResultRaws, userPartRaws, err := collectOpenAIMessagesFromAnthropicUserBlocks(content)
+	if err != nil {
+		return err
+	}
 
 	for _, raw := range toolResultRaws {
 		jw.Raw(raw)
@@ -627,7 +630,7 @@ func writeOpenAIUserFromAnthropic(jw *jsonWriter, msg gjson.Result) error {
 	return nil
 }
 
-func collectOpenAIMessagesFromAnthropicUserBlocks(content gjson.Result) (toolResultRaws, userPartRaws []string) {
+func collectOpenAIMessagesFromAnthropicUserBlocks(content gjson.Result) (toolResultRaws, userPartRaws []string, err error) {
 	content.ForEach(func(_, block gjson.Result) bool {
 		switch block.Get("type").String() {
 		case "tool_result":
@@ -654,13 +657,16 @@ func collectOpenAIMessagesFromAnthropicUserBlocks(content gjson.Result) (toolRes
 				userPartRaws = append(userPartRaws, part)
 			}
 		case "document":
-			if part := buildOpenAIFilePartFromBase64PDFDocument(block); part != "" {
-				userPartRaws = append(userPartRaws, part)
+			part := buildOpenAIFilePartFromBase64PDFDocument(block)
+			if part == "" {
+				err = fmt.Errorf("anthropic→openai: document without base64 PDF source: %w", ErrUntranslatableUserContent)
+				return false
 			}
+			userPartRaws = append(userPartRaws, part)
 		}
 		return true
 	})
-	return toolResultRaws, userPartRaws
+	return toolResultRaws, userPartRaws, err
 }
 
 func buildOpenAIToolResultMessage(block gjson.Result) string {

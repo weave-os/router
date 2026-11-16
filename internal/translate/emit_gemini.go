@@ -316,15 +316,21 @@ func openAIUserPartGemini(p gjson.Result) (string, error) {
 		}
 	case "file":
 		if mime, data, ok := parseDataURL(p.Get("file.file_data").String()); ok {
-			return geminiBase64InlineDataPart(mime, data), nil
+			if part := geminiBase64InlineDataPart(mime, data); part != "" {
+				return part, nil
+			}
 		}
 		if p.Get("file.file_id").String() != "" {
 			return "", fmt.Errorf("openai→gemini: file part with file_id: %w", ErrUntranslatableUserContent)
 		}
+		return "", fmt.Errorf("openai→gemini: file part without inline base64 file_data: %w", ErrUntranslatableUserContent)
 	case "input_audio":
 		if format := p.Get("input_audio.format").String(); format != "" {
-			return geminiBase64InlineDataPart("audio/"+format, p.Get("input_audio.data").String()), nil
+			if part := geminiBase64InlineDataPart("audio/"+format, p.Get("input_audio.data").String()); part != "" {
+				return part, nil
+			}
 		}
+		return "", fmt.Errorf("openai→gemini: input_audio without format and base64 data: %w", ErrUntranslatableUserContent)
 	}
 	return "", nil
 }
@@ -754,7 +760,10 @@ func anthropicUserBlockGemini(block gjson.Result, toolNames map[string]string) (
 			return geminiInlineDataPart(cmp.Or(block.Get("source.media_type").String(), "image/jpeg"), data), nil
 		}
 	case "document":
-		return geminiPartFromAnthropicBase64PDFDocument(block), nil
+		if part := geminiPartFromAnthropicBase64PDFDocument(block); part != "" {
+			return part, nil
+		}
+		return "", fmt.Errorf("anthropic→gemini: document without base64 PDF source: %w", ErrUntranslatableUserContent)
 	case "container_upload":
 		return "", fmt.Errorf("anthropic→gemini: container_upload: %w", ErrUntranslatableUserContent)
 	case "tool_result":
