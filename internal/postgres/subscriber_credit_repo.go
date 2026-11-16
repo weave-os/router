@@ -19,15 +19,11 @@ type subscriberCreditDB interface {
 	Begin(context.Context) (pgx.Tx, error)
 }
 
-// SubscriberCreditRepo is the prepaid book of an individual Max/Boost
-// subscriber, keyed by credential subject. Every statement it issues carries
-// that subject id, so colleagues who share an organization never share funds.
 type SubscriberCreditRepo struct {
 	db      subscriberCreditDB
 	queries *sqlc.Queries
 }
 
-// NewSubscriberCreditRepo binds subscriber prepaid funds to a SQLC handle.
 func NewSubscriberCreditRepo(db subscriberCreditDB) *SubscriberCreditRepo {
 	boundedDB := dbbudget.NewDBTX(db)
 	return &SubscriberCreditRepo{db: boundedDB, queries: dbbudget.Queries(boundedDB)}
@@ -36,9 +32,6 @@ func NewSubscriberCreditRepo(db subscriberCreditDB) *SubscriberCreditRepo {
 var _ billing.PrepaidBook = (*SubscriberCreditRepo)(nil)
 var _ billing.SubscriberPrepaidAuthorizer = (*SubscriberCreditRepo)(nil)
 
-// Balance returns the subscriber's prepaid balance in USD micros, mapping a
-// missing row to billing.ErrBalanceRowMissing so a subscriber who never
-// topped up reads the same as a depleted one does for the organization book.
 func (r *SubscriberCreditRepo) Balance(ctx context.Context, owner billing.Owner) (int64, error) {
 	subscriberID, err := subscriberOwnerID(owner)
 	if err != nil {
@@ -54,9 +47,6 @@ func (r *SubscriberCreditRepo) Balance(ctx context.Context, owner billing.Owner)
 	return balance, nil
 }
 
-// Debit moves the subscriber's balance and appends their ledger row in one
-// statement. A BYOK fee has no meaning on an individual plan, so a debit that
-// carries one is refused rather than silently dropping the fee row.
 func (r *SubscriberCreditRepo) Debit(ctx context.Context, debit billing.PrepaidDebit) (int64, error) {
 	subscriberID, err := subscriberOwnerID(debit.Owner)
 	if err != nil {
@@ -82,8 +72,6 @@ func (r *SubscriberCreditRepo) Debit(ctx context.Context, debit billing.PrepaidD
 	return balanceAfter, nil
 }
 
-// Authorize reserves at most the request bound and never more than the
-// subscriber's current balance.
 func (r *SubscriberCreditRepo) Authorize(ctx context.Context, request billing.PrepaidAuthorizationRequest) (billing.PrepaidAuthorization, error) {
 	subscriberID, err := subscriberOwnerID(request.Owner)
 	if err != nil {
@@ -185,7 +173,6 @@ func (r *SubscriberCreditRepo) Authorize(ctx context.Context, request billing.Pr
 	return decodeSubscriberCreditReservation(stored)
 }
 
-// Settle records one exact retail-cost action against an open authorization.
 func (r *SubscriberCreditRepo) Settle(ctx context.Context, settlement billing.PrepaidSettlement) (int64, error) {
 	if settlement.AuthorizationActionID == "" || settlement.ActionID == "" || settlement.RouterRequestID == "" ||
 		settlement.ServedModel == "" || settlement.RetailUsdMicros < 0 ||
@@ -282,7 +269,6 @@ func (r *SubscriberCreditRepo) Settle(ctx context.Context, settlement billing.Pr
 	return balanceAfter, nil
 }
 
-// Finalize returns any unused hold after all served actions have settled.
 func (r *SubscriberCreditRepo) Finalize(ctx context.Context, actionID string) (int64, error) {
 	if actionID == "" {
 		return 0, billing.ErrPrepaidAuthorizationConflict
@@ -373,8 +359,6 @@ func stringOrEmpty(value *string) string {
 	return *value
 }
 
-// subscriberOwnerID rejects any owner that is not a well-formed subscriber, so
-// an organization id can never be reinterpreted as a credential subject.
 func subscriberOwnerID(owner billing.Owner) (uuid.UUID, error) {
 	if err := owner.Validate(); err != nil {
 		return uuid.Nil, err
