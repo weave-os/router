@@ -2,16 +2,8 @@
   "schema_version": "comment_ban_allowlist_v1",
   "packages": [
     {
-      "package": "internal/billing",
-      "banned_lines": 248
-    },
-    {
       "package": "internal/proxy",
       "banned_lines": 4297
-    },
-    {
-      "package": "internal/subscriptions/entitlement",
-      "banned_lines": 239
     }
   ]
 }
