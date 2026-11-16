@@ -618,10 +618,9 @@ func TestSubscriptionStateModelsCodexNativeAttemptAfterCrossFamilyPick(t *testin
 	assert.NotContains(t, out, "response.failed")
 }
 
-// A revoked own ChatGPT login is not spent quota: the turn answers 401 so
-// Codex signs in again, instead of the exhausted model set serving it (prod
-// 2026-11-13: token_revoked sessions ran on allowance models).
-func TestSubscriptionStateModelsRevokedCodexLoginFailsTurn(t *testing.T) {
+// A revoked own ChatGPT login cannot serve the turn, so the exhausted model set
+// serves it on Weave credits and the stream names the reconnect.
+func TestSubscriptionStateModelsRevokedCodexLoginFallsBackWithReconnectNotice(t *testing.T) {
 	for _, tc := range []struct {
 		held, stream bool
 		client       string
@@ -635,6 +634,8 @@ func TestSubscriptionStateModelsRevokedCodexLoginFailsTurn(t *testing.T) {
 				}
 				if strings.HasSuffix(r.URL.Path, "/chat/completions") {
 					paidCalls++
+					writeSyntheticChatCompletion(w, gjson.GetBytes(mustReadBody(r), "stream").Bool())
+					return
 				}
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusUnauthorized)
@@ -665,18 +666,10 @@ func TestSubscriptionStateModelsRevokedCodexLoginFailsTurn(t *testing.T) {
 			rec := httptest.NewRecorder()
 			err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathResponses, strings.NewReader(body)))
 
-			if tc.client != ClientAppCodex {
-				assert.Equal(t, 1, paidCalls, "a client that does not depend on its linked Codex login keeps the exhausted model set")
-				return
-			}
-			require.Error(t, err)
-			class, ok := ClassifyDispatchError(err)
-			require.True(t, ok)
-			assert.Equal(t, http.StatusUnauthorized, class.Status)
-			assert.Contains(t, class.Message, "reconnect=codex", "the ingress handler's error names the recovery")
-			assert.Zero(t, paidCalls, "the exhausted model set must not serve a revoked login")
-			if tc.stream {
-				assert.Contains(t, rec.Body.String(), "reconnect=codex", "a committed stream's response.failed names the recovery")
+			require.NoError(t, err)
+			assert.Equal(t, 1, paidCalls, "the exhausted model set serves a turn the revoked login cannot")
+			if tc.client == ClientAppCodex && tc.stream {
+				assert.Contains(t, rec.Body.String(), "reconnect=codex", "the stream names the recovery")
 			}
 		})
 	}
@@ -837,4 +830,21 @@ func assertResponsesClientGridOutcome(t *testing.T, cell string, err error, mode
 	assert.Contains(t, out, "synthetic answer")
 	assert.Contains(t, out, `"type":"response.completed"`)
 	assert.NotContains(t, out, "response.failed")
+}
+
+func mustReadBody(r *http.Request) []byte {
+	body, _ := io.ReadAll(r.Body)
+	return body
+}
+
+func writeSyntheticChatCompletion(w http.ResponseWriter, stream bool) {
+	if !stream {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"chatcmpl_synthetic","object":"chat.completion","model":"synthetic","choices":[{"index":0,"message":{"role":"assistant","content":"synthetic answer"},"finish_reason":"stop"}],"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}}`)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	_, _ = io.WriteString(w, "data: {\"id\":\"chatcmpl_synthetic\",\"object\":\"chat.completion.chunk\",\"model\":\"synthetic\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"synthetic answer\"},\"finish_reason\":null}]}\n\n"+
+		"data: {\"id\":\"chatcmpl_synthetic\",\"object\":\"chat.completion.chunk\",\"model\":\"synthetic\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":11,\"completion_tokens\":7,\"total_tokens\":18}}\n\n"+
+		"data: [DONE]\n\n")
 }

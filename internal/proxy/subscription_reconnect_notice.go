@@ -18,3 +18,10 @@ func codexSubscriptionReconnectNudge(ctx context.Context, headers http.Header, o
 	}
 	return ownCodexPlanSpentNudge
 }
+
+func withOwnCodexRejectionNudge(ctx context.Context, headers http.Header, observer *usage.Observer) context.Context {
+	if !ownCodexLoginRejected(ctx, headers, observer) {
+		return ctx
+	}
+	return withSubscriptionReconnectNudge(ctx, ownCodexCredentialRejectedNudge)
+}
