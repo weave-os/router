@@ -44,8 +44,10 @@ marker a served turn carries. The reason is a required argument so a new gate
 must decide what the caller is told. A recorded reason is never downgraded:
 depleted credits outrank a reached cap, which outranks a linked-first
 preference. `ReleaseLinkedFirst` lets a linked-first turn fall through to the
-organization balance it was already admitted against.
-`subscription_only_reason_test.go` pins the precedence.
+organization balance it was already admitted against. Each reason maps to a
+`subscriptionlane.State`, and the `subscriptionlane` transition table enforces
+this precedence; `subscription_only_reason_test.go` and
+`subscription_only_matrix_test.go` pin it.
 
 ## Debits
 

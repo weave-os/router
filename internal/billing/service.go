@@ -33,63 +33,6 @@ func OrganizationPrepaidFromContext(ctx context.Context) bool {
 	return admitted
 }
 
-type subscriptionOnlyContextKeyT struct{}
-
-type SubscriptionOnlyReason string
-
-const (
-	SubscriptionOnlyCreditsDepleted SubscriptionOnlyReason = "credits_depleted"
-	SubscriptionOnlySpendCapReached SubscriptionOnlyReason = "spend_cap_reached"
-	SubscriptionOnlyLinkedFirst     SubscriptionOnlyReason = "linked_first"
-)
-
-var SubscriptionOnlyContextKey = subscriptionOnlyContextKeyT{}
-
-func WithSubscriptionOnly(ctx context.Context, reason SubscriptionOnlyReason) context.Context {
-	if existing, ok := subscriptionOnlyReason(ctx); ok && existing.precedence() > reason.precedence() {
-		return ctx
-	}
-	return context.WithValue(ctx, SubscriptionOnlyContextKey, reason)
-}
-
-func (r SubscriptionOnlyReason) precedence() int {
-	switch r {
-	case SubscriptionOnlyCreditsDepleted:
-		return 2
-	case SubscriptionOnlySpendCapReached:
-		return 1
-	default:
-		return 0
-	}
-}
-
-func ReleaseLinkedFirst(ctx context.Context) context.Context {
-	if reason, ok := subscriptionOnlyReason(ctx); ok && reason == SubscriptionOnlyLinkedFirst {
-		return context.WithValue(ctx, SubscriptionOnlyContextKey, nil)
-	}
-	return ctx
-}
-
-func SubscriptionOnlyFromContext(ctx context.Context) bool {
-	_, ok := subscriptionOnlyReason(ctx)
-	return ok
-}
-
-func SubscriptionOnlyReasonFromContext(ctx context.Context) (reason SubscriptionOnlyReason, ok bool) {
-	reason, ok = subscriptionOnlyReason(ctx)
-	return reason, ok
-}
-
-func unfundedTurn(ctx context.Context) bool {
-	reason, ok := subscriptionOnlyReason(ctx)
-	return ok && reason != SubscriptionOnlyLinkedFirst
-}
-
-func subscriptionOnlyReason(ctx context.Context) (reason SubscriptionOnlyReason, ok bool) {
-	reason, ok = ctx.Value(SubscriptionOnlyContextKey).(SubscriptionOnlyReason)
-	return reason, ok
-}
-
 const EntryTypeInference = "inference"
 
 const EntryTypeByokFee = "byok_fee"
