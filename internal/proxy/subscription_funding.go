@@ -284,6 +284,26 @@ func (s *Service) linkedSeatCanCover(ctx context.Context, provider, model string
 	return false
 }
 
+func managedPoolMayAdmit(ctx context.Context, pool subscriptions.Provider, now time.Time) bool {
+	candidates, snapshotPresent := ctx.Value(managedSubscriptionCandidatesKey{}).([]managedSubscriptionCandidate)
+	if !snapshotPresent {
+		return true
+	}
+	enterpriseOverage := pool == subscriptions.ProviderClaude && claudeEnterpriseOnly(ctx)
+	for _, candidate := range candidates {
+		if candidate.provider != auth.SubscriptionProvider(pool) || !candidate.enabled ||
+			candidate.state == auth.SubscriptionAccountStateDisabled || candidate.state == auth.SubscriptionAccountStateReconnectRequired ||
+			managedAccountCredentialCooling(candidate, now) {
+			continue
+		}
+		spent := candidate.state == auth.SubscriptionAccountStateExhausted && (candidate.resetAt.IsZero() || candidate.resetAt.After(now))
+		if !spent || enterpriseOverage {
+			return true
+		}
+	}
+	return false
+}
+
 func managedAccountThrottled(ctx context.Context, candidate managedSubscriptionCandidate, now time.Time) bool {
 	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
 		if state.ThrottledAccounts[candidate.accountID].After(now) {

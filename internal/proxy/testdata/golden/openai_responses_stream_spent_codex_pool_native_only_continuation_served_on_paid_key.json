@@ -276,7 +276,7 @@
             "event": "response.output_text.delta",
             "data": {
               "content_index": 0,
-              "delta": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn · funded by Codex subscription\n\n",
+              "delta": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn\n\n",
               "item_id": "msg_\u003cid\u003e",
               "output_index": 0,
               "sequence_number": 3,
@@ -290,7 +290,7 @@
               "item_id": "msg_\u003cid\u003e",
               "output_index": 0,
               "sequence_number": 4,
-              "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn · funded by Codex subscription\n\n",
+              "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn\n\n",
               "type": "response.output_text.done"
             }
           },
@@ -302,7 +302,7 @@
               "output_index": 0,
               "part": {
                 "annotations": [],
-                "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn · funded by Codex subscription\n\n",
+                "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn\n\n",
                 "type": "output_text"
               },
               "sequence_number": 5,
@@ -316,7 +316,7 @@
                 "content": [
                   {
                     "annotations": [],
-                    "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn · funded by Codex subscription\n\n",
+                    "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn\n\n",
                     "type": "output_text"
                   }
                 ],
@@ -518,7 +518,7 @@
                     "content": [
                       {
                         "annotations": [],
-                        "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn · funded by Codex subscription\n\n",
+                        "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn\n\n",
                         "type": "output_text"
                       }
                     ],
@@ -951,7 +951,7 @@
             "event": "response.output_text.delta",
             "data": {
               "content_index": 0,
-              "delta": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn · funded by Codex subscription\n\n",
+              "delta": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn\n\n",
               "item_id": "msg_\u003cid\u003e",
               "output_index": 0,
               "sequence_number": 3,
@@ -965,7 +965,7 @@
               "item_id": "msg_\u003cid\u003e",
               "output_index": 0,
               "sequence_number": 4,
-              "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn · funded by Codex subscription\n\n",
+              "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn\n\n",
               "type": "response.output_text.done"
             }
           },
@@ -977,7 +977,7 @@
               "output_index": 0,
               "part": {
                 "annotations": [],
-                "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn · funded by Codex subscription\n\n",
+                "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn\n\n",
                 "type": "output_text"
               },
               "sequence_number": 5,
@@ -991,7 +991,7 @@
                 "content": [
                   {
                     "annotations": [],
-                    "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn · funded by Codex subscription\n\n",
+                    "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn\n\n",
                     "type": "output_text"
                   }
                 ],

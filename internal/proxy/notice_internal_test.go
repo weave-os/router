@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -157,7 +158,7 @@ func TestAddRoutingFundingSource(t *testing.T) {
 			}
 			text += "\n\n"
 			notice := translate.NewRouterNotice(translate.NoticeModelSelection, text, "gpt-6-luna", "")
-			got := addRoutingFundingSource(test.ctx, test.provider, test.model, notice)
+			got := addRoutingFundingSource(test.ctx, time.Now(), test.provider, test.model, notice)
 			if test.absent {
 				assert.Equal(t, "✦ **Weave Router** → gpt-6-luna · best pick for this turn\n\n", got.Text)
 				return
@@ -168,4 +169,16 @@ func TestAddRoutingFundingSource(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAddRoutingFundingSourceSkipsSpentManagedPool(t *testing.T) {
+	now := time.Now()
+	spentSeatReset := now.Add(time.Hour)
+	ctx := WithManagedSubscriptionCandidates(WithManagedSubscriptionUsage(context.Background()), []*auth.SubscriptionAccount{{
+		ID: "claude-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true,
+		State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &spentSeatReset,
+	}})
+	notice := translate.NewRouterNotice(translate.NoticeModelSelection, "✦ **Weave Router** → claude-opus-5 · best pick for this turn\n\n", "claude-opus-5", "")
+	got := addRoutingFundingSource(ctx, now, providers.ProviderAnthropic, "claude-opus-5", notice)
+	assert.NotContains(t, got.Text, "funded by Claude subscription")
 }

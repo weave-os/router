@@ -65,7 +65,7 @@ func (s *requestNoticeStream) deliver(notice translate.RouterNotice) error {
 	return nil
 }
 
-func addRoutingFundingSource(ctx context.Context, provider, model string, notice translate.RouterNotice) translate.RouterNotice {
+func addRoutingFundingSource(ctx context.Context, now time.Time, provider, model string, notice translate.RouterNotice) translate.RouterNotice {
 	if notice.Kind != translate.NoticeModelSelection || notice.Text == "" {
 		return notice
 	}
@@ -74,7 +74,7 @@ func addRoutingFundingSource(ctx context.Context, provider, model string, notice
 		credentialSource = credentials.Source
 	}
 	if managedSubscriptionCanServe(ctx, provider, model) {
-		if source, eligible := managedSubscriptionProviderFromUpstream(provider, model); eligible {
+		if source, eligible := managedSubscriptionProviderFromUpstream(provider, model); eligible && managedPoolMayAdmit(ctx, source, now) {
 			switch source {
 			case subscriptions.ProviderClaude:
 				return setFundingSource(notice, "Claude subscription")
