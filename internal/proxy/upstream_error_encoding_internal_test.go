@@ -49,8 +49,7 @@ func encodedErrorUpstream(t *testing.T, encoding string) *httptest.Server {
 
 func upstreamErrorThroughAdapter(t *testing.T, encoding string) error {
 	t.Helper()
-	server := encodedErrorUpstream(t, encoding)
-	client := openaicompat.NewClient("test-key", server.URL)
+	client := openaicompat.NewClient("test-key", encodedErrorUpstream(t, encoding).URL)
 	inbound := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/v1/chat/completions", nil)
 	err := client.Proxy(context.Background(), router.Decision{Provider: providers.ProviderOpenRouter, Model: "test-model"},
 		providers.PreparedRequest{Body: []byte(`{"model":"test-model","messages":[]}`)}, httptest.NewRecorder(), inbound)
