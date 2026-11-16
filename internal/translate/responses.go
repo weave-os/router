@@ -2081,7 +2081,7 @@ func (t *ResponsesWriter) computeBadgeText() string {
 }
 
 func (t *ResponsesWriter) closeOpenItems() error {
-	if t.hasUpstreamOutput {
+	if t.hasUpstreamOutput && t.lifecycle.State() == StreamStarted {
 		if err := t.flushReasoning(); err != nil {
 			return err
 		}

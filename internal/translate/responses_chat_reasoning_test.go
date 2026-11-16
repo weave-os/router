@@ -1,6 +1,8 @@
 package translate_test
 
 import (
+	"errors"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -116,4 +118,48 @@ func inputTypes(body []byte) []string {
 		out = append(out, item.Get("type").Str)
 	}
 	return out
+}
+
+const chatToolCallThenReasoning = "data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_a\",\"type\":\"function\",\"function\":{\"name\":\"Read\",\"arguments\":\"{\\\"file_path\\\":\\\"/tmp/a.go\\\"}\"}}]},\"finish_reason\":null}]}\n\n" +
+	"data: {\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"Then read b.\"},\"finish_reason\":null}]}\n\n"
+
+func TestResponsesWriter_FailureAfterToolCallKeepsArgumentsDespitePendingReasoning(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "client-model")
+	require.NoError(t, w.Prelude(true))
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+	_, err := w.Write([]byte(chatToolCallThenReasoning))
+	require.NoError(t, err)
+	require.NoError(t, w.FinalizeError(errors.New("upstream failed")))
+
+	var failed gjson.Result
+	for _, frame := range reasoningToResponsesDataFrames(rec.Body.String()) {
+		if frame.Get("type").Str == "response.failed" {
+			failed = frame.Get("response.output")
+		}
+	}
+	assert.Equal(t, `{"file_path":"/tmp/a.go"}`, failed.Get(`#(type=="function_call").arguments`).Str)
+}
+
+func TestResponsesWriter_ResetAttemptDropsFailedAttemptReasoning(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "client-model")
+	require.NoError(t, w.Prelude(true))
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+	_, err := w.Write([]byte("data: {\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"Stale.\"},\"finish_reason\":null}]}\n\n"))
+	require.NoError(t, err)
+	w.ResetAttempt()
+	_, err = w.Write([]byte(chatSplitReasoningThenText))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+
+	var summary string
+	for _, frame := range reasoningToResponsesDataFrames(rec.Body.String()) {
+		if frame.Get("type").Str == "response.completed" {
+			summary = frame.Get(`response.output.#(type=="reasoning").summary.0.text`).Str
+		}
+	}
+	assert.Equal(t, "Need both.", summary)
 }
