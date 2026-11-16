@@ -158,7 +158,7 @@ func TestVerifyAdminPasswordFromIP_LockoutAfterFiveFailures(t *testing.T) {
 	const ip = "203.0.113.7"
 
 	// Four failures must not yet trip the lockout.
-	for i := 0; i < adminLoginMaxFailures-1; i++ {
+	for range 4 {
 		err := svc.VerifyAdminPasswordFromIP(ip, "wrong-password")
 		require.Error(t, err)
 		require.ErrorIs(t, err, ErrAdminSessionInvalid,
@@ -182,7 +182,7 @@ func TestVerifyAdminPasswordFromIP_SuccessResetsFailureCount(t *testing.T) {
 	svc, _ := newAdminTestService(t)
 	const ip = "203.0.113.8"
 
-	for i := 0; i < adminLoginMaxFailures-1; i++ {
+	for range 4 {
 		err := svc.VerifyAdminPasswordFromIP(ip, "wrong-password")
 		require.Error(t, err)
 	}
@@ -192,7 +192,7 @@ func TestVerifyAdminPasswordFromIP_SuccessResetsFailureCount(t *testing.T) {
 
 	// Failures should now start counting from zero again, so adminLoginMaxFailures-1
 	// more failures must still not trigger the lockout.
-	for i := 0; i < adminLoginMaxFailures-1; i++ {
+	for range 4 {
 		err := svc.VerifyAdminPasswordFromIP(ip, "wrong-password")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, ErrAdminSessionInvalid,
@@ -205,7 +205,7 @@ func TestVerifyAdminPasswordFromIP_DifferentIPsAreIndependent(t *testing.T) {
 	const ipA = "203.0.113.9"
 	const ipB = "203.0.113.10"
 
-	for i := 0; i < adminLoginMaxFailures; i++ {
+	for range 5 {
 		_ = svc.VerifyAdminPasswordFromIP(ipA, "wrong-password")
 	}
 

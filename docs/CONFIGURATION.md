@@ -749,6 +749,9 @@ override, then organization override, then deployment default.
 - `flags.RegistryVersion` changes whenever registry membership changes. Publish
   uses it so a revision with an older registry cannot prune definitions
   published by a newer one.
+- `ROUTER_FLAG_OVERRIDES_DISABLED=true` suppresses every organization override
+  deployment-wide, so an incident rollback through a deployment default cannot
+  be defeated by a stored per-organization row.
 - `hmm_tool_result_hold` is an eval control owned by router policy: promote or
   remove it after the escalation benchmark comparison.
 - Routing code reads a flag through the `Resolve*` helpers in
