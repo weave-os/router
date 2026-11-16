@@ -1474,7 +1474,7 @@
           "FreshDecisionModel": "gpt-5.6-sol",
           "InputTokens": 12,
           "InstallationID": "00000000-0000-4000-8000-000000000001",
-          "IntendedModelFamily": "claude-haiku",
+          "IntendedModelFamily": "gpt-sol",
           "OutputTokens": 7,
           "PinTier": "postgres_stay_same_model",
           "PlannerOutcome": "stay",

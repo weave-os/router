@@ -71,9 +71,16 @@
             "gpt-5.5-mini",
             "gpt-5.5-nano",
             "gpt-5.5-pro",
+            "gpt-5.6-luna",
             "gpt-5.6-luna-pro",
             "gpt-5.6-sol",
             "gpt-5.6-sol-pro",
+            "gpt-5.6-terra",
+            "gpt-6-astra",
+            "gpt-6-luna",
+            "gpt-6-sol",
+            "gpt-6.1-sol",
+            "gpt-6.1-terra",
             "grok-4.5",
             "grok-4.6",
             "grok-4.7",
@@ -178,25 +185,6 @@
         }
       ],
       "attempt_events": [
-        {
-          "Diagnosis": {
-            "ErrorClass": "other",
-            "FailureOwner": "router"
-          },
-          "FailureReason": "transport",
-          "Outcome": "failed",
-          "Provenance": {
-            "PolicyID": "main-openai-responses",
-            "PolicyRevision": "3",
-            "Purpose": "openai_responses",
-            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
-          },
-          "Target": {
-            "CatalogID": "gpt-5.6-sol",
-            "Provider": "openai",
-            "UpstreamID": "gpt-5.6-sol"
-          }
-        },
         {
           "Diagnosis": {
             "BodyTranslated": true
@@ -364,7 +352,7 @@
             "event": "response.output_text.delta",
             "data": {
               "content_index": 0,
-              "delta": "⁣⁠⁣⁠✦ **Weave Router** → claude-haiku-4-5 · switched after gpt-5.6-sol had no subscription capacity · funded by Claude subscription\n\n",
+              "delta": "⁣⁠⁣⁠✦ **Weave Router** → claude-haiku-4-5 · switched to a subscription-covered model · funded by Claude subscription\n\n",
               "item_id": "msg_\u003cid\u003e",
               "output_index": 1,
               "sequence_number": 9,
@@ -378,7 +366,7 @@
               "item_id": "msg_\u003cid\u003e",
               "output_index": 1,
               "sequence_number": 10,
-              "text": "⁣⁠⁣⁠✦ **Weave Router** → claude-haiku-4-5 · switched after gpt-5.6-sol had no subscription capacity · funded by Claude subscription\n\n",
+              "text": "⁣⁠⁣⁠✦ **Weave Router** → claude-haiku-4-5 · switched to a subscription-covered model · funded by Claude subscription\n\n",
               "type": "response.output_text.done"
             }
           },
@@ -390,7 +378,7 @@
               "output_index": 1,
               "part": {
                 "annotations": [],
-                "text": "⁣⁠⁣⁠✦ **Weave Router** → claude-haiku-4-5 · switched after gpt-5.6-sol had no subscription capacity · funded by Claude subscription\n\n",
+                "text": "⁣⁠⁣⁠✦ **Weave Router** → claude-haiku-4-5 · switched to a subscription-covered model · funded by Claude subscription\n\n",
                 "type": "output_text"
               },
               "sequence_number": 11,
@@ -404,7 +392,7 @@
                 "content": [
                   {
                     "annotations": [],
-                    "text": "⁣⁠⁣⁠✦ **Weave Router** → claude-haiku-4-5 · switched after gpt-5.6-sol had no subscription capacity · funded by Claude subscription\n\n",
+                    "text": "⁣⁠⁣⁠✦ **Weave Router** → claude-haiku-4-5 · switched to a subscription-covered model · funded by Claude subscription\n\n",
                     "type": "output_text"
                   }
                 ],
@@ -531,7 +519,7 @@
                     "content": [
                       {
                         "annotations": [],
-                        "text": "⁣⁠⁣⁠✦ **Weave Router** → claude-haiku-4-5 · switched after gpt-5.6-sol had no subscription capacity · funded by Claude subscription\n\n",
+                        "text": "⁣⁠⁣⁠✦ **Weave Router** → claude-haiku-4-5 · switched to a subscription-covered model · funded by Claude subscription\n\n",
                         "type": "output_text"
                       }
                     ],
@@ -693,104 +681,6 @@
           "model": "gpt-5.6-sol",
           "provider": "openai",
           "reason": "golden_route"
-        },
-        {
-          "requested_model": "auto",
-          "excluded": [
-            "claude-fable-5",
-            "claude-fable-5-1",
-            "claude-fable-5-2",
-            "claude-haiku-4-5",
-            "claude-haiku-5-5",
-            "claude-mythos-5-2",
-            "claude-opus-4-0",
-            "claude-opus-4-1",
-            "claude-opus-4-5",
-            "claude-opus-4-6",
-            "claude-opus-4-7",
-            "claude-opus-4-8",
-            "claude-opus-5",
-            "claude-opus-5-5",
-            "claude-sonnet-4-5",
-            "claude-sonnet-4-6",
-            "claude-sonnet-5",
-            "claude-sonnet-5-5",
-            "deepseek/deepseek-v4-flash",
-            "deepseek/deepseek-v4-pro",
-            "deepseek/deepseek-v4-pro-0813",
-            "deepseek/deepseek-v4.1-flash",
-            "gemini-2.0-flash",
-            "gemini-2.0-flash-lite",
-            "gemini-2.5-flash",
-            "gemini-2.5-flash-lite",
-            "gemini-2.5-pro",
-            "gemini-3-flash-preview",
-            "gemini-3-pro-preview",
-            "gemini-3.1-flash-lite-preview",
-            "gemini-3.1-pro-preview",
-            "gemini-3.5-flash",
-            "gemini-3.5-flash-lite",
-            "gemini-3.6-flash",
-            "gemini-3.7-flash",
-            "gemini-3.8-flash",
-            "gemini-4-argon",
-            "google/gemma-4-26b-a4b-it",
-            "gpt-4.1",
-            "gpt-4.1-mini",
-            "gpt-4.1-nano",
-            "gpt-4o",
-            "gpt-4o-mini",
-            "gpt-5",
-            "gpt-5-chat",
-            "gpt-5-mini",
-            "gpt-5-nano",
-            "gpt-5.4",
-            "gpt-5.4-mini",
-            "gpt-5.4-nano",
-            "gpt-5.4-pro",
-            "gpt-5.5",
-            "gpt-5.5-mini",
-            "gpt-5.5-nano",
-            "gpt-5.5-pro",
-            "gpt-5.6-luna-pro",
-            "gpt-5.6-sol",
-            "gpt-5.6-sol-pro",
-            "grok-4.5",
-            "grok-4.6",
-            "grok-4.7",
-            "inclusionai/ling-3.0-flash",
-            "meta/muse-spark-open",
-            "minimax/minimax-m2.7",
-            "minimax/minimax-m3",
-            "minimax/minimax-m3.1-flash",
-            "mistralai/mistral-small-2603",
-            "moonshotai/kimi-k2.5",
-            "moonshotai/kimi-k2.6",
-            "moonshotai/kimi-k2.7",
-            "moonshotai/kimi-k3",
-            "moonshotai/kimi-k3.1",
-            "muse-ember-1.0",
-            "muse-spark-1.3",
-            "muse-wonder-1.0",
-            "qwen/qwen3-235b-a22b-2507",
-            "qwen/qwen3-30b-a3b-instruct-2507",
-            "qwen/qwen3-coder",
-            "qwen/qwen3-coder-next",
-            "qwen/qwen3-next-80b-a3b-instruct",
-            "qwen/qwen3.5-flash-02-23",
-            "qwen/qwen3.6-35b-a3b",
-            "qwen/qwen3.7-plus",
-            "qwen/qwen3.8-max",
-            "xiaomi/mimo-v2.5-pro",
-            "xiaomi/mimo-v2.6-flash",
-            "xiaomi/mimo-v2.6-pro",
-            "z-ai/glm-5",
-            "z-ai/glm-5.1",
-            "z-ai/glm-5.2",
-            "z-ai/glm-5.3",
-            "z-ai/glm-5.3-flash"
-          ],
-          "error": "hmm_embedding: arm selection: no eligible arm in any ranked group: hmm: policy router unavailable"
         }
       ],
       "dispatch_attempts": [
@@ -856,25 +746,6 @@
         }
       ],
       "attempt_events": [
-        {
-          "Diagnosis": {
-            "ErrorClass": "other",
-            "FailureOwner": "router"
-          },
-          "FailureReason": "transport",
-          "Outcome": "failed",
-          "Provenance": {
-            "PolicyID": "main-openai-responses",
-            "PolicyRevision": "3",
-            "Purpose": "openai_responses",
-            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
-          },
-          "Target": {
-            "CatalogID": "gpt-5.6-sol",
-            "Provider": "openai",
-            "UpstreamID": "gpt-5.6-sol"
-          }
-        },
         {
           "Outcome": "served",
           "Provenance": {

@@ -94,7 +94,7 @@ func (s *Service) subscriptionStateModelAvailable(ctx context.Context, req route
 		if !s.supportsSubscriptionTransport(binding.Provider) {
 			continue
 		}
-		if managedSubscriptionCanServe(ctx, binding.Provider, model) {
+		if seatAdmissionOf(s).mayAdmit(ctx, binding.Provider, model) {
 			return true
 		}
 		resolvedCredentials := s.resolveCredentials(clearCredentials(ctx), binding.Provider, model, headers)
@@ -122,9 +122,16 @@ func readmitSessionStrikes(ctx context.Context, request *router.Request) bool {
 	return true
 }
 
+func beginSubscriptionStateLane(ctx context.Context, initial router.Decision) context.Context {
+	if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && usage.IntendedModel == "" {
+		usage.IntendedModel = initial.Model
+	}
+	return withClientAppRefusalPaidFallback(ctx, initial)
+}
+
 func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failoverInputs) (int, error) {
 	request := *in.subscriptionStateRequest
-	ctx = withClientAppRefusalPaidFallback(ctx, in.initialDecision)
+	ctx = beginSubscriptionStateLane(ctx, in.initialDecision)
 	sessionUnavailableModels := modelSet(sessionDemotedModelsFromContext(ctx))
 	if sessionUnavailableModels == nil {
 		sessionUnavailableModels = make(map[string]struct{})
