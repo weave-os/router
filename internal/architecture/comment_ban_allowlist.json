@@ -7,7 +7,7 @@
     },
     {
       "package": "internal/billing",
-      "banned_lines": 294
+      "banned_lines": 248
     },
     {
       "package": "internal/policyregistry",
@@ -23,7 +23,7 @@
     },
     {
       "package": "internal/proxy",
-      "banned_lines": 5249
+      "banned_lines": 5225
     },
     {
       "package": "internal/router/catalog",
