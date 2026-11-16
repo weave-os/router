@@ -9,6 +9,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/refusal"
+	"weave-os/router/internal/subscriptionlane"
 
 	"github.com/gin-gonic/gin"
 )
@@ -59,15 +60,15 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 		result, err := svc.CheckBalance(c.Request.Context(), orgID)
 		if err != nil {
 			if errors.Is(err, billing.ErrBalanceRowMissing) {
-				if subscriptionExempt {
+				kind, refused := tripSubscriptionLane(c, subscriptionlane.BalanceGate, subscriptionExempt)
+				if !refused {
 					log.Warn("Balance row missing: serving subscription-only, paid failover disabled",
 						"organization_id", orgID)
-					c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context(), billing.SubscriptionOnlyCreditsDepleted))
 					c.Next()
 					return
 				}
 				log.Info("Balance check rejected: balance row missing", "organization_id", orgID)
-				abortRefusal(c, refusal.InsufficientCredits, gin.H{
+				abortRefusal(c, kind, gin.H{
 					"top_up_url":         TopUpURL,
 					"balance_usd_micros": 0,
 					"message":            "Your organization's prepaid credits are depleted. Contact your org admin to add credits.",
@@ -89,13 +90,13 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 		threshold := minBalanceMicros
 
 		if result.BalanceMicros <= threshold {
-			if subscriptionExempt {
+			kind, refused := tripSubscriptionLane(c, subscriptionlane.BalanceGate, subscriptionExempt)
+			if !refused {
 				log.Warn("Balance depleted: serving subscription-only, paid failover disabled",
 					"organization_id", orgID,
 					"balance_usd_micros", result.BalanceMicros,
 					"threshold_usd_micros", threshold,
 				)
-				c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context(), billing.SubscriptionOnlyCreditsDepleted))
 				c.Next()
 				return
 			}
@@ -105,7 +106,7 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 				"threshold_usd_micros", threshold,
 				"subscription_exempt", subscriptionExempt,
 			)
-			abortRefusal(c, refusal.InsufficientCredits, gin.H{
+			abortRefusal(c, kind, gin.H{
 				"top_up_url":         TopUpURL,
 				"balance_usd_micros": result.BalanceMicros,
 				"message":            "Your organization's prepaid credits are depleted. Contact your org admin to add credits.",
