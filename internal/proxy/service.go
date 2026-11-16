@@ -3530,8 +3530,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if !agentShadowMode && installationID != uuid.Nil {
 		credentialKeyPrefix, credentialKeySuffix, credSource := s.credentialKeyParts(ctx)
 		s.markServedExternalKeyUsed(ctx, proxyErr)
-		degShadow := proxyErr == nil && !nativeRespSummary && isDegenerateResponse(out, respSummary.ToolUseBlocks, respSummary.StopReason, respSummary.StopReasonDemoted)
-		if degShadow && !agentShadowMode {
+		degenerateShadow := proxyErr == nil && !nativeRespSummary && isDegenerateResponse(out, respSummary.ToolUseBlocks, respSummary.StopReason, respSummary.StopReasonDemoted)
+		if degenerateShadow && !agentShadowMode {
 			log.Info("router.degenerate_shadow",
 				"model", decision.Model,
 				"provider", finalProvider,
@@ -3618,7 +3618,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			WorkspaceAppendFired:     boolPtrOrNil(workspaceAppendFired(opts, finalProvider)),
 			FailoverUsed:             boolPtrTrue(rescue.failoverUsed),
 			FailoverAttempted:        boolPtrTrue(rescue.failoverAttempted),
-			DegenerateShadow:         boolPtrOrNil(degShadow),
+			DegenerateShadow:         boolPtrOrNil(degenerateShadow),
 			SessionKey:               sessionKey[:],
 			Role:                     routeRes.PinRole,
 			FreshDecisionModel:       obs.FreshDecisionModel,
@@ -4909,7 +4909,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	baseExcludedOAI := s.excludeCodexOAuthOnlyModels(ctx, r.Header, enabledProviders, s.excludedModelsForRequest(ctx))
 
 	inboundLastUser := env.LastUserMessage()
-	inboundUserPromptOAI := routingEndsWithUserPrompt(ctx, env)
+	inboundUserPromptOpenAI := routingEndsWithUserPrompt(ctx, env)
 
 	prefiltered := routingpolicy.Prefilter(routingpolicy.PrefilterRequest{
 		Envelope: env, ImageCount: feats.ImageCount, OutputReserve: outputReserveOAI, Eligibility: eligibility,
@@ -4966,7 +4966,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	routeMs := time.Since(routeStart).Milliseconds()
 	if err != nil {
 		log.Error("Routing failed for OpenAI request", "err", err, "route_ms", routeMs, "requested_model", feats.Model, "total_input_tokens", feats.Tokens)
-		s.recordPolicyPinRouteFailure(ctx, requestID, requestStart, feats.Model, routeRes.TurnType, inboundUserPromptOAI, err)
+		s.recordPolicyPinRouteFailure(ctx, requestID, requestStart, feats.Model, routeRes.TurnType, inboundUserPromptOpenAI, err)
 		return err
 	}
 	ctx = requestcontext.WithCallerModelPassthrough(ctx, routeRes.CallerModelPassthrough)
@@ -5891,7 +5891,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			FreshCandidateScores:     openaiObs.FreshCandidateScores,
 			PinAgeSec:                int64PtrIf(stickyHit && pinAgeSec > 0, pinAgeSec),
 			ToolResultBytes:          toolResultBytesPtr(inboundLastUser, tt),
-			UserPrompt:               &inboundUserPromptOAI,
+			UserPrompt:               &inboundUserPromptOpenAI,
 			ErrorClass:               classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks),
 			FailureOwner:             turnFailureOwnerAfterFinish(ctx, proxyErr, classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), respSummary.UpstreamFinishReason),
 			CredentialKeyPrefix:      credentialKeyPrefix,
