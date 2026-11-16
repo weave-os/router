@@ -6,11 +6,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/subscriptions"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -173,4 +175,76 @@ func TestCodexImageRequest_RejectsUnknownOperation(t *testing.T) {
 	headers.Set("ChatGPT-Account-ID", "account-123")
 	err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(context.Background(), headers, "variations", []byte(`{}`), httptest.NewRecorder())
 	require.Error(t, err)
+}
+
+type linkedCodexSeat struct {
+	cooled []string
+}
+
+func (l *linkedCodexSeat) Lease(context.Context, auth.SubscriptionOwner, subscriptions.Provider, string) (subscriptions.Lease, bool, error) {
+	return subscriptions.Lease{AccountID: "seat-1", OwnerID: "owner-1", AccessToken: "linked-token", ProviderAccount: "linked-account", State: auth.SubscriptionAccountStateActive}, true, nil
+}
+
+func (l *linkedCodexSeat) Cooldown(_ context.Context, _ auth.SubscriptionOwner, _ subscriptions.Provider, accountID string, _ time.Time) error {
+	l.cooled = append(l.cooled, accountID)
+	return nil
+}
+
+func (l *linkedCodexSeat) Disable(context.Context, auth.SubscriptionOwner, subscriptions.Provider, string) error {
+	return nil
+}
+
+type codexImageTelemetry struct {
+	proxy.TelemetryRepository
+	rows chan proxy.InsertTelemetryParams
+}
+
+func (t *codexImageTelemetry) InsertRequestTelemetry(_ context.Context, p proxy.InsertTelemetryParams) error {
+	t.rows <- p
+	return nil
+}
+
+func TestCodexImageRequest_ServesOnLinkedCodexSubscription(t *testing.T) {
+	for name, tc := range map[string]struct {
+		status     int
+		wantCooled []string
+	}{
+		"served":    {status: http.StatusOK},
+		"throttled": {status: http.StatusTooManyRequests, wantCooled: []string{"seat-1"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			upstream := newCodexImagesUpstream(t, allowedCodexQuota, func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, "Bearer linked-token", r.Header.Get("Authorization"))
+				assert.Equal(t, "linked-account", r.Header.Get("ChatGPT-Account-ID"))
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(`{"created":1,"data":[]}`))
+			})
+			client := openai.NewClient("deployment-key", upstream.URL)
+			client.SetCodexBaseURL(upstream.URL + "/codex")
+			seat := &linkedCodexSeat{}
+			telemetry := &codexImageTelemetry{rows: make(chan proxy.InsertTelemetryParams, 1)}
+			svc := proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry).WithManagedSubscriptions(seat)
+			ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "00000000-0000-0000-0000-000000000001")
+			ctx = proxy.WithManagedSubscriptionCandidates(proxy.WithManagedSubscriptionUsage(ctx), []*auth.SubscriptionAccount{{ID: "seat-1", Provider: auth.SubscriptionProvider(subscriptions.ProviderCodex), Enabled: true}})
+
+			err := proxy.NewCodexImages(svc).ForwardWithCallerCredential(ctx, http.Header{"X-Weave-Router-Key": {"rk-synthetic"}}, proxy.CodexImageGenerations, []byte(`{"model":"gpt-image-2"}`), httptest.NewRecorder())
+
+			if tc.status == http.StatusOK {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+			assert.Equal(t, tc.wantCooled, seat.cooled)
+			select {
+			case row := <-telemetry.rows:
+				assert.Equal(t, "gpt-image-2", row.DecisionModel)
+				assert.Equal(t, int32(tc.status), row.UpstreamStatusCode)
+				if tc.status == http.StatusOK {
+					assert.Equal(t, "seat-1", row.SubscriptionAccountID)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("linked-subscription image call was not recorded")
+			}
+		})
+	}
 }
