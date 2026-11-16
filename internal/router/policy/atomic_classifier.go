@@ -7,14 +7,11 @@ import (
 	"weave-os/router/internal/router/escalation"
 )
 
-// AtomicClassifierFacts adapts already committed V3 facts to Go-owned selection.
-// It performs no inference and cannot accept a caller-supplied model choice.
 type AtomicClassifierFacts struct {
 	Release       string
 	ReleaseSHA256 string
 }
 
-// Decide refuses ordinary clipped queries without a durable prediction.
 func (a AtomicClassifierFacts) Decide(_ context.Context, query Query) (Result, error) {
 	prediction := query.ClassifierPrediction
 	if query.Strategy != router.StrategyLLMClassifier || query.ExecutionMode != ExecutionModeServing || prediction == nil {

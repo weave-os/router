@@ -11,6 +11,9 @@ prompt-cache controls, and detailed usage. The initial hard checks are native
 Responses extension unions, native Gemini ingress, and image input on known
 text-only models.
 
+Responses-specific projection, passthrough and stream translation behavior is
+described in [RESPONSES_TRANSLATION.md](RESPONSES_TRANSLATION.md).
+
 ## Rollout modes
 
 `ROUTER_TRANSLATION_COMPATIBILITY_MODE` is validated at startup:

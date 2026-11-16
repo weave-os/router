@@ -147,25 +147,26 @@ const (
 	callerRoutingSourceClientModel   callerRoutingSource = "client_model"
 )
 
-// callerRoutingState mirrors withUserSettings precedence: an explicit routing
-// policy suppresses the blind experiment, which otherwise decides the arm.
 func callerRoutingState(ctx context.Context) (passthrough bool, source callerRoutingSource) {
-	if auth.ClientModelPassthroughFrom(ctx) {
-		return true, callerRoutingSourceClientModel
-	}
 	mode := auth.RoutingPolicyFrom(ctx).Mode
 	if mode == auth.RoutingPolicyPassthrough || mode == auth.RoutingPolicyAssigned {
+		if auth.ClientModelPassthroughFrom(ctx) {
+			return true, callerRoutingSourceClientModel
+		}
 		return auth.RoutingPassthroughFrom(ctx), callerRoutingSourceRoutingPolicy
 	}
 	state, active := auth.BlindExperimentFrom(ctx)
-	if !active {
-		return false, callerRoutingSourceDefault
+	if active {
+		source = callerRoutingSourceExperiment
+		if state.CohortExperimentID != "" {
+			source = callerRoutingSourceCohort
+		}
+		return state.Arm == auth.BlindExperimentArmPassthrough, source
 	}
-	source = callerRoutingSourceExperiment
-	if state.CohortExperimentID != "" {
-		source = callerRoutingSourceCohort
+	if auth.ClientModelPassthroughFrom(ctx) {
+		return true, callerRoutingSourceClientModel
 	}
-	return state.Arm == auth.BlindExperimentArmPassthrough, source
+	return false, callerRoutingSourceDefault
 }
 
 // applyCallerRoutingAttrs records the caller's assigned state, not the turn's
