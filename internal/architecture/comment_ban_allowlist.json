@@ -31,15 +31,7 @@
     },
     {
       "package": "internal/proxy",
-      "banned_lines": 5007
-    },
-    {
-      "package": "internal/requestcontext",
-      "banned_lines": 212
-    },
-    {
-      "package": "internal/router",
-      "banned_lines": 408
+      "banned_lines": 4318
     },
     {
       "package": "internal/router/catalog",

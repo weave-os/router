@@ -18,8 +18,6 @@ const classifierClaudeToolHint = "First privately list what you need next; then 
 
 var classifierClaudeTokenBudget = regexp.MustCompile(`(^|\n\n)<total_tokens>[0-9]+ tokens left</total_tokens>(\n\nUSD budget: \$[0-9]+(\.[0-9]+)?/\$[0-9]+(\.[0-9]+)?; \$[0-9]+(\.[0-9]+)? remaining)?$`)
 
-// classifierContextForCall uses the complete causal prefix of this invocation,
-// not the clipped policy wire or a snapshot at the last human message.
 func classifierContextForCall(observation translate.EscalationObservation) (router.ClassifierContext, error) {
 	if !observation.HistoryComplete || observation.ContinuationID != "" || len(observation.ItemReferenceIDs) != 0 {
 		return router.ClassifierContext{}, router.ErrClassifierHistoryUnavailable
@@ -28,8 +26,6 @@ func classifierContextForCall(observation translate.EscalationObservation) (rout
 	features := router.ClassifierFeatures{}
 	responseHistory := make([]router.ClassifierResponse, 0, classifierHistoryResponseLimit)
 	completedResponses := 0
-	// Retain only digests in the rolling identity; neither tool arguments nor
-	// results enter the model input. Framing comes from encoding/json.
 	prefix := ""
 	prefixDigests := make([]string, 0, len(observation.Messages))
 	toolCalls := make(map[string]translate.EscalationBlock)
@@ -39,9 +35,6 @@ func classifierContextForCall(observation translate.EscalationObservation) (rout
 		if message.HasOmittedMedia {
 			return router.ClassifierContext{}, fmt.Errorf("media identity unavailable: %w", router.ErrClassifierHistoryUnavailable)
 		}
-		// Claude appends this exact per-invocation hint after its persistent
-		// token-budget message, then omits it on replay. Do not generalize this
-		// to arbitrary instructions or alter the provider's original request.
 		if index == len(observation.Messages)-1 && message.Role == translate.EscalationRoleSystem && len(message.Blocks) == 2 &&
 			message.Blocks[0].Type == translate.EscalationBlockText && classifierClaudeTokenBudget.MatchString(message.Blocks[0].Text) &&
 			message.Blocks[1].Type == translate.EscalationBlockText && message.Blocks[1].Text == classifierClaudeToolHint {
@@ -70,8 +63,6 @@ func classifierContextForCall(observation translate.EscalationObservation) (rout
 				userText = append(userText, block.Text)
 			}
 		}
-		// Mixed tool-result/user-text messages need an explicit client boundary;
-		// guessing would turn harness reminders into new human messages.
 		if hasToolResult && len(userText) > 0 {
 			return router.ClassifierContext{}, fmt.Errorf("ambiguous mixed user/tool boundary: %w", router.ErrClassifierHistoryUnavailable)
 		}
@@ -82,8 +73,6 @@ func classifierContextForCall(observation translate.EscalationObservation) (rout
 			features.UserMessageCount++
 			currentUserMessage := strings.Join(userText, "\n\n")
 			if boundaryOpen {
-				// Setup context and the actual prompt can be separate user
-				// messages in one call. Neither has a response/prediction yet.
 				currentUserMessage = classifierContext.CurrentUserMessage + "\n\n" + currentUserMessage
 			}
 			classifierContext.CurrentUserMessage = currentUserMessage
