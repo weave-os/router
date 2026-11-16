@@ -65,7 +65,7 @@ func (s *requestNoticeStream) deliver(notice translate.RouterNotice) error {
 	return nil
 }
 
-func addRoutingFundingSource(ctx context.Context, provider, model string, notice translate.RouterNotice) translate.RouterNotice {
+func addRoutingFundingSource(ctx context.Context, seats seatAdmission, provider, model string, notice translate.RouterNotice) translate.RouterNotice {
 	if notice.Kind != translate.NoticeModelSelection || notice.Text == "" {
 		return notice
 	}
@@ -73,7 +73,7 @@ func addRoutingFundingSource(ctx context.Context, provider, model string, notice
 	if credentials := CredentialsFromContext(ctx); credentials != nil {
 		credentialSource = credentials.Source
 	}
-	if managedSeatMayAdmit(ctx, provider, model, time.Now(), true, func(managedSubscriptionCandidate) bool { return false }) {
+	if seats.mayAdmit(ctx, provider, model) {
 		if source, eligible := managedSubscriptionProviderFromUpstream(provider, model); eligible {
 			switch source {
 			case subscriptions.ProviderClaude:

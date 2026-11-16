@@ -268,22 +268,32 @@ func (s *Service) linkedSeatCanCover(ctx context.Context, provider, model string
 	})
 }
 
-func managedSeatMayAdmit(ctx context.Context, provider, model string, now time.Time, codexExtraCredits bool, observedSpent func(managedSubscriptionCandidate) bool) bool {
+type seatAdmission struct {
+	now               time.Time
+	observer          *usage.Observer
+	codexExtraCredits bool
+}
+
+func seatAdmissionOf(s *Service) seatAdmission {
+	return seatAdmission{now: s.clockNow(), observer: s.usageObserver, codexExtraCredits: s.codexExtraCreditsAllowed()}
+}
+
+func (a seatAdmission) mayAdmit(ctx context.Context, provider, model string) bool {
 	if !managedSubscriptionCanServe(ctx, provider, model) || managedSubscriptionEnrollmentUnavailable(ctx) {
 		return false
 	}
 	pool, _ := managedSubscriptionProviderFromUpstream(provider, model)
 	enterpriseOverage := pool == subscriptions.ProviderClaude && claudeEnterpriseEnabled(ctx)
-	return managedSeatCanCover(ctx, pool, now, func(candidate managedSubscriptionCandidate) bool {
+	return managedSeatCanCover(ctx, pool, a.now, func(candidate managedSubscriptionCandidate) bool {
 		switch {
 		case enterpriseOverage:
 			return false
-		case recordedQuotaExhausted(ctx, candidate, now):
+		case recordedQuotaExhausted(ctx, candidate, a.now):
 			return true
-		case pool == subscriptions.ProviderCodex && codexExtraCredits:
+		case pool == subscriptions.ProviderCodex && a.codexExtraCredits:
 			return false
 		default:
-			return observedSpent(candidate)
+			return observedQuotaSpent(a.observer, candidate, a.now)
 		}
 	})
 }
