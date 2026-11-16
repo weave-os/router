@@ -22,8 +22,8 @@ func streamedChatReasoning(t *testing.T, body string) []gjson.Result {
 	rec := httptest.NewRecorder()
 	w := translate.NewResponsesWriter(rec, "client-model")
 	require.NoError(t, w.Prelude(true))
-	candidateDrive(t, w, "text/event-stream", body)
-	return candidateDataFrames(rec.Body.String())
+	reasoningToResponsesDrive(t, w, "text/event-stream", body)
+	return reasoningToResponsesDataFrames(rec.Body.String())
 }
 
 func TestResponsesWriter_ChatReasoningStreamsAsSummaryBeforeMessage(t *testing.T) {
@@ -53,7 +53,7 @@ func TestResponsesWriter_ChatReasoningStreamsAsSummaryBeforeMessage(t *testing.T
 
 func TestResponsesWriter_ChatReasoningPrecedesFunctionCalls(t *testing.T) {
 	var reasoningIndex, firstCallIndex int64 = -1, -1
-	for _, frame := range streamedChatReasoning(t, candidateChatParallelCalls) {
+	for _, frame := range streamedChatReasoning(t, reasoningToResponsesUpstream) {
 		if frame.Get("type").Str != "response.output_item.added" {
 			continue
 		}
@@ -74,7 +74,7 @@ func TestResponsesWriter_NonStreamingChatReasoningLeadsOutput(t *testing.T) {
 	rec := httptest.NewRecorder()
 	w := translate.NewResponsesWriter(rec, "client-model")
 	require.NoError(t, w.Prelude(false))
-	candidateDrive(t, w, "application/json", `{"choices":[{"message":{"role":"assistant","reasoning_content":"Think.","content":"Answer."},"finish_reason":"stop"}]}`)
+	reasoningToResponsesDrive(t, w, "application/json", `{"choices":[{"message":{"role":"assistant","reasoning_content":"Think.","content":"Answer."},"finish_reason":"stop"}]}`)
 	output := gjson.Get(rec.Body.String(), "output")
 	assert.Equal(t, "reasoning", output.Get("0.type").Str)
 	assert.Equal(t, "Think.", output.Get("0.summary.0.text").Str)
@@ -83,7 +83,7 @@ func TestResponsesWriter_NonStreamingChatReasoningLeadsOutput(t *testing.T) {
 
 func TestChatReasoningEchoConvertsWithoutPinningTheTurn(t *testing.T) {
 	var reasoningItem string
-	for _, frame := range streamedChatReasoning(t, candidateChatParallelCalls) {
+	for _, frame := range streamedChatReasoning(t, reasoningToResponsesUpstream) {
 		if frame.Get("type").Str == "response.completed" {
 			reasoningItem = frame.Get(`response.output.#(type=="reasoning")`).Raw
 		}
