@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/httputil"
 )
+
+const codexImagesResponseHeaderTimeout = 300 * time.Second
 
 var codexImageForwardedHeaders = []string{"Content-Type", "Accept", "X-Codex-Image-Turn-Id", "X-Codex-Turn-Metadata"}
 
@@ -32,7 +35,7 @@ func (c *Client) ForwardCodexImageRequest(ctx context.Context, operation string,
 	upstream.Header.Set(codexAccountIDHeader, string(creds.AccountID))
 	upstream.Header.Set(codexOriginatorHeader, codexOriginatorValue)
 	upstream.Header.Set(codexUserAgentHeader, codexUserAgentValue)
-	resp, err := c.http.Do(upstream)
+	resp, err := c.imagesHTTP.Do(upstream)
 	if err != nil {
 		return fmt.Errorf("upstream Codex image call: %w", err)
 	}
