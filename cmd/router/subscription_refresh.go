@@ -118,15 +118,31 @@ func buildSubscriptionRuntime(enabled bool, authSvc *auth.Service, accounts auth
 	if err != nil {
 		panic(err)
 	}
-	keepWarm, keepWarmEnabled, err := subscriptionKeepWarmPolicy(config.GetOr("ROUTER_SUBSCRIPTION_KEEP_WARM_ENABLED", "false"),
+	runtime := subscriptions.NewRuntime(authSvc, oauth, time.Now).WithEarlyRefreshPolicy(policy)
+	logger.Info("Server-side subscription account pools enabled")
+	return runtime, oauth
+}
+
+func startSubscriptionKeepWarm(ctx context.Context, runtime *subscriptions.Runtime, logger *slog.Logger) func(context.Context) {
+	policy, enabled, err := subscriptionKeepWarmPolicy(config.GetOr("ROUTER_SUBSCRIPTION_KEEP_WARM_ENABLED", "false"),
 		config.GetOr("ROUTER_SUBSCRIPTION_KEEP_WARM_MAX_AGE", ""))
 	if err != nil {
 		panic(err)
 	}
-	runtime := subscriptions.NewRuntime(authSvc, oauth, time.Now).WithEarlyRefreshPolicy(policy)
-	if keepWarmEnabled {
-		go runSubscriptionKeepWarm(context.Background(), runtime, keepWarm, logger)
+	if runtime == nil || !enabled {
+		return func(context.Context) {}
 	}
-	logger.Info("Server-side subscription account pools enabled", "keep_warm_enabled", keepWarmEnabled, "keep_warm_max_age", keepWarm.MaxAge)
-	return runtime, oauth
+	logger.Info("Subscription keep-warm enabled", "max_age", policy.MaxAge)
+	done := make(chan struct{})
+	safeGo(logger, "subscription-keep-warm", func() {
+		defer close(done)
+		runSubscriptionKeepWarm(ctx, runtime, policy, logger)
+	})
+	return func(shutdownCtx context.Context) {
+		select {
+		case <-done:
+		case <-shutdownCtx.Done():
+			logger.Warn("Subscription keep-warm sweep still running at shutdown")
+		}
+	}
 }
