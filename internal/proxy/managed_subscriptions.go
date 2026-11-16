@@ -195,9 +195,6 @@ func (s *Service) costNeutralSubscriptionServed(ctx context.Context) bool {
 }
 
 func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model string) (context.Context, subscriptions.Lease, bool, error) {
-	if randomBenchmarkFrom(ctx) != nil {
-		return s.leaseRandomSubscription(ctx, provider, model)
-	}
 	if byokFirst(ctx, provider) {
 		return ctx, subscriptions.Lease{}, false, nil
 	}

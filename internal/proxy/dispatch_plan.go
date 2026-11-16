@@ -138,7 +138,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 		},
 		Terminal: func(_ dispatch.Attempt, err error) bool {
 			var abort dispatchAbort
-			return randomBenchmarkFrom(ctx) != nil || errors.As(err, &abort)
+			return errors.As(err, &abort)
 		},
 		// A managed-subscription turn never fails over to a paid binding; a
 		// transient error on it still gets the same-binding retries.
@@ -147,12 +147,6 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 		RetryDelay: dispatch.ThrottleLedgerFromContext(ctx).RetryDelay(s.clockNow),
 	}
 	transport.Attempt = func(attemptCtx context.Context, attempt dispatch.Attempt, client providers.Client) error {
-		if randomBenchmarkFrom(ctx) != nil {
-			execution, _ := ctx.Value(randomBenchmarkExecutionKey{}).(*randomBenchmarkExecution)
-			if execution == nil || execution.providerCalls != 0 {
-				return dispatchAbort{err: ErrSubscriptionPoolUnavailable}
-			}
-		}
 		decision := in.initialDecision
 		decision.Provider = attempt.Target.Provider
 		guarded := dispatch.GuardTarget(client, attempt.Target)
@@ -238,9 +232,6 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 				}
 			}
 			attemptStarted := time.Now()
-			if execution, _ := ctx.Value(randomBenchmarkExecutionKey{}).(*randomBenchmarkExecution); execution != nil {
-				execution.providerCalls++
-			}
 			attemptErr := in.attempt(credentialCtx, decision, guarded)
 
 			// Health bookkeeping must persist even if the caller has gone.
@@ -281,9 +272,6 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 				return attemptErr
 			}
 			rotate := managedAttempt && (s.recordManagedSubscriptionFailure(bookkeepingCtx, decision.Provider, decision.Model, lease, attemptErr) || providers.IsRetryable(attemptErr))
-			if randomBenchmarkFrom(ctx) != nil {
-				return attemptErr
-			}
 			if managedAttempt && !committed(in.buf) {
 				s.recordSubscriptionUnavailable(bookkeepingCtx, decision.Provider, decision.Model, attemptErr)
 			}

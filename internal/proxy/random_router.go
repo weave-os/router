@@ -13,52 +13,29 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/providers"
+	randomrouter "weave-os/router/internal/random_router"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	randomrouter "weave-os/router/internal/router/random_router"
 
 	"weave-os/router/internal/subscriptions"
 )
 
-type randomBenchmark struct {
-	config randomrouter.Config
-	policy router.Router
-}
-type randomBenchmarkKey struct{}
-type randomBenchmarkExecutionKey struct{}
-type randomBenchmarkExecution struct {
-	lease         subscriptions.Lease
-	credentials   *Credentials
-	providerCalls int
+func randomBenchmarkFrom(ctx context.Context) *randomrouter.RequestState {
+	return randomrouter.RequestFrom(ctx)
 }
 
-func randomBenchmarkFrom(ctx context.Context) *randomBenchmark {
-	profile, _ := ctx.Value(randomBenchmarkKey{}).(*randomBenchmark)
-	return profile
-}
-
-func (s *Service) WithRandomBenchmark(config *randomrouter.Config, policy router.Router) *Service {
-	s.randomBenchmark = &randomBenchmark{policy: policy}
-	if config != nil {
-		s.randomBenchmark.config = *config
+func BeginRandomBenchmark(s *Service, ctx context.Context, digest string) (context.Context, *randomrouter.Config, error) {
+	registered, found := s.strategies[router.StrategyRandomBenchmark]
+	if !found || registered.router == nil {
+		return ctx, nil, errors.New("random benchmark unavailable")
 	}
-	return s
-}
-
-func (s *Service) BeginRandomBenchmark(ctx context.Context, digest string) (context.Context, *randomrouter.Config, error) {
-	profile := s.randomBenchmark
-	if profile != nil && profile.config.APIKeyID == "" {
-		config, err := randomrouter.ParseConfig(flags.StringOr(ctx, flags.KeyRandomBenchmarkConfig, ""), s.clockNow())
-		if err != nil || config == nil {
-			return ctx, nil, errors.New("random benchmark not enabled for this installation")
-		}
-		profile = &randomBenchmark{config: *config, policy: profile.policy}
+	configuration, err := randomrouter.ParseConfig(flags.StringOr(ctx, flags.KeyRandomBenchmarkConfig, ""), s.clockNow())
+	if err != nil || configuration == nil {
+		return ctx, nil, errors.New("random benchmark not enabled for this installation")
 	}
-	if profile == nil || profile.policy == nil || !profile.config.ExpiresAt.After(s.clockNow()) {
-		return ctx, nil, errors.New("random benchmark disabled or expired")
-	}
-	config := &profile.config
+	profile := &randomrouter.RequestState{Config: *configuration, Policy: registered.router}
+	config := &profile.Config
 	key, _ := ctx.Value(APIKeyIDContextKey{}).(string)
 	org, _ := ctx.Value(ExternalIDContextKey{}).(string)
 	identity, present := requestcontext.ServingIdentityFromContext(ctx)
@@ -75,7 +52,7 @@ func (s *Service) BeginRandomBenchmark(ctx context.Context, digest string) (cont
 	if len(selected) != 1 {
 		return ctx, nil, ErrSubscriptionPoolUnavailable
 	}
-	ctx = context.WithValue(ctx, randomBenchmarkKey{}, profile)
+	ctx = randomrouter.WithRequest(ctx, profile)
 	ctx = context.WithValue(ctx, managedSubscriptionCandidatesKey{}, selected)
 	ctx = context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderCodex: {}})
 	owner := subscriptionOwnerFromContext(ctx)
@@ -85,7 +62,6 @@ func (s *Service) BeginRandomBenchmark(ctx context.Context, digest string) (cont
 	ctx = requestcontext.WithIncludedSubscriptionOnly(ctx)
 	ctx = context.WithValue(ctx, subscriptionAPIOnlyKey{}, false)
 	ctx = context.WithValue(ctx, subscriptionOnlyAttemptKey{}, true)
-	ctx = context.WithValue(ctx, PolicyShadowStrategyContextKey{}, router.Strategy(""))
 	ctx = router.WithStrategy(ctx, router.StrategyRandomBenchmark)
 	overrides, _ := flags.OverridesFromContext(ctx)
 	overrides.Bools = maps.Clone(overrides.Bools)
@@ -106,8 +82,8 @@ func (s *Service) BeginRandomBenchmark(ctx context.Context, digest string) (cont
 	return ctx, config, nil
 }
 
-func (s *Service) PrepareRandomBenchmark(ctx context.Context) (context.Context, func(), error) {
-	credentialCtx, lease, _, err := s.leaseRandomSubscription(ctx, providers.ProviderOpenAI, randomrouter.Models()[0])
+func PrepareRandomBenchmark(s *Service, ctx context.Context) (context.Context, func(), error) {
+	credentialCtx, lease, _, err := leaseRandomSubscription(s, ctx, providers.ProviderOpenAI, randomrouter.Models()[0])
 	if err != nil {
 		return ctx, func() {}, err
 	}
@@ -128,12 +104,14 @@ func (s *Service) PrepareRandomBenchmark(ctx context.Context) (context.Context, 
 		return ctx, func() {}, err
 	}
 	borrowed := subscriptions.Lease{AccountID: lease.AccountID, OwnerID: lease.OwnerID, Tier: lease.Tier, AccessToken: lease.AccessToken, ProviderAccount: lease.ProviderAccount, State: lease.State, CooldownUntil: lease.CooldownUntil}
-	execution := &randomBenchmarkExecution{lease: borrowed, credentials: CredentialsFromContext(credentialCtx)}
-	ctx = context.WithValue(ctx, randomBenchmarkExecutionKey{}, execution)
+	execution := randomrouter.RequestFrom(ctx)
+	execution.Lease = borrowed
+	execution.Credentials = CredentialsFromContext(credentialCtx)
+	execution.Prepared = true
 	return ctx, lease.Release, nil
 }
 
-func (s *Service) routeRandomBenchmark(ctx context.Context, request router.Request) (router.Decision, error) {
+func routeRandomBenchmark(s *Service, ctx context.Context, request router.Request) (router.Decision, error) {
 	profile := randomBenchmarkFrom(ctx)
 	if profile == nil {
 		return router.Decision{}, randomrouter.ErrUnavailable
@@ -148,7 +126,7 @@ func (s *Service) routeRandomBenchmark(ctx context.Context, request router.Reque
 		}
 	}
 	for _, model := range models {
-		if s.subscriptionModels.managedDenied("account:"+profile.config.SubscriptionAccountID, profile.config.SubscriptionAccountID, providers.ProviderOpenAI, model, s.clockNow()) || s.subscriptionModels.managedDenied(managedOverloadOwner(profile.config.SubscriptionAccountID), profile.config.SubscriptionAccountID, providers.ProviderOpenAI, model, s.clockNow()) {
+		if s.subscriptionModels.managedDenied("account:"+profile.Config.SubscriptionAccountID, profile.Config.SubscriptionAccountID, providers.ProviderOpenAI, model, s.clockNow()) || s.subscriptionModels.managedDenied(managedOverloadOwner(profile.Config.SubscriptionAccountID), profile.Config.SubscriptionAccountID, providers.ProviderOpenAI, model, s.clockNow()) {
 			return router.Decision{}, ErrSubscriptionPoolUnavailable
 		}
 		if request.AllowedModels != nil {
@@ -168,29 +146,29 @@ func (s *Service) routeRandomBenchmark(ctx context.Context, request router.Reque
 	request.OverflowAdmittedModels = nil
 	request.ForceModel, request.ForceCluster = "", ""
 	request.PromptText, request.ConversationMessages = "", nil
-	decision, err := profile.policy.Route(ctx, request)
+	decision, err := profile.Policy.Route(ctx, request)
 	if err != nil {
 		return router.Decision{}, err
 	}
-	if decision.Provider != providers.ProviderOpenAI || !slices.Contains(models, decision.Model) || decision.Metadata == nil || decision.Metadata.PolicyArtifactSHA256 != profile.config.PolicySHA256 || decision.Metadata.Propensity != 1.0/3.0 {
+	if decision.Provider != providers.ProviderOpenAI || !slices.Contains(models, decision.Model) || decision.Metadata == nil || decision.Metadata.PolicyArtifactSHA256 != profile.Config.PolicySHA256 || decision.Metadata.Propensity != 1.0/3.0 {
 		return router.Decision{}, randomrouter.ErrUnavailable
 	}
-	observability.FromContext(ctx).Info("Strict random benchmark selected", "model", decision.Model, "policy_sha256", profile.config.PolicySHA256, "propensity", decision.Metadata.Propensity, "candidate_count", len(models), "subscription_account_id", profile.config.SubscriptionAccountID)
+	observability.FromContext(ctx).Info("Strict random benchmark selected", "model", decision.Model, "policy_sha256", profile.Config.PolicySHA256, "propensity", decision.Metadata.Propensity, "candidate_count", len(models), "subscription_account_id", profile.Config.SubscriptionAccountID)
 	return decision, nil
 }
 
-func (s *Service) leaseRandomSubscription(ctx context.Context, provider, model string) (context.Context, subscriptions.Lease, bool, error) {
+func leaseRandomSubscription(s *Service, ctx context.Context, provider, model string) (context.Context, subscriptions.Lease, bool, error) {
 	profile := randomBenchmarkFrom(ctx)
-	if profile == nil || !profile.config.ExpiresAt.After(s.clockNow()) || provider != providers.ProviderOpenAI || !catalog.CodexSubscriptionCoversModel(model) || s.managedSubscriptions == nil || !s.supportsSubscriptionTransport(provider) {
+	if profile == nil || !profile.Config.ExpiresAt.After(s.clockNow()) || provider != providers.ProviderOpenAI || !catalog.CodexSubscriptionCoversModel(model) || s.managedSubscriptions == nil || !s.supportsSubscriptionTransport(provider) {
 		return ctx, subscriptions.Lease{}, true, ErrSubscriptionPoolUnavailable
 	}
-	if execution, _ := ctx.Value(randomBenchmarkExecutionKey{}).(*randomBenchmarkExecution); execution != nil {
-		return context.WithValue(ctx, CredentialsContextKey{}, execution.credentials), execution.lease, true, nil
+	if execution := randomrouter.RequestFrom(ctx); execution != nil && execution.Prepared {
+		return context.WithValue(ctx, CredentialsContextKey{}, execution.Credentials), execution.Lease, true, nil
 	}
 	owner := subscriptionOwnerFromContext(ctx)
-	owner.RequiredAccountID = profile.config.SubscriptionAccountID
+	owner.RequiredAccountID = profile.Config.SubscriptionAccountID
 	lease, present, err := s.managedSubscriptions.Lease(ctx, owner, subscriptions.ProviderCodex, ClientIdentityFrom(ctx).SessionID)
-	if err != nil || !present || lease.AccountID != profile.config.SubscriptionAccountID || lease.AccessToken == "" || lease.ProviderAccount == "" || lease.State != auth.SubscriptionAccountStateActive {
+	if err != nil || !present || lease.AccountID != profile.Config.SubscriptionAccountID || lease.AccessToken == "" || lease.ProviderAccount == "" || lease.State != auth.SubscriptionAccountStateActive {
 		lease.Release()
 		return ctx, subscriptions.Lease{}, true, errors.Join(ErrSubscriptionPoolUnavailable, err)
 	}
@@ -213,4 +191,11 @@ func randomBenchmarkHeaders(headers http.Header) bool {
 		}
 	}
 	return true
+}
+
+func leaseSubscriptionForRequest(s *Service, ctx context.Context, provider, model string) (context.Context, subscriptions.Lease, bool, error) {
+	if randomBenchmarkFrom(ctx) != nil {
+		return leaseRandomSubscription(s, ctx, provider, model)
+	}
+	return s.leaseManagedSubscription(ctx, provider, model)
 }

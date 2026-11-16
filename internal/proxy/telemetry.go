@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"time"
 
@@ -14,8 +13,6 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/gitcontext"
-	randomrouter "weave-os/router/internal/router/random_router"
-	"weave-os/router/internal/router/turntype"
 )
 
 // InstallationIDContextKey is the request-context key for the authenticated installation UUID.
@@ -739,40 +736,3 @@ const DecisionReasonRoutingFailed = "routing_failed"
 // carried an honoured policy pin, so replay analysis sees requested=true,
 // honoured=false even though no upstream dispatch happened. Unauthorized pins
 // and other routing failures write no row.
-func (s *Service) recordPolicyPinRouteFailure(ctx context.Context, requestID string, requestStart time.Time, requestedModel string, turnType turntype.TurnType, userPrompt bool, routeErr error) {
-	if _, honoured := router.HonouredPolicyPin(ctx); !honoured && randomBenchmarkFrom(ctx) == nil {
-		return
-	}
-	installationID := installationIDFromContext(ctx)
-	if installationID == uuid.Nil {
-		return
-	}
-	params := InsertTelemetryParams{
-		InstallationID: installationID.String(),
-		APIKeyID:       apiKeyIDFromContext(ctx),
-		RequestID:      requestID,
-		SpanType:       "router.upstream",
-		TraceID:        requestID,
-		Timestamp:      requestStart,
-		RequestedModel: requestedModel,
-		TurnType:       string(turnType),
-		DecisionReason: DecisionReasonPolicyPinUnservable,
-		ErrorClass:     TurnErrorRoutingRefused,
-		UserPrompt:     &userPrompt,
-		Strategy:       string(router.StrategyFromContext(ctx)),
-		RouterUserID:   auth.UserIDFrom(ctx),
-	}
-	if !errors.Is(routeErr, router.ErrPolicyPinUnavailable) {
-		params.DecisionReason = DecisionReasonRoutingFailed
-	}
-	if profile := randomBenchmarkFrom(ctx); profile != nil {
-		params.PolicyArtifactID = randomrouter.PolicyID
-		params.PolicyArtifactSHA256 = profile.config.PolicySHA256
-		params.Strategy = string(router.StrategyRandomBenchmark)
-		params.SessionID = ClientIdentityFrom(ctx).SessionID
-		params.RolloutID = ClientIdentityFrom(ctx).RolloutID
-	}
-	applyBlindExperimentTelemetry(ctx, &params, nil)
-	applyPolicyPinTelemetry(ctx, &params, nil)
-	s.fireTelemetry(ctx, params)
-}

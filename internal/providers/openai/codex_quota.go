@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -31,10 +30,6 @@ type codexIncludedQuota struct {
 	Secondary    *codexQuotaWindow `json:"secondary_window"`
 }
 
-func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) error {
-	return c.checkCodexIncludedModels(ctx, []string{model})
-}
-
 func (c *Client) CheckIncludedSubscriptionModels(ctx context.Context, models []string) error {
 	if codexSubscriptionCreds(ctx) == nil || len(models) == 0 {
 		return codexQuotaUnavailable(providers.QuotaVerificationFailureRequest, 0)
@@ -52,7 +47,7 @@ func (c *Client) CheckIncludedSubscriptionModels(ctx context.Context, models []s
 		}
 		wireModels = append(wireModels, mapped.Model)
 	}
-	if err := c.checkCodexIncludedModels(requestcontext.WithIncludedSubscriptionOnly(ctx), wireModels); err != nil {
+	if err := c.checkCodexIncludedQuota(withCodexQuotaModels(requestcontext.WithIncludedSubscriptionOnly(ctx), wireModels), wireModels[0]); err != nil {
 		return err
 	}
 	catalogBytes, err := c.FetchCodexModelCatalog(ctx, "0.153.0")
@@ -79,8 +74,7 @@ func (c *Client) CheckIncludedSubscriptionModels(ctx context.Context, models []s
 	return nil
 }
 
-func (c *Client) checkCodexIncludedModels(ctx context.Context, models []string) (quotaErr error) {
-	model := strings.Join(models, ",")
+func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) (quotaErr error) {
 	started := time.Now()
 	upstreamStatus := 0
 	defer func() {
@@ -128,7 +122,6 @@ func (c *Client) checkCodexIncludedModels(ctx context.Context, models []string) 
 		return codexQuotaTransportUnavailable(err, resp.StatusCode)
 	}
 	var quotaStatus struct {
-		Credits      json.RawMessage     `json:"credits"`
 		PlanType     string              `json:"plan_type"`
 		RateLimit    *codexIncludedQuota `json:"rate_limit"`
 		SpendControl *struct {
@@ -142,24 +135,15 @@ func (c *Client) checkCodexIncludedModels(ctx context.Context, models []string) 
 			RateLimit *codexIncludedQuota `json:"rate_limit"`
 		} `json:"additional_rate_limits"`
 	}
-	if err := json.Unmarshal(body, &quotaStatus); err != nil {
+	if err := decodeCodexQuota(ctx, body, &quotaStatus); err != nil {
 		log.Warn("Codex quota preflight decode failed", "err", err)
 		return codexQuotaUnavailable(providers.QuotaVerificationFailureInvalidResponse, resp.StatusCode)
-	}
-	if requestcontext.IncludedSubscriptionOnlyFrom(ctx) {
-		var credits struct {
-			HasCredits *bool `json:"has_credits"`
-			Unlimited  *bool `json:"unlimited"`
-		}
-		if err := json.Unmarshal(quotaStatus.Credits, &credits); err != nil || credits.HasCredits == nil || *credits.HasCredits || credits.Unlimited != nil && *credits.Unlimited {
-			return codexQuotaUnavailable(providers.QuotaVerificationFailureInvalidResponse, resp.StatusCode)
-		}
 	}
 	planReported := quotaStatus.PlanType != ""
 	limitReached := (quotaStatus.SpendControl != nil && quotaStatus.SpendControl.Reached) ||
 		(quotaStatus.RateLimitReachedType != nil && codexReachedTypes[quotaStatus.RateLimitReachedType.Type])
 	creditReason := codexCreditsDisabled
-	if !requestcontext.IncludedSubscriptionOnlyFrom(ctx) && (c.allowCodexExtraCredits || requestcontext.SubscriptionExtraUsageFrom(ctx)) {
+	if codexExtraUsagePermitted(ctx, c.allowCodexExtraCredits) {
 		var metadata struct {
 			Credits      json.RawMessage `json:"credits"`
 			SpendControl json.RawMessage `json:"spend_control"`
@@ -204,7 +188,7 @@ func (c *Client) checkCodexIncludedModels(ctx context.Context, models []string) 
 		return codexQuotaExhausted(0)
 	}
 	for _, modelRateLimit := range quotaStatus.AdditionalRateLimits {
-		if slices.Contains(models, modelRateLimit.Model) {
+		if codexQuotaModelSelected(ctx, modelRateLimit.Model, model) {
 			if err = validateCodexIncludedQuota(modelRateLimit.RateLimit, planReported); err != nil {
 				logCodexQuotaDenial(log, err, "plan_type", quotaStatus.PlanType, "model", model, "has_rate_limit", modelRateLimit.RateLimit != nil)
 				var upstream *providers.UpstreamErrorResponse

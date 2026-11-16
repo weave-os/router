@@ -23,7 +23,6 @@ import (
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
-	randomrouter "weave-os/router/internal/router/random_router"
 
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
@@ -824,25 +823,8 @@ func (s *Service) runTurnLoop(
 	reqHeaders http.Header,
 	req router.Request,
 ) (res turnLoopResult, routeErr error) {
-	if randomBenchmarkFrom(ctx) != nil {
-		res.Strategy = router.StrategyRandomBenchmark
-		res.TurnType = turntype.Detect(env, feats, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx)))
-		res.InstallationID = installationID
-		res.PinTier = "random_benchmark"
-		if !randomBenchmarkHeaders(reqHeaders) {
-			return res, randomrouter.ErrUnavailable
-		}
-		if requirements, ok := translationRequirementsFromContext(ctx); ok {
-			req.TranslationRequirements = requirements
-		}
-		var err error
-		req, err = s.applyTranslationPlan(ctx, req)
-		if err != nil {
-			return res, err
-		}
-		req.AutomaticExcludedModels = s.globalAutomaticExcludedModels(ctx)
-		res.Decision, err = s.routeRandomBenchmark(ctx, req)
-		return res, err
+	if outcome, handled, err := routeRandomTurn(s, ctx, env, feats, reqHeaders, req); handled {
+		return outcome, err
 	}
 	subAgentHint = subAgentHintForRequest(ctx, subAgentHint)
 	shadowStartedAt := time.Now()
@@ -868,11 +850,7 @@ func (s *Service) runTurnLoop(
 		}
 	}()
 	log := observability.FromContext(ctx)
-	if requirements, ok := translationRequirementsFromContext(ctx); ok {
-		req.TranslationRequirements = requirements
-	} else if req.TranslationRequirements.IsZero() {
-		req.TranslationRequirements = env.TranslationRequirements(translationEndpointFor(env))
-	}
+	req = withRoutingTranslationRequirements(ctx, env, req)
 	isolatedSearch, _ := ctx.Value(codexWebSearchContextKey{}).(bool)
 	var threadSessionKey [sessionpin.SessionKeyLen]byte
 	if !isolatedSearch {

@@ -1,12 +1,14 @@
 package openai
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
-	randomrouter "weave-os/router/internal/router/random_router"
+	randomrouter "weave-os/router/internal/random_router"
 )
 
 func RandomRouterGate(svc *proxy.Service) gin.HandlerFunc {
@@ -15,7 +17,7 @@ func RandomRouterGate(svc *proxy.Service) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "random_benchmark_invalid_headers"})
 			return
 		}
-		ctx, config, err := svc.BeginRandomBenchmark(c.Request.Context(), c.GetHeader(randomrouter.PolicyHeader))
+		ctx, config, err := proxy.BeginRandomBenchmark(svc, c.Request.Context(), c.GetHeader(randomrouter.PolicyHeader))
 		if err != nil {
 			observability.FromGin(c).Warn("Random benchmark rejected", "err", err)
 			c.Header("x-should-retry", "false")
@@ -27,8 +29,16 @@ func RandomRouterGate(svc *proxy.Service) gin.HandlerFunc {
 			return
 		}
 		c.Header("X-Weave-Random-Request-Id", observability.RequestIDFromContext(ctx))
+		if c.Request.URL.Path == randomrouter.ResponsesPath {
+			body, err := io.ReadAll(io.LimitReader(c.Request.Body, proxy.MaxRequestBodyBytes+1))
+			if err != nil || len(body) > proxy.MaxRequestBodyBytes || proxy.ValidateRandomBenchmarkInput(ctx, body, c.Request.Header) != nil {
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "random_benchmark_invalid_input"})
+				return
+			}
+			c.Request.Body = io.NopCloser(bytes.NewReader(body))
+		}
 		c.Header(randomrouter.PolicyHeader, config.PolicySHA256)
-		ctx, release, err := svc.PrepareRandomBenchmark(ctx)
+		ctx, release, err := proxy.PrepareRandomBenchmark(svc, ctx)
 		if err != nil {
 			c.Header("x-should-retry", "false")
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "random_benchmark_capacity_unavailable"})
@@ -42,7 +52,7 @@ func RandomRouterGate(svc *proxy.Service) gin.HandlerFunc {
 
 func RandomRouterIdentityHandler(svc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		_, config, err := svc.BeginRandomBenchmark(c.Request.Context(), c.GetHeader(randomrouter.PolicyHeader))
+		_, config, err := proxy.BeginRandomBenchmark(svc, c.Request.Context(), c.GetHeader(randomrouter.PolicyHeader))
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "random_benchmark_not_admitted"})
 			return

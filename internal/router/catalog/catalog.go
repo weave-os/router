@@ -14,9 +14,6 @@ import (
 // ModelGPT6Luna is the canonical GPT-6 Luna model ID.
 const ModelGPT6Luna = "gpt-6-luna"
 
-const ModelGPT61Sol = "gpt-6.1-sol"
-const ModelGPT61Terra = "gpt-6.1-terra"
-
 // ModelMiMoV26Flash is the canonical Xiaomi MiMo-V2.6-Flash model ID.
 const ModelMiMoV26Flash = "xiaomi/mimo-v2.6-flash"
 

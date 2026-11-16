@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"sync"
 	"time"
 
@@ -152,10 +151,7 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 	present := false
 	eligible := make([]*auth.SubscriptionAccount, 0, len(accounts))
 	for _, candidate := range accounts {
-		if requester.RequiredAccountID != "" && candidate.ID != requester.RequiredAccountID {
-			continue
-		}
-		if candidate.SubscriberID == "" || Provider(candidate.Provider) != provider || slices.Contains(requester.ExcludedAccountIDs, candidate.ID) {
+		if candidate.SubscriberID == "" || Provider(candidate.Provider) != provider || subscriptionAccountDenied(requester, candidate.ID) {
 			continue
 		}
 		present = true

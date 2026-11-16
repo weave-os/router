@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	randomrouter "weave-os/router/internal/random_router"
 
 	"weave-os/router/internal/credentials"
 )
@@ -10,8 +11,8 @@ import (
 // resolved upstream credential. Empty values mean the turn ran on the deployment
 // key or no credential was resolved.
 func (s *Service) credentialKeyParts(ctx context.Context) (prefix, suffix, source string) {
-	if execution, _ := ctx.Value(randomBenchmarkExecutionKey{}).(*randomBenchmarkExecution); execution != nil && execution.providerCalls > 0 {
-		return "", "", execution.credentials.Source
+	if execution := randomrouter.RequestFrom(ctx); execution != nil && execution.ProviderCalls > 0 {
+		return "", "", execution.Credentials.Source
 	}
 	if managedSource := managedSubscriptionCredentialSource(ctx); managedSource != "" {
 		if managedSource == credSourceSubscription && s.subscriptionOverageInUse(ctx) {

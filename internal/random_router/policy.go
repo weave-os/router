@@ -28,6 +28,10 @@ func New(draw Draw) *Policy {
 }
 
 func (p *Policy) Route(ctx context.Context, request router.Request) (router.Decision, error) {
+	state := RequestFrom(ctx)
+	if state == nil || !state.Prepared || state.Config.PolicySHA256 != PolicySHA256 {
+		return router.Decision{}, ErrUnavailable
+	}
 	resolved := p.resolver.Resolve(request)
 	if len(resolved.Candidates) != 3 {
 		return router.Decision{}, ErrUnavailable

@@ -8,16 +8,11 @@ import (
 )
 
 type Decision struct {
-	ID                     string    `json:"id"`
-	APIKeyID               *string   `json:"api_key_id"`
-	Propensity             *float64  `json:"propensity"`
-	PlannerOutcome         *string   `json:"planner_outcome"`
-	InferenceAttemptCount  *int64    `json:"inference_attempt_count"`
-	InferenceAttemptModels []string  `json:"inference_attempt_models"`
-	RecordedAt             time.Time `json:"recorded_at"`
-	RequestedAt            time.Time `json:"requested_at"`
-	RequestID              string    `json:"request_id"`
-	TraceID                string    `json:"trace_id"`
+	ID          string    `json:"id"`
+	RecordedAt  time.Time `json:"recorded_at"`
+	RequestedAt time.Time `json:"requested_at"`
+	RequestID   string    `json:"request_id"`
+	TraceID     string    `json:"trace_id"`
 
 	SessionID       *string `json:"session_id"`
 	RolloutID       *string `json:"rollout_id"`
@@ -113,9 +108,14 @@ type Decision struct {
 	SelectionPolicyReleaseID *string `json:"selection_policy_release_id"`
 	SelectionPolicySHA256    *string `json:"selection_policy_sha256"`
 
-	ClientGitHeadSHA *string `json:"client_git_head_sha"`
-	ClientGitBranch  *string `json:"client_git_branch"`
-	ClientGitDirty   *bool   `json:"client_git_dirty"`
+	ClientGitHeadSHA       *string  `json:"client_git_head_sha"`
+	ClientGitBranch        *string  `json:"client_git_branch"`
+	ClientGitDirty         *bool    `json:"client_git_dirty"`
+	APIKeyID               *string  `json:"api_key_id"`
+	Propensity             *float64 `json:"propensity"`
+	PlannerOutcome         *string  `json:"planner_outcome"`
+	InferenceAttemptCount  *int64   `json:"inference_attempt_count"`
+	InferenceAttemptModels []string `json:"inference_attempt_models"`
 }
 
 type Query struct {
