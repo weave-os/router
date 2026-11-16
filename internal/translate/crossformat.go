@@ -1,10 +1,13 @@
 package translate
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/tidwall/gjson"
 )
+
+var ErrUntranslatableUserContent = errors.New("untranslatable user content part")
 
 func parseDataURL(url string) (mime, data string, ok bool) {
 	if !strings.HasPrefix(url, "data:") {
