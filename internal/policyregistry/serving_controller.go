@@ -15,10 +15,6 @@ import (
 	"weave-os/router/internal/subscriptions/entitlement"
 )
 
-// ServingStore is shared by admission, proposal validation and the single activation controller.
-// ReadServingObject returns the stored object alongside its exact payload bytes; implementations
-// must verify the bytes against the reference digest and generation. Stored encodings may predate
-// this binary's canonical form.
 type ServingStore interface {
 	RootURI() string
 	ReadServingObject(context.Context, ServingKind, ObjectRef) (ServingManifest, []byte, error)
@@ -28,17 +24,11 @@ type ServingStore interface {
 	ReadClassifierRuntimeBinding(context.Context, Environment, string) (ResolvedClassifierRuntimeBinding, error)
 }
 
-// ServingValidationStore additionally verifies audit/provenance artifacts by exact immutable reference.
-// Artifact contents are trusted registry-writer evidence, not a controller-defined cryptographic proof format.
 type ServingValidationStore interface {
 	ServingStore
 	VerifyServingArtifact(context.Context, ObjectRef) error
 }
 
-// PreparedSelection contains the complete independently validated effective tuple. It is the
-// same DTO whether the selection was stored as v1 release/classifier/binding/profile objects or
-// as a lane embedded in a v2/v3 selection set. PolicyReference is the effective
-// policy; Candidate retains the immutable build composition.
 type PreparedSelection struct {
 	Selection                ServingSelection
 	ProfileKey               string
@@ -47,20 +37,16 @@ type PreparedSelection struct {
 	Binding                  LaneBinding
 	ClassifierReleaseV5      *ClassifierReleaseManifestV1
 	ClassifierServiceBinding *ClassifierServiceBinding
-	// ClassifierRuntimeBinding is the worker revision serving a v4 selection's release in the target's environment.
 	ClassifierRuntimeBinding *ResolvedClassifierRuntimeBinding
 	Policy                   *rosterdata.Roster
 	PolicyReference          PolicyObject
 	StrategyPolicies         map[router.Strategy]StrategyPolicy
 }
 
-// ServingValidator verifies exact revision attestations, catalog compatibility and private endpoint smoke.
-// It must not use the controller binary's catalog as a substitute for the selected worker's catalog.
 type ServingValidator interface {
 	ValidatePreparedSelection(context.Context, PreparedSelection) error
 }
 
-// ServingController is the only managed activation writer; preparation never calls Activate.
 type ServingController struct {
 	store     ServingValidationStore
 	validator ServingValidator
@@ -68,7 +54,6 @@ type ServingController struct {
 	logger    *slog.Logger
 }
 
-// NewServingController requires explicit validation, time and audit dependencies.
 func NewServingController(store ServingValidationStore, validator ServingValidator, clock func() time.Time, logger *slog.Logger) (*ServingController, error) {
 	if store == nil || validator == nil || clock == nil || logger == nil {
 		return nil, errors.New("serving controller requires store, validator, clock and logger")
@@ -81,9 +66,6 @@ func readServing[T ServingManifest](ctx context.Context, store ServingStore, kin
 	return typed, err
 }
 
-// readServingPayload additionally returns the exact stored payload. Reads trust the
-// generation-pinned reference; only the proposal anchor re-verifies its digest, inside
-// NextServingActivation, because replay and status are keyed on the recorded proposal ref.
 func readServingPayload[T ServingManifest](ctx context.Context, store ServingStore, kind ServingKind, ref ObjectRef) (T, []byte, error) {
 	var zero T
 	if err := ValidateServingRef(ref, store.RootURI(), kind); err != nil {
@@ -103,14 +85,12 @@ func readServingPayload[T ServingManifest](ctx context.Context, store ServingSto
 	return typed, payload, nil
 }
 
-// PreparationResult distinguishes fresh readiness from an already-activated idempotent outcome.
 type PreparationResult struct {
 	Proposal   ObjectRef         `json:"proposal"`
 	Prepared   bool              `json:"prepared"`
 	Activation *ActivationResult `json:"activation,omitempty"`
 }
 
-// readProposal reads either proposal version with its exact stored bytes.
 func readProposal(ctx context.Context, store ServingStore, ref ObjectRef) (ProposalView, []byte, error) {
 	manifest, payload, err := readServingFamily(ctx, store, ServingProposal, ref)
 	if err != nil {
@@ -123,7 +103,6 @@ func readProposal(ctx context.Context, store ServingStore, ref ObjectRef) (Propo
 	return typed.View(), payload, nil
 }
 
-// Prepare validates a frozen proposal without writes; completed retries never require healthy old revisions.
 func (c *ServingController) Prepare(ctx context.Context, proposalRef ObjectRef) (PreparationResult, error) {
 	logger := c.logger.With("proposal_sha256", proposalRef.SHA256)
 	proposal, proposalPayload, err := readProposal(ctx, c.store, proposalRef)
@@ -162,15 +141,10 @@ func (c *ServingController) Prepare(ctx context.Context, proposalRef ObjectRef) 
 	return PreparationResult{Proposal: proposalRef, Prepared: true}, nil
 }
 
-// requiresRollbackSource holds for every rollback-scoped proposal, whichever verb submitted it,
-// and for any proposal withdrawing activations. Normal rollback retains pins; the proposal
-// explicitly lists emergency withdrawals.
 func requiresRollbackSource(proposal ProposalView) bool {
 	return proposal.Scope == ChangeRollback || len(proposal.WithdrawActivations) > 0
 }
 
-// validateRollbackSource accepts a source candidate that some retained activation, of either
-// selection-set version, served for the proposal's target and profile.
 func (c *ServingController) validateRollbackSource(ctx context.Context, snapshot ServingStateSnapshot, proposal ProposalView) error {
 	for _, activation := range snapshot.State.Activations {
 		set, err := readSelectionSetView(ctx, c.store, activation.SelectionSet)
@@ -191,8 +165,6 @@ func (c *ServingController) validateRollbackSource(ctx context.Context, snapshot
 	return errors.New("rollback requires a known-good source release previously serving the same target and profile")
 }
 
-// Activate commits this exact proposal, forward or rollback-scoped; a rollback-scoped proposal
-// additionally validates its source. Retries never reactivate a superseded result.
 func (c *ServingController) Activate(ctx context.Context, proposalRef ObjectRef, workflowActor string) (ActivationResult, error) {
 	return c.activate(ctx, proposalRef, workflowActor)
 }
@@ -242,7 +214,6 @@ func (c *ServingController) activate(ctx context.Context, proposalRef ObjectRef,
 	return transition, nil
 }
 
-// ValidateProposal checks all destination profiles and change scope before activation.
 func (c *ServingController) ValidateProposal(ctx context.Context, proposal ProposalManifest) error {
 	if err := proposal.Validate(c.store.RootURI()); err != nil {
 		return err
@@ -325,10 +296,6 @@ func (c *ServingController) validateProposal(ctx context.Context, proposal Propo
 			return errors.New("registered profile keys cannot be removed")
 		}
 		if proposal.Scope != ChangeProfile && !sameLaneProfile(lane.Profile, next.Profile) {
-			// V3 stores only each profile's policy; its requirements are inherited
-			// from CandidateV2. V4 keeps the same policy assignment while moving
-			// classifier API/taxonomy requirements into the new worker candidate and
-			// classifier release, so compare the persisted V3 profile contract.
 			v3ToV4ClassifierMigration := proposal.Scope == ChangeFull &&
 				previous.SchemaVersion == ServingSelectionSetV3 &&
 				set.SchemaVersion == ServingSelectionSetV4 &&
@@ -392,7 +359,6 @@ func (c *ServingController) validateProposal(ctx context.Context, proposal Propo
 			return errors.New("roster-only promotion must retain destination image and classifier")
 		}
 	case ChangeClassifier:
-		// A v4 source candidate is Router code only; its classifier is the selection's release.
 		if (set.SchemaVersion == ServingSelectionSetV4 && (set.Default.Candidate != previous.Default.Candidate || proposal.SourceCandidate != set.Default.Candidate)) ||
 			(set.SchemaVersion != ServingSelectionSetV4 && !base.Classifier.Equal(source.Classifier)) || base.RouterImageDigest != oldBase.RouterImageDigest || base.Policy != oldBase.Policy || !maps.Equal(base.StrategyPolicies, oldBase.StrategyPolicies) {
 			return errors.New("classifier-only promotion must retain destination Router candidate, image, policy and strategy policies")
@@ -402,10 +368,6 @@ func (c *ServingController) validateProposal(ctx context.Context, proposal Propo
 	return nil
 }
 
-// validateRouterOnlyLanes admits a Router-only update only when Default and every predecessor
-// profile move together: each lane receives a new candidate and binding that differ from their
-// predecessors solely by the source Router image, and every successor lane shares one new Router
-// revision. Runs after structural selection validation and forward profile preservation.
 func (c *ServingController) validateRouterOnlyLanes(ctx context.Context, lanes *laneReader, next, previous resolvedSelectionSet, source CandidateComposition) error {
 	if len(next.Profiles) != len(previous.Profiles) {
 		return errors.New("router-only promotion must retain the destination profile inventory")
@@ -427,9 +389,6 @@ func (c *ServingController) validateRouterOnlyLanes(ctx context.Context, lanes *
 	return nil
 }
 
-// validateRouterOnlyLane compares one predecessor/successor lane pair. The successor candidate may
-// differ only in Router image digest and provenance; the successor binding may differ only in
-// attestation and the shared Router revision.
 func (c *ServingController) validateRouterOnlyLane(ctx context.Context, lanes *laneReader, previous, next resolvedLane, source CandidateComposition, predecessorRouterConfiguration ObjectRef, sharedRouter RevisionBinding) error {
 	if next.Candidate == previous.Candidate || next.Binding == previous.Binding {
 		return errors.New("router-only promotion must publish a new release and binding for every lane")
@@ -451,7 +410,6 @@ func (c *ServingController) validateRouterOnlyLane(ctx context.Context, lanes *l
 	expectedCandidate := previousCandidate
 	expectedCandidate.RouterImageDigest = nextCandidate.RouterImageDigest
 	expectedCandidate.Provenance = nextCandidate.Provenance
-	// Supported classifier API majors are a property of the Router code; preparation still requires the selected release's major.
 	expectedCandidate.SupportedAPIMajors = source.SupportedAPIMajors
 	if !expectedCandidate.Equal(nextCandidate) {
 		return errors.New("router-only promotion must retain destination policy, classifier, and requirements")
@@ -468,9 +426,6 @@ func (c *ServingController) validateRouterOnlyLane(ctx context.Context, lanes *l
 	return nil
 }
 
-// resolvedLane is one lane of either selection-set version with its content in hand. Scope checks
-// compare candidates, bindings and profile pins by content, so a v2 successor is judged against a
-// v1 predecessor whose lane was stored as separate binding and profile objects.
 type resolvedLane struct {
 	Selection             ServingSelection
 	Candidate             ObjectRef
@@ -511,8 +466,6 @@ func sameLaneProfilePolicy(left, right *laneProfile) bool {
 	return left == nil || left.Key == right.Key && left.Policy == right.Policy
 }
 
-// sameLane holds when two lanes serve the same tuple. Candidates are compared by composition so a
-// v2 candidate folding a v1 release counts as the same tuple during the layout transition.
 func (r *laneReader) sameLane(ctx context.Context, left, right resolvedLane) (bool, error) {
 	if left.Binding != right.Binding || !sameLaneProfile(left.Profile, right.Profile) {
 		return false, nil
@@ -541,8 +494,6 @@ func sameClassifierServiceBinding(left, right *ClassifierServiceBinding) bool {
 	return left.Release == right.Release && left.ServiceURL == right.ServiceURL && left.Audience == right.Audience && slices.Equal(left.EnabledVariants, right.EnabledVariants)
 }
 
-// laneReader resolves selection sets of either version and memoizes candidate compositions, so
-// one proposal validation fetches each candidate once however many lanes share it.
 type laneReader struct {
 	store      ServingStore
 	candidates map[ObjectRef]CandidateComposition
@@ -564,7 +515,6 @@ func (r *laneReader) candidate(ctx context.Context, ref ObjectRef) (CandidateCom
 	return candidate, nil
 }
 
-// effectiveCandidate is used only for component comparisons; stored candidate identity is unchanged.
 func (r *laneReader) effectiveCandidate(ctx context.Context, lane resolvedLane) (CandidateComposition, error) {
 	if lane.CandidateComposition != nil {
 		candidate := *lane.CandidateComposition
@@ -665,8 +615,6 @@ func (r *laneReader) v1Lane(ctx context.Context, selection ServingSelection) (re
 	return lane, nil
 }
 
-// readSelectionSetView reads a selection-set-family reference of either version as the tuples
-// admission and rollback compare.
 func readSelectionSetView(ctx context.Context, store ServingStore, ref ObjectRef) (SelectionSetView, error) {
 	manifest, _, err := readServingFamily(ctx, store, ServingSelectionSet, ref)
 	if err != nil {
@@ -691,8 +639,6 @@ const (
 	destinationValidationBlocked  = "blocked"
 )
 
-// activationValidation scopes destination attestations to the lanes of one proposal validation
-// and counts the lanes those attestations served.
 type activationValidation struct {
 	validator ServingValidator
 	reporter  ActivationValidator
@@ -715,8 +661,6 @@ func (a *activationValidation) validate(ctx context.Context, prepared PreparedSe
 	return err
 }
 
-// log reports the destination attestations this validation issued. A blocked validation stops on
-// the failing lane, so its counts are partial and the outcome says so.
 func (a *activationValidation) log(logger *slog.Logger) {
 	if a.reporter == nil {
 		return
@@ -746,8 +690,6 @@ func (c *ServingController) validateSelection(ctx context.Context, destinations 
 	return prepared, nil
 }
 
-// readServingFamily reads a reference of a v2 kind, which may resolve to either the v2 object or
-// the v1 object it folds. The stored layout must agree with the decoded schema.
 func readServingFamily(ctx context.Context, store ServingStore, kind ServingKind, ref ObjectRef) (ServingManifest, []byte, error) {
 	if err := ValidateServingRef(ref, store.RootURI(), kind); err != nil {
 		return nil, nil, err
@@ -842,8 +784,6 @@ func classifierCandidateCompositionV5(
 	}, nil
 }
 
-// readCandidate resolves a candidate-family reference into its effective composition. A v1
-// release is completed from its classifier bundle; a v2 candidate already carries it.
 func readCandidate(ctx context.Context, store ServingStore, ref ObjectRef) (CandidateComposition, error) {
 	manifest, _, err := readServingFamily(ctx, store, ServingCandidate, ref)
 	if err != nil {
@@ -876,7 +816,6 @@ func readCandidate(ctx context.Context, store ServingStore, ref ObjectRef) (Cand
 	}
 }
 
-// readLane resolves an embedded lane and, for v3, its independent policy assignment.
 func readLane(ctx context.Context, store ServingStore, target ServingTarget, profileKey string, selection ServingSelection) (ServingLane, PolicyObject, error) {
 	manifest, _, err := readServingFamily(ctx, store, ServingSelectionSet, selection.Binding)
 	if err != nil {
@@ -931,11 +870,6 @@ func readLane(ctx context.Context, store ServingStore, target ServingTarget, pro
 	return lane, policy, nil
 }
 
-// ReadPreparedSelection reads and cross-validates one exact tuple without consulting mutable heads.
-// v1 selections traverse release, binding, classifier and profile objects; v2 selections read the
-// lane embedded in their selection set. V3 supplies the policy independently of code. V4 also
-// resolves the release's runtime binding for the target's environment, the only source of the
-// classifier worker URL and audience.
 func ReadPreparedSelection(ctx context.Context, store ServingStore, target ServingTarget, profileKey string, selection ServingSelection) (PreparedSelection, error) {
 	if err := selection.validate(store.RootURI(), profileKey != ""); err != nil {
 		return PreparedSelection{}, err
