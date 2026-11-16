@@ -1,6 +1,7 @@
 package translate
 
 import (
+	"cmp"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -164,13 +165,18 @@ func buildOpenAIFilePartFromBase64PDFDocument(block gjson.Result) string {
 	inner.Obj()
 	inner.Key("file_data")
 	inner.Str("data:" + mediaType + ";base64," + data)
-	if title := block.Get("title").String(); title != "" {
-		inner.Key("filename")
-		inner.Str(title)
-	}
+	inner.Key("filename")
+	inner.Str(pdfFilenameFromTitle(block.Get("title").String()))
 	inner.EndObj()
 	inner.EndObj()
 	return string(inner.Bytes())
+}
+
+func pdfFilenameFromTitle(title string) string {
+	if strings.HasSuffix(strings.ToLower(title), ".pdf") {
+		return title
+	}
+	return cmp.Or(title, "document") + ".pdf"
 }
 
 func buildOpenAIImagePart(block gjson.Result) string {

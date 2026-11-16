@@ -188,7 +188,16 @@ func TestCrossFormat_AnthropicToOpenAI_DocumentPDFPreserved(t *testing.T) {
 		require.Len(t, parts, 1, string(body))
 		assert.Equal(t, "file", parts[0].Get("type").String())
 		assert.Equal(t, "data:application/pdf;base64,"+mediaPartsPDF, parts[0].Get("file.file_data").String())
+		assert.Equal(t, "document.pdf", parts[0].Get("file.filename").String())
 	})
+	for title, want := range map[string]string{"Quarterly report": "Quarterly report.pdf", "report.PDF": "report.PDF"} {
+		t.Run("Case8_titled_document_filename_"+want, func(t *testing.T) {
+			titled := `{"type":"document","title":"` + title + `","source":{"type":"base64","media_type":"application/pdf","data":"` + mediaPartsPDF + `"}}`
+			body, err := anthropicToOpenAI(t, anthropicUserBody(titled))
+			require.NoError(t, err)
+			assert.Equal(t, want, gjson.GetBytes(body, "messages.0.content.0.file.filename").String(), string(body))
+		})
+	}
 }
 
 func TestCrossFormat_AnthropicToOpenAI_DocumentPDFWithNeighbours(t *testing.T) {
