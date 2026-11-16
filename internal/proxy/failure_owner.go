@@ -118,7 +118,7 @@ func dispatchErrorKindOwner(kind DispatchErrorKind) FailureOwner {
 		DispatchErrorUserSpendLimitReached, DispatchErrorSpendCapReached, DispatchErrorNoEligibleProvider,
 		DispatchErrorAllowlistEmptiesPool, DispatchErrorGatewayServesNoModel, DispatchErrorNoRoutableModels,
 		DispatchErrorProductIneligible, DispatchErrorSubscriptionClientAppRefused, DispatchErrorClaudeEnterpriseOnly,
-		DispatchErrorWeaveCreditsDisabled, DispatchErrorSubscriptionUnavailableForTurn:
+		DispatchErrorWeaveCreditsDisabled, DispatchErrorSubscriptionUnavailableForTurn, DispatchErrorUntranslatableUserContent:
 		return FailureOwnerClient
 	default:
 		return FailureOwnerUnknown
