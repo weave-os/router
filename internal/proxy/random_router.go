@@ -15,7 +15,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/catalog"
 	randomrouter "weave-os/router/internal/router/random_router"
 
 	"weave-os/router/internal/subscriptions"
@@ -72,7 +71,7 @@ func BeginRandomBenchmark(s *Service, ctx context.Context, digest string) (conte
 }
 
 func PrepareRandomBenchmark(s *Service, ctx context.Context) (context.Context, func(), error) {
-	credentialCtx, lease, _, err := leaseRandomSubscription(s, ctx, providers.ProviderOpenAI, randomrouter.Models()[0])
+	credentialCtx, lease, err := leaseRandomSubscription(s, ctx)
 	if err != nil {
 		return ctx, func() {}, err
 	}
@@ -100,7 +99,7 @@ func PrepareRandomBenchmark(s *Service, ctx context.Context) (context.Context, f
 	return ctx, lease.Release, nil
 }
 
-func routeRandomBenchmark(s *Service, ctx context.Context, request router.Request) (router.Decision, error) {
+func routeRandomBenchmark(ctx context.Context, request router.Request) (router.Decision, error) {
 	profile := randomBenchmarkFrom(ctx)
 	if profile == nil || !profile.Prepared {
 		return router.Decision{}, randomrouter.ErrUnavailable
@@ -120,24 +119,21 @@ func routeRandomBenchmark(s *Service, ctx context.Context, request router.Reques
 	return decision, nil
 }
 
-func leaseRandomSubscription(s *Service, ctx context.Context, provider, model string) (context.Context, subscriptions.Lease, bool, error) {
+func leaseRandomSubscription(s *Service, ctx context.Context) (context.Context, subscriptions.Lease, error) {
 	profile := randomBenchmarkFrom(ctx)
-	if profile == nil || !profile.Config.ExpiresAt.After(s.clockNow()) || provider != providers.ProviderOpenAI || !catalog.CodexSubscriptionCoversModel(model) || s.managedSubscriptions == nil || !s.supportsSubscriptionTransport(provider) {
-		return ctx, subscriptions.Lease{}, true, ErrSubscriptionPoolUnavailable
-	}
-	if execution := randomrouter.RequestFrom(ctx); execution != nil && execution.Prepared {
-		return context.WithValue(ctx, CredentialsContextKey{}, execution.Credentials), execution.Lease, true, nil
+	if profile == nil || !profile.Config.ExpiresAt.After(s.clockNow()) || s.managedSubscriptions == nil || !s.supportsSubscriptionTransport(providers.ProviderOpenAI) {
+		return ctx, subscriptions.Lease{}, ErrSubscriptionPoolUnavailable
 	}
 	owner := subscriptionOwnerFromContext(ctx)
 	owner.RequiredAccountID = profile.Config.SubscriptionAccountID
 	lease, present, err := subscriptions.LeaseRequired(ctx, s.managedSubscriptions, owner, subscriptions.ProviderCodex, ClientIdentityFrom(ctx).SessionID)
 	if err != nil || !present {
 		lease.Release()
-		return ctx, subscriptions.Lease{}, true, errors.Join(ErrSubscriptionPoolUnavailable, err)
+		return ctx, subscriptions.Lease{}, errors.Join(ErrSubscriptionPoolUnavailable, err)
 	}
 	creds := &Credentials{APIKey: []byte(lease.AccessToken), OAuth: true, Source: credSourceCodexSubscription, AccountID: []byte(lease.ProviderAccount), PrincipalID: "chatgpt-account:" + lease.ProviderAccount, SubscriptionAccountID: lease.AccountID}
 	ctx = context.WithValue(ctx, CredentialsContextKey{}, creds)
-	return ctx, lease, true, nil
+	return ctx, lease, nil
 }
 
 func randomBenchmarkHeaders(headers http.Header) bool {

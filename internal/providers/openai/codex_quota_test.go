@@ -88,7 +88,7 @@ func TestCodexRandomRosterQuotaUsesOneSnapshotAndRejectsOtherModelLimit(t *testi
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
-		require.Equal(t, "/wham/usage", r.URL.Path)
+		assert.Equal(t, "/wham/usage", r.URL.Path)
 		_, _ = io.WriteString(w, `{"plan_type":"pro","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":20}},"additional_rate_limits":[{"normal_model_slug":"gpt-6.1-terra","rate_limit":{"allowed":false,"limit_reached":true,"primary_window":{"used_percent":100}}}]}`)
 	}))
 	defer server.Close()

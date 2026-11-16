@@ -35,7 +35,7 @@ func routeRandomTurn(s *Service, ctx context.Context, env *translate.RequestEnve
 		return res, true, err
 	}
 	req.AutomaticExcludedModels = s.globalAutomaticExcludedModels(ctx)
-	res.Decision, err = routeRandomBenchmark(s, ctx, req)
+	res.Decision, err = routeRandomBenchmark(ctx, req)
 	return res, true, err
 }
 

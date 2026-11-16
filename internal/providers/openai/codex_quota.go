@@ -70,7 +70,7 @@ func (c *Client) CheckIncludedSubscriptionModels(ctx context.Context, models []s
 			return candidate.Slug == model
 		})
 		if !found {
-			return fmt.Errorf("Codex subscription does not advertise required model %s", model)
+			return fmt.Errorf("codex subscription does not advertise required model %s", model)
 		}
 	}
 	return nil

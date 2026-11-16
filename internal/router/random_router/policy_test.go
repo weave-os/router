@@ -19,7 +19,7 @@ func TestUniformDrawBoundaries(t *testing.T) {
 				decision, err := policy.Route(WithRequest(context.Background(), &RequestState{Prepared: true, Config: Config{PolicySHA256: PolicySHA256}}), router.Request{EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}}})
 				require.NoError(t, err)
 				require.Equal(t, model, decision.Model)
-				require.Equal(t, float32(1.0/3.0), decision.Metadata.Propensity)
+				require.InDelta(t, float32(1.0/3.0), decision.Metadata.Propensity, 1e-8)
 				require.Equal(t, PolicySHA256, decision.Metadata.PolicyArtifactSHA256)
 			}
 			require.Equal(t, 2, calls)

@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	randomrouter "weave-os/router/internal/router/random_router"
 )
 
@@ -29,6 +30,9 @@ func RandomRouterGate(svc *proxy.Service) gin.HandlerFunc {
 			return
 		}
 		c.Header("X-Weave-Random-Request-Id", observability.RequestIDFromContext(ctx))
+		serving, _ := requestcontext.ServingIdentityFromContext(ctx)
+		c.Header("X-Weave-Random-Release-Id", serving.ReleaseID)
+		c.Header("X-Weave-Random-Binding-Id", serving.BindingID)
 		if c.Request.URL.Path == randomrouter.ResponsesPath {
 			body, err := io.ReadAll(io.LimitReader(c.Request.Body, proxy.MaxRequestBodyBytes+1))
 			if err != nil || len(body) > proxy.MaxRequestBodyBytes || proxy.ValidateRandomBenchmarkInput(ctx, body, c.Request.Header) != nil {
@@ -52,11 +56,12 @@ func RandomRouterGate(svc *proxy.Service) gin.HandlerFunc {
 
 func RandomRouterIdentityHandler(svc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		_, config, err := proxy.BeginRandomBenchmark(svc, c.Request.Context(), c.GetHeader(randomrouter.PolicyHeader))
+		ctx, config, err := proxy.BeginRandomBenchmark(svc, c.Request.Context(), c.GetHeader(randomrouter.PolicyHeader))
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "random_benchmark_not_admitted"})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"policy_id": randomrouter.PolicyID, "config": config, "models": randomrouter.Models(), "strict": true})
+		serving, _ := requestcontext.ServingIdentityFromContext(ctx)
+		c.JSON(http.StatusOK, gin.H{"serving": serving, "policy_id": randomrouter.PolicyID, "config": config, "models": randomrouter.Models(), "strict": true})
 	}
 }

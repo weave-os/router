@@ -1,9 +1,11 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"github.com/stretchr/testify/require"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -81,4 +83,52 @@ func TestRandomBenchmarkFailureHasOneProviderAttempt(t *testing.T) {
 func TestRandomBenchmarkRequiresAuthorizedContext(t *testing.T) {
 	_, err := randomrouter.New(func(int) (int, error) { t.Fatal("unauthorized draw"); return 0, nil }).Route(context.Background(), router.Request{})
 	require.ErrorIs(t, err, randomrouter.ErrUnavailable)
+}
+
+func TestRandomResponsesNeverRepairOrRescue(t *testing.T) {
+	scenarios := []struct {
+		name    string
+		outcome fakeOutcome
+		success bool
+	}{
+		{"endpoint_rejection", fakeOutcome{err: &providers.UpstreamErrorResponse{Status: 404, Body: []byte(`{"error":{"message":"Responses endpoint is not supported"}}`)}}, false},
+		{"rate_limit", fakeOutcome{err: &providers.UpstreamErrorResponse{Status: 429, Body: []byte(`{"error":{"message":"rate limit"}}`)}}, false},
+		{"overload", fakeOutcome{err: &providers.UpstreamErrorResponse{Status: 503, Body: []byte(`{"error":{"message":"overloaded"}}`)}}, false},
+		{"partial_stream", fakeOutcome{writeBytes: []byte("data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n"), err: io.ErrUnexpectedEOF}, false},
+		{"failed_stream", fakeOutcome{writeBytes: []byte("data: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\",\"error\":{\"code\":\"server_error\",\"message\":\"synthetic failure\"}}}\n\n")}, false},
+		{"refusal", fakeOutcome{writeBytes: []byte("data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"error\":null,\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"refusal\",\"refusal\":\"synthetic refusal\"}]}]}}\n\n")}, false},
+		{"incomplete", fakeOutcome{writeBytes: []byte("data: {\"type\":\"response.incomplete\",\"response\":{\"status\":\"incomplete\"}}\n\n")}, false},
+		{"completed", fakeOutcome{writeBytes: []byte("data: {\"type\":\"response.output_text.delta\",\"delta\":\"completed\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"error\":null,\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"completed\"}]}]}}\n\n")}, true},
+	}
+	for _, scenario := range scenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			config := randomTestConfig()
+			client := &fakeClient{name: providers.ProviderOpenAI, outcomes: []fakeOutcome{scenario.outcome}}
+			svc := NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, catalog.ModelGPT61Sol, nil).
+				WithManagedSubscriptions(&scriptedSubscriptionLeaser{}).
+				WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyRandomBenchmark, Router: randomrouter.New(func(int) (int, error) { return 0, nil }), Unavailable: randomrouter.ErrUnavailable})
+			encoded, err := json.Marshal(config)
+			require.NoError(t, err)
+			ctx := flags.WithOverrides(randomTestContext(config), flags.Overrides{Strings: map[flags.Key]string{flags.KeyRandomBenchmarkConfig: string(encoded)}})
+			ctx, _, err = BeginRandomBenchmark(svc, ctx, config.PolicySHA256)
+			require.NoError(t, err)
+			ctx = WithManagedSubscriptionUsage(ctx)
+			state := randomrouter.RequestFrom(ctx)
+			state.Prepared = true
+			state.Lease = subscriptions.Lease{AccountID: config.SubscriptionAccountID, State: auth.SubscriptionAccountStateActive}
+			state.Credentials = &Credentials{OAuth: true, Source: credSourceCodexSubscription, APIKey: []byte("synthetic"), AccountID: []byte("synthetic-account")}
+			body := []byte(`{"model":"gpt-6.1-sol","stream":true,"input":[{"role":"user","content":"synthetic benchmark turn"}]}`)
+			req := httptest.NewRequestWithContext(ctx, http.MethodPost, randomrouter.ResponsesPath, bytes.NewReader(body))
+			req.Header.Set("Session-Id", "synthetic-session")
+			recorder := httptest.NewRecorder()
+			err = svc.ProxyOpenAIResponses(ctx, body, recorder, req)
+			if scenario.success {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+			require.Equal(t, 1, client.calls)
+			require.Equal(t, 1, state.ProviderCalls)
+		})
+	}
 }
