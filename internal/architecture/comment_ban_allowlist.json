@@ -31,7 +31,7 @@
     },
     {
       "package": "internal/proxy",
-      "banned_lines": 5933
+      "banned_lines": 5244
     },
     {
       "package": "internal/requestcontext",
@@ -55,7 +55,7 @@
     },
     {
       "package": "internal/translate",
-      "banned_lines": 2920
+      "banned_lines": 2001
     }
   ]
 }

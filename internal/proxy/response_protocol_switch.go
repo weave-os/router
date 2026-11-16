@@ -9,26 +9,16 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-// openAISurface names which OpenAI endpoint an attempt POSTs to and in what
-// representation; the three cases differ in both emit and response handling.
 type openAISurface int
 
 const (
-	// surfaceChat is /v1/chat/completions with the client's own format.
 	surfaceChat openAISurface = iota
-	// surfaceResponsesNative is /v1/responses with a Responses caller's
-	// original bytes, streamed back verbatim.
 	surfaceResponsesNative
-	// surfaceResponsesTranslated is /v1/responses emitted from a
-	// chat/completions request, with the response translated back to chat.
 	surfaceResponsesTranslated
 )
 
 type modelAttemptBuilder func(router.Decision, translate.EmitOptions, string, context.Context) (dispatchAttempt, error)
 
-// responseProtocolSwitch owns the client writer's protocol across model changes.
-// A synthetic routing prelude can remain visible while a failed provider
-// attempt is replaced without committing its output.
 type responseProtocolSwitch struct {
 	writer              *translate.ResponsesWriter
 	buffer              *preludeBuffer
@@ -124,7 +114,6 @@ func (s *responseProtocolSwitch) wrapBuilder(build modelAttemptBuilder) modelAtt
 			return nil, err
 		}
 		return func(ctx context.Context, binding router.Decision, client providers.Client) error {
-			// Binding failover may change the provider after the model was chosen.
 			if err := s.selectTarget(binding); err != nil {
 				return err
 			}

@@ -23,7 +23,6 @@ type ModelPreparation struct {
 	ReleaseID string              `json:"release_id"`
 }
 
-// PrepareRouterModel uses the admitted immutable runtime, including on later polls.
 func (s *Service) PrepareRouterModel(ctx context.Context, model router.RoutingModel, operation string) (ModelPreparation, error) {
 	identity, _ := requestcontext.ServingIdentityFromContext(ctx)
 	if !internalBetaSession(ctx) || model != router.ModelQwen {
