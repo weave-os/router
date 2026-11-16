@@ -413,15 +413,17 @@ func (s *Service) recordManagedSubscriptionFailure(ctx context.Context, provider
 			"provider", poolProvider, "account_id", lease.AccountID, "model", model)
 		return true
 	}
-	if recordManagedSubscriptionStatus(ctx, s, owner, poolProvider, lease, attemptErr) {
-		return true
+	switch status {
+	case http.StatusTooManyRequests, http.StatusUnauthorized, http.StatusForbidden:
+		return recordManagedSubscriptionStatus(ctx, s, owner, poolProvider, lease, attemptErr)
+	default:
+		if upstreamServerFailure(attemptErr) {
+			s.subscriptionModels.denyManaged(managedOverloadOwner(lease.AccountID), lease.AccountID, provider, model, s.clockNow().Add(managedOverloadCooldown))
+			observability.FromContext(ctx).Warn("Managed subscription account overloaded; skipping it briefly",
+				"provider", poolProvider, "account_id", lease.AccountID, "model", model, "upstream_status", status, "cooldown", managedOverloadCooldown)
+		}
+		return false
 	}
-	if upstreamServerFailure(attemptErr) {
-		s.subscriptionModels.denyManaged(managedOverloadOwner(lease.AccountID), lease.AccountID, provider, model, s.clockNow().Add(managedOverloadCooldown))
-		observability.FromContext(ctx).Warn("Managed subscription account overloaded; skipping it briefly",
-			"provider", poolProvider, "account_id", lease.AccountID, "model", model, "upstream_status", status, "cooldown", managedOverloadCooldown)
-	}
-	return false
 }
 
 func recordManagedSubscriptionStatus(ctx context.Context, s *Service, owner auth.SubscriptionOwner, poolProvider subscriptions.Provider, lease subscriptions.Lease, attemptErr error) bool {
