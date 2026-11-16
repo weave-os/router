@@ -45,7 +45,7 @@ func (t *ResponsesWriter) flushReasoning() error {
 }
 
 func (t *ResponsesWriter) writeReasoningSummary(item *responsesSummaryItem) error {
-	part := func() map[string]any {
+	envelope := func() map[string]any {
 		return map[string]any{"item_id": item.itemID, "output_index": item.outputIndex, "summary_index": 0}
 	}
 	events := []struct {
@@ -59,7 +59,7 @@ func (t *ResponsesWriter) writeReasoningSummary(item *responsesSummaryItem) erro
 		{"response.reasoning_summary_part.done", "part", map[string]any{"type": "summary_text", "text": item.text}},
 	}
 	for _, event := range events {
-		payload := part()
+		payload := envelope()
 		payload[event.payloadField] = event.value
 		if err := t.writeEvent(event.eventType, payload); err != nil {
 			return err
