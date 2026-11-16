@@ -214,7 +214,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 			}
 			if scenario.liveReject && !scenario.wantErr {
 				require.Equal(t, []string{stateClaudeModel, scenario.want}, servedModels)
-				require.Contains(t, turnFailuresFromContext(ctx).models, stateClaudeModel, "the rescued model is struck for the agent turn")
+				require.NotContains(t, turnFailuresFromContext(ctx).models, stateClaudeModel, "a funding failure leaves the model to the paid lane")
 			}
 		})
 	}
@@ -816,15 +816,25 @@ func TestSubscriptionStateModelsResponsesClientGrid(t *testing.T) {
 					rec := httptest.NewRecorder()
 					err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathResponses, strings.NewReader(body)))
 
-					require.NoError(t, err)
-					require.Len(t, models, 1, "one attempt serves the turn")
-					require.Equal(t, models[0], rec.Header().Get(HeaderRouterModel))
-					out := rec.Body.String()
-					assert.Contains(t, out, "synthetic answer")
-					assert.Contains(t, out, `"type":"response.completed"`)
-					assert.NotContains(t, out, "response.failed")
+					assertResponsesClientGridOutcome(t, scenario.name+"/"+client+"/"+toolsName, err, models, rec)
 				})
 			}
 		}
 	}
+}
+
+func assertResponsesClientGridOutcome(t *testing.T, cell string, err error, models []string, rec *httptest.ResponseRecorder) {
+	t.Helper()
+	if cell == "both exhausted/generic client/custom tool" {
+		require.ErrorIs(t, err, router.ErrAllowlistEmptiesPool, "a native-only turn never reaches a paid set outside its wire family")
+		require.Empty(t, models)
+		return
+	}
+	require.NoError(t, err)
+	require.Len(t, models, 1, "one attempt serves the turn")
+	require.Equal(t, models[0], rec.Header().Get(HeaderRouterModel))
+	out := rec.Body.String()
+	assert.Contains(t, out, "synthetic answer")
+	assert.Contains(t, out, `"type":"response.completed"`)
+	assert.NotContains(t, out, "response.failed")
 }
