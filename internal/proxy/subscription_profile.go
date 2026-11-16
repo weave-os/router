@@ -10,8 +10,6 @@ import (
 
 type claudeSubscriptionPlanKey struct{}
 
-// WithClaudeSubscriptionPlanReader sets the provider identity source. A nil
-// reader leaves plans unverified and cannot identify any account as Enterprise.
 func (s *Service) WithClaudeSubscriptionPlanReader(reader providers.SubscriptionPlanReader) *Service {
 	s.claudePlans = nil
 	if reader != nil {
@@ -38,7 +36,7 @@ func (s *Service) withClaudeSubscriptionProfile(ctx context.Context, headers htt
 	if len(token) == 0 {
 		return ctx
 	}
-	plan := s.claudePlans.Resolve(ctx, token) // Resolver returns Unknown and logs lookup failures.
+	plan := s.claudePlans.Resolve(ctx, token)
 	ctx = context.WithValue(ctx, claudeSubscriptionPlanKey{}, plan)
 	if creds != nil {
 		verified := *creds

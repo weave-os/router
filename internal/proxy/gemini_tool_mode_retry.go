@@ -16,8 +16,6 @@ type geminiToolModeAttempt struct {
 	opts    translate.EmitOptions
 }
 
-// Finalization waits until the retry decision: it may otherwise commit the
-// failed attempt's synthetic prelude and make recovery impossible.
 func (a geminiToolModeAttempt) dispatch(prepared providers.PreparedRequest,
 	send func(providers.PreparedRequest) (func(error) error, error),
 ) error {

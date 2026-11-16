@@ -35,6 +35,7 @@ Index of Markdown documentation in the `router/` repo.
 | [LLM_CLASSIFIER_CONTEXT.md](LLM_CLASSIFIER_CONTEXT.md) | Staged atomic-response classifier input contract and unresolved admission/recovery requirements; not serving-enabled. |
 | [SERVING_CONTROL.md](SERVING_CONTROL.md) | Immutable managed releases, gateway admission, activation, rollback, and deployment prerequisites. |
 | [HMM_GO_SELECTION.md](HMM_GO_SELECTION.md) | Architecture, `policy_router_v3` split, and rollback story for Go-owned HMM roster ownership and deterministic arm selection. |
+| [FAILOVER.md](FAILOVER.md) | Proxy rescue chain, strikes and cooldowns, overload circuit, context overflow and dispatch error classification. |
 | [REQUEST_ENVELOPE.md](REQUEST_ENVELOPE.md) | Request envelope, emit overrides, model id normalization, in-band commands and history repair in `internal/translate`. |
 | [TRANSLATION_COMPATIBILITY.md](TRANSLATION_COMPATIBILITY.md) | Cross-format translation requirements and rollout modes. |
 | [TRANSLATION_REWRITES.md](TRANSLATION_REWRITES.md) | Why translation rewrites requests and responses: markers, footers, directives, reasoning, cache control, tool history. |
