@@ -124,7 +124,10 @@ func (o *chatRescue) codexRetry(ctx context.Context) {
 		s.recordCodexQuotaExhaustion(ctx, r.Header, o.proxyErr)
 		subCtx := subscriptionStatePaidRescueContext(withSuppressedCodexSubscription(ctx), o.decision.Model)
 		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderOpenAI, o.decision.Model, r.Header)
-		subOpts := o.opts
+		subOpts, subEffort := o.opts, o.effortServed
+		if subOpts.TargetModel != o.decision.Model {
+			subOpts, subEffort = switchedAttemptOptions(ctx, o.opts, o.decision, routeRes.EscalateEffort, s.resolveEffort)
+		}
 		subOpts.FastMode = fastModeForAttempt(subCtx, o.decision.Model, providers.ProviderOpenAI)
 		subAttempt, subBuildErr := o.buildAttempt(o.decision, subOpts, o.marker, subCtx)
 		subBindings := s.resolveBindingsForDispatch(subCtx, o.decision)
@@ -141,6 +144,7 @@ func (o *chatRescue) codexRetry(ctx context.Context) {
 				"err", o.proxyErr,
 				"upstream_status", upstreamStatus(o.proxyErr))
 			o.codexRetryRan = true
+			o.effortServed = subEffort
 			*o.respSummary = translate.ResponseSummary{}
 			subscriptionErr := o.proxyErr
 			o.winnerIdx, o.proxyErr = s.dispatchWithFallback(subCtx, failoverInputs{
