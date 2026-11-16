@@ -133,6 +133,7 @@ func TestNormalizeDisplayName_StripsControlBytes(t *testing.T) {
 	assert.NotContains(t, out, "\n")
 	assert.Equal(t, "AliceMallory", out)
 	assert.Equal(t, "Alice", proxy.NormalizeDisplayName("Alice\x00\x07"))
+	assert.Equal(t, "AliceBob", proxy.NormalizeDisplayName("Alice\u0085\u009bBob\x7f"))
 }
 
 func TestNormalizeDisplayName_RejectsOverLength(t *testing.T) {

@@ -82,6 +82,14 @@ func TestServedPricing(t *testing.T) {
 	got, ok = servedPricing(providers.ProviderOpenRouter, "qwen/qwen3-235b-a22b-2507", true)
 	require.True(t, ok, "a binding without a fast tier must still price at its list rate")
 	assert.Equal(t, gatewayBase, got)
+
+	primary, ok := catalog.PrimaryPriceFor(fastOpusModel)
+	require.True(t, ok)
+	require.NotZero(t, primary.USInferenceGeoMultiplier)
+	got, ok = servedPricing("unbound-gateway", fastOpusModel, false)
+	require.True(t, ok, "an unpriced binding falls back to the primary binding's list price")
+	assert.Equal(t, primary.WithoutInferenceGeoPremium(), got)
+	assert.Zero(t, got.USInferenceGeoMultiplier)
 }
 
 func TestProxyMessages_FastModeAnthropicDispatchesFastAndBillsFastRate(t *testing.T) {
