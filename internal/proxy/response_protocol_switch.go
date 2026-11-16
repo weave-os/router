@@ -130,3 +130,26 @@ func resetResponsesAttempt(w http.ResponseWriter) {
 		rw.ResetAttempt()
 	}
 }
+
+func responsesDispatchBodies(body []byte, terminalResponses bool) (nativeBody, conversionBody []byte, err error) {
+	nativeBody, err = translate.StripRouterReasoningFromResponsesInput(body)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !terminalResponses {
+		return nativeBody, body, nil
+	}
+	nativeBody, err = stripResponsesTerminalArtifacts(nativeBody)
+	if err != nil {
+		return nil, nil, err
+	}
+	// Keep router directives in the portable projection so the shared chat
+	// path can record them, identify Codex skill invocations, and key the
+	// session on the opening message before stripping it. The native body
+	// has already been sanitized for direct Responses dispatch.
+	conversionBody, err = stripResponsesVisualArtifacts(body)
+	if err != nil {
+		return nil, nil, err
+	}
+	return nativeBody, conversionBody, nil
+}

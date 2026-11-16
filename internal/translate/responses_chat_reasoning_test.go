@@ -102,13 +102,15 @@ func TestChatReasoningEchoConvertsWithoutPinningTheTurn(t *testing.T) {
 		assert.False(t, converted.Requirements.ReasoningReplay, "portable=%v", portable)
 		assert.NotContains(t, string(converted.Body), "Need both files.")
 	}
-	stripped := translate.StripRouterReasoningFromResponsesInput(body)
+	stripped, err := translate.StripRouterReasoningFromResponsesInput(body)
+	require.NoError(t, err)
 	assert.Equal(t, []string{"message", "function_call", "function_call_output"}, inputTypes(stripped))
 }
 
 func TestStripRouterReasoningKeepsUpstreamReasoning(t *testing.T) {
 	body := []byte(`{"input":[{"type":"reasoning","id":"rs_abc","summary":[]},{"type":"reasoning","id":"rs_router_x","summary":[],"encrypted_content":"enc"}]}`)
-	stripped := translate.StripRouterReasoningFromResponsesInput(body)
+	stripped, err := translate.StripRouterReasoningFromResponsesInput(body)
+	require.NoError(t, err)
 	assert.JSONEq(t, string(body), string(stripped))
 }
 

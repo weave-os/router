@@ -1917,7 +1917,7 @@ func (t *ResponsesWriter) translateChunk(raw []byte) error {
 		return nil
 	}
 	delta := choice.Get("delta")
-	t.appendReasoning(delta)
+	t.pendingReasoning.WriteString(chatDeltaReasoning(delta))
 
 	if content := delta.Get("content"); content.Type == gjson.String && content.Str != "" {
 		t.hasUpstreamOutput = true
@@ -2408,7 +2408,10 @@ func chatCompletionToResponse(body []byte, responseID, model string, createdAt i
 	}
 
 	choice := root.Get("choices.0.message")
-	output := chatMessageReasoningOutput(choice)
+	output := []any{}
+	if reasoning := chatDeltaReasoning(choice); reasoning != "" {
+		output = append(output, reasoningOutputItem(newResponsesID(routerReasoningItemIDPrefix), reasoning))
+	}
 	text := badge
 	text += chatContentText(choice.Get("content"))
 	calls, _ := acceptedChatToolCallsWithMappings(choice.Get("tool_calls"), nil, false, mappings)

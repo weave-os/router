@@ -1,6 +1,7 @@
 package translate
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -21,10 +22,6 @@ func chatDeltaReasoning(delta gjson.Result) string {
 		return reasoning
 	}
 	return delta.Get("reasoning").Str
-}
-
-func (t *ResponsesWriter) appendReasoning(delta gjson.Result) {
-	t.pendingReasoning.WriteString(chatDeltaReasoning(delta))
 }
 
 func (t *ResponsesWriter) flushReasoning() error {
@@ -52,9 +49,9 @@ func (t *ResponsesWriter) writeReasoningSummary(item *responsesSummaryItem) erro
 		return map[string]any{"item_id": item.itemID, "output_index": item.outputIndex, "summary_index": 0}
 	}
 	events := []struct {
-		eventType string
-		key       string
-		value     any
+		eventType    string
+		payloadField string
+		value        any
 	}{
 		{"response.reasoning_summary_part.added", "part", map[string]any{"type": "summary_text", "text": ""}},
 		{"response.reasoning_summary_text.delta", "delta", item.text},
@@ -63,7 +60,7 @@ func (t *ResponsesWriter) writeReasoningSummary(item *responsesSummaryItem) erro
 	}
 	for _, event := range events {
 		payload := part()
-		payload[event.key] = event.value
+		payload[event.payloadField] = event.value
 		if err := t.writeEvent(event.eventType, payload); err != nil {
 			return err
 		}
@@ -108,14 +105,6 @@ func (t *ResponsesWriter) interleaveReasoning(items []any) []any {
 	return out
 }
 
-func chatMessageReasoningOutput(message gjson.Result) []any {
-	text := chatDeltaReasoning(message)
-	if text == "" {
-		return nil
-	}
-	return []any{reasoningOutputItem(newResponsesID(routerReasoningItemIDPrefix), text)}
-}
-
 func isRouterReasoningItem(item gjson.Result) bool {
 	if item.Get("type").Str != "reasoning" || !strings.HasPrefix(item.Get("id").Str, routerReasoningItemIDPrefix+"_") {
 		return false
@@ -127,7 +116,7 @@ func isRouterReasoningItem(item gjson.Result) bool {
 	return content.Type == gjson.Null || (content.IsArray() && len(content.Array()) == 0)
 }
 
-func StripRouterReasoningFromResponsesInput(body []byte) []byte {
+func StripRouterReasoningFromResponsesInput(body []byte) ([]byte, error) {
 	items := gjson.GetBytes(body, "input").Array()
 	out := body
 	for index := len(items) - 1; index >= 0; index-- {
@@ -136,11 +125,11 @@ func StripRouterReasoningFromResponsesInput(body []byte) []byte {
 		}
 		stripped, err := sjson.DeleteBytes(out, "input."+strconv.Itoa(index))
 		if err != nil {
-			return body
+			return nil, fmt.Errorf("strip router reasoning input %d: %w", index, err)
 		}
 		out = stripped
 	}
-	return out
+	return out, nil
 }
 
 func (r *ResponsesConversion) addReasoningInput(item gjson.Result, path string) {

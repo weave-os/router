@@ -7534,23 +7534,12 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		ctx = context.WithValue(ctx, responsesFooterEchoedContextKey{}, true)
 	}
 	ctx = withSubscriptionOnlyWarningEcho(ctx, body)
-	nativeBody := translate.StripRouterReasoningFromResponsesInput(body)
-	conversionBody := body
-	var err error
+	nativeBody, conversionBody, err := responsesDispatchBodies(body, terminalResponses)
+	if err != nil {
+		return err
+	}
 	if terminalResponses {
 		ctx = context.WithValue(ctx, responsesLastAnnouncedModelContextKey{}, translate.LastAnnouncedResponsesModel(body))
-		nativeBody, err = stripResponsesTerminalArtifacts(nativeBody)
-		if err != nil {
-			return err
-		}
-		// Keep router directives in the portable projection so the shared chat
-		// path can record them, identify Codex skill invocations, and key the
-		// session on the opening message before stripping it. The native body
-		// has already been sanitized for direct Responses dispatch.
-		conversionBody, err = stripResponsesVisualArtifacts(body)
-		if err != nil {
-			return err
-		}
 	} else {
 		ctx = context.WithValue(ctx, responsesReplayedModelContextKey{}, translate.LastReplayedResponsesModel(body))
 	}
