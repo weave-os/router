@@ -188,3 +188,32 @@ func TestInvalidationListener_WaitBlocksUntilRunReturns(t *testing.T) {
 		t.Fatal("Wait must return once Run has returned")
 	}
 }
+
+type panickingSubscriber struct{}
+
+func (panickingSubscriber) String() string { return "panicking-subscription" }
+
+func (panickingSubscriber) Receive(context.Context, func(context.Context, *gcppubsub.Message)) error {
+	panic("receive loop panicked")
+}
+
+func TestInvalidationListener_WaitReturnsWhenRunPanicsUnderRecovery(t *testing.T) {
+	l := NewInvalidationListener(nil, &fakeAPIKeyCache{})
+	l.subscriber = panickingSubscriber{}
+
+	go func() {
+		defer func() { _ = recover() }()
+		l.Run(context.Background())
+	}()
+
+	waitReturned := make(chan struct{})
+	go func() {
+		l.Wait()
+		close(waitReturned)
+	}()
+	select {
+	case <-waitReturned:
+	case <-time.After(time.Second):
+		t.Fatal("Wait must return when a recovered panic unwinds Run")
+	}
+}

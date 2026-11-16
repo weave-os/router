@@ -11,16 +11,12 @@ import (
 	"weave-os/router/internal/router/catalog"
 )
 
-// EscalationCadence is the number of calls between escalation checks, which begin at call 4.
 const EscalationCadence = 3
 
 const maxTrackedSessions = 10_000
 
 const clientAppCodex = "codex"
 
-// Lineup is one harness's models: Top for high-task judgment and escalation,
-// Fast for defined work, LowTaskJudgment for judgment calls on low tasks.
-// SubscriptionProvider is the provider whose subscription skips task judgment.
 type Lineup struct {
 	Top                  string
 	Fast                 string
@@ -29,21 +25,16 @@ type Lineup struct {
 }
 
 var (
-	// ClaudeCodeLineup serves Claude Code and every non-Codex client.
 	ClaudeCodeLineup = Lineup{Top: string(catalog.ModelIDClaudeOpus48), Fast: string(catalog.ModelIDClaudeHaiku45), LowTaskJudgment: "z-ai/glm-5.3", SubscriptionProvider: providers.ProviderAnthropic}
-	// CodexLineup is used only for Codex; its subscription provider is OpenAI.
-	CodexLineup = Lineup{Top: "gpt-6.1-sol", Fast: string(catalog.ModelIDGPT56Luna), LowTaskJudgment: "z-ai/glm-5.3", SubscriptionProvider: providers.ProviderOpenAI}
+	CodexLineup      = Lineup{Top: "gpt-6.1-sol", Fast: string(catalog.ModelIDGPT56Luna), LowTaskJudgment: "z-ai/glm-5.3", SubscriptionProvider: providers.ProviderOpenAI}
 )
 
-// sessionState is what the router remembers per session between calls.
 type sessionState struct {
 	taskComplexity      Choice
 	escalated           bool
 	fastSinceCheckpoint bool
 }
 
-// Router asks the decision model for task complexity, call complexity and periodic escalation,
-// then picks the model in Go.
 type Router struct {
 	classifier Classifier
 	mu         sync.Mutex
@@ -51,8 +42,6 @@ type Router struct {
 	order      []string
 }
 
-// New returns a decision model router that keeps per-session state in memory, evicting the
-// oldest session past maxTrackedSessions.
 func New(classifier Classifier) *Router {
 	return &Router{classifier: classifier, sessions: map[string]sessionState{}}
 }
@@ -72,7 +61,6 @@ func (r *Router) Route(ctx context.Context, req router.Request) (router.Decision
 		session.taskComplexity = ChoiceHigh
 	}
 	callIndex := AgentCallIndex(req.ConversationMessages)
-	// Escalation is checked before calls 4, 7, 10, ...
 	checkpoint := callIndex > 1 && (callIndex-1)%EscalationCadence == 0
 	questions := []QuestionID{}
 	if !session.escalated {
@@ -128,9 +116,6 @@ func pickModel(lineup Lineup, session sessionState, callComplexity Choice) strin
 	}
 }
 
-// resolve keeps the picked model when the request can dispatch it and otherwise
-// falls back through the lineup from strongest to cheapest. Automatic
-// exclusions are dropped only when they leave no lineup model.
 func resolve(req router.Request, model string, lineup Lineup) (router.Decision, error) {
 	for _, honorAutomaticExclusions := range []bool{true, false} {
 		for _, candidate := range []string{model, lineup.Top, lineup.Fast, lineup.LowTaskJudgment} {
@@ -145,8 +130,6 @@ func resolve(req router.Request, model string, lineup Lineup) (router.Decision, 
 	return router.Decision{}, fmt.Errorf("%w: no lineup model is dispatchable", ErrUnavailable)
 }
 
-// dispatchProvider returns the first provider that can serve model for req,
-// honoring exclusions, allowlists, image support, custom bindings and gateways.
 func dispatchProvider(req router.Request, model string) (string, bool) {
 	for _, excluded := range []map[string]struct{}{req.ExcludedModels, req.SafetyExcludedModels, req.ContextWindowExcludedModels, req.UnsignedHistoryExcludedModels} {
 		if _, found := excluded[model]; found {
@@ -166,8 +149,6 @@ func dispatchProvider(req router.Request, model string) (string, bool) {
 	return bindings[0].Provider, true
 }
 
-// availableProviders limits gateway installations to their aliased gateways
-// and treats a nil EnabledProviders as every catalog provider.
 func availableProviders(req router.Request, model string) map[string]struct{} {
 	if len(req.GatewayProviders) > 0 {
 		gateways := map[string]struct{}{}
@@ -195,8 +176,6 @@ func (r *Router) load(sessionID string) sessionState {
 	return r.sessions[sessionID]
 }
 
-// store merges session into the saved state so an overlapping call that
-// loaded older state cannot undo an escalation or reclassify the task.
 func (r *Router) store(sessionID string, session sessionState) {
 	if sessionID == "" {
 		return

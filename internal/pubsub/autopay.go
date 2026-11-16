@@ -10,19 +10,10 @@ import (
 	gcppubsub "cloud.google.com/go/pubsub/v2"
 )
 
-// AutopayNotifier publishes an "org needs a recharge" signal over GCP Pub/Sub
-// when the router's debit hook detects a balance crossing below the org's
-// autopay threshold. The Weave control-plane subscriber picks it up and charges
-// the saved card; a reconciliation sweep backstops any dropped signal.
 type AutopayNotifier struct {
 	publisher autopayPublisher
 }
 
-// autopayPublisher is the narrow seam NotifyRechargeNeeded needs from a GCP
-// Pub/Sub Publisher: publish a message and return a handle whose result can be
-// awaited. Abstracting it behind an interface (rather than the concrete
-// *gcppubsub.Publisher, whose Publish returns a SDK-internal PublishResult
-// future) lets tests assert the exact wire payload with an in-memory fake.
 type autopayPublisher interface {
 	Publish(ctx context.Context, msg *gcppubsub.Message) autopayPublishResult
 	Stop()
@@ -32,7 +23,6 @@ type autopayPublishResult interface {
 	Get(ctx context.Context) (string, error)
 }
 
-// gcpAutopayPublisher adapts a real *gcppubsub.Publisher to autopayPublisher.
 type gcpAutopayPublisher struct {
 	inner *gcppubsub.Publisher
 }
@@ -45,7 +35,6 @@ func (p gcpAutopayPublisher) Stop() {
 	p.inner.Stop()
 }
 
-// NewAutopayNotifier constructs a notifier backed by the supplied Publisher.
 func NewAutopayNotifier(publisher *gcppubsub.Publisher) *AutopayNotifier {
 	return &AutopayNotifier{publisher: gcpAutopayPublisher{inner: publisher}}
 }
@@ -55,10 +44,6 @@ type subscriberRechargePayload struct {
 	SubscriberID string            `json:"subscriber_id"`
 }
 
-// NotifyRechargeNeeded publishes a compatible owner signal on the autopay topic.
-// Fire-and-forget: the balance debit has already committed and the
-// reconciliation sweep is the safety net, so a publish error is logged and
-// dropped rather than propagated onto the already-served request.
 func (n *AutopayNotifier) NotifyRechargeNeeded(owner billing.Owner) {
 	if err := owner.Validate(); err != nil {
 		return
@@ -88,9 +73,6 @@ func (n *AutopayNotifier) NotifyRechargeNeeded(owner billing.Owner) {
 	})
 }
 
-// Stop flushes buffered messages and shuts the publisher's background
-// goroutines down. Must be called during graceful shutdown — Client.Close()
-// does not stop publishers.
 func (n *AutopayNotifier) Stop() {
 	n.publisher.Stop()
 }

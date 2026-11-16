@@ -2,7 +2,6 @@ package telemetry
 
 import "context"
 
-// Recorder collects one request's spans and log records until Flush.
 type Recorder interface {
 	Record(Span)
 	RecordLog(LogRecord)

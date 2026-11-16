@@ -12,9 +12,6 @@ import (
 
 const defaultDistributionGrid = 21
 
-// RoutingDistribution projects the HMM roster's within-band model mix across
-// the quality/price dial. Each classifier band contributes equal weight; live
-// traffic weights remain request-dependent and are intentionally not guessed.
 func RoutingDistribution(roster *rosterdata.Roster, gridN int, excludedModels, excludedProviders map[string]struct{}) ([]router.DistributionPoint, error) {
 	if roster == nil || !isDynamicRoster(roster) {
 		return nil, fmt.Errorf("HMM routing distribution requires a dynamic roster or compiled serving policy")

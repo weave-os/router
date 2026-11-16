@@ -10,7 +10,6 @@ import (
 	"weave-os/router/internal/telemetry"
 )
 
-// crypto/rand.Read never returns an error; it aborts the process instead.
 func generateTraceID() [16]byte {
 	var id [16]byte
 	_, _ = rand.Read(id[:])
