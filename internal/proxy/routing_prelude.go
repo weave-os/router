@@ -73,7 +73,7 @@ func addRoutingFundingSource(ctx context.Context, provider, model string, notice
 	if credentials := CredentialsFromContext(ctx); credentials != nil {
 		credentialSource = credentials.Source
 	}
-	if recordedSeatCanCover(ctx, provider, model, time.Now()) {
+	if managedSeatMayAdmit(ctx, provider, model, time.Now(), true, func(managedSubscriptionCandidate) bool { return false }) {
 		if source, eligible := managedSubscriptionProviderFromUpstream(provider, model); eligible {
 			switch source {
 			case subscriptions.ProviderClaude:

@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -881,4 +882,54 @@ func TestSubscriptionStateModelsSkipSpentSeatPoolsBeforeDispatch(t *testing.T) {
 	require.Empty(t, leaser.providers, "pools whose every seat is spent must not be leased again on each request")
 	require.Zero(t, claude.calls)
 	require.Zero(t, codex.calls)
+}
+
+func TestSubscriptionStateModelAvailableFollowsLeaseAdmission(t *testing.T) {
+	resetAt := time.Now().Add(48 * time.Hour)
+	spentObserver := usage.NewObserver([]byte("synthetic-salt"), time.Hour, time.Now)
+	spentObserver.Record(spentObserver.Key([]byte("subscription-account:synthetic-active-codex")), usage.Snapshot{Primary: usage.Window{UsedPercent: 1.0, WindowMinutes: 300}})
+	enterpriseEnabled := func(ctx context.Context) context.Context {
+		return flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyClaudeEnterpriseOnly: true}})
+	}
+	for _, scenario := range []struct {
+		name          string
+		model         string
+		account       *auth.SubscriptionAccount
+		extraCredits  bool
+		decorate      func(context.Context) context.Context
+		wantAvailable bool
+	}{
+		{name: "spent Claude seat may still admit an Enterprise plan on overage", model: stateClaudeModel,
+			account:       &auth.SubscriptionAccount{ID: "synthetic-spent-claude", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &resetAt},
+			decorate:      enterpriseEnabled,
+			wantAvailable: true},
+		{name: "spent Claude seat without Enterprise overage cannot admit", model: stateClaudeModel,
+			account: &auth.SubscriptionAccount{ID: "synthetic-spent-claude", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &resetAt}},
+		{name: "observed-spent Codex seat admits with extra credits", model: stateCodexModel, extraCredits: true,
+			account:       &auth.SubscriptionAccount{ID: "synthetic-active-codex", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive},
+			wantAvailable: true},
+		{name: "observed-spent Codex seat without extra credits cannot admit", model: stateCodexModel,
+			account: &auth.SubscriptionAccount{ID: "synthetic-active-codex", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive}},
+		{name: "extra credits do not revive a seat the pool marks exhausted", model: stateCodexModel, extraCredits: true,
+			account: &auth.SubscriptionAccount{ID: "synthetic-spent-codex", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &resetAt}},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			clients := map[string]providers.Client{
+				providers.ProviderAnthropic: &fakeClient{name: providers.ProviderAnthropic},
+				providers.ProviderOpenAI:    &fakeClient{name: providers.ProviderOpenAI},
+			}
+			svc := NewService(stateModelRouter{}, clients, nil, nil, false, "", "", nil).
+				WithManagedSubscriptions(&scriptedSubscriptionLeaser{}).
+				WithCodexExtraCredits(scenario.extraCredits).
+				WithUsageObserver(spentObserver)
+			ctx := WithManagedSubscriptionCandidates(managedSubscriptionTestContext(), []*auth.SubscriptionAccount{scenario.account})
+			if scenario.decorate != nil {
+				ctx = scenario.decorate(ctx)
+			}
+
+			available := svc.subscriptionStateModelAvailable(ctx, router.Request{}, http.Header{}, scenario.model)
+
+			require.Equal(t, scenario.wantAvailable, available)
+		})
+	}
 }

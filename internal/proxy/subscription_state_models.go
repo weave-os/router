@@ -94,7 +94,10 @@ func (s *Service) subscriptionStateModelAvailable(ctx context.Context, req route
 		if !s.supportsSubscriptionTransport(binding.Provider) {
 			continue
 		}
-		if s.linkedSeatCanCover(ctx, binding.Provider, model) {
+		observedSpent := func(candidate managedSubscriptionCandidate) bool {
+			return observedQuotaSpent(s.usageObserver, candidate, s.clockNow())
+		}
+		if managedSeatMayAdmit(ctx, binding.Provider, model, s.clockNow(), s.codexExtraCreditsAllowed(), observedSpent) {
 			return true
 		}
 		resolvedCredentials := s.resolveCredentials(clearCredentials(ctx), binding.Provider, model, headers)
