@@ -6731,9 +6731,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			// Split from attempt so a native dispatch that finds no Responses surface
 			// can re-emit onto chat/completions while still pre-commit.
 			dispatchOpenAI := func(actx context.Context, d router.Decision, p providers.Client, surface openAISurface, stripPromptCacheKey bool) error {
-				if rw, ok := w.(*translate.ResponsesWriter); ok {
-					rw.ResetAttempt()
-				}
+				resetResponsesAttempt(w)
 				var prep providers.PreparedRequest
 				switch surface {
 				case surfaceResponsesNative:
@@ -6994,6 +6992,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			// generic INVALID_ARGUMENT when Gemini can't compile a tool schema into
 			// its decode-time grammar. Retry once with mode=AUTO when pre-commit.
 			dispatchGemini := func(actx context.Context, d router.Decision, p providers.Client, pr providers.PreparedRequest) (func(error) error, error) {
+				resetResponsesAttempt(w)
 				var usage translate.UsageSink
 				if s.usageRequired() {
 					extractor = telemetry.NewUsageExtractor(d.Provider)
@@ -7037,6 +7036,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			// finalize thunk so a fast send refused for lack of fast-mode allocation
 			// can be re-sent at standard speed before finalize commits the prelude.
 			dispatchAnthropic := func(actx context.Context, d router.Decision, p providers.Client, attemptPrep providers.PreparedRequest, fast bool) (func(error) error, error) {
+				resetResponsesAttempt(w)
 				fastServed = fast
 				var usage translate.UsageSink
 				if s.usageRequired() {

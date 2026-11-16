@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"errors"
+	"net/http"
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -123,3 +124,9 @@ func (s *responseProtocolSwitch) wrapBuilder(build modelAttemptBuilder) modelAtt
 }
 
 var errResponsesPassthroughStuck = errors.New("responses passthrough already carries native output; another wire format cannot continue it")
+
+func resetResponsesAttempt(w http.ResponseWriter) {
+	if rw, ok := w.(*translate.ResponsesWriter); ok {
+		rw.ResetAttempt()
+	}
+}
