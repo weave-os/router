@@ -414,6 +414,20 @@ func (s *Service) recordManagedSubscriptionFailure(ctx context.Context, provider
 		return true
 	}
 	switch status {
+	case http.StatusTooManyRequests, http.StatusUnauthorized, http.StatusForbidden:
+		return recordManagedSubscriptionStatus(ctx, s, owner, poolProvider, lease, attemptErr)
+	default:
+		if upstreamServerFailure(attemptErr) {
+			s.subscriptionModels.denyManaged(managedOverloadOwner(lease.AccountID), lease.AccountID, provider, model, s.clockNow().Add(managedOverloadCooldown))
+			observability.FromContext(ctx).Warn("Managed subscription account overloaded; skipping it briefly",
+				"provider", poolProvider, "account_id", lease.AccountID, "model", model, "upstream_status", status, "cooldown", managedOverloadCooldown)
+		}
+		return false
+	}
+}
+
+func recordManagedSubscriptionStatus(ctx context.Context, s *Service, owner auth.SubscriptionOwner, poolProvider subscriptions.Provider, lease subscriptions.Lease, attemptErr error) bool {
+	switch status := upstreamStatus(attemptErr); status {
 	case http.StatusTooManyRequests:
 		resetAt := managedSubscriptionResetAt(attemptErr, s.clockNow())
 		if quotaReset, exhausted := s.subscriptionQuotaExhaustion(poolProvider, lease, attemptErr); exhausted {
@@ -448,14 +462,8 @@ func (s *Service) recordManagedSubscriptionFailure(ctx context.Context, provider
 		observability.FromContext(ctx).Warn("Subscription account credential rejected",
 			"provider", poolProvider, "account_id", lease.AccountID, "upstream_status", status, "reconnect_required", reconnect)
 		return true
-	default:
-		if upstreamServerFailure(attemptErr) {
-			s.subscriptionModels.denyManaged(managedOverloadOwner(lease.AccountID), lease.AccountID, provider, model, s.clockNow().Add(managedOverloadCooldown))
-			observability.FromContext(ctx).Warn("Managed subscription account overloaded; skipping it briefly",
-				"provider", poolProvider, "account_id", lease.AccountID, "model", model, "upstream_status", status, "cooldown", managedOverloadCooldown)
-		}
-		return false
 	}
+	return false
 }
 
 const managedOverloadCooldown = 30 * time.Second
@@ -518,34 +526,7 @@ func (s *Service) recordManagedSubscriptionSuccess(ctx context.Context, provider
 	if !eligible {
 		return
 	}
-	health, ok := s.managedSubscriptions.(interface {
-		Activate(context.Context, auth.SubscriptionOwner, subscriptions.Provider, string) error
-	})
-	if !ok {
-		return
-	}
-	if err := health.Activate(ctx, subscriptionOwnerFromContext(ctx), poolProvider, lease.AccountID); err != nil {
-		observability.FromContext(ctx).Error("Failed to mark subscription account active",
-			"provider", poolProvider, "account_id", lease.AccountID, "err", err)
-	}
-}
-
-func rejectManagedSubscriptionCredential(ctx context.Context, leaser subscriptions.Leaser, owner auth.SubscriptionOwner, provider subscriptions.Provider, accountID string, upstreamStatus int) (bool, error) {
-	if rejector, ok := leaser.(interface {
-		RejectCredential(context.Context, auth.SubscriptionOwner, subscriptions.Provider, string, int) (bool, error)
-	}); ok {
-		return rejector.RejectCredential(ctx, owner, provider, accountID, upstreamStatus)
-	}
-	return true, reconnectManagedSubscription(ctx, leaser, owner, provider, accountID)
-}
-
-func reconnectManagedSubscription(ctx context.Context, leaser subscriptions.Leaser, owner auth.SubscriptionOwner, provider subscriptions.Provider, accountID string) error {
-	if health, ok := leaser.(interface {
-		ReconnectRequired(context.Context, auth.SubscriptionOwner, subscriptions.Provider, string) error
-	}); ok {
-		return health.ReconnectRequired(ctx, owner, provider, accountID)
-	}
-	return leaser.Disable(ctx, owner, provider, accountID)
+	activateManagedSubscription(ctx, s.managedSubscriptions, subscriptionOwnerFromContext(ctx), poolProvider, lease)
 }
 
 func managedSubscriptionResetAt(err error, now time.Time) time.Time {
