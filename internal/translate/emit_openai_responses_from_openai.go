@@ -6,20 +6,12 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// buildResponsesFromOpenAI converts a Chat Completions request into a Responses
-// request. Chat-only knobs are screened out by RequiresChatCompletionsParams
-// before reaching here, so nothing is silently dropped.
-//
-// Fidelity limit: chat clients have no field to echo an encrypted reasoning
-// item, so cross-turn reasoning replay is omitted (unlike the Anthropic path).
 func (e *RequestEnvelope) buildResponsesFromOpenAI(opts EmitOptions) ([]byte, error) {
 	body := e.body
 	jw := newJSONWriter()
 	jw.Obj()
 	jw.Key("model")
 	jw.Str(opts.TargetModel)
-	// Always streamed upstream; a non-streaming client is served by buffering
-	// the translated stream (see ResponsesToOpenAIChatWriter).
 	jw.Key("stream")
 	jw.Bool(true)
 	jw.Key("store")
@@ -50,8 +42,6 @@ func (e *RequestEnvelope) buildResponsesFromOpenAI(opts EmitOptions) ([]byte, er
 			jw.Obj()
 			jw.Key("effort")
 			jw.Str(responsesReasoningEffort(eff, opts.TargetModel))
-			// Summaries are the only reasoning a chat client can receive; they
-			// are translated back onto delta.reasoning_content.
 			jw.Key("summary")
 			jw.Str("detailed")
 			jw.EndObj()
@@ -66,8 +56,6 @@ func (e *RequestEnvelope) buildResponsesFromOpenAI(opts EmitOptions) ([]byte, er
 	}
 	writeResponsesTextFormatFromOpenAI(jw, body)
 
-	// max_completion_tokens is the current chat field; max_tokens is its
-	// deprecated predecessor and still what most clients send.
 	mt := gjson.GetBytes(body, "max_completion_tokens")
 	if mt.Type != gjson.Number {
 		mt = gjson.GetBytes(body, "max_tokens")
@@ -92,15 +80,10 @@ func (e *RequestEnvelope) buildResponsesFromOpenAI(opts EmitOptions) ([]byte, er
 	return jw.Bytes(), nil
 }
 
-// isJSONBool reports whether the value is a JSON boolean (gjson has no such
-// predicate, and Bool() coerces strings and numbers).
 func isJSONBool(r gjson.Result) bool {
 	return r.Type == gjson.True || r.Type == gjson.False
 }
 
-// hoistOpenAIInstructions flattens the leading run of system/developer
-// messages into `instructions`; only the leading run, so a mid-conversation
-// system message doesn't shift the cached prefix each turn.
 func hoistOpenAIInstructions(messages gjson.Result) (int, string) {
 	var parts []string
 	hoisted := 0
@@ -119,8 +102,6 @@ func hoistOpenAIInstructions(messages gjson.Result) (int, string) {
 	return hoisted, joinNonEmpty(parts)
 }
 
-// writeResponsesInputFromOpenAI emits the `input` array, skipping the leading
-// messages already hoisted into `instructions`.
 func writeResponsesInputFromOpenAI(jw *jsonWriter, messages gjson.Result, skip int) {
 	jw.Key("input")
 	jw.Arr()
@@ -165,8 +146,6 @@ func writeResponsesInputFromOpenAI(jw *jsonWriter, messages gjson.Result, skip i
 				return true
 			})
 		default:
-			// system/developer mid-conversation keep their role in place;
-			// Responses input accepts both.
 			writeResponsesMessageFromOpenAI(jw, role, content)
 		}
 		return true
@@ -174,8 +153,6 @@ func writeResponsesInputFromOpenAI(jw *jsonWriter, messages gjson.Result, skip i
 	jw.EndArr()
 }
 
-// writeResponsesMessageFromOpenAI emits one Responses input message from a chat
-// message's content (string, or the typed part array).
 func writeResponsesMessageFromOpenAI(jw *jsonWriter, role string, content gjson.Result) {
 	if content.Type == gjson.String {
 		writeResponsesContentMessage(jw, role, content.String(), nil)
@@ -205,8 +182,6 @@ func writeResponsesMessageFromOpenAI(jw *jsonWriter, role string, content gjson.
 	writeResponsesContentMessage(jw, role, joinNonEmpty(textParts), extraPartRaws)
 }
 
-// flattenOpenAIMessageText flattens chat message content (string or part
-// array) into plain text.
 func flattenOpenAIMessageText(content gjson.Result) string {
 	if content.Type == gjson.String {
 		return content.String()
@@ -224,8 +199,6 @@ func flattenOpenAIMessageText(content gjson.Result) string {
 	return joinNonEmpty(parts)
 }
 
-// buildResponsesImagePartFromOpenAI converts a chat image_url part into a
-// Responses input_image content part. Returns "" if the part is malformed.
 func buildResponsesImagePartFromOpenAI(part gjson.Result) string {
 	url := part.Get("image_url.url").String()
 	if url == "" {
@@ -245,8 +218,6 @@ func buildResponsesImagePartFromOpenAI(part gjson.Result) string {
 	return string(jw.Bytes())
 }
 
-// buildResponsesFilePartFromOpenAI converts a chat file part into a Responses
-// input_file content part. Returns "" if the part has no file_id or file_data.
 func buildResponsesFilePartFromOpenAI(part gjson.Result) string {
 	file := part.Get("file")
 	fileID := file.Get("file_id").String()
@@ -274,9 +245,6 @@ func buildResponsesFilePartFromOpenAI(part gjson.Result) string {
 	return string(jw.Bytes())
 }
 
-// writeResponsesToolsFromOpenAI emits chat function tools in the flat
-// Responses shape. Chat's `custom` tools have no Responses equivalent here and
-// are skipped rather than emitted as malformed function tools.
 func writeResponsesToolsFromOpenAI(jw *jsonWriter, body []byte) {
 	var collected []responsesFunctionTool
 	gjson.GetBytes(body, "tools").ForEach(func(_, tool gjson.Result) bool {
@@ -294,8 +262,6 @@ func writeResponsesToolsFromOpenAI(jw *jsonWriter, body []byte) {
 	writeResponsesFunctionTools(jw, collected)
 }
 
-// writeResponsesToolChoiceFromOpenAI maps the chat tool_choice to the
-// Responses tool_choice shape.
 func writeResponsesToolChoiceFromOpenAI(jw *jsonWriter, body []byte) {
 	kind, name := openAIToolChoice(body)
 	switch kind {
@@ -320,8 +286,6 @@ func writeResponsesToolChoiceFromOpenAI(jw *jsonWriter, body []byte) {
 	}
 }
 
-// writeResponsesTextFormatFromOpenAI maps chat's response_format onto the
-// Responses `text.format` object (structured outputs).
 func writeResponsesTextFormatFromOpenAI(jw *jsonWriter, body []byte) {
 	rf := gjson.GetBytes(body, "response_format")
 	if !rf.IsObject() {

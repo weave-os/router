@@ -22,57 +22,27 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// ResponsesConversion is the typed ingress result for a Responses request.
-// OriginalBody remains byte-for-byte client input so native OpenAI-family
-// dispatch can preserve extensions that Chat Completions cannot represent.
 type ResponsesConversion struct {
-	Body []byte
-	// RoutingBody preserves agent-message task boundaries for model selection.
-	// Body and OriginalBody retain their provider-facing semantics.
-	RoutingBody  []byte
-	OriginalBody []byte
-	Stream       bool
-	Model        string
-	// CodexSkill names the router skill whose emitted directive arrived in
-	// a later tool-result item.
-	CodexSkill CodexSkillTurn
-	// CodexModelSwitch reports that the user switched models with Codex's
-	// native /model picker during this session, as opposed to launching with
-	// a configured model.
-	CodexModelSwitch bool
-	// CodexModelInstructions reports a <model_instructions> developer
-	// message, which marks a /model switch only for catalog-URL clients.
+	Body                   []byte
+	RoutingBody            []byte
+	OriginalBody           []byte
+	Stream                 bool
+	Model                  string
+	CodexSkill             CodexSkillTurn
+	CodexModelSwitch       bool
 	CodexModelInstructions bool
 	Requirements           router.TranslationRequirements
 	Report                 []ResponseTransform
 	ToolMappings           map[string]ResponsesToolMapping
-	// TitleGeneration reports a native Codex title-generation request. It is
-	// consumed only when the proxy has independently identified the Codex client.
-	TitleGeneration bool
+	TitleGeneration        bool
 }
 
-// ResponseTransform reports an ingress conversion outcome with a stable code.
-// Details stay out of metric labels; callers may emit them in structured logs.
 type ResponseTransform struct {
 	Code   string
 	Action string
 	Path   string
 }
 
-// ResponsesToChatCompletions converts an OpenAI Responses API request into a
-// Chat Completions request so the existing proxy path can dispatch it
-// unchanged. Returns the rewritten body, whether streaming was requested, and
-// the requested model (empty if absent). Handles only the subset of the
-// Responses spec Codex actually emits: instructions, input items (message /
-// function_call / function_call_output), tools, tool_choice,
-// max_output_tokens, temperature, top_p, parallel_tool_calls, metadata.
-//
-// Codex's `reasoning` field is dropped intentionally: this runs before
-// routing, so the served provider (and its native thinking knob) is unknown.
-// Forwarding it as `reasoning_effort` broke every non-Gemini model — Codex
-// sends invalid values (e.g. "none"), and gpt-5.x rejects `reasoning_effort`
-// alongside tools, both causing an upstream 400 mid-stream. Per-provider
-// reasoning is still driven downstream from the request's own signals.
 func ResponsesToChatCompletions(body []byte) ([]byte, bool, string, error) {
 	result, err := ConvertResponsesToChatCompletions(body)
 	if err != nil {
@@ -81,12 +51,8 @@ func ResponsesToChatCompletions(body []byte) ([]byte, bool, string, error) {
 	return result.Body, result.Stream, result.Model, nil
 }
 
-// ErrResponsesChatCompletionsBody is returned when a Chat Completions body
-// (top-level "messages") is posted to /v1/responses; such a body routes on
-// zero content and reaches the upstream Responses endpoint verbatim as a 400.
 var ErrResponsesChatCompletionsBody = errors.New("unsupported parameter: 'messages'. In the Responses API, this parameter has moved to 'input'")
 
-// validateResponsesRequest rejects bodies the Responses surface cannot project.
 func validateResponsesRequest(body []byte) error {
 	if err := validateJSONObject(body); err != nil {
 		return err
@@ -97,9 +63,6 @@ func validateResponsesRequest(body []byte) error {
 	return nil
 }
 
-// ConvertResponsesToChatCompletions projects a Responses request into Chat
-// Completions for routing. Extensions that cannot be faithfully represented
-// are marked native-only so proxy can dispatch the original bytes losslessly.
 func ConvertResponsesToChatCompletions(body []byte) (ResponsesConversion, error) {
 	if err := validateResponsesRequest(body); err != nil {
 		return ResponsesConversion{}, err
@@ -176,8 +139,6 @@ func ConvertResponsesToChatCompletions(body []byte) (ResponsesConversion, error)
 	if tools := root.Get("tools"); tools.IsArray() {
 		converted := make([]map[string]any, 0, len(tools.Array()))
 		for index, t := range tools.Array() {
-			// Responses tools are flat: {type, name, description, parameters, strict}.
-			// Chat Completions nest under {type:"function", function:{...}}.
 			if t.Get("type").Str != "function" {
 				result.Requirements.CustomTools = true
 				result.Requirements.NativeOnly = true
@@ -242,13 +203,8 @@ func ConvertResponsesToChatCompletions(body []byte) (ResponsesConversion, error)
 	return result, nil
 }
 
-// responsesInputItemToMessages flattens a single Responses input item into one
-// or more Chat Completions messages. Returns ([], nil) for item types we don't
-// recognize. Unknown shapes are rejected from the Chat projection; callers
-// may still retain them through a native Responses route.
 func responsesInputItemToMessages(item gjson.Result) ([]map[string]any, error) {
 	itemType := item.Get("type").Str
-	// Some Responses clients omit "type" and send a bare chat-style {role, content}.
 	if itemType == "" {
 		if role := item.Get("role").Str; role != "" {
 			itemType = "message"
@@ -262,9 +218,6 @@ func responsesInputItemToMessages(item gjson.Result) ([]map[string]any, error) {
 			role = "user"
 		}
 		text, toolCalls := responsesContentToChatContent(item.Get("content"), role)
-		// A badge-only assistant message strips to nothing; keeping the shell
-		// puts a blank assistant turn ahead of the real function_call, which
-		// some providers reject.
 		if role == "assistant" && text == "" && len(toolCalls) == 0 {
 			return nil, nil
 		}
@@ -312,18 +265,12 @@ func responsesInputItemToMessages(item gjson.Result) ([]map[string]any, error) {
 	return nil, fmt.Errorf("unsupported Responses input item type %q", itemType)
 }
 
-// responsesBadgePattern matches the routing badge ResponsesWriter prepends to
-// the first assistant text delta. Stripped on ingress so it doesn't accumulate
-// in history (defeats prompt-cache reuse) or leak router-injected content
-// upstream.
 var responsesBadgePattern = regexp.MustCompile(`(?is)\A(?:` + regexp.QuoteMeta(routerNoticeSentinel) + `.*?\n\n|` + legacyNoticeExpression + `)`)
 
 const responsesTerminalBadgeSentinel = routerNoticeSentinel
 
 var responsesTerminalBadgePattern = regexp.MustCompile(`(?is)\A` + regexp.QuoteMeta(routerNoticeSentinel) + `.*?\n\n` + rescueDetailExpression)
 
-// StripRoutingBadgeFromResponsesInput removes a provenance-marked router badge
-// from assistant items. Call only for clients opted into terminal surfaces.
 func StripRoutingBadgeFromResponsesInput(body []byte) ([]byte, error) {
 	input := gjson.GetBytes(body, "input")
 	if !input.IsArray() {
@@ -394,8 +341,6 @@ func StripRoutingBadgeFromResponsesInput(body []byte) ([]byte, error) {
 					dropItem = true
 					changed = true
 				}
-				// The egress marker is only ever prepended to the first text part.
-				// Do not strip a marker-like string from later assistant content.
 				break contentParts
 			}
 		}
@@ -419,8 +364,6 @@ func StripRoutingBadgeFromResponsesInput(body []byte) ([]byte, error) {
 	return replaceResponsesRawField(body, "input", []byte("["+strings.Join(newItemRaws, ",")+"]"))
 }
 
-// StripFeedbackFooterFromResponsesInput removes the rating hint from assistant
-// text items so a subsequent terminal Responses turn does not echo it upstream.
 func StripFeedbackFooterFromResponsesInput(body []byte) ([]byte, error) {
 	input := gjson.GetBytes(body, "input")
 	if !input.IsArray() {
@@ -512,9 +455,6 @@ func replaceResponsesRawField(raw []byte, path string, value []byte) ([]byte, er
 	return sjson.SetRawBytes(raw, path, value)
 }
 
-// StripRouterCommandsFromResponsesInput removes router directives from
-// function-call output items so the upstream doesn't repeat them verbatim
-// instead of continuing the agent turn.
 func StripRouterCommandsFromResponsesInput(body []byte) ([]byte, error) {
 	input := gjson.GetBytes(body, "input")
 	if !input.IsArray() {
@@ -567,8 +507,6 @@ func StripRouterCommandsFromResponsesInput(body []byte) ([]byte, error) {
 }
 
 func stripRouterCommandText(text string) (string, bool) {
-	// Responses tool output is untrusted provenance: preserve a /model mention
-	// rather than treating it as a directive or deleting arbitrary tool output.
 	if _, found, stripped := parseForceModelCommandFromSource(text, true); found {
 		return stripped, true
 	}
@@ -578,8 +516,6 @@ func stripRouterCommandText(text string) (string, bool) {
 	return text, false
 }
 
-// responsesContentHasBody reports whether a content array carries anything
-// beyond the (now stripped) part at skipIndex. Non-text parts always count.
 func responsesContentHasBody(content []gjson.Result, skipIndex int) bool {
 	for i, part := range content {
 		if i == skipIndex {
@@ -597,8 +533,6 @@ func responsesContentHasBody(content []gjson.Result, skipIndex int) bool {
 	return false
 }
 
-// responsesContentToChatContent flattens a content array. For assistant
-// messages we may also extract tool-call shells if a client embeds them.
 func responsesContentToChatContent(content gjson.Result, role string) (string, []map[string]any) {
 	if content.Type == gjson.String {
 		s := content.Str
@@ -617,8 +551,6 @@ func responsesContentToChatContent(content gjson.Result, role string) (string, [
 		switch part.Get("type").Str {
 		case "input_text", "output_text", "text":
 			s := part.Get("text").Str
-			// Strip only the assistant's first output_text part, so user/system
-			// text is never touched even if it happens to start with marker bytes.
 			if role == "assistant" && !firstAssistantTextStripped {
 				s = responsesBadgePattern.ReplaceAllString(s, "")
 				firstAssistantTextStripped = true
@@ -642,21 +574,16 @@ func responsesContentToChatContent(content gjson.Result, role string) (string, [
 	return text.String(), toolCalls
 }
 
-// ResponsesWriter wraps an http.ResponseWriter and translates a downstream
-// Chat Completions response (streaming SSE or buffered JSON) into the
-// Responses API shape on the fly.
 type ResponsesWriter struct {
 	providerUsageState
 	inner   http.ResponseWriter
 	flusher http.Flusher
 	bw      *bufio.Writer
 
-	model      string // routed model, set from x-router-model when known
+	model      string
 	responseID string
 	createdAt  int64
 
-	// failureCode/failureMessage override the generic response.failed error;
-	// set by FailContextOverflow so clients see the native overflow code.
 	failureCode    string
 	failureMessage string
 
@@ -674,7 +601,6 @@ type ResponsesWriter struct {
 
 	seq int64
 
-	// Streaming state.
 	headersEmitted              bool
 	completedEmitted            bool
 	badgePrepended              bool
@@ -734,14 +660,10 @@ type responsesToolItem struct {
 
 var responsesIDCounter atomic.Uint64
 
-// newResponsesID returns a short opaque ID. Codex doesn't read these for
-// correctness; they exist to give the SSE stream stable handles per item.
 func newResponsesID(prefix string) string {
 	return prefix + "_" + strconv.FormatUint(responsesIDCounter.Add(1), 36) + strconv.FormatInt(time.Now().UnixNano()&0xffffff, 36)
 }
 
-// toolCallItemIDPrefix returns ctc_ for custom_tool_call, fc_ for function_call;
-// wrong prefix causes a 400 on the next turn when the client replays the id.
 func toolCallItemIDPrefix(custom bool) string {
 	if custom {
 		return "ctc"
@@ -749,8 +671,6 @@ func toolCallItemIDPrefix(custom bool) string {
 	return "fc"
 }
 
-// NewResponsesWriter wraps w so chat-completions output is re-emitted as
-// Responses API events.
 func NewResponsesWriter(w http.ResponseWriter, model string) *ResponsesWriter {
 	flusher, _ := w.(http.Flusher)
 	return &ResponsesWriter{
@@ -766,10 +686,6 @@ func NewResponsesWriter(w http.ResponseWriter, model string) *ResponsesWriter {
 	}
 }
 
-// SetToolMappings teaches the Responses writer how synthetic Chat function
-// aliases map back to the function/custom tool contract Codex originally sent.
-// A nil map preserves the ordinary function-call behavior for every other
-// Responses client.
 func (t *ResponsesWriter) SetToolMappings(mappings map[string]ResponsesToolMapping) {
 	if len(mappings) == 0 {
 		return
@@ -777,9 +693,6 @@ func (t *ResponsesWriter) SetToolMappings(mappings map[string]ResponsesToolMappi
 	t.toolMappings = mappings
 }
 
-// WrapInner splices fn between this writer and the client writer, rebinding
-// inner and bw so every byte (prelude, SSE events, final envelope) flows
-// through fn — used for content-capture telemetry. Call before any writes.
 func (t *ResponsesWriter) WrapInner(fn func(http.ResponseWriter) http.ResponseWriter) {
 	wrapped := fn(t.inner)
 	t.inner = wrapped
@@ -787,8 +700,6 @@ func (t *ResponsesWriter) WrapInner(fn func(http.ResponseWriter) http.ResponseWr
 	t.bw = bufio.NewWriterSize(wrapped, 8192)
 }
 
-// SetBadgeText overrides the default routed-model badge prepended to the first
-// assistant text delta. Empty text keeps the model-derived default.
 func (t *ResponsesWriter) SetBadgeText(text string) {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -797,12 +708,10 @@ func (t *ResponsesWriter) SetBadgeText(text string) {
 	t.badgeText = text + "\n\n"
 }
 
-// SetRoutedModel updates the model reported by terminal response envelopes.
 func (t *ResponsesWriter) SetRoutedModel(model string) {
 	t.model = model
 }
 
-// EmitRoutingBadge appends a corrected routing badge to an open stream.
 func (t *ResponsesWriter) EmitRoutingBadge(text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" || text == strings.TrimSpace(t.badgeText) {
@@ -830,22 +739,16 @@ func (t *ResponsesWriter) EmitRoutingBadge(text string) error {
 	return t.emitTextDelta(t.textItem, t.computeBadgeText())
 }
 
-// EnableTerminalBadgeProvenance prefixes in-band badges with the invisible
-// sentinel so ingress stripping only removes router-injected text.
 func (t *ResponsesWriter) EnableTerminalBadgeProvenance() {
 	t.terminalBadgeProvenance = true
 }
 
-// SetFooterText appends the rating hint to the last assistant text of a
-// naturally finished, tool-free turn. Empty text is a no-op.
 func (t *ResponsesWriter) SetFooterText(text string) {
 	t.footerText = text
 }
 
 func (t *ResponsesWriter) Header() http.Header { return t.inner.Header() }
 
-// resetSSEScanState discards search state whenever the writer changes mode or
-// replaces its buffered stream. The scanners never own the buffer itself.
 func (t *ResponsesWriter) resetSSEScanState() {
 	t.streamScanner.Reset()
 	t.nativeStreamScanner.Reset()
@@ -853,8 +756,6 @@ func (t *ResponsesWriter) resetSSEScanState() {
 	t.nativeSSEClassified = false
 }
 
-// ResetAttempt discards buffered provider bytes from a failed retryable attempt
-// so the next dispatch does not inherit a partial or empty terminal.
 func (t *ResponsesWriter) ResetAttempt() {
 	if t.finalized {
 		return
@@ -875,25 +776,15 @@ func (t *ResponsesWriter) ResetAttempt() {
 	t.toolItems = map[int]*responsesToolItem{}
 	t.providerUsageState = providerUsageState{}
 	t.toolLedger = NewToolCallLedger()
-	// Keep headersEmitted, textItem, and prelude lifecycle so a retried
-	// translated stream does not emit a second response.created.
 }
 
-// SetPassthrough switches to native Responses mode. Upstream bytes remain in
-// Responses format, while Prelude may synthesize lifecycle and badge events.
-// Must be called before the first write.
 func (t *ResponsesWriter) SetPassthrough() {
 	t.resetSSEScanState()
 	t.passthrough = true
 }
 
-// Passthrough reports whether the writer forwards native Responses events
-// rather than translating Chat Completions chunks.
 func (t *ResponsesWriter) Passthrough() bool { return t.passthrough }
 
-// ClearPassthrough returns the writer to translation mode, reporting false
-// after provider output prevents a clean continuation. A visible synthetic
-// prelude remains valid and seeds the translated sequence and output indexes.
 func (t *ResponsesWriter) ClearPassthrough() bool {
 	if t.nativePreludeCreated && !t.completedEmitted {
 		if err := t.lifecycle.Start(); err != nil {
@@ -916,10 +807,6 @@ func (t *ResponsesWriter) ClearPassthrough() bool {
 	return true
 }
 
-// ForgetWithheldHeaders drops the record of a passthrough header write that
-// the caller's retry buffer held back from the client. Without it a pinned
-// native attempt that failed before any output reads as committed, and a
-// rescue on another format is refused. No-op once any event was written.
 func (t *ResponsesWriter) ForgetWithheldHeaders() {
 	if !t.passthrough || t.nativePreludeCreated || t.nativeStreamStarted || t.headersEmitted || t.buf.Len() > 0 {
 		return
@@ -929,8 +816,6 @@ func (t *ResponsesWriter) ForgetWithheldHeaders() {
 	t.streaming = false
 }
 
-// SetPassthroughBadge switches to native Responses passthrough with a visible
-// badge. Text-free turns get a synthetic assistant item to carry it.
 func (t *ResponsesWriter) SetPassthroughBadge() {
 	t.EnableTerminalBadgeProvenance()
 	t.resetSSEScanState()
@@ -939,8 +824,6 @@ func (t *ResponsesWriter) SetPassthroughBadge() {
 }
 
 func (t *ResponsesWriter) WriteHeader(code int) {
-	// Prelude can run before routing completes, so learn the served model from
-	// the proxy header at the last safe point before either response mode writes.
 	if routed := t.inner.Header().Get("x-router-model"); routed != "" {
 		t.model = routed
 	}
@@ -950,7 +833,6 @@ func (t *ResponsesWriter) WriteHeader(code int) {
 		}
 		t.statusCode = code
 		t.streaming = strings.Contains(t.inner.Header().Get("Content-Type"), "text/event-stream") && code < 400
-		// Codex backend already sets text/event-stream; only drop length/encoding.
 		t.inner.Header().Del("Content-Length")
 		t.inner.Header().Del("Content-Encoding")
 		if t.streaming {
@@ -1007,8 +889,6 @@ func (t *ResponsesWriter) Write(data []byte) (int, error) {
 		}
 		if !t.streaming {
 			t.buf.Write(data)
-			// The Codex subscription backend omits Content-Type on SSE. Inspect the
-			// first event without consuming it, then drain it exactly once.
 			if t.detectNativeResponsesSSE() {
 				t.nativeStreamScanner.Reset()
 				t.nativeSSEClassification = false
@@ -1071,10 +951,6 @@ func (t *ResponsesWriter) detectNativeResponsesSSE() bool {
 	return t.nativeSSEClassification
 }
 
-// Prelude commits headers and emits response.created immediately so Codex
-// stops waiting on upstream prefill. Call right after routing when streaming
-// was requested; the headersEmitted guard makes it safe to call once, with
-// upstream Write emitting created later if this hasn't run yet.
 func (t *ResponsesWriter) Prelude(streaming bool) error {
 	if t.passthrough {
 		if !streaming || !t.passthroughBadge || t.nativePreludeCreated {
@@ -1128,7 +1004,6 @@ func (t *ResponsesWriter) Flush() {
 	}
 }
 
-// Finalize handles non-streaming bodies and end-of-stream completion events.
 func (t *ResponsesWriter) Finalize() error {
 	if t.passthrough {
 		if t.nativeEmptyRejected {
@@ -1142,7 +1017,6 @@ func (t *ResponsesWriter) Finalize() error {
 		if !t.streaming {
 			return t.flushBufferedNativeBody(nil)
 		}
-		// Nothing is synthesized; the upstream remains the event authority.
 		return t.bw.Flush()
 	}
 	if t.streaming {
@@ -1330,8 +1204,6 @@ func (t *ResponsesWriter) prefixNativeBadge(data []byte, path string) ([]byte, b
 	}
 	rewritten, err := sjson.SetBytes(append([]byte(nil), data...), path, badge+text.Str)
 	if err != nil {
-		// The badge is cosmetic. A malformed or unexpected event must retain the
-		// upstream bytes instead of terminating an otherwise valid model stream.
 		return data, false
 	}
 	return rewritten, true
@@ -1389,9 +1261,6 @@ func (t *ResponsesWriter) rewriteNativeResponsesPayload(data []byte) ([]byte, bo
 		if t.nativeBadgeDeltaPrepended || delta.Type != gjson.String || delta.Str == "" {
 			return data, false
 		}
-		// Each delta carries only newly generated text. Prefix exactly the first
-		// non-empty one; the cumulative done snapshots below are rewritten
-		// independently so Codex history and the live stream agree.
 		t.nativeBadgeDeltaPrepended = true
 		return t.prefixNativeBadge(data, "delta")
 
@@ -1475,8 +1344,6 @@ func (t *ResponsesWriter) rewriteNativeResponsesPayload(data []byte) ([]byte, bo
 				hasOutputIndex: true,
 			}
 			if t.nativeBadgeTargetSelected && !t.nativeBadgeTargetMatches(ref, false) {
-				// The badge rides its own synthetic item, so this message only
-				// needs the footer.
 				textPart, ok := firstNativeOutputTextPart(item)
 				if !ok {
 					continue
@@ -1506,8 +1373,6 @@ func (t *ResponsesWriter) rewriteNativeResponsesPayload(data []byte) ([]byte, bo
 	return data, false
 }
 
-// rewriteNativePassthroughFields shifts sequence numbers (monotonicity) and
-// output indices (item identity) after a synthetic badge item is prepended.
 func (t *ResponsesWriter) rewriteNativePassthroughFields(data []byte) ([]byte, bool) {
 	if !gjson.ValidBytes(data) {
 		return data, false
@@ -1610,8 +1475,6 @@ func (t *ResponsesWriter) rewriteNativeResponsesEvent(raw []byte) []byte {
 	return t.rewriteNativeEventWith(raw, true)
 }
 
-// rewriteNativeHeldEvent re-applies badge/footer to a held event without
-// re-shifting coordinates; the shift is applied once on first sight and is not idempotent.
 func (t *ResponsesWriter) rewriteNativeHeldEvent(raw []byte) []byte {
 	return t.rewriteNativeEventWith(raw, false)
 }
@@ -1639,7 +1502,6 @@ func replaceSSEEventData(raw, data, rewrittenData []byte) []byte {
 	if offset < 0 {
 		return raw
 	}
-	// Preallocate only len(raw); badge growth is handled safely by append.
 	rewritten := make([]byte, 0, len(raw))
 	rewritten = append(rewritten, raw[:offset]...)
 	rewritten = append(rewritten, rewrittenData...)
@@ -1716,8 +1578,6 @@ func (t *ResponsesWriter) emitNativeSyntheticBadge(base, outputIndex int64) erro
 	return nil
 }
 
-// emitNativeBadgeBeforeOutput prepends a synthetic badge message item, emitting
-// six native events and shifting sequence numbers and output indices accordingly.
 func (t *ResponsesWriter) emitNativeBadgeBeforeOutput(event []byte) error {
 	if t.nativeSyntheticBadgeEmitted || t.nativeBadgeTargetSelected || t.computeBadgeText() == "" {
 		return nil
@@ -1887,10 +1747,6 @@ func (t *ResponsesWriter) sealInner() {
 	}
 }
 
-// FinalizeError emits a response.failed terminal event when upstream fails
-// mid-stream (after response.created), so Codex sees a clean failure instead
-// of a truncated stream. No-op if nothing streamed yet (caller writes a JSON
-// error instead) or after a terminal event already fired.
 func (t *ResponsesWriter) FinalizeError(err error) error {
 	if t.passthrough {
 		if !t.streaming {
@@ -1942,8 +1798,6 @@ func (t *ResponsesWriter) FinalizeError(err error) error {
 	return closeErr
 }
 
-// failureError is the response.failed error object: the generic upstream
-// failure (no upstream internals leak) unless a native code was set.
 func (t *ResponsesWriter) failureError() map[string]any {
 	if t.failureCode != "" {
 		return map[string]any{"code": t.failureCode, "message": t.failureMessage}
@@ -1951,18 +1805,12 @@ func (t *ResponsesWriter) failureError() map[string]any {
 	return map[string]any{"code": "upstream_error", "message": "Upstream call failed."}
 }
 
-// SetUpstreamFailureMessage replaces the generic response.failed message with
-// an attributed one; a native failure code already set wins.
 func (t *ResponsesWriter) SetUpstreamFailureMessage(message string) {
 	if t.failureCode == "" && message != "" {
 		t.failureCode, t.failureMessage = "upstream_error", message
 	}
 }
 
-// FailContextOverflow ends the response with the Responses-native overflow
-// failure. Codex compacts only on an in-stream response.failed carrying this
-// code, so a streaming request whose stream has not started gets it opened
-// first; a non-streaming request gets the JSON error envelope.
 func (t *ResponsesWriter) FailContextOverflow(streaming bool, code, message string) error {
 	t.failureCode, t.failureMessage = code, message
 	if !streaming {
@@ -2008,7 +1856,6 @@ func (t *ResponsesWriter) FailContextOverflow(streaming bool, code, message stri
 	return t.FinalizeError(nil)
 }
 
-// processSSEBuffer drains complete chat.completion.chunk events.
 func (t *ResponsesWriter) processSSEBuffer() error {
 	for {
 		event, n := t.streamScanner.Next(t.buf.Bytes())
@@ -2099,8 +1946,6 @@ func (t *ResponsesWriter) translateChunk(raw []byte) error {
 
 	if fr := choice.Get("finish_reason"); fr.Type == gjson.String && fr.Str != "" {
 		t.finishReason = fr.Str
-		// Reasoning-only turns emit no delta this writer translates, so the
-		// badge would never be reached through appendText/appendToolCall.
 		if !t.hasUpstreamOutput {
 			if len(t.toolMappings) > 0 && len(t.toolItems) > 0 {
 				if err := t.closeOpenItems(); err != nil {
@@ -2115,7 +1960,6 @@ func (t *ResponsesWriter) translateChunk(raw []byte) error {
 		if err := t.closeOpenItems(); err != nil {
 			return err
 		}
-		// OpenAI-compatible streams may put usage in a trailing choices:[] frame.
 		if !t.UsageFacts().Present || t.completedEmitted {
 			return nil
 		}
@@ -2143,8 +1987,6 @@ func (t *ResponsesWriter) appendText(s string) error {
 	return t.emitTextDelta(t.textItem, s)
 }
 
-// openTextItem lazily opens the assistant text item the badge and every text
-// delta share. Idempotent.
 func (t *ResponsesWriter) openTextItem() error {
 	if t.textItem != nil {
 		return nil
@@ -2152,8 +1994,6 @@ func (t *ResponsesWriter) openTextItem() error {
 	t.textItem = &responsesTextItem{
 		itemID: newResponsesID("msg"),
 	}
-	// Must assign after t.textItem is reachable, else nextOutputIndex
-	// undercounts it (Go evaluates struct-literal RHS before assignment).
 	t.textItem.outputIndex = t.nextOutputIndex()
 	if err := t.emitMessageItemAdded(t.textItem); err != nil {
 		return err
@@ -2165,9 +2005,6 @@ func (t *ResponsesWriter) openTextItem() error {
 	return nil
 }
 
-// ensureBadgeItem prepends the routing badge before the first text delta, tool call, or finish.
-// Codex drops reasoning-summary items from custom providers (text is the only guaranteed surface),
-// and tool-call-only turns produce no text of their own without this.
 func (t *ResponsesWriter) ensureBadgeItem() error {
 	if t.badgePrepended {
 		return nil
@@ -2225,9 +2062,6 @@ func (t *ResponsesWriter) nextOutputIndex() int {
 	return t.outputIndexOffset + count - 1
 }
 
-// computeBadgeText returns the routing badge to surface for this turn, with the
-// terminal-client provenance sentinel when enabled. Empty when the proxy supplied
-// no marker — suppression is decided there, not here.
 func (t *ResponsesWriter) computeBadgeText() string {
 	if t.badgeText == "" {
 		return ""
@@ -2293,8 +2127,6 @@ func (t *ResponsesWriter) closeOpenItems() error {
 	return nil
 }
 
-// emitIncompleteFailure terminates a committed translated stream without
-// fabricating a response.completed event after upstream EOF.
 func (t *ResponsesWriter) emitIncompleteFailure() error {
 	if err := t.lifecycle.Fail(); err != nil {
 		return err
@@ -2309,8 +2141,6 @@ func (t *ResponsesWriter) emitIncompleteFailure() error {
 	}
 	return closeErr
 }
-
-// ---------- event emitters ----------
 
 func (t *ResponsesWriter) nextSeq() int64 {
 	s := t.seq
@@ -2459,14 +2289,12 @@ func (t *ResponsesWriter) emitFunctionCallItemAdded(item *responsesToolItem) err
 		})
 	}
 	call := map[string]any{
-		"id":        item.itemID,
-		"type":      "function_call",
-		"status":    "in_progress",
-		"call_id":   item.callID,
-		"name":      item.name,
-		"arguments": "",
-		// Codex treats absent/null as encrypted collaboration arguments. Calls
-		// synthesized from Chat providers contain plaintext, including tasks.
+		"id":                      item.itemID,
+		"type":                    "function_call",
+		"status":                  "in_progress",
+		"call_id":                 item.callID,
+		"name":                    item.name,
+		"arguments":               "",
 		"encrypted_function_args": []string{},
 	}
 	if item.mapping.Namespace != "" {
@@ -2480,10 +2308,6 @@ func (t *ResponsesWriter) emitFunctionCallItemAdded(item *responsesToolItem) err
 
 func (t *ResponsesWriter) emitFunctionArgsDelta(item *responsesToolItem, delta string) error {
 	if item.mapping.Custom {
-		// Chat providers stream fragments of the JSON wrapper, not fragments of
-		// the raw freeform input. Emitting them as custom deltas would expose
-		// invalid patch/JavaScript text to Codex, so the validated raw input is
-		// emitted atomically when the call closes.
 		return nil
 	}
 	return t.writeEvent("response.function_call_arguments.delta", map[string]any{
@@ -2556,9 +2380,6 @@ func (t *ResponsesWriter) emitCompleted() error {
 	})
 }
 
-// emitFailed writes response.failed with whatever output was assembled so far
-// plus a generic error (no upstream internals leak). Usage omitted: no
-// trustworthy accounting for a failed turn.
 func (t *ResponsesWriter) emitFailed() error {
 	env := t.responseEnvelope("failed")
 	env["output"] = t.assembleOutput()
@@ -2583,9 +2404,6 @@ func (t *ResponsesWriter) assembleOutput() []any {
 			}},
 		})
 	}
-	// Tool items in upstream index order. Upstream indices may be
-	// non-contiguous (e.g. {0, 2}), so iterate the sorted keys rather than
-	// counting up to len.
 	indices := make([]int, 0, len(t.toolItems))
 	for idx := range t.toolItems {
 		indices = append(indices, idx)
@@ -2632,11 +2450,6 @@ func (t *ResponsesWriter) assembleOutput() []any {
 	return out
 }
 
-// chatCompletionToResponse converts a buffered chat-completions JSON body into
-// a Responses-shaped JSON body. Only used when the client requested
-// stream:false; Codex always streams, but other clients may not. A non-empty
-// badge leads the assistant text, synthesizing the message item when the turn
-// produced only tool calls.
 func chatCompletionToResponse(body []byte, responseID, model string, createdAt int64, mappings map[string]ResponsesToolMapping, badge, footer string, facts usage.Facts) ([]byte, error) {
 	if !gjson.ValidBytes(body) {
 		return nil, fmt.Errorf("invalid JSON")
