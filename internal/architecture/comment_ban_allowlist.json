@@ -6,24 +6,12 @@
       "banned_lines": 343
     },
     {
-      "package": "internal/auth",
-      "banned_lines": 883
-    },
-    {
       "package": "internal/postgres",
       "banned_lines": 320
     },
     {
       "package": "internal/proxy",
       "banned_lines": 5222
-    },
-    {
-      "package": "internal/router/catalog",
-      "banned_lines": 537
-    },
-    {
-      "package": "internal/router/sessionpin",
-      "banned_lines": 211
     },
     {
       "package": "internal/translate",
