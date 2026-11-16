@@ -1,9 +1,4 @@
 {
   "schema_version": "comment_ban_allowlist_v1",
-  "packages": [
-    {
-      "package": "internal/proxy",
-      "banned_lines": 2198
-    }
-  ]
+  "packages": []
 }
