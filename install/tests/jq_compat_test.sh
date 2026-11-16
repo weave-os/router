@@ -15,8 +15,11 @@ arg_binding="--(arg|argjson|slurpfile|rawfile)[[:space:]]+${keywords}([[:space:]
 pattern_binding="(as|label)[[:space:]]+[$]${keywords}([^[:alnum:]_]|$)"
 
 cd "$repo_root"
-hits="$(git ls-files -z install | grep -zv '^install/tests/' \
-  | xargs -0 grep -InE -e "$arg_binding" -e "$pattern_binding" || true)"
+tracked="$(git ls-files install | grep -v '^install/tests/')"
+mapfile -t files <<<"$tracked"
+scan_status=0
+hits="$(grep -InE -e "$arg_binding" -e "$pattern_binding" -- "${files[@]}")" || scan_status=$?
+[ "$scan_status" -le 1 ] || { echo "FAIL: grep could not scan the installer files (exit $scan_status)" >&2; exit 1; }
 
 if [ -n "$hits" ]; then
   printf 'FAIL: jq variables named after jq 1.6 keywords (rename the variable):\n%s\n' "$hits" >&2
