@@ -17,16 +17,6 @@ const (
 	DelegatedSpendScopeTask    DelegatedSpendScope = "task"
 )
 
-// WithDelegatedSpendCap enforces the per-session and per-task USD caps a
-// delegated session token carries. Spend is read fresh each request, like
-// WithAPIKeySpendCap, with the same exemptions and the same fail-closed 503.
-// Requests from any other credential, or tokens without caps, pass through
-// without a read.
-//
-// Known bug: the cap is checked before a request and spend is recorded after it
-// settles, so concurrent requests in one session or task can all pass the check
-// and overshoot the cap by the whole in-flight batch. WithAPIKeySpendCap has the
-// same bug; when the rk_ key spend cap is fixed, fix this cap the same way.
 func WithDelegatedSpendCap(svc *billing.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
@@ -68,7 +58,6 @@ func WithDelegatedSpendCap(svc *billing.Service) gin.HandlerFunc {
 	}
 }
 
-// delegatedCapReached reports the first cap the session has reached, task before session.
 func delegatedCapReached(session *auth.DelegatedSession, sessionSpent, taskSpent int64) (DelegatedSpendScope, int64, int64, bool) {
 	if session.TaskCapMicros != nil && taskSpent >= *session.TaskCapMicros {
 		return DelegatedSpendScopeTask, taskSpent, *session.TaskCapMicros, true

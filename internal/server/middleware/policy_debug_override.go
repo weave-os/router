@@ -11,11 +11,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// RouterPolicyDebugHeader overrides policy debug mode for authorized internal traffic.
 const RouterPolicyDebugHeader = "x-weave-router-debug"
 
-// WithPolicyDebugOverride applies persisted debug mode and an authorized
-// per-request override. Invalid or unauthorized headers preserve the persisted value.
 func WithPolicyDebugOverride() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation := InstallationFrom(c)
