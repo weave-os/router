@@ -209,3 +209,43 @@ func (s *Service) subscriptionUsageKey(creds *Credentials) usage.CredentialKey {
 	}
 	return s.usageObserver.Key(creds.APIKey)
 }
+
+func (s *Service) selectableSubscriptionProviders(ctx context.Context, headers http.Header) map[string]struct{} {
+	available := subscriptionProvidersForRequest(ctx)
+	if subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) {
+		return available
+	}
+	codexToken, claudeToken := presentSubscriptionTokens(ctx, headers)
+	if claudeToken != "" && !claudeSubscriptionSuppressed(ctx) && !s.claudeLoginSpent(ctx, claudeToken) {
+		available[providers.ProviderAnthropic] = struct{}{}
+	}
+	if codexToken != "" && !codexSubscriptionSuppressed(ctx) && !s.codexLoginSpent(ctx, codexToken) {
+		available[providers.ProviderOpenAI] = struct{}{}
+	}
+	for provider, creds := range BuildCredentialsMap(externalKeysFromContext(ctx)) {
+		if len(creds.APIKey) > 0 && (provider == providers.ProviderAnthropic || provider == providers.ProviderOpenAI) {
+			available[provider] = struct{}{}
+		}
+	}
+	return available
+}
+
+func (s *Service) claudeLoginSpent(ctx context.Context, token string) bool {
+	if s.usageObserver == nil {
+		return false
+	}
+	snap, ok := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(token)))
+	return ok && snap.Exhausted() && claudeSnapshotUnservable(ctx, snap)
+}
+
+func (s *Service) codexLoginSpent(ctx context.Context, token string) bool {
+	if s.usageObserver == nil || pickedModelOnOwnPlan(ctx) {
+		return false
+	}
+	key := s.usageObserver.Key([]byte(token))
+	if s.usageObserver.Rejected(key) {
+		return true
+	}
+	snap, ok := s.usageObserver.Snapshot(key)
+	return ok && snap.Exhausted() && !s.codexExtraCreditsAllowed()
+}

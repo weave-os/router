@@ -31,7 +31,7 @@
     },
     {
       "package": "internal/proxy",
-      "banned_lines": 5225
+      "banned_lines": 5222
     },
     {
       "package": "internal/router/catalog",
