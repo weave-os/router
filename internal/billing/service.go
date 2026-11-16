@@ -138,7 +138,7 @@ type byokFeeUnpayableKey struct{}
 
 func (s *Service) WithUnfunded(ctx context.Context, reason SubscriptionOnlyReason) context.Context {
 	ctx = WithSubscriptionOnly(ctx, reason)
-	if s.ByokFeeOwed(ctx) && reason != SubscriptionOnlyLinkedFirst {
+	if s.ByokFeeOwed(ctx) {
 		ctx = context.WithValue(ctx, byokFeeUnpayableKey{}, true)
 	}
 	return ctx
