@@ -18,7 +18,7 @@ import (
 
 const laneAdmissionCodexToken = "eyJhbGciOiJub25lIn0.eyJzdWIiOiJ0ZXN0In0.signature"
 
-func codexBypassFixture(t *testing.T, snapshot usage.Snapshot) (*proxy.Service, *fakeRouter, context.Context) {
+func codexBypassFixture(t *testing.T, threshold float64, snapshot usage.Snapshot) (*proxy.Service, *fakeRouter, context.Context) {
 	t.Helper()
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-terra"}}
 	p := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
@@ -30,7 +30,6 @@ func codexBypassFixture(t *testing.T, snapshot usage.Snapshot) (*proxy.Service, 
 	obs.Record(obs.Key([]byte(laneAdmissionCodexToken)), snapshot)
 	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderOpenAI: p}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-terra", nil).
 		WithUsageObserver(obs)
-	threshold := 0.80
 	ctx := context.WithValue(context.Background(), proxy.OpenAISubscriptionContextKey{}, laneAdmissionCodexToken)
 	ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, "account-1")
 	ctx = context.WithValue(ctx, proxy.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true, Threshold: &threshold})
@@ -46,7 +45,7 @@ func proxyCodexChat(t *testing.T, svc *proxy.Service, ctx context.Context, model
 }
 
 func TestUsageBypassSkipsACodexSubscriptionOnOverage(t *testing.T) {
-	svc, fr, ctx := codexBypassFixture(t, usage.Snapshot{
+	svc, fr, ctx := codexBypassFixture(t, 0.80, usage.Snapshot{
 		Primary:      usage.Window{UsedPercent: 0.20, WindowMinutes: 300},
 		OverageInUse: true,
 	})
@@ -58,8 +57,8 @@ func TestUsageBypassSkipsACodexSubscriptionOnOverage(t *testing.T) {
 }
 
 func TestUsageBypassSkipsACodexSubscriptionThatIsSpent(t *testing.T) {
-	svc, fr, ctx := codexBypassFixture(t, usage.Snapshot{
-		Primary: usage.Window{UsedPercent: 1, WindowMinutes: 300},
+	svc, fr, ctx := codexBypassFixture(t, 1, usage.Snapshot{
+		Primary: usage.Window{UsedPercent: 0.9995, WindowMinutes: 300},
 	})
 
 	rec := proxyCodexChat(t, svc, ctx, "gpt-5.6-sol")
@@ -69,7 +68,7 @@ func TestUsageBypassSkipsACodexSubscriptionThatIsSpent(t *testing.T) {
 }
 
 func TestUsageBypassRoutesAnOpenAIModelTheCodexPlanDoesNotCover(t *testing.T) {
-	svc, fr, ctx := codexBypassFixture(t, usage.Snapshot{
+	svc, fr, ctx := codexBypassFixture(t, 0.80, usage.Snapshot{
 		Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300},
 	})
 
