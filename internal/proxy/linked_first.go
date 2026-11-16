@@ -4,9 +4,9 @@ import (
 	"context"
 
 	"weave-os/router/internal/billing"
-	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/subscriptionlane"
 )
 
 // paidFallbackForbidden reports whether a live subscription failure may not be
@@ -17,31 +17,28 @@ import (
 // Enterprise-only Claude turns also forbid metered recovery after a refusal,
 // except on the customer's plan-first key once the seat hit its overage cap.
 func paidFallbackForbidden(ctx context.Context) bool {
-	return paidFallbackForbiddenByPlan(ctx) || paidCapacityUnfunded(ctx)
+	return !servingCommitted(ctx, paidFallbackBinding(ctx), subscriptionlane.OrganizationCreditsServed)
 }
 
 // paidFallbackForbiddenByPlan is paidFallbackForbidden without the unfunded
 // organization: these turns stay on the caller's subscription even when the
 // customer holds a provider key.
 func paidFallbackForbiddenByPlan(ctx context.Context) bool {
-	return claudeEnterpriseTurn(ctx) && !claudeEnterpriseCapRescue(ctx) || pickedModelOnOwnPlan(ctx) || subscriptionAttemptOnly(ctx) || subscriptionStateModelsEnabled(ctx) && !subscriptionAPIOnly(ctx)
+	return !paidFallbackBinding(ctx).Admits(subscriptionlane.OrganizationCreditsServed)
 }
 
 // paidFallbackForbiddenFor is paidFallbackForbidden for a fallback onto
 // provider: an unfunded organization may still fall back to the customer's
 // own usable key for provider.
 func paidFallbackForbiddenFor(ctx context.Context, provider string) bool {
-	return paidFallbackForbiddenByPlan(ctx) || paidCapacityUnfunded(ctx) && usableBYOK(ctx, provider) == nil
+	return !servingCommitted(ctx, paidFallbackBinding(ctx), paidFallbackEvent(usableBYOK(ctx, provider)))
 }
 
 // paidAttemptForbidden reports whether dispatch must refuse an attempt on
 // creds. An unfunded organization's turn may still run on the customer's own
 // usable provider key.
 func paidAttemptForbidden(ctx context.Context, creds *Credentials) bool {
-	if creds != nil && creds.OAuth {
-		return false
-	}
-	return paidFallbackForbiddenByPlan(ctx) || paidCapacityUnfunded(ctx) && !customerKeyFunded(creds)
+	return !servingCommitted(ctx, paidFallbackBinding(ctx), servingEvent(creds))
 }
 
 // subscriptionOnlyUnservable reports whether a subscription-only turn routed
@@ -53,14 +50,7 @@ func subscriptionOnlyUnservable(ctx context.Context, provider, model string) boo
 }
 
 func paidFallbackForbiddenForModel(ctx context.Context, model string) bool {
-	if claudeEnterpriseTarget(ctx, inference.Target{CatalogID: model}) || pickedModelOnOwnPlan(ctx) || subscriptionAttemptOnly(ctx) || paidCapacityUnfunded(ctx) {
-		return true
-	}
-	if !subscriptionStateModelsEnabled(ctx) || subscriptionAPIOnly(ctx) {
-		return false
-	}
-	_, exhaustedModel := modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx))[model]
-	return !exhaustedModel
+	return !servingCommitted(ctx, paidFallbackBindingForModel(ctx, model), subscriptionlane.OrganizationCreditsServed)
 }
 
 // subscriptionStatePaidRescueContext permits paid recovery only when its target

@@ -402,7 +402,7 @@ func (s *Service) dispatchSubscriptionAlternatives(ctx context.Context, in failo
 		if in.buf != nil {
 			in.buf.Discard()
 		}
-		attemptCtx := context.WithValue(ctx, subscriptionOnlyAttemptKey{}, true)
+		attemptCtx := withSubscriptionAttempt(ctx)
 		if target.Provider != selected.Provider {
 			// A selected provider's OAuth credential never carries to another provider.
 			attemptCtx = clearCredentials(attemptCtx)
