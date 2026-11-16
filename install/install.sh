@@ -409,7 +409,13 @@ USAGE
 }
 
 ensure_jq() {
-  command -v jq >/dev/null 2>&1 && return 0
+  if command -v jq >/dev/null 2>&1; then
+    jq_meets_minimum jq && return 0
+    if jq_meets_minimum "$HOME/.weave/bin/jq"; then
+      export PATH="$HOME/.weave/bin:$PATH"
+      return 0
+    fi
+  fi
   local asset checksum destination temporary actual_checksum
   case "$(uname -s):$(uname -m)" in
     Darwin:arm64) asset=jq-macos-arm64; checksum=a9fe3ea2f86dfc72f6728417521ec9067b343277152b114f4e98d8cb0e263603 ;;
@@ -417,7 +423,7 @@ ensure_jq() {
     Linux:x86_64) asset=jq-linux-amd64; checksum=020468de7539ce70ef1bceaf7cde2e8c4f2ca6c3afb84642aabc5c97d9fc2a0d ;;
     Linux:aarch64|Linux:arm64) asset=jq-linux-arm64; checksum=6bc62f25981328edd3cfcfe6fe51b073f2d7e7710d7ef7fcdac28d4e384fc3d4 ;;
     MINGW*:x86_64|MSYS*:x86_64|CYGWIN*:x86_64) asset=jq-windows-amd64.exe; checksum=23cb60a1354eed6bcc8d9b9735e8c7b388cd1fdcb75726b93bc299ef22dd9334 ;;
-    *) err "Automatic jq installation is unavailable for $(uname -s)/$(uname -m). Install jq and retry."; exit 1 ;;
+    *) err "Automatic jq installation is unavailable for $(uname -s)/$(uname -m). Install jq 1.6 or newer and retry."; exit 1 ;;
   esac
   require_cmd curl "curl is required to download jq."
   destination="$HOME/.weave/bin"
@@ -446,7 +452,15 @@ ensure_jq() {
     *) mv -f "$temporary" "$destination/jq" ;;
   esac
   jq_download_tmp=""
+  export PATH="$destination:$PATH"
   jq --version >/dev/null
+}
+
+jq_meets_minimum() {
+  local version
+  version="$("$1" --version 2>/dev/null)" || return 1
+  [[ "$version" =~ ^jq-([0-9]+)\.([0-9]+) ]] || return 1
+  [ "${BASH_REMATCH[1]}" -gt 1 ] || { [ "${BASH_REMATCH[1]}" -eq 1 ] && [ "${BASH_REMATCH[2]}" -ge 6 ]; }
 }
 
 require_cmd() {
