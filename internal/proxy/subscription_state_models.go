@@ -223,7 +223,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 		}
 		// An attempt may outlive the rotation budget; its own error, not the
 		// elapsed clock, decides whether another target may serve the turn.
-		if !isSubscriptionPoolError(err) && !errors.Is(err, ErrCreditsExhaustedSubscriptionUnavailable) && !providers.IsRetryable(err) &&
+		if !isSubscriptionPoolError(err) && !subscriptionLaneRefused(err) && !providers.IsRetryable(err) &&
 			!codexSubscriptionModelRejected(err) && !anthropicSubscriptionModelRejected(err) && !codexOAuthCredentialRejected(err) && !anthropicOAuthCredentialRejected(err) && !anthropicSubscriptionThirdPartyRefused(err) {
 			return winner, err
 		}
