@@ -12,13 +12,6 @@ import (
 	"weave-os/router/internal/websearch"
 )
 
-// serveNativeWebSearch answers a native web-search turn when no enabled
-// provider can execute it, by running the search on the tenant's own gateway
-// and synthesizing the server_tool_use / web_search_tool_result blocks.
-// Cortex inference rejects web_search_20250305; agent:run on the same host
-// accepts it. Returns true if served; falls through when no executor, a
-// capable provider is in the pool, the turn is not a search sub-turn, or
-// the search fails.
 func (s *Service) serveNativeWebSearch(
 	ctx context.Context,
 	body []byte,
@@ -74,8 +67,6 @@ func (s *Service) serveNativeWebSearch(
 	return true
 }
 
-// anyNativeServerToolProvider reports whether any enabled provider runs
-// Anthropic server tools natively, in which case the turn stays on routing.
 func anyNativeServerToolProvider(enabled map[string]struct{}) bool {
 	for provider := range enabled {
 		if providers.SupportsAnthropicServerTools(provider) {
@@ -85,8 +76,6 @@ func anyNativeServerToolProvider(enabled map[string]struct{}) bool {
 	return false
 }
 
-// writeWebSearchMessage emits the synthesized message in the shape the client
-// asked for.
 func writeWebSearchMessage(w http.ResponseWriter, msg websearch.Message, stream bool) error {
 	if stream {
 		return writeWebSearchSSE(w, msg)
@@ -100,9 +89,6 @@ func writeWebSearchMessage(w http.ResponseWriter, msg websearch.Message, stream 
 	return writeErr
 }
 
-// writeWebSearchSSE streams the synthesized message as Anthropic Messages SSE.
-// server_tool_use input arrives as an input_json_delta, matching the real API —
-// a client that reads tool input only from deltas otherwise sees an empty query.
 func writeWebSearchSSE(w http.ResponseWriter, msg websearch.Message) error {
 	w.Header().Set("Content-Type", "text/event-stream")
 	flusher, _ := w.(http.Flusher)

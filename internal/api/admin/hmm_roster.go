@@ -13,14 +13,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// hmmClusterDTO is one classifier cluster with its ordered default catalog
-// roster arms and catalog model IDs (index 0 = highest serving priority).
 type hmmClusterDTO struct {
-	Cluster string `json:"cluster"`
-	// Arms are the roster-native IDs, including provider prefixes and effort
-	// suffixes. Models is the catalog-facing projection used by settings.
-	Arms   []string `json:"arms"`
-	Models []string `json:"models"`
+	Cluster string   `json:"cluster"`
+	Arms    []string `json:"arms"`
+	Models  []string `json:"models"`
 }
 
 type hmmRosterResponse struct {
@@ -38,8 +34,6 @@ type hmmRosterResponse struct {
 	Harnesses                map[string][]hmmClusterDTO `json:"harnesses,omitempty"`
 }
 
-// HMMRosterHandler returns a live Go policy projection mapped from roster IDs
-// to catalog model IDs. Unauthed — read-only and non-sensitive (same as /v1/router/models).
 func HMMRosterHandler(sources map[router.Strategy]policy.RosterSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		strategy := router.Strategy(strings.ToLower(strings.TrimSpace(c.Query("strategy"))))

@@ -19,13 +19,6 @@ import (
 
 var _ providers.OutputProgressArmer = (*ResponsesToOpenAIChatWriter)(nil)
 
-// ResponsesToOpenAIChatWriter translates a streaming Responses upstream back
-// into Chat Completions: text → delta.content, reasoning summaries →
-// delta.reasoning_content, function_call → delta.tool_calls. Non-streaming
-// clients receive one chat.completion body assembled at Finalize.
-//
-// Reasoning is one-way: only the summary reaches the client; encrypted
-// items have no chat field to live on.
 type ResponsesToOpenAIChatWriter struct {
 	providerUsageState
 	inner        http.ResponseWriter
@@ -33,40 +26,31 @@ type ResponsesToOpenAIChatWriter struct {
 	bw           *bufio.Writer
 	requestModel string
 	usageSink    UsageSink
-	// chatID/created stay fixed for the whole response: chat clients key
-	// streamed chunks by id and expect one id per completion.
-	chatID  string
-	created int64
+	chatID       string
+	created      int64
 
-	buf            bytes.Buffer
-	scanner        sse.Scanner
-	statusCode     int
-	streaming      bool
-	headersEmitted bool
-	started        bool
-	// closed guards against emitting after [DONE] or an error frame.
+	buf             bytes.Buffer
+	scanner         sse.Scanner
+	statusCode      int
+	streaming       bool
+	headersEmitted  bool
+	started         bool
 	closed          bool
 	terminalFailure error
 
-	// Reasoning resets the stall clock without changing output latency/throughput.
 	onOutputProgress    func()
 	onReasoningProgress func()
 
 	toolLedger         *ToolCallLedger
 	emittedTools       map[int]struct{}
 	outputLimitReached bool
-	// streamedItems records output_indexes that already streamed content, so the
-	// terminal item for the same index doesn't repeat it.
-	streamedItems map[int]struct{}
+	streamedItems      map[int]struct{}
 
 	toolValidator  *toolcheck.Validator
 	toolCallIssues []toolcheck.Issue
 
-	// logger is the request-scoped logger (nil until WithLogger); log() falls
-	// back to the global default so direct test construction works without one.
 	logger *slog.Logger
 
-	// Captured from the terminal response.completed/.incomplete event.
 	finalFinishReason string
 	hasUsage          bool
 
@@ -76,14 +60,11 @@ type ResponsesToOpenAIChatWriter struct {
 	lifecycle            *StreamLifecycle
 }
 
-// WithLogger installs the request-scoped logger for this translator's lines.
 func (t *ResponsesToOpenAIChatWriter) WithLogger(log *slog.Logger) *ResponsesToOpenAIChatWriter {
 	t.logger = log
 	return t
 }
 
-// log returns the request-scoped logger, or the global default when none was
-// installed.
 func (t *ResponsesToOpenAIChatWriter) log() *slog.Logger {
 	if t.logger != nil {
 		return t.logger
@@ -91,8 +72,6 @@ func (t *ResponsesToOpenAIChatWriter) log() *slog.Logger {
 	return observability.Get()
 }
 
-// NewResponsesToOpenAIChatWriter wraps w to translate a streaming Responses
-// upstream into Chat Completions for the client.
 func NewResponsesToOpenAIChatWriter(w http.ResponseWriter, requestModel string, sink UsageSink) *ResponsesToOpenAIChatWriter {
 	flusher, _ := w.(http.Flusher)
 	return &ResponsesToOpenAIChatWriter{
@@ -111,15 +90,11 @@ func NewResponsesToOpenAIChatWriter(w http.ResponseWriter, requestModel string, 
 	}
 }
 
-// WithToolValidator installs the request's compiled tool-schema validator so
-// emitted tool args are validated and repaired before reaching the client.
 func (t *ResponsesToOpenAIChatWriter) WithToolValidator(v *toolcheck.Validator) *ResponsesToOpenAIChatWriter {
 	t.toolValidator = v
 	return t
 }
 
-// ArmOutputProgress installs the output-only callback. Call after Prelude;
-// buffered clients decline because they parse only at Finalize.
 func (t *ResponsesToOpenAIChatWriter) ArmOutputProgress(mark func()) (armed bool) {
 	if !t.streaming {
 		return false
@@ -128,8 +103,6 @@ func (t *ResponsesToOpenAIChatWriter) ArmOutputProgress(mark func()) (armed bool
 	return true
 }
 
-// ArmReasoningProgress installs the stall-only callback for advancing reasoning.
-// Call after Prelude; buffered clients decline.
 func (t *ResponsesToOpenAIChatWriter) ArmReasoningProgress(mark func()) (armed bool) {
 	if !t.streaming {
 		return false
@@ -152,8 +125,6 @@ func (t *ResponsesToOpenAIChatWriter) markOutputProgress() {
 
 func (t *ResponsesToOpenAIChatWriter) Header() http.Header { return t.inner.Header() }
 
-// WriteHeader captures the upstream status. The streaming decision is the
-// CLIENT's, committed in Prelude, so we never flip to SSE here.
 func (t *ResponsesToOpenAIChatWriter) WriteHeader(code int) {
 	if t.headersEmitted {
 		return
@@ -161,8 +132,6 @@ func (t *ResponsesToOpenAIChatWriter) WriteHeader(code int) {
 	t.statusCode = code
 }
 
-// Write receives upstream Responses bytes: streams parse and translate SSE
-// events on the fly; non-streaming buffers the raw stream for Finalize.
 func (t *ResponsesToOpenAIChatWriter) Write(data []byte) (int, error) {
 	n := len(data)
 	t.buf.Write(data)
@@ -178,8 +147,6 @@ func (t *ResponsesToOpenAIChatWriter) Flush() {
 	}
 }
 
-// Prelude commits SSE headers and the role chunk for streaming clients, so the
-// envelope arrives while upstream is still reasoning.
 func (t *ResponsesToOpenAIChatWriter) Prelude(streaming bool) error {
 	if !streaming || t.started {
 		return nil
@@ -201,8 +168,6 @@ func (t *ResponsesToOpenAIChatWriter) Prelude(streaming bool) error {
 	return t.flushEvent()
 }
 
-// Finalize emits the terminal chunk + [DONE] for a streaming client, or renders
-// the buffered stream as one chat.completion body for a non-streaming client.
 func (t *ResponsesToOpenAIChatWriter) Finalize() error {
 	if !t.streaming {
 		return t.finalizeBuffered()
@@ -238,8 +203,6 @@ func (t *ResponsesToOpenAIChatWriter) Summary() ResponseSummary {
 	}
 }
 
-// --- streaming path ---
-
 func (t *ResponsesToOpenAIChatWriter) processBuffer() error {
 	for {
 		event, n := t.scanner.Next(t.buf.Bytes())
@@ -254,8 +217,6 @@ func (t *ResponsesToOpenAIChatWriter) processBuffer() error {
 	}
 }
 
-// processFinalTail translates buffered bytes that arrived without a trailing
-// blank separator before EOF is classified.
 func (t *ResponsesToOpenAIChatWriter) processFinalTail() error {
 	if t.buf.Len() == 0 {
 		return nil
@@ -280,7 +241,6 @@ func (t *ResponsesToOpenAIChatWriter) translateEvent(raw []byte) error {
 			"frame_bytes", len(data))
 		return t.emitStreamError("api_error", malformedResponsesFrameMessage)
 	}
-	// Match on the payload type: intermediaries may drop the SSE event name.
 	switch responsesEventType(gjson.GetBytes(data, "type").String()) {
 	case responsesOutputItemAdded:
 		if responsesItemType(gjson.GetBytes(data, "item.type").String()) != responsesReasoningItem {
@@ -300,8 +260,6 @@ func (t *ResponsesToOpenAIChatWriter) translateEvent(raw []byte) error {
 		t.bufferToolArgs(data, "delta", true)
 		return nil
 	case "response.function_call_arguments.done":
-		// Terminal event carries the complete arguments; adopt it so a call
-		// whose deltas were lost still emits real params.
 		t.markOutputProgress()
 		t.bufferToolArgs(data, "arguments", false)
 		return nil
@@ -393,7 +351,6 @@ func (t *ResponsesToOpenAIChatWriter) bufferToolArgs(data []byte, field string, 
 	}
 }
 
-// settleTools reconciles unfinished calls before committing the stream terminal.
 func (t *ResponsesToOpenAIChatWriter) settleTools(resp gjson.Result) error {
 	for index, item := range resp.Get("output").Array() {
 		if responsesItemType(item.Get("type").String()) == responsesFunctionCallItem {
@@ -408,8 +365,6 @@ func (t *ResponsesToOpenAIChatWriter) settleTools(resp gjson.Result) error {
 	return nil
 }
 
-// captureFinalResponse records usage + finish reason from a terminal event's
-// nested `response` object.
 func (t *ResponsesToOpenAIChatWriter) captureFinalResponse(resp gjson.Result) {
 	if !resp.Exists() {
 		return
@@ -429,7 +384,6 @@ func (t *ResponsesToOpenAIChatWriter) recordUsage(object gjson.Result) {
 	t.hasUsage = facts.Present
 }
 
-// finishStream emits the terminal chunk and [DONE] after calls have settled.
 func (t *ResponsesToOpenAIChatWriter) finishStream() error {
 	t.emittedFinishReason = t.reconciledFinishReason()
 	if err := t.emitFinalChunk(t.emittedFinishReason); err != nil {
@@ -447,8 +401,6 @@ func (t *ResponsesToOpenAIChatWriter) hasPendingOutput() bool {
 	return false
 }
 
-// emitTerminalOutput covers a valid Responses stream whose terminal envelope
-// carries the completed output but whose item events were dropped in transit.
 func (t *ResponsesToOpenAIChatWriter) emitTerminalOutput(resp gjson.Result) error {
 	var emitErr error
 	index := 0
@@ -479,9 +431,6 @@ func (t *ResponsesToOpenAIChatWriter) emitTerminalOutput(resp gjson.Result) erro
 	return emitErr
 }
 
-// reconciledFinishReason enforces that a turn which emitted tool calls reports
-// "tool_calls" and one that didn't never does, independent of the terminal
-// Responses payload (which can be absent or disagree with what streamed).
 func (t *ResponsesToOpenAIChatWriter) reconciledFinishReason() string {
 	switch {
 	case t.toolCallCount > 0:
@@ -495,9 +444,6 @@ func (t *ResponsesToOpenAIChatWriter) reconciledFinishReason() string {
 	}
 }
 
-// --- non-streaming path ---
-
-// finalizeBuffered renders the buffered stream as one chat.completion body.
 func (t *ResponsesToOpenAIChatWriter) finalizeBuffered() error {
 	if t.statusCode >= 400 {
 		return t.finalizeError()
@@ -543,8 +489,6 @@ func (t *ResponsesToOpenAIChatWriter) finalizeBuffered() error {
 	return err
 }
 
-// finalizeError renders a one-shot OpenAI error body. Streaming errors are
-// rendered as an in-stream frame by emitStreamError instead.
 func (t *ResponsesToOpenAIChatWriter) finalizeError() error {
 	if err := bufferedContextOverflow(t.buf.Bytes(), openAIErrorBody); err != nil {
 		return err
@@ -567,9 +511,6 @@ func (t *ResponsesToOpenAIChatWriter) finalizeEmptyCompletion() error {
 	return emptyCompletionOpenAIError()
 }
 
-// errorFromBuffer extracts an error type/message from the buffered stream. With
-// stream:true the buffer is raw SSE, so a terminal `error` / `response.failed`
-// event is scanned for rather than parsed as a JSON error body.
 func (t *ResponsesToOpenAIChatWriter) errorFromBuffer() (errType, msg string) {
 	b := t.buf.Bytes()
 	if gjson.ValidBytes(b) && gjson.GetBytes(b, "error").Exists() {
@@ -581,8 +522,6 @@ func (t *ResponsesToOpenAIChatWriter) errorFromBuffer() (errType, msg string) {
 	}
 	return "api_error", "upstream Responses stream ended without a terminal response event"
 }
-
-// --- chat/completions frame emitters ---
 
 func (t *ResponsesToOpenAIChatWriter) emitContentDelta(oi int, text string) error {
 	if text == "" {
@@ -600,8 +539,6 @@ func (t *ResponsesToOpenAIChatWriter) emitContentDelta(oi int, text string) erro
 	return t.flushEvent()
 }
 
-// emitReasoningDelta streams a reasoning summary on delta.reasoning_content,
-// the de-facto chat field every OpenAI-compat client reads reasoning from.
 func (t *ResponsesToOpenAIChatWriter) emitReasoningDelta(oi int, text string) error {
 	if text == "" {
 		return nil
@@ -618,9 +555,6 @@ func (t *ResponsesToOpenAIChatWriter) emitReasoningDelta(oi int, text string) er
 	return t.flushEvent()
 }
 
-// emitToolCall emits one tool_calls delta after toolcheck validation.
-// Arguments are buffered to item close before emission — a partial fragment
-// can't be schema-checked.
 func (t *ResponsesToOpenAIChatWriter) emitToolCall(oi int) error {
 	if _, emitted := t.emittedTools[oi]; emitted {
 		return nil
@@ -648,7 +582,6 @@ func (t *ResponsesToOpenAIChatWriter) emitToolCall(oi int) error {
 	t.bw.WriteString(`,"type":"function","function":{"name":`)
 	sse.WriteJSONString(t.bw, call.Name)
 	t.bw.WriteString(`,"arguments":`)
-	// arguments is a JSON-encoded string on the chat wire.
 	sse.WriteJSONString(t.bw, call.Arguments)
 	t.bw.WriteString(`}}]},"finish_reason":null}]}`)
 	t.bw.WriteString("\n\n")
@@ -667,8 +600,6 @@ func (t *ResponsesToOpenAIChatWriter) emitFinalChunk(finishReason string) error 
 	return t.flushEvent()
 }
 
-// writeUsageJSON serializes chat-shape usage, including the cached-token and
-// reasoning-token details Responses reports.
 func (t *ResponsesToOpenAIChatWriter) writeUsageJSON() {
 	t.bw.WriteString(`,"usage":`)
 	t.bw.Write(chatUsageJSON(t.UsageFacts()))
@@ -680,9 +611,6 @@ func (t *ResponsesToOpenAIChatWriter) emitDone() error {
 	return t.flushEvent()
 }
 
-// emitStreamError returns pre-output failures to dispatch so it can fall back;
-// after output starts it emits an in-stream error frame, since the response is
-// already committed.
 func (t *ResponsesToOpenAIChatWriter) emitStreamError(errType, msg string) error {
 	t.terminalFailure = &providers.UpstreamErrorResponse{
 		Status: responsesFailureStatus(errType),
@@ -737,5 +665,4 @@ var (
 	_ http.Flusher        = (*ResponsesToOpenAIChatWriter)(nil)
 )
 
-// UpstreamError preserves terminal failure even when its client error frame was written successfully.
 func (t *ResponsesToOpenAIChatWriter) UpstreamError() error { return t.terminalFailure }

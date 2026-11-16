@@ -9,19 +9,11 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// ResponsesToAnthropicResponse converts a non-streaming OpenAI Responses
-// `response` object into a non-streaming Anthropic Messages response. The
-// Responses `output` array carries reasoning / message / function_call items,
-// which map to Anthropic thinking / text / tool_use content blocks.
 func ResponsesToAnthropicResponse(body []byte, requestModel, reasoningScope string) ([]byte, error) {
 	out, _, err := responsesToAnthropicResponse(body, requestModel, reasoningScope, nil, usage.ParseOpenAI(gjson.GetBytes(body, "usage")), 1)
 	return out, err
 }
 
-// responsesToAnthropicResponse is the validator-aware variant: tool_use
-// inputs are checked (and safely repaired) against the request's tool schemas
-// via toolValidator, with one toolcheck.Issue returned per offending block. A
-// nil validator degrades to syntax-check-only.
 func responsesToAnthropicResponse(body []byte, requestModel, reasoningScope string, toolValidator *toolcheck.Validator, facts usage.Facts, clientInputScale float64) ([]byte, []toolcheck.Issue, error) {
 	if !gjson.ValidBytes(body) {
 		return nil, nil, fmt.Errorf("unmarshal responses response: invalid JSON")
@@ -147,8 +139,6 @@ func responsesToAnthropicResponse(body []byte, requestModel, reasoningScope stri
 	return jw.Bytes(), issues, nil
 }
 
-// joinReasoningSummary flattens a Responses reasoning `summary` array (items of
-// {type:"summary_text", text}) into a single string.
 func joinReasoningSummary(summary gjson.Result) string {
 	if !summary.Exists() || !summary.IsArray() {
 		return ""
@@ -163,8 +153,6 @@ func joinReasoningSummary(summary gjson.Result) string {
 	return joinNonEmpty(parts)
 }
 
-// ResponsesToAnthropicError maps a Responses-API error body to an Anthropic
-// error envelope.
 func ResponsesToAnthropicError(body []byte) []byte {
 	errType := gjson.GetBytes(body, "error.type").String()
 	errMsg := gjson.GetBytes(body, "error.message").String()
