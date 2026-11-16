@@ -19,14 +19,10 @@ const (
 	responsesMaxToolAliasBytes    = 64
 )
 
-// ResponsesConversionOptions selects opt-in Responses ingress projections.
-// The zero value preserves ConvertResponsesToChatCompletions behavior.
 type ResponsesConversionOptions struct {
 	PortableCodex bool
 }
 
-// ConvertResponsesToChatCompletionsWithOptions projects a Responses request
-// into Chat Completions using the explicitly requested compatibility mode.
 func ConvertResponsesToChatCompletionsWithOptions(body []byte, options ResponsesConversionOptions) (ResponsesConversion, error) {
 	if !options.PortableCodex {
 		return ConvertResponsesToChatCompletions(body)
@@ -100,15 +96,10 @@ func codexFeedbackSkillInstructions(content gjson.Result) bool {
 	return codexDeveloperMarkerContent(content, "<skill>", "</skill>")
 }
 
-// Codex records a /model switch as a retained developer message wrapped in
-// <model_switch> markers; the model it launched with leaves no such trace.
 func codexModelSwitchPresent(input gjson.Result) bool {
 	return codexDeveloperMarkerPresent(input, "<model_switch>", "</model_switch>")
 }
 
-// A Codex session whose catalog came from model_catalog_url records a /model
-// switch as <model_instructions>. Other base-instruction changes reuse the
-// marker, so it is only a switch for clients that loaded that catalog.
 func codexModelInstructionsPresent(input gjson.Result) bool {
 	return codexDeveloperMarkerPresent(input, "<model_instructions>", "</model_instructions>")
 }
@@ -301,8 +292,6 @@ func (c *portableCodexResponsesConverter) collectToolArray(tools gjson.Result, n
 		case "custom":
 			c.collectCustomTool(tool, namespace, toolPath)
 		case "web_search", "web_search_preview":
-			// OpenAI executes hosted search itself; scoped CitationsOrSearch keeps
-			// turns that actually searched on OpenAI, so other targets drop it.
 			c.hostedWebSearch = true
 			c.report("responses_hosted_web_search_dropped", "dropped", toolPath)
 		default:
@@ -341,7 +330,6 @@ func (c *portableCodexResponsesConverter) collectFunctionTool(tool gjson.Result,
 		hadDefinitions := schemaContainsDefinitionsOrRefs(schema)
 		schema = inlineSchemaDefs(schema)
 		if schemaContainsDefinitionsOrRefs(schema) {
-			// Unresolvable refs can't be made self-contained; keep native.
 			c.markNativeOnly("responses_function_schema_native_only", path+".parameters")
 			return
 		}
@@ -406,12 +394,6 @@ func (c *portableCodexResponsesConverter) convertInput(input gjson.Result) []map
 		return messages
 	}
 
-	// Chat role:tool content is text-only on most targets, so tool-output
-	// images ride in a user message after the whole run of tool results;
-	// emitting it mid-run would separate later results from their calls.
-	// Images are grouped and labelled per call ID so they stay
-	// distinguishable from user-authored content; code-mode notify() repeats
-	// a call ID across outputs, which must share one label.
 	var toolImageCalls []string
 	toolImages := map[string][]map[string]any{}
 	flushToolImages := func() {
@@ -486,11 +468,7 @@ func (c *portableCodexResponsesConverter) convertReasoning(item gjson.Result, pa
 		c.markNativeOnly("responses_reasoning_summary_native_only", path+".summary")
 		return
 	}
-	// A summary is a display digest of the encrypted reasoning beside it, so
-	// it is dropped with that reasoning rather than pinning the session to
-	// OpenAI. Native OpenAI dispatch still forwards the original body.
 	content := item.Get("content")
-	// Codex can serialize an empty optional content field as null.
 	if content.Type != gjson.Null && (!content.IsArray() || len(content.Array()) > 0) {
 		c.result.Requirements.ReasoningReplay = true
 		c.markNativeOnly("responses_reasoning_content_native_only", path+".content")
@@ -527,14 +505,10 @@ func (c *portableCodexResponsesConverter) convertMessage(item gjson.Result, path
 		if role != "assistant" || phase.Type != gjson.String || (phase.Str != "commentary" && phase.Str != "final_answer") {
 			c.markNativeOnly("responses_message_phase_native_only", path+".phase")
 		} else {
-			// Chat Completions has no equivalent field. The phase only classifies
-			// already-visible assistant text for Codex's presentation layer.
 			c.report("responses_message_phase_dropped", "dropped", path+".phase")
 		}
 	}
 	if role == "developer" {
-		// Responses Lite sends base instructions as developer-role messages;
-		// project to system for Chat-only provider compatibility.
 		role = "system"
 		c.report("responses_developer_message_projected", "projected", path+".role")
 	}
@@ -557,8 +531,6 @@ func (c *portableCodexResponsesConverter) convertMessageContent(content gjson.Re
 			text = feedbackFooterPattern.ReplaceAllString(text, "")
 		}
 		if text == "" {
-			// Router-owned text can be the only content after ingress markers are
-			// stripped. Omitting the shell prevents empty Anthropic text blocks.
 			return nil, false
 		}
 		return text, true
@@ -591,8 +563,6 @@ func (c *portableCodexResponsesConverter) convertMessageContent(content gjson.Re
 				parts = append(parts, map[string]any{"type": "text", "text": text})
 			}
 		case "input_image":
-			// Only a user's inline image has a portable Chat equivalent; a file_id
-			// reference or an assistant-authored image stays on the native wire.
 			image, ok := portableResponsesImage(part)
 			if role != "user" || !ok {
 				c.markNativeOnly("responses_message_content_native_only", partPath)
@@ -627,8 +597,6 @@ func (c *portableCodexResponsesConverter) convertAgentMessage(item gjson.Result,
 			textParts = append(textParts, text)
 			hasPlainText = hasPlainText || strings.TrimSpace(text) != ""
 		case "encrypted_content":
-			// Unlike a reasoning digest, plaintext here can be only the delivery
-			// header. The encrypted block contains the task itself.
 			c.markNativeOnly("responses_agent_message_native_only", partPath)
 			encrypted = true
 		default:
@@ -641,14 +609,10 @@ func (c *portableCodexResponsesConverter) convertAgentMessage(item gjson.Result,
 		return nil, false
 	}
 	if encrypted {
-		// Native-only dispatch forwards the original bytes, so this header
-		// (message type and task name) only feeds routing features.
 		c.report("responses_agent_message_header_projected", "projected", path)
 		return map[string]any{"role": EscalationRoleUser, "content": strings.TrimSpace(strings.Join(textParts, "\n"))}, true
 	}
 	c.report("responses_agent_message_projected", "projected", path)
-	// This is communication delivered to the receiving agent, not its own
-	// generated answer. Preserve the supplied attribution and task verbatim.
 	return map[string]any{"role": EscalationRoleUser, "content": strings.Join(textParts, "\n")}, true
 }
 
@@ -749,9 +713,6 @@ func (c *portableCodexResponsesConverter) convertToolOutputContent(output gjson.
 	return strings.Join(parts, "\n"), images, true, true
 }
 
-// portableResponsesImage projects a Responses input_image part to a Chat
-// image_url part. A file_id reference has no Chat equivalent; only inline URLs
-// project.
 func portableResponsesImage(part gjson.Result) (map[string]any, bool) {
 	url := part.Get("image_url")
 	if url.Type != gjson.String || url.Str == "" {
@@ -786,8 +747,6 @@ func (c *portableCodexResponsesConverter) copyRequestControls(root gjson.Result,
 		out["metadata"] = json.RawMessage(metadata.Raw)
 	}
 	if serviceTier := root.Get("service_tier"); serviceTier.Exists() {
-		// OriginalBody retains this OpenAI-only hint for native OpenAI dispatch.
-		// The portable body may be sent to any HMM-selected Chat provider.
 		c.report("responses_service_tier_dropped", "dropped", "service_tier")
 	}
 	if promptCacheKey := root.Get("prompt_cache_key"); promptCacheKey.Exists() {
@@ -915,8 +874,6 @@ func (c *portableCodexResponsesConverter) report(code, action, path string) {
 	c.result.Report = append(c.result.Report, ResponseTransform{Code: code, Action: action, Path: path})
 }
 
-// requireNativeForForcedWebSearch keeps a turn native when its tool choice can
-// only be satisfied by the hosted search the portable projection drops.
 func (c *portableCodexResponsesConverter) requireNativeForForcedWebSearch(toolChoice gjson.Result) {
 	if !c.hostedWebSearch {
 		return
@@ -954,13 +911,9 @@ func sanitizeResponsesToolAlias(name string) string {
 		out.WriteByte('_')
 	}
 	alias := out.String()
-	// Names shaped like generated aliases are rewritten too, so an unchanged
-	// name can never equal another tool's alias.
 	if alias == name && len(alias) <= responsesMaxToolAliasBytes && !responsesGeneratedToolAliasPattern.MatchString(name) {
 		return alias
 	}
-	// Hash the original so names sharing a prefix or differing only in
-	// rewritten characters keep distinct, reversible aliases.
 	sum := sha256.Sum256([]byte(name))
 	suffix := fmt.Sprintf("_%x", sum[:responsesToolAliasHashBytes])
 	if maxBase := responsesMaxToolAliasBytes - len(suffix); len(alias) > maxBase {
@@ -1030,8 +983,6 @@ func schemaContainsDefinitionsOrRefs(node any) bool {
 				return true
 			}
 			for key, child := range typed {
-				// Keys inside properties are user field names, not schema
-				// keywords. Recurse into each property's schema instead.
 				if key == "properties" {
 					if properties, ok := child.(map[string]any); ok {
 						for _, propertySchema := range properties {

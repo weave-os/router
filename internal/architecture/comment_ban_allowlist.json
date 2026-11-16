@@ -6,20 +6,12 @@
       "banned_lines": 343
     },
     {
-      "package": "internal/api/admin",
-      "banned_lines": 303
-    },
-    {
       "package": "internal/auth",
       "banned_lines": 883
     },
     {
       "package": "internal/billing",
       "banned_lines": 294
-    },
-    {
-      "package": "internal/dispatch",
-      "banned_lines": 278
     },
     {
       "package": "internal/policyregistry",
@@ -54,16 +46,8 @@
       "banned_lines": 537
     },
     {
-      "package": "internal/router/policy",
-      "banned_lines": 473
-    },
-    {
       "package": "internal/router/sessionpin",
       "banned_lines": 211
-    },
-    {
-      "package": "internal/server/middleware",
-      "banned_lines": 315
     },
     {
       "package": "internal/subscriptions/entitlement",
@@ -71,7 +55,7 @@
     },
     {
       "package": "internal/translate",
-      "banned_lines": 3422
+      "banned_lines": 2920
     }
   ]
 }

@@ -11,18 +11,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// internalUpstreamModelsRequest names the saved key to list models for. The
-// control plane owns the installation row, so it passes the installation ID it
-// already holds rather than the router re-deriving one from a session.
 type internalUpstreamModelsRequest struct {
 	InstallationID string `json:"installation_id" binding:"required"`
 	KeyID          string `json:"key_id" binding:"required"`
 }
 
-// InternalListUpstreamModelsHandler lists the models a saved BYOK endpoint
-// publishes, for the Weave control plane. Key-pair and workload-identity
-// credentials are minted per request and never leave the router, so the
-// control plane cannot make this call itself.
 func InternalListUpstreamModelsHandler(authSvc *auth.Service, proxySvc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req internalUpstreamModelsRequest

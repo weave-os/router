@@ -16,13 +16,10 @@ import (
 )
 
 const (
-	// maxTaskDomainPreviewBytes bounds every policy and evidence document in one batch.
 	maxTaskDomainPreviewBytes = 16 << 20
-	// maxTaskDomainPreviewItems covers every serving lane of one control-plane read.
 	maxTaskDomainPreviewItems = 64
 )
 
-// TaskDomainPreviewStatus explains whether one batch item could be scored.
 type TaskDomainPreviewStatus string
 
 const (
@@ -33,11 +30,10 @@ const (
 )
 
 type taskDomainPreviewItemRequest struct {
-	Policy   json.RawMessage `json:"policy"`
-	Evidence json.RawMessage `json:"evidence"`
-	Cluster  string          `json:"cluster"`
-	Harness  string          `json:"harness"`
-	// SubscriptionProviders previews ladder selection; empty means none in play.
+	Policy                json.RawMessage     `json:"policy"`
+	Evidence              json.RawMessage     `json:"evidence"`
+	Cluster               string              `json:"cluster"`
+	Harness               string              `json:"harness"`
 	SubscriptionProviders []string            `json:"subscription_providers,omitempty"`
 	Domains               []taskdomain.Domain `json:"domains"`
 }
@@ -62,11 +58,6 @@ type taskDomainPreviewResponse struct {
 	Items           []taskDomainPreviewItem  `json:"items"`
 }
 
-// InternalTaskDomainPreviewHandler scores published policies and their
-// evidence with this worker's task-domain recipe and selector, so the control
-// plane displays exactly what serving computes instead of a second
-// implementation. Pure computation over caller-supplied immutable documents;
-// one request carries every lane of a control-plane read.
 func InternalTaskDomainPreviewHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req taskDomainPreviewRequest
@@ -86,8 +77,6 @@ func InternalTaskDomainPreviewHandler() gin.HandlerFunc {
 			}
 			response.Items = append(response.Items, previewed)
 		}
-		// One line per request: the dashboard polls, and stale lanes legitimately
-		// reject evidence during a roll-out. Per-item causes are logged at debug.
 		if len(unscored) > 0 {
 			observability.FromGin(c).Warn("Task-domain preview items not scored",
 				"items", len(req.Items),
@@ -100,8 +89,6 @@ func InternalTaskDomainPreviewHandler() gin.HandlerFunc {
 	}
 }
 
-// decodeTaskDomainPreviewRequest reads the whole bounded body so trailing
-// content cannot slip past the size limit.
 func decodeTaskDomainPreviewRequest(c *gin.Context, req *taskDomainPreviewRequest) error {
 	body, err := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, maxTaskDomainPreviewBytes))
 	if err != nil {

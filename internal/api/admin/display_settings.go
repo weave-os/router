@@ -12,31 +12,21 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// displaySettingsResponse is the per-installation toggle set read by the installer and statusline.
 type displaySettingsResponse struct {
-	HideTerminalSurfaces bool `json:"hide_terminal_surfaces"`
-	// DisconnectedPlans lists the providers of the caller's linked plans that need a fresh login.
-	DisconnectedPlans []auth.SubscriptionProvider `json:"disconnected_plans"`
+	HideTerminalSurfaces bool                        `json:"hide_terminal_surfaces"`
+	DisconnectedPlans    []auth.SubscriptionProvider `json:"disconnected_plans"`
 }
 
-// SubscriptionAccountLister lists the linked plans a subscription owner draws on.
 type SubscriptionAccountLister interface {
 	ListSubscriptionAccounts(context.Context, auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error)
 }
 
-// CallerResolver attributes a display-settings request to its router user, the same way inference requests are.
 type CallerResolver func(c *gin.Context) context.Context
 
-// InstallationExperimentChecker answers for callers that resolve to no router user; implementations
-// should report true when they cannot tell, so an unidentified subject stays hidden.
 type InstallationExperimentChecker interface {
 	InstallationBlindExperimentEnabled(ctx context.Context, installationID string) bool
 }
 
-// DisplaySettingsHandler returns the calling installation's display toggles (scoped to the caller by the rk_ bearer key).
-// Blind experiment subjects always get hidden surfaces so neither arm learns it is being routed. A caller
-// that cannot be attributed to a router user is hidden whenever the installation runs an experiment,
-// because inference may still identify it as a subject from the request body.
 func DisplaySettingsHandler(accounts SubscriptionAccountLister, resolveCaller CallerResolver, experiments InstallationExperimentChecker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation := middleware.InstallationFrom(c)
@@ -59,7 +49,6 @@ func DisplaySettingsHandler(accounts SubscriptionAccountLister, resolveCaller Ca
 	}
 }
 
-// disconnectedPlans fails open to an empty list: a missing warning must not break the display toggles.
 func disconnectedPlans(c *gin.Context, accounts SubscriptionAccountLister) []auth.SubscriptionProvider {
 	providers := []auth.SubscriptionProvider{}
 	owner := middleware.SubscriptionOwnerFrom(c)
