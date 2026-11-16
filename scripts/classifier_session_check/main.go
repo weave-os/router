@@ -1,5 +1,3 @@
-// Command classifier_session_check verifies locking and persistence on a migrated
-// disposable database. Set ROUTER_TEST_DATABASE_URL; it never reads production config.
 package main
 
 import (

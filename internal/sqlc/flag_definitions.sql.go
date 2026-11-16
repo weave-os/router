@@ -33,46 +33,6 @@ func (q *Queries) DeleteFlagDefinitionsNotIn(ctx context.Context, arg DeleteFlag
 	return err
 }
 
-const listFlagDefinitions = `-- name: ListFlagDefinitions :many
-SELECT key, kind, env_var, deployment_default, org_overridable, description, registry_version, updated_at
-FROM router.flag_definitions
-ORDER BY key
-`
-
-// ListFlagDefinitions
-//
-//	SELECT key, kind, env_var, deployment_default, org_overridable, description, registry_version, updated_at
-//	FROM router.flag_definitions
-//	ORDER BY key
-func (q *Queries) ListFlagDefinitions(ctx context.Context) ([]RouterFlagDefinition, error) {
-	rows, err := q.db.Query(ctx, listFlagDefinitions)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []RouterFlagDefinition
-	for rows.Next() {
-		var i RouterFlagDefinition
-		if err := rows.Scan(
-			&i.Key,
-			&i.Kind,
-			&i.EnvVar,
-			&i.DeploymentDefault,
-			&i.OrgOverridable,
-			&i.Description,
-			&i.RegistryVersion,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const upsertFlagDefinition = `-- name: UpsertFlagDefinition :exec
 INSERT INTO router.flag_definitions (
     key,

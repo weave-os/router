@@ -16,14 +16,10 @@ import (
 	"weave-os/router/internal/router/escalation"
 )
 
-// ReasonRenderer converts policy metadata into the compact internal reason
-// consumed by the existing pin/planner layer.
 type ReasonRenderer func(Result) string
 
 const UnscorableHMMDecisionReason = "hmm_no_user_boundary_policy"
 
-// SidecarRouterConfig is the small strategy-specific registration required to
-// plug a versioned policy sidecar into the shared routing harness.
 type SidecarRouterConfig struct {
 	Strategy                 router.Strategy
 	Unavailable              error
@@ -39,7 +35,6 @@ type SidecarRouterConfig struct {
 	SelectionHeadGeneration  int64
 }
 
-// SidecarRouter is a shared adapter for out-of-process policy routers.
 type SidecarRouter struct {
 	config           SidecarRouterConfig
 	decider          Decider
@@ -52,8 +47,6 @@ type SidecarRouter struct {
 	capabilitiesSet  bool
 }
 
-// NewSidecarRouter constructs a reusable policy adapter. Strategy packages
-// provide only a roster mapper/resolver and optional reason renderer.
 func NewSidecarRouter(config SidecarRouterConfig, decider Decider, resolver *Resolver) *SidecarRouter {
 	reporter, _ := decider.(OutcomeReporter)
 	feedbackReporter, _ := decider.(FeedbackReporter)
@@ -69,7 +62,6 @@ func NewSidecarRouter(config SidecarRouterConfig, decider Decider, resolver *Res
 	}
 }
 
-// WithCapabilities gates optional outcome/feedback callbacks based on the sidecar's negotiated support.
 func (r *SidecarRouter) WithCapabilities(capabilities Capabilities) *SidecarRouter {
 	r.capabilitiesMu.Lock()
 	defer r.capabilitiesMu.Unlock()
@@ -79,22 +71,18 @@ func (r *SidecarRouter) WithCapabilities(capabilities Capabilities) *SidecarRout
 	return r
 }
 
-// WithArmSelector installs a boot-time arm selector and negotiates the
-// classifier-only sidecar contract; cluster overrides still take precedence.
 func (r *SidecarRouter) WithArmSelector(selector ArmSelector) *SidecarRouter {
 	r.armSelector = selector
 	r.resolver.RouterSelectsArm()
 	return r
 }
 
-// WithClassifierIdentity binds every classification response to one immutable release.
 func (r *SidecarRouter) WithClassifierIdentity(artifactID, artifactSHA256 string) *SidecarRouter {
 	r.config.ClassifierArtifactID = artifactID
 	r.config.ClassifierArtifactSHA256 = artifactSHA256
 	return r
 }
 
-// WithClassifierReleaseIdentity binds v5 responses to one release, target selection and variant.
 func (r *SidecarRouter) WithClassifierReleaseIdentity(releaseID, selectionID, taxonomySHA256 string, variantID ClassifierVariantID, artifactID, artifactSHA256 string) *SidecarRouter {
 	r.config.ClassifierReleaseID = releaseID
 	r.config.ClassifierSelectionID = selectionID
@@ -105,8 +93,6 @@ func (r *SidecarRouter) WithClassifierReleaseIdentity(releaseID, selectionID, ta
 	return r
 }
 
-// WithSelectionPolicyIdentity binds telemetry to the same immutable release
-// snapshot that supplied this router's Go arm selector.
 func (r *SidecarRouter) WithSelectionPolicyIdentity(releaseID, policySHA256 string, headGeneration int64) *SidecarRouter {
 	r.config.SelectionPolicyReleaseID = releaseID
 	r.config.SelectionPolicySHA256 = policySHA256
@@ -114,16 +100,12 @@ func (r *SidecarRouter) WithSelectionPolicyIdentity(releaseID, policySHA256 stri
 	return r
 }
 
-// CurrentCapabilities returns the currently applied capability set.
 func (r *SidecarRouter) CurrentCapabilities() Capabilities {
 	r.capabilitiesMu.RLock()
 	defer r.capabilitiesMu.RUnlock()
 	return r.capabilities
 }
 
-// classifierReadsInteractionStateInputs is keyed by this strategy's own
-// package, so an interaction-state alternate never changes the inputs another
-// strategy's classifier receives.
 func (r *SidecarRouter) classifierReadsInteractionStateInputs(capabilities Capabilities) bool {
 	if r.config.ClassifierReleaseID != "" {
 		return true
@@ -159,7 +141,6 @@ func (r *SidecarRouter) ReportFeedback(ctx context.Context, payload map[string]i
 	return r.feedbackReporter.ReportFeedback(ctx, payload)
 }
 
-// ObserveEscalation forwards classifier-state observations to the bound revision.
 func (r *SidecarRouter) ObserveEscalation(ctx context.Context, request escalation.ObserveRequest) (escalation.ObserveResponse, error) {
 	observer, ok := r.decider.(escalation.Observer)
 	if !ok {
@@ -168,8 +149,6 @@ func (r *SidecarRouter) ObserveEscalation(ctx context.Context, request escalatio
 	return observer.ObserveEscalation(ctx, request)
 }
 
-// PreviewRoute resolves candidates and returns all arms chosen by the sidecar's
-// first nonempty ranked group without dispatching or lifecycle callbacks.
 func (r *SidecarRouter) PreviewRoute(ctx context.Context, req router.Request) (PreviewResult, error) {
 	strategy := r.config.Strategy
 	r.capabilitiesMu.RLock()
@@ -284,8 +263,6 @@ func (r *SidecarRouter) PreviewRoute(ctx context.Context, req router.Request) (P
 			return PreviewResult{}, fmt.Errorf("%s: preview returned duplicate roster id %q: %w", strategy, rosterID, r.config.Unavailable)
 		}
 		seen[rosterID] = struct{}{}
-		// The Go arm selector matches candidates by base ID and keeps the effort suffix
-		// (":high"); serving strips it the same way in BindingForSelection.
 		baseID, _ := splitEffort(rosterID)
 		if _, offered := eligibleCandidates[baseID]; !offered {
 			return PreviewResult{}, fmt.Errorf("%s: preview returned unknown roster id %q: %w", strategy, rosterID, r.config.Unavailable)
@@ -302,7 +279,6 @@ func (r *SidecarRouter) PreviewRoute(ctx context.Context, req router.Request) (P
 	return result, nil
 }
 
-// goSelectsArms reports a classifier-facts schema whose roster and arm come from the Go selector.
 func goSelectsArms(schemaVersion string) bool {
 	return schemaVersion == SchemaVersionV4 || schemaVersion == SchemaVersionV5
 }
@@ -415,7 +391,6 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	executionMode := ExecutionModeServing
 	if req.ShadowMode {
 		executionMode = ExecutionModeShadow
-		// Shadow decisions are operational comparisons, never learning events.
 		req.TrainingAllowed = false
 		req.DebugEnabled = false
 	}
@@ -491,9 +466,6 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	overrideArmID := res.ArmID
 	overrideRosterID := res.Model
 	overrideReason := router.SelectionOverrideNone
-	// reselected records that the served arm is the router's pick rather than the
-	// sidecar's, which is the only case where res.Provider legitimately names a
-	// different provider than the resolved binding.
 	reselected := false
 	var routerArmScoresByGroup map[string]map[string]float32
 	var selectionTrace SelectionTrace
@@ -545,14 +517,8 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		}
 	}
 
-	// Per-key cluster allowlist enforcement. ranked_fallback presence in the /route
-	// response is proof the sidecar supports it — boot-time capabilities can be
-	// stale after an upgrade. Missing ranked_fallback → fail open.
 	switch {
 	case req.ForceCluster != "":
-		// Returned unwrapped: the caller's dispatch classifier matches the typed
-		// error to a 400, and burying it under the strategy's unavailable sentinel
-		// would report a bad header as a sidecar outage.
 		outcome, err := ApplyClusterArmOverridesRequireMatch(req.ClusterArmOverrides, res.RankedFallback, resolved, overrideRosterID, req.ForceCluster)
 		if err != nil {
 			return router.Decision{}, err
@@ -564,8 +530,6 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 			overrideArmID = outcome.ArmID
 			overrideRosterID = outcome.RosterID
 		}
-		// Annotated even when the forced cluster is the one already selected,
-		// so telemetry can tell a constrained turn from a free one.
 		overrideReason = router.SelectionOverrideForceCluster
 		reselected = reselected || outcome.Changed || selectedForcedGroupWithPreference
 		observability.FromContext(ctx).Info("Forced cluster applied",
@@ -577,12 +541,8 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		res.PolicyGroup = outcome.Group
 	case len(req.ClusterArmOverrides) > 0 && len(res.RankedFallback) > 0 && (escalationDecision == nil || !escalationDecision.Constrained):
 		outcome := ApplyClusterArmOverrides(req.ClusterArmOverrides, res.RankedFallback, resolved, overrideRosterID)
-		// Only a configured allowlist supersedes the router's own selection; an
-		// unconstrained group walk would just re-derive the same ranked order.
 		if outcome.Applied && outcome.RosterID != "" && (outcome.Constrained || r.armSelector == nil) {
 			previousRosterID := overrideRosterID
-			// Use the resolved arm ID: on arm-enumerating resolvers a roster ID can
-			// be ambiguous (shared across providers) and absent from ByRosterID.
 			overrideArmID = outcome.ArmID
 			overrideRosterID = outcome.RosterID
 			res.PolicyGroup = outcome.Group
@@ -657,10 +617,6 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		reason += ":" + string(overrideReason)
 	}
 
-	// The sidecar builds DisplayMarker from its own pre-override pick; once the
-	// router reselects a different arm, that string names the wrong model.
-	// Drop it so routingMarkerFor() falls through to the generic path, which
-	// renders the actually-served binding.CatalogID instead.
 	displayMarker := res.DisplayMarker
 	if reselected {
 		displayMarker = ""
@@ -757,9 +713,6 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	}, nil
 }
 
-// RouteWithoutUserText resolves a command-only continuation against the same
-// eligible candidates and promoted roster as scored HMM turns, without asking
-// the classifier to score client-injected wrappers as user-authored text.
 func (r *SidecarRouter) RouteWithoutUserText(ctx context.Context, req router.Request) (router.Decision, error) {
 	if _, pinned := router.HonouredPolicyPin(ctx); pinned {
 		return router.Decision{}, router.ErrPolicyPinUnavailable
@@ -868,8 +821,6 @@ func (r *SidecarRouter) validateClassifierIdentity(artifactID, artifactSHA256 st
 	return nil
 }
 
-// validateClassifierReleaseIdentity fails a v5 result unless it was served by
-// the exact admitted release, selection, variant, taxonomy and variant artifact.
 func (r *SidecarRouter) validateClassifierReleaseIdentity(releaseID, selectionID string, variantID ClassifierVariantID, taxonomySHA256, artifactID, artifactSHA256 string) error {
 	if r.config.ClassifierReleaseID == "" {
 		return nil

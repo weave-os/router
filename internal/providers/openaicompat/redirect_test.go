@@ -29,7 +29,7 @@ func redirectFixture(t *testing.T) (upstream *httptest.Server, targetHit *atomic
 	}))
 	t.Cleanup(target.Close)
 	upstream = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, target.URL+r.URL.Path, http.StatusFound)
+		http.Redirect(w, r, target.URL, http.StatusFound)
 	}))
 	t.Cleanup(upstream.Close)
 	return upstream, &hit

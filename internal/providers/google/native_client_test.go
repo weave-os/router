@@ -172,3 +172,34 @@ func TestPassthrough_ErrorStatusLogsThroughContextLogger(t *testing.T) {
 	assert.Contains(t, logs.String(), `"request_id":"req-bound"`)
 	assert.Contains(t, logs.String(), `"status":400`)
 }
+
+func TestPassthrough_RewritesClientPathOntoV1Beta(t *testing.T) {
+	cases := []struct {
+		name       string
+		clientPath string
+		wantPath   string
+	}{
+		{name: "v1 prefix", clientPath: "/v1/models/gemini-2.5-pro:countTokens", wantPath: "/v1beta/models/gemini-2.5-pro:countTokens"},
+		{name: "bare models path", clientPath: "/models/gemini-2.5-pro", wantPath: "/v1beta/models/gemini-2.5-pro"},
+		{name: "already v1beta", clientPath: "/v1beta/models", wantPath: "/v1beta/models"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotPath, gotQuery string
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath, gotQuery = r.URL.Path, r.URL.RawQuery
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer upstream.Close()
+
+			clientReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, tc.clientPath+"?pageSize=5", nil)
+			prep := providers.PreparedRequest{Headers: make(http.Header)}
+
+			err := google.NewNativeClient("test-key", upstream.URL).Passthrough(context.Background(), prep, httptest.NewRecorder(), clientReq)
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantPath, gotPath)
+			assert.Equal(t, "pageSize=5", gotQuery)
+		})
+	}
+}

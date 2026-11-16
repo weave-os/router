@@ -8,11 +8,8 @@ import (
 	"sync"
 )
 
-// spoolFilePattern names the private temporary files backing captured bodies.
 const spoolFilePattern = "router-http-capture-body-*"
 
-// BodySpool stores captured body bytes in a private temporary file so capture
-// memory use stays bounded for large prompts and streamed responses.
 type BodySpool struct {
 	mu     sync.Mutex
 	file   *os.File
@@ -20,7 +17,6 @@ type BodySpool struct {
 	closed bool
 }
 
-// Write appends bytes without affecting the HTTP stream if local storage fails.
 func (spool *BodySpool) Write(body []byte) {
 	if len(body) == 0 {
 		return
@@ -48,7 +44,6 @@ func (spool *BodySpool) Write(body []byte) {
 	}
 }
 
-// Reader returns the captured prefix without changing the spool's write offset.
 func (spool *BodySpool) Reader() (io.Reader, error) {
 	spool.mu.Lock()
 	defer spool.mu.Unlock()
@@ -62,15 +57,12 @@ func (spool *BodySpool) Reader() (io.Reader, error) {
 	return io.NewSectionReader(spool.file, 0, fileInfo.Size()), nil
 }
 
-// Err reports a local-storage failure without changing the observed HTTP body.
 func (spool *BodySpool) Err() error {
 	spool.mu.Lock()
 	defer spool.mu.Unlock()
 	return spool.err
 }
 
-// Close releases the temporary body file after its exchange is recorded,
-// deleting it where the platform could not unlink an open file up front.
 func (spool *BodySpool) Close() error {
 	spool.mu.Lock()
 	defer spool.mu.Unlock()

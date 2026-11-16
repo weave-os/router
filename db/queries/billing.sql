@@ -188,25 +188,6 @@ org_month_spend AS (
 SELECT (SELECT balance_usd_micros FROM updated) AS balance_after_micros
 FROM ledger;
 
--- Paginated read for the dashboard ledger panel. Sorted newest-first so the
--- UI can render without an extra ORDER BY in Go.
--- name: ListOrgLedger :many
-SELECT
-    id,
-    organization_id,
-    delta_usd_micros,
-    notional_cost_micros,
-    balance_after_micros,
-    entry_type,
-    stripe_payment_intent_id,
-    router_request_id,
-    router_model,
-    created_at
-FROM router.organization_credit_ledger
-WHERE organization_id = @organization_id::varchar
-ORDER BY created_at DESC
-LIMIT @row_limit::int;
-
 -- Returns true if every table the billing debit path touches exists in the
 -- router schema. Used by the router boot-time health check so a
 -- missing-migration state disables billing rather than 500ing on every

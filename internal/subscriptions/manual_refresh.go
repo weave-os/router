@@ -21,8 +21,6 @@ type AccountRefresher interface {
 	RefreshAccount(context.Context, auth.SubscriptionOwner, string) (AccountRefreshResult, error)
 }
 
-// RefreshAccount only accepts a seat directly owned by the caller. Shared pool
-// eligibility does not authorize an operator to rotate somebody else's login.
 func (r *Runtime) RefreshAccount(ctx context.Context, owner auth.SubscriptionOwner, accountID string) (AccountRefreshResult, error) {
 	accounts, err := r.store.ListSubscriptionAccounts(ctx, owner)
 	if err != nil {
@@ -62,8 +60,6 @@ func (r *Runtime) manualRefreshError(ctx context.Context, op refreshOperation, h
 	if reloadErr == nil {
 		return account, r.releaseRefreshLease(ctx, op.owner, op.account.ID, holder.leaseID, nil)
 	}
-	// Operator maintenance must not replace a quota reset with an auth cooldown
-	// or disable a seat whose existing access token may still work.
 	observability.FromContext(ctx).Warn("Requested subscription credential refresh failed", "account_id", op.account.ID,
 		"provider", op.account.Provider, "reason", RefreshReasonManual, "token_refresh_version", *op.afterVersion, "err", refreshErr)
 	return Account{}, r.releaseRefreshLease(ctx, op.owner, op.account.ID, holder.leaseID, refreshErr)

@@ -98,10 +98,16 @@ The Test workflow now follows the same policy as Smoke. Before this change,
 eleven overlapping stale Test runs in the inspected sample consumed 23.1
 runner-minutes after a newer commit existed.
 
-The concurrency group is keyed by PR number, falling back to the ref for push
-runs, with `cancel-in-progress: true`. If Test later gains scheduled or manual
+The concurrency group is keyed by PR number, with `cancel-in-progress` only for
+`pull_request` events. Push runs on main are keyed by commit SHA and never
+cancelled: a cancelled sub-job fails the `Test` and `Go checks` fan-in gates, so
+a superseded main run would report a red commit although nothing failed.
+GitHub also replaces a pending run in the same group even without
+`cancel-in-progress`, which is why main needs a per-commit group. Every main
+commit therefore pays for a full run. If Test later gains scheduled or manual
 triggers, keep those in separate groups where cancellation would change their
-semantics.
+semantics. `.github/tests/workflow-concurrency.test.mjs` checks this policy for
+every workflow.
 
 ### 5. Remove real retry delays from proxy tests (implemented)
 

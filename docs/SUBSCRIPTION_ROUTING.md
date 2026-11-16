@@ -342,3 +342,9 @@ No token material is logged. Use these fields to distinguish a renewed rolling
 lifetime from a hard session cutoff. A six-day canary is an experiment based on
 observed incidents, not a claim about OpenAI's session policy. Keep rollout scoped
 until real provider behavior across the suspected boundary is observed.
+
+The canary is owned by the Credential Brokerage maintainers. After it crosses the
+observed weekly boundary, decide between promotion and removal; disable the
+controls sooner if refresh failures increase or the issuer enforces a hard
+session cutoff. JWT issuance only schedules a refresh; it never grants
+authorization.

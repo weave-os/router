@@ -1,13 +1,16 @@
 package subscriptions_test
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions"
 
@@ -221,4 +224,39 @@ func TestManagerDoesNotCrossOwnerOrProviderPools(t *testing.T) {
 func mustLeaseError(p *subscriptions.Pool, provider subscriptions.Provider) error {
 	_, _, err := p.Lease(context.Background(), provider, "", nil)
 	return err
+}
+
+func TestPoolPanickingRefresherReleasesWaitingLeases(t *testing.T) {
+	p := subscriptions.NewPool("user-a", subscriptions.ProviderClaude, nil)
+	require.NoError(t, p.Upsert(subscriptions.Account{ID: "claude", OwnerID: "user-a", Provider: subscriptions.ProviderClaude, Enabled: true}))
+	started := make(chan struct{})
+	unblock := make(chan struct{})
+	var once sync.Once
+	refresh := func(context.Context, subscriptions.Account) (subscriptions.Account, error) {
+		once.Do(func() { close(started) })
+		<-unblock
+		panic("synthetic-refresh-token")
+	}
+	var logs bytes.Buffer
+	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&logs, nil)))
+	errs := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, _, err := p.Lease(ctx, subscriptions.ProviderClaude, "", refresh)
+			errs <- err
+		}()
+	}
+	<-started
+	close(unblock)
+	for range 2 {
+		select {
+		case err := <-errs:
+			require.Error(t, err)
+			assert.NotContains(t, err.Error(), "synthetic-refresh-token")
+		case <-time.After(5 * time.Second):
+			t.Fatal("a panicking refresher left a lease waiting")
+		}
+	}
+	assert.Contains(t, logs.String(), "Subscription refresh panicked")
+	assert.NotContains(t, logs.String(), "synthetic-refresh-token")
 }

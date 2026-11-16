@@ -1,0 +1,61 @@
+{
+  "schema_version": "comment_ban_allowlist_v1",
+  "packages": [
+    {
+      "package": "cmd/router",
+      "banned_lines": 343
+    },
+    {
+      "package": "internal/auth",
+      "banned_lines": 883
+    },
+    {
+      "package": "internal/billing",
+      "banned_lines": 285
+    },
+    {
+      "package": "internal/policyregistry",
+      "banned_lines": 491
+    },
+    {
+      "package": "internal/postgres",
+      "banned_lines": 320
+    },
+    {
+      "package": "internal/providers",
+      "banned_lines": 352
+    },
+    {
+      "package": "internal/providers/httputil",
+      "banned_lines": 214
+    },
+    {
+      "package": "internal/proxy",
+      "banned_lines": 5938
+    },
+    {
+      "package": "internal/requestcontext",
+      "banned_lines": 212
+    },
+    {
+      "package": "internal/router",
+      "banned_lines": 408
+    },
+    {
+      "package": "internal/router/catalog",
+      "banned_lines": 537
+    },
+    {
+      "package": "internal/router/sessionpin",
+      "banned_lines": 211
+    },
+    {
+      "package": "internal/subscriptions/entitlement",
+      "banned_lines": 239
+    },
+    {
+      "package": "internal/translate",
+      "banned_lines": 2920
+    }
+  ]
+}

@@ -25,7 +25,7 @@ func runOrgMonthlyCap(t *testing.T, externalID string, repo *stubBillingRepo) (*
 	svc := billing.NewService(repo)
 	engine := gin.New()
 	reached := false
-	engine.GET("/probe", func(c *gin.Context) {
+	engine.GET("/v1/messages", func(c *gin.Context) {
 		if externalID != "" {
 			withInstallation(c, externalID)
 		}
@@ -37,7 +37,7 @@ func runOrgMonthlyCap(t *testing.T, externalID string, repo *stubBillingRepo) (*
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/messages", nil)
 	engine.ServeHTTP(w, req)
 	return w, reached
 }

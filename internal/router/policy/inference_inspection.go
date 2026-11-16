@@ -10,11 +10,8 @@ import (
 	"weave-os/router/internal/router/catalog"
 )
 
-// maxProjectedAlternatives bounds the fallback list an inspection response
-// carries; the total is reported separately so nothing is silently dropped.
 const maxProjectedAlternatives = 8
 
-// TargetProjection is the content-free view of one authorized binding.
 type TargetProjection struct {
 	CatalogID    string `json:"catalog_id"`
 	Provider     string `json:"provider"`
@@ -23,14 +20,12 @@ type TargetProjection struct {
 	Effort       string `json:"effort,omitempty"`
 }
 
-// DeploymentTargetProjection reports the boot-validated override for one purpose.
 type DeploymentTargetProjection struct {
 	CatalogID string `json:"catalog_id"`
 	Provider  string `json:"provider,omitempty"`
 	Effort    string `json:"effort,omitempty"`
 }
 
-// DeploymentPolicyProjection is one purpose as this deployment can serve it.
 type DeploymentPolicyProjection struct {
 	Enabled           bool                        `json:"enabled"`
 	Purpose           Purpose                     `json:"purpose"`
@@ -39,14 +34,10 @@ type DeploymentPolicyProjection struct {
 	SelectionStrategy SelectionStrategy           `json:"selection_strategy"`
 	MigrationStatus   MigrationStatus             `json:"migration_status"`
 	DeploymentTarget  *DeploymentTargetProjection `json:"deployment_target,omitempty"`
-	// CandidateBindings lists the deployment-available bindings for fixed and
-	// hard-pinned policies. Router-selected policies report only a count.
-	CandidateBindings []TargetProjection `json:"candidate_bindings,omitempty"`
-	RoutableModels    int                `json:"routable_models,omitempty"`
+	CandidateBindings []TargetProjection          `json:"candidate_bindings,omitempty"`
+	RoutableModels    int                         `json:"routable_models,omitempty"`
 }
 
-// DeploymentProjection is the deployment-scoped inspection view: which
-// providers are configured and how each purpose resolves against them.
 type DeploymentProjection struct {
 	SchemaVersion      string                       `json:"schema_version"`
 	RegistryRevision   string                       `json:"registry_revision"`
@@ -55,8 +46,6 @@ type DeploymentProjection struct {
 	Policies           []DeploymentPolicyProjection `json:"policies"`
 }
 
-// DeploymentProjection renders the registry against validated deployment facts.
-// It never reads credentials; AvailableProviders carries names only.
 func (r Registry) DeploymentProjection(config DeploymentPolicyConfig) DeploymentProjection {
 	providers := make([]string, 0, len(config.AvailableProviders))
 	for provider := range config.AvailableProviders {
@@ -117,7 +106,6 @@ func (r Registry) DeploymentProjection(config DeploymentPolicyConfig) Deployment
 	}
 }
 
-// PlanProvenanceProjection is the safe subset of plan provenance.
 type PlanProvenanceProjection struct {
 	SelectionStrategy SelectionStrategy `json:"selection_strategy"`
 	OverrideSource    OverrideSource    `json:"override_source,omitempty"`
@@ -125,8 +113,6 @@ type PlanProvenanceProjection struct {
 	RosterID          string            `json:"roster_id,omitempty"`
 }
 
-// PlanProjection is a resolved plan rendered for inspection: identity,
-// authorization, and a bounded fallback list.
 type PlanProjection struct {
 	Purpose           Purpose                  `json:"purpose"`
 	DispatchClass     DispatchClass            `json:"dispatch_class"`
@@ -143,7 +129,6 @@ type PlanProjection struct {
 	Provenance        PlanProvenanceProjection `json:"provenance"`
 }
 
-// Projection renders the plan without candidate scores or request content.
 func (p ResolvedPlan) Projection() PlanProjection {
 	alternatives := p.AlternativeTargets()
 	projected := make([]TargetProjection, 0, min(len(alternatives), maxProjectedAlternatives))
@@ -183,7 +168,6 @@ func projectTarget(target inference.Target) TargetProjection {
 	}
 }
 
-// ResolutionErrorProjection is the bounded, content-free failure shape.
 type ResolutionErrorProjection struct {
 	Code      ResolutionErrorCode `json:"code"`
 	Purpose   Purpose             `json:"purpose,omitempty"`
@@ -193,9 +177,6 @@ type ResolutionErrorProjection struct {
 	Message   string              `json:"message"`
 }
 
-// ProjectResolutionError renders a resolver failure for inspection callers.
-// Errors that are not typed resolution failures are reported without detail so
-// an internal message never leaks through the API.
 func ProjectResolutionError(err error) (ResolutionErrorProjection, bool) {
 	var resolution *ResolutionError
 	if !errors.As(err, &resolution) {
@@ -211,9 +192,6 @@ func ProjectResolutionError(err error) (ResolutionErrorProjection, bool) {
 	}, true
 }
 
-// InspectionRequest is the content-free input to a resolution preview. Model
-// is the catalog ID a caller proposes; router-selected purposes require it
-// because no live routing decision exists for an inspection call.
 type InspectionRequest struct {
 	Purpose  Purpose         `json:"purpose"`
 	Model    string          `json:"model,omitempty"`
@@ -222,10 +200,6 @@ type InspectionRequest struct {
 	Budget   *BudgetOverride `json:"budget,omitempty"`
 }
 
-// Inspect previews how a purpose would resolve in this deployment. Fixed and
-// hard-pinned purposes run the real resolver with an optional request override;
-// router-selected purposes adopt the proposed model over its deployment
-// bindings exactly as a served request would.
 func (r *PlanResolver) Inspect(request InspectionRequest, config DeploymentPolicyConfig) (ResolvedPlan, error) {
 	spec, found := r.registry.Spec(request.Purpose)
 	if !found {

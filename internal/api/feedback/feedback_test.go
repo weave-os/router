@@ -152,6 +152,39 @@ func TestSubmitHandler_RejectsInvalidRating(t *testing.T) {
 	assert.Empty(t, repo.upserts)
 }
 
+func TestSubmitHandler_RejectsOversizedBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	signer := token.NewSigner("secret", time.Hour)
+	repo := &fakeFeedbackRepo{}
+	engine := gin.New()
+	engine.POST("/v1/feedback/link", feedbackapi.SubmitHandler(newService(repo, signer)))
+
+	tok := signer.Mint("inst-1", "org-1", "req-1", "")
+	body := `{"token":"` + tok + `","rating":"up","comment":"` + strings.Repeat("x", 64*1024) + `"}`
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/feedback/link", strings.NewReader(body)))
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Empty(t, repo.upserts)
+}
+
+func TestSubmitHandler_BlankCommentIsStoredAsNoComment(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	signer := token.NewSigner("secret", time.Hour)
+	repo := &fakeFeedbackRepo{}
+	engine := gin.New()
+	engine.POST("/v1/feedback/link", feedbackapi.SubmitHandler(newService(repo, signer)))
+
+	tok := signer.Mint("inst-1", "org-1", "req-1", "")
+	body := `{"token":"` + tok + `","rating":"up","comment":"   "}`
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/feedback/link", strings.NewReader(body)))
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, repo.upserts, 1)
+	assert.Nil(t, repo.upserts[0].Comment)
+}
+
 func TestSubmitHandler_InvalidTokenReturns404(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	signer := token.NewSigner("secret", time.Hour)

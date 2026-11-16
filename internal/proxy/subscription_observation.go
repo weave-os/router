@@ -99,8 +99,7 @@ func restrictToSubscriptionProviders(ctx context.Context, headers http.Header, e
 }
 
 // restrictToCustomerFundedProviders narrows enabled to customerFundedProviders,
-// the reach of a turn the organization cannot pay for: only the caller's plan
-// when a BYOK fee is owed that the organization cannot pay.
+// the reach of a turn the organization cannot pay for.
 func restrictToCustomerFundedProviders(ctx context.Context, headers http.Header, enabled map[string]struct{}) map[string]struct{} {
 	if billing.ByokFeeUnpayable(ctx) {
 		return restrictToSubscriptionProviders(ctx, headers, enabled)
@@ -155,11 +154,6 @@ func RequestPresentsCoveringSubscription(ctx context.Context, headers http.Heade
 	}
 }
 
-// RequestHasCustomerFunding reports whether a customer funding source can serve
-// the request without organization credits: a covering subscription or, unless
-// a BYOK fee is owed, a usable connected provider key. Admission flags such a
-// request unfunded instead of refusing it; the proxy serves it on that source
-// or refuses.
 func RequestHasCustomerFunding(ctx context.Context, headers http.Header, routePath string, byokFeeOwed bool) bool {
 	if RequestPresentsCoveringSubscription(ctx, headers, routePath) {
 		return true

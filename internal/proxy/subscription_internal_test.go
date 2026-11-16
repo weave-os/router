@@ -368,8 +368,7 @@ func TestResolveSummarizerCreds_ReturnsBYOK(t *testing.T) {
 }
 
 func TestSummarizerCredsFor_SkipsAKeyOwingAnUnpayableFee(t *testing.T) {
-	keys := []*auth.ExternalAPIKey{{ID: "k", Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-byok")}}
-	ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, keys)
+	ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{ID: "k", Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-byok")}})
 	require.NotNil(t, summarizerCredsFor(ctx, providers.ProviderAnthropic, http.Header{}), "a funded turn summarizes on the key")
 	unfunded := billing.NewService(nil).WithByokFeeRate(0.05).WithUnfunded(ctx, billing.SubscriptionOnlyCreditsDepleted)
 	assert.Nil(t, summarizerCredsFor(unfunded, providers.ProviderAnthropic, http.Header{}),

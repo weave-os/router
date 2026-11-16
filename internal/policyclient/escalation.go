@@ -13,7 +13,6 @@ import (
 
 const escalationResponseMaxBytes = 2 << 20
 
-// ObserveEscalation performs one optional observation without the policy retry loop.
 func (c *Client) ObserveEscalation(ctx context.Context, observation escalation.ObserveRequest) (escalation.ObserveResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
@@ -55,7 +54,6 @@ func (c *Client) ObserveEscalation(ctx context.Context, observation escalation.O
 	}
 	observed := envelope.ObserveResponse
 	if prediction := envelope.Prediction; prediction != nil {
-		// Missing/null fields must not turn into a valid all-zero prediction.
 		if prediction.Score == nil || prediction.Threshold == nil || prediction.Escalate == nil {
 			return escalation.ObserveResponse{}, fmt.Errorf("incomplete escalation prediction")
 		}

@@ -452,9 +452,6 @@ func (s *Service) runCompactionHandover(ctx context.Context, env *translate.Requ
 	return out
 }
 
-// summarizerCredsFor withholds the customer's key from a summary the
-// organization owes a BYOK fee it cannot pay for; the handover then keeps the
-// full history instead.
 func summarizerCredsFor(ctx context.Context, provider string, headers http.Header) *Credentials {
 	if billing.ByokFeeUnpayable(ctx) && BuildCredentialsMap(externalKeysFromContext(ctx))[provider] != nil {
 		return nil

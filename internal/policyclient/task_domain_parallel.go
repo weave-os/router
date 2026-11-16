@@ -8,7 +8,6 @@ import (
 	"weave-os/router/internal/router/taskdomain"
 )
 
-// WithTaskDomain joins optional task inference before Go consumes complexity facts.
 func WithTaskDomain(resolver taskdomain.Resolver) Option {
 	return func(c *Client) { c.taskDomain = resolver }
 }
