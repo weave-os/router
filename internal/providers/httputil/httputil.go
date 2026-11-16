@@ -27,9 +27,14 @@ var ErrUpstreamOutputStall = providers.ErrUpstreamOutputStall
 
 var ErrUpstreamSlowThroughput = providers.ErrUpstreamSlowThroughput
 
-var DefaultSSEIdleTimeout = idleTimeoutFromEnv("ROUTER_SSE_IDLE_TIMEOUT_SECONDS", 45*time.Second)
+const (
+	defaultSSEIdleBudget          = 45 * time.Second
+	defaultResponsesSSEIdleBudget = 90 * time.Second
+)
 
-var DefaultResponsesSSEIdleTimeout = idleTimeoutFromEnv("ROUTER_RESPONSES_SSE_IDLE_TIMEOUT_SECONDS", 90*time.Second)
+var DefaultSSEIdleTimeout = idleTimeoutFromEnv("ROUTER_SSE_IDLE_TIMEOUT_SECONDS", defaultSSEIdleBudget)
+
+var DefaultResponsesSSEIdleTimeout = idleTimeoutFromEnv("ROUTER_RESPONSES_SSE_IDLE_TIMEOUT_SECONDS", defaultResponsesSSEIdleBudget)
 
 var DefaultResponsesOutputStallTimeout = idleTimeoutFromEnv("ROUTER_RESPONSES_OUTPUT_STALL_TIMEOUT_SECONDS", 240*time.Second)
 

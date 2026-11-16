@@ -19,8 +19,8 @@ import (
 const awsIdleConnectionReaper = 350 * time.Second
 
 func TestByteIdleWatchdogsFireBeforeTheAWSIdleConnectionReaper(t *testing.T) {
-	assert.Less(t, DefaultSSEIdleTimeout, awsIdleConnectionReaper)
-	assert.Less(t, DefaultResponsesSSEIdleTimeout, awsIdleConnectionReaper)
+	assert.Less(t, defaultSSEIdleBudget, awsIdleConnectionReaper)
+	assert.Less(t, defaultResponsesSSEIdleBudget, awsIdleConnectionReaper)
 }
 
 func TestIntFromEnvLetsOperatorsDisableCountGuardsWithZero(t *testing.T) {
