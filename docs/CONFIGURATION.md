@@ -735,6 +735,9 @@ override, then organization override, then deployment default.
   published by a newer one.
 - `hmm_tool_result_hold` is an eval control owned by router policy: promote or
   remove it after the escalation benchmark comparison.
+- Routing code reads a flag through the `Resolve*` helpers in
+  `internal/proxy/flag_resolution.go`. Reading the deployment default off
+  `proxy.Service` directly silently ignores any organization override.
 
 ## Plan-aware subscription routing
 
@@ -827,6 +830,31 @@ cluster](#forcing-a-model-or-a-routing-cluster)).
 
 Excluding every provider that serves the models you route to leaves requests
 with nowhere to go (HTTP 503), so exclude deliberately.
+
+The control plane also keeps a deployment-wide list of models removed from
+automatic routing. Each replica serves it from a snapshot refreshed every
+minute, so an edit takes up to that long to reach every replica. A failed
+refresh keeps the previous snapshot, and a replica whose first read fails
+excludes nothing rather than refusing traffic. These are soft exclusions: the
+router never picks such a model, but an explicit force still serves it, and
+`/router-models` marks it separately from hard exclusions. A model whose
+overload circuit is open joins the same soft set.
+
+### Request-scoped model subset (`x-weave-allowed-models`)
+
+`x-weave-allowed-models` narrows one request to a comma-separated list of
+catalog IDs or aliases. The list is intersected with the installation's
+`allowed_models` and never widens it. Only installations with policy-header
+overrides enabled, or organizations with the `allowed_models_header` flag on,
+may send it; any other caller gets HTTP 403. The header is ignored, and the
+request routes normally, when its value is empty or whitespace-only, when the
+request has no installation, and on managed plans that have a serving
+profile. Otherwise an unknown entry, a list of only empty entries (such as
+`,`) or an empty intersection fails the request with HTTP 400 instead of
+falling back to the full roster. A narrowed decision's persisted reason gets the
+`allowlist_override:` prefix; a user force is a strict pin, ignores the subset
+and keeps its reason. Requests carrying the header bypass the semantic cache,
+because the subset is not part of the cache key.
 
 ## Forcing a model or a routing cluster
 
@@ -1015,6 +1043,16 @@ with routing decisions, token usage, cost estimates, and latency. Export is
 async/non-blocking; when `OTEL_EXPORTER_OTLP_ENDPOINT` is unset, OTel is
 fully disabled at zero runtime cost. Everything the router records leaves the
 process over OTLP only — there is no hardcoded analytics endpoint.
+
+Router-originated provider calls that are not the client's turn (switch
+handover, pre-compaction and compaction-handover summaries) are billed to the
+customer and recorded with span type `router.auxiliary_inference`, never
+`router.upstream`, so request counts and policy training data exclude them.
+Weave-funded overhead uses `router.platform_auxiliary_inference` and stays out
+of customer session cost. An auxiliary row's request id carries the same
+suffix as its credit-ledger debit, so the two join on `request_id`. A
+summarizer call with no model or no tokens records nothing, and its requested
+cost equals its actual cost so it never counts as router savings.
 
 ### High-fidelity content capture (`router.call` log records)
 

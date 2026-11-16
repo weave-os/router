@@ -15,15 +15,10 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// CodexAutomaticModel is the native /model choice that keeps Weave routing automatic.
 const CodexAutomaticModel = string(router.ModelAutomatic)
 
-// codexRoutingContextWindow is the 1M window Codex budgets Weave Auto against.
 const codexRoutingContextWindow = 1_000_000
 
-// CodexModelCatalog forwards Codex's account-specific catalog and adds the
-// Weave routing choices. A visible one-entry response would make Codex hide
-// its native models, because visible remote catalogs replace its bundled list.
 func (s *Service) CodexModelCatalog(ctx context.Context, headers http.Header, clientVersion string) ([]byte, error) {
 	client, err := s.provider(providers.ProviderOpenAI)
 	if err != nil {
@@ -35,8 +30,6 @@ func (s *Service) CodexModelCatalog(ctx context.Context, headers http.Header, cl
 	if !ok {
 		return nil, fmt.Errorf("OpenAI provider does not support Codex model discovery")
 	}
-	// Model-specific credential resolution deliberately rejects an empty model.
-	// Discovery instead uses only the caller's paired ChatGPT credential.
 	creds := ExtractClientCredentials(providers.ProviderOpenAI, headers)
 	ctx = requestcontext.WithCredentials(ctx, creds)
 	catalog, err := fetcher.FetchCodexModelCatalog(ctx, clientVersion)
@@ -81,7 +74,6 @@ func addCodexRoutingModels(catalog []byte, includeVariants bool) ([]byte, error)
 		for path, value := range map[string]any{
 			"slug": choice.Model, "display_name": displayName, "description": description,
 			"visibility": "list", "priority": 0,
-			// Routing serves the widest-window models when the history needs them.
 			"context_window": codexRoutingContextWindow, "max_context_window": codexRoutingContextWindow,
 		} {
 			var err error

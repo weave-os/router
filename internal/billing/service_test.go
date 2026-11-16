@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"weave-os/router/internal/subscriptionlane"
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
@@ -697,22 +698,29 @@ func TestDebitForInference_ByokFeeCrossingSignalsAutopay(t *testing.T) {
 		"a BYOK fee that crosses the autopay threshold must signal a recharge")
 }
 
-func TestWithUnfunded_ByokFeeUnpayableOnlyWhenAFeeIsCharged(t *testing.T) {
-	for _, reason := range []billing.SubscriptionOnlyReason{billing.SubscriptionOnlyCreditsDepleted, billing.SubscriptionOnlySpendCapReached} {
-		t.Run(string(reason), func(t *testing.T) {
-			free := billing.NewService(&fakeRepo{}).WithUnfunded(context.Background(), reason)
+func TestTripSubscriptionLane_ByokFeeUnpayableOnlyWhenAFeeIsCharged(t *testing.T) {
+	for _, tc := range []struct {
+		on     subscriptionlane.Event
+		reason billing.SubscriptionOnlyReason
+	}{
+		{subscriptionlane.CreditsDepletedCovered, billing.SubscriptionOnlyCreditsDepleted},
+		{subscriptionlane.KeySpendCapCovered, billing.SubscriptionOnlySpendCapReached},
+	} {
+		t.Run(string(tc.reason), func(t *testing.T) {
+			free, _ := billing.NewService(&fakeRepo{}).TripSubscriptionLane(context.Background(), tc.on)
 			got, ok := billing.SubscriptionOnlyReasonFromContext(free)
 			require.True(t, ok)
-			assert.Equal(t, reason, got)
+			assert.Equal(t, tc.reason, got)
 			assert.False(t, billing.ByokFeeUnpayable(free), "with no fee the customer's key still serves the turn")
 
-			charged := billing.NewService(&fakeRepo{}).WithByokFeeRate(0.05).WithUnfunded(context.Background(), reason)
+			charged, _ := billing.NewService(&fakeRepo{}).WithByokFeeRate(0.05).TripSubscriptionLane(context.Background(), tc.on)
 			assert.True(t, billing.ByokFeeUnpayable(charged), "an unfunded organization cannot pay a BYOK fee")
 		})
 	}
 	overridden := context.WithValue(context.Background(), billing.HasOverrideContextKey, true)
-	assert.False(t, billing.ByokFeeUnpayable(billing.NewService(&fakeRepo{}).WithByokFeeRate(0.05).
-		WithUnfunded(overridden, billing.SubscriptionOnlySpendCapReached)),
-		"a billing override waives the fee, so the key still serves the turn")
+	overriddenCtx, _ := billing.NewService(&fakeRepo{}).WithByokFeeRate(0.05).TripSubscriptionLane(overridden, subscriptionlane.KeySpendCapCovered)
+	assert.False(t, billing.ByokFeeUnpayable(overriddenCtx), "a billing override waives the fee, so the key still serves the turn")
+	linkedFirst, _ := billing.NewService(&fakeRepo{}).WithByokFeeRate(0.05).TripSubscriptionLane(context.Background(), subscriptionlane.LinkedPlanPreferred)
+	assert.False(t, billing.ByokFeeUnpayable(linkedFirst), "a linked-first preference leaves the organization funded")
 	assert.False(t, billing.ByokFeeUnpayable(context.Background()), "a funded turn pays its fee as usual")
 }

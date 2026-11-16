@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"weave-os/router/internal/subscriptionlane"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
@@ -370,7 +371,7 @@ func TestResolveSummarizerCreds_ReturnsBYOK(t *testing.T) {
 func TestSummarizerCredsFor_SkipsAKeyOwingAnUnpayableFee(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{ID: "k", Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-byok")}})
 	require.NotNil(t, summarizerCredsFor(ctx, providers.ProviderAnthropic, http.Header{}), "a funded turn summarizes on the key")
-	unfunded := billing.NewService(nil).WithByokFeeRate(0.05).WithUnfunded(ctx, billing.SubscriptionOnlyCreditsDepleted)
+	unfunded, _ := billing.NewService(nil).WithByokFeeRate(0.05).TripSubscriptionLane(ctx, subscriptionlane.CreditsDepletedCovered)
 	assert.Nil(t, summarizerCredsFor(unfunded, providers.ProviderAnthropic, http.Header{}),
 		"an organization that cannot pay the BYOK fee must not be charged one for a summary")
 }
