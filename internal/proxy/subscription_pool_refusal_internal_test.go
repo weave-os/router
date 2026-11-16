@@ -129,3 +129,14 @@ func TestEveryPoolVerdictSentinelClassifiesAsItsRefusedState(t *testing.T) {
 		assert.Equal(t, verdict.sentinel, subscriptionPoolRefusal(context.Background(), on), "%s", on)
 	}
 }
+
+func TestEveryPoolRefusalIsAFundingFailureThatSparesTheModel(t *testing.T) {
+	for mark, lane := range subscriptionLaneRefusalCases() {
+		for name, pin := range poolRefusalPins() {
+			assert.True(t, subscriptionFundingFailure(pin.err(lane.ctx)), "%s/%s", mark, name)
+		}
+		for on := range subscriptionPoolVerdicts {
+			assert.True(t, subscriptionFundingFailure(subscriptionPoolRefusal(lane.ctx, on)), "%s/%s", mark, on)
+		}
+	}
+}

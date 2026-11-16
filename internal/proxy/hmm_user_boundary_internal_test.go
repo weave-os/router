@@ -162,7 +162,8 @@ func TestHMMCommandOnlyEscalationRespectsSessionFloor(t *testing.T) {
 	require.ErrorIs(t, err, hmm.ErrHMMUnavailable)
 	classified, matched := ClassifyDispatchError(err)
 	require.True(t, matched)
-	assert.Equal(t, http.StatusServiceUnavailable, classified.Status)
+	assert.Equal(t, DispatchErrorNoEligibleArm, classified.Kind)
+	assert.Equal(t, http.StatusBadRequest, classified.Status)
 
 	req.ExcludedModels = nil
 	req.Escalation = &escalation.Constraint{Escalate: true}
@@ -207,7 +208,8 @@ func TestHMMCommandOnlyTurnHonorsForcedClusterAndKeyList(t *testing.T) {
 	require.NotErrorIs(t, err, policy.ErrForcedClusterUnservable)
 	classified, matched = ClassifyDispatchError(err)
 	require.True(t, matched)
-	assert.Equal(t, http.StatusServiceUnavailable, classified.Status)
+	assert.Equal(t, DispatchErrorNoEligibleArm, classified.Kind)
+	assert.Equal(t, http.StatusBadRequest, classified.Status)
 }
 
 func TestHMMCommandOnlyTurnKeepsEligibleSessionPin(t *testing.T) {

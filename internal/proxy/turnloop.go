@@ -165,60 +165,61 @@ type turnLoopResult struct {
 	escalationObservation  translate.EscalationObservation
 	llmEscalation          *llmEscalationTurn
 
-	Decision                   router.Decision
-	SessionKey                 [sessionpin.SessionKeyLen]byte
-	InstallationID             uuid.UUID
-	Strategy                   router.Strategy
-	TurnType                   turntype.TurnType
-	StickyHit                  bool
-	HardPinned                 bool
-	SessionFirstTurn           bool
-	Purpose                    inference.Purpose
-	Origin                     policy.OverrideSource
-	AuthoritativePerTurn       bool
-	UsageBypass                bool
-	CallerModelPassthrough     bool
-	PinTier                    string
-	PinAgeSec                  int64
-	ForcedPinDropped           bool
-	ForcedPinDropReason        string
-	ForcedPinModel             string
-	PinProvider                string
-	PrefixBroken               bool
-	PriorTurnGapMS             *int64
-	PolicyFallback             bool
-	RequestedTier              catalog.Tier
-	PinRole                    string
-	StickyRole                 string
-	Fresh                      router.Decision
-	PlannerDecision            planner.Decision
-	PinModel                   string
-	PinPolicyGroup             string
-	PriorServedModel           string
-	SessionEverSwitched        bool
-	PriorServedEndedAt         time.Time
-	PriorPromptTokens          int
-	TokenizerCalibration       sessionpin.TokenizerCalibration
-	ContextEstimate            int
-	StripThinkingBlocks        bool
-	Handover                   handoverOutcome
-	SuggestionMode             bool
-	PrefixTrimmed              bool
-	EscalateEffort             bool
-	PinTurnCount               int
-	PinFirstPinnedAt           time.Time
-	SessionDisabledProviders   []string
-	SessionDemotedModels       []string
-	ObservedOverflowModels     []string
-	SessionCooldownModels      map[string]time.Time
-	CooldownProbeReleases      []func()
-	OverloadProbe              *breaker.Probe
-	CooldownProbes             map[string]time.Time
-	CooldownProbeDeniedModels  []string
-	SessionStrikeReadmitModels []string
-	AuthorityShadow            authorityCacheShadow
-	UpgradeShadow              *authoritativeUpgradeDecision
-	DowngradeShadow            downgradeGuardShadow
+	Decision                    router.Decision
+	SessionKey                  [sessionpin.SessionKeyLen]byte
+	InstallationID              uuid.UUID
+	Strategy                    router.Strategy
+	TurnType                    turntype.TurnType
+	StickyHit                   bool
+	HardPinned                  bool
+	SessionFirstTurn            bool
+	Purpose                     inference.Purpose
+	Origin                      policy.OverrideSource
+	AuthoritativePerTurn        bool
+	UsageBypass                 bool
+	CallerModelPassthrough      bool
+	PinTier                     string
+	PinAgeSec                   int64
+	ForcedPinDropped            bool
+	ForcedPinDropReason         string
+	ForcedPinModel              string
+	PinProvider                 string
+	PrefixBroken                bool
+	PriorTurnGapMS              *int64
+	PolicyFallback              bool
+	RequestedTier               catalog.Tier
+	PinRole                     string
+	StickyRole                  string
+	Fresh                       router.Decision
+	PlannerDecision             planner.Decision
+	PinModel                    string
+	PinPolicyGroup              string
+	PriorServedModel            string
+	SessionEverSwitched         bool
+	PriorServedEndedAt          time.Time
+	PriorPromptTokens           int
+	TokenizerCalibration        sessionpin.TokenizerCalibration
+	ContextEstimate             int
+	StripThinkingBlocks         bool
+	Handover                    handoverOutcome
+	SuggestionMode              bool
+	PrefixTrimmed               bool
+	EscalateEffort              bool
+	PinTurnCount                int
+	PinFirstPinnedAt            time.Time
+	SessionDisabledProviders    []string
+	TranslationEnabledProviders map[string]struct{}
+	SessionDemotedModels        []string
+	ObservedOverflowModels      []string
+	SessionCooldownModels       map[string]time.Time
+	CooldownProbeReleases       []func()
+	OverloadProbe               *breaker.Probe
+	CooldownProbes              map[string]time.Time
+	CooldownProbeDeniedModels   []string
+	SessionStrikeReadmitModels  []string
+	AuthorityShadow             authorityCacheShadow
+	UpgradeShadow               *authoritativeUpgradeDecision
+	DowngradeShadow             downgradeGuardShadow
 }
 
 func (r turnLoopResult) releaseCooldownProbes() {
@@ -453,10 +454,6 @@ func authoritativePolicyTurn(tt turntype.TurnType) bool {
 	return tt == turntype.MainLoop || tt == turntype.ToolResult
 }
 
-func isUserForcedReason(reason string) bool {
-	return strings.HasPrefix(reason, translate.ReasonUserForceModel)
-}
-
 func pinServesImages(pin sessionpin.Pin, req router.Request) bool {
 	return !req.HasImages || catalog.AcceptsImages(pin.Model) && catalog.AcceptsImageCount(pin.Model, req.ImageCount, req.EnabledProviders)
 }
@@ -582,8 +579,7 @@ func (s *Service) runTurnLoop(
 		threadSessionKey = deriveSessionKeyForRequest(ctx, env, apiKeyID)
 		req.TranslationRequirements = s.scopeSearchRequirement(threadSessionKey, searchUseEnvelope(ctx, env), req.TranslationRequirements)
 	}
-	var compatibilityErr error
-	req, compatibilityErr = s.applyTranslationPlan(ctx, req)
+	req, compatibilityErr := s.applyTranslationPlan(ctx, req)
 	if compatibilityErr != nil {
 		return turnLoopResult{}, compatibilityErr
 	}
@@ -622,13 +618,14 @@ func (s *Service) runTurnLoop(
 		req.InstallationID = installationID.String()
 	}
 	res = turnLoopResult{
-		ContextEstimate:     env.ContextOverflowTokenEstimate(),
-		InstallationID:      installationID,
-		Strategy:            router.StrategyFromContext(ctx),
-		TurnType:            turntype.Detect(env, feats, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx))),
-		PinTier:             "miss",
-		RequestedTier:       catalog.TierFor(feats.Model),
-		StripThinkingBlocks: betaArtifactHistoryFromContext(ctx),
+		ContextEstimate:             env.ContextOverflowTokenEstimate(),
+		TranslationEnabledProviders: req.EnabledProviders,
+		InstallationID:              installationID,
+		Strategy:                    router.StrategyFromContext(ctx),
+		TurnType:                    turntype.Detect(env, feats, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx))),
+		PinTier:                     "miss",
+		RequestedTier:               catalog.TierFor(feats.Model),
+		StripThinkingBlocks:         betaArtifactHistoryFromContext(ctx),
 	}
 	res.AuthoritativePerTurn = authoritativePolicyTurn(res.TurnType) &&
 		s.authoritativePerTurnSelection(ctx)
