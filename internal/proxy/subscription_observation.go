@@ -216,10 +216,10 @@ func (s *Service) selectableSubscriptionProviders(ctx context.Context, headers h
 		return available
 	}
 	codexToken, claudeToken := presentSubscriptionTokens(ctx, headers)
-	if claudeToken != "" && !claudeSubscriptionSuppressed(ctx) && !s.claudeLoginSpent(ctx, claudeToken) {
+	if claudeToken != "" && !claudeSubscriptionSuppressed(ctx) && !claudeLoginSpent(ctx, s.usageObserver, claudeToken) {
 		available[providers.ProviderAnthropic] = struct{}{}
 	}
-	if codexToken != "" && !codexSubscriptionSuppressed(ctx) && !s.codexLoginSpent(ctx, codexToken) {
+	if codexToken != "" && !codexSubscriptionSuppressed(ctx) && !codexLoginSpent(ctx, s.usageObserver, codexToken, s.codexExtraCreditsAllowed()) {
 		available[providers.ProviderOpenAI] = struct{}{}
 	}
 	for provider, creds := range BuildCredentialsMap(externalKeysFromContext(ctx)) {
@@ -230,22 +230,22 @@ func (s *Service) selectableSubscriptionProviders(ctx context.Context, headers h
 	return available
 }
 
-func (s *Service) claudeLoginSpent(ctx context.Context, token string) bool {
-	if s.usageObserver == nil {
+func claudeLoginSpent(ctx context.Context, observer *usage.Observer, token string) bool {
+	if observer == nil {
 		return false
 	}
-	snap, ok := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(token)))
-	return ok && snap.Exhausted() && claudeSnapshotUnservable(ctx, snap)
+	snap, ok := observer.Snapshot(observer.Key([]byte(token)))
+	return ok && !snap.OverageInUse && snap.Exhausted() && claudeSnapshotUnservable(ctx, snap)
 }
 
-func (s *Service) codexLoginSpent(ctx context.Context, token string) bool {
-	if s.usageObserver == nil || pickedModelOnOwnPlan(ctx) {
+func codexLoginSpent(ctx context.Context, observer *usage.Observer, token string, extraCreditsAllowed bool) bool {
+	if observer == nil || pickedModelOnOwnPlan(ctx) {
 		return false
 	}
-	key := s.usageObserver.Key([]byte(token))
-	if s.usageObserver.Rejected(key) {
+	key := observer.Key([]byte(token))
+	if observer.Rejected(key) {
 		return true
 	}
-	snap, ok := s.usageObserver.Snapshot(key)
-	return ok && snap.Exhausted() && !s.codexExtraCreditsAllowed()
+	snap, ok := observer.Snapshot(key)
+	return ok && !snap.OverageInUse && snap.Exhausted() && !extraCreditsAllowed
 }
