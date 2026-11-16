@@ -457,6 +457,112 @@ func (q *Queries) ListModelRouterSubscriptionAccounts(ctx context.Context, arg L
 	return items, nil
 }
 
+const listModelRouterSubscriptionAccountsDueForKeepWarm = `-- name: ListModelRouterSubscriptionAccountsDueForKeepWarm :many
+SELECT id,
+       subscriber_id,
+       api_key_id,
+       provider,
+       external_account_id,
+       provider_user_id,
+       display_name,
+       refresh_token_ciphertext,
+       enabled,
+       health_state,
+       cooldown_until,
+       created_at,
+       updated_at,
+       credential_rejection_count
+FROM router.model_router_subscription_accounts
+WHERE enabled = TRUE
+  AND health_state NOT IN ('reconnect_required', 'disabled')
+  AND (token_refreshed_at IS NULL OR token_refreshed_at < $1::timestamp)
+  AND (cooldown_until IS NULL OR cooldown_until < CURRENT_TIMESTAMP OR health_state = 'exhausted')
+  AND (token_refresh_lease_until IS NULL OR token_refresh_lease_until < CURRENT_TIMESTAMP)
+ORDER BY token_refreshed_at NULLS FIRST, id
+LIMIT $2::int
+`
+
+type ListModelRouterSubscriptionAccountsDueForKeepWarmParams struct {
+	RefreshedBefore pgtype.Timestamp
+	RowLimit        int32
+}
+
+type ListModelRouterSubscriptionAccountsDueForKeepWarmRow struct {
+	ID                       uuid.UUID
+	SubscriberID             pgtype.UUID
+	APIKeyID                 pgtype.UUID
+	Provider                 string
+	ExternalAccountID        string
+	ProviderUserID           *string
+	DisplayName              *string
+	RefreshTokenCiphertext   []byte
+	Enabled                  bool
+	HealthState              string
+	CooldownUntil            pgtype.Timestamp
+	CreatedAt                pgtype.Timestamp
+	UpdatedAt                pgtype.Timestamp
+	CredentialRejectionCount int32
+}
+
+// Seats idle past the keep-warm age, oldest first. Cooling-down and mid-refresh seats are skipped.
+//
+//	SELECT id,
+//	       subscriber_id,
+//	       api_key_id,
+//	       provider,
+//	       external_account_id,
+//	       provider_user_id,
+//	       display_name,
+//	       refresh_token_ciphertext,
+//	       enabled,
+//	       health_state,
+//	       cooldown_until,
+//	       created_at,
+//	       updated_at,
+//	       credential_rejection_count
+//	FROM router.model_router_subscription_accounts
+//	WHERE enabled = TRUE
+//	  AND health_state NOT IN ('reconnect_required', 'disabled')
+//	  AND (token_refreshed_at IS NULL OR token_refreshed_at < $1::timestamp)
+//	  AND (cooldown_until IS NULL OR cooldown_until < CURRENT_TIMESTAMP OR health_state = 'exhausted')
+//	  AND (token_refresh_lease_until IS NULL OR token_refresh_lease_until < CURRENT_TIMESTAMP)
+//	ORDER BY token_refreshed_at NULLS FIRST, id
+//	LIMIT $2::int
+func (q *Queries) ListModelRouterSubscriptionAccountsDueForKeepWarm(ctx context.Context, arg ListModelRouterSubscriptionAccountsDueForKeepWarmParams) ([]ListModelRouterSubscriptionAccountsDueForKeepWarmRow, error) {
+	rows, err := q.db.Query(ctx, listModelRouterSubscriptionAccountsDueForKeepWarm, arg.RefreshedBefore, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListModelRouterSubscriptionAccountsDueForKeepWarmRow
+	for rows.Next() {
+		var i ListModelRouterSubscriptionAccountsDueForKeepWarmRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.SubscriberID,
+			&i.APIKeyID,
+			&i.Provider,
+			&i.ExternalAccountID,
+			&i.ProviderUserID,
+			&i.DisplayName,
+			&i.RefreshTokenCiphertext,
+			&i.Enabled,
+			&i.HealthState,
+			&i.CooldownUntil,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CredentialRejectionCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listModelRouterSubscriptionCandidates = `-- name: ListModelRouterSubscriptionCandidates :many
 WITH installation AS MATERIALIZED (
   SELECT id, subscription_sharing_enabled

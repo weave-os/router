@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
+	"crypto/rand"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,6 +38,69 @@ func subscriptionRefreshPolicy(rawIDs, rawAge string) (subscriptions.EarlyRefres
 	return subscriptions.NewEarlyRefreshPolicy(ids, age)
 }
 
+const (
+	defaultSubscriptionKeepWarmMaxAge = 7 * 24 * time.Hour
+	subscriptionKeepWarmInterval      = 15 * time.Minute
+	subscriptionKeepWarmBatchLimit    = 10
+	subscriptionKeepWarmSeatSpacing   = 2 * time.Second
+	subscriptionKeepWarmTimeout       = 5 * time.Minute
+)
+
+func subscriptionKeepWarmPolicy(rawEnabled, rawAge string) (subscriptions.KeepWarmPolicy, bool, error) {
+	enabled := false
+	if raw := strings.TrimSpace(rawEnabled); raw != "" {
+		parsed, err := strconv.ParseBool(raw)
+		if err != nil {
+			return subscriptions.KeepWarmPolicy{}, false, fmt.Errorf("invalid ROUTER_SUBSCRIPTION_KEEP_WARM_ENABLED: %w", err)
+		}
+		enabled = parsed
+	}
+	policy := subscriptions.KeepWarmPolicy{MaxAge: defaultSubscriptionKeepWarmMaxAge, BatchLimit: subscriptionKeepWarmBatchLimit,
+		SeatSpacing: subscriptionKeepWarmSeatSpacing}
+	if raw := strings.TrimSpace(rawAge); raw != "" {
+		age, err := time.ParseDuration(raw)
+		if err != nil {
+			return subscriptions.KeepWarmPolicy{}, false, fmt.Errorf("invalid ROUTER_SUBSCRIPTION_KEEP_WARM_MAX_AGE: %w", err)
+		}
+		if age < time.Hour {
+			return subscriptions.KeepWarmPolicy{}, false, fmt.Errorf("ROUTER_SUBSCRIPTION_KEEP_WARM_MAX_AGE must be at least 1h, got %s", age)
+		}
+		policy.MaxAge = age
+	}
+	return policy, enabled, nil
+}
+
+func jitteredKeepWarmDelay(low, span time.Duration) time.Duration {
+	offset, err := rand.Int(rand.Reader, big.NewInt(int64(span)+1))
+	if err != nil {
+		return low + span/2
+	}
+	return low + time.Duration(offset.Int64())
+}
+
+func runSubscriptionKeepWarm(ctx context.Context, runtime *subscriptions.Runtime, policy subscriptions.KeepWarmPolicy, logger *slog.Logger) {
+	delay := jitteredKeepWarmDelay(0, subscriptionKeepWarmInterval)
+	for {
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		sweepCtx, cancel := context.WithTimeout(ctx, subscriptionKeepWarmTimeout)
+		result, err := runtime.KeepWarm(sweepCtx, policy)
+		cancel()
+		switch {
+		case err != nil:
+			logger.Error("Subscription keep-warm sweep failed", "due", result.Due, "refreshed", result.Refreshed, "failed", result.Failed, "err", err)
+		case result.Due > 0:
+			logger.Info("Subscription keep-warm sweep finished", "due", result.Due, "refreshed", result.Refreshed, "failed", result.Failed)
+		}
+		delay = jitteredKeepWarmDelay(subscriptionKeepWarmInterval*3/4, subscriptionKeepWarmInterval/2)
+	}
+}
+
 func buildSubscriptionRuntime(enabled bool, authSvc *auth.Service, accounts auth.SubscriptionAccountRepository, logger *slog.Logger) (*subscriptions.Runtime, admin.SubscriptionLoginFlow) {
 	if !enabled {
 		logger.Info("Server-side subscription account pools disabled")
@@ -51,7 +118,15 @@ func buildSubscriptionRuntime(enabled bool, authSvc *auth.Service, accounts auth
 	if err != nil {
 		panic(err)
 	}
+	keepWarm, keepWarmEnabled, err := subscriptionKeepWarmPolicy(config.GetOr("ROUTER_SUBSCRIPTION_KEEP_WARM_ENABLED", "false"),
+		config.GetOr("ROUTER_SUBSCRIPTION_KEEP_WARM_MAX_AGE", ""))
+	if err != nil {
+		panic(err)
+	}
 	runtime := subscriptions.NewRuntime(authSvc, oauth, time.Now).WithEarlyRefreshPolicy(policy)
-	logger.Info("Server-side subscription account pools enabled")
+	if keepWarmEnabled {
+		go runSubscriptionKeepWarm(context.Background(), runtime, keepWarm, logger)
+	}
+	logger.Info("Server-side subscription account pools enabled", "keep_warm_enabled", keepWarmEnabled, "keep_warm_max_age", keepWarm.MaxAge)
 	return runtime, oauth
 }

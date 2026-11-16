@@ -504,3 +504,28 @@ WHERE k.credential_subject_id = @subscriber_id::uuid
   AND access.access_enabled
 ORDER BY k.created_at DESC, k.id
 LIMIT 1;
+
+-- Seats idle past the keep-warm age, oldest first. Cooling-down and mid-refresh seats are skipped.
+-- name: ListModelRouterSubscriptionAccountsDueForKeepWarm :many
+SELECT id,
+       subscriber_id,
+       api_key_id,
+       provider,
+       external_account_id,
+       provider_user_id,
+       display_name,
+       refresh_token_ciphertext,
+       enabled,
+       health_state,
+       cooldown_until,
+       created_at,
+       updated_at,
+       credential_rejection_count
+FROM router.model_router_subscription_accounts
+WHERE enabled = TRUE
+  AND health_state NOT IN ('reconnect_required', 'disabled')
+  AND (token_refreshed_at IS NULL OR token_refreshed_at < @refreshed_before::timestamp)
+  AND (cooldown_until IS NULL OR cooldown_until < CURRENT_TIMESTAMP OR health_state = 'exhausted')
+  AND (token_refresh_lease_until IS NULL OR token_refresh_lease_until < CURRENT_TIMESTAMP)
+ORDER BY token_refreshed_at NULLS FIRST, id
+LIMIT @row_limit::int;
