@@ -2,10 +2,12 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 )
 
@@ -54,7 +56,8 @@ func withOwnClaudeRejectionNudge(ctx context.Context, headers http.Header, obser
 }
 
 func recordOwnClaudeLoginRejected(ctx context.Context, headers http.Header, observer *usage.Observer, now time.Time, err error) {
-	if observer == nil || !anthropicOAuthCredentialRejected(err) {
+	var upstream *providers.UpstreamErrorResponse
+	if observer == nil || !anthropicOAuthCredentialRejected(err) || !errors.As(err, &upstream) || upstream.Status != http.StatusUnauthorized {
 		return
 	}
 	_, token := presentSubscriptionTokens(ctx, headers)

@@ -39,19 +39,26 @@ func TestRecordOwnClaudeLoginRejectedOnlyHoldsTheCallersOwnLogin(t *testing.T) {
 	rejected := upstreamErr(http.StatusUnauthorized, `{"error":{"type":"authentication_error"}}`)
 	now := time.Unix(1_800_000_000, 0)
 	headers := http.Header{"Authorization": []string{"Bearer " + ownToken}}
+	ownLogin := &Credentials{APIKey: []byte(ownToken), OAuth: true}
 	for _, tc := range []struct {
 		name  string
 		creds *Credentials
+		err   error
 		held  bool
 	}{
 		{name: "own login", creds: &Credentials{APIKey: []byte(ownToken), OAuth: true}, held: true},
 		{name: "managed seat", creds: &Credentials{APIKey: []byte("sk-ant-oat01-synthetic-seat"), OAuth: true, SubscriptionAccountID: "synthetic-seat"}},
 		{name: "BYOK key", creds: &Credentials{APIKey: []byte(ownToken)}},
+		{name: "model access denied", creds: ownLogin, err: upstreamErr(http.StatusForbidden, `{"error":{"type":"permission_error"}}`)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			observer := usage.NewObserver([]byte("synthetic-salt"), time.Hour, func() time.Time { return now })
 			ctx := context.WithValue(context.Background(), CredentialsContextKey{}, tc.creds)
-			recordOwnClaudeLoginRejected(ctx, headers, observer, now, rejected)
+			err := rejected
+			if tc.err != nil {
+				err = tc.err
+			}
+			recordOwnClaudeLoginRejected(ctx, headers, observer, now, err)
 			assert.Equal(t, tc.held, ownClaudeLoginRejected(ctx, headers, observer))
 		})
 	}
