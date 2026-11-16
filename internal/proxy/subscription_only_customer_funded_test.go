@@ -166,7 +166,7 @@ func TestSubscriptionOnly_LivePlan429RetriesOnCustomerKey_ChatIngress(t *testing
 	requireServedOnBYOK(t, trace)
 }
 
-var unfundedGates = []subscriptionlane.Event{subscriptionlane.CreditsDepletedCovered, subscriptionlane.KeySpendCapCovered}
+var unfundedEvents = []subscriptionlane.Event{subscriptionlane.CreditsDepletedCovered, subscriptionlane.KeySpendCapCovered}
 
 // unfundedCtx marks the turn unfunded the way the admission gates do, on a
 // billing service charging feeRate on BYOK turns.
@@ -179,7 +179,7 @@ func unfundedCtx(feeRate float64, on subscriptionlane.Event) func(context.Contex
 }
 
 func TestSubscriptionOnly_ZeroByokFeeServesOnTheKey(t *testing.T) {
-	for _, on := range unfundedGates {
+	for _, on := range unfundedEvents {
 		t.Run(on.String(), func(t *testing.T) {
 			trace := serveCustomerFunded(t, credentialCase{
 				name: "zero_fee", supplies: []string{goldenSubscription, goldenBYOKAnthropic},
@@ -195,7 +195,7 @@ func TestSubscriptionOnly_ZeroByokFeeServesOnTheKey(t *testing.T) {
 }
 
 func TestSubscriptionOnly_OwedByokFeeRefusesBeforeDispatch(t *testing.T) {
-	for _, on := range unfundedGates {
+	for _, on := range unfundedEvents {
 		for _, priority := range []auth.FundingPriority{auth.FundingPriorityKeyFirst, auth.FundingPriorityPlanFirst} {
 			t.Run(on.String()+"/"+string(priority), func(t *testing.T) {
 				trace := serveCustomerFunded(t, credentialCase{
@@ -215,7 +215,7 @@ func TestSubscriptionOnly_OwedByokFeeRefusesBeforeDispatch(t *testing.T) {
 
 func TestSubscriptionOnly_OwedByokFeeSkipsLivePlan429Retry(t *testing.T) {
 	const rateLimited = `{"type":"error","error":{"type":"rate_limit_error","message":"limit"}}`
-	for _, on := range unfundedGates {
+	for _, on := range unfundedEvents {
 		t.Run(on.String(), func(t *testing.T) {
 			trace := serveCustomerFunded(t, credentialCase{
 				name: "plan_429_fee_owed", supplies: []string{goldenSubscription, goldenBYOKAnthropic}, refused: true,
@@ -234,7 +234,7 @@ func TestSubscriptionOnly_OwedByokFeeSkipsLivePlan429Retry(t *testing.T) {
 }
 
 func TestSubscriptionOnly_OwedByokFeeKeyFirstStillServesOnTheLivePlan(t *testing.T) {
-	for _, on := range unfundedGates {
+	for _, on := range unfundedEvents {
 		t.Run(on.String(), func(t *testing.T) {
 			trace := serveCustomerFunded(t, credentialCase{
 				name: "fee_owed_key_first_plan", supplies: []string{goldenSubscription, goldenBYOKAnthropic},
