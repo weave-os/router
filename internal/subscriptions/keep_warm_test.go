@@ -200,3 +200,29 @@ func TestRuntimeKeepWarmExchangeSurvivesSweepCancellation(t *testing.T) {
 		return err == nil && string(credentials.RefreshToken) == "refresh-rotated-1"
 	}, 5*time.Second, 10*time.Millisecond, "a token the provider already rotated must be persisted")
 }
+
+type refreshedElsewhereStore struct {
+	*runtimeStore
+}
+
+func (s refreshedElsewhereStore) ListSubscriptionAccountsDueForKeepWarm(ctx context.Context, refreshedBefore time.Time, limit int32) ([]*auth.SubscriptionAccount, error) {
+	due, err := s.runtimeStore.ListSubscriptionAccountsDueForKeepWarm(ctx, refreshedBefore, limit)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, seat := range due {
+		s.refreshedAt[seat.ID] = s.clock()
+		s.tokenRefreshVersions[seat.ID]++
+	}
+	return due, err
+}
+
+func TestRuntimeKeepWarmSkipsSeatRefreshedAfterListing(t *testing.T) {
+	store := newKeepWarmStore(time.Now, keepWarmSeat("claude-idle", auth.SubscriptionProviderClaude, true, auth.SubscriptionAccountStateActive))
+	var calls atomic.Int32
+	runtime := subscriptions.NewRuntime(refreshedElsewhereStore{store}, rotatingRefresher(time.Now, &calls), time.Now)
+
+	result, err := runtime.KeepWarm(context.Background(), keepWarmWeek)
+	require.NoError(t, err)
+	require.Equal(t, subscriptions.KeepWarmResult{Due: 1, Skipped: 1}, result)
+	require.Zero(t, calls.Load(), "a seat another refresher already renewed must not be exchanged again")
+}

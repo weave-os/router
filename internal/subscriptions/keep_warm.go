@@ -23,6 +23,7 @@ type KeepWarmResult struct {
 	Due       int
 	Refreshed int
 	Failed    int
+	Skipped   int
 }
 
 func (r *Runtime) KeepWarm(ctx context.Context, policy KeepWarmPolicy) (KeepWarmResult, error) {
@@ -30,7 +31,8 @@ func (r *Runtime) KeepWarm(ctx context.Context, policy KeepWarmPolicy) (KeepWarm
 	if !ok {
 		return KeepWarmResult{}, errors.New("subscription keep-warm is not configured")
 	}
-	seats, err := store.ListSubscriptionAccountsDueForKeepWarm(ctx, r.clock().Add(-policy.MaxAge), policy.BatchLimit)
+	refreshedBefore := r.clock().Add(-policy.MaxAge)
+	seats, err := store.ListSubscriptionAccountsDueForKeepWarm(ctx, refreshedBefore, policy.BatchLimit)
 	if err != nil {
 		return KeepWarmResult{}, err
 	}
@@ -39,19 +41,23 @@ func (r *Runtime) KeepWarm(ctx context.Context, policy KeepWarmPolicy) (KeepWarm
 		if i > 0 && waitForRefresh(ctx, policy.SeatSpacing) != nil {
 			break
 		}
-		if err := r.keepSeatWarm(ctx, seat); err != nil {
+		refreshed, err := r.keepSeatWarm(ctx, seat, refreshedBefore)
+		switch {
+		case err != nil:
 			result.Failed++
 			observability.FromContext(ctx).Warn("Subscription keep-warm refresh failed", "account_id", seat.ID, "provider", seat.Provider, "err", err)
-			continue
+		case refreshed:
+			result.Refreshed++
+		default:
+			result.Skipped++
 		}
-		result.Refreshed++
 	}
 	return result, ctx.Err()
 }
 
-func (r *Runtime) keepSeatWarm(ctx context.Context, seat *auth.SubscriptionAccount) error {
+func (r *Runtime) keepSeatWarm(ctx context.Context, seat *auth.SubscriptionAccount, refreshedBefore time.Time) (bool, error) {
 	if ctx.Err() != nil {
-		return ctx.Err()
+		return false, ctx.Err()
 	}
 	refreshCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), refreshLeaseTTL)
 	defer cancel()
@@ -59,6 +65,13 @@ func (r *Runtime) keepSeatWarm(ctx context.Context, seat *auth.SubscriptionAccou
 	if owner.SubscriberID == "" {
 		owner.APIKeyID = seat.EnrolledByAPIKeyID
 	}
-	_, err := r.refreshOwnedAccount(refreshCtx, owner, accountFromSubscription(seat))
-	return err
+	current, err := r.store.LoadSubscriptionCredentials(refreshCtx, owner, seat.ID)
+	if err != nil {
+		return false, err
+	}
+	if current.TokenRefreshedAt != nil && !current.TokenRefreshedAt.Before(refreshedBefore) {
+		return false, nil
+	}
+	_, err = r.refreshOwnedAccount(refreshCtx, owner, accountFromSubscription(seat))
+	return err == nil, err
 }
