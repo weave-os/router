@@ -32,19 +32,10 @@ var allowanceEventNames = [allowanceEventCount]string{
 	BillingWindowSpent: "BillingWindowSpent",
 }
 
-type AllowanceTransition struct {
-	Verdict Verdict
-	To      Allowance
-}
-
-func toAllowance(a Allowance) AllowanceTransition {
-	return AllowanceTransition{Verdict: Allowed, To: a}
-}
-
-var allowanceTransitions = [allowanceEventCount][allowanceCount]AllowanceTransition{
-	SixHourWindowSpent: {toAllowance(AllowanceSixHourSpent), toAllowance(AllowanceSixHourSpent), toAllowance(AllowanceWeeklySpent), toAllowance(AllowanceBillingSpent)},
-	WeeklyWindowSpent:  {toAllowance(AllowanceWeeklySpent), toAllowance(AllowanceWeeklySpent), toAllowance(AllowanceWeeklySpent), toAllowance(AllowanceBillingSpent)},
-	BillingWindowSpent: {toAllowance(AllowanceBillingSpent), toAllowance(AllowanceBillingSpent), toAllowance(AllowanceBillingSpent), toAllowance(AllowanceBillingSpent)},
+var allowanceTransitions = [allowanceEventCount][allowanceCount]Allowance{
+	SixHourWindowSpent: {AllowanceSixHourSpent, AllowanceSixHourSpent, AllowanceWeeklySpent, AllowanceBillingSpent},
+	WeeklyWindowSpent:  {AllowanceWeeklySpent, AllowanceWeeklySpent, AllowanceWeeklySpent, AllowanceBillingSpent},
+	BillingWindowSpent: {AllowanceBillingSpent, AllowanceBillingSpent, AllowanceBillingSpent, AllowanceBillingSpent},
 }
 
 func (a Allowance) String() string { return allowanceNames[a] }
@@ -67,29 +58,21 @@ func AllowanceEvents() []AllowanceEvent {
 	return all
 }
 
-func LookupAllowance(from Allowance, on AllowanceEvent) AllowanceTransition {
+func StepAllowance(from Allowance, on AllowanceEvent) Allowance {
 	return allowanceTransitions[on][from]
 }
 
-func StepAllowance(from Allowance, on AllowanceEvent) (Allowance, bool) {
-	t := LookupAllowance(from, on)
-	if t.Verdict != Allowed {
-		return from, false
-	}
-	return t.To, true
-}
-
 type AllowanceRule struct {
-	From       Allowance
-	On         AllowanceEvent
-	Transition AllowanceTransition
+	From Allowance
+	On   AllowanceEvent
+	To   Allowance
 }
 
 func AllowanceRules() []AllowanceRule {
 	rules := make([]AllowanceRule, 0, int(allowanceEventCount)*int(allowanceCount))
 	for _, from := range Allowances() {
 		for _, on := range AllowanceEvents() {
-			rules = append(rules, AllowanceRule{From: from, On: on, Transition: LookupAllowance(from, on)})
+			rules = append(rules, AllowanceRule{From: from, On: on, To: StepAllowance(from, on)})
 		}
 	}
 	return rules
