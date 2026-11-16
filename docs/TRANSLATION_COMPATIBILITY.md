@@ -41,3 +41,26 @@ arguments, media, and credentials are never attached.
 The first rollout should remain in `shadow` until observed exclusions have a
 declared code and representative conformance coverage. Move back to `shadow`
 or `off` before reverting a binary if broad enforcement causes an incident.
+
+## Streaming translation invariants
+
+The cross-format stream translators in `internal/translate` keep these wire
+rules; each is pinned by a translate unit test that fails when it is broken.
+
+- A stream succeeds only on an explicit upstream terminal (finish reason or
+  `[DONE]`). EOF before any output defers to failover; EOF after output emits
+  an error event instead of a clean `end_turn`.
+- An upstream error status that arrives after the SSE prelude is committed is
+  surfaced as an Anthropic `error` event (429 `rate_limit_error`, 503
+  `overloaded_error`, other 4xx `invalid_request_error`, else `api_error`).
+  The relayed error body is bounded.
+- Output progress for the stall watchdog fires on text (including
+  whitespace-only text), streamed reasoning, tool-call deltas and the
+  terminal finish, never on role-only, null or usage-only keepalives.
+- A turn with a `tool_use` block always ends with `stop_reason: tool_use`; a
+  `tool_calls` finish with no surviving tool block is demoted to `end_turn`.
+- The text-only-turn recovery nudge fires only for tool-bearing requests whose
+  turn opens with leaked tool-call markup, never after a truncated
+  (`length`) turn, a suppressed tool call or on Gemini 3.x.
+- Gemini 3.x signs only the first function call in a turn; that signature is
+  replayed on every later call, carried in the OpenAI tool-call id.
