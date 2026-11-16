@@ -69,8 +69,5 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 }
 
 func subscriberAllowanceCovers(c *gin.Context) bool {
-	if _, covered := entitlement.CoverageFromContext(c.Request.Context()); covered {
-		return true
-	}
-	return false
+	return entitlement.AllowanceFromContext(c.Request.Context()).Covers()
 }
