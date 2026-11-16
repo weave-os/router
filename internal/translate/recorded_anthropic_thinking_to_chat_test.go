@@ -13,7 +13,7 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-func candidateDrive(t *testing.T, w interface {
+func thinkingToChatDrive(t *testing.T, w interface {
 	http.ResponseWriter
 	Finalize() error
 }, contentType, body string) {
@@ -25,7 +25,7 @@ func candidateDrive(t *testing.T, w interface {
 	require.NoError(t, w.Finalize())
 }
 
-func candidateDataFrames(body string) []gjson.Result {
+func thinkingToChatDataFrames(body string) []gjson.Result {
 	var out []gjson.Result
 	for _, line := range strings.Split(body, "\n") {
 		if data, ok := strings.CutPrefix(line, "data: "); ok && gjson.Valid(data) {
@@ -48,9 +48,9 @@ func TestCandidate_AnthropicThinkingReachesChatClientsAsReasoningContent(t *test
 		"event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n" +
 		"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":3}}\n\n" +
 		"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
-	candidateDrive(t, translate.NewSSETranslator(rec, "client-model", nil), "text/event-stream", stream)
+	thinkingToChatDrive(t, translate.NewSSETranslator(rec, "client-model", nil), "text/event-stream", stream)
 	var reasoning strings.Builder
-	for _, frame := range candidateDataFrames(rec.Body.String()) {
+	for _, frame := range thinkingToChatDataFrames(rec.Body.String()) {
 		reasoning.WriteString(frame.Get("choices.0.delta.reasoning_content").String())
 	}
 	assert.Equal(t, "Two reads are needed.", reasoning.String())
