@@ -206,10 +206,6 @@ func (s *Service) resolveBindingsForDispatch(ctx context.Context, decision route
 
 // flushBufferedIfPresent writes an *UpstreamErrorResponse through to the
 // client verbatim. No-op for other error types.
-//
-// Content-Length/Encoding are dropped: MaxBufferedErrorBytes caps the body
-// we hold, so the upstream's advertised length may exceed what we actually
-// write, breaking HTTP framing. net/http recomputes Content-Length itself.
 func flushBufferedIfPresent(w http.ResponseWriter, err error) {
 	flushUpstreamErrorRendered(w, err, nil)
 }
@@ -227,28 +223,33 @@ func flushUpstreamErrorRendered(w http.ResponseWriter, err error, render func([]
 	if !errors.As(err, &resp) || isContextOverflow(err) {
 		return
 	}
-	for k, vs := range resp.Headers {
-		canon := http.CanonicalHeaderKey(k)
-		if _, hop := providers.HopByHopHeaders[canon]; hop {
-			continue
-		}
-		if canon == "Content-Length" || canon == "Content-Encoding" {
-			continue
-		}
-		for _, v := range vs {
-			w.Header().Add(k, v)
-		}
-	}
 	body := resp.Body
 	if render != nil {
 		body = render(body)
 	}
 	body = attributedErrorBody(body, err)
-	if !bytes.Equal(body, resp.Body) {
+	rewritten := !bytes.Equal(body, resp.Body)
+	copyReplayedErrorHeaders(w.Header(), resp.Headers, rewritten)
+	if rewritten {
 		w.Header().Set("Content-Type", "application/json")
 	}
 	w.WriteHeader(resp.Status)
 	_, _ = w.Write(body)
+}
+
+func copyReplayedErrorHeaders(dst, upstream http.Header, bodyRewritten bool) {
+	for k, vs := range upstream {
+		canon := http.CanonicalHeaderKey(k)
+		if _, hop := providers.HopByHopHeaders[canon]; hop || canon == "Content-Length" {
+			continue
+		}
+		if bodyRewritten && (canon == "Content-Encoding" || canon == "Content-Type") {
+			continue
+		}
+		for _, v := range vs {
+			dst.Add(k, v)
+		}
+	}
 }
 
 // emitAnthropicSSEErrorEvent writes an Anthropic-shape `event: error` SSE
@@ -341,21 +342,11 @@ func flushUpstreamErrorAsAnthropic(w http.ResponseWriter, err error) {
 	if !errors.As(err, &resp) || isContextOverflow(err) {
 		return
 	}
-	for k, vs := range resp.Headers {
-		canon := http.CanonicalHeaderKey(k)
-		if _, hop := providers.HopByHopHeaders[canon]; hop {
-			continue
-		}
-		if canon == "Content-Type" || canon == "Content-Length" {
-			continue // body is rewritten below
-		}
-		for _, v := range vs {
-			w.Header().Add(k, v)
-		}
-	}
+	body := attributedErrorBody(translate.OpenAIToAnthropicError(resp.Body), err)
+	copyReplayedErrorHeaders(w.Header(), resp.Headers, !bytes.Equal(body, resp.Body))
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.Status)
-	_, _ = w.Write(attributedErrorBody(translate.OpenAIToAnthropicError(resp.Body), err))
+	_, _ = w.Write(body)
 }
 
 // attemptIdxLabel formats i for the x-router-fallback-attempt header.
