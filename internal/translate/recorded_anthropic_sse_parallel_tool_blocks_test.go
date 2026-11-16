@@ -46,16 +46,16 @@ func TestCandidate_AnthropicSSETranslatorClosesEachToolUseBlockBeforeTheNext(t *
 	require.NoError(t, w.Prelude(true))
 	parallelToolBlocksDrive(t, w, "text/event-stream", parallelToolBlocksUpstream)
 
-	open := int64(-1)
+	openBlock := int64(-1)
 	for _, frame := range parallelToolBlocksDataFrames(rec.Body.String()) {
 		switch frame.Get("type").String() {
 		case "content_block_start":
-			require.Equal(t, int64(-1), open, "block %d starts while block %d is still open", frame.Get("index").Int(), open)
-			open = frame.Get("index").Int()
+			require.Equal(t, int64(-1), openBlock, "block %d starts while block %d is still open", frame.Get("index").Int(), openBlock)
+			openBlock = frame.Get("index").Int()
 		case "content_block_delta":
-			require.Equal(t, open, frame.Get("index").Int(), "delta for a block that is not the open one")
+			require.Equal(t, openBlock, frame.Get("index").Int(), "delta for a block that is not the open one")
 		case "content_block_stop":
-			open = -1
+			openBlock = -1
 		}
 	}
 }

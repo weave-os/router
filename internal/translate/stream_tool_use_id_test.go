@@ -129,7 +129,7 @@ func TestAnthropicSSETranslator_ParallelToolCallsKeepInterleavedArgumentsPerBloc
 	ids := map[int64]string{}
 	args := map[int64]string{}
 	var order []int64
-	open := int64(-1)
+	openBlock := int64(-1)
 	for _, line := range strings.Split(rec.Body.String(), "\n") {
 		data, ok := strings.CutPrefix(line, "data: ")
 		if !ok {
@@ -138,15 +138,15 @@ func TestAnthropicSSETranslator_ParallelToolCallsKeepInterleavedArgumentsPerBloc
 		idx := gjson.Get(data, "index").Int()
 		switch gjson.Get(data, "type").String() {
 		case "content_block_start":
-			require.Equal(t, int64(-1), open, "block %d starts while block %d is open", idx, open)
-			open = idx
+			require.Equal(t, int64(-1), openBlock, "block %d starts while block %d is open", idx, openBlock)
+			openBlock = idx
 			order = append(order, idx)
 			names[idx] = gjson.Get(data, "content_block.name").String()
 			ids[idx] = gjson.Get(data, "content_block.id").String()
 		case "content_block_delta":
 			args[idx] += gjson.Get(data, "delta.partial_json").String()
 		case "content_block_stop":
-			open = -1
+			openBlock = -1
 		}
 	}
 
