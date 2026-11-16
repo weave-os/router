@@ -15,14 +15,6 @@ import (
 // checkUserMonthlySpendLimit gates a turn on the resolved engineer's monthly
 // spend limit. Runs inside the proxy (not middleware) because user identity is
 // resolved by the handler after the middleware chain; no identity passes through.
-//
-// The cap bounds PAID spend, not free subscription usage: a covered turn on a
-// usage-bypass org (a Claude/Codex credential that covers routePath) is not
-// rejected when the cap is reached. Instead it returns a subscription-only
-// ctx (billing.WithSubscriptionOnly) so the proxy serves it on the caller's
-// own plan — or refuses a would-be-paid turn with the controlled 402 — never
-// on a paid model. Mirrors middleware.WithBalanceCheck's exemption. Returns the
-// (possibly flagged) ctx the rest of the turn must use.
 func (s *Service) checkUserMonthlySpendLimit(ctx context.Context, headers http.Header, routePath string) (context.Context, error) {
 	if s.billing == nil {
 		return ctx, nil
@@ -52,9 +44,8 @@ func (s *Service) checkUserMonthlySpendLimit(ctx context.Context, headers http.H
 		return ctx, fmt.Errorf("%w: %v", billing.ErrSpendLimitCheckUnavailable, err)
 	}
 	if result.LimitReached() {
-		_, bypassOn := usageBypassFromContext(ctx)
 		laneCtx, lane := billing.StepSubscriptionLane(ctx, subscriptionlane.UserSpendLimitGate.Tripped(
-			bypassOn && RequestPresentsCoveringSubscription(ctx, headers, routePath)))
+			RequestPresentsCoveringSubscription(ctx, headers, routePath)))
 		if _, refused := lane.Refusal(); !refused {
 			observability.FromContext(ctx).Info("Engineer monthly cap reached but subscription covers the route: serving subscription-only",
 				"organization_id", orgID,
