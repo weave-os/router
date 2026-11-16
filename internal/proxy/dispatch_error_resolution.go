@@ -6,9 +6,6 @@ import (
 	"weave-os/router/internal/router/policy"
 )
 
-// classifyResolutionError maps a failed plan resolution to a client-facing
-// class: an override or selection the request itself supplied is a client
-// error; a policy with nothing eligible to run on is a routing outage.
 func classifyResolutionError(err *policy.ResolutionError) DispatchErrorClass {
 	switch err.Code {
 	case policy.ResolutionErrorInvalidOverride, policy.ResolutionErrorOverrideNotAllowed, policy.ResolutionErrorDuplicateOverride, policy.ResolutionErrorUnknownSelection, policy.ResolutionErrorBudgetViolation:
