@@ -58,6 +58,7 @@ type responsesStreamState struct {
 	added     map[int64]string
 	completed map[int64]bool
 	text      map[string]string
+	args      map[string]string
 }
 
 func (s *responsesStreamState) itemEvent(i int, kind string, data gjson.Result) {
@@ -78,11 +79,25 @@ func (s *responsesStreamState) itemEvent(i int, kind string, data gjson.Result) 
 		s.p.require(ok && !s.completed[idx], "event %d (%s) targets output_index %d outside its added/done window", i, kind, idx)
 		s.p.require(!data.Get("item_id").Exists() || data.Get("item_id").String() == id, "event %d item_id %q, want %q", i, data.Get("item_id").String(), id)
 	}
+	s.trackFunctionArgs(i, kind, data)
 	if kind == "response.output_text.delta" {
 		s.text[data.Get("item_id").String()] += data.Get("delta").String()
 	}
 	if kind == "response.output_text.done" {
 		s.p.require(s.text[data.Get("item_id").String()] == data.Get("text").String(), "event %d output_text.done text differs from its deltas", i)
+	}
+}
+
+func (s *responsesStreamState) trackFunctionArgs(i int, kind string, data gjson.Result) {
+	switch kind {
+	case "response.function_call_arguments.delta":
+		s.args[data.Get("item_id").String()] += data.Get("delta").String()
+	case "response.function_call_arguments.done":
+		streamed, ok := s.args[data.Get("item_id").String()]
+		s.p.require(!ok || streamed == data.Get("arguments").String(), "event %d function_call_arguments.done differs from its deltas", i)
+	case "response.output_item.done":
+		streamed, ok := s.args[data.Get("item.id").String()]
+		s.p.require(!ok || data.Get("item.type").String() != "function_call" || streamed == data.Get("item.arguments").String(), "event %d finishes function_call %q with arguments that differ from its deltas", i, data.Get("item.id").String())
 	}
 }
 
@@ -114,7 +129,7 @@ func (s *responsesStreamState) event(i int, f sseFrame) {
 }
 
 func validateResponsesStream(body []byte) []string {
-	s := &responsesStreamState{lastSeq: -1, added: map[int64]string{}, completed: map[int64]bool{}, text: map[string]string{}}
+	s := &responsesStreamState{lastSeq: -1, added: map[int64]string{}, completed: map[int64]bool{}, text: map[string]string{}, args: map[string]string{}}
 	for i, f := range parseSSE(body) {
 		s.event(i, f)
 	}

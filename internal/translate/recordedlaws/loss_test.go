@@ -64,7 +64,11 @@ type lossRule struct {
 }
 
 func (r lossRule) String() string {
-	return fmt.Sprintf("%s %s %s (%s)", r.hop, r.kind, r.key, r.why)
+	label := "intentional"
+	if r.candidate {
+		label = "candidate bug"
+	}
+	return fmt.Sprintf("%s %s %s [%s] (%s)", r.hop, r.kind, r.key, label, r.why)
 }
 
 func (r lossRule) hopMatches(hop string) bool {
@@ -72,13 +76,13 @@ func (r lossRule) hopMatches(hop string) bool {
 	return err == nil && ok
 }
 
-func dotted(pattern, value string) bool {
+func dottedKeyMatches(pattern, value string) bool {
 	ok, err := path.Match(strings.ReplaceAll(pattern, ".", "/"), strings.ReplaceAll(value, ".", "/"))
 	return err == nil && ok
 }
 
 func (r lossRule) explains(hop string, d factDiff) bool {
-	if !r.hopMatches(hop) || r.kind != d.kind || !dotted(r.key, d.key) {
+	if !r.hopMatches(hop) || r.kind != d.kind || !dottedKeyMatches(r.key, d.key) {
 		return false
 	}
 	return r.holds == nil || r.holds(d.before, d.after)

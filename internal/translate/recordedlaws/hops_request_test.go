@@ -59,7 +59,7 @@ func mustSucceed(try func([]byte) ([]byte, error)) func(*testing.T, []byte) []by
 
 type requestHop struct {
 	hop
-	try func([]byte) ([]byte, error)
+	emit func([]byte) ([]byte, error)
 }
 
 func (rt requestTargets) emitters(from wireFormat, parse func([]byte) (*translate.RequestEnvelope, error)) []requestHop {
@@ -77,15 +77,15 @@ func (rt requestTargets) emitters(from wireFormat, parse func([]byte) (*translat
 	}
 	out := make([]requestHop, 0, len(targets))
 	for _, target := range targets {
-		try := emitTo(parse, target.prepare, target.opts)
-		out = append(out, requestHop{hop: hop{from: from, to: target.to, via: target.via, run: mustSucceed(try)}, try: try})
+		emit := emitTo(parse, target.prepare, target.opts)
+		out = append(out, requestHop{hop: hop{from: from, to: target.to, via: target.via, run: mustSucceed(emit)}, emit: emit})
 	}
 	return out
 }
 
 func (rt requestTargets) requestHops() []requestHop {
 	hops := append(rt.emitters(anthropicReq, translate.ParseAnthropic), rt.emitters(chatReq, translate.ParseOpenAI)...)
-	return append(hops, requestHop{hop: hop{from: responsesReq, to: chatReq, run: mustSucceed(convertResponses)}, try: convertResponses})
+	return append(hops, requestHop{hop: hop{from: responsesReq, to: chatReq, run: mustSucceed(convertResponses)}, emit: convertResponses})
 }
 
 func plainHops(hops []requestHop) []hop {

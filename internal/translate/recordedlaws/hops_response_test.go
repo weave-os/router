@@ -46,7 +46,7 @@ func drive(t *testing.T, rec *httptest.ResponseRecorder, w streamTranslator, bod
 	return rec.Body.Bytes()
 }
 
-func pure(fn func([]byte, string) ([]byte, error)) func(*testing.T, []byte) []byte {
+func convertWithClientModel(fn func([]byte, string) ([]byte, error)) func(*testing.T, []byte) []byte {
 	return func(t *testing.T, body []byte) []byte {
 		t.Helper()
 		out, err := fn(body, clientModel)
@@ -122,11 +122,11 @@ func then(first, second func(*testing.T, []byte) []byte) func(*testing.T, []byte
 
 func responseHops() []hop {
 	return []hop{
-		{from: anthropicJSON, to: chatJSON, run: pure(translate.AnthropicToOpenAIResponse)},
-		{from: chatJSON, to: anthropicJSON, run: pure(translate.OpenAIToAnthropicResponse)},
-		{from: geminiJSON, to: chatJSON, run: pure(translate.GeminiToOpenAIResponse)},
-		{from: responsesJSON, to: anthropicJSON, run: pure(responsesToAnthropicResponse)},
-		{from: responsesJSON, to: chatJSON, run: pure(translate.ResponsesToOpenAIChatResponse)},
+		{from: anthropicJSON, to: chatJSON, run: convertWithClientModel(translate.AnthropicToOpenAIResponse)},
+		{from: chatJSON, to: anthropicJSON, run: convertWithClientModel(translate.OpenAIToAnthropicResponse)},
+		{from: geminiJSON, to: chatJSON, run: convertWithClientModel(translate.GeminiToOpenAIResponse)},
+		{from: responsesJSON, to: anthropicJSON, run: convertWithClientModel(responsesToAnthropicResponse)},
+		{from: responsesJSON, to: chatJSON, run: convertWithClientModel(translate.ResponsesToOpenAIChatResponse)},
 		{from: anthropicSSE, to: chatSSE, run: viaSSETranslator},
 		{from: geminiSSE, to: chatSSE, run: viaGeminiSSE},
 		{from: chatSSE, to: anthropicSSE, run: viaAnthropicSSE(true)},
@@ -138,8 +138,8 @@ func responseHops() []hop {
 		{from: chatSSE, to: responsesSSE, run: viaResponsesWriter(true)},
 		{from: chatJSON, to: responsesJSON, run: viaResponsesWriter(false)},
 		{from: anthropicSSE, to: responsesSSE, run: then(viaSSETranslator, viaResponsesWriter(true)), via: "chat"},
-		{from: anthropicJSON, to: responsesJSON, run: then(pure(translate.AnthropicToOpenAIResponse), viaResponsesWriter(false)), via: "chat"},
+		{from: anthropicJSON, to: responsesJSON, run: then(convertWithClientModel(translate.AnthropicToOpenAIResponse), viaResponsesWriter(false)), via: "chat"},
 		{from: geminiSSE, to: responsesSSE, run: then(viaGeminiSSE, viaResponsesWriter(true)), via: "chat"},
-		{from: geminiJSON, to: responsesJSON, run: then(pure(translate.GeminiToOpenAIResponse), viaResponsesWriter(false)), via: "chat"},
+		{from: geminiJSON, to: responsesJSON, run: then(convertWithClientModel(translate.GeminiToOpenAIResponse), viaResponsesWriter(false)), via: "chat"},
 	}
 }
