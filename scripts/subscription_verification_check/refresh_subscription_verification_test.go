@@ -110,7 +110,7 @@ func TestVerificationSQLConcurrentSharedRefreshAndReset(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"id_token": verificationCodexIDToken(t, strings.SplitN(r.Form.Get("refresh_token"), ":", 2)[1]), "access_token": "synthetic-access-refreshed", "refresh_token": "synthetic-refresh-rotated", "expires_in": 3600, "token_type": "Bearer"})
 	}))
 	defer tokenServer.Close()
-	clock, oauth := newClockBehindDatabase(), subscriptions.NewOAuthClient(tokenServer.Client(), tokenServer.URL, tokenServer.URL, time.Now)
+	clock, oauth := &steppedClock{now: time.Now().Add(-time.Hour)}, subscriptions.NewOAuthClient(tokenServer.Client(), tokenServer.URL, tokenServer.URL, time.Now)
 	runtimes := []*subscriptions.Runtime{subscriptions.NewRuntime(service, oauth, clock.Now), subscriptions.NewRuntime(service, oauth, clock.Now)}
 	requesters := []auth.SubscriptionOwner{{InstallationID: org.String(), SubscriberID: borrowerA.String(), APIKeyID: key.String()}, {InstallationID: org.String(), SubscriberID: borrowerB.String(), APIKeyID: key.String()}}
 	leases := make([]subscriptions.Lease, 2)
@@ -306,16 +306,12 @@ func verifySQLTierLocalAffinity(t *testing.T, service *auth.Service, runtime *su
 }
 
 // steppedClock drives runtime cooldown decisions without wall-clock sleeps.
-// It starts an hour behind the database so every cooldown_until it produces is
+// The test starts it an hour behind the database so every cooldown_until it produces is
 // already in the past for SQL predicates that compare against CURRENT_TIMESTAMP,
 // matching the state the runtime sees after Advance.
 type steppedClock struct {
 	mu  sync.Mutex
 	now time.Time
-}
-
-func newClockBehindDatabase() *steppedClock {
-	return &steppedClock{now: time.Now().Add(-time.Hour)}
 }
 
 func (c *steppedClock) Now() time.Time {
