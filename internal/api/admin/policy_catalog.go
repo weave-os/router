@@ -17,16 +17,12 @@ type policyCatalogEntry struct {
 	Capabilities policy.Capabilities `json:"capabilities"`
 }
 
-// PolicyCatalogHandler exposes the strategy registry and optional capability
-// surface to the control plane. It contains no tenant or request data.
 func PolicyCatalogHandler(service *proxy.Service, defaultStrategy router.Strategy) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		entries := []policyCatalogEntry{}
 		if service != nil {
 			for _, strategy := range service.RegisteredStrategies() {
 				capabilities, _ := service.PolicyCapabilitiesForRequest(c.Request.Context(), strategy)
-				// Derived, not separately negotiated: ranked fallback is the
-				// precondition for cluster overrides taking effect.
 				capabilities.HonorsClusterModelLists = capabilities.ReportsRankedFallback
 				entries = append(entries, policyCatalogEntry{
 					Strategy:     strategy,

@@ -12,16 +12,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// discoverModelsRequest carries an unsaved key's connection details for pre-save model discovery.
-// Only bearer auth is accepted; derived types (key-pair, WIF) need the stored secret and use the GET route.
 type discoverModelsRequest struct {
 	Provider string  `json:"provider" binding:"required"`
 	Key      string  `json:"key" binding:"required"`
 	BaseURL  *string `json:"base_url"`
 }
 
-// DiscoverModelsHandler lists models an endpoint publishes using unsaved bearer credentials.
-// The credential is used for a single upstream call; it is never persisted or echoed back.
 func DiscoverModelsHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req discoverModelsRequest
@@ -48,8 +44,6 @@ func DiscoverModelsHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 	}
 }
 
-// ListUpstreamModelsHandler returns model IDs a saved BYOK endpoint publishes.
-// 501 means no listing surface; keep manual alias entry.
 func ListUpstreamModelsHandler(authSvc *auth.Service, proxySvc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
@@ -89,10 +83,6 @@ func ListUpstreamModelsHandler(authSvc *auth.Service, proxySvc *proxy.Service) g
 	}
 }
 
-// abortForListingError maps listing errors without exposing endpoint details.
-// A destination refusal answers 400 for saved and unsaved keys alike: it is a
-// rejected configuration, and reporting it as a 502 would read as an endpoint
-// outage and send an operator debugging the wrong system.
 func abortForListingError(c *gin.Context, provider, keyID string, err error) {
 	if errors.Is(err, proxy.ErrModelListingUnsupported) || errors.Is(err, proxy.ErrProviderNotConfigured) {
 		c.AbortWithStatusJSON(http.StatusNotImplemented, gin.H{"error": "This provider does not support model listing; enter aliases manually."})

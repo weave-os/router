@@ -7,13 +7,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// AnalyticsRequestsPerMinute is the export's per-key budget. Sized for a
-// batch ETL pull, not interactive browsing.
 const AnalyticsRequestsPerMinute = 60
 
-// WithAnalyticsRateLimit throttles each analytics key to perMinute requests,
-// allowing a full minute's worth as burst so a paginating job isn't paced
-// between consecutive pages. Must run after WithAnalyticsKey.
 func WithAnalyticsRateLimit(perMinute int) gin.HandlerFunc {
 	if perMinute <= 0 {
 		perMinute = AnalyticsRequestsPerMinute

@@ -12,7 +12,6 @@ import (
 )
 
 type fastModeModelsResponse struct {
-	// Available lists every catalog model with a fast tier.
 	Available []deployedModelDTO `json:"available"`
 	FastMode  []string           `json:"fast_mode"`
 }
@@ -21,7 +20,6 @@ type updateFastModeModelsRequest struct {
 	FastMode []string `json:"fast_mode"`
 }
 
-// fastCapableCatalogDTO narrows the full catalog to models with a fast tier.
 func fastCapableCatalogDTO() []deployedModelDTO {
 	out := make([]deployedModelDTO, 0)
 	for _, e := range fullCatalogDTO() {
@@ -32,8 +30,6 @@ func fastCapableCatalogDTO() []deployedModelDTO {
 	return out
 }
 
-// GetFastModeModelsHandler returns the fast-capable catalog and the
-// installation's fast-mode opt-in list.
 func GetFastModeModelsHandler(authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
@@ -51,8 +47,6 @@ func GetFastModeModelsHandler(authSvc *auth.Service) gin.HandlerFunc {
 	}
 }
 
-// UpdateFastModeModelsHandler replaces the installation's fast-mode opt-in
-// list. 400 on models the catalog has no fast tier for.
 func UpdateFastModeModelsHandler(authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)

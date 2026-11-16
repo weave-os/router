@@ -8,10 +8,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// abortRefusal answers a middleware refusal with the kind's contract and its
-// retry headers. Inference routes get their API's native error envelope with
-// the extra fields inside the error object; every other route keeps the flat
-// {"error": code, ...fields} body.
 func abortRefusal(c *gin.Context, kind refusal.Kind, fields gin.H) {
 	contract := kind.Contract()
 	setRefusalHeaders(c, contract)
@@ -51,8 +47,6 @@ func abortRefusal(c *gin.Context, kind refusal.Kind, fields gin.H) {
 	}
 }
 
-// inferenceAPIFormat reports the API format of an inference route; false for
-// routes such as /validate whose clients read the flat error code.
 func inferenceAPIFormat(path string) (apiFormat, bool) {
 	switch {
 	case strings.HasPrefix(path, "/v1beta/"):
@@ -66,8 +60,6 @@ func inferenceAPIFormat(path string) (apiFormat, bool) {
 	}
 }
 
-// underPath reports whether path is root or below it, so /v1/router is not
-// mistaken for /v1/route.
 func underPath(path, root string) bool {
 	return path == root || strings.HasPrefix(path, root+"/")
 }

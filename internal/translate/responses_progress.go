@@ -43,8 +43,6 @@ const (
 	responsesRefusal    responsesContentType = "refusal"
 )
 
-// Both translators use the same completed-item gate, including opaque reasoning
-// that Chat cannot render. An added item's encrypted content may be incomplete.
 func completedReasoningHasProgress(item gjson.Result) bool {
 	id, encrypted := item.Get("id"), item.Get("encrypted_content")
 	if id.Type == gjson.String && id.Str != "" && encrypted.Type == gjson.String && encrypted.Str != "" {
