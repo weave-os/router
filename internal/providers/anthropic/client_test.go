@@ -370,6 +370,23 @@ func TestProxy_BuffersUpstream4xx(t *testing.T) {
 	assert.Empty(t, rec.Body.String(), "buffered upstream errors must not write through the response writer")
 }
 
+func TestProxy_ClassifiesRejectionOfAPreparedField(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"type":"invalid_request_error","message":"max_tokens: Input should be a valid integer"}}`))
+	}))
+	defer upstream.Close()
+
+	c := anthropic.NewClient("k", upstream.URL)
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
+	prep := providers.PreparedRequest{Body: []byte(`{"model":"x","max_tokens":"lots"}`), Headers: make(http.Header)}
+	err := c.Proxy(context.Background(), router.Decision{Model: "claude-haiku-4-5"}, prep, httptest.NewRecorder(), clientReq)
+
+	assert.Equal(t, "max_tokens", providers.UpstreamRejectedField(err))
+	assert.False(t, providers.IsUpstreamCredentialRefusal(err))
+}
+
 func TestProxy_BuffersRetryable429(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)

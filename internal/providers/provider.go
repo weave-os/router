@@ -250,6 +250,7 @@ type UpstreamErrorResponse struct {
 	BodyBytes  int64
 	BodyCapped bool
 	Cause      error
+	Rejection  UpstreamRejection
 }
 
 type ProviderErrorType string
@@ -425,29 +426,6 @@ func IsUpstreamProviderBillingBlocked(err error) bool {
 	var buffered *UpstreamErrorResponse
 	if errors.As(err, &buffered) {
 		return buffered.Status == http.StatusPaymentRequired
-	}
-	return false
-}
-
-var capabilityRejectionPhrases = []string{
-	"not a multimodal model",
-	"does not support image",
-	"image input is not supported",
-	"image input is unsupported",
-	"does not support vision",
-	"multimodal input is not supported",
-}
-
-func IsUpstreamCapabilityRejection(err error) bool {
-	var buffered *UpstreamErrorResponse
-	if !errors.As(err, &buffered) || buffered.Status != http.StatusBadRequest {
-		return false
-	}
-	body := strings.ToLower(string(buffered.Body))
-	for _, phrase := range capabilityRejectionPhrases {
-		if strings.Contains(body, phrase) {
-			return true
-		}
 	}
 	return false
 }
