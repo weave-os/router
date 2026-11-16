@@ -128,41 +128,21 @@ func (c CodexImages) forwardOnLinkedSubscription(ctx context.Context, forwarder 
 }
 
 func recordCodexImageLeaseOutcome(ctx context.Context, svc *Service, owner auth.SubscriptionOwner, lease subscriptions.Lease, attemptErr error) {
+	if attemptErr == nil {
+		activateManagedSubscription(ctx, svc.managedSubscriptions, owner, subscriptions.ProviderCodex, lease)
+		return
+	}
 	var relayed *providers.UpstreamStatusError
 	if errors.As(attemptErr, &relayed) {
 		attemptErr = &providers.UpstreamErrorResponse{Status: relayed.Status, Headers: relayed.Headers, Body: relayed.Body, BodyBytes: relayed.BodyBytes}
 	}
-	pool := subscriptions.ProviderCodex
-	log := observability.FromContext(ctx).With("provider", pool, "account_id", lease.AccountID)
-	switch upstreamStatus(attemptErr) {
-	case http.StatusOK:
-		health, ok := svc.managedSubscriptions.(interface {
-			Activate(context.Context, auth.SubscriptionOwner, subscriptions.Provider, string) error
-		})
-		if attemptErr != nil || lease.State == auth.SubscriptionAccountStateActive || !ok {
-			return
-		}
-		if err := health.Activate(ctx, owner, pool, lease.AccountID); err != nil {
-			log.Error("Failed to mark subscription account active", "err", err)
-		}
-	case http.StatusTooManyRequests:
-		if resetAt, exhausted := svc.subscriptionQuotaExhaustion(pool, lease, attemptErr); exhausted {
-			recordManagedQuotaProof(ctx, lease.AccountID, resetAt)
-			if err := exhaustManagedSubscription(ctx, svc.managedSubscriptions, owner, pool, lease.AccountID, resetAt); err != nil {
-				log.Error("Failed to persist exhausted subscription account", "err", err)
-			}
-			return
-		}
-		resetAt := managedSubscriptionResetAt(attemptErr, svc.clockNow())
-		if err := svc.managedSubscriptions.Cooldown(ctx, owner, pool, lease.AccountID, resetAt); err != nil {
-			log.Error("Failed to persist subscription account cooldown", "err", err)
-		}
-		recordManagedThrottle(ctx, lease.AccountID, resetAt)
-	case http.StatusUnauthorized:
-		if _, err := rejectManagedSubscriptionCredential(ctx, svc.managedSubscriptions, owner, pool, lease.AccountID, http.StatusUnauthorized); err != nil {
-			log.Error("Failed to record rejected subscription account", "err", err)
-		}
+	if !codexImagePlanLacksImageAccess(attemptErr) {
+		recordManagedSubscriptionStatus(ctx, svc, owner, subscriptions.ProviderCodex, lease, attemptErr)
 	}
+}
+
+func codexImagePlanLacksImageAccess(attemptErr error) bool {
+	return upstreamStatus(attemptErr) == http.StatusForbidden
 }
 
 func recordCodexImageUsage(ctx context.Context, svc *Service, model string, started time.Time, attemptErr error) {
