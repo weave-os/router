@@ -7,9 +7,6 @@ import (
 	"weave-os/router/internal/sse"
 )
 
-// captureWriter mirrors writes into a buffer for post-response cache storage.
-// Bodies exceeding maxBytes mark the capture as overflowed: streaming continues
-// but the buffer is dropped.
 type captureWriter struct {
 	w           http.ResponseWriter
 	body        bytes.Buffer
@@ -53,7 +50,6 @@ func (c *captureWriter) Flush() {
 	}
 }
 
-// captured reports whether the buffer holds the full body and returns it.
 func (c *captureWriter) captured() ([]byte, int, bool) {
 	if c.overflow {
 		return nil, 0, false
