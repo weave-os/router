@@ -10,10 +10,8 @@ import (
 	"weave-os/router/internal/sqlc"
 )
 
-// InternalTestBook owns isolated test balances and inference settlement.
 type InternalTestBook struct{ queries *sqlc.Queries }
 
-// NewInternalTestBook binds isolated accounting to the primary database.
 func NewInternalTestBook(pool *pgxpool.Pool) *InternalTestBook {
 	return &InternalTestBook{queries: dbbudget.Queries(pool)}
 }
@@ -27,7 +25,6 @@ func testBudgetSubject(owner billing.Owner) (uuid.UUID, error) {
 	return uuid.Parse(owner.TestSubjectID)
 }
 
-// Balance refuses unavailable funding and non-test owners.
 func (b *InternalTestBook) Balance(ctx context.Context, owner billing.Owner) (int64, error) {
 	subject, err := testBudgetSubject(owner)
 	if err != nil {
@@ -36,7 +33,6 @@ func (b *InternalTestBook) Balance(ctx context.Context, owner billing.Owner) (in
 	return b.queries.GetInternalTestBalance(ctx, subject)
 }
 
-// Debit records isolated spend and key metering in one database statement.
 func (b *InternalTestBook) Debit(ctx context.Context, debit billing.PrepaidDebit) (int64, error) {
 	subject, err := testBudgetSubject(debit.Owner)
 	if err != nil {

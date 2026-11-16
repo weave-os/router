@@ -330,3 +330,56 @@ func TestRunFlagsGrowingCommentBanBudgets(t *testing.T) {
 		{subject: "internal/b", metric: metricCommentBudget, before: 0, after: 1, limit: -1},
 	}, result.violations)
 }
+
+func TestFuncKeyQualifiesExternalTestPackageHelpers(t *testing.T) {
+	internal, _, err := measureFile("internal/x/x.go", []byte("package x\n\nfunc Helper() {}\n"))
+	require.NoError(t, err)
+	external, _, err := measureFile("internal/x/x_test.go", []byte("package x_test\n\nfunc Helper() {}\n"))
+	require.NoError(t, err)
+	require.Len(t, internal.funcs, 1)
+	require.Len(t, external.funcs, 1)
+	assert.Equal(t, "internal/x.Helper", internal.funcs[0].key)
+	assert.Equal(t, "internal/x.x_test.Helper", external.funcs[0].key)
+}
+
+func TestMeasureSurfaceCountsAliasedAndDotImportedContextKeys(t *testing.T) {
+	aliased := `package proxy
+
+import stdctx "context"
+
+type aliasedKey struct{}
+
+func withAliased(ctx stdctx.Context) stdctx.Context {
+	return stdctx.WithValue(ctx, aliasedKey{}, 1)
+}
+`
+	dotImported := `package proxy
+
+import . "context"
+
+type dotKey struct{}
+
+func withDot(ctx Context) Context {
+	return WithValue(ctx, dotKey{}, 1)
+}
+`
+	blank := `package proxy
+
+import _ "context"
+
+type ignoredKey struct{}
+
+func WithValue(ctx any, key, value any) any { return ctx }
+
+func withLocal(ctx any) any {
+	return WithValue(ctx, ignoredKey{}, 1)
+}
+`
+	surface, err := measureSurface(map[string][]byte{
+		"internal/proxy/aliased.go": []byte(aliased),
+		"internal/proxy/dot.go":     []byte(dotImported),
+		"internal/proxy/blank.go":   []byte(blank),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 2, surface.contextKeys)
+}

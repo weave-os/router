@@ -1,4 +1,3 @@
-// Package llmescalation defines independent asynchronous trajectory judging.
 package llmescalation
 
 import (
@@ -13,10 +12,8 @@ import (
 	"weave-os/router/internal/router/escalation"
 )
 
-// ErrStale identifies state from an expired or superseded session lifetime.
 var ErrStale = errors.New("LLM escalation lifetime superseded")
 
-// ErrInvalidJudgment identifies a malformed classifier response.
 var ErrInvalidJudgment = errors.New("invalid LLM escalation judgment")
 
 const (
@@ -34,15 +31,12 @@ const (
 	QwenSchemaVersion   = "escalation_classifier_v1"
 )
 
-// SystemPrompt and ResponseSchema are unmodified Apache-2.0 Switchyard assets.
-//
 //go:embed prompt.md
 var SystemPrompt string
 
 //go:embed schema.json
 var ResponseSchema json.RawMessage
 
-// Mode isolates active and shadow experiment state.
 type Mode string
 
 const (
@@ -51,7 +45,6 @@ const (
 	ModeShadow Mode = "shadow"
 )
 
-// Config identifies the immutable experiment settings in a session scope.
 type Config struct {
 	Mode       Mode                       `json:"mode"`
 	Epoch      int                        `json:"epoch"`
@@ -60,7 +53,6 @@ type Config struct {
 	Classifier flags.EscalationClassifier `json:"classifier,omitempty"`
 }
 
-// EffectiveClassifier maps retained pre-selector sessions to Switchyard.
 func (c Config) EffectiveClassifier() flags.EscalationClassifier {
 	if c.Classifier == "" {
 		return flags.EscalationClassifierSwitchyard
@@ -68,14 +60,12 @@ func (c Config) EffectiveClassifier() flags.EscalationClassifier {
 	return c.Classifier
 }
 
-// JudgeRequest freezes the rendered transcript and operational attribution.
 type JudgeRequest struct {
 	Transcript  string
 	RequestID   string
 	OperationID string
 }
 
-// Judgment keeps unknown provider usage distinct from measured zero usage.
 type Judgment struct {
 	Escalate   bool            `json:"escalate"`
 	Reason     string          `json:"reason"`
@@ -86,15 +76,12 @@ type Judgment struct {
 	Release    *ServedRelease  `json:"release,omitempty"`
 }
 
-// ServedRelease is the classifier release that produced one verdict, as
-// reported by the serving endpoint, so a model swap needs no Router change.
 type ServedRelease struct {
 	Name         string `json:"name"`
 	ModelSHA256  string `json:"model_sha256"`
 	PromptSHA256 string `json:"prompt_sha256,omitempty"`
 }
 
-// CostSource identifies whether spend came from the provider or catalog pricing.
 type CostSource string
 
 const (
@@ -103,12 +90,10 @@ const (
 	CostSourceCatalogEstimate  CostSource = "catalog_estimate"
 )
 
-// Judge is implemented by the policy-authorized inference adapter.
 type Judge interface {
 	Judge(context.Context, JudgeRequest) (Judgment, error)
 }
 
-// JobStatus describes one paid inference checkpoint's lifecycle.
 type JobStatus string
 
 const (
@@ -120,7 +105,6 @@ const (
 	JobApplied   JobStatus = "applied"
 )
 
-// FailureCode is safe operational metadata, never an upstream response body.
 type FailureCode string
 
 const (
@@ -139,7 +123,6 @@ const (
 	FailureExpired             FailureCode = "lease_expired"
 )
 
-// Session stores cadence and the accepted floor independently of ordinary pins.
 type Session struct {
 	Scope                  [32]byte         `json:"scope"`
 	Lifetime               string           `json:"lifetime"`
@@ -155,7 +138,6 @@ type Session struct {
 	LastActivityAt         time.Time        `json:"last_activity_at"`
 }
 
-// Job is bounded audit metadata; neither transcript nor raw provider content is persisted.
 type Job struct {
 	ID               string      `json:"id"`
 	Scope            [32]byte    `json:"scope"`
@@ -180,7 +162,6 @@ type Job struct {
 	ConfigDigest     string      `json:"config_digest"`
 }
 
-// RecordServedRelease attributes the job to the release that served its verdict. A nil release leaves the job's attribution unchanged.
 func (j *Job) RecordServedRelease(release *ServedRelease) {
 	if release == nil {
 		return
@@ -188,7 +169,6 @@ func (j *Job) RecordServedRelease(release *ServedRelease) {
 	j.Model, j.ModelSHA256, j.PromptRevision = release.Name, release.ModelSHA256, release.PromptSHA256
 }
 
-// StartRequest fences changes in user instruction before verdict consumption.
 type StartRequest struct {
 	Scope                  [32]byte
 	InstallationID         string
@@ -196,7 +176,6 @@ type StartRequest struct {
 	Config                 Config
 }
 
-// CompleteRequest counts one successfully delivered logical response exactly once.
 type CompleteRequest struct {
 	Session         Session
 	Boundary        [32]byte
@@ -205,14 +184,12 @@ type CompleteRequest struct {
 	IntervalFailure FailureCode
 }
 
-// Completion returns a newly claimed job only when inference should be launched.
 type Completion struct {
 	Session   Session
 	Job       *Job
 	Duplicate bool
 }
 
-// Summary aggregates content-free retained checkpoint outcomes.
 type Summary struct {
 	PositiveJudgments        int64 `json:"positive_judgments"`
 	ActualInterventions      int64 `json:"actual_interventions"`
@@ -225,7 +202,6 @@ type Summary struct {
 	AttemptLimitExhaustion   int64 `json:"attempt_limit_exhaustion"`
 }
 
-// ApplyRequest records only a routing constraint that was successfully applied.
 type ApplyRequest struct {
 	Session   Session
 	JobID     string
@@ -234,7 +210,6 @@ type ApplyRequest struct {
 	Turn      int64
 }
 
-// ContinuationRequest binds immutable client-visible history to one session lifetime.
 type ContinuationRequest struct {
 	Session    Session
 	Activation [32]byte
@@ -242,13 +217,11 @@ type ContinuationRequest struct {
 	History    json.RawMessage
 }
 
-// Continuation restores Responses delta input without trusting its derived thread key.
 type Continuation struct {
 	Scope   [32]byte
 	History json.RawMessage
 }
 
-// Store owns short transactions; no lock spans a judge invocation.
 type Store interface {
 	Start(context.Context, StartRequest) (Session, error)
 	Complete(context.Context, CompleteRequest) (Completion, error)

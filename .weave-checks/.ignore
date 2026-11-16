@@ -7,9 +7,6 @@ bench/weave_bench/prices.generated.json
 
 # AGENTS.md mirrors generated from CLAUDE.md
 AGENTS.md
-cmd/AGENTS.md
-db/AGENTS.md
-internal/**/AGENTS.md
 
 # Lockfiles
 go.sum

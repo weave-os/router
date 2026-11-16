@@ -8,21 +8,16 @@ import (
 	"weave-os/router/internal/observability"
 )
 
-// PolicyReleaseListener triggers a local GCS lane-head refresh for every
-// best-effort policy invalidation. Polling remains the authority and backstop.
 type PolicyReleaseListener struct {
 	subscriber subscriberReceiver
 	trigger    func()
 	done       chan struct{}
 }
 
-// NewPolicyReleaseListener constructs a broadcast listener for one router replica.
 func NewPolicyReleaseListener(subscriber *gcppubsub.Subscriber, trigger func()) *PolicyReleaseListener {
 	return &PolicyReleaseListener{subscriber: subscriber, trigger: trigger, done: make(chan struct{})}
 }
 
-// Run receives invalidations until cancellation and acknowledges each only
-// after the in-memory refresh trigger has been queued.
 func (l *PolicyReleaseListener) Run(ctx context.Context) {
 	defer close(l.done)
 	err := l.subscriber.Receive(ctx, func(_ context.Context, message *gcppubsub.Message) {
@@ -36,5 +31,4 @@ func (l *PolicyReleaseListener) Run(ctx context.Context) {
 	}
 }
 
-// Wait blocks until Run exits.
 func (l *PolicyReleaseListener) Wait() { <-l.done }

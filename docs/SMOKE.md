@@ -64,6 +64,39 @@ This means the CI job needs **no provider API keys at all** for its normal
 path-gated run — it replays what's already checked in. Keys are only needed to
 *record*, which happens locally or in a scheduled nightly refresh.
 
+## Proxy internals
+
+`smoke/mitmproxy` is a CONNECT-only forward proxy: Go's HTTP transport uses CONNECT
+for HTTPS through `HTTPS_PROXY`, and a CONNECT target without a port means 443. Each
+tunnel serves exactly one request, because the router does not pipeline and the smoke
+calls are sequential. The HTTP server sets no read or write deadline since CONNECT
+tunnels are long-lived.
+
+- **CA.** The root CA and its key exist only in memory for the life of the process.
+  Only the public certificate is written, as `smoke-mitm-ca.pem` in the directory the
+  server container's `SSL_CERT_DIR` points at, so `crypto/x509` trusts it without
+  `update-ca-certificates`. A leaf certificate is minted and cached per SNI host.
+- **Replay.** A miss in `replay-only` mode answers with a 502 whose body names the
+  missing key, so it surfaces as a smoke assertion failure instead of a transport
+  error. Cassette responses are written close-delimited (no `Content-Length`), which
+  serves both JSON and SSE bodies.
+- **Record.** The live client runs on the host or runner, not in the distroless
+  container, so it verifies the real upstream against the host root store. The cloned
+  request keeps the caller's `Accept-Encoding`, so Go's transparent decompression
+  never fires; gzip bodies are decompressed (and `Content-Encoding` dropped) before
+  saving, because a compressed cassette is an opaque blob that neither review nor
+  secret scanning can read.
+- **Cassette files.** Bodies are stored as plain JSON strings rather than base64,
+  which is only valid for UTF-8 text. Credentials, cookies, organization and project
+  identifiers, request IDs and rate-limit counters are dropped from recorded headers.
+  Writes are serialized by one mutex and land atomically through a temp file and
+  rename, so a crash never leaves a cassette replay cannot parse. Files are `0644`
+  because the nightly recorder bind-mounts the cassettes directory and the host must
+  read them after the container exits.
+- **Healthcheck.** The image is distroless (no shell or curl), so the compose
+  healthcheck runs the binary with `-healthcheck`, which dials the listen address and
+  exits 0 or 1.
+
 ## When it runs
 
 - **Selected per PR.** The workflow (`.github/workflows/smoke.yml`) uses the same
