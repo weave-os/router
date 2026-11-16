@@ -51,7 +51,6 @@ func TestNoticePreludeDoesNotCommitProviderAttempt(t *testing.T) {
 }
 
 func TestAddRoutingFundingSource(t *testing.T) {
-	spentSeatReset := time.Now().Add(time.Hour)
 	tests := []struct {
 		name      string
 		ctx       context.Context
@@ -96,16 +95,6 @@ func TestAddRoutingFundingSource(t *testing.T) {
 			provider: providers.ProviderAnthropic,
 			model:    "claude-opus-5",
 			want:     "funded by Claude subscription",
-		},
-		{
-			name: "managed Claude pool whose only seat is spent is not labelled as the funding",
-			ctx: WithManagedSubscriptionCandidates(WithManagedSubscriptionUsage(context.Background()), []*auth.SubscriptionAccount{{
-				ID: "claude-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true,
-				State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &spentSeatReset,
-			}}),
-			provider: providers.ProviderAnthropic,
-			model:    "claude-opus-5",
-			absent:   true,
 		},
 		{
 			name: "managed Codex subscription is selected over BYOK",
@@ -180,4 +169,16 @@ func TestAddRoutingFundingSource(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAddRoutingFundingSourceSkipsSpentManagedPool(t *testing.T) {
+	now := time.Now()
+	spentSeatReset := now.Add(time.Hour)
+	ctx := WithManagedSubscriptionCandidates(WithManagedSubscriptionUsage(context.Background()), []*auth.SubscriptionAccount{{
+		ID: "claude-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true,
+		State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &spentSeatReset,
+	}})
+	notice := translate.NewRouterNotice(translate.NoticeModelSelection, "✦ **Weave Router** → claude-opus-5 · best pick for this turn\n\n", "claude-opus-5", "")
+	got := addRoutingFundingSource(ctx, now, providers.ProviderAnthropic, "claude-opus-5", notice)
+	assert.NotContains(t, got.Text, "funded by Claude subscription")
 }
