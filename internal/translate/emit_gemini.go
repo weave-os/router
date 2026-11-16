@@ -1,6 +1,7 @@
 package translate
 
 import (
+	"cmp"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -231,53 +232,18 @@ func writeGeminiFromOpenAI(jw *jsonWriter, body []byte, opts EmitOptions) error 
 	if reminder := geminiSystemReminder(opts.TargetModel); reminder != "" && hasNonEmptyTools(body) {
 		sysParts = append(sysParts, reminder)
 	}
-	if len(sysParts) > 0 {
-		jw.Key("systemInstruction")
-		jw.Obj()
-		jw.Key("parts")
-		jw.Arr()
-		jw.Obj()
-		jw.Key("text")
-		jw.Str(strings.Join(sysParts, "\n"))
-		jw.EndObj()
-		jw.EndArr()
-		jw.EndObj()
-	}
+	writeGeminiSystemInstruction(jw, sysParts)
 
 	entries := make([]contentEntry, 0, 8)
 	var walkErr error
 	msgs.ForEach(func(_, msg gjson.Result) bool {
-		role := msg.Get("role").String()
-		switch role {
-		case "system":
-			return true
-		case "user":
-			parts := openAIUserPartsGJSON(msg.Get("content"))
-			if len(parts) == 0 {
-				return true
-			}
-			entries = append(entries, contentEntry{role: "user", parts: parts})
-		case "assistant":
-			parts, parseErr := openAIAssistantPartsGJSON(msg)
-			if parseErr != nil {
-				walkErr = parseErr
-				return false
-			}
-			if len(parts) == 0 {
-				return true
-			}
-			entries = append(entries, contentEntry{role: "model", parts: parts})
-		case "tool":
-			tcID := msg.Get("tool_call_id").String()
-			name := toolNames[tcID]
-			if name == "" {
-				return true
-			}
-			result := toolResultContentGJSON(msg.Get("content"))
-			entries = append(entries, contentEntry{
-				role:  "user",
-				parts: []string{geminiFunctionResponsePart(name, result)},
-			})
+		entry, ok, err := geminiEntryFromOpenAIMessage(msg, toolNames)
+		if err != nil {
+			walkErr = err
+			return false
+		}
+		if ok {
+			entries = append(entries, entry)
 		}
 		return true
 	})
@@ -296,52 +262,93 @@ func writeGeminiFromOpenAI(jw *jsonWriter, body []byte, opts EmitOptions) error 
 	return nil
 }
 
-func openAIUserPartsGJSON(content gjson.Result) []string {
+func geminiEntryFromOpenAIMessage(msg gjson.Result, toolNames map[string]string) (contentEntry, bool, error) {
+	var parts []string
+	var err error
+	role := "user"
+	switch msg.Get("role").String() {
+	case "user":
+		parts, err = openAIUserPartsGJSON(msg.Get("content"))
+	case "assistant":
+		role = "model"
+		parts, err = openAIAssistantPartsGJSON(msg)
+	case "tool":
+		if name := toolNames[msg.Get("tool_call_id").String()]; name != "" {
+			parts = []string{geminiFunctionResponsePart(name, toolResultContentGJSON(msg.Get("content")))}
+		}
+	}
+	return contentEntry{role: role, parts: parts}, err == nil && len(parts) > 0, err
+}
+
+func openAIUserPartsGJSON(content gjson.Result) ([]string, error) {
 	switch content.Type {
 	case gjson.String:
-		s := content.String()
-		if s == "" {
-			return nil
+		if s := content.String(); s != "" {
+			return []string{geminiTextPart(s)}, nil
 		}
-		return []string{geminiTextPart(s)}
 	case gjson.JSON:
 		var parts []string
+		var err error
 		content.ForEach(func(_, p gjson.Result) bool {
-			switch p.Get("type").String() {
-			case "text":
-				if s := p.Get("text").String(); s != "" {
-					parts = append(parts, geminiTextPart(s))
-				}
-			case "image_url":
-				urlStr := p.Get("image_url.url").String()
-				mime, data, ok := parseDataURL(urlStr)
-				if !ok {
-					return true
-				}
-				if _, err := base64.StdEncoding.DecodeString(data); err != nil {
-					return true
-				}
-				if mime == "" {
-					mime = "image/jpeg"
-				}
-				pw := newJSONWriter()
-				pw.Obj()
-				pw.Key("inlineData")
-				pw.Obj()
-				pw.Key("mimeType")
-				pw.Str(mime)
-				pw.Key("data")
-				pw.Str(data)
-				pw.EndObj()
-				pw.EndObj()
-				parts = append(parts, string(pw.Bytes()))
+			var part string
+			if part, err = openAIUserPartGemini(p); part != "" {
+				parts = append(parts, part)
 			}
-			return true
+			return err == nil
 		})
-		return parts
+		if err != nil {
+			return nil, err
+		}
+		return parts, nil
 	default:
 	}
-	return nil
+	return nil, nil
+}
+
+func openAIUserPartGemini(p gjson.Result) (string, error) {
+	switch p.Get("type").String() {
+	case "text":
+		if s := p.Get("text").String(); s != "" {
+			return geminiTextPart(s), nil
+		}
+	case "image_url":
+		if mime, data, ok := parseDataURL(p.Get("image_url.url").String()); ok {
+			return geminiBase64InlineDataPart(cmp.Or(mime, "image/jpeg"), data), nil
+		}
+	case "file":
+		if mime, data, ok := parseDataURL(p.Get("file.file_data").String()); ok {
+			return geminiBase64InlineDataPart(mime, data), nil
+		}
+		if p.Get("file.file_id").String() != "" {
+			return "", fmt.Errorf("openai→gemini: file part with file_id: %w", ErrUntranslatableUserContent)
+		}
+	case "input_audio":
+		if format := p.Get("input_audio.format").String(); format != "" {
+			return geminiBase64InlineDataPart("audio/"+format, p.Get("input_audio.data").String()), nil
+		}
+	}
+	return "", nil
+}
+
+func geminiBase64InlineDataPart(mime, data string) string {
+	if _, err := base64.StdEncoding.DecodeString(data); err != nil || mime == "" || data == "" {
+		return ""
+	}
+	return geminiInlineDataPart(mime, data)
+}
+
+func geminiInlineDataPart(mime, data string) string {
+	pw := newJSONWriter()
+	pw.Obj()
+	pw.Key("inlineData")
+	pw.Obj()
+	pw.Key("mimeType")
+	pw.Str(mime)
+	pw.Key("data")
+	pw.Str(data)
+	pw.EndObj()
+	pw.EndObj()
+	return string(pw.Bytes())
 }
 
 func openAIAssistantPartsGJSON(msg gjson.Result) ([]string, error) {
@@ -565,18 +572,7 @@ func writeGeminiFromAnthropic(jw *jsonWriter, body []byte, opts EmitOptions) err
 	if reminder := geminiSystemReminder(opts.TargetModel); reminder != "" && hasNonEmptyTools(body) {
 		sysParts = append(sysParts, reminder)
 	}
-	if len(sysParts) > 0 {
-		jw.Key("systemInstruction")
-		jw.Obj()
-		jw.Key("parts")
-		jw.Arr()
-		jw.Obj()
-		jw.Key("text")
-		jw.Str(strings.Join(sysParts, "\n"))
-		jw.EndObj()
-		jw.EndArr()
-		jw.EndObj()
-	}
+	writeGeminiSystemInstruction(jw, sysParts)
 
 	msgs := gjson.GetBytes(body, "messages")
 
@@ -667,6 +663,22 @@ func emitGeminiContents(jw *jsonWriter, entries []contentEntry) {
 	jw.EndArr()
 }
 
+func writeGeminiSystemInstruction(jw *jsonWriter, sysParts []string) {
+	if len(sysParts) == 0 {
+		return
+	}
+	jw.Key("systemInstruction")
+	jw.Obj()
+	jw.Key("parts")
+	jw.Arr()
+	jw.Obj()
+	jw.Key("text")
+	jw.Str(strings.Join(sysParts, "\n"))
+	jw.EndObj()
+	jw.EndArr()
+	jw.EndObj()
+}
+
 func geminiFunctionResponsePart(name, result string) string {
 	pw := newJSONWriter()
 	pw.Obj()
@@ -739,38 +751,14 @@ func anthropicUserPartsGJSON(content gjson.Result, toolNames map[string]string) 
 				if mime == "" {
 					mime = "image/jpeg"
 				}
-				pw := newJSONWriter()
-				pw.Obj()
-				pw.Key("inlineData")
-				pw.Obj()
-				pw.Key("mimeType")
-				pw.Str(mime)
-				pw.Key("data")
-				pw.Str(data)
-				pw.EndObj()
-				pw.EndObj()
-				parts = append(parts, string(pw.Bytes()))
+				parts = append(parts, geminiInlineDataPart(mime, data))
 			case "tool_result":
 				id := block.Get("tool_use_id").String()
 				name := toolNames[id]
 				if name == "" {
 					return true
 				}
-				result := toolResultContentGJSON(block.Get("content"))
-				pw := newJSONWriter()
-				pw.Obj()
-				pw.Key("functionResponse")
-				pw.Obj()
-				pw.Key("name")
-				pw.Str(name)
-				pw.Key("response")
-				pw.Obj()
-				pw.Key("result")
-				pw.Str(result)
-				pw.EndObj()
-				pw.EndObj()
-				pw.EndObj()
-				parts = append(parts, string(pw.Bytes()))
+				parts = append(parts, geminiFunctionResponsePart(name, toolResultContentGJSON(block.Get("content"))))
 			}
 			return true
 		})
