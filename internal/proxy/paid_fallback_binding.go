@@ -65,12 +65,8 @@ func paidFallbackEvent(customerKey *Credentials) subscriptionlane.Event {
 	return subscriptionlane.OrganizationCreditsServed
 }
 
-func servingCommitment(ctx context.Context, binding subscriptionlane.Binding, on subscriptionlane.Event) (subscriptionlane.State, bool) {
-	return subscriptionlane.Commit(billing.SubscriptionLaneFromContext(ctx), binding, on)
-}
-
 func servingCommitted(ctx context.Context, binding subscriptionlane.Binding, on subscriptionlane.Event) bool {
-	_, committed := servingCommitment(ctx, binding, on)
+	_, committed := subscriptionlane.Commit(billing.SubscriptionLaneFromContext(ctx), binding, on)
 	return committed
 }
 

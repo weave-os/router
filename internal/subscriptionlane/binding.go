@@ -121,11 +121,6 @@ func Commit(lane State, binding Binding, on Event) (State, bool) {
 	return Step(lane, on)
 }
 
-func Serves(lane State, binding Binding, on Event) bool {
-	_, committed := Commit(lane, binding, on)
-	return committed
-}
-
 func Bindings() []Binding {
 	all := make([]Binding, bindingCount)
 	for i := range all {
