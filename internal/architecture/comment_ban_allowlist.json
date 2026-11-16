@@ -10,10 +10,6 @@
       "banned_lines": 248
     },
     {
-      "package": "internal/policyregistry",
-      "banned_lines": 491
-    },
-    {
       "package": "internal/providers",
       "banned_lines": 352
     },
@@ -23,7 +19,7 @@
     },
     {
       "package": "internal/proxy",
-      "banned_lines": 5225
+      "banned_lines": 5222
     },
     {
       "package": "internal/router/catalog",
