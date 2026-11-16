@@ -15,21 +15,14 @@ import (
 
 const commandPublishRelease commandName = "publish-release"
 
-// placeholderGeneration stands in for the generation GCS assigns at write time, so a dry run can
-// run every structural check on manifests whose real references do not exist yet.
 const placeholderGeneration = 1
 
-// servingManifestFile is one decoded member of the release, kept with the exact bytes its digest
-// and publication are keyed on.
 type servingManifestFile struct {
 	kind    policyregistry.ServingKind
 	payload []byte
 	digest  string
 }
 
-// servingManifestDigest reports the digest a publish of these bytes would use. The selection set
-// and the proposal are only digestible once the objects they reference exist, so a dry run
-// reports that they validated instead of inventing a digest.
 type servingManifestDigest struct {
 	Kind      policyregistry.ServingKind `json:"kind"`
 	SHA256    string                     `json:"sha256,omitempty"`
@@ -48,13 +41,6 @@ type servingReleaseRefs struct {
 	Proposal     policyregistry.ObjectRef `json:"proposal"`
 }
 
-// servingPublishRelease publishes the candidate, its selection set and its proposal through the
-// same create-only publish path a single `publish` uses, in that order. An ObjectRef carries the
-// generation the registry assigns at write time, which no caller can know for an object that does
-// not exist yet, so the selection set's lane candidates and the proposal's selection set and
-// source candidate are filled in from what was actually published rather than transcribed by the
-// caller. Filling is deterministic, so re-running a release re-derives the same bytes and the
-// create-only path reports the existing objects without writing. Nothing is applied or activated.
 func servingPublishRelease(ctx context.Context, dependencies servingDependencies, root, candidatePath, selectionSetPath, proposalPath string, dryRun bool) error {
 	if candidatePath == "" || selectionSetPath == "" || proposalPath == "" {
 		return errors.New("serving publish-release requires --candidate, --selection-set and --proposal")
@@ -102,9 +88,6 @@ func servingPublishRelease(ctx context.Context, dependencies servingDependencies
 	return dependencies.writeOutput(servingReleaseRefs{Candidate: candidateRef, SelectionSet: selectionSetRef, Proposal: proposalRef})
 }
 
-// dryRunServingRelease runs every check a release performs except the ones that need the objects
-// to exist: the filled references carry a placeholder generation, so only the candidate's digest
-// is the digest the release would publish under.
 func dryRunServingRelease(dependencies servingDependencies, root string, candidate servingManifestFile, selectionSetDocument, proposalDocument map[string]any) error {
 	candidatePlaceholder := placeholderRef(root, candidate.digest)
 	selectionSet, err := fillLaneCandidates(selectionSetDocument, candidate.digest, candidatePlaceholder)
@@ -128,7 +111,6 @@ func dryRunServingRelease(dependencies servingDependencies, root string, candida
 	})
 }
 
-// readServingManifestFile applies every pre-write check a single publish performs.
 func readServingManifestFile(path, root string, kind policyregistry.ServingKind) (servingManifestFile, error) {
 	payload, err := readServingPayload(path)
 	if err != nil {
@@ -140,9 +122,6 @@ func readServingManifestFile(path, root string, kind policyregistry.ServingKind)
 	return servingManifestFile{kind: kind, payload: payload, digest: policyregistry.Digest(payload)}, nil
 }
 
-// readServingDocument reads a manifest whose references are still to be filled in. It is decoded
-// as a document rather than a manifest because it cannot validate until it is complete; numbers
-// keep their literal text so a generation is never rounded through float64.
 func readServingDocument(path string, kind policyregistry.ServingKind) (map[string]any, error) {
 	payload, err := readServingPayload(path)
 	if err != nil {
@@ -183,16 +162,10 @@ func decodeFilledManifest(kind policyregistry.ServingKind, payload []byte, root 
 	return nil
 }
 
-// placeholderRef is the reference an object with these bytes will have, except for the generation
-// the registry assigns when it is created.
 func placeholderRef(root, digest string) policyregistry.ObjectRef {
 	return policyregistry.ObjectRef{URI: strings.TrimRight(root, "/") + "/artifacts/" + digest + ".json", SHA256: digest, Generation: placeholderGeneration}
 }
 
-// fillLaneCandidates binds every lane that names the published candidate — by digest, or by
-// naming no digest at all — to its exact reference. Lanes pinned to another, already published
-// candidate are left alone, and a selection set that names the candidate nowhere is rejected: it
-// belongs to a different release.
 func fillLaneCandidates(document map[string]any, digest string, candidate policyregistry.ObjectRef) ([]byte, error) {
 	lanes, err := selectionSetLanes(document)
 	if err != nil {
@@ -223,8 +196,6 @@ func fillLaneCandidates(document map[string]any, digest string, candidate policy
 	return json.Marshal(document)
 }
 
-// fillProposalSources binds the proposal to the objects published alongside it. A proposal that
-// names a different object is a proposal for a different release, not one to rewrite.
 func fillProposalSources(document map[string]any, selectionSet, candidate policyregistry.ObjectRef) ([]byte, error) {
 	for field, published := range map[string]policyregistry.ObjectRef{"selection_set": selectionSet, "source_candidate": candidate} {
 		stated, err := statedReference(document, field)
@@ -246,9 +217,6 @@ func fillProposalSources(document map[string]any, selectionSet, candidate policy
 	return json.Marshal(document)
 }
 
-// selectionSetLanes returns the default lane and every profile lane by key. Anything that is not
-// shaped like a lane is left to the decoder of the filled bytes to reject. V3 binds only
-// its shared code candidate; roster assignments are already immutable policy references.
 func selectionSetLanes(document map[string]any) (map[string]map[string]any, error) {
 	lanes := map[string]map[string]any{}
 	if document["schema_version"] == string(policyregistry.ServingSelectionSetV3) {
@@ -281,9 +249,6 @@ func selectionSetLanes(document map[string]any) (map[string]map[string]any, erro
 	return lanes, nil
 }
 
-// matchesPublished rejects a reference the caller wrote for an object other than the one being
-// published here. Only the generation is filled in silently: it is the one field no caller can
-// know before the object exists.
 func matchesPublished(stated, published policyregistry.ObjectRef, field string) error {
 	if stated.URI != "" && stated.URI != published.URI {
 		return fmt.Errorf("%s reference names %s, but this release publishes %s", field, stated.URI, published.URI)
@@ -291,10 +256,6 @@ func matchesPublished(stated, published policyregistry.ObjectRef, field string) 
 	return nil
 }
 
-// statedReference reads the reference the caller wrote for the field, as strictly as the decoder
-// of a complete manifest would: a misspelled or mistyped field is an error rather than something
-// the fill silently discards. An absent field, or one that names no digest, means the caller left
-// the reference to this command. The generation is not checked — the caller cannot know it.
 func statedReference(document map[string]any, field string) (policyregistry.ObjectRef, error) {
 	value, present := document[field]
 	if !present || value == nil {

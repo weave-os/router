@@ -63,6 +63,31 @@ destination validation calls the HTTPS origins the selection set's lanes declare
   proposal: run `status --proposal` (or re-run `apply` with the same proposal) to
   reconcile the outcome without creating another activation.
 
+### Legacy lane-head commands
+
+- `policyctl check-rosters` prints a JSON report with `compiled`, `skipped` and
+  `failed` rosters. A roster in a source schema the compiler does not accept is a
+  historical artifact and is skipped, not failed. A reviewed v7 roster the compiler
+  rejects fails: that drift would strand production without a publishable policy.
+  Every compiled roster must also pass the catalog validation `publish` applies,
+  because a policy that fails it can never become a release.
+- `policyctl promote` and `rollback` take `--classifier-verification`. `probe` (the
+  default) calls the tagged revision's `/readyz`. `control-plane` serves callers
+  outside the VPC that cannot reach an internal-ingress revision: instead of calling
+  it, policyctl compares what Cloud Run reports for the revision (the container image
+  plus the pinned classifier package env the sidecar refuses to boot without) with
+  the release. The router still probes `/readyz` at boot.
+- `policyctl export` snapshots a promoted lane into the directory layout read from
+  `ROUTER_POLICY_RELEASE_DIR`, so a self-hosted router can run that exact release.
+- The retired serving verbs `validate`, `resolve`, `prepare` and `activate` exit
+  non-zero and name the `publish`/`apply` invocation that replaced them.
+- `serving publish` digests the manifest bytes exactly as they would be stored;
+  `--dry-run` performs every pre-write check and reports that digest without opening
+  the registry. `serving apply --dry-run` stops after destination validation.
+- Every applied or replayed activation can change retained binding eligibility, so
+  `serving apply` publishes an admission invalidation for the target each time. A
+  failed publish is logged and workers fall back to cache TTL expiry.
+
 ## Registry layout
 
 ```
@@ -289,6 +314,10 @@ placeholder generation, and reports only the candidate's digest: the selection s
 and the proposal's digests depend on references that do not exist until the candidate
 and the selection set are published.
 
+Manifests whose references are still to be filled are read as generic JSON documents
+with numbers kept as their literal text, so a generation is never rounded through
+`float64`; only the filled bytes are strict-decoded as a manifest.
+
 ## Non-circular configuration and evidence
 
 Configuration artifacts cover effective behavior-affecting settings and exact
@@ -393,6 +422,13 @@ traversal read, the `request_id` uniqueness/conflict arm, `expected_generation` 
 proposals, the `--approved-proposal`/`--workflow-actor` binding flags, the
 `--validation-origin` allowlist, and the per-component `releases`/`classifiers`/
 `bindings`/`profiles` publishes.
+
+## Admission transaction
+
+`ServingAdmissionRepo` is wired only in managed gateway mode; legacy startup never constructs it.
+Every admission takes row locks in the same order — installation, key, subject/access, then
+conversation — so concurrent admissions cannot deadlock. `Admit` fails the whole request when
+either persistence or the authoritative release read fails; it never admits on partial state.
 
 ## Admission timing measurement
 

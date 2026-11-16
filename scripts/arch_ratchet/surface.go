@@ -16,8 +16,6 @@ type proxySurface struct {
 	contextKeys    int
 }
 
-// measureSurface counts proxy.Service's fields and methods and the distinct keys
-// internal/proxy stores in a context.
 func measureSurface(sources map[string][]byte) (proxySurface, error) {
 	surface := proxySurface{}
 	keys := map[string]bool{}
@@ -87,8 +85,6 @@ func collectContextKeys(file *ast.File, keys map[string]bool) {
 	})
 }
 
-// contextImports returns the local names the file binds to the context package, plus
-// whether it dot-imports context (which allows unqualified WithValue calls).
 func contextImports(file *ast.File) (map[string]bool, bool) {
 	names := map[string]bool{}
 	dot := false

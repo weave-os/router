@@ -18,7 +18,7 @@ import (
 // The cap bounds PAID spend, not free subscription usage: a covered turn on a
 // usage-bypass org (a Claude/Codex credential that covers routePath) is not
 // rejected when the cap is reached. Instead it returns a subscription-only
-// ctx (billing.Service.WithUnfunded) so the proxy serves it on the caller's
+// ctx (billing.WithSubscriptionOnly) so the proxy serves it on the caller's
 // own plan — or refuses a would-be-paid turn with the controlled 402 — never
 // on a paid model. Mirrors middleware.WithBalanceCheck's exemption. Returns the
 // (possibly flagged) ctx the rest of the turn must use.

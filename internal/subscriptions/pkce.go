@@ -10,15 +10,11 @@ import (
 
 const pkceVerifierBytes = 32
 
-// PKCEChallenge is a one-time verifier/challenge pair for provider enrollment.
-// The verifier must remain in the enrolling CLI and must not be logged.
 type PKCEChallenge struct {
 	Verifier  string
 	Challenge string
 }
 
-// NewPKCEChallenge creates an RFC 7636 S256 challenge using cryptographic
-// randomness.
 func NewPKCEChallenge() (PKCEChallenge, error) {
 	verifierBytes := make([]byte, pkceVerifierBytes)
 	if _, err := rand.Read(verifierBytes); err != nil {
@@ -32,7 +28,6 @@ func NewPKCEChallenge() (PKCEChallenge, error) {
 	}, nil
 }
 
-// VerifyPKCE reports whether verifier produces the expected S256 challenge.
 func VerifyPKCE(verifier, challenge string) error {
 	if verifier == "" || challenge == "" {
 		return errors.New("pkce verifier and challenge are required")

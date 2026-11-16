@@ -136,11 +136,6 @@ func SubscriptionOnlyReasonFromContext(ctx context.Context) (reason Subscription
 
 type byokFeeUnpayableKey struct{}
 
-// WithUnfunded marks ctx subscription-only for an unfunded reason (depleted
-// credits or a reached spend cap) and records whether the customer's own key
-// may still serve the turn. It may not when this deployment charges a BYOK
-// fee: the organization cannot pay it, so the turn is refused before any
-// upstream call instead. At a zero fee rate nothing is owed and the key serves.
 func (s *Service) WithUnfunded(ctx context.Context, reason SubscriptionOnlyReason) context.Context {
 	ctx = WithSubscriptionOnly(ctx, reason)
 	if s.ByokFeeOwed(ctx) && reason != SubscriptionOnlyLinkedFirst {
@@ -149,14 +144,10 @@ func (s *Service) WithUnfunded(ctx context.Context, reason SubscriptionOnlyReaso
 	return ctx
 }
 
-// ByokFeeOwed reports whether a BYOK-served turn on ctx would be charged the
-// fee: the rate is above zero and no billing override waives it.
 func (s *Service) ByokFeeOwed(ctx context.Context) bool {
 	return s.byokFeeRate > 0 && !HasOverrideFromContext(ctx)
 }
 
-// ByokFeeUnpayable reports whether a gate found the turn unfunded while this
-// deployment charges a BYOK fee, so the customer's own key may not serve it.
 func ByokFeeUnpayable(ctx context.Context) bool {
 	unpayable, _ := ctx.Value(byokFeeUnpayableKey{}).(bool)
 	return unpayable
@@ -435,10 +426,6 @@ func (p DebitInferenceParams) requestedModel() string {
 // margin is collected at top-up by the backend. Debits 0 for an override
 // pass-through or subscription-served turn (already paid for), but always
 // records NotionalCostMicros as a shadow trail.
-//
-// A BYOK turn debits 0 on the inference row (the customer paid their own
-// provider) and adds a byok_fee row for the configured fee rate of the
-// upstream cost (no fee row when the rate is zero).
 // Override and subscription outrank BYOK.
 //
 // A turn funded by an individual Max/Boost allowance or subscriber prepaid
@@ -470,7 +457,6 @@ func (s *Service) DebitForInference(ctx context.Context, p DebitInferenceParams)
 		// Already paid for — debit nothing, but still record notional cost below.
 		delta = 0
 	case p.ByokServed:
-		// Customer paid their upstream directly; Weave charges only the fee.
 		delta = 0
 		fee = -s.byokFeeMicros(notional)
 	case subscriberCovered:

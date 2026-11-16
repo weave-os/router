@@ -19,13 +19,10 @@ const (
 	weaveLogoAssetPath   = "/v1/feedback/assets/weave.svg"
 )
 
-// WoolyWaveHandler serves the Wooly waving illustration bundled for the
-// one-click rate confirmation page (resized from WorkWeave frontend/public).
 func WoolyWaveHandler() gin.HandlerFunc {
 	return staticAssetHandler("wooly-wave.png", "image/png")
 }
 
-// WeaveLogoHandler serves the Weave mark used on the rate confirmation page.
 func WeaveLogoHandler() gin.HandlerFunc {
 	return staticAssetHandler("weave.svg", "image/svg+xml")
 }
@@ -41,7 +38,6 @@ func staticAssetHandler(name, contentType string) gin.HandlerFunc {
 	}
 }
 
-// ratePageSuccess renders the branded confirmation after a one-click rating.
 func ratePageSuccess() []byte {
 	return ratePageLayout(ratePageLayoutParams{
 		Title: ratePageSuccessTitle,
@@ -51,8 +47,6 @@ func ratePageSuccess() []byte {
 	})
 }
 
-// ratePageError renders a branded dead-end page for malformed links, expired
-// tokens, and persistence failures.
 func ratePageError(message string) []byte {
 	return ratePageLayout(ratePageLayoutParams{
 		Title: "Something went wrong",

@@ -54,7 +54,7 @@ func TestWithAuthInferenceOrganizationAllowlist(t *testing.T) {
 			require.Equal(t, scenario.wantStatus, response.Code)
 			assert.Equal(t, scenario.wantStatus == http.StatusNoContent, handlerReached)
 			if scenario.wantStatus == http.StatusForbidden {
-				assert.JSONEq(t, `{"error":"organization_not_allowed"}`, response.Body.String())
+				assert.JSONEq(t, `{"type":"error","error":{"type":"permission_error","code":"organization_not_allowed","message":"This organization is not allowed to use this router."}}`, response.Body.String())
 			}
 		})
 	}

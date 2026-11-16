@@ -1,9 +1,8 @@
 package middleware
 
 import (
-	"net/http"
-
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/refusal"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -11,17 +10,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// PolicyPinOverrideHeader pins a turn to one frozen policy artifact and roster:
-// `<policy_artifact_sha256>@<roster_sha256>`. Only registered when
-// ROUTER_POLICY_PIN_ENABLED is set; honoured only for installations with
-// PolicyHeaderOverridesEnabled. For any other installation the value is never
-// parsed: the request is served exactly as if the header were absent, apart
-// from a policy_pin_requested telemetry mark. A malformed value from an
-// authorized installation is a 400 with code policy_pin_malformed.
 const PolicyPinOverrideHeader = "x-weave-policy-pin"
 
-// WithPolicyPinOverride parses the pin header onto the request context so the
-// router can select (or refuse) the pinned artifact and roster.
 func WithPolicyPinOverride() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if identity, managed := requestcontext.ServingIdentityFromContext(c.Request.Context()); managed && entitlement.PlanHasServingProfile(entitlement.Plan(identity.Plan)) {
@@ -54,34 +44,5 @@ func WithPolicyPinOverride() gin.HandlerFunc {
 }
 
 func abortMalformedPolicyPin(c *gin.Context, message string) {
-	code := string(router.PolicyPinErrorMalformed)
-	switch detectAPIFormat(c.Request.URL.Path) {
-	case apiFormatAnthropic:
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
-			"type": "error",
-			"error": gin.H{
-				"type":    "invalid_request_error",
-				"code":    code,
-				"message": message,
-			},
-		})
-	case apiFormatGemini:
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    http.StatusBadRequest,
-				"message": message,
-				"status":  "INVALID_ARGUMENT",
-				"details": []gin.H{{"reason": code}},
-			},
-		})
-	default:
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"type":    "invalid_request_error",
-				"message": message,
-				"param":   nil,
-				"code":    code,
-			},
-		})
-	}
+	abortRefusal(c, refusal.PolicyPinMalformed, gin.H{"message": message})
 }

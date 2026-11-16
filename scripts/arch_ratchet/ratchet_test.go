@@ -279,3 +279,107 @@ func TestRunComparesWorkingTreeWithMergeBase(t *testing.T) {
 	require.Len(t, result.violations, 1)
 	assert.Equal(t, "internal/other.Long", result.violations[0].subject)
 }
+
+func TestCompareCommentsFlagsNewAndReplacedCommentsButNotMoves(t *testing.T) {
+	base := map[string][]byte{
+		"internal/x/a.go":      []byte("package x\n\n// Old explains A.\nfunc A() {}\n"),
+		"internal/x/b.go":      []byte("package x\n\n// Moves within the package.\nfunc B() {}\n"),
+		"internal/x/x_test.go": []byte("package x\n"),
+	}
+	head := map[string][]byte{
+		"internal/x/a.go":      []byte("package x\n\n// Moves within the package.\nfunc B() {}\n\n// New explains A.\nfunc A() {}\n"),
+		"internal/x/b.go":      []byte("package x\n\n//go:generate echo allowed\n"),
+		"internal/x/x_test.go": []byte("package x\n\n// Test files join the ban later.\n"),
+	}
+	got, err := compareComments(base, head)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "internal/x/a.go:6", got[0].subject)
+	assert.Equal(t, metricNewComment, got[0].metric)
+	assert.Contains(t, got[0].String(), "move what it says into a name, type or test")
+}
+
+func TestRunFlagsGrowingCommentBanBudgets(t *testing.T) {
+	root := t.TempDir()
+	git := func(args ...string) {
+		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-c", "user.name=test", "-c", "user.email=test@invalid"}, args...)...)
+		cmd.Dir = root
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+	}
+	writeAllowlist := func(packages string) {
+		full := filepath.Join(root, "internal/architecture/comment_ban_allowlist.json")
+		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o750))
+		require.NoError(t, os.WriteFile(full, []byte(`{"schema_version":"comment_ban_allowlist_v1","packages":[`+packages+`]}`), 0o600))
+	}
+	git("init", "-q", "-b", "main")
+	writeAllowlist(`{"package":"internal/a","banned_lines":5}`)
+	git("add", ".")
+	git("commit", "-q", "-m", "base")
+
+	writeAllowlist(`{"package":"internal/a","banned_lines":4}`)
+	result, err := run(t.Context(), repo{root: root}, "main")
+	require.NoError(t, err)
+	assert.Empty(t, result.violations)
+
+	writeAllowlist(`{"package":"internal/a","banned_lines":6},{"package":"internal/b","banned_lines":1}`)
+	result, err = run(t.Context(), repo{root: root}, "main")
+	require.NoError(t, err)
+	assert.Equal(t, []violation{
+		{subject: "internal/a", metric: metricCommentBudget, before: 5, after: 6, limit: -1},
+		{subject: "internal/b", metric: metricCommentBudget, before: 0, after: 1, limit: -1},
+	}, result.violations)
+}
+
+func TestFuncKeyQualifiesExternalTestPackageHelpers(t *testing.T) {
+	internal, _, err := measureFile("internal/x/x.go", []byte("package x\n\nfunc Helper() {}\n"))
+	require.NoError(t, err)
+	external, _, err := measureFile("internal/x/x_test.go", []byte("package x_test\n\nfunc Helper() {}\n"))
+	require.NoError(t, err)
+	require.Len(t, internal.funcs, 1)
+	require.Len(t, external.funcs, 1)
+	assert.Equal(t, "internal/x.Helper", internal.funcs[0].key)
+	assert.Equal(t, "internal/x.x_test.Helper", external.funcs[0].key)
+}
+
+func TestMeasureSurfaceCountsAliasedAndDotImportedContextKeys(t *testing.T) {
+	aliased := `package proxy
+
+import stdctx "context"
+
+type aliasedKey struct{}
+
+func withAliased(ctx stdctx.Context) stdctx.Context {
+	return stdctx.WithValue(ctx, aliasedKey{}, 1)
+}
+`
+	dotImported := `package proxy
+
+import . "context"
+
+type dotKey struct{}
+
+func withDot(ctx Context) Context {
+	return WithValue(ctx, dotKey{}, 1)
+}
+`
+	blank := `package proxy
+
+import _ "context"
+
+type ignoredKey struct{}
+
+func WithValue(ctx any, key, value any) any { return ctx }
+
+func withLocal(ctx any) any {
+	return WithValue(ctx, ignoredKey{}, 1)
+}
+`
+	surface, err := measureSurface(map[string][]byte{
+		"internal/proxy/aliased.go": []byte(aliased),
+		"internal/proxy/dot.go":     []byte(dotImported),
+		"internal/proxy/blank.go":   []byte(blank),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 2, surface.contextKeys)
+}
