@@ -8,13 +8,8 @@ import (
 	"weave-os/router/internal/requestcontext"
 )
 
-// ConversationDigestLen preserves the existing conversation-preference digest width.
 const ConversationDigestLen = 16
 
-// ServingConversationDigest preserves legacy beta preference key bytes for shared credentials.
-// Personal credentials supply the stable subject identity instead of the rotating key ID.
-// No ID means no persisted binding. Direct admission supplies
-// requestcontext.ConversationFingerprint for clients that send no session ID.
 func ServingConversationDigest(credentialIdentity, clientSessionID string) ([ConversationDigestLen]byte, bool) {
 	var digest [ConversationDigestLen]byte
 	if credentialIdentity == "" || clientSessionID == "" {
@@ -23,7 +18,6 @@ func ServingConversationDigest(credentialIdentity, clientSessionID string) ([Con
 	return requestcontext.ConversationKey(credentialIdentity, clientSessionID, requestcontext.LegacyBetaConversationKey, digest), true
 }
 
-// AdmissionScope is the authenticated storage key for a conversation, not a thread-model pin.
 type AdmissionScope struct {
 	InstallationID     string                      `json:"installation_id"`
 	CredentialIdentity string                      `json:"credential_identity"`
@@ -31,9 +25,6 @@ type AdmissionScope struct {
 	Persistent         bool                        `json:"persistent"`
 }
 
-// AdmissionTimings collects the authoritative-read durations of a single admission.
-// It is measurement output only: a nil pointer disables recording and no field is ever
-// read by a decision.
 type AdmissionTimings struct {
 	StateRead         time.Duration
 	SelectionSetRead  time.Duration
@@ -55,7 +46,6 @@ func (t *AdmissionTimings) recordSelectionSetRead(elapsed time.Duration) {
 	t.SelectionSetReads++
 }
 
-// SerializedAdmission is held under primary-database identity and conversation locks.
 type SerializedAdmission struct {
 	Projection AdmissionProjection
 	Previous   *SessionReleaseBinding
@@ -63,26 +53,20 @@ type SerializedAdmission struct {
 	Timings    *AdmissionTimings
 }
 
-// AdmissionDecision performs the authoritative GCS read before the DB transaction commits.
 type AdmissionDecision func(context.Context, SerializedAdmission) (SessionReleaseBinding, error)
 
-// ServingAdmissionStore serializes authentication projections and binding decisions together.
 type ServingAdmissionStore interface {
 	Admit(context.Context, string, string, string, AdmissionDecision) (AdmissionScope, SessionReleaseBinding, error)
 }
 
-// RequestAttributionStore preserves the exact tuple behind the existing request-ID
-// joins in telemetry, inference attempts, billing and feedback. It is not a head.
 type RequestAttributionStore interface {
 	RecordServingRequest(context.Context, string, ServingAssertion) error
 }
 
-// ServingAdmission resolves exact manifests; it cannot fail over to another target or a lane default.
 type ServingAdmission struct {
 	Store ServingStore
 }
 
-// Decide is called inside the primary transaction, after identity/session locks are acquired.
 func (a ServingAdmission) Decide(ctx context.Context, admission SerializedAdmission) (SessionReleaseBinding, error) {
 	if a.Store == nil || admission.Clock == nil {
 		return SessionReleaseBinding{}, errors.New("serving admission registry and database clock are required")
@@ -117,8 +101,6 @@ func (a ServingAdmission) Decide(ctx context.Context, admission SerializedAdmiss
 		}
 		sets[activation.SelectionSet.SHA256] = set
 	}
-	// Sample after the authoritative read so an activation during GCS I/O cannot
-	// appear to come from the future merely because transaction setup started earlier.
 	now, err := admission.Clock(ctx)
 	if err != nil {
 		return SessionReleaseBinding{}, err

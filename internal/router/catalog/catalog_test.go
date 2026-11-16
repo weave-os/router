@@ -821,3 +821,19 @@ func TestCustomToolUnsupportedSet(t *testing.T) {
 	assert.NotContains(t, set, ModelMiMoV26Flash)
 	assert.NotContains(t, set, ModelIDClaudeOpus47.String())
 }
+
+func TestTier_OrderingIsAscendingByCapability(t *testing.T) {
+	assert.Less(t, TierUnknown, TierLow)
+	assert.Less(t, TierLow, TierMid, "the planner upgrades a pin when freshTier > pinTier")
+	assert.Less(t, TierMid, TierHigh)
+}
+
+func TestPricing_ZeroCacheMultipliersFallBackToDefaults(t *testing.T) {
+	var unset Pricing
+	assert.InDelta(t, 0.5, unset.EffectiveCacheReadMultiplier(), 1e-12)
+	assert.InDelta(t, 1.25, unset.EffectiveCacheWriteMultiplier(), 1e-12)
+
+	set := Pricing{CacheReadMultiplier: 0.1, CacheWriteMultiplier: 2}
+	assert.InDelta(t, 0.1, set.EffectiveCacheReadMultiplier(), 1e-12)
+	assert.InDelta(t, 2.0, set.EffectiveCacheWriteMultiplier(), 1e-12)
+}

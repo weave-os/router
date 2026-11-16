@@ -5,17 +5,13 @@ import (
 	"fmt"
 )
 
-// ServingSelectionSetV3 separates a target's code cohort from its roster assignments.
 const ServingSelectionSetV3 ServingSchema = "router_serving_selection_set_v3"
 
-// CodeBinding pins the one candidate and physical destination shared by a target's customers.
 type CodeBinding struct {
 	Candidate ObjectRef `json:"candidate"`
 	LaneBinding
 }
 
-// SelectionSetV3 assigns immutable rosters without deriving customer-specific candidates.
-// Candidate requirements apply to every policy; the candidate's own policy is its bootstrap default.
 type SelectionSetV3 struct {
 	SchemaVersion ServingSchema           `json:"schema_version"`
 	Target        ServingTarget           `json:"target"`
@@ -24,7 +20,6 @@ type SelectionSetV3 struct {
 	Profiles      map[string]PolicyObject `json:"profiles"`
 }
 
-// Validate enforces a single code binding and an explicit inventory of configuration-only profiles.
 func (s SelectionSetV3) Validate(root string) error {
 	if s.SchemaVersion != ServingSelectionSetV3 || s.Profiles == nil {
 		return errors.New("selection set requires a supported schema and explicit profile map")
@@ -52,7 +47,6 @@ func (s SelectionSetV3) Validate(root string) error {
 	return nil
 }
 
-// View retains the existing persisted session and signed assertion representation.
 func (s SelectionSetV3) View(ref ObjectRef) SelectionSetView {
 	profiles := make(map[string]ServingSelection, len(s.Profiles))
 	for key := range s.Profiles {

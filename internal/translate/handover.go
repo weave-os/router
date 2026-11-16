@@ -8,13 +8,8 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// HandoverSummaryTag prefixes the synthesized summary message inserted by
-// RewriteForHandover so it's distinguishable from real assistant output.
 const HandoverSummaryTag = "[handover summary] "
 
-// RewriteForHandover replaces all non-system messages with [assistantSummary,
-// latestUserMessage] to bound input-token cost on mid-session model switches.
-// Returns the count of elided messages; no-ops if there are none.
 func (e *RequestEnvelope) RewriteForHandover(summary string) int {
 	if e == nil {
 		return 0
@@ -31,10 +26,6 @@ func (e *RequestEnvelope) RewriteForHandover(summary string) int {
 	}
 }
 
-// TrimLastNMessages keeps a bounded window of n non-system messages plus
-// system blocks. When the recent tail has no text-bearing user turn, it pulls
-// back the newest earlier one and resumes the retained tail on an assistant
-// turn. Falls back to n=3 when n <= 0. Returns the number elided.
 func (e *RequestEnvelope) TrimLastNMessages(n int) int {
 	if e == nil {
 		return 0
@@ -54,7 +45,6 @@ func (e *RequestEnvelope) TrimLastNMessages(n int) int {
 	}
 }
 
-// rewriteAnthropicForHandover rewrites the "messages" array for Anthropic format.
 func (e *RequestEnvelope) rewriteAnthropicForHandover(summary string) int {
 	msgs := gjson.GetBytes(e.body, "messages")
 	if !msgs.IsArray() {
@@ -65,7 +55,6 @@ func (e *RequestEnvelope) rewriteAnthropicForHandover(summary string) int {
 		return 0
 	}
 
-	// Find the last user message (walking from the end).
 	var latestUser gjson.Result
 	for i := len(all) - 1; i >= 0; i-- {
 		if all[i].Get("role").String() == "user" {
@@ -78,8 +67,7 @@ func (e *RequestEnvelope) rewriteAnthropicForHandover(summary string) int {
 	rebuilt := []string{summaryBlock}
 	preserved := 0
 	if latestUser.Exists() {
-		// Strip tool_result blocks: the summary has no tool_use blocks,
-		// so any tool_results would be orphaned.
+
 		cleaned, _ := stripAnthropicToolResultMsg(latestUser, nil)
 		if cleaned != "" {
 			rebuilt = append(rebuilt, cleaned)
@@ -87,8 +75,6 @@ func (e *RequestEnvelope) rewriteAnthropicForHandover(summary string) int {
 		}
 	}
 
-	// elided counts original conversation messages no longer present;
-	// the synthesized summary is not part of the original conversation.
 	elided := max(len(all)-preserved, 0)
 
 	newMessages := "[" + strings.Join(rebuilt, ",") + "]"
@@ -100,8 +86,6 @@ func (e *RequestEnvelope) rewriteAnthropicForHandover(summary string) int {
 	return elided
 }
 
-// anthropicAssistantSummaryBlock builds a synthesized assistant entry with a
-// single text block containing the tagged summary.
 func anthropicAssistantSummaryBlock(summary string) string {
 	tagged := HandoverSummaryTag + summary
 	msg := map[string]any{
@@ -112,8 +96,7 @@ func anthropicAssistantSummaryBlock(summary string) string {
 	}
 	raw, err := json.Marshal(msg)
 	if err != nil {
-		// json.Marshal can only fail on unsupported values; both keys
-		// are strings, so this is defensive.
+
 		escaped, _ := json.Marshal(tagged)
 		return `{"role":"assistant","content":[{"type":"text","text":` + string(escaped) + `}]}`
 	}
@@ -140,8 +123,6 @@ func (e *RequestEnvelope) trimAnthropicLastN(n int) int {
 	return len(all) - n
 }
 
-// rewriteOpenAIForHandover preserves role=="system" messages and replaces
-// every other message with [assistantSummary, latestUser].
 func (e *RequestEnvelope) rewriteOpenAIForHandover(summary string) int {
 	msgs := gjson.GetBytes(e.body, "messages")
 	if !msgs.IsArray() {
@@ -166,7 +147,6 @@ func (e *RequestEnvelope) rewriteOpenAIForHandover(summary string) int {
 		return 0
 	}
 
-	// Walk the non-system entries backwards for the latest user message.
 	var latestUserRaw string
 	for i := len(all) - 1; i >= 0; i-- {
 		if all[i].Get("role").String() == "user" {
@@ -185,8 +165,6 @@ func (e *RequestEnvelope) rewriteOpenAIForHandover(summary string) int {
 		preserved = 1
 	}
 
-	// elided counts original conversation messages no longer present;
-	// preserved systems and the (optional) latestUser are not counted.
 	elided := max(len(others)-preserved, 0)
 
 	newMessages := "[" + strings.Join(rebuilt, ",") + "]"
@@ -198,8 +176,6 @@ func (e *RequestEnvelope) rewriteOpenAIForHandover(summary string) int {
 	return elided
 }
 
-// openAIAssistantSummaryMessage builds an OpenAI assistant message with the
-// tagged summary as a single string content.
 func openAIAssistantSummaryMessage(summary string) string {
 	tagged := HandoverSummaryTag + summary
 	msg := map[string]any{
@@ -253,8 +229,6 @@ func (e *RequestEnvelope) trimOpenAILastN(n int) int {
 	return len(others) - n
 }
 
-// rewriteGeminiForHandover mirrors the Anthropic path against Gemini's
-// `contents` array. systemInstruction is untouched.
 func (e *RequestEnvelope) rewriteGeminiForHandover(summary string) int {
 	contents := gjson.GetBytes(e.body, "contents")
 	if !contents.IsArray() {
@@ -324,10 +298,6 @@ func (e *RequestEnvelope) trimGeminiLastN(n int) int {
 	return len(all) - len(rebuilt)
 }
 
-// recentMessagesWithUserTextBoundary keeps the newest messages while ensuring
-// the window still describes the user's request. Tool-result-only user entries
-// do not qualify, and a pulled-back user boundary resumes on an assistant turn
-// so the rewritten wire history does not contain consecutive user roles.
 func recentMessagesWithUserTextBoundary(messages []gjson.Result, limit int, format Format) ([]gjson.Result, bool) {
 	if limit <= 0 || len(messages) <= limit {
 		return messages, false
@@ -377,11 +347,6 @@ func isTextBearingUserMessage(message gjson.Result, format Format) bool {
 	}
 }
 
-// stripOrphanedAnthropicToolResults drops tool_result blocks whose tool_use_id
-// has no matching tool_use among the set's assistant messages; user messages
-// left empty afterward are omitted entirely. Also returns the number of blocks
-// removed, which callers cannot infer from the message count: a user message
-// carrying other content survives the strip with the count unchanged.
 func stripOrphanedAnthropicToolResults(msgs []gjson.Result) ([]string, int) {
 	knownIDs := collectAnthropicToolUseIDs(msgs)
 	result := make([]string, 0, len(msgs))
@@ -400,8 +365,6 @@ func stripOrphanedAnthropicToolResults(msgs []gjson.Result) ([]string, int) {
 	return result, stripped
 }
 
-// collectAnthropicToolUseIDs returns the set of tool_use IDs present in
-// assistant messages.
 func collectAnthropicToolUseIDs(msgs []gjson.Result) map[string]struct{} {
 	ids := make(map[string]struct{})
 	for _, m := range msgs {
@@ -420,9 +383,6 @@ func collectAnthropicToolUseIDs(msgs []gjson.Result) map[string]struct{} {
 	return ids
 }
 
-// stripAnthropicToolResultMsg removes tool_result blocks not in knownIDs (nil
-// strips all). Returns "" if the message is left with no content, plus the
-// number of blocks removed.
 func stripAnthropicToolResultMsg(msg gjson.Result, knownIDs map[string]struct{}) (string, int) {
 	content := msg.Get("content")
 	if !content.IsArray() {
@@ -468,8 +428,6 @@ func stripAnthropicToolResultMsg(msg gjson.Result, knownIDs map[string]struct{})
 	return string(out), stripped
 }
 
-// stripOrphanedOpenAIToolMessages removes role:"tool" messages whose
-// tool_call_id doesn't match any assistant tool_calls[].id in the set.
 func stripOrphanedOpenAIToolMessages(msgs []string) []string {
 	knownIDs := make(map[string]struct{})
 	for _, raw := range msgs {
@@ -498,15 +456,6 @@ func stripOrphanedOpenAIToolMessages(msgs []string) []string {
 	return result
 }
 
-// stripOrphanedOpenAIToolCalls removes tool_calls entries from assistant
-// messages whose id has no matching role:"tool" tool_call_id in the set.
-// Returns the modified message list and the count of orphaned tool_calls
-// stripped. An assistant message whose tool_calls are all orphaned gets the
-// key removed entirely so the field is absent from the wire payload. A
-// healthy client-submitted history never has an unanswered tool_calls entry
-// (the client's own tool loop always finishes answering one turn's calls
-// before sending the next request), so stripping is unconditional — there is
-// no legitimate "still in flight" case to protect against.
 func stripOrphanedOpenAIToolCalls(msgs []string) ([]string, int) {
 	knownIDs := make(map[string]struct{})
 	for _, raw := range msgs {
@@ -567,15 +516,6 @@ func stripOrphanedOpenAIToolCalls(msgs []string) ([]string, int) {
 	return result, stripped
 }
 
-// SanitizeOrphanedToolCalls strips tool_calls entries from assistant messages
-// that have no matching tool response in the request history, then strips
-// tool_result content blocks from user messages whose IDs are unmatched.
-// Some providers (Together) enforce strict tool-call/response pairing and 400
-// on orphaned IDs that other providers silently accept. This pass runs once
-// per turn so a session is never bricked by a single mid-stream failure that
-// left a dangling tool_use block on the wire. Returns the total count of
-// blocks/messages stripped; zero when clean or when the format is Gemini
-// (Gemini doesn't validate pairing).
 func (e *RequestEnvelope) SanitizeOrphanedToolCalls() int {
 	if e == nil {
 		return 0
@@ -618,8 +558,6 @@ func (e *RequestEnvelope) sanitizeOrphanedOpenAIToolCalls() int {
 	return callStripped + resultStripped
 }
 
-// collectAnthropicToolResultIDs returns the set of tool_use_ids referenced by
-// tool_result blocks in user messages. Reverse of collectAnthropicToolUseIDs.
 func collectAnthropicToolResultIDs(msgs []gjson.Result) map[string]struct{} {
 	ids := make(map[string]struct{})
 	for _, m := range msgs {
@@ -638,12 +576,6 @@ func collectAnthropicToolResultIDs(msgs []gjson.Result) map[string]struct{} {
 	return ids
 }
 
-// stripOrphanedAnthropicToolCalls removes tool_use content blocks from
-// assistant messages whose id has no matching tool_result in the set.
-// Returns the number of orphaned tool_use blocks stripped. Unconditional
-// like stripOrphanedOpenAIToolCalls: a well-formed client history never ends
-// on (or contains) an unanswered tool_use, so there's no legitimate
-// in-flight case a knownIDs-empty guard would need to protect.
 func stripOrphanedAnthropicToolCalls(msgs []gjson.Result) (int, []gjson.Result) {
 	knownIDs := collectAnthropicToolResultIDs(msgs)
 
@@ -677,8 +609,7 @@ func stripOrphanedAnthropicToolCalls(msgs []gjson.Result) (int, []gjson.Result) 
 			continue
 		}
 		if len(kept) == 0 {
-			// Drop the message entirely — no content left after
-			// stripping orphaned tool_use blocks.
+
 			continue
 		}
 		newContent := "[" + strings.Join(kept, ",") + "]"
@@ -702,10 +633,7 @@ func (e *RequestEnvelope) sanitizeOrphanedAnthropicToolCalls() int {
 		return 0
 	}
 	callStripped, cleaned := stripOrphanedAnthropicToolCalls(all)
-	// Both passes run unconditionally. An orphaned tool_result can be present
-	// with no orphaned tool_use at all (a resumed session whose assistant turn
-	// was never persisted), and Anthropic rejects that wherever it appears —
-	// unlike an unanswered tool_use, which only 400s as the final message.
+
 	cleanedRaw, resultStripped := stripOrphanedAnthropicToolResults(cleaned)
 	if callStripped == 0 && resultStripped == 0 {
 		return 0
@@ -720,12 +648,6 @@ func (e *RequestEnvelope) sanitizeOrphanedAnthropicToolCalls() int {
 	return totalStripped
 }
 
-// stripLeadingGeminiOrphanFunctionResponses drops functionResponse parts from
-// the first kept content: Gemini requires a function response turn to
-// immediately follow the model's functionCall turn, and the head of a kept
-// tail has had that turn elided. Only the head can be orphaned — every later
-// functionResponse still has its functionCall in the window. A head left
-// with no parts is dropped.
 func stripLeadingGeminiOrphanFunctionResponses(kept []gjson.Result) []string {
 	out := make([]string, 0, len(kept))
 	for i, c := range kept {
