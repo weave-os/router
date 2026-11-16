@@ -209,3 +209,43 @@ func (s *Service) subscriptionUsageKey(creds *Credentials) usage.CredentialKey {
 	}
 	return s.usageObserver.Key(creds.APIKey)
 }
+
+func (s *Service) selectableSubscriptionProviders(ctx context.Context, headers http.Header) map[string]struct{} {
+	available := subscriptionProvidersForRequest(ctx)
+	if subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) {
+		return available
+	}
+	codexToken, claudeToken := presentSubscriptionTokens(ctx, headers)
+	if claudeToken != "" && !claudeSubscriptionSuppressed(ctx) && !claudeLoginSpent(ctx, s.usageObserver, claudeToken) {
+		available[providers.ProviderAnthropic] = struct{}{}
+	}
+	if codexToken != "" && !codexSubscriptionSuppressed(ctx) && !codexLoginSpent(ctx, s.usageObserver, codexToken, s.codexExtraCreditsAllowed()) {
+		available[providers.ProviderOpenAI] = struct{}{}
+	}
+	for provider, creds := range BuildCredentialsMap(externalKeysFromContext(ctx)) {
+		if len(creds.APIKey) > 0 && (provider == providers.ProviderAnthropic || provider == providers.ProviderOpenAI) {
+			available[provider] = struct{}{}
+		}
+	}
+	return available
+}
+
+func claudeLoginSpent(ctx context.Context, observer *usage.Observer, token string) bool {
+	if observer == nil {
+		return false
+	}
+	snap, ok := observer.Snapshot(observer.Key([]byte(token)))
+	return ok && !snap.OverageInUse && snap.Exhausted() && claudeSnapshotUnservable(ctx, snap)
+}
+
+func codexLoginSpent(ctx context.Context, observer *usage.Observer, token string, extraCreditsAllowed bool) bool {
+	if observer == nil || pickedModelOnOwnPlan(ctx) {
+		return false
+	}
+	key := observer.Key([]byte(token))
+	if observer.Rejected(key) {
+		return true
+	}
+	snap, ok := observer.Snapshot(key)
+	return ok && !snap.OverageInUse && snap.Exhausted() && !extraCreditsAllowed
+}

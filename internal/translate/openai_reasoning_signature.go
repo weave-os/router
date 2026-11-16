@@ -13,12 +13,7 @@ type openAIReasoningSignatureEnvelope struct {
 	Provider string `json:"provider"`
 	ID       string `json:"id"`
 	Enc      string `json:"enc"`
-	// Scope identifies the upstream account+model the encrypted reasoning was
-	// minted for. An upstream decrypts its own reasoning only under the issuing
-	// account and model, so a replay outside the minting scope is a 400
-	// ("encrypted reasoning was created for a different account or model").
-	// Empty on envelopes minted before scoping; those replay nowhere.
-	Scope string `json:"scope,omitempty"`
+	Scope    string `json:"scope,omitempty"`
 }
 
 func encodeOpenAIReasoningSignature(id, enc, scope string) string {
@@ -38,9 +33,6 @@ func encodeOpenAIReasoningSignature(id, enc, scope string) string {
 	return base64.StdEncoding.EncodeToString(b)
 }
 
-// decodeOpenAIReasoningSignature recognizes a router-minted envelope. Use it to
-// detect one (e.g. to strip it); replaying its payload additionally requires a
-// scope match, see openAIReasoningSignatureForScope.
 func decodeOpenAIReasoningSignature(sig string) (openAIReasoningSignatureEnvelope, bool) {
 	if sig == "" {
 		return openAIReasoningSignatureEnvelope{}, false
@@ -81,9 +73,6 @@ func embedOpenAIReasoningSignatureInID(id, sig string) string {
 	return id + openAIReasoningSignatureIDDelimiter + base64.RawURLEncoding.EncodeToString([]byte(sig))
 }
 
-// stripOpenAIReasoningCarrier removes a router-minted reasoning carrier from id.
-// A suffix that does not decode as a router envelope is caller data and is kept,
-// so distinct ids never collapse onto one.
 func stripOpenAIReasoningCarrier(id string) (cleanID string, stripped bool) {
 	cleanID, sig := extractOpenAIReasoningSignatureFromID(id)
 	if _, ok := decodeOpenAIReasoningSignature(sig); !ok {

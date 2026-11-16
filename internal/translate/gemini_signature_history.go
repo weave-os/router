@@ -2,21 +2,6 @@ package translate
 
 import "github.com/tidwall/gjson"
 
-// HasUnsignedToolCallHistory reports whether the conversation history carries at
-// least one assistant tool call — Anthropic tool_use, OpenAI tool_calls, or
-// Gemini functionCall — that lacks a Gemini thoughtSignature.
-//
-// Gemini 3.x rejects (400 INVALID_ARGUMENT) any request whose history contains
-// function-call parts without the thoughtSignature it originally issued. That
-// happens whenever a session is routed into Gemini after prior turns were
-// served by a different model (a planner switch or a tier clamp): foreign
-// history never carried a Gemini signature, and the router smuggles Gemini's
-// own signatures via the tool-call id (see thought_signature_id.go), so a
-// native Gemini continuation round-trips them but a cross-model handoff cannot.
-//
-// The router uses this to make Gemini 3.x models ineligible for such a turn,
-// avoiding a guaranteed upstream 400. A single unsigned tool call is enough,
-// because Gemini validates every function-call part in the history.
 func (e *RequestEnvelope) HasUnsignedToolCallHistory() bool {
 	if e == nil {
 		return false

@@ -1427,20 +1427,6 @@ func subscriptionProvidersForRequest(ctx context.Context) map[string]struct{} {
 	return available
 }
 
-// selectableSubscriptionProviders is subscriptionProvidersForRequest minus a
-// presented subscription the usage observer already reports exhausted, so model
-// selection never favors a subscription the turn will be suppressed off.
-func (s *Service) selectableSubscriptionProviders(ctx context.Context, headers http.Header) map[string]struct{} {
-	available := subscriptionProvidersForRequest(ctx)
-	if s.anthropicSubscriptionObservedExhausted(ctx, headers) {
-		delete(available, providers.ProviderAnthropic)
-	}
-	if s.codexSubscriptionExhausted(ctx, headers) {
-		delete(available, providers.ProviderOpenAI)
-	}
-	return available
-}
-
 func anthropicSubscriptionFromContext(ctx context.Context) string {
 	if anthropicBYOKFirst(ctx) {
 		return ""

@@ -6,9 +6,6 @@ import (
 	"weave-os/router/internal/sse"
 )
 
-// GeminiRoutingMarkerWriter wraps an http.ResponseWriter and injects a
-// routing-marker chunk at the start of a Gemini-format SSE stream.
-// Non-streaming responses pass through unmodified.
 type GeminiRoutingMarkerWriter struct {
 	sse.ChunkedWriter
 
@@ -17,9 +14,6 @@ type GeminiRoutingMarkerWriter struct {
 	markerEmitted bool
 }
 
-// NewGeminiRoutingMarkerWriter creates a writer that emits marker as the first
-// Gemini SSE candidate before any upstream data. If marker is empty, all
-// writes pass through unchanged.
 func NewGeminiRoutingMarkerWriter(w http.ResponseWriter, marker string) *GeminiRoutingMarkerWriter {
 	return &GeminiRoutingMarkerWriter{
 		ChunkedWriter: sse.NewChunkedWriter(w, 4096),
@@ -39,16 +33,12 @@ func (w *GeminiRoutingMarkerWriter) Write(data []byte) (int, error) {
 	return sse.WriteJSONChunk(w.Inner, data)
 }
 
-// Prepare enables streaming marker injection without committing headers;
-// keeps retryable 429/empty-stream paths pre-commit.
 func (w *GeminiRoutingMarkerWriter) Prepare(streaming bool) {
 	if streaming && !w.markerEmitted {
 		w.Streaming = true
 	}
 }
 
-// Prelude commits headers and emits the routing marker immediately, before the
-// upstream provider has returned a single byte. See OpenAIRoutingMarkerWriter.Prelude.
 func (w *GeminiRoutingMarkerWriter) Prelude(streaming bool) error {
 	if !streaming || w.markerEmitted {
 		return nil

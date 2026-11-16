@@ -10,7 +10,6 @@ import (
 
 const defaultDecisionModelBaseURL = "https://openrouter.ai/api/v1"
 
-// buildDecisionModelRouter registers the decision model strategy only when a judge credential is configured.
 func buildDecisionModelRouter(logger *slog.Logger) router.Router {
 	apiKey := config.GetOr("ROUTER_DECISION_MODEL_API_KEY", config.GetOr("OPENROUTER_API_KEY", ""))
 	if apiKey == "" {
