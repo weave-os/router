@@ -4,7 +4,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
-	"weave-os/router/internal/refusal"
+	"weave-os/router/internal/subscriptionlane"
 
 	"github.com/gin-gonic/gin"
 )
@@ -43,13 +43,13 @@ func WithAPIKeySpendCap(svc *billing.Service) gin.HandlerFunc {
 		}
 
 		if result.SpentMicros >= *result.CapMicros {
-			if subscriptionExempt {
+			kind, refused := tripSubscriptionLane(c, subscriptionlane.KeySpendCapGate, subscriptionExempt)
+			if !refused {
 				log.Info("API key spend cap reached but subscription covers the route: serving subscription-only",
 					"api_key_id", apiKey.ID,
 					"spent_usd_micros", result.SpentMicros,
 					"spend_cap_usd_micros", *result.CapMicros,
 				)
-				c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context(), billing.SubscriptionOnlySpendCapReached))
 				c.Next()
 				return
 			}
@@ -58,7 +58,7 @@ func WithAPIKeySpendCap(svc *billing.Service) gin.HandlerFunc {
 				"spent_usd_micros", result.SpentMicros,
 				"spend_cap_usd_micros", *result.CapMicros,
 			)
-			abortRefusal(c, refusal.KeySpendCapReached, gin.H{
+			abortRefusal(c, kind, gin.H{
 				"spent_usd_micros":     result.SpentMicros,
 				"spend_cap_usd_micros": *result.CapMicros,
 				"message":              "This router key has reached its spend cap. Mint a new key or raise the cap to continue.",
