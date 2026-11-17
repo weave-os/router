@@ -101,7 +101,7 @@ func (m *messagesRescue) subscriptionRetry(ctx context.Context) {
 		!preludeBuf.Committed() &&
 		(providers.IsRetryable(m.proxyErr) || anthropicOAuthCredentialRejected(m.proxyErr) || anthropicSubscriptionModelRejected(m.proxyErr) || anthropicSubscriptionThirdPartyRefused(m.proxyErr)) {
 		m.subscriptionRetryRan = true
-		recordOwnClaudeLoginRejected(ctx, r.Header, m.usageObserver, s.clockNow(), m.proxyErr)
+		recordOwnClaudeLoginRejected(ctx, r.Header, m.usageObserver, m.clock.Now(), m.proxyErr)
 		subCtx := subscriptionStatePaidRescueContext(withSuppressedClaudeSubscription(ctx), m.decision.Model)
 		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderAnthropic, m.decision.Model, r.Header)
 		subOpts := opts

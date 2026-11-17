@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"time"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
@@ -39,7 +38,7 @@ func (s *Service) recordTurnUsage(ctx context.Context, res turnLoopResult, serve
 		CachedWriteTokens:   cacheCreation,
 		OutputTokens:        out,
 		OutputLimitReached:  outputLimitReached,
-		EndedAt:             time.Now(),
+		EndedAt:             s.clock.Now(),
 		ServedModel:         servedModel,
 		ServedProvider:      servedProvider,
 		PriorServedModel:    res.PriorServedModel,

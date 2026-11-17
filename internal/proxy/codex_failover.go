@@ -134,7 +134,7 @@ func codexQuotaExhaustion(err error) (time.Time, bool) {
 func (s *Service) recordCodexQuotaExhaustion(ctx context.Context, headers http.Header, err error) {
 	resetAt, exhausted := codexQuotaExhaustion(err)
 	if !exhausted && upstreamStatus(err) == http.StatusTooManyRequests {
-		recordCallerPlanThrottle(ctx, subscriptions.ProviderCodex, managedSubscriptionResetAt(err, s.clockNow()))
+		recordCallerPlanThrottle(ctx, subscriptions.ProviderCodex, managedSubscriptionResetAt(err, s.clock.Now()))
 	}
 	if !exhausted || s.usageObserver == nil {
 		return
@@ -148,7 +148,7 @@ func (s *Service) recordCodexCredentialUnusable(ctx context.Context, creds *Cred
 		return
 	}
 	if codexOAuthCredentialRejected(err) {
-		s.usageObserver.RecordRejected(s.usageObserver.Key(creds.APIKey), time.Now().Add(codexRejectedTokenHold))
+		s.usageObserver.RecordRejected(s.usageObserver.Key(creds.APIKey), s.clock.Now().Add(codexRejectedTokenHold))
 		observability.FromContext(ctx).Info("Codex subscription token rejected; skipping it on later turns", "hold", codexRejectedTokenHold)
 		return
 	}
@@ -164,7 +164,7 @@ func (s *Service) recordCodexPlanSpent(ctx context.Context, codexTok string, res
 		return
 	}
 	s.usageObserver.Record(s.usageObserver.Key([]byte(codexTok)), usage.Snapshot{
-		Primary: codexExhaustionWindow(resetAt, time.Now()),
+		Primary: codexExhaustionWindow(resetAt, s.clock.Now()),
 	})
 	observability.FromContext(ctx).Info("Codex subscription reported its plan spent; suppressing it until reset",
 		"resets_at", resetAt)

@@ -43,7 +43,7 @@ func (p goldenProviderPools) Disable(ctx context.Context, owner auth.Subscriptio
 func withSpentCodexPool(svc *proxy.Service, h *goldenHarness) *proxy.Service {
 	codex := newGoldenSubscriptionPool(h.clock.Now, "codex-seat")
 	codex.cooling["codex-seat"] = goldenCodexSeatReset
-	return withGoldenClock(svc, h).WithManagedSubscriptions(goldenProviderPools{
+	return svc.WithManagedSubscriptions(goldenProviderPools{
 		subscriptions.ProviderCodex:  codex,
 		subscriptions.ProviderClaude: newGoldenSubscriptionPool(h.clock.Now, "claude-seat"),
 	})

@@ -160,6 +160,7 @@ func newGoldenHarness(t *testing.T, sc goldenScenario) *goldenHarness {
 	rt := &goldenRouter{decisions: sc.decisions, err: sc.routeErr, noCandidateErr: sc.noCandidateErr, rec: h.rec}
 	svc := proxy.NewService(rt, providerMap, nil, h.pins, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", h.telemetry).
+		WithClock(h.clock.Now).
 		WithDeploymentKeyedProviders(available).
 		WithProviderOverloaded(false, breaker.New(breaker.Defaults(), h.clock.Now)).
 		WithRetrySleep(h.clock.Sleep).

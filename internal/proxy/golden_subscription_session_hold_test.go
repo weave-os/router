@@ -24,7 +24,7 @@ const goldenCodexOverloadBody = `{"error":{"message":"Our servers are currently 
 // Claude pool whose only seat is spent, so no included pool can rescue a Codex
 // capacity failure.
 func withOverloadedCodexNoClaudeSeat(svc *proxy.Service, h *goldenHarness) *proxy.Service {
-	return withGoldenClock(svc, h).WithManagedSubscriptions(goldenPlanIneligiblePools{goldenProviderPools{
+	return svc.WithManagedSubscriptions(goldenPlanIneligiblePools{goldenProviderPools{
 		subscriptions.ProviderCodex:  newGoldenSubscriptionPool(h.clock.Now, "codex-seat"),
 		subscriptions.ProviderClaude: newGoldenSubscriptionPool(h.clock.Now, "claude-seat"),
 	}})

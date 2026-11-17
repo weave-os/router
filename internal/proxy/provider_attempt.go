@@ -20,7 +20,7 @@ type leasedProviderAttempt struct {
 }
 
 func invokeLeasedProviderAttempt(service *Service, ctx context.Context, plan inference.ResolvedPlan, attempt leasedProviderAttempt) (time.Time, error) {
-	started := service.clockNow()
+	started := service.clock.Now()
 	observability.FromContext(ctx).Debug("Invoking leased provider attempt", "purpose", plan.Purpose(), "target", attempt.target.CatalogID, "subscription_account_id", attempt.lease.AccountID, "managed", attempt.managed)
 	return started, attempt.inputs.attempt(ctx, attempt.decision, attempt.client)
 }

@@ -39,7 +39,7 @@ func (s *Service) expireSessionPinRow(
 	reason string,
 	invalidateContinuation bool,
 ) error {
-	expired := expiredSessionPin(installationID, sessionKey, role, reason, router.StrategyFromContext(ctx))
+	expired := expiredSessionPin(installationID, sessionKey, role, reason, router.StrategyFromContext(ctx), s.clock.Now())
 	if err := s.pinStore.Upsert(context.WithoutCancel(ctx), expired); err != nil {
 		return err
 	}
@@ -55,6 +55,7 @@ func expiredSessionPin(
 	role string,
 	reason string,
 	strategy router.Strategy,
+	now time.Time,
 ) sessionpin.Pin {
 	return sessionpin.Pin{
 		SessionKey:     sessionKey,
@@ -65,7 +66,7 @@ func expiredSessionPin(
 		Reason:         reason,
 		Strategy:       strategy,
 		TurnCount:      1,
-		PinnedUntil:    time.Now().Add(-time.Second),
+		PinnedUntil:    now.Add(-time.Second),
 	}
 }
 

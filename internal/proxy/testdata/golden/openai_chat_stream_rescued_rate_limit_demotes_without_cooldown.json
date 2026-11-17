@@ -392,6 +392,16 @@
             "deepseek/deepseek-v4-pro"
           ],
           "CaptureMode": "off",
+          "ContextSnapshot": {
+            "context_window": 1048576,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 19,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "requested_model": "gpt-5",
+            "served_model": "deepseek/deepseek-v4-pro",
+            "version": 1
+          },
           "CrossFormat": true,
           "DecisionModel": "deepseek/deepseek-v4-pro",
           "DecisionProvider": "fireworks",
@@ -634,6 +644,16 @@
           "ActualInputCostUSD": 0.00002088,
           "ActualOutputCostUSD": 0.00002436,
           "CaptureMode": "off",
+          "ContextSnapshot": {
+            "context_window": 1048576,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 19,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "requested_model": "gpt-5",
+            "served_model": "deepseek/deepseek-v4-pro",
+            "version": 1
+          },
           "DecisionModel": "deepseek/deepseek-v4-pro",
           "DecisionProvider": "fireworks",
           "DecisionReason": "golden_route",

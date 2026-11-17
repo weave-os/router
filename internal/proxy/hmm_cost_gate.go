@@ -3,7 +3,6 @@ package proxy
 import (
 	"context"
 	"strings"
-	"time"
 
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/router"
@@ -37,7 +36,7 @@ func (s *Service) hmmCostGatedDecision(
 		CachePrefixKnown:      stayPrefixKnown,
 		PriorOutputTokens:     stayPin.LastOutputTokens,
 		AvailableModels:       s.availableModels,
-		PinCacheCold:          pinCacheCold(stayPin, prefixBroken),
+		PinCacheCold:          pinCacheCold(stayPin, prefixBroken, s.clock.Now()),
 	}, cfg)
 
 	freshIsMoreExpensive := hmmFreshIsMoreExpensive(stayPin.Model, fresh.Model, estimatedInputTokens)
@@ -119,7 +118,7 @@ func (s *Service) normalizeHMMStayPin(req router.Request, p sessionpin.Pin) (ses
 	if p.LastTurnEndedAt.IsZero() {
 		return sessionpin.Pin{}, false
 	}
-	if !p.PinnedUntil.IsZero() && !p.PinnedUntil.After(time.Now()) {
+	if !p.PinnedUntil.IsZero() && !p.PinnedUntil.After(s.clock.Now()) {
 		return sessionpin.Pin{}, false
 	}
 	if maxedOutServedModel(p) != "" {
