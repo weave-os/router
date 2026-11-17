@@ -822,12 +822,17 @@ message that ends a turn: `@cycle <goal> <task> <step> <status> | <reason>`, or
 | `task_arm_experiment_treatment_cluster` | empty | Cluster the treatment arm is constrained to, with the semantics of `x-weave-force-cluster`. Empty turns the experiment off. |
 
 - **Where the step comes from.** The router has no label for the turn it is
-  routing, only the conversation history in the request. It takes the message
-  that closed the turn before the latest user prompt and reads its last line. A
-  repeated label resolves to the label of the turn before it. A previous turn
-  that ended without a valid label makes the turn ineligible, so an older label
-  is never used in its place. History rewritten by compaction, and sub-agent
-  requests, which carry their own history, are therefore ineligible.
+  routing, only the conversation history in the request, read through the same
+  projection the policy classifier gets. It takes the message that closed the
+  turn before the latest user prompt and reads its last line. A user prompt
+  with no text, such as an image on its own, is not visible in that history,
+  so a labelled message after the latest visible prompt is taken as the closing
+  message instead. A repeated label resolves to the label of the turn before
+  it. A previous turn that ended without a valid label makes the turn
+  ineligible rather than falling back to an older label; the one exception is
+  an unlabelled turn that both follows and precedes a text-less prompt, which
+  cannot be told apart from the current turn. History rewritten by compaction,
+  and sub-agent requests, which carry their own history, are ineligible.
 - **Assignment.** The arm is a hash of the session key, goal and task, so every
   eligible request of a task draws the same arm while the percentage is
   unchanged. Changing the percentage mid-run reassigns tasks; start a new run
@@ -855,7 +860,11 @@ message that ends a turn: `@cycle <goal> <task> <step> <status> | <reason>`, or
   | `routing.task_arm_experiment_propensity` | Probability the task had of drawing that arm. |
   | `routing.task_arm_experiment_task_key` | Opaque hash identifying the task; goal and task names are never recorded. |
   | `routing.task_arm_experiment_step` | The label step that made the turn eligible. |
-  | `routing.task_arm_experiment_treatment_applied` | Whether a treatment turn was actually served from the treatment cluster. Always `false` on control turns. |
+  | `routing.task_arm_experiment_treatment_applied` | Whether routing put a treatment turn in the treatment cluster, counting a session pin that is already in it. Always `false` on control turns. It describes the routing decision: a failover after dispatch can still serve another model, which the upstream span's decision fields show. |
+
+Session pins belong to the session, not the task, so the model a treatment
+task leaves pinned is where a later control task in the same session starts.
+Compare arms on each session's first assigned task to measure that carry-over.
 
 Analyse by assigned arm, not by `treatment_applied`: the fallback, the pin
 gates and the ineligible turns of a task are part of what the treatment does.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -101,6 +102,8 @@ func TestTaskArmTurnRoute(t *testing.T) {
 	}{
 		{"a treatment turn served from the treatment cluster is routed once", treated, nil, "medium", []string{"medium"}, nil, true},
 		{"a treatment turn a session pin kept on another cluster is not counted as served", treated, nil, "high", []string{"medium"}, nil, false},
+		{"a treatment turn served by a session pin already in the treatment cluster counts as served", treated, nil, "pin:medium", []string{"medium"}, nil, true},
+		{"a treatment turn served by a session pin in another cluster is not counted as served", treated, nil, "pin:high", []string{"medium"}, nil, false},
 		{"an unservable treatment cluster is routed again as control", treated, unservable, "medium", []string{"medium", ""}, nil, false},
 		{"another routing error is returned unchanged", treated, other, "", []string{"medium"}, other, false},
 		{"a control turn never retries", control, unservable, "", []string{""}, unservable, false},
@@ -116,6 +119,9 @@ func TestTaskArmTurnRoute(t *testing.T) {
 				clusters = append(clusters, req.ForceCluster)
 				if len(clusters) == 1 && tc.firstErr != nil {
 					return turnLoopResult{}, tc.firstErr
+				}
+				if group, pinned := strings.CutPrefix(tc.servedGroup, "pin:"); pinned {
+					return turnLoopResult{StickyHit: true, PinPolicyGroup: group}, nil
 				}
 				return turnLoopResult{Decision: router.Decision{Metadata: &router.RoutingMetadata{PolicyGroup: tc.servedGroup}}}, nil
 			})

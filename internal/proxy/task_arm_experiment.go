@@ -71,7 +71,7 @@ func (turn *taskArmTurn) route(ctx context.Context, route turnRoute) taskArmRout
 	return func(env *translate.RequestEnvelope, feats translate.RoutingFeatures, apiKeyID string, installationID uuid.UUID, subAgentHint string, reqHeaders http.Header, req router.Request) (turnLoopResult, error) {
 		res, err := route(ctx, env, feats, apiKeyID, installationID, subAgentHint, reqHeaders, req)
 		if err == nil || !turn.treated() || !errors.Is(err, policy.ErrForcedClusterUnservable) {
-			turn.servedCluster = decisionPolicyGroup(res.Decision)
+			turn.servedCluster = servedPolicyGroup(res)
 			return res, err
 		}
 		res.releaseCooldownProbes()
@@ -80,9 +80,16 @@ func (turn *taskArmTurn) route(ctx context.Context, route turnRoute) taskArmRout
 		observability.FromContext(ctx).Warn("Task-arm treatment cluster could not serve the turn; routing as control",
 			"cluster", turn.cluster, "task_key", turn.assignment.TaskKey)
 		res, err = route(ctx, env, feats, apiKeyID, installationID, subAgentHint, reqHeaders, req)
-		turn.servedCluster = decisionPolicyGroup(res.Decision)
+		turn.servedCluster = servedPolicyGroup(res)
 		return res, err
 	}
+}
+
+func servedPolicyGroup(res turnLoopResult) string {
+	if group := decisionPolicyGroup(res.Decision); group != "" || !res.StickyHit {
+		return group
+	}
+	return res.PinPolicyGroup
 }
 
 func applyTaskArmAttrs(b *telemetry.AttrBuilder, turn taskArmTurn) {
