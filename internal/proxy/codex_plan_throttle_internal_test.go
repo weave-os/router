@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
@@ -23,7 +24,7 @@ func TestCodexPlanRateLimitRefusesAsCallerThrottle(t *testing.T) {
 	})
 
 	err := callerPlanRefusal(ctx, subscriptions.ProviderCodex, true, time.Now())
-	assert.ErrorIs(t, err, errCallerPlanThrottled, "a rate-limited caller plan must refuse as throttled, not as an unknown-quota outage: %v", err)
+	require.ErrorIs(t, err, errCallerPlanThrottled, "a rate-limited caller plan must refuse as throttled, not as an unknown-quota outage: %v", err)
 	class, classified := ClassifyDispatchError(err)
 	assert.True(t, classified)
 	assert.Equal(t, http.StatusTooManyRequests, class.Status)
