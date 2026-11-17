@@ -14,8 +14,6 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
-	"weave-os/router/internal/router"
-	randomrouter "weave-os/router/internal/router/random_router"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
 
@@ -45,9 +43,6 @@ func NewCodexImages(svc *Service) CodexImages {
 }
 
 func (c CodexImages) ForwardWithCallerCredential(ctx context.Context, headers http.Header, operation string, body []byte, w http.ResponseWriter) error {
-	if headers.Get(randomrouter.PolicyHeader) != "" || gjson.GetBytes(body, "model").String() == string(router.ModelRandom) {
-		return randomrouter.ErrUnavailable
-	}
 	if operation != CodexImageGenerations && operation != CodexImageEdits {
 		return fmt.Errorf("unsupported Codex image operation %q", operation)
 	}

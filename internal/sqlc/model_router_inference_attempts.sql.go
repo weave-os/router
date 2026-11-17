@@ -9,11 +9,10 @@ import (
 	"context"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const getInferenceAttempts = `-- name: GetInferenceAttempts :many
-SELECT id, created_at, installation_id, request_id, operation_id, attempt_index, purpose, policy_id, registry_revision, policy_revision, model, provider, binding_index, outcome, failure_reason, upstream_status_code, latency_ms, usage_known, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_usd_micros, error_class, failure_owner, body_translated, subscription_account_id, credential_source, capacity_source, funding_pool_id, selection_policy_sha256, capacity_observed_at
+SELECT id, created_at, installation_id, request_id, operation_id, attempt_index, purpose, policy_id, registry_revision, policy_revision, model, provider, binding_index, outcome, failure_reason, upstream_status_code, latency_ms, usage_known, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_usd_micros, error_class, failure_owner, body_translated
 FROM router.model_router_inference_attempts
 WHERE installation_id = $1::uuid
   AND request_id = $2::varchar
@@ -28,7 +27,7 @@ type GetInferenceAttemptsParams struct {
 // Returns every attempt of one request in attempt order, grouped by operation,
 // for diagnostics and the runtime inspection API.
 //
-//	SELECT id, created_at, installation_id, request_id, operation_id, attempt_index, purpose, policy_id, registry_revision, policy_revision, model, provider, binding_index, outcome, failure_reason, upstream_status_code, latency_ms, usage_known, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_usd_micros, error_class, failure_owner, body_translated, subscription_account_id, credential_source, capacity_source, funding_pool_id, selection_policy_sha256, capacity_observed_at
+//	SELECT id, created_at, installation_id, request_id, operation_id, attempt_index, purpose, policy_id, registry_revision, policy_revision, model, provider, binding_index, outcome, failure_reason, upstream_status_code, latency_ms, usage_known, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_usd_micros, error_class, failure_owner, body_translated
 //	FROM router.model_router_inference_attempts
 //	WHERE installation_id = $1::uuid
 //	  AND request_id = $2::varchar
@@ -69,12 +68,6 @@ func (q *Queries) GetInferenceAttempts(ctx context.Context, arg GetInferenceAtte
 			&i.ErrorClass,
 			&i.FailureOwner,
 			&i.BodyTranslated,
-			&i.SubscriptionAccountID,
-			&i.CredentialSource,
-			&i.CapacitySource,
-			&i.FundingPoolID,
-			&i.SelectionPolicySha256,
-			&i.CapacityObservedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -111,8 +104,7 @@ INSERT INTO router.model_router_inference_attempts (
     cost_usd_micros,
     error_class,
     failure_owner,
-    body_translated,
-    subscription_account_id, credential_source, capacity_source, funding_pool_id, selection_policy_sha256, capacity_observed_at
+    body_translated
 ) VALUES (
     $1::uuid,
     $2::varchar,
@@ -137,45 +129,36 @@ INSERT INTO router.model_router_inference_attempts (
     $21::bigint,
     $22::varchar,
     $23::varchar,
-    $24::boolean,
-    $25::varchar, $26::varchar,
-    $27::varchar, $28::varchar,
-    $29::varchar, $30::timestamptz
+    $24::boolean
 )
 ON CONFLICT (installation_id, request_id, operation_id, attempt_index) DO NOTHING
 `
 
 type InsertInferenceAttemptParams struct {
-	InstallationID        uuid.UUID
-	RequestID             string
-	OperationID           string
-	AttemptIndex          int32
-	Purpose               string
-	PolicyID              string
-	RegistryRevision      string
-	PolicyRevision        string
-	Model                 string
-	Provider              string
-	BindingIndex          int32
-	Outcome               string
-	FailureReason         *string
-	UpstreamStatusCode    *int32
-	LatencyMs             *int64
-	UsageKnown            bool
-	InputTokens           *int32
-	OutputTokens          *int32
-	CacheCreationTokens   *int32
-	CacheReadTokens       *int32
-	CostUsdMicros         *int64
-	ErrorClass            *string
-	FailureOwner          *string
-	BodyTranslated        bool
-	SubscriptionAccountID *string
-	CredentialSource      *string
-	CapacitySource        *string
-	FundingPoolID         *string
-	SelectionPolicySha256 *string
-	CapacityObservedAt    pgtype.Timestamptz
+	InstallationID      uuid.UUID
+	RequestID           string
+	OperationID         string
+	AttemptIndex        int32
+	Purpose             string
+	PolicyID            string
+	RegistryRevision    string
+	PolicyRevision      string
+	Model               string
+	Provider            string
+	BindingIndex        int32
+	Outcome             string
+	FailureReason       *string
+	UpstreamStatusCode  *int32
+	LatencyMs           *int64
+	UsageKnown          bool
+	InputTokens         *int32
+	OutputTokens        *int32
+	CacheCreationTokens *int32
+	CacheReadTokens     *int32
+	CostUsdMicros       *int64
+	ErrorClass          *string
+	FailureOwner        *string
+	BodyTranslated      bool
 }
 
 // Records one upstream attempt of an inference operation. Attempts are keyed
@@ -210,8 +193,7 @@ type InsertInferenceAttemptParams struct {
 //	    cost_usd_micros,
 //	    error_class,
 //	    failure_owner,
-//	    body_translated,
-//	    subscription_account_id, credential_source, capacity_source, funding_pool_id, selection_policy_sha256, capacity_observed_at
+//	    body_translated
 //	) VALUES (
 //	    $1::uuid,
 //	    $2::varchar,
@@ -236,10 +218,7 @@ type InsertInferenceAttemptParams struct {
 //	    $21::bigint,
 //	    $22::varchar,
 //	    $23::varchar,
-//	    $24::boolean,
-//	    $25::varchar, $26::varchar,
-//	    $27::varchar, $28::varchar,
-//	    $29::varchar, $30::timestamptz
+//	    $24::boolean
 //	)
 //	ON CONFLICT (installation_id, request_id, operation_id, attempt_index) DO NOTHING
 func (q *Queries) InsertInferenceAttempt(ctx context.Context, arg InsertInferenceAttemptParams) error {
@@ -268,12 +247,6 @@ func (q *Queries) InsertInferenceAttempt(ctx context.Context, arg InsertInferenc
 		arg.ErrorClass,
 		arg.FailureOwner,
 		arg.BodyTranslated,
-		arg.SubscriptionAccountID,
-		arg.CredentialSource,
-		arg.CapacitySource,
-		arg.FundingPoolID,
-		arg.SelectionPolicySha256,
-		arg.CapacityObservedAt,
 	)
 	return err
 }

@@ -49,9 +49,6 @@ func TestRoutingModelSelectsPolicyAndPreservesRequest(t *testing.T) {
 		status          int
 		want            router.Strategy
 	}{
-		{name: "internal random without classifier variant", model: string(router.ModelRandom), target: policyregistry.TargetInternal, available: true, missingStrategy: true, status: http.StatusBadRequest, want: router.StrategyRandomBenchmark},
-		{name: "random unavailable never falls back", model: string(router.ModelRandom), target: policyregistry.TargetInternal, status: http.StatusBadRequest},
-		{name: "stable cannot select random", model: string(router.ModelRandom), target: policyregistry.TargetStable, available: true, status: http.StatusBadRequest},
 		{name: "default", model: string(router.ModelAutomatic), initial: router.StrategyHMMEmbedding, status: http.StatusOK, want: router.StrategyHMMEmbedding},
 		{name: "hmm", model: string(router.ModelHMM), available: true, status: http.StatusOK, want: router.StrategyHMM},
 		{name: "hmm beta", model: string(router.ModelHMMBeta), available: true, status: http.StatusOK, want: router.StrategyHMMBeta},
@@ -93,7 +90,7 @@ func TestRoutingModelSelectsPolicyAndPreservesRequest(t *testing.T) {
 			engine := gin.New()
 			body := `{"model":"` + tc.model + `","messages":[{"role":"user","content":"hello"}]}`
 			engine.POST("/v1/messages", middleware.WithClassifierThread(&proxy.Service{}, func(strategy router.Strategy) bool {
-				require.Contains(t, []router.Strategy{router.StrategyHMM, router.StrategyHMMBeta, router.StrategyHMMQwen, router.StrategyDecisionModel, router.StrategyRandomBenchmark}, strategy)
+				require.Contains(t, []router.Strategy{router.StrategyHMM, router.StrategyHMMBeta, router.StrategyHMMQwen, router.StrategyDecisionModel}, strategy)
 				return tc.available && strategy != tc.unavailable
 			}), func(c *gin.Context) {
 				require.Equal(t, tc.want, router.StrategyFromContext(c.Request.Context()))

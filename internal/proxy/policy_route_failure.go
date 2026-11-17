@@ -7,12 +7,11 @@ import (
 	"time"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/router"
-	randomrouter "weave-os/router/internal/router/random_router"
 	"weave-os/router/internal/router/turntype"
 )
 
 func (s *Service) recordPolicyPinRouteFailure(ctx context.Context, requestID string, requestStart time.Time, requestedModel string, turnType turntype.TurnType, userPrompt bool, routeErr error) {
-	if _, honoured := router.HonouredPolicyPin(ctx); !honoured && randomBenchmarkFrom(ctx) == nil {
+	if _, honoured := router.HonouredPolicyPin(ctx); !honoured {
 		return
 	}
 	installationID := installationIDFromContext(ctx)
@@ -36,14 +35,6 @@ func (s *Service) recordPolicyPinRouteFailure(ctx context.Context, requestID str
 	}
 	if !errors.Is(routeErr, router.ErrPolicyPinUnavailable) {
 		params.DecisionReason = DecisionReasonRoutingFailed
-	}
-	if profile := randomBenchmarkFrom(ctx); profile != nil {
-		params.PolicyArtifactID = randomrouter.PolicyID
-		params.PolicyArtifactSHA256 = profile.Config.PolicySHA256
-		params.Strategy = string(router.StrategyRandomBenchmark)
-		params.SessionID = ClientIdentityFrom(ctx).SessionID
-		params.RolloutID = ClientIdentityFrom(ctx).RolloutID
-		applySubscriberTelemetry(ctx, &params)
 	}
 	applyBlindExperimentTelemetry(ctx, &params, nil)
 	applyPolicyPinTelemetry(ctx, &params, nil)

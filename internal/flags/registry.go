@@ -1,9 +1,8 @@
 package flags
 
-const RegistryVersion = 31
+const RegistryVersion = 30
 
 var Registry = []Definition{
-	{Key: KeyRandomBenchmarkConfig, Kind: KindString, Description: "Owner: Router benchmarking. Removed at expiry or on the experiment rollback decision. Expiring named random-router organization configuration. Empty disables; valid routing keys of the configured installation may explicitly select the random model.", OrgOverridable: true},
 	{Key: KeyEscalationActiveClassifier, Kind: KindString, Description: "Active escalation classifier: none, xgb, switchyard_llm_v1, or llm_escalation. Absent preserves legacy XGB flags.", OrgOverridable: true},
 	{Key: KeyEscalationShadowClassifier, Kind: KindString, Description: "Independent shadow escalation classifier: none, xgb, switchyard_llm_v1, or llm_escalation.", OrgOverridable: true},
 	{Key: KeyEscalationCadence, Kind: KindInt, Description: "Completed turns between LLM checkpoints: 3, 4, or 5. Default 3.", OrgOverridable: true},

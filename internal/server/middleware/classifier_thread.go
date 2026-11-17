@@ -8,7 +8,6 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
-	"weave-os/router/internal/router"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -18,8 +17,17 @@ const classifierThreadField = "weave_classifier_thread"
 
 func WithClassifierThread(service *proxy.Service, availability StrategyAvailability) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		threadToken, valid := classifierThreadToken(c)
-		if !valid {
+		threadToken := c.GetHeader(proxy.ClassifierThreadHeader)
+		headerValues := c.Request.Header.Values(proxy.ClassifierThreadHeader)
+		c.Request.Header.Del(proxy.ClassifierThreadHeader)
+		if len(headerValues) == 1 && threadToken == proxy.ClassifierThreadUnavailableToken {
+			observability.FromGin(c).Warn("Client could not enroll classifier thread", "path", c.FullPath())
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "classifier_client_unavailable"})
+			return
+		}
+		if len(headerValues) > 1 || (len(headerValues) == 1 && threadToken == "") {
+			observability.FromGin(c).Debug("Invalid classifier thread header", "path", c.FullPath(), "header_count", len(headerValues))
+			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "invalid_classifier_thread"})
 			return
 		}
 		body, err := io.ReadAll(io.LimitReader(c.Request.Body, proxy.MaxRequestBodyBytes+1))
@@ -30,15 +38,6 @@ func WithClassifierThread(service *proxy.Service, availability StrategyAvailabil
 				status = http.StatusRequestEntityTooLarge
 			}
 			c.AbortWithStatusJSON(status, gin.H{"error": "invalid_request_body"})
-			return
-		}
-		if gjson.GetBytes(body, "model").String() == string(router.ModelRandom) {
-			if threadToken != "" {
-				c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "random_model_conflicting_classifier_thread"})
-				return
-			}
-			c.Request.Body = io.NopCloser(bytes.NewReader(body))
-			WithRandomRoutingModel(service)(c)
 			return
 		}
 		if gjson.GetBytes(body, classifierThreadField).Exists() {
@@ -77,21 +76,4 @@ func WithClassifierThread(service *proxy.Service, availability StrategyAvailabil
 		}
 		c.Next()
 	}
-}
-
-func classifierThreadToken(c *gin.Context) (string, bool) {
-	threadToken := c.GetHeader(proxy.ClassifierThreadHeader)
-	headerValues := c.Request.Header.Values(proxy.ClassifierThreadHeader)
-	c.Request.Header.Del(proxy.ClassifierThreadHeader)
-	if len(headerValues) == 1 && threadToken == proxy.ClassifierThreadUnavailableToken {
-		observability.FromGin(c).Warn("Client could not enroll classifier thread", "path", c.FullPath())
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "classifier_client_unavailable"})
-		return "", false
-	}
-	if len(headerValues) > 1 || (len(headerValues) == 1 && threadToken == "") {
-		observability.FromGin(c).Debug("Invalid classifier thread header", "path", c.FullPath(), "header_count", len(headerValues))
-		c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "invalid_classifier_thread"})
-		return "", false
-	}
-	return threadToken, true
 }

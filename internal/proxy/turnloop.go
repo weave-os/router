@@ -545,9 +545,6 @@ func (s *Service) runTurnLoop(
 	reqHeaders http.Header,
 	req router.Request,
 ) (res turnLoopResult, routeErr error) {
-	if outcome, handled, err := routeRandomTurn(s, ctx, env, feats, reqHeaders, req); handled {
-		return outcome, err
-	}
 	subAgentHint = subAgentHintForRequest(ctx, subAgentHint)
 	shadowStartedAt := time.Now()
 	defer func() {

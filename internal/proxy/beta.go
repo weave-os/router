@@ -76,9 +76,6 @@ func (s *Service) applySessionStrategy(
 	installationID uuid.UUID,
 	preferenceKey [sessionpin.SessionKeyLen]byte,
 ) (context.Context, error) {
-	if randomBenchmarkFrom(ctx) != nil {
-		return ctx, nil
-	}
 	if _, selected := router.RoutingModelFromContext(ctx); selected {
 		return ctx, nil
 	}

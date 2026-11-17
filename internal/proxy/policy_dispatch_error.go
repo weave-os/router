@@ -6,14 +6,11 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/decisionmodel"
 	"weave-os/router/internal/router/hmm"
-	randomrouter "weave-os/router/internal/router/random_router"
 	"weave-os/router/internal/router/rl"
 )
 
 func classifyPolicyDispatchError(err error) (DispatchErrorClass, bool) {
 	switch {
-	case errors.Is(err, randomrouter.ErrUnavailable):
-		return DispatchErrorClass{Kind: DispatchErrorPolicyUnavailable, Status: http.StatusServiceUnavailable, Message: "Strict random routing is unavailable. No model was dispatched.", NoClientRetry: true, LogLevel: "error", LogMessage: "Strict random policy unavailable"}, true
 	case errors.Is(err, rl.ErrPolicyUnavailable):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorRLPolicyUnavailable,

@@ -109,12 +109,6 @@ var schemaFields = []Field{
 	{"client_git_head_sha", "string", true, "Client-reported HEAD sha of the tree a trial-mode session started from, abbreviated as the client printed it (compare by prefix). Stamped on the session's first turn only; null elsewhere."},
 	{"client_git_branch", "string", true, "Client-reported branch of the tree a trial-mode session started from. First turn only; null elsewhere."},
 	{"client_git_dirty", "boolean", true, "True when the client-reported starting tree had uncommitted changes. Null when not captured, so null and false are distinct."},
-
-	{"api_key_id", "string", true, "Identifier of the authenticated installation-scoped Router key; never its secret."},
-	{"propensity", "float", true, "Probability assigned to the selected model by its routing policy."},
-	{"planner_outcome", "string", true, "Cache planner outcome; null when no planner evidence was recorded."},
-	{"inference_attempt_count", "integer", true, "Recorded inference attempts for a strict random benchmark request, including failures and auxiliary operations."},
-	{"inference_attempt_models", "string[]", true, "Models recorded on strict random benchmark inference attempts, in operation order."},
 }
 
 func Schema() []Field {

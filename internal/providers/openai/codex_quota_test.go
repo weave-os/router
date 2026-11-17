@@ -14,7 +14,6 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/catalog"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -83,21 +82,6 @@ func TestCodexIncludedQuotaPreflight(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestCodexRandomRosterQuotaUsesOneSnapshotAndRejectsOtherModelLimit(t *testing.T) {
-	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests.Add(1)
-		assert.Equal(t, "/wham/usage", r.URL.Path)
-		_, _ = io.WriteString(w, `{"plan_type":"pro","credits":{"has_credits":false,"unlimited":false},"rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":20}},"additional_rate_limits":[{"normal_model_slug":"gpt-6.1-terra","rate_limit":{"allowed":false,"limit_reached":true,"primary_window":{"used_percent":100}}}]}`)
-	}))
-	defer server.Close()
-	client := NewClient("synthetic", server.URL)
-	client.SetCodexBaseURL(server.URL)
-	err := client.CheckIncludedSubscriptionModels(codexCtx("test-token", "test-account"), []string{"gpt-6-luna", "gpt-6.1-sol", "gpt-6.1-terra"})
-	require.Error(t, err)
-	require.Equal(t, int32(1), requests.Load())
 }
 
 func TestCodexQuotaChecksFinalUpstreamModel(t *testing.T) {
@@ -387,59 +371,4 @@ func TestCodexPreflightOmitsOverflowingWindowLength(t *testing.T) {
 	require.NoError(t, client.checkCodexIncludedQuota(ctx, "gpt-6.1-sol"))
 	require.Equal(t, "40", observed.Get("x-codex-primary-used-percent"))
 	require.Empty(t, observed.Get("x-codex-primary-window-minutes"))
-}
-
-func TestCodexIncludedRosterRejectsCollapsedAliases(t *testing.T) {
-	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { requests.Add(1); w.WriteHeader(http.StatusNoContent) }))
-	defer server.Close()
-	client := NewClient("synthetic", server.URL)
-	client.SetCodexBaseURL(server.URL)
-	client.modelIDMap = map[string]string{catalog.ModelGPT6Luna: "shared-wire-model", catalog.ModelGPT61Sol.String(): "shared-wire-model"}
-	err := client.CheckIncludedSubscriptionModels(codexCtx("synthetic-token", "synthetic-account"), []string{catalog.ModelGPT6Luna, catalog.ModelGPT61Sol.String(), catalog.ModelGPT61Terra.String()})
-	require.ErrorContains(t, err, "distinct upstream models")
-	require.Zero(t, requests.Load())
-}
-
-func TestCodexIncludedRosterReadinessWithoutInference(t *testing.T) {
-	for _, modelQuotaKnown := range []bool{true, false} {
-		t.Run(map[bool]string{true: "all_models_ready", false: "unknown_model_quota"}[modelQuotaKnown], func(t *testing.T) {
-			var quotaCalls, catalogCalls, inferenceCalls atomic.Int32
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Method != http.MethodGet {
-					inferenceCalls.Add(1)
-					w.WriteHeader(http.StatusInternalServerError)
-					return
-				}
-				switch r.URL.Path {
-				case "/wham/usage":
-					quotaCalls.Add(1)
-					assert.Equal(t, "synthetic-account", r.Header.Get("ChatGPT-Account-ID"))
-					modelQuota := `null`
-					if modelQuotaKnown {
-						modelQuota = `{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":20}}`
-					}
-					_, _ = io.WriteString(w, `{"plan_type":"pro","credits":{"has_credits":false,"unlimited":false},"rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":20}},"additional_rate_limits":[{"normal_model_slug":"gpt-6.1-terra","rate_limit":`+modelQuota+`}]}`)
-				case "/models":
-					catalogCalls.Add(1)
-					_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-6-luna"},{"slug":"gpt-6.1-sol"},{"slug":"gpt-6.1-terra"}]}`)
-				default:
-					w.WriteHeader(http.StatusNotFound)
-				}
-			}))
-			defer server.Close()
-			client := NewClient("synthetic", server.URL)
-			client.SetCodexBaseURL(server.URL)
-			err := client.CheckIncludedSubscriptionModels(codexCtx("synthetic-token", "synthetic-account"), []string{catalog.ModelGPT6Luna, catalog.ModelGPT61Sol.String(), catalog.ModelGPT61Terra.String()})
-			if modelQuotaKnown {
-				require.NoError(t, err)
-				require.Equal(t, int32(1), catalogCalls.Load())
-			} else {
-				require.Error(t, err)
-				require.Zero(t, catalogCalls.Load())
-			}
-			require.Equal(t, int32(1), quotaCalls.Load())
-			require.Zero(t, inferenceCalls.Load())
-		})
-	}
 }

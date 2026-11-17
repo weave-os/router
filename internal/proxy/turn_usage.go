@@ -2,13 +2,10 @@ package proxy
 
 import (
 	"context"
-	"net/http"
 	"time"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
-	randomrouter "weave-os/router/internal/router/random_router"
 	"weave-os/router/internal/router/sessionpin"
-	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
 )
 
@@ -20,32 +17,7 @@ func withRoutingTranslationRequirements(ctx context.Context, env *translate.Requ
 	}
 	return req
 }
-func routeRandomTurn(s *Service, ctx context.Context, env *translate.RequestEnvelope, feats translate.RoutingFeatures, headers http.Header, req router.Request) (turnLoopResult, bool, error) {
-	if randomBenchmarkFrom(ctx) == nil {
-		if req.RequestedModel == string(router.ModelRandom) || router.StrategyFromContext(ctx) == router.StrategyRandomBenchmark {
-			return turnLoopResult{}, true, randomrouter.ErrUnavailable
-		}
-		return turnLoopResult{}, false, nil
-	}
-	res := turnLoopResult{Strategy: router.StrategyRandomBenchmark, TurnType: turntype.Detect(env, feats, subAgentHintForRequest(ctx, headers.Get("x-weave-subagent-type")), openCodeCaller(ClientIdentityFrom(ctx))), InstallationID: installationIDFromContext(ctx), PinTier: "random_benchmark"}
-	if !randomBenchmarkHeaders(headers) {
-		return res, true, randomrouter.ErrUnavailable
-	}
-	req = withRoutingTranslationRequirements(ctx, env, req)
-	var err error
-	req, err = s.applyTranslationPlan(ctx, req)
-	if err != nil {
-		return res, true, err
-	}
-	req.AutomaticExcludedModels = s.globalAutomaticExcludedModels(ctx)
-	res.Decision, err = routeRandomBenchmark(ctx, req)
-	return res, true, err
-}
-
 func (s *Service) recordTurnUsage(ctx context.Context, res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int, outputLimitReached bool) {
-	if randomBenchmarkFrom(ctx) != nil {
-		return
-	}
 	if s.pinStore == nil || res.HardPinned || res.CallerModelPassthrough {
 		return
 	}
