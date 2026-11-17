@@ -2302,8 +2302,6 @@ func (s *Service) repinOffRefusingModel(ctx context.Context, sessionKey [session
 		"to_provider", fbProvider)
 }
 
-var anthropicPingFrame = []byte(sseEvent("ping", `{"type":"ping"}`))
-
 func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
 	ctx = withWeaveCreditsFunding(ctx, r.Header)
 	w, finishBlindExperimentWriter := withBlindExperimentWriter(ctx, w, body)
@@ -2352,25 +2350,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if echoed, _ := ctx.Value(responsesFooterEchoedContextKey{}).(bool); echoed {
 		footerEchoed = true
 	}
-	if strippedBody, ferr := translate.StripFeedbackFooterFromMessages(body); ferr != nil {
-		log.Error("Failed to strip feedback footer from inbound messages", "err", ferr)
-	} else {
-		body = strippedBody
-	}
-
-	var modelVariant1M bool
-	if canon, hadVariant, modelErr := translate.CanonicalizeModelInBody(body); modelErr != nil {
-		log.Error("Failed to canonicalize inbound model", "err", modelErr)
-	} else {
-		body = canon
-		modelVariant1M = hadVariant
-	}
-
-	env, parseErr := translate.ParseAnthropic(body)
+	parsed, parseErr := s.ingress.Anthropic.ParseMessages(ctx, body)
 	if parseErr != nil {
 		log.Error("Failed to parse Anthropic request", "err", parseErr)
 		return fmt.Errorf("parse request: %w", parseErr)
 	}
+	env, body, modelVariant1M := parsed.Envelope, parsed.Body, parsed.ModelVariant1M
 	if claims := piSessionFromContext(ctx); claims != nil && !claims.matches(ctx, env) {
 		return ErrHandoffInvalid
 	}
@@ -2921,7 +2906,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		streamCost = newStreamCostWriter(clientSink)
 		clientSink = streamCost
 		if s.ingress.Keepalive > 0 {
-			keepalive := sse.NewKeepaliveWriter(clientSink, anthropicPingFrame, s.ingress.Keepalive)
+			keepalive := sse.NewKeepaliveWriter(clientSink, ingress.AnthropicPingFrame, s.ingress.Keepalive)
 			defer keepalive.Close()
 			clientSink = keepalive
 		}
