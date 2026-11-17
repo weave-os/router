@@ -193,7 +193,7 @@ func TestPolicyShadowComparisonSkipsDryRunAndCollectsServingRoute(t *testing.T) 
 
 	recorder := httptest.NewRecorder()
 	body := []byte(`{"model":"claude-opus-4-7","tools":[],"output_config":{"format":{"type":"json_schema","schema":{"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}}},"messages":[{"role":"user","content":"hello"}]}`)
-	request := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, body, recorder, request))
 
 	shadowRequest := <-shadowRouter.requests
@@ -285,7 +285,7 @@ func TestProxyMessages_RecordsRoutingObservation(t *testing.T) {
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
 	rec := httptest.NewRecorder()
 	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hello"}]}`)
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec, httpReq))
 
 	row := telem.firstRow(t)
@@ -359,7 +359,7 @@ func TestProxyMessages_RecordsPolicyObservation(t *testing.T) {
 	ctx = context.WithValue(ctx, proxy.PolicyDebugEnabledContextKey{}, true)
 	rec := httptest.NewRecorder()
 	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hello"}]}`)
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec, httpReq))
 
 	row := telem.firstRow(t)
@@ -412,7 +412,7 @@ func TestProxyMessages_PersistsCacheTokens(t *testing.T) {
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
 	rec := httptest.NewRecorder()
 	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hello"}]}`)
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec, httpReq))
 
 	row := telem.firstRow(t)
@@ -449,12 +449,12 @@ func TestProxyMessages_ChosenScoreZeroIsPersisted(t *testing.T) {
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
 	rec := httptest.NewRecorder()
 	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hello"}]}`)
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec, httpReq))
 
 	row := telem.firstRow(t)
 	require.NotNil(t, row.ChosenScore, "zero ChosenScore must persist as &0, not be dropped")
-	assert.Equal(t, 0.0, *row.ChosenScore)
+	assert.InDelta(t, 0.0, *row.ChosenScore, 1e-9)
 }
 
 // TestProxyMessages_NoMetadataOmitsClusterFields: pinned/heuristic decisions
@@ -483,7 +483,7 @@ func TestProxyMessages_NoMetadataOmitsClusterFields(t *testing.T) {
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
 	rec := httptest.NewRecorder()
 	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hello"}]}`)
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec, httpReq))
 
 	row := telem.firstRow(t)
@@ -536,7 +536,7 @@ func TestProxyMessages_PersistsTurnType(t *testing.T) {
 
 			ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
 			rec := httptest.NewRecorder()
-			httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+			httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 			require.NoError(t, svc.ProxyMessages(ctx, []byte(tc.body), rec, httpReq))
 
 			row := telem.firstRow(t)
@@ -569,7 +569,7 @@ func TestProxyMessages_PersistsRolloutID(t *testing.T) {
 	ctx = context.WithValue(ctx, proxy.PolicyRolloutIDContextKey{}, rolloutID)
 	rec := httptest.NewRecorder()
 	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hello"}]}`)
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec, httpReq))
 
 	row := telem.firstRow(t)
@@ -598,7 +598,7 @@ func TestProxyMessages_PersistedPolicyRolloutIDOverridesClientIdentity(t *testin
 	ctx = context.WithValue(ctx, proxy.PolicyRolloutIDContextKey{}, rolloutID)
 	rec := httptest.NewRecorder()
 	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hello"}]}`)
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec, httpReq))
 
 	row := telem.firstRow(t)
@@ -628,7 +628,7 @@ func TestProxyMessages_PersistsSessionKeyAndRole(t *testing.T) {
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
 	rec := httptest.NewRecorder()
 	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hello"}]}`)
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec, httpReq))
 
 	row := telem.firstRow(t)
@@ -706,7 +706,7 @@ func TestProxyMessages_NativeAnthropicResponseSignals(t *testing.T) {
 			ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
 			rec := httptest.NewRecorder()
 			body := []byte(`{"model":"claude-opus-4-7","stream":true,"messages":[{"role":"user","content":"hello"}]}`)
-			httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+			httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 			err := svc.ProxyMessages(ctx, body, rec, httpReq)
 
 			row := telem.firstRow(t)
@@ -779,7 +779,7 @@ func TestProxyOpenAIChatCompletion_ResponseSignalTelemetry(t *testing.T) {
 
 			ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
 			rec := httptest.NewRecorder()
-			httpReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(chatToolTurnBody))
+			httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(chatToolTurnBody))
 			_ = svc.ProxyOpenAIChatCompletion(ctx, []byte(chatToolTurnBody), rec, httpReq)
 
 			row := telem.firstRow(t)
@@ -816,7 +816,7 @@ func TestProxyOpenAIChatCompletion_AnthropicTranslatedResponseSignals(t *testing
 	)
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(chatToolTurnBody))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(chatToolTurnBody))
 	_ = svc.ProxyOpenAIChatCompletion(ctx, []byte(chatToolTurnBody), rec, httpReq)
 
 	assert.Contains(t, rec.Body.String(), `"finish_reason":"tool_calls"`, "client stream must carry the translated tool call")
@@ -896,7 +896,7 @@ func TestProxyOpenAIChatCompletion_NativeChatResponseSignals(t *testing.T) {
 			// A stop sequence has no Responses equivalent, so the turn stays on
 			// chat/completions and is served without a translator.
 			body := []byte(`{"model":"auto","stream":true,"stop":["END"],"messages":[{"role":"user","content":"read main.go"}]}`)
-			httpReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+			httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 			_ = svc.ProxyOpenAIChatCompletion(ctx, body, rec, httpReq)
 
 			require.Len(t, provider.proxyEndpoints, 1)
@@ -979,7 +979,7 @@ func TestProxyOpenAIResponses_NativeResponseSignals(t *testing.T) {
 			ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
 			rec := httptest.NewRecorder()
 			body := []byte(`{"model":"auto","stream":true,"input":"read main.go","tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}]}`)
-			httpReq := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+			httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 			_ = svc.ProxyOpenAIResponses(ctx, body, rec, httpReq)
 
 			require.Len(t, provider.proxyEndpoints, 1)

@@ -7,7 +7,6 @@ const (
 	statementTimeout = "10s"
 )
 
-// ConfigureTimeouts bounds lock waits and active statements on every pool connection.
 func ConfigureTimeouts(config *pgxpool.Config) {
 	if config.ConnConfig.RuntimeParams == nil {
 		config.ConnConfig.RuntimeParams = make(map[string]string)

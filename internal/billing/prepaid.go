@@ -6,10 +6,6 @@ import (
 	"fmt"
 )
 
-// OwnerKind names the party a prepaid book belongs to. Organization funds are
-// the Enterprise balance every managed org has had; subscriber funds belong to
-// one individual Max/Boost plan holder and are keyed by the stable credential
-// subject rather than by any organization the subscriber happens to work in.
 type OwnerKind string
 
 const (
@@ -18,7 +14,6 @@ const (
 	OwnerKindInternalTest OwnerKind = "internal_test"
 )
 
-// Owner keeps organization, subscriber and internal test funding identifiers separate.
 type Owner struct {
 	Kind           OwnerKind
 	OrganizationID string
@@ -26,20 +21,14 @@ type Owner struct {
 	TestSubjectID  string
 }
 
-// OrganizationOwner addresses an organization's prepaid balance.
 func OrganizationOwner(organizationID string) Owner {
 	return Owner{Kind: OwnerKindOrganization, OrganizationID: organizationID}
 }
 
-// SubscriberOwner addresses one individual subscriber's prepaid balance,
-// identified by their credential-subject id.
 func SubscriberOwner(subscriberID string) Owner {
 	return Owner{Kind: OwnerKindSubscriber, SubscriberID: subscriberID}
 }
 
-// Validate rejects an owner whose kind and identifier disagree, so a
-// half-populated owner fails before it reaches a book that would read the
-// field it does carry.
 func (o Owner) Validate() error {
 	switch o.Kind {
 	case OwnerKindInternalTest:
@@ -62,65 +51,42 @@ func (o Owner) Validate() error {
 	}
 }
 
-// ErrInvalidOwner marks an owner that names no kind, no identifier, or an
-// identifier belonging to a different kind.
 var ErrInvalidOwner = errors.New("billing: invalid prepaid owner")
 
-// ErrOwnerKindUnsupported is returned when no book is wired for an owner kind
-// — for example a subscriber debit on a deployment that has no individual
-// subscriptions. Callers treat it as "this owner cannot pay here", not as a
-// database failure.
 var ErrOwnerKindUnsupported = errors.New("billing: prepaid owner kind unsupported")
 
-// PrepaidDebit is one debit against a single owner's prepaid book.
 type PrepaidDebit struct {
-	Owner Owner
-	// DeltaUsdMicros is signed: negative for a real charge, zero for a
-	// pass-through that still records notional cost.
+	Owner              Owner
 	DeltaUsdMicros     int64
 	NotionalCostMicros int64
 	EntryType          string
-	// FeeUsdMicros writes a second row of FeeEntryType in the same statement
-	// when non-zero; only the organization book charges BYOK fees today.
-	FeeUsdMicros    int64
-	FeeEntryType    string
-	RouterRequestID string
-	RouterModel     string
-	// APIKeyID and RouterUserID attribute an organization debit to the key and
-	// engineer that spent it. An individual plan has no such fan-out.
+	FeeUsdMicros       int64
+	FeeEntryType       string
+	RouterRequestID    string
+	RouterModel        string
 	APIKeyID           string
 	RouterUserID       string
 	DelegatedSessionID string
 	DelegatedTaskID    string
 }
 
-// PrepaidBook is one owner kind's prepaid money: balance reads and atomic
-// debit-with-ledger. Implementations must scope every statement to the owner
-// they are handed.
 type PrepaidBook interface {
 	Balance(ctx context.Context, owner Owner) (balanceMicros int64, err error)
 	Debit(ctx context.Context, debit PrepaidDebit) (balanceAfterMicros int64, err error)
 }
 
-// PrepaidBooks routes a typed owner to the book that holds its money. Kinds
-// without a registered book fail closed with ErrOwnerKindUnsupported rather
-// than falling back to another owner's funds.
 type PrepaidBooks struct {
 	books map[OwnerKind]PrepaidBook
 }
 
-// newPrepaidBooks starts an empty router; the service registers the
-// organization book at construction and subscriber funds are opted in.
 func newPrepaidBooks() *PrepaidBooks {
 	return &PrepaidBooks{books: make(map[OwnerKind]PrepaidBook, 2)}
 }
 
-// register binds a book to an owner kind, replacing any previous binding.
 func (b *PrepaidBooks) register(kind OwnerKind, book PrepaidBook) {
 	b.books[kind] = book
 }
 
-// bookFor resolves the book that owns this party's money.
 func (b *PrepaidBooks) bookFor(owner Owner) (PrepaidBook, error) {
 	if err := owner.Validate(); err != nil {
 		return nil, err
@@ -132,7 +98,6 @@ func (b *PrepaidBooks) bookFor(owner Owner) (PrepaidBook, error) {
 	return book, nil
 }
 
-// Balance reads the owner's prepaid balance from its own book.
 func (b *PrepaidBooks) Balance(ctx context.Context, owner Owner) (int64, error) {
 	book, err := b.bookFor(owner)
 	if err != nil {
@@ -141,7 +106,6 @@ func (b *PrepaidBooks) Balance(ctx context.Context, owner Owner) (int64, error) 
 	return book.Balance(ctx, owner)
 }
 
-// Debit charges the owner's own book.
 func (b *PrepaidBooks) Debit(ctx context.Context, debit PrepaidDebit) (int64, error) {
 	book, err := b.bookFor(debit.Owner)
 	if err != nil {
@@ -150,17 +114,10 @@ func (b *PrepaidBooks) Debit(ctx context.Context, debit PrepaidDebit) (int64, er
 	return book.Debit(ctx, debit)
 }
 
-// organizationBook adapts the long-standing organization Repo to the
-// owner-typed contract, so the Enterprise balance keeps its exact behavior
-// (overrides, BYOK fee row, key/user/org spend counters) while flowing through
-// the same entry point as subscriber funds.
 type organizationBook struct {
 	repo Repo
 }
 
-// OrganizationBook exposes the organization prepaid book over a billing Repo.
-// It revalidates the owner itself, since it is usable directly and not only
-// behind PrepaidBooks' dispatch.
 func OrganizationBook(repo Repo) PrepaidBook {
 	return organizationBook{repo: repo}
 }

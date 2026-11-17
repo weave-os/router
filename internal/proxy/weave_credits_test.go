@@ -46,7 +46,7 @@ func TestProxyMessages_WeaveCreditsDenied(t *testing.T) {
 			if tc.keys != nil {
 				ctx = context.WithValue(ctx, proxy.ExternalAPIKeysContextKey{}, tc.keys)
 			}
-			req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 			body := []byte(`{"model":"claude-sonnet-4-6","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
 			err := svc.ProxyMessages(ctx, body, httptest.NewRecorder(), req)

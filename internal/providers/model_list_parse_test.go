@@ -31,7 +31,7 @@ func TestParseModelIDs_RejectsUnknownShape(t *testing.T) {
 
 func TestModelListStatusError_DoesNotExposeUpstreamExplanation(t *testing.T) {
 	err := providers.NewModelListStatusError(400)
-	assert.EqualError(t, err, "model listing failed with status 400 (upstream_status)")
+	require.EqualError(t, err, "model listing failed with status 400 (upstream_status)")
 	assert.NotContains(t, err.Error(), "invalid token type")
 
 	var statusErr *providers.ModelListHTTPStatusError

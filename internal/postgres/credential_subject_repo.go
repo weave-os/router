@@ -14,16 +14,12 @@ import (
 	"weave-os/router/internal/sqlc"
 )
 
-// CredentialSubjectRepo owns atomic personal-key issuance and authenticated projection writes.
-// Only the private control plane maps subjects to accounts; no public router endpoint exposes these writes.
 type CredentialSubjectRepo struct{ pool *pgxpool.Pool }
 
-// NewCredentialSubjectRepo binds subject operations to the router primary.
 func NewCredentialSubjectRepo(pool *pgxpool.Pool) *CredentialSubjectRepo {
 	return &CredentialSubjectRepo{pool: pool}
 }
 
-// GetCredentialSubject reads the current installation-scoped eligibility projection for a read-key check.
 func (r *CredentialSubjectRepo) GetCredentialSubject(ctx context.Context, subjectID, installationID string) (*auth.CredentialSubject, error) {
 	subjectUUID, err := uuid.Parse(subjectID)
 	if err != nil {
@@ -50,7 +46,6 @@ func (r *CredentialSubjectRepo) GetCredentialSubject(ctx context.Context, subjec
 	}, nil
 }
 
-// CreatePending issues a new subject and key together without touching an installation-shared key.
 func (r *CredentialSubjectRepo) CreatePending(ctx context.Context, externalID string, key auth.CreateAPIKeyParams) (*auth.APIKey, error) {
 	installationID, err := uuid.Parse(key.InstallationID)
 	if err != nil {
@@ -89,7 +84,6 @@ func (r *CredentialSubjectRepo) CreatePending(ctx context.Context, externalID st
 	return created, nil
 }
 
-// Rotate replaces only a credential owned by the authenticated subject; its subject survives rotation.
 func (r *CredentialSubjectRepo) Rotate(ctx context.Context, externalID, subjectID, previousKeyID string, replacement auth.CreateAPIKeyParams) (*auth.APIKey, error) {
 	installationID, err := uuid.Parse(replacement.InstallationID)
 	if err != nil {
@@ -150,8 +144,6 @@ func (r *CredentialSubjectRepo) Rotate(ctx context.Context, externalID, subjectI
 	return created, nil
 }
 
-// ProjectProfile writes one organization's installation assignments atomically after registration.
-// The caller must verify both production target selection sets before making this projection effective.
 func (r *CredentialSubjectRepo) ProjectProfile(ctx context.Context, externalID string, installationIDs []string, profileKey string) error {
 	if len(installationIDs) == 0 {
 		return errors.New("profile projection requires installations")

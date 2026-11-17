@@ -67,7 +67,7 @@ func TestMessagesHandler_LinkedSubscriptionSlowFirstResponseSucceeds(t *testing.
 		ctx := context.WithValue(proxy.WithManagedSubscriptionUsage(context.Background()), proxy.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-synthetic-linked-token")
 		rec := httptest.NewRecorder()
 
-		engine.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader([]byte(body))).WithContext(ctx))
+		engine.ServeHTTP(rec, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", bytes.NewReader([]byte(body))))
 
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 		assert.Contains(t, rec.Body.String(), "slow subscription answer")

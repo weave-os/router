@@ -53,7 +53,7 @@ func TestVerificationNativeAnthropicSubscriptionPreferredToPaidAPI(t *testing.T)
 			ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
 			body := `{"model":"auto","max_tokens":100,"stream":true,"messages":[{"role":"user","content":"synthetic billing"}],"tools":[{"name":"read_file","input_schema":{"type":"object"}}]}`
 			rec := httptest.NewRecorder()
-			err := svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequest("POST", "/v1/messages", strings.NewReader(body)))
+			err := svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), "POST", "/v1/messages", strings.NewReader(body)))
 			require.Equal(t, 1, subscriptionRequests)
 			require.NoError(t, err)
 			require.Zero(t, apiRequests)
@@ -77,11 +77,11 @@ func TestVerificationSuppressedInboundAnthropicOAuthNeverRelayed(t *testing.T) {
 	svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Reason: "test"}}, map[string]providers.Client{providers.ProviderAnthropic: client}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-4-8", nil).WithDeploymentKeyedProviders(map[string]struct{}{})
 	ctx := context.WithValue(WithManagedSubscriptionUsage(context.Background()), InstallationSubscriptionRoutingDisabledContextKey{}, true)
 	body := `{"model":"auto","max_tokens":100,"stream":true,"messages":[{"role":"user","content":"synthetic billing"}]}`
-	request := httptest.NewRequest("POST", "/v1/messages", strings.NewReader(body))
+	request := httptest.NewRequestWithContext(t.Context(), "POST", "/v1/messages", strings.NewReader(body))
 	request.Header.Set("Authorization", "Bearer sk-ant-oat01-synthetic-inbound-token")
 	_ = svc.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(), request)
 	require.Zero(t, subscriptionRequests.Load(), "a suppressed inbound subscription bearer must not be relayed by inference dispatch")
-	passthroughRequest := httptest.NewRequest("POST", "/v1/messages/count_tokens", strings.NewReader(body))
+	passthroughRequest := httptest.NewRequestWithContext(t.Context(), "POST", "/v1/messages/count_tokens", strings.NewReader(body))
 	passthroughRequest.Header.Set("Authorization", "Bearer sk-ant-oat01-synthetic-inbound-token")
 	require.Error(t, svc.PassthroughToNamedProvider(ctx, providers.ProviderAnthropic, []byte(body), httptest.NewRecorder(), passthroughRequest))
 	require.Zero(t, subscriptionRequests.Load(), "a suppressed inbound subscription bearer must not be relayed by the adapter passthrough tier")
@@ -118,7 +118,7 @@ func TestVerificationNativeAnthropicSubscriptionDelayedHeadersSucceed(t *testing
 	body := `{"model":"auto","max_tokens":1000,"stream":true,"messages":[{"role":"user","content":"synthetic delayed turn"}]}`
 	rec := httptest.NewRecorder()
 
-	err := svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body)))
+	err := svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(body)))
 
 	require.NoError(t, err)
 	require.Contains(t, rec.Body.String(), "delayed subscription answer")

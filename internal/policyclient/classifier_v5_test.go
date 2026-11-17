@@ -27,7 +27,7 @@ func TestClassifierV5ClientPinsReleaseAndKeepsCallbacksOnIntegrationClient(t *te
 	var routeRequests []map[string]any
 	classifierServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		if request.Method == http.MethodGet {
-			require.Equal(t, "/v5/capabilities", request.URL.Path)
+			assert.Equal(t, "/v5/capabilities", request.URL.Path)
 			assert.Equal(t, classifierV5SelectionID, request.URL.Query().Get("classifier_selection_id"))
 			assert.Equal(t, classifierV5ReleaseID, request.URL.Query().Get("classifier_release_id"))
 			_ = json.NewEncoder(w).Encode(ClassifierCapabilitiesV5{
@@ -41,11 +41,11 @@ func TestClassifierV5ClientPinsReleaseAndKeepsCallbacksOnIntegrationClient(t *te
 			return
 		}
 		var requestPayload map[string]any
-		require.NoError(t, json.NewDecoder(request.Body).Decode(&requestPayload))
+		assert.NoError(t, json.NewDecoder(request.Body).Decode(&requestPayload))
 		routeRequests = append(routeRequests, requestPayload)
 		assert.Contains(t, []string{"/v5/classify", "/v5/preview"}, request.URL.Path)
 		_ = json.NewEncoder(w).Encode(classifierResponseV5{
-			SchemaVersion: policy.SchemaVersionV5, RequestID: requestPayload["request_id"].(string),
+			SchemaVersion: policy.SchemaVersionV5, RequestID: assertAs[string](t, requestPayload["request_id"]),
 			ClassifierSelectionID: classifierV5SelectionID, ClassifierReleaseID: classifierV5ReleaseID,
 			ClassifierVariantID: policy.ClassifierVariantQwen, ClassifierArtifactID: "qwen-v5",
 			ClassifierArtifactSHA256: classifierV5ArtifactSHA, ClassifierTaxonomySHA256: taxonomyDigest([]string{"fast", "maximum"}),
@@ -182,7 +182,7 @@ func TestClassifierV5WrongArtifactIdentityIsAPinError(t *testing.T) {
 	}
 	_, err := client.Decide(context.Background(), query)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, router.ErrPolicyPinUnavailable)
+	require.ErrorIs(t, err, router.ErrPolicyPinUnavailable)
 
 	query.ExecutionMode = policy.ExecutionModePreview
 	_, err = client.Preview(context.Background(), query)
@@ -261,7 +261,7 @@ func TestClassifierV5MalformedResponseIsAProtocolErrorNotAPinError(t *testing.T)
 			}
 			_, err := New(classifierServer.URL, nil, time.Second).Decide(context.Background(), query)
 			require.Error(t, err)
-			assert.NotErrorIs(t, err, router.ErrPolicyPinUnavailable)
+			require.NotErrorIs(t, err, router.ErrPolicyPinUnavailable)
 			query.ExecutionMode = policy.ExecutionModePreview
 			_, err = New(classifierServer.URL, nil, time.Second).Preview(context.Background(), query)
 			require.Error(t, err)

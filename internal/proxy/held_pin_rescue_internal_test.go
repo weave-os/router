@@ -51,7 +51,7 @@ func TestHeldAutomaticPinCannotRescueOutsideHeldGatewayAliases(t *testing.T) {
 	})
 	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"continue"}]}`)
 
-	err := svc.ProxyMessages(ctx, body, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(body))))
+	err := svc.ProxyMessages(ctx, body, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(string(body))))
 
 	require.ErrorIs(t, err, providers.ErrUpstreamIdleTimeout)
 	assert.NotEmpty(t, upstream.models)
@@ -66,7 +66,7 @@ func TestHeldAutomaticPinDoesNotReplayAfterOutputCommit(t *testing.T) {
 	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"continue"}]}`)
 	rec := httptest.NewRecorder()
 
-	err := svc.ProxyMessages(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(body))))
+	err := svc.ProxyMessages(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(string(body))))
 
 	require.Error(t, err)
 	assert.Contains(t, rec.Body.String(), "partial")
@@ -137,7 +137,7 @@ func TestHeldAutomaticGatewayPinRescuesToClaudeBeforeCommit(t *testing.T) {
 			svc, ctx, upstream := heldPinRescueFixture()
 			body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"continue"}],"metadata":{"user_id":"user_account__session_4dbee464-ebf7-437f-9f20-db5a6f7fe3b4"}}`)
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, ingress.path, strings.NewReader(string(body)))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, ingress.path, strings.NewReader(string(body)))
 			var err error
 			if ingress.openAI {
 				err = svc.ProxyOpenAIChatCompletion(ctx, body, rec, req)

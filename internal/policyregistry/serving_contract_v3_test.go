@@ -11,21 +11,22 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/policy"
+
+	"github.com/stretchr/testify/require"
 )
 
 const alternateRosterArm = "openai/gpt-6-sol"
 
-func publishRosterArm(t *testing.T, store *servingMemoryStore, base policyregistry.PolicyObject, arm string) policyregistry.PolicyObject {
+func publishRosterArm(t *testing.T, store *servingMemoryStore, base policyregistry.PolicyObject) policyregistry.PolicyObject {
 	t.Helper()
 	roster := store.policies[policyregistry.ObjectRef{URI: base.URI, SHA256: base.SHA256, Generation: base.Generation}]
 	payload, err := rosterdata.CanonicalBytes(roster)
 	require.NoError(t, err)
-	payload = bytes.ReplaceAll(payload, []byte(roster.AllArms()[0]), []byte(arm))
+	payload = bytes.ReplaceAll(payload, []byte(roster.AllArms()[0]), []byte(alternateRosterArm))
 	changed, err := rosterdata.ParseValidated(payload)
 	require.NoError(t, err)
 	digest := policyregistry.Digest(payload)
@@ -38,10 +39,10 @@ func cohortFixture(t *testing.T) (*servingMemoryStore, policyregistry.SelectionS
 	t.Helper()
 	store, _, legacy := controllerFixture(t)
 	lane := foldLane(t, store, legacy.Default)
-	candidate := store.object(t, policyregistry.ServingCandidate, lane.Candidate).(*policyregistry.CandidateV2)
+	candidate := mustAs[*policyregistry.CandidateV2](t, store.object(t, policyregistry.ServingCandidate, lane.Candidate))
 	set := policyregistry.SelectionSetV3{SchemaVersion: policyregistry.ServingSelectionSetV3, Target: legacy.Target,
 		Code: policyregistry.CodeBinding{Candidate: lane.Candidate, LaneBinding: lane.LaneBinding}, DefaultPolicy: candidate.Policy,
-		Profiles: map[string]policyregistry.PolicyObject{profileKeyOne: candidate.Policy, profileKeyTwo: publishRosterArm(t, store, candidate.Policy, alternateRosterArm)}}
+		Profiles: map[string]policyregistry.PolicyObject{profileKeyOne: candidate.Policy, profileKeyTwo: publishRosterArm(t, store, candidate.Policy)}}
 	return store, set
 }
 
@@ -123,8 +124,8 @@ func TestSelectionSetV3RejectsUnavailableOrIncompatiblePolicy(t *testing.T) {
 
 func TestSelectionSetV3TransitionPreservesV2ProfilePolicies(t *testing.T) {
 	store, controller, legacy, initial := heterogeneousLaneFixture(t)
-	v2 := store.object(t, policyregistry.ServingSelectionSet, initial.Activation.SelectionSet).(*policyregistry.SelectionSetV2)
-	candidate := store.object(t, policyregistry.ServingCandidate, v2.Default.Candidate).(*policyregistry.CandidateV2)
+	v2 := mustAs[*policyregistry.SelectionSetV2](t, store.object(t, policyregistry.ServingSelectionSet, initial.Activation.SelectionSet))
+	candidate := mustAs[*policyregistry.CandidateV2](t, store.object(t, policyregistry.ServingCandidate, v2.Default.Candidate))
 	set := policyregistry.SelectionSetV3{SchemaVersion: policyregistry.ServingSelectionSetV3, Target: legacy.Target,
 		Code: policyregistry.CodeBinding{Candidate: v2.Default.Candidate, LaneBinding: v2.Default.LaneBinding}, DefaultPolicy: candidate.Policy, Profiles: map[string]policyregistry.PolicyObject{}}
 	for key, lane := range v2.Profiles {
@@ -149,8 +150,8 @@ func TestControllerAtomicallyTransitionsV3CandidateV2ToV4CandidateV3AndRetainsOl
 	ctx := context.Background()
 	store, v3Set := cohortFixture(t)
 	v3Set.Target = policyregistry.TargetInternal
-	legacyCandidate := *store.object(t, policyregistry.ServingCandidate, v3Set.Code.Candidate).(*policyregistry.CandidateV2)
-	qwenPolicy := publishRosterArm(t, store, legacyCandidate.Policy, alternateRosterArm)
+	legacyCandidate := *mustAs[*policyregistry.CandidateV2](t, store.object(t, policyregistry.ServingCandidate, v3Set.Code.Candidate))
+	qwenPolicy := publishRosterArm(t, store, legacyCandidate.Policy)
 	legacyQwen := policy.ClassifierArtifact{
 		ArtifactID:      "hmm_router_qwen_turn_classifier_3a14c1f5a005c039",
 		PackageSHA256:   strings.Repeat("d", 64),
@@ -257,7 +258,7 @@ func TestControllerAtomicallyTransitionsV3CandidateV2ToV4CandidateV3AndRetainsOl
 		},
 	}
 	v4Ref := store.publishArtifact(t, policyregistry.ServingSelectionSet, selectionV4)
-	store.putRuntimeBinding(t, policyregistry.EnvironmentProd, releaseRef.SHA256, testRuntimeBinding(policyregistry.EnvironmentProd, releaseRef.SHA256))
+	store.putRuntimeBinding(t, releaseRef.SHA256, testRuntimeBinding(policyregistry.EnvironmentProd, releaseRef.SHA256))
 	activateV4 := policyregistry.DeploymentProposalV2{
 		SchemaVersion: policyregistry.ServingProposalV2, Target: v3Set.Target,
 		PreviousSelectionSet: &activatedV3.Activation.SelectionSet,
@@ -286,7 +287,7 @@ func TestControllerAtomicallyTransitionsV3CandidateV2ToV4CandidateV3AndRetainsOl
 		return proposal
 	}
 	rosterSet := selectionV4
-	rosterSet.DefaultPolicy = publishRosterArm(t, store, selectionV4.DefaultPolicy, alternateRosterArm)
+	rosterSet.DefaultPolicy = publishRosterArm(t, store, selectionV4.DefaultPolicy)
 	require.NoError(t, controller.ValidateProposal(ctx, forwardV4(policyregistry.ChangeRoster, rosterSet, candidateV3Ref)), "a v4 roster update keeps code and classifier and changes only the selection-owned policy")
 	reattestedCandidate := candidateV3
 	reattestedCandidate.Provenance.WeaveRevision = strings.Repeat("9", 40)
@@ -303,10 +304,10 @@ func TestControllerAtomicallyTransitionsV3CandidateV2ToV4CandidateV3AndRetainsOl
 	classifierSet := selectionV4
 	classifierSet.Classifier.Release = store.publishArtifact(t, policyregistry.ServingClassifierReleases, classifierRelease)
 	classifierBinding := testRuntimeBinding(policyregistry.EnvironmentProd, classifierSet.Classifier.Release.SHA256)
-	store.putRuntimeBinding(t, policyregistry.EnvironmentProd, classifierSet.Classifier.Release.SHA256, classifierBinding)
+	store.putRuntimeBinding(t, classifierSet.Classifier.Release.SHA256, classifierBinding)
 	require.ErrorContains(t, controller.ValidateProposal(ctx, forwardV4(policyregistry.ChangeClassifier, classifierSet, candidateV3Ref)), "classifier runtime binding differs", "the worker image must be the release's runtime image")
 	classifierBinding["image_digest"] = classifierRelease.RuntimeImageDigest
-	store.putRuntimeBinding(t, policyregistry.EnvironmentProd, classifierSet.Classifier.Release.SHA256, classifierBinding)
+	store.putRuntimeBinding(t, classifierSet.Classifier.Release.SHA256, classifierBinding)
 	require.NoError(t, controller.ValidateProposal(ctx, forwardV4(policyregistry.ChangeClassifier, classifierSet, candidateV3Ref)), "a v4 classifier update names a new release under the same Router code")
 	classifierWithNewCandidate := classifierSet
 	classifierWithNewCandidate.Code.Candidate = rosterWithNewCandidate.Code.Candidate
@@ -405,7 +406,7 @@ func TestControllerAtomicallyTransitionsV3CandidateV2ToV4CandidateV3AndRetainsOl
 	_, err = policyregistry.SelectSessionRelease(nil, unassigned, activatedV4.Snapshot, selectionSetViews, testRegistryRoot, pinnedAt)
 	require.ErrorContains(t, err, "default fallback is forbidden")
 
-	store.putRuntimeBinding(t, policyregistry.EnvironmentProd, releaseRef.SHA256, testRuntimeBinding(policyregistry.EnvironmentStaging, releaseRef.SHA256))
+	store.putRuntimeBinding(t, releaseRef.SHA256, testRuntimeBinding(policyregistry.EnvironmentStaging, releaseRef.SHA256))
 	_, err = policyregistry.ReadPreparedSelection(ctx, store, v3Set.Target, "", newSelection)
 	require.ErrorContains(t, err, "classifier runtime binding", "a binding for another environment cannot serve this target")
 	store.deleteRuntimeBinding(policyregistry.EnvironmentProd, releaseRef.SHA256)

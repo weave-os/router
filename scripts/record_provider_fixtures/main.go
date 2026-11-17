@@ -1,22 +1,3 @@
-// Command record_provider_fixtures refreshes the translation-conformance
-// upstream fixtures from live providers. For each case it runs the SAME inbound
-// Anthropic body through the router's own Prepare* emit, sends the translated
-// request to the real upstream, and writes the raw response to the fixture the
-// conformance suite (internal/proxy/conformance_*_test.go) replays offline.
-//
-// It is a separate main package (not a _test.go), so `go test ./...` never runs
-// it and CI never touches the network. It is further gated on RECORD=1 and the
-// per-provider API key being present.
-//
-// Usage (from the repo root):
-//
-//	RECORD=1 OPENAI_API_KEY=… GOOGLE_API_KEY=… OPENROUTER_API_KEY=… \
-//	    go run ./scripts/record_provider_fixtures
-//
-// After recording, regenerate the goldens and review the diff:
-//
-//	go test ./internal/proxy/ -run TestConformance -update
-//	git diff internal/proxy/testdata/conformance
 package main
 
 import (
@@ -35,8 +16,6 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-// fixtureRoot is where the conformance suite reads upstream fixtures from,
-// relative to the repo root (the recorder's expected working directory).
 const fixtureRoot = "internal/proxy/testdata/conformance"
 
 type format int
@@ -49,15 +28,13 @@ const (
 )
 
 type recordCase struct {
-	fixture       string // path under fixtureRoot, e.g. "openai_chat/basic_text.upstream.sse"
+	fixture       string
 	format        format
 	model         string
 	provider      string
 	anthropicBody string
 }
 
-// cases mirror the conformance suite's fixtures. Keep them in sync: a new
-// conformance case that wants live-recorded input adds an entry here.
 var cases = []recordCase{
 	{"openai_chat/basic_text.upstream.sse", formatOpenAIChat, "deepseek/deepseek-v4-pro", providers.ProviderOpenRouter,
 		`{"model":"deepseek/deepseek-v4-pro","stream":true,"max_tokens":1024,"messages":[{"role":"user","content":"Say hi."}]}`},
@@ -117,7 +94,7 @@ func record(client *http.Client, c recordCase, apiKey string) (err error) {
 		return fmt.Errorf("emit upstream request: %w", err)
 	}
 
-	url, hdr := endpoint(c, apiKey, prep)
+	url, hdr := endpoint(c, apiKey)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, bytes.NewReader(prep.Body))
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
@@ -142,10 +119,10 @@ func record(client *http.Client, c recordCase, apiKey string) (err error) {
 	}
 
 	path := filepath.Join(fixtureRoot, c.fixture)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
-	return os.WriteFile(path, body, 0o644)
+	return os.WriteFile(path, body, 0o600)
 }
 
 func prepare(env *translate.RequestEnvelope, f format, opts translate.EmitOptions) (providers.PreparedRequest, error) {
@@ -163,8 +140,7 @@ func prepare(env *translate.RequestEnvelope, f format, opts translate.EmitOption
 	}
 }
 
-// endpoint returns the live upstream URL and auth headers for a case.
-func endpoint(c recordCase, apiKey string, prep providers.PreparedRequest) (string, map[string]string) {
+func endpoint(c recordCase, apiKey string) (string, map[string]string) {
 	switch c.format {
 	case formatOpenAIChat:
 		if c.provider == providers.ProviderOpenRouter {
@@ -187,7 +163,6 @@ func endpoint(c recordCase, apiKey string, prep providers.PreparedRequest) (stri
 func apiKeyFor(f format) (key, env string) {
 	switch f {
 	case formatOpenAIChat:
-		// OpenRouter is the recorded OpenAI-compat provider for the chat cases.
 		return os.Getenv("OPENROUTER_API_KEY"), "OPENROUTER_API_KEY"
 	case formatOpenAIResponses:
 		return os.Getenv("OPENAI_API_KEY"), "OPENAI_API_KEY"

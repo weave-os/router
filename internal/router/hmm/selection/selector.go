@@ -17,19 +17,16 @@ import (
 	"weave-os/router/internal/router/taskdomain"
 )
 
-// ErrNoEligibleArm is returned when no ranked group holds an eligible arm.
 var ErrNoEligibleArm = policy.ErrNoEligibleArm
 
-// ErrClassifierTaxonomyMismatch means the classifier and Go policy disagree on
-// the ordered class taxonomy; retrying another fallback group cannot fix it.
 var ErrClassifierTaxonomyMismatch = errors.New("classifier taxonomy does not match serving roster")
 
-// Selector returns the deterministic arm selector backed by roster.
+var ErrInvalidClassifierOutput = errors.New("classifier returned an invalid class contract")
+
 func Selector(roster *rosterdata.Roster) policy.ArmSelector {
 	return SelectorWithDomainEvidence(roster, nil, "")
 }
 
-// SelectorWithDomainEvidence binds task scoring to one validated serving roster.
 func SelectorWithDomainEvidence(roster *rosterdata.Roster, evidence *DomainEvidence, evidenceSHA256 string) policy.ArmSelector {
 	return func(ctx context.Context, input policy.SelectionInput) (policy.SelectionPick, error) {
 		log := observability.FromContext(ctx)
@@ -132,8 +129,6 @@ func SelectorWithDomainEvidence(roster *rosterdata.Roster, evidence *DomainEvide
 	}
 }
 
-// unscorableGroups selects only from the promoted roster. A session floor
-// cannot fall through to a weaker group when its eligible arms are exhausted.
 func unscorableGroups(roster *rosterdata.Roster, input policy.SelectionInput) ([]string, error) {
 	groups := append([]string(nil), roster.ClassOrder...)
 	if len(groups) == 0 {
@@ -170,7 +165,7 @@ func unscorableGroups(roster *rosterdata.Roster, input policy.SelectionInput) ([
 
 func classifierGroups(input policy.SelectionInput) ([]string, error) {
 	if len(input.ClassOrder) == 0 || len(input.ClassProbabilities) != len(input.ClassOrder) {
-		return nil, fmt.Errorf("classifier returned an incomplete class contract: %w", ErrNoEligibleArm)
+		return nil, fmt.Errorf("classifier returned an incomplete class contract: %w", ErrInvalidClassifierOutput)
 	}
 	rank := make(map[string]int, len(input.ClassOrder))
 	groups := append([]string(nil), input.ClassOrder...)
@@ -178,16 +173,16 @@ func classifierGroups(input policy.SelectionInput) ([]string, error) {
 	for index, label := range input.ClassOrder {
 		probability, exists := input.ClassProbabilities[label]
 		if label == "" || !exists || math.IsNaN(probability) || math.IsInf(probability, 0) || probability < 0 || probability > 1 {
-			return nil, fmt.Errorf("classifier returned invalid probability for %q: %w", label, ErrNoEligibleArm)
+			return nil, fmt.Errorf("classifier returned invalid probability for %q: %w", label, ErrInvalidClassifierOutput)
 		}
 		if _, duplicate := rank[label]; duplicate {
-			return nil, fmt.Errorf("classifier returned duplicate class %q: %w", label, ErrNoEligibleArm)
+			return nil, fmt.Errorf("classifier returned duplicate class %q: %w", label, ErrInvalidClassifierOutput)
 		}
 		rank[label] = index
 		total += probability
 	}
 	if math.Abs(total-1) > 1e-6 {
-		return nil, fmt.Errorf("classifier probabilities sum to %.9f: %w", total, ErrNoEligibleArm)
+		return nil, fmt.Errorf("classifier probabilities sum to %.9f: %w", total, ErrInvalidClassifierOutput)
 	}
 	sort.SliceStable(groups, func(i, j int) bool {
 		left, right := input.ClassProbabilities[groups[i]], input.ClassProbabilities[groups[j]]

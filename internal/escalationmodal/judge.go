@@ -23,15 +23,12 @@ var (
 	sha256Pattern      = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
-// Judge calls the authenticated Modal escalation classifier. The endpoint pins
-// the release; Judge records whichever release served each verdict.
 type Judge struct {
 	endpoint string
 	apiKey   string
 	client   *http.Client
 }
 
-// NewJudge requires the production HTTPS endpoint and a dedicated platform key.
 func NewJudge(endpoint, apiKey string, client *http.Client) (*Judge, error) {
 	parsed, err := url.Parse(strings.TrimSpace(endpoint))
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
@@ -46,7 +43,6 @@ func NewJudge(endpoint, apiKey string, client *http.Client) (*Judge, error) {
 	return &Judge{endpoint: strings.TrimRight(parsed.String(), "/") + "/classify", apiKey: apiKey, client: client}, nil
 }
 
-// Judge returns an escalation verdict only for a verified release and native digit.
 func (j *Judge) Judge(ctx context.Context, request llmescalation.JudgeRequest) (llmescalation.Judgment, error) {
 	if request.Transcript == "" {
 		return llmescalation.Judgment{}, fmt.Errorf("%w: empty interval", llmescalation.ErrInvalidJudgment)

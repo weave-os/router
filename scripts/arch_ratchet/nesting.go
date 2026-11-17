@@ -2,8 +2,6 @@ package main
 
 import "go/ast"
 
-// maxNesting returns the deepest control-statement nesting in body. An else-if chain
-// counts as one level, and function literals are measured as their own scope.
 func maxNesting(body *ast.BlockStmt) int {
 	walker := nestingWalker{}
 	walker.walk(body, 0)

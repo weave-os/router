@@ -14,8 +14,8 @@ import (
 // gateway is the only way it reaches a customer's own endpoint.
 const customModel = "gemini-2.5-flash"
 
-func customFor(provider string) map[string][]string {
-	return map[string][]string{customModel: {provider}}
+func customFor() map[string][]string {
+	return map[string][]string{customModel: {providers.ProviderOpenAIGateway}}
 }
 
 func TestResolveBindingWithCustom_ServesModelWithNoCatalogBinding(t *testing.T) {
@@ -25,7 +25,7 @@ func TestResolveBindingWithCustom_ServesModelWithNoCatalogBinding(t *testing.T) 
 	require.False(t, ok, "precondition: the catalog does not bind this model to a gateway")
 
 	binding, ok := catalog.ResolveBindingWithCustom(
-		customModel, available, customFor(providers.ProviderOpenAIGateway))
+		customModel, available, customFor())
 
 	require.True(t, ok)
 	assert.Equal(t, providers.ProviderOpenAIGateway, binding.Provider)
@@ -46,7 +46,7 @@ func TestResolveBindingWithCustom_DirectVendorWins(t *testing.T) {
 			providers.ProviderGoogle:        {},
 			providers.ProviderOpenAIGateway: {},
 		},
-		customFor(providers.ProviderOpenAIGateway),
+		customFor(),
 	)
 
 	require.True(t, ok)
@@ -57,7 +57,7 @@ func TestResolveBindingWithCustom_IgnoresUnavailableProvider(t *testing.T) {
 	_, ok := catalog.ResolveBindingWithCustom(
 		customModel,
 		map[string]struct{}{},
-		customFor(providers.ProviderOpenAIGateway),
+		customFor(),
 	)
 
 	assert.False(t, ok)
@@ -70,7 +70,7 @@ func TestEnumerateBindingsWithCustom_CustomRanksAfterCatalog(t *testing.T) {
 			providers.ProviderGoogle:        {},
 			providers.ProviderOpenAIGateway: {},
 		},
-		customFor(providers.ProviderOpenAIGateway),
+		customFor(),
 	)
 
 	require.Len(t, got, 2)

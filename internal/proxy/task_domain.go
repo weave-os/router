@@ -18,7 +18,6 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-// TaskDomainResolver keeps optional inference and persistence under one bounded request lifetime.
 type TaskDomainResolver struct {
 	Store          taskdomain.Store
 	Classifier     taskdomain.Classifier
@@ -26,7 +25,6 @@ type TaskDomainResolver struct {
 	EvidenceSHA256 string
 }
 
-// Resolve returns only a committed profile; cancelled or late inference cannot influence selection.
 func (r *TaskDomainResolver) Resolve(ctx context.Context, input taskdomain.Input) taskdomain.Outcome {
 	baseline := taskdomain.Outcome{Status: taskdomain.NoTask, ReleaseSHA256: r.ReleaseSHA256, EvidenceSHA256: r.EvidenceSHA256}
 	if r.EvidenceSHA256 == "" {
@@ -81,7 +79,6 @@ func taskDomainInput(ctx context.Context, env *translate.RequestEnvelope, apiKey
 		return nil
 	}
 	scope, _ := json.Marshal([]string{clientID, taskdomain.ProjectionVersion})
-	// Match the credential-keyed HMAC boundary used by conversation preferences.
 	mac := hmac.New(sha256.New, []byte(sessionCredentialIdentity(ctx, apiKeyID)))
 	_, _ = mac.Write(scope)
 	conversation := requestcontext.ServingStateKey(ctx, mac.Sum(nil))
@@ -97,7 +94,6 @@ func taskDomainInput(ctx context.Context, env *translate.RequestEnvelope, apiKey
 				break
 			}
 			if !commandPrelude {
-				// A truncated history cannot establish a new logical task root.
 				input.Resume = true
 				return input
 			}
@@ -162,7 +158,6 @@ func isTaskCommand(text string) bool {
 	if strings.HasPrefix(text, "<command-") || strings.HasPrefix(text, "<local-command-") {
 		return true
 	}
-	// Do not discard arbitrary slash-prefixed paths or skill requests.
 	command, _, _ := strings.Cut(text, " ")
 	switch taskControlCommand(command) {
 	case taskCommandForceAlias, taskCommandForce, taskCommandUnforceAlias, taskCommandUnforce, taskCommandModel, taskCommandClear, taskCommandCompact, taskCommandStatus:

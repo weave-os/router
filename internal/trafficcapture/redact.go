@@ -33,7 +33,6 @@ const (
 	queryXGoogSignature  credentialQueryKey = "x_goog_signature"
 )
 
-// RedactURL hides userinfo and common credential query parameters in captured URLs.
 func RedactURL(rawURL string) string {
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
@@ -62,7 +61,6 @@ func RedactURL(rawURL string) string {
 	return parsedURL.String()
 }
 
-// RedactRequestError prevents net/http URL errors from persisting query credentials.
 func RedactRequestError(err error) string {
 	var requestURLError *url.Error
 	if errors.As(err, &requestURLError) {

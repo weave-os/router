@@ -14,7 +14,10 @@ import (
 	"golang.org/x/net/idna"
 )
 
-// ResponsesRequest translates an isolated Claude Code search to native Responses tools.
+var ErrDomainFilterNotHostname = errors.New("codex web search requires hostname-only domain filters")
+
+const DomainFilterNotHostnameMessage = "Codex web search requires hostname-only domain filters"
+
 func ResponsesRequest(body []byte, model string) ([]byte, error) {
 	query, ok := DetectSearchTurn(body)
 	if !ok || !IsClaudeCodeWebSearchHelper(body) {
@@ -35,7 +38,7 @@ func ResponsesRequest(body []byte, model string) ([]byte, error) {
 			for _, domain := range value.Array() {
 				raw := domain.String()
 				if domain.Type != gjson.String || raw == "" || strings.TrimSpace(raw) != raw || strings.ContainsAny(raw, "/*:?#@[]\\ \t\r\n") {
-					return nil, errors.New("Codex web search requires hostname-only domain filters")
+					return nil, ErrDomainFilterNotHostname
 				}
 				ascii, err := idna.Lookup.ToASCII(strings.TrimSuffix(raw, "."))
 				if err != nil || ascii == "" || strings.HasPrefix(ascii, ".") || strings.Contains(ascii, "..") || strings.HasSuffix(ascii, ".") {
@@ -71,8 +74,6 @@ func ResponsesRequest(body []byte, model string) ([]byte, error) {
 	return json.Marshal(request)
 }
 
-// ParseResponses collects completed search items, citations and measured usage.
-// Codex may leave terminal output empty after delivering output_item.done events.
 func ParseResponses(body, request []byte) (Response, error) {
 	items := map[int]gjson.Result{}
 	var terminal gjson.Result

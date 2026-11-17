@@ -1,4 +1,3 @@
-// Command gencandidaterequirements writes the Router candidate requirements declaration.
 package main
 
 import (
@@ -20,7 +19,7 @@ func main() {
 	}
 	path := policyregistry.RouterCandidateRequirementsPath
 	if !*check {
-		if err := os.WriteFile(path, expected, 0o644); err != nil {
+		if err := os.WriteFile(path, expected, 0o600); err != nil {
 			fail(fmt.Errorf("write %s: %w", path, err))
 		}
 		return

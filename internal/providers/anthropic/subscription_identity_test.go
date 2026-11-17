@@ -8,13 +8,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"github.com/tidwall/gjson"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 const claudeCodeIdentity = "You are Claude Code, Anthropic's official CLI for Claude."
@@ -24,7 +25,7 @@ func upstreamBodyServer(t *testing.T, body *[]byte) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		read, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
+		assert.NoError(t, err)
 		*body = read
 		w.Header().Set("content-type", "application/json")
 		_, _ = w.Write([]byte(`{"id":"msg_1"}`))
@@ -41,7 +42,7 @@ func proxyWithBody(ctx context.Context, t *testing.T, requestBody string) []byte
 	srv := upstreamBodyServer(t, &upstreamBody)
 	c := anthropic.NewClient("", srv.URL)
 	prep := providers.PreparedRequest{Body: []byte(requestBody), Headers: make(http.Header)}
-	inbound := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	inbound := httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, c.Proxy(ctx, router.Decision{Model: "claude-opus-5"}, prep, httptest.NewRecorder(), inbound))
 	return upstreamBody
 }
@@ -112,7 +113,7 @@ func TestInboundSubscriptionBearerPassthroughIsRefused(t *testing.T) {
 		Body:    []byte(`{"model":"claude-opus-5","messages":[{"role":"user","content":"hi"}]}`),
 		Headers: make(http.Header),
 	}
-	inbound := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	inbound := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	inbound.Header.Set("Authorization", "Bearer sk-ant-oat01-caller-token")
 
 	require.Error(t, c.Proxy(context.Background(), router.Decision{Model: "claude-opus-5"}, prep, httptest.NewRecorder(), inbound))
@@ -129,7 +130,7 @@ func TestBearerGatewayRequestKeepsCallerSystemPromptUntouched(t *testing.T) {
 		Body:    []byte(`{"model":"claude-opus-5","system":"You are a haiku bot.","messages":[{"role":"user","content":"hi"}]}`),
 		Headers: make(http.Header),
 	}
-	inbound := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	inbound := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	require.NoError(t, c.Proxy(context.Background(), router.Decision{Model: "claude-opus-5"}, prep, httptest.NewRecorder(), inbound))
 

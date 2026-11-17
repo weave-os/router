@@ -1,6 +1,7 @@
 package analytics_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,17 +13,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func serve(handler gin.HandlerFunc, path string) *httptest.ResponseRecorder {
+func serve(ctx context.Context, handler gin.HandlerFunc, path string) *httptest.ResponseRecorder {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	engine.GET(path, handler)
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(ctx, http.MethodGet, path, nil))
 	return rec
 }
 
 func TestSchemaHandlerDescribesTheExport(t *testing.T) {
-	rec := serve(analyticsapi.SchemaHandler(), "/v1/analytics/schema")
+	rec := serve(t.Context(), analyticsapi.SchemaHandler(), "/v1/analytics/schema")
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	var body struct {
@@ -49,7 +50,7 @@ func TestSchemaHandlerDescribesTheExport(t *testing.T) {
 // The price book is what lets a consumer re-derive the cost columns instead of
 // trusting the router's savings math.
 func TestModelsHandlerPublishesPrices(t *testing.T) {
-	rec := serve(analyticsapi.ModelsHandler(), "/v1/analytics/models")
+	rec := serve(t.Context(), analyticsapi.ModelsHandler(), "/v1/analytics/models")
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	var body struct {

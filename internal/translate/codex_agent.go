@@ -8,9 +8,6 @@ import (
 
 const codexRootAgentPath = "/root"
 
-// CodexSubagentPath returns the receiving child from native agent deliveries.
-// A full-history fork inherits its parent's deliveries, so the last recipient
-// wins. Projected user text and role instructions cannot establish this identity.
 func CodexSubagentPath(body []byte) string {
 	recipient := codexCurrentAgentPath(gjson.GetBytes(body, "input"))
 	if recipient == codexRootAgentPath {
@@ -43,7 +40,7 @@ func validCodexAgentPath(path string) bool {
 			return false
 		}
 		for _, char := range segment {
-			if !((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || char == '_' || char == '-') {
+			if !isIdentifierChar(char) {
 				return false
 			}
 		}
@@ -51,8 +48,6 @@ func validCodexAgentPath(path string) bool {
 	return true
 }
 
-// Descendant replies and inherited deliveries are agent work, not new tasks
-// for the receiving thread. Parent and peer assignments retain user semantics.
 func codexAgentMessageRoutingRole(currentPath string, item gjson.Result) EscalationRole {
 	author, recipient := item.Get("author").String(), item.Get("recipient").String()
 	if !validCodexAgentPath(author) || !validCodexAgentPath(recipient) {
@@ -62,4 +57,8 @@ func codexAgentMessageRoutingRole(currentPath string, item gjson.Result) Escalat
 		return EscalationRoleUser
 	}
 	return EscalationRoleAssistant
+}
+
+func isIdentifierChar(c rune) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-'
 }

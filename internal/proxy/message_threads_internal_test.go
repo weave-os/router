@@ -16,10 +16,10 @@ import (
 )
 
 func TestProxyMessages_ThreadContinueBouncedBeforeClassifierHistory(t *testing.T) {
-	svc := &Service{now: time.Now}
+	svc := &Service{clock: time.Now}
 	ctx := router.WithStrategy(context.Background(), router.StrategyLLMClassifier)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"ok"}]}],"thread":{"type":"continue","previous_message_id":"msg_1"}}`)
 
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))

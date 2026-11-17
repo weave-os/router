@@ -5,10 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/postgres"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSubscriptionRefreshTimestampPublishesWithGeneration(t *testing.T) {
@@ -35,9 +36,9 @@ func TestSubscriptionRefreshTimestampPublishesWithGeneration(t *testing.T) {
 	require.NotNil(t, published.TokenRefreshedAt)
 	require.WithinDuration(t, start, *published.TokenRefreshedAt, 5*time.Second)
 	require.Equal(t, before.TokenRefreshVersion+1, published.TokenRefreshVersion)
-	candidates, err := repo.(interface {
+	candidates, err := mustAs[interface {
 		ListSubscriptionCandidates(context.Context, auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error)
-	}).ListSubscriptionCandidates(ctx, owner)
+	}](t, repo).ListSubscriptionCandidates(ctx, owner)
 	require.NoError(t, err)
 	require.Len(t, candidates, 1)
 	require.Equal(t, published.TokenRefreshVersion, candidates[0].TokenRefreshVersion)
@@ -64,15 +65,15 @@ func TestMaintenanceRefreshLeaseDoesNotMakeExhaustedQuotaAvailable(t *testing.T)
 		ExternalAccountID: "synthetic-maintenance-seat", RefreshToken: []byte("synthetic-encrypted-refresh")})
 	require.NoError(t, err)
 	reset := time.Now().Add(time.Hour)
-	health := repo.(interface {
+	health := mustAs[interface {
 		UpdateSubscriptionAccountHealth(context.Context, string, auth.SubscriptionOwner, auth.SubscriptionAccountState, bool, *time.Time) (bool, error)
-	})
+	}](t, repo)
 	_, err = health.UpdateSubscriptionAccountHealth(ctx, account.ID, owner, auth.SubscriptionAccountStateExhausted, true, &reset)
 	require.NoError(t, err)
 	ordinary, err := repo.TryAcquireSubscriptionRefreshLease(ctx, account.ID, owner, uuid.NewString(), time.Minute)
 	require.NoError(t, err)
 	require.False(t, ordinary.Acquired)
-	maintenance := repo.(auth.SubscriptionMaintenanceRefreshRepository)
+	maintenance := mustAs[auth.SubscriptionMaintenanceRefreshRepository](t, repo)
 	leaseID := uuid.NewString()
 	lease, err := maintenance.TryAcquireSubscriptionMaintenanceRefreshLease(ctx, account.ID, owner, leaseID, time.Minute)
 	require.NoError(t, err)

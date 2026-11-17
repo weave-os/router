@@ -13,19 +13,16 @@ import (
 	"github.com/google/uuid"
 )
 
-// SessionStrategyRepo adapts sessionstrategy.Store to SQLC-generated queries.
 type SessionStrategyRepo struct {
 	tx sqlc.DBTX
 }
 
-// NewSessionStrategyRepo wires the adapter over a pgx pool or transaction.
 func NewSessionStrategyRepo(tx sqlc.DBTX) *SessionStrategyRepo {
 	return &SessionStrategyRepo{tx: tx}
 }
 
 var _ sessionstrategy.Store = (*SessionStrategyRepo)(nil)
 
-// Get reads the explicit beta preference. A missing row means stable routing.
 func (r *SessionStrategyRepo) Get(ctx context.Context, installationID uuid.UUID, sessionKey [sessionstrategy.SessionKeyLen]byte) (sessionstrategy.Preference, bool, error) {
 	strategy, err := dbbudget.Queries(r.tx).GetSessionStrategyPreference(ctx, sqlc.GetSessionStrategyPreferenceParams{
 		InstallationID: installationID,
@@ -44,8 +41,6 @@ func (r *SessionStrategyRepo) Get(ctx context.Context, installationID uuid.UUID,
 	}, true, nil
 }
 
-// Toggle flips the explicit beta preference in one statement and returns the
-// state now persisted. Disabled sessions keep a row and use stable routing.
 func (r *SessionStrategyRepo) Toggle(ctx context.Context, preference sessionstrategy.Preference) (bool, error) {
 	if err := preference.Validate(); err != nil {
 		return false, err
@@ -57,8 +52,6 @@ func (r *SessionStrategyRepo) Toggle(ctx context.Context, preference sessionstra
 	})
 }
 
-// Disable turns the explicit beta preference off in one statement and reports
-// whether it had been enabled.
 func (r *SessionStrategyRepo) Disable(ctx context.Context, installationID uuid.UUID, sessionKey [sessionstrategy.SessionKeyLen]byte, strategy router.Strategy) (bool, error) {
 	disabled, err := dbbudget.Queries(r.tx).UpdateSessionStrategyPreferenceDisabled(ctx, sqlc.UpdateSessionStrategyPreferenceDisabledParams{
 		InstallationID: installationID,

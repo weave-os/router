@@ -83,7 +83,7 @@ func TestListUpstreamModelsHandler_ReturnsEndpointModels(t *testing.T) {
 	)
 
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/v1/provider-keys/ext-1/models", nil))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/admin/v1/provider-keys/ext-1/models", nil))
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	var body struct {
@@ -103,7 +103,7 @@ func TestListUpstreamModelsHandler_UnknownKeyIs404(t *testing.T) {
 	)
 
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/v1/provider-keys/missing/models", nil))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/admin/v1/provider-keys/missing/models", nil))
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
@@ -121,7 +121,7 @@ func TestListUpstreamModelsHandler_UnsupportedProviderIs501(t *testing.T) {
 	)
 
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/v1/provider-keys/ext-1/models", nil))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/admin/v1/provider-keys/ext-1/models", nil))
 
 	assert.Equal(t, http.StatusNotImplemented, rec.Code,
 		"a provider with no model-listing surface must tell the dashboard to keep manual entry")
@@ -145,7 +145,7 @@ func TestDiscoverModelsHandler_UsesBodyCredentials(t *testing.T) {
 		"key":      "sk-unsaved",
 		"base_url": "https://cortex.example/api/v2/cortex/v1/",
 	})
-	req := httptest.NewRequest(http.MethodPost, "/admin/v1/provider-keys/discover-models", bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/admin/v1/provider-keys/discover-models", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, req)
@@ -163,7 +163,7 @@ func TestDiscoverModelsHandler_RejectsMissingKey(t *testing.T) {
 	)
 
 	body, _ := json.Marshal(map[string]string{"provider": providers.ProviderOpenAIGateway})
-	req := httptest.NewRequest(http.MethodPost, "/admin/v1/provider-keys/discover-models", bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/admin/v1/provider-keys/discover-models", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, req)
@@ -183,7 +183,7 @@ func TestDiscoverModelsHandler_RejectsBlockedDestinationAs400(t *testing.T) {
 		"base_url": "https://gateway.example/v1",
 	})
 	require.NoError(t, err)
-	req := httptest.NewRequest(http.MethodPost, "/admin/v1/provider-keys/discover-models", bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/admin/v1/provider-keys/discover-models", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, req)
@@ -209,7 +209,7 @@ func TestListUpstreamModelsHandler_EndpointFailureIs502(t *testing.T) {
 	)
 
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/v1/provider-keys/ext-1/models", nil))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/admin/v1/provider-keys/ext-1/models", nil))
 
 	assert.Equal(t, http.StatusBadGateway, rec.Code)
 	assert.NotContains(t, rec.Body.String(), upstreamSecret)
@@ -233,7 +233,7 @@ func TestListUpstreamModelsHandler_BlockedDestinationIs400(t *testing.T) {
 	)
 
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/v1/provider-keys/ext-1/models", nil))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/admin/v1/provider-keys/ext-1/models", nil))
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.NotContains(t, rec.Body.String(), "gateway.example")

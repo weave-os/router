@@ -65,8 +65,8 @@ func rowsAt(n int) []analytics.Decision {
 	return out
 }
 
-func get(engine *gin.Engine, target string, headers map[string]string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(http.MethodGet, target, nil)
+func get(ctx context.Context, engine *gin.Engine, target string, headers map[string]string) *httptest.ResponseRecorder {
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
@@ -97,7 +97,7 @@ func decodeNDJSON(t *testing.T, body io.Reader) []map[string]any {
 func TestRoutingDecisionsStreamsNDJSON(t *testing.T) {
 	engine := newRouter(&fakeRepo{rows: rowsAt(3)}, &auth.Installation{ID: "inst"})
 
-	rec := get(engine, "/v1/analytics/routing-decisions?since=2026-01-01T00:00:00Z", nil)
+	rec := get(t.Context(), engine, "/v1/analytics/routing-decisions?since=2026-01-01T00:00:00Z", nil)
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, "application/x-ndjson", rec.Header().Get("Content-Type"))
@@ -119,7 +119,7 @@ func TestRoutingDecisionsStreamsBlindExperimentFields(t *testing.T) {
 	decisions[0].BlindExperimentSubjectKey = &subjectKey
 	engine := newRouter(&fakeRepo{rows: decisions}, &auth.Installation{ID: "inst"})
 
-	recorder := get(engine, "/v1/analytics/routing-decisions?since=2026-01-01T00:00:00Z", nil)
+	recorder := get(t.Context(), engine, "/v1/analytics/routing-decisions?since=2026-01-01T00:00:00Z", nil)
 
 	require.Equal(t, http.StatusOK, recorder.Code)
 	rows := decodeNDJSON(t, recorder.Body)
@@ -149,14 +149,14 @@ func TestRoutingDecisionsStreamsCohortAttribution(t *testing.T) {
 	decisions[0].CohortBypassReason = &reason
 	engine := newRouter(&fakeRepo{rows: decisions}, &auth.Installation{ID: "inst"})
 
-	recorder := get(engine, "/v1/analytics/routing-decisions?since=2026-01-01T00:00:00Z", nil)
+	recorder := get(t.Context(), engine, "/v1/analytics/routing-decisions?since=2026-01-01T00:00:00Z", nil)
 	require.Equal(t, http.StatusOK, recorder.Code)
 	rows := decodeNDJSON(t, recorder.Body)
 	require.Len(t, rows, 1)
 	require.Equal(t, cohortID, rows[0]["cohort_experiment_id"])
-	require.Equal(t, float64(groupID), rows[0]["cohort_group_id"])
-	require.Equal(t, float64(phaseIndex), rows[0]["cohort_phase_index"])
-	require.Equal(t, float64(revision), rows[0]["cohort_revision"])
+	require.InDelta(t, float64(groupID), rows[0]["cohort_group_id"], 1e-9)
+	require.InDelta(t, float64(phaseIndex), rows[0]["cohort_phase_index"], 1e-9)
+	require.InDelta(t, float64(revision), rows[0]["cohort_revision"], 1e-9)
 	require.Equal(t, string(scheduledArm), rows[0]["cohort_scheduled_arm"])
 	require.Equal(t, string(intendedArm), rows[0]["blind_experiment_arm"])
 	require.Equal(t, applied, rows[0]["cohort_treatment_applied"])
@@ -167,7 +167,7 @@ func TestRoutingDecisionsStreamsCohortAttribution(t *testing.T) {
 func TestRoutingDecisionsReturnsCursorHeaders(t *testing.T) {
 	engine := newRouter(&fakeRepo{rows: rowsAt(3)}, &auth.Installation{ID: "inst"})
 
-	rec := get(engine, "/v1/analytics/routing-decisions?since=2026-01-01T00:00:00Z&limit=2", nil)
+	rec := get(t.Context(), engine, "/v1/analytics/routing-decisions?since=2026-01-01T00:00:00Z&limit=2", nil)
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, "true", rec.Header().Get("X-Weave-Has-More"))
@@ -182,7 +182,7 @@ func TestRoutingDecisionsReturnsCursorHeaders(t *testing.T) {
 func TestRoutingDecisionsCompressesWhenAccepted(t *testing.T) {
 	engine := newRouter(&fakeRepo{rows: rowsAt(3)}, &auth.Installation{ID: "inst"})
 
-	rec := get(engine, "/v1/analytics/routing-decisions?since=2026-01-01T00:00:00Z",
+	rec := get(t.Context(), engine, "/v1/analytics/routing-decisions?since=2026-01-01T00:00:00Z",
 		map[string]string{"Accept-Encoding": "gzip"})
 
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -196,7 +196,7 @@ func TestRoutingDecisionsCompressesWhenAccepted(t *testing.T) {
 func TestRoutingDecisionsPlainWhenGzipNotAccepted(t *testing.T) {
 	engine := newRouter(&fakeRepo{rows: rowsAt(1)}, &auth.Installation{ID: "inst"})
 
-	rec := get(engine, "/v1/analytics/routing-decisions?since=2026-01-01T00:00:00Z", nil)
+	rec := get(t.Context(), engine, "/v1/analytics/routing-decisions?since=2026-01-01T00:00:00Z", nil)
 
 	require.Empty(t, rec.Header().Get("Content-Encoding"))
 	require.Len(t, decodeNDJSON(t, rec.Body), 1)
@@ -217,7 +217,7 @@ func TestRoutingDecisionsRejectsBadRequests(t *testing.T) {
 
 	for name, target := range cases {
 		t.Run(name, func(t *testing.T) {
-			rec := get(engine, target, nil)
+			rec := get(t.Context(), engine, target, nil)
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 		})
 	}
@@ -228,7 +228,7 @@ func TestRoutingDecisionsRejectsBadRequests(t *testing.T) {
 func TestRoutingDecisionsRequiresInstallation(t *testing.T) {
 	engine := newRouter(&fakeRepo{rows: rowsAt(3)}, nil)
 
-	rec := get(engine, "/v1/analytics/routing-decisions?since=2026-01-01T00:00:00Z", nil)
+	rec := get(t.Context(), engine, "/v1/analytics/routing-decisions?since=2026-01-01T00:00:00Z", nil)
 
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
 	require.NotContains(t, rec.Body.String(), "req-a")
@@ -237,7 +237,7 @@ func TestRoutingDecisionsRequiresInstallation(t *testing.T) {
 func TestRoutingDecisionsRepositoryFailureIs500(t *testing.T) {
 	engine := newRouter(&fakeRepo{err: errors.New("db down")}, &auth.Installation{ID: "inst"})
 
-	rec := get(engine, "/v1/analytics/routing-decisions?since=2026-01-01T00:00:00Z", nil)
+	rec := get(t.Context(), engine, "/v1/analytics/routing-decisions?since=2026-01-01T00:00:00Z", nil)
 
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
 	require.NotContains(t, rec.Body.String(), "db down")
@@ -255,7 +255,7 @@ func TestRoutingDecisionsStreamsBlindExperimentModelSource(t *testing.T) {
 	decisions[0].BlindExperimentModelChanged = &changed
 	engine := newRouter(&fakeRepo{rows: decisions}, &auth.Installation{ID: "inst"})
 
-	recorder := get(engine, "/v1/analytics/routing-decisions?since=2026-01-01T00:00:00Z", nil)
+	recorder := get(t.Context(), engine, "/v1/analytics/routing-decisions?since=2026-01-01T00:00:00Z", nil)
 	require.Equal(t, http.StatusOK, recorder.Code)
 	rows := decodeNDJSON(t, recorder.Body)
 	require.Len(t, rows, 1)

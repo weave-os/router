@@ -15,7 +15,6 @@ type blindExperimentSessionRepo struct {
 	tx sqlc.DBTX
 }
 
-// NewBlindExperimentSessionRepo constructs the session-mode experiment repository.
 func NewBlindExperimentSessionRepo(tx sqlc.DBTX) auth.BlindExperimentSessionRepository {
 	return &blindExperimentSessionRepo{tx: tx}
 }
