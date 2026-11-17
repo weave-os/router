@@ -25,3 +25,10 @@ func TestPlannerConfigForLayersRequestFlagsOverDeploymentConfig(t *testing.T) {
 		CorrectedEconomics: true,
 	}, plannerConfigFor(ctx, deployment))
 }
+
+func TestStripsThinkingHistoryWhenSessionPinsAreDisabled(t *testing.T) {
+	disabled := flags.WithOverrides(context.Background(), flags.Overrides{Bools: map[flags.Key]bool{flags.KeySessionPinEnabled: false}})
+
+	assert.False(t, stripsThinkingHistory(context.Background()))
+	assert.True(t, stripsThinkingHistory(disabled))
+}

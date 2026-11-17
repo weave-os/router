@@ -6,6 +6,7 @@ import (
 
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/router/planner"
+	"weave-os/router/internal/router/sessionpin"
 )
 
 func (s *Service) ResolveStruggleShadowEnabled(ctx context.Context) bool {
@@ -177,4 +178,8 @@ func plannerConfigFor(ctx context.Context, cfg planner.EVConfig) planner.EVConfi
 	cfg.ColdPinFollowFresh = flags.BoolOr(ctx, flags.KeyPlannerColdPinFollowFresh, cfg.ColdPinFollowFresh)
 	cfg.CorrectedEconomics = flags.BoolOr(ctx, flags.KeyPlannerCorrectedEconomics, cfg.CorrectedEconomics)
 	return cfg
+}
+
+func stripsThinkingHistory(ctx context.Context) bool {
+	return betaArtifactHistoryFromContext(ctx) || !sessionpin.Enabled(ctx)
 }

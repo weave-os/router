@@ -45,6 +45,8 @@ func TestGatedByFlag_DisabledRequestSeesNoPinAndWritesNothing(t *testing.T) {
 	require.NoError(t, store.Upsert(ctx, sessionpin.Pin{Model: "fresh-model"}))
 	assert.Zero(t, base.gets)
 	assert.Zero(t, base.upserts)
+	assert.False(t, sessionpin.Enabled(ctx))
+	assert.True(t, sessionpin.Enabled(context.Background()))
 }
 
 func TestGatedByFlag_DefaultAndEnabledRequestsUseTheStore(t *testing.T) {

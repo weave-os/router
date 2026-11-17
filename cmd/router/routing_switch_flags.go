@@ -6,13 +6,17 @@ import (
 )
 
 func withRoutingSwitchDefaults(defaults map[flags.Key]string, hmmSameTierPin, hardPinExplore, ccOrchToolsCrossVendor, escapeNormalize bool, plannerCfg planner.EVConfig) map[flags.Key]string {
-	defaults[flags.KeySessionPinEnabled] = boolDefault(true)
-	defaults[flags.KeyHMMSameTierPin] = boolDefault(hmmSameTierPin)
-	defaults[flags.KeyHardPinExplore] = boolDefault(hardPinExplore)
-	defaults[flags.KeyCCOrchToolsCrossVendor] = boolDefault(ccOrchToolsCrossVendor)
-	defaults[flags.KeyEscapeNormalize] = boolDefault(escapeNormalize)
-	defaults[flags.KeyPlannerTierUpgrade] = boolDefault(plannerCfg.TierUpgradeEnabled)
-	defaults[flags.KeyPlannerColdPinFollowFresh] = boolDefault(plannerCfg.ColdPinFollowFresh)
-	defaults[flags.KeyPlannerCorrectedEconomics] = boolDefault(plannerCfg.CorrectedEconomics)
+	for key, on := range map[flags.Key]bool{
+		flags.KeySessionPinEnabled:         true,
+		flags.KeyHMMSameTierPin:            hmmSameTierPin,
+		flags.KeyHardPinExplore:            hardPinExplore,
+		flags.KeyCCOrchToolsCrossVendor:    ccOrchToolsCrossVendor,
+		flags.KeyEscapeNormalize:           escapeNormalize,
+		flags.KeyPlannerTierUpgrade:        plannerCfg.TierUpgradeEnabled,
+		flags.KeyPlannerColdPinFollowFresh: plannerCfg.ColdPinFollowFresh,
+		flags.KeyPlannerCorrectedEconomics: plannerCfg.CorrectedEconomics,
+	} {
+		defaults[key] = boolDefault(on)
+	}
 	return defaults
 }

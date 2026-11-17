@@ -622,7 +622,7 @@ func (s *Service) runTurnLoop(
 		TurnType:                    turntype.Detect(env, feats, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx))),
 		PinTier:                     "miss",
 		RequestedTier:               catalog.TierFor(feats.Model),
-		StripThinkingBlocks:         betaArtifactHistoryFromContext(ctx),
+		StripThinkingBlocks:         stripsThinkingHistory(ctx),
 	}
 	res.AuthoritativePerTurn = authoritativePolicyTurn(res.TurnType) &&
 		s.authoritativePerTurnSelection(ctx)
