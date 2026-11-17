@@ -137,8 +137,8 @@ func plannerInputTokens(env *translate.RequestEnvelope, feats translate.RoutingF
 	return feats.Tokens
 }
 
-func (s *Service) plannerTokensFor(env *translate.RequestEnvelope, feats translate.RoutingFeatures) int {
-	if !s.planner.CorrectedEconomics {
+func (s *Service) plannerTokensFor(ctx context.Context, env *translate.RequestEnvelope, feats translate.RoutingFeatures) int {
+	if !plannerConfigFor(ctx, s.planner).CorrectedEconomics {
 		return feats.Tokens
 	}
 	return plannerInputTokens(env, feats)
@@ -389,7 +389,7 @@ func (s *Service) isHardPinnedTurn(ctx context.Context, tt turntype.TurnType) bo
 		if s.hasSubAgentOverride() {
 			return true
 		}
-		return s.hardPinExplore && !router.IsHMMStrategy(router.StrategyFromContext(ctx))
+		return flags.BoolOr(ctx, flags.KeyHardPinExplore, s.hardPinExplore) && !router.IsHMMStrategy(router.StrategyFromContext(ctx))
 	default:
 		return false
 	}
@@ -1511,7 +1511,7 @@ func (s *Service) runTurnLoop(
 			if pinFound {
 				activePin = pin
 			}
-			plannerTokens := s.plannerTokensFor(env, feats)
+			plannerTokens := s.plannerTokensFor(ctx, env, feats)
 			res.UpgradeShadow = s.authoritativeUpgradeFor(ctx, req, activePin, fresh, res, plannerTokens)
 			res.AuthorityShadow = s.authorityCacheShadowFor(
 				ctx, req, activePin, hmmHistory, fresh, plannerTokens, prefixBroken,
@@ -1684,11 +1684,11 @@ func (s *Service) runTurnLoop(
 				activePin = pin
 			}
 			hmmDecision, hmmPlannerDecision, hmmSticky, hmmStayModel := s.hmmCostGatedDecision(
-				req,
+				ctx, req,
 				activePin,
 				hmmHistory,
 				fresh,
-				s.plannerTokensFor(env, feats),
+				s.plannerTokensFor(ctx, env, feats),
 				prefixBroken,
 			)
 			res.Decision = hmmDecision
@@ -1771,7 +1771,7 @@ func (s *Service) runTurnLoop(
 			return res, nil
 		}
 
-		plannerTokens := s.plannerTokensFor(env, feats)
+		plannerTokens := s.plannerTokensFor(ctx, env, feats)
 		prefixTokens, prefixKnown := cacheablePrefixTokens(pin, plannerTokens, prefixBroken)
 		plannerIn := planner.Inputs{
 			Pin:                   pin,
@@ -1786,7 +1786,7 @@ func (s *Service) runTurnLoop(
 		if !pinFound {
 			plannerIn.Pin = sessionpin.Pin{}
 		}
-		decision := planner.Decide(plannerIn, s.planner)
+		decision := planner.Decide(plannerIn, plannerConfigFor(ctx, s.planner))
 		res.PlannerDecision = decision
 
 		if decision.Outcome == planner.OutcomeStay && pinFound {
@@ -1902,7 +1902,7 @@ func modelExcludedForRecoveryProbe(req router.Request, model string) bool {
 }
 
 func (s *Service) hmmCostGatedDecision(
-	req router.Request,
+	ctx context.Context, req router.Request,
 	activePin sessionpin.Pin,
 	hmmHistory sessionpin.Pin,
 	fresh router.Decision,
@@ -1917,7 +1917,7 @@ func (s *Service) hmmCostGatedDecision(
 		return fresh, planner.Decision{Outcome: planner.OutcomeSwitch, Reason: hmmReasonPhaseChange}, false, stayPin.Model
 	}
 
-	cfg := s.planner
+	cfg := plannerConfigFor(ctx, s.planner)
 	cfg.TierUpgradeEnabled = false
 	stayPrefix, stayPrefixKnown := cacheablePrefixTokens(stayPin, estimatedInputTokens, prefixBroken)
 	base := planner.Decide(planner.Inputs{
@@ -1942,7 +1942,7 @@ func (s *Service) hmmCostGatedDecision(
 		}
 	}
 
-	if s.hmmSameTierPin && base.Outcome == planner.OutcomeSwitch && base.Reason == planner.ReasonEVPositive {
+	if flags.BoolOr(ctx, flags.KeyHMMSameTierPin, s.hmmSameTierPin) && base.Outcome == planner.OutcomeSwitch && base.Reason == planner.ReasonEVPositive {
 		pinTier, freshTier := catalog.TierFor(stayPin.Model), catalog.TierFor(fresh.Model)
 		if pinTier != catalog.TierUnknown && pinTier == freshTier {
 			base.Outcome = planner.OutcomeStay
@@ -1972,7 +1972,7 @@ func (s *Service) authorityCacheShadowFor(
 		return authorityCacheShadow{}
 	}
 	_, plannerDecision, sticky, stayModel := s.hmmCostGatedDecision(
-		req, activePin, hmmHistory, fresh, estimatedInputTokens, prefixBroken,
+		ctx, req, activePin, hmmHistory, fresh, estimatedInputTokens, prefixBroken,
 	)
 	stayProvider := activePin.Provider
 	stayPin, stayPinOK := s.hmmStayPin(req, activePin, hmmHistory)
