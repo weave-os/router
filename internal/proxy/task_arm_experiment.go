@@ -66,15 +66,15 @@ func (turn *taskArmTurn) route(ctx context.Context, route turnRoute) taskArmRout
 		for _, model := range control.SessionDemotedModels {
 			req.ExcludedModels = excludingModel(req.ExcludedModels, model)
 		}
-		capped, err := route(ctx, env, feats, apiKeyID, installationID, subAgentHint, reqHeaders, req)
-		capped.releaseCooldownProbes()
+		cappedRes, err := route(ctx, env, feats, apiKeyID, installationID, subAgentHint, reqHeaders, req)
+		cappedRes.releaseCooldownProbes()
 		if err != nil {
 			observability.FromContext(ctx).Warn("Task-arm ceiling cluster could not serve the turn; serving the control decision",
 				"cluster", turn.cluster, "task_key", turn.assignment.TaskKey, "err", err)
 			return control, nil
 		}
 		turn.capped = true
-		return cappedTurn(control, capped.Decision), nil
+		return cappedTurn(control, cappedRes.Decision), nil
 	}
 }
 
