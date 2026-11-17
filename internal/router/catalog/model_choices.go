@@ -34,6 +34,7 @@ func ModelChoices() []ModelChoice {
 		{Model: string(router.ModelHMMBeta), Description: "Automatically select an upstream model with the beta HMM classifier and its pinned roster, or the primary HMM classifier when no beta is released. Requires internal organization access.", Kind: ModelChoiceRouter},
 		{Model: string(router.ModelQwen), Description: "Automatically select an upstream model with the Qwen classifier and its pinned roster, or the primary HMM classifier when Qwen is not released. Requires internal organization access.", Kind: ModelChoiceRouter},
 		{Model: string(router.ModelDecision), Description: "Automatically select an upstream model with the decision model task and call complexity judge. Requires internal organization access.", Kind: ModelChoiceRouter},
+		{Model: string(router.ModelRandom), Description: "Uniform random routing across three pinned OpenAI models. Requires an enabled internal experiment and policy assertion.", Kind: ModelChoiceRouter},
 	}
 	for _, entry := range Listing() {
 		choices = append(choices, ModelChoice{

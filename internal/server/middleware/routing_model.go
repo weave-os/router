@@ -73,7 +73,7 @@ func applyRoutingModel(c *gin.Context, body []byte, available StrategyAvailabili
 }
 
 func routingStrategyServable(c *gin.Context, managed bool, strategy router.Strategy, available StrategyAvailability) bool {
-	if managed && strategy != router.StrategyDecisionModel {
+	if managed && strategy != router.StrategyDecisionModel && strategy != router.StrategyRandomBenchmark {
 		snapshot := policyregistry.ServingSnapshotFromContext(c.Request.Context())
 		if snapshot == nil || snapshot.Routers[strategy] == nil {
 			return false

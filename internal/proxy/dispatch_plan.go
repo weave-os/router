@@ -208,8 +208,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 					}
 				}
 			}
-			attemptStarted := time.Now()
-			attemptErr := in.attempt(credentialCtx, decision, guarded)
+			attemptStarted, attemptErr := invokeLeasedProviderAttempt(s, credentialCtx, plan, leasedProviderAttempt{inputs: in, decision: decision, target: attempt.Target, lease: lease, client: guarded, managed: managedAttempt})
 
 			bookkeepingCtx := context.WithoutCancel(credentialCtx)
 			if managedAttempt {

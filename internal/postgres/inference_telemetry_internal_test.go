@@ -112,3 +112,16 @@ func TestInferenceSummaryProjectionPopulatesColumns(t *testing.T) {
 	assert.Nil(t, inferenceSummaryString(summary, func(s inference.OperationSummary) string { return s.FallbackReason }),
 		"no fallback leaves fallback_reason NULL")
 }
+
+func TestInferenceAttemptFundingIsNullableAndScoped(t *testing.T) {
+	id := uuid.New()
+	observed := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+	old := inferenceAttemptParams(id, inference.AttemptEvent{})
+	require.Nil(t, old.SubscriptionAccountID)
+	require.Nil(t, old.CredentialSource)
+	require.False(t, old.CapacityObservedAt.Valid)
+	p := inferenceAttemptParams(id, inference.AttemptEvent{Funding: inference.AttemptFunding{SubscriptionAccountID: "seat", Source: inference.FundingSourceIncludedCodex, CapacitySource: inference.CapacitySourceLinkedCodex, PoolID: id.String(), ObservedAt: observed}})
+	require.Equal(t, "seat", *p.SubscriptionAccountID)
+	require.Equal(t, string(inference.FundingSourceIncludedCodex), *p.CredentialSource)
+	require.Equal(t, observed, p.CapacityObservedAt.Time)
+}

@@ -119,6 +119,9 @@ func resolveUserFromContext(ctx context.Context, authSvc *auth.Service, installa
 }
 
 func ResolveRoutingAssignment(ctx context.Context, authSvc *auth.Service, installation *auth.Installation) (context.Context, error) {
+	if randomBenchmarkFrom(ctx) != nil {
+		return ctx, nil
+	}
 	if _, ok := requestcontext.InternalTestIdentityFrom(ctx); ok {
 		return ctx, nil
 	}
