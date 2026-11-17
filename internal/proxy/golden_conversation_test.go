@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -420,7 +421,7 @@ func (s *goldenConversationStore) InsertRouterFeedback(_ context.Context, p prox
 	return nil
 }
 
-func (s *goldenConversationStore) InsertLoopEscalationEvent(_ context.Context, p proxy.LoopEscalationEvent) error {
+func (s *goldenConversationStore) InsertLoopEscalationEvent(_ context.Context, p conversation.LoopEscalationEvent) error {
 	s.record("loop_escalation.insert", p)
 	return nil
 }
@@ -429,7 +430,7 @@ func (s *goldenConversationStore) CountLoopEscalationEvents(context.Context, []b
 	return 0, nil
 }
 
-func (s *goldenConversationStore) InsertSpiralShadowEvent(_ context.Context, p proxy.SpiralShadowEvent) error {
+func (s *goldenConversationStore) InsertSpiralShadowEvent(_ context.Context, p conversation.SpiralShadowEvent) error {
 	s.record("spiral_shadow.insert", p)
 	return nil
 }
@@ -438,7 +439,7 @@ func (s *goldenConversationStore) CountSpiralShadowEvents(context.Context, []byt
 	return 0, nil
 }
 
-func (s *goldenConversationStore) InsertStruggleShadowEvent(_ context.Context, p proxy.StruggleShadowEvent) error {
+func (s *goldenConversationStore) InsertStruggleShadowEvent(_ context.Context, p conversation.StruggleShadowEvent) error {
 	s.record("struggle_shadow.insert", p)
 	return nil
 }

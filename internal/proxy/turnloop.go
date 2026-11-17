@@ -866,7 +866,7 @@ func (s *Service) runTurnLoop(
 
 	sessionKey := threadSessionKey
 
-	res.PrefixTrimmed = s.compaction.checkAndRecord(
+	res.PrefixTrimmed = s.compaction.CheckAndRecord(
 		sessionKey, installationID, res.PinRole,
 		feats.MessageCount, len(env.AssistantToolCallSignatures()),
 	)
