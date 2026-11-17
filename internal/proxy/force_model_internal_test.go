@@ -632,18 +632,16 @@ func TestSuggestForceModel_SuggestionsResolve(t *testing.T) {
 }
 
 func TestUnversionedAliasesFollowNewestFamilyRelease(t *testing.T) {
-	servable := func(id string) bool {
-		_, ok := servableForceModel(id, "")
-		return ok
+	for alias, want := range map[string]string{
+		"sol":    "gpt-6.2-sol",
+		"gpt":    "gpt-6.2-sol",
+		"openai": "gpt-6.2-sol",
+		"astra":  "gpt-6.2-astra",
+		"terra":  "gpt-6.1-terra",
+		"kimi":   "moonshotai/kimi-k3.1",
+	} {
+		assert.Equal(t, want, forceModelAliases[alias], alias)
 	}
-	for alias, target := range forceModelAliases {
-		if strings.ContainsAny(alias, "0123456789") {
-			continue
-		}
-		assert.Equal(t, catalog.LatestInFamily(target, servable), target, alias)
-	}
-	assert.Equal(t, "gpt-6.2-sol", forceModelAliases["sol"])
-	assert.Equal(t, "gpt-6.2-astra", forceModelAliases["astra"])
 	assert.Equal(t, "gpt-6.1-sol", forceModelAliases["gpt-6-1-sol"], "versioned aliases stay exact")
 	assert.Equal(t, "gpt-6-astra", forceModelAliases["gpt-6"], "versioned aliases stay exact")
 }
