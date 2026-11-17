@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 )
@@ -55,13 +57,7 @@ func ApplyIdentityHeader(ctx context.Context, upstream *http.Request) {
 type ExternalAPIKeysContextKey struct{}
 
 func byokFirst(ctx context.Context, provider string) bool {
-	keyFirst := false
-	for _, key := range externalKeysFromContext(ctx) {
-		if key.Provider == provider && (len(key.Plaintext) > 0 || key.CredentialError != nil) {
-			keyFirst = key.FundingPriority == auth.FundingPriorityKeyFirst
-		}
-	}
-	return keyFirst
+	return credentials.KeyFirst(externalKeysFromContext(ctx), provider)
 }
 
 func anthropicBYOKFirst(ctx context.Context) bool {
@@ -69,35 +65,7 @@ func anthropicBYOKFirst(ctx context.Context) bool {
 }
 
 func BuildCredentialsMap(keys []*auth.ExternalAPIKey) map[string]*Credentials {
-	if len(keys) == 0 {
-		return nil
-	}
-	m := make(map[string]*Credentials, len(keys))
-	for _, key := range keys {
-		if len(key.Plaintext) == 0 && key.CredentialError == nil {
-			continue
-		}
-		m[key.Provider] = &Credentials{
-			APIKey:       key.Plaintext,
-			Source:       credSourceBYOK,
-			BaseURL:      key.BaseURL,
-			ModelAliases: key.ModelAliases,
-
-			IdentityHeader:         key.IdentityHeader,
-			IdentityHeaderFormat:   key.IdentityHeaderFormat,
-			ForwardedClientHeaders: append([]string(nil), key.ForwardedClientHeaders...),
-			BaggageHeader:          key.BaggageHeader,
-			AuthType:               key.AuthType,
-			FundingPriority:        key.FundingPriority,
-			CredentialError:        key.CredentialError,
-			PrincipalID:            strings.Join([]string{"external-key", key.ID, key.AuthAccount, key.AuthUser}, ":"),
-			ExternalKeyID:          key.ID,
-		}
-	}
-	if len(m) == 0 {
-		return nil
-	}
-	return m
+	return credentials.BuildCredentialsMap(keys)
 }
 
 func ExtractClientCredentials(provider string, headers http.Header) *Credentials {
@@ -114,4 +82,27 @@ func codexSubscriptionCreds(token, accountID string) *Credentials {
 
 func clearCredentials(ctx context.Context) context.Context {
 	return context.WithValue(ctx, CredentialsContextKey{}, (*Credentials)(nil))
+}
+
+func resolveAndInjectCredentials(ctx context.Context, provider, model string, headers http.Header) context.Context {
+	subDisabled := subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx)
+	res := credentials.Resolve(requestFactsFrom(ctx, headers), provider, credentials.Suppression{
+		Claude: claudeSubscriptionSuppressed(ctx) || subDisabled || claudeModelSuppressed(ctx, model),
+		Codex:  codexSubscriptionSuppressed(ctx) || codexModelSuppressed(ctx, model) || codexChatEndpoint(ctx) || subDisabled || !codexSubscriptionCanAttemptModel(model),
+	})
+	if res.Credentials == nil {
+		if res.Clear {
+			return clearCredentials(ctx)
+		}
+		return ctx
+	}
+	if res.InboundSubscription {
+		log := observability.FromContext(ctx)
+		if provider == providers.ProviderAnthropic {
+			log.Info("Resolved Claude subscription credential", "credential_source", res.Credentials.Source)
+		} else {
+			log.Debug("Resolved Codex subscription credential for OpenAI turn", "credential_source", res.Credentials.Source)
+		}
+	}
+	return context.WithValue(ctx, CredentialsContextKey{}, res.Credentials)
 }
