@@ -546,6 +546,33 @@ func TestGPT62CachedAndLongContextPricing(t *testing.T) {
 	require.NotNil(t, astra.LongContext)
 	assert.Equal(t, 272_000, astra.LongContext.ThresholdTokens)
 
+	cases := []struct {
+		model                                      string
+		input, output, lcInput, lcOutput           float64
+		fastInput, fastOutput, fastLCIn, fastLCOut float64
+	}{
+		{"gpt-6.2-sol", 2, 10, 4, 15, 4, 20, 8, 30},
+		{"gpt-6.2-astra", 8, 40, 16, 60, 16, 80, 32, 120},
+	}
+	for _, tc := range cases {
+		m, ok := ByID(tc.model)
+		require.True(t, ok, tc.model)
+		p := m.Providers[0]
+		for _, got := range []struct {
+			price       Pricing
+			in, out     float64
+			lcIn, lcOut float64
+		}{{p.Price, tc.input, tc.output, tc.lcInput, tc.lcOutput}, {p.FastPrice, tc.fastInput, tc.fastOutput, tc.fastLCIn, tc.fastLCOut}} {
+			assert.InDelta(t, got.in, got.price.InputUSDPer1M, 1e-9, tc.model)
+			assert.InDelta(t, got.out, got.price.OutputUSDPer1M, 1e-9, tc.model)
+			assert.InDelta(t, 0.05, got.price.CacheReadMultiplier, 1e-9, tc.model)
+			require.NotNil(t, got.price.LongContext, tc.model)
+			assert.InDelta(t, got.lcIn, got.price.LongContext.InputUSDPer1M, 1e-9, tc.model)
+			assert.InDelta(t, got.lcOut, got.price.LongContext.OutputUSDPer1M, 1e-9, tc.model)
+			assert.InDelta(t, 0.05, got.price.LongContext.CacheReadMultiplier, 1e-9, tc.model)
+		}
+	}
+
 	assert.True(t, SupportsFastMode("gpt-6.2-sol"))
 	assert.True(t, SupportsFastMode("gpt-6.2-astra"))
 	assert.True(t, CodexSubscriptionCoversModel("gpt-6.2-sol"))
