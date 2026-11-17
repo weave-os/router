@@ -104,7 +104,7 @@ func (s *Service) serveCodexWebSearch(ctx context.Context, body []byte, model st
 	}
 	query, _ := websearch.DetectSearchTurn(body)
 	tool, _ := websearch.FindServerTool(body)
-	message := websearch.SynthesizeMessage("msg_router_search_"+fmt.Sprintf("%x", time.Now().UnixNano()), servedModel, tool.Name, query, result, 0)
+	message := websearch.SynthesizeMessage("msg_router_search_"+fmt.Sprintf("%x", s.clock.Now().UnixNano()), servedModel, tool.Name, query, result, 0)
 	observability.FromContext(ctx).Info("Served native web search through Codex subscription", "results", len(result.Results))
 	return true, writeWebSearchMessage(w, message, stream)
 }

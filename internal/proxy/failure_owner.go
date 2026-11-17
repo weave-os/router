@@ -34,7 +34,7 @@ func classifyFailureOwner(in failureOwnerInput) FailureOwner {
 	if isUpstreamWatchdogError(err) || isStreamTerminalMissing(err) || providers.IsUpstreamCyberPolicyRefusal(err) {
 		return FailureOwnerProvider
 	}
-	if errors.Is(err, context.Canceled) {
+	if errors.Is(err, context.Canceled) || isOwnLoginRejection(err) {
 		return FailureOwnerClient
 	}
 	if errors.Is(err, translate.ErrCustomToolArguments) {

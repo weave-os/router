@@ -66,6 +66,7 @@ func writeOpenAIMessageFromAnthropic(jw *jsonWriter, content gjson.Result, ledge
 	jw.Str("assistant")
 
 	var textParts []string
+	var thinkingParts []string
 	var toolCallBlocks []AcceptedToolCall
 	var issues []toolcheck.Issue
 
@@ -74,6 +75,10 @@ func writeOpenAIMessageFromAnthropic(jw *jsonWriter, content gjson.Result, ledge
 		case "text":
 			if t := block.Get("text").String(); t != "" {
 				textParts = append(textParts, t)
+			}
+		case "thinking":
+			if t := block.Get("thinking").String(); t != "" {
+				thinkingParts = append(thinkingParts, t)
 			}
 		case "tool_use":
 			sourceIndex := int(index.Int())
@@ -94,6 +99,10 @@ func writeOpenAIMessageFromAnthropic(jw *jsonWriter, content gjson.Result, ledge
 		jw.Str(strings.Join(textParts, "\n"))
 	} else {
 		jw.Null()
+	}
+	if len(thinkingParts) > 0 {
+		jw.Key("reasoning_content")
+		jw.Str(strings.Join(thinkingParts, "\n"))
 	}
 
 	if len(toolCallBlocks) > 0 {

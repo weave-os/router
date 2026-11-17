@@ -68,6 +68,7 @@ func TestSidecarRouterReportsImageLimitWhenNoBindingCanServe(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, policy.ErrImageLimitExceeded)
 	require.ErrorIs(t, err, policy.ErrNoRoutableModels)
+	require.NotErrorIs(t, err, router.ErrStrategyUnavailable, "an empty candidate set is not a policy outage")
 
 	prefiltered := router.Request{
 		EnabledProviders:         set(providers.ProviderDeepInfra),

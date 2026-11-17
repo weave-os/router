@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -288,6 +287,21 @@ func (t *SSETranslator) handleContentBlockDelta(data []byte) error {
 		t.writeChunkHeader()
 		t.bw.WriteString(`"choices":[{"index":0,"delta":{"content":`)
 		sse.WriteJSONString(t.bw, text)
+		t.bw.WriteString(`},"finish_reason":null}]}`)
+		t.bw.WriteString("\n\n")
+		return t.flushEvent()
+
+	case "thinking_delta":
+		thinking := gjson.GetBytes(data, "delta.thinking").Str
+		if thinking == "" {
+			return nil
+		}
+		if err := t.lifecycle.Output(0); err != nil {
+			return err
+		}
+		t.writeChunkHeader()
+		t.bw.WriteString(`"choices":[{"index":0,"delta":{"reasoning_content":`)
+		sse.WriteJSONString(t.bw, thinking)
 		t.bw.WriteString(`},"finish_reason":null}]}`)
 		t.bw.WriteString("\n\n")
 		return t.flushEvent()
@@ -1130,33 +1144,6 @@ func (t *AnthropicSSETranslator) emitErrorEvent() error {
 	sse.WriteJSONString(t.bw, msg)
 	t.bw.WriteString("}}\n\n")
 	return t.flushEvent()
-}
-
-func anthropicErrorTypeForStatus(status int) string {
-	switch {
-	case status == http.StatusTooManyRequests:
-		return "rate_limit_error"
-	case status == http.StatusServiceUnavailable:
-		return "overloaded_error"
-	case status >= 500:
-		return "api_error"
-	case status == http.StatusBadRequest:
-		return "invalid_request_error"
-	default:
-		return "api_error"
-	}
-}
-
-func upstreamErrorMessage(body string, status int) string {
-	if body != "" {
-		if m := gjson.Get(body, "error.message"); m.Exists() && m.String() != "" {
-			return m.String()
-		}
-		if m := gjson.Get(body, "message"); m.Exists() && m.String() != "" {
-			return m.String()
-		}
-	}
-	return fmt.Sprintf("upstream provider returned HTTP %d", status)
 }
 
 func (t *AnthropicSSETranslator) emitMessageStart() error {

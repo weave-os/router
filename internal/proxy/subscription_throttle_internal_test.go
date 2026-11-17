@@ -42,7 +42,7 @@ func requireThrottledRefusal(t *testing.T, err error) {
 // sees a retryable 429 instead of a 503 outage.
 func TestAuthorizeSubscriptionAPI_RateLimitedPoolRefusesAs429(t *testing.T) {
 	now := time.Now()
-	svc := (&Service{now: func() time.Time { return now }}).WithManagedSubscriptions(&scriptedSubscriptionLeaser{})
+	svc := (&Service{clock: func() time.Time { return now }}).WithManagedSubscriptions(&scriptedSubscriptionLeaser{})
 	ctx := throttleTestContext(activeCodexAccount("seat-1"), activeCodexAccount("seat-2"))
 	authorize := func() error {
 		return svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, "", "", clientAppRefusalFunding{})
@@ -64,7 +64,7 @@ func TestAuthorizeSubscriptionAPI_RateLimitedPoolRefusesAs429(t *testing.T) {
 
 func TestAuthorizeSubscriptionAPI_PersistedCooldownCountsAsThrottle(t *testing.T) {
 	now := time.Now()
-	svc := &Service{now: func() time.Time { return now }}
+	svc := &Service{clock: func() time.Time { return now }}
 	cooldownUntil := now.Add(time.Minute)
 	cooling := activeCodexAccount("seat-cooling")
 	cooling.State = auth.SubscriptionAccountStateCooldown
@@ -78,7 +78,7 @@ func TestAuthorizeSubscriptionAPI_PersistedCooldownCountsAsThrottle(t *testing.T
 
 func TestAuthorizeSubscriptionAPI_UnknownCallerQuotaKeeps503(t *testing.T) {
 	now := time.Now()
-	svc := &Service{now: func() time.Time { return now }}
+	svc := &Service{clock: func() time.Time { return now }}
 	ctx := throttleTestContext(activeCodexAccount("seat-1"))
 	recordManagedThrottle(ctx, "seat-1", now.Add(time.Minute))
 
@@ -91,7 +91,7 @@ func TestAuthorizeSubscriptionAPI_UnknownCallerQuotaKeeps503(t *testing.T) {
 // seat the refusal is attributed to the throttle.
 func TestAuthorizeSubscriptionAPI_ExhaustionStillAuthorizesPaidFallback(t *testing.T) {
 	now := time.Now()
-	svc := &Service{now: func() time.Time { return now }}
+	svc := &Service{clock: func() time.Time { return now }}
 	ctx := throttleTestContext(activeCodexAccount("seat-spent"), activeCodexAccount("seat-throttled"))
 	recordManagedQuotaProof(ctx, "seat-spent", now.Add(time.Hour))
 
@@ -107,7 +107,7 @@ func TestAuthorizeSubscriptionAPI_ExhaustionStillAuthorizesPaidFallback(t *testi
 // leased, so they must not hold paid fallback hostage as "quota unknown".
 func TestAuthorizeSubscriptionAPI_CredentialRejectedCooldownDoesNotBlockPaidFallback(t *testing.T) {
 	now := time.Now()
-	svc := &Service{now: func() time.Time { return now }}
+	svc := &Service{clock: func() time.Time { return now }}
 	cooldownUntil := now.Add(2 * time.Hour)
 	exhaustedUntil := now.Add(5 * 24 * time.Hour)
 
@@ -139,7 +139,7 @@ func TestAuthorizeSubscriptionAPI_CredentialRejectedCooldownDoesNotBlockPaidFall
 // a 503.
 func TestAuthorizeSubscriptionAPI_RateLimitedCallerPlanRefusesAs429(t *testing.T) {
 	now := time.Now()
-	svc := &Service{now: func() time.Time { return now }}
+	svc := &Service{clock: func() time.Time { return now }}
 	callerCreds := &Credentials{APIKey: []byte("caller-codex-token"), OAuth: true}
 	authorize := func(ctx context.Context) error {
 		return svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, "caller-codex-token", "", clientAppRefusalFunding{})
@@ -162,7 +162,7 @@ func TestAuthorizeSubscriptionAPI_RateLimitedCallerPlanRefusesAs429(t *testing.T
 
 func TestAuthorizeSubscriptionAPI_CallerQuotaExhaustionStillAuthorizesPaidFallback(t *testing.T) {
 	now := time.Now()
-	svc := &Service{now: func() time.Time { return now }}
+	svc := &Service{clock: func() time.Time { return now }}
 	ctx := throttleTestContext()
 	quotaExhaustedErr := &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"error":{"type":"usage_limit_reached","message":"limit"}}`)}
 	svc.recordDirectSubscriptionQuota(ctx, providers.ProviderOpenAI, codexCoveredModel, &Credentials{APIKey: []byte("caller-codex-token"), OAuth: true}, quotaExhaustedErr)
@@ -173,7 +173,7 @@ func TestAuthorizeSubscriptionAPI_CallerQuotaExhaustionStillAuthorizesPaidFallba
 // refused turn must not count against router or provider reliability.
 func TestCallerPlanRateLimitRefusalIsClientOwned(t *testing.T) {
 	now := time.Now()
-	svc := &Service{now: func() time.Time { return now }}
+	svc := &Service{clock: func() time.Time { return now }}
 	resetAt := now.Add(5 * 24 * time.Hour)
 	spentSeat := func(id string) *auth.SubscriptionAccount {
 		seat := activeCodexAccount(id)

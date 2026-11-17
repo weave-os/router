@@ -96,11 +96,11 @@ func (s *Service) maybeStrikeArmAfterRescuedFailure(
 		reason = sessionpin.DemotionReasonResponseHeaderTimeout
 	} else if s.ResolveTransientRateLimit(ctx) && isTransientGatewayFailure(primaryErr) {
 		cooldown := s.ResolveRateLimitCooldown(ctx)
-		reason, cooldownUntil = sessionpin.DemotionReasonTransientFailure, s.clockNow().Add(cooldown)
+		reason, cooldownUntil = sessionpin.DemotionReasonTransientFailure, s.clock.Now().Add(cooldown)
 		dispatch.ThrottleLedgerFromContext(ctx).RecordCooldown(cooldownUntil, cooldown)
 	} else if s.ResolveTransientRateLimit(ctx) && isRateLimitedPrimaryFailure(primaryErr) {
 		cooldown := s.ResolveRateLimitCooldown(ctx)
-		reason, cooldownUntil = sessionpin.DemotionReasonRateLimited, s.clockNow().Add(cooldown)
+		reason, cooldownUntil = sessionpin.DemotionReasonRateLimited, s.clock.Now().Add(cooldown)
 		dispatch.ThrottleLedgerFromContext(ctx).RecordCooldown(cooldownUntil, cooldown)
 	}
 	if !s.demoteArmForSession(ctx, primary.Model, reason, cooldownUntil, upstreamStatus(primaryErr), installationID, sessionKey, role, pinRole) {
@@ -173,7 +173,7 @@ func (s *Service) demoteArmForSession(
 		cooldownUntil = time.Time{}
 	}
 	for _, strikeRole := range demotionRoles(role, pinRole) {
-		expired := expiredSessionPin(installationID, sessionKey, strikeRole, string(reason), strategy)
+		expired := expiredSessionPin(installationID, sessionKey, strikeRole, string(reason), strategy, s.clock.Now())
 		var err error
 		if cooldownUntil.IsZero() {
 			err = s.pinStore.ExpireAndDemoteModel(context.WithoutCancel(ctx), expired, model, reason)

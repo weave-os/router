@@ -47,7 +47,7 @@ func TestSubscriptionProfileCacheIsCredentialScopedAndExpires(t *testing.T) {
 		}
 		return providers.SubscriptionPlanMax, nil
 	}))
-	service.now = func() time.Time { return now }
+	service.clock = func() time.Time { return now }
 	for range 2 {
 		for _, token := range []string{"sk-ant-oat01-enterprise", "sk-ant-oat01-ordinary"} {
 			ctx := service.withClaudeSubscriptionProfile(routerKeyedCtx(), http.Header{"Authorization": []string{"Bearer " + token}})

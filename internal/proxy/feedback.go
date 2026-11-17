@@ -102,7 +102,7 @@ func (s *Service) emitFeedbackSpan(ctx context.Context, p SubmitFeedbackParams) 
 	if s.emitter == nil {
 		return
 	}
-	now := time.Now()
+	now := s.clock.Now()
 	b := telemetry.NewAttrBuilder(6).
 		String("external_id", p.ExternalID).
 		String("request_id", p.RequestID).

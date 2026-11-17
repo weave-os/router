@@ -11,6 +11,7 @@ import (
 
 	"github.com/tidwall/sjson"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
@@ -115,11 +116,9 @@ func committed(b *dispatch.PreludeBuffer) bool {
 
 const subscriptionRotationBudget = 10 * time.Second
 
-func (s *Service) clockNow() time.Time {
-	if s.now != nil {
-		return s.now()
-	}
-	return time.Now()
+func (s *Service) WithClock(clock auth.Clock) *Service {
+	s.clock = clock
+	return s
 }
 
 func (s *Service) shouldFailover(ctx context.Context) bool {
