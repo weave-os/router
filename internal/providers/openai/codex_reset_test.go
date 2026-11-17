@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -81,6 +82,18 @@ func TestCodexResetRejectsUncertainInventoryAndRedemption(t *testing.T) {
 	}
 }
 
+func TestCodexResetRejectsOversizedResponse(t *testing.T) {
+	body := `{"credits":[]}` + strings.Repeat(" ", 1<<20)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, body)
+	}))
+	defer server.Close()
+	client := NewClient("", server.URL)
+	client.SetCodexBaseURL(server.URL)
+	_, err := client.CodexResetCredits(context.Background(), subscriptions.Lease{AccessToken: "token", ProviderAccount: "account"})
+	require.ErrorContains(t, err, "codex reset response exceeds size limit")
+}
+
 func TestCodexResetQuotaRequiresAccountWideExhaustion(t *testing.T) {
 	for _, tc := range []struct {
 		body             string
@@ -102,5 +115,32 @@ func TestCodexResetQuotaRequiresAccountWideExhaustion(t *testing.T) {
 			require.Equal(t, tc.exhausted, quotaExhausted)
 			require.Equal(t, tc.fails, err != nil)
 		})
+	}
+}
+
+func TestCodexResetQuotaDoesNotTreatPurchasedCreditsAsIncludedHeadroom(t *testing.T) {
+	const quota = `{"rate_limit":{"allowed":false,"limit_reached":true,"primary_window":{"used_percent":100}},"credits":{"has_credits":true,"unlimited":false,"balance":"20.5"}}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, quota)
+	}))
+	defer server.Close()
+	client := NewClient("", server.URL)
+	client.SetCodexBaseURL(server.URL)
+	client.SetCodexExtraCreditsAllowed(true)
+	ctx := requestcontext.WithSubscriptionExtraUsage(context.Background())
+	exhausted, err := client.CodexQuotaExhausted(ctx, subscriptions.Lease{AccessToken: "token", ProviderAccount: "account"})
+	require.NoError(t, err)
+	require.True(t, exhausted, "purchased credits do not restore included quota for reset eligibility")
+}
+
+func TestCodexResetQuotaRequiresAccountCredentials(t *testing.T) {
+	client := NewClient("", "")
+	for _, lease := range []subscriptions.Lease{
+		{},
+		{AccessToken: "token"},
+		{ProviderAccount: "account"},
+	} {
+		_, err := client.CodexQuotaExhausted(context.Background(), lease)
+		require.ErrorContains(t, err, "codex reset requires authenticated account credentials")
 	}
 }

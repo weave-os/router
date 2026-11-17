@@ -53,7 +53,7 @@ type ResetStore interface {
 	RecordCodexExhaustion(context.Context, auth.SubscriptionOwner, Lease, time.Time) (bool, error)
 }
 
-var ErrResetClaimLost = errors.New("Codex reset claim lost")
+var ErrResetClaimLost = errors.New("codex reset claim lost")
 
 const resetOperationTimeout = 10 * time.Second
 

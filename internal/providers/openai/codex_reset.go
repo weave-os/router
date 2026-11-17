@@ -23,11 +23,16 @@ type codexResetType string
 type codexResetStatus string
 
 const (
-	codexRateLimitReset codexResetType   = "codex_rate_limits"
-	codexResetAvailable codexResetStatus = "available"
+	codexRateLimitReset        codexResetType   = "codex_rate_limits"
+	codexResetAvailable        codexResetStatus = "available"
+	maxCodexResetResponseBytes                  = 1 << 20
 )
 
 func (c *Client) CodexQuotaExhausted(ctx context.Context, lease subscriptions.Lease) (bool, error) {
+	if lease.AccessToken == "" || lease.ProviderAccount == "" {
+		return false, errors.New("codex reset requires authenticated account credentials")
+	}
+	ctx = requestcontext.WithSubscriptionQuotaRecovery(ctx)
 	ctx = requestcontext.WithCredentials(ctx, &requestcontext.Credentials{
 		APIKey: []byte(lease.AccessToken), AccountID: []byte(lease.ProviderAccount),
 		OAuth: true, Source: requestcontext.SourceCodexSubscription,
@@ -128,5 +133,12 @@ func (c *Client) codexResetRequest(ctx context.Context, lease subscriptions.Leas
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("codex reset request rejected: HTTP %d", resp.StatusCode)
 	}
-	return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxCodexResetResponseBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > maxCodexResetResponseBytes {
+		return nil, errors.New("codex reset response exceeds size limit")
+	}
+	return body, nil
 }
