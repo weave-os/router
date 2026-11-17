@@ -9,9 +9,6 @@ import (
 	"weave-os/router/internal/translate/toolcheck"
 )
 
-// ToolCallEntry is one stable, client-visible tool call assembled from a
-// potentially fragmented upstream stream. Source identifiers are aliases, not
-// replacement IDs: a late identifier can never invalidate an emitted ID.
 type ToolCallEntry struct {
 	ExternalID  string
 	SourceID    string
@@ -25,9 +22,6 @@ type ToolCallEntry struct {
 	projectedID string
 }
 
-// ToolCallLedger centralizes stream-local tool identity and argument assembly.
-// Entries are keyed first by source index because several providers omit IDs
-// on initial deltas and some reuse an ID for parallel calls.
 type ToolCallLedger struct {
 	entries         map[int]*ToolCallEntry
 	nextID          uint64
@@ -35,13 +29,10 @@ type ToolCallLedger struct {
 	projectedOwners map[string]int
 }
 
-// NewToolCallLedger creates an empty per-stream ledger.
 func NewToolCallLedger() *ToolCallLedger {
 	return &ToolCallLedger{entries: make(map[int]*ToolCallEntry), externalOwners: make(map[string]int), projectedOwners: make(map[string]int)}
 }
 
-// Upsert records source fields for index and returns its stable entry.
-// The first delta's ID is kept as client-visible; late IDs alias it.
 func (l *ToolCallLedger) Upsert(index int, sourceID, name string) *ToolCallEntry {
 	entry, ok := l.entries[index]
 	if !ok {
@@ -83,7 +74,6 @@ func (l *ToolCallLedger) Upsert(index int, sourceID, name string) *ToolCallEntry
 	return entry
 }
 
-// AppendArguments appends a fragmented argument delta to index.
 func (l *ToolCallLedger) AppendArguments(index int, sourceID, name, arguments string) *ToolCallEntry {
 	entry := l.Upsert(index, sourceID, name)
 	if entry.accepted == nil {
@@ -92,7 +82,6 @@ func (l *ToolCallLedger) AppendArguments(index int, sourceID, name, arguments st
 	return entry
 }
 
-// Close records a terminal item while preserving the existing external ID.
 func (l *ToolCallLedger) Close(index int, sourceID, name, fallbackArguments string) *ToolCallEntry {
 	entry := l.Upsert(index, sourceID, name)
 	if entry.accepted != nil {
@@ -106,30 +95,23 @@ func (l *ToolCallLedger) Close(index int, sourceID, name, fallbackArguments stri
 	return entry
 }
 
-// Entry returns the entry for source index, if it exists.
 func (l *ToolCallLedger) Entry(index int) (*ToolCallEntry, bool) {
 	entry, ok := l.entries[index]
 	return entry, ok
 }
 
-// HasSourceID reports whether id was observed as an alias for index.
 func (e *ToolCallEntry) HasSourceID(id string) bool {
 	_, ok := e.aliases[id]
 	return ok
 }
 
-// ToolCallSuppression identifies why a completed call cannot be dispatched.
 type ToolCallSuppression uint8
 
 const (
-	// ToolCallNotSuppressed identifies a dispatchable call.
 	ToolCallNotSuppressed ToolCallSuppression = iota
-	// ToolCallMissingName identifies a call still nameless at closure.
 	ToolCallMissingName
 )
 
-// AcceptedToolCall is the immutable normalization outcome, before wire projection.
-// Schema issues are fail-open; only a missing name suppresses a call.
 type AcceptedToolCall struct {
 	ID          string
 	Name        string
@@ -138,7 +120,6 @@ type AcceptedToolCall struct {
 	Issue       *toolcheck.Issue
 }
 
-// Accept finalizes a call once. Adapters must collect its issue and emit it once.
 func (e *ToolCallEntry) Accept(validator *toolcheck.Validator) AcceptedToolCall {
 	return e.accept(validator, false)
 }
@@ -165,7 +146,6 @@ func (e *ToolCallEntry) accept(validator *toolcheck.Validator, raw bool) Accepte
 	return call
 }
 
-// SetArguments records a complete argument event without changing a settled call.
 func (l *ToolCallLedger) SetArguments(index int, arguments string) {
 	entry := l.Upsert(index, "", "")
 	if entry.accepted != nil {
@@ -175,7 +155,6 @@ func (l *ToolCallLedger) SetArguments(index int, arguments string) {
 	entry.Arguments.WriteString(arguments)
 }
 
-// Entries returns calls in source-index order, including pending and suppressed calls.
 func (l *ToolCallLedger) Entries() []*ToolCallEntry {
 	indices := make([]int, 0, len(l.entries))
 	for index := range l.entries {
@@ -196,7 +175,6 @@ func selectToolArguments(buffered, fallback string) string {
 	return buffered
 }
 
-// SuppressedCount reports finalized calls that could not be dispatched.
 func (l *ToolCallLedger) SuppressedCount() int {
 	count := 0
 	for _, entry := range l.entries {
@@ -207,8 +185,6 @@ func (l *ToolCallLedger) SuppressedCount() int {
 	return count
 }
 
-// ProjectID reserves a stable wire identity after an adapter's pure ID projection.
-// Distinct source IDs may collide after protocol sanitization or length limiting.
 func (l *ToolCallLedger) ProjectID(index int, project func(string) string) string {
 	entry := l.entries[index]
 	if entry.projectedID != "" {

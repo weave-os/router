@@ -17,41 +17,27 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// Delegated session tokens are RFC 9068 JWT access tokens signed with Ed25519
-// (RFC 8037) by an issuer-held key whose public JWK is registered as a
-// session_issuer row. Validation follows RFC 8725.
 const (
-	SessionTokenIssuer   = "session-issuer"
-	SessionTokenAudience = "weave-router"
-	SessionTokenType     = "at+jwt"
-	// SessionTokenMaxLifetime keeps a leaked token short-lived; issuers refresh
-	// tokens for longer sessions.
+	SessionTokenIssuer      = "session-issuer"
+	SessionTokenAudience    = "weave-router"
+	SessionTokenType        = "at+jwt"
 	SessionTokenMaxLifetime = 2 * time.Hour
 	SessionTokenLeeway      = 30 * time.Second
-	// SessionTokenMaxBytes bounds parsing work for an unauthenticated input.
-	SessionTokenMaxBytes = 4096
-	// SessionTokenMaxIDLength matches router.delegated_token_spend.scope_id, so a verified
-	// session or task ID can always be billed.
+	SessionTokenMaxBytes    = 4096
 	SessionTokenMaxIDLength = 255
 
 	sessionIssuerKeyHashPrefix = "jwk:"
 )
 
-// ErrInvalidSessionIssuerKey is returned when registering a JWK that is not an Ed25519 public key.
 var ErrInvalidSessionIssuerKey = errors.New("session issuer key must be an Ed25519 public JWK")
 
-// ErrSessionIssuerConflict is returned when a public key is already registered to another installation.
 var ErrSessionIssuerConflict = errors.New("session issuer key is registered to another installation")
 
-// SessionCaps are optional USD spend limits a session token carries. A task
-// cap requires the task claim; both caps must be positive.
 type SessionCaps struct {
 	SessionUSDMicros *int64 `json:"session_usd_micros,omitempty"`
 	TaskUSDMicros    *int64 `json:"task_usd_micros,omitempty"`
 }
 
-// SessionClaims is the JWT claim set of a delegated session token. Private
-// claims use collision-resistant names (RFC 7519 §4.3).
 type SessionClaims struct {
 	jwt.RegisteredClaims
 	IssuerID string       `json:"https://weave.ai/issuer_id"`
@@ -59,8 +45,6 @@ type SessionClaims struct {
 	Caps     *SessionCaps `json:"https://weave.ai/caps,omitempty"`
 }
 
-// DelegatedSession is the verified identity of a session token. Requests
-// authenticate as the issuer key; this narrows them to one session and task.
 type DelegatedSession struct {
 	IssuerKeyID      string
 	SessionID        string
@@ -72,7 +56,6 @@ type DelegatedSession struct {
 
 type delegatedSessionContextKey struct{}
 
-// WithDelegatedSession stores the verified session on ctx; a nil session leaves ctx unchanged.
 func WithDelegatedSession(ctx context.Context, session *DelegatedSession) context.Context {
 	if session == nil {
 		return ctx
@@ -80,7 +63,6 @@ func WithDelegatedSession(ctx context.Context, session *DelegatedSession) contex
 	return context.WithValue(ctx, delegatedSessionContextKey{}, session)
 }
 
-// DelegatedSessionFrom returns the verified session, or nil for any other credential.
 func DelegatedSessionFrom(ctx context.Context) *DelegatedSession {
 	session, _ := ctx.Value(delegatedSessionContextKey{}).(*DelegatedSession)
 	return session
@@ -90,8 +72,6 @@ func IsSessionToken(token string) bool {
 	return strings.HasPrefix(token, SessionTokenPrefix+"_")
 }
 
-// ParseSessionIssuerJWK accepts only an OKP Ed25519 public JWK and returns the
-// key, its RFC 7638 SHA-256 thumbprint (base64url) and the canonical public JWK.
 func ParseSessionIssuerJWK(raw []byte) (ed25519.PublicKey, string, []byte, error) {
 	var jwk jose.JSONWebKey
 	if err := jwk.UnmarshalJSON(raw); err != nil {
@@ -112,20 +92,15 @@ func ParseSessionIssuerJWK(raw []byte) (ed25519.PublicKey, string, []byte, error
 	return publicKey, base64.RawURLEncoding.EncodeToString(thumbprint), canonical, nil
 }
 
-// SessionIssuerKeyHash is the key_hash an issuer row is stored and looked up under.
-// It can never equal a hex SHA-256 bearer hash, so an issuer is unreachable as a bearer.
 func SessionIssuerKeyHash(kid string) string {
 	return sessionIssuerKeyHashPrefix + kid
 }
 
-// WithSessionSpendCaps reports whether this worker can enforce token-carried spend caps.
 func (s *Service) WithSessionSpendCaps(enabled bool) *Service {
 	s.delegatedSpendCapsEnabled = enabled
 	return s
 }
 
-// RegisterSessionIssuer stores an Ed25519 public JWK as a session issuer for
-// the installation and returns its kid. Registering the same key again is a no-op.
 func (s *Service) RegisterSessionIssuer(ctx context.Context, installationID string, name *string, publicJWK []byte) (*APIKey, string, error) {
 	_, kid, canonical, err := ParseSessionIssuerJWK(publicJWK)
 	if err != nil {
@@ -147,7 +122,6 @@ func (s *Service) RegisterSessionIssuer(ctx context.Context, installationID stri
 		PublicJWK:      canonical,
 	})
 	if err != nil {
-		// A concurrent registration of the same key wins the unique key_hash index.
 		if winner, lookupErr := s.existingSessionIssuer(ctx, installationID, keyHash); winner != nil || errors.Is(lookupErr, ErrSessionIssuerConflict) {
 			return winner, kid, lookupErr
 		}
@@ -156,8 +130,6 @@ func (s *Service) RegisterSessionIssuer(ctx context.Context, installationID stri
 	return key, kid, nil
 }
 
-// existingSessionIssuer returns the active issuer stored under keyHash, sql.ErrNoRows
-// when there is none, or ErrSessionIssuerConflict when another installation owns it.
 func (s *Service) existingSessionIssuer(ctx context.Context, installationID, keyHash string) (*APIKey, error) {
 	existing, _, err := s.apiKeys.GetActiveByHashWithInstallation(ctx, keyHash)
 	if err != nil {
@@ -169,8 +141,6 @@ func (s *Service) existingSessionIssuer(ctx context.Context, installationID, key
 	return existing, nil
 }
 
-// RevokeSessionIssuer soft-deletes the issuer, which revokes every session
-// token it signed once the installation's cache entries are invalidated.
 func (s *Service) RevokeSessionIssuer(ctx context.Context, installationID, kid string) error {
 	key, _, err := s.apiKeys.GetActiveByHashWithInstallation(ctx, SessionIssuerKeyHash(kid))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -185,9 +155,6 @@ func (s *Service) RevokeSessionIssuer(ctx context.Context, installationID, kid s
 	return s.DeleteAPIKey(ctx, installationID, key.ID)
 }
 
-// VerifySessionToken authenticates an rs_ session token as its issuer key and
-// returns the delegated session. The only lookup is the cached issuer row, so
-// many concurrent sessions share one cache entry per issuer.
 func (s *Service) VerifySessionToken(ctx context.Context, rawToken string, includeUpstreamKeys bool) (*Installation, *APIKey, []*ExternalAPIKey, []ClusterModelList, *DelegatedSession, error) {
 	if !IsSessionToken(rawToken) {
 		return nil, nil, nil, nil, nil, ErrInvalidPrefix
@@ -244,8 +211,6 @@ func (s *Service) VerifySessionToken(ctx context.Context, rawToken string, inclu
 		if !s.delegatedSpendCapsEnabled {
 			return nil, nil, nil, nil, nil, ErrInvalidToken
 		}
-		// An empty or misspelled caps object is refused so the issuer's mistake surfaces
-		// instead of minting an uncapped credential.
 		noCap := claims.Caps.SessionUSDMicros == nil && claims.Caps.TaskUSDMicros == nil
 		if noCap || !validCap(claims.Caps.SessionUSDMicros) || !validCap(claims.Caps.TaskUSDMicros) || (claims.Caps.TaskUSDMicros != nil && claims.Task == "") {
 			return nil, nil, nil, nil, nil, ErrInvalidToken
@@ -264,11 +229,6 @@ func validCap(capMicros *int64) bool {
 	return capMicros == nil || *capMicros > 0
 }
 
-// sessionIssuer resolves an active issuer by kid through the shared auth cache.
-// Positive entries are evicted with the installation, so revocation takes effect
-// on the same path as deleting any other key. An unknown kid is not negatively
-// cached: registration could not evict it on every replica, so a token signed
-// right after its issuer is registered would 401 for the negative TTL.
 func (s *Service) sessionIssuer(ctx context.Context, kid string, includeUpstreamKeys bool) (CachedKey, error) {
 	cacheKey := SessionIssuerKeyHash(kid)
 	if cached, ok := s.cache.Get(cacheKey); ok {
@@ -295,8 +255,6 @@ func (s *Service) sessionIssuer(ctx context.Context, kid string, includeUpstream
 	if s.clusterModelLists != nil {
 		entry.ClusterModelLists, err = s.clusterModelLists.GetForAPIKey(ctx, apiKey.ID)
 		if err != nil {
-			// Same rule as rk_ keys: serve with default routing but never cache a
-			// transient miss of the issuer's cluster restrictions.
 			observability.FromContext(ctx).Warn("Failed to fetch cluster model lists", "api_key_id", apiKey.ID, "err", err)
 			entry.ClusterModelLists = nil
 			cacheable = false

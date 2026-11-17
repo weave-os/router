@@ -88,7 +88,6 @@ func (capture *jsonlTrafficCapture) Record(exchange trafficcapture.Exchange) err
 	}
 	if err := writeCaptureExchange(capture.file, exchange); err != nil {
 		encodeErr := fmt.Errorf("encode HTTP capture exchange: %w", err)
-		// A partial JSONL line must not absorb the next successful exchange.
 		rollbackErr := capture.file.Truncate(recordOffset)
 		if rollbackErr == nil {
 			rollbackErr = capture.file.Sync()

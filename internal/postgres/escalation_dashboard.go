@@ -15,10 +15,8 @@ import (
 	"weave-os/router/internal/sqlc"
 )
 
-// EscalationDashboardRepo projects both retained classifier stores.
 type EscalationDashboardRepo struct{ pool *pgxpool.Pool }
 
-// NewEscalationDashboardRepo creates the content-free dashboard reader.
 func NewEscalationDashboardRepo(pool *pgxpool.Pool) *EscalationDashboardRepo {
 	return &EscalationDashboardRepo{pool: pool}
 }
@@ -27,7 +25,6 @@ var _ escalationdashboard.Store = (*EscalationDashboardRepo)(nil)
 
 const escalationDashboardSnapshotTimeout = 8 * time.Second
 
-// CreateSnapshot freezes aggregates and newest-first sessions for stable paging.
 func (r *EscalationDashboardRepo) CreateSnapshot(ctx context.Context, filter escalationdashboard.Filter) (escalationdashboard.StoredSnapshot, error) {
 	snapshotCtx, cancel := context.WithTimeout(ctx, escalationDashboardSnapshotTimeout)
 	defer cancel()
@@ -51,7 +48,6 @@ func (r *EscalationDashboardRepo) CreateSnapshot(ctx context.Context, filter esc
 	return decodeEscalationDashboardSnapshot(encoded)
 }
 
-// SnapshotPage reads one page without recomputing activity or aggregate state.
 func (r *EscalationDashboardRepo) SnapshotPage(ctx context.Context, snapshotID string, pageStart, pageLimit int32, readAt time.Time) (escalationdashboard.StoredSnapshot, error) {
 	parsedSnapshotID, err := parseUUID(snapshotID)
 	if err != nil {
