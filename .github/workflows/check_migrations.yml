@@ -41,7 +41,7 @@ jobs:
 
       - name: Check migration immutability
         run: |
-          VIOLATIONS=$(git diff --diff-filter=MRD --find-renames --name-status "origin/${BASE_REF}...HEAD" -- 'db/migrations/*.sql')
+          VIOLATIONS=$(git diff --diff-filter=MRDT --find-renames --name-status "origin/${BASE_REF}...HEAD" -- 'db/migrations/*.sql')
           if [ -n "$VIOLATIONS" ]; then
             echo "::error::Migration files that already exist on ${BASE_REF} were modified, renamed, or deleted:"
             echo "$VIOLATIONS" | sed 's/^/   /'
