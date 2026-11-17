@@ -35,7 +35,7 @@ func assignTaskArm(ctx context.Context, env *translate.RequestEnvelope, sessionK
 	}
 	routerDecides := forceModel == "" && forceCluster == "" &&
 		router.IsHMMStrategy(router.StrategyFromContext(ctx)) &&
-		!callerModelPassthroughActive(ctx) && !planHasDedicatedServingPolicy(ctx)
+		!callerModelPassthroughActive(ctx) && !planHasDedicatedServingPolicy(ctx) && !policyPinHonoured(ctx)
 	if !routerDecides || sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
 		return taskArmTurn{}
 	}
@@ -71,7 +71,7 @@ func (turn *taskArmTurn) route(ctx context.Context, route turnRoute) taskArmRout
 	return func(env *translate.RequestEnvelope, feats translate.RoutingFeatures, apiKeyID string, installationID uuid.UUID, subAgentHint string, reqHeaders http.Header, req router.Request) (turnLoopResult, error) {
 		res, err := route(ctx, env, feats, apiKeyID, installationID, subAgentHint, reqHeaders, req)
 		if err == nil || !turn.treated() || !errors.Is(err, policy.ErrForcedClusterUnservable) {
-			turn.servedCluster = servedPolicyGroup(res)
+			turn.settle(res)
 			return res, err
 		}
 		res.releaseCooldownProbes()
@@ -80,9 +80,22 @@ func (turn *taskArmTurn) route(ctx context.Context, route turnRoute) taskArmRout
 		observability.FromContext(ctx).Warn("Task-arm treatment cluster could not serve the turn; routing as control",
 			"cluster", turn.cluster, "task_key", turn.assignment.TaskKey)
 		res, err = route(ctx, env, feats, apiKeyID, installationID, subAgentHint, reqHeaders, req)
-		turn.servedCluster = servedPolicyGroup(res)
+		turn.settle(res)
 		return res, err
 	}
+}
+
+func (turn *taskArmTurn) settle(res turnLoopResult) {
+	if isUserForcedReason(res.Decision.Reason) {
+		*turn = taskArmTurn{}
+		return
+	}
+	turn.servedCluster = servedPolicyGroup(res)
+}
+
+func policyPinHonoured(ctx context.Context) bool {
+	_, honoured := router.HonouredPolicyPin(ctx)
+	return honoured
 }
 
 func servedPolicyGroup(res turnLoopResult) string {

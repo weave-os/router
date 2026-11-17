@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"slices"
 	"strings"
 
 	"weave-os/router/internal/router"
@@ -39,32 +40,32 @@ type Assignment struct {
 func PreviousTurnLabel(messages []router.ConversationMessage) (Label, bool) {
 	end := len(messages)
 	for {
-		closing := closingMessage(messages[:end])
-		if closing < 0 {
+		closingIdx := closingMessage(messages[:end])
+		if closingIdx < 0 {
 			return Label{}, false
 		}
-		fields, ok := labelFields(messages[closing].Text)
+		fields, ok := labelFields(messages[closingIdx].Text)
 		if !ok {
 			return Label{}, false
 		}
 		if len(fields) == labelFieldsLen {
 			return Label{Goal: fields[0], Task: fields[1], Step: fields[2]}, true
 		}
-		end = closing
+		end = closingIdx
 	}
 }
 
 func closingMessage(messages []router.ConversationMessage) int {
-	prompt := lastUserPrompt(messages)
-	for i := len(messages) - 1; i > prompt; i-- {
+	promptIdx := lastUserPrompt(messages)
+	for i := len(messages) - 1; i > promptIdx; i-- {
 		if messages[i].Role == "assistant" && strings.HasPrefix(lastLine(messages[i].Text), labelPrefix) {
 			return i
 		}
 	}
-	if prompt < 0 {
+	if promptIdx < 0 {
 		return -1
 	}
-	return lastAssistantText(messages[:prompt])
+	return lastAssistantText(messages[:promptIdx])
 }
 
 func lastUserPrompt(messages []router.ConversationMessage) int {
@@ -108,7 +109,7 @@ func labelFields(text string) ([]string, bool) {
 }
 
 func Assign(sessionKey []byte, label Label, steps []string, treatmentPct int) (Assignment, bool) {
-	if treatmentPct <= 0 || treatmentPct > 100 || !contains(steps, label.Step) {
+	if treatmentPct <= 0 || treatmentPct > 100 || !slices.Contains(steps, label.Step) {
 		return Assignment{}, false
 	}
 	hash := sha256.New()
@@ -140,13 +141,4 @@ func Steps(list string) []string {
 		}
 	}
 	return steps
-}
-
-func contains(values []string, value string) bool {
-	for _, candidate := range values {
-		if candidate == value {
-			return true
-		}
-	}
-	return false
 }

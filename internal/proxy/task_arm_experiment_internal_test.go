@@ -134,6 +134,17 @@ func TestTaskArmTurnRoute(t *testing.T) {
 	}
 }
 
+func TestTaskArmTurnLeavesTheExperimentWhenASavedForcedModelServes(t *testing.T) {
+	turn := taskArmTurn{assignment: taskarm.Assignment{Arm: taskarm.ArmTreatment}, assigned: true, cluster: "medium"}
+
+	turn.settle(turnLoopResult{Decision: router.Decision{Reason: translate.ReasonUserForceModel}})
+
+	assert.False(t, turn.assigned)
+	attrs := telemetry.NewAttrBuilder(5)
+	applyTaskArmAttrs(attrs, turn)
+	assert.Empty(t, attrs.Build())
+}
+
 func TestForceClusterForTurn(t *testing.T) {
 	session := [sessionpin.SessionKeyLen]byte{1}
 	cases := []struct {
