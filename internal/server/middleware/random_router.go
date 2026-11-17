@@ -3,7 +3,6 @@ package middleware
 import (
 	"bytes"
 	"github.com/gin-gonic/gin"
-	"github.com/tidwall/gjson"
 	"io"
 	"net/http"
 	"weave-os/router/internal/observability"
@@ -21,10 +20,6 @@ func WithRandomRoutingModel(service *proxy.Service) gin.HandlerFunc {
 			return
 		}
 		c.Request.Body = io.NopCloser(bytes.NewReader(body))
-		if gjson.GetBytes(body, "model").String() != string(router.ModelRandom) {
-			c.Next()
-			return
-		}
 		if c.Request.URL.Path != "/v1/responses" {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "random_model_surface_unavailable"})
 			return

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"maps"
 	"net/http"
-	"slices"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
@@ -109,7 +108,7 @@ func routeRandomBenchmark(ctx context.Context, request router.Request) (router.D
 	if err != nil {
 		return router.Decision{}, err
 	}
-	if decision.Provider != providers.ProviderOpenAI || !slices.Contains(models, decision.Model) || decision.Metadata == nil || decision.Metadata.PolicyArtifactSHA256 != profile.Config.PolicySHA256 || decision.Metadata.Propensity != 1.0/3.0 {
+	if !randomrouter.IncludesTarget(decision) || decision.Metadata == nil || decision.Metadata.PolicyArtifactSHA256 != profile.Config.PolicySHA256 || decision.Metadata.Propensity != 1.0/3.0 {
 		return router.Decision{}, randomrouter.ErrUnavailable
 	}
 	profile.SelectedModel = decision.Model
@@ -123,12 +122,10 @@ func leaseRandomSubscription(s *Service, ctx context.Context) (context.Context, 
 		return ctx, subscriptions.Lease{}, ErrSubscriptionPoolUnavailable
 	}
 	credentialCtx, lease, present, err := s.leaseManagedSubscription(ctx, providers.ProviderOpenAI, randomrouter.Models()[0])
-	if err != nil || !present || lease.State != auth.SubscriptionAccountStateActive || lease.AccessToken == "" || lease.ProviderAccount == "" {
+	if err != nil || !present {
 		lease.Release()
 		return ctx, subscriptions.Lease{}, errors.Join(ErrSubscriptionPoolUnavailable, err)
 	}
-	creds := &Credentials{APIKey: []byte(lease.AccessToken), OAuth: true, Source: credSourceCodexSubscription, AccountID: []byte(lease.ProviderAccount), PrincipalID: "chatgpt-account:" + lease.ProviderAccount, SubscriptionAccountID: lease.AccountID}
-	ctx = context.WithValue(ctx, CredentialsContextKey{}, creds)
 	return credentialCtx, lease, nil
 }
 

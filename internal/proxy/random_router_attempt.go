@@ -19,9 +19,6 @@ import (
 
 func recordRandomProviderAttempt(s *Service, ctx context.Context, plan inference.ResolvedPlan, target inference.Target, lease subscriptions.Lease, started time.Time, err error) {
 	state := randomBenchmarkFrom(ctx)
-	if state == nil {
-		return
-	}
 	index := state.ProviderCalls
 	state.ProviderCalls++
 	store, ok := s.telemetry.(InferenceAttemptStore)
@@ -81,7 +78,7 @@ func invokeLeasedProviderAttempt(s *Service, ctx context.Context, plan inference
 		return started, attempt.inputs.attempt(ctx, attempt.decision, attempt.client)
 	}
 	credentials := CredentialsFromContext(ctx)
-	if !attempt.managed || credentials == nil || !credentials.OAuth || credentials.Source != credSourceCodexSubscription || len(credentials.AccountID) == 0 || len(credentials.APIKey) == 0 || credentials.SubscriptionAccountID != attempt.lease.AccountID || attempt.decision.Model != state.SelectedModel || attempt.decision.Provider != providers.ProviderOpenAI || !state.Config.ExpiresAt.After(s.clockNow()) {
+	if !attempt.managed || credentials == nil || !credentials.OAuth || credentials.Source != credSourceCodexSubscription || len(credentials.AccountID) == 0 || len(credentials.APIKey) == 0 || credentials.SubscriptionAccountID != attempt.lease.AccountID || attempt.decision.Model != state.SelectedModel || !randomrouter.IncludesTarget(attempt.decision) || !state.Config.ExpiresAt.After(s.clockNow()) {
 		return started, dispatchAbort{err: randomrouter.ErrUnavailable}
 	}
 	observation := &randomResponseObservation{state: state}
@@ -105,7 +102,7 @@ type randomResponseObservation struct {
 }
 
 func (o *randomResponseObservation) start(_ context.Context, decision router.Decision, prepared providers.PreparedRequest, writer http.ResponseWriter) (http.ResponseWriter, func(error) error, error) {
-	if o.called || prepared.Endpoint != providers.EndpointResponses || decision.Model != o.state.SelectedModel || decision.Provider != providers.ProviderOpenAI {
+	if o.called || prepared.Endpoint != providers.EndpointResponses || decision.Model != o.state.SelectedModel || !randomrouter.IncludesTarget(decision) {
 		return nil, nil, randomrouter.ErrUnavailable
 	}
 	o.called = true
@@ -123,10 +120,10 @@ func (o *randomResponseObservation) finish(err error) error {
 	o.originalErr = err
 	facts := o.extractor.UsageFacts()
 	input, output := o.extractor.Tokens()
-	creation, read := o.extractor.CacheTokens()
-	o.state.AttemptUsage = inference.Usage{Known: facts.Present && facts.Input.Reported && facts.Output.Reported, InputTokens: input, OutputTokens: output, CacheCreationTokens: creation, CacheReadTokens: read}
+	cacheCreation, cacheRead := o.extractor.CacheTokens()
+	o.state.AttemptUsage = inference.Usage{Known: facts.Present && facts.Input.Reported && facts.Output.Reported, InputTokens: input, OutputTokens: output, CacheCreationTokens: cacheCreation, CacheReadTokens: cacheRead}
 	price, _ := catalog.PrimaryPriceFor(o.state.SelectedModel)
-	o.state.AttemptCostUSD = catalog.EffectiveInputCost(input, creation, read, price, providers.ProviderOpenAI, o.extractor.UsageModifiers()) + catalog.EffectiveOutputCost(catalog.PromptTokens(input, creation, read, providers.ProviderOpenAI), output, price, o.extractor.UsageModifiers())
+	o.state.AttemptCostUSD = catalog.EffectiveInputCost(input, cacheCreation, cacheRead, price, providers.ProviderOpenAI, o.extractor.UsageModifiers()) + catalog.EffectiveOutputCost(catalog.PromptTokens(input, cacheCreation, cacheRead, providers.ProviderOpenAI), output, price, o.extractor.UsageModifiers())
 	if err == nil {
 		err = o.terminal.Err()
 	}

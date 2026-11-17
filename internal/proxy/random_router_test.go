@@ -45,9 +45,9 @@ func TestRandomBenchmarkIdentityAndFundingBoundary(t *testing.T) {
 	encoded, err := json.Marshal(config)
 	require.NoError(t, err)
 	ctx = flags.WithOverrides(ctx, flags.Overrides{Strings: map[flags.Key]string{flags.KeyRandomBenchmarkConfig: string(encoded)}})
-	strict, _, err := BeginRandomBenchmark(svc, ctx, config.PolicySHA256)
+	strict, frozen, err := BeginRandomBenchmark(svc, ctx, config.PolicySHA256)
 	require.NoError(t, err)
-	require.Equal(t, "00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000001")
+	require.Equal(t, config.InstallationID, frozen.InstallationID)
 	require.True(t, paidFallbackForbidden(strict))
 	require.True(t, requestcontext.IncludedSubscriptionOnlyFrom(strict))
 	require.Empty(t, subscriptionOwnerFromContext(strict).ExcludedAccountIDs)
@@ -207,7 +207,7 @@ func TestRandomActualAttemptsRecordIndependentFundingAndUsage(t *testing.T) {
 		ctx = context.WithValue(ctx, CredentialsContextKey{}, &Credentials{OAuth: true, Source: credSourceCodexSubscription, APIKey: []byte("synthetic"), AccountID: []byte("synthetic-account"), SubscriptionAccountID: seat})
 		client := &fakeClient{name: providers.ProviderOpenAI, outcomes: []fakeOutcome{{writeBytes: []byte("data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":10,\"output_tokens\":2}}}\n\n")}}}
 		inputs := failoverInputs{initialDecision: decision, attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
-			return p.Proxy(ctx, d, providers.PreparedRequest{Endpoint: providers.EndpointResponses}, httptest.NewRecorder(), httptest.NewRequest("POST", "/v1/responses", nil))
+			return p.Proxy(ctx, d, providers.PreparedRequest{Endpoint: providers.EndpointResponses}, httptest.NewRecorder(), httptest.NewRequestWithContext(ctx, "POST", "/v1/responses", nil))
 		}}
 		_, err := invokeLeasedProviderAttempt(svc, ctx, plan, leasedProviderAttempt{inputs: inputs, decision: decision, client: client, managed: true, target: plan.SelectedTarget(), lease: subscriptions.Lease{AccountID: seat}})
 		require.NoError(t, err)

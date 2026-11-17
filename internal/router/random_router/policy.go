@@ -3,6 +3,7 @@ package randomrouter
 import (
 	"context"
 	"errors"
+	"slices"
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -75,3 +76,11 @@ func (p *Policy) Route(ctx context.Context, request router.Request) (router.Deci
 }
 
 var _ router.Router = (*Policy)(nil)
+
+func IncludesTarget(decision router.Decision) bool {
+	if !slices.Contains(Models(), decision.Model) {
+		return false
+	}
+	model, known := catalog.ByID(decision.Model)
+	return known && model.CodexSubscription && model.PrimaryProvider() == decision.Provider
+}
