@@ -73,7 +73,7 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 	if len(in.purpose) == 0 {
 		return -1, errDispatchWithoutPurpose
 	}
-	if err := catalog.CheckEligibility(entitlement.ModelBoundaryFromContext(ctx), in.initialDecision.Model); err != nil {
+	if err := productEligibilityRefusal(ctx, entitlement.ModelBoundaryFromContext(ctx), in.initialDecision.Model); err != nil {
 		return -1, err
 	}
 	if len(in.bindings) == 0 {

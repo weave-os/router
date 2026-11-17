@@ -29,7 +29,7 @@ func claudeEnterpriseFunding(ctx context.Context, target inference.Target, subsc
 	}
 	pool, compatible := subscriptionPoolForModel(target)
 	if creds == nil || !creds.OAuth || creds.Source != credSourceSubscription || !compatible || pool != subscriptions.ProviderClaude || !subscriptionTransport {
-		return ErrClaudeEnterpriseSubscriptionUnavailable
+		return claudeEnterpriseRefusal(ctx)
 	}
 	return nil
 }
