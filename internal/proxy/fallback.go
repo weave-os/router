@@ -18,7 +18,6 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/sse"
-	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/translate"
 )
 
@@ -73,7 +72,7 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 	if len(in.purpose) == 0 {
 		return -1, errDispatchWithoutPurpose
 	}
-	if err := catalog.CheckEligibility(entitlement.ModelBoundaryFromContext(ctx), in.initialDecision.Model); err != nil {
+	if err := dispatchPreconditions(ctx, in); err != nil {
 		return -1, err
 	}
 	if len(in.bindings) == 0 {
