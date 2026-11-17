@@ -152,6 +152,7 @@ func TestTaskArmTurnRoute(t *testing.T) {
 				control := turnLoopResult{
 					SessionKey: [sessionpin.SessionKeyLen]byte{7}, PriorServedModel: "control", EscalationOrdinal: 3,
 					SessionDemotedModels: []string{"struck"}, PrefixTrimmed: true, OverloadProbe: &breaker.Probe{Model: "control"},
+					CooldownProbes:        map[string]time.Time{"capped": {}},
 					CooldownProbeReleases: []func(){func() { released = append(released, "control") }},
 				}
 				if group, pinned := strings.CutPrefix(tc.controlGroup, "pin:"); pinned {
@@ -176,17 +177,17 @@ func TestTaskArmTurnRoute(t *testing.T) {
 			assert.Equal(t, "control", res.PriorServedModel, "a capped turn that changes model is seen as a model switch")
 			assert.EqualValues(t, 3, res.EscalationOrdinal, "the escalation checkpoint of the first route gets the served turn's outcome")
 			assert.False(t, tc.wantCapped && res.StickyHit, "a capped turn is not served by the session pin")
+			assert.Contains(t, res.CooldownProbes, "capped", "a cooldown probe the session leased can still be cleared by the served turn")
 			require.NotNil(t, res.OverloadProbe)
 			assert.Equal(t, tc.wantServed, res.OverloadProbe.Model, "the served route's recovery probe is the one that gets the outcome")
 			res.releaseCooldownProbes()
 			wantReleased := []string{"control"}
-			if len(routes) == 2 {
+			if tc.wantCapped {
 				wantReleased = []string{"control", "capped"}
-				if !tc.wantCapped {
-					wantReleased = []string{"capped", "control"}
-				}
+			} else if len(routes) == 2 {
+				wantReleased = []string{"capped", "control"}
 			}
-			assert.Equal(t, wantReleased, released, "the route that is not served gives its probes back first")
+			assert.Equal(t, wantReleased, released, "the session's cooldown leases stay with the served turn; an unserved capped route gives its probes back at once")
 			assert.Equal(t, tc.wantBinds, turn.ceilingBinds)
 			assert.Equal(t, tc.wantCapped, turn.capped)
 			assert.Equal(t, strings.TrimPrefix(tc.controlGroup, "pin:"), turn.controlCluster)

@@ -73,7 +73,6 @@ func (turn *taskArmTurn) route(ctx context.Context, route turnRoute) taskArmRout
 				"cluster", turn.cluster, "task_key", turn.assignment.TaskKey, "err", err)
 			return control, nil
 		}
-		control.releaseCooldownProbes()
 		turn.capped = true
 		return cappedTurn(control, cappedRes), nil
 	}
@@ -84,8 +83,7 @@ func cappedTurn(control, cappedRes turnLoopResult) turnLoopResult {
 	control.StickyHit = false
 	control.PinTier = ""
 	control.OverloadProbe = cappedRes.OverloadProbe
-	control.CooldownProbeReleases = cappedRes.CooldownProbeReleases
-	control.CooldownProbes = cappedRes.CooldownProbes
+	control.CooldownProbeReleases = append(control.CooldownProbeReleases, cappedRes.CooldownProbeReleases...)
 	return control
 }
 
