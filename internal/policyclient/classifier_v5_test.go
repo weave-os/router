@@ -92,6 +92,7 @@ func TestClassifierV5ClientPinsReleaseAndKeepsCallbacksOnIntegrationClient(t *te
 	decision, err := combined.Decide(context.Background(), query)
 	require.NoError(t, err)
 	assert.Equal(t, "qwen-v5", decision.PolicyArtifactID)
+	assert.InDelta(t, 0.7, decision.Score, 1e-9, "classifier confidence is the decision score")
 	assert.Equal(t, classifierV5ReleaseID, decision.ClassifierReleaseID)
 	assert.Equal(t, classifierV5SelectionID, decision.ClassifierSelectionID)
 	assert.Equal(t, policy.ClassifierVariantQwen, decision.ClassifierVariantID)
