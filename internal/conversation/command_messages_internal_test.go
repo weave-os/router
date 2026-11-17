@@ -1,4 +1,4 @@
-package proxy
+package conversation
 
 import (
 	"testing"
@@ -7,6 +7,8 @@ import (
 
 	"weave-os/router/internal/translate"
 )
+
+const routingMarkerPrefix = "✦ **Weave Router** → "
 
 func set(ids ...string) map[string]struct{} {
 	out := make(map[string]struct{}, len(ids))
@@ -20,7 +22,7 @@ func set(ids ...string) map[string]struct{} {
 // degrades to a flat catalog and has to say it cannot report what is enabled.
 // The exclusions are on the request here, so each row gets marked.
 func TestRouterModelsMessage_MarksExcludedRowsOff(t *testing.T) {
-	msg := routerModelsMessage(
+	msg := RouterModelsMessage(
 		set("claude-opus-5", "gpt-5.5"),
 		set("gpt-5.5"),
 		nil,
@@ -32,18 +34,18 @@ func TestRouterModelsMessage_MarksExcludedRowsOff(t *testing.T) {
 }
 
 func TestRouterModelsMessage_UsesTheClientsOwnSigilInTheFooter(t *testing.T) {
-	codex := routerModelsMessage(set("claude-opus-5"), nil, nil, "$", translate.FormatOpenAI)
+	codex := RouterModelsMessage(set("claude-opus-5"), nil, nil, "$", translate.FormatOpenAI)
 	assert.Contains(t, codex, "$router-models enable")
 	assert.NotContains(t, codex, "/router-models enable")
 
-	claude := routerModelsMessage(set("claude-opus-5"), nil, nil, "/", translate.FormatAnthropic)
+	claude := RouterModelsMessage(set("claude-opus-5"), nil, nil, "/", translate.FormatAnthropic)
 	assert.Contains(t, claude, "/router-models enable")
 	assert.Contains(t, claude, routingMarkerPrefix)
 }
 
 func TestRouterModelsMessage_EmptyUniverseSaysSo(t *testing.T) {
 	for _, format := range []translate.Format{translate.FormatOpenAI, translate.FormatAnthropic} {
-		msg := routerModelsMessage(nil, nil, nil, "$", format)
+		msg := RouterModelsMessage(nil, nil, nil, "$", format)
 		assert.Contains(t, msg, "no routable models")
 		assert.NotContains(t, msg, "[x]")
 	}
@@ -54,9 +56,9 @@ func TestRouterModelsMessage_EmptyUniverseSaysSo(t *testing.T) {
 // between turns rather than reordering with Go's map iteration.
 func TestRouterModelsMessage_IsDeterministicallyOrdered(t *testing.T) {
 	models := set("claude-opus-5", "claude-haiku-4-5", "gpt-5.5", "gemini-3-pro-preview")
-	first := routerModelsMessage(models, nil, nil, "$", translate.FormatOpenAI)
+	first := RouterModelsMessage(models, nil, nil, "$", translate.FormatOpenAI)
 	for range 8 {
-		assert.Equal(t, first, routerModelsMessage(models, nil, nil, "$", translate.FormatOpenAI))
+		assert.Equal(t, first, RouterModelsMessage(models, nil, nil, "$", translate.FormatOpenAI))
 	}
 }
 
@@ -64,7 +66,7 @@ func TestRouterModelsMessage_IsDeterministicallyOrdered(t *testing.T) {
 // will not pick the model, but an explicit force still serves it. Collapsing
 // the two into [x]/[ ] would have claimed one or the other.
 func TestRouterModelsMessage_AutomaticExclusionGetsItsOwnMark(t *testing.T) {
-	msg := routerModelsMessage(
+	msg := RouterModelsMessage(
 		set("claude-opus-5", "gpt-5.5", "gemini-3-pro-preview"),
 		set("gemini-3-pro-preview"),
 		set("gpt-5.5"),
@@ -81,7 +83,7 @@ func TestRouterModelsMessage_AutomaticExclusionGetsItsOwnMark(t *testing.T) {
 // The legend is noise on the overwhelmingly common listing, so it only
 // appears when something is actually in that state.
 func TestRouterModelsMessage_NoAutomaticExclusionsMeansNoLegend(t *testing.T) {
-	msg := routerModelsMessage(set("claude-opus-5"), nil, nil, "$", translate.FormatOpenAI)
+	msg := RouterModelsMessage(set("claude-opus-5"), nil, nil, "$", translate.FormatOpenAI)
 	assert.NotContains(t, msg, "[-]")
 	assert.NotContains(t, msg, "still serves it")
 }
