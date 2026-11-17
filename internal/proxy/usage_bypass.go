@@ -390,8 +390,8 @@ func (s *Service) bypassToAnthropic(
 	proxyStart := time.Now()
 	inferenceParentCtx := ctx
 	ctx, inferenceSpan := startInferenceSpan(ctx, decision, clientSessionIDForRequest(ctx, env))
-	refusalObs := newPassiveRefusalObserver(respW)
-	toolNames := translate.NewAnthropicToolNameWriter(refusalObs, prep.ResponseToolNames)
+	passiveRefusal := newPassiveRefusalObserver(respW)
+	toolNames := translate.NewAnthropicToolNameWriter(passiveRefusal, prep.ResponseToolNames)
 	proxyErr := p.Proxy(ctx, decision, prep, toolNames, r)
 	proxyErr = finalizeAfterProxy(proxyErr, toolNames.Finalize)
 	if proxyErr == nil && terminal != nil {
@@ -471,7 +471,7 @@ func (s *Service) bypassToAnthropic(
 		}
 		credentialKeyPrefix, credentialKeySuffix, credSource := s.credentialKeyParts(ctx)
 		s.markServedExternalKeyUsed(ctx, outcomeErr)
-		stopReason := refusalObs.stopReason(extractor)
+		stopReason := passiveRefusal.stopReason(extractor)
 		sessionKey := deriveSessionKeyForRequest(ctx, env, apiKeyIDFromContext(ctx))
 		telemetryParams := InsertTelemetryParams{
 			InstallationID:         installationID.String(),
