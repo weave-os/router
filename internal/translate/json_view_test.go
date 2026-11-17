@@ -138,8 +138,8 @@ func TestRequestInspectionResultsDoNotRetainRequestBody(t *testing.T) {
 	require.NoError(t, err)
 	forceModel, found := env.ExtractForceModelCommand()
 	require.True(t, found)
-	forcedBody := env.body
-	require.NotEqual(t, chatBody, forcedBody)
+	bodyAfterForceModel := env.body
+	require.NotEqual(t, chatBody, bodyAfterForceModel)
 	features := env.RoutingFeatures()
 	messages := env.ConversationMessages()
 	require.NotEmpty(t, messages)
@@ -172,7 +172,7 @@ func TestRequestInspectionResultsDoNotRetainRequestBody(t *testing.T) {
 	}
 	for label, value := range chatResults {
 		requireNoStringAliasesBody(t, chatBody, value, label)
-		requireNoStringAliasesBody(t, forcedBody, value, label)
+		requireNoStringAliasesBody(t, bodyAfterForceModel, value, label)
 	}
 	responsesResults := map[string]any{
 		"ParseResponsesEscalationObservation": responsesObservation,
