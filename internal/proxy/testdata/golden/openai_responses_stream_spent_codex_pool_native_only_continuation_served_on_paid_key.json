@@ -1,0 +1,1018 @@
+{
+  "requests": [
+    {
+      "ingress": "openai_responses",
+      "stream": true,
+      "routing_decisions": [
+        {
+          "requested_model": "auto",
+          "excluded": [
+            "gpt-4.1",
+            "gpt-4.1-mini",
+            "gpt-4.1-nano",
+            "gpt-4o",
+            "gpt-4o-mini",
+            "gpt-5",
+            "gpt-5-chat",
+            "gpt-5-mini",
+            "gpt-5-nano",
+            "gpt-5.4",
+            "gpt-5.4-mini",
+            "gpt-5.4-nano",
+            "gpt-5.4-pro",
+            "gpt-5.5",
+            "gpt-5.5-mini",
+            "gpt-5.5-nano",
+            "gpt-5.5-pro",
+            "gpt-5.6-luna-pro",
+            "gpt-5.6-sol-pro"
+          ],
+          "model": "gpt-5.6-sol",
+          "provider": "openai",
+          "reason": "golden_route"
+        },
+        {
+          "requested_model": "auto",
+          "excluded": [
+            "deepseek/deepseek-v4-flash",
+            "deepseek/deepseek-v4-pro",
+            "deepseek/deepseek-v4-pro-0813",
+            "deepseek/deepseek-v4.1-flash",
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-lite",
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
+            "gemini-2.5-pro",
+            "gemini-3-flash-preview",
+            "gemini-3-pro-preview",
+            "gemini-3.1-flash-lite-preview",
+            "gemini-3.1-pro-preview",
+            "gemini-3.5-flash",
+            "gemini-3.5-flash-lite",
+            "gemini-3.6-flash",
+            "gemini-3.7-flash",
+            "gemini-3.8-flash",
+            "gemini-4-argon",
+            "google/gemma-4-26b-a4b-it",
+            "gpt-4.1",
+            "gpt-4.1-mini",
+            "gpt-4.1-nano",
+            "gpt-4o",
+            "gpt-4o-mini",
+            "gpt-5",
+            "gpt-5-chat",
+            "gpt-5-mini",
+            "gpt-5-nano",
+            "gpt-5.4",
+            "gpt-5.4-mini",
+            "gpt-5.4-nano",
+            "gpt-5.4-pro",
+            "gpt-5.5",
+            "gpt-5.5-mini",
+            "gpt-5.5-nano",
+            "gpt-5.5-pro",
+            "gpt-5.6-luna",
+            "gpt-5.6-luna-pro",
+            "gpt-5.6-sol",
+            "gpt-5.6-sol-pro",
+            "gpt-5.6-terra",
+            "gpt-6-astra",
+            "gpt-6-luna",
+            "gpt-6-sol",
+            "gpt-6.1-sol",
+            "gpt-6.1-terra",
+            "grok-4.5",
+            "grok-4.6",
+            "grok-4.7",
+            "inclusionai/ling-3.0-flash",
+            "meta/muse-spark-open",
+            "minimax/minimax-m2.7",
+            "minimax/minimax-m3",
+            "minimax/minimax-m3.1-flash",
+            "mistralai/mistral-small-2603",
+            "moonshotai/kimi-k2.5",
+            "moonshotai/kimi-k2.6",
+            "moonshotai/kimi-k2.7",
+            "moonshotai/kimi-k3",
+            "moonshotai/kimi-k3.1",
+            "muse-ember-1.0",
+            "muse-spark-1.3",
+            "muse-wonder-1.0",
+            "qwen/qwen3-235b-a22b-2507",
+            "qwen/qwen3-30b-a3b-instruct-2507",
+            "qwen/qwen3-coder",
+            "qwen/qwen3-coder-next",
+            "qwen/qwen3-next-80b-a3b-instruct",
+            "qwen/qwen3.5-flash-02-23",
+            "qwen/qwen3.6-35b-a3b",
+            "qwen/qwen3.7-plus",
+            "qwen/qwen3.8-max",
+            "xiaomi/mimo-v2.5-pro",
+            "xiaomi/mimo-v2.6-flash",
+            "xiaomi/mimo-v2.6-pro",
+            "z-ai/glm-5",
+            "z-ai/glm-5.1",
+            "z-ai/glm-5.2",
+            "z-ai/glm-5.3",
+            "z-ai/glm-5.3-flash"
+          ],
+          "model": "claude-haiku-4-5",
+          "provider": "anthropic",
+          "reason": "golden_route"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "anthropic",
+          "wire_model": "claude-haiku-4-5",
+          "credential_source": "subscription",
+          "outbound_body": {
+            "max_tokens": 8192,
+            "messages": [
+              {
+                "content": [
+                  {
+                    "text": "fix the failing build",
+                    "type": "text"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "call_1",
+                    "input": {
+                      "cmd": "make build"
+                    },
+                    "name": "exec",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "cache_control": {
+                      "type": "ephemeral"
+                    },
+                    "content": "build failed",
+                    "tool_use_id": "call_1",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "model": "claude-haiku-4-5",
+            "stream": true,
+            "tools": [
+              {
+                "input_schema": {
+                  "properties": {
+                    "cmd": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "name": "exec"
+              }
+            ]
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Diagnosis": {
+            "BodyTranslated": true
+          },
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-openai-responses",
+            "PolicyRevision": "3",
+            "Purpose": "openai_responses",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "claude-haiku-4-5",
+            "Provider": "anthropic",
+            "UpstreamID": "claude-haiku-4-5"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "text/event-stream",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "124",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "1050000",
+          "X-Router-Decision": "golden_route",
+          "X-Router-Model": "gpt-5.6-sol",
+          "X-Router-Provider": "openai"
+        },
+        "events": [
+          {
+            "event": "response.created",
+            "data": {
+              "response": {
+                "id": "resp_\u003cid\u003e",
+                "model": "gpt-5.6-sol",
+                "object": "response",
+                "status": "in_progress"
+              },
+              "sequence_number": 0,
+              "type": "response.created"
+            }
+          },
+          {
+            "event": "response.output_item.added",
+            "data": {
+              "item": {
+                "content": [],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "in_progress",
+                "type": "message"
+              },
+              "output_index": 0,
+              "sequence_number": 1,
+              "type": "response.output_item.added"
+            }
+          },
+          {
+            "event": "response.content_part.added",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "part": {
+                "annotations": [],
+                "text": "",
+                "type": "output_text"
+              },
+              "sequence_number": 2,
+              "type": "response.content_part.added"
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "content_index": 0,
+              "delta": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn\n\n",
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "sequence_number": 3,
+              "type": "response.output_text.delta"
+            }
+          },
+          {
+            "event": "response.output_text.done",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "sequence_number": 4,
+              "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn\n\n",
+              "type": "response.output_text.done"
+            }
+          },
+          {
+            "event": "response.content_part.done",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "part": {
+                "annotations": [],
+                "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn\n\n",
+                "type": "output_text"
+              },
+              "sequence_number": 5,
+              "type": "response.content_part.done"
+            }
+          },
+          {
+            "event": "response.output_item.done",
+            "data": {
+              "item": {
+                "content": [
+                  {
+                    "annotations": [],
+                    "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn\n\n",
+                    "type": "output_text"
+                  }
+                ],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "completed",
+                "type": "message"
+              },
+              "output_index": 0,
+              "sequence_number": 6,
+              "type": "response.output_item.done"
+            }
+          },
+          {
+            "event": "response.output_item.added",
+            "data": {
+              "item": {
+                "content": [],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "in_progress",
+                "type": "message"
+              },
+              "output_index": 1,
+              "sequence_number": 7,
+              "type": "response.output_item.added"
+            }
+          },
+          {
+            "event": "response.content_part.added",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 1,
+              "part": {
+                "annotations": [],
+                "text": "",
+                "type": "output_text"
+              },
+              "sequence_number": 8,
+              "type": "response.content_part.added"
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "content_index": 0,
+              "delta": "⁣⁠⁣⁠✦ **Weave Router** → claude-haiku-4-5 · switched to a subscription-covered model · funded by Claude subscription\n\n",
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 1,
+              "sequence_number": 9,
+              "type": "response.output_text.delta"
+            }
+          },
+          {
+            "event": "response.output_text.done",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 1,
+              "sequence_number": 10,
+              "text": "⁣⁠⁣⁠✦ **Weave Router** → claude-haiku-4-5 · switched to a subscription-covered model · funded by Claude subscription\n\n",
+              "type": "response.output_text.done"
+            }
+          },
+          {
+            "event": "response.content_part.done",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 1,
+              "part": {
+                "annotations": [],
+                "text": "⁣⁠⁣⁠✦ **Weave Router** → claude-haiku-4-5 · switched to a subscription-covered model · funded by Claude subscription\n\n",
+                "type": "output_text"
+              },
+              "sequence_number": 11,
+              "type": "response.content_part.done"
+            }
+          },
+          {
+            "event": "response.output_item.done",
+            "data": {
+              "item": {
+                "content": [
+                  {
+                    "annotations": [],
+                    "text": "⁣⁠⁣⁠✦ **Weave Router** → claude-haiku-4-5 · switched to a subscription-covered model · funded by Claude subscription\n\n",
+                    "type": "output_text"
+                  }
+                ],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "completed",
+                "type": "message"
+              },
+              "output_index": 1,
+              "sequence_number": 12,
+              "type": "response.output_item.done"
+            }
+          },
+          {
+            "event": "response.output_item.added",
+            "data": {
+              "item": {
+                "content": [],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "in_progress",
+                "type": "message"
+              },
+              "output_index": 2,
+              "sequence_number": 13,
+              "type": "response.output_item.added"
+            }
+          },
+          {
+            "event": "response.content_part.added",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 2,
+              "part": {
+                "annotations": [],
+                "text": "",
+                "type": "output_text"
+              },
+              "sequence_number": 14,
+              "type": "response.content_part.added"
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "content_index": 0,
+              "delta": "rescued on claude",
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 2,
+              "sequence_number": 15,
+              "type": "response.output_text.delta"
+            }
+          },
+          {
+            "event": "response.output_text.done",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 2,
+              "sequence_number": 16,
+              "text": "rescued on claude",
+              "type": "response.output_text.done"
+            }
+          },
+          {
+            "event": "response.content_part.done",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 2,
+              "part": {
+                "annotations": [],
+                "text": "rescued on claude",
+                "type": "output_text"
+              },
+              "sequence_number": 17,
+              "type": "response.content_part.done"
+            }
+          },
+          {
+            "event": "response.output_item.done",
+            "data": {
+              "item": {
+                "content": [
+                  {
+                    "annotations": [],
+                    "text": "rescued on claude",
+                    "type": "output_text"
+                  }
+                ],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "completed",
+                "type": "message"
+              },
+              "output_index": 2,
+              "sequence_number": 18,
+              "type": "response.output_item.done"
+            }
+          },
+          {
+            "event": "response.completed",
+            "data": {
+              "response": {
+                "id": "resp_\u003cid\u003e",
+                "model": "claude-haiku-4-5",
+                "object": "response",
+                "output": [
+                  {
+                    "content": [
+                      {
+                        "annotations": [],
+                        "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn\n\n",
+                        "type": "output_text"
+                      }
+                    ],
+                    "id": "\u003cid\u003e",
+                    "role": "assistant",
+                    "status": "completed",
+                    "type": "message"
+                  },
+                  {
+                    "content": [
+                      {
+                        "annotations": [],
+                        "text": "⁣⁠⁣⁠✦ **Weave Router** → claude-haiku-4-5 · switched to a subscription-covered model · funded by Claude subscription\n\n",
+                        "type": "output_text"
+                      }
+                    ],
+                    "id": "\u003cid\u003e",
+                    "role": "assistant",
+                    "status": "completed",
+                    "type": "message"
+                  },
+                  {
+                    "content": [
+                      {
+                        "annotations": [],
+                        "text": "rescued on claude",
+                        "type": "output_text"
+                      }
+                    ],
+                    "id": "\u003cid\u003e",
+                    "role": "assistant",
+                    "status": "completed",
+                    "type": "message"
+                  }
+                ],
+                "status": "completed",
+                "usage": {
+                  "input_tokens": 12,
+                  "output_tokens": 7,
+                  "total_tokens": 19
+                }
+              },
+              "sequence_number": 19,
+              "type": "response.completed"
+            }
+          }
+        ]
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "default",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "Model": "gpt-5.6-sol",
+            "Provider": "openai",
+            "Reason": "golden_route",
+            "Role": "default",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "update_usage",
+          "role": "default",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "ServedModel": "claude-haiku-4-5",
+            "ServedProvider": "anthropic",
+            "Strategy": "hmm_embedding"
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 47,
+          "OrganizationID": "golden-org",
+          "RouterModel": "claude-haiku-4-5"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.000012,
+          "ActualOutputCostUSD": 0.000035,
+          "CaptureMode": "off",
+          "ClientApp": "codex",
+          "ContextSnapshot": {
+            "context_window": 200000,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 124,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "requested_model": "auto",
+            "served_model": "claude-haiku-4-5",
+            "version": 1
+          },
+          "CredentialSource": "subscription",
+          "CrossFormat": true,
+          "DecisionModel": "claude-haiku-4-5",
+          "DecisionProvider": "anthropic",
+          "DecisionReason": "golden_route",
+          "EmbedInput": "only_user_message",
+          "EstimatedInputTokens": 8,
+          "FailoverAttempted": true,
+          "FailoverUsed": true,
+          "FinalModelFamily": "claude-haiku",
+          "FreshDecisionModel": "gpt-5.6-sol",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "gpt-sol",
+          "OutputTokens": 7,
+          "PinTier": "miss",
+          "PlannerOutcome": "switch",
+          "PlannerReason": "no_pin",
+          "RequestedModel": "auto",
+          "Role": "default",
+          "SelectionTrace": {
+            "served_group": ""
+          },
+          "SpanType": "router.upstream",
+          "StopReason": "stop",
+          "Strategy": "hmm_embedding",
+          "SubscriptionAccountID": "claude-seat",
+          "SubscriptionOwnerID": "golden-owner",
+          "SubscriptionTier": "personal",
+          "ToolResultBytes": 14,
+          "TurnType": "tool_result",
+          "UpstreamFinishReason": "end_turn",
+          "UpstreamStatusCode": 200
+        }
+      ]
+    },
+    {
+      "ingress": "openai_responses",
+      "stream": true,
+      "routing_decisions": [
+        {
+          "requested_model": "auto",
+          "excluded": [
+            "gpt-4.1",
+            "gpt-4.1-mini",
+            "gpt-4.1-nano",
+            "gpt-4o",
+            "gpt-4o-mini",
+            "gpt-5",
+            "gpt-5-chat",
+            "gpt-5-mini",
+            "gpt-5-nano",
+            "gpt-5.4",
+            "gpt-5.4-mini",
+            "gpt-5.4-nano",
+            "gpt-5.4-pro",
+            "gpt-5.5",
+            "gpt-5.5-mini",
+            "gpt-5.5-nano",
+            "gpt-5.5-pro",
+            "gpt-5.6-luna-pro",
+            "gpt-5.6-sol-pro"
+          ],
+          "model": "gpt-5.6-sol",
+          "provider": "openai",
+          "reason": "golden_route"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "openai",
+          "wire_model": "gpt-5.6-sol",
+          "endpoint": "responses",
+          "outbound_body": {
+            "input": [
+              {
+                "content": [
+                  {
+                    "text": "fix the failing build",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "user",
+                "type": "message"
+              },
+              {
+                "arguments": "{\"cmd\":\"make build\"}",
+                "call_id": "call_1",
+                "name": "exec",
+                "type": "function_call"
+              },
+              {
+                "call_id": "call_1",
+                "output": "build failed",
+                "type": "function_call_output"
+              },
+              {
+                "arguments": "{\"cmd\":\"make test\"}",
+                "call_id": "call_2",
+                "name": "exec",
+                "type": "function_call"
+              },
+              {
+                "call_id": "call_2",
+                "output": {
+                  "exit_code": 1
+                },
+                "type": "function_call_output"
+              }
+            ],
+            "model": "gpt-5.6-sol",
+            "stream": true,
+            "tools": [
+              {
+                "name": "exec",
+                "parameters": {
+                  "properties": {
+                    "cmd": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "function"
+              }
+            ]
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-openai-responses",
+            "PolicyRevision": "3",
+            "Purpose": "openai_responses",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "gpt-5.6-sol",
+            "Provider": "openai",
+            "UpstreamID": "gpt-5.6-sol"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "text/event-stream",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "133",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "1050000",
+          "X-Router-Decision": "golden_route",
+          "X-Router-Model": "gpt-5.6-sol",
+          "X-Router-Provider": "openai"
+        },
+        "events": [
+          {
+            "event": "response.created",
+            "data": {
+              "response": {
+                "id": "resp_\u003cid\u003e",
+                "model": "gpt-5.6-sol",
+                "object": "response",
+                "status": "in_progress"
+              },
+              "sequence_number": 0,
+              "type": "response.created"
+            }
+          },
+          {
+            "event": "response.output_item.added",
+            "data": {
+              "item": {
+                "content": [],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "in_progress",
+                "type": "message"
+              },
+              "output_index": 0,
+              "sequence_number": 1,
+              "type": "response.output_item.added"
+            }
+          },
+          {
+            "event": "response.content_part.added",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "part": {
+                "annotations": [],
+                "text": "",
+                "type": "output_text"
+              },
+              "sequence_number": 2,
+              "type": "response.content_part.added"
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "content_index": 0,
+              "delta": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn\n\n",
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "sequence_number": 3,
+              "type": "response.output_text.delta"
+            }
+          },
+          {
+            "event": "response.output_text.done",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "sequence_number": 4,
+              "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn\n\n",
+              "type": "response.output_text.done"
+            }
+          },
+          {
+            "event": "response.content_part.done",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "part": {
+                "annotations": [],
+                "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn\n\n",
+                "type": "output_text"
+              },
+              "sequence_number": 5,
+              "type": "response.content_part.done"
+            }
+          },
+          {
+            "event": "response.output_item.done",
+            "data": {
+              "item": {
+                "content": [
+                  {
+                    "annotations": [],
+                    "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn\n\n",
+                    "type": "output_text"
+                  }
+                ],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "completed",
+                "type": "message"
+              },
+              "output_index": 0,
+              "sequence_number": 6,
+              "type": "response.output_item.done"
+            }
+          },
+          {
+            "data": {
+              "delta": "served on paid key",
+              "type": "response.output_text.delta"
+            }
+          },
+          {
+            "data": {
+              "response": {
+                "id": "resp_\u003cid\u003e",
+                "status": "completed",
+                "usage": {
+                  "input_tokens": 12,
+                  "output_tokens": 7
+                }
+              },
+              "type": "response.completed"
+            }
+          }
+        ]
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "default",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "LastInputTokens": 12,
+            "LastOutputTokens": 7,
+            "LastServedModel": "claude-haiku-4-5",
+            "Model": "gpt-5.6-sol",
+            "Provider": "openai",
+            "Reason": "golden_route",
+            "Role": "default",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "update_usage",
+          "role": "default",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "PriorServedModel": "claude-haiku-4-5",
+            "ServedModel": "gpt-5.6-sol",
+            "ServedProvider": "openai",
+            "Strategy": "hmm_embedding"
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -188,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 188,
+          "OrganizationID": "golden-org",
+          "RouterModel": "gpt-5.6-sol"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.000048,
+          "ActualOutputCostUSD": 0.00014,
+          "CaptureMode": "off",
+          "ClientApp": "codex",
+          "ContextSnapshot": {
+            "context_window": 1050000,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 133,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "requested_model": "auto",
+            "served_model": "gpt-5.6-sol",
+            "version": 1
+          },
+          "DecisionModel": "gpt-5.6-sol",
+          "DecisionProvider": "openai",
+          "DecisionReason": "golden_route",
+          "EmbedInput": "only_user_message",
+          "EstimatedInputTokens": 8,
+          "FinalModelFamily": "gpt-sol",
+          "FreshDecisionModel": "gpt-5.6-sol",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "gpt-sol",
+          "OutputTokens": 7,
+          "PinTier": "postgres_stay_same_model",
+          "PlannerOutcome": "stay",
+          "PlannerPinModel": "gpt-5.6-sol",
+          "PlannerPinProvider": "openai",
+          "PlannerReason": "same_model",
+          "RequestedModel": "auto",
+          "Role": "default",
+          "SelectionTrace": {
+            "served_group": ""
+          },
+          "SpanType": "router.upstream",
+          "StickyHit": true,
+          "StopReason": "stop",
+          "Strategy": "hmm_embedding",
+          "TurnType": "main_loop",
+          "UpstreamFinishReason": "stop",
+          "UpstreamStatusCode": 200
+        }
+      ]
+    }
+  ],
+  "scenario": "openai_responses_stream_spent_codex_pool_native_only_continuation_served_on_paid_key"
+}

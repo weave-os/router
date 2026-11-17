@@ -53,7 +53,6 @@ func (d *subscriptionAdmissionDiagnostics) log(ctx context.Context, provider sub
 	if d.skipped == 0 {
 		return
 	}
-	// The requested model may contain caller content; emit only a catalog ID.
 	canonical, _ := catalog.ByID(model)
 	observability.FromContext(ctx).Info("Subscription account admission evaluated", "subscription_event", auth.SubscriptionCredentialEventAdmissionEvaluated, "provider", provider, "model", canonical.ID, "account_admitted", d.admitted, "skipped_count", d.skipped, "skip_reasons", d.reasons, "skipped_accounts", d.accounts, "skipped_accounts_truncated", d.skipped > len(d.accounts), "admission_ms", d.now().Sub(d.started).Milliseconds())
 }

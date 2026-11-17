@@ -12,13 +12,8 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 )
 
-// DefaultRateLimitCooldownSeconds is how long a rescued transient upstream
-// failure keeps the primary arm out of automatic session selection when
-// ROUTER_RATE_LIMIT_COOLDOWN_SECONDS is unset.
 const DefaultRateLimitCooldownSeconds = 45
 
-// mergeDemotionCooldowns unions two pins' cooldown maps, keeping the later
-// expiry when both name a model.
 func mergeDemotionCooldowns(a, b map[string]time.Time) map[string]time.Time {
 	if len(a) == 0 {
 		return b
@@ -38,7 +33,6 @@ func mergeDemotionCooldowns(a, b map[string]time.Time) map[string]time.Time {
 	return merged
 }
 
-// activeDemotionCooldowns narrows cooldowns to those still in force at now.
 func activeDemotionCooldowns(cooldowns map[string]time.Time, now time.Time) map[string]time.Time {
 	active := make(map[string]time.Time, len(cooldowns))
 	for _, model := range sessionpin.ActiveCooldowns(cooldowns, now) {
@@ -50,10 +44,6 @@ func activeDemotionCooldowns(cooldowns map[string]time.Time, now time.Time) map[
 	return active
 }
 
-// readmittableCooldowns narrows the active cooldowns to the arms an exhausted
-// rescue may readmit this turn: a session-lifetime strike wins over a
-// leftover cooldown on the same model, and a text-only arm cannot take an
-// image-bearing turn the scorer already kept it out of.
 func readmittableCooldowns(cooling map[string]time.Time, permanent []string, imageCount int) map[string]time.Time {
 	out := make(map[string]time.Time, len(cooling))
 	for model, until := range cooling {
@@ -71,8 +61,6 @@ func readmittableCooldowns(cooling map[string]time.Time, permanent []string, ima
 	return out
 }
 
-// imageSafeModels drops the text-only models an image-bearing turn cannot
-// be rescued onto.
 func imageSafeModels(models []string, imageCount int) []string {
 	if imageCount <= 0 {
 		return models
@@ -86,9 +74,6 @@ func imageSafeModels(models []string, imageCount int) []string {
 	return out
 }
 
-// harnessSafeModels drops the models the scorer filters off a tool-bearing
-// turn (ToolUseLow, AgenticLow), so a last-resort rescue never hands the
-// harness loop to a model this turn deliberately scored out.
 func harnessSafeModels(models []string, hasTools bool) []string {
 	if !hasTools || len(models) == 0 {
 		return models
@@ -105,8 +90,6 @@ func harnessSafeModels(models []string, hasTools bool) []string {
 	return out
 }
 
-// expiredDemotionCooldowns is the complement of activeDemotionCooldowns: the
-// arms whose cooldown has lapsed and now need a recovery probe.
 func expiredDemotionCooldowns(cooldowns map[string]time.Time, now time.Time) map[string]time.Time {
 	var expired map[string]time.Time
 	for model, until := range cooldowns {
@@ -121,9 +104,6 @@ func expiredDemotionCooldowns(cooldowns map[string]time.Time, now time.Time) map
 	return expired
 }
 
-// cooldownsByExpiry lists the models in cooldowns soonest-to-recover first,
-// ties broken by name, so an exhausted rescue readmits the arm that has
-// cooled the longest before one that was throttled a moment ago.
 func cooldownsByExpiry(cooldowns map[string]time.Time) []string {
 	models := make([]string, 0, len(cooldowns))
 	for model := range cooldowns {
@@ -138,15 +118,10 @@ func cooldownsByExpiry(cooldowns map[string]time.Time) []string {
 	return models
 }
 
-// isRateLimitedPrimaryFailure reports whether the rescued primary's failure
-// is a buffered upstream 429: throttling of this caller, not a dead arm.
 func isRateLimitedPrimaryFailure(err error) bool {
 	return providers.IsUpstreamRateLimited(err)
 }
 
-// withRateLimitTurn attaches a turn account when transient_rate_limit is on
-// for the request; off, ctx is returned as-is and the account is nil, so
-// every consumer keeps the flag-off path.
 func (s *Service) withRateLimitTurn(ctx context.Context) (context.Context, *dispatch.ThrottleLedger) {
 	if !s.ResolveTransientRateLimit(ctx) {
 		return ctx, nil

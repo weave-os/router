@@ -13,8 +13,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// nativeStreamProtocol names the wire format a native passthrough stream
-// speaks, which decides what counts as its start and its terminal event.
 type nativeStreamProtocol uint8
 
 const (
@@ -27,20 +25,12 @@ const (
 	anthropicMessageStopEvent  = "message_stop"
 )
 
-// streamTerminalObserver tees a native Anthropic or OpenAI chat stream to
-// inner unchanged while tracking its streamTerminalState. Native Responses
-// streams are tracked by responsesTerminalObserver, which already parses
-// their terminal events.
 type streamTerminalObserver struct {
-	inner    http.ResponseWriter
-	protocol nativeStreamProtocol
-	// buf holds the bytes of the frame currently being assembled; SSE frames
-	// arrive split across writes.
-	buf     bytes.Buffer
-	framing sse.Scanner
-	state   ingress.StreamTerminalState
-	// openChoices are chat choice indexes that emitted without finishing yet;
-	// with n > 1 one choice can finish while another is still generating.
+	inner           http.ResponseWriter
+	protocol        nativeStreamProtocol
+	buf             bytes.Buffer
+	framing         sse.Scanner
+	state           ingress.StreamTerminalState
 	openChoices     map[int64]struct{}
 	finishedChoices map[int64]struct{}
 }
@@ -64,8 +54,6 @@ func (o *streamTerminalObserver) Write(p []byte) (int, error) {
 		o.observeEvent(event)
 		o.buf.Next(n)
 	}
-	// A terminal frame is small; resyncing on the next delimiter bounds memory
-	// for an oversized frame or an unframed body without losing one.
 	if o.buf.Len() > streamCutCarryCap {
 		o.buf.Reset()
 		o.framing.Reset()
@@ -79,8 +67,6 @@ func (o *streamTerminalObserver) Flush() {
 	}
 }
 
-// ArmOutputProgress forwards the output-stall watchdog hook; hiding it from
-// the provider client would downgrade the stream to byte-idle guarding.
 func (o *streamTerminalObserver) ArmOutputProgress(mark func()) bool {
 	arm, ok := o.inner.(providers.OutputProgressArmer)
 	if !ok {
@@ -89,7 +75,6 @@ func (o *streamTerminalObserver) ArmOutputProgress(mark func()) bool {
 	return arm.ArmOutputProgress(mark)
 }
 
-// ArmReasoningProgress forwards the reasoning-progress hook for the same reason.
 func (o *streamTerminalObserver) ArmReasoningProgress(mark func()) bool {
 	arm, ok := o.inner.(providers.ReasoningProgressArmer)
 	if !ok {
@@ -98,8 +83,6 @@ func (o *streamTerminalObserver) ArmReasoningProgress(mark func()) bool {
 	return arm.ArmReasoningProgress(mark)
 }
 
-// streamErr reports the stream's ending once the upstream call has returned,
-// first reading a final frame that arrived without a trailing blank line.
 func (o *streamTerminalObserver) streamErr() error {
 	if o.buf.Len() > 0 {
 		rest := o.buf.Bytes()

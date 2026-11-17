@@ -33,8 +33,6 @@ type atomicClassifierConfig struct {
 	InstallationIDs       []uuid.UUID `json:"installation_ids"`
 }
 
-// Legacy/isolated composition only. Managed ingress must first gain an attested
-// Modal binding; this config must not bypass the controller's release ownership.
 func configureAtomicClassifier(service *proxy.Service, pool *pgxpool.Pool, providers map[string]struct{}, deploymentMode server.DeploymentMode) error {
 	path := os.Getenv("ROUTER_LLM_CLASSIFIER_CONFIG")
 	if path == "" {

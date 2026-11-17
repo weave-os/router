@@ -17,9 +17,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// streamFailureClass names the owner of a stream that failed after the
-// prelude committed. Derived from the error chain (typed sentinels, never
-// message text) plus the last frame seen on the wire.
 type streamFailureClass string
 
 const (
@@ -37,16 +34,8 @@ const (
 	streamFailureOther                  streamFailureClass = "other"
 )
 
-// streamCutCarryCap bounds the partial-frame tail kept between writes. A
-// frame larger than this is pathological, so the scanner resyncs on the next
-// boundary instead of growing without bound.
 const streamCutCarryCap = 64 * 1024
 
-// streamCutObserver tees the writer a dispatch attempt hands to the provider,
-// unchanged, while recording what the wire looked like when a committed
-// stream died: frame count, last event type, and the gap since the last
-// frame. It sits above the marker writer and the translators, so the frames
-// it counts are the upstream's own and not the router's.
 type streamCutObserver struct {
 	inner http.ResponseWriter
 	now   func() time.Time
@@ -54,19 +43,12 @@ type streamCutObserver struct {
 	requestBytes int
 	thinking     bool
 
-	start     time.Time
-	lastFrame time.Time
-	carry     []byte
-	// framing resumes the delimiter search in carry where the previous write
-	// left it; attach and a tail-cap discard rewind it with the buffer.
-	framing   sse.Scanner
-	frames    int
-	lastEvent string
-	// blocksCompleted and outputBlockStarted describe what an Anthropic-shaped
-	// stream had already made final on the client side. Claude Code retries a
-	// cut turn only while no content block has completed, and abandons it
-	// once a text/tool_use block opened — so they split rescuable cuts from
-	// lost ones. Both stay zero on non-Anthropic upstream frames.
+	start              time.Time
+	lastFrame          time.Time
+	carry              []byte
+	framing            sse.Scanner
+	frames             int
+	lastEvent          string
 	blocksCompleted    int
 	outputBlockStarted bool
 	streaming          bool
@@ -93,8 +75,6 @@ func newStreamCutObserver(now func() time.Time) *streamCutObserver {
 	return &streamCutObserver{now: now}
 }
 
-// describeRequest records the inbound turn's size and reasoning setting so a
-// cut can be bucketed by what was sent, not only by how it died.
 func (o *streamCutObserver) describeRequest(requestBytes int, env *translate.RequestEnvelope) {
 	if o == nil {
 		return
@@ -103,9 +83,6 @@ func (o *streamCutObserver) describeRequest(requestBytes int, env *translate.Req
 	o.thinking = reasoningRequested(env)
 }
 
-// attach arms the observer for one dispatch attempt on top of the attempt's
-// upstream writer. Each attempt restarts counting, so a failed pre-commit
-// attempt's frames never inflate the winner's.
 func (o *streamCutObserver) attach(inner http.ResponseWriter) http.ResponseWriter {
 	if o == nil {
 		return inner
@@ -129,9 +106,6 @@ func (o *streamCutObserver) Flush() {
 	}
 }
 
-// ArmOutputProgress keeps the adapters' output-progress watchdog and
-// first-output stamp reachable through the observer: a wrapper that hides the
-// translator's armer silently downgrades the stream to byte-idle guarding.
 func (o *streamCutObserver) ArmOutputProgress(mark func()) bool {
 	arm, ok := o.inner.(providers.OutputProgressArmer)
 	if !ok {
@@ -140,7 +114,6 @@ func (o *streamCutObserver) ArmOutputProgress(mark func()) bool {
 	return arm.ArmOutputProgress(mark)
 }
 
-// ArmReasoningProgress keeps the translator's stall-only callback reachable.
 func (o *streamCutObserver) ArmReasoningProgress(mark func()) bool {
 	arm, ok := o.inner.(providers.ReasoningProgressArmer)
 	if !ok {
@@ -157,9 +130,6 @@ func (o *streamCutObserver) Write(p []byte) (int, error) {
 	return o.inner.Write(p)
 }
 
-// noteCut freezes the wire state at the moment err surfaced, before a
-// post-commit path replaces err with a synthesized status. First observation
-// wins for the same reason.
 func (o *streamCutObserver) noteCut(err error) {
 	if o == nil || err == nil || o.cut {
 		return
@@ -179,8 +149,6 @@ func (o *streamCutObserver) noteCut(err error) {
 	o.cutClassSeen = true
 }
 
-// completionLogFields returns the stream-cut diagnostics for the completion
-// log line, or nil when the turn's stream never died after committing.
 func (o *streamCutObserver) completionLogFields() []any {
 	if !o.cutClassSeen {
 		return nil
@@ -200,8 +168,6 @@ func (o *streamCutObserver) completionLogFields() []any {
 	}
 }
 
-// reasoningRequested reports whether the turn asked for extended thinking in
-// any wire format's vocabulary.
 func reasoningRequested(env *translate.RequestEnvelope) bool {
 	if env == nil {
 		return false
@@ -210,11 +176,6 @@ func reasoningRequested(env *translate.RequestEnvelope) bool {
 	return kind != "" && kind != translate.ReasoningDisabled
 }
 
-// streamCutReplayRetryable reports whether re-dispatching the same request
-// fresh would be worth trying: the failure was the upstream's and, when the
-// upstream named a status, that status is one providers.IsRetryableStatus
-// accepts. The committed turn itself is never retried; this describes the
-// replay a later turn or an offline harness could make.
 func streamCutReplayRetryable(class streamFailureClass, err error) bool {
 	switch class {
 	case streamFailureClientCanceled, streamFailureDeadline:
@@ -260,9 +221,6 @@ func (o *streamCutObserver) scan(p []byte) {
 	o.carry = append(o.carry[:0], buf...)
 }
 
-// classifyStreamFailure names the owner of err. Watchdog sentinels come first:
-// the watchdog aborts by cancelling the request context, so the chain also
-// carries context.Canceled (same ordering as providers.IsRetryable).
 func classifyStreamFailure(err error, lastEvent string) streamFailureClass {
 	switch {
 	case err == nil:
@@ -279,8 +237,6 @@ func classifyStreamFailure(err error, lastEvent string) streamFailureClass {
 		return streamFailureUpstreamEmpty
 	case errors.Is(err, context.Canceled):
 		return streamFailureClientCanceled
-	// The HTTP/1 response-header timeout also matches DeadlineExceeded, yet it
-	// is the upstream's silence, not the request budget.
 	case providers.IsResponseHeaderTimeout(err):
 		return streamFailureUpstreamTimeout
 	case errors.Is(err, context.DeadlineExceeded):
@@ -299,16 +255,11 @@ func classifyStreamFailure(err error, lastEvent string) streamFailureClass {
 	}
 }
 
-// isNetTimeout reports whether a transport layer timed out on the upstream,
-// such as HTTP/2's response-header timeout, which carries no deadline sentinel.
 func isNetTimeout(err error) bool {
 	var netErr net.Error
 	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
-// isUpstreamStatusFailure reports whether the upstream named the failure
-// itself (a status or a buffered error body) rather than dropping the
-// transport under us.
 func isUpstreamStatusFailure(err error) bool {
 	var buffered *providers.UpstreamErrorResponse
 	var flushed *providers.UpstreamStatusError

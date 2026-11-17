@@ -15,15 +15,11 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 )
 
-// AuthoritativeUpgradeConfig holds evidence-policy calibration. Nil margin and
-// zero age leave those rules uncalibrated; the evaluator then falls back to the
-// existing score gate instead of inventing quality cutoffs.
 type AuthoritativeUpgradeConfig struct {
 	MarginThreshold *float64
 	StalePinAfter   time.Duration
 }
 
-// Validate rejects invalid deployment calibration rather than silently substituting defaults.
 func (c AuthoritativeUpgradeConfig) Validate() error {
 	if c.MarginThreshold != nil && (math.IsNaN(*c.MarginThreshold) || math.IsInf(*c.MarginThreshold, 0) || *c.MarginThreshold < 0 || *c.MarginThreshold > 1) {
 		return fmt.Errorf("upgrade evidence margin threshold must be finite and within [0, 1]")
@@ -34,7 +30,6 @@ func (c AuthoritativeUpgradeConfig) Validate() error {
 	return nil
 }
 
-// WithAuthoritativeUpgradeConfig installs boot-validated evidence calibration.
 func (s *Service) WithAuthoritativeUpgradeConfig(calibration AuthoritativeUpgradeConfig) *Service {
 	s.authoritativeUpgradeConfig = calibration
 	return s
@@ -79,8 +74,6 @@ type upgradeVerdict struct {
 	Reason  upgradeReason
 }
 
-// Threshold comparisons happen at the boundary, so replay can evaluate several
-// calibrations over identical evidence without reading clocks, stores, or flags.
 type upgradeEvidence struct {
 	HasPin          bool
 	SameModel       bool
@@ -231,9 +224,6 @@ func (s *Service) authoritativeUpgradeFor(ctx context.Context, req router.Reques
 		seconds := int64(s.authoritativeUpgradeConfig.StalePinAfter.Seconds())
 		decision.StalePinAfterSec = &seconds
 	}
-	// Votes are consecutive only while every proposal remains an eligible,
-	// expensive, same-group upgrade. A held proposal outside that shape must
-	// clear the counter before a later same-group proposal can vote again.
 	votes := 0
 	if decision.Evidence.HasPin && decision.Evidence.MoreExpensive && !decision.Evidence.SameModel &&
 		decision.Evidence.FreshEligible && !decision.Evidence.Demoted &&

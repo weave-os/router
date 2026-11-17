@@ -110,6 +110,19 @@ email_settings="$email_home/.claude/settings.json"
 run_with_email "$email_home" "Flag@Example.COM" --claude --scope user --quiet --non-interactive
 check "--email overrides the environment email" "$(installed_email "$email_settings")" "flag@example.com"
 
+# A scripted update (MDM, cron) runs with no --email and often no git config.
+# It must keep the identity the install planted, not rewrite the headers without it.
+run "$email_home" -- update --claude --quiet
+check "update keeps the installed email" "$(installed_email "$email_settings")" "flag@example.com"
+git_home_email() { HOME="$email_home" git config --global user.email "$1"; }
+git_home_email "git@example.com"
+run "$email_home" rk_email -- --claude --scope user --quiet --non-interactive
+check "re-install prefers the installed email over git config" \
+  "$(installed_email "$email_settings")" "flag@example.com"
+run_with_email "$email_home" "new@example.com" update --claude --quiet
+check "--email on update replaces the installed email" \
+  "$(installed_email "$email_settings")" "new@example.com"
+
 # --rotate-key deliberately skips read-back. With no env and no tty there is
 # nothing to rotate to, so it must fail rather than reuse or hang.
 run "$home" -- --claude --scope user --quiet --non-interactive --rotate-key

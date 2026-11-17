@@ -15,18 +15,14 @@ import (
 	"weave-os/router/internal/subscriptions/entitlement"
 )
 
-// SubscriberAllowanceRepo accounts subscriber allowance holds and settlements.
 type SubscriberAllowanceRepo struct {
 	queries *sqlc.Queries
 }
 
-// NewSubscriberAllowanceRepo binds allowance accounting to a SQLC database handle.
 func NewSubscriberAllowanceRepo(db sqlc.DBTX) *SubscriberAllowanceRepo {
 	return &SubscriberAllowanceRepo{queries: dbbudget.Queries(db)}
 }
 
-// Reserve holds a retail cost against every enforcement window.
-// A redelivered action identifier returns the stored action without holding twice.
 func (r *SubscriberAllowanceRepo) Reserve(ctx context.Context, reservation entitlement.Reservation) (entitlement.Action, error) {
 	if err := reservation.Validate(); err != nil {
 		return entitlement.Action{}, err
@@ -82,7 +78,6 @@ func readAllowanceAction(ctx context.Context, queries *sqlc.Queries, actionID st
 	return toAllowanceAction(row)
 }
 
-// Finalize settles a held action at its actual retail cost.
 func (r *SubscriberAllowanceRepo) Finalize(ctx context.Context, finalization entitlement.Finalization) (entitlement.Action, error) {
 	if err := finalization.Validate(); err != nil {
 		return entitlement.Action{}, err
@@ -109,7 +104,6 @@ func (r *SubscriberAllowanceRepo) Finalize(ctx context.Context, finalization ent
 	return stored, nil
 }
 
-// Release returns a non-billable hold to every enforcement window.
 func (r *SubscriberAllowanceRepo) Release(ctx context.Context, release entitlement.Release) (entitlement.Action, error) {
 	if err := release.Validate(); err != nil {
 		return entitlement.Action{}, err
@@ -132,8 +126,6 @@ func (r *SubscriberAllowanceRepo) Release(ctx context.Context, release entitleme
 	return stored, nil
 }
 
-// Usage reads consumption of the enforcement windows covering one request.
-// A window with no activity yet reports zero consumption rather than an error.
 func (r *SubscriberAllowanceRepo) Usage(ctx context.Context, subscriberID entitlement.SubscriberID, billing, weekly, sixHour entitlement.Period) (entitlement.Usage, error) {
 	if billing.Kind != entitlement.PeriodKindBilling || weekly.Kind != entitlement.PeriodKindWeekly || sixHour.Kind != entitlement.PeriodKindSixHour {
 		return entitlement.Usage{}, entitlement.ErrInvalidContract
@@ -184,11 +176,6 @@ func (r *SubscriberAllowanceRepo) Usage(ctx context.Context, subscriberID entitl
 	return usage, nil
 }
 
-// decodeOrReread turns the result of a write statement into the stored action.
-// A statement that lost to a concurrent delivery of the same action returns no
-// row at all: its insert or update sees the conflict through the index, but its
-// own snapshot predates the winner's commit, so the fallback read inside the
-// statement cannot see the row. A separate read gets fresh visibility.
 func (r *SubscriberAllowanceRepo) decodeOrReread(ctx context.Context, actionID string, row sqlc.RouterSubscriberAllowanceAction, err error) (entitlement.Action, error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return r.readAction(ctx, actionID)
@@ -199,9 +186,6 @@ func (r *SubscriberAllowanceRepo) decodeOrReread(ctx context.Context, actionID s
 	return toAllowanceAction(row)
 }
 
-// rereadUntransitioned re-reads an action that a settlement statement left
-// reserved, so a transition committed by a concurrent delivery is recognized as
-// the redelivery it is rather than reported as a conflict.
 func (r *SubscriberAllowanceRepo) rereadUntransitioned(ctx context.Context, stored entitlement.Action) (entitlement.Action, error) {
 	if stored.State != entitlement.ActionStateReserved {
 		return stored, nil
@@ -213,11 +197,6 @@ func (r *SubscriberAllowanceRepo) readAction(ctx context.Context, actionID strin
 	return readAllowanceAction(ctx, r.queries, actionID)
 }
 
-// sameReservation reports whether a redelivery carries the identity of the hold
-// already stored under that action identifier. The window limits, the
-// reservation clock, and the windows derived from it are excluded: they seed
-// and key the period rows the hold already accrued against, and a retry that
-// arrives after a window boundary legitimately carries later ones.
 func sameReservation(stored, redelivered entitlement.Reservation) bool {
 	return stored.RouterRequestID == redelivered.RouterRequestID &&
 		stored.SubscriberID == redelivered.SubscriberID &&

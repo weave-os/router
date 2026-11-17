@@ -35,8 +35,6 @@ func agreementShadowEnabled(ctx context.Context) bool {
 	return managed && policyregistry.ServingTarget(identity.Target) == policyregistry.TargetInternal && identity.StateNamespace != "" && identity.ReleaseID != "" && identity.BindingID != "" && flags.IntOr(ctx, flags.KeyAgreementShadowEpoch, 0) > 0
 }
 
-// Capture immutable, content-free inputs while admission and routing metadata
-// are still available. The simulation itself runs after response telemetry.
 func applyAgreementShadowTelemetry(ctx context.Context, p *InsertTelemetryParams, res turnLoopResult) {
 	if !agreementShadowEnabled(ctx) {
 		return
@@ -101,7 +99,6 @@ func applyAgreementShadowTelemetry(ctx context.Context, p *InsertTelemetryParams
 		}
 		shadow.Observation.Proposal = switchpolicy.Selection{Target: switchpolicy.Target{Provider: provider, Model: model}, Group: group}
 		shadow.Observation.Confidence = confidence
-		// Adapter labels can alternate while the frozen policy stays identical.
 		identityStrategy := router.Strategy(md.Strategy)
 		if identityStrategy == router.StrategyHMMEmbedding {
 			identityStrategy = router.StrategyHMM
@@ -170,8 +167,6 @@ func agreementShadowTransportFailed(p InsertTelemetryParams) bool {
 	}
 }
 
-// Successful pin commands have no upstream telemetry. Commit their boundary
-// before acknowledgement so an immediate tool-result cannot reuse old votes.
 func (s *Service) recordAgreementShadowCommandBoundary(ctx context.Context, installationID uuid.UUID, threadKey [sessionpin.SessionKeyLen]byte, commandID string) {
 	if !agreementShadowEnabled(ctx) || installationID == uuid.Nil || s.pinStore == nil {
 		return

@@ -47,6 +47,12 @@ func (s *requestNoticeStream) prepare(ctx context.Context, sink http.ResponseWri
 	return s.delivery, nil
 }
 
+func (s *requestNoticeStream) selectModel(model string) {
+	if s != nil && s.delivery != nil {
+		s.delivery.SetRoutedModel(model)
+	}
+}
+
 func (s *requestNoticeStream) suppressed(notice translate.RouterNotice) bool {
 	return notice.Text == "" || (notice.Kind == s.lastNotice.Kind && notice.Text == s.lastNotice.Text)
 }
@@ -66,7 +72,7 @@ func (s *requestNoticeStream) deliver(notice translate.RouterNotice) error {
 	return nil
 }
 
-func addRoutingFundingSource(ctx context.Context, provider, model string, notice translate.RouterNotice) translate.RouterNotice {
+func addRoutingFundingSource(ctx context.Context, seats seatAdmission, provider, model string, notice translate.RouterNotice) translate.RouterNotice {
 	if notice.Kind != translate.NoticeModelSelection || notice.Text == "" {
 		return notice
 	}
@@ -74,7 +80,8 @@ func addRoutingFundingSource(ctx context.Context, provider, model string, notice
 	if credentials := CredentialsFromContext(ctx); credentials != nil {
 		credentialSource = credentials.Source
 	}
-	if managedSubscriptionCanServe(ctx, provider, model) {
+	seats.verifiedPlanOnly = true
+	if seats.mayAdmit(ctx, provider, model) {
 		if source, eligible := managedSubscriptionProviderFromUpstream(provider, model); eligible {
 			switch source {
 			case subscriptions.ProviderClaude:

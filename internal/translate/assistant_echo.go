@@ -6,11 +6,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// EchoedInAssistantText reports, per needle, whether any assistant text the
-// client sent back (Chat/Messages `messages` or Responses `input`) contains
-// it. Clients echo router-injected text verbatim, so this is how the router
-// knows what a conversation has already shown. Run it on the original body,
-// before routing-marker stripping erases the evidence.
 func EchoedInAssistantText(body []byte, needles []string) map[string]bool {
 	echoed := make(map[string]bool, len(needles))
 	visit := func(text string) {

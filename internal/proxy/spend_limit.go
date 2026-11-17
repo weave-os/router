@@ -12,20 +12,13 @@ import (
 	"weave-os/router/internal/subscriptions/entitlement"
 )
 
-// checkUserMonthlySpendLimit gates a turn on the resolved engineer's monthly
-// spend limit. Runs inside the proxy (not middleware) because user identity is
-// resolved by the handler after the middleware chain; no identity passes through.
 func (s *Service) checkUserMonthlySpendLimit(ctx context.Context, headers http.Header, routePath string) (context.Context, error) {
 	if s.billing == nil {
 		return ctx, nil
 	}
-	// Billing override is the org-wide escape hatch (WithBalanceCheck stamps it
-	// and passes those orgs through), so engineer limits don't apply either.
 	if billing.HasOverrideFromContext(ctx) {
 		return ctx, nil
 	}
-	// A turn covered by an individual Max/Boost allowance debits 0 and settles
-	// against that allowance, so it adds nothing to the engineer's paid spend.
 	if _, covered := entitlement.CoverageFromContext(ctx); covered {
 		return ctx, nil
 	}

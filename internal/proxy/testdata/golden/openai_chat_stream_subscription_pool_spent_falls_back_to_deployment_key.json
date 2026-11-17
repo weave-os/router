@@ -64,7 +64,7 @@
         {
           "Diagnosis": {
             "ErrorClass": "rate_limited",
-            "FailureOwner": "router"
+            "FailureOwner": "provider"
           },
           "FailureReason": "upstream_status",
           "Outcome": "failed",
