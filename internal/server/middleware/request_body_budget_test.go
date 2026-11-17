@@ -70,7 +70,8 @@ func TestRequestBodyBudgetReleasesStalledUploadsAfterReadTimeout(t *testing.T) {
 	server := httptest.NewServer(engine)
 	t.Cleanup(server.Close)
 
-	stalled, err := net.Dial("tcp", server.Listener.Addr().String())
+	var dialer net.Dialer
+	stalled, err := dialer.DialContext(t.Context(), "tcp", server.Listener.Addr().String())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = stalled.Close() })
 	_, err = fmt.Fprintf(stalled, "POST /v1/responses HTTP/1.1\r\nHost: router\r\nContent-Length: %d\r\n\r\n", declaredBytes)
@@ -78,9 +79,12 @@ func TestRequestBodyBudgetReleasesStalledUploadsAfterReadTimeout(t *testing.T) {
 	require.NoError(t, stalled.SetReadDeadline(time.Now().Add(10*time.Second)))
 	stalledResponse, err := http.ReadResponse(bufio.NewReader(stalled), nil)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = stalledResponse.Body.Close() })
 	require.Equal(t, http.StatusRequestTimeout, stalledResponse.StatusCode)
 
-	resp, err := server.Client().Post(server.URL+"/v1/responses", "application/json", bytes.NewReader(bytes.Repeat([]byte("a"), declaredBytes)))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL+"/v1/responses", bytes.NewReader(bytes.Repeat([]byte("a"), declaredBytes)))
+	require.NoError(t, err)
+	resp, err := server.Client().Do(req)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = resp.Body.Close() })
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "a timed-out upload returns its budget")

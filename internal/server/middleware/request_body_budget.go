@@ -84,5 +84,5 @@ func (b *deadlineClearingBody) Close() error {
 }
 
 func (b *deadlineClearingBody) clearDeadline() {
-	b.once.Do(func() { b.controller.SetReadDeadline(time.Time{}) })
+	b.once.Do(func() { _ = b.controller.SetReadDeadline(time.Time{}) })
 }
