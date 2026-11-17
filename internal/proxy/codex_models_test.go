@@ -42,7 +42,7 @@ func TestCodexModelCatalog_UsesCallerOAuth(t *testing.T) {
 	identity := requestcontext.ServingIdentity{Target: string(policyregistry.TargetInternal), ReleaseID: "synthetic-release", BindingID: "synthetic-binding", CredentialIdentity: "synthetic-principal"}
 	internalCatalog, err := svc.CodexModelCatalog(requestcontext.WithServingIdentity(context.Background(), identity), headers, "0.155.1")
 	require.NoError(t, err)
-	require.Len(t, gjson.GetBytes(internalCatalog, "models").Array(), 7)
+	require.Len(t, gjson.GetBytes(internalCatalog, "models").Array(), 6)
 	assert.Equal(t, string(router.ModelHMM), gjson.GetBytes(internalCatalog, "models.2.slug").String())
 	assert.Equal(t, string(router.ModelHMMBeta), gjson.GetBytes(internalCatalog, "models.3.slug").String())
 	assert.Equal(t, string(router.ModelQwen), gjson.GetBytes(internalCatalog, "models.4.slug").String())

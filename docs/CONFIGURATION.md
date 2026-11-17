@@ -1191,17 +1191,3 @@ Anthropic Messages, OpenAI Chat Completions/Responses through the HTTP adapter, 
 The authenticated `GET /v1/sessions/:session_id/cost` response optionally includes `context_snapshot` for the latest conversation request (main loop, tool result, or client compaction) in that installation/session. It contains version, estimate kind/tokens, served window, output reserve, requested/served models, request ID, and UTC request/completion times. Snapshots expire five minutes after completion; a missing, malformed, failed latest request, or older Router omits the field. Title generation, probes, classifiers, recaps, and subagent dispatches do not replace the conversation snapshot. The existing read-key authentication and rate limits apply, and responses use `Cache-Control: no-store`. No eligible-model pool, private thresholds, credentials, or prompt content is returned. Telemetry is asynchronous, so a fetch can lag the completed turn.
 
 Migration `0126` adds a nullable snapshot to existing request telemetry so client hooks can read it across Router replicas. Apply the migration before running the new binary; older binaries leave it null. This metadata bridge is required because lifecycle hooks cannot access inference response headers. It creates no new context-history endpoint or stored routine.
-
-## Strict random benchmark mode
-
-The existing internal production worker has an opt-in benchmark endpoint. Ordinary inference endpoints retain their current routing. Enable only after the whole internal worker fleet understands flag registry version 31.
-
-Set the installation's `random_benchmark_config` string flag to an expiring JSON object with `schema_version="random_router_named.v2"`, `installation_id`, `organization_id`, `policy_sha256`, and `expires_at` (within seven days). Valid routing keys in that installation can explicitly select `model="weave-random"`. The organization must already have internal serving access; this setting does not enroll it or change its default strategy.
-
-Authenticated `GET /v1/router/models/weave-random/readiness` validates the current immutable policy, serving binding, pool and all three models' included Codex capacity without inference. Supply the returned policy digest in `X-Weave-Random-Router-Policy` on streaming `POST /v1/responses`. Missing or mismatched assertions, conflicting routing controls, unsupported endpoints and expired configuration fail closed.
-
-Go checks exactly `gpt-6-luna`, `gpt-6.1-sol`, and `gpt-6.1-terra` against one request and funding snapshot, then draws once with unbiased probability one-third each. The selected model is fixed across bounded hosted retries and admitted Codex seat rotation. Main, tool-result, subagent and client local-compaction inference each draw independently. Classifier scoring, pins, cache planning, escalation, model-changing rescue, shadow classification and Router-generated summaries are bypassed; normal provider caching is preserved. There is no classifier sidecar or fallback to the primary router.
-
-Every actual provider attempt records its seat, funding source, pool, policy digest, outcome and measured usage; missing usage remains unknown. Paid API and purchased-credit fallback are prohibited. The trusted benchmark proxy must not replay failures or uncertain requests.
-
-Rollback stops benchmark clients and removes/restores only `random_benchmark_config`. Existing random conversations then fail visibly. Remove the flag before reverting to code without the feature; leave shared internal services and ordinary Router policies intact.

@@ -56,7 +56,6 @@ func ParseEarlyStopRedoMode(raw string) (EarlyStopRedoMode, error) {
 }
 
 const (
-	KeyRandomBenchmarkConfig                Key = "random_benchmark_config"
 	KeyEscalationActiveClassifier           Key = "escalation_active_classifier"
 	KeyEscalationShadowClassifier           Key = "escalation_shadow_classifier"
 	KeyEscalationCadence                    Key = "escalation_cadence"

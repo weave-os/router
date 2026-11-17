@@ -23,9 +23,6 @@ func applyServingTelemetry(ctx context.Context, telemetry *InsertTelemetryParams
 }
 
 func applySubscriberTelemetry(ctx context.Context, telemetry *InsertTelemetryParams) {
-	if randomBenchmarkFrom(ctx) != nil {
-		telemetry.PlannerOutcome = "skipped"
-	}
 	applyServingTelemetry(ctx, telemetry)
 	applySubscriptionWinnerTelemetry(ctx, telemetry)
 	plan, hasPlan := entitlement.ProductScopeFromContext(ctx)
@@ -136,7 +133,6 @@ func canonicalTelemetryModelFamily(model string) string {
 }
 
 func applySubscriptionWinnerTelemetry(ctx context.Context, telemetry *InsertTelemetryParams) {
-
 	telemetry.FinalModelFamily = canonicalTelemetryModelFamily(telemetry.DecisionModel)
 	telemetry.IntendedModelFamily = canonicalTelemetryModelFamily(telemetry.RequestedModel)
 	winningUsage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)

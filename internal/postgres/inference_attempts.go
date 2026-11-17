@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/proxy"
@@ -21,29 +20,23 @@ func (r *TelemetryRepo) InsertInferenceAttempt(ctx context.Context, p proxy.Inse
 
 func inferenceAttemptParams(installationID uuid.UUID, event inference.AttemptEvent) sqlc.InsertInferenceAttemptParams {
 	params := sqlc.InsertInferenceAttemptParams{
-		InstallationID:        installationID,
-		RequestID:             event.RequestID,
-		OperationID:           event.OperationID,
-		AttemptIndex:          int32(event.AttemptIndex),
-		Purpose:               string(event.Purpose),
-		PolicyID:              string(event.PolicyID),
-		RegistryRevision:      string(event.RegistryRevision),
-		PolicyRevision:        string(event.PolicyRevision),
-		Model:                 event.Target.CatalogID,
-		Provider:              event.Target.Provider,
-		BindingIndex:          int32(event.Target.BindingIndex),
-		Outcome:               string(event.Outcome),
-		FailureReason:         stringPtrOrNil(event.FailureReason),
-		UsageKnown:            event.Usage.Known,
-		ErrorClass:            stringPtrOrNil(event.Diagnosis.ErrorClass),
-		FailureOwner:          stringPtrOrNil(event.Diagnosis.FailureOwner),
-		BodyTranslated:        event.Diagnosis.BodyTranslated,
-		SubscriptionAccountID: stringPtrOrNil(event.Funding.SubscriptionAccountID),
-		CredentialSource:      stringPtrOrNil(string(event.Funding.Source)),
-		CapacitySource:        stringPtrOrNil(string(event.Funding.CapacitySource)),
-		FundingPoolID:         stringPtrOrNil(event.Funding.PoolID),
-		SelectionPolicySha256: stringPtrOrNil(event.Funding.PolicySHA256),
-		CapacityObservedAt:    pgtype.Timestamptz{Time: event.Funding.ObservedAt, Valid: !event.Funding.ObservedAt.IsZero()},
+		InstallationID:   installationID,
+		RequestID:        event.RequestID,
+		OperationID:      event.OperationID,
+		AttemptIndex:     int32(event.AttemptIndex),
+		Purpose:          string(event.Purpose),
+		PolicyID:         string(event.PolicyID),
+		RegistryRevision: string(event.RegistryRevision),
+		PolicyRevision:   string(event.PolicyRevision),
+		Model:            event.Target.CatalogID,
+		Provider:         event.Target.Provider,
+		BindingIndex:     int32(event.Target.BindingIndex),
+		Outcome:          string(event.Outcome),
+		FailureReason:    stringPtrOrNil(event.FailureReason),
+		UsageKnown:       event.Usage.Known,
+		ErrorClass:       stringPtrOrNil(event.Diagnosis.ErrorClass),
+		FailureOwner:     stringPtrOrNil(event.Diagnosis.FailureOwner),
+		BodyTranslated:   event.Diagnosis.BodyTranslated,
 	}
 	if event.UpstreamStatusCode != 0 {
 		status := int32(event.UpstreamStatusCode)

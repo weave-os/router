@@ -567,9 +567,6 @@ type attemptSink struct {
 }
 
 func (s attemptSink) RecordAttempt(ctx context.Context, event inference.AttemptEvent) {
-	if randomBenchmarkFrom(ctx) != nil {
-		return
-	}
 	if s.store == nil {
 		return
 	}

@@ -52,13 +52,6 @@ type failoverInputs struct {
 var errDispatchWithoutPurpose = errors.New("dispatchWithFallback: no inference purpose")
 
 func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (winnerIdx int, err error) {
-	if randomBenchmarkFrom(ctx) != nil {
-		return dispatchRandomRequest(s, ctx, in)
-	}
-	return dispatchOrdinary(s, ctx, in)
-}
-
-func dispatchOrdinary(s *Service, ctx context.Context, in failoverInputs) (winnerIdx int, err error) {
 	ctx = withClaudeEnterpriseTurn(ctx, in.initialDecision)
 	ctx = s.withSubscriptionFundingAuthorization(ctx, in.subscriptionStateHeaders)
 	if in.subscriptionStateRequest != nil && subscriptionStateModelsEnabled(ctx) && in.buildAlternative != nil {
@@ -129,9 +122,6 @@ func (s *Service) WithClock(now auth.Clock) *Service {
 }
 
 func (s *Service) shouldFailover(ctx context.Context) bool {
-	if randomBenchmarkFrom(ctx) != nil {
-		return false
-	}
 	if s.credentials.BYOKOnly {
 		return false
 	}

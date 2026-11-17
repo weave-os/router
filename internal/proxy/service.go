@@ -2661,7 +2661,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 
 	if !agentShadowMode && !callerModelPassthroughActive(ctx) && handoffFromContext(ctx) == nil {
-		if cyc, csig, ccount, cratio, cwin := detectCyclicToolCallLoopForRequest(ctx, env); cyc {
+		if cyc, csig, ccount, cratio, cwin := detectCyclicToolCallLoop(env); cyc {
 			loopRole := roleForTier(catalog.TierFor(feats.Model))
 			s.handleLoopEscalation(ctx, csig, ccount, cratio, cwin, installationID, sessionKey, loopRole, feats.Model, turntype.IsSubAgent(env, subAgentHintForRequest(ctx, r.Header.Get("x-weave-subagent-type")), openCodeCaller(ClientIdentityFrom(ctx))), forceModelSessionKey)
 		}
@@ -4822,7 +4822,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 
 	if !callerModelPassthroughActive(ctx) {
-		if cyc, csig, ccount, cratio, cwin := detectCyclicToolCallLoopForRequest(ctx, env); cyc {
+		if cyc, csig, ccount, cratio, cwin := detectCyclicToolCallLoop(env); cyc {
 			loopRole := roleForTier(catalog.TierFor(feats.Model))
 			s.handleLoopEscalation(ctx, csig, ccount, cratio, cwin, installationID, sessionKey, loopRole, feats.Model, turntype.IsSubAgent(env, subAgentHintForRequest(ctx, r.Header.Get("x-weave-subagent-type")), openCodeCaller(ClientIdentityFrom(ctx))), forceModelSessionKey)
 		}

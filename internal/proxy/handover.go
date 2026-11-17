@@ -19,7 +19,6 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/policy"
-	randomrouter "weave-os/router/internal/router/random_router"
 	"weave-os/router/internal/translate"
 	"weave-os/router/internal/usage"
 
@@ -143,9 +142,6 @@ func summarizerRequest(scope router.Request, env *translate.RequestEnvelope) rou
 }
 
 func (s *ProviderSummarizer) resolve(ctx context.Context, request policy.ResolutionRequest) (policy.ResolvedPlan, error) {
-	if randomBenchmarkFrom(ctx) != nil {
-		return policy.ResolvedPlan{}, randomrouter.ErrUnavailable
-	}
 	if s.plans == nil || s.executor == nil {
 		return policy.ResolvedPlan{}, errors.New("handover: summarizer has no plan resolver or executor")
 	}

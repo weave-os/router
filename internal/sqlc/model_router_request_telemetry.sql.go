@@ -74,18 +74,6 @@ func (q *Queries) GetRequestForFeedback(ctx context.Context, arg GetRequestForFe
 const getRoutingDecisionsForExport = `-- name: GetRoutingDecisionsForExport :many
 SELECT
     t.id,
-    t.api_key_id,
-    t.propensity,
-    t.planner_outcome,
-    COALESCE(CASE WHEN t.policy_artifact_id = 'random-no-cache-eviction' THEN (
-        SELECT COUNT(*) FROM router.model_router_inference_attempts AS attempt
-        WHERE attempt.installation_id = t.installation_id AND attempt.request_id = t.request_id
-    ) END, 0)::bigint AS inference_attempt_count,
-    CASE WHEN t.policy_artifact_id = 'random-no-cache-eviction' THEN ARRAY(
-        SELECT attempt.model FROM router.model_router_inference_attempts AS attempt
-        WHERE attempt.installation_id = t.installation_id AND attempt.request_id = t.request_id
-        ORDER BY attempt.operation_id, attempt.attempt_index
-    ) END::text[] AS inference_attempt_models,
     t.created_at,
     t.timestamp,
     t.request_id,
@@ -222,11 +210,6 @@ type GetRoutingDecisionsForExportParams struct {
 
 type GetRoutingDecisionsForExportRow struct {
 	ID                              uuid.UUID
-	APIKeyID                        pgtype.UUID
-	Propensity                      *float64
-	PlannerOutcome                  *string
-	InferenceAttemptCount           int64
-	InferenceAttemptModels          []string
 	CreatedAt                       pgtype.Timestamptz
 	Timestamp                       pgtype.Timestamptz
 	RequestID                       string
@@ -335,18 +318,6 @@ type GetRoutingDecisionsForExportRow struct {
 //
 //	SELECT
 //	    t.id,
-//	    t.api_key_id,
-//	    t.propensity,
-//	    t.planner_outcome,
-//	    COALESCE(CASE WHEN t.policy_artifact_id = 'random-no-cache-eviction' THEN (
-//	        SELECT COUNT(*) FROM router.model_router_inference_attempts AS attempt
-//	        WHERE attempt.installation_id = t.installation_id AND attempt.request_id = t.request_id
-//	    ) END, 0)::bigint AS inference_attempt_count,
-//	    CASE WHEN t.policy_artifact_id = 'random-no-cache-eviction' THEN ARRAY(
-//	        SELECT attempt.model FROM router.model_router_inference_attempts AS attempt
-//	        WHERE attempt.installation_id = t.installation_id AND attempt.request_id = t.request_id
-//	        ORDER BY attempt.operation_id, attempt.attempt_index
-//	    ) END::text[] AS inference_attempt_models,
 //	    t.created_at,
 //	    t.timestamp,
 //	    t.request_id,
@@ -488,11 +459,6 @@ func (q *Queries) GetRoutingDecisionsForExport(ctx context.Context, arg GetRouti
 		var i GetRoutingDecisionsForExportRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.APIKeyID,
-			&i.Propensity,
-			&i.PlannerOutcome,
-			&i.InferenceAttemptCount,
-			&i.InferenceAttemptModels,
 			&i.CreatedAt,
 			&i.Timestamp,
 			&i.RequestID,
