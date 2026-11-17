@@ -80,7 +80,7 @@ func (s *Service) anthropicRoutingRequest(
 
 	enabledProviders := s.enabledProvidersForRequest(ctx, providers.ProviderAnthropic, headers)
 	if paidFallbackForbidden(ctx) {
-		enabledProviders = restrictToSubscriptionProviders(ctx, headers, enabledProviders)
+		enabledProviders = restrictToFundedProviders(ctx, headers, enabledProviders)
 	}
 	outputReserve := contextWindowOutputReserve
 	if features.MaxTokens > outputReserve {
@@ -131,8 +131,6 @@ func (s *Service) anthropicRoutingRequest(
 	}, nil
 }
 
-// PreviewAnthropicRoute evaluates an Anthropic request with the registered
-// policy preview contract without dispatching or invoking serving lifecycle state.
 func (s *Service) PreviewAnthropicRoute(ctx context.Context, body []byte, headers http.Header) (policy.PreviewResult, error) {
 	ctx, req, err := s.anthropicRoutingRequest(ctx, body, headers, "anthropic_route_preview")
 	if err != nil {

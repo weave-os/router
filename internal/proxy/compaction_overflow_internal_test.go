@@ -77,7 +77,7 @@ func TestGatewayCompactionPastEverySummarizerWindowReachesCrossGatewayRescuer(t 
 	body := []byte(`{"model":"claude-opus-5-5","max_tokens":20000,"stream":true,"system":"Your task is to create a detailed summary of the conversation so far.","messages":[{"role":"user","content":"` + history + `"}]}`)
 	rec := httptest.NewRecorder()
 
-	err := svc.ProxyMessages(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body)))
+	err := svc.ProxyMessages(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", bytes.NewReader(body)))
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{gatewayCompactionOpusModel}, anthropicGateway.models, "only the utility pin is tried on the Claude gateway")
@@ -170,11 +170,11 @@ func TestStreamingCompactionOverflowingEverywhereNeverAsksToCompact(t *testing.T
 			body := []byte(ingress.body)
 			rec := httptest.NewRecorder()
 
-			err := ingress.proxy(svc)(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/x", bytes.NewReader(body)))
+			err := ingress.proxy(svc)(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/x", bytes.NewReader(body)))
 
 			require.Error(t, err)
 			require.NotEmpty(t, append(anthropicGateway.models, openAIGateway.models...))
-			assert.ErrorAs(t, err, new(*CompactionUnservableError))
+			require.ErrorAs(t, err, new(*CompactionUnservableError))
 			assert.NotContains(t, rec.Body.String(), "Compact the conversation")
 			assert.NotContains(t, rec.Body.String(), "context_length_exceeded")
 			assert.NotContains(t, rec.Body.String(), "prompt is too long")

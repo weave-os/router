@@ -263,11 +263,11 @@ func TestKeepOrchestrationTools_OpenAITarget_NormalizesTypelessAnyOf(t *testing.
 
 	var doc map[string]any
 	require.NoError(t, json.Unmarshal(out.Body, &doc))
-	tools := doc["tools"].([]any)
-	workflow := tools[0].(map[string]any)["function"].(map[string]any)
-	params := workflow["parameters"].(map[string]any)
-	args := params["properties"].(map[string]any)["args"].(map[string]any)
-	branch := args["anyOf"].([]any)[0].(map[string]any)
+	tools := mustAs[[]any](t, doc["tools"])
+	workflow := mustAs[map[string]any](t, mustAs[map[string]any](t, tools[0])["function"])
+	params := mustAs[map[string]any](t, workflow["parameters"])
+	args := mustAs[map[string]any](t, mustAs[map[string]any](t, params["properties"])["args"])
+	branch := mustAs[map[string]any](t, mustAs[[]any](t, args["anyOf"])[0])
 	assert.Equal(t, []any{"string", "number", "boolean", "object", "array", "null"}, branch["type"],
 		"OpenAI requires every anyOf branch to declare a type")
 }
@@ -310,8 +310,8 @@ func TestDeferredMCPToolSearchSurvivesCrossVendorEmit(t *testing.T) {
 		var doc map[string]any
 		require.NoError(t, json.Unmarshal(out.Body, &doc))
 		var toolSearch map[string]any
-		for _, raw := range doc["tools"].([]any) {
-			fn := raw.(map[string]any)["function"].(map[string]any)
+		for _, raw := range mustAs[[]any](t, doc["tools"]) {
+			fn := mustAs[map[string]any](t, mustAs[map[string]any](t, raw)["function"])
 			if fn["name"] == "ToolSearch" {
 				toolSearch = fn
 				break
@@ -319,8 +319,8 @@ func TestDeferredMCPToolSearchSurvivesCrossVendorEmit(t *testing.T) {
 		}
 		require.NotNil(t, toolSearch)
 		assert.Equal(t, "Load a deferred tool schema by name", toolSearch["description"])
-		params := toolSearch["parameters"].(map[string]any)
-		query := params["properties"].(map[string]any)["query"].(map[string]any)
+		params := mustAs[map[string]any](t, toolSearch["parameters"])
+		query := mustAs[map[string]any](t, mustAs[map[string]any](t, params["properties"])["query"])
 		assert.Equal(t, "string", query["type"], "ToolSearch input_schema must survive as OpenAI parameters")
 	})
 

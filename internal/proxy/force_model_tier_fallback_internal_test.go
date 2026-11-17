@@ -291,7 +291,7 @@ func TestForceModelHeader_OverridesHardPin(t *testing.T) {
 	}`))
 	require.NoError(t, err)
 	key := DeriveSessionKey(env, "key-1")
-	headerReq, err := http.NewRequest(http.MethodPost, "/v1/messages", nil)
+	headerReq, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	require.NoError(t, err)
 	headerReq.Header.Set(ForceModelHeader, "opus")
 	_, _, forceErr := svc.applyForceModelHeader(context.Background(), headerReq, uuid.New(), key)

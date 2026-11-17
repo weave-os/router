@@ -16,12 +16,6 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-// A slow start is surfaced when the request's wait for provider content
-// exceeds max(slowStartFloor, slowStartMultiple × p50), where p50 is the
-// median per-attempt time to first content over the last slowStartSamples
-// streaming attempts on that provider, endpoint and model within
-// slowStartSampleAge. Below slowStartMinSamples the floor alone applies. The
-// estimate is per process: each replica learns its own baseline.
 const (
 	slowStartFloor      = 10 * time.Second
 	slowStartMultiple   = 3
@@ -64,8 +58,6 @@ func (w *ttftWindow) add(ttft time.Duration, now time.Time) {
 	w.count = min(w.count+1, slowStartSamples)
 }
 
-// slowStartTracker keeps the rolling TTFT baselines and the per-session
-// cooldown that bounds how often a slow-start notice is shown.
 type slowStartTracker struct {
 	mu        sync.Mutex
 	baselines *lru.Cache[string, *ttftWindow]
@@ -80,8 +72,6 @@ func newSlowStartTracker() *slowStartTracker {
 
 var slowStarts = newSlowStartTracker()
 
-// observe records an attempt's time to first content and returns the
-// baseline median as it stood before the sample.
 func (t *slowStartTracker) observe(key string, ttft time.Duration, now time.Time) (time.Duration, int) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -110,9 +100,6 @@ type slowStartAttempt struct {
 	clientToolTiming *translate.ClientToolTiming
 }
 
-// slowStartNotice runs when the serving attempt's first provider content
-// arrives: it records the attempt's TTFT and returns a notice when the
-// request's wait was well above the provider's usual.
 func slowStartNotice(ctx context.Context, trace *dispatch.AttemptTrace, tracker *slowStartTracker, now time.Time) (translate.RouterNotice, bool) {
 	snapshot, ok := trace.SlowStartSnapshot()
 	if !ok {
@@ -152,9 +139,6 @@ func slowStartNotice(ctx context.Context, trace *dispatch.AttemptTrace, tracker 
 	return translate.NewRouterNotice(translate.NoticeSlowStart, text, snap.Current.Target.CatalogID, ""), true
 }
 
-// slowStartCooldownKey scopes the notice cooldown to the client session, or
-// to the API key when the client sends no session id, so unrelated
-// session-less callers don't share one cooldown.
 func slowStartCooldownKey(ctx context.Context) (string, bool) {
 	if session := observability.ClientSessionIDFromContext(ctx); session != "" {
 		return "session:" + session, true
@@ -165,7 +149,6 @@ func slowStartCooldownKey(ctx context.Context) (string, bool) {
 	return "", false
 }
 
-// slowStartLine separates the upstream wait from client-reported tool runtime.
 func slowStartLine(snap slowStartAttempt, wait, p50 time.Duration) string {
 	provider := attemptProviderName(snap.Current)
 	var details []string

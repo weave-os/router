@@ -14,7 +14,6 @@ const (
 	maxAgentRune     = 500
 )
 
-// ToolCallStatus is a tool call's outcome without its output.
 type ToolCallStatus string
 
 const (
@@ -23,20 +22,16 @@ const (
 	ToolCallPending ToolCallStatus = "pending"
 )
 
-// ToolCall names a call and its status; outputs are deliberately omitted.
 type ToolCall struct {
 	Name   string         `json:"name"`
 	Status ToolCallStatus `json:"status"`
 }
 
-// AgentTurn is one assistant turn reduced to its text and tool statuses.
 type AgentTurn struct {
 	Text      string     `json:"text,omitempty"`
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 }
 
-// State is the compact conversation the judge sees: the objective, the last
-// three user messages, and the last six agent turns.
 type State struct {
 	Objective          string      `json:"objective"`
 	RecentUserMessages []string    `json:"recent_user_messages"`
@@ -47,8 +42,6 @@ func isHumanMessage(message router.ConversationMessage) bool {
 	return message.Role == "user" && message.Text != ""
 }
 
-// BuildState keeps the first human message as the objective so short
-// follow-ups like "continue" never hide what the task is.
 func BuildState(messages []router.ConversationMessage) State {
 	state := State{RecentUserMessages: []string{}, RecentAgentTurns: []AgentTurn{}}
 	for index := 0; index < len(messages); index++ {
@@ -67,8 +60,6 @@ func BuildState(messages []router.ConversationMessage) State {
 	return state
 }
 
-// callEnd returns the index after the run of assistant messages starting at
-// start; translation can split one model call into several such messages.
 func callEnd(messages []router.ConversationMessage, start int) int {
 	end := start
 	for end < len(messages) && messages[end].Role == "assistant" {
@@ -109,7 +100,6 @@ func agentTurn(call []router.ConversationMessage, following []router.Conversatio
 	return turn
 }
 
-// AgentCallIndex is the 1-based logical model call this request starts.
 func AgentCallIndex(messages []router.ConversationMessage) int {
 	calls := 1
 	for index := 0; index < len(messages); index++ {

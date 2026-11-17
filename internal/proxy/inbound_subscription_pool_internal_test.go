@@ -47,7 +47,7 @@ func TestInboundClaudeOAuthStillRotatesManagedPool(t *testing.T) {
 			ctx = context.WithValue(ctx, InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 			ctx = context.WithValue(ctx, InstallationSubscriptionStateModelsEnabledContextKey{}, stateModels)
 			body := `{"model":"auto","max_tokens":1024,"messages":[{"role":"user","content":"inspect synthetic input"}],"tools":[{"name":"read_file","description":"read a file","input_schema":{"type":"object","properties":{"path":{"type":"string"}}}}]}`
-			request := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(body))
 			request.Header.Set("Authorization", "Bearer "+parityAnthropicToken)
 			recorder := httptest.NewRecorder()
 

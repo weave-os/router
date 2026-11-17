@@ -16,7 +16,7 @@ func (s *Service) recordDirectSubscriptionQuota(ctx context.Context, provider, m
 	resetAt, exhausted := s.subscriptionQuotaExhaustion(pool, subscriptions.Lease{AccessToken: string(creds.APIKey)}, attemptErr)
 	if !exhausted {
 		if upstreamStatus(attemptErr) == http.StatusTooManyRequests {
-			recordCallerPlanThrottle(ctx, pool, managedSubscriptionResetAt(attemptErr, s.clockNow()))
+			recordCallerPlanThrottle(ctx, pool, managedSubscriptionResetAt(attemptErr, s.clock.Now()))
 		}
 		return
 	}
@@ -28,8 +28,6 @@ func (s *Service) recordDirectSubscriptionQuota(ctx context.Context, provider, m
 	}
 }
 
-// recordCallerPlanThrottle marks, until its Retry-After, a 429 on the caller's
-// own plan that did not prove quota exhaustion.
 func recordCallerPlanThrottle(ctx context.Context, pool subscriptions.Provider, until time.Time) {
 	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
 		if state.ThrottledProviders == nil {
@@ -39,8 +37,6 @@ func recordCallerPlanThrottle(ctx context.Context, pool subscriptions.Provider, 
 	}
 }
 
-// callerPlanThrottled reports a live rate limit on the caller's own plan. It
-// keeps paid fallback blocked but makes the refusal a retryable 429.
 func callerPlanThrottled(ctx context.Context, pool subscriptions.Provider, now time.Time) bool {
 	state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	return state != nil && state.ThrottledProviders[pool].After(now)

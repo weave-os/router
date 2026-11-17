@@ -46,7 +46,7 @@ func TestProxyOpenAIResponses_CodexDuplicateToolOutputsReachAnthropicOnce(t *tes
 	}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-5", nil)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 	require.NoError(t, svc.ProxyOpenAIResponses(codexClientCtx(), []byte(codexNotifyTurnBody), rec, req))
 
 	require.Len(t, anthropic.proxyBodies, 1)
@@ -75,7 +75,7 @@ func TestProxyOpenAIResponses_CodexDuplicateToolOutputsStayVerbatimOnNativeOpenA
 	}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 	require.NoError(t, svc.ProxyOpenAIResponses(codexClientCtx(), []byte(codexNotifyTurnBody), rec, req))
 
 	require.Len(t, openai.proxyBodies, 1)
@@ -106,7 +106,7 @@ func TestProxyMessages_DuplicateToolResultsReachAnthropicOnce(t *testing.T) {
 		`{"role":"assistant","content":[{"type":"tool_use","id":"toolu_dup_1","name":"exec","input":{}}]},` +
 		`{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_dup_1","content":"done"},{"type":"tool_result","tool_use_id":"toolu_dup_1","content":"progress"},{"type":"text","text":"what next?"}]}]}`)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(context.Background(), body, rec, req))
 
 	require.Len(t, anthropic.proxyBodies, 1)

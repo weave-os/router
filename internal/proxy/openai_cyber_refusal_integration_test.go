@@ -128,7 +128,7 @@ const cyberRefusalInstallationID = "22222222-2222-2222-2222-222222222222"
 func proxyResponsesTurn(t *testing.T, svc *proxy.Service) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 	ctx := context.WithValue(
 		authedCtx(cyberRefusalInstallationID),
 		proxy.ClientIdentityContextKey{},
@@ -183,7 +183,7 @@ func TestProxyOpenAIResponses_RescuedTitleContainsOnlyTitle(t *testing.T) {
 	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"text":{"format":{"type":"json_schema","schema":{"type":"object","properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false}}},"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Generate a concise task title."}]}]}`)
 	ctx := context.WithValue(authedCtx(cyberRefusalInstallationID), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
 	rec := httptest.NewRecorder()
-	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/responses", nil)))
+	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)))
 	openAIHits, anthropicHits := upstreams.counts()
 	assert.Equal(t, 1, openAIHits)
 	assert.Equal(t, 1, anthropicHits)
@@ -302,7 +302,7 @@ func TestProxyOpenAIResponses_RoutingBadgeFlushesBeforeDelayedProvider(t *testin
 	openAIURL, anthropicURL := upstreams.start(t)
 	svc := cyberRefusalService(openAIURL, anthropicURL, "test", newFakePinStore(), newCaptureTelemetry())
 	writer := newObservedResponseWriter()
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 	ctx := context.WithValue(
 		authedCtx(cyberRefusalInstallationID),
 		proxy.ClientIdentityContextKey{},

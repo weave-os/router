@@ -12,17 +12,11 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-// forceableModel is one /force-model target: its catalog ID, the shorthands
-// that resolve to it, and why this request's policy refuses it ("" if not).
 type forceableModel struct {
 	id, provider, refusal string
 	shorthands            []string
 }
 
-// handleListModelsCommand answers a bare list-models directive synthetically,
-// with no upstream call. Each model is judged by forcedModelBinding, the same
-// check /force-model applies, so the listing cannot promise a force that would
-// then be refused.
 func (s *Service) handleListModelsCommand(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -69,9 +63,6 @@ func (s *Service) forceableModels(ctx context.Context) []forceableModel {
 	return out
 }
 
-// listModelsShorthandLimit keeps a row on one line: the folded spellings
-// ("opus-5.5", "opus55", ...) all still resolve, so listing the shortest few
-// is enough to show what can be typed.
 const listModelsShorthandLimit = 4
 
 func listModelsMessage(models []forceableModel, prefix string, format translate.Format) string {

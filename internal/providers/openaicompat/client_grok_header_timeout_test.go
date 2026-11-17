@@ -40,7 +40,7 @@ func TestProxy_GrokModelGetsWiderHeaderTimeout(t *testing.T) {
 	c := openaicompat.NewClientWithHeaderTimeouts("test-key", upstream.URL+"/v1", 50*time.Millisecond, 5*time.Second)
 
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	prep := providers.PreparedRequest{Body: []byte(`{"model":"grok-4.6","messages":[]}`), Headers: make(http.Header)}
 	err := c.Proxy(context.Background(), router.Decision{Model: "grok-4.6"}, prep, rec, clientReq)
 
@@ -53,7 +53,7 @@ func TestProxy_NonGrokModelKeepsDefaultHeaderTimeout(t *testing.T) {
 	c := openaicompat.NewClientWithHeaderTimeouts("test-key", upstream.URL+"/v1", 50*time.Millisecond, 5*time.Second)
 
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	prep := providers.PreparedRequest{Body: []byte(`{"model":"gpt-5.6","messages":[]}`), Headers: make(http.Header)}
 	err := c.Proxy(context.Background(), router.Decision{Model: "gpt-5.6"}, prep, rec, clientReq)
 

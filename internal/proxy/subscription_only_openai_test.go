@@ -29,7 +29,7 @@ const (
 // subscription in the inbound Authorization header.
 func codexSubRequest(t *testing.T, body string) (*httptest.ResponseRecorder, *http.Request) {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+codexSubToken)
 	req.Header.Set("ChatGPT-Account-ID", codexSubAccountID)
 	return httptest.NewRecorder(), req
@@ -86,7 +86,7 @@ func TestSubscriptionOnly_OpenAI_PaidRoute_Refuses402(t *testing.T) {
 	err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, req)
 	require.Error(t, err)
 	require.Positive(t, fr.routeCalls, "the scorer must be consulted so the decision is the paid route under test")
-	assert.ErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable,
+	require.ErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable,
 		"a Codex-covered turn that routes to a paid model must be refused, not dispatched")
 	assert.Empty(t, p.proxyBodies, "no paid dispatch may occur below the floor in subscription-only mode")
 }
@@ -104,7 +104,7 @@ func TestSubscriptionOnly_OpenAI_InfrastructureModelRefusesWithoutDispatch(t *te
 
 	err := svc.ProxyOpenAIChatCompletion(billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlyCreditsDepleted), []byte(body), rec, req)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable)
+	require.ErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable)
 	require.NotNil(t, fr.capturedReq)
 	assert.Contains(t, fr.capturedReq.ExcludedModels, "gpt-5.4-nano",
 		"subscription-only candidate selection must exclude OpenAI models outside the native Codex family")
@@ -131,7 +131,7 @@ func TestSubscriptionOnly_OpenAI_SubFailure_NoPaidFailover(t *testing.T) {
 	var statusErr *providers.UpstreamStatusError
 	require.ErrorAs(t, err, &statusErr, "the caller's own subscription error must surface raw, not be rewritten")
 	assert.Equal(t, http.StatusTooManyRequests, statusErr.Status)
-	assert.NotErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable,
+	require.NotErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable,
 		"a served-sub runtime failure is not a credits-exhausted refusal")
 	require.NotNil(t, p.proxyCreds[0], "the dispatch must carry the caller's subscription credential")
 	assert.True(t, p.proxyCreds[0].OAuth, "only the caller's own subscription may be attempted")

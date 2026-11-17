@@ -278,8 +278,9 @@ func TestInLoopEscalationHoldout_DeterministicAndProportional(t *testing.T) {
 	key := loopTestKey(9)
 	assert.False(t, DeterministicHoldout(key, 0), "pct 0 disables the holdout")
 	assert.True(t, DeterministicHoldout(key, 100), "pct 100 holds out everything")
+	bucket := DeterministicHoldout(key, 10)
 	assert.Equal(t,
-		DeterministicHoldout(key, 10),
+		bucket,
 		DeterministicHoldout(key, 10),
 		"same key must always land in the same bucket")
 

@@ -27,7 +27,7 @@ func TestAttrBuilder_BuildsCorrectKeyValues(t *testing.T) {
 	assert.Equal(t, int64(42), attrs[1].Value.GetIntValue())
 
 	assert.Equal(t, "float_key", attrs[2].Key)
-	assert.Equal(t, 3.14, attrs[2].Value.GetDoubleValue())
+	assert.InDelta(t, 3.14, attrs[2].Value.GetDoubleValue(), 1e-9)
 
 	assert.Equal(t, "bool_key", attrs[3].Key)
 	assert.True(t, attrs[3].Value.GetBoolValue())
@@ -76,7 +76,7 @@ func TestAttrBuilder_TypedValuesMatchProtobuf(t *testing.T) {
 	assert.Equal(t, "int", intVal.Kind())
 
 	floatVal := attrs[2].Value
-	assert.Equal(t, -2.5, floatVal.GetDoubleValue())
+	assert.InDelta(t, -2.5, floatVal.GetDoubleValue(), 1e-9)
 	assert.Equal(t, "float", floatVal.Kind())
 
 	boolVal := attrs[3].Value

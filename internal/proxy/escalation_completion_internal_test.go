@@ -43,7 +43,7 @@ func TestEscalationCompletionRecordsPostRoutingPreparationFailure(t *testing.T) 
 			observer := &escalationTestObserver{}
 			clients := map[string]providers.Client{providers.ProviderGoogle: &stripFailureProvider{}}
 			svc := newEscalationCompletionService(store, observer, clients)
-			err := tc.invoke(svc, escalationCompletionContext(), []byte(tc.body), httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/test", nil))
+			err := tc.invoke(svc, escalationCompletionContext(), []byte(tc.body), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/test", nil))
 			require.ErrorIs(t, err, tc.expectedError)
 			require.Len(t, observer.requests, 1, "request must reach escalation before failing preparation")
 			require.Len(t, store.sessions, 1)
@@ -111,7 +111,7 @@ func TestEscalationCompletionWaitsForResponsesFinalization(t *testing.T) {
 				writer.writeErr = finalizationErr
 			}
 			body := []byte(`{"model":"gpt-5","input":"inspect the repository","tools":[{"type":"function","name":"Read","parameters":{"type":"object"}}]}`)
-			err := svc.ProxyOpenAIResponses(escalationCompletionContext(), body, writer, httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+			err := svc.ProxyOpenAIResponses(escalationCompletionContext(), body, writer, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
 			if failFinalize {
 				require.ErrorIs(t, err, finalizationErr)
 			} else {

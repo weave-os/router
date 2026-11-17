@@ -335,10 +335,10 @@ func TestResolverIncludesLiveCandidateEconomics(t *testing.T) {
 
 	require.Len(t, resolved.Candidates, 1)
 	candidate := resolved.Candidates[0]
-	assert.Equal(t, 0.1, candidate.CacheReadMultiplier)
-	assert.Equal(t, 1.0, candidate.MarginalCostFactor)
-	assert.Equal(t, 5.0, candidate.EffectiveInputUSDPer1M)
-	assert.Equal(t, 25.0, candidate.EffectiveOutputUSDPer1M)
+	assert.InDelta(t, 0.1, candidate.CacheReadMultiplier, 1e-9)
+	assert.InDelta(t, 1.0, candidate.MarginalCostFactor, 1e-9)
+	assert.InDelta(t, 5.0, candidate.EffectiveInputUSDPer1M, 1e-9)
+	assert.InDelta(t, 25.0, candidate.EffectiveOutputUSDPer1M, 1e-9)
 	assert.InDelta(t, candidate.EstimatedCostUSD, candidate.EffectiveEstimatedCostUSD, 1e-12)
 }
 
@@ -358,8 +358,8 @@ func TestResolverUsesLongContextPricing(t *testing.T) {
 
 	require.Len(t, resolved.Candidates, 1)
 	candidate := resolved.Candidates[0]
-	assert.Equal(t, 0.40, candidate.InputUSDPer1M)
-	assert.Equal(t, 1.80, candidate.OutputUSDPer1M)
+	assert.InDelta(t, 0.40, candidate.InputUSDPer1M, 1e-9)
+	assert.InDelta(t, 1.80, candidate.OutputUSDPer1M, 1e-9)
 	assert.InDelta(t, 0.1218, candidate.EstimatedCostUSD, 1e-12)
 }
 

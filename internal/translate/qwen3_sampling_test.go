@@ -28,10 +28,10 @@ func assertQwen3Defaults(t *testing.T, body []byte) {
 	t.Helper()
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(body, &out))
-	assert.Equal(t, qwen3TemperatureExpected, out["temperature"], "qwen3 must receive temperature=0.7")
-	assert.Equal(t, qwen3TopPExpected, out["top_p"], "qwen3 must receive top_p=0.8")
-	assert.Equal(t, qwen3PresencePenaltyExpected, out["presence_penalty"], "qwen3 must receive presence_penalty=1.5")
-	assert.Equal(t, qwen3RepetitionPenaltyExpected, out["repetition_penalty"], "qwen3 must receive repetition_penalty=1.05")
+	assert.InDelta(t, qwen3TemperatureExpected, out["temperature"], 1e-9, "qwen3 must receive temperature=0.7")
+	assert.InDelta(t, qwen3TopPExpected, out["top_p"], 1e-9, "qwen3 must receive top_p=0.8")
+	assert.InDelta(t, qwen3PresencePenaltyExpected, out["presence_penalty"], 1e-9, "qwen3 must receive presence_penalty=1.5")
+	assert.InDelta(t, qwen3RepetitionPenaltyExpected, out["repetition_penalty"], 1e-9, "qwen3 must receive repetition_penalty=1.05")
 }
 
 func TestQwen3Samplers_OpenAISameFormat_InjectedForQwen3(t *testing.T) {
@@ -104,9 +104,9 @@ func TestQwen3Samplers_RepetitionPenaltySkippedOnFireworks(t *testing.T) {
 	require.NoError(t, err)
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(prep.Body, &out))
-	assert.Equal(t, qwen3TemperatureExpected, out["temperature"])
-	assert.Equal(t, qwen3TopPExpected, out["top_p"])
-	assert.Equal(t, qwen3PresencePenaltyExpected, out["presence_penalty"])
+	assert.InDelta(t, qwen3TemperatureExpected, out["temperature"], 1e-9)
+	assert.InDelta(t, qwen3TopPExpected, out["top_p"], 1e-9)
+	assert.InDelta(t, qwen3PresencePenaltyExpected, out["presence_penalty"], 1e-9)
 	_, hasRepetitionPenalty := out["repetition_penalty"]
 	assert.False(t, hasRepetitionPenalty, "fireworks must not receive repetition_penalty alongside presence_penalty")
 }
@@ -148,10 +148,10 @@ func TestQwen3Samplers_DoNotOverrideClientValues(t *testing.T) {
 	require.NoError(t, err)
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(prep.Body, &out))
-	assert.Equal(t, 0.1, out["temperature"], "client temperature must win")
-	assert.Equal(t, 0.5, out["top_p"], "client top_p must win")
-	assert.Equal(t, 0.2, out["presence_penalty"], "client presence_penalty must win")
-	assert.Equal(t, 1.2, out["repetition_penalty"], "client repetition_penalty must win")
+	assert.InDelta(t, 0.1, out["temperature"], 1e-9, "client temperature must win")
+	assert.InDelta(t, 0.5, out["top_p"], 1e-9, "client top_p must win")
+	assert.InDelta(t, 0.2, out["presence_penalty"], 1e-9, "client presence_penalty must win")
+	assert.InDelta(t, 1.2, out["repetition_penalty"], 1e-9, "client repetition_penalty must win")
 }
 
 func TestQwen3Samplers_PartialClientOverridesFillRest(t *testing.T) {
@@ -173,8 +173,8 @@ func TestQwen3Samplers_PartialClientOverridesFillRest(t *testing.T) {
 	require.NoError(t, err)
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(prep.Body, &out))
-	assert.Equal(t, 0.3, out["temperature"], "client temperature must win")
-	assert.Equal(t, qwen3TopPExpected, out["top_p"])
-	assert.Equal(t, qwen3PresencePenaltyExpected, out["presence_penalty"])
-	assert.Equal(t, qwen3RepetitionPenaltyExpected, out["repetition_penalty"])
+	assert.InDelta(t, 0.3, out["temperature"], 1e-9, "client temperature must win")
+	assert.InDelta(t, qwen3TopPExpected, out["top_p"], 1e-9)
+	assert.InDelta(t, qwen3PresencePenaltyExpected, out["presence_penalty"], 1e-9)
+	assert.InDelta(t, qwen3RepetitionPenaltyExpected, out["repetition_penalty"], 1e-9)
 }

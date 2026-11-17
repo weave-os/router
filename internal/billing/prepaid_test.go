@@ -108,14 +108,14 @@ func TestOrganizationBookRejectsCrossedOwnerWhenUsedDirectly(t *testing.T) {
 	}
 
 	_, err := book.Balance(context.Background(), crossed)
-	assert.ErrorIs(t, err, billing.ErrInvalidOwner)
+	require.ErrorIs(t, err, billing.ErrInvalidOwner)
 
 	_, err = book.Debit(context.Background(), billing.PrepaidDebit{
 		Owner:          crossed,
 		DeltaUsdMicros: -1_000_000,
 		EntryType:      billing.EntryTypeInference,
 	})
-	assert.ErrorIs(t, err, billing.ErrInvalidOwner)
+	require.ErrorIs(t, err, billing.ErrInvalidOwner)
 	assert.Zero(t, repo.debitCalls.Load())
 	assert.Equal(t, int64(5_000_000), repo.balanceMicros)
 }
@@ -130,14 +130,14 @@ func TestPrepaidSubscriberOwnerUnsupportedWithoutSubscriberBook(t *testing.T) {
 	svc := billing.NewService(repo)
 
 	_, err := svc.PrepaidBalance(context.Background(), billing.SubscriberOwner("sub_1"))
-	assert.ErrorIs(t, err, billing.ErrOwnerKindUnsupported)
+	require.ErrorIs(t, err, billing.ErrOwnerKindUnsupported)
 
 	_, err = svc.DebitPrepaid(context.Background(), billing.PrepaidDebit{
 		Owner:          billing.SubscriberOwner("sub_1"),
 		DeltaUsdMicros: -1_000_000,
 		EntryType:      billing.EntryTypeInference,
 	})
-	assert.ErrorIs(t, err, billing.ErrOwnerKindUnsupported)
+	require.ErrorIs(t, err, billing.ErrOwnerKindUnsupported)
 	assert.Zero(t, repo.debitCalls.Load())
 	assert.Equal(t, int64(5_000_000), repo.balanceMicros)
 }

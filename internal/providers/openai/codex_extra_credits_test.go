@@ -134,7 +134,7 @@ func creditsResponse(status int, body string) *http.Response {
 	return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}
 }
 func creditsProxy(client *Client, ctx context.Context) error {
-	return client.Proxy(ctx, router.Decision{Model: "gpt-6.1-sol", Provider: providers.ProviderOpenAI}, providers.PreparedRequest{Endpoint: providers.EndpointResponses, Body: []byte(`{"model":"gpt-6.1-sol","input":"synthetic"}`)}, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+	return client.Proxy(ctx, router.Decision{Model: "gpt-6.1-sol", Provider: providers.ProviderOpenAI}, providers.PreparedRequest{Endpoint: providers.EndpointResponses, Body: []byte(`{"model":"gpt-6.1-sol","input":"synthetic"}`)}, httptest.NewRecorder(), httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/responses", nil))
 }
 
 func TestCodexExtraCreditsPreservesWindowlessPlans(t *testing.T) {

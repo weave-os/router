@@ -63,16 +63,14 @@ func (row sessionStrategyEnabledRow) Scan(dest ...any) error {
 	if row.err != nil {
 		return row.err
 	}
-	*dest[0].(*bool) = row.enabled
-	return nil
+	return scanInto(dest[0], row.enabled)
 }
 
 func (row sessionStrategyRow) Scan(dest ...any) error {
 	if row.err != nil {
 		return row.err
 	}
-	*dest[0].(*string) = row.strategy
-	return nil
+	return scanInto(dest[0], row.strategy)
 }
 
 func TestSessionStrategyRepoGet(t *testing.T) {

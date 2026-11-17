@@ -24,7 +24,7 @@ func TestGeminiTelemetryRecordsSuccessfulOutcomeCoverage(t *testing.T) {
 		map[string]providers.Client{providers.ProviderGoogle: &fakeProvider{}},
 		nil, nil, false, providers.ProviderGoogle, "gemini-2.5-flash", telem,
 	)
-	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", nil)
 	require.NoError(t, svc.ProxyGeminiGenerateContent(authedCtx("55555555-5555-5555-5555-555555555555"), []byte(geminiInjectedBody), httptest.NewRecorder(), req))
 	row := telem.firstRow(t)
 	require.NotNil(t, row.UserPrompt, "successful requests must be represented in the outcome denominator")
@@ -45,7 +45,7 @@ func TestBypassTelemetryRecordsOutcomeAndIncomingTools(t *testing.T) {
 			svc := proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, nil, false, providers.ProviderAnthropic, bypassRequestedMdl, telem).WithUsageObserver(observer)
 			ctx := context.WithValue(bypassCtx(0.8), proxy.InstallationIDContextKey{}, "55555555-5555-5555-5555-555555555555")
 			body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"check"},{"role":"assistant","content":[{"type":"tool_use","id":"call-1","name":"Bash","input":{}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"call-1","is_error":true,"content":"failed"}]}]}`)
-			req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 			require.NoError(t, svc.ProxyMessages(ctx, body, httptest.NewRecorder(), req))
 			row := telem.firstRow(t)
 			require.NotNil(t, row.UserPrompt)

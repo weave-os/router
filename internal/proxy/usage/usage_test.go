@@ -357,8 +357,9 @@ func TestObserver_SweepDropsExpiredRejections(t *testing.T) {
 
 func TestObserver_DistinctTokensDistinctKeys(t *testing.T) {
 	o := usage.NewObserver([]byte("salt"), time.Minute, func() time.Time { return time.Unix(1, 0) })
-	assert.NotEqual(t, o.Key([]byte("token-a")), o.Key([]byte("token-b")))
-	assert.Equal(t, o.Key([]byte("token-a")), o.Key([]byte("token-a")))
+	key := o.Key([]byte("token-a"))
+	assert.NotEqual(t, key, o.Key([]byte("token-b")))
+	assert.Equal(t, key, o.Key([]byte("token-a")))
 }
 
 func TestSnapshot_Exhausted(t *testing.T) {
@@ -491,7 +492,7 @@ func TestObserverKeepsFutureResetWhenInferenceOmitsPreflightMetadata(t *testing.
 	require.True(t, ok)
 	require.Equal(t, firstReset, snapshot.Primary.ResetAt)
 	require.Equal(t, weeklyReset, snapshot.Secondary.ResetAt)
-	require.Equal(t, .5, snapshot.Primary.UsedPercent)
+	require.InDelta(t, .5, snapshot.Primary.UsedPercent, 1e-9)
 	now = firstReset.Add(time.Minute)
 	observer.Record(key, usage.Snapshot{Primary: usage.Window{UsedPercent: .1, WindowMinutes: 300}})
 	snapshot, ok = observer.Snapshot(key)

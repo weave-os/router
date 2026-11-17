@@ -10,7 +10,6 @@ import (
 )
 
 const (
-	// Verified against the shipped client's custom-base-URL window calculation.
 	claudeCodeBudgetVersion        = "2.1.257"
 	claudeCodeDefaultWindow        = 200_000
 	claudeCodeCompactOutputReserve = 20_000
@@ -40,8 +39,6 @@ func resolveClientBudget(clientIdentity ClientIdentity, headers http.Header, mod
 	if _, known := catalog.ByID(model); !known || !strings.HasPrefix(model, "claude-") {
 		return budget
 	}
-	// ANTHROPIC_BETAS can add this capability without changing the local window.
-	// The shipped client also strips a real [1m] suffix before sending it.
 	if budget.InboundContext1M && !hadVariant && router.Lookup(model).Supports(router.CapExtendedContext) {
 		budget.Evidence = router.ClientBudgetAmbiguousLongContext
 		return budget

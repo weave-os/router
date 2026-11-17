@@ -169,7 +169,7 @@ func TestProxyMessages_RescuedPrimaryDemotion(t *testing.T) {
 
 			rec := httptest.NewRecorder()
 			body := anthropicMessagesBody()
-			err := svc.ProxyMessages(rescuedFailureCtx(), body, rec, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(body))))
+			err := svc.ProxyMessages(rescuedFailureCtx(), body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(string(body))))
 
 			if tc.wantTurnErr {
 				require.Error(t, err)
@@ -198,7 +198,7 @@ func TestProxyMessages_UnrescuedIdleFailureDemotesPrimary(t *testing.T) {
 			primary := &failingClient{err: providers.ErrUpstreamIdleTimeout}
 			svc := newRescuedFailureTurnService(store, rescuableDecision("hmm:authoritative model="+rescuedPrimaryModel, false), primary, &servingClient{}, true)
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, ingress.path, strings.NewReader(string(ingress.body)))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, ingress.path, strings.NewReader(string(ingress.body)))
 			var err error
 			if ingress.openAI {
 				err = svc.ProxyOpenAIChatCompletion(rescuedFailureCtx(), ingress.body, rec, req)
@@ -237,7 +237,7 @@ func TestProxyMessages_BaselineRetryKeepsStallDemotionOnPrimary(t *testing.T) {
 	body := anthropicMessagesBody()
 	rec := httptest.NewRecorder()
 	err := svc.ProxyMessages(rescuedFailureCtx(), body, rec,
-		httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(body))))
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(string(body))))
 
 	require.ErrorIs(t, err, providers.ErrUpstreamIdleTimeout)
 	assert.Positive(t, primary.calls)
@@ -260,7 +260,7 @@ func TestProxyOpenAIChatCompletion_RescuedPrimaryDemotion(t *testing.T) {
 
 			rec := httptest.NewRecorder()
 			body := openaiChatBody()
-			err := svc.ProxyOpenAIChatCompletion(rescuedFailureCtx(), body, rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body))))
+			err := svc.ProxyOpenAIChatCompletion(rescuedFailureCtx(), body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body))))
 
 			if tc.wantTurnErr {
 				require.Error(t, err)

@@ -2,6 +2,7 @@ package main
 
 import (
 	"cmp"
+	"context"
 	"path"
 	"path/filepath"
 	"slices"
@@ -13,16 +14,28 @@ type runResult struct {
 	violations   []violation
 }
 
-func run(r repo, base string) (runResult, error) {
-	baseRev, err := r.mergeBase(base)
+func run(ctx context.Context, r repo, base string) (runResult, error) {
+	baseRev, err := r.mergeBase(ctx, base)
 	if err != nil {
 		return runResult{}, err
 	}
-	changed, err := r.changedFiles(baseRev)
+	changed, err := r.changedFiles(ctx, baseRev)
 	if err != nil {
 		return runResult{}, err
 	}
-	baseFiles, headFiles, err := measureBothSides(r, baseRev, changed)
+	baseSources, headSources, err := readBothSides(ctx, r, baseRev, changed)
+	if err != nil {
+		return runResult{}, err
+	}
+	baseFiles, headFiles, err := measureBothSides(baseSources, headSources)
+	if err != nil {
+		return runResult{}, err
+	}
+	commentViolations, err := compareComments(baseSources, headSources)
+	if err != nil {
+		return runResult{}, err
+	}
+	budgetViolations, err := compareCommentBudgets(ctx, r, baseRev)
 	if err != nil {
 		return runResult{}, err
 	}
@@ -33,8 +46,10 @@ func run(r repo, base string) (runResult, error) {
 	violations := compareFuncs(baseFiles, headFiles, allowed)
 	violations = append(violations, compareFiles(baseFiles, headFiles, allowed)...)
 	violations = append(violations, compareTotals(baseFiles, headFiles, allowed)...)
+	violations = append(violations, commentViolations...)
+	violations = append(violations, budgetViolations...)
 	if slices.ContainsFunc(changed, func(p string) bool { return path.Dir(p) == proxyDir }) {
-		surfaceViolations, err := compareProxySurface(r, baseRev, allowed)
+		surfaceViolations, err := compareProxySurface(ctx, r, baseRev, allowed)
 		if err != nil {
 			return runResult{}, err
 		}
@@ -46,15 +61,16 @@ func run(r repo, base string) (runResult, error) {
 	return runResult{baseRev: baseRev, checkedFiles: len(changed), violations: violations}, nil
 }
 
-func measureBothSides(r repo, baseRev string, changed []string) (map[string]fileMetrics, map[string]fileMetrics, error) {
-	baseSources, err := r.readAt(baseRev, changed)
+func readBothSides(ctx context.Context, r repo, baseRev string, changed []string) (map[string][]byte, map[string][]byte, error) {
+	baseSources, err := r.readAt(ctx, baseRev, changed)
 	if err != nil {
 		return nil, nil, err
 	}
 	headSources, err := r.readWorktree(changed)
-	if err != nil {
-		return nil, nil, err
-	}
+	return baseSources, headSources, err
+}
+
+func measureBothSides(baseSources, headSources map[string][]byte) (map[string]fileMetrics, map[string]fileMetrics, error) {
 	baseFiles, err := measureFiles(baseSources)
 	if err != nil {
 		return nil, nil, err
@@ -63,16 +79,16 @@ func measureBothSides(r repo, baseRev string, changed []string) (map[string]file
 	return baseFiles, headFiles, err
 }
 
-func compareProxySurface(r repo, baseRev string, allowed exceptionSet) ([]violation, error) {
-	basePaths, err := r.listDirAt(baseRev, proxyDir)
+func compareProxySurface(ctx context.Context, r repo, baseRev string, allowed exceptionSet) ([]violation, error) {
+	basePaths, err := r.listDirAt(ctx, baseRev, proxyDir)
 	if err != nil {
 		return nil, err
 	}
-	headPaths, err := r.listDirWorktree(proxyDir)
+	headPaths, err := r.listDirWorktree(ctx, proxyDir)
 	if err != nil {
 		return nil, err
 	}
-	baseSources, err := r.readAt(baseRev, basePaths)
+	baseSources, err := r.readAt(ctx, baseRev, basePaths)
 	if err != nil {
 		return nil, err
 	}

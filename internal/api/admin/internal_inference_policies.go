@@ -10,25 +10,18 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// InternalInferencePoliciesHandler serves the static registry projection: the
-// reviewed policy for every purpose, identical to the generated docs.
 func InternalInferencePoliciesHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.JSON(http.StatusOK, proxySvc.InferencePolicyRegistry().StaticProjection())
 	}
 }
 
-// InternalInferenceDeploymentHandler serves the registry as this deployment
-// can serve it: configured provider names and per-purpose candidate bindings.
 func InternalInferenceDeploymentHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.JSON(http.StatusOK, proxySvc.InferenceDeploymentProjection())
 	}
 }
 
-// InternalInferenceResolveHandler previews plan resolution for one purpose.
-// Typed resolver failures come back as 422 with a stable code; anything else
-// is reported without detail.
 func InternalInferenceResolveHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req policy.InspectionRequest

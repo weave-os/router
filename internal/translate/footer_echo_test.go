@@ -132,3 +132,10 @@ func TestFeedbackFooterInResponsesHistory_NoFooter(t *testing.T) {
 	body := []byte(`{"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]},{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}]}`)
 	assert.False(t, translate.FeedbackFooterInResponsesHistory(body))
 }
+
+func TestFeedbackFooterInHistory_UserQuotedFooterDoesNotCount(t *testing.T) {
+	body := buildBody(t, []map[string]any{
+		{"role": "user", "content": []any{textBlock("what does this mean?" + sampleFooter())}},
+	})
+	assert.False(t, translate.FeedbackFooterInHistory(body))
+}

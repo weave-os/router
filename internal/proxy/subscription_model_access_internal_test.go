@@ -45,7 +45,7 @@ func TestSubscriptionModelAccessOpenAIIngressDoesNotPayAndRemembers(t *testing.T
 
 	for range 2 {
 		recorder := httptest.NewRecorder()
-		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+		request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 		require.ErrorIs(t, svc.ProxyOpenAIChatCompletion(in.subCtx(), body, recorder, request), ErrSubscriptionPoolUnavailable)
 		assert.Empty(t, recorder.Body.String(), "the handler owns rendering the unpaid refusal")
 	}
@@ -95,7 +95,7 @@ func TestSubscriptionModelAccessScopeAndExpiry(t *testing.T) {
 	in := parityAnthropicIngress()
 	svc := in.deploymentKeyedService()
 	now := time.Unix(1_700_000_000, 0)
-	svc.now = func() time.Time { return now }
+	svc.clock = func() time.Time { return now }
 	svc.recordSubscriptionModelRejection(in.resolved(in.subCtx()), in.provider, in.model, modelAccessError())
 	resolved := svc.resolveCredentials(in.subCtx(), in.provider, in.model, nil)
 	assert.Nil(t, CredentialsFromContext(resolved))

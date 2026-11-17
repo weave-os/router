@@ -25,7 +25,7 @@ func TestHealthHandlerReportsLiveness(t *testing.T) {
 	engine.GET("/health", admin.HealthHandler)
 
 	response := httptest.NewRecorder()
-	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/health", nil))
+	engine.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/health", nil))
 
 	assert.Equal(t, http.StatusOK, response.Code)
 	assert.JSONEq(t, `{"status":"ok"}`, response.Body.String())
@@ -68,7 +68,7 @@ func TestReadinessHandler(t *testing.T) {
 			engine.GET("/readyz", admin.ReadinessHandler(test.checker))
 			response := httptest.NewRecorder()
 
-			engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+			engine.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/readyz", nil))
 
 			assert.Equal(t, test.wantStatus, response.Code)
 			assert.JSONEq(t, test.wantPayload, response.Body.String())

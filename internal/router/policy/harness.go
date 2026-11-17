@@ -2,12 +2,6 @@ package policy
 
 import "strings"
 
-// Harness values are the sidecar-facing vocabulary for the calling agent
-// harness. The router decides them; sidecars consume them verbatim and must
-// degrade a value outside their own vocabulary to the pooled default, so
-// adding a harness here never changes what an older sidecar serves. The
-// roster policy accepts the subset {*, claude_code, codex, pi, opencode} as
-// per-harness keys; cursor, api, and unknown remain pooled-only identities.
 const (
 	HarnessClaudeCode = "claude_code"
 	HarnessCodex      = "codex"
@@ -18,10 +12,6 @@ const (
 	HarnessUnknown    = "unknown"
 )
 
-// SelectionHarnessForClientApp canonicalizes OpenCode aliases for Go selection
-// while preserving the existing selection identity of other callers. The
-// latter keeps legacy pi-subagent roster behavior unchanged until its policy
-// rollout is separately evaluated.
 func SelectionHarnessForClientApp(clientApp string) string {
 	if HarnessForClientApp(clientApp) == HarnessOpenCode {
 		return HarnessOpenCode
@@ -29,8 +19,6 @@ func SelectionHarnessForClientApp(clientApp string) string {
 	return clientApp
 }
 
-// HarnessForClientApp maps a normalized client_app (see proxy.NormalizeClientApp)
-// onto the sidecar harness vocabulary.
 func HarnessForClientApp(clientApp string) string {
 	normalized := strings.ToLower(strings.TrimSpace(clientApp))
 	normalized = strings.NewReplacer("_", "-", " ", "-").Replace(normalized)

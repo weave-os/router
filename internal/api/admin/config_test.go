@@ -31,7 +31,7 @@ func TestConfigHandler_EnvProviderKeys_IncludesEveryDeployedProvider(t *testing.
 		c.Set("router_installation", &auth.Installation{ID: "inst-1"})
 	}, admin.ConfigHandler)
 
-	req := httptest.NewRequest(http.MethodGet, "/admin/v1/config", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/admin/v1/config", nil)
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, req)
 

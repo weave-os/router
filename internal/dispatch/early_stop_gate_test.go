@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -58,6 +59,23 @@ func TestEarlyStopGate_ReleasesAfterHoldMaxWithoutAnotherWrite(t *testing.T) {
 		"a silent upstream must not hold the client past holdMax")
 	assert.Equal(t, "hold_timeout", g.ReleaseReason())
 	assert.Contains(t, rec.body(), "message_start")
+}
+
+func TestEarlyStopGate_ReleasesAtHoldCap(t *testing.T) {
+	rec := httptest.NewRecorder()
+	g := dispatch.NewEarlyStopGate(rec, slog.Default())
+	g.Observe(true)
+	_, err := g.Write([]byte(strings.Repeat("x", dispatch.EarlyStopHoldCap)))
+	require.NoError(t, err)
+	assert.False(t, g.Withheld(), "a response past the hold cap is served as is")
+	assert.Equal(t, "hold_cap", g.ReleaseReason())
+	assert.Len(t, rec.Body.String(), dispatch.EarlyStopHoldCap)
+}
+
+func TestEarlyStopGate_HoldMaxLeavesARedoInsideClaudeCodeIdleWindow(t *testing.T) {
+	const claudeCodeStreamIdleDrop = 180 * time.Second
+	assert.LessOrEqual(t, dispatch.EarlyStopHoldMax, claudeCodeStreamIdleDrop/3,
+		"Claude Code drops a stream after 180s without bytes; a redo must still stream inside that window")
 }
 
 func TestEarlyStopGate_ShadowPassesThrough(t *testing.T) {

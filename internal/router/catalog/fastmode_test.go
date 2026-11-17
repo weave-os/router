@@ -12,13 +12,13 @@ import (
 func TestFastPriceFor_PublishedRatesInheritCacheMultiplier(t *testing.T) {
 	fast, ok := FastPriceFor(providers.ProviderOpenAI, "gpt-5.6-luna")
 	require.True(t, ok)
-	assert.Equal(t, 0.40, fast.InputUSDPer1M)
-	assert.Equal(t, 2.40, fast.OutputUSDPer1M)
-	assert.Equal(t, 1.25, fast.CacheWriteMultiplier)
-	assert.Equal(t, 0.10, fast.CacheReadMultiplier)
+	assert.InDelta(t, 0.40, fast.InputUSDPer1M, 1e-9)
+	assert.InDelta(t, 2.40, fast.OutputUSDPer1M, 1e-9)
+	assert.InDelta(t, 1.25, fast.CacheWriteMultiplier, 1e-9)
+	assert.InDelta(t, 0.10, fast.CacheReadMultiplier, 1e-9)
 	require.NotNil(t, fast.LongContext)
-	assert.Equal(t, 0.80, fast.LongContext.InputUSDPer1M)
-	assert.Equal(t, 3.60, fast.LongContext.OutputUSDPer1M)
+	assert.InDelta(t, 0.80, fast.LongContext.InputUSDPer1M, 1e-9)
+	assert.InDelta(t, 3.60, fast.LongContext.OutputUSDPer1M, 1e-9)
 
 	opusFast, ok := FastPriceFor(providers.ProviderAnthropic, "claude-opus-5")
 	require.True(t, ok)
@@ -28,13 +28,13 @@ func TestFastPriceFor_PublishedRatesInheritCacheMultiplier(t *testing.T) {
 func TestFastPriceFor_BaseListPriceUnchanged(t *testing.T) {
 	base, ok := PriceFor(providers.ProviderOpenAI, "gpt-5.6-luna")
 	require.True(t, ok)
-	assert.Equal(t, 0.20, base.InputUSDPer1M)
-	assert.Equal(t, 1.20, base.OutputUSDPer1M)
-	assert.Equal(t, 1.25, base.CacheWriteMultiplier)
-	assert.Equal(t, 0.10, base.CacheReadMultiplier)
+	assert.InDelta(t, 0.20, base.InputUSDPer1M, 1e-9)
+	assert.InDelta(t, 1.20, base.OutputUSDPer1M, 1e-9)
+	assert.InDelta(t, 1.25, base.CacheWriteMultiplier, 1e-9)
+	assert.InDelta(t, 0.10, base.CacheReadMultiplier, 1e-9)
 	require.NotNil(t, base.LongContext)
-	assert.Equal(t, 0.40, base.LongContext.InputUSDPer1M)
-	assert.Equal(t, 1.80, base.LongContext.OutputUSDPer1M)
+	assert.InDelta(t, 0.40, base.LongContext.InputUSDPer1M, 1e-9)
+	assert.InDelta(t, 1.80, base.LongContext.OutputUSDPer1M, 1e-9)
 	primary, ok := PrimaryPriceFor("gpt-5.6-luna")
 	require.True(t, ok)
 	assert.Equal(t, base, primary)
@@ -75,7 +75,7 @@ func TestCatalog_FastPriceOnlyOnFirstPartyBindingsAndAboveList(t *testing.T) {
 				continue
 			}
 			assert.Greater(t, fast.OutputUSDPer1M, b.Price.OutputUSDPer1M, "%s/%s fast output must cost more than list", m.ID, b.Provider)
-			assert.Equal(t, b.Price.CacheReadMultiplier, fast.CacheReadMultiplier, "%s/%s cache discount carries over", m.ID, b.Provider)
+			assert.InDelta(t, b.Price.CacheReadMultiplier, fast.CacheReadMultiplier, 1e-9, "%s/%s cache discount carries over", m.ID, b.Provider)
 			assert.Contains(t, []string{providers.ProviderOpenAI, providers.ProviderAnthropic}, b.Provider,
 				"%s: fast tier is a first-party knob, not a gateway one", m.ID)
 		}

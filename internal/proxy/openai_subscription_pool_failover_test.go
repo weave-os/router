@@ -63,7 +63,7 @@ func TestProxyOpenAIChatCompletion_SubscriptionPoolExhaustionRescuesSibling(t *t
 		InstallationIDContextKey{}, installationID.String())
 	rec := httptest.NewRecorder()
 	body := []byte(`{"model":"auto","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
-	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body)))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body)))
 
 	err := svc.ProxyOpenAIChatCompletion(ctx, body, rec, req)
 
@@ -93,7 +93,7 @@ func TestProxyOpenAIChatCompletion_SubscriptionOnlyKeepsPoolUnavailability(t *te
 	rec := httptest.NewRecorder()
 	body := openaiChatBody()
 
-	err := svc.ProxyOpenAIChatCompletion(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body))))
+	err := svc.ProxyOpenAIChatCompletion(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body))))
 
 	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
 	assert.Empty(t, rescue.endpoints, "subscription-only must not spend a paid sibling")
@@ -120,7 +120,7 @@ func TestProxyMessages_SubscriptionPoolExhaustionRescuesSibling(t *testing.T) {
 	rec := httptest.NewRecorder()
 	body := []byte(`{"model":"auto","max_tokens":1024,"stream":true,"messages":[{"role":"user","content":"read main.go"}],"tools":[{"name":"read_file","input_schema":{"type":"object","properties":{"path":{"type":"string"}}}}]}`)
 
-	err := svc.ProxyMessages(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(body))))
+	err := svc.ProxyMessages(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(string(body))))
 
 	require.NoError(t, err)
 	require.NotEmpty(t, rescue.endpoints)
@@ -180,7 +180,7 @@ func TestProxyEndpoints_CachedManagedModelDenialEvictsAutomaticPin(t *testing.T)
 			ctx := billing.WithSubscriptionOnly(managedSubscriptionContext(auth.SubscriptionProviderClaude), billing.SubscriptionOnlyCreditsDepleted)
 			ctx = context.WithValue(ctx, InstallationIDContextKey{}, installationID.String())
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(tc.body)))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", strings.NewReader(string(tc.body)))
 
 			err := tc.run(svc, ctx, tc.body, rec, req)
 

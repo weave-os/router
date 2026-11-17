@@ -84,7 +84,9 @@ done
 
 Persist `cursor` between runs. A job that stores its cursor and polls every few
 minutes is a complete incremental pipeline — the same loop does the initial
-backfill and the steady-state tail.
+backfill and the steady-state tail. Each page is built in full before the first
+byte is sent; if a connection drops mid-page, retry the same cursor, which is safe
+because rows are immutable.
 
 **Rate limit:** 60 requests per minute per key, returning `429` with
 `Retry-After` when exceeded. At the maximum page size that is 600k rows a
