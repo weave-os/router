@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 )
@@ -91,6 +92,14 @@ const (
 	KeyCyberRefusalFallback                 Key = "cyber_refusal_fallback_model"
 	KeyAnthropicServerFallback              Key = "anthropic_server_side_fallback"
 	KeyOpenAIResponsesBroad                 Key = "openai_responses_broad"
+	KeySessionPinEnabled                    Key = "session_pin_enabled"
+	KeyHMMSameTierPin                       Key = "hmm_same_tier_pin"
+	KeyHardPinExplore                       Key = "hard_pin_explore"
+	KeyCCOrchToolsCrossVendor               Key = "cc_orch_tools_crossvendor"
+	KeyEscapeNormalize                      Key = "deepseek_escape_normalize"
+	KeyPlannerTierUpgrade                   Key = "planner_tier_upgrade_enabled"
+	KeyPlannerColdPinFollowFresh            Key = "planner_cold_pin_follow_fresh"
+	KeyPlannerCorrectedEconomics            Key = "planner_corrected_economics"
 	KeyAllowedModelsHeader                  Key = "allowed_models_header"
 	KeyCCTaskToolsCrossVendor               Key = "cc_task_tools_crossvendor"
 	KeyCCAutonomySystemAppend               Key = "cc_autonomy_system_append"
@@ -239,6 +248,25 @@ func ValidateOverrides(o Overrides) error {
 	return validateEscalationOverrides(o)
 }
 
+func (o Overrides) Overlay(top Overrides) Overrides {
+	return Overrides{
+		Bools:   overlayValues(o.Bools, top.Bools),
+		Ints:    overlayValues(o.Ints, top.Ints),
+		Floats:  overlayValues(o.Floats, top.Floats),
+		Strings: overlayValues(o.Strings, top.Strings),
+	}
+}
+
+func overlayValues[V any](base, top map[Key]V) map[Key]V {
+	if len(base) == 0 && len(top) == 0 {
+		return nil
+	}
+	merged := make(map[Key]V, len(base)+len(top))
+	maps.Copy(merged, base)
+	maps.Copy(merged, top)
+	return merged
+}
+
 func (o Overrides) Keys() (keys []Key) {
 	keys = make([]Key, 0, len(o.Bools)+len(o.Ints)+len(o.Floats)+len(o.Strings))
 	for k := range o.Bools {
@@ -258,6 +286,17 @@ func (o Overrides) Keys() (keys []Key) {
 }
 
 func ParseOverrides(raw []byte) (o Overrides, err error) {
+	o, err = DecodeOverrides(raw)
+	if err != nil {
+		return Overrides{}, err
+	}
+	if err := ValidateOverrides(o); err != nil {
+		return Overrides{}, err
+	}
+	return o, nil
+}
+
+func DecodeOverrides(raw []byte) (o Overrides, err error) {
 	if len(raw) == 0 {
 		return Overrides{}, nil
 	}
@@ -282,9 +321,6 @@ func ParseOverrides(raw []byte) (o Overrides, err error) {
 		if err != nil {
 			return Overrides{}, err
 		}
-	}
-	if err := ValidateOverrides(o); err != nil {
-		return Overrides{}, err
 	}
 	return o, nil
 }
