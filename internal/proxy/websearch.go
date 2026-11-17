@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -44,16 +43,16 @@ func (s *Service) serveNativeWebSearch(
 		return false
 	}
 
-	start := time.Now()
+	start := s.clock.Now()
 	result, err := s.webSearch.Search(credCtx, query)
 	if err != nil {
 		log.Warn("Native web-search execution failed; falling back to normal routing",
-			"err", err, "latency_ms", time.Since(start).Milliseconds())
+			"err", err, "latency_ms", s.clock.Now().Sub(start).Milliseconds())
 		return false
 	}
 
 	msg := websearch.SynthesizeMessage(
-		"msg_router_websearch_"+fmt.Sprintf("%x", time.Now().UnixNano()),
+		"msg_router_websearch_"+fmt.Sprintf("%x", s.clock.Now().UnixNano()),
 		model, tool.Name, query, result, inputTokens,
 	)
 	if err := writeWebSearchMessage(w, msg, stream); err != nil {
@@ -63,7 +62,7 @@ func (s *Service) serveNativeWebSearch(
 	log.Info("Served native web-search turn on the tenant's own provider",
 		"tool_type", tool.Type,
 		"results", len(result.Results),
-		"latency_ms", time.Since(start).Milliseconds(),
+		"latency_ms", s.clock.Now().Sub(start).Milliseconds(),
 	)
 	return true
 }

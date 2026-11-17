@@ -14,7 +14,6 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/subscriptions"
 )
@@ -44,7 +43,7 @@ func (p goldenProviderPools) Disable(ctx context.Context, owner auth.Subscriptio
 func withSpentCodexPool(svc *proxy.Service, h *goldenHarness) *proxy.Service {
 	codex := newGoldenSubscriptionPool(h.clock.Now, "codex-seat")
 	codex.cooling["codex-seat"] = goldenCodexSeatReset
-	return withGoldenClock(svc, h).WithManagedSubscriptions(goldenProviderPools{
+	return svc.WithManagedSubscriptions(goldenProviderPools{
 		subscriptions.ProviderCodex:  codex,
 		subscriptions.ProviderClaude: newGoldenSubscriptionPool(h.clock.Now, "claude-seat"),
 	})
@@ -86,7 +85,7 @@ func goldenSubscriptionExhaustionScenarios() []goldenScenario {
 		name: ingressResponses + "_stream_spent_codex_pool_native_only_continuation_served_on_paid_key", ingress: ingressResponses,
 		decisions: []router.Decision{decision(providers.ProviderOpenAI, goldenCodexModel), decision(providers.ProviderAnthropic, goldenAnthropicModel)},
 		// What the HMM policy returns once every arm it may rank is excluded.
-		noCandidateErr: fmt.Errorf("hmm_embedding: arm selection: %w: %w", policy.ErrNoEligibleArm, hmm.ErrHMMUnavailable),
+		noCandidateErr: fmt.Errorf("hmm_embedding: arm selection: %w", policy.ErrNoEligibleArm),
 		upstreams: map[string][]goldenStep{
 			providers.ProviderAnthropic: {anthropicOK(true, "rescued on claude")},
 			providers.ProviderOpenAI:    {goldenResponsesOK("served on paid key")},

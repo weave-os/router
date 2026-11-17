@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"time"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
@@ -67,7 +66,7 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 		RequestID:              auxRequestID,
 		SpanType:               SpanTypeAuxiliaryInference,
 		TraceID:                requestID,
-		Timestamp:              time.Now(),
+		Timestamp:              s.clock.Now(),
 		DecisionModel:          usage.Model,
 		DecisionProvider:       usage.Provider,
 		RequestedInputCostUSD:  inputCost,
@@ -112,7 +111,7 @@ func (s *Service) recordEscalationJudgeInference(ctx context.Context, installati
 		RequestID:                requestID + "_escalation_judge_" + job.ID,
 		SpanType:                 SpanTypePlatformAuxiliaryInference,
 		TraceID:                  requestID,
-		Timestamp:                time.Now(),
+		Timestamp:                s.clock.Now(),
 		DecisionModel:            job.Model,
 		DecisionProvider:         job.Provider,
 		DecisionReason:           decisionReasonEscalationJudge,

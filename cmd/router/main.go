@@ -574,7 +574,7 @@ func main() {
 
 	var pinStore sessionpin.Store
 	if config.GetOr("ROUTER_SESSION_PIN_ENABLED", "true") == "true" {
-		pinStore = postgres.NewSessionPinRepo(pool)
+		pinStore = sessionpin.GatedByFlag(postgres.NewSessionPinRepo(pool))
 		safeGo(logger, "session-pin-sweep", func() { runSessionPinSweep(context.Background(), pinStore) })
 		logger.Info("Session pin store enabled (sliding 1h TTL, hourly sweep)")
 	}
@@ -1044,7 +1044,7 @@ func main() {
 		panic(err)
 	}
 
-	publishFlagRegistry(logger, repo.FlagDefinitions, map[flags.Key]string{
+	publishFlagRegistry(logger, repo.FlagDefinitions, withRoutingSwitchDefaults(map[flags.Key]string{
 		flags.KeyEscalationActiveClassifier:           string(flags.EscalationClassifierNone),
 		flags.KeyEscalationShadowClassifier:           string(escalationShadowDefault),
 		flags.KeyEscalationCadence:                    strconv.Itoa(llmescalation.DefaultCadence),
@@ -1096,7 +1096,7 @@ func main() {
 		flags.KeyCyberRefusalRetry:                    boolDefault(cyberRefusalRetry),
 		flags.KeyCyberRefusalFallback:                 cyberRefusalFallbackModel,
 		flags.KeyAnthropicServerFallback:              boolDefault(anthropicServerSideFallback),
-	})
+	}, hmmSameTierPin, hardPinExplore, ccOrchToolsCrossVendor, escapeNormalize, plannerCfg))
 
 	var sessionStrategyStore sessionstrategy.Store = postgres.NewSessionStrategyRepo(pool)
 
@@ -1129,8 +1129,8 @@ func main() {
 	}
 	servedModels := proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)
 
-	proxySvc := proxy.NewService(nil, providerMap, telemetryEmitter, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
-		WithTranslationMetrics(otel.NewTranslationMetrics()).
+	proxySvc := withRLPolicyStrategy(proxy.NewService(nil, providerMap, telemetryEmitter, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
+		WithClock(time.Now).WithTranslationMetrics(otel.NewTranslationMetrics()).
 		WithClaudeSubscriptionPlanReader(anthropicClient).
 		WithExternalKeyUsageRecorder(authSvc).
 		WithCodexExtraCredits(allowCodexCredits).
@@ -1144,7 +1144,6 @@ func main() {
 		WithEscalationShadowDefault(escalationShadowDefault).
 		WithTranslationCompatibilityMode(proxy.TranslationCompatibilityMode(translationCompatibilityMode)).
 		WithScopedSearchRequirement(scopedSearchRequirement, searchRequirementDecayTurns).
-		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyRL, Router: rlRouter, Unavailable: rl.ErrPolicyUnavailable}).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: router.StrategyHMM, Router: hmmRouter, Unavailable: hmm.ErrHMMUnavailable,
 			Capabilities: hmmCapabilities,
@@ -1229,7 +1228,7 @@ func main() {
 		WithWebSearchExecutor(cortexWebSearch(logger)).
 		WithAvailableModels(servedModels).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
-		WithBillingService(billingSvc)
+		WithBillingService(billingSvc), rlRouter)
 	inferenceDeployment.RoutableModels = servedModels
 	if err := configureAtomicClassifier(proxySvc, pool, availableProviders, deploymentMode); err != nil {
 		logger.Error("Failed to configure atomic classifier", "err", err)

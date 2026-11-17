@@ -74,3 +74,11 @@ func TestLookup_GPT61SolRequiresReasoning(t *testing.T) {
 	assert.Equal(t, []string{"low", "medium", "high", "xhigh", "max"}, spec.Reasoning().Levels)
 	assert.True(t, spec.Reasoning().AlwaysOn)
 }
+
+func TestLookup_GPT62RequiresReasoning(t *testing.T) {
+	for _, id := range []string{"gpt-6.2-sol", "gpt-6.2-astra"} {
+		spec := router.Lookup(id)
+		assert.True(t, spec.Supports(router.CapReasoning), id)
+		assert.True(t, spec.Reasoning().AlwaysOn, id)
+	}
+}

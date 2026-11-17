@@ -27,7 +27,7 @@ func poolRefusalPins() map[string]poolRefusalPin {
 	now := time.Now()
 	cooling := now.Add(time.Hour)
 	throttledSeat := &auth.SubscriptionAccount{ID: "seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateCooldown, CooldownUntil: &cooling}
-	svc := &Service{now: func() time.Time { return now }}
+	svc := &Service{clock: func() time.Time { return now }}
 	enrollmentUnknown := func(ctx context.Context) context.Context {
 		return context.WithValue(WithManagedSubscriptionUsage(ctx), ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 	}

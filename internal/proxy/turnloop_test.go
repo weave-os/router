@@ -464,7 +464,7 @@ func TestTurnLoop_HMMConversationFollowsFreshDecision(t *testing.T) {
 	store.mu.Unlock()
 }
 
-func TestTurnLoop_HMMToolExecutionPhaseChangeUsesFreshDecision(t *testing.T) {
+func TestTurnLoop_HMMToolExecutionPhaseChangeKeepsWarmPinWhenEVNegative(t *testing.T) {
 	store := newFakePinStore()
 	store.hasPin = true
 	store.pin = sessionpin.Pin{
@@ -492,8 +492,8 @@ func TestTurnLoop_HMMToolExecutionPhaseChangeUsesFreshDecision(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "main-loop HMM turn must ask for a fresh decision")
-	assert.Equal(t, "claude-sonnet-5", rec.Header().Get(proxy.HeaderRouterModel),
-		"HMM tool/explore phase changes should follow the fresh sidecar decision")
+	assert.Equal(t, "claude-sonnet-4-5", rec.Header().Get(proxy.HeaderRouterModel),
+		"a lateral HMM phase change must keep the warm pin when the EV gate does not pay for the cache rebuild")
 
 	store.mu.Lock()
 	assertOnlyHMMHistoryUpserts(t, store)

@@ -317,7 +317,7 @@ func TestPickedModelKeepsSpentPlanAndRefusesMeteredRescue(t *testing.T) {
 	svc := &Service{
 		usageObserver: observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()),
 		credentials:   credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}},
-		now:           func() time.Time { return time.Unix(1_000_000, 0) },
+		clock:         func() time.Time { return time.Unix(1_000_000, 0) },
 	}
 	routed := withClaudeCreditFallback(context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, exhaustedSubToken))
 	picked := withPickedModelFunding(auth.WithClientModelPassthrough(routed), true, providers.ProviderAnthropic)
