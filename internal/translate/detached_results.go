@@ -81,7 +81,10 @@ func openAILastUserMessage(body []byte) LastUserMessageInfo {
 }
 
 func (e *RequestEnvelope) openAIRoutingFeatures() RoutingFeatures {
-	return detachFromBody(e.openAIRoutingFeaturesFromView())
+	feats := e.openAIRoutingFeaturesFromView()
+	feats.Model = strings.Clone(feats.Model)
+	feats.LastPreview = strings.Clone(feats.LastPreview)
+	return feats
 }
 
 func (e *RequestEnvelope) openAIConversationMessages() []ConversationMessage {
