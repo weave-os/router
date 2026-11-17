@@ -45,10 +45,9 @@ func leaseOrResetCodex(ctx context.Context, leaser subscriptions.Leaser, observe
 }
 
 func codexResetOwner(owner auth.SubscriptionOwner, requestUsage *ManagedSubscriptionUsage) auth.SubscriptionOwner {
-	excluded := slices.DeleteFunc(slices.Clone(owner.ExcludedAccountIDs), func(accountID string) bool {
+	owner.ExcludedAccountIDs = slices.DeleteFunc(slices.Clone(owner.ExcludedAccountIDs), func(accountID string) bool {
 		_, quotaExhausted := requestUsage.QuotaExhaustedAccounts[accountID]
 		return quotaExhausted
 	})
-	owner.ExcludedAccountIDs = excluded
 	return owner
 }

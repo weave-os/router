@@ -134,6 +134,7 @@ func (s *Service) withUsageObserver(ctx context.Context, headers http.Header) co
 		}
 		observation := usage.ObservationFromContext(callCtx)
 		if observation == nil {
+			recordUnmanagedClaudeQuota(s.usageObserver, creds, h)
 			return
 		}
 		switch creds.Source {

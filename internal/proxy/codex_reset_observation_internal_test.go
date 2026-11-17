@@ -53,3 +53,16 @@ func TestCodexResetDiscardsDelayedPreResetObservation(t *testing.T) {
 	_, found = observer.Snapshot(token)
 	require.False(t, found, "the same stale callback must not repopulate the token alias")
 }
+
+func TestUsageObserverRequiresFenceForManagedCodexHeaders(t *testing.T) {
+	observer := usage.NewObserver([]byte("reset-observation-test"), time.Minute, time.Now)
+	svc := newServiceWithProviders(t, nil).WithUsageObserver(observer)
+	ctx := svc.withUsageObserver(managedSubscriptionContext(auth.SubscriptionProviderCodex), http.Header{})
+	ctx = context.WithValue(ctx, CredentialsContextKey{}, &Credentials{
+		APIKey: []byte("synthetic-token"), AccountID: []byte("workspace"), OAuth: true,
+		Source: credSourceCodexSubscription, SubscriptionAccountID: "seat",
+	})
+	providers.ObserveUpstreamHeaders(ctx, http.Header{"X-Codex-Primary-Used-Percent": {"100"}})
+	_, found := observer.Snapshot(observer.Key([]byte("subscription-account:seat")))
+	require.False(t, found, "an unfenced managed response must not restore stale account quota")
+}

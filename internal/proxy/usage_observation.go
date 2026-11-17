@@ -2,12 +2,22 @@ package proxy
 
 import (
 	"context"
+	"net/http"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
 )
+
+func recordUnmanagedClaudeQuota(observer *usage.Observer, credentials *Credentials, headers http.Header) {
+	if credentials.Source != credSourceSubscription || credentials.SubscriptionAccountID != "" {
+		return
+	}
+	if snapshot, ok := usage.ParseAnthropicUnifiedHeaders(headers); ok {
+		observer.Record(observer.Key(credentials.APIKey), snapshot)
+	}
+}
 
 func attemptWithUsageObservation(ctx context.Context, observer *usage.Observer, attempt dispatchAttempt, decision router.Decision, upstream providers.Client, clock auth.Clock) error {
 	credentials := CredentialsFromContext(ctx)
