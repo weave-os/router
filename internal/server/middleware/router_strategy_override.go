@@ -12,26 +12,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// RouterStrategyOverrideHeader selects a registered routing strategy for a
-// request. Absent, unregistered or retired ("cluster") values fall through to
-// the deployment default.
 const RouterStrategyOverrideHeader = "x-weave-router-strategy"
 
-// StrategyAvailability reports whether a registered strategy has a live router
-// right now; the proxy service's PolicyStrategyAvailable satisfies it.
 type StrategyAvailability func(router.Strategy) bool
 
-// WithRouterStrategyDefault applies the persisted installation strategy, permits an
-// eval header override when authorized, and applies a deployment-level default for
-// installations with no explicit override (allowlist-first, then one-flag global
-// rollout); available is injected by the proxy registry.
-// hmm_beta may be pinned per installation (or requested by an authorized header)
-// but never becomes the deployment default, so a broken beta lane cannot take
-// every installation with it. Beta is also gated on live availability: the lane
-// is registered even when its manager never loaded a snapshot. A persisted
-// strategy that is unregistered or unavailable fails closed with 503
-// routing_strategy_unavailable; a persisted "cluster" follows the default.
-// A nil liveAvailability leaves beta unselectable.
 func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability StrategyAvailability, available ...router.Strategy) gin.HandlerFunc {
 	if len(available) == 0 {
 		available = []router.Strategy{
@@ -44,8 +28,6 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability
 	for _, strategy := range available {
 		allowed[strategy] = struct{}{}
 	}
-	// Managed workers use the default exactly as passed; other installs use it
-	// normalized against the registered strategies.
 	managedDefaultStrategy := defaultStrategy
 	defaultStrategy = NormalizeRouterStrategyDefault(defaultStrategy, available...)
 	selectable := func(strategy router.Strategy) bool {
@@ -127,10 +109,6 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability
 	}
 }
 
-// NormalizeRouterStrategyDefault returns "" for a deployment default that is
-// not registered, so installations following it fail closed. hmm_beta is never
-// a valid default: it is an opt-in lane pinned per installation or per
-// session, not a fleet-wide policy.
 func NormalizeRouterStrategyDefault(defaultStrategy router.Strategy, available ...router.Strategy) router.Strategy {
 	allowed := make(map[router.Strategy]struct{}, len(available))
 	for _, strategy := range available {

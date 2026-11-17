@@ -149,9 +149,9 @@ func TestCodexAgentRoutingIsolation(t *testing.T) {
 		}
 		probabilities[string(group)] = turn.confidence
 		classification.prediction = policy.Result{SchemaVersion: policy.SchemaVersionV4, RouteID: "synthetic-route", ClassOrder: classOrder, PredictedLabel: string(group), ClassProbabilities: probabilities}
-		body := ctx.Value(nativeResponsesBodyContextKey{}).([]byte)
+		body := mustAs[[]byte](t, ctx.Value(nativeResponsesBodyContextKey{}))
 		recorder := httptest.NewRecorder()
-		require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, recorder, httptest.NewRequest(http.MethodPost, "/v1/responses", nil)))
+		require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, recorder, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)))
 		require.Len(t, upstream.models, len(parentModels)+len(childModels)+1)
 		model := upstream.models[len(upstream.models)-1]
 		if turn.child {

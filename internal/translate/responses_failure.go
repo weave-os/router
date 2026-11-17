@@ -10,13 +10,8 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// responsesContextOverflowCode is the code OpenAI's Responses API puts on an
-// in-stream failure for a prompt larger than the model's window.
 const responsesContextOverflowCode = "context_length_exceeded"
 
-// responsesErrorEventFailure extracts the type/message of a Responses `error`
-// event. OpenAI nests them under "error" (code, then type); the flat
-// top-level shape is read as a fallback.
 func responsesErrorEventFailure(data []byte) (errType, msg string) {
 	nested := gjson.GetBytes(data, "error")
 	errType = nested.Get("code").String()
@@ -33,9 +28,6 @@ func responsesErrorEventFailure(data []byte) (errType, msg string) {
 	return errType, msg
 }
 
-// responsesSSEFailure scans a buffered Responses SSE stream for the first
-// failure event: an `error` event, a `response.failed`, or an incomplete
-// response that isn't a max_output_tokens stop.
 func responsesSSEFailure(b []byte) (errType, msg string, found bool) {
 	rest := b
 	for {
@@ -65,10 +57,6 @@ func responsesSSEFailure(b []byte) (errType, msg string, found bool) {
 	}
 }
 
-// responsesFailureStatus is the HTTP status a Responses failure reports to
-// dispatch. OpenAI rejects an over-window prompt inside an HTTP 200 stream, so
-// that failure reports 400 to classify as a context overflow like any other
-// provider's rejection; every other failure is an upstream fault.
 func responsesFailureStatus(errType string) int {
 	if errType == responsesContextOverflowCode {
 		return http.StatusBadRequest
@@ -76,8 +64,6 @@ func responsesFailureStatus(errType string) int {
 	return http.StatusBadGateway
 }
 
-// bufferedContextOverflow returns the over-window rejection for a buffered
-// stream so dispatch renders it natively, or nil for any other outcome.
 func bufferedContextOverflow(b []byte, body func(errType, msg string) []byte) error {
 	errType, msg, found := responsesSSEFailure(b)
 	if !found || responsesFailureStatus(errType) != http.StatusBadRequest {
@@ -86,8 +72,6 @@ func bufferedContextOverflow(b []byte, body func(errType, msg string) []byte) er
 	return &providers.UpstreamErrorResponse{Status: http.StatusBadRequest, Body: body(errType, msg)}
 }
 
-// splitBufferedResponsesEvent includes an unterminated final SSE event because
-// the caller has the complete buffered response body.
 func splitBufferedResponsesEvent(buf []byte) (event []byte, n int) {
 	if event, n = sse.SplitNext(buf); n != 0 {
 		return event, n
@@ -96,4 +80,37 @@ func splitBufferedResponsesEvent(buf []byte) (event []byte, n int) {
 		return nil, 0
 	}
 	return buf, len(buf)
+}
+
+func responsesTerminalIsFailure(resp gjson.Result) bool {
+	if !resp.Exists() {
+		return true
+	}
+	if resp.Get("status").String() == "failed" {
+		return true
+	}
+	if err := resp.Get("error"); err.Exists() && err.Type != gjson.Null {
+		return true
+	}
+	return resp.Get("status").String() == "incomplete" && resp.Get("incomplete_details.reason").String() != "max_output_tokens"
+}
+
+func openAIErrorBody(errType, msg string) []byte {
+	if errType == "" {
+		errType = "api_error"
+	}
+	if msg == "" {
+		msg = "upstream Responses request failed"
+	}
+	jw := newJSONWriter()
+	jw.Obj()
+	jw.Key("error")
+	jw.Obj()
+	jw.Key("message")
+	jw.Str(msg)
+	jw.Key("type")
+	jw.Str(errType)
+	jw.EndObj()
+	jw.EndObj()
+	return jw.Bytes()
 }

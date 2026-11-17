@@ -315,7 +315,7 @@ func TestExtractForceModelCommand_ArrayContentMultipleTextBlocks(t *testing.T) {
 	blocks, _ := last["content"].([]any)
 	require.Len(t, blocks, 2)
 	second, _ := blocks[1].(map[string]any)
-	assert.Equal(t, "", second["text"], "the directive-bearing text block must be stripped")
+	assert.Empty(t, mustAs[string](t, second["text"]), "the directive-bearing text block must be stripped")
 }
 
 func TestExtractForceModelCommand_AgentToolResultString(t *testing.T) {
@@ -339,7 +339,7 @@ func TestExtractForceModelCommand_AgentToolResultString(t *testing.T) {
 	require.True(t, found)
 	assert.Equal(t, "opus", cmd.Model)
 	assert.True(t, cmd.FromToolResult)
-	assert.Equal(t, "", lastUserMessageText(t, env))
+	assert.Empty(t, lastUserMessageText(t, env))
 }
 
 func TestExtractForceModelCommand_AgentToolResultBlock(t *testing.T) {
@@ -521,7 +521,7 @@ func TestExtractForceModelCommand_OpenAIToolResult(t *testing.T) {
 	msgs, _ := prepared["messages"].([]any)
 	require.Len(t, msgs, 3, "the tool message must remain to answer the assistant tool call")
 	tool, _ := msgs[2].(map[string]any)
-	assert.Equal(t, "", tool["content"], "only the command text is stripped")
+	assert.Empty(t, mustAs[string](t, tool["content"]), "only the command text is stripped")
 }
 
 func TestExtractForceModelCommand_ModelAliasInUserTextAfterOpenAIToolUse(t *testing.T) {
@@ -700,7 +700,7 @@ func lastUserMessageText(t *testing.T, env *translate.RequestEnvelope) string {
 			if len(blocks) > 0 {
 				block, _ := blocks[len(blocks)-1].(map[string]any)
 				if block["type"] == "text" {
-					return block["text"].(string)
+					return mustAs[string](t, block["text"])
 				}
 			}
 		}
@@ -723,7 +723,7 @@ func lastUserMessageArrayText(t *testing.T, env *translate.RequestEnvelope) stri
 		for _, b := range blocks {
 			block, _ := b.(map[string]any)
 			if block["type"] == "text" {
-				return block["text"].(string)
+				return mustAs[string](t, block["text"])
 			}
 		}
 	}

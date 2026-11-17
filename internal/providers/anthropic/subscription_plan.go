@@ -20,8 +20,6 @@ const (
 	organizationEnterprise organizationType = "claude_enterprise"
 )
 
-// SubscriptionPlan uses the authenticated profile's organization_type exclusively.
-// Quota windows, overage and organization display names do not identify a plan.
 func (c *Client) SubscriptionPlan(ctx context.Context, token []byte) (providers.SubscriptionPlan, error) {
 	if !c.SupportsSubscriptions() {
 		return providers.SubscriptionPlanUnknown, nil
@@ -38,7 +36,7 @@ func (c *Client) SubscriptionPlan(ctx context.Context, token []byte) (providers.
 	if err != nil {
 		return providers.SubscriptionPlanUnknown, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return providers.SubscriptionPlanUnknown, fmt.Errorf("subscription profile returned status %d", resp.StatusCode)
 	}

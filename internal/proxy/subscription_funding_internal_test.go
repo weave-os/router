@@ -64,7 +64,7 @@ func TestSubscriptionFundingPaidDispatchRequiresQuotaProof(t *testing.T) {
 				}
 				rec := httptest.NewRecorder()
 				buf := newPreludeBuffer(rec)
-				in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
+				in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 				in.initialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
 				_, err := svc.dispatchWithFallback(ctx, in)
 				if tc.allowed {
@@ -86,7 +86,7 @@ func TestSubscriptionFundingFinalOAuthLeaseIsAllowed(t *testing.T) {
 	ctx := WithManagedSubscriptionCandidates(withClaudeCreditFallback(context.Background()), []*auth.SubscriptionAccount{{ID: "seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive}})
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
+	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 	in.initialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
 	_, err := svc.dispatchWithFallback(ctx, in)
 	require.NoError(t, err)
@@ -112,7 +112,7 @@ func TestSubscriptionRecoveryDoesNotExpandAdmissionSnapshot(t *testing.T) {
 	ctx := WithManagedSubscriptionCandidates(withClaudeCreditFallback(context.Background()), []*auth.SubscriptionAccount{{ID: "initial-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive}})
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
+	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 	in.initialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
 	_, err := svc.dispatchWithFallback(ctx, in)
 	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)
@@ -126,7 +126,7 @@ func TestSubscriptionLeaseOutsideSnapshotFallsThroughToAdmittedSeat(t *testing.T
 	ctx := WithManagedSubscriptionCandidates(withClaudeCreditFallback(context.Background()), []*auth.SubscriptionAccount{{ID: "initial-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive}})
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
+	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 	in.initialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
 	_, err := svc.dispatchWithFallback(ctx, in)
 	require.NoError(t, err)
@@ -142,7 +142,7 @@ func TestSubscriptionLeaseOutsideSnapshotBlocksPaidRecovery(t *testing.T) {
 	ctx := WithManagedSubscriptionCandidates(withClaudeCreditFallback(context.Background()), []*auth.SubscriptionAccount{{ID: "spent-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &resetAt}})
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
+	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 	in.initialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
 	_, err := svc.dispatchWithFallback(ctx, in)
 	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)
@@ -160,7 +160,7 @@ func TestSubscriptionFundingLiveQuotaProofAllowsAPIWithoutObserver(t *testing.T)
 	ctx := WithManagedSubscriptionCandidates(withClaudeCreditFallback(context.Background()), []*auth.SubscriptionAccount{{ID: "seat", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive}})
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderOpenAI}}, nil)
+	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderOpenAI}}, nil)
 	in.initialDecision = router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel}
 	_, err := svc.dispatchWithFallback(ctx, in)
 	require.NoError(t, err)
@@ -179,7 +179,7 @@ func TestSubscriptionFundingProviderFailureAuthorizesPaidRescue(t *testing.T) {
 	ctx := WithManagedSubscriptionCandidates(withClaudeCreditFallback(context.Background()), []*auth.SubscriptionAccount{{ID: "seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive}})
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
+	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 	in.initialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
 	_, err := svc.dispatchWithFallback(ctx, in)
 	require.NoError(t, err)
@@ -200,7 +200,7 @@ func TestSubscriptionFundingOperationalFailuresNeverAuthorizeAPI(t *testing.T) {
 			ctx := WithManagedSubscriptionCandidates(withClaudeCreditFallback(context.Background()), []*auth.SubscriptionAccount{{ID: "seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive}})
 			rec := httptest.NewRecorder()
 			buf := newPreludeBuffer(rec)
-			in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
+			in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 			in.initialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
 			_, err := svc.dispatchWithFallback(ctx, in)
 			require.Error(t, err)
@@ -219,8 +219,8 @@ func TestSubscriptionFundingBufferedAuxiliaryCannotClearGuard(t *testing.T) {
 	summarizer := newTestSummarizer(t, upstream, policy.HandoverSummaryDefaultModel, time.Second)
 	plan, err := summarizer.plans.Resolve(policy.ResolutionRequest{Purpose: inference.PurposeHandoverSummary, RouterRequest: router.Request{EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}})
 	require.NoError(t, err)
-	transport := dispatch.Buffered{Prepare: func(context.Context, dispatch.Attempt) (providers.PreparedRequest, *http.Request, error) {
-		return providers.PreparedRequest{}, httptest.NewRequest(http.MethodPost, "/v1/messages", nil), nil
+	transport := dispatch.Buffered{Prepare: func(prepareCtx context.Context, _ dispatch.Attempt) (providers.PreparedRequest, *http.Request, error) {
+		return providers.PreparedRequest{}, httptest.NewRequestWithContext(prepareCtx, http.MethodPost, "/v1/messages", nil), nil
 	}}.Transport()
 	_, err = summarizer.executor.Run(ctx, inference.InvocationRequest{Purpose: plan.Purpose()}, plan, transport)
 	require.ErrorIs(t, err, dispatch.ErrAuthorizationDenied)
@@ -269,7 +269,7 @@ func TestSubscriptionFundingExpiredShortWindowCannotAuthorizeAPI(t *testing.T) {
 				now := observedAt
 				observer := usage.NewObserver([]byte("synthetic-salt"), time.Minute, func() time.Time { return now })
 				svc := newServiceWithProviders(t, nil).WithUsageObserver(observer)
-				svc.now = func() time.Time { return now }
+				svc.clock = func() time.Time { return now }
 				ctx := context.Background()
 				credential, directToken := "subscription-account:seat", ""
 				if direct {
@@ -304,11 +304,11 @@ func TestSubscriptionFundingPaidOverageIsQuotaProof(t *testing.T) {
 		WithManagedSubscriptions(&scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "seat", AccessToken: "oauth-token"}}}).
 		WithUsageObserver(observer).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
-	svc.now = func() time.Time { return now }
+	svc.clock = func() time.Time { return now }
 	ctx := WithManagedSubscriptionCandidates(withClaudeCreditFallback(context.Background()), []*auth.SubscriptionAccount{{ID: "seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive}})
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
+	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 	in.initialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
 	_, err := svc.dispatchWithFallback(ctx, in)
 	require.NoError(t, err)
@@ -321,7 +321,7 @@ func TestSubscriptionFundingDirectTokenOverageIsQuotaProof(t *testing.T) {
 	observer := usage.NewObserver([]byte("synthetic-salt"), 24*time.Hour, func() time.Time { return now })
 	observer.Record(observer.Key([]byte("synthetic-direct-token")), usage.Snapshot{OverageInUse: true, UnifiedResetAt: now.Add(time.Hour)})
 	svc := newServiceWithProviders(t, nil).WithUsageObserver(observer)
-	svc.now = func() time.Time { return now }
+	svc.clock = func() time.Time { return now }
 	require.NoError(t, svc.authorizeSubscriptionAPI(context.Background(), subscriptions.ProviderClaude, "", "synthetic-direct-token", clientAppRefusalFunding{}))
 	now = now.Add(2 * time.Hour)
 	require.ErrorIs(t, svc.authorizeSubscriptionAPI(context.Background(), subscriptions.ProviderClaude, "", "synthetic-direct-token", clientAppRefusalFunding{}), ErrSubscriptionPoolUnavailable,

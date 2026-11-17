@@ -23,7 +23,7 @@ func TestProxy_NonStreamingResponsesContextOverflowPreservesBadRequest(t *testin
 	defer upstream.Close()
 
 	client := openai.NewClient("synthetic-api-key", upstream.URL)
-	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 	prepared := providers.PreparedRequest{
 		Body:     []byte(`{"model":"gpt-5","input":"synthetic prompt"}`),
 		Endpoint: providers.EndpointResponses,

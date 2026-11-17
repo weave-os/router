@@ -93,7 +93,7 @@ func TestSiblingRescue_RecordsAttemptSeparatelyFromUse(t *testing.T) {
 				svc.telemetry = telemetry
 
 				err := ingress.call(svc, rescuedFailureCtx(), ingress.body, httptest.NewRecorder(),
-					httptest.NewRequest(http.MethodPost, ingress.path, strings.NewReader(string(ingress.body))))
+					httptest.NewRequestWithContext(t.Context(), http.MethodPost, ingress.path, strings.NewReader(string(ingress.body))))
 				if tc.wantUsed {
 					require.NoError(t, err)
 				} else {

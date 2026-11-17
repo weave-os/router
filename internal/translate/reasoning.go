@@ -12,7 +12,6 @@ import (
 
 var ErrReasoningIncompatible = errors.New("reasoning intent is not representable")
 
-// ReasoningIntentKind describes the request-level reasoning semantics.
 type ReasoningIntentKind string
 
 const (
@@ -22,8 +21,6 @@ const (
 	ReasoningBudget   ReasoningIntentKind = "budget"
 )
 
-// ReasoningIntent is the canonical reasoning request preserved across wire
-// formats before it is checked against a target model's capabilities.
 type ReasoningIntent struct {
 	Kind               ReasoningIntentKind
 	Level              string
@@ -33,7 +30,6 @@ type ReasoningIntent struct {
 	NormalizationNotes []string
 }
 
-// ReasoningIntent returns the reasoning request carried by this envelope.
 func (e *RequestEnvelope) ReasoningIntent() ReasoningIntent {
 	if e == nil {
 		return ReasoningIntent{}
@@ -41,7 +37,6 @@ func (e *RequestEnvelope) ReasoningIntent() ReasoningIntent {
 	return ParseReasoningIntent(e.format, e.body)
 }
 
-// ParseReasoningIntent extracts a wire-format-specific reasoning request.
 func ParseReasoningIntent(format Format, body []byte) ReasoningIntent {
 	if intent := parseReasoningEffort(gjson.GetBytes(body, "reasoning_effort"), "openai.reasoning_effort"); intent.Kind != "" {
 		return intent
@@ -98,8 +93,6 @@ func parseReasoningEffort(value gjson.Result, source string) ReasoningIntent {
 	}
 }
 
-// ApplyReasoningIntent validates the request against a target model. A forced
-// effort retains the caller's source while recording the router override.
 func ApplyReasoningIntent(intent ReasoningIntent, spec router.ModelSpec, forcedLevel string) (ReasoningIntent, error) {
 	if forcedLevel != "" {
 		intent = ReasoningIntent{
@@ -123,7 +116,6 @@ func ApplyReasoningIntent(intent ReasoningIntent, spec router.ModelSpec, forcedL
 		}
 		return intent, nil
 	case ReasoningAuto:
-		// Omitting a target-specific setting preserves the target's default.
 		return intent, nil
 	case ReasoningBudget:
 		if !caps.SupportsBudget {
@@ -155,15 +147,8 @@ func containsReasoningLevel(levels []string, level string) bool {
 	return false
 }
 
-// minReasoningOutputTokens floors the output budget sent to a target that
-// spends part of it on hidden reasoning: a tiny client budget (1 for a quota
-// probe, 64 for a title or a classifier verdict) is exhausted before a visible
-// token is emitted. The budget is a ceiling, not an allocation, so the floor
-// costs nothing on turns that stop early.
 const minReasoningOutputTokens = 16000
 
-// reasoningOutputFloor returns want, raised to minReasoningOutputTokens when
-// the target will reason before answering.
 func reasoningOutputFloor(want int64, reasoning bool) int64 {
 	if reasoning {
 		return max(want, minReasoningOutputTokens)
@@ -195,9 +180,17 @@ func nearestReasoningLevel(levels []string, wanted string) string {
 	return best
 }
 
-// anthropicAdaptiveDefaultOutputTokens is the omitted-max_tokens default for
-// always-on adaptive Anthropic targets. Codex never sends max_output_tokens,
-// and thinking plus a long code-mode exec script overran 16k, cutting the
-// tool call off with no arguments. Matches Claude Code's own request size;
-// Anthropic estimates output rate limits from max_tokens, so not the 128k cap.
 const anthropicAdaptiveDefaultOutputTokens = 64000
+
+func effortForBudget(budgetTokens int64) string {
+	switch {
+	case budgetTokens <= 0:
+		return "medium"
+	case budgetTokens <= 4096:
+		return effortLow
+	case budgetTokens <= 16384:
+		return "medium"
+	default:
+		return "high"
+	}
+}

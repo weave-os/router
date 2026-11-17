@@ -7,8 +7,6 @@ import (
 	"weave-os/router/internal/requestcontext"
 )
 
-// requestFactsFrom reads the caller facts the auth middleware and API
-// handlers stashed on ctx. Entrypoints call it once at the request boundary.
 func requestFactsFrom(ctx context.Context, headers http.Header) requestcontext.RequestFacts {
 	externalID, _ := ctx.Value(ExternalIDContextKey{}).(string)
 	anthropicSubscription, _ := ctx.Value(AnthropicSubscriptionContextKey{}).(string)

@@ -16,13 +16,8 @@ import (
 	"weave-os/router/internal/router"
 )
 
-// ClassifierThreadHeader is a router-only token. General subagents enroll
-// independently; the native one-shot search helper is isolated server-side.
-// Compaction must never create a new token.
 const ClassifierThreadHeader = "X-Weave-Classifier-Thread"
 
-// ClassifierThreadUnavailableToken lets a client fail closed when its hook
-// runtime swallows an enrollment error. It is never a valid signed ticket.
 const ClassifierThreadUnavailableToken = "weave-classifier-unavailable"
 const classifierThreadIssuer = "weave-classifier-thread-v1"
 const classifierThreadLifetime = 30 * 24 * time.Hour
@@ -30,8 +25,6 @@ const classifierThreadLifetime = 30 * 24 * time.Hour
 var classifierReleasePattern = regexp.MustCompile(`^llm-classifier-v[0-9]+\.[0-9]+\.[0-9]+$`)
 var classifierDigestPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
-// ClassifierSessionConfig is server-owned enrollment configuration. The release
-// hash binds checkpoint, tokenizer and prompt; callers cannot choose either pin.
 type ClassifierSessionConfig struct {
 	Release               string
 	ReleaseSHA256         string
@@ -53,8 +46,6 @@ type classifierThreadClaims struct {
 }
 type classifierThreadContextKey struct{}
 
-// WithClassifierSessions enables explicit new-chat enrollment, never a default
-// strategy or header override. Dependencies must describe one immutable release.
 func (s *Service) WithClassifierSessions(config ClassifierSessionConfig, store router.ClassifierSessionStore, classifier router.AtomicClassifier) error {
 	if !classifierReleasePattern.MatchString(config.Release) || !classifierDigestPattern.MatchString(config.ReleaseSHA256) || !classifierDigestPattern.MatchString(config.SelectionPolicySHA256) || len(config.SigningKey) < 32 || len(config.InstallationIDs) == 0 || store == nil || classifier == nil {
 		return errors.New("classifier sessions require release pins, a signing key, an installation allowlist, persistence and inference")
@@ -75,8 +66,6 @@ func (s *Service) classifierPrincipal(ctx context.Context) (router.ClassifierThr
 	if s.classifierSessions == nil {
 		return router.ClassifierThread{}, router.ErrClassifierUnavailable
 	}
-	// Managed serving needs its own attested Modal binding. A legacy side path
-	// must not override a gateway-admitted release or subscriber profile.
 	if _, managed := requestcontext.ServingIdentityFromContext(ctx); managed {
 		return router.ClassifierThread{}, router.ErrClassifierUnavailable
 	}
@@ -88,8 +77,6 @@ func (s *Service) classifierPrincipal(ctx context.Context) (router.ClassifierThr
 	return router.ClassifierThread{InstallationID: installation, CredentialSHA256: sha256.Sum256([]byte(credential)), Release: s.classifierSessions.config.Release, ReleaseSHA256: s.classifierSessions.config.ReleaseSHA256, SelectionPolicySHA256: s.classifierSessions.config.SelectionPolicySHA256}, nil
 }
 
-// StartClassifierThread must be called only on an explicit new-chat/subagent
-// event. Retries reuse requestID; normal requests and compactions never call it.
 func (s *Service) StartClassifierThread(ctx context.Context, requestID uuid.UUID) (string, error) {
 	thread, err := s.classifierPrincipal(ctx)
 	if err != nil {
@@ -99,20 +86,18 @@ func (s *Service) StartClassifierThread(ctx context.Context, requestID uuid.UUID
 		return "", router.ErrClassifierThreadInvalid
 	}
 	thread.RequestID, thread.ThreadID = requestID, uuid.New()
-	thread.ExpiresAt = s.clockNow().Add(classifierThreadLifetime).Truncate(time.Second)
+	thread.ExpiresAt = s.clock.Now().Add(classifierThreadLifetime).Truncate(time.Second)
 	thread, err = s.classifierSessions.store.Create(ctx, thread)
 	if err != nil {
 		return "", fmt.Errorf("persist classifier handshake: %w", err)
 	}
-	if thread.Release != s.classifierSessions.config.Release || thread.ReleaseSHA256 != s.classifierSessions.config.ReleaseSHA256 || thread.SelectionPolicySHA256 != s.classifierSessions.config.SelectionPolicySHA256 || !thread.ExpiresAt.After(s.clockNow()) {
+	if thread.Release != s.classifierSessions.config.Release || thread.ReleaseSHA256 != s.classifierSessions.config.ReleaseSHA256 || thread.SelectionPolicySHA256 != s.classifierSessions.config.SelectionPolicySHA256 || !thread.ExpiresAt.After(s.clock.Now()) {
 		return "", router.ErrClassifierThreadInvalid
 	}
 	claims := classifierThreadClaims{RegisteredClaims: jwt.RegisteredClaims{Issuer: classifierThreadIssuer, ExpiresAt: jwt.NewNumericDate(thread.ExpiresAt)}, Thread: thread}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(s.classifierSessions.config.SigningKey)
 }
 
-// AdmitClassifierThread validates both the signed thread and current server-side
-// enrollment. An absent token preserves the caller's existing routing strategy.
 func (s *Service) AdmitClassifierThread(ctx context.Context, threadToken string) (context.Context, error) {
 	if threadToken == "" {
 		return ctx, nil
@@ -125,9 +110,9 @@ func (s *Service) AdmitClassifierThread(ctx context.Context, threadToken string)
 		return ctx, router.ErrClassifierThreadInvalid
 	}
 	claims := &classifierThreadClaims{}
-	_, err = jwt.ParseWithClaims(threadToken, claims, func(*jwt.Token) (any, error) { return s.classifierSessions.config.SigningKey, nil }, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithIssuer(classifierThreadIssuer), jwt.WithExpirationRequired(), jwt.WithTimeFunc(s.clockNow))
+	_, err = jwt.ParseWithClaims(threadToken, claims, func(*jwt.Token) (any, error) { return s.classifierSessions.config.SigningKey, nil }, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithIssuer(classifierThreadIssuer), jwt.WithExpirationRequired(), jwt.WithTimeFunc(s.clock.Now))
 	thread := claims.Thread
-	if err != nil || thread.InstallationID != principal.InstallationID || thread.CredentialSHA256 != principal.CredentialSHA256 || thread.Release != principal.Release || thread.ReleaseSHA256 != principal.ReleaseSHA256 || thread.SelectionPolicySHA256 != principal.SelectionPolicySHA256 || thread.ThreadID == uuid.Nil || !thread.ExpiresAt.After(s.clockNow()) {
+	if err != nil || thread.InstallationID != principal.InstallationID || thread.CredentialSHA256 != principal.CredentialSHA256 || thread.Release != principal.Release || thread.ReleaseSHA256 != principal.ReleaseSHA256 || thread.SelectionPolicySHA256 != principal.SelectionPolicySHA256 || thread.ThreadID == uuid.Nil || !thread.ExpiresAt.After(s.clock.Now()) {
 		return ctx, router.ErrClassifierThreadInvalid
 	}
 	ctx = context.WithValue(ctx, classifierThreadContextKey{}, thread)
@@ -141,8 +126,6 @@ func (s *Service) withClassifierSearchChild(ctx context.Context, input router.Cl
 		return ctx, router.ErrClassifierThreadInvalid
 	}
 	log := observability.FromContext(ctx).With("parent_thread_id", parent.ThreadID, "installation_id", parent.InstallationID)
-	// A native helper inherits the process-wide header, but none of the parent's
-	// history. Its exact root under this parent is a retry-stable one-shot identity.
 	storeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	err := s.classifierSessions.store.WithThread(storeCtx, parent, func(router.ClassifierTurnStore) error { return nil })
@@ -158,7 +141,7 @@ func (s *Service) withClassifierSearchChild(ctx context.Context, input router.Cl
 		log.Error("Failed to persist classifier search child", "err", err)
 		return ctx, fmt.Errorf("persist search child: %w: %w", err, router.ErrClassifierUnavailable)
 	}
-	if child.Release != parent.Release || child.ReleaseSHA256 != parent.ReleaseSHA256 || child.SelectionPolicySHA256 != parent.SelectionPolicySHA256 || child.ExpiresAt.After(parent.ExpiresAt) || !child.ExpiresAt.After(s.clockNow()) {
+	if child.Release != parent.Release || child.ReleaseSHA256 != parent.ReleaseSHA256 || child.SelectionPolicySHA256 != parent.SelectionPolicySHA256 || child.ExpiresAt.After(parent.ExpiresAt) || !child.ExpiresAt.After(s.clock.Now()) {
 		log.Warn("Classifier search child metadata rejected", "child_thread_id", child.ThreadID, "err", router.ErrClassifierThreadInvalid)
 		return ctx, router.ErrClassifierThreadInvalid
 	}
@@ -184,7 +167,6 @@ func (s *Service) classifyThread(ctx context.Context, input router.ClassifierCon
 		if err != nil {
 			return err
 		}
-		// An old thread without a checkpoint cannot attest its tool-loop prefix.
 		if rootDigest != "" && checkpoint.MessageCount == 0 {
 			observability.FromContext(ctx).Warn("Classifier thread has predictions but no request checkpoint", "thread_id", thread.ThreadID)
 			return router.ErrClassifierHistoryUnavailable

@@ -23,6 +23,7 @@ func (g stubAllowedModelsGate) ResolveAllowedModelsHeader(ctx context.Context) b
 }
 
 func runAllowedModelsMiddleware(t *testing.T, installation *auth.Installation, header string) (int, proxy.RequestAllowedModels, bool) {
+	t.Helper()
 	return runAllowedModelsMiddlewareWithDefault(t, installation, header, false)
 }
 
@@ -44,7 +45,7 @@ func runAllowedModelsMiddlewareWithDefault(t *testing.T, installation *auth.Inst
 		observed, ok = c.Request.Context().Value(proxy.RequestAllowedModelsContextKey{}).(proxy.RequestAllowedModels)
 		c.Status(http.StatusOK)
 	})
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	if header != "" {
 		req.Header.Set(proxy.AllowedModelsHeader, header)
 	}

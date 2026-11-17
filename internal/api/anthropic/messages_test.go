@@ -151,9 +151,9 @@ func messagesEngine(svc *proxy.Service) *gin.Engine {
 	return engine
 }
 
-func postMessages(engine *gin.Engine, body []byte) *httptest.ResponseRecorder {
+func postMessages(ctx context.Context, engine *gin.Engine, body []byte) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body)))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", bytes.NewReader(body)))
 	return rec
 }
 
@@ -162,7 +162,7 @@ func TestMessagesHandler_RequestTooLarge(t *testing.T) {
 	engine := messagesEngine(svc)
 
 	oversized := bytes.Repeat([]byte("a"), proxy.MaxRequestBodyBytes+1)
-	rec := postMessages(engine, oversized)
+	rec := postMessages(t.Context(), engine, oversized)
 
 	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
 	errObj := errorEnvelope(t, rec.Body.Bytes())
@@ -181,7 +181,7 @@ func TestMessagesHandler_BodyOverLegacyTenMegabyteCapIsAccepted(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	rec := postMessages(engine, body)
+	rec := postMessages(t.Context(), engine, body)
 
 	assert.NotEqual(t, http.StatusRequestEntityTooLarge, rec.Code)
 }
@@ -192,7 +192,7 @@ func TestMessagesHandler_MalformedBodyReturns400(t *testing.T) {
 
 	// A JSON array is valid JSON but not a JSON object, so ParseAnthropic
 	// returns translate.ErrNotJSONObject.
-	rec := postMessages(engine, []byte(`[]`))
+	rec := postMessages(t.Context(), engine, []byte(`[]`))
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	errObj := errorEnvelope(t, rec.Body.Bytes())
@@ -203,7 +203,7 @@ func TestMessagesHandler_NoEligibleProviderReturns400(t *testing.T) {
 	svc := newTestService(&fakeRouter{err: router.ErrNoEligibleProvider}, "", nil)
 	engine := messagesEngine(svc)
 
-	rec := postMessages(engine, []byte(validAnthropicBody))
+	rec := postMessages(t.Context(), engine, []byte(validAnthropicBody))
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	errObj := errorEnvelope(t, rec.Body.Bytes())
@@ -214,7 +214,7 @@ func TestMessagesHandler_InvalidRoutingKnobsReturns400(t *testing.T) {
 	svc := newTestService(&fakeRouter{err: router.ErrInvalidRoutingKnobs}, "", nil)
 	engine := messagesEngine(svc)
 
-	rec := postMessages(engine, []byte(validAnthropicBody))
+	rec := postMessages(t.Context(), engine, []byte(validAnthropicBody))
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	errObj := errorEnvelope(t, rec.Body.Bytes())
@@ -225,7 +225,7 @@ func TestMessagesHandler_RoutingUnavailableReturns503WithRetryAfter(t *testing.T
 	svc := newTestService(&fakeRouter{err: router.ErrRoutingUnavailable}, "", nil)
 	engine := messagesEngine(svc)
 
-	rec := postMessages(engine, []byte(validAnthropicBody))
+	rec := postMessages(t.Context(), engine, []byte(validAnthropicBody))
 
 	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	assert.Equal(t, "1", rec.Header().Get("Retry-After"))
@@ -239,7 +239,7 @@ func TestMessagesHandler_RLPolicyUnavailableReturns503(t *testing.T) {
 	engine := messagesEngine(svc)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader([]byte(validAnthropicBody)))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", bytes.NewReader([]byte(validAnthropicBody)))
 	req = req.WithContext(router.WithStrategy(req.Context(), router.StrategyRL))
 	engine.ServeHTTP(rec, req)
 
@@ -254,7 +254,7 @@ func TestMessagesHandler_ProviderNotConfiguredReturns502(t *testing.T) {
 	svc := newTestService(&fakeRouter{decision: router.Decision{Provider: "not-a-real-provider", Model: "claude-sonnet-4-5"}}, "", nil)
 	engine := messagesEngine(svc)
 
-	rec := postMessages(engine, []byte(validAnthropicBody))
+	rec := postMessages(t.Context(), engine, []byte(validAnthropicBody))
 
 	require.Equal(t, http.StatusBadGateway, rec.Code)
 	errObj := errorEnvelope(t, rec.Body.Bytes())
@@ -270,7 +270,7 @@ func TestMessagesHandler_UpstreamStatusErrorPassesThroughStatus(t *testing.T) {
 	)
 	engine := messagesEngine(svc)
 
-	rec := postMessages(engine, []byte(validAnthropicBody))
+	rec := postMessages(t.Context(), engine, []byte(validAnthropicBody))
 
 	require.Equal(t, http.StatusTooManyRequests, rec.Code)
 	errObj := errorEnvelope(t, rec.Body.Bytes())
@@ -297,7 +297,7 @@ data: {"type":"response.failed","response":{"id":"resp_1","status":"failed","err
 				nil, nil, false, providers.ProviderOpenAI, "gpt-5-mini", nil,
 			)
 			reqBody := fmt.Sprintf(`{"model":"gpt-5-mini","max_tokens":1024,"stream":%t,"messages":[{"role":"user","content":"hi"}]}`, stream)
-			rec := postMessages(messagesEngine(svc), []byte(reqBody))
+			rec := postMessages(t.Context(), messagesEngine(svc), []byte(reqBody))
 
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 			errObj := errorEnvelope(t, rec.Body.Bytes())
@@ -316,7 +316,7 @@ func TestMessagesHandler_UnknownErrorReturns502(t *testing.T) {
 	)
 	engine := messagesEngine(svc)
 
-	rec := postMessages(engine, []byte(validAnthropicBody))
+	rec := postMessages(t.Context(), engine, []byte(validAnthropicBody))
 
 	require.Equal(t, http.StatusBadGateway, rec.Code)
 	errObj := errorEnvelope(t, rec.Body.Bytes())
@@ -331,7 +331,7 @@ func TestMessagesHandler_HappyPathServesUpstreamResponse(t *testing.T) {
 	)
 	engine := messagesEngine(svc)
 
-	rec := postMessages(engine, []byte(validAnthropicBody))
+	rec := postMessages(t.Context(), engine, []byte(validAnthropicBody))
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, `{"id":"msg_1","type":"message"}`, rec.Body.String())
@@ -359,7 +359,7 @@ func TestMessagesHandler_AgentShadowDoesNotUpsertRouterUser(t *testing.T) {
 	engine.POST("/v1/messages", anthropicapi.MessagesHandler(svc, authSvc))
 	body := []byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hi"}],"metadata":{"user_id":"{\"account_uuid\":\"real-account\",\"email\":\"person@example.com\"}"},"max_tokens":4096}`)
 
-	recorder := postMessages(engine, body)
+	recorder := postMessages(t.Context(), engine, body)
 
 	require.Equal(t, http.StatusOK, recorder.Code)
 	assert.Zero(t, users.upserts, "eval traffic must not mutate router-user identity state")
@@ -379,7 +379,7 @@ func TestRouteHandler_InvalidRoutingKnobsReturns400(t *testing.T) {
 	engine := routeEngine(svc)
 
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/route", bytes.NewReader([]byte(validAnthropicBody))))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/route", bytes.NewReader([]byte(validAnthropicBody))))
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	errObj := errorEnvelope(t, rec.Body.Bytes())
@@ -391,7 +391,7 @@ func TestRouteHandler_PolicyPinUnavailableReturns503(t *testing.T) {
 	engine := routeEngine(svc)
 
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/route", bytes.NewReader([]byte(validAnthropicBody))))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/route", bytes.NewReader([]byte(validAnthropicBody))))
 
 	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	errObj := errorEnvelope(t, rec.Body.Bytes())
@@ -404,7 +404,7 @@ func TestRouteHandler_GenericRoutingErrorReturns502(t *testing.T) {
 	engine := routeEngine(svc)
 
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/route", bytes.NewReader([]byte(validAnthropicBody))))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/route", bytes.NewReader([]byte(validAnthropicBody))))
 
 	require.Equal(t, http.StatusBadGateway, rec.Code)
 	errObj := errorEnvelope(t, rec.Body.Bytes())
@@ -417,7 +417,7 @@ func TestRouteHandler_RequestTooLarge(t *testing.T) {
 
 	oversized := bytes.Repeat([]byte("a"), proxy.MaxRequestBodyBytes+1)
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/route", bytes.NewReader(oversized)))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/route", bytes.NewReader(oversized)))
 
 	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
 }
@@ -428,7 +428,7 @@ func TestRouteHandler_HappyPathReturnsDecision(t *testing.T) {
 	engine := routeEngine(svc)
 
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/route", bytes.NewReader([]byte(validAnthropicBody))))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/route", bytes.NewReader([]byte(validAnthropicBody))))
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	var got map[string]any
@@ -444,7 +444,7 @@ func TestRouteHandler_ForwardsAuthorizationForProviderEligibility(t *testing.T) 
 	svc := newTestService(&fakeRouter{decision: decision, got: &got}, providers.ProviderAnthropic, &fakeProviderClient{}).
 		WithByokOnly(true)
 	engine := routeEngine(svc)
-	req := httptest.NewRequest(http.MethodPost, "/v1/route", bytes.NewReader([]byte(validAnthropicBody)))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/route", bytes.NewReader([]byte(validAnthropicBody)))
 	req.Header.Set("Authorization", "Bearer sk-ant-oat01-claude-code-token")
 	rec := httptest.NewRecorder()
 
@@ -472,7 +472,7 @@ func TestPreviewRouteHandler_RejectsInstallationWithoutEvalAuthorization(t *test
 	engine := previewRouteEngine(newTestService(&fakeRouter{}, "", nil), false)
 	recorder := httptest.NewRecorder()
 
-	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/route/preview", bytes.NewReader([]byte(validAnthropicBody))))
+	engine.ServeHTTP(recorder, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/route/preview", bytes.NewReader([]byte(validAnthropicBody))))
 
 	require.Equal(t, http.StatusForbidden, recorder.Code)
 	errObj := errorEnvelope(t, recorder.Body.Bytes())
@@ -494,7 +494,7 @@ func TestPreviewRouteHandler_ReturnsFrozenPolicyPlan(t *testing.T) {
 	engine := previewRouteEngine(svc, true)
 	recorder := httptest.NewRecorder()
 
-	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/route/preview", bytes.NewReader([]byte(validAnthropicBody))))
+	engine.ServeHTTP(recorder, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/route/preview", bytes.NewReader([]byte(validAnthropicBody))))
 
 	require.Equal(t, http.StatusOK, recorder.Code)
 	assert.Contains(t, recorder.Body.String(), `"policy_artifact_sha256":"sha256:artifact"`)
@@ -533,7 +533,7 @@ func TestRouteAnthropicRequest_DropsMalformedInstallationIDInsteadOfForwardingRa
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "not-a-uuid")
 	_, err := svc.RouteAnthropicRequest(ctx, []byte(validAnthropicBody), nil)
 	require.NoError(t, err)
-	assert.Equal(t, "", got.InstallationID,
+	assert.Empty(t, got.InstallationID,
 		"malformed installation ID must collapse to empty string so the HMM "+
 			"sidecar omits the field, matching ProxyMessages's runTurnLoop behavior")
 }
@@ -546,7 +546,7 @@ func TestRouteAnthropicRequest_DropsEmptyInstallationIDInsteadOfForwardingRaw(t 
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "")
 	_, err := svc.RouteAnthropicRequest(ctx, []byte(validAnthropicBody), nil)
 	require.NoError(t, err)
-	assert.Equal(t, "", got.InstallationID,
+	assert.Empty(t, got.InstallationID,
 		"empty installation ID must collapse to empty string")
 }
 
@@ -559,7 +559,7 @@ func TestRouteAnthropicRequest_DropsMissingInstallationIDInsteadOfForwardingRaw(
 	// InstallationIDContextKey on the context at all.
 	_, err := svc.RouteAnthropicRequest(context.Background(), []byte(validAnthropicBody), nil)
 	require.NoError(t, err)
-	assert.Equal(t, "", got.InstallationID,
+	assert.Empty(t, got.InstallationID,
 		"missing installation ID context value must collapse to empty string")
 }
 
@@ -578,7 +578,7 @@ func TestPassthroughHandler_NotImplementedReturns501(t *testing.T) {
 	engine := passthroughEngine(svc)
 
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", bytes.NewReader([]byte(validAnthropicBody))))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages/count_tokens", bytes.NewReader([]byte(validAnthropicBody))))
 
 	require.Equal(t, http.StatusNotImplemented, rec.Code)
 	errObj := errorEnvelope(t, rec.Body.Bytes())
@@ -591,7 +591,7 @@ func TestPassthroughHandler_RequestTooLarge(t *testing.T) {
 
 	oversized := bytes.Repeat([]byte("a"), proxy.MaxRequestBodyBytes+1)
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", bytes.NewReader(oversized)))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages/count_tokens", bytes.NewReader(oversized)))
 
 	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
 }
@@ -602,7 +602,7 @@ func TestPassthroughHandler_HappyPath(t *testing.T) {
 	engine := passthroughEngine(svc)
 
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", bytes.NewReader([]byte(validAnthropicBody))))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages/count_tokens", bytes.NewReader([]byte(validAnthropicBody))))
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, `{"input_tokens":42}`, rec.Body.String())
@@ -620,7 +620,7 @@ func TestMessagesHandler_UnservableCompactionTellsClientNotToRetry(t *testing.T)
 	)
 	body := `{"model":"claude-sonnet-4-5","max_tokens":4096,"messages":[{"role":"user","content":"Your task is to create a detailed summary of the conversation so far. Do not call any tools."}]}`
 
-	rec := postMessages(messagesEngine(svc), []byte(body))
+	rec := postMessages(t.Context(), messagesEngine(svc), []byte(body))
 
 	require.Equal(t, http.StatusBadGateway, rec.Code)
 	assert.Equal(t, "false", rec.Header().Get("x-should-retry"))

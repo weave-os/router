@@ -117,6 +117,6 @@ func (w *jsonWriter) RawBytes(b []byte) {
 }
 
 func (w *jsonWriter) Bytes() []byte {
-	w.bw.Flush()
+	_ = w.bw.Flush()
 	return w.buf.Bytes()
 }

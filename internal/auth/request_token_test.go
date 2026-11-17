@@ -3,7 +3,6 @@ package auth_test
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"net/http"
 	"testing"
 
@@ -54,7 +53,7 @@ func TestGatewayCredentialVerificationDoesNotLoadSecretsOrCaches(t *testing.T) {
 			svc := auth.RoutingCredentialVerifier{Keys: gatewayCredentialRepo{key: key, failure: test.failure}}
 			installation, credential, err := svc.VerifyRoutingCredential(context.Background(), "rk_test")
 			if test.want != nil {
-				require.True(t, errors.Is(err, test.want))
+				require.ErrorIs(t, err, test.want)
 				return
 			}
 			require.NoError(t, err)

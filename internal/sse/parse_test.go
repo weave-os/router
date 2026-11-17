@@ -30,13 +30,13 @@ func legacySplitNext(buf []byte) (event []byte, n int) {
 // requireSameSplitAsLegacy asserts SplitNext frames buf exactly as the legacy
 // oracle does, including the nil-versus-empty distinction between "no event
 // yet" and an event with zero payload bytes.
-func requireSameSplitAsLegacy(t testing.TB, buf []byte) {
-	t.Helper()
+func requireSameSplitAsLegacy(tb testing.TB, buf []byte) {
+	tb.Helper()
 	wantEvent, wantN := legacySplitNext(buf)
 	gotEvent, gotN := sse.SplitNext(buf)
-	require.Equal(t, wantN, gotN, "consumed bytes for %q", buf)
-	require.Equal(t, string(wantEvent), string(gotEvent), "event bytes for %q", buf)
-	require.Equal(t, wantEvent == nil, gotEvent == nil, "nil-ness for %q", buf)
+	require.Equal(tb, wantN, gotN, "consumed bytes for %q", buf)
+	require.Equal(tb, string(wantEvent), string(gotEvent), "event bytes for %q", buf)
+	require.Equal(tb, wantEvent == nil, gotEvent == nil, "nil-ness for %q", buf)
 }
 
 // forEachShortDelimiterMix calls visit with every byte string up to maxLen
@@ -86,7 +86,7 @@ func TestSplitNext_DelimiterAfterLongPayloadWithoutNewlines(t *testing.T) {
 
 		event, n := sse.SplitNext(buf)
 
-		assert.Equal(t, len(payload), len(event), "delimiter=%q", delimiter)
+		assert.Len(t, event, len(payload), "delimiter=%q", delimiter)
 		assert.Equal(t, len(payload)+len(delimiter), n, "delimiter=%q", delimiter)
 	}
 }
@@ -161,7 +161,7 @@ func TestSplitNext_PreservesBackingStorageAndCapacity(t *testing.T) {
 	assert.Equal(t, "event", string(event))
 	assert.Equal(t, len("event\n\n"), n)
 	assert.Equal(t, cap(buf), cap(event))
-	assert.True(t, &buf[0] == &event[0])
+	assert.Same(t, &buf[0], &event[0])
 	assert.Equal(t, "rest", string(buf[n:]))
 }
 

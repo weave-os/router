@@ -17,7 +17,7 @@ import (
 
 func TestProxyMessages_AnthropicToolAliasRoundTrip(t *testing.T) {
 	name := strings.Repeat("x", 129)
-	const alias = "invalid_tool_2699b675922cc84a9b0dfd926eb7f8211c78693d"
+	const alias = "invalid_tool_0ec9eb33e74510bcdd1f2ea55206e82f21649c5c"
 	for _, stream := range []bool{false, true} {
 		t.Run(fmt.Sprint(stream), func(t *testing.T) {
 			upstream := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
@@ -39,7 +39,7 @@ func TestProxyMessages_AnthropicToolAliasRoundTrip(t *testing.T) {
 			svc := proxy.NewService(&fakeRouter{decision: decision}, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, nil, false, providers.ProviderAnthropic, "claude-sonnet-5-5", nil)
 			body := []byte(fmt.Sprintf(`{"model":"claude-sonnet-5-5","stream":%t,"max_tokens":1024,"tools":[{"name":"ToolSearch","input_schema":{"type":"object"}},{"name":%q,"defer_loading":true,"input_schema":{"type":"object"}}],"messages":[{"role":"user","content":"find a tool"},{"role":"assistant","content":[{"type":"tool_use","id":"search","name":"ToolSearch","input":{}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"search","content":[{"type":"tool_reference","name":%q}]}]}]}`, stream, name, name))
 			sink := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 			require.NoError(t, svc.ProxyMessages(context.Background(), body, sink, req))
 			require.Len(t, upstream.proxyBodies, 1)
 			require.Equal(t, alias, gjson.GetBytes(upstream.proxyBodies[0], "tools.1.name").String())

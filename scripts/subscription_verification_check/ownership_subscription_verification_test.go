@@ -6,11 +6,12 @@ import (
 	"os"
 	"testing"
 
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/postgres"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
-	"weave-os/router/internal/auth"
-	"weave-os/router/internal/postgres"
 )
 
 // The candidate admission under test executes generated SQL against migrated
@@ -27,10 +28,10 @@ func TestVerificationSQLSharingOwnershipAndIsolation(t *testing.T) {
 	ctx := context.Background()
 	conn, err := pgx.Connect(ctx, dsn)
 	require.NoError(t, err)
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 	tx, err := conn.Begin(ctx)
 	require.NoError(t, err)
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	org, otherOrg, personal, shared, outsider, key := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	for _, installation := range []uuid.UUID{org, otherOrg} {
 		_, err = tx.Exec(ctx, `INSERT INTO router.model_router_installations(id,external_id,name) VALUES($1,$2,'verification')`, installation, installation.String())
@@ -65,9 +66,9 @@ func TestVerificationSQLSharingOwnershipAndIsolation(t *testing.T) {
 		require.NoError(t, err)
 	}
 	repo := postgres.NewSubscriptionAccountRepo(tx)
-	candidates := repo.(interface {
+	candidates := mustAs[interface {
 		ListSubscriptionCandidates(context.Context, auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error)
-	})
+	}](t, repo)
 	owner := auth.SubscriptionOwner{InstallationID: org.String(), SubscriberID: personal.String(), APIKeyID: key.String()}
 	// OAuth re-enrollment cannot silently adopt an unassigned legacy account.
 	adopted, _, adoptionErr := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{Owner: owner, Provider: auth.SubscriptionProviderCodex, ExternalAccountID: unownedAccount.String(), ProviderUserID: unownedAccount.String(), RefreshToken: []byte("synthetic-replacement-must-not-persist")})

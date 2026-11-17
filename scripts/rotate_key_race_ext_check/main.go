@@ -1,35 +1,15 @@
-// Command rotate_key_race_ext_check extends the RotateAPIKey race coverage
-// confirmed by scripts/rotate_key_race_check. It is a separate main package
-// (not a _test.go), gated on ROUTER_TEST_DATABASE_URL, and a no-op without it.
-//
-// Axes:
-//  1. Concurrency sweep — List-held-open barrier at N = 2, 3, 10, 25
-//  2. Mixed RotateAPIKey vs DeleteAPIKey on the same key
-//  3. HTTP-level POST /admin/v1/keys/:id/rotate via gin httptest + real
-//     WithAdminOnly cookie auth (not a live docker listener)
-//  4. Timing sensitivity — N=2, 20 runs each: post-List sleep sweep, then
-//     start-stagger sweep to find the largest stagger with ≥1/20 hit
-//
-// Usage (from the repo root, against the docker-compose Postgres):
-//
-//	ROUTER_TEST_DATABASE_URL="postgres://router:router@localhost:5433/router?search_path=router" \
-//	    go run ./scripts/rotate_key_race_ext_check
 package main
 
 import (
 	"context"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"weave-os/router/internal/api/admin"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/postgres"
-	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -72,7 +52,7 @@ func main() {
 	}
 
 	fmt.Println("\n=== 3. HTTP-level rotate race (httptest + WithAdminOnly) ===")
-	if err := checkHTTPRotateRace(ctx, pool); err != nil {
+	if err := checkHTTPRotateRace(ctx, newHTTPRotateRace(pool)); err != nil {
 		fail("http rotate race", err)
 	}
 
@@ -87,16 +67,12 @@ func fail(step string, err error) {
 	os.Exit(1)
 }
 
-// ---------------------------------------------------------------------------
-// 1. Concurrency sweep
-// ---------------------------------------------------------------------------
-
 func checkConcurrencySweep(ctx context.Context, pool *pgxpool.Pool) error {
 	fmt.Printf("%4s  %10s  %11s  %s\n", "N", "successes", "active_keys", "notes")
 	for _, n := range []int{2, 3, 10, 25} {
 		successes, active, errCounts, err := runHeldRotateRace(ctx, pool, n)
 		if err != nil {
-			return fmt.Errorf("N=%d: %w", n, err)
+			return fmt.Errorf("n=%d: %w", n, err)
 		}
 		note := "linear"
 		if successes != n || active != n {
@@ -169,17 +145,10 @@ func runHeldRotateRace(ctx context.Context, pool *pgxpool.Pool, n int) (successe
 	return int(okCount.Load()), len(keys), errCounts, nil
 }
 
-// ---------------------------------------------------------------------------
-// 2. Mixed Rotate vs Delete
-// ---------------------------------------------------------------------------
-
-// checkRotateVsDelete forces DeleteAPIKey to win SoftDelete after Rotate has
-// already Listed the key as active. Expected buggy outcome: Rotate still
-// IssueAPIKeys a live successor even though the key was deleted (not rotated).
 func checkRotateVsDelete(ctx context.Context, pool *pgxpool.Pool) error {
 	const trials = 10
 	var (
-		zombieIssued int // rotate succeeded after delete won SoftDelete
+		zombieIssued int
 		rotateFails  int
 		deleteFails  int
 	)
@@ -196,8 +165,6 @@ func checkRotateVsDelete(ctx context.Context, pool *pgxpool.Pool) error {
 			rotateFails++
 			continue
 		}
-		// Rotate returned a new key. If Delete already soft-deleted the
-		// original, that new key is a zombie replacement for a deleted key.
 		if outcome.deleteWonSoftDelete && outcome.activeAfter > 0 {
 			zombieIssued++
 		}
@@ -273,9 +240,9 @@ func runOneRotateVsDelete(ctx context.Context, pool *pgxpool.Pool) (rotateVsDele
 		defer done.Done()
 		ready.Done()
 		<-start
-		<-listed // Rotate has Listed; key still appears active to it
+		<-listed
 		deleteErr = svc.DeleteAPIKey(ctx, install.ID, issued.ID)
-		close(releaseRotate) // let Rotate proceed to SoftDelete (no-op) + Issue
+		close(releaseRotate)
 	}()
 
 	ready.Wait()
@@ -294,8 +261,6 @@ func runOneRotateVsDelete(ctx context.Context, pool *pgxpool.Pool) (rotateVsDele
 	}, nil
 }
 
-// signalListRepo parks ListForInstallation after the read until release closes,
-// and signals listed once the pre-delete snapshot is in hand.
 type signalListRepo struct {
 	inner   auth.APIKeyRepository
 	listed  chan struct{}
@@ -325,108 +290,9 @@ func (r *signalListRepo) SoftDelete(ctx context.Context, installationID, id stri
 	return r.inner.SoftDelete(ctx, installationID, id)
 }
 
-// ---------------------------------------------------------------------------
-// 3. HTTP-level race
-// ---------------------------------------------------------------------------
-
-func checkHTTPRotateRace(ctx context.Context, pool *pgxpool.Pool) error {
-	const n = 5
-	const adminPassword = "rotate-race-http-check-password"
-
-	repo := postgres.NewRepository(pool, auth.NoOpEncryptor{})
-	hold := newListHold(n)
-	svc := auth.NewService(
-		repo.Installations,
-		&holdingAPIKeyRepo{inner: repo.APIKeys, hold: hold},
-		repo.ExternalAPIKeys,
-		repo.Users,
-		auth.NoOpAPIKeyCache{},
-		nil,
-		time.Now,
-	).WithAdminPassword(adminPassword)
-
-	// Admin cookie sessions operate on EnsureAdminInstallation's singleton.
-	install, err := svc.EnsureAdminInstallation(ctx)
-	if err != nil {
-		return fmt.Errorf("ensure admin installation: %w", err)
-	}
-	name := "http-race-key-" + uuid.NewString()[:8]
-	issued, _, err := svc.IssueAPIKey(ctx, install.ID, &name, nil)
-	if err != nil {
-		return fmt.Errorf("issue key: %w", err)
-	}
-	fmt.Printf("method=httptest+WithAdminOnly installation_id=%s initial_key_id=%s\n", install.ID, issued.ID)
-
-	session, _, err := svc.IssueAdminSession()
-	if err != nil {
-		return fmt.Errorf("issue admin session: %w", err)
-	}
-
-	engine := gin.New()
-	mgmt := engine.Group("/admin/v1", middleware.WithAdminOnly(svc))
-	mgmt.POST("/keys/:id/rotate", admin.RotateAPIKeyHandler(svc))
-
-	var (
-		ready    sync.WaitGroup
-		done     sync.WaitGroup
-		start    = make(chan struct{})
-		okCount  atomic.Int64
-		statusMu sync.Mutex
-		statuses = map[int]int{}
-	)
-	ready.Add(n)
-	done.Add(n)
-	for i := 0; i < n; i++ {
-		go func() {
-			defer done.Done()
-			ready.Done()
-			<-start
-			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/admin/v1/keys/"+issued.ID+"/rotate", nil)
-			req.AddCookie(&http.Cookie{Name: auth.AdminSessionCookieName, Value: session})
-			engine.ServeHTTP(rec, req)
-			statusMu.Lock()
-			statuses[rec.Code]++
-			statusMu.Unlock()
-			if rec.Code == http.StatusCreated {
-				okCount.Add(1)
-			}
-		}()
-	}
-	ready.Wait()
-	close(start)
-	done.Wait()
-
-	keys, err := repo.APIKeys.ListForInstallation(ctx, install.ID)
-	if err != nil {
-		return fmt.Errorf("list keys: %w", err)
-	}
-	// Count only keys from this race (name match) — admin install may have leftovers.
-	activeNamed := 0
-	for _, k := range keys {
-		if k.Name != nil && *k.Name == name {
-			activeNamed++
-		}
-	}
-
-	fmt.Printf("http_status_counts=%v\n", statuses)
-	fmt.Printf("rotate_http_201=%d active_keys_with_race_name=%d\n", okCount.Load(), activeNamed)
-	if okCount.Load() > 1 && activeNamed > 1 {
-		fmt.Println("YES: race reproduces through gin WithAdminOnly + RotateAPIKeyHandler (httptest)")
-	} else {
-		fmt.Println("NO: HTTP path did not show multi-successor race")
-	}
-	return nil
-}
-
-// ---------------------------------------------------------------------------
-// 4. Timing sensitivity
-// ---------------------------------------------------------------------------
-
 func checkTimingSensitivity(ctx context.Context, pool *pgxpool.Pool) error {
 	const trials = 20
 
-	// A) Simultaneous start, optional post-List sleep (widens SoftDelete delay).
 	fmt.Println("-- A) simultaneous start, post-List sleep --")
 	fmt.Printf("%12s  %8s  %s\n", "post_list_sleep", "hits/20", "min_list_gap_on_hit")
 	delays := []time.Duration{
@@ -448,9 +314,6 @@ func checkTimingSensitivity(ctx context.Context, pool *pgxpool.Pool) error {
 		fmt.Printf("%12s  %3d/20    %s\n", delay, hits, gapStr)
 	}
 
-	// B) No post-List sleep; stagger second caller's start by G after the
-	// first begins. Largest G with ≥1/20 hit ≈ real-world overlap window
-	// (e.g. retry-on-timeout re-sending rotate).
 	fmt.Println("-- B) start-stagger of 2nd caller (no post-List sleep) --")
 	fmt.Printf("%12s  %8s  %s\n", "start_stagger", "hits/20", "max_list_gap_on_hit")
 	staggers := []time.Duration{
@@ -500,7 +363,6 @@ func sweepTimedPairs(ctx context.Context, pool *pgxpool.Pool, trials int, postLi
 			continue
 		}
 		hits++
-		// For sleep sweep report min gap; for stagger sweep report max gap.
 		if startStagger > 0 {
 			if extremeGap < 0 || gap > extremeGap {
 				extremeGap = gap
@@ -569,8 +431,6 @@ func runTimedRotatePair(ctx context.Context, pool *pgxpool.Pool, postListSleep, 
 	return okCount.Load() == 2 && len(keys) >= 2, timed.listGap(), nil
 }
 
-// timedListRepo optionally sleeps after each List and records List-completion
-// timestamps so we can report the observed inter-List gap when a race hits.
 type timedListRepo struct {
 	inner auth.APIKeyRepository
 	sleep time.Duration
@@ -617,10 +477,6 @@ func (r *timedListRepo) listGap() time.Duration {
 	}
 	return d
 }
-
-// ---------------------------------------------------------------------------
-// Shared list-hold helpers (same pattern as rotate_key_race_check)
-// ---------------------------------------------------------------------------
 
 type listHold struct {
 	n        int

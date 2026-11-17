@@ -5,7 +5,6 @@ import (
 	"time"
 )
 
-// Shared across account and model walks; provider inference never consumes it.
 type subscriptionAdmissionBudget struct {
 	remaining time.Duration
 }

@@ -112,7 +112,7 @@ func classifierSessionFixture(t *testing.T, classify atomicClassifierFunc) (*Ser
 	t.Helper()
 	installation := uuid.New()
 	store := &classifierMemoryStore{threads: make(map[uuid.UUID]router.ClassifierThread), turns: make(map[uuid.UUID]map[string]router.ClassifierPrediction), prefixCheckpoints: make(map[uuid.UUID]router.ClassifierPrefixCheckpoint)}
-	svc := &Service{now: time.Now}
+	svc := &Service{clock: time.Now}
 	require.NoError(t, svc.WithClassifierSessions(ClassifierSessionConfig{Release: "llm-classifier-v1.0.0", ReleaseSHA256: strings.Repeat("a", 64), SelectionPolicySHA256: strings.Repeat("b", 64), SigningKey: []byte(strings.Repeat("k", 32)), InstallationIDs: []uuid.UUID{installation}}, store, classify))
 	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, installation.String())
 	ctx = context.WithValue(ctx, APIKeyIDContextKey{}, "test-credential")
@@ -159,7 +159,7 @@ func TestClassifierHandshakeAuthenticationAndIdempotency(t *testing.T) {
 	}
 	_, err = svc.AdmitClassifierThread(ctx, ticket+"invalid")
 	require.ErrorIs(t, err, router.ErrClassifierThreadInvalid)
-	svc.now = func() time.Time { return time.Now().Add(31 * 24 * time.Hour) }
+	svc.clock = func() time.Time { return time.Now().Add(31 * 24 * time.Hour) }
 	_, err = svc.AdmitClassifierThread(ctx, ticket)
 	require.ErrorIs(t, err, router.ErrClassifierThreadInvalid)
 }
@@ -187,7 +187,7 @@ func TestClassifierThreadTicketRoundTripAcrossTimeZones(t *testing.T) {
 		t.Run(zone.String(), func(t *testing.T) {
 			svc, ctx, _ := classifierSessionFixture(t, classifierMedium)
 			now := time.Now().In(zone)
-			svc.now = func() time.Time { return now }
+			svc.clock = func() time.Time { return now }
 			ctx = classifierAdmit(t, svc, ctx)
 			input, err := classifierContextForCall(classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "first")))
 			require.NoError(t, err)
@@ -226,7 +226,7 @@ func TestClassifierPredictionsSurviveRetriesReplicasAndToolLoops(t *testing.T) {
 	)
 	input, err = classifierContextForCall(loop)
 	require.NoError(t, err)
-	replica := &Service{now: time.Now}
+	replica := &Service{clock: time.Now}
 	require.NoError(t, replica.WithClassifierSessions(svc.classifierSessions.config, store, svc.classifierSessions.classifier))
 	prediction, err := replica.classifyThread(ctx, input)
 	require.NoError(t, err)
@@ -348,7 +348,7 @@ func TestClassifierNativeInputGroupsPersistExactBoundaries(t *testing.T) {
 			require.NoError(t, err)
 			require.False(t, loop.AtUserBoundary)
 			require.NotEqual(t, first.TurnDigest, loop.TurnDigest)
-			replica := &Service{now: time.Now}
+			replica := &Service{clock: time.Now}
 			require.NoError(t, replica.WithClassifierSessions(svc.classifierSessions.config, store, svc.classifierSessions.classifier))
 			_, err = replica.classifyThread(ctx, loop)
 			require.NoError(t, err)
@@ -486,9 +486,9 @@ func TestClassifierNativeWebSearchReplay(t *testing.T) {
 		for _, status := range []translate.EscalationToolStatus{translate.EscalationToolStatusCompleted, translate.EscalationToolStatusFailed} {
 			t.Run(fmt.Sprintf("%s/explicit_id=%t", status, callIDField != ""), func(t *testing.T) {
 				var classifications []router.AtomicClassificationRequest
-				svc, ctx, _ := classifierSessionFixture(t, func(_ context.Context, request router.AtomicClassificationRequest) (router.ClassifierPrediction, error) {
+				svc, ctx, _ := classifierSessionFixture(t, func(ctx context.Context, request router.AtomicClassificationRequest) (router.ClassifierPrediction, error) {
 					classifications = append(classifications, request)
-					return classifierMedium(context.Background(), request)
+					return classifierMedium(ctx, request)
 				})
 				ctx = classifierAdmit(t, svc, ctx)
 				first, err := classifierContextForCall(classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "find documentation")))

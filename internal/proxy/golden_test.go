@@ -44,9 +44,12 @@ type goldenScenario struct {
 	ingress   string
 	decisions []router.Decision
 	routeErr  error
-	upstreams map[string][]goldenStep
-	requests  []goldenRequest
-	configure func(*proxy.Service, *goldenHarness) *proxy.Service
+	// noCandidateErr replaces the fake router's error when no decision survives
+	// the request's provider and model exclusions.
+	noCandidateErr error
+	upstreams      map[string][]goldenStep
+	requests       []goldenRequest
+	configure      func(*proxy.Service, *goldenHarness) *proxy.Service
 	// credentials labels the secrets a scenario supplies; non-nil records the
 	// resolved credential per attempt and fails if an attempt carries any other
 	// credential or a known secret reaches client bytes, logs, billing or telemetry.
@@ -70,7 +73,6 @@ type goldenRequest struct {
 type goldenRecorder struct {
 	mu                sync.Mutex
 	calls             map[string]int
-	steps             map[string][]goldenStep
 	routes            []goldenRouteCall
 	attempts          []goldenAttempt
 	inferenceAttempts []any
@@ -155,9 +157,10 @@ func newGoldenHarness(t *testing.T, sc goldenScenario) *goldenHarness {
 		auxiliary, available, func(m catalog.Model) string { return m.ID }, policy.ProviderPolicy{}))
 	require.NoError(t, err)
 
-	rt := &goldenRouter{decisions: sc.decisions, err: sc.routeErr, rec: h.rec}
+	rt := &goldenRouter{decisions: sc.decisions, err: sc.routeErr, noCandidateErr: sc.noCandidateErr, rec: h.rec}
 	svc := proxy.NewService(rt, providerMap, nil, h.pins, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", h.telemetry).
+		WithClock(h.clock.Now).
 		WithDeploymentKeyedProviders(available).
 		WithProviderOverloaded(false, breaker.New(breaker.Defaults(), h.clock.Now)).
 		WithRetrySleep(h.clock.Sleep).
@@ -225,7 +228,7 @@ func (h *goldenHarness) serve(t *testing.T, ingress string, req goldenRequest) g
 	if req.path != "" {
 		path = req.path
 	}
-	httpReq := httptest.NewRequest(http.MethodPost, path, strings.NewReader(req.body)).WithContext(ctx)
+	httpReq := httptest.NewRequestWithContext(ctx, http.MethodPost, path, strings.NewReader(req.body))
 	httpReq.Header.Set("Content-Type", "application/json")
 	for k, v := range req.headers {
 		httpReq.Header.Set(k, v)
@@ -445,14 +448,14 @@ func goldenReflect(v reflect.Value) (any, bool) {
 	if !v.IsValid() {
 		return nil, false
 	}
-	switch v.Interface().(type) {
+	switch value := v.Interface().(type) {
 	case time.Time, time.Duration:
 		return nil, false
 	case error:
 		if v.Kind() == reflect.Pointer && v.IsNil() {
 			return nil, false
 		}
-		return v.Interface().(error).Error(), true
+		return value.Error(), true
 	}
 	switch v.Kind() {
 	case reflect.Pointer, reflect.Interface:
@@ -516,6 +519,7 @@ func goldenReflect(v reflect.Value) (any, bool) {
 }
 
 func runGoldenScenario(t *testing.T, sc goldenScenario) {
+	t.Helper()
 	h := newGoldenHarness(t, sc)
 	traces := make([]goldenRequestTrace, 0, len(sc.requests))
 	for _, req := range sc.requests {
@@ -533,8 +537,8 @@ func runGoldenScenario(t *testing.T, sc goldenScenario) {
 
 	path := filepath.Join("testdata", "golden", sc.name+".json")
 	if *updateGolden {
-		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
-		require.NoError(t, os.WriteFile(path, got, 0o644))
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+		require.NoError(t, os.WriteFile(path, got, 0o600))
 		return
 	}
 	want, err := os.ReadFile(path)
@@ -549,6 +553,9 @@ func TestGolden(t *testing.T) {
 	scenarios = append(scenarios, goldenCredentialScenarios()...)
 	scenarios = append(scenarios, goldenRoutingPolicyScenarios()...)
 	scenarios = append(scenarios, goldenConversationScenarios()...)
+	scenarios = append(scenarios, goldenSubscriptionExhaustionScenarios()...)
+	scenarios = append(scenarios, goldenCodexLoginRejectedScenarios()...)
+	scenarios = append(scenarios, goldenSubscriptionSessionHoldScenarios()...)
 	for _, sc := range append(scenarios, goldenIngressScenarios()...) {
 		require.False(t, names[sc.name], "duplicate golden scenario %s", sc.name)
 		names[sc.name] = true

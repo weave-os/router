@@ -210,11 +210,9 @@ func goldenSubscriptionCtx(ctx context.Context) context.Context {
 	return context.WithValue(ctx, proxy.AnthropicSubscriptionContextKey{}, goldenSubscription)
 }
 
-// exhaustSubscription records a spent weekly window for the golden token. The
-// observer reads the wall clock because Service compares quota windows against
-// its own unexported clock.
-func exhaustSubscription(svc *proxy.Service, _ *goldenHarness) *proxy.Service {
-	obs := usage.NewObserver([]byte("golden-salt"), 10*time.Minute, time.Now)
+// exhaustSubscription records a spent weekly window for the golden token.
+func exhaustSubscription(svc *proxy.Service, h *goldenHarness) *proxy.Service {
+	obs := usage.NewObserver([]byte("golden-salt"), 10*time.Minute, h.clock.Now)
 	obs.Record(obs.Key([]byte(goldenSubscription)), usage.Snapshot{Secondary: usage.Window{UsedPercent: 1.0, WindowMinutes: 10080}})
 	return svc.WithUsageObserver(obs)
 }

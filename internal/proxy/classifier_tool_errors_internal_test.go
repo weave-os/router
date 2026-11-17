@@ -48,7 +48,7 @@ func TestClassifierCodexToolErrorsRequireIdentifiedResponsesIngress(t *testing.T
 					body := strings.NewReplacer("TOOL", tool, "OUTPUT", failure, "ERROR", verdict.field).Replace(fixture.body)
 					captured, err := (&Service{}).withClassifierInput(ctx, []byte(body), fixture.endpoint)
 					require.NoError(t, err)
-					input := captured.Value(classifierInputContextKey{}).(router.ClassifierContext)
+					input := mustAs[router.ClassifierContext](t, captured.Value(classifierInputContextKey{}))
 					wantFailure := fixture.inferFailure
 					if verdict.explicit != nil {
 						wantFailure = *verdict.explicit

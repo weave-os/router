@@ -29,8 +29,6 @@ type codexIncludedQuota struct {
 	Secondary    *codexQuotaWindow `json:"secondary_window"`
 }
 
-// Usage is checked before inference because exhausted subscriptions can accept
-// inference by spending purchased credits rather than returning a quota error.
 func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) (quotaErr error) {
 	started := time.Now()
 	upstreamStatus := 0
@@ -60,7 +58,7 @@ func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) (quo
 		}
 		return codexQuotaTransportUnavailable(err, 0)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	upstreamStatus = resp.StatusCode
 	if resp.StatusCode != http.StatusOK {
 		log.Warn("Codex quota preflight rejected", "upstream_status", resp.StatusCode)
@@ -96,28 +94,16 @@ func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) (quo
 		log.Warn("Codex quota preflight decode failed", "err", err)
 		return codexQuotaUnavailable(providers.QuotaVerificationFailureInvalidResponse, resp.StatusCode)
 	}
-	// Usage-based and workspace plans report a plan without windowed limits;
-	// their exhaustion arrives as spend_control or rate_limit_reached_type.
 	planReported := quotaStatus.PlanType != ""
 	limitReached := (quotaStatus.SpendControl != nil && quotaStatus.SpendControl.Reached) ||
 		(quotaStatus.RateLimitReachedType != nil && codexReachedTypes[quotaStatus.RateLimitReachedType.Type])
-	creditReason := codexCreditsDisabled
-	if c.allowCodexExtraCredits || requestcontext.SubscriptionExtraUsageFrom(ctx) {
-		var metadata struct {
-			Credits      json.RawMessage `json:"credits"`
-			SpendControl json.RawMessage `json:"spend_control"`
-			ReachedType  json.RawMessage `json:"rate_limit_reached_type"`
-		}
-		if err := json.Unmarshal(body, &metadata); err != nil {
-			return codexQuotaUnavailable(providers.QuotaVerificationFailureInvalidResponse, resp.StatusCode)
-		}
-		creditReason = codexCreditAdmissionReason(metadata.Credits, metadata.SpendControl, metadata.ReachedType)
+	creditReason, creditErr := codexQuotaCreditAdmission(ctx, body, c.allowCodexExtraCredits)
+	if creditErr != nil {
+		return codexQuotaUnavailable(providers.QuotaVerificationFailureInvalidResponse, resp.StatusCode)
 	}
 	allowCredits := creditReason == codexCreditsAvailable && quotaStatus.RateLimit != nil &&
 		(quotaStatus.RateLimit.Primary != nil || quotaStatus.RateLimit.Secondary != nil)
 	err = validateCodexIncludedQuota(quotaStatus.RateLimit, planReported || limitReached)
-	// Publish only account-wide, validated windows through the existing header
-	// observation boundary. Model-specific limits must not poison other models.
 	if quotaStatus.RateLimit != nil && (err == nil || codexIncludedLimitReached(err)) {
 		headers := make(http.Header)
 		for i, window := range []*codexQuotaWindow{quotaStatus.RateLimit.Primary, quotaStatus.RateLimit.Secondary} {
@@ -140,8 +126,7 @@ func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) (quo
 			providers.ObserveUpstreamHeaders(ctx, headers)
 		}
 	}
-	// Windows go first so an exhausted window keeps its reset time.
-	if err != nil && !(allowCredits && codexIncludedLimitReached(err)) {
+	if err != nil && (!allowCredits || !codexIncludedLimitReached(err)) {
 		logCodexQuotaDenial(log, err, "plan_type", quotaStatus.PlanType, "has_rate_limit", quotaStatus.RateLimit != nil, "credit_reason", creditReason, "allow_credits", allowCredits)
 		return err
 	}
@@ -155,8 +140,6 @@ func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) (quo
 				logCodexQuotaDenial(log, err, "plan_type", quotaStatus.PlanType, "model", model, "has_rate_limit", modelRateLimit.RateLimit != nil)
 				var upstream *providers.UpstreamErrorResponse
 				if errors.As(err, &upstream) && upstream.Status == http.StatusTooManyRequests {
-					// Account cooldown applies to account-wide quota only. A model
-					// limit remains retryable without marking the whole account spent.
 					body, _ := json.Marshal(codexQuotaError{Error: codexQuotaErrorDetails{Type: codexQuotaErrorModelExhausted, Message: "Included Codex quota for the requested model is exhausted."}})
 					return &providers.UpstreamErrorResponse{Status: http.StatusServiceUnavailable, Body: body}
 				}
@@ -167,8 +150,6 @@ func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) (quo
 	return nil
 }
 
-// codexReachedTypes are the rate_limit_reached_type values that mean the plan
-// cannot serve the turn; unknown values are ignored as Codex itself does.
 var codexReachedTypes = map[string]bool{
 	"rate_limit_reached":                   true,
 	"workspace_owner_credits_depleted":     true,
@@ -177,8 +158,6 @@ var codexReachedTypes = map[string]bool{
 	"workspace_member_usage_limit_reached": true,
 }
 
-// logCodexQuotaDenial surfaces unverifiable quota at WARN: it fails every turn
-// for the token, unlike exhaustion, which the caller records and routes around.
 func logCodexQuotaDenial(log *slog.Logger, err error, attrs ...any) {
 	var upstream *providers.UpstreamErrorResponse
 	if errors.As(err, &upstream) && upstream.Status == http.StatusServiceUnavailable {
@@ -188,8 +167,6 @@ func logCodexQuotaDenial(log *slog.Logger, err error, attrs ...any) {
 	log.Info("Codex quota preflight denied inference", append(attrs, "err", err)...)
 }
 
-// windowsOptional accepts a quota without windows, or no quota at all, once the
-// payload reported a plan: plans without windowed limits omit them.
 func validateCodexIncludedQuota(quota *codexIncludedQuota, windowsOptional bool) error {
 	if quota == nil {
 		if windowsOptional {

@@ -29,7 +29,7 @@ func TestBlindExperimentWriterReportsRequestedModelInStream(t *testing.T) {
 	require.NoError(t, err)
 	_, err = w.Write([]byte(".4-mini\",\"content\":[]}}\n\nevent: ping\ndata: {\"type\":\"ping\"}\n\n"))
 	require.NoError(t, err)
-	w.(http.Flusher).Flush()
+	mustAs[http.Flusher](t, w).Flush()
 	finish()
 
 	out := rec.Body.String()
@@ -126,7 +126,7 @@ func TestBlindExperimentWriterFlushKeepsJSONBuffered(t *testing.T) {
 	w.WriteHeader(http.StatusOK)
 	_, err := w.Write([]byte(`{"id":"m","model":"gpt-5.`))
 	require.NoError(t, err)
-	w.(http.Flusher).Flush()
+	mustAs[http.Flusher](t, w).Flush()
 	_, err = w.Write([]byte(`4-mini","content":[]}`))
 	require.NoError(t, err)
 	finish()
@@ -151,7 +151,7 @@ func TestBlindExperimentWriterFlushBeforeWriteStripsHeaders(t *testing.T) {
 	w, finish := withBlindExperimentWriter(blindExperimentCtx(auth.BlindExperimentArmRouterOn), rec, []byte(blindRequestBody))
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("X-Router-Model", "gpt-5.4-mini")
-	w.(http.Flusher).Flush()
+	mustAs[http.Flusher](t, w).Flush()
 	finish()
 
 	assert.Empty(t, rec.Header().Get("X-Router-Model"))

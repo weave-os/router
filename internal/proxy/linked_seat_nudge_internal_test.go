@@ -67,7 +67,7 @@ func TestSpentOwnClaudePlanNudgesOnlyWithoutACoveringLinkedSeat(t *testing.T) {
 			ctx = context.WithValue(ctx, AnthropicSubscriptionContextKey{}, ownToken)
 			body := `{"model":"` + model + `","stream":true,"max_tokens":1024,"messages":[{"role":"user","content":"hello"}]}`
 			rec := httptest.NewRecorder()
-			require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))))
+			require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(body))))
 			require.Contains(t, rec.Body.String(), "answer")
 			require.NotContains(t, strings.Join(tokens, ","), ownToken, "the spent plan is not forwarded")
 			if tc.wantNudge {
@@ -120,7 +120,7 @@ func TestSpentOwnCodexPlanNudgesOnlyWithoutACoveringLinkedSeat(t *testing.T) {
 				ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 				ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "teammate", Provider: auth.SubscriptionProviderCodex, State: tc.seatState, Enabled: true, CooldownUntil: &resetAt}})
 				rec := httptest.NewRecorder()
-				require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest("/v1/chat/completions", body)))
+				require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/chat/completions", body)))
 				require.Contains(t, rec.Body.String(), "answer")
 				responses = append(responses, rec.Body.String())
 			}
@@ -168,7 +168,7 @@ func TestSpentOwnClaudePlanNudgesWhenTheLastLinkedSeatRunsOutMidTurn(t *testing.
 	ctx = context.WithValue(ctx, AnthropicSubscriptionContextKey{}, ownToken)
 	body := `{"model":"` + model + `","stream":true,"max_tokens":1024,"messages":[{"role":"user","content":"hello"}]}`
 	rec := httptest.NewRecorder()
-	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))))
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(body))))
 	require.Contains(t, rec.Body.String(), "answer")
 	require.Equal(t, []string{"Bearer sk-ant-oat01-teammate", "synthetic-paid-key"}, tokens, "the spent seat hands the turn to paid capacity")
 	require.Contains(t, rec.Body.String(), ownClaudePlanSpentPhrase)
@@ -223,9 +223,9 @@ func TestSpentOwnCodexPlanNudgesWhenTheLastLinkedSeatRunsOutMidTurn(t *testing.T
 				rec := httptest.NewRecorder()
 				if ingress == "responses" {
 					ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
-					require.NoError(t, svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest(path, body)))
+					require.NoError(t, svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), path, body)))
 				} else {
-					require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest(path, body)))
+					require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), path, body)))
 				}
 				require.Contains(t, rec.Body.String(), "answer")
 				turnBodies = append(turnBodies, rec.Body.String())

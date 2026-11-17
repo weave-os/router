@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
@@ -20,6 +19,9 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCodexQuotaPreflightRotatesBeforeInference(t *testing.T) {
@@ -78,7 +80,7 @@ func TestCodexQuotaPreflightRotatesBeforeInference(t *testing.T) {
 			}
 			body := `{"model":"auto","stream":true,"input":"synthetic","tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}]}`
 			rec := httptest.NewRecorder()
-			err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body)))
+			err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(body)))
 			inferenceMu.Lock()
 			defer inferenceMu.Unlock()
 			if tc.depleted {
@@ -107,7 +109,7 @@ func TestModelQuotaRejectionLeavesOtherModelsOnSubscription(t *testing.T) {
 	ctx := codexSubscriptionTestCtx()
 	credentialCtx := resolveAndInjectCredentials(ctx, providers.ProviderOpenAI, "gpt-6-astra", http.Header{})
 	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderOpenAI: client}).WithUsageObserver(usage.NewObserver([]byte("synthetic-quota-salt"), time.Minute, time.Now))
-	err := client.Proxy(credentialCtx, router.Decision{Model: "gpt-6-astra", Provider: providers.ProviderOpenAI}, providers.PreparedRequest{Endpoint: providers.EndpointResponses, Body: []byte(`{"model":"gpt-6-astra","input":"hi"}`)}, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+	err := client.Proxy(credentialCtx, router.Decision{Model: "gpt-6-astra", Provider: providers.ProviderOpenAI}, providers.PreparedRequest{Endpoint: providers.EndpointResponses, Body: []byte(`{"model":"gpt-6-astra","input":"hi"}`)}, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
 	require.Error(t, err)
 	_, accountSpent := codexQuotaExhaustion(err)
 	require.False(t, accountSpent)
@@ -116,7 +118,7 @@ func TestModelQuotaRejectionLeavesOtherModelsOnSubscription(t *testing.T) {
 	require.False(t, svc.codexSubscriptionExhausted(credentialCtx, http.Header{}))
 	laterCtx := svc.resolveCredentials(ctx, providers.ProviderOpenAI, codexCoveredModel, http.Header{})
 	require.True(t, requestcontext.CredentialsFromContext(laterCtx).OAuth)
-	require.NoError(t, client.Proxy(laterCtx, router.Decision{Model: codexCoveredModel, Provider: providers.ProviderOpenAI}, providers.PreparedRequest{Endpoint: providers.EndpointResponses, Body: []byte(`{"model":"` + codexCoveredModel + `","input":"hi"}`)}, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/responses", nil)))
+	require.NoError(t, client.Proxy(laterCtx, router.Decision{Model: codexCoveredModel, Provider: providers.ProviderOpenAI}, providers.PreparedRequest{Endpoint: providers.EndpointResponses, Body: []byte(`{"model":"` + codexCoveredModel + `","input":"hi"}`)}, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)))
 	leaser := &scriptedSubscriptionLeaser{}
 	svc.WithManagedSubscriptions(leaser)
 	require.False(t, svc.recordManagedSubscriptionFailure(credentialCtx, providers.ProviderOpenAI, "gpt-6-astra", subscriptions.Lease{AccountID: "synthetic-account"}, err), "model quota must not cool down the whole managed account")
@@ -127,7 +129,7 @@ func TestCodexExtraCreditsManagedAccountWithSpentObservation(t *testing.T) {
 		t.Run(map[bool]string{false: "included_only", true: "extra_credits"}[allowed], func(t *testing.T) {
 			var inference, quotaChecks atomic.Int32
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				require.Equal(t, "Bearer synthetic-subscription", r.Header.Get("Authorization"))
+				assert.Equal(t, "Bearer synthetic-subscription", r.Header.Get("Authorization"))
 				if r.URL.Path == "/wham/usage" {
 					quotaChecks.Add(1)
 					_, _ = io.WriteString(w, `{"rate_limit":{"allowed":false,"limit_reached":true,"primary_window":{"used_percent":100}},"credits":{"has_credits":true,"balance":"20"}}`)
@@ -154,7 +156,7 @@ func TestCodexExtraCreditsManagedAccountWithSpentObservation(t *testing.T) {
 				ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
 				body := `{"model":"auto","stream":true,"input":"synthetic","tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}]}`
 				rec := httptest.NewRecorder()
-				err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body)))
+				err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(body)))
 				if allowed {
 					require.NoError(t, err)
 					require.Contains(t, rec.Body.String(), "answer")
@@ -195,14 +197,14 @@ func TestCodexExtraCreditsCallerLoginPrecedesAPIFallback(t *testing.T) {
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path == "/wham/usage" {
 					quotaChecks.Add(1)
-					require.Equal(t, "Bearer "+codexTestToken, r.Header.Get("Authorization"))
+					assert.Equal(t, "Bearer "+codexTestToken, r.Header.Get("Authorization"))
 					_, _ = io.WriteString(w, `{"rate_limit":{"allowed":false,"limit_reached":true,"primary_window":{"used_percent":100}},"credits":{"has_credits":true,"balance":"20"}}`)
 					return
 				}
 				if r.Header.Get("Authorization") == "Bearer "+codexTestToken {
 					subscriptionCalls.Add(1)
 				} else {
-					require.Equal(t, "Bearer synthetic-api-key", r.Header.Get("Authorization"))
+					assert.Equal(t, "Bearer synthetic-api-key", r.Header.Get("Authorization"))
 					apiCalls.Add(1)
 				}
 				w.Header().Set("Content-Type", "text/event-stream")
@@ -217,7 +219,7 @@ func TestCodexExtraCreditsCallerLoginPrecedesAPIFallback(t *testing.T) {
 			svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).WithUsageObserver(observer).WithCodexExtraCredits(allowed)
 			body := `{"model":"auto","stream":true,"input":"synthetic","tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}]}`
 			rec := httptest.NewRecorder()
-			require.NoError(t, svc.ProxyOpenAIResponses(codexSubscriptionTestCtx(), []byte(body), rec, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))))
+			require.NoError(t, svc.ProxyOpenAIResponses(codexSubscriptionTestCtx(), []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(body))))
 			require.Contains(t, rec.Body.String(), "answer")
 			if allowed {
 				require.EqualValues(t, 1, quotaChecks.Load(), "caller login must freshly verify quota and credits")

@@ -1,7 +1,6 @@
 package sessionstrategy_test
 
 import (
-	"errors"
 	"testing"
 
 	"weave-os/router/internal/router"
@@ -24,5 +23,5 @@ func TestInvalidStrategyErrorIsStable(t *testing.T) {
 	t.Parallel()
 
 	err := (sessionstrategy.Preference{Strategy: "stable"}).Validate()
-	assert.True(t, errors.Is(err, sessionstrategy.ErrInvalidStrategy))
+	assert.ErrorIs(t, err, sessionstrategy.ErrInvalidStrategy)
 }

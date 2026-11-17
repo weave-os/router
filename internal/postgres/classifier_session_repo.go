@@ -20,18 +20,15 @@ import (
 
 const classifierTransactionLimit = 2
 
-// ClassifierSessionRepo keeps thread admission and prediction commits on primary.
 type ClassifierSessionRepo struct {
 	pool         *pgxpool.Pool
 	transactions *semaphore.Weighted
 }
 
-// NewClassifierSessionRepo requires the writable router database.
 func NewClassifierSessionRepo(pool *pgxpool.Pool) *ClassifierSessionRepo {
 	return &ClassifierSessionRepo{pool: pool, transactions: semaphore.NewWeighted(classifierTransactionLimit)}
 }
 
-// Create returns the original binding on an idempotent handshake retry.
 func (r *ClassifierSessionRepo) Create(ctx context.Context, thread router.ClassifierThread) (router.ClassifierThread, error) {
 	stored, err := dbbudget.Queries(r.pool).InsertClassifierThread(ctx, sqlc.InsertClassifierThreadParams{
 		ThreadID: thread.ThreadID, InstallationID: thread.InstallationID,
@@ -49,9 +46,7 @@ func (r *ClassifierSessionRepo) Create(ctx context.Context, thread router.Classi
 	return thread, nil
 }
 
-// WithThread holds a primary row lock until the prediction is committed.
 func (r *ClassifierSessionRepo) WithThread(ctx context.Context, thread router.ClassifierThread, classify func(router.ClassifierTurnStore) error) error {
-	// Bound inference and row-lock waiters before taking a shared connection.
 	if !r.transactions.TryAcquire(1) {
 		return fmt.Errorf("classifier transaction capacity reached: %w", router.ErrClassifierUnavailable)
 	}

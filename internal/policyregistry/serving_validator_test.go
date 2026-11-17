@@ -133,7 +133,7 @@ func TestServingControllerVerifiesSourceBuildEvidenceForDerivedCompositions(t *t
 	proposal := storedProposal(t, store, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
 	initial, err := controller.Activate(context.Background(), store.publishArtifact(t, policyregistry.ServingProposal, proposal), "workflow")
 	require.NoError(t, err)
-	source := *store.object(t, policyregistry.ServingReleases, set.Default.Release).(*policyregistry.ServingRelease)
+	source := *mustAs[*policyregistry.ServingRelease](t, store.object(t, policyregistry.ServingReleases, set.Default.Release))
 	source.Provenance.BuildAttestation = artifactRef("unpublished-source-attestation")
 	proposal = storedProposal(t, store, initial.Snapshot, set, servingEpoch)
 	proposal.Scope = policyregistry.ChangeRouter
@@ -183,7 +183,7 @@ func preparedLanes(t *testing.T, store policyregistry.ServingStore, set policyre
 
 func TestActivationMemoizesDestinationAttestationsPerRevisionBinding(t *testing.T) {
 	store, _, set := controllerFixture(t)
-	base := store.object(t, policyregistry.ServingReleases, set.Default.Release).(*policyregistry.ServingRelease)
+	base := mustAs[*policyregistry.ServingRelease](t, store.object(t, policyregistry.ServingReleases, set.Default.Release))
 	set.Profiles[profileKeyOne] = registerProfileFixture(t, store, set.Default, profileKeyOne, base.Policy)
 	set.Profiles[profileKeyTwo] = registerProfileFixture(t, store, set.Default, profileKeyTwo, base.Policy)
 	lanes := preparedLanes(t, store, set)
@@ -214,9 +214,9 @@ func TestActivationMemoizesDestinationAttestationsPerRevisionBinding(t *testing.
 
 	entry := destinationValidationEntry(t, &audit)
 	require.Equal(t, "attested", entry["destination_validation_outcome"])
-	require.Equal(t, float64(3), entry["destination_validation_lanes"])
-	require.Equal(t, float64(4), entry["destination_validation_http_calls"])
-	require.Equal(t, float64(2), entry["destination_validation_cache_hits"])
+	require.InDelta(t, float64(3), entry["destination_validation_lanes"], 1e-9)
+	require.InDelta(t, float64(4), entry["destination_validation_http_calls"], 1e-9)
+	require.InDelta(t, float64(2), entry["destination_validation_cache_hits"], 1e-9)
 
 	// A second activation re-attests: the memo never outlives one validation.
 	endpoints.classifierCalls = 0
@@ -230,7 +230,7 @@ func TestActivationAttestsEveryDistinctRevisionBinding(t *testing.T) {
 	store, _, set := controllerFixture(t)
 	lanes := preparedLanes(t, store, set)
 	require.Len(t, lanes, 1)
-	binding := *store.object(t, policyregistry.ServingBindings, set.Default.Binding).(*policyregistry.DeploymentBinding)
+	binding := *mustAs[*policyregistry.DeploymentBinding](t, store.object(t, policyregistry.ServingBindings, set.Default.Binding))
 	binding.Router.Name = "worker-0002"
 	binding.Router.URL = "https://worker-0002.example"
 	binding.Classifier.Name = "classifier-0002"
@@ -261,7 +261,7 @@ func TestActivationMemoizesDestinationFailuresFailClosed(t *testing.T) {
 
 func TestBlockedActivationLogsPartialDestinationValidation(t *testing.T) {
 	store, _, set := controllerFixture(t)
-	base := store.object(t, policyregistry.ServingReleases, set.Default.Release).(*policyregistry.ServingRelease)
+	base := mustAs[*policyregistry.ServingRelease](t, store.object(t, policyregistry.ServingReleases, set.Default.Release))
 	set.Profiles[profileKeyOne] = registerProfileFixture(t, store, set.Default, profileKeyOne, base.Policy)
 	var audit bytes.Buffer
 	validator := policyregistry.DestinationValidator{Endpoints: &flakyDestinationEndpoints{}}
@@ -273,7 +273,7 @@ func TestBlockedActivationLogsPartialDestinationValidation(t *testing.T) {
 
 	entry := destinationValidationEntry(t, &audit)
 	require.Equal(t, "blocked", entry["destination_validation_outcome"])
-	require.Equal(t, float64(1), entry["destination_validation_lanes"], "a blocked validation stops on the failing lane and reports partial counts")
+	require.InDelta(t, float64(1), entry["destination_validation_lanes"], 1e-9, "a blocked validation stops on the failing lane and reports partial counts")
 }
 
 func TestAttestedLanesStayAttestedWhenAProposalCheckRejects(t *testing.T) {
@@ -290,7 +290,7 @@ func TestAttestedLanesStayAttestedWhenAProposalCheckRejects(t *testing.T) {
 
 	entry := destinationValidationEntry(t, &audit)
 	require.Equal(t, "attested", entry["destination_validation_outcome"], "a rejection outside destination validation leaves every attested lane attested")
-	require.Equal(t, float64(1), entry["destination_validation_lanes"])
+	require.InDelta(t, float64(1), entry["destination_validation_lanes"], 1e-9)
 }
 
 // flakyDestinationEndpoints fails the first classifier attestation and would succeed afterwards.

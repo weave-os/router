@@ -25,8 +25,8 @@ func bearer(token string) http.Header {
 	return h
 }
 
-func byokKey(provider string, priority auth.FundingPriority) *auth.ExternalAPIKey {
-	return &auth.ExternalAPIKey{ID: "key-" + provider, Provider: provider, Plaintext: []byte("byok-" + provider), FundingPriority: priority}
+func anthropicBYOKKey(priority auth.FundingPriority) *auth.ExternalAPIKey {
+	return &auth.ExternalAPIKey{ID: "key-" + providers.ProviderAnthropic, Provider: providers.ProviderAnthropic, Plaintext: []byte("byok-" + providers.ProviderAnthropic), FundingPriority: priority}
 }
 
 func routerKeyed(f requestcontext.RequestFacts) requestcontext.RequestFacts {
@@ -44,7 +44,7 @@ func spent(t *testing.T, res credentials.Resolution) string {
 
 func TestResolve_KeyFirstBYOKBeatsStoredSubscription(t *testing.T) {
 	facts := requestcontext.RequestFacts{
-		ExternalKeys:          []*auth.ExternalAPIKey{byokKey(providers.ProviderAnthropic, auth.FundingPriorityKeyFirst)},
+		ExternalKeys:          []*auth.ExternalAPIKey{anthropicBYOKKey(auth.FundingPriorityKeyFirst)},
 		AnthropicSubscription: claudeToken,
 	}
 	res := credentials.Resolve(facts, providers.ProviderAnthropic, credentials.Suppression{})
@@ -54,7 +54,7 @@ func TestResolve_KeyFirstBYOKBeatsStoredSubscription(t *testing.T) {
 
 func TestResolve_PlanFirstBYOKLeavesSubscriptionFirst(t *testing.T) {
 	facts := requestcontext.RequestFacts{
-		ExternalKeys:          []*auth.ExternalAPIKey{byokKey(providers.ProviderAnthropic, auth.FundingPriorityPlanFirst)},
+		ExternalKeys:          []*auth.ExternalAPIKey{anthropicBYOKKey(auth.FundingPriorityPlanFirst)},
 		AnthropicSubscription: " " + claudeToken + " ",
 	}
 	res := credentials.Resolve(facts, providers.ProviderAnthropic, credentials.Suppression{})
@@ -65,7 +65,7 @@ func TestResolve_PlanFirstBYOKLeavesSubscriptionFirst(t *testing.T) {
 
 func TestResolve_SuppressedClaudeFallsToBYOK(t *testing.T) {
 	facts := requestcontext.RequestFacts{
-		ExternalKeys:          []*auth.ExternalAPIKey{byokKey(providers.ProviderAnthropic, auth.FundingPriorityPlanFirst)},
+		ExternalKeys:          []*auth.ExternalAPIKey{anthropicBYOKKey(auth.FundingPriorityPlanFirst)},
 		AnthropicSubscription: claudeToken,
 	}
 	res := credentials.Resolve(facts, providers.ProviderAnthropic, credentials.Suppression{Claude: true})
@@ -120,8 +120,8 @@ func TestResolve_SubscriptionNeverCrossesProviders(t *testing.T) {
 
 func TestKeyFirst_LastUsableKeyWins(t *testing.T) {
 	keys := []*auth.ExternalAPIKey{
-		byokKey(providers.ProviderAnthropic, auth.FundingPriorityKeyFirst),
-		byokKey(providers.ProviderAnthropic, auth.FundingPriorityPlanFirst),
+		anthropicBYOKKey(auth.FundingPriorityKeyFirst),
+		anthropicBYOKKey(auth.FundingPriorityPlanFirst),
 		{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst},
 	}
 	assert.False(t, credentials.KeyFirst(keys, providers.ProviderAnthropic))

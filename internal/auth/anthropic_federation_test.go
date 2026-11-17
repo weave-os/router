@@ -6,10 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func federationConfiguration() *auth.AnthropicFederationConfig {
@@ -70,9 +71,9 @@ func TestFederationFailureKeepsAnUnavailableCredentialMarker(t *testing.T) {
 				_, _, credentials, _, err := svc.VerifyAPIKey(context.Background(), rawKey)
 				require.NoError(t, err)
 				require.Len(t, credentials, 1)
-				assert.ErrorIs(t, credentials[0].CredentialError, auth.ErrAnthropicFederationUnavailable)
+				require.ErrorIs(t, credentials[0].CredentialError, auth.ErrAnthropicFederationUnavailable)
 				assert.Empty(t, credentials[0].Plaintext)
-				assert.Nil(t, key.CredentialError, "the shared cache must not retain a request's failure")
+				assert.NoError(t, key.CredentialError, "the shared cache must not retain a request's failure")
 			}
 		})
 	}
@@ -100,7 +101,7 @@ func TestDelegatedSessionRetainsFederationFailureForSelectedProvider(t *testing.
 	_, _, credentials, _, _, err := svc.VerifySessionToken(context.Background(), token, true)
 	require.NoError(t, err)
 	require.Len(t, credentials, 1)
-	assert.ErrorIs(t, credentials[0].CredentialError, auth.ErrAnthropicFederationUnavailable)
+	require.ErrorIs(t, credentials[0].CredentialError, auth.ErrAnthropicFederationUnavailable)
 	_, _, _, _, _, err = svc.VerifySessionToken(context.Background(), token, false)
 	require.NoError(t, err, "control-plane authentication does not need an upstream token")
 }

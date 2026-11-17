@@ -1,4 +1,3 @@
-// Package subscriptions exposes authenticated subscription-account management.
 package subscriptions
 
 import (
@@ -43,7 +42,6 @@ type updateAccountRequest struct {
 	CooldownUntil *time.Time `json:"cooldown_until"`
 }
 
-// Register mounts account management endpoints on an authenticated group.
 func Register(group *gin.RouterGroup, authSvc *auth.Service) {
 	group.GET("/subscriptions/accounts", listAccountsHandler(authSvc))
 	group.GET("/subscriptions/pool", listPoolHandler(authSvc))

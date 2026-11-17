@@ -17,21 +17,15 @@ import (
 )
 
 const (
-	// DefaultClaudeAuthorizeURL starts Claude's paste-the-code OAuth flow, the
-	// same one `router login claude` opens.
 	DefaultClaudeAuthorizeURL = "https://claude.ai/oauth/authorize"
 	claudeLoginRedirectURI    = "https://console.anthropic.com/oauth/code/callback"
 	claudeLoginScope          = "org:create_api_key user:profile user:inference"
 
-	// LoginTTL bounds how long a started browser login can be completed.
 	LoginTTL = 15 * time.Minute
 )
 
-// ErrLoginPending reports that the user has not approved the device code yet.
 var ErrLoginPending = errors.New("subscription login is waiting for approval")
 
-// PendingLogin is the provider state a started browser login needs to finish.
-// It carries PKCE and device secrets, so callers seal it before handing it out.
 type PendingLogin struct {
 	Provider     Provider  `json:"provider"`
 	DeviceAuthID string    `json:"device_auth_id,omitempty"`
@@ -41,8 +35,6 @@ type PendingLogin struct {
 	ExpiresAt    time.Time `json:"expires_at"`
 }
 
-// StartedLogin is what the user sees: where to sign in and, for Codex, the
-// code to confirm there.
 type StartedLogin struct {
 	Pending         PendingLogin
 	VerificationURL string
@@ -50,7 +42,6 @@ type StartedLogin struct {
 	PollInterval    time.Duration
 }
 
-// CompletedLogin is an enrollable subscription credential.
 type CompletedLogin struct {
 	Provider          Provider
 	ExternalAccountID string
@@ -75,7 +66,7 @@ func (c *OAuthClient) StartLogin(ctx context.Context, provider Provider) (Starte
 			return StartedLogin{}, err
 		}
 		if response.DeviceAuthID == "" || response.UserCode == "" {
-			return StartedLogin{}, errors.New("Codex device authorization returned an invalid response")
+			return StartedLogin{}, errors.New("codex device authorization returned an invalid response")
 		}
 		interval := 5 * time.Second
 		if seconds, err := response.Interval.Int64(); err == nil && seconds >= 1 && seconds <= 30 {
@@ -116,8 +107,6 @@ func (c *OAuthClient) StartLogin(ctx context.Context, provider Provider) (Starte
 	}
 }
 
-// CompleteLogin finishes a started login. Codex returns ErrLoginPending until
-// the user approves the device code; Claude needs the pasted `code#state`.
 func (c *OAuthClient) CompleteLogin(ctx context.Context, pending PendingLogin, pastedCode string) (CompletedLogin, error) {
 	if !c.now().Before(pending.ExpiresAt) {
 		return CompletedLogin{}, errors.New("subscription login expired")
@@ -146,7 +135,7 @@ func (c *OAuthClient) completeCodexLogin(ctx context.Context, pending PendingLog
 		return CompletedLogin{}, err
 	}
 	if authorization.AuthorizationCode == "" || authorization.CodeVerifier == "" {
-		return CompletedLogin{}, errors.New("Codex authorization returned an invalid response")
+		return CompletedLogin{}, errors.New("codex authorization returned an invalid response")
 	}
 	form := url.Values{
 		"grant_type":    {"authorization_code"},
@@ -175,7 +164,7 @@ func (c *OAuthClient) completeCodexLogin(ctx context.Context, pending PendingLog
 	}
 	accountID := accountIDFromJWT(identity)
 	if token.RefreshToken == "" || accountID == "" {
-		return CompletedLogin{}, errors.New("Codex token exchange omitted account identity or refresh credentials")
+		return CompletedLogin{}, errors.New("codex token exchange omitted account identity or refresh credentials")
 	}
 	return CompletedLogin{Provider: ProviderCodex, ExternalAccountID: accountID, DisplayName: emailFromJWT(identity), RefreshToken: token.RefreshToken}, nil
 }
@@ -186,7 +175,7 @@ func (c *OAuthClient) completeClaudeLogin(ctx context.Context, pending PendingLo
 		return CompletedLogin{}, errors.New("expected Claude's code#state value")
 	}
 	if state != pending.State {
-		return CompletedLogin{}, errors.New("Claude authorization state did not match this login")
+		return CompletedLogin{}, errors.New("claude authorization state did not match this login")
 	}
 	var token struct {
 		RefreshToken string `json:"refresh_token"`
@@ -212,7 +201,7 @@ func (c *OAuthClient) completeClaudeLogin(ctx context.Context, pending PendingLo
 	}
 	externalID := ClaudeExternalAccountID(token.Account.UUID, token.Organization.UUID)
 	if token.RefreshToken == "" || externalID == "" {
-		return CompletedLogin{}, errors.New("Claude token exchange omitted account identity or refresh credentials")
+		return CompletedLogin{}, errors.New("claude token exchange omitted account identity or refresh credentials")
 	}
 	displayName := token.Account.Email
 	if token.Organization.Name != "" && displayName != "" {

@@ -73,7 +73,7 @@ func TestManagedPoolOverloadIsRememberedAcrossRequests(t *testing.T) {
 		})
 		body := `{"model":"auto","stream":true,"input":"synthetic","tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}]}`
 		rec := httptest.NewRecorder()
-		require.NoError(t, svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))))
+		require.NoError(t, svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(body))))
 		require.Contains(t, rec.Body.String(), "answer")
 	}
 	mu.Lock()

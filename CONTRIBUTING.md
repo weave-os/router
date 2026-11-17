@@ -59,7 +59,7 @@ non-trivial work.
 `internal/proxy` is being split into five bounded contexts: Protocol &
 Ingress, Credential Brokerage, Routing Policy, Inference Execution and
 Conversation Lifecycle. Before writing code, find your change's row in
-the [decision table](internal/proxy/CLAUDE.md#where-new-behavior-goes).
+the [decision table](.agents/skills/where-does-this-go/SKILL.md).
 New behavior goes in a new focused file for that context, as a free
 function or small struct with explicit dependencies, never as a new
 method or field on `proxy.Service`. Model quirks are catalog data; new
@@ -123,6 +123,10 @@ make dev                               # run the server with hot reload
 
 Prerequisites: Go 1.26+, [golang-migrate](https://github.com/golang-migrate/migrate),
 [CompileDaemon](https://github.com/githubnemo/CompileDaemon).
+
+`make seed` writes its `rk_` key into the admin installation, so the key and any
+BYOK keys added through the dashboard share one installation. An installation has
+one active key, so re-running it rotates the key.
 
 ### Tests
 

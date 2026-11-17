@@ -144,7 +144,7 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 				})
 				require.NoError(t, err)
 				recorder := httptest.NewRecorder()
-				request := httptest.NewRequest(http.MethodPost, routePathMessages, strings.NewReader(string(body)))
+				request := httptest.NewRequestWithContext(ctx, http.MethodPost, routePathMessages, strings.NewReader(string(body)))
 				if scenario.forceWithEffort {
 					request.Header.Set(ForceModelHeader, gatewayCompactionOpusModel+":high")
 				}
@@ -159,7 +159,7 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 				require.True(t, ok)
 				require.Equal(t, DispatchErrorContextWindowExceeded, class.Kind)
 				require.Len(t, models, 1, "a real overflow must reach the client without retrying the oversized turn")
-				recorder, err = proxyTurn(largeHistory, "Your task is to create a detailed summary of the conversation so far.")
+				_, err = proxyTurn(largeHistory, "Your task is to create a detailed summary of the conversation so far.")
 				require.Error(t, err)
 				class, ok = ClassifyDispatchError(err)
 				require.True(t, ok)
@@ -192,7 +192,7 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 					assert.Equal(t, "high", efforts[i], "canonicalizing the model must preserve the requested wire effort")
 				}
 			}
-			assert.True(t, largeHistory == contents[0], "the router must let the provider count the original history (sent %d bytes)", len(contents[0]))
+			assert.Equal(t, largeHistory, contents[0], "the router must let the provider count the original history (sent %d bytes)", len(contents[0]))
 		})
 	}
 }

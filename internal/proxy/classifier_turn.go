@@ -17,7 +17,6 @@ import (
 
 type classifierInputContextKey struct{}
 
-// Capture before command stripping, history rewriting or Responses projection.
 func (s *Service) withClassifierInput(ctx context.Context, body []byte, endpoint router.TranslationEndpoint) (context.Context, error) {
 	if auth.RoutingPassthroughFrom(ctx) {
 		return ctx, nil
@@ -51,8 +50,6 @@ func (s *Service) withClassifierInput(ctx context.Context, body []byte, endpoint
 		return ctx, router.ErrClassifierThreadInvalid
 	}
 	if err == nil && env != nil {
-		// Router commands do not represent model invocations and cannot advance
-		// a classifier's causal chain through a synthetic assistant response.
 		_, beta := env.ExtractBetaCommand()
 		_, forced := env.ExtractForceModelCommand()
 		_, feedback := env.ExtractRouterFeedbackCommand()
@@ -84,13 +81,12 @@ func (s *Service) withClassifierInput(ctx context.Context, body []byte, endpoint
 	return context.WithValue(ctx, classifierInputContextKey{}, input), nil
 }
 
-// This path skips legacy sticky/utility/planner bypasses: every admitted action
-// must classify its current API-call prefix before provider dispatch.
 func (s *Service) runClassifierTurn(ctx context.Context, request router.Request, turn turnLoopResult, sessionKey [sessionpin.SessionKeyLen]byte) (turnLoopResult, error) {
 	switch turn.TurnType {
 	case turntype.TitleGen, turntype.Probe, turntype.Compaction, turntype.Classifier:
 		observability.FromContext(ctx).Warn("Classifier thread rejects utility request", "turn_type", turn.TurnType)
 		return turn, router.ErrClassifierHistoryUnavailable
+	case turntype.MainLoop, turntype.ToolResult, turntype.SubAgentDispatch, turntype.Recap:
 	}
 	input, ok := ctx.Value(classifierInputContextKey{}).(router.ClassifierContext)
 	if !ok || request.ForceModel != "" || request.ForceCluster != "" {
@@ -101,13 +97,12 @@ func (s *Service) runClassifierTurn(ctx context.Context, request router.Request,
 		return turn, err
 	}
 	request.ClassifierPrediction = &prediction
-	// A recap is scored but, as on the scorer path, never anchors the session.
 	unpinned := isUnpinnedScoredTurn(turn.TurnType)
 	if !unpinned {
 		turn.SessionKey = sessionKey
 	}
 	turn.AuthoritativePerTurn = true
-	request.PolicyTurnContext = buildPolicyTurnContext(request, turn, sessionpin.Pin{}, sessionpin.Pin{})
+	request.PolicyTurnContext = buildPolicyTurnContext(request, turn, sessionpin.Pin{}, sessionpin.Pin{}, s.clock.Now())
 	decision, err := s.routeFor(ctx, request)
 	if err != nil {
 		return turn, err

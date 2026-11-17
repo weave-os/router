@@ -12,9 +12,6 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-// turnFailures collects the models that failed during one request and were
-// handed to another target, so completion can keep them out of the session
-// for the rest of the agent turn.
 type turnFailures struct {
 	mu     sync.Mutex
 	models []string
@@ -46,9 +43,6 @@ func recordTurnFailure(ctx context.Context, model string) {
 	}
 }
 
-// strikeRescuedModelsForTurn keeps every model that failed and was rescued by
-// another one in this request out of the session until the next user prompt,
-// so tool-result requests of the same agent turn do not swap back to it.
 func (s *Service) strikeRescuedModelsForTurn(ctx context.Context, proxyErr error, served router.Decision, hardPinned bool, sessionKey [sessionpin.SessionKeyLen]byte, role, pinRole string) {
 	failures := turnFailuresFromContext(ctx)
 	store, ok := s.pinStore.(sessionpin.TurnStrikeStore)
@@ -65,8 +59,7 @@ func (s *Service) strikeRescuedModelsForTurn(ctx context.Context, proxyErr error
 			continue
 		}
 		for _, strikeRole := range demotionRoles(role, pinRole) {
-			// The request ctx may already be canceled once the stream has ended.
-			if err := store.StrikeTurnModel(context.Background(), sessionKey, strikeRole, model); err != nil {
+			if err := store.StrikeTurnModel(context.WithoutCancel(ctx), sessionKey, strikeRole, model); err != nil {
 				log.Error("agent-turn model strike failed", "err", err, "role", strikeRole, "model", model)
 			}
 		}
@@ -80,7 +73,7 @@ func (s *Service) clearTurnStrikes(ctx context.Context, sessionKey [sessionpin.S
 		return
 	}
 	for _, role := range demotionRoles(pinRole, pinRole) {
-		if err := store.ClearTurnStrikes(context.Background(), sessionKey, role); err != nil {
+		if err := store.ClearTurnStrikes(context.WithoutCancel(ctx), sessionKey, role); err != nil {
 			observability.FromContext(ctx).Error("agent-turn strike clear failed", "err", err, "role", role)
 		}
 	}

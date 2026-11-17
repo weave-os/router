@@ -99,7 +99,7 @@ func TestProxyMessages_CCTaskToolsCrossVendor_OrgOverrideReachesUpstream(t *test
 				})
 			}
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(ccTaskToolTurnBody))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(ccTaskToolTurnBody))
 			require.NoError(t, svc.ProxyMessages(ctx, []byte(ccTaskToolTurnBody), rec, req))
 
 			require.Len(t, provider.proxyBodies, 1)

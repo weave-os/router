@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/providers"
@@ -17,6 +16,9 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/policy"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestThreeHMMClassifiersSelectPinnedRostersThroughTheSharedSidecar(t *testing.T) {
@@ -32,25 +34,25 @@ func TestThreeHMMClassifiersSelectPinnedRostersThroughTheSharedSidecar(t *testin
 	sidecar := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
 		case "/readyz":
-			require.NoError(t, json.NewEncoder(w).Encode(policyclient.ClassifierHealth{
+			assert.NoError(t, json.NewEncoder(w).Encode(policyclient.ClassifierHealth{
 				SchemaVersion: identity.WireSchema, ClassifierArtifactID: identity.ArtifactID,
 				ClassifierSHA256: identity.PackageSHA256, ClassifierImageDigest: identity.ImageDigest,
 				ClassifierClassOrder: identity.ClassOrder, ClassifierTaxonomySHA: identity.TaxonomySHA256,
 				ClassifierVariants: identity.Variants,
 			}))
 		case "/capabilities":
-			require.NoError(t, json.NewEncoder(w).Encode(policy.Capabilities{SchemaVersion: policy.SchemaVersionV4}))
+			assert.NoError(t, json.NewEncoder(w).Encode(policy.Capabilities{SchemaVersion: policy.SchemaVersionV4}))
 		case "/route":
 			var query struct {
 				Strategy router.Strategy `json:"strategy"`
 				RouteID  string          `json:"route_id"`
 			}
-			require.NoError(t, json.NewDecoder(request.Body).Decode(&query))
+			assert.NoError(t, json.NewDecoder(request.Body).Decode(&query))
 			artifactID, artifactSHA := identity.ArtifactID, identity.PackageSHA256
 			if variant, found := identity.Variants[query.Strategy]; found {
 				artifactID, artifactSHA = variant.ArtifactID, variant.PackageSHA256
 			}
-			require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+			assert.NoError(t, json.NewEncoder(w).Encode(map[string]any{
 				"schema_version": policy.SchemaVersionV4, "route_id": query.RouteID,
 				"classifier_artifact_id": artifactID, "classifier_artifact_sha256": artifactSHA,
 				"predicted_label": "high", "class_order": identity.ClassOrder,

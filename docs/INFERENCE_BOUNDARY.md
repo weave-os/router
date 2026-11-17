@@ -98,6 +98,10 @@ Feature orchestration describes a logical operation with `inference.InvocationRe
 
 Target overrides must identify a typed source declared in the policy's precedence list. Invalid, disallowed, duplicated, over-budget, or ineligible explicit targets return a typed `policy.ResolutionError`; they never fall through to a lower-precedence override or default model. `Registry.ValidateDeployment` applies the corresponding fail-closed checks to boot-time targets.
 
+A `inference.Constraint` is a hard condition the resolver verifies on every binding a plan emits, selected and fallback alike: catalog binding, context window, model exclusions, provider exclusions (including the gateway set under gateway-only tenancy), and spend. The vocabulary is limited to properties of a binding against the resolution request; credential scope, tenant isolation, and wire-format compatibility are enforced by the proxy and translation layers and are deliberately not claimable as constraints. An `inference.SoftPreference` only ranks candidates and never overrides a hard constraint: the capability preference withdraws weak tool-use or image-input models from automatic selection, but an explicit pin still dispatches.
+
+Unknown usage is explicit. `inference.Usage.Known` is false when the upstream reported nothing, so the counts are unmeasured rather than zero, `AttemptEvent.CostUSD` is meaningful only when usage is known, and an unknown-usage operation is never recorded as a zero-cost billed operation. Attempt failure reasons are bounded machine reasons, never upstream body content, and `OperationID` keeps a main turn and its auxiliary operations (such as a handover summary) from colliding in attempt ordering.
+
 ## Enforcement
 
 Funding authorization is a separate executor boundary from target selection.

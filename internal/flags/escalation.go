@@ -5,7 +5,6 @@ import (
 	"fmt"
 )
 
-// EscalationClassifier identifies an independently selectable escalation policy.
 type EscalationClassifier string
 
 const (
@@ -15,7 +14,6 @@ const (
 	EscalationClassifierLLM        EscalationClassifier = "llm_escalation"
 )
 
-// EscalationConfig is one request's effective, immutable classifier selection.
 type EscalationConfig struct {
 	Active   EscalationClassifier
 	Shadow   EscalationClassifier
@@ -24,9 +22,6 @@ type EscalationConfig struct {
 	Explicit bool
 }
 
-// EscalationWithDeploymentShadow shadows classifier for installations that
-// select no classifier explicitly and run none actively; legacy XGB shadow
-// yields to it. Only LLM classifiers can be a deployment shadow.
 func EscalationWithDeploymentShadow(ctx context.Context, classifier EscalationClassifier) EscalationConfig {
 	config := EscalationFromContext(ctx)
 	if config.Explicit || config.Active != EscalationClassifierNone || !IsLLMEscalationClassifier(classifier) {
@@ -37,23 +32,33 @@ func EscalationWithDeploymentShadow(ctx context.Context, classifier EscalationCl
 	return config
 }
 
-// EscalationFromContext preserves legacy behavior until an active selector is set.
 func EscalationFromContext(ctx context.Context) EscalationConfig {
 	overrides, _ := OverridesFromContext(ctx)
+	return EscalationFromOverrides(overrides)
+}
+
+func EscalationFromOverrides(overrides Overrides) EscalationConfig {
 	active, explicit := overrides.Strings[KeyEscalationActiveClassifier]
-	config := EscalationConfig{Active: EscalationClassifierNone, Shadow: EscalationClassifierNone, Cadence: IntOr(ctx, KeyEscalationCadence, 3), Epoch: IntOr(ctx, KeyEscalationEpoch, 0), Explicit: explicit}
+	config := EscalationConfig{Active: EscalationClassifierNone, Shadow: EscalationClassifierNone, Cadence: overrideOr(overrides.Ints, KeyEscalationCadence, 3), Epoch: overrideOr(overrides.Ints, KeyEscalationEpoch, 0), Explicit: explicit}
 	if explicit {
 		config.Active = EscalationClassifier(active)
-		config.Shadow = EscalationClassifier(StringOr(ctx, KeyEscalationShadowClassifier, string(EscalationClassifierNone)))
+		config.Shadow = EscalationClassifier(overrideOr(overrides.Strings, KeyEscalationShadowClassifier, string(EscalationClassifierNone)))
 		return config
 	}
-	config.Epoch = IntOr(ctx, KeyEscalationXGBoostEpoch, 0)
-	if BoolOr(ctx, KeyEscalationXGBoostEnabled, false) {
+	config.Epoch = overrideOr(overrides.Ints, KeyEscalationXGBoostEpoch, 0)
+	if overrideOr(overrides.Bools, KeyEscalationXGBoostEnabled, false) {
 		config.Active = EscalationClassifierXGB
-	} else if BoolOr(ctx, KeyEscalationXGBoostShadowEnabled, false) {
+	} else if overrideOr(overrides.Bools, KeyEscalationXGBoostShadowEnabled, false) {
 		config.Shadow = EscalationClassifierXGB
 	}
 	return config
+}
+
+func overrideOr[V any](values map[Key]V, key Key, deploymentDefault V) V {
+	if v, found := values[key]; found {
+		return v
+	}
+	return deploymentDefault
 }
 
 func validEscalationClassifier(classifier EscalationClassifier) bool {
@@ -91,7 +96,6 @@ func validateEscalationOverrides(overrides Overrides) error {
 	return nil
 }
 
-// IsLLMEscalationClassifier identifies selectors that share the asynchronous judge slot.
 func IsLLMEscalationClassifier(classifier EscalationClassifier) bool {
 	return classifier == EscalationClassifierSwitchyard || classifier == EscalationClassifierLLM
 }

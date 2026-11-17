@@ -84,14 +84,14 @@ func TestTrafficCaptureCorrelatesActualLocalHTTPExchanges(t *testing.T) {
 			c.Status(http.StatusBadGateway)
 			return
 		}
-		defer response.Body.Close()
+		defer func() { _ = response.Body.Close() }()
 		c.Status(response.StatusCode)
 		_, _ = io.Copy(c.Writer, response.Body)
 	})
 	router := httptest.NewServer(engine)
 	defer router.Close()
 
-	request, err := http.NewRequest(http.MethodPost, router.URL+"/v1/messages", strings.NewReader("synthetic prompt"))
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, router.URL+"/v1/messages", strings.NewReader("synthetic prompt"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestTrafficCaptureWriterRedactsHeadersAndPreservesBodies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer capture.Close()
+	defer func() { _ = capture.Close() }()
 
 	exchange := trafficcapture.Exchange{
 		SchemaVersion: 1,
@@ -329,7 +329,7 @@ func TestTrafficCaptureRejectsSymlinkCapturePathWithoutChangingTarget(t *testing
 	temporaryDirectory := t.TempDir()
 	targetPath := filepath.Join(temporaryDirectory, "target.jsonl")
 	capturePath := filepath.Join(temporaryDirectory, "capture.jsonl")
-	if err := os.WriteFile(targetPath, []byte("preserve target"), 0o644); err != nil {
+	if err := os.WriteFile(targetPath, []byte("preserve target"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(targetPath, capturePath); err != nil {
@@ -350,7 +350,7 @@ func TestTrafficCaptureRejectsSymlinkCapturePathWithoutChangingTarget(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(targetContents) != "preserve target" || targetInfo.Mode().Perm() != 0o644 {
+	if string(targetContents) != "preserve target" || targetInfo.Mode().Perm() != 0o600 {
 		t.Fatalf("symlink target changed: contents=%q permissions=%o", targetContents, targetInfo.Mode().Perm())
 	}
 }
@@ -388,7 +388,7 @@ func TestTrafficCaptureWriterSerializesConcurrentEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	lineCount := 0
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {

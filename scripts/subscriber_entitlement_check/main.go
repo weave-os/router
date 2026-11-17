@@ -1,4 +1,3 @@
-// Command subscriber_entitlement_check verifies monotonic projections on loopback Postgres.
 package main
 
 import (

@@ -6,9 +6,6 @@ import (
 	"weave-os/router/internal/credentials"
 )
 
-// credentialKeyParts returns the safe display parts and source of the turn's
-// resolved upstream credential. Empty values mean the turn ran on the deployment
-// key or no credential was resolved.
 func (s *Service) credentialKeyParts(ctx context.Context) (prefix, suffix, source string) {
 	if managedSource := managedSubscriptionCredentialSource(ctx); managedSource != "" {
 		if managedSource == credSourceSubscription && s.subscriptionOverageInUse(ctx) {

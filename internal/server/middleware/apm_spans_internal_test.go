@@ -70,7 +70,7 @@ func TestWithAuthEmitsSpanAroundRepositoryWork(t *testing.T) {
 	engine.Use(WithAuth(svc, false))
 	engine.GET("/probe", func(c *gin.Context) { c.Status(http.StatusOK) })
 
-	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	req.Header.Set(RouterKeyHeader, "rk_trace")
 	req.Header.Set("Session-Id", "client-session-abc")
 	response := httptest.NewRecorder()
@@ -130,7 +130,7 @@ func TestWithBillingSpanEndsBeforeDownstreamHandlers(t *testing.T) {
 	})
 
 	response := httptest.NewRecorder()
-	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/probe", nil))
+	engine.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil))
 
 	require.Equal(t, http.StatusOK, response.Code)
 	billingSpan := middlewareEndedSpanByName(t, recorder.Ended(), "router.billing")
@@ -167,7 +167,7 @@ func TestWithBillingSpanRestoresParentWhenGateAborts(t *testing.T) {
 	engine.GET("/probe", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	response := httptest.NewRecorder()
-	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/probe", nil))
+	engine.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil))
 
 	require.Equal(t, http.StatusPaymentRequired, response.Code)
 	billingSpan := middlewareEndedSpanByName(t, recorder.Ended(), "router.billing")

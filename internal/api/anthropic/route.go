@@ -59,8 +59,6 @@ func RouteHandler(svc *proxy.Service) gin.HandlerFunc {
 	}
 }
 
-// PreviewRouteHandler exposes the side-effect-free policy preview contract to
-// router-key installations authorized for evaluation headers.
 func PreviewRouteHandler(svc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)

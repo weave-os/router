@@ -2,7 +2,6 @@ package proxy_test
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -47,13 +46,13 @@ func TestProxyMessages_WeaveCreditsDenied(t *testing.T) {
 			if tc.keys != nil {
 				ctx = context.WithValue(ctx, proxy.ExternalAPIKeysContextKey{}, tc.keys)
 			}
-			req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 			body := []byte(`{"model":"claude-sonnet-4-6","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
 			err := svc.ProxyMessages(ctx, body, httptest.NewRecorder(), req)
 
 			if tc.wantErr != nil {
-				require.True(t, errors.Is(err, tc.wantErr), "got %v", err)
+				require.ErrorIs(t, err, tc.wantErr, "got %v", err)
 				assert.Empty(t, p.proxyBodies, "a turn only Weave credits could fund must not reach the provider")
 				assert.Empty(t, repo.recordedDebits(), "a refused turn must not debit Weave credits")
 				class, ok := proxy.ClassifyDispatchError(err)

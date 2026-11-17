@@ -117,7 +117,7 @@ func (f *earlyStopFixture) serve(t *testing.T, clientApp string) *httptest.Respo
 	t.Helper()
 	ctx := requestcontext.WithClientIdentity(authedCtx("11111111-1111-1111-1111-111111111111"), proxy.ClientIdentity{ClientApp: clientApp})
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, f.svc.ProxyMessages(ctx, []byte(earlyStopToolResultBody), rec, req))
 	return rec
 }
@@ -201,7 +201,7 @@ func TestProxyMessages_EarlyStopRedo_OrgOverrideTurnsItOn(t *testing.T) {
 		requestcontext.WithClientIdentity(authedCtx("11111111-1111-1111-1111-111111111111"), proxy.ClientIdentity{ClientApp: proxy.ClientAppClaudeCode}),
 		flags.Overrides{Strings: map[flags.Key]string{flags.KeyEarlyStopRedo: string(flags.EarlyStopRedoOn)}})
 	rec := httptest.NewRecorder()
-	require.NoError(t, f.svc.ProxyMessages(ctx, []byte(earlyStopToolResultBody), rec, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
+	require.NoError(t, f.svc.ProxyMessages(ctx, []byte(earlyStopToolResultBody), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))))
 
 	assert.Equal(t, 1, f.callsTo(earlyStopHighModel))
 	assert.NotContains(t, rec.Body.String(), "Next I will fix b and c")

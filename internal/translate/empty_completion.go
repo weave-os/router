@@ -121,6 +121,7 @@ func responsesItemHasUsableOutput(item gjson.Result) bool {
 		return item.Get("name").String() != ""
 	case responsesReasoningItem:
 		return joinReasoningSummary(item.Get("summary")) != ""
+	case responsesCustomToolCallItem, responsesComputerCallItem:
 	}
 	return false
 }
@@ -141,7 +142,6 @@ func nativeResponsesStatusIsAnswerTerminal(status string) bool {
 	case nativeResponsesStatusCompleted, nativeResponsesStatusIncomplete:
 		return true
 	case "":
-		// Terminal SSE events sometimes omit status; treat them as answer terminals.
 		return true
 	default:
 		return false
@@ -182,6 +182,7 @@ func nativeResponsesItemHasUsableOutput(item gjson.Result) bool {
 				return true
 			}
 		}
+	case responsesReasoningItem, responsesFunctionCallItem:
 	}
 	return false
 }

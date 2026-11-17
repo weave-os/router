@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/policy"
 )
 
 type fakeDecider struct {
@@ -71,7 +72,7 @@ func TestRouterMapsSidecarRosterModelBackToCatalogDecision(t *testing.T) {
 	assert.Equal(t, "display marker", decision.Metadata.DisplayMarker)
 	assert.Equal(t, "route-1", decision.Metadata.RouteID)
 	assert.Equal(t, "hmm", decision.Metadata.Strategy)
-	assert.Equal(t, float32(0.9), decision.Metadata.Propensity)
+	assert.InDelta(t, float32(0.9), decision.Metadata.Propensity, 1e-9)
 	assert.Equal(t, "standard|open", decision.Metadata.PolicyRouteKey)
 	assert.Equal(t, "hmm-prod", decision.Metadata.PolicyArtifactID)
 	assert.Equal(t, "sha256:abc", decision.Metadata.PolicyArtifactSHA256)
@@ -94,8 +95,8 @@ func TestRouterMapsSidecarRosterModelBackToCatalogDecision(t *testing.T) {
 	assert.Equal(t, "moonshotai/kimi-k2.7-code", candidate.RosterID)
 	assert.Equal(t, "moonshotai/kimi-k2.7", candidate.CatalogID)
 	assert.Equal(t, providers.ProviderFireworks, candidate.Provider)
-	assert.Equal(t, 0.95, candidate.InputUSDPer1M)
-	assert.Equal(t, 4.0, candidate.OutputUSDPer1M)
+	assert.InDelta(t, 0.95, candidate.InputUSDPer1M, 1e-9)
+	assert.InDelta(t, 4.0, candidate.OutputUSDPer1M, 1e-9)
 	assert.InDelta(t, 0.0000095, candidate.EstimatedCostUSD, 1e-12)
 	assert.Equal(t, 262144, candidate.Capabilities.ContextWindow)
 	assert.Equal(t, "high", candidate.Capabilities.Tier)
@@ -172,8 +173,8 @@ func TestRouterDoesNotOfferOpenRouterFallbackCandidates(t *testing.T) {
 
 	_, err := r.Route(context.Background(), router.Request{PromptText: "hello"})
 
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrHMMUnavailable)
+	require.ErrorIs(t, err, policy.ErrNoRoutableModels)
+	require.NotErrorIs(t, err, ErrHMMUnavailable)
 	assert.Zero(t, decider.calls)
 }
 

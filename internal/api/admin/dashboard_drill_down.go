@@ -34,11 +34,10 @@ type dashboardDrillDownSession struct {
 }
 
 type dashboardDrillDownPerson struct {
-	ID          string `json:"id"`
-	Linked      bool   `json:"linked"`
-	DisplayName string `json:"display_name"`
-	Email       string `json:"email"`
-	// SessionCount counts every session, including those past the per-person cap on Sessions.
+	ID           string                      `json:"id"`
+	Linked       bool                        `json:"linked"`
+	DisplayName  string                      `json:"display_name"`
+	Email        string                      `json:"email"`
 	SessionCount int                         `json:"session_count"`
 	Sessions     []dashboardDrillDownSession `json:"sessions"`
 }
@@ -48,8 +47,6 @@ type dashboardDrillDownResponse struct {
 	People          []dashboardDrillDownPerson `json:"people"`
 }
 
-// MetricsDrillDownHandler lists the people, sessions and model pairs behind a
-// dashboard data point; `group`+`key` narrow to the clicked series.
 func MetricsDrillDownHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		group := dashboardMetricGroup(c.Query("group"))
@@ -110,10 +107,8 @@ func drillDownPeople(rows []proxy.TelemetryDrillDownRow) []dashboardDrillDownPer
 	sessions := map[[2]string]*dashboardDrillDownSession{}
 	var order []string
 	for _, row := range rows {
-		person, ok := people[row.PersonID]
-		if !ok {
-			person = &dashboardDrillDownPerson{ID: row.PersonID, Linked: row.Linked, DisplayName: row.DisplayName, Email: row.Email}
-			people[row.PersonID] = person
+		if _, ok := people[row.PersonID]; !ok {
+			people[row.PersonID] = &dashboardDrillDownPerson{ID: row.PersonID, Linked: row.Linked, DisplayName: row.DisplayName, Email: row.Email}
 			order = append(order, row.PersonID)
 		}
 		sessionKey := [2]string{row.PersonID, row.SessionID}

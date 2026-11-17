@@ -11,14 +11,10 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-// chatRescue is the OpenAI Chat / Responses rescue chain: the Codex and Claude
-// subscription retries and the cyber-refusal retry ahead of the shared
-// sibling rescue.
 type chatRescue struct {
 	*rescueChain
-	isResponses         bool
-	responsesPreludeBuf *preludeBuffer
-	// Shared with the entrypoint's attempt closures, which read or write them too.
+	isResponses          bool
+	responsesPreludeBuf  *preludeBuffer
 	cyberRefusalSeen     *bool
 	cyberRetryArmed      *bool
 	preOutputRescueArmed *bool
@@ -53,11 +49,6 @@ func (o *chatRescue) dispatchPrimary(ctx context.Context) {
 func (o *chatRescue) armCyberRetry(ctx context.Context) {
 	s := o.svc
 	routeRes := o.routeRes
-	// OpenAI's cybersecurity classifier declines the turn itself, so the rescue
-	// has to leave the vendor — a retry on another OpenAI binding meets the same
-	// classifier. Resolved pre-dispatch: the refusal gate must be armed before
-	// the first upstream byte, and the primary dispatch has to hold its
-	// exhaustion flush so the refusal envelope can still be swallowed.
 	_, o.explicitRequestedModel = catalog.ByID(o.req.RequestedModel)
 	cyberRetryEligible := s.ResolveCyberRefusalRetry(ctx) &&
 		!routeRes.CallerModelPassthrough &&
@@ -77,32 +68,17 @@ func (o *chatRescue) armCyberRetry(ctx context.Context) {
 
 func (o *chatRescue) armSubscriptionRetries(ctx context.Context) {
 	s := o.svc
-	// Codex-subscription failover: a turn served on the caller's ChatGPT plan is
-	// pinned to that one credential, so a plan throttle (429 usage_limit_reached)
-	// or a rejected OAuth token has no binding to walk and reaches Codex raw.
-	// Retry the same model once on the Weave/BYOK OpenAI key so an exhausted plan
-	// rolls over to Weave credits. Suppressed when credits are depleted, where
-	// paid spend is exactly what the caller forbade; a linked-first turn's
-	// credits are intact, so its throttle rolls over like any other.
 	o.codexRetryViable = o.decision.Provider == providers.ProviderOpenAI &&
 		servedOnCodexSubscription(ctx) &&
 		!paidFallbackForbiddenForModel(ctx, o.decision.Model) &&
 		s.openaiFallbackKeyAvailable(ctx)
-	// OpenAI-compatible callers can route to Anthropic too; give their Claude
-	// subscription model-access and third-party refusals the same paid recovery
-	// as /v1/messages.
 	o.claudeRetryViable = o.decision.Provider == providers.ProviderAnthropic &&
 		servedOnSubscription(ctx) &&
 		!paidFallbackForbiddenForModel(ctx, o.decision.Model) &&
 		s.anthropicFallbackKeyAvailable(ctx)
 }
 
-// A released prelude can only take an SSE error frame, so every dispatch in
-// the chain renders through this — a JSON envelope appended to a live stream
-// is unparseable to the client.
 func (o *chatRescue) flushErrAsOpenAI(w http.ResponseWriter, err error) {
-	// Native Responses bytes are passed through verbatim; there is no
-	// error frame we can synthesize into that stream.
 	if o.isResponses && o.responsesPreludeBuf != nil && o.responsesPreludeBuf.PreludeSent() {
 		return
 	}
@@ -110,17 +86,12 @@ func (o *chatRescue) flushErrAsOpenAI(w http.ResponseWriter, err error) {
 		_ = emitOpenAISSEErrorEvent(w, err)
 		return
 	}
-	// Pre-commit, the handler renders the classified sentinel itself.
 	if isSubscriptionPoolError(err) {
 		return
 	}
-	flushBufferedIfPresent(w, err)
+	flushUpstreamErrorAsOpenAI(w, err)
 }
 
-// The deferred upstream error must reach the client exactly once: the rescue
-// owns it, and flushes it itself when it declines to run. A managed-pool
-// failure is rendered by the handler from the classified sentinel, so the
-// proxy must not write it here as well.
 func (o *chatRescue) flushDeferredErr() {
 	if o.deferredErrFlushed {
 		return
@@ -130,22 +101,16 @@ func (o *chatRescue) flushDeferredErr() {
 		return
 	}
 	if o.env.Stream() && o.preludeBuf.PreludeSent() {
-		// The handler cannot render anything once the client has bytes,
-		// so an in-stream frame is the only way the turn reports at all —
-		// including for a pool sentinel, which would otherwise truncate
-		// the stream silently. Keep the sentinel as the returned error so
-		// the handler still classifies and logs it.
 		sseErr := emitOpenAISSEErrorEvent(o.contentSink, o.proxyErr)
 		if !o.subscriptionPoolFailure {
 			o.proxyErr = sseErr
 		}
 		return
 	}
-	// Pre-commit, the handler renders the classified sentinel itself.
 	if o.subscriptionPoolFailure {
 		return
 	}
-	flushBufferedIfPresent(o.contentSink, o.proxyErr)
+	flushUpstreamErrorAsOpenAI(o.contentSink, o.proxyErr)
 }
 
 func (o *chatRescue) codexRetry(ctx context.Context) {
@@ -156,12 +121,13 @@ func (o *chatRescue) codexRetry(ctx context.Context) {
 	preludeBuf := o.preludeBuf
 	if o.codexRetryViable && !paidFallbackForbiddenForModel(ctx, o.decision.Model) && o.proxyErr != nil && !preludeBuf.Committed() &&
 		(providers.IsRetryable(o.proxyErr) || codexOAuthCredentialRejected(o.proxyErr) || codexSubscriptionModelRejected(o.proxyErr)) {
-		// Remember the plan is spent so later turns suppress the token pre-dispatch
-		// instead of buying another rejected round-trip per turn until it resets.
 		s.recordCodexQuotaExhaustion(ctx, r.Header, o.proxyErr)
 		subCtx := subscriptionStatePaidRescueContext(withSuppressedCodexSubscription(ctx), o.decision.Model)
 		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderOpenAI, o.decision.Model, r.Header)
-		subOpts := o.opts
+		subOpts, subEffort := o.opts, o.effortServed
+		if subOpts.TargetModel != o.decision.Model {
+			subOpts, subEffort = switchedAttemptOptions(ctx, o.opts, o.decision, routeRes.EscalateEffort, s.resolveEffort)
+		}
 		subOpts.FastMode = fastModeForAttempt(subCtx, o.decision.Model, providers.ProviderOpenAI)
 		subAttempt, subBuildErr := o.buildAttempt(o.decision, subOpts, o.marker, subCtx)
 		subBindings := s.resolveBindingsForDispatch(subCtx, o.decision)
@@ -170,8 +136,6 @@ func (o *chatRescue) codexRetry(ctx context.Context) {
 			log.Error("Codex subscription failover: preparing the Weave-key retry failed; surfacing the original error",
 				"err", subBuildErr, "model", o.decision.Model)
 		case len(subBindings) == 0:
-			// No usable OpenAI binding under suppression — surface the real
-			// upstream error rather than a synthetic failure that masks it.
 			log.Warn("Codex subscription failover: no fallback OpenAI binding available; surfacing the original error",
 				"model", o.decision.Model, "upstream_status", upstreamStatus(o.proxyErr))
 		default:
@@ -180,17 +144,16 @@ func (o *chatRescue) codexRetry(ctx context.Context) {
 				"err", o.proxyErr,
 				"upstream_status", upstreamStatus(o.proxyErr))
 			o.codexRetryRan = true
+			o.effortServed = subEffort
 			*o.respSummary = translate.ResponseSummary{}
 			subscriptionErr := o.proxyErr
 			o.winnerIdx, o.proxyErr = s.dispatchWithFallback(subCtx, failoverInputs{
-				w:               o.contentSink,
-				buf:             preludeBuf,
-				initialDecision: o.decision,
-				bindings:        subBindings,
-				attempt:         subAttempt,
-				flushErr:        o.flushErrAsOpenAI,
-				// A failed retry keeps the same model; hold the error so the
-				// cyber-refusal rescue below can still serve the turn.
+				w:                      o.contentSink,
+				buf:                    preludeBuf,
+				initialDecision:        o.decision,
+				bindings:               subBindings,
+				attempt:                subAttempt,
+				flushErr:               o.flushErrAsOpenAI,
 				deferFlushOnExhaustion: o.cyberRetryViable || o.rescueArmed,
 				purpose:                routeRes.dispatchPurpose(o.surface),
 				origin:                 routeRes.dispatchOrigin(o.decision),
@@ -252,8 +215,6 @@ func (o *chatRescue) claudeRetry(ctx context.Context) {
 		}
 	}
 
-	// A subscription retry declined to run and no other rescue owns the held
-	// error; surface it now so it is never dropped.
 	if ((o.codexRetryViable && !o.codexRetryRan) || (o.claudeRetryViable && !o.claudeRetryRan)) &&
 		!o.cyberRetryViable && !o.rescueArmed && o.proxyErr != nil && !preludeBuf.Committed() {
 		o.flushDeferredErr()
@@ -309,24 +270,22 @@ func (o *chatRescue) cyberRetry(ctx context.Context) {
 			o.marker = retryMarker
 		}
 	}
-	// The rescue declined to run; surface the held error now so it's never dropped.
 	if o.cyberRetryViable && !o.cyberRetryRan && !o.rescueArmed && o.proxyErr != nil && !preludeBuf.Committed() {
 		o.flushDeferredErr()
 	}
 }
 
 func (o *chatRescue) finish(ctx context.Context) {
-	// No rescuer served (none ran, or the last one failed pre-commit); surface
-	// the held error now so it's never dropped.
 	o.proxyErr = asCompactionUnservable(o.routeRes.TurnType, o.decision, o.proxyErr)
 	if (o.siblingRescueOwed || o.overflowRescueOnly) && o.proxyErr != nil && !o.preludeBuf.Committed() {
 		o.flushDeferredErr()
 	}
 
 	if subscriptionCredentialFallbackUsed(ctx) {
-		if o.decision.Provider == providers.ProviderOpenAI {
+		switch o.decision.Provider {
+		case providers.ProviderOpenAI:
 			o.codexFailoverUsed = true
-		} else if o.decision.Provider == providers.ProviderAnthropic {
+		case providers.ProviderAnthropic:
 			o.claudeFailoverUsed = true
 		}
 	}

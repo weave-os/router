@@ -2,14 +2,13 @@ package proxy
 
 import (
 	"context"
+	"strings"
 
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/translate"
 )
 
-// pinMatchesEffectiveStrategy reports whether a stored pin belongs to the
-// strategy serving this request. An explicit user force is policy-independent;
-// legacy empty-strategy rows remain eligible outside beta during rollout.
 func pinMatchesEffectiveStrategy(ctx context.Context, pin sessionpin.Pin) bool {
 	if isUserForcedReason(pin.Reason) {
 		return true
@@ -21,8 +20,8 @@ func pinMatchesEffectiveStrategy(ctx context.Context, pin sessionpin.Pin) bool {
 	return pin.Strategy == "" && !router.IsBetaStrategy(expected)
 }
 
-func strategyContext(strategy router.Strategy) context.Context {
-	return router.WithStrategy(context.Background(), strategy)
+func strategyContext(ctx context.Context, strategy router.Strategy) context.Context {
+	return router.WithStrategy(context.WithoutCancel(ctx), strategy)
 }
 
 func strategyForTurnLoopResult(res turnLoopResult) router.Strategy {
@@ -35,4 +34,8 @@ func strategyForTurnLoopResult(res turnLoopResult) router.Strategy {
 		}
 	}
 	return router.StrategyHMMEmbedding
+}
+
+func isUserForcedReason(reason string) bool {
+	return strings.HasPrefix(reason, translate.ReasonUserForceModel)
 }

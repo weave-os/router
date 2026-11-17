@@ -11,10 +11,8 @@ import (
 	"weave-os/router/internal/sqlc"
 )
 
-// CredentialLookup reads only the credential identity needed for the subsequent locked admission.
 type CredentialLookup struct{ Queries *sqlc.Queries }
 
-// GetActiveByHashWithInstallation reuses routing-key SQLC predicates without loading BYOK or user settings.
 func (r CredentialLookup) GetActiveByHashWithInstallation(ctx context.Context, hash string) (*auth.APIKey, *auth.Installation, error) {
 	row, err := r.Queries.GetActiveModelRouterAPIKeyWithInstallationByHash(ctx, hash)
 	if err != nil {
@@ -24,7 +22,6 @@ func (r CredentialLookup) GetActiveByHashWithInstallation(ctx context.Context, h
 	return &auth.APIKey{ID: key.ID.String(), InstallationID: key.InstallationID.String(), Scope: auth.APIKeyScope(key.Scope), CredentialSubjectID: uuidString(key.CredentialSubjectID)}, &auth.Installation{ID: row.RouterModelRouterInstallation.ID.String()}, nil
 }
 
-// GetCredentialSubject reads the current subject projection for gateway read-key authentication.
 func (r CredentialLookup) GetCredentialSubject(ctx context.Context, subjectID, installationID string) (*auth.CredentialSubject, error) {
 	subjectUUID, err := uuid.Parse(subjectID)
 	if err != nil {

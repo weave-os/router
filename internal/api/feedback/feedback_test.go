@@ -55,7 +55,7 @@ func TestGetContextHandler_ValidTokenReturnsContext(t *testing.T) {
 
 	tok := signer.Mint("inst-1", "org-1", "req-1", "user-1")
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/feedback/link/"+tok, nil))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/feedback/link/"+tok, nil))
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	var got map[string]any
@@ -77,7 +77,7 @@ func TestGetContextHandler_UnknownRequestStillRenders(t *testing.T) {
 
 	tok := signer.Mint("inst-1", "org-1", "req-1", "")
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/feedback/link/"+tok, nil))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/feedback/link/"+tok, nil))
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	var got map[string]any
@@ -93,7 +93,7 @@ func TestGetContextHandler_InvalidTokenReturns404(t *testing.T) {
 	engine.GET("/v1/feedback/link/:token", feedbackapi.GetContextHandler(newService(&fakeFeedbackRepo{}, signer)))
 
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/feedback/link/bogus.token", nil))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/feedback/link/bogus.token", nil))
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
@@ -107,7 +107,7 @@ func TestGetContextHandler_ExpiredTokenReturns410(t *testing.T) {
 	tok := signer.Mint("inst-1", "org-1", "req-1", "")
 	time.Sleep(2 * time.Millisecond)
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/feedback/link/"+tok, nil))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/feedback/link/"+tok, nil))
 
 	assert.Equal(t, http.StatusGone, rec.Code)
 }
@@ -122,7 +122,7 @@ func TestSubmitHandler_ValidSubmissionPersists(t *testing.T) {
 	tok := signer.Mint("inst-1", "org-1", "req-1", "user-1")
 	body := `{"token":"` + tok + `","rating":"down","comment":"  routed to a weak model  "}`
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/feedback/link", strings.NewReader(body)))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/feedback/link", strings.NewReader(body)))
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Len(t, repo.upserts, 1)
@@ -146,10 +146,43 @@ func TestSubmitHandler_RejectsInvalidRating(t *testing.T) {
 	tok := signer.Mint("inst-1", "org-1", "req-1", "")
 	body := `{"token":"` + tok + `","rating":"meh"}`
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/feedback/link", strings.NewReader(body)))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/feedback/link", strings.NewReader(body)))
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Empty(t, repo.upserts)
+}
+
+func TestSubmitHandler_RejectsOversizedBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	signer := token.NewSigner("secret", time.Hour)
+	repo := &fakeFeedbackRepo{}
+	engine := gin.New()
+	engine.POST("/v1/feedback/link", feedbackapi.SubmitHandler(newService(repo, signer)))
+
+	tok := signer.Mint("inst-1", "org-1", "req-1", "")
+	body := `{"token":"` + tok + `","rating":"up","comment":"` + strings.Repeat("x", 64*1024) + `"}`
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/feedback/link", strings.NewReader(body)))
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Empty(t, repo.upserts)
+}
+
+func TestSubmitHandler_BlankCommentIsStoredAsNoComment(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	signer := token.NewSigner("secret", time.Hour)
+	repo := &fakeFeedbackRepo{}
+	engine := gin.New()
+	engine.POST("/v1/feedback/link", feedbackapi.SubmitHandler(newService(repo, signer)))
+
+	tok := signer.Mint("inst-1", "org-1", "req-1", "")
+	body := `{"token":"` + tok + `","rating":"up","comment":"   "}`
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/feedback/link", strings.NewReader(body)))
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, repo.upserts, 1)
+	assert.Nil(t, repo.upserts[0].Comment)
 }
 
 func TestSubmitHandler_InvalidTokenReturns404(t *testing.T) {
@@ -161,7 +194,7 @@ func TestSubmitHandler_InvalidTokenReturns404(t *testing.T) {
 
 	body := `{"token":"bogus.token","rating":"up"}`
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/feedback/link", strings.NewReader(body)))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/feedback/link", strings.NewReader(body)))
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Empty(t, repo.upserts)
@@ -180,7 +213,7 @@ func TestRateHandler_OneClickUpPersists(t *testing.T) {
 	tok := signer.Mint("inst-1", "org-1", "req-1", "user-1")
 
 	rec := httptest.NewRecorder()
-	rateEngine(repo, signer).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/feedback/rate?t="+tok+"&r=up", nil))
+	rateEngine(repo, signer).ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/feedback/rate?t="+tok+"&r=up", nil))
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Len(t, repo.upserts, 1)
@@ -201,7 +234,7 @@ func TestRateHandler_OneClickDownPersists(t *testing.T) {
 	tok := signer.Mint("inst-1", "org-1", "req-2", "")
 
 	rec := httptest.NewRecorder()
-	rateEngine(repo, signer).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/feedback/rate?t="+tok+"&r=down", nil))
+	rateEngine(repo, signer).ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/feedback/rate?t="+tok+"&r=down", nil))
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Len(t, repo.upserts, 1)
@@ -214,7 +247,7 @@ func TestRateHandler_RejectsBadRating(t *testing.T) {
 	tok := signer.Mint("inst-1", "org-1", "req-1", "")
 
 	rec := httptest.NewRecorder()
-	rateEngine(repo, signer).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/feedback/rate?t="+tok+"&r=meh", nil))
+	rateEngine(repo, signer).ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/feedback/rate?t="+tok+"&r=meh", nil))
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Empty(t, repo.upserts)
@@ -225,7 +258,7 @@ func TestRateHandler_InvalidTokenReturns404(t *testing.T) {
 	repo := &fakeFeedbackRepo{}
 
 	rec := httptest.NewRecorder()
-	rateEngine(repo, signer).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/feedback/rate?t=bogus.token&r=up", nil))
+	rateEngine(repo, signer).ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/feedback/rate?t=bogus.token&r=up", nil))
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Empty(t, repo.upserts)
@@ -238,7 +271,7 @@ func TestRateHandler_ExpiredTokenReturns410(t *testing.T) {
 	time.Sleep(2 * time.Millisecond)
 
 	rec := httptest.NewRecorder()
-	rateEngine(repo, signer).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/feedback/rate?t="+tok+"&r=up", nil))
+	rateEngine(repo, signer).ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/feedback/rate?t="+tok+"&r=up", nil))
 
 	assert.Equal(t, http.StatusGone, rec.Code)
 	assert.Empty(t, repo.upserts)

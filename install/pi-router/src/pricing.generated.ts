@@ -7,7 +7,7 @@ export interface ModelPricing {
 	cacheReadMultiplier: number;
 }
 
-export const PRICING_VERSION = "catalog-sha256:b1fc371aa80c39c3";
+export const PRICING_VERSION = "catalog-sha256:1edde73593ed3a9e";
 
 export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.freeze({
 	"claude-fable-5": { inputUsdPerMillion: 10, outputUsdPerMillion: 50, cacheReadMultiplier: 0.1 },
@@ -75,6 +75,8 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.free
 	"gpt-6-sol": { inputUsdPerMillion: 2, outputUsdPerMillion: 10, cacheReadMultiplier: 0.1 },
 	"gpt-6.1-sol": { inputUsdPerMillion: 2, outputUsdPerMillion: 10, cacheReadMultiplier: 0.05 },
 	"gpt-6.1-terra": { inputUsdPerMillion: 1, outputUsdPerMillion: 5, cacheReadMultiplier: 0.05 },
+	"gpt-6.2-astra": { inputUsdPerMillion: 8, outputUsdPerMillion: 40, cacheReadMultiplier: 0.05 },
+	"gpt-6.2-sol": { inputUsdPerMillion: 2, outputUsdPerMillion: 10, cacheReadMultiplier: 0.05 },
 	"grok-4.5": { inputUsdPerMillion: 2, outputUsdPerMillion: 6, cacheReadMultiplier: 0.25 },
 	"grok-4.6": { inputUsdPerMillion: 2, outputUsdPerMillion: 6, cacheReadMultiplier: 0.25 },
 	"grok-4.7": { inputUsdPerMillion: 2, outputUsdPerMillion: 6, cacheReadMultiplier: 0.25 },
