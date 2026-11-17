@@ -722,7 +722,7 @@ func TestDispatchWithFallback_SlowAttemptsStopBeforeRetryCount(t *testing.T) {
 	const slowAttempt = 30 * time.Second
 	base := time.Now()
 	reads := 0
-	s.now = func() time.Time {
+	s.clock = func() time.Time {
 		now := base.Add(time.Duration(reads) * slowAttempt)
 		reads++
 		return now

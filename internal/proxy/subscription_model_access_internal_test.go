@@ -95,7 +95,7 @@ func TestSubscriptionModelAccessScopeAndExpiry(t *testing.T) {
 	in := parityAnthropicIngress()
 	svc := in.deploymentKeyedService()
 	now := time.Unix(1_700_000_000, 0)
-	svc.now = func() time.Time { return now }
+	svc.clock = func() time.Time { return now }
 	svc.recordSubscriptionModelRejection(in.resolved(in.subCtx()), in.provider, in.model, modelAccessError())
 	resolved := svc.resolveCredentials(in.subCtx(), in.provider, in.model, nil)
 	assert.Nil(t, CredentialsFromContext(resolved))

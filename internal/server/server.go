@@ -292,7 +292,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	}
 	messagesMiddleware = append(messagesMiddleware,
 		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
-		middleware.WithPolicyDebugOverride(),
+		middleware.WithPolicyDebugOverride(), middleware.WithFlagOverridesHeader(authSvc),
 		middleware.WithAllowedModelsOverride(proxySvc),
 		middleware.WithRoutingKnobsOverride(),
 		middleware.WithForceEffortOverride(),
@@ -322,7 +322,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	}
 	chatCompletionMiddleware = append(chatCompletionMiddleware,
 		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
-		middleware.WithPolicyDebugOverride(),
+		middleware.WithPolicyDebugOverride(), middleware.WithFlagOverridesHeader(authSvc),
 		middleware.WithAllowedModelsOverride(proxySvc),
 		middleware.WithRoutingKnobsOverride(),
 		middleware.WithForceEffortOverride(),
@@ -363,7 +363,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	}
 	routeMiddleware = append(routeMiddleware,
 		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
-		middleware.WithPolicyDebugOverride(),
+		middleware.WithPolicyDebugOverride(), middleware.WithFlagOverridesHeader(authSvc),
 		middleware.WithAllowedModelsOverride(proxySvc),
 		middleware.WithRoutingKnobsOverride(),
 		middleware.WithForceEffortOverride(),
@@ -382,7 +382,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	previewMiddleware = append(previewMiddleware, subscriberProductScopeMiddleware...)
 	previewMiddleware = append(previewMiddleware,
 		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
-		middleware.WithPolicyDebugOverride(),
+		middleware.WithPolicyDebugOverride(), middleware.WithFlagOverridesHeader(authSvc),
 		middleware.WithAllowedModelsOverride(proxySvc),
 		middleware.WithRoutingKnobsOverride(),
 	)

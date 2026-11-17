@@ -70,3 +70,10 @@ func candidateLogFields(resolved ResolvedCandidates) []any {
 	}
 	return fields
 }
+
+func armSelectionError(prefix string, err, unavailable error) error {
+	if errors.Is(err, ErrNoEligibleArm) {
+		return fmt.Errorf("%s: %w", prefix, err)
+	}
+	return fmt.Errorf("%s: %w: %w", prefix, err, unavailable)
+}

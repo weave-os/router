@@ -144,7 +144,7 @@ func TestLeaseManagedSubscriptionSkipsObservedExhaustedAccount(t *testing.T) {
 	svc := newServiceWithProviders(t, nil).
 		WithManagedSubscriptions(leaser).
 		WithUsageObserver(observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()))
-	svc.now = func() time.Time { return time.Unix(1_000_000, 0) }
+	svc.clock = func() time.Time { return time.Unix(1_000_000, 0) }
 
 	_, lease, managed, err := svc.leaseManagedSubscription(
 		managedSubscriptionTestContext(), providers.ProviderAnthropic, "claude-opus-4-8",
@@ -623,7 +623,7 @@ func TestDispatchWithFallbackSlowInferenceDoesNotConsumeLeaseBudget(t *testing.T
 	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: client}).WithManagedSubscriptions(leaser)
 	startedAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	// Only provider inference advances the clock; account admission remains fast.
-	svc.now = func() time.Time {
+	svc.clock = func() time.Time {
 		if client.calls == 0 {
 			return startedAt
 		}
