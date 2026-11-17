@@ -662,7 +662,7 @@ func (s *Service) runTurnLoop(
 	if !forceModelFound {
 		forceModelPin, forceModelFound, forceModelCleared = s.loadForceModelSessionPin(ctx, forceModelSessionKey, threadSessionKey, turntype.IsSubAgent(env, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx))))
 	}
-	if forceModelFound && res.TurnType != turntype.Classifier {
+	if forcePinBindsNonClassifierTurn(forceModelFound, res.TurnType) {
 		binding, reason := s.forcedModelBinding(ctx, forceModelPin.Model, forceModelPin.Provider)
 		if reason != "" {
 			return res, &ForcedModelExcludedError{Model: forceModelPin.Model, Reason: reason}
@@ -2320,4 +2320,8 @@ func (s *Service) hardPinBlockedByContextWindow(hardPinReq HardPinRequest, req r
 	hardPinReq.ExcludedModels = nonSizeExcluded
 	_, _, ok := s.hardPinResolver(hardPinReq)
 	return ok
+}
+
+func forcePinBindsNonClassifierTurn(found bool, tt turntype.TurnType) bool {
+	return found && tt != turntype.Classifier
 }
