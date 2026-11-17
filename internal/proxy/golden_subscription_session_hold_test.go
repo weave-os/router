@@ -70,7 +70,50 @@ func goldenSubscriptionSessionHoldScenarios() []goldenScenario {
 			goldenOverloadedCodexToolTurn(time.Minute),
 		},
 		configure: withOverloadedCodexNoClaudeSeat,
+	}, {
+		name: ingressResponses + "_stream_codex_overload_subscription_only_retries_codex_next_tool_turn", ingress: ingressResponses,
+		decisions:      []router.Decision{decision(providers.ProviderOpenAI, goldenCodexModel), decision(providers.ProviderAnthropic, goldenAnthropicModel)},
+		noCandidateErr: fmt.Errorf("hmm_embedding: arm selection: %w: %w", policy.ErrNoEligibleArm, hmm.ErrHMMUnavailable),
+		upstreams: map[string][]goldenStep{
+			providers.ProviderOpenAI: {
+				goldenResponsesOK("served on codex seat"),
+				goldenUpstreamError(http.StatusBadGateway, goldenCodexOverloadBody),
+				goldenResponsesOK("codex recovered"),
+			},
+			providers.ProviderAnthropic: {anthropicOK(true, "flipped to claude")},
+		},
+		requests: []goldenRequest{
+			goldenSubscriptionOnlyCodexToolTurn(0),
+			goldenSubscriptionOnlyCodexToolTurn(5 * time.Second),
+			goldenSubscriptionOnlyCodexToolTurn(time.Minute),
+		},
+		configure: withOverloadedCodexNoClaudeSeat,
 	}}
+}
+
+func goldenSubscriptionOnlyCodexToolTurn(advance time.Duration) goldenRequest {
+	req := goldenOverloadedCodexToolTurn(advance)
+	req.decorateContext = chainCtx(goldenSubscriptionOnlyCtx, goldenOverloadedCodexCtx)
+	return req
+}
+
+// TestCodexOverloadWithoutPaidFallbackRetriesCodexNextTurn pins that a turn
+// which fails with no included rescue and no paid fallback leaves no hold: the
+// next tool turn retries the recovered Codex seat instead of the refusing one.
+func TestCodexOverloadWithoutPaidFallbackRetriesCodexNextTurn(t *testing.T) {
+	t.Parallel()
+	sc := goldenSubscriptionSessionHoldScenarios()[1]
+	h := newGoldenHarness(t, sc)
+	h.serve(t, sc.ingress, sc.requests[0])
+	failed := h.serve(t, sc.ingress, sc.requests[1])
+	require.NotEmpty(t, failed.Attempts)
+	require.NotEqual(t, "ok", failed.Attempts[len(failed.Attempts)-1].Outcome, "response: %+v", failed.Response)
+	served := h.serve(t, sc.ingress, sc.requests[2])
+	require.Equal(t, http.StatusOK, served.Response.Status, "response: %+v", served.Response.Body)
+	require.NotEmpty(t, served.Attempts)
+	last := served.Attempts[len(served.Attempts)-1]
+	require.Equal(t, providers.ProviderOpenAI, last.Provider, "attempts: %+v", served.Attempts)
+	require.Equal(t, "ok", last.Outcome)
 }
 
 // TestCodexOverloadWithoutIncludedRescueKeepsModelAcrossToolTurns states the
