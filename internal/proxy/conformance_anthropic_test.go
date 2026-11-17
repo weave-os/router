@@ -31,6 +31,7 @@ func TestConformance_Anthropic(t *testing.T) {
 			stream:          true,
 			upstreamFixture: "anthropic/basic_text.upstream.sse",
 			wantUpstream: func(t *testing.T, path string, _ []byte, _ http.Header) {
+				t.Helper()
 				assert.Equal(t, "/v1/messages", path)
 			},
 		},
@@ -46,6 +47,7 @@ func TestConformance_Anthropic(t *testing.T) {
 			stream:          true,
 			upstreamFixture: "anthropic/basic_text.upstream.sse",
 			wantUpstream: func(t *testing.T, _ string, body []byte, _ http.Header) {
+				t.Helper()
 				assert.Contains(t, gjson.GetBytes(body, "system").Raw, "Be terse", "role:system must be hoisted into the top-level system field")
 				assert.NotEqual(t, "system", gjson.GetBytes(body, "messages.0.role").String(), "no system role may remain in the messages array")
 			},
@@ -64,6 +66,7 @@ func TestConformance_Anthropic(t *testing.T) {
 			stream:          true,
 			upstreamFixture: "anthropic/basic_text.upstream.sse",
 			wantUpstream: func(t *testing.T, _ string, body []byte, _ http.Header) {
+				t.Helper()
 				assert.Equal(t, "claude-sonnet-4-6", gjson.GetBytes(body, "model").String())
 				assert.Equal(t, "max", gjson.GetBytes(body, "output_config.effort").String(), "xhigh must clamp to max for models without CapXhighEffort")
 			},

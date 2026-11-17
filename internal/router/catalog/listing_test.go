@@ -19,12 +19,12 @@ func TestListingPricesEveryRowFromItsPrimaryBinding(t *testing.T) {
 		primary := m.Providers[0]
 		assert.Positive(t, row.InputUSDPer1M, row.Model)
 		assert.Positive(t, row.OutputUSDPer1M, row.Model)
-		assert.Equal(t, primary.Price.InputUSDPer1M, row.InputUSDPer1M, row.Model)
-		assert.Equal(t, primary.Price.OutputUSDPer1M, row.OutputUSDPer1M, row.Model)
+		assert.InDelta(t, primary.Price.InputUSDPer1M, row.InputUSDPer1M, 1e-9, row.Model)
+		assert.InDelta(t, primary.Price.OutputUSDPer1M, row.OutputUSDPer1M, 1e-9, row.Model)
 		fastPrice, hasFastPrice := primary.FastPricing()
 		if hasFastPrice {
-			assert.Equal(t, fastPrice.InputUSDPer1M, row.FastInputUSDPer1M, row.Model)
-			assert.Equal(t, fastPrice.OutputUSDPer1M, row.FastOutputUSDPer1M, row.Model)
+			assert.InDelta(t, fastPrice.InputUSDPer1M, row.FastInputUSDPer1M, 1e-9, row.Model)
+			assert.InDelta(t, fastPrice.OutputUSDPer1M, row.FastOutputUSDPer1M, 1e-9, row.Model)
 		} else {
 			assert.Zero(t, row.FastInputUSDPer1M, row.Model)
 			assert.Zero(t, row.FastOutputUSDPer1M, row.Model)
@@ -37,12 +37,12 @@ func TestNewModelListingPricesTheListedProvidersBinding(t *testing.T) {
 	for _, m := range Models {
 		for _, binding := range m.Providers {
 			row := NewModelListing(m.ID, binding.Provider)
-			assert.Equal(t, binding.Price.InputUSDPer1M, row.InputUSDPer1M, "%s via %s", m.ID, binding.Provider)
-			assert.Equal(t, binding.Price.OutputUSDPer1M, row.OutputUSDPer1M, "%s via %s", m.ID, binding.Provider)
+			assert.InDelta(t, binding.Price.InputUSDPer1M, row.InputUSDPer1M, 1e-9, "%s via %s", m.ID, binding.Provider)
+			assert.InDelta(t, binding.Price.OutputUSDPer1M, row.OutputUSDPer1M, 1e-9, "%s via %s", m.ID, binding.Provider)
 			fastPrice, hasFastPrice := binding.FastPricing()
 			if hasFastPrice {
-				assert.Equal(t, fastPrice.InputUSDPer1M, row.FastInputUSDPer1M, "%s via %s", m.ID, binding.Provider)
-				assert.Equal(t, fastPrice.OutputUSDPer1M, row.FastOutputUSDPer1M, "%s via %s", m.ID, binding.Provider)
+				assert.InDelta(t, fastPrice.InputUSDPer1M, row.FastInputUSDPer1M, 1e-9, "%s via %s", m.ID, binding.Provider)
+				assert.InDelta(t, fastPrice.OutputUSDPer1M, row.FastOutputUSDPer1M, 1e-9, "%s via %s", m.ID, binding.Provider)
 			} else {
 				assert.Zero(t, row.FastInputUSDPer1M, "%s via %s", m.ID, binding.Provider)
 				assert.Zero(t, row.FastOutputUSDPer1M, "%s via %s", m.ID, binding.Provider)

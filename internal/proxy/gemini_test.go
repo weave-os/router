@@ -54,7 +54,7 @@ func TestProxyGeminiGenerateContent_RoutesToGoogleProvider(t *testing.T) {
 
 	ctx := context.WithValue(authedCtx("00000000-0000-0000-0000-000000000001"), proxy.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", strings.NewReader(""))
 	require.NoError(t, svc.ProxyGeminiGenerateContent(ctx, []byte(geminiInjectedBody), rec, httpReq))
 
 	assert.Equal(t, "gemini-2.5-pro", rec.Header().Get(proxy.HeaderRouterModel))
@@ -84,7 +84,7 @@ func TestProxyGeminiGenerateContent_RestrictsRoutingToGeminiFamily(t *testing.T)
 	)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", strings.NewReader(""))
 	require.NoError(t, svc.ProxyGeminiGenerateContent(authedCtx("00000000-0000-0000-0000-000000000001"), []byte(geminiInjectedBody), rec, req))
 
 	require.NotNil(t, fr.capturedReq)
@@ -108,7 +108,7 @@ func TestProxyGeminiGenerateContent_CrossFormatReturnsSentinel(t *testing.T) {
 
 	ctx := authedCtx("00000000-0000-0000-0000-000000000001")
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", strings.NewReader(""))
 	err := svc.ProxyGeminiGenerateContent(ctx, []byte(geminiInjectedBody), rec, httpReq)
 
 	require.Error(t, err)
@@ -130,7 +130,7 @@ func TestProxyGeminiGenerateContent_DelaysMarkerUntilFirstUpstreamEvent(t *testi
 	rec := httptest.NewRecorder()
 	body := strings.Replace(geminiInjectedBody, `"stream":false`, `"stream":true`, 1)
 	require.NoError(t, svc.ProxyGeminiGenerateContent(authedCtx("00000000-0000-0000-0000-000000000001"), []byte(body), rec,
-		httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-1.5-pro:streamGenerateContent", nil)))
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1beta/models/gemini-1.5-pro:streamGenerateContent", nil)))
 
 	markerAt := strings.Index(rec.Body.String(), "Weave Router")
 	upstreamAt := strings.Index(rec.Body.String(), "upstream")
@@ -156,7 +156,7 @@ func TestProxyGeminiGenerateContent_NoticeDeliveryHonoursAttemptCancellation(t *
 	rec := httptest.NewRecorder()
 	body := strings.Replace(geminiInjectedBody, `"stream":false`, `"stream":true`, 1)
 	err := svc.ProxyGeminiGenerateContent(ctx, []byte(body), rec,
-		httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-1.5-pro:streamGenerateContent", nil))
+		httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1beta/models/gemini-1.5-pro:streamGenerateContent", nil))
 
 	require.ErrorIs(t, err, context.Canceled)
 	assert.NotContains(t, rec.Body.String(), "after-cancel", "a canceled attempt must not keep relaying upstream output")
@@ -176,7 +176,7 @@ func TestProxyGeminiGenerateContent_RetriesBuffered429WithoutMarkerLeak(t *testi
 	rec := httptest.NewRecorder()
 	body := strings.Replace(geminiInjectedBody, `"stream":false`, `"stream":true`, 1)
 	err := svc.ProxyGeminiGenerateContent(authedCtx("00000000-0000-0000-0000-000000000001"), []byte(body), rec,
-		httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-1.5-pro:streamGenerateContent", nil))
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1beta/models/gemini-1.5-pro:streamGenerateContent", nil))
 	require.Error(t, err)
 	assert.Len(t, googleProv.proxyBodies, 3, "single-provider 429 retries are bounded")
 	assert.NotContains(t, rec.Body.String(), "Weave Router", "a retryable upstream failure must not commit the marker")
@@ -198,7 +198,7 @@ func TestProxyGeminiGenerateContent_DemotesUnrescuedResponseHeaderTimeout(t *tes
 	recorder := httptest.NewRecorder()
 	body := strings.Replace(geminiInjectedBody, `"stream":false`, `"stream":true`, 1)
 	err := svc.ProxyGeminiGenerateContent(authedCtx("00000000-0000-0000-0000-000000000001"), []byte(body), recorder,
-		httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-1.5-pro:streamGenerateContent", nil))
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1beta/models/gemini-1.5-pro:streamGenerateContent", nil))
 
 	require.Error(t, err)
 	require.Len(t, store.demotions, 2)
@@ -219,7 +219,7 @@ func TestProxyGeminiGenerateContent_DemotesUnrescuedWatchdogStall(t *testing.T) 
 	recorder := httptest.NewRecorder()
 	body := strings.Replace(geminiInjectedBody, `"stream":false`, `"stream":true`, 1)
 	err := svc.ProxyGeminiGenerateContent(authedCtx("00000000-0000-0000-0000-000000000001"), []byte(body), recorder,
-		httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-1.5-pro:streamGenerateContent", nil))
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1beta/models/gemini-1.5-pro:streamGenerateContent", nil))
 
 	require.ErrorIs(t, err, providers.ErrUpstreamOutputStall)
 	require.Len(t, store.demotions, 2)
@@ -245,7 +245,7 @@ func TestProxyGeminiGenerateContent_TransientRateLimitHonoursRetryAfterCap(t *te
 	).WithRetrySleep(noRetrySleep).WithTransientRateLimit(true, 45)
 	rec := httptest.NewRecorder()
 	err := svc.ProxyGeminiGenerateContent(authedCtx("00000000-0000-0000-0000-000000000001"), []byte(geminiInjectedBody), rec,
-		httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", nil))
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", nil))
 	require.Error(t, err)
 	assert.Len(t, googleProv.proxyBodies, 1, "a Retry-After above the cap skips further same-binding attempts")
 }
@@ -265,7 +265,7 @@ func TestProxyGeminiGenerateContent_PersistsPassthroughExperimentTelemetry(t *te
 	)
 	body := strings.Replace(geminiInjectedBody, "gemini-1.5-pro", "gemini-2.5-pro", 1)
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.5-pro:generateContent", nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1beta/models/gemini-2.5-pro:generateContent", nil)
 
 	require.NoError(t, service.ProxyGeminiGenerateContent(
 		geminiExperimentContext(installationID, auth.BlindExperimentArmPassthrough),
@@ -333,7 +333,7 @@ func TestProxyGeminiGenerateContent_PersistsSubscriberTelemetry(t *testing.T) {
 			)
 			ctx := tt.ctx(authedCtx("44444444-4444-4444-4444-444444444444"))
 			recorder := httptest.NewRecorder()
-			request := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", nil)
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", nil)
 
 			require.NoError(t, service.ProxyGeminiGenerateContent(ctx, []byte(geminiInjectedBody), recorder, request))
 
@@ -366,7 +366,7 @@ func TestProxyGeminiGenerateContent_PersistsExperimentUpstreamError(t *testing.T
 		providers.ProviderGoogle, "gemini-2.5-flash", telemetry,
 	)
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", nil)
 
 	err := service.ProxyGeminiGenerateContent(
 		geminiExperimentContext(installationID, auth.BlindExperimentArmRouterOn),

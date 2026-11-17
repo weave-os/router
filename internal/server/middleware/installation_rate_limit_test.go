@@ -1,6 +1,7 @@
 package middleware_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -29,8 +30,8 @@ func replicaEngine(svc *auth.Service, now func() time.Time) *gin.Engine {
 	return engine
 }
 
-func costRequest(engine *gin.Engine, token string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(http.MethodGet, "/v1/sessions/session-1/cost", nil)
+func costRequest(ctx context.Context, engine *gin.Engine, token string) *httptest.ResponseRecorder {
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/v1/sessions/session-1/cost", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, req)
@@ -49,17 +50,17 @@ func TestInstallationRateLimitSharesOneBucketAcrossKeyTypes(t *testing.T) {
 
 	tokens := []string{"rk_routing", "ra_analytics"}
 	for i := range middleware.SessionCostRequestsPerMinute {
-		rec := costRequest(replica, tokens[i%2])
+		rec := costRequest(t.Context(), replica, tokens[i%2])
 		require.Equal(t, http.StatusOK, rec.Code, "request %d is inside the burst", i+1)
 		require.Equal(t, strconv.Itoa(middleware.SessionCostRequestsPerMinute-i-1), rec.Header().Get("X-RateLimit-Remaining"))
 		require.Equal(t, strconv.Itoa(i+1), rec.Header().Get("X-RateLimit-Used"))
 	}
-	first := costRequest(replicaEngine(svc, clock), "rk_routing")
+	first := costRequest(t.Context(), replicaEngine(svc, clock), "rk_routing")
 	assert.Equal(t, "500", first.Header().Get("X-RateLimit-Limit"))
 	assert.Equal(t, strconv.FormatInt(start.Add(120*time.Millisecond).Unix(), 10), first.Header().Get("X-RateLimit-Reset"))
 
 	for _, token := range tokens {
-		rec := costRequest(replica, token)
+		rec := costRequest(t.Context(), replica, token)
 		require.Equal(t, http.StatusTooManyRequests, rec.Code, "the other key type must not get a fresh bucket")
 		assert.Equal(t, "1", rec.Header().Get("Retry-After"))
 		assert.Equal(t, "500", rec.Header().Get("X-RateLimit-Limit"))
@@ -76,7 +77,7 @@ func TestInstallationRateLimitSharesOneBucketAcrossKeyTypes(t *testing.T) {
 	}
 
 	secondReplica := replicaEngine(svc, clock)
-	assert.Equal(t, http.StatusOK, costRequest(secondReplica, "ra_analytics").Code, "each replica holds its own bucket")
+	assert.Equal(t, http.StatusOK, costRequest(t.Context(), secondReplica, "ra_analytics").Code, "each replica holds its own bucket")
 }
 
 func TestInstallationRateLimitRefillsOverTime(t *testing.T) {
@@ -85,14 +86,14 @@ func TestInstallationRateLimitRefillsOverTime(t *testing.T) {
 	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
 	engine := replicaEngine(svc, func() time.Time { return now })
 	for range middleware.SessionCostRequestsPerMinute {
-		require.Equal(t, http.StatusOK, costRequest(engine, "rk_routing").Code)
+		require.Equal(t, http.StatusOK, costRequest(t.Context(), engine, "rk_routing").Code)
 	}
-	require.Equal(t, http.StatusTooManyRequests, costRequest(engine, "rk_routing").Code)
+	require.Equal(t, http.StatusTooManyRequests, costRequest(t.Context(), engine, "rk_routing").Code)
 
 	now = now.Add(time.Minute / middleware.SessionCostRequestsPerMinute)
 
-	assert.Equal(t, http.StatusOK, costRequest(engine, "rk_routing").Code)
-	assert.Equal(t, http.StatusTooManyRequests, costRequest(engine, "rk_routing").Code)
+	assert.Equal(t, http.StatusOK, costRequest(t.Context(), engine, "rk_routing").Code)
+	assert.Equal(t, http.StatusTooManyRequests, costRequest(t.Context(), engine, "rk_routing").Code)
 }
 
 func TestInstallationRateLimitIsPerInstallation(t *testing.T) {
@@ -107,7 +108,7 @@ func TestInstallationRateLimitIsPerInstallation(t *testing.T) {
 		}
 	}, middleware.WithInstallationRateLimit(1, time.Now), func(c *gin.Context) { c.Status(http.StatusOK) })
 	call := func(installationID string) int {
-		req := httptest.NewRequest(http.MethodGet, "/x", nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil)
 		req.Header.Set("X-Installation", installationID)
 		rec := httptest.NewRecorder()
 		engine.ServeHTTP(rec, req)

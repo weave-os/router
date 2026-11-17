@@ -42,7 +42,7 @@ func TestSubscriptionStateForcedModelThrottledPoolKeeps429(t *testing.T) {
 		buildAlternative: func(router.Decision) (dispatchAttempt, error) {
 			return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
 				buffer.Seal()
-				return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+				return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/responses", nil))
 			}, nil
 		},
 	}

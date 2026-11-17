@@ -29,9 +29,6 @@ type metricsTimeseriesResponse struct {
 	Buckets []timeseriesBucket `json:"buckets"`
 }
 
-// metricsScope resolves whether the caller may see metrics across all installations
-// (admin cookie) or must be scoped to their own installation (bearer auth). When
-// neither applies, it aborts the request with 401 and returns ok=false.
 func metricsScope(c *gin.Context) (allInstallations bool, installationID string, ok bool) {
 	if admin := middleware.AdminPrincipalFrom(c); admin != nil {
 		return true, "", true
@@ -128,8 +125,6 @@ type metricsModelBreakdownResponse struct {
 	Buckets []modelBreakdownBucket `json:"buckets"`
 }
 
-// MetricsModelBreakdownHandler serves per-bucket totals grouped by the model
-// the router selected, powering the per-model usage and spend charts.
 func MetricsModelBreakdownHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		granularity := c.DefaultQuery("granularity", "hour")

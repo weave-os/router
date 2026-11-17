@@ -23,6 +23,16 @@ the process stays running. Provider preparation failures only log warnings.
 embedding or HMM inference; it cannot guarantee the latency of first inference.
 `/readyz` retains dependency diagnostics.
 
+`POST /v1/messages/count_tokens` is a pre-flight the Anthropic SDK issues
+before `/v1/messages`; a hard failure here blocks the call behind it.
+A routing model ID, or a request with no reachable Anthropic credential, gets a
+local byte-length estimate without an upstream call. Otherwise the upstream
+answer is authoritative and gets five seconds, well inside the route timeout.
+A transport error, that deadline, or a 408, 429 or 5xx (including 529) is
+answered with the local estimate; client-fault statuses such as 400, 401 or
+404 are replayed verbatim, and a deployment fault (provider not configured or
+not implemented) stays an error.
+
 Routed non-stream responses include `x-router-cost-usd`,
 `x-router-cost-input-usd`, `x-router-cost-output-usd`,
 `x-router-cache-read-tokens`, and `x-router-cache-creation-tokens`. Streaming

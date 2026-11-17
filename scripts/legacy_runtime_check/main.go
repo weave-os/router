@@ -1,5 +1,3 @@
-// Command legacy_runtime_check boots the real worker in both legacy deployment modes.
-// Its Postgres fixture must be local; Pub/Sub is an in-process gRPC fixture and no provider is called.
 package main
 
 import (
@@ -12,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"os"
 	"os/exec"
@@ -68,12 +67,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	var listenConfig net.ListenConfig
+	listener, err := listenConfig.Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		return err
 	}
-	// Workers boot on the hmm_embedding default, so serve a stub classifier
-	// and its baked release instead of real classifier infrastructure.
 	releaseDir, err := os.MkdirTemp("", "router-legacy-policy-*")
 	if err != nil {
 		return err
@@ -97,17 +95,56 @@ func run() error {
 	return nil
 }
 
+func waitForWorkerReady(ctx context.Context, client *http.Client, readyURL string, logFile *os.File) error {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	readyCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+	readyRequest, err := http.NewRequestWithContext(readyCtx, http.MethodGet, readyURL, nil)
+	if err != nil {
+		return err
+	}
+	var lastReadiness string
+	for {
+		response, err := client.Do(readyRequest)
+		if err == nil {
+			body, readErr := io.ReadAll(io.LimitReader(response.Body, 8192))
+			_ = response.Body.Close()
+			if response.StatusCode == http.StatusOK {
+				return nil
+			}
+			lastReadiness = fmt.Sprintf("HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+			if readErr != nil {
+				lastReadiness += "; read error: " + readErr.Error()
+			}
+		} else {
+			lastReadiness = err.Error()
+		}
+		select {
+		case <-readyCtx.Done():
+			_ = logFile.Sync()
+			logTail, _ := os.ReadFile(logFile.Name())
+			if len(logTail) > 8192 {
+				logTail = logTail[len(logTail)-8192:]
+			}
+			return fmt.Errorf("worker did not become ready; last /readyz response: %s; worker log tail: %s; timeout: %w", lastReadiness, strings.TrimSpace(string(logTail)), readyCtx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
 type policyFixture struct {
 	releaseDir    string
 	classifierURL string
 }
 
 func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, policy policyFixture, mode server.DeploymentMode) error {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	var listenConfig net.ListenConfig
+	listener, err := listenConfig.Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		return err
 	}
-	port := listener.Addr().(*net.TCPAddr).Port
+	port := int(netip.MustParseAddrPort(listener.Addr().String()).Port())
 	_ = listener.Close()
 	logFile, err := os.CreateTemp("", "router-legacy-"+string(mode)+"-*.log")
 	if err != nil {
@@ -127,36 +164,8 @@ func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, 
 	}()
 	client := &http.Client{Timeout: 10 * time.Second}
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	readyCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
-	defer cancel()
-	var lastReadiness string
-	for {
-		response, err := client.Get(baseURL + "/readyz")
-		if err == nil {
-			body, readErr := io.ReadAll(io.LimitReader(response.Body, 8192))
-			_ = response.Body.Close()
-			if response.StatusCode == http.StatusOK {
-				break
-			}
-			lastReadiness = fmt.Sprintf("HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
-			if readErr != nil {
-				lastReadiness += "; read error: " + readErr.Error()
-			}
-		} else {
-			lastReadiness = err.Error()
-		}
-		select {
-		case <-readyCtx.Done():
-			_ = logFile.Sync()
-			logTail, _ := os.ReadFile(logFile.Name())
-			if len(logTail) > 8192 {
-				logTail = logTail[len(logTail)-8192:]
-			}
-			return fmt.Errorf("worker did not become ready; last /readyz response: %s; worker log tail: %s; timeout: %w", lastReadiness, strings.TrimSpace(string(logTail)), readyCtx.Err())
-		case <-ticker.C:
-		}
+	if err := waitForWorkerReady(ctx, client, baseURL+"/readyz", logFile); err != nil {
+		return err
 	}
 	for _, probe := range []struct{ path, response string }{
 		{path: "/validate", response: `"valid":true`},
@@ -181,7 +190,6 @@ func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, 
 	request.Header.Set("Content-Type", "application/json")
 	wantStatus := http.StatusOK
 	if mode == server.DeploymentModeManaged {
-		// The fixture has no credits: legacy managed billing must still gate inference.
 		wantStatus = http.StatusPaymentRequired
 	}
 	if err := expectResponse(client, request, wantStatus, ""); err != nil {
@@ -192,8 +200,6 @@ func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, 
 }
 
 func workerEnv(dsn, pubsubAddress string, port int, policy policyFixture, mode server.DeploymentMode) []string {
-	// Do not inherit developer provider keys, cloud credentials, sidecars, or release configuration;
-	// the only policy release and classifier are the stub fixture passed below.
 	env := []string{
 		"PATH=" + os.Getenv("PATH"),
 		"DATABASE_URL=" + dsn,
@@ -212,11 +218,6 @@ func workerEnv(dsn, pubsubAddress string, port int, policy policyFixture, mode s
 		"GIN_MODE=release",
 	}
 	if mode == server.DeploymentModeSelfHosted {
-		// Self-hosted only: these prove the worker leaves ROUTER_SERVING_*
-		// unread while the assertion-key opt-in is absent. The managed leg is
-		// an unstamped legacy worker and must set none of them, because any
-		// ROUTER_SERVING_* variable set in managed mode without the assertion
-		// key refuses to boot (cmd/router/serving_runtime.go).
 		env = append(env,
 			"ROUTER_SERVING_REGISTRY_URI=invalid-disabled-registry",
 			"ROUTER_SERVING_CONFIGURATION_URI=invalid-disabled-configuration",

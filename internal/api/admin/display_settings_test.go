@@ -38,7 +38,7 @@ func TestDisplaySettingsHandler(t *testing.T) {
 			}, admin.DisplaySettingsHandler(&fakeAccountLister{}, nil, nil))
 
 			rec := httptest.NewRecorder()
-			engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/display-settings", nil))
+			engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/display-settings", nil))
 
 			require.Equal(t, http.StatusOK, rec.Code)
 			var body struct {
@@ -63,7 +63,7 @@ func TestDisplaySettingsHandler(t *testing.T) {
 			}, nil))
 
 			rec := httptest.NewRecorder()
-			engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/display-settings", nil))
+			engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/display-settings", nil))
 
 			require.Equal(t, http.StatusOK, rec.Code)
 			var body struct {
@@ -96,7 +96,7 @@ func TestDisplaySettingsHandler(t *testing.T) {
 			}, fakeExperimentChecker{enabled: tc.experimentEnabled}))
 
 			rec := httptest.NewRecorder()
-			engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/display-settings", nil))
+			engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/display-settings", nil))
 
 			require.Equal(t, http.StatusOK, rec.Code)
 			var body struct {
@@ -112,7 +112,7 @@ func TestDisplaySettingsHandler(t *testing.T) {
 		engine.GET("/v1/display-settings", admin.DisplaySettingsHandler(&fakeAccountLister{}, nil, nil))
 
 		rec := httptest.NewRecorder()
-		engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/display-settings", nil))
+		engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/display-settings", nil))
 
 		require.Equal(t, http.StatusUnauthorized, rec.Code)
 	})
@@ -162,7 +162,7 @@ func getDisplaySettings(t *testing.T, lister *fakeAccountLister) struct {
 	}, admin.DisplaySettingsHandler(lister, nil, nil))
 
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/display-settings", nil))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/display-settings", nil))
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	var body struct {

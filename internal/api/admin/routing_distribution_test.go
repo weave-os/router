@@ -55,8 +55,8 @@ func newDistributionEngine(src admin.DistributionRosterSource) *gin.Engine {
 	return engine
 }
 
-func getDistribution(engine *gin.Engine, query string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(http.MethodGet, "/v1/router/routing-distribution"+query, nil)
+func getDistribution(ctx context.Context, engine *gin.Engine, query string) *httptest.ResponseRecorder {
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/v1/router/routing-distribution"+query, nil)
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, req)
 	return rec
@@ -86,7 +86,7 @@ func TestRoutingDistributionHandler_ProjectsHMMRosterGrid(t *testing.T) {
 	engine := newDistributionEngine(src)
 
 	for _, strategy := range []string{"", "hmm", "hmm_embedding"} {
-		rec := getDistribution(engine, "?grid=3&strategy="+strategy)
+		rec := getDistribution(t.Context(), engine, "?grid=3&strategy="+strategy)
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 		var got struct {
 			Points []router.DistributionPoint `json:"points"`
@@ -101,15 +101,15 @@ func TestRoutingDistributionHandler_ProjectsHMMRosterGrid(t *testing.T) {
 func TestRoutingDistributionHandler_ExclusionsNarrowThePool(t *testing.T) {
 	engine := newDistributionEngine(&fakeDistributionRoster{roster: twoArmDistributionRoster()})
 
-	rec := getDistribution(engine, "?grid=2&excluded_models=%20gpt-5.6-luna%20,")
+	rec := getDistribution(t.Context(), engine, "?grid=2&excluded_models=%20gpt-5.6-luna%20,")
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	assert.Equal(t, []string{"grok-4.6"}, distributionModels(t, rec), "trimmed CSV exclusions must reach the projection")
 
-	rec = getDistribution(engine, "?grid=2&excluded_providers=openai")
+	rec = getDistribution(t.Context(), engine, "?grid=2&excluded_providers=openai")
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	assert.Equal(t, []string{"grok-4.6"}, distributionModels(t, rec), "provider exclusions must reach the projection")
 
-	rec = getDistribution(engine, "?grid=2&excluded_models=gpt-5.6-luna,grok-4.6")
+	rec = getDistribution(t.Context(), engine, "?grid=2&excluded_models=gpt-5.6-luna,grok-4.6")
 	assert.Equal(t, http.StatusBadRequest, rec.Code, "exclusions that empty the pool are a client config error")
 }
 
@@ -117,7 +117,7 @@ func TestRoutingDistributionHandler_RejectsBadGrid(t *testing.T) {
 	src := &fakeDistributionRoster{roster: twoArmDistributionRoster()}
 	engine := newDistributionEngine(src)
 	for _, bad := range []string{"1", "0", "-5", "abc", "1000"} {
-		rec := getDistribution(engine, "?grid="+bad)
+		rec := getDistribution(t.Context(), engine, "?grid="+bad)
 		assert.Equal(t, http.StatusBadRequest, rec.Code, "grid=%q should be rejected", bad)
 	}
 	assert.Empty(t, src.strategies)
@@ -127,7 +127,7 @@ func TestRoutingDistributionHandler_RejectsNonHMMStrategy(t *testing.T) {
 	src := &fakeDistributionRoster{roster: twoArmDistributionRoster()}
 	engine := newDistributionEngine(src)
 	for _, strategy := range []router.Strategy{router.Strategy("cluster"), router.StrategyRL, router.StrategyHMMBeta, "unknown"} {
-		rec := getDistribution(engine, "?strategy="+string(strategy))
+		rec := getDistribution(t.Context(), engine, "?strategy="+string(strategy))
 		assert.Equal(t, http.StatusBadRequest, rec.Code, strategy)
 	}
 	assert.Empty(t, src.strategies, "no legacy projection may stand in for a non-HMM strategy")
@@ -135,6 +135,6 @@ func TestRoutingDistributionHandler_RejectsNonHMMStrategy(t *testing.T) {
 
 func TestRoutingDistributionHandler_SourceErrorIs503(t *testing.T) {
 	engine := newDistributionEngine(&fakeDistributionRoster{err: errors.New("no active policy")})
-	rec := getDistribution(engine, "")
+	rec := getDistribution(t.Context(), engine, "")
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 }

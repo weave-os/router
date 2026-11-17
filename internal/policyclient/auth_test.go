@@ -117,7 +117,9 @@ func TestGoogleIDTokenClientDoesNotFollowRedirects(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	response, err := httpClient.Get(source.URL)
+	request, buildErr := http.NewRequestWithContext(t.Context(), http.MethodGet, source.URL, nil)
+	require.NoError(t, buildErr)
+	response, err := httpClient.Do(request)
 	require.NoError(t, err)
 	defer func() { _ = response.Body.Close() }()
 	assert.Equal(t, http.StatusTemporaryRedirect, response.StatusCode)

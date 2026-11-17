@@ -40,7 +40,7 @@ func TestProxy_WIFCredentialsCarryTokenTypeHeader(t *testing.T) {
 	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, creds)
 
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	// A client-supplied value must not survive: it would downgrade how the
 	// upstream reads the router's own credential.
 	prep := providers.PreparedRequest{

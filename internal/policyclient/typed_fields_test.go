@@ -61,7 +61,7 @@ func TestClientDecideLeavesTypedFieldsUnsetOnV1OnlyResponse(t *testing.T) {
 	assert.Equal(t, "anthropic/claude-opus-4-8", result.Model)
 	assert.Equal(t, "classifier group 'high'", result.Reason)
 	assert.Equal(t, "high", result.PolicyGroup)
-	assert.Equal(t, 0.42, result.Score)
+	assert.InDelta(t, 0.42, result.Score, 1e-9)
 	assert.Empty(t, result.PredictedLabel)
 	assert.Nil(t, result.ClassProbabilities)
 }

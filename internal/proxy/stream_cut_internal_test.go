@@ -53,7 +53,7 @@ func TestClassifyStreamFailure(t *testing.T) {
 		{name: "http/2 keepalive ping lost", err: http2LostPing(), want: streamFailureUpstreamReset},
 		{name: "http/2 keepalive ping lost mid-stream", err: fmt.Errorf("read upstream stream: %w", errors.New("http2: client connection lost")), lastEvent: "content_block_delta", want: streamFailureUpstreamReset},
 		{name: "http/2 stream reset by the peer", err: http2PeerStreamReset(), want: streamFailureUpstreamReset},
-		{name: "http/2 goaway", err: &url.Error{Op: "Post", URL: "https://upstream.test", Err: http2.GoAwayError{ErrCode: http2.ErrCodeEnhanceYourCalm}}, want: streamFailureUpstreamReset},
+		{name: "http/2 goaway", err: http2GoAway(), want: streamFailureUpstreamReset},
 		{name: "unattributable", err: errors.New("stream closed"), lastEvent: "content_block_delta", want: streamFailureOther},
 	}
 	for _, tc := range cases {
@@ -117,6 +117,11 @@ func http2HeaderTimeout() error {
 // keepalive pings; it is an untyped errors.New.
 func http2LostPing() error {
 	return &url.Error{Op: "Post", URL: "https://upstream.test", Err: errors.New("http2: client connection lost")}
+}
+
+// http2GoAway mirrors net/http's bundled transport error after a GOAWAY frame.
+func http2GoAway() error {
+	return &url.Error{Op: "Post", URL: "https://upstream.test", Err: errors.New(`http2: server sent GOAWAY and closed the connection; LastStreamID=1, ErrCode=ENHANCE_YOUR_CALM, debug=""`)}
 }
 
 func http2PeerStreamReset() error {
@@ -265,9 +270,9 @@ func TestStreamCutObserver_TracksCompletedAndOutputBlocks(t *testing.T) {
 		for i := 0; i+1 < len(logged); i += 2 {
 			switch logged[i] {
 			case "stream_upstream_blocks_completed":
-				completed = logged[i+1].(int)
+				completed = mustAs[int](t, logged[i+1])
 			case "stream_upstream_output_block_started":
-				outputStarted = logged[i+1].(bool)
+				outputStarted = mustAs[bool](t, logged[i+1])
 			}
 		}
 		return completed, outputStarted
@@ -346,7 +351,7 @@ func TestStreamCutObserver_ForwardsOutputProgressArming(t *testing.T) {
 	assert.Equal(t, 1, armer.marks)
 
 	plain := newStreamCutObserver(nil).attach(httptest.NewRecorder())
-	assert.False(t, plain.(providers.OutputProgressArmer).ArmOutputProgress(func() {}),
+	assert.False(t, mustAs[providers.OutputProgressArmer](t, plain).ArmOutputProgress(func() {}),
 		"a writer that cannot distinguish output frames must not claim to be armed")
 }
 
@@ -384,7 +389,7 @@ func TestStreamCutObserver_ForwardsReasoningProgressArming(t *testing.T) {
 		inner := &reasoningArmerRecorder{ResponseRecorder: httptest.NewRecorder(), armed: armed}
 		writer := newStreamCutObserver(nil).attach(inner)
 		marks := 0
-		assert.Equal(t, armed, writer.(providers.ReasoningProgressArmer).ArmReasoningProgress(func() { marks++ }))
+		assert.Equal(t, armed, mustAs[providers.ReasoningProgressArmer](t, writer).ArmReasoningProgress(func() { marks++ }))
 		if armed {
 			require.NotNil(t, inner.mark)
 			inner.mark()
@@ -394,7 +399,7 @@ func TestStreamCutObserver_ForwardsReasoningProgressArming(t *testing.T) {
 		}
 	}
 	legacy := newStreamCutObserver(nil).attach(&armerRecorder{ResponseRecorder: httptest.NewRecorder()})
-	assert.False(t, legacy.(providers.ReasoningProgressArmer).ArmReasoningProgress(func() {}))
+	assert.False(t, mustAs[providers.ReasoningProgressArmer](t, legacy).ArmReasoningProgress(func() {}))
 }
 
 // An Anthropic turn that closes a thinking block, then opens and closes a text

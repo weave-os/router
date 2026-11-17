@@ -7,10 +7,6 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-// logInboundToolTraffic logs names + short arg previews of the last few
-// assistant tool_use calls, to correlate a broken turn without dumping the
-// full body. Gemini envelopes are skipped — preview only knows Anthropic +
-// OpenAI shapes today.
 func logInboundToolTraffic(log *slog.Logger, env *translate.RequestEnvelope) {
 	if env == nil {
 		return
@@ -42,9 +38,6 @@ func logInboundRequestDiagnostics(log *slog.Logger, env *translate.RequestEnvelo
 	logInboundSystemTail(log, env)
 }
 
-// logInboundConversationTail logs role + per-block type/name/preview for the
-// last few inbound messages — the visible prose context the model is about
-// to react to, complementing logInboundToolTraffic's view of prior tool calls.
 func logInboundConversationTail(log *slog.Logger, env *translate.RequestEnvelope) {
 	if env == nil {
 		return
@@ -84,9 +77,6 @@ func logInboundConversationTail(log *slog.Logger, env *translate.RequestEnvelope
 	)
 }
 
-// logInboundSystemTail logs system-prompt length plus head/tail excerpts,
-// surfacing per-turn system_reminder injections without logging the whole
-// prompt (which the static Claude Code prompt otherwise dwarfs).
 func logInboundSystemTail(log *slog.Logger, env *translate.RequestEnvelope) {
 	if env == nil {
 		return

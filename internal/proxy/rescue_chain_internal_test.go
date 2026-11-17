@@ -45,11 +45,11 @@ func (f *fakeRescueServices) dispatchWithFallback(_ context.Context, in failover
 	return 0, f.outcomes[in.initialDecision.Model]
 }
 
-func newSiblingRescueChain(svc rescueServices, primaryErr error, siblings ...router.Decision) *rescueChain {
+func newSiblingRescueChain(ctx context.Context, svc rescueServices, primaryErr error, siblings ...router.Decision) *rescueChain {
 	primary := router.Decision{Model: "primary-model", Provider: providers.ProviderOpenAI}
 	c := &rescueChain{
 		svc:        svc,
-		r:          httptest.NewRequest(http.MethodPost, "/v1/messages", nil),
+		r:          httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil),
 		log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 		preludeBuf: newPreludeBuffer(httptest.NewRecorder()),
 		buildAttempt: func(router.Decision, translate.EmitOptions, string, context.Context) (dispatchAttempt, error) {
@@ -73,7 +73,7 @@ func TestRescueChainSiblingRescueWalksPastAFailedRescuer(t *testing.T) {
 	}}
 	first := router.Decision{Model: "first-sibling", Provider: providers.ProviderAnthropic}
 	second := router.Decision{Model: "second-sibling", Provider: providers.ProviderGoogle}
-	c := newSiblingRescueChain(svc, primaryErr, first, second)
+	c := newSiblingRescueChain(t.Context(), svc, primaryErr, first, second)
 
 	c.siblingRescue(context.Background())
 
@@ -96,7 +96,7 @@ func TestRescueChainSiblingRescueWalksPastAFailedRescuer(t *testing.T) {
 
 func TestRescueChainSiblingRescueSkipsAfterTheDeferredErrorFlushed(t *testing.T) {
 	svc := &fakeRescueServices{}
-	c := newSiblingRescueChain(svc, &providers.UpstreamErrorResponse{Status: http.StatusServiceUnavailable},
+	c := newSiblingRescueChain(t.Context(), svc, &providers.UpstreamErrorResponse{Status: http.StatusServiceUnavailable},
 		router.Decision{Model: "first-sibling", Provider: providers.ProviderAnthropic})
 	c.deferredErrFlushed = true
 
@@ -110,7 +110,7 @@ func TestRescueChainSiblingRescueSkipsAfterTheDeferredErrorFlushed(t *testing.T)
 func TestRescueChainSiblingRescueRunsWithoutRequestStats(t *testing.T) {
 	svc := &fakeRescueServices{}
 	sibling := router.Decision{Model: "first-sibling", Provider: providers.ProviderAnthropic}
-	c := newSiblingRescueChain(svc, &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests}, sibling)
+	c := newSiblingRescueChain(t.Context(), svc, &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests}, sibling)
 	c.reqStats = nil
 
 	c.siblingRescue(context.Background())

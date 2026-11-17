@@ -28,7 +28,7 @@ func TestSubscriptionStatePoolOverloadHoldsSessionOffModel(t *testing.T) {
 	svc := NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderAnthropic: claude, providers.ProviderOpenAI: codex}, nil, nil, false, "", "", nil).
 		WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: true, subscriptions.ProviderCodex: true}})
 	now := time.Date(2026, 11, 4, 6, 41, 0, 0, time.UTC)
-	svc.now = func() time.Time { return now }
+	svc.clock = func() time.Time { return now }
 
 	serve := func() router.Decision {
 		ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
@@ -49,7 +49,7 @@ func TestSubscriptionStatePoolOverloadHoldsSessionOffModel(t *testing.T) {
 			buildAlternative: func(router.Decision) (dispatchAttempt, error) {
 				return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
 					buffer.Seal()
-					return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+					return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/messages", nil))
 				}, nil
 			},
 			onAlternative: func(decision router.Decision) { winner = decision },
@@ -72,7 +72,7 @@ func TestSubscriptionStatePoolOverloadHoldsSessionOffModel(t *testing.T) {
 }
 
 func TestSessionHoldCoversSiblingModelsOnThePool(t *testing.T) {
-	svc := &Service{now: time.Now}
+	svc := &Service{clock: time.Now}
 	ctx := context.WithValue(WithManagedSubscriptionUsage(context.Background()), ClientIdentityContextKey{}, ClientIdentity{SessionID: "codex-session"})
 	svc.markSubscriptionPoolUnavailable(ctx, subscriptions.ProviderCodex)
 	svc.holdSessionOffSubscriptionPool(ctx, providers.ProviderOpenAI, stateCodexModel)

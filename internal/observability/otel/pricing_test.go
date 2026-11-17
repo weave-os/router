@@ -34,6 +34,8 @@ func TestLookup(t *testing.T) {
 		{name: "gpt-6-astra", model: "gpt-6-astra", wantInput: 10.00, wantOutput: 50.00},
 		{name: "gpt-6-sol", model: "gpt-6-sol", wantInput: 2.00, wantOutput: 10.00},
 		{name: "gpt-6.1-sol", model: "gpt-6.1-sol", wantInput: 2.00, wantOutput: 10.00},
+		{name: "gpt-6.2-sol", model: "gpt-6.2-sol", wantInput: 2.00, wantOutput: 10.00},
+		{name: "gpt-6.2-astra", model: "gpt-6.2-astra", wantInput: 8.00, wantOutput: 40.00},
 		{name: "gpt-6.1-terra", model: "gpt-6.1-terra", wantInput: 1.00, wantOutput: 5.00},
 		{name: "gpt-6-luna", model: "gpt-6-luna", wantInput: 0.10, wantOutput: 0.50},
 		{name: "gpt-5.6-sol", model: "gpt-5.6-sol", wantInput: 4.00, wantOutput: 20.00},
@@ -123,8 +125,8 @@ func TestLookup(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got := otel.Lookup(tc.model)
-			assert.Equal(t, tc.wantInput, got.InputUSDPer1M)
-			assert.Equal(t, tc.wantOutput, got.OutputUSDPer1M)
+			assert.InDelta(t, tc.wantInput, got.InputUSDPer1M, 1e-9)
+			assert.InDelta(t, tc.wantOutput, got.OutputUSDPer1M, 1e-9)
 		})
 	}
 }

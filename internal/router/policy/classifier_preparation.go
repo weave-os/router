@@ -15,7 +15,6 @@ const (
 
 var ErrClassifierPreparationUnavailable = errors.New("classifier preparation unavailable")
 
-// ClassifierPreparation identifies the immutable classifier being prepared.
 type ClassifierPreparation struct {
 	ModelID         string           `json:"model_id"`
 	BundleSHA256    string           `json:"bundle_sha256"`
@@ -35,7 +34,6 @@ func ValidPreparationOperationID(operationID string) bool {
 	return preparationOperationPattern.MatchString(operationID)
 }
 
-// PrepareClassifier delegates only to the sidecar already bound to this runtime.
 func (r *SidecarRouter) PrepareClassifier(ctx context.Context, operationID string) (ClassifierPreparation, error) {
 	preparer, ok := r.decider.(ClassifierPreparer)
 	if !ok {

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/policyclient"
@@ -23,7 +24,7 @@ func (f preparationTransportFunc) RoundTrip(r *http.Request) (*http.Response, er
 func TestClassifierPreparationStartsAndPollsFixedSidecarPaths(t *testing.T) {
 	var calls []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "Bearer synthetic-service-token", r.Header.Get("Authorization"))
+		assert.Equal(t, "Bearer synthetic-service-token", r.Header.Get("Authorization"))
 		calls = append(calls, r.Method+" "+r.URL.Path)
 		state := policy.PreparationReady
 		if r.Method == http.MethodPost {

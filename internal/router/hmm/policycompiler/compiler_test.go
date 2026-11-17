@@ -188,3 +188,48 @@ func TestCompileRejectsSubscriptionLadderForUnknownGroup(t *testing.T) {
 	_, _, err := policycompiler.Compile(source, policycompiler.Options{ClassOrder: []string{"low"}})
 	require.ErrorContains(t, err, `subscription ladder "openai" references unknown group "medium"`)
 }
+
+func TestCompilableSourceRequiresWIIAndWPIProvenance(t *testing.T) {
+	assert.False(t, policycompiler.CompilableSource(rosterdata.SchemaVersionV6))
+	assert.False(t, policycompiler.CompilableSource(rosterdata.SchemaVersion("hmm_router_cluster_roster_v5")))
+	assert.True(t, policycompiler.CompilableSource(rosterdata.SchemaVersionV7))
+	assert.True(t, policycompiler.CompilableSource(rosterdata.SchemaVersionV75C))
+	assert.True(t, policycompiler.CompilableSource(rosterdata.SchemaVersionPolicyV1))
+}
+
+func TestCompileEvidenceIsProvenanceOnly(t *testing.T) {
+	source := []byte(`{
+  "schema_version": "hmm_router_cluster_roster_v7",
+  "ranking": {
+    "alpha": {"low": 0.4},
+    "alpha_min": {"low": 0.05},
+    "alpha_max": {"low": 0.8},
+    "quality_bias_neutral": 0.7,
+    "wii_score_version": "wii-v1",
+    "wii_normalization_sha256": "wii-sha",
+    "wpi_score_version": "wpi-v1",
+    "wpi_normalization_sha256": "wpi-sha"
+  },
+  "clusters": {
+    "low": {
+      "complexity_label": "low",
+      "arms": ["openai/gpt-5.6-sol", "openai/gpt-5.5"],
+      "cost_ref_usd": 0.02,
+      "latency_ref_ms": 8000,
+      "arm_scores": {"openai/gpt-5.6-sol": 10, "openai/gpt-5.5": 9},
+      "arm_indices": {"openai/gpt-5.6-sol": {"wii_v1": 50, "wpi_v1": 10}, "openai/gpt-5.5": {"wii_v1": 40, "wpi_v1": 9}}
+    }
+  }
+}`)
+
+	_, withoutEvidence, err := policycompiler.Compile(source, policycompiler.Options{ClassOrder: []string{"low"}})
+	require.NoError(t, err)
+	_, withEvidence, err := policycompiler.Compile(source, policycompiler.Options{
+		ClassOrder:     []string{"low"},
+		EvidenceURI:    "gs://synthetic/evidence.json",
+		EvidenceSHA256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, withoutEvidence.Clusters, withEvidence.Clusters)
+	assert.Equal(t, withoutEvidence.Ranking, withEvidence.Ranking)
+}

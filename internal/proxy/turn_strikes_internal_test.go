@@ -198,7 +198,7 @@ func TestSiblingRescueRecordsEveryFailedModel(t *testing.T) {
 	body := `{"model":"claude-opus-5","max_tokens":1024,"stream":true,"messages":[{"role":"user","content":"read main.go"}]}`
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec,
-		httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))))
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(body))))
 
 	require.Contains(t, rec.Body.String(), "rescued")
 	require.Contains(t, anthropicClient.failed, "claude-opus-5")

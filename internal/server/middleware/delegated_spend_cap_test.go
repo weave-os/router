@@ -44,7 +44,7 @@ func runDelegatedSpendCap(t *testing.T, reader *stubDelegatedSpend, session *aut
 		c.Status(http.StatusOK)
 	})
 	rr := httptest.NewRecorder()
-	engine.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+	engine.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
 	return rr, reached
 }
 
@@ -80,9 +80,12 @@ func TestWithDelegatedSpendCap(t *testing.T) {
 			rr, reached := runDelegatedSpendCap(t, tc.reader, tc.delegatedSession)
 			assert.False(t, reached)
 			require.Equal(t, http.StatusPaymentRequired, rr.Code)
-			var body map[string]any
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
-			assert.Equal(t, "key_spend_cap_reached", body["error"])
+			var envelope struct {
+				Error map[string]any `json:"error"`
+			}
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &envelope))
+			body := envelope.Error
+			assert.Equal(t, "delegated_spend_cap_reached", body["code"])
 			assert.Equal(t, tc.scope, body["scope"])
 		})
 	}

@@ -34,14 +34,14 @@ func TestServingControllerFailureAuditIncludesProposalAndKnownTarget(t *testing.
 			store, _, set := controllerFixture(t)
 			snapshot := policyregistry.ServingStateSnapshot{}
 			if test.rollbackScope {
-				snapshot, _ = storedActivateFixture(t, store, snapshot, set, servingEpoch)
-				snapshot, _ = storedActivateFixture(t, store, snapshot, variantSet(t, store, set, "worker-0002"), servingEpoch)
+				snapshot = storedActivateFixture(t, store, snapshot, set, servingEpoch)
+				snapshot = storedActivateFixture(t, store, snapshot, variantSet(t, store, set, "worker-0002"), servingEpoch)
 				store.states[set.Target] = snapshot
 			}
 			proposal := storedProposal(t, store, snapshot, set, servingEpoch)
 			if test.rollbackScope {
 				proposal.Scope = policyregistry.ChangeRollback
-				release := *store.object(t, policyregistry.ServingReleases, set.Default.Release).(*policyregistry.ServingRelease)
+				release := *mustAs[*policyregistry.ServingRelease](t, store.object(t, policyregistry.ServingReleases, set.Default.Release))
 				release.RouterImageDigest = "sha256:" + strings.Repeat("9", 64)
 				proposal.SourceCandidate = foldCandidate(t, store, store.publish(t, policyregistry.ServingReleases, release))
 			}

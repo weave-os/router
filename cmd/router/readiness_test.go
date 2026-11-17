@@ -43,7 +43,7 @@ func TestReadinessCheckerRequiresDatabase(t *testing.T) {
 
 	err := checker.CheckHealth(context.Background())
 	require.Error(t, err)
-	assert.ErrorIs(t, err, databaseErr)
+	require.ErrorIs(t, err, databaseErr)
 	assert.ErrorContains(t, err, "postgres readiness check failed")
 }
 
@@ -60,7 +60,7 @@ func TestReadinessCheckerChecksHMMAfterDatabase(t *testing.T) {
 
 	err := checker.CheckHealth(context.Background())
 	require.Error(t, err)
-	assert.ErrorIs(t, err, hmmErr)
+	require.ErrorIs(t, err, hmmErr)
 	assert.Equal(t, []string{"postgres", "hmm"}, checks)
 }
 
@@ -75,7 +75,7 @@ func TestReadinessCheckerFailsWhenDefaultStrategyHasNoRouter(t *testing.T) {
 
 	err := checker.CheckHealth(context.Background())
 	require.Error(t, err)
-	assert.ErrorIs(t, err, router.ErrStrategyUnavailable)
+	require.ErrorIs(t, err, router.ErrStrategyUnavailable)
 	assert.ErrorContains(t, err, `default strategy "hmm_embedding"`)
 }
 

@@ -104,7 +104,7 @@ func TestProxyMessages_OverloadedModelDegradesToSameClusterCandidate(t *testing.
 	}).WithRetrySleep(noRetrySleep)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
 	err := svc.ProxyMessages(authedCtx("11111111-1111-1111-1111-111111111111"), body, rec, req)
@@ -217,7 +217,7 @@ func (f *rankedRescueFixture) assertHandedOffToDeepseek(t *testing.T, rec *httpt
 func TestProxyMessages_FailedRescuerHandsOffToNextRankedCandidate(t *testing.T) {
 	f := newRankedRescueFixture(t)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
 	err := f.svc.ProxyMessages(authedCtx("11111111-1111-1111-1111-111111111111"), body, rec, req)
@@ -231,7 +231,7 @@ func TestProxyOpenAIChatCompletion_FailedRescuerHandsOffToNextRankedCandidate(t 
 	f := newRankedRescueFixture(t)
 	rec := httptest.NewRecorder()
 	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
-	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body)))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body)))
 
 	err := f.svc.ProxyOpenAIChatCompletion(authedCtx("11111111-1111-1111-1111-111111111111"), body, rec, req)
 	require.NoError(t, err, "the second ranked candidate serves the turn")
@@ -278,7 +278,7 @@ func TestProxyMessages_OverloadAfterCommitKeepsServingModel(t *testing.T) {
 	}).WithRetrySleep(noRetrySleep)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
 	_ = svc.ProxyMessages(authedCtx("11111111-1111-1111-1111-111111111111"), body, rec, req)
@@ -326,7 +326,7 @@ func TestProxyMessages_ForceModelOverloadDoesNotDegrade(t *testing.T) {
 	}).WithRetrySleep(noRetrySleep)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
 	err := svc.ProxyMessages(authedCtx("11111111-1111-1111-1111-111111111111"), body, rec, req)
@@ -368,7 +368,7 @@ func TestProxyMessages_OverloadWithoutCandidatesSurfacesUpstreamError(t *testing
 		WithRetrySleep(noRetrySleep)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
 	err := svc.ProxyMessages(authedCtx("11111111-1111-1111-1111-111111111111"), body, rec, req)
@@ -443,7 +443,7 @@ func TestProxyMessages_SubscriptionOverloadSurfacesOnceAfterRetry(t *testing.T) 
 		"sk-ant-oat01-subscription-token",
 	)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
 	err := svc.ProxyMessages(claudeCreditFallbackContext(ctx), body, rec, req)

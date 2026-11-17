@@ -12,8 +12,6 @@ type databasePinger interface {
 	Ping(context.Context) error
 }
 
-// strategyAvailability is the proxy registry's view of which strategies have
-// a live router behind them.
 type strategyAvailability interface {
 	PolicyStrategyAvailable(router.Strategy) bool
 }
@@ -25,10 +23,6 @@ type readinessChecker struct {
 	defaultStrategy router.Strategy
 }
 
-// newReadinessChecker gates /readyz on PostgreSQL, the HMM policy snapshot
-// when one is wired, and the deployment default strategy being routable. A
-// revision whose default strategy would 503 every request must never pass
-// its startup probe.
 func newReadinessChecker(database databasePinger, hmm admin.HealthChecker, strategies strategyAvailability, defaultStrategy router.Strategy) readinessChecker {
 	return readinessChecker{database: database, hmm: hmm, strategies: strategies, defaultStrategy: defaultStrategy}
 }

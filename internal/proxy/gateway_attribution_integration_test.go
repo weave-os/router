@@ -33,7 +33,7 @@ func TestProxyMessages_GatewayExhaustionAttributesCortexBody(t *testing.T) {
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 	ctx = context.WithValue(ctx, proxy.ExternalIDContextKey{}, "org-test")
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-haiku-4-5","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
 	_ = svc.ProxyMessages(ctx, body, rec, req)

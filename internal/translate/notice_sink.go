@@ -23,8 +23,6 @@ type protocolNoticeSink struct {
 	emitted        bool
 }
 
-// NewProtocolNoticeSink selects solely by the downstream client format. The
-// existing encoders retain their index, usage and terminal-envelope rules.
 func NewProtocolNoticeSink(w http.ResponseWriter, capabilities NoticeCapabilities) *protocolNoticeSink {
 	format := capabilities.Format
 	sink := &protocolNoticeSink{capabilities: capabilities, client: w, format: format, streaming: capabilities.Streaming}
@@ -48,6 +46,12 @@ func NewProtocolNoticeSink(w http.ResponseWriter, capabilities NoticeCapabilitie
 	}
 	return sink
 }
+func (d *NoticeDelivery) SetRoutedModel(model string) {
+	if sink, ok := d.sink.(*protocolNoticeSink); ok && sink.responses != nil {
+		sink.responses.SetRoutedModel(model)
+	}
+}
+
 func (s *protocolNoticeSink) WriteHeader(status int) {
 	if s.streaming && s.ResponseWriter.Header().Get("Content-Type") != "application/json" {
 		s.ResponseWriter.Header().Set("Content-Type", "text/event-stream")
@@ -55,7 +59,6 @@ func (s *protocolNoticeSink) WriteHeader(status int) {
 		s.ResponseWriter.Header().Set("Content-Type", "application/json")
 	}
 	s.Header().Set("X-Content-Type-Options", "nosniff")
-	// Escaping provider JSON can change its encoded length.
 	s.Header().Del("Content-Length")
 	s.ResponseWriter.WriteHeader(status)
 }
@@ -156,7 +159,6 @@ func (s *protocolNoticeSink) Write(payload []byte) (int, error) {
 			s.messageStarted = true
 		}
 	}
-	// The protocol sink also accepts direct writes outside NoticeDelivery.
 	var escaped bytes.Buffer
 	json.HTMLEscape(&escaped, payload)
 	_, err := s.ResponseWriter.Write(escaped.Bytes())
@@ -176,8 +178,6 @@ func (s *protocolNoticeSink) Seal() {
 	}
 }
 
-// Committed reports whether the client's retry buffer has committed to the
-// current attempt.
 func (s *protocolNoticeSink) Committed() bool {
 	committer, ok := s.client.(interface{ Committed() bool })
 	return ok && committer.Committed()

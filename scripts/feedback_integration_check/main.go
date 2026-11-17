@@ -1,19 +1,3 @@
-// Command feedback_integration_check drives the real gin handlers in
-// internal/api/feedback through the real proxy.Service and the real Postgres
-// FeedbackRepo against a live database. It is the full router-side path minus
-// the LLM proxy: mint a token, load the routing context (GET), submit a
-// rating (POST), and confirm the revision is read back — exercising the
-// actual SQL (natural-key upsert, blank-comment-to-NULL collapse, cascade
-// delete) that an in-memory fake repo can't cover.
-//
-// It is a separate main package (not a _test.go), so `go test ./...` never
-// touches Postgres. It is gated on ROUTER_TEST_DATABASE_URL (a DSN to a
-// database with the router migrations applied) and is a no-op without it.
-//
-// Usage (from the repo root, against the docker-compose Postgres):
-//
-//	ROUTER_TEST_DATABASE_URL="postgres://router:router@localhost:5432/router?search_path=router" \
-//	    go run ./scripts/feedback_integration_check
 package main
 
 import (
@@ -67,10 +51,6 @@ func fail(step string, err error) {
 	os.Exit(1)
 }
 
-// checkFeedbackLinkEndToEnd seeds an installation + one router.upstream
-// telemetry row, then drives GET/POST/GET through the real handlers,
-// asserting the routing context is returned, the rating persists, and a
-// revision upserts in place (one row, comment collapses to NULL when blank).
 func checkFeedbackLinkEndToEnd(ctx context.Context, pool *pgxpool.Pool) error {
 	externalID := "org_e2e_" + uuid.NewString()[:8]
 	requestID := "req_e2e_" + uuid.NewString()[:8]
@@ -82,7 +62,6 @@ func checkFeedbackLinkEndToEnd(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("insert installation: %w", err)
 	}
 	defer func() {
-		// request_feedback rows cascade on installation delete.
 		_, _ = pool.Exec(ctx, `DELETE FROM router.model_router_request_telemetry WHERE installation_id = $1`, installID)
 		_, _ = pool.Exec(ctx, `DELETE FROM router.model_router_installations WHERE id = $1`, installID)
 	}()
@@ -108,9 +87,8 @@ func checkFeedbackLinkEndToEnd(ctx context.Context, pool *pgxpool.Pool) error {
 
 	tok := signer.Mint(installID, externalID, requestID, "")
 
-	// 1) GET returns the routing context, no feedback yet.
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/feedback/link/"+tok, nil))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(ctx, http.MethodGet, "/v1/feedback/link/"+tok, nil))
 	if rec.Code != http.StatusOK {
 		return fmt.Errorf("initial GET: want 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -131,17 +109,15 @@ func checkFeedbackLinkEndToEnd(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("feedback: want nil before any submission, got %v", ctxResp["feedback"])
 	}
 
-	// 2) POST a thumbs-down with a comment.
 	body := `{"token":"` + tok + `","rating":"down","comment":"  routed too low  "}`
 	rec = httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/feedback/link", strings.NewReader(body)))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/feedback/link", strings.NewReader(body)))
 	if rec.Code != http.StatusOK {
 		return fmt.Errorf("first POST: want 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// 3) GET again reflects the persisted, trimmed feedback.
 	rec = httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/feedback/link/"+tok, nil))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(ctx, http.MethodGet, "/v1/feedback/link/"+tok, nil))
 	if rec.Code != http.StatusOK {
 		return fmt.Errorf("second GET: want 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -159,11 +135,9 @@ func checkFeedbackLinkEndToEnd(ctx context.Context, pool *pgxpool.Pool) error {
 		return err
 	}
 
-	// 4) Revise to thumbs-up with a blank comment; the natural key keeps it to
-	// one row and the comment collapses to NULL.
 	body = `{"token":"` + tok + `","rating":"up","comment":"   "}`
 	rec = httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/feedback/link", strings.NewReader(body)))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/feedback/link", strings.NewReader(body)))
 	if rec.Code != http.StatusOK {
 		return fmt.Errorf("revision POST: want 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -193,10 +167,6 @@ func checkFeedbackLinkEndToEnd(ctx context.Context, pool *pgxpool.Pool) error {
 	return nil
 }
 
-// checkFeedbackWithoutTelemetry guards the regression where a saved rating
-// was hidden when no router.upstream telemetry row exists (telemetry
-// disabled/pruned, or still in flight via async fireTelemetry). GET must
-// still return the persisted rating, just with empty routing context.
 func checkFeedbackWithoutTelemetry(ctx context.Context, pool *pgxpool.Pool) error {
 	externalID := "org_nt_" + uuid.NewString()[:8]
 	requestID := "req_nt_" + uuid.NewString()[:8]
@@ -211,7 +181,6 @@ func checkFeedbackWithoutTelemetry(ctx context.Context, pool *pgxpool.Pool) erro
 		_, _ = pool.Exec(ctx, `DELETE FROM router.model_router_installations WHERE id = $1`, installID)
 	}()
 
-	// A saved rating with NO telemetry row for the request.
 	_, err := pool.Exec(ctx,
 		`INSERT INTO router.request_feedback (installation_id, external_id, request_id, rating, comment, source)
 		 VALUES ($1, $2, $3, 'down', 'no telemetry yet', 'link')`,
@@ -228,7 +197,7 @@ func checkFeedbackWithoutTelemetry(ctx context.Context, pool *pgxpool.Pool) erro
 
 	tok := signer.Mint(installID, externalID, requestID, "")
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/feedback/link/"+tok, nil))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(ctx, http.MethodGet, "/v1/feedback/link/"+tok, nil))
 	if rec.Code != http.StatusOK {
 		return fmt.Errorf("GET: want 200, got %d: %s", rec.Code, rec.Body.String())
 	}

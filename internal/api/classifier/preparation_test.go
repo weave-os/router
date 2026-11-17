@@ -75,7 +75,7 @@ func TestPrepareModelHandlerEnforcesRequestAndPreparationContract(t *testing.T) 
 				path += "/" + tc.operation
 			}
 			response := httptest.NewRecorder()
-			engine.ServeHTTP(response, httptest.NewRequest(tc.method, path, strings.NewReader(tc.body)))
+			engine.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), tc.method, path, strings.NewReader(tc.body)))
 			require.Equal(t, tc.status, response.Code, response.Body.String())
 			require.Equal(t, tc.calls, preparer.calls)
 			require.Equal(t, "no-store", response.Header().Get("Cache-Control"))

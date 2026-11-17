@@ -25,7 +25,7 @@ func TestMythos52ExplicitSelectionDispatchesExactModel(t *testing.T) {
 				upstream.proxyErr = &providers.UpstreamErrorResponse{Status: http.StatusForbidden, Body: []byte(`{"error":{"type":"permission_error","message":"model access requires verification"}}`)}
 			}
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 			req.Header.Set(proxy.ForceModelHeader, "claude-mythos-5.2:xhigh")
 			err := svc.ProxyMessages(authedCtx(uuid.NewString()), []byte(pinTestBody), rec, req)
 			if denied {
@@ -51,7 +51,7 @@ func TestMythos52ExplicitSelectionWithAdvisor(t *testing.T) {
 			svc, upstream := newPinSvcCapturing(fresh, newFakePinStore())
 			body := []byte(`{"model":"claude-opus-5","max_tokens":20000,"messages":[{"role":"user","content":"hi"}],"tools":[{"type":"advisor_20260301","name":"advisor","model":"` + advisor + `"}]}`)
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 			req.Header.Set(proxy.ForceModelHeader, "claude-mythos-5-2")
 			require.NoError(t, svc.ProxyMessages(authedCtx(uuid.NewString()), body, rec, req))
 			require.Len(t, upstream.proxyBodies, 1)

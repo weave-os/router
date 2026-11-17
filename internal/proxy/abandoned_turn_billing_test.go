@@ -112,7 +112,7 @@ func TestAbandonBillsReportedUsageAcrossProxySurfaces(t *testing.T) {
 			}
 			svc := abandonedBillingService(tt.provider, tt.model, upstream, repo)
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, tt.path, strings.NewReader(tt.body))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, tt.path, strings.NewReader(tt.body))
 
 			_ = tt.call(svc, ctx, []byte(tt.body), rec, req)
 
@@ -170,7 +170,7 @@ func TestAbandonBillingNegativeCases(t *testing.T) {
 			body := `{"model":"claude-sonnet-4-6","stream":true,"messages":[{"role":"user","content":"hi"}]}`
 
 			_ = svc.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(),
-				httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body)))
+				httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(body)))
 
 			assert.Len(t, repo.recordedDebits(), tt.wantDebits)
 		})
@@ -250,7 +250,7 @@ func TestAbandonBillingWithCanceledRequestErrors(t *testing.T) {
 			}
 			svc := abandonedBillingService(providers.ProviderAnthropic, abandonedBillingAnthropicModel, upstream, repo)
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, tt.path, strings.NewReader(tt.body))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, tt.path, strings.NewReader(tt.body))
 
 			_ = tt.call(svc, ctx, []byte(tt.body), rec, req)
 
