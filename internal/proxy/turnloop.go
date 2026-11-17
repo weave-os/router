@@ -662,7 +662,7 @@ func (s *Service) runTurnLoop(
 	if !forceModelFound {
 		forceModelPin, forceModelFound, forceModelCleared = s.loadForceModelSessionPin(ctx, forceModelSessionKey, threadSessionKey, turntype.IsSubAgent(env, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx))))
 	}
-	if forceModelFound {
+	if forceModelFound && res.TurnType != turntype.Classifier {
 		binding, reason := s.forcedModelBinding(ctx, forceModelPin.Model, forceModelPin.Provider)
 		if reason != "" {
 			return res, &ForcedModelExcludedError{Model: forceModelPin.Model, Reason: reason}
