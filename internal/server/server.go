@@ -127,7 +127,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		subscriberAllowanceMiddleware = []gin.HandlerFunc{middleware.WithSubscriberAllowance(features.SubscriberAllowance)}
 		subscriberProductScopeMiddleware = []gin.HandlerFunc{middleware.WithSubscriberProductScope(features.SubscriberAllowance)}
 	}
-	postAuthMiddleware := []gin.HandlerFunc{middleware.WithRequestBodyBudget(middleware.RequestBodyBudgetBytes, middleware.RequestBodyReadTimeout)}
+	postAuthMiddleware := []gin.HandlerFunc{middleware.WithRequestBodyBudget(middleware.RequestBodyBudgetBytes, middleware.DefaultRequestBodyReadLimits)}
 	if features.ServingAdmission != nil {
 		postAuthMiddleware = append(postAuthMiddleware, middleware.WithServingAdmission(features.ServingAdmission))
 		engine.POST(policyregistry.WorkerValidationPath, middleware.WithTimeout(30*time.Second), middleware.WithInternalServiceAuth(strings.TrimSpace(os.Getenv("ROUTER_INTERNAL_SERVICE_TOKEN"))), middleware.ServingValidationHandler(features.ServingAdmission))
