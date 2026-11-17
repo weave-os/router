@@ -133,3 +133,21 @@ func TestHMMCostGateDecideSwitchesOnPricierPhaseChange(t *testing.T) {
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
 	assert.Equal(t, routingpolicy.HMMReasonPhaseChange, plan.Reason)
 }
+
+func TestHMMCostGateDecideSwitchesOnUnscoredPricierUpgrade(t *testing.T) {
+	gate := hmmGate()
+	gate.UpgradeConfidenceThreshold = 0.50
+	stay, plan, sticky := gate.Decide(routingpolicy.HMMCostGateInput{
+		ActivePin: hmmPin("hmm_policy", time.Minute),
+		Fresh: router.Decision{
+			Provider: providers.ProviderAnthropic, Model: otherModel, Reason: "hmm_policy(group=high)",
+			Metadata: &router.RoutingMetadata{Strategy: string(router.StrategyHMM)},
+		},
+		EstimatedInputTokens: 1000,
+		Now:                  gateNow,
+	})
+	assert.False(t, sticky)
+	assert.Equal(t, stayModel, stay.Model)
+	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
+	assert.Equal(t, routingpolicy.HMMReasonUnscoredUpgrade, plan.Reason)
+}

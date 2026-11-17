@@ -33,6 +33,7 @@ const HMMHistoryReason = "hmm_history"
 
 const (
 	HMMReasonConfidentUpgrade     = "hmm_confident_upgrade"
+	HMMReasonUnscoredUpgrade      = "hmm_unscored_upgrade"
 	HMMReasonUpgradeConfidenceLow = "hmm_upgrade_confidence_low"
 	HMMReasonPhaseChange          = "hmm_phase_change"
 )
@@ -63,11 +64,15 @@ func (g HMMCostGate) Decide(input HMMCostGateInput) (sessionpin.Pin, planner.Dec
 		plan.Outcome = planner.OutcomeSwitch
 		plan.Reason = HMMReasonPhaseChange
 	} else if freshIsMoreExpensive {
-		confidence, ok := HMMDecisionConfidence(input.Fresh)
-		if ok && confidence >= g.UpgradeConfidenceThreshold {
+		confidence, scored := HMMDecisionConfidence(input.Fresh)
+		switch {
+		case !scored:
+			plan.Outcome = planner.OutcomeSwitch
+			plan.Reason = HMMReasonUnscoredUpgrade
+		case confidence >= g.UpgradeConfidenceThreshold:
 			plan.Outcome = planner.OutcomeSwitch
 			plan.Reason = HMMReasonConfidentUpgrade
-		} else if plan.Outcome != planner.OutcomeSwitch {
+		case plan.Outcome != planner.OutcomeSwitch:
 			plan.Outcome = planner.OutcomeStay
 			plan.Reason = HMMReasonUpgradeConfidenceLow
 		}
