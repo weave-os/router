@@ -73,7 +73,7 @@ func TestProxyMessages_GeminiCorruptedThoughtSignatureFailsOverToBaselineAnthrop
 	})
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	// The tool id carries a decodable `__thought__` payload, so the history
 	// counts as signed and PrepareGemini lets the turn reach Google.
 	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[` +

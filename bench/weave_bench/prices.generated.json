@@ -1,5 +1,5 @@
 {
-  "pricing_version": "catalog-sha256:b1fc371aa80c39c3",
+  "pricing_version": "catalog-sha256:1edde73593ed3a9e",
   "models": {
     "claude-fable-5": {
       "input_usd_per_million": 10,
@@ -388,6 +388,18 @@
     "gpt-6.1-terra": {
       "input_usd_per_million": 1,
       "output_usd_per_million": 5,
+      "cache_read_multiplier": 0.05,
+      "cache_write_multiplier": 1.25
+    },
+    "gpt-6.2-astra": {
+      "input_usd_per_million": 8,
+      "output_usd_per_million": 40,
+      "cache_read_multiplier": 0.05,
+      "cache_write_multiplier": 1.25
+    },
+    "gpt-6.2-sol": {
+      "input_usd_per_million": 2,
+      "output_usd_per_million": 10,
       "cache_read_multiplier": 0.05,
       "cache_write_multiplier": 1.25
     },

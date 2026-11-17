@@ -33,7 +33,7 @@ func TestSidecarRouterPreservesNullableClassifierMargin(t *testing.T) {
 			require.NotNil(t, decision.Metadata)
 			assert.Equal(t, tc.margin, decision.Metadata.ClassifierMargin)
 			assert.Equal(t, model, decision.Model)
-			assert.Equal(t, float32(0.7), decision.Metadata.ChosenScore)
+			assert.InDelta(t, float32(0.7), decision.Metadata.ChosenScore, 1e-9)
 		})
 	}
 }

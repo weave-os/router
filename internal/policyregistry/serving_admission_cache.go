@@ -3,6 +3,7 @@ package policyregistry
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -22,8 +23,6 @@ type admissionCacheEntry struct {
 	Expires time.Time
 }
 
-// AdmissionDecisionCache keeps primary admission authoritative on misses. Its
-// epoch prevents a transaction racing invalidation from repopulating stale state.
 type AdmissionDecisionCache struct {
 	store              ServingAdmissionStore
 	ttl                time.Duration
@@ -60,12 +59,9 @@ func (c *AdmissionDecisionCache) Admit(ctx context.Context, installationID, apiK
 }
 
 func (c *AdmissionDecisionCache) admit(ctx context.Context, installationID, apiKeyID, sessionID string, model router.RoutingModel, decide AdmissionDecision) (AdmissionScope, SessionReleaseBinding, error) {
-	// Anonymous turns must select the current release independently.
 	if sessionID == "" {
 		return c.store.Admit(ctx, installationID, apiKeyID, sessionID, decide)
 	}
-	// A selector change must reach primary admission instead of reusing another
-	// model's entry or joining its in-flight first-binding transaction.
 	key := admissionCacheKey{Installation: installationID, APIKey: apiKeyID, Session: Digest([]byte(sessionID)), RoutingModel: model}
 	c.mu.Lock()
 	if entry, ok := c.lookup(key); ok {
@@ -90,7 +86,6 @@ func (c *AdmissionDecisionCache) admit(ctx context.Context, installationID, apiK
 			return entry, nil
 		}
 		c.mu.Unlock()
-		// A caller leaving must not cancel the shared binding transaction.
 		admissionCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
 		scope, binding, err := c.store.Admit(admissionCtx, installationID, apiKeyID, sessionID, decide)
@@ -112,7 +107,10 @@ func (c *AdmissionDecisionCache) admit(ctx context.Context, installationID, apiK
 		if admitted.Err != nil {
 			return AdmissionScope{}, SessionReleaseBinding{}, admitted.Err
 		}
-		entry := admitted.Val.(admissionCacheEntry)
+		entry, ok := admitted.Val.(admissionCacheEntry)
+		if !ok {
+			return AdmissionScope{}, SessionReleaseBinding{}, fmt.Errorf("admission decision returned %T", admitted.Val)
+		}
 		return entry.Scope, entry.Binding, nil
 	}
 }
@@ -128,7 +126,6 @@ func (c *AdmissionDecisionCache) InvalidateInstallation(installationID string) {
 	}
 }
 
-// Release lifecycle changes can withdraw any retained binding in the fleet.
 func (c *AdmissionDecisionCache) InvalidateAll() {
 	c.mu.Lock()
 	defer c.mu.Unlock()

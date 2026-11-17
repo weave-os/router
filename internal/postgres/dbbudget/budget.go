@@ -13,13 +13,11 @@ import (
 
 const operationTimeout = 1500 * time.Millisecond
 
-// DBTX applies one operation deadline to pool acquisition, SQL execution, and row consumption.
 type DBTX struct {
 	db               sqlc.DBTX
 	operationTimeout time.Duration
 }
 
-// NewDBTX wraps a pool or transaction with a bounded operation lifetime.
 func NewDBTX(db sqlc.DBTX) DBTX {
 	if wrapped, ok := db.(DBTX); ok {
 		return wrapped
@@ -27,7 +25,6 @@ func NewDBTX(db sqlc.DBTX) DBTX {
 	return NewDBTXWithTimeout(db, operationTimeout)
 }
 
-// NewDBTXWithTimeout wraps a pool or transaction with the supplied operation lifetime.
 func NewDBTXWithTimeout(db sqlc.DBTX, timeout time.Duration) DBTX {
 	if wrapped, ok := db.(DBTX); ok {
 		return DBTX{db: wrapped.db, operationTimeout: timeout}
@@ -35,12 +32,10 @@ func NewDBTXWithTimeout(db sqlc.DBTX, timeout time.Duration) DBTX {
 	return DBTX{db: db, operationTimeout: timeout}
 }
 
-// Queries constructs SQLC queries that cannot wait indefinitely for a pool connection or lock.
 func Queries(db sqlc.DBTX) *sqlc.Queries {
 	return sqlc.New(NewDBTX(db))
 }
 
-// QueriesWithTimeout constructs SQLC queries with a custom per-operation lifetime.
 func QueriesWithTimeout(db sqlc.DBTX, timeout time.Duration) *sqlc.Queries {
 	return sqlc.New(NewDBTXWithTimeout(db, timeout))
 }

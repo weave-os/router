@@ -59,7 +59,7 @@ func TestSubscriptionAdmissionReportsSkipGateAndPreservesRotation(t *testing.T) 
 			var output bytes.Buffer
 			leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "skipped", AccessToken: "private-access-token", Tier: auth.SubscriptionTierShared}, {AccountID: "winner", AccessToken: "winner-token"}}}
 			svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
-			svc.now = func() time.Time { return now }
+			svc.clock = func() time.Time { return now }
 			ctx := scenario.configure(svc, managedSubscriptionTestContext(), leaser)
 			ctx = observability.WithLogger(ctx, slog.New(slog.NewJSONHandler(&output, nil)).With("request_id", "synthetic-request"))
 			_, lease, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderAnthropic, model)
@@ -175,7 +175,7 @@ func TestSubscriptionAdmissionReportsCodexModelDenial(t *testing.T) {
 	now := time.Unix(1_000_000, 0)
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "codex-denied", AccessToken: "private-access-token"}, {AccountID: "codex-winner", AccessToken: "winner-token"}}}
 	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
-	svc.now = func() time.Time { return now }
+	svc.clock = func() time.Time { return now }
 	svc.subscriptionModels.denyManaged("account:codex-denied", "codex-denied", providers.ProviderOpenAI, model, now.Add(time.Minute))
 	ctx := observability.WithLogger(managedSubscriptionContext(auth.SubscriptionProviderCodex), slog.New(slog.NewJSONHandler(&output, nil)))
 	_, lease, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderOpenAI, model)

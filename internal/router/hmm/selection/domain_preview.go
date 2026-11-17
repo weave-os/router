@@ -8,29 +8,24 @@ import (
 	"weave-os/router/internal/router/hmm/rosterdata"
 )
 
-// DomainPreviewBenchmark is one benchmark's term in an arm's score correction.
 type DomainPreviewBenchmark struct {
 	BenchmarkGap
 	Contribution float64 `json:"contribution"`
 }
 
-// DomainPreviewArm compares an arm's neutral baseline with its task-corrected score.
 type DomainPreviewArm struct {
-	Arm           string  `json:"arm"`
-	BaselineRank  int     `json:"baseline_rank"`
-	EffectiveRank int     `json:"effective_rank"`
-	GlobalWII     float64 `json:"global_wii"`
-	WPI           float64 `json:"wpi"`
-	BaselineScore float32 `json:"baseline_score"`
-	Correction    float32 `json:"correction"`
-	AdjustedScore float32 `json:"adjusted_score"`
-	// Scored is false for an arm, such as an unmeasured pin, the selector orders
-	// without a score; its score fields are then zero and carry no meaning.
-	Scored     bool                     `json:"scored"`
-	Benchmarks []DomainPreviewBenchmark `json:"benchmarks"`
+	Arm           string                   `json:"arm"`
+	BaselineRank  int                      `json:"baseline_rank"`
+	EffectiveRank int                      `json:"effective_rank"`
+	GlobalWII     float64                  `json:"global_wii"`
+	WPI           float64                  `json:"wpi"`
+	BaselineScore float32                  `json:"baseline_score"`
+	Correction    float32                  `json:"correction"`
+	AdjustedScore float32                  `json:"adjusted_score"`
+	Scored        bool                     `json:"scored"`
+	Benchmarks    []DomainPreviewBenchmark `json:"benchmarks"`
 }
 
-// DomainPreview is the live selector's within-cluster order for one task profile.
 type DomainPreview struct {
 	Alpha            float64            `json:"alpha"`
 	Influence        float64            `json:"influence"`
@@ -41,13 +36,6 @@ type DomainPreview struct {
 	Arms             []DomainPreviewArm `json:"arms"`
 }
 
-// PreviewDomainRanking runs the serving selector with every arm of one cluster
-// eligible, at the neutral quality preference and without per-user bonuses,
-// once without and once with the task profile. Pins and harness vendor
-// priority apply exactly as in serving.
-// PreviewDomainRanking previews one group as serving would rank it for the
-// given subscription state; nil subscriptionProviders previews a request with
-// no subscription in play.
 func PreviewDomainRanking(roster *rosterdata.Roster, evidence *DomainEvidence, label, harness string, subscriptionProviders []string, profile DomainProfile) (DomainPreview, error) {
 	if roster == nil {
 		return DomainPreview{}, errors.New("domain preview requires a roster")

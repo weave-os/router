@@ -71,7 +71,7 @@ func TestCommandOutcomesAcrossSurfaces(t *testing.T) {
 					encoded, err := json.Marshal(body)
 					require.NoError(t, err)
 					rec := httptest.NewRecorder()
-					req := httptest.NewRequest(http.MethodPost, "/", nil)
+					req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", nil)
 					requestContext := ctx
 					if command.excluded {
 						requestContext = context.WithValue(ctx, InstallationExcludedModelsContextKey{}, []string{"claude-opus-5-5"})
@@ -192,7 +192,7 @@ func TestHeaderPersistenceFailureRetainsSameActionForce(t *testing.T) {
 	store := &failedCommandStore{newForceModelMapStore()}
 	svc := NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
-	request := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	request.Header.Set(ForceModelHeader, "opus:high")
 	_, model, err := svc.applyForceModelHeader(context.Background(), request, uuid.New(), [sessionpin.SessionKeyLen]byte{1})
 	require.NoError(t, err)

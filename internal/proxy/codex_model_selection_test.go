@@ -29,7 +29,7 @@ func TestCodexNativeModelSelection_ForcesModelAndEffort(t *testing.T) {
 	svc := proxy.NewService(routerStub, map[string]providers.Client{providers.ProviderOpenAI: provider}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
 	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
 	body := []byte(`{"model":"gpt-6-sol","input":[` + codexModelSwitchInput + `,{"type":"message","role":"user","content":"review this change"}],"reasoning":{"effort":"max"}}`)
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)
 	req.Header.Set(proxy.CodexNativeModelPinHeader, "1")
 	req.Header.Set("Authorization", "Bearer subscription-token")
 	req.Header.Set("ChatGPT-Account-ID", "account-123")
@@ -76,7 +76,7 @@ func TestCodexNativeModelSelection_AutomaticAndLegacyStillScore(t *testing.T) {
 				input = `[` + codexModelSwitchInput + `,{"type":"message","role":"user","content":"review this change"}]`
 			}
 			body := []byte(`{"model":"` + tc.model + `","input":` + input + `,"reasoning":{"effort":"max"}}`)
-			req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)
 			if tc.optIn {
 				req.Header.Set(proxy.CodexNativeModelPinHeader, "1")
 			}
@@ -114,7 +114,7 @@ func TestCodexNativeModelSelection_ModelInstructionsPinOnlyForCatalogClients(t *
 			svc := proxy.NewService(routerStub, map[string]providers.Client{providers.ProviderOpenAI: provider}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
 			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
 			body := []byte(`{"model":"gpt-6-sol","input":[` + codexModelInstructionsInput + `,{"type":"message","role":"user","content":"review this change"}]}`)
-			req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)
 			req.Header.Set(proxy.CodexNativeModelPinHeader, "1")
 			if tc.catalogClient {
 				req.Header.Set(proxy.CodexModelCatalogHeader, "1")

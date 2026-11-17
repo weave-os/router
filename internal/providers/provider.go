@@ -1,4 +1,3 @@
-// Package providers defines the upstream LLM client interface, sentinel errors, and shared wire helpers.
 package providers
 
 import (
@@ -19,23 +18,14 @@ import (
 	"weave-os/router/internal/router"
 )
 
-// SubscriptionTransport identifies adapters that accept native subscription OAuth.
-// Account quota and overage observations govern whether a credential is usable;
-// this capability does not promise provider-enforced included-only billing.
 type SubscriptionTransport interface {
 	SupportsSubscriptions() bool
 }
 
-// UpstreamHeaderObserver records subscription rate-limit headroom (see
-// internal/proxy/usage) without coupling adapters to the observer. Ctx lets it
-// check the resolved credential so only responses on the caller's own
-// subscription are recorded (not e.g. a handover summarizer's deployment-key
-// call). Invoked right after the upstream responds; must be cheap, non-blocking.
 type UpstreamHeaderObserver func(context.Context, http.Header)
 
 type upstreamHeaderObserverKey struct{}
 
-// WithUpstreamHeaderObserver returns ctx carrying obs; a nil obs leaves ctx unchanged.
 func WithUpstreamHeaderObserver(ctx context.Context, obs UpstreamHeaderObserver) context.Context {
 	if obs == nil {
 		return ctx
@@ -43,73 +33,40 @@ func WithUpstreamHeaderObserver(ctx context.Context, obs UpstreamHeaderObserver)
 	return context.WithValue(ctx, upstreamHeaderObserverKey{}, obs)
 }
 
-// ObserveUpstreamHeaders invokes the context's UpstreamHeaderObserver with ctx
-// and h, if one is set. Provider adapters call this after receiving an upstream
-// response.
 func ObserveUpstreamHeaders(ctx context.Context, h http.Header) {
 	if obs, ok := ctx.Value(upstreamHeaderObserverKey{}).(UpstreamHeaderObserver); ok && obs != nil {
 		obs(ctx, h)
 	}
 }
 
-// Adding a provider is a THREE-map edit: the Provider* constant here, its
-// APIKeyEnvVars entry, and its ProviderFamilies entry. Omitting the family
-// entry makes dispatch fall through to ErrProviderNotConfigured — a silent 502
-// even though the provider looked "enabled" at boot. ValidateDispatchable and
-// the table test catch this at boot instead of in production.
 const (
-	ProviderAnthropic  = "anthropic"
-	ProviderOpenAI     = "openai"
-	ProviderGoogle     = "google"
-	ProviderOpenRouter = "openrouter"
-	ProviderFireworks  = "fireworks"
-	ProviderDeepInfra  = "deepinfra"
-	ProviderBedrock    = "bedrock"
-	ProviderMakora     = "makora"
-	ProviderMiniMax    = "minimax"
-	ProviderTogether   = "together"
-	ProviderXAI        = "xai"
-	// ProviderMeta is Meta's Model API (api.meta.ai), OpenAI-compatible Chat Completions surface.
-	ProviderMeta = "meta"
-	// ProviderWafer is Wafer Serverless' OpenAI-compatible surface; see
-	// ProviderWaferAnthropic for the Anthropic-spec surface (shared WAFER_API_KEY).
-	ProviderWafer = "wafer"
-	// ProviderWaferAnthropic is Wafer Serverless' Anthropic-spec Messages surface
-	// (pass.wafer.ai/v1/messages, bearer auth); shares WAFER_API_KEY with ProviderWafer.
-	ProviderWaferAnthropic = "wafer_anthropic"
-	// ProviderAnthropicGateway is an Anthropic-spec enterprise gateway using
-	// Bearer auth; its endpoint is per-tenant with no deployment default.
+	ProviderAnthropic        = "anthropic"
+	ProviderOpenAI           = "openai"
+	ProviderGoogle           = "google"
+	ProviderOpenRouter       = "openrouter"
+	ProviderFireworks        = "fireworks"
+	ProviderDeepInfra        = "deepinfra"
+	ProviderBedrock          = "bedrock"
+	ProviderMakora           = "makora"
+	ProviderMiniMax          = "minimax"
+	ProviderTogether         = "together"
+	ProviderXAI              = "xai"
+	ProviderMeta             = "meta"
+	ProviderWafer            = "wafer"
+	ProviderWaferAnthropic   = "wafer_anthropic"
 	ProviderAnthropicGateway = "anthropic_gateway"
-	// ProviderOpenAIGateway is the OpenAI-Chat-Completions-spec counterpart
-	// to ProviderAnthropicGateway: a per-tenant endpoint, bearer auth, no
-	// deployment default. Serves model classes the Anthropic spec cannot carry.
-	ProviderOpenAIGateway = "openai_gateway"
+	ProviderOpenAIGateway    = "openai_gateway"
 )
 
-// TranslationFamily is the wire-format family a provider speaks; the proxy
-// dispatches cross-format translation off this instead of enumerated
-// provider-name lists, so a new OpenAI-compatible provider routes correctly
-// as soon as it gets a ProviderFamilies entry.
 type TranslationFamily int
 
 const (
-	// FamilyUnknown is the zero value (no ProviderFamilies entry).
-	// ValidateDispatchable panics at boot if a registered provider maps to it.
 	FamilyUnknown TranslationFamily = iota
-	// FamilyAnthropic speaks the Anthropic Messages wire format natively
-	// (Anthropic itself plus Anthropic-compatible gateways such as Wafer's).
 	FamilyAnthropic
-	// FamilyOpenAICompat speaks the OpenAI Chat Completions wire format
-	// (OpenAI itself plus every OpenAI-compatible upstream: OpenRouter,
-	// Fireworks, DeepInfra, Bedrock's OpenAI-compat surface, Makora, MiniMax,
-	// Together, XAI, Wafer).
 	FamilyOpenAICompat
-	// FamilyGemini speaks the Google Generative Language (Gemini) wire format.
 	FamilyGemini
 )
 
-// ProviderFamilies is the single source of truth for cross-format dispatch;
-// keep it covering EVERY Provider* constant (see the three-map note above).
 var ProviderFamilies = map[string]TranslationFamily{
 	ProviderAnthropic:  FamilyAnthropic,
 	ProviderOpenAI:     FamilyOpenAICompat,
@@ -130,21 +87,14 @@ var ProviderFamilies = map[string]TranslationFamily{
 	ProviderOpenAIGateway:    FamilyOpenAICompat,
 }
 
-// FamilyFor returns the translation family for a provider, or FamilyUnknown
-// when the provider has no ProviderFamilies entry.
 func FamilyFor(provider string) TranslationFamily {
 	return ProviderFamilies[provider]
 }
 
-// IsOpenAICompat reports whether the provider speaks the OpenAI Chat
-// Completions wire format.
 func IsOpenAICompat(provider string) bool {
 	return FamilyFor(provider) == FamilyOpenAICompat
 }
 
-// IsGateway reports whether the provider is a customer-hosted gateway rather
-// than a vendor API. A gateway serves only the models its key's aliases name,
-// so routing treats it as the installation's exclusive upstream.
 func IsGateway(provider string) bool {
 	switch provider {
 	case ProviderAnthropicGateway, ProviderOpenAIGateway:
@@ -154,16 +104,10 @@ func IsGateway(provider string) bool {
 	}
 }
 
-// SupportsAnthropicServerTools reports whether the provider natively executes
-// Anthropic's server-side tools (web_search_*, web_fetch_*). Speaking the
-// Anthropic wire format is not the same: gateways relay to function-tool-only
-// backends and reject a server tool with a 400.
 func SupportsAnthropicServerTools(provider string) bool {
 	return FamilyFor(provider) == FamilyAnthropic && !IsGateway(provider)
 }
 
-// AllProviders returns every known Provider* constant (every ProviderFamilies
-// key), sorted for deterministic iteration and display order.
 func AllProviders() []string {
 	out := make([]string, 0, len(ProviderFamilies))
 	for p := range ProviderFamilies {
@@ -173,9 +117,6 @@ func AllProviders() []string {
 	return out
 }
 
-// ValidateDispatchable reports an error if any registered provider is missing
-// from ProviderFamilies (would silently 502 at request time). Called at boot;
-// the composition root panics on error so this fails loudly, not in prod.
 func ValidateDispatchable(registered []string) error {
 	missing := make([]string, 0)
 	for _, p := range registered {
@@ -190,90 +131,61 @@ func ValidateDispatchable(registered []string) error {
 	return fmt.Errorf("providers missing a ProviderFamilies entry (add them to internal/providers/provider.go): %s", strings.Join(missing, ", "))
 }
 
-// APIKeyEnvVars maps provider name to the env var providing its deployment-level upstream API key.
-// Bedrock uses AWS-issued long-term Bedrock API keys (static bearer tokens), not SigV4 access keys.
 var APIKeyEnvVars = map[string]string{
-	ProviderAnthropic:  "ANTHROPIC_API_KEY",
-	ProviderOpenAI:     "OPENAI_API_KEY",
-	ProviderGoogle:     "GOOGLE_API_KEY",
-	ProviderOpenRouter: "OPENROUTER_API_KEY",
-	ProviderFireworks:  "FIREWORKS_API_KEY",
-	ProviderDeepInfra:  "DEEPINFRA_API_KEY",
-	ProviderBedrock:    "AWS_BEARER_TOKEN_BEDROCK",
-	ProviderMakora:     "MAKORA_API_KEY",
-	ProviderMiniMax:    "MINIMAX_API_KEY",
-	ProviderTogether:   "TOGETHER_API_KEY",
-	ProviderXAI:        "XAI_API_KEY",
-	ProviderMeta:       "META_API_KEY",
-	// Wafer's two surfaces share a single account key.
-	ProviderWafer:          "WAFER_API_KEY",
-	ProviderWaferAnthropic: "WAFER_API_KEY",
-	// Pairs with ANTHROPIC_GATEWAY_BASE_URL, the endpoint the token is scoped to.
+	ProviderAnthropic:        "ANTHROPIC_API_KEY",
+	ProviderOpenAI:           "OPENAI_API_KEY",
+	ProviderGoogle:           "GOOGLE_API_KEY",
+	ProviderOpenRouter:       "OPENROUTER_API_KEY",
+	ProviderFireworks:        "FIREWORKS_API_KEY",
+	ProviderDeepInfra:        "DEEPINFRA_API_KEY",
+	ProviderBedrock:          "AWS_BEARER_TOKEN_BEDROCK",
+	ProviderMakora:           "MAKORA_API_KEY",
+	ProviderMiniMax:          "MINIMAX_API_KEY",
+	ProviderTogether:         "TOGETHER_API_KEY",
+	ProviderXAI:              "XAI_API_KEY",
+	ProviderMeta:             "META_API_KEY",
+	ProviderWafer:            "WAFER_API_KEY",
+	ProviderWaferAnthropic:   "WAFER_API_KEY",
 	ProviderAnthropicGateway: "ANTHROPIC_GATEWAY_TOKEN",
-	// Pairs with OPENAI_GATEWAY_BASE_URL, likewise.
-	ProviderOpenAIGateway: "OPENAI_GATEWAY_TOKEN",
+	ProviderOpenAIGateway:    "OPENAI_GATEWAY_TOKEN",
 }
 
-// APIKeyEnvVar returns the env-var name for the given provider, or empty
-// when the provider is unknown.
 func APIKeyEnvVar(provider string) string {
 	return APIKeyEnvVars[provider]
 }
 
-// baseURLRequiredProviders have no vendor endpoint to default to, so a
-// credential without a base URL is undispatchable.
 var baseURLRequiredProviders = map[string]struct{}{
 	ProviderAnthropicGateway: {},
 	ProviderOpenAIGateway:    {},
 }
 
-// RequiresBaseURL reports whether a BYOK credential for this provider must
-// carry its own endpoint.
 func RequiresBaseURL(provider string) bool {
 	_, ok := baseURLRequiredProviders[provider]
 	return ok
 }
 
-// OutputExcludesReasoning reports whether this provider's reported output token
-// count omits its reasoning tokens, so billed output is output + reasoning.
-// xAI reports completion_tokens_details.reasoning_tokens on top of
-// completion_tokens (prompt + completion + reasoning = total_tokens) while
-// billing reasoning at the output rate. Every other OpenAI-compatible
-// upstream, OpenRouter's xAI route included, folds reasoning into
-// completion_tokens as OpenAI does.
 func OutputExcludesReasoning(provider string) bool {
 	return provider == ProviderXAI
 }
 
-// CacheTTL is the best-effort upstream prompt-cache lifetime per provider.
-// Anthropic's 1h extended cache is what pinSessionTTL is sized to; OSS
-// OpenAI-compatible providers cache on an undocumented minutes-scale window,
-// so a pin can outlive the cache — the planner uses this to stop crediting a
-// stale pin a cache-read discount it no longer earns.
 var CacheTTL = map[string]time.Duration{
-	ProviderAnthropic:      time.Hour,
-	ProviderOpenAI:         5 * time.Minute,
-	ProviderGoogle:         5 * time.Minute,
-	ProviderOpenRouter:     5 * time.Minute,
-	ProviderFireworks:      5 * time.Minute,
-	ProviderDeepInfra:      5 * time.Minute,
-	ProviderBedrock:        5 * time.Minute,
-	ProviderXAI:            5 * time.Minute,
-	ProviderMeta:           5 * time.Minute,
-	ProviderWafer:          5 * time.Minute,
-	ProviderWaferAnthropic: 5 * time.Minute,
-	// A gateway publishes no prompt-cache lifetime of its own, so it keeps the
-	// conservative window rather than inheriting Anthropic's 1h extended cache.
+	ProviderAnthropic:        time.Hour,
+	ProviderOpenAI:           5 * time.Minute,
+	ProviderGoogle:           5 * time.Minute,
+	ProviderOpenRouter:       5 * time.Minute,
+	ProviderFireworks:        5 * time.Minute,
+	ProviderDeepInfra:        5 * time.Minute,
+	ProviderBedrock:          5 * time.Minute,
+	ProviderXAI:              5 * time.Minute,
+	ProviderMeta:             5 * time.Minute,
+	ProviderWafer:            5 * time.Minute,
+	ProviderWaferAnthropic:   5 * time.Minute,
 	ProviderAnthropicGateway: 5 * time.Minute,
 	ProviderOpenAIGateway:    5 * time.Minute,
 }
 
-// DefaultCacheTTL is the conservative fallback cache lifetime for providers
-// absent from CacheTTL.
 const DefaultCacheTTL = 5 * time.Minute
 
-// CacheTTLFor returns the best-effort prompt-cache lifetime for a provider,
-// falling back to DefaultCacheTTL for unknown providers.
 func CacheTTLFor(provider string) time.Duration {
 	if ttl, ok := CacheTTL[provider]; ok {
 		return ttl
@@ -281,7 +193,6 @@ func CacheTTLFor(provider string) time.Duration {
 	return DefaultCacheTTL
 }
 
-// HopByHopHeaders are stripped from upstream responses per RFC 7230 §6.1.
 var HopByHopHeaders = map[string]struct{}{
 	"Connection":          {},
 	"Keep-Alive":          {},
@@ -293,7 +204,6 @@ var HopByHopHeaders = map[string]struct{}{
 	"Upgrade":             {},
 }
 
-// CopyUpstreamHeaders copies non-hop-by-hop headers from resp into w.
 func CopyUpstreamHeaders(w http.ResponseWriter, resp *http.Response) {
 	dynamicHop := make(map[string]struct{})
 	for _, v := range resp.Header.Values("Connection") {
@@ -317,21 +227,14 @@ func CopyUpstreamHeaders(w http.ResponseWriter, resp *http.Response) {
 	}
 }
 
-// ErrNotImplemented is returned by adapters that don't implement a method.
-// The HTTP layer maps it to 501.
 var ErrNotImplemented = errors.New("provider: not implemented")
 
-// UpstreamStatusError is returned after a non-2xx upstream body has already
-// been written to the client. Handlers seeing c.Writer.Written() must NOT
-// write their own JSON envelope.
 type UpstreamStatusError struct {
 	Status    int
 	Headers   http.Header
 	Body      []byte
 	BodyBytes int64
-	// Cause is the dispatch error an in-stream error frame stands in for;
-	// nil when Status was read off a real upstream response.
-	Cause error
+	Cause     error
 }
 
 func (e *UpstreamStatusError) Error() string {
@@ -340,18 +243,14 @@ func (e *UpstreamStatusError) Error() string {
 
 func (e *UpstreamStatusError) Unwrap() error { return e.Cause }
 
-// UpstreamErrorResponse is returned by adapters that buffer a non-2xx
-// response instead of streaming it, so the proxy can retry on a different
-// provider or flush it to the client. Body capped at MaxBufferedErrorBytes.
 type UpstreamErrorResponse struct {
 	Status     int
 	Headers    http.Header
 	Body       []byte
 	BodyBytes  int64
 	BodyCapped bool
-	// Cause carries a classified upstream failure that is not represented by
-	// the HTTP status alone, such as a successful HTTP response with no answer.
-	Cause error
+	Cause      error
+	Rejection  UpstreamRejection
 }
 
 type ProviderErrorType string
@@ -409,60 +308,30 @@ func (e *QuotaVerificationUnavailableError) Error() string {
 	return fmt.Sprintf("subscription quota verification unavailable: %s (upstream status %d)", e.Failure, e.UpstreamStatus)
 }
 
-// MaxBufferedErrorBytes caps the buffered upstream error body; beyond this
-// it's truncated and the rest of the stream is drained without retention.
 const MaxBufferedErrorBytes = 64 * 1024
 
-// ErrUpstreamIdleTimeout: SSE inactivity watchdog fired — upstream returned
-// headers then stopped producing bytes for the full idle budget. Upstream-owned
-// stall, not caller cancellation. Defined here (not httputil, which owns the
-// watchdog) so IsRetryable can classify it without an import cycle; httputil
-// re-exports it as httputil.ErrUpstreamIdleTimeout.
 var ErrUpstreamIdleTimeout = errors.New("upstream sse idle timeout")
 
-// ErrUpstreamOutputStall: the stream made no output or qualifying reasoning
-// progress for the full budget. Retryable only before client commitment.
-// Defined here to avoid an import cycle and re-exported by httputil.
 var ErrUpstreamOutputStall = errors.New("upstream sse output stall")
 
-// ErrUpstreamSlowThroughput: minimum-throughput watchdog fired — upstream IS
-// producing output, just too slowly (2026-06-25: deepseek-v4-flash sustained
-// ~13 events/s, a clean 200 riding toward the 600s cap with no other watchdog
-// tripping). Upstream-owned and retryable; defined here for the same
-// import-cycle reason as the other stall sentinels.
 var ErrUpstreamSlowThroughput = errors.New("upstream sse slow throughput")
 
-// ErrUpstreamEmptyCompletion marks a clean upstream terminal that carried no
-// usable assistant text or tool call. It is retryable because HTTP success is
-// not evidence that the model answered the request.
 var ErrUpstreamEmptyCompletion = errors.New("upstream returned an empty completion")
 
-// IsRetryableStatus reports whether an upstream status is worth retrying on
-// a different provider: 5xx, 408, and 429. Other 4xx are the client's fault
-// and won't be fixed by a different upstream.
 func IsRetryableStatus(status int) bool {
 	switch status {
-	case http.StatusRequestTimeout, // 408
-		http.StatusTooManyRequests: // 429
+	case http.StatusRequestTimeout,
+		http.StatusTooManyRequests:
 		return true
 	}
 	return status >= 500 && status <= 599
 }
 
-// IsUpstreamRateLimited reports whether err is a buffered upstream 429: the
-// provider is throttling this caller, which says nothing about the model's
-// health. Committed streams never qualify.
 func IsUpstreamRateLimited(err error) bool {
 	var buffered *UpstreamErrorResponse
 	return errors.As(err, &buffered) && buffered.Status == http.StatusTooManyRequests
 }
 
-// RetryAfter reads the Retry-After header of a buffered upstream error in
-// either RFC 9110 form: delay-seconds or an HTTP-date, resolved against now.
-// ok is false when the header is absent, negative, or unparseable; a zero
-// delay or an HTTP-date already in the past reports (0, true): retry now.
-// A delay-seconds value too large for time.Duration saturates rather than
-// wrapping negative.
 func RetryAfter(err error, now time.Time) (delay time.Duration, ok bool) {
 	var buffered *UpstreamErrorResponse
 	if !errors.As(err, &buffered) || buffered.Headers == nil {
@@ -491,9 +360,6 @@ func RetryAfter(err error, now time.Time) (delay time.Duration, ok bool) {
 	return at.Sub(now), true
 }
 
-// IsRetryable reports whether err is safe to retry on a different provider,
-// i.e. no response bytes reached the client. False for *UpstreamStatusError
-// (bytes already flushed) and nil.
 func IsRetryable(err error) bool {
 	if err == nil {
 		return false
@@ -501,15 +367,9 @@ func IsRetryable(err error) bool {
 	if IsResponseHeaderTimeout(err) {
 		return true
 	}
-	// All three stall sentinels are upstream-owned even though the watchdog
-	// surfaces them by canceling the request context (which may also chain
-	// context.Canceled) — so they must be checked before the cancellation
-	// guard below.
 	if errors.Is(err, ErrUpstreamIdleTimeout) || errors.Is(err, ErrUpstreamOutputStall) || errors.Is(err, ErrUpstreamSlowThroughput) || errors.Is(err, ErrUpstreamEmptyCompletion) {
 		return true
 	}
-	// Caller-side cancellation/deadlines aren't the upstream's fault; a retry
-	// would fire after the client is gone or reuse an elapsed budget.
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
@@ -521,13 +381,9 @@ func IsRetryable(err error) bool {
 	if errors.As(err, &flushed) {
 		return false
 	}
-	// Anything else (transport/build error) is retryable; dispatchWithFallback
-	// confirms no bytes were written before actually retrying.
 	return true
 }
 
-// IsResponseHeaderTimeout reports whether err is the upstream transport's
-// response-header timeout rather than a caller request deadline.
 func IsResponseHeaderTimeout(err error) bool {
 	var urlErr *url.Error
 	if !errors.As(err, &urlErr) || urlErr.Err == nil {
@@ -536,11 +392,6 @@ func IsResponseHeaderTimeout(err error) bool {
 	return strings.Contains(urlErr.Err.Error(), "timeout awaiting response headers")
 }
 
-// IsHTTP2ConnectionLoss reports whether the provider's HTTP/2 connection
-// failed under the request: a stream reset, GOAWAY or connection error, or a
-// keepalive ping it never answered. net/http's bundled HTTP/2 client returns
-// unexported copies of the x/net error types; only its StreamError converts
-// via errors.As, so the rest are matched by the text both packages share.
 func IsHTTP2ConnectionLoss(err error) bool {
 	var streamErr http2.StreamError
 	var connErr http2.ConnectionError
@@ -555,7 +406,6 @@ func IsHTTP2ConnectionLoss(err error) bool {
 		strings.Contains(msg, "http2: server sent GOAWAY and closed the connection") {
 		return true
 	}
-	// net/http's unexported HTTP/2 ConnectionError has the bare message "connection error: <code>".
 	for e := err; e != nil; e = errors.Unwrap(e) {
 		if strings.HasPrefix(e.Error(), "connection error: ") {
 			return true
@@ -564,11 +414,6 @@ func IsHTTP2ConnectionLoss(err error) bool {
 	return false
 }
 
-// IsUpstreamModelNotFound reports whether err is a buffered upstream 404,
-// meaning the chosen provider doesn't serve the model (stale id, renamed
-// binding, no active endpoint). Retrying the SAME binding is futile but a
-// DIFFERENT one may carry the model, so this gates cross-binding failover —
-// distinct from IsRetryable, which covers same-provider transient faults.
 func IsUpstreamModelNotFound(err error) bool {
 	var buffered *UpstreamErrorResponse
 	if errors.As(err, &buffered) {
@@ -577,9 +422,6 @@ func IsUpstreamModelNotFound(err error) bool {
 	return false
 }
 
-// IsUpstreamProviderBillingBlocked reports whether err is a buffered 402
-// (provider refuses the model on this account). Like 404, it is fatal for
-// the binding but not the model, so it gates cross-binding failover only.
 func IsUpstreamProviderBillingBlocked(err error) bool {
 	var buffered *UpstreamErrorResponse
 	if errors.As(err, &buffered) {
@@ -588,44 +430,8 @@ func IsUpstreamProviderBillingBlocked(err error) bool {
 	return false
 }
 
-// capabilityRejectionPhrases are prose 400 bodies meaning the model cannot
-// serve this request shape. Substring-matching is the only signal; keep phrases
-// narrow — a loose match fires on ordinary validation errors.
-var capabilityRejectionPhrases = []string{
-	"not a multimodal model",
-	"does not support image",
-	"image input is not supported",
-	"image input is unsupported",
-	"does not support vision",
-	"multimodal input is not supported",
-}
-
-// IsUpstreamCapabilityRejection reports whether err is a buffered upstream 400
-// stating the model cannot handle a modality the request carries. Deliberately
-// not a cross-binding signal — the same model rejects identically elsewhere.
-func IsUpstreamCapabilityRejection(err error) bool {
-	var buffered *UpstreamErrorResponse
-	if !errors.As(err, &buffered) || buffered.Status != http.StatusBadRequest {
-		return false
-	}
-	body := strings.ToLower(string(buffered.Body))
-	for _, phrase := range capabilityRejectionPhrases {
-		if strings.Contains(body, phrase) {
-			return true
-		}
-	}
-	return false
-}
-
-// schemaRejectionPhrases are prose 400 bodies from provider grammar/schema
-// compilation. Unlike capability rejections (a model property, same phrasing on
-// any binding), a schema rejection is compiler-specific — a sibling or baseline
-// binding CAN accept the same schemas. Keep phrases narrow: a loose match
-// rescues a genuinely malformed request onto another provider, masking the bug.
 var schemaRejectionPhrases = []string{
-	// Fireworks grammar-compiler conflict across tool schemas.
 	"conflict in schema definitions",
-	// Generic grammar/structured-output rejection phrasings.
 	"failed to compile grammar",
 	"could not compile grammar",
 	"invalid tool schema",
@@ -635,11 +441,6 @@ var schemaRejectionPhrases = []string{
 	"invalid input schema",
 }
 
-// IsUpstreamSchemaRejection reports whether err is a buffered upstream 400 from
-// the provider's tool-schema/grammar compilation — the class behind the
-// Fireworks "Conflict in schema definitions" dead turns. Cross-binding
-// retryable (a different provider's compiler accepts the same schemas); not a
-// same-binding retry signal (identical re-POST 400s identically).
 func IsUpstreamSchemaRejection(err error) bool {
 	var buffered *UpstreamErrorResponse
 	if !errors.As(err, &buffered) || buffered.Status != http.StatusBadRequest {
@@ -654,22 +455,12 @@ func IsUpstreamSchemaRejection(err error) bool {
 	return false
 }
 
-// thoughtSignatureRejectionPhrases are Gemini 3.x 400 bodies rejecting the
-// thoughtSignature replayed on a historical functionCall ("Corrupted thought
-// signature.", "Missing thought signature ..."). Any model that does not
-// validate Gemini signatures can serve the same history.
 var thoughtSignatureRejectionPhrases = []string{
 	"thought signature",
 	"thought_signature",
 	"thoughtsignature",
 }
 
-// IsUpstreamThoughtSignatureRejection reports whether err is a buffered
-// upstream 400 rejecting a Gemini thoughtSignature in the request history.
-// The signature is opaque and lives in the client-echoed tool id, so the
-// router cannot repair it; the same request 400s on every Gemini 3.x turn for
-// the rest of the session unless it is rescued onto a model that ignores the
-// signature. Cross-binding rescue signal only, like IsUpstreamSchemaRejection.
 func IsUpstreamThoughtSignatureRejection(err error) bool {
 	var buffered *UpstreamErrorResponse
 	if !errors.As(err, &buffered) || buffered.Status != http.StatusBadRequest {
@@ -684,8 +475,6 @@ func IsUpstreamThoughtSignatureRejection(err error) bool {
 	return false
 }
 
-// unknownFieldPhrases are the verdicts meaning the upstream's request schema
-// has no such field at all, as opposed to disliking its contents.
 var unknownFieldPhrases = []string{
 	"extra inputs are not permitted",
 	"extra inputs not permitted",
@@ -696,10 +485,6 @@ var unknownFieldPhrases = []string{
 	"additional properties are not allowed",
 }
 
-// IsUpstreamOutputConfigFormatRejection reports whether err is a buffered 400
-// rejecting output_config.format as an unknown field — licensing a one-shot retry.
-// A schema-contents complaint names the same field but is caller-fixable and must
-// not match (e.g. additionalProperties must be explicitly set to false).
 func IsUpstreamOutputConfigFormatRejection(err error) bool {
 	var buffered *UpstreamErrorResponse
 	if !errors.As(err, &buffered) || buffered.Status != http.StatusBadRequest {
@@ -717,10 +502,6 @@ func IsUpstreamOutputConfigFormatRejection(err error) bool {
 	return false
 }
 
-// IsAnthropicFastModeQuotaRejection reports whether err is a buffered 429
-// refusing a fast-tier request for lack of fast-mode allocation (Anthropic
-// phrases it as a rate limit of N "fast mode input tokens"), as opposed to an
-// ordinary rate limit — licensing a one-shot retry at standard speed.
 func IsAnthropicFastModeQuotaRejection(err error) bool {
 	var buffered *UpstreamErrorResponse
 	if !errors.As(err, &buffered) || buffered.Status != http.StatusTooManyRequests {
@@ -729,9 +510,6 @@ func IsAnthropicFastModeQuotaRejection(err error) bool {
 	return strings.Contains(strings.ToLower(string(buffered.Body)), "fast mode")
 }
 
-// IsUpstreamPromptCacheKeyRejection reports whether err is a buffered 400
-// that rejects prompt_cache_key as an unknown field — some gateways trail the
-// spec and 400 bodies naming it — licensing a one-shot hint-stripped retry.
 func IsUpstreamPromptCacheKeyRejection(err error) bool {
 	var buffered *UpstreamErrorResponse
 	if !errors.As(err, &buffered) || buffered.Status != http.StatusBadRequest {
@@ -749,10 +527,6 @@ func IsUpstreamPromptCacheKeyRejection(err error) bool {
 	return false
 }
 
-// responsesUnsupportedPhrases are prose bodies meaning the gateway does not
-// serve /v1/responses at all (as opposed to rejecting this particular body).
-// Snowflake Cortex gates the surface per account and answers 400/403 rather
-// than 404, so status alone can't classify it.
 var responsesUnsupportedPhrases = []string{
 	"responses rest api not enabled",
 	"responses api not enabled",
@@ -760,10 +534,6 @@ var responsesUnsupportedPhrases = []string{
 	"unknown path",
 }
 
-// IsUpstreamResponsesUnsupported reports whether err means the upstream has no
-// usable Responses API, so the caller should re-emit the turn onto
-// chat/completions. A 404 covers gateways that never mount the path; the prose
-// phrases cover gateways that mount it but leave it disabled per account.
 func IsUpstreamResponsesUnsupported(err error) bool {
 	var buffered *UpstreamErrorResponse
 	if !errors.As(err, &buffered) {
@@ -784,10 +554,6 @@ func IsUpstreamResponsesUnsupported(err error) bool {
 	return false
 }
 
-// UpstreamErrorBodyMessage extracts a provider's error message from a buffered
-// non-2xx body for diagnostics: prefers {"error":{"message":...}}, then
-// top-level "message", then truncated raw body. Returns "" for non-buffered or
-// empty bodies. Capped at 1 KiB.
 func UpstreamErrorBodyMessage(err error) string {
 	const maxBodyLogBytes = 1024
 	var buffered *UpstreamErrorResponse
@@ -807,11 +573,6 @@ func UpstreamErrorBodyMessage(err error) string {
 	return strings.TrimSpace(string(body))
 }
 
-// PreparedRequest holds the encoded target-format request body and format-specific header overrides.
-// Endpoint selects which upstream path a provider client POSTs to. Zero value
-// is chat/completions; EndpointResponses routes to `/v1/responses`, required
-// for reasoning models (gpt-5.x) that reject reasoning_effort + tools on
-// chat/completions.
 type Endpoint int
 
 const (
@@ -820,51 +581,22 @@ const (
 )
 
 type PreparedRequest struct {
-	// ResponseToolNames reverses wire aliases so clients receive executable names.
 	ResponseToolNames map[string]string
 	Body              []byte
 	Headers           http.Header
-	// Endpoint selects the upstream surface (zero value = chat/completions).
-	Endpoint Endpoint
-	// Stats records translation-time mutations applied to the body (populated
-	// by translate.Prepare*), folded into the ProxyMessages-complete log so
-	// per-PR mitigation impact can be measured in production traffic.
-	Stats RequestMutationStats
+	Endpoint          Endpoint
+	Stats             RequestMutationStats
 }
 
-// RequestMutationStats reports translation-time mitigations the router
-// applied to the upstream request body. Surfaced in the ProxyMessages-
-// complete log with keys:
-//   - cc_only_tools_stripped
-//   - cc_task_reminders_stripped
-//   - gemini_reminder_injected
-//   - gemini_validated_tool_mode
 type RequestMutationStats struct {
-	// CCOnlyToolsStripped counts Claude-Code-only tools removed before
-	// dispatching to a non-Anthropic upstream. See claudecode_tool_filter.go.
-	CCOnlyToolsStripped int
-	// CCTaskRemindersStripped counts Claude Code "task tools haven't been used"
-	// reminder blocks removed alongside the task-list tools.
+	CCOnlyToolsStripped     int
 	CCTaskRemindersStripped int
-	// ServerToolsStripped counts native server tools (web_search_*, web_fetch_*)
-	// removed before emitting to a non-Anthropic upstream. See websearch.StripServerTools.
-	ServerToolsStripped int
-	// GeminiReminderInjected is true when the Gemini 3.x tool-use reminder was
-	// appended to systemInstruction. See translate/system_reminder.go.
-	GeminiReminderInjected bool
-	// GeminiValidatedToolMode is true when functionCallingConfig.mode=VALIDATED
-	// was set (Gemini 3.x, tools present, no forced tool_choice). Such requests
-	// can 400 with a generic INVALID_ARGUMENT when Gemini can't compile the
-	// tool schema; the proxy uses this to decide if an AUTO-mode retry is worth
-	// attempting. See translate/emit_gemini.go.
+	ServerToolsStripped     int
+	GeminiReminderInjected  bool
 	GeminiValidatedToolMode bool
-	// Transformations carries stable, structured request transformation
-	// outcomes. Aggregate fields above remain during the migration for existing
-	// dashboards and callers.
-	Transformations []RequestTransformation
+	Transformations         []RequestTransformation
 }
 
-// TransformationAction identifies how a request semantic was handled.
 type TransformationAction string
 
 const (
@@ -874,9 +606,6 @@ const (
 	TransformationDropped   TransformationAction = "dropped"
 )
 
-// TransformationSeverity identifies whether a transformation changes request
-// semantics. Paths and reasons are intended only for logs/traces, never metric
-// labels.
 type TransformationSeverity string
 
 const (
@@ -885,8 +614,6 @@ const (
 	TransformationError TransformationSeverity = "error"
 )
 
-// RequestTransformation is one structured request-conversion outcome. Code
-// must be a stable low-cardinality identifier.
 type RequestTransformation struct {
 	Code     string
 	Action   TransformationAction
@@ -895,28 +622,16 @@ type RequestTransformation struct {
 	Reason   string
 }
 
-// OutputProgressArmer is implemented by a streaming writer that can
-// distinguish output-bearing frames from keepalive/reasoning frames, letting
-// an adapter wire the output-progress watchdog (see ErrUpstreamOutputStall).
-// ArmOutputProgress installs mark (called on each output-bearing frame) and
-// reports whether it armed — false for a non-streaming writer, which is
-// byte-idle-guarded only.
 type OutputProgressArmer interface {
 	ArmOutputProgress(mark func()) (armed bool)
 }
 
-// ReasoningProgressArmer reports advancing reasoning separately from output,
-// so it can reset the stall watchdog without stamping first-output latency or
-// counting toward output throughput. Arm after output progress is armed;
-// non-streaming writers return false.
 type ReasoningProgressArmer interface {
 	ArmReasoningProgress(mark func()) (armed bool)
 }
 
 type Client interface {
-	// Proxy forwards prep.Body verbatim to the upstream and streams the response into w.
 	Proxy(ctx context.Context, decision router.Decision, prep PreparedRequest, w http.ResponseWriter, r *http.Request) error
 
-	// Passthrough forwards an inbound request to the same path on the upstream with no model rewriting.
 	Passthrough(ctx context.Context, prep PreparedRequest, w http.ResponseWriter, r *http.Request) error
 }

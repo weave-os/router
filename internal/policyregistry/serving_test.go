@@ -131,16 +131,16 @@ func storedProposal(t *testing.T, store *servingMemoryStore, snapshot policyregi
 // revision, so consecutive activations bind distinct selection sets.
 func variantSet(t *testing.T, store *servingMemoryStore, set policyregistry.SelectionSet, name string) policyregistry.SelectionSet {
 	t.Helper()
-	binding := *store.object(t, policyregistry.ServingBindings, set.Default.Binding).(*policyregistry.DeploymentBinding)
+	binding := *mustAs[*policyregistry.DeploymentBinding](t, store.object(t, policyregistry.ServingBindings, set.Default.Binding))
 	router := binding.Router
 	router.Name = name
 	router.URL = "https://" + name + ".example"
 	next := set
 	next.Profiles = make(map[string]policyregistry.ServingSelection, len(set.Profiles))
-	next.Default = publishSelection(t, store, set.Default, *store.object(t, policyregistry.ServingReleases, set.Default.Release).(*policyregistry.ServingRelease), router, binding.Classifier, set.Default.Profile)
+	next.Default = publishSelection(t, store, set.Default, *mustAs[*policyregistry.ServingRelease](t, store.object(t, policyregistry.ServingReleases, set.Default.Release)), router, binding.Classifier, set.Default.Profile)
 	for key, lane := range set.Profiles {
-		laneBinding := *store.object(t, policyregistry.ServingBindings, lane.Binding).(*policyregistry.DeploymentBinding)
-		next.Profiles[key] = publishSelection(t, store, lane, *store.object(t, policyregistry.ServingReleases, lane.Release).(*policyregistry.ServingRelease), router, laneBinding.Classifier, lane.Profile)
+		laneBinding := *mustAs[*policyregistry.DeploymentBinding](t, store.object(t, policyregistry.ServingBindings, lane.Binding))
+		next.Profiles[key] = publishSelection(t, store, lane, *mustAs[*policyregistry.ServingRelease](t, store.object(t, policyregistry.ServingReleases, lane.Release)), router, laneBinding.Classifier, lane.Profile)
 	}
 	return next
 }
@@ -159,13 +159,13 @@ func v1Proposal(t *testing.T, snapshot policyregistry.ServingStateSnapshot, set 
 
 // storedActivateFixture records an activation whose objects the controller can read back, which
 // history validation and admission both need.
-func storedActivateFixture(t *testing.T, store *servingMemoryStore, snapshot policyregistry.ServingStateSnapshot, set policyregistry.SelectionSet, now time.Time) (policyregistry.ServingStateSnapshot, policyregistry.DeploymentProposalV2) {
+func storedActivateFixture(t *testing.T, store *servingMemoryStore, snapshot policyregistry.ServingStateSnapshot, set policyregistry.SelectionSet, now time.Time) policyregistry.ServingStateSnapshot {
 	t.Helper()
 	proposal := storedProposal(t, store, snapshot, set, now)
 	activated, err := policyregistry.NextServingActivation(snapshot, servingPayload(t, proposal), store.publishArtifact(t, policyregistry.ServingProposal, proposal), testRegistryRoot, "test-workflow", now)
 	require.NoError(t, err)
 	activated.Snapshot.Generation++
-	return activated.Snapshot, proposal
+	return activated.Snapshot
 }
 
 // storedViews projects stored v2 selection sets for admission, keyed as activations declare them.
@@ -173,7 +173,7 @@ func storedViews(t *testing.T, store *servingMemoryStore, refs ...policyregistry
 	t.Helper()
 	views := make(map[string]policyregistry.SelectionSetView, len(refs))
 	for _, ref := range refs {
-		set := store.object(t, policyregistry.ServingSelectionSet, ref).(*policyregistry.SelectionSetV2)
+		set := mustAs[*policyregistry.SelectionSetV2](t, store.object(t, policyregistry.ServingSelectionSet, ref))
 		views[ref.SHA256] = set.View(ref)
 	}
 	return views
@@ -191,7 +191,7 @@ func TestServingContractsRejectMutableTargetsAndReferences(t *testing.T) {
 	}
 	ref := namespaceRef(policyregistry.ServingReleases, "release")
 	require.NoError(t, policyregistry.ValidateServingRef(ref, testRegistryRoot, policyregistry.ServingReleases))
-	assert.Error(t, policyregistry.ValidateServingRef(ref, testRegistryRoot, policyregistry.ServingBindings))
+	require.Error(t, policyregistry.ValidateServingRef(ref, testRegistryRoot, policyregistry.ServingBindings))
 	ref.Generation = 0
 	assert.Error(t, policyregistry.ValidateServingRef(ref, testRegistryRoot, policyregistry.ServingReleases))
 }
@@ -653,14 +653,14 @@ type storedRuntimeBinding struct {
 	generation int64
 }
 
-func (s *servingMemoryStore) putRuntimeBinding(t *testing.T, environment policyregistry.Environment, releaseSHA256 string, binding map[string]any) {
+func (s *servingMemoryStore) putRuntimeBinding(t *testing.T, releaseSHA256 string, binding map[string]any) {
 	t.Helper()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.runtimeBindings == nil {
 		s.runtimeBindings = make(map[string]storedRuntimeBinding)
 	}
-	key := string(environment) + "/" + releaseSHA256
+	key := string(policyregistry.EnvironmentProd) + "/" + releaseSHA256
 	s.runtimeBindingGenerations++
 	s.runtimeBindings[key] = storedRuntimeBinding{payload: encodeRuntimeBinding(t, binding), generation: s.runtimeBindingGenerations}
 }
@@ -933,7 +933,7 @@ func TestServingControllerRejectsUnverifiedProposalEvidence(t *testing.T) {
 
 func TestServingControllerRejectsAttestedCodeMismatch(t *testing.T) {
 	store, controller, set := controllerFixture(t)
-	release := *store.object(t, policyregistry.ServingReleases, set.Default.Release).(*policyregistry.ServingRelease)
+	release := *mustAs[*policyregistry.ServingRelease](t, store.object(t, policyregistry.ServingReleases, set.Default.Release))
 	release.RouterImageDigest = "sha256:" + strings.Repeat("9", 64)
 	set.Default.Release = store.publish(t, policyregistry.ServingReleases, release)
 	store.publish(t, policyregistry.ServingSelectionSets, set)
@@ -946,8 +946,8 @@ func TestServingControllerRejectsAttestedCodeMismatch(t *testing.T) {
 
 func TestClassifierBundleIdentityIncludesAuxiliaryModels(t *testing.T) {
 	store, _, set := controllerFixture(t)
-	release := store.object(t, policyregistry.ServingReleases, set.Default.Release).(*policyregistry.ServingRelease)
-	bundle := *store.object(t, policyregistry.ServingClassifiers, release.Classifier).(*policyregistry.ClassifierBundle)
+	release := mustAs[*policyregistry.ServingRelease](t, store.object(t, policyregistry.ServingReleases, set.Default.Release))
+	bundle := *mustAs[*policyregistry.ClassifierBundle](t, store.object(t, policyregistry.ServingClassifiers, release.Classifier))
 	bundle.AuxiliaryModels = maps.Clone(bundle.AuxiliaryModels)
 	bundle.AuxiliaryModels["escalation"] = artifactRef("different-escalation")
 	changed := servingRef(t, policyregistry.ServingClassifiers, bundle)
@@ -958,11 +958,11 @@ func TestClassifierBundleIdentityIncludesAuxiliaryModels(t *testing.T) {
 
 func registerProfileFixture(t *testing.T, store *servingMemoryStore, base policyregistry.ServingSelection, key string, policy policyregistry.PolicyObject) policyregistry.ServingSelection {
 	t.Helper()
-	release := *store.object(t, policyregistry.ServingReleases, base.Release).(*policyregistry.ServingRelease)
+	release := *mustAs[*policyregistry.ServingRelease](t, store.object(t, policyregistry.ServingReleases, base.Release))
 	release.Policy = policy
 	releaseRef := store.publish(t, policyregistry.ServingReleases, release)
 	profileRef := store.publish(t, policyregistry.ServingProfiles, policyregistry.RoutingProfile{SchemaVersion: policyregistry.ServingProfileV1, ProfileKey: key, Policy: policy, Requirements: release.Requirements})
-	binding := *store.object(t, policyregistry.ServingBindings, base.Binding).(*policyregistry.DeploymentBinding)
+	binding := *mustAs[*policyregistry.DeploymentBinding](t, store.object(t, policyregistry.ServingBindings, base.Binding))
 	binding.Release = releaseRef
 	bindingRef := store.publish(t, policyregistry.ServingBindings, binding)
 	return policyregistry.ServingSelection{Release: releaseRef, Binding: bindingRef, Profile: &profileRef}
@@ -970,7 +970,7 @@ func registerProfileFixture(t *testing.T, store *servingMemoryStore, base policy
 
 func TestProfileVersionAdvancePreservesOtherCustomerAndDefault(t *testing.T) {
 	store, controller, initialSet := controllerFixture(t)
-	base := *store.object(t, policyregistry.ServingReleases, initialSet.Default.Release).(*policyregistry.ServingRelease)
+	base := *mustAs[*policyregistry.ServingRelease](t, store.object(t, policyregistry.ServingReleases, initialSet.Default.Release))
 	initialSet.Profiles[profileKeyOne] = registerProfileFixture(t, store, initialSet.Default, profileKeyOne, base.Policy)
 	initialSet.Profiles[profileKeyTwo] = registerProfileFixture(t, store, initialSet.Default, profileKeyTwo, base.Policy)
 	store.publish(t, policyregistry.ServingSelectionSets, initialSet)
@@ -1069,4 +1069,21 @@ func TestConcurrentServingActivationsHaveOneCASWinner(t *testing.T) {
 	assert.Equal(t, 1, winners)
 	assert.Equal(t, 1, conflicts)
 	assert.Equal(t, int64(1), store.states[policyregistry.TargetStable].State.Sequence)
+}
+
+func TestRepeatedWithdrawalKeepsOriginalWithdrawalMetadata(t *testing.T) {
+	first, _ := activateFixture(t, policyregistry.ServingStateSnapshot{}, fixtureSet("one"), servingEpoch)
+	firstID := first.State.CurrentActivationID
+	second, _ := activateFixture(t, first, fixtureSet("two"), servingEpoch.Add(time.Minute), firstID)
+	secondID := second.State.CurrentActivationID
+	third, _ := activateFixture(t, second, fixtureSet("three"), servingEpoch.Add(2*time.Minute), firstID)
+	withdrawn := third.State.Activations[firstID]
+	require.NotNil(t, withdrawn.WithdrawnAt)
+	assert.Equal(t, servingEpoch.Add(time.Minute), *withdrawn.WithdrawnAt)
+	assert.Equal(t, secondID, withdrawn.ReplacementID)
+}
+
+func TestServingDrainGraceOutlastsLongestWorkerRequest(t *testing.T) {
+	const longestWorkerRequest = 600 * time.Second
+	assert.Greater(t, policyregistry.ServingDrainGrace, longestWorkerRequest)
 }

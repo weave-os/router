@@ -1,6 +1,3 @@
-// Package hmmstub stands in for the HMM policy sidecar and its baked local
-// release so CI fixtures can boot the real worker on its hmm_embedding default
-// without classifier infrastructure. It classifies every turn into one group.
 package hmmstub
 
 import (
@@ -16,7 +13,6 @@ import (
 )
 
 const (
-	// ClassLabel is the only routing group the stub ever predicts.
 	ClassLabel   = "low"
 	registryRoot = "gs://hmm-stub-fixture/registry"
 	policyJSON   = `{
@@ -40,8 +36,6 @@ func classifier() policyregistry.ClassifierIdentity {
 	}
 }
 
-// WriteRelease bakes a stable-lane release naming the stub classifier into dir,
-// in the layout ROUTER_POLICY_RELEASE_DIR expects.
 func WriteRelease(dir string) error {
 	policyPayload := []byte(policyJSON)
 	policySHA := policyregistry.Digest(policyPayload)
@@ -77,7 +71,6 @@ func WriteRelease(dir string) error {
 	return policyregistry.WriteDirectoryRelease(dir, head, releasePayload, policyPayload)
 }
 
-// Handler serves the v4 classifier contract for the release WriteRelease bakes.
 func Handler() http.Handler {
 	identity := classifier()
 	mux := http.NewServeMux()

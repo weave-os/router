@@ -80,6 +80,7 @@ setup-install-tests: ## Install npm dependencies before running offline installe
 
 test-install: ## Run offline installer regression tests (after make setup-install-tests)
 	@bash install/tests/jq_bootstrap_test.sh
+	@bash install/tests/jq_compat_test.sh
 	@bash install/tests/claude-status_test.sh
 	@bash install/tests/codex_install_test.sh
 	@bash install/tests/build_skill_install_test.sh

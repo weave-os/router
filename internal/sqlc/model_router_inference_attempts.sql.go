@@ -12,7 +12,7 @@ import (
 )
 
 const getInferenceAttempts = `-- name: GetInferenceAttempts :many
-SELECT id, created_at, installation_id, request_id, operation_id, attempt_index, purpose, policy_id, registry_revision, policy_revision, model, provider, binding_index, outcome, failure_reason, upstream_status_code, latency_ms, usage_known, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_usd_micros, error_class, failure_owner, body_translated
+SELECT id, created_at, installation_id, request_id, operation_id, attempt_index, purpose, policy_id, registry_revision, policy_revision, model, provider, binding_index, outcome, failure_reason, upstream_status_code, latency_ms, usage_known, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_usd_micros, error_class, failure_owner, body_translated, subscription_account_id, credential_source, capacity_source, funding_pool_id, selection_policy_sha256, capacity_observed_at
 FROM router.model_router_inference_attempts
 WHERE installation_id = $1::uuid
   AND request_id = $2::varchar
@@ -27,7 +27,7 @@ type GetInferenceAttemptsParams struct {
 // Returns every attempt of one request in attempt order, grouped by operation,
 // for diagnostics and the runtime inspection API.
 //
-//	SELECT id, created_at, installation_id, request_id, operation_id, attempt_index, purpose, policy_id, registry_revision, policy_revision, model, provider, binding_index, outcome, failure_reason, upstream_status_code, latency_ms, usage_known, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_usd_micros, error_class, failure_owner, body_translated
+//	SELECT id, created_at, installation_id, request_id, operation_id, attempt_index, purpose, policy_id, registry_revision, policy_revision, model, provider, binding_index, outcome, failure_reason, upstream_status_code, latency_ms, usage_known, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_usd_micros, error_class, failure_owner, body_translated, subscription_account_id, credential_source, capacity_source, funding_pool_id, selection_policy_sha256, capacity_observed_at
 //	FROM router.model_router_inference_attempts
 //	WHERE installation_id = $1::uuid
 //	  AND request_id = $2::varchar
@@ -68,6 +68,12 @@ func (q *Queries) GetInferenceAttempts(ctx context.Context, arg GetInferenceAtte
 			&i.ErrorClass,
 			&i.FailureOwner,
 			&i.BodyTranslated,
+			&i.SubscriptionAccountID,
+			&i.CredentialSource,
+			&i.CapacitySource,
+			&i.FundingPoolID,
+			&i.SelectionPolicySha256,
+			&i.CapacityObservedAt,
 		); err != nil {
 			return nil, err
 		}

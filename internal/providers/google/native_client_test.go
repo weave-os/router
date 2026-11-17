@@ -42,7 +42,7 @@ func TestNativeClient_GenerateContentURLAndAuth(t *testing.T) {
 
 	c := google.NewNativeClient("test-key", upstream.URL)
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	prep := providers.PreparedRequest{
 		Body:    []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`),
@@ -76,7 +76,7 @@ func TestNativeClient_StreamingHintFlipsToStreamGenerateContent(t *testing.T) {
 	prep := providers.PreparedRequest{Body: []byte(`{"contents":[]}`), Headers: make(http.Header)}
 	prep.Headers.Set(translate.GeminiStreamHintHeader, "true")
 	err := c.Proxy(context.Background(), router.Decision{Model: "gemini-x"},
-		prep, rec, httptest.NewRequest(http.MethodPost, "/v1/x", strings.NewReader("")))
+		prep, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/x", strings.NewReader("")))
 	require.NoError(t, err)
 
 	assert.Equal(t, "/v1beta/models/gemini-x:streamGenerateContent", gotPath)
@@ -96,7 +96,7 @@ func TestNativeClient_StreamHintHeaderStrippedFromUpstream(t *testing.T) {
 	prep := providers.PreparedRequest{Body: []byte(`{}`), Headers: make(http.Header)}
 	prep.Headers.Set(translate.GeminiStreamHintHeader, "true")
 	_ = c.Proxy(context.Background(), router.Decision{Model: "g"}, prep, rec,
-		httptest.NewRequest(http.MethodPost, "/v1/x", strings.NewReader("")))
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/x", strings.NewReader("")))
 }
 
 func TestNativeClient_BYOKCredentialsOverrideDeploymentKey(t *testing.T) {
@@ -115,7 +115,7 @@ func TestNativeClient_BYOKCredentialsOverrideDeploymentKey(t *testing.T) {
 	rec := httptest.NewRecorder()
 	prep := providers.PreparedRequest{Body: []byte(`{}`), Headers: make(http.Header)}
 	_ = c.Proxy(ctx, router.Decision{Model: "g"}, prep, rec,
-		httptest.NewRequest(http.MethodPost, "/v1/x", strings.NewReader("")))
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/x", strings.NewReader("")))
 	assert.Equal(t, "byok-key", gotKey,
 		"BYOK credentials on context must take precedence over the deployment-level key")
 }
@@ -140,7 +140,7 @@ func TestNativeClient_BuffersNon2xxBeforeTouchingDownstream(t *testing.T) {
 			rec := httptest.NewRecorder()
 			err := client.Proxy(context.Background(), router.Decision{Model: "gemini-x"},
 				providers.PreparedRequest{Body: []byte(`{}`), Headers: make(http.Header)}, rec,
-				httptest.NewRequest(http.MethodPost, "/v1/x", nil))
+				httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/x", nil))
 
 			var upstreamErr *providers.UpstreamErrorResponse
 			require.ErrorAs(t, err, &upstreamErr)
@@ -162,7 +162,7 @@ func TestPassthrough_ErrorStatusLogsThroughContextLogger(t *testing.T) {
 
 	var logs bytes.Buffer
 	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&logs, nil)).With("request_id", "req-bound"))
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1beta/models", strings.NewReader(`{}`))
+	clientReq := httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1beta/models", strings.NewReader(`{}`))
 	prep := providers.PreparedRequest{Body: []byte(`{}`), Headers: make(http.Header)}
 
 	err := google.NewNativeClient("test-key", upstream.URL).Passthrough(ctx, prep, httptest.NewRecorder(), clientReq)
@@ -171,4 +171,35 @@ func TestPassthrough_ErrorStatusLogsThroughContextLogger(t *testing.T) {
 	require.ErrorAs(t, err, &statusErr)
 	assert.Contains(t, logs.String(), `"request_id":"req-bound"`)
 	assert.Contains(t, logs.String(), `"status":400`)
+}
+
+func TestPassthrough_RewritesClientPathOntoV1Beta(t *testing.T) {
+	cases := []struct {
+		name       string
+		clientPath string
+		wantPath   string
+	}{
+		{name: "v1 prefix", clientPath: "/v1/models/gemini-2.5-pro:countTokens", wantPath: "/v1beta/models/gemini-2.5-pro:countTokens"},
+		{name: "bare models path", clientPath: "/models/gemini-2.5-pro", wantPath: "/v1beta/models/gemini-2.5-pro"},
+		{name: "already v1beta", clientPath: "/v1beta/models", wantPath: "/v1beta/models"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotPath, gotQuery string
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath, gotQuery = r.URL.Path, r.URL.RawQuery
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer upstream.Close()
+
+			clientReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, tc.clientPath+"?pageSize=5", nil)
+			prep := providers.PreparedRequest{Headers: make(http.Header)}
+
+			err := google.NewNativeClient("test-key", upstream.URL).Passthrough(context.Background(), prep, httptest.NewRecorder(), clientReq)
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantPath, gotPath)
+			assert.Equal(t, "pageSize=5", gotQuery)
+		})
+	}
 }

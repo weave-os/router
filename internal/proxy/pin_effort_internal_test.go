@@ -63,7 +63,7 @@ func TestForceModelHeader_PersistsEffortOnPin(t *testing.T) {
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 	env := forceCommandEnv(t)
-	req, err := http.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	require.NoError(t, err)
 	req.Header.Set(ForceModelHeader, "opus:high")
 
@@ -148,7 +148,7 @@ func TestRefreshPin_CarriesEffortForward(t *testing.T) {
 		Effort:   "xhigh",
 		Reason:   translate.ReasonUserForceModel,
 	}
-	sessionPins := routingpolicy.NewSessionPins(svc.pinStore)
+	sessionPins := routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now)
 	sessionPins.Refresh(context.Background(), uuid.New(), [sessionpin.SessionKeyLen]byte{},
 		existing, "default", router.Decision{
 			Provider: existing.Provider, Model: existing.Model, Reason: existing.Reason,

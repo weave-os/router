@@ -60,7 +60,7 @@ func runStrategyOverrideWithAvailability(
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	if header != "" {
 		req.Header.Set(middleware.RouterStrategyOverrideHeader, header)
 	}
@@ -127,7 +127,7 @@ func TestRouterStrategyOverride_UsesDeploymentDefaultWithoutInstallationOverride
 		c.Status(http.StatusOK)
 	})
 
-	request := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	engine.ServeHTTP(httptest.NewRecorder(), request)
 
 	assert.Equal(t, router.StrategyHMM, observed)
@@ -153,7 +153,7 @@ func TestRouterStrategyOverride_PersistedClusterFollowsDeploymentDefault(t *test
 		c.Status(http.StatusOK)
 	})
 
-	request := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	engine.ServeHTTP(httptest.NewRecorder(), request)
 
 	assert.Equal(t, router.StrategyHMM, observed)
@@ -307,7 +307,7 @@ func probeStrategyOverrideWith(t *testing.T, installation *auth.Installation, ma
 		c.Status(http.StatusOK)
 	})
 
-	request := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	if header != "" {
 		request.Header.Set(middleware.RouterStrategyOverrideHeader, header)
 	}

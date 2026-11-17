@@ -57,7 +57,7 @@ func TestWithAuth_SessionTokenAuthenticatesAsIssuerWithDelegatedSession(t *testi
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	req.Header.Set("Authorization", "Bearer rs_"+signed)
 	rr := httptest.NewRecorder()
 	engine.ServeHTTP(rr, req)

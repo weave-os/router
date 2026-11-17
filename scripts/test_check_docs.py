@@ -41,6 +41,35 @@ class CheckDocsTests(unittest.TestCase):
             ["doc.md:6: missing local link target 'missing.md'"],
         )
 
+    def test_symbol_must_be_declared_not_only_mentioned_in_a_comment(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "widget.go").write_text(
+                "package widget\n"
+                "\n"
+                "// Retired used to live here.\n"
+                "type Gadget struct{ Size int }\n"
+                "\n"
+                "func (Gadget) Spin() {}\n"
+                "\n"
+                "const label = \"Phantom\"\n"
+            )
+            (root / "doc.md").write_text(
+                "`widget.Gadget`, `widget.Size`, `widget.Spin`, `widget.Retired`, `widget.Phantom`\n"
+                "`widget.Gad*`, `widget.Zip*`\n"
+            )
+            with patch.object(check_docs, "tracked", return_value=[Path("widget.go")]):
+                errors = check_docs.check_symbols(root, [Path("doc.md")])
+
+        self.assertEqual(
+            errors,
+            [
+                "doc.md:1: missing repository symbol widget.Retired",
+                "doc.md:1: missing repository symbol widget.Phantom",
+                "doc.md:2: missing repository symbol widget.Zip*",
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

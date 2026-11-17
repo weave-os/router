@@ -43,7 +43,7 @@ func TestCodexCompactionAfterAutoReview(t *testing.T) {
 		turnCtx := router.WithStrategy(ctx, strategy)
 		decision := router.Decision{Provider: providers.ProviderOpenAI, Model: compactionStrategyModel,
 			Metadata: &router.RoutingMetadata{Strategy: string(strategy)}}
-		routingpolicy.NewSessionPins(svc.pinStore).WriteNew(turnCtx, installationID, sessionKey, sessionpin.DefaultRole, decision)
+		routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now).WriteNew(turnCtx, installationID, sessionKey, sessionpin.DefaultRole, decision)
 		svc.recordTurnUsage(turnCtx, turnLoopResult{
 			InstallationID: installationID, SessionKey: sessionKey, PinRole: sessionpin.DefaultRole,
 			Strategy: strategy, Decision: decision,
@@ -82,7 +82,7 @@ func TestCodexCompactionAfterAutoReview(t *testing.T) {
 	assert.Equal(t, compactionStrategyModel, turn.Decision.Model)
 	assert.Equal(t, policy.OverrideSourceSession, turn.Origin)
 
-	sessionPins := routingpolicy.NewSessionPins(svc.pinStore)
+	sessionPins := routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now)
 	_, active := sessionPins.Load(ctx, sessionKey, sessionpin.DefaultRole)
 	assert.False(t, active, "ordinary routing must still reject another strategy's pin")
 	assert.Empty(t, sessionPins.LoadHMMHistory(ctx, sessionKey, sessionpin.DefaultRole).LastServedModel)
@@ -105,7 +105,7 @@ func TestCodexCompactionDispatchAcrossStrategies(t *testing.T) {
 		{"type":"agent_message","author":"child","recipient":"parent","content":[{"type":"encrypted_content","encrypted_content":"synthetic-opaque-content"}]},
 		{"type":"message","role":"user","content":[{"type":"input_text","text":"You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary."}]}]}`)
 	rec := httptest.NewRecorder()
-	err := svc.ProxyOpenAIResponses(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+	err := svc.ProxyOpenAIResponses(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, compactionStrategyModel, rec.Header().Get(HeaderRouterModel))

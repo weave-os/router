@@ -14,8 +14,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// EscalationCheckFixture confines integration-only expiry and cleanup to the
-// disposable installation created by the database verification command.
 type EscalationCheckFixture struct {
 	queries        *sqlc.Queries
 	installationID uuid.UUID
@@ -23,12 +21,10 @@ type EscalationCheckFixture struct {
 	scope          [32]byte
 }
 
-// NewEscalationCheckFixture binds destructive fixture operations to one installation.
 func NewEscalationCheckFixture(pool *pgxpool.Pool, installation auth.Installation, scope [32]byte) *EscalationCheckFixture {
 	return &EscalationCheckFixture{queries: dbbudget.Queries(pool), installationID: uuid.MustParse(installation.ID), externalID: installation.ExternalID, scope: scope}
 }
 
-// Cleanup deletes the fixture and verifies its session children were cascaded.
 func (f *EscalationCheckFixture) Cleanup(ctx context.Context) error {
 	deleted, err := f.queries.DeleteEscalationCheckFixture(ctx, sqlc.DeleteEscalationCheckFixtureParams{InstallationID: f.installationID, ExternalID: f.externalID})
 	if err != nil {
@@ -47,8 +43,6 @@ func (f *EscalationCheckFixture) Cleanup(ctx context.Context) error {
 	return nil
 }
 
-// CheckExpiryBoundary expires the fixture between the production delete and
-// claim statements, then verifies the upsert cannot resurrect its old lifetime.
 func (f *EscalationCheckFixture) CheckExpiryBoundary(ctx context.Context, boundary [32]byte) error {
 	err := f.queries.DeleteExpiredEscalationSession(ctx, f.scope[:])
 	if err != nil {

@@ -69,8 +69,8 @@ func TestForceReasoningEffort_GeminiOverride(t *testing.T) {
 	require.NoError(t, err)
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(prep.Body, &out))
-	gc := out["generationConfig"].(map[string]any)
-	tc := gc["thinkingConfig"].(map[string]any)
+	gc := mustAs[map[string]any](t, out["generationConfig"])
+	tc := mustAs[map[string]any](t, gc["thinkingConfig"])
 	assert.Equal(t, "low", tc["thinkingLevel"])
 }
 
@@ -87,8 +87,8 @@ func TestForceReasoningEffort_GeminiFromOpenAI(t *testing.T) {
 	require.NoError(t, err)
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(prep.Body, &out))
-	gc := out["generationConfig"].(map[string]any)
-	tc := gc["thinkingConfig"].(map[string]any)
+	gc := mustAs[map[string]any](t, out["generationConfig"])
+	tc := mustAs[map[string]any](t, gc["thinkingConfig"])
 	assert.Equal(t, "low", tc["thinkingLevel"])
 }
 
@@ -121,8 +121,8 @@ func TestForceEffort_GeminiMaxLevel(t *testing.T) {
 			require.NoError(t, err)
 			var out map[string]any
 			require.NoError(t, json.Unmarshal(prep.Body, &out))
-			gc := out["generationConfig"].(map[string]any)
-			tc := gc["thinkingConfig"].(map[string]any)
+			gc := mustAs[map[string]any](t, out["generationConfig"])
+			tc := mustAs[map[string]any](t, gc["thinkingConfig"])
 			assert.Equal(t, "high", tc["thinkingLevel"])
 		})
 	}

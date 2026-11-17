@@ -491,7 +491,7 @@ func TestExtractRouterFeedbackCommand_ArrayContentMultipleTextBlocks(t *testing.
 	blocks, _ := last["content"].([]any)
 	require.Len(t, blocks, 2)
 	second, _ := blocks[1].(map[string]any)
-	assert.Equal(t, "", second["text"], "the directive-bearing text block must be stripped")
+	assert.Empty(t, mustAs[string](t, second["text"]), "the directive-bearing text block must be stripped")
 }
 
 func TestExtractRouterFeedbackCommand_GeminiFormatIgnored(t *testing.T) {

@@ -6,8 +6,6 @@ import (
 	"weave-os/router/internal/observability"
 )
 
-// resolveUpstreamSecrets replaces each key's Plaintext with its upstream credential.
-// Failed Anthropic federation is retained as a provider-scoped error; other failed keys are dropped.
 func (s *Service) resolveUpstreamSecrets(ctx context.Context, keys []*ExternalAPIKey) []*ExternalAPIKey {
 	if !anyDerivedAuth(keys) {
 		return keys
@@ -32,8 +30,6 @@ func (s *Service) resolveUpstreamSecrets(ctx context.Context, keys []*ExternalAP
 			}
 			continue
 		}
-		// Copy so the derived credential never overwrites the stored secret held
-		// by the shared cache entry these keys came from.
 		withCredential := *key
 		withCredential.Plaintext = credential
 		if key.AuthType == AuthTypeAnthropicWIF {
@@ -44,8 +40,6 @@ func (s *Service) resolveUpstreamSecrets(ctx context.Context, keys []*ExternalAP
 	return resolved
 }
 
-// ExternalAPIKeyWithCredential returns a BYOK key with Plaintext resolved (derived auth included),
-// so callers authenticate exactly as an inference call would.
 func (s *Service) ExternalAPIKeyWithCredential(ctx context.Context, installationID, id string) (*ExternalAPIKey, error) {
 	keys, err := s.externalKeys.GetForInstallation(ctx, installationID)
 	if err != nil {
@@ -67,8 +61,6 @@ func (s *Service) ExternalAPIKeyWithCredential(ctx context.Context, installation
 	return nil, ErrExternalAPIKeyNotFound
 }
 
-// upstreamCredential derives the bearer value for a key whose stored secret is not itself
-// the credential.
 func (s *Service) upstreamCredential(ctx context.Context, key *ExternalAPIKey) ([]byte, error) {
 	switch key.AuthType {
 	case AuthTypeAnthropicWIF:
@@ -91,7 +83,6 @@ func (s *Service) upstreamCredential(ctx context.Context, key *ExternalAPIKey) (
 	}
 }
 
-// anyDerivedAuth reports whether any key's credential has to be derived rather than sent as stored.
 func anyDerivedAuth(keys []*ExternalAPIKey) bool {
 	for _, key := range keys {
 		if key.AuthType == AuthTypeKeypairJWT || key.AuthType == AuthTypeWIF || key.AuthType == AuthTypeAnthropicWIF || key.AuthType == AuthTypeAzureEntra {

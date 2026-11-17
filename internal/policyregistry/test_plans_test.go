@@ -9,10 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/subscriptions/entitlement"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 )
 
 type testLaunchRepo struct {
@@ -52,14 +53,14 @@ func (r *testLaunchRepo) RevokeTestLaunch(context.Context, string) error {
 func testPlanFixture(t *testing.T) (*policyregistry.TestPlanTools, *testLaunchRepo, *servingMemoryStore, *time.Time, policyregistry.SelectionSet) {
 	t.Helper()
 	store, _, set := controllerFixture(t)
-	release := store.object(t, policyregistry.ServingReleases, set.Default.Release).(*policyregistry.ServingRelease)
+	release := mustAs[*policyregistry.ServingRelease](t, store.object(t, policyregistry.ServingReleases, set.Default.Release))
 	for _, plan := range []entitlement.Plan{entitlement.PlanMax, entitlement.PlanBoost} {
 		profile, _ := entitlement.ServingProfileFor(plan)
 		if profile.Key != "" {
 			set.Profiles[profile.Key] = registerProfileFixture(t, store, set.Default, profile.Key, release.Policy)
 		}
 	}
-	snapshot, _ := storedActivateFixture(t, store, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+	snapshot := storedActivateFixture(t, store, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
 	store.states[policyregistry.TargetStable] = snapshot
 	now := servingEpoch.Add(time.Minute)
 	repo := &testLaunchRepo{identity: policyregistry.TestPlanIdentity{SubjectID: uuid.NewString(), InstallationID: "test-installation", Label: "Synthetic enrolled internal identity", BalanceMicros: 1000000, EnrollmentGeneration: 3}}
@@ -83,7 +84,7 @@ func TestInternalPlanLaunchTargetsStableAndSignsExactTestScope(t *testing.T) {
 			case policyregistry.TestPlanBoost:
 				require.Empty(t, preview.Admission.ProfileKey)
 				require.Nil(t, preview.Admission.Selection.Profile)
-				defaultRelease := store.object(t, policyregistry.ServingReleases, selectionSet.Default.Release).(*policyregistry.ServingRelease)
+				defaultRelease := mustAs[*policyregistry.ServingRelease](t, store.object(t, policyregistry.ServingReleases, selectionSet.Default.Release))
 				require.Equal(t, defaultRelease.Policy.SHA256, preview.PolicyRevision)
 			}
 			_, err = tools.Prepare(context.Background(), preview, false)
@@ -100,7 +101,7 @@ func TestInternalPlanLaunchTargetsStableAndSignsExactTestScope(t *testing.T) {
 			require.Equal(t, plan, admitted.TestPlan.Plan)
 			signer, err := policyregistry.NewAssertionSigner([]byte(strings.Repeat("s", 32)), func() time.Time { return *now })
 			require.NoError(t, err)
-			request := httptest.NewRequest(http.MethodPost, "https://router.example/v1/messages", strings.NewReader("{}"))
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "https://router.example/v1/messages", strings.NewReader("{}"))
 			encoded, err := signer.Sign(admitted, request, []byte("{}"), "rk_test")
 			require.NoError(t, err)
 			verified, err := signer.Verify(encoded, request, []byte("{}"), "rk_test")
@@ -142,7 +143,7 @@ func TestInternalPlanLaunchFailsClosedOnLifecycleIdentityAndGrantChanges(t *test
 			case "withdrawn", "missing activation":
 				snapshot := store.states[policyregistry.TargetStable]
 				previous := snapshot.State.Activations[preview.Admission.ActivationID]
-				next, _ := storedActivateFixture(t, store, snapshot, variantSet(t, store, originalSet, "worker-new"), now.Add(time.Minute))
+				next := storedActivateFixture(t, store, snapshot, variantSet(t, store, originalSet, "worker-new"), now.Add(time.Minute))
 				if scenario == "withdrawn" {
 					previous = next.State.Activations[previous.ID]
 					withdrawnAt := next.State.Activations[next.State.CurrentActivationID].ActivatedAt
@@ -185,7 +186,7 @@ func TestInternalTestLaunchRetainsSelectionAfterStableHeadAdvances(t *testing.T)
 	require.NoError(t, err)
 	configuration, err := tools.Prepare(context.Background(), preview, true)
 	require.NoError(t, err)
-	next, _ := storedActivateFixture(t, store, store.states[policyregistry.TargetStable], variantSet(t, store, original, "successor-worker"), now.Add(time.Minute))
+	next := storedActivateFixture(t, store, store.states[policyregistry.TargetStable], variantSet(t, store, original, "successor-worker"), now.Add(time.Minute))
 	store.states[policyregistry.TargetStable] = next
 	*now = now.Add(2 * time.Minute)
 	require.NotEqual(t, preview.Admission.ActivationID, next.State.CurrentActivationID)

@@ -17,8 +17,6 @@ import (
 	"weave-os/router/internal/providers"
 )
 
-// ErrRestrictedDestination is the dial error when an upstream resolves outside
-// the public internet on a transport built for public destinations only.
 var ErrRestrictedDestination = errors.New("upstream destination is not publicly routable")
 
 const modelDiscoveryPrivateOriginsEnv = "ROUTER_MODEL_DISCOVERY_PRIVATE_ORIGINS"
@@ -35,20 +33,16 @@ type modelDiscoveryPolicy struct {
 
 type modelDiscoveryPrivateOriginKey struct{}
 
-// ModelDiscoveryOption injects deterministic network dependencies for tests.
 type ModelDiscoveryOption func(*modelDiscoveryPolicy)
 
-// WithModelDiscoveryResolver replaces DNS resolution for a model-discovery client.
 func WithModelDiscoveryResolver(resolver modelDiscoveryResolver) ModelDiscoveryOption {
 	return func(policy *modelDiscoveryPolicy) { policy.resolver = resolver }
 }
 
-// WithModelDiscoveryDialer replaces direct IP dialing for a model-discovery client.
 func WithModelDiscoveryDialer(dialContext func(context.Context, string, string) (net.Conn, error)) ModelDiscoveryOption {
 	return func(policy *modelDiscoveryPolicy) { policy.dialContext = dialContext }
 }
 
-// NewDefaultModelDiscoveryClient returns a public-destination-only client.
 func NewDefaultModelDiscoveryClient() *http.Client {
 	client, err := NewModelDiscoveryClient("")
 	if err != nil {
@@ -57,8 +51,6 @@ func NewDefaultModelDiscoveryClient() *http.Client {
 	return client
 }
 
-// NewModelDiscoveryClient returns a proxy-free client that validates every
-// resolved address and dials one of those validated IPs directly.
 func NewModelDiscoveryClient(privateOrigins string, opts ...ModelDiscoveryOption) (*http.Client, error) {
 	allowedOrigins, err := parseModelDiscoveryPrivateOrigins(privateOrigins)
 	if err != nil {
@@ -133,11 +125,6 @@ func isPublicAddr(address netip.Addr) bool {
 	}
 	if address.Is4() {
 		bytes := address.As4()
-		// None of these have a stdlib predicate: 0.0.0.0/8 is "this host on
-		// this network" (RFC 1122) and resolves to a local service on Linux,
-		// 100.64.0.0/10 is carrier-grade NAT (RFC 6598), and 240.0.0.0/4 is
-		// reserved (RFC 1112) — which also covers the 255.255.255.255
-		// broadcast address.
 		if bytes[0] == 0 || (bytes[0] == 100 && bytes[1] >= 64 && bytes[1] <= 127) || bytes[0] >= 240 {
 			return false
 		}
@@ -194,13 +181,8 @@ func canonicalDiscoveryOrigin(parsed *url.URL) (string, error) {
 	return scheme + "://" + net.JoinHostPort(host, port), nil
 }
 
-// restrictUpstreamEgressEnv forces the public-destination dial policy on or
-// off regardless of deployment mode.
 const restrictUpstreamEgressEnv = "ROUTER_RESTRICT_UPSTREAM_EGRESS"
 
-// publicDestinationsOnly reports whether provider transports refuse non-public
-// upstream addresses. Default is true for managed (per-tenant URLs reach only
-// public endpoints) and false for self-hosted (in-cluster gateways are normal).
 var publicDestinationsOnly = publicDestinationsOnlyFromEnv()
 
 func publicDestinationsOnlyFromEnv() bool {
@@ -212,8 +194,6 @@ func publicDestinationsOnlyFromEnv() bool {
 	return strings.EqualFold(strings.TrimSpace(os.Getenv("ROUTER_DEPLOYMENT_MODE")), "managed")
 }
 
-// restrictDestination runs in the dialer's Control hook, so a hostname is
-// evaluated after DNS resolution rather than when its base URL was stored.
 func restrictDestination(_, address string, _ syscall.RawConn) error {
 	host, _, err := net.SplitHostPort(address)
 	if err != nil {
@@ -227,8 +207,6 @@ func restrictDestination(_, address string, _ syscall.RawConn) error {
 }
 
 func isPublicIP(ip net.IP) bool {
-	// One destination policy for both dial paths: a range rejected for model
-	// discovery must not be reachable through the inference transport either.
 	address, ok := netip.AddrFromSlice(ip)
 	if !ok {
 		return false

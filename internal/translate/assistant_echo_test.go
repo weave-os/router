@@ -16,7 +16,7 @@ func TestEchoedInAssistantText(t *testing.T) {
 	for name, body := range map[string]string{
 		"anthropic text block":  `{"messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"text","text":"✦ **Weave Router** → shown warning\n\nhello"}]}]}`,
 		"chat string content":   `{"messages":[{"role":"assistant","content":"✦ **Weave Router** → shown warning"}]}`,
-		"responses output_text": `{"input":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"⁣⁠⁣⁠✦ **Weave Router** → shown warning\n\nhello"}]}]}`,
+		"responses output_text": `{"input":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"` + "\u2063\u2060\u2063\u2060" + `✦ **Weave Router** → shown warning\n\nhello"}]}]}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			echoed := translate.EchoedInAssistantText([]byte(body), needles)

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/policyclient"
@@ -21,9 +22,9 @@ func TestAtomicClassifierAuthenticatedFactsAndRelease(t *testing.T) {
 	bearer := strings.Repeat("s", 32)
 	var received router.AtomicClassificationRequest
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/classify", r.URL.Path)
-		require.Equal(t, "Bearer "+bearer, r.Header.Get("Authorization"))
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&received))
+		assert.Equal(t, "/classify", r.URL.Path)
+		assert.Equal(t, "Bearer "+bearer, r.Header.Get("Authorization"))
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&received))
 		_, _ = fmt.Fprintf(w, `{"release":%q,"release_sha256":%q,"prediction":2,"probabilities":[0.1,0.2,0.6,0.1],"input_tokens":8192,"history_source":%q}`, release, digest, router.ClassifierHistoricalPrediction)
 	}))
 	defer server.Close()

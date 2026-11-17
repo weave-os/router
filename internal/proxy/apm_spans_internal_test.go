@@ -74,7 +74,7 @@ func TestProxyMessagesEmitsHighLevelFlowSpans(t *testing.T) {
 	ctx, requestSpan := provider.Tracer("test").Start(context.Background(), "request")
 	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{SessionID: "client-session-abc"})
 	body := []byte(`{"model":"claude-opus-4-8","max_tokens":4096,"tools":[{"name":"Read","input_schema":{"type":"object"}}],"messages":[{"role":"user","content":"inspect the repository"}]}`)
-	err := svc.ProxyMessages(ctx, body, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+	err := svc.ProxyMessages(ctx, body, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
 	requestSpan.End()
 	require.NoError(t, err)
 
@@ -121,7 +121,7 @@ func TestProxyOpenAITranslationErrorMarksInferenceSpanFailed(t *testing.T) {
 
 	ctx, requestSpan := provider.Tracer("test").Start(context.Background(), "request")
 	body := []byte(`{"model":"gpt-5","messages":[{"role":"user","content":"continue"},{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"Bash","arguments":"{}"}}]},{"role":"tool","tool_call_id":"call_1","content":"ok"}]}`)
-	err := svc.ProxyOpenAIChatCompletion(ctx, body, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil))
+	err := svc.ProxyOpenAIChatCompletion(ctx, body, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", nil))
 	requestSpan.End()
 	require.ErrorIs(t, err, translate.ErrGeminiUnsignedToolHistory)
 

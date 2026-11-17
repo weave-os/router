@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"maps"
 	"strings"
 	"sync"
 	"testing"
@@ -110,10 +111,23 @@ func TestVerifySessionToken_RejectsInvalidTokens(t *testing.T) {
 	f := newSessionIssuerFixture(t)
 	_, otherKey, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	capMicros := int64(5_000_000)
 
-	cases := map[string]func(t *testing.T) string{
+	cases := forgedSessionTokenCases(f, otherKey)
+	maps.Copy(cases, invalidSessionClaimsCases(f))
+	maps.Copy(cases, invalidSessionCapsCases(f))
+	for name, build := range cases {
+		t.Run(name, func(t *testing.T) {
+			svc, _ := f.service(t)
+			_, _, _, _, _, err := svc.VerifySessionToken(context.Background(), build(t), true)
+			require.ErrorIs(t, err, auth.ErrInvalidToken)
+		})
+	}
+}
+
+func forgedSessionTokenCases(f sessionIssuerFixture, otherKey ed25519.PrivateKey) map[string]func(t *testing.T) string {
+	return map[string]func(t *testing.T) string{
 		"alg none": func(t *testing.T) string {
+			t.Helper()
 			token := jwt.NewWithClaims(jwt.SigningMethodNone, f.claims())
 			token.Header["typ"], token.Header["kid"] = auth.SessionTokenType, f.kid
 			signed, err := token.SignedString(jwt.UnsafeAllowNoneSignatureType)
@@ -121,6 +135,7 @@ func TestVerifySessionToken_RejectsInvalidTokens(t *testing.T) {
 			return "rs_" + signed
 		},
 		"HS256 keyed with the public key": func(t *testing.T) string {
+			t.Helper()
 			token := jwt.NewWithClaims(jwt.SigningMethodHS256, f.claims())
 			token.Header["typ"], token.Header["kid"] = auth.SessionTokenType, f.kid
 			signed, err := token.SignedString([]byte(f.apiKey.IssuerPublicKey))
@@ -128,97 +143,131 @@ func TestVerifySessionToken_RejectsInvalidTokens(t *testing.T) {
 			return "rs_" + signed
 		},
 		"signed by another key": func(t *testing.T) string {
+			t.Helper()
 			token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, f.claims())
 			token.Header["typ"], token.Header["kid"] = auth.SessionTokenType, f.kid
 			signed, err := token.SignedString(otherKey)
 			require.NoError(t, err)
 			return "rs_" + signed
 		},
+		"wrong typ": func(t *testing.T) string {
+			t.Helper()
+			return f.sign(t, f.claims(), func(tok *jwt.Token) { tok.Header["typ"] = "JWT" })
+		},
+		"unknown kid": func(t *testing.T) string {
+			t.Helper()
+			return f.sign(t, f.claims(), func(tok *jwt.Token) { tok.Header["kid"] = "unknown" })
+		},
+		"oversized": func(t *testing.T) string {
+			t.Helper()
+			return "rs_" + strings.Repeat("a", auth.SessionTokenMaxBytes)
+		},
+	}
+}
+
+func invalidSessionClaimsCases(f sessionIssuerFixture) map[string]func(t *testing.T) string {
+	return map[string]func(t *testing.T) string{
 		"wrong audience": func(t *testing.T) string {
+			t.Helper()
 			c := f.claims()
 			c.Audience = jwt.ClaimStrings{"someone-else"}
 			return f.sign(t, c, nil)
 		},
 		"wrong issuer": func(t *testing.T) string {
+			t.Helper()
 			c := f.claims()
 			c.Issuer = "attacker"
 			return f.sign(t, c, nil)
 		},
-		"wrong typ": func(t *testing.T) string {
-			return f.sign(t, f.claims(), func(tok *jwt.Token) { tok.Header["typ"] = "JWT" })
-		},
 		"missing exp": func(t *testing.T) string {
+			t.Helper()
 			c := f.claims()
 			c.ExpiresAt = nil
 			return f.sign(t, c, nil)
 		},
 		"missing iat": func(t *testing.T) string {
+			t.Helper()
 			c := f.claims()
 			c.IssuedAt = nil
 			return f.sign(t, c, nil)
 		},
 		"expired": func(t *testing.T) string {
+			t.Helper()
 			c := f.claims()
 			c.IssuedAt = jwt.NewNumericDate(sessionClock.Add(-2 * time.Hour))
 			c.ExpiresAt = jwt.NewNumericDate(sessionClock.Add(-time.Hour))
 			return f.sign(t, c, nil)
 		},
 		"lifetime over two hours": func(t *testing.T) string {
+			t.Helper()
 			c := f.claims()
 			c.ExpiresAt = jwt.NewNumericDate(c.IssuedAt.Add(2*time.Hour + time.Second))
 			return f.sign(t, c, nil)
 		},
 		"missing subject": func(t *testing.T) string {
+			t.Helper()
 			c := f.claims()
 			c.Subject = ""
 			return f.sign(t, c, nil)
 		},
 		"subject longer than a billable ID": func(t *testing.T) string {
+			t.Helper()
 			c := f.claims()
 			c.Subject = strings.Repeat("s", 256)
 			return f.sign(t, c, nil)
 		},
 		"task longer than a billable ID": func(t *testing.T) string {
+			t.Helper()
 			c := f.claims()
 			c.Task = strings.Repeat("t", 256)
 			return f.sign(t, c, nil)
 		},
 		"subject containing NUL": func(t *testing.T) string {
+			t.Helper()
 			c := f.claims()
 			c.Subject = "session\x00id"
 			return f.sign(t, c, nil)
 		},
 		"task containing NUL": func(t *testing.T) string {
+			t.Helper()
 			c := f.claims()
 			c.Task = "task\x00id"
 			return f.sign(t, c, nil)
 		},
 		"issuer registration ID mismatch": func(t *testing.T) string {
+			t.Helper()
 			c := f.claims()
 			c.IssuerID = "another-issuer-generation"
 			return f.sign(t, c, nil)
 		},
-		"unknown kid": func(t *testing.T) string {
-			return f.sign(t, f.claims(), func(tok *jwt.Token) { tok.Header["kid"] = "unknown" })
-		},
+	}
+}
+
+func invalidSessionCapsCases(f sessionIssuerFixture) map[string]func(t *testing.T) string {
+	capMicros := int64(5_000_000)
+	return map[string]func(t *testing.T) string{
 		"non-positive session cap": func(t *testing.T) string {
+			t.Helper()
 			c := f.claims()
 			zero := int64(0)
 			c.Caps = &auth.SessionCaps{SessionUSDMicros: &zero}
 			return f.sign(t, c, nil)
 		},
 		"task cap without a task": func(t *testing.T) string {
+			t.Helper()
 			c := f.claims()
 			c.Task = ""
 			c.Caps = &auth.SessionCaps{TaskUSDMicros: &capMicros}
 			return f.sign(t, c, nil)
 		},
 		"empty caps object": func(t *testing.T) string {
+			t.Helper()
 			c := f.claims()
 			c.Caps = &auth.SessionCaps{}
 			return f.sign(t, c, nil)
 		},
 		"caps with only unknown fields": func(t *testing.T) string {
+			t.Helper()
 			unknownCapsClaims := jwt.MapClaims{
 				"iss": auth.SessionTokenIssuer, "aud": auth.SessionTokenAudience, "sub": "session-1",
 				"iat": sessionClock.Add(-time.Minute).Unix(), "exp": sessionClock.Add(time.Hour).Unix(),
@@ -230,16 +279,6 @@ func TestVerifySessionToken_RejectsInvalidTokens(t *testing.T) {
 			require.NoError(t, err)
 			return "rs_" + signed
 		},
-		"oversized": func(t *testing.T) string {
-			return "rs_" + strings.Repeat("a", auth.SessionTokenMaxBytes)
-		},
-	}
-	for name, build := range cases {
-		t.Run(name, func(t *testing.T) {
-			svc, _ := f.service(t)
-			_, _, _, _, _, err := svc.VerifySessionToken(context.Background(), build(t), true)
-			require.ErrorIs(t, err, auth.ErrInvalidToken)
-		})
 	}
 }
 

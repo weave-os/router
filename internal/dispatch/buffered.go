@@ -9,21 +9,12 @@ import (
 	"weave-os/router/internal/router"
 )
 
-// Buffered describes a non-streaming auxiliary call whose whole upstream
-// response is captured before the caller reads it. Prepare builds the wire
-// request for the attempt's target; Consume parses the recorded response.
-// The provider client is dereferenced only here, so feature packages never
-// call providers.Client directly.
 type Buffered struct {
 	Prepare func(context.Context, Attempt) (providers.PreparedRequest, *http.Request, error)
 	Consume func(context.Context, Attempt, *http.Response) error
-	// Reason is recorded on the router.Decision handed to the provider.
-	Reason string
+	Reason  string
 }
 
-// Transport adapts b into an executor Transport. The prepared wire model must
-// name the attempt's target or the attempt fails with ErrTargetMismatch
-// before any upstream I/O.
 func (b Buffered) Transport() Transport {
 	return Transport{Attempt: func(ctx context.Context, attempt Attempt, client providers.Client) error {
 		prep, req, err := b.Prepare(ctx, attempt)

@@ -15,8 +15,6 @@ var (
 	_ usage.Sink          = (*UsageExtractor)(nil)
 )
 
-// UsageExtractor is the OTel adapter that forwards response bytes while
-// feeding the vendor-neutral telemetry usage parser.
 type UsageExtractor struct {
 	inner     http.ResponseWriter
 	extractor *telemetry.UsageExtractor
@@ -61,9 +59,6 @@ func (u *UsageExtractor) Flush() {
 	}
 }
 
-// ArmOutputProgress forwards the watchdog arm call to inner if it supports it.
-// The extractor cannot distinguish output frames from keepalives, so it must
-// pass the hook through or wrapping would hide it from the provider client.
 func (u *UsageExtractor) ArmOutputProgress(mark func()) bool {
 	if u == nil || u.inner == nil {
 		return false

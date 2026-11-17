@@ -25,7 +25,7 @@ func TestServingRuntimeCacheEvictsWithoutChangingPinnedSnapshots(t *testing.T) {
 	first, err := cache.Snapshot(context.Background(), admission)
 	require.NoError(t, err)
 	pinned := policyregistry.WithServingSnapshot(context.Background(), first)
-	base := store.object(t, policyregistry.ServingReleases, set.Default.Release).(*policyregistry.ServingRelease)
+	base := mustAs[*policyregistry.ServingRelease](t, store.object(t, policyregistry.ServingReleases, set.Default.Release))
 	for range 256 {
 		profileKey := uuid.NewString()
 		selection := registerProfileFixture(t, store, set.Default, profileKey, base.Policy)
@@ -73,7 +73,7 @@ func TestServingRuntimeCacheReusesExactAdmission(t *testing.T) {
 
 func TestServingRuntimeCacheCannotBypassProfileOwnershipOrExactReferences(t *testing.T) {
 	store, _, set := controllerFixture(t)
-	base := store.object(t, policyregistry.ServingReleases, set.Default.Release).(*policyregistry.ServingRelease)
+	base := mustAs[*policyregistry.ServingRelease](t, store.object(t, policyregistry.ServingReleases, set.Default.Release))
 	profile := registerProfileFixture(t, store, set.Default, profileKeyOne, base.Policy)
 	cache, err := policyregistry.NewServingRuntimeCache(store, func(context.Context, policyregistry.Candidate) (map[router.Strategy]router.Router, error) {
 		return map[router.Strategy]router.Router{router.StrategyHMM: stubRouter{}}, nil

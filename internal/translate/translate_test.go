@@ -73,9 +73,9 @@ func TestTranslateResponse_NonStreaming(t *testing.T) {
 	assert.Equal(t, "Hello!", message["content"])
 
 	usage, _ := doc["usage"].(map[string]any)
-	assert.Equal(t, float64(10), usage["prompt_tokens"])
-	assert.Equal(t, float64(5), usage["completion_tokens"])
-	assert.Equal(t, float64(15), usage["total_tokens"])
+	assert.InDelta(t, float64(10), usage["prompt_tokens"], 1e-9)
+	assert.InDelta(t, float64(5), usage["completion_tokens"], 1e-9)
+	assert.InDelta(t, float64(15), usage["total_tokens"], 1e-9)
 }
 
 func TestTranslateResponse_ToolUse(t *testing.T) {
@@ -1167,7 +1167,7 @@ func TestPrepareAnthropic_ToolResultWithNilContentBecomesEmptyString(t *testing.
 	toolUserMsg, _ := msgs[2].(map[string]any)
 	blocks, _ := toolUserMsg["content"].([]any)
 	block, _ := blocks[0].(map[string]any)
-	assert.Equal(t, "", block["content"],
+	assert.Empty(t, mustAs[string](t, block["content"]),
 		"null/missing content must produce an empty string, not nil or a panic")
 }
 
