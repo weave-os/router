@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -25,8 +26,8 @@ const (
 	reviewerVerdict      = "verdict: no block"
 )
 
-func autoModeReviewerBody(model string) string {
-	return `{"model":"` + model + `","max_tokens":8192,` +
+func autoModeReviewerBody() string {
+	return `{"model":"` + reviewerDefaultModel + `","max_tokens":8192,"thinking":{"type":"disabled"},"metadata":{"user_id":"synthetic"},` +
 		`"system":[{"type":"text","text":"x-anthropic-billing-header: synthetic"},{"type":"text","text":"You are a security monitor for autonomous AI coding agents. Decide whether the latest action should be blocked."}],` +
 		`"messages":[{"role":"user","content":[{"type":"text","text":"<transcript>\n{\"Bash\":\"git push --force\"}\n</transcript>"}]}]}`
 }
@@ -40,16 +41,8 @@ func reviewerOK(model string) reviewerReply {
 	return reviewerReply{status: http.StatusOK, body: `{"id":"msg_1","type":"message","role":"assistant","model":"` + model + `","content":[{"type":"text","text":"` + reviewerVerdict + `"}],"stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5}}`}
 }
 
-func reviewerRefusal(model string) reviewerReply {
-	return reviewerReply{status: http.StatusOK, body: `{"id":"msg_1","type":"message","role":"assistant","model":"` + model + `","content":[],"stop_reason":"refusal","usage":{"input_tokens":10,"output_tokens":0}}`}
-}
-
 func reviewerModelNotFound(model string) reviewerReply {
 	return reviewerReply{status: http.StatusNotFound, body: `{"type":"error","error":{"type":"not_found_error","message":"model: ` + model + `"}}`}
-}
-
-func reviewerOverloaded() reviewerReply {
-	return reviewerReply{status: 529, body: `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`}
 }
 
 // reviewerProvider answers each dispatch from a per-model script; a model whose
@@ -59,6 +52,8 @@ type reviewerProvider struct {
 	scripts map[string][]reviewerReply
 	models  []string
 	oauth   []bool
+	bodies  [][]byte
+	betas   []string
 }
 
 func (*reviewerProvider) SupportsSubscriptions() bool { return true }
@@ -67,6 +62,8 @@ func (p *reviewerProvider) Proxy(ctx context.Context, _ router.Decision, prep pr
 	p.mu.Lock()
 	model := strings.Trim(strings.SplitN(strings.SplitN(string(prep.Body), `"model":`, 2)[1], ",", 2)[0], `" `)
 	p.models = append(p.models, model)
+	p.bodies = append(p.bodies, append([]byte(nil), prep.Body...))
+	p.betas = append(p.betas, prep.Headers.Get("anthropic-beta"))
 	creds := proxy.CredentialsFromContext(ctx)
 	p.oauth = append(p.oauth, creds != nil && creds.OAuth)
 	script, ok := p.scripts[model]
@@ -113,7 +110,7 @@ func TestAutoModeReviewer_ForceModelKeepsRequestedModel(t *testing.T) {
 	svc := reviewerService(p, store)
 	rec, req := classifierRequest(t.Context())
 
-	require.NoError(t, svc.ProxyMessages(classifierSubscriptionCtx(), []byte(autoModeReviewerBody(reviewerDefaultModel)), rec, req))
+	require.NoError(t, svc.ProxyMessages(classifierSubscriptionCtx(), []byte(autoModeReviewerBody()), rec, req))
 
 	assert.Equal(t, reviewerDefaultModel, rec.Header().Get(proxy.HeaderRouterModel))
 	assert.Equal(t, []string{reviewerDefaultModel}, p.models)
@@ -126,53 +123,67 @@ func TestAutoModeReviewer_NoSubscriptionKeepsRequestedModel(t *testing.T) {
 	svc := reviewerService(p, nil).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 	rec, req := classifierRequest(t.Context())
 
-	require.NoError(t, svc.ProxyMessages(authedCtx("inst-reviewer"), []byte(autoModeReviewerBody(reviewerDefaultModel)), rec, req))
+	require.NoError(t, svc.ProxyMessages(authedCtx("inst-reviewer"), []byte(autoModeReviewerBody()), rec, req))
 
 	assert.Equal(t, reviewerDefaultModel, rec.Header().Get(proxy.HeaderRouterModel))
 	assert.Equal(t, []string{reviewerDefaultModel}, p.models)
 }
 
-// A reviewer call that cannot produce a verdict on the requested model is never
-// handed back to Claude Code as an error or a refusal: Claude Code would deny
-// the tool call (and, on an error, switch its reviewer to a model the API's
-// safeguards refuse). The router retries transient failures on the same model
-// and otherwise falls back to another reviewer model on the same credential.
-func TestAutoModeReviewer_SubscriptionNeverReturnsFailure(t *testing.T) {
+const reviewerClientBeta = "claude-code-20250219,interleaved-thinking-2025-05-14,context-management-2025-06-27"
+
+func reviewerRequest(ctx context.Context) (*httptest.ResponseRecorder, *http.Request) {
+	rec, req := classifierRequest(ctx)
+	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("anthropic-beta", reviewerClientBeta)
+	return rec, req
+}
+
+// Classifier calls (auto-mode security review, titles, prefix checks) are
+// Claude Code's own machinery: the router forwards them exactly as sent (same
+// model, same bytes, same betas) and returns the upstream answer unchanged,
+// on the subscription lane and on API-billed keys alike.
+func TestAutoModeReviewer_ForwardedUntouched(t *testing.T) {
 	for name, tc := range map[string]struct {
-		requested  string
-		scripts    map[string][]reviewerReply
-		wantModels []string
+		ctx       func() context.Context
+		deployKey bool
+		wantOAuth bool
 	}{
-		"model_not_found_falls_back": {
-			requested:  reviewerDefaultModel,
-			scripts:    map[string][]reviewerReply{reviewerDefaultModel: {reviewerModelNotFound(reviewerDefaultModel)}},
-			wantModels: []string{reviewerDefaultModel, "claude-sonnet-4-6"},
-		},
-		"refusal_retries_on_claude_default": {
-			requested:  "claude-sonnet-5-5",
-			scripts:    map[string][]reviewerReply{"claude-sonnet-5-5": {reviewerRefusal("claude-sonnet-5-5")}},
-			wantModels: []string{"claude-sonnet-5-5", reviewerDefaultModel},
-		},
-		"overloaded_retries_same_model": {
-			requested:  reviewerDefaultModel,
-			scripts:    map[string][]reviewerReply{reviewerDefaultModel: {reviewerOverloaded(), reviewerOK(reviewerDefaultModel)}},
-			wantModels: []string{reviewerDefaultModel, reviewerDefaultModel},
-		},
+		"subscription": {ctx: classifierSubscriptionCtx, wantOAuth: true},
+		"api_billed":   {ctx: func() context.Context { return authedCtx("inst-reviewer") }, deployKey: true},
 	} {
 		t.Run(name, func(t *testing.T) {
-			p := &reviewerProvider{scripts: tc.scripts}
+			p := &reviewerProvider{}
 			svc := reviewerService(p, nil)
-			rec, req := classifierRequest(t.Context())
-			ctx := billing.WithSubscriptionOnly(classifierSubscriptionCtx(), billing.SubscriptionOnlyCreditsDepleted)
-
-			require.NoError(t, svc.ProxyMessages(ctx, []byte(autoModeReviewerBody(tc.requested)), rec, req))
-
-			assert.Equal(t, http.StatusOK, rec.Code)
-			assert.Contains(t, rec.Body.String(), reviewerVerdict)
-			assert.Equal(t, tc.wantModels, p.models)
-			for i, oauth := range p.oauth {
-				assert.True(t, oauth, "attempt %d must stay on the caller's subscription", i)
+			if tc.deployKey {
+				svc = svc.WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 			}
+			body := autoModeReviewerBody()
+			rec, req := reviewerRequest(t.Context())
+
+			require.NoError(t, svc.ProxyMessages(tc.ctx(), []byte(body), rec, req))
+
+			require.Len(t, p.bodies, 1)
+			assert.Equal(t, body, string(p.bodies[0]))
+			assert.Equal(t, reviewerClientBeta, p.betas[0])
+			assert.Equal(t, tc.wantOAuth, p.oauth[0])
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.JSONEq(t, reviewerOK(reviewerDefaultModel).body, rec.Body.String())
 		})
 	}
+}
+
+// Errors go back to Claude Code as-is, exactly as they would without the
+// router: no retry, no other model.
+func TestAutoModeReviewer_SubscriptionErrorReturnedUntouched(t *testing.T) {
+	p := &reviewerProvider{scripts: map[string][]reviewerReply{reviewerDefaultModel: {reviewerModelNotFound(reviewerDefaultModel)}}}
+	svc := reviewerService(p, nil)
+	ctx := billing.WithSubscriptionOnly(classifierSubscriptionCtx(), billing.SubscriptionOnlyCreditsDepleted)
+
+	rec, req := reviewerRequest(t.Context())
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(autoModeReviewerBody()), rec, req))
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.JSONEq(t, reviewerModelNotFound(reviewerDefaultModel).body, rec.Body.String())
+	assert.Equal(t, []string{reviewerDefaultModel}, p.models)
+	assert.Equal(t, []bool{true}, p.oauth)
 }

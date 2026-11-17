@@ -27,9 +27,9 @@ import (
 )
 
 const (
-	reasonUsageBypass           = "usage_bypass"
-	reasonClassifierPassthrough = "classifier_subscription_passthrough"
-	reasonClassifierModel       = "classifier_model"
+	reasonUsageBypass              = "usage_bypass"
+	reasonClassifierPassthrough    = "classifier_subscription_passthrough"
+	reasonClassifierRequestedModel = "classifier_requested_model"
 )
 
 func (s *Service) usageBypassDecision(ctx context.Context, headers http.Header, req router.Request, sessionDemotedModels []string, turnType turntype.TurnType) (router.Decision, bool) {
@@ -347,7 +347,7 @@ func (s *Service) bypassToAnthropic(
 		ModelSwitched:            modelSwitched,
 		FastMode:                 fastModeForAttempt(ctx, decision.Model, decision.Provider),
 	}
-	prep, emitErr := env.PrepareAnthropic(r.Header, opts)
+	prep, emitErr := prepareAnthropicForTurn(env, r.Header, opts, turnType)
 	if emitErr != nil {
 		log.Error("Failed to emit Anthropic body on usage-bypass path", "err", emitErr)
 		return fmt.Errorf("emit bypass body: %w", emitErr)

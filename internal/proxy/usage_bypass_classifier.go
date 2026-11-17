@@ -7,8 +7,6 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/turntype"
 )
 
@@ -43,26 +41,4 @@ func bufferNonStreamBypassResponse(w http.ResponseWriter, stream bool, log *slog
 			log.Error("Failed to flush buffered response", "err", flushErr)
 		}
 	}
-}
-
-func (s *Service) classifierModelDecision(ctx context.Context, headers http.Header, req router.Request, res turnLoopResult) (router.Decision, bool) {
-	if res.TurnType != turntype.Classifier || subscriptionStateModelsEnabled(ctx) {
-		return router.Decision{}, false
-	}
-	model := policy.ClassifierModel
-	if res.AutoModeReviewer {
-		model = req.RequestedModel
-	} else if _, anthropicSub := presentSubscriptionTokens(ctx, headers); anthropicSub != "" {
-		return router.Decision{}, false
-	}
-	if !catalog.PermittedBy(req.ProductEligibility, model) {
-		return router.Decision{}, false
-	}
-	req.RequestedModel = model
-	dec, err := s.callerModelPassthroughDecision(ctx, req)
-	if err != nil || !s.clients.Has(dec.Provider) {
-		return router.Decision{}, false
-	}
-	dec.Reason = reasonClassifierModel
-	return dec, true
 }

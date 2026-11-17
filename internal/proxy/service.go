@@ -2712,7 +2712,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 
 	if routeRes.UsageBypass && routeRes.Decision.Provider == providers.ProviderAnthropic {
-		err := serveAutoModeReviewer(ctx, body, env, feats, routeRes.AutoModeReviewer, w, bypassAttemptFor(s, ctx, routeRes, requestStart, requestID, externalID, r))
+		err := s.bypassToAnthropic(ctx, env, feats, routeRes.modelSwitched(), requestStart, requestID, externalID, routeRes.TurnType, routeRes.Decision.Reason, r, w)
 		if !errors.Is(err, errBypassRetryable) {
 			if !agentShadowMode {
 				s.firePolicyShadowForServingDecision(ctx, routeRes.Decision, req)
@@ -3027,7 +3027,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		targetNotice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(s), target.Provider, target.Model, targetNotice)
 		switch providers.FamilyFor(target.Provider) {
 		case providers.FamilyAnthropic:
-			prep, emitErr := env.PrepareAnthropic(r.Header, targetOpts)
+			prep, emitErr := prepareAnthropicForTurn(env, r.Header, targetOpts, routeRes.TurnType)
 			if emitErr != nil {
 				log.Error("Failed to emit Anthropic body", "err", emitErr)
 				return nil, fmt.Errorf("emit body: %w", emitErr)
@@ -5143,11 +5143,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					nativeOpts.TargetProvider = d.Provider
 					nativeOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)
 					fastServed = nativeOpts.FastMode
-					outBody, setErr = translate.ApplyOpenAIFastMode(outBody, nativeOpts)
+					outBody, setErr = codexNativeFastMode(outBody, nativeOpts, routeRes.TurnType)
 					if setErr != nil {
 						return fmt.Errorf("set codex service_tier: %w", setErr)
 					}
-					outBody, setErr = translate.ApplyOpenAIResponsesEffort(outBody, nativeOpts)
+					outBody, setErr = codexNativeEffort(outBody, nativeOpts, routeRes.TurnType)
 					if setErr != nil {
 						return fmt.Errorf("set codex reasoning effort: %w", setErr)
 					}
@@ -5170,7 +5170,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					if surface == surfaceResponsesTranslated {
 						prep, emitErr = env.PrepareOpenAIResponses(r.Header, attemptOpts)
 					} else {
-						prep, emitErr = env.PrepareOpenAI(r.Header, attemptOpts)
+						prep, emitErr = prepareOpenAIForTurn(env, r.Header, attemptOpts, routeRes.TurnType)
 					}
 					if emitErr != nil {
 						log.Error("Failed to emit OpenAI body", "err", emitErr,
