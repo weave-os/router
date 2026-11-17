@@ -52,6 +52,8 @@ func classifyFailureOwner(in failureOwnerInput) FailureOwner {
 			return FailureOwnerRouter
 		case cls.Kind == DispatchErrorSubscriptionPoolExhausted && upstreamStatus(err) == http.StatusTooManyRequests:
 			return FailureOwnerProvider
+		case cls.Kind == DispatchErrorSubscriptionPoolExhausted && errors.Is(err, errLinkedSeatsUnusable):
+			return FailureOwnerClient
 		}
 		return dispatchErrorKindOwner(cls.Kind)
 	}
