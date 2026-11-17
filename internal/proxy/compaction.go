@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 )
 
 const compactionSessionPinTier = "compaction_session_pin"
@@ -69,7 +70,7 @@ func (s *Service) routeCompaction(
 	if err != nil || res.UsageBypass || res.CallerModelPassthrough {
 		return res, err
 	}
-	s.writeNewPin(ctx, installationID, sessionKey, res.PinRole, res.Decision)
+	routingpolicy.NewSessionPins(s.pinStore, s.clock.Now).WriteNew(ctx, installationID, sessionKey, res.PinRole, res.Decision)
 	return res, nil
 }
 

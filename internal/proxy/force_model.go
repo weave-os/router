@@ -304,18 +304,9 @@ func stripEffortSuffix(model string) (effort string, modelOut string) {
 }
 
 const (
-	forceModelSessionRole       = "force_model"
-	forceModelHistoryRoleSuffix = "_force_hist"
-	forceModelHistoryReason     = "force_model_history"
-	userUnforcedReason          = "user_unforced"
+	forceModelSessionRole = "force_model"
+	userUnforcedReason    = "user_unforced"
 )
-
-func forceModelHistoryRole(role string) string {
-	if role == "" {
-		role = sessionpin.DefaultRole
-	}
-	return role + forceModelHistoryRoleSuffix
-}
 
 func (s *Service) preserveForceModelControlHistory(
 	ctx context.Context,
@@ -408,29 +399,6 @@ func (s *Service) loadForceModelHistory(
 		return sessionpin.Pin{}
 	}
 	return pin
-}
-
-func (s *Service) anchorForceModelHistory(
-	ctx context.Context,
-	installationID uuid.UUID,
-	sessionKey [sessionpin.SessionKeyLen]byte,
-	role string,
-	forcedPin sessionpin.Pin,
-) {
-	if s.pinStore == nil || installationID == uuid.Nil {
-		return
-	}
-	s.upsertPin(ctx, sessionpin.Pin{
-		SessionKey:     sessionKey,
-		Role:           forceModelHistoryRole(role),
-		InstallationID: installationID,
-		Provider:       forcedPin.Provider,
-		Model:          forcedPin.Model,
-		Reason:         forceModelHistoryReason,
-		Strategy:       router.StrategyFromContext(ctx),
-		TurnCount:      1,
-		PinnedUntil:    pinNeverExpires,
-	})
 }
 
 func forceModelClearRoles() []string {

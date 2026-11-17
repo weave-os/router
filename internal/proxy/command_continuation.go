@@ -6,6 +6,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/google/uuid"
 )
@@ -25,10 +26,11 @@ func (s *Service) grantPostCommandContinuation(
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
 ) {
+	sessionPins := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now)
 	if s.pinStore == nil || installationID == uuid.Nil {
 		return
 	}
-	pin, found := s.loadPin(ctx, sessionKey, role)
+	pin, found := sessionPins.Load(ctx, sessionKey, role)
 	if !found || pin.Model == "" || pin.Provider == "" || isUserForcedReason(pin.Reason) {
 		return
 	}
@@ -47,7 +49,7 @@ func (s *Service) grantPostCommandContinuation(
 	pin.Strategy = router.StrategyFromContext(ctx)
 	pin.TurnCount = 1
 	pin.PinnedUntil = pinExpiry(pin.Reason, s.clock.Now())
-	s.upsertPin(ctx, pin)
+	sessionPins.Upsert(ctx, pin)
 	observability.FromContext(ctx).Info("stored one-shot post-command continuation", "model", pin.Model, "provider", pin.Provider, "role", role)
 }
 

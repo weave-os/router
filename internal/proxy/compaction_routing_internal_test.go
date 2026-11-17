@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
@@ -68,7 +69,7 @@ func (f compactionRoutingFixture) run(t *testing.T, ctx context.Context, env *tr
 func (f compactionRoutingFixture) pinSession(t *testing.T, ctx context.Context, env *translate.RequestEnvelope, decision router.Decision) {
 	t.Helper()
 	role := roleForTier(catalog.TierFor(env.RoutingFeatures().Model))
-	f.svc.writeNewPin(ctx, f.installationID, deriveSessionKeyForRequest(ctx, env, "test-key"), role, decision)
+	routingpolicy.NewSessionPins(f.svc.pinStore, f.svc.clock.Now).WriteNew(ctx, f.installationID, deriveSessionKeyForRequest(ctx, env, "test-key"), role, decision)
 }
 
 func openAICatalogModels() map[string]struct{} {

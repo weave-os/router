@@ -200,17 +200,6 @@ type registeredStrategy struct {
 	feedback     policy.FeedbackReporter
 }
 
-const pinSessionTTL = time.Hour
-
-var pinNeverExpires = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
-
-func pinExpiry(reason string, now time.Time) time.Time {
-	if strings.HasPrefix(reason, translate.ReasonUserForceModel) {
-		return pinNeverExpires
-	}
-	return now.Add(pinSessionTTL)
-}
-
 type APIKeyIDContextKey struct{}
 
 func apiKeyIDFromContext(ctx context.Context) string {
@@ -2740,8 +2729,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if s.pinStore != nil && !isUnpinnedScoredTurn(routeRes.TurnType) {
 			sessionKey := deriveSessionKeyForRequest(ctx, env, apiKeyID)
 			role := roleForTier(catalog.TierFor(feats.Model))
-			pin, _ := s.loadPin(ctx, sessionKey, role)
-			hmmHistory := s.loadHMMHistory(ctx, sessionKey, role)
+			pin, _ := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now).Load(ctx, sessionKey, role)
+			hmmHistory := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now).LoadHMMHistory(ctx, sessionKey, role)
 			forceHistory := s.loadForceModelHistory(ctx, sessionKey, role)
 			routeRes.SessionKey = sessionKey
 			routeRes.applySwitchHistory(pin, hmmHistory, forceHistory)
@@ -3800,6 +3789,7 @@ func isHMMTurn(res turnLoopResult) bool {
 }
 
 func (s *Service) recordHMMTurnHistory(ctx context.Context, res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int, outputLimitReached bool) {
+	sessionPins := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now)
 	if servedModel == "" || res.InstallationID == uuid.Nil {
 		return
 	}
@@ -3811,12 +3801,12 @@ func (s *Service) recordHMMTurnHistory(ctx context.Context, res turnLoopResult, 
 	strategyCtx := strategyContext(ctx, strategyForTurnLoopResult(res))
 	historyProvider := servedProvider
 	if !hasUsage {
-		if prior := s.loadHMMHistory(strategyCtx, res.SessionKey, res.PinRole); prior.Provider != "" {
+		if prior := sessionPins.LoadHMMHistory(strategyCtx, res.SessionKey, res.PinRole); prior.Provider != "" {
 			historyProvider = prior.Provider
 		}
 	}
 	role := hmmHistoryRole(res.PinRole)
-	s.upsertPin(strategyCtx, sessionpin.Pin{
+	sessionPins.Upsert(strategyCtx, sessionpin.Pin{
 		SessionKey:     res.SessionKey,
 		Role:           role,
 		InstallationID: res.InstallationID,
