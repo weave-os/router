@@ -110,6 +110,7 @@ func TestCodexSubscriptionCoverageComesFromCatalog(t *testing.T) {
 		"gpt-6-sol",
 		"gpt-6.1-sol",
 		"gpt-6.1-terra",
+		"gpt-6.2-sol",
 	}, CodexSubscriptionModels())
 	assert.True(t, CodexSubscriptionCoversModel("gpt-6-luna"))
 	assert.False(t, CodexSubscriptionCoversModel("gpt-5.4-nano"))
@@ -491,6 +492,8 @@ func TestContextWindowFor_KnownModels(t *testing.T) {
 	assert.Equal(t, 1_050_000, ContextWindowFor("gpt-6-astra"))
 	assert.Equal(t, 1_050_000, ContextWindowFor("gpt-6-sol"))
 	assert.Equal(t, 1_050_000, ContextWindowFor("gpt-6.1-sol"))
+	assert.Equal(t, 1_050_000, ContextWindowFor("gpt-6.2-sol"))
+	assert.Equal(t, 1_050_000, ContextWindowFor("gpt-6.2-astra"))
 	assert.Equal(t, 1_050_000, ContextWindowFor("gpt-6-luna"))
 	// GPT-4.1 family has 1M context.
 	assert.Equal(t, 1_047_576, ContextWindowFor("gpt-4.1"))
@@ -524,6 +527,29 @@ func TestGPT61SolCachedAndLongContextPricing(t *testing.T) {
 	assert.InDelta(t, 15.0, price.LongContext.OutputUSDPer1M, 1e-9)
 
 	assert.True(t, SupportsFastMode("gpt-6.1-sol"))
+}
+
+func TestGPT62CachedAndLongContextPricing(t *testing.T) {
+	sol, ok := PriceFor(providers.ProviderOpenAI, "gpt-6.2-sol")
+	require.True(t, ok)
+	assert.InDelta(t, 2.0, sol.InputUSDPer1M, 1e-9)
+	assert.InDelta(t, 10.0, sol.OutputUSDPer1M, 1e-9)
+	assert.InDelta(t, 0.05, sol.CacheReadMultiplier, 1e-9)
+	require.NotNil(t, sol.LongContext)
+	assert.Equal(t, 272_000, sol.LongContext.ThresholdTokens)
+
+	astra, ok := PriceFor(providers.ProviderOpenAI, "gpt-6.2-astra")
+	require.True(t, ok)
+	assert.InDelta(t, 8.0, astra.InputUSDPer1M, 1e-9)
+	assert.InDelta(t, 40.0, astra.OutputUSDPer1M, 1e-9)
+	assert.InDelta(t, 0.05, astra.CacheReadMultiplier, 1e-9)
+	require.NotNil(t, astra.LongContext)
+	assert.Equal(t, 272_000, astra.LongContext.ThresholdTokens)
+
+	assert.True(t, SupportsFastMode("gpt-6.2-sol"))
+	assert.True(t, SupportsFastMode("gpt-6.2-astra"))
+	assert.True(t, CodexSubscriptionCoversModel("gpt-6.2-sol"))
+	assert.False(t, CodexSubscriptionCoversModel("gpt-6.2-astra"))
 }
 
 func TestValidateDeployed_FlagsMissingAndUntiered(t *testing.T) {
