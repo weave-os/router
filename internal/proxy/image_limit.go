@@ -41,6 +41,8 @@ func requestBodyBytesFromContext(ctx context.Context) int {
 }
 
 func withRequestBodyBytes(ctx context.Context, req router.Request) router.Request {
-	req.RequestBodyBytes = requestBodyBytesFromContext(ctx)
+	if bodyBytes := requestBodyBytesFromContext(ctx); bodyBytes > 0 {
+		req.RequestBodyBytes = bodyBytes
+	}
 	return req
 }
