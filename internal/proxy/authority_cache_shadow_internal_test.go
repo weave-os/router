@@ -310,8 +310,8 @@ func TestAuthorityCacheShadowEffortBearingPinIsAStayCandidate(t *testing.T) {
 	const servedIdentity = shadowPinnedModel + ":high"
 
 	result := runAuthorityShadowTurnWithPin(t, true,
-		hmmFreshDecisionWithArmScores(map[string]float32{shadowPinnedModel: 0.40, shadowFreshModel: 0.71},
-			map[string]float32{servedIdentity: 0.66},
+		hmmFreshDecisionWithArmScores(map[string]float32{shadowFreshModel: 0.71},
+			map[string]float32{"anthropic/" + servedIdentity: 0.66},
 		),
 		authorityShadowPinServing(servedIdentity),
 	)
@@ -321,7 +321,8 @@ func TestAuthorityCacheShadowEffortBearingPinIsAStayCandidate(t *testing.T) {
 	assert.NotEqual(t, planner.ReasonNoPin, result.AuthorityShadow.Reason())
 	assert.Equal(t, shadowPinnedModel, result.AuthorityShadow.StayModel,
 		"the stay candidate is the base catalog model")
-	assert.NotNil(t, result.AuthorityShadow.StayScore)
+	require.NotNil(t, result.AuthorityShadow.StayScore, "the stay score is looked up on the effort-qualified arm")
+	assert.InDelta(t, 0.66, *result.AuthorityShadow.StayScore, 1e-6)
 }
 
 // TestCandidateScoreFor covers the lookup directly. CandidateScores is keyed
