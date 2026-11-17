@@ -123,7 +123,7 @@ func TestSubscriberCreditRejectsNonSubscriberOwners(t *testing.T) {
 	// The organization these subscribers belong to cannot address the
 	// subscriber book at all.
 	_, err := repo.Balance(ctx, billing.OrganizationOwner(organizationID))
-	assert.ErrorIs(t, err, billing.ErrOwnerKindUnsupported)
+	require.ErrorIs(t, err, billing.ErrOwnerKindUnsupported)
 
 	// Nor can an organization id be smuggled through as a subscriber id.
 	_, err = repo.Debit(ctx, billing.PrepaidDebit{
@@ -131,7 +131,7 @@ func TestSubscriberCreditRejectsNonSubscriberOwners(t *testing.T) {
 		DeltaUsdMicros: -1_000_000,
 		EntryType:      billing.EntryTypeInference,
 	})
-	assert.ErrorIs(t, err, billing.ErrInvalidOwner)
+	require.ErrorIs(t, err, billing.ErrInvalidOwner)
 
 	balanceA, err := repo.Balance(ctx, billing.SubscriberOwner(subscriberA.String()))
 	require.NoError(t, err)

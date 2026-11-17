@@ -2,20 +2,15 @@ package proxy
 
 import (
 	"context"
-	"time"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 )
 
-// PolicyShadowStore persists comparison-only policy decisions; if nil,
-// shadow routing still logs results without durable storage.
 type PolicyShadowStore interface {
 	InsertPolicyShadowDecision(ctx context.Context, event PolicyShadowDecision) error
 }
 
-// PolicyShadowDecision is one immutable serving-vs-shadow comparison. It does
-// not contain prompt or response content.
 type PolicyShadowDecision struct {
 	InstallationID  string
 	OrganizationID  string
@@ -78,10 +73,10 @@ func (s *Service) firePolicyShadowDecision(ctx context.Context, servingStrategy 
 		"shadow_strategy", shadowStrategy,
 	)
 	observability.SafeGoContext(withoutRequestValues(ctx), log, policyShadowDecisionTimeout, "policyShadowDecision", func(shadowCtx context.Context) {
-		started := time.Now()
+		started := s.clock.Now()
 		shadow, err := s.routeWithStrategy(shadowCtx, shadowStrategy, shadowReq)
 		event := base
-		event.ShadowLatencyMs = time.Since(started).Milliseconds()
+		event.ShadowLatencyMs = s.clock.Now().Sub(started).Milliseconds()
 		if err != nil {
 			event.ShadowError = truncatePolicyShadowError(err.Error())
 		} else {

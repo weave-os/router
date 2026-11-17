@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +12,9 @@ import (
 	"testing/synctest"
 	"time"
 	"weave-os/router/internal/providers"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStartupEgressRejectsInvalidOrigins(t *testing.T) {
@@ -75,9 +76,9 @@ func TestStartupEgressPreservesAdditionalOriginConnectivity(t *testing.T) {
 	var requests atomic.Int32
 	origin := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
-		require.Equal(t, http.MethodHead, r.Method)
-		require.Empty(t, r.Header.Get("Authorization"))
-		require.Empty(t, r.Header.Get("X-Api-Key"))
+		assert.Equal(t, http.MethodHead, r.Method)
+		assert.Empty(t, r.Header.Get("Authorization"))
+		assert.Empty(t, r.Header.Get("X-Api-Key"))
 		w.WriteHeader(http.StatusForbidden)
 	}))
 	defer origin.Close()

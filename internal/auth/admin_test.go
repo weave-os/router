@@ -93,7 +93,7 @@ func TestAdminSession_TamperedSignatureIsRejected(t *testing.T) {
 		// Splice the original payload with a signature produced under a different key.
 		_, verifyErr := svc.VerifyAdminSession(payload + "." + forgedSig)
 		require.Error(t, verifyErr)
-		assert.ErrorIs(t, verifyErr, ErrAdminSessionInvalid)
+		require.ErrorIs(t, verifyErr, ErrAdminSessionInvalid)
 
 		// Sanity: the forged token doesn't verify against its own issuer's mismatched payload either
 		// when checked by svc (different key), proving the signature really is key-bound.
@@ -140,13 +140,13 @@ func TestVerifyAdminPassword_NotConfigured(t *testing.T) {
 
 	err := svc.VerifyAdminPassword(adminTestPassword)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrAdminPasswordNotConfigured)
-	assert.ErrorIs(t, svc.VerifyAdminPassword("admin"), ErrAdminPasswordNotConfigured,
+	require.ErrorIs(t, err, ErrAdminPasswordNotConfigured)
+	require.ErrorIs(t, svc.VerifyAdminPassword("admin"), ErrAdminPasswordNotConfigured,
 		"an unset password must never revive the former shared default")
 
 	_, _, issueErr := svc.IssueAdminSession()
 	require.Error(t, issueErr)
-	assert.ErrorIs(t, issueErr, ErrAdminPasswordNotConfigured)
+	require.ErrorIs(t, issueErr, ErrAdminPasswordNotConfigured)
 
 	_, verifyErr := svc.VerifyAdminSession("anything.anything")
 	require.Error(t, verifyErr)
@@ -158,10 +158,10 @@ func TestVerifyAdminPasswordFromIP_LockoutAfterFiveFailures(t *testing.T) {
 	const ip = "203.0.113.7"
 
 	// Four failures must not yet trip the lockout.
-	for i := 0; i < adminLoginMaxFailures-1; i++ {
+	for range 4 {
 		err := svc.VerifyAdminPasswordFromIP(ip, "wrong-password")
 		require.Error(t, err)
-		assert.ErrorIs(t, err, ErrAdminSessionInvalid,
+		require.ErrorIs(t, err, ErrAdminSessionInvalid,
 			"failures under the threshold must report invalid credentials, not rate limiting")
 	}
 
@@ -169,7 +169,7 @@ func TestVerifyAdminPasswordFromIP_LockoutAfterFiveFailures(t *testing.T) {
 	// reports invalid credentials (the limiter blocks *subsequent* attempts).
 	err := svc.VerifyAdminPasswordFromIP(ip, "wrong-password")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrAdminSessionInvalid)
+	require.ErrorIs(t, err, ErrAdminSessionInvalid)
 
 	// A 6th attempt, even with the correct password, must now be rate limited.
 	err = svc.VerifyAdminPasswordFromIP(ip, adminTestPassword)
@@ -182,7 +182,7 @@ func TestVerifyAdminPasswordFromIP_SuccessResetsFailureCount(t *testing.T) {
 	svc, _ := newAdminTestService(t)
 	const ip = "203.0.113.8"
 
-	for i := 0; i < adminLoginMaxFailures-1; i++ {
+	for range 4 {
 		err := svc.VerifyAdminPasswordFromIP(ip, "wrong-password")
 		require.Error(t, err)
 	}
@@ -192,7 +192,7 @@ func TestVerifyAdminPasswordFromIP_SuccessResetsFailureCount(t *testing.T) {
 
 	// Failures should now start counting from zero again, so adminLoginMaxFailures-1
 	// more failures must still not trigger the lockout.
-	for i := 0; i < adminLoginMaxFailures-1; i++ {
+	for range 4 {
 		err := svc.VerifyAdminPasswordFromIP(ip, "wrong-password")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, ErrAdminSessionInvalid,
@@ -205,13 +205,13 @@ func TestVerifyAdminPasswordFromIP_DifferentIPsAreIndependent(t *testing.T) {
 	const ipA = "203.0.113.9"
 	const ipB = "203.0.113.10"
 
-	for i := 0; i < adminLoginMaxFailures; i++ {
+	for range 5 {
 		_ = svc.VerifyAdminPasswordFromIP(ipA, "wrong-password")
 	}
 
 	err := svc.VerifyAdminPasswordFromIP(ipA, adminTestPassword)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrAdminLoginRateLimited, "ipA must be locked out")
+	require.ErrorIs(t, err, ErrAdminLoginRateLimited, "ipA must be locked out")
 
 	// A different IP must be unaffected by ipA's lockout.
 	err = svc.VerifyAdminPasswordFromIP(ipB, adminTestPassword)

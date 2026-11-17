@@ -11,7 +11,6 @@ import (
 	"weave-os/router/internal/router/turntype"
 )
 
-// rescuePorts are the rescue chain's dependencies, grouped by owning context.
 type rescuePorts struct {
 	svc         rescueServices
 	credentials dispatch.RescueCredentials
@@ -22,8 +21,6 @@ func rescuePortsFor(s *Service) rescuePorts {
 	return rescuePorts{svc: s, credentials: rescueCredentialPort{s}, routing: rescueRoutingPort{s}}
 }
 
-// rescueCredentialPort satisfies dispatch.RescueCredentials from the proxy
-// service until Credential Brokerage owns these operations.
 type rescueCredentialPort struct{ s *Service }
 
 var _ dispatch.RescueCredentials = rescueCredentialPort{}
@@ -64,8 +61,6 @@ func (p rescueCredentialPort) RecordCodexQuotaExhaustion(ctx context.Context, he
 	p.s.recordCodexQuotaExhaustion(ctx, headers, err)
 }
 
-// rescueRoutingPort satisfies dispatch.RescueRouting from the proxy service
-// until Routing Policy owns these operations.
 type rescueRoutingPort struct{ s *Service }
 
 var _ dispatch.RescueRouting = rescueRoutingPort{}

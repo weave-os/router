@@ -20,7 +20,7 @@ func TestServingAssertionBindsRequestAndExpires(t *testing.T) {
 	signer, err := policyregistry.NewAssertionSigner([]byte(strings.Repeat("k", 32)), func() time.Time { return now })
 	require.NoError(t, err)
 	body := []byte(`{"model":"auto","stream":true}`)
-	r := httptest.NewRequest(http.MethodPost, "https://router.example/v1/messages?beta=true", strings.NewReader(string(body)))
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "https://router.example/v1/messages?beta=true", strings.NewReader(string(body)))
 	admission := policyregistry.SessionReleaseBinding{Target: policyregistry.TargetStable, ActivationID: "activation", Selection: set.Default, BindingGeneration: 1}
 	assertion := policyregistry.ServingAssertion{APIKeyID: "key", Scope: policyregistry.AdmissionScope{InstallationID: "installation", CredentialIdentity: "subject"}, Admission: admission}
 	encoded, err := signer.Sign(assertion, r, body, "rk_credential")
@@ -58,7 +58,7 @@ func TestServingAssertionBindsRequestAndExpires(t *testing.T) {
 
 func TestWorkerAdmissionRequiresExactLocalIdentity(t *testing.T) {
 	store, _, set := controllerFixture(t)
-	binding := store.object(t, policyregistry.ServingBindings, set.Default.Binding).(*policyregistry.DeploymentBinding)
+	binding := mustAs[*policyregistry.DeploymentBinding](t, store.object(t, policyregistry.ServingBindings, set.Default.Binding))
 	assertion := policyregistry.ServingAssertion{APIKeyID: "key", Scope: policyregistry.AdmissionScope{InstallationID: "installation"}, Admission: policyregistry.SessionReleaseBinding{Target: policyregistry.TargetStable, Selection: set.Default}}
 	identity := policyregistry.WorkerIdentity{Target: binding.Target, Project: binding.Project, Region: binding.Region, Revision: binding.Router.Name, ImageDigest: binding.Router.ImageDigest, Configuration: binding.Router.Configuration}
 	_, err := policyregistry.ValidateWorkerAdmission(context.Background(), store, identity, assertion, "installation", "key")

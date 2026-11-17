@@ -37,12 +37,12 @@ func fakeGateway(t *testing.T, got *captured) *httptest.Server {
 	return srv
 }
 
-func messagesRequest() (providers.PreparedRequest, *http.Request) {
+func messagesRequest(ctx context.Context) (providers.PreparedRequest, *http.Request) {
 	prep := providers.PreparedRequest{
 		Body:    []byte(`{"model":"claude-opus-5","messages":[{"role":"user","content":"hi"}]}`),
 		Headers: make(http.Header),
 	}
-	return prep, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	return prep, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", strings.NewReader(""))
 }
 
 func TestBearerScheme_SendsDeploymentTokenAsBearer(t *testing.T) {
@@ -50,7 +50,7 @@ func TestBearerScheme_SendsDeploymentTokenAsBearer(t *testing.T) {
 	upstream := fakeGateway(t, &got)
 
 	c := anthropic.NewClient("gateway-token", upstream.URL, anthropic.WithAuthScheme(anthropic.AuthBearer))
-	prep, clientReq := messagesRequest()
+	prep, clientReq := messagesRequest(t.Context())
 	rec := httptest.NewRecorder()
 
 	require.NoError(t, c.Proxy(context.Background(), router.Decision{Model: "claude-opus-5"}, prep, rec, clientReq))
@@ -68,7 +68,7 @@ func TestBearerScheme_UsesBYOKCredentialBaseURLAndToken(t *testing.T) {
 	// Deployment holds no gateway key: token and endpoint both come from the
 	// installation's stored BYOK credential.
 	c := anthropic.NewClient("", "", anthropic.WithAuthScheme(anthropic.AuthBearer))
-	prep, clientReq := messagesRequest()
+	prep, clientReq := messagesRequest(t.Context())
 	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
 		APIKey:  []byte("byok-token"),
 		Source:  "byok",
@@ -90,7 +90,7 @@ func TestBearerScheme_DoesNotRelayInboundAnthropicAuth(t *testing.T) {
 	// A Bearer gateway must not relay the caller's Anthropic key — it is
 	// meaningless there and leaks a credential across a tenant boundary.
 	c := anthropic.NewClient("", upstream.URL, anthropic.WithAuthScheme(anthropic.AuthBearer))
-	prep, clientReq := messagesRequest()
+	prep, clientReq := messagesRequest(t.Context())
 	clientReq.Header.Set("Authorization", "Bearer anthropic-oauth-token")
 	clientReq.Header.Set("x-api-key", "sk-ant-customer-key")
 	rec := httptest.NewRecorder()
@@ -105,7 +105,7 @@ func TestBearerScheme_EmptyBaseURLDoesNotFallBackToAnthropic(t *testing.T) {
 	// An unconfigured Bearer gateway must not inherit DefaultBaseURL: that would
 	// ship a third party's token to api.anthropic.com.
 	c := anthropic.NewClient("gateway-token", "", anthropic.WithAuthScheme(anthropic.AuthBearer))
-	prep, clientReq := messagesRequest()
+	prep, clientReq := messagesRequest(t.Context())
 
 	err := c.Proxy(context.Background(), router.Decision{Model: "claude-opus-5"}, prep, httptest.NewRecorder(), clientReq)
 

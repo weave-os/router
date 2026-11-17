@@ -1,5 +1,3 @@
-// Command task_domain_check verifies content-free profile persistence on a
-// disposable migrated localhost database. It never loads deployment credentials.
 package main
 
 import (
@@ -147,8 +145,6 @@ func check(dsn string) (checkErr error) {
 	if err := pool.QueryRow(ctx, "SELECT retry_after IS NULL AND expires_at > CURRENT_TIMESTAMP + INTERVAL '29 days' FROM router.task_domain_profiles WHERE conversation_key = $1 AND root_sha256 = $2", key.Conversation, failed.Root).Scan(&renewed30Days); err != nil || !renewed30Days {
 		return fmt.Errorf("retried profile not renewed for 30 days: %v", err)
 	}
-	// A failed root past its retry window still counts toward resume ambiguity, so a
-	// successful sibling (e.g. a subagent) never becomes the conversation's resume profile.
 	resumeAmbiguityKey := taskdomain.Key{Conversation: identity(), Root: identity(), Release: key.Release, Evidence: key.Evidence}
 	defer func() {
 		cleanupCtx, stop := context.WithTimeout(context.Background(), time.Second)
@@ -192,7 +188,6 @@ func check(dsn string) (checkErr error) {
 	if err != nil || renewed.Cached || renewed.Status != taskdomain.Ready {
 		return fmt.Errorf("expired root renewal: %v, %v", renewed.Status, err)
 	}
-	// Fill the optional inference slots; completed roots must still be readable.
 	blockersStarted, releaseBlockers := make(chan struct{}, 2), make(chan struct{})
 	blockers, blockedCtx := errgroup.WithContext(ctx)
 	for range 2 {
@@ -222,7 +217,6 @@ func check(dsn string) (checkErr error) {
 	if err != nil || !stillCached.Cached {
 		return fmt.Errorf("cache blocked by inference capacity: %v", err)
 	}
-	// A third first turn waits for a slot instead of falling back to baseline.
 	waiting := key
 	waiting.Root = identity()
 	waited, waiterStarted := make(chan error, 1), make(chan struct{})
@@ -240,13 +234,10 @@ func check(dsn string) (checkErr error) {
 		return fmt.Errorf("third first turn did not wait for capacity: %v", err)
 	case <-time.After(200 * time.Millisecond):
 	}
-	// Release each transaction before the pool closes.
 	releaseBlockers <- struct{}{}
 	if err := <-waited; err != nil {
 		return fmt.Errorf("waiting first turn: %w", err)
 	}
-	// With the remaining slot held as well, a waiter gives up after its bounded wait and
-	// stores nothing, so a later turn classifies normally.
 	held := key
 	held.Root = identity()
 	heldStarted := make(chan struct{})

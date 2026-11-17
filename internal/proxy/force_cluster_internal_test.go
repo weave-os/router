@@ -16,7 +16,7 @@ import (
 
 func forceClusterRequest(t *testing.T, value string) *http.Request {
 	t.Helper()
-	r, err := http.NewRequest(http.MethodPost, "/v1/messages", nil)
+	r, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	require.NoError(t, err)
 	if value != "" {
 		r.Header.Set(ForceClusterHeader, value)
@@ -61,7 +61,7 @@ func TestApplyForceClusterHeader_RejectsNonSidecarStrategy(t *testing.T) {
 	label, err := applyForceClusterHeader(ctx, forceClusterRequest(t, "maximum"))
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrForcedClusterUnsupportedStrategy)
+	require.ErrorIs(t, err, ErrForcedClusterUnsupportedStrategy)
 	assert.Empty(t, label)
 
 	cls, ok := ClassifyDispatchError(err)

@@ -9,17 +9,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// HealthChecker reports whether a dependency is ready to serve traffic.
 type HealthChecker interface {
 	CheckHealth(ctx context.Context) error
 }
 
-// HealthHandler is the process responsive check; it does not contact dependencies.
 func HealthHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
-// StartupHandler requires database connectivity before the instance receives traffic.
 func StartupHandler(ping func(context.Context) error) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if ping == nil {
@@ -36,7 +33,6 @@ func StartupHandler(ping func(context.Context) error) gin.HandlerFunc {
 	}
 }
 
-// ReadinessHandler reports whether optional dependencies are ready.
 func ReadinessHandler(checker HealthChecker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if checker != nil {

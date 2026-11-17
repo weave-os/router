@@ -33,7 +33,6 @@ func AgentShadowEvalFromContext(ctx context.Context) (AgentShadowEvaluation, boo
 	return value, ok && value.Model != "" && value.RolloutID != "" && value.StateID != ""
 }
 
-// runAgentShadowEvaluationRoute forces the preplanned model without touching pins, planners, feedback, or policy state.
 func (s *Service) runAgentShadowEvaluationRoute(
 	ctx context.Context,
 	env *translate.RequestEnvelope,
@@ -61,7 +60,6 @@ func (s *Service) runAgentShadowEvaluationRoute(
 	}
 	if req.EnabledProviders != nil {
 		if _, enabled := req.EnabledProviders[provider]; !enabled {
-			// Planned provider may be disabled; fall back to the first available catalog binding.
 			provider = ""
 			for _, binding := range catalog.AvailableBindings(model, req.EnabledProviders) {
 				if _, excludedProvider := s.excludedProvidersForRequest(ctx)[binding.Provider]; !excludedProvider {
@@ -80,14 +78,13 @@ func (s *Service) runAgentShadowEvaluationRoute(
 	decision := router.Decision{Model: model, Provider: provider, Reason: ReasonAgentShadowEval}
 	requestedTier := catalog.TierFor(feats.Model)
 	return turnLoopResult{
-		InstallationID: installationID,
-		TurnType:       turntype.DetectFromEnvelope(env, feats, ""),
-		PinTier:        "agent_shadow_eval",
-		PinRole:        roleForTier(requestedTier),
-		RequestedTier:  requestedTier,
-		Decision:       decision,
-		Fresh:          decision,
-		// Eval routing does not read pins, so request evidence must guard stale signatures.
+		InstallationID:      installationID,
+		TurnType:            turntype.DetectFromEnvelope(env, feats, ""),
+		PinTier:             "agent_shadow_eval",
+		PinRole:             roleForTier(requestedTier),
+		RequestedTier:       requestedTier,
+		Decision:            decision,
+		Fresh:               decision,
 		StripThinkingBlocks: feats.Model != model || env.SignatureTokenSavings() > 0,
 	}, nil
 }

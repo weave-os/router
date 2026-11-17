@@ -21,6 +21,7 @@ import (
 	"github.com/tidwall/gjson"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -190,7 +191,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 						servedModels = append(servedModels, decision.Model)
 						subscriptionFunding = append(subscriptionFunding, servedOnSubscription(attemptCtx))
 						buffer.Seal()
-						return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+						return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/messages", nil))
 					}, nil
 				},
 				OnAlternative: func(decision router.Decision) { winner = decision },
@@ -217,7 +218,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 			}
 			if scenario.liveReject && !scenario.wantErr {
 				require.Equal(t, []string{stateClaudeModel, scenario.want}, servedModels)
-				require.Contains(t, turnFailuresFromContext(ctx).models, stateClaudeModel, "the rescued model is struck for the agent turn")
+				require.NotContains(t, turnFailuresFromContext(ctx).models, stateClaudeModel, "a funding failure leaves the model to the paid lane")
 			}
 		})
 	}
@@ -259,7 +260,7 @@ func TestSubscriptionStateRateLimitedIncludedLaneKeepsUpstreamStatus(t *testing.
 		BuildAlternative: func(router.Decision) (dispatch.UpstreamAttempt, error) {
 			return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
 				buffer.Seal()
-				return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+				return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/messages", nil))
 			}, nil
 		},
 	}
@@ -340,7 +341,7 @@ func TestSubscriptionStateModelsHTTPIngress(t *testing.T) {
 					body = `{"model":"auto","stream":true,"input":[{"role":"user","content":"synthetic task"}]}`
 				}
 				rec := httptest.NewRecorder()
-				req := httptest.NewRequest(http.MethodPost, surface, strings.NewReader(body))
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, surface, strings.NewReader(body))
 				var err error
 				switch surface {
 				case routePathMessages:
@@ -392,7 +393,7 @@ func TestSubscriptionStateModelsClassifierUsesPaidSet(t *testing.T) {
 	body := `{"model":"` + stateClaudeModel + `","stream":true,"max_tokens":64,"thinking":{"type":"disabled"},"system":"You are a security monitor.","messages":[{"role":"user","content":"grade this action"}]}`
 	rec := httptest.NewRecorder()
 
-	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, routePathMessages, strings.NewReader(body))))
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathMessages, strings.NewReader(body))))
 
 	require.Equal(t, statePaidModel, rec.Header().Get(HeaderRouterModel))
 	require.Equal(t, []string{statePaidModel}, models)
@@ -425,7 +426,7 @@ func TestSubscriptionStateModelsPaidFallbackSkipsUnavailableProvider(t *testing.
 			return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
 				servedModels = append(servedModels, decision.Model)
 				buffer.Seal()
-				return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+				return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/messages", nil))
 			}, nil
 		},
 		OnSubscriptionStateTarget: func(decision router.Decision, _ []catalog.ProviderBinding) { winner = decision },
@@ -547,7 +548,7 @@ func TestSubscriptionStateModelsStrictDirectSubscription(t *testing.T) {
 				require.True(t, servedOnSubscription(attemptCtx))
 				require.Equal(t, conditionalModelsSubscriptionToken, string(CredentialsFromContext(attemptCtx).APIKey))
 				buffer.Seal()
-				return upstream.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, routePathMessages, nil))
+				return upstream.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, routePathMessages, nil))
 			}, nil
 		},
 		OnAlternative: func(target router.Decision) { winner = target },
@@ -611,7 +612,7 @@ func TestSubscriptionStateModelsCodexNativeAttemptAfterCrossFamilyPick(t *testin
 
 	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic task"}]}],"tools":[{"type":"custom","name":"exec"}]}`
 	rec := httptest.NewRecorder()
-	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, routePathResponses, strings.NewReader(body)))
+	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathResponses, strings.NewReader(body)))
 
 	require.NoError(t, err)
 	require.Equal(t, []string{stateCodexModel}, models, "the included Codex plan serves the turn")
@@ -621,10 +622,9 @@ func TestSubscriptionStateModelsCodexNativeAttemptAfterCrossFamilyPick(t *testin
 	assert.NotContains(t, out, "response.failed")
 }
 
-// A revoked own ChatGPT login is not spent quota: the turn answers 401 so
-// Codex signs in again, instead of the exhausted model set serving it (prod
-// 2026-11-13: token_revoked sessions ran on allowance models).
-func TestSubscriptionStateModelsRevokedCodexLoginFailsTurn(t *testing.T) {
+// A revoked own ChatGPT login cannot serve the turn, so the exhausted model set
+// serves it on Weave credits and the stream names the reconnect.
+func TestSubscriptionStateModelsRevokedCodexLoginFallsBackWithReconnectNotice(t *testing.T) {
 	for _, tc := range []struct {
 		held, stream bool
 		client       string
@@ -638,6 +638,8 @@ func TestSubscriptionStateModelsRevokedCodexLoginFailsTurn(t *testing.T) {
 				}
 				if strings.HasSuffix(r.URL.Path, "/chat/completions") {
 					paidCalls++
+					writeSyntheticChatCompletion(w, gjson.GetBytes(mustReadBody(r), "stream").Bool())
+					return
 				}
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusUnauthorized)
@@ -666,20 +668,12 @@ func TestSubscriptionStateModelsRevokedCodexLoginFailsTurn(t *testing.T) {
 
 			body := fmt.Sprintf(`{"model":"auto","stream":%v,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic task"}]}]}`, tc.stream)
 			rec := httptest.NewRecorder()
-			err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, routePathResponses, strings.NewReader(body)))
+			err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathResponses, strings.NewReader(body)))
 
-			if tc.client != ClientAppCodex {
-				assert.Equal(t, 1, paidCalls, "a client that does not depend on its linked Codex login keeps the exhausted model set")
-				return
-			}
-			require.Error(t, err)
-			class, ok := ClassifyDispatchError(err)
-			require.True(t, ok)
-			assert.Equal(t, http.StatusUnauthorized, class.Status)
-			assert.Contains(t, class.Message, "reconnect=codex", "the ingress handler's error names the recovery")
-			assert.Zero(t, paidCalls, "the exhausted model set must not serve a revoked login")
-			if tc.stream {
-				assert.Contains(t, rec.Body.String(), "reconnect=codex", "a committed stream's response.failed names the recovery")
+			require.NoError(t, err)
+			assert.Equal(t, 1, paidCalls, "the exhausted model set serves a turn the revoked login cannot")
+			if tc.client == ClientAppCodex && tc.stream {
+				assert.Contains(t, rec.Body.String(), "reconnect=codex", "the stream names the recovery")
 			}
 		})
 	}
@@ -730,7 +724,7 @@ func TestSubscriptionStateModelsCodexCustomToolAfterCrossFamilyPick(t *testing.T
 
 	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"list files"}]}],"tools":[{"type":"custom","name":"exec","description":"run a script"}]}`
 	rec := httptest.NewRecorder()
-	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, routePathResponses, strings.NewReader(body)))
+	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathResponses, strings.NewReader(body)))
 
 	require.NoError(t, err)
 	require.Equal(t, []string{"function"}, toolTypes, "the swapped attempt is emitted onto Responses from the chat projection")
@@ -817,17 +811,138 @@ func TestSubscriptionStateModelsResponsesClientGrid(t *testing.T) {
 
 					body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic task"}]}]` + toolsJSON + `}`
 					rec := httptest.NewRecorder()
-					err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, routePathResponses, strings.NewReader(body)))
+					err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathResponses, strings.NewReader(body)))
 
-					require.NoError(t, err)
-					require.Len(t, models, 1, "one attempt serves the turn")
-					require.Equal(t, models[0], rec.Header().Get(HeaderRouterModel))
-					out := rec.Body.String()
-					assert.Contains(t, out, "synthetic answer")
-					assert.Contains(t, out, `"type":"response.completed"`)
-					assert.NotContains(t, out, "response.failed")
+					assertResponsesClientGridOutcome(t, scenario.name+"/"+client+"/"+toolsName, err, models, rec)
 				})
 			}
 		}
+	}
+}
+
+func assertResponsesClientGridOutcome(t *testing.T, cell string, err error, models []string, rec *httptest.ResponseRecorder) {
+	t.Helper()
+	if cell == "both exhausted/generic client/custom tool" {
+		require.ErrorIs(t, err, router.ErrAllowlistEmptiesPool, "a native-only turn never reaches a paid set outside its wire family")
+		require.Empty(t, models)
+		return
+	}
+	require.NoError(t, err)
+	require.Len(t, models, 1, "one attempt serves the turn")
+	require.Equal(t, models[0], rec.Header().Get(HeaderRouterModel))
+	out := rec.Body.String()
+	assert.Contains(t, out, "synthetic answer")
+	assert.Contains(t, out, `"type":"response.completed"`)
+	assert.NotContains(t, out, "response.failed")
+}
+
+func mustReadBody(r *http.Request) []byte {
+	body, _ := io.ReadAll(r.Body)
+	return body
+}
+
+func writeSyntheticChatCompletion(w http.ResponseWriter, stream bool) {
+	if !stream {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"chatcmpl_synthetic","object":"chat.completion","model":"synthetic","choices":[{"index":0,"message":{"role":"assistant","content":"synthetic answer"},"finish_reason":"stop"}],"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}}`)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	_, _ = io.WriteString(w, "data: {\"id\":\"chatcmpl_synthetic\",\"object\":\"chat.completion.chunk\",\"model\":\"synthetic\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"synthetic answer\"},\"finish_reason\":null}]}\n\n"+
+		"data: {\"id\":\"chatcmpl_synthetic\",\"object\":\"chat.completion.chunk\",\"model\":\"synthetic\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":11,\"completion_tokens\":7,\"total_tokens\":18}}\n\n"+
+		"data: [DONE]\n\n")
+}
+
+func TestSubscriptionStateModelsSkipSpentSeatPoolsBeforeDispatch(t *testing.T) {
+	claude := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{{writeBytes: []byte("included Claude answer")}}}
+	codex := &fakeClient{name: providers.ProviderOpenAI, outcomes: []fakeOutcome{{writeBytes: []byte("included Codex answer")}}}
+	paid := &fakeClient{name: providers.ProviderOpenRouter, outcomes: []fakeOutcome{{writeBytes: []byte("cheap paid answer")}}}
+	leaser := &scriptedSubscriptionLeaser{}
+	svc := NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderAnthropic: claude, providers.ProviderOpenAI: codex, providers.ProviderOpenRouter: paid}, nil, nil, false, "", "", nil).
+		WithManagedSubscriptions(leaser)
+	resetAt := time.Now().Add(48 * time.Hour)
+	ctx := WithManagedSubscriptionCandidates(managedSubscriptionTestContext(), []*auth.SubscriptionAccount{
+		{ID: "synthetic-spent-claude", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &resetAt},
+		{ID: "synthetic-spent-codex", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &resetAt},
+		{ID: "synthetic-reconnect-codex", Provider: auth.SubscriptionProviderCodex, State: auth.SubscriptionAccountStateReconnectRequired},
+	})
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel, stateClaudeModel})
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
+	ctx = withTurnFailures(ctx)
+	req := router.Request{AllowedModels: allowedModelsForRequest(ctx), EnabledProviders: modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter})}
+	rec := httptest.NewRecorder()
+	buffer := newPreludeBuffer(rec)
+	var attempted []string
+	var winner router.Decision
+	_, err := svc.dispatchWithFallback(ctx, dispatch.FailoverInputs{
+		Writer: rec, Prelude: buffer, SubscriptionStateRequest: &req,
+		SubscriptionStateWinnerProvider: new(string),
+		InitialDecision:                 router.Decision{Model: stateCodexModel, Provider: providers.ProviderOpenAI},
+		Purpose:                         inference.PurposeAnthropicMessages,
+		BuildAlternative: func(router.Decision) (dispatch.UpstreamAttempt, error) {
+			return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
+				attempted = append(attempted, decision.Model)
+				buffer.Seal()
+				return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/messages", nil))
+			}, nil
+		},
+		OnAlternative: func(decision router.Decision) { winner = decision },
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, statePaidModel, winner.Model)
+	require.Equal(t, []string{statePaidModel}, attempted)
+	require.Empty(t, leaser.providers, "pools whose every seat is spent must not be leased again on each request")
+	require.Zero(t, claude.calls)
+	require.Zero(t, codex.calls)
+}
+
+func TestSubscriptionStateModelAvailableFollowsLeaseAdmission(t *testing.T) {
+	resetAt := time.Now().Add(48 * time.Hour)
+	spentObserver := usage.NewObserver([]byte("synthetic-salt"), time.Hour, time.Now)
+	spentObserver.Record(spentObserver.Key([]byte("subscription-account:synthetic-active-codex")), usage.Snapshot{Primary: usage.Window{UsedPercent: 1.0, WindowMinutes: 300}})
+	enterpriseEnabled := func(ctx context.Context) context.Context {
+		return flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyClaudeEnterpriseOnly: true}})
+	}
+	for _, scenario := range []struct {
+		name          string
+		model         string
+		account       *auth.SubscriptionAccount
+		extraCredits  bool
+		decorate      func(context.Context) context.Context
+		wantAvailable bool
+	}{
+		{name: "spent Claude seat may still admit an Enterprise plan on overage", model: stateClaudeModel,
+			account:       &auth.SubscriptionAccount{ID: "synthetic-spent-claude", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &resetAt},
+			decorate:      enterpriseEnabled,
+			wantAvailable: true},
+		{name: "spent Claude seat without Enterprise overage cannot admit", model: stateClaudeModel,
+			account: &auth.SubscriptionAccount{ID: "synthetic-spent-claude", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &resetAt}},
+		{name: "observed-spent Codex seat admits with extra credits", model: stateCodexModel, extraCredits: true,
+			account:       &auth.SubscriptionAccount{ID: "synthetic-active-codex", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive},
+			wantAvailable: true},
+		{name: "observed-spent Codex seat without extra credits cannot admit", model: stateCodexModel,
+			account: &auth.SubscriptionAccount{ID: "synthetic-active-codex", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive}},
+		{name: "extra credits do not revive a seat the pool marks exhausted", model: stateCodexModel, extraCredits: true,
+			account: &auth.SubscriptionAccount{ID: "synthetic-spent-codex", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &resetAt}},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			clients := map[string]providers.Client{
+				providers.ProviderAnthropic: &fakeClient{name: providers.ProviderAnthropic},
+				providers.ProviderOpenAI:    &fakeClient{name: providers.ProviderOpenAI},
+			}
+			svc := NewService(stateModelRouter{}, clients, nil, nil, false, "", "", nil).
+				WithManagedSubscriptions(&scriptedSubscriptionLeaser{}).
+				WithCodexExtraCredits(scenario.extraCredits).
+				WithUsageObserver(spentObserver)
+			ctx := WithManagedSubscriptionCandidates(managedSubscriptionTestContext(), []*auth.SubscriptionAccount{scenario.account})
+			if scenario.decorate != nil {
+				ctx = scenario.decorate(ctx)
+			}
+
+			available := svc.subscriptionStateModelAvailable(ctx, router.Request{}, http.Header{}, scenario.model)
+
+			require.Equal(t, scenario.wantAvailable, available)
+		})
 	}
 }

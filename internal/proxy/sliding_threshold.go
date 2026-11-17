@@ -6,9 +6,6 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 )
 
-// slidingThresholdServes reports whether the sliding threshold moves the session
-// to the fresh decision's group. When it does not, the existing upgrade gates
-// decide the turn unchanged.
 func slidingThresholdServes(req router.Request, pin sessionpin.Pin, fresh router.Decision) (served bool, probability float64) {
 	if req.SlidingThresholdPinGroup == "" || pin.Model == "" || pin.Model == fresh.Model || fresh.Metadata == nil {
 		return false, 0

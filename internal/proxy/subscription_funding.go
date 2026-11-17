@@ -17,24 +17,21 @@ import (
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/subscriptionlane"
 	"weave-os/router/internal/subscriptions"
 )
 
 type managedSubscriptionCandidatesKey struct{}
 
 type managedSubscriptionCandidate struct {
-	accountID string
-	provider  auth.SubscriptionProvider
-	state     auth.SubscriptionAccountState
-	resetAt   time.Time
-	enabled   bool
-	// credentialRejected marks a cooldown written by a 401/403 strike rather
-	// than a rate limit; both persist the same cooldown state.
+	accountID          string
+	provider           auth.SubscriptionProvider
+	state              auth.SubscriptionAccountState
+	resetAt            time.Time
+	enabled            bool
 	credentialRejected bool
 }
 
-// WithManagedSubscriptionCandidates retains detached, credential-free admission
-// facts. Routing suppression and client/model denials cannot erase pool capacity.
 func WithManagedSubscriptionCandidates(ctx context.Context, accounts []*auth.SubscriptionAccount) context.Context {
 	candidates := make([]managedSubscriptionCandidate, 0, len(accounts))
 	enrolled := make(map[auth.SubscriptionProvider]struct{})
@@ -105,7 +102,7 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 			return nil
 		}
 		if pickedModelOnOwnPlan(callCtx) {
-			return fmt.Errorf("%w: picked model runs on the caller's own plan", ErrSubscriptionPoolUnavailable)
+			return subscriptionPoolUnavailableBecause(callCtx, "picked model runs on the caller's own plan")
 		}
 		refusal := clientAppRefusalFunding{counts: clientAppRefusalPaidFallback(callCtx), poolRefused: claudePoolRefusesClientApp(callCtx), clientApp: ClientIdentityFrom(callCtx).ClientApp}
 		if err := s.authorizeSubscriptionAPI(admissionCtx, pool, codexToken, claudeToken, refusal); err != nil {
@@ -121,10 +118,6 @@ func (s *Service) subscriptionAPIAuthorization(ctx context.Context, provider, mo
 	return dispatch.AuthorizationFromContext(ctx)(withPaidFallbackCredentials(ctx, provider), inference.Target{Provider: provider, CatalogID: model})
 }
 
-// clientAppRefusalFunding lets a Claude seat that refused clientApp count as
-// spent. Only a key's paid-fallback opt-in on a forced turn sets counts, and
-// poolRefused extends it to every Claude seat once the turn saw a refusal; an
-// unrecognized client legitimately has an empty clientApp.
 type clientAppRefusalFunding struct {
 	counts      bool
 	poolRefused bool
@@ -133,16 +126,15 @@ type clientAppRefusalFunding struct {
 
 func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptions.Provider, codexToken, claudeToken string, refusal clientAppRefusalFunding) error {
 	if managedSubscriptionEnrollmentUnavailable(ctx) {
-		return fmt.Errorf("%w: subscription enrollment could not be verified", ErrSubscriptionPoolUnavailable)
+		return subscriptionPoolUnavailableBecause(ctx, "subscription enrollment could not be verified")
 	}
-	now := s.clockNow()
+	now := s.clock.Now()
 	if subscriptionProviderUnavailable(ctx, pool, now) {
 		return nil
 	}
 	candidates, snapshotPresent := ctx.Value(managedSubscriptionCandidatesKey{}).([]managedSubscriptionCandidate)
 	throttledBlocker := false
 	for _, candidate := range candidates {
-		// A seat that can never be leased can never prove exhaustion either.
 		if candidate.provider != auth.SubscriptionProvider(pool) || !candidate.enabled || candidate.state == auth.SubscriptionAccountStateDisabled || candidate.state == auth.SubscriptionAccountStateReconnectRequired {
 			continue
 		}
@@ -156,7 +148,7 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 			throttledBlocker = true
 			continue
 		}
-		return fmt.Errorf("%w: included quota is available or unknown", ErrSubscriptionPoolUnavailable)
+		return subscriptionPoolUnavailableBecause(ctx, "included quota is available or unknown")
 	}
 	token := claudeToken
 	if pool == subscriptions.ProviderCodex {
@@ -167,27 +159,25 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 		if err := callerPlanRefusal(ctx, pool, callerQuotaUnproven, now); err != nil {
 			return err
 		}
-		return ErrSubscriptionPoolThrottled
+		return subscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolThrottled)
 	}
 	if !snapshotPresent {
 		enrolled, _ := ctx.Value(ManagedSubscriptionProvidersContextKey{}).(map[auth.SubscriptionProvider]struct{})
 		if _, present := enrolled[auth.SubscriptionProvider(pool)]; present {
-			return fmt.Errorf("%w: enrolled pool has no quota snapshot", ErrSubscriptionPoolUnavailable)
+			return subscriptionPoolUnavailableBecause(ctx, "enrolled pool has no quota snapshot")
 		}
 	}
 	return callerPlanRefusal(ctx, pool, callerQuotaUnproven, now)
 }
 
-// callerPlanRefusal blocks paid fallback while the caller's own plan may still
-// serve; a live rate limit on that plan makes the refusal a retryable 429.
 func callerPlanRefusal(ctx context.Context, pool subscriptions.Provider, callerQuotaUnproven bool, now time.Time) error {
 	if !callerQuotaUnproven {
 		return nil
 	}
 	if callerPlanThrottled(ctx, pool, now) {
-		return errCallerPlanThrottled
+		return subscriptionPoolRefusal(ctx, subscriptionlane.CallerPlanThrottled)
 	}
-	return fmt.Errorf("%w: caller subscription quota is available or unknown", ErrSubscriptionPoolUnavailable)
+	return subscriptionPoolUnavailableBecause(ctx, "caller subscription quota is available or unknown")
 }
 
 func (s *Service) callerQuotaSpent(ctx context.Context, pool subscriptions.Provider, token string, now time.Time) bool {
@@ -195,22 +185,19 @@ func (s *Service) callerQuotaSpent(ctx context.Context, pool subscriptions.Provi
 		return true
 	}
 	if s.usageObserver != nil {
-		if snapshot, observed := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(token))); observed && includedQuotaSpent(snapshot, now) {
+		key := s.usageObserver.Key([]byte(token))
+		if s.usageObserver.Rejected(key) {
+			return true
+		}
+		if snapshot, observed := s.usageObserver.Snapshot(key); observed && includedQuotaSpent(snapshot, now) {
 			return true
 		}
 	}
 	return false
 }
 
-// subscriptionUnavailableCooldown bounds how long a provider 5xx seen on a
-// subscription attempt keeps authorizing paid rescue for the same turn.
 const subscriptionUnavailableCooldown = time.Minute
 
-// recordSubscriptionUnavailable notes that a subscription-funded attempt for
-// provider/model failed on provider capacity (a 5xx, never a 429, which the
-// quota path owns). The mark is request-scoped and expires with the cooldown,
-// so it lets this turn be rescued on paid capacity without claiming the plan's
-// included quota is spent.
 func (s *Service) recordSubscriptionUnavailable(ctx context.Context, provider, model string, attemptErr error) {
 	pool, compatible := managedSubscriptionProviderFromUpstream(provider, model)
 	if !compatible || !upstreamServerFailure(attemptErr) {
@@ -219,8 +206,6 @@ func (s *Service) recordSubscriptionUnavailable(ctx context.Context, provider, m
 	s.markSubscriptionPoolUnavailable(ctx, pool)
 }
 
-// markSubscriptionPoolUnavailable records a provider-capacity failure for this
-// turn, whether seen on this request or remembered from a recent one.
 func (s *Service) markSubscriptionPoolUnavailable(ctx context.Context, pool subscriptions.Provider) {
 	if callerModelPassthroughActive(ctx) {
 		return
@@ -232,15 +217,10 @@ func (s *Service) markSubscriptionPoolUnavailable(ctx context.Context, pool subs
 	if state.UnavailableProviders == nil {
 		state.UnavailableProviders = make(map[subscriptions.Provider]time.Time)
 	}
-	state.UnavailableProviders[pool] = s.clockNow().Add(subscriptionUnavailableCooldown)
+	state.UnavailableProviders[pool] = s.clock.Now().Add(subscriptionUnavailableCooldown)
 	observability.FromContext(ctx).Warn("Subscription inference failed on provider capacity; paid rescue eligible subject to funding authorization")
 }
 
-// upstreamServerFailure reports a buffered upstream 5xx: the provider answered
-// and could not serve. Timeouts, transport faults and 429s are excluded; they
-// say nothing about the plan's capacity to serve. So is the router's own
-// empty-completion 502: the plan did answer, with nothing usable, and buying
-// paid capacity for it would turn a client's identical retries into spend.
 func upstreamServerFailure(err error) bool {
 	var verificationUnavailable *providers.QuotaVerificationUnavailableError
 	if errors.As(err, &verificationUnavailable) {
@@ -253,8 +233,6 @@ func upstreamServerFailure(err error) bool {
 	if errors.Is(err, providers.ErrUpstreamEmptyCompletion) {
 		return false
 	}
-	// A failed Responses payload surfaces as a 5xx too; one that names the
-	// plan's quota or a rate limit belongs to the quota/throttle path.
 	if _, quota := codexQuotaExhaustion(err); quota {
 		return false
 	}
@@ -274,11 +252,9 @@ func upstreamServerFailure(err error) bool {
 	return true
 }
 
-// subscriptionPoolUnavailable reports whether the plan pool behind
-// provider/model carries a live "cannot serve this turn" mark.
 func (s *Service) subscriptionPoolUnavailable(ctx context.Context, provider, model string) bool {
 	pool, compatible := managedSubscriptionProviderFromUpstream(provider, model)
-	return compatible && subscriptionProviderUnavailable(ctx, pool, s.clockNow())
+	return compatible && subscriptionProviderUnavailable(ctx, pool, s.clock.Now())
 }
 
 func subscriptionProviderUnavailable(ctx context.Context, pool subscriptions.Provider, now time.Time) bool {
@@ -286,14 +262,49 @@ func subscriptionProviderUnavailable(ctx context.Context, pool subscriptions.Pro
 	return state != nil && state.UnavailableProviders[pool].After(now)
 }
 
-// linkedSeatCanCover reports whether a linked seat in the caller's pool may
-// still take a turn their own plan cannot, so the turn stays on a subscription.
 func (s *Service) linkedSeatCanCover(ctx context.Context, provider, model string) bool {
 	if s.managedSubscriptions == nil || !managedSubscriptionCanServe(ctx, provider, model) || managedSubscriptionEnrollmentUnavailable(ctx) {
 		return false
 	}
 	pool, _ := managedSubscriptionProviderFromUpstream(provider, model)
-	now := s.clockNow()
+	now := s.clock.Now()
+	return managedSeatCanCover(ctx, pool, now, func(candidate managedSubscriptionCandidate) bool {
+		return s.managedAccountQuotaExhausted(ctx, candidate, now)
+	})
+}
+
+type seatAdmission struct {
+	now               time.Time
+	observer          *usage.Observer
+	codexExtraCredits bool
+	verifiedPlanOnly  bool
+}
+
+func seatAdmissionOf(s *Service) seatAdmission {
+	return seatAdmission{now: s.clock.Now(), observer: s.usageObserver, codexExtraCredits: s.codexExtraCreditsAllowed()}
+}
+
+func (a seatAdmission) mayAdmit(ctx context.Context, provider, model string) bool {
+	if !managedSubscriptionCanServe(ctx, provider, model) || managedSubscriptionEnrollmentUnavailable(ctx) {
+		return false
+	}
+	pool, _ := managedSubscriptionProviderFromUpstream(provider, model)
+	enterpriseOverage := pool == subscriptions.ProviderClaude && (claudeEnterpriseOnly(ctx) || !a.verifiedPlanOnly && claudeEnterpriseEnabled(ctx))
+	return managedSeatCanCover(ctx, pool, a.now, func(candidate managedSubscriptionCandidate) bool {
+		switch {
+		case enterpriseOverage:
+			return false
+		case recordedQuotaExhausted(ctx, candidate, a.now):
+			return true
+		case pool == subscriptions.ProviderCodex && a.codexExtraCredits:
+			return false
+		default:
+			return includedQuotaObservedSpent(a.observer, candidate, a.now)
+		}
+	})
+}
+
+func managedSeatCanCover(ctx context.Context, pool subscriptions.Provider, now time.Time, quotaExhausted func(managedSubscriptionCandidate) bool) bool {
 	if subscriptionProviderUnavailable(ctx, pool, now) {
 		return false
 	}
@@ -308,16 +319,13 @@ func (s *Service) linkedSeatCanCover(ctx context.Context, provider, model string
 		if candidate.state == auth.SubscriptionAccountStateCooldown && candidate.resetAt.After(now) {
 			continue
 		}
-		if !s.managedAccountQuotaExhausted(ctx, candidate, now) {
+		if !quotaExhausted(candidate) {
 			return true
 		}
 	}
 	return false
 }
 
-// managedAccountThrottled reports a rate-limit cooldown, seen this turn or
-// persisted by an earlier one. It still blocks paid fallback; it only changes
-// how the refusal is reported.
 func managedAccountThrottled(ctx context.Context, candidate managedSubscriptionCandidate, now time.Time) bool {
 	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
 		if state.ThrottledAccounts[candidate.accountID].After(now) {
@@ -327,14 +335,29 @@ func managedAccountThrottled(ctx context.Context, candidate managedSubscriptionC
 	return candidate.state == auth.SubscriptionAccountStateCooldown && candidate.resetAt.After(now) && !candidate.credentialRejected
 }
 
-// managedAccountCredentialCooling reports a seat benched by a 401/403 strike:
-// it cannot be leased before its cooldown lapses, so like a reconnect-required
-// seat it can neither serve nor prove exhaustion.
 func managedAccountCredentialCooling(candidate managedSubscriptionCandidate, now time.Time) bool {
 	return candidate.state == auth.SubscriptionAccountStateCooldown && candidate.resetAt.After(now) && candidate.credentialRejected
 }
 
 func (s *Service) managedAccountQuotaExhausted(ctx context.Context, candidate managedSubscriptionCandidate, now time.Time) bool {
+	if recordedQuotaExhausted(ctx, candidate, now) {
+		return true
+	}
+	if candidate.provider == auth.SubscriptionProviderClaude && claudeEnterpriseOnly(ctx) {
+		return false
+	}
+	return includedQuotaObservedSpent(s.usageObserver, candidate, now)
+}
+
+func includedQuotaObservedSpent(observer *usage.Observer, candidate managedSubscriptionCandidate, now time.Time) bool {
+	if observer == nil {
+		return false
+	}
+	snapshot, observed := observer.Snapshot(observer.Key([]byte("subscription-account:" + candidate.accountID)))
+	return observed && includedQuotaSpent(snapshot, now)
+}
+
+func recordedQuotaExhausted(ctx context.Context, candidate managedSubscriptionCandidate, now time.Time) bool {
 	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
 		if state.QuotaExhaustedAccounts[candidate.accountID].After(now) {
 			return true
@@ -343,27 +366,13 @@ func (s *Service) managedAccountQuotaExhausted(ctx context.Context, candidate ma
 	if candidate.provider == auth.SubscriptionProviderClaude && claudeEnterpriseOnly(ctx) {
 		return false
 	}
-	if candidate.state == auth.SubscriptionAccountStateExhausted && candidate.resetAt.After(now) {
-		return true
-	}
-	if s.usageObserver != nil {
-		snapshot, observed := s.usageObserver.Snapshot(s.usageObserver.Key([]byte("subscription-account:" + candidate.accountID)))
-		return observed && includedQuotaSpent(snapshot, now)
-	}
-	return false
+	return candidate.state == auth.SubscriptionAccountStateExhausted && candidate.resetAt.After(now)
 }
 
-// includedQuotaSpent treats observed paid overage as spent included quota until
-// the reported plan reset. Undated overage never authorizes paid inference.
 func includedQuotaSpent(snapshot usage.Snapshot, now time.Time) bool {
 	return (snapshot.OverageInUse && snapshot.UnifiedResetAt.After(now)) || snapshot.ExhaustedAsOf(now)
 }
 
-// credentialRejectionStands reports whether the caller's own subscription
-// credential was rejected and funding authorization then refused the paid
-// retry before any upstream I/O. The rejection is the turn's answer: it tells
-// the client to re-authenticate, where a pool sentinel would render as a
-// retryable outage.
 func credentialRejectionStands(subscriptionErr, retryErr error, credentialRejected func(error) bool) bool {
 	return errors.Is(retryErr, dispatch.ErrAuthorizationDenied) && credentialRejected(subscriptionErr)
 }

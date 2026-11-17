@@ -57,7 +57,7 @@ func TestPiSessionRejectsInvalidProofBeforeRouting(t *testing.T) {
 			changed, err := sjson.Set(body, test.path, test.value)
 			require.NoError(t, err)
 			for _, requestCtx := range []context.Context{test.ctx, WithHandoffPreparation(test.ctx)} {
-				err = svc.ProxyMessages(requestCtx, []byte(changed), httptest.NewRecorder(), httptest.NewRequest("POST", "/v1/messages", nil))
+				err = svc.ProxyMessages(requestCtx, []byte(changed), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), "POST", "/v1/messages", nil))
 				require.ErrorIs(t, err, ErrHandoffInvalid)
 			}
 		})
@@ -86,7 +86,7 @@ func TestManagedPiSessionRemainsBoundToServingGeneration(t *testing.T) {
 	rebound := requestcontext.WithServingIdentity(parsed, requestcontext.ServingIdentity{StateNamespace: "release-a-generation-2"})
 	require.False(t, piSessionFromContext(parsed).matches(rebound, compacted))
 	require.NotEqual(t, originalKey, deriveSessionKeyForRequest(rebound, compacted, "handoff-test-key"))
-	err = svc.ProxyMessages(rebound, []byte(body), httptest.NewRecorder(), httptest.NewRequest("POST", "/v1/messages", nil))
+	err = svc.ProxyMessages(rebound, []byte(body), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), "POST", "/v1/messages", nil))
 	require.ErrorIs(t, err, ErrHandoffInvalid, "retired tickets cannot resurrect learned state")
 }
 
@@ -109,7 +109,7 @@ func TestPiSessionPreservesOriginalDigestAcrossCompactionAndReplicas(t *testing.
 	require.Equal(t, expected, deriveSessionKeyForRequest(parsed, compacted, "handoff-test-key"))
 	_, _, loggedKey := bindRequestLogger(parsed, compacted, "handoff-test-key", "request", "anthropic_messages")
 	require.Equal(t, expected, loggedKey)
-	require.NoError(t, replica.ProxyMessages(WithHandoffPreparation(ctx), []byte(body), httptest.NewRecorder(), httptest.NewRequest("POST", "/v1/route/handoff", nil)))
+	require.NoError(t, replica.ProxyMessages(WithHandoffPreparation(ctx), []byte(body), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), "POST", "/v1/route/handoff", nil)))
 	require.Equal(t, 1, classifier.calls, "session continuity must still run normal routing, not replay an old model selection")
 	replica.WithPiHandoffSecret(strings.Repeat("rotated-secret-", 3))
 	_, _, err = replica.parsePiSession(ctx, []byte(body))
@@ -130,7 +130,7 @@ func TestPiSessionCannotBeMixedWithAnotherThreadsHandoff(t *testing.T) {
 	require.NoError(t, err)
 	body, err = sjson.Set(body, piHandoffField, first.Token)
 	require.NoError(t, err)
-	err = svc.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequest("POST", "/v1/messages", nil))
+	err = svc.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), "POST", "/v1/messages", nil))
 	require.ErrorIs(t, err, ErrHandoffInvalid)
 	require.Equal(t, 1, classifier.calls)
 	require.Empty(t, upstream.body)

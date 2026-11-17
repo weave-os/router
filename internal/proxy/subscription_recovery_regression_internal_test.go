@@ -29,7 +29,7 @@ func TestSubscriptionRecoverySlowFailureUsesSecondSeat(t *testing.T) {
 			WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 		rec := httptest.NewRecorder()
 		buf := newPreludeBuffer(rec)
-		in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
+		in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 		in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
 		var seats []string
 		in.Attempt = func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
@@ -42,7 +42,7 @@ func TestSubscriptionRecoverySlowFailureUsesSecondSeat(t *testing.T) {
 				return &providers.UpstreamErrorResponse{Status: http.StatusBadGateway}
 			}
 			buf.Seal()
-			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buf, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buf, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil))
 		}
 		_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), in)
 		require.NoError(t, err)
@@ -58,7 +58,7 @@ func TestSubscriptionRecoveryUnavailablePoolNeverBuysAPI(t *testing.T) {
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
+	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 	in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
 	_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), in)
 	require.Error(t, err)

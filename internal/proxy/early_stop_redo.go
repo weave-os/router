@@ -16,17 +16,10 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-// ReasonEarlyStopRedo marks a Claude Code tool-result turn re-served on a
-// higher-tier candidate after the routed model ended the agent turn without
-// calling a tool.
 const ReasonEarlyStopRedo = "early-stop-redo"
 
 const markerReasonEarlyStop = "re-served after an early stop"
 
-// earlyStopRedoTarget picks the candidate a stopped tool-result turn is
-// re-served on: the highest-tier model the policy scored for this turn that
-// the request may reach, strictly above the served model's tier. ok is false
-// when the served model is already the top of its candidates.
 func (s *Service) earlyStopRedoTarget(ctx context.Context, served router.Decision, est, sigSavings, outputReserve int) (router.Decision, bool) {
 	servedTier := catalog.TierFor(served.Model)
 	if served.Metadata == nil || servedTier == catalog.TierUnknown {
@@ -34,8 +27,6 @@ func (s *Service) earlyStopRedoTarget(ctx context.Context, served router.Decisio
 	}
 	ordered := higherTierCandidates(servedTier, served.Metadata.CandidateModels, served.Metadata.CandidateScores)
 	admitted := s.rescueDecisions(ctx, served, ordered, ReasonEarlyStopRedo, est, sigSavings, outputReserve)
-	// The rescue walk reorders for provider diversity; the redo wants the
-	// strongest admitted model, so pick in tier-and-score order.
 	for _, model := range ordered {
 		for _, target := range admitted {
 			if target.Model == model {
@@ -46,8 +37,6 @@ func (s *Service) earlyStopRedoTarget(ctx context.Context, served router.Decisio
 	return router.Decision{}, false
 }
 
-// higherTierCandidates orders the candidates above tier from the top tier
-// down, best score first within a tier.
 func higherTierCandidates(tier catalog.Tier, candidates []string, scores map[string]float32) []string {
 	var ordered []string
 	for _, model := range candidates {
@@ -65,9 +54,6 @@ func higherTierCandidates(tier catalog.Tier, candidates []string, scores map[str
 	return ordered
 }
 
-// lowerTierCandidates lists the candidates below the redo target's tier. They
-// are kept out for the rest of the agent turn once a redo serves, so the turn
-// cannot be redone twice.
 func lowerTierCandidates(target string, candidates []string) []string {
 	tier := catalog.TierFor(target)
 	var lower []string
@@ -79,9 +65,6 @@ func lowerTierCandidates(target string, candidates []string) []string {
 	return lower
 }
 
-// earlyStopRedoMode resolves the mode for this turn: off unless it is a
-// streamed Claude Code main-thread tool-result turn the router chose the model
-// for.
 func (s *Service) earlyStopRedoMode(ctx context.Context, routeRes turnLoopResult, decision router.Decision, streaming, agentShadow bool) flags.EarlyStopRedoMode {
 	mode := s.ResolveEarlyStopRedo(ctx)
 	if mode == flags.EarlyStopRedoOff || !streaming || agentShadow ||
@@ -94,10 +77,6 @@ func (s *Service) earlyStopRedoMode(ctx context.Context, routeRes turnLoopResult
 	return mode
 }
 
-// redoEarlyStop re-serves a withheld early stop on redo.target. If the candidate
-// cannot be dispatched, nothing changes and the caller releases the stopped
-// response. If the redo fails before output, the stopped response is
-// delivered instead, so the client never loses a turn the router discarded.
 func (s *Service) redoEarlyStop(ctx context.Context, redo dispatch.EarlyStopRedo) (redone bool, err error) {
 	attempt, bindings, marker, effort, redoCtx, buildErr := redo.Build(ctx, redo.Target)
 	if buildErr != nil || len(bindings) == 0 {

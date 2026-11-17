@@ -37,7 +37,7 @@ func TestModelsHandler_CodexShapeByClientApp(t *testing.T) {
 				return nil, nil
 			}))
 
-			req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models", nil)
 			if tc.xApp != "" {
 				req.Header.Set("X-App", tc.xApp)
 			}
@@ -66,7 +66,7 @@ func TestModelsHandler_NativeModelPinCatalog(t *testing.T) {
 		assert.Equal(t, "0.155.1", version)
 		return []byte(`{"models":[{"slug":"gpt-6-sol"},{"slug":"weave-auto"}]}`), nil
 	}))
-	req := httptest.NewRequest(http.MethodGet, "/v1/models?client_version=0.155.1", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models?client_version=0.155.1", nil)
 	req.Header.Set("X-App", "codex")
 	req.Header.Set("X-Weave-Codex-Native-Model-Pin", "1")
 	rec := httptest.NewRecorder()
@@ -83,7 +83,7 @@ func TestModelsHandler_CatalogFailureKeepsBundledModels(t *testing.T) {
 	}, func(context.Context, http.Header, string) ([]byte, error) {
 		return nil, errors.New("catalog unavailable")
 	}))
-	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models", nil)
 	req.Header.Set("X-App", "codex")
 	req.Header.Set("X-Weave-Codex-Native-Model-Pin", "1")
 	rec := httptest.NewRecorder()
@@ -101,11 +101,11 @@ func TestCodexCatalogHandler_ServesCatalogForClientVersion(t *testing.T) {
 		return []byte(`{"models":[{"slug":"gpt-6-sol"},{"slug":"weave-auto"}]}`), nil
 	}))
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/codex/models?client_version=0.164.0", nil))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/codex/models?client_version=0.164.0", nil))
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.JSONEq(t, `{"models":[{"slug":"gpt-6-sol"},{"slug":"weave-auto"}]}`, rec.Body.String())
 
 	rec = httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/codex/models", nil))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/codex/models", nil))
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }

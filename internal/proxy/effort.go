@@ -10,20 +10,14 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-// applyEffortAttrs stamps the effort actually dispatched with, alongside the
-// level routing selected and where it came from.
-func applyEffortAttrs(b *telemetry.AttrBuilder, e dispatch.EffortResolution) *telemetry.AttrBuilder {
-	return b.String("routing.arm_effort", e.Arm).
+func applyEffortAttrs(b *telemetry.AttrBuilder, e dispatch.EffortResolution) {
+	b.String("routing.arm_effort", e.Arm).
 		String("routing.selected_effort", e.Selected).
 		String("routing.sent_effort", e.Sent).
 		String("routing.effort_source", e.Source).
 		Bool("routing.effort_mismatch", e.Mismatch())
 }
 
-// resolveEffort resolves this dispatch target's effort once, in precedence
-// order: user override > failure escalation > policy arm > per-model default.
-// Escalation outranks the arm because it exists to rescue a turn the arm's
-// level already failed.
 func (s *Service) resolveEffort(ctx context.Context, decision router.Decision, caps router.ModelSpec, escalate bool) dispatch.EffortResolution {
 	arm := router.CanonicalizeEffort(decision.Effort)
 	escalationAllowed := s.ResolveEffortEscalation(ctx) || strings.HasPrefix(decision.Model, "grok-")
@@ -31,9 +25,6 @@ func (s *Service) resolveEffort(ctx context.Context, decision router.Decision, c
 		return effortResolutionFor(caps, arm, knobs.ForceEffort, dispatch.EffortSourceUser)
 	}
 	if escalate && escalationAllowed {
-		// Escalation rescues a turn the arm's level already failed, so it may
-		// only raise the level: the per-model escalation default is a fixed
-		// "high"/"low" that would otherwise downgrade a richer arm.
 		if level := router.HigherEffort(forcedReasoningEffort(decision.Model, true), arm); level != arm {
 			return effortResolutionFor(caps, arm, level, dispatch.EffortSourceEscalation)
 		}

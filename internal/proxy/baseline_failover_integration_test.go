@@ -95,7 +95,7 @@ func TestProxyMessages_OSSOutageFailsOverToBaselineAnthropic(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	// The caller asked for claude-opus-4-8; the router's cost decision sent it
 	// to deepseek. The baseline-failover target is the requested model.
 	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
@@ -206,7 +206,7 @@ func TestProxyMessages_AuthoritativePolicyNeverChangesModelOnFailover(t *testing
 		strategy,
 	)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
 	_ = svc.ProxyMessages(ctx, body, rec, req)
@@ -244,7 +244,7 @@ func TestProxyMessages_ForcedModelUnavailableDoesNotSubstituteAnthropic(t *testi
 	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
 	err := svc.ProxyMessages(context.Background(), body, rec, req)
@@ -289,7 +289,7 @@ func TestProxyMessages_OSSOutageNoBaselineWhenRequestedModelIsOSS(t *testing.T) 
 	}).WithRetrySleep(noRetrySleep)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	// Caller requested the OSS model directly: baseline == routed model.
 	body := []byte(`{"model":"deepseek/deepseek-v4-pro","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
@@ -331,7 +331,7 @@ func TestProxyMessages_OSSOutageNoBaselineWhenAnthropicExcluded(t *testing.T) {
 	}).WithExcludedProvidersOverride([]string{providers.ProviderAnthropic})
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
 	_ = svc.ProxyMessages(context.Background(), body, rec, req)
@@ -370,7 +370,7 @@ func TestProxyMessages_FailedBaselineReportsAnthropicProvider(t *testing.T) {
 	}).WithRetrySleep(noRetrySleep)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
 	// A non-nil installation ID gates the telemetry write.
@@ -455,7 +455,7 @@ func TestProxyMessages_AuthoritativePolicyFailsOverOnCapabilityRejection(t *test
 	})
 	ctx := router.WithStrategy(authedCtx("11111111-1111-1111-1111-111111111111"), strategy)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"AAA"}}]}]}`)
 
 	err := svc.ProxyMessages(ctx, body, rec, req)

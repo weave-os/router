@@ -65,8 +65,6 @@ func finishBillingSpan(state *billingSpanState, status int) {
 	state.span.End()
 }
 
-// WithBillingSpan wraps the managed-mode billing admission checks in one
-// bounded span. WithBillingSpanEnd ends it before routing starts.
 func WithBillingSpan() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, state := startBillingSpan(c.Request.Context())
@@ -77,8 +75,6 @@ func WithBillingSpan() gin.HandlerFunc {
 	}
 }
 
-// WithBillingSpanEnd closes the billing admission span before later handlers
-// (including routing) execute, restoring the HTTP request span as parent.
 func WithBillingSpanEnd() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		state, _ := c.Request.Context().Value(billingSpanContextKey{}).(*billingSpanState)

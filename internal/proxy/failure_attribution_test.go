@@ -41,7 +41,7 @@ func TestDispatchPlanned_TranslatedRejectionIsRouterOwned(t *testing.T) {
 	ctx := withAttemptTrace(context.Background(), inbound, http.Header{})
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderGoogle}, {Provider: providers.ProviderOpenRouter}}, translated)
+	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderGoogle}, {Provider: providers.ProviderOpenRouter}}, translated)
 	in.DeferFlushOnExhaustion = true
 	_, err := s.dispatchWithFallback(ctx, in)
 	require.Error(t, err)
@@ -58,6 +58,28 @@ func TestDispatchPlanned_TranslatedRejectionIsRouterOwned(t *testing.T) {
 	assert.Equal(t, "↳ switched: Gemini rejected our translated request (router issue)\n\n", lastFailureDetail(attemptTraceFromContext(ctx)))
 }
 
+func TestDispatchPlanned_TranslatedRejectionOfAnUnchangedClientFieldIsClientOwned(t *testing.T) {
+	inbound := []byte(`{"model":"claude","max_tokens":"lots","messages":[{"role":"user","content":"hi"}]}`)
+	translated := []byte(`{"model":"` + plannedTestModel + `","max_tokens":"lots","contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+	rejection := &providers.UpstreamErrorResponse{Status: 400, Rejection: providers.UpstreamRejection{Kind: providers.UpstreamRejectionField, Field: "max_tokens"}}
+	primary := &fakeClient{name: providers.ProviderGoogle, outcomes: []fakeOutcome{{err: rejection}}}
+	fallback := &fakeClient{name: providers.ProviderOpenRouter, outcomes: []fakeOutcome{{writeBytes: []byte("ok")}}}
+	sink := &recordingAttemptSink{}
+	s := attributionService(t, sink, map[string]providers.Client{providers.ProviderGoogle: primary, providers.ProviderOpenRouter: fallback})
+
+	ctx := withAttemptTrace(context.Background(), inbound, http.Header{})
+	rec := httptest.NewRecorder()
+	buf := newPreludeBuffer(rec)
+	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderGoogle}, {Provider: providers.ProviderOpenRouter}}, translated)
+	in.DeferFlushOnExhaustion = true
+	_, err := s.dispatchWithFallback(ctx, in)
+	require.Error(t, err)
+
+	require.Len(t, sink.events, 1)
+	assert.True(t, sink.events[0].Diagnosis.BodyTranslated)
+	assert.Equal(t, string(FailureOwnerClient), sink.events[0].Diagnosis.FailureOwner)
+}
+
 func TestDispatchPlanned_UntranslatedRejectionIsProviderOwned(t *testing.T) {
 	body := []byte(`{"model":"` + plannedTestModel + `","messages":[]}`)
 	primary := &fakeClient{name: providers.ProviderFireworks, outcomes: []fakeOutcome{{err: &providers.UpstreamErrorResponse{Status: 400, Body: []byte(`bad`)}}}}
@@ -68,7 +90,7 @@ func TestDispatchPlanned_UntranslatedRejectionIsProviderOwned(t *testing.T) {
 	ctx := withAttemptTrace(context.Background(), body, http.Header{})
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}, {Provider: providers.ProviderOpenRouter}}, body)
+	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}, {Provider: providers.ProviderOpenRouter}}, body)
 	in.DeferFlushOnExhaustion = true
 	_, err := s.dispatchWithFallback(ctx, in)
 	require.Error(t, err)
@@ -90,7 +112,7 @@ func TestDispatchPlanned_FailoverRecordsOwnerPerAttemptAndBadgeDetail(t *testing
 	ctx := withAttemptTrace(context.Background(), []byte(`{"model":"claude","messages":[]}`), http.Header{})
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	_, err := s.dispatchWithFallback(ctx, plannedInputs(rec, buf,
+	_, err := s.dispatchWithFallback(ctx, plannedInputs(t.Context(), rec, buf,
 		[]catalog.ProviderBinding{{Provider: providers.ProviderFireworks}, {Provider: providers.ProviderOpenRouter}}, body))
 	require.NoError(t, err)
 
@@ -132,7 +154,7 @@ func TestDispatchPlanned_ExhaustionNamesOwnerInTerminalMessage(t *testing.T) {
 			ctx := withAttemptTrace(context.Background(), body, tc.header)
 			rec := httptest.NewRecorder()
 			buf := newPreludeBuffer(rec)
-			in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}}, body)
+			in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}}, body)
 			in.DeferFlushOnExhaustion = true
 			_, err := s.dispatchWithFallback(ctx, in)
 			require.Error(t, err)

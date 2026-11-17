@@ -48,21 +48,22 @@ func (row subscriberEntitlementRow) Scan(dest ...any) error {
 	if row.err != nil {
 		return row.err
 	}
-	*dest[0].(*uuid.UUID) = row.value.SubscriberID
-	*dest[1].(*int64) = row.value.Version
-	*dest[2].(*string) = row.value.Plan
-	*dest[3].(*string) = row.value.Status
-	*dest[4].(*pgtype.Timestamptz) = row.value.BillingPeriodStart
-	*dest[5].(*pgtype.Timestamptz) = row.value.BillingPeriodEnd
-	*dest[6].(*pgtype.Timestamptz) = row.value.EffectiveAt
-	*dest[7].(*int64) = row.value.MonthlyAllowanceUsdMicros
-	*dest[8].(*int64) = row.value.NominalMonthlyAllowanceUsdMicros
-	*dest[9].(*int64) = row.value.SixHourAllowanceUsdMicros
-	*dest[10].(*bool) = row.value.AutoTopUpEnabled
-	*dest[11].(*pgtype.Timestamptz) = row.value.ProjectedAt
-	*dest[12].(*pgtype.Timestamptz) = row.value.CreatedAt
-	*dest[13].(*pgtype.Timestamptz) = row.value.UpdatedAt
-	return nil
+	return errors.Join(
+		scanInto(dest[0], row.value.SubscriberID),
+		scanInto(dest[1], row.value.Version),
+		scanInto(dest[2], row.value.Plan),
+		scanInto(dest[3], row.value.Status),
+		scanInto(dest[4], row.value.BillingPeriodStart),
+		scanInto(dest[5], row.value.BillingPeriodEnd),
+		scanInto(dest[6], row.value.EffectiveAt),
+		scanInto(dest[7], row.value.MonthlyAllowanceUsdMicros),
+		scanInto(dest[8], row.value.NominalMonthlyAllowanceUsdMicros),
+		scanInto(dest[9], row.value.SixHourAllowanceUsdMicros),
+		scanInto(dest[10], row.value.AutoTopUpEnabled),
+		scanInto(dest[11], row.value.ProjectedAt),
+		scanInto(dest[12], row.value.CreatedAt),
+		scanInto(dest[13], row.value.UpdatedAt),
+	)
 }
 
 func TestSubscriberEntitlementRepoProjectUsesCredentialSubjectIdentity(t *testing.T) {

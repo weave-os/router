@@ -1,5 +1,3 @@
-// Package switchpolicy evaluates destination-specific model agreement without I/O.
-// It is used by offline replay and observation-only shadowing, never dispatch.
 package switchpolicy
 
 import (
@@ -112,8 +110,6 @@ type Decision struct {
 
 var ErrStaleRevision = errors.New("switch policy state revision changed")
 
-// Evaluate returns candidate state. A durable store must atomically compare
-// BaseRevision and commit Next; Evaluate alone cannot serialize database writes.
 func Evaluate(config Config, state State, observation Observation) (Decision, error) {
 	if err := config.Validate(); err != nil {
 		return Decision{}, err
@@ -182,8 +178,6 @@ func Evaluate(config Config, state State, observation Observation) (Decision, er
 	if state.Current.Target == observation.Proposal.Target {
 		decision.Direction = DirectionUnchanged
 		decision.Reason = ReasonIncumbent
-		// A classifier label for the same model cannot silently reclassify its
-		// accepted band and turn the next downgrade into a cheaper upgrade.
 		if observation.Override == OverrideQualityFloor {
 			decision.Next.Current.Group = escalation.Higher(state.Current.Group, observation.Proposal.Group)
 		} else if observation.Override != OverrideNone {
@@ -235,8 +229,6 @@ func Evaluate(config Config, state State, observation Observation) (Decision, er
 	return decision, nil
 }
 
-// Commit checks a candidate against the latest value. Database integration must
-// enforce the equivalent condition in its update, not read then call Commit.
 func Commit(current State, decision Decision) (State, error) {
 	if current.Revision != decision.BaseRevision {
 		return current, ErrStaleRevision

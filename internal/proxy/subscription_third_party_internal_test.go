@@ -89,7 +89,7 @@ func dispatchManagedThirdPartyTurnWithReason(t *testing.T, svc *Service, ctx con
 		Bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
 		Attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
 			buffer.Seal()
-			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil))
 		},
 	})
 	return recorder, err
@@ -181,7 +181,7 @@ func TestSubscriptionThirdPartyRefusalDoesNotPayForOpenAIIngress(t *testing.T) {
 	svc := in.parityService(upstream)
 	body := []byte(`{"model":"` + in.model + `","max_tokens":4096,"stream":false,"messages":[{"role":"user","content":"investigate the failing dispatch"}]}`)
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 
 	require.Error(t, svc.ProxyOpenAIChatCompletion(in.subCtx(), body, recorder, request))
 
@@ -221,7 +221,7 @@ func TestRotationBudgetPaidRescueRejectsForcedThirdPartyRefusal(t *testing.T) {
 	markSubscriptionClientAppRefused(ctx)
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
+	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 	in.InitialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: parityAnthropicModel, Reason: translate.ReasonUserForceModel}
 	var apiCalls int
 	in.Attempt = func(attemptCtx context.Context, _ router.Decision, _ dispatch.Upstream) error {
@@ -343,7 +343,7 @@ func TestForcedThirdPartyRefusalPaysThroughSubscriptionStateModelsOnlyWhenKeyCon
 				BuildAlternative: func(router.Decision) (dispatch.UpstreamAttempt, error) {
 					return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
 						buffer.Seal()
-						return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+						return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/messages", nil))
 					}, nil
 				},
 			})

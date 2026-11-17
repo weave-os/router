@@ -17,10 +17,6 @@ import (
 
 const anthropicOverloadedStatus = 529
 
-// inspectSSEPrelude buffers the first complete SSE event. Anthropic can report
-// an overloaded request as an event:error inside an otherwise successful HTTP
-// 200 response; surfacing it before writing lets the dispatch loop retry
-// without corrupting the stream.
 func inspectSSEPrelude(
 	ctx context.Context,
 	cancel context.CancelCauseFunc,

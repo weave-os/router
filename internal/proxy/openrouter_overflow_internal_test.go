@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
@@ -39,7 +38,7 @@ func newOverflowDispatch(activeProviders map[subscriptions.Provider]bool) *overf
 func overflowContext(exhausted bool) context.Context {
 	ctx := managedSubscriptionTestContext()
 	if exhausted {
-		ctx = exhaustedManagedSubscriptionContext(auth.SubscriptionProviderClaude)
+		ctx = exhaustedManagedSubscriptionContext()
 	}
 	return flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionExhaustedOpenRouterOnly: true, flags.KeyClaudeEnterpriseOnly: false}})
 }
@@ -47,7 +46,7 @@ func overflowContext(exhausted bool) context.Context {
 func (d *overflowDispatch) attempt() dispatch.UpstreamAttempt {
 	return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
 		d.served = append(d.served, decision)
-		return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+		return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, httptest.NewRecorder(), httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/messages", nil))
 	}
 }
 
@@ -112,7 +111,7 @@ func TestOpenRouterOverflowRewritesPaidRescueOutsideLane(t *testing.T) {
 
 func TestOpenRouterOverflowOffKeepsDirectPaidFallback(t *testing.T) {
 	d := newOverflowDispatch(map[subscriptions.Provider]bool{})
-	ctx := context.WithValue(exhaustedManagedSubscriptionContext(auth.SubscriptionProviderClaude), InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{stateClaudeModel})
+	ctx := context.WithValue(exhaustedManagedSubscriptionContext(), InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{stateClaudeModel})
 
 	require.NoError(t, d.run(ctx, true))
 

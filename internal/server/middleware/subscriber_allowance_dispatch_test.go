@@ -51,7 +51,7 @@ func TestWithSubscriberAllowance_SpentAllowanceServesSubscriptionOnly(t *testing
 	})
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	req.Header.Set("Authorization", "Bearer sk-ant-oat-abc123")
 	engine.ServeHTTP(w, req)
 
@@ -75,7 +75,7 @@ func TestWithSubscriberAllowance_CoveringSubscriptionIsLinkedFirstNotDepleted(t 
 	})
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	req.Header.Set("Authorization", "Bearer sk-ant-oat-abc123")
 	var logs bytes.Buffer
 	req = req.WithContext(observability.WithLogger(req.Context(), slog.New(slog.NewTextHandler(&logs, nil))))
@@ -101,7 +101,7 @@ func TestWithSubscriberAllowance_MaxCoveringSubscriptionIsNotSubscriptionOnly(t 
 	})
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	req.Header.Set("Authorization", "Bearer sk-ant-oat-abc123")
 	engine.ServeHTTP(w, req)
 

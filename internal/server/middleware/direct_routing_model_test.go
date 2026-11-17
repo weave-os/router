@@ -36,7 +36,7 @@ func TestDirectRoutingModelSelection(t *testing.T) {
 		{name: "unknown selector", method: http.MethodPost, path: "/v1/messages", body: `{"model":"weave-unknown"}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			request := httptest.NewRequest(test.method, test.path, nil)
+			request := httptest.NewRequestWithContext(t.Context(), test.method, test.path, nil)
 			model, selectsRouter := directRoutingModel(request, []byte(test.body))
 			assert.Equal(t, test.model, model)
 			assert.Equal(t, test.selectsRouter, selectsRouter)
@@ -66,7 +66,7 @@ func TestGeminiRoutingModelPersistsURLClassifier(t *testing.T) {
 			decide := func(context.Context, policyregistry.SerializedAdmission) (policyregistry.SessionReleaseBinding, error) {
 				return policyregistry.SessionReleaseBinding{Target: policyregistry.TargetInternal}, nil
 			}
-			request := httptest.NewRequest(http.MethodPost, "/v1beta/models/"+string(router.ModelQwen)+":generateContent", nil)
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1beta/models/"+string(router.ModelQwen)+":generateContent", nil)
 			model, selectsRouter := directRoutingModel(request, []byte(`{"model":"`+string(bodyModel)+`"}`))
 			require.True(t, selectsRouter)
 			_, binding, err := cache.AdmitRoutingModel(context.Background(), "installation", "credential", "conversation", model, decide)

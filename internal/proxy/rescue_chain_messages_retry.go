@@ -9,11 +9,6 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-// baselineRescue handles a routed model whose bindings all failed with a fault
-// another model could satisfy, pre-commit: it re-dispatches the requested
-// model on Anthropic. crossFormat/respSummary/reqStats reset to
-// Anthropic-native values so telemetry reflects the binding that actually
-// served.
 func (m *messagesRescue) baselineRescue(ctx context.Context) context.Context {
 	preludeBuf := m.preludeBuf
 	if m.proxyErr != nil && !preludeBuf.Committed() &&
@@ -21,10 +16,6 @@ func (m *messagesRescue) baselineRescue(ctx context.Context) context.Context {
 			(m.baselineViable && (m.capabilityRejected || translate.IsIntrinsicallyIncompatible(m.proxyErr) || m.crossBindingRejected))) {
 		ctx = m.dispatchBaseline(ctx)
 	} else if m.baselineViable && !m.rescueArmed && m.proxyErr != nil {
-		// Baseline didn't run (mid-stream commit, or non-failoverable error);
-		// surface the deferred original error now. Guard must match
-		// deferFlushOnExhaustion above, or a deferred error is never flushed —
-		// unless the sibling rescue below owns the deferred flush instead.
 		m.flushDeferredErr()
 	}
 	return ctx
@@ -42,15 +33,8 @@ func (m *messagesRescue) dispatchBaseline(ctx context.Context) context.Context {
 	baselineDecision := m.decision
 	baselineDecision.Model = m.baselineModel
 	baselineDecision.Provider = providers.ProviderAnthropic
-	// The failed arm's effort does not describe the baseline model.
 	baselineDecision.Effort = ""
 	baselineOpts, baselineEffort := switchedAttemptOptions(ctx, opts, baselineDecision, routeRes.EscalateEffort, s.resolveEffort)
-	// Recompute against the model that actually serves, not the cost-routed
-	// OSS id — otherwise PrepareAnthropic may leave stale signed thinking
-	// blocks the baseline model rejects (400). Compare bare model IDs:
-	// baselineModel carries no effort, and any effort on the prior identity
-	// belonged to a different model, so the model comparison already
-	// subsumes it.
 	baselineOpts.ModelSwitched = baseModelOf(routeRes.PriorServedModel) != m.baselineModel ||
 		routeRes.SessionEverSwitched
 	baselineCtx := subscriptionStatePaidRescueContext(ctx, m.baselineModel)
@@ -79,7 +63,7 @@ func (m *messagesRescue) dispatchBaseline(ctx context.Context) context.Context {
 		baselineBindings := m.routing.ResolveBindingsForDispatch(baselineCtx, baselineDecision)
 		baselineMarker := withRescueDetail(suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, baselineRoutingMarkerFor(routeRes, m.baselineModel), m.baselineModel, markerReasonBaseline)), lastFailureDetail(attemptTraceFromContext(ctx)))
 		baselineNotice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, baselineOpts.TargetModel, baselineMarker)
-		baselineNotice = addRoutingFundingSource(baselineCtx, providers.ProviderAnthropic, baselineOpts.TargetModel, baselineNotice)
+		baselineNotice = addRoutingFundingSource(baselineCtx, m.seats, providers.ProviderAnthropic, baselineOpts.TargetModel, baselineNotice)
 		baselineAttempt := m.anthropicTierAttemptFor(baselineOpts, baselinePrep, baselineNotice).attempt(m.recordFastServed)
 		*m.fastServed = baselineOpts.FastMode
 		*m.crossFormat = false
@@ -100,20 +84,11 @@ func (m *messagesRescue) dispatchBaseline(ctx context.Context) context.Context {
 		m.decision = baselineDecision
 		m.bindings = baselineBindings
 		m.baselineAttempted = true
-		// Reflect whether the baseline actually served — a failed retry must
-		// not report baseline_failover=true and skew bake-off analysis.
 		m.baselineFailoverUsed = m.proxyErr == nil
 	}
 	return ctx
 }
 
-// subscriptionRetry is subscription-credit failover: suppress the OAuth token
-// and retry the SAME model once on the Weave/BYOK key when a
-// subscription-served Anthropic turn hit a transient fault (429/timeout), an
-// OAuth rejection (401/403), a model-access 404 (subscription token cannot use
-// that Claude model), or a third-party-client refusal (400: plan limits serve
-// only Claude Code), pre-commit. Skipped when baseline failover already ran
-// (non-Anthropic).
 func (m *messagesRescue) subscriptionRetry(ctx context.Context) {
 	s := m.svc
 	r := m.r
@@ -127,11 +102,9 @@ func (m *messagesRescue) subscriptionRetry(ctx context.Context) {
 		!preludeBuf.Committed() &&
 		(providers.IsRetryable(m.proxyErr) || anthropicOAuthCredentialRejected(m.proxyErr) || anthropicSubscriptionModelRejected(m.proxyErr) || anthropicSubscriptionThirdPartyRefused(m.proxyErr)) {
 		m.subscriptionRetryRan = true
+		recordOwnClaudeLoginRejected(ctx, r.Header, m.usageObserver, m.clock.Now(), m.proxyErr)
 		subCtx := subscriptionStatePaidRescueContext(withSuppressedClaudeSubscription(ctx), m.decision.Model)
 		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderAnthropic, m.decision.Model, r.Header)
-		// Model is unchanged, but rebuild prep so the retry gets a pristine
-		// PreparedRequest under the suppressed-subscription context — which
-		// now pays on the Weave key, so the fast-mode opt-in applies.
 		subOpts := opts
 		subOpts.FastMode = fastModeForAttempt(subCtx, m.decision.Model, providers.ProviderAnthropic)
 		subPrep, subEmitErr := env.PrepareAnthropic(r.Header, subOpts)
@@ -141,10 +114,6 @@ func (m *messagesRescue) subscriptionRetry(ctx context.Context) {
 				m.flushDeferredErr()
 			}
 		} else if subBindings := m.routing.ResolveBindingsForDispatch(subCtx, m.decision); len(subBindings) == 0 {
-			// No usable Anthropic binding under suppression — surface the
-			// original retryable error (real throttle) rather than a synthetic
-			// 502 that would mask it. No Weave key attempted, so attribution
-			// stays on the subscription.
 			log.Warn("Subscription failover: no fallback Anthropic binding available; surfacing original error",
 				"model", m.decision.Model,
 				"err", m.proxyErr,
@@ -157,8 +126,8 @@ func (m *messagesRescue) subscriptionRetry(ctx context.Context) {
 				"model", m.decision.Model,
 				"err", m.proxyErr,
 				"upstream_status", upstreamStatus(m.proxyErr))
-			subNotice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, subOpts.TargetModel, m.marker)
-			subNotice = addRoutingFundingSource(subCtx, providers.ProviderAnthropic, subOpts.TargetModel, subNotice)
+			subNotice := routerNoticeForRequest(withOwnClaudeRejectionNudge(ctx, r.Header, m.usageObserver), r.Header, subscriptions.ProviderClaude, subOpts.TargetModel, m.marker)
+			subNotice = addRoutingFundingSource(subCtx, m.seats, providers.ProviderAnthropic, subOpts.TargetModel, subNotice)
 			subAttempt := m.anthropicTierAttemptFor(subOpts, subPrep, subNotice).attempt(m.recordFastServed)
 			*m.fastServed = subOpts.FastMode
 			*m.crossFormat = false
@@ -168,14 +137,12 @@ func (m *messagesRescue) subscriptionRetry(ctx context.Context) {
 			m.subscriptionFailoverAttempted = true
 			subscriptionErr := m.proxyErr
 			m.winnerIdx, m.proxyErr = s.dispatchWithFallback(subCtx, dispatch.FailoverInputs{
-				Writer:          m.contentSink,
-				Prelude:         preludeBuf,
-				InitialDecision: m.decision,
-				Bindings:        subBindings,
-				Attempt:         subAttempt,
-				FlushErr:        m.flushErrAsAnthropic,
-				// A failed retry keeps the same dark model; hold the error so
-				// the sibling rescue below can still serve the turn.
+				Writer:                 m.contentSink,
+				Prelude:                preludeBuf,
+				InitialDecision:        m.decision,
+				Bindings:               subBindings,
+				Attempt:                subAttempt,
+				FlushErr:               m.flushErrAsAnthropic,
 				DeferFlushOnExhaustion: m.rescueArmed,
 				Purpose:                routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
 				Origin:                 routeRes.dispatchOrigin(m.decision),
@@ -190,8 +157,6 @@ func (m *messagesRescue) subscriptionRetry(ctx context.Context) {
 			}
 		}
 	}
-	// The subscription retry didn't run (mid-stream commit, or non-retryable
-	// error); surface the deferred original error now so it's never dropped.
 	if m.subscriptionRetryEligible && !m.rescueArmed && !m.baselineAttempted && !m.subscriptionRetryRan && m.proxyErr != nil && !preludeBuf.Committed() {
 		m.flushDeferredErr()
 	}

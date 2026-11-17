@@ -21,9 +21,6 @@ func severityText(s telemetry.Severity) string {
 	return "INFO"
 }
 
-// logRecordToProto converts a LogRecord into its OTLP wire form. The record
-// shares the request's traceID so the collector can correlate it with the
-// request's spans, and gets a fresh span ID for uniqueness.
 func logRecordToProto(r telemetry.LogRecord, traceID [16]byte) *logsv1.LogRecord {
 	spanID := generateSpanID()
 	ts := uint64(r.Time.UnixNano())

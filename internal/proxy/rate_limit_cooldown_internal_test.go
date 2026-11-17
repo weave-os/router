@@ -45,9 +45,9 @@ var _ sessionpin.CooldownStore = (*cooldownStubPinStore)(nil)
 
 var rateLimitTestNow = time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
 
-func newRateLimitTestService(store sessionpin.Store, transient bool, cooldownSeconds int) *Service {
-	svc := newRescuedDemotionTestService(store, true).WithTransientRateLimit(transient, cooldownSeconds)
-	svc.now = func() time.Time { return rateLimitTestNow }
+func newRateLimitTestService(store sessionpin.Store, transient bool) *Service {
+	svc := newRescuedDemotionTestService(store, true).WithTransientRateLimit(transient, 45)
+	svc.clock = func() time.Time { return rateLimitTestNow }
 	return svc
 }
 
@@ -77,7 +77,7 @@ func strikeRescuedPrimary(svc *Service, ctx context.Context, err error) (string,
 // made.
 func TestRescued429_CoolsDownInsteadOfDemoting(t *testing.T) {
 	store := &cooldownStubPinStore{}
-	svc := newRateLimitTestService(store, true, 45)
+	svc := newRateLimitTestService(store, true)
 	ctx, turn := dispatch.WithThrottleLedger(context.Background())
 
 	model, reason := strikeRescuedPrimary(svc, ctx, upstream429(""))
@@ -102,7 +102,7 @@ func TestRescued429_CoolsDownInsteadOfDemoting(t *testing.T) {
 // The per-org override on rate_limit_cooldown_seconds decides the expiry.
 func TestRescued429_CooldownHonoursOrgOverride(t *testing.T) {
 	store := &cooldownStubPinStore{}
-	svc := newRateLimitTestService(store, true, 45)
+	svc := newRateLimitTestService(store, true)
 	ctx := flags.WithOverrides(context.Background(), flags.Overrides{Ints: map[flags.Key]int{flags.KeyRateLimitCooldownSeconds: 120}})
 
 	_, reason := strikeRescuedPrimary(svc, ctx, upstream429(""))
@@ -120,7 +120,7 @@ func TestRescuedNon429_StaysPermanentUnderFlag(t *testing.T) {
 		providers.ErrUpstreamIdleTimeout,
 	} {
 		store := &cooldownStubPinStore{}
-		svc := newRateLimitTestService(store, true, 45)
+		svc := newRateLimitTestService(store, true)
 
 		model, reason := strikeRescuedPrimary(svc, context.Background(), err)
 
@@ -135,7 +135,7 @@ func TestRescuedNon429_StaysPermanentUnderFlag(t *testing.T) {
 func TestRescuedTransientGatewayFailureGetsBoundedCooldown(t *testing.T) {
 	for _, status := range []int{http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout} {
 		store := &cooldownStubPinStore{}
-		svc := newRateLimitTestService(store, true, 45)
+		svc := newRateLimitTestService(store, true)
 
 		model, reason := strikeRescuedPrimary(svc, context.Background(), &providers.UpstreamErrorResponse{Status: status})
 
@@ -155,11 +155,11 @@ func TestRescuedTransientGatewayFailureGetsBoundedCooldown(t *testing.T) {
 // extra completion fields.
 func TestRescued429_FlagOffKeepsPermanentDemotion(t *testing.T) {
 	store := &cooldownStubPinStore{}
-	svc := newRateLimitTestService(store, false, 45)
+	svc := newRateLimitTestService(store, false)
 	ctx, turn := svc.withRateLimitTurn(context.Background())
 	assert.Nil(t, turn)
 	assert.Nil(t, turn.CompletionLogFields())
-	assert.Nil(t, dispatch.ThrottleLedgerFromContext(ctx).RetryDelay(svc.clockNow))
+	assert.Nil(t, dispatch.ThrottleLedgerFromContext(ctx).RetryDelay(svc.clock.Now))
 
 	model, reason := strikeRescuedPrimary(svc, ctx, upstream429(""))
 
@@ -177,7 +177,7 @@ func TestRescued429_FlagOffKeepsPermanentDemotion(t *testing.T) {
 // strike rather than leaving the arm unstruck.
 func TestRescued429_StoreWithoutCooldownsDemotesForSession(t *testing.T) {
 	store := &demotionStubPinStore{}
-	svc := newRateLimitTestService(store, true, 45)
+	svc := newRateLimitTestService(store, true)
 
 	model, reason := strikeRescuedPrimary(svc, context.Background(), upstream429(""))
 
@@ -411,10 +411,10 @@ func TestGatewayRescueDecisions_ExhaustedPoolReadmitsCoolingArms(t *testing.T) {
 // turn's account as observer: an honoured Retry-After lands on the
 // completion line.
 func TestThrottleRetryDelay_RecordsHonouredRetryAfter(t *testing.T) {
-	svc := newRateLimitTestService(&cooldownStubPinStore{}, true, 45)
+	svc := newRateLimitTestService(&cooldownStubPinStore{}, true)
 	ctx, turn := svc.withRateLimitTurn(context.Background())
 	require.NotNil(t, turn)
-	retryDelay := dispatch.ThrottleLedgerFromContext(ctx).RetryDelay(svc.clockNow)
+	retryDelay := dispatch.ThrottleLedgerFromContext(ctx).RetryDelay(svc.clock.Now)
 	require.NotNil(t, retryDelay)
 
 	delay, retry := retryDelay(dispatch.Attempt{}, upstream429("3"), 250*time.Millisecond)
@@ -430,8 +430,8 @@ func TestThrottleRetryDelay_RecordsHonouredRetryAfter(t *testing.T) {
 	assert.Contains(t, fields, int64(3_000))
 }
 
-func coolingPin(model string, cooldowns map[string]time.Time, demoted ...string) sessionpin.Pin {
-	pin := demotedPin(model, demoted...)
+func coolingPin(cooldowns map[string]time.Time, demoted ...string) sessionpin.Pin {
+	pin := demotedPin(demotedPinModel, demoted...)
 	pin.DemotionCooldowns = cooldowns
 	return pin
 }
@@ -445,7 +445,7 @@ func cooldownTurnLoopService(store sessionpin.Store, transient bool) (*Service, 
 	svc := NewService(scorer, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithTransientRateLimit(transient, 45)
-	svc.now = func() time.Time { return rateLimitTestNow }
+	svc.clock = func() time.Time { return rateLimitTestNow }
 	return svc, scorer
 }
 
@@ -454,7 +454,7 @@ func cooldownTurnLoopService(store sessionpin.Store, transient bool) (*Service, 
 func TestTurnLoopExcludesCoolingArmBeforeExpiry(t *testing.T) {
 	until := rateLimitTestNow.Add(30 * time.Second)
 	store := &rolePinStore{byRole: map[string]sessionpin.Pin{
-		sessionpin.DefaultRole: coolingPin(demotedPinModel, map[string]time.Time{demotedPinModel: until}),
+		sessionpin.DefaultRole: coolingPin(map[string]time.Time{demotedPinModel: until}),
 	}}
 	svc, scorer := cooldownTurnLoopService(store, true)
 
@@ -472,7 +472,7 @@ func TestTurnLoopExcludesCoolingArmBeforeExpiry(t *testing.T) {
 // nothing is excluded.
 func TestTurnLoopReadmitsArmAfterCooldownExpiry(t *testing.T) {
 	store := &rolePinStore{byRole: map[string]sessionpin.Pin{
-		sessionpin.DefaultRole: coolingPin(demotedPinModel, map[string]time.Time{demotedPinModel: rateLimitTestNow.Add(-time.Second)}),
+		sessionpin.DefaultRole: coolingPin(map[string]time.Time{demotedPinModel: rateLimitTestNow.Add(-time.Second)}),
 	}}
 	svc, scorer := cooldownTurnLoopService(store, true)
 
@@ -492,7 +492,7 @@ func TestTurnLoopHonoursCooldownRecordedOnHMMHistory(t *testing.T) {
 	until := rateLimitTestNow.Add(30 * time.Second)
 	store := &rolePinStore{byRole: map[string]sessionpin.Pin{
 		sessionpin.DefaultRole:                 demotedPin(demotedPinModel),
-		hmmHistoryRole(sessionpin.DefaultRole): coolingPin(demotedPinModel, map[string]time.Time{demotedPinModel: until}),
+		hmmHistoryRole(sessionpin.DefaultRole): coolingPin(map[string]time.Time{demotedPinModel: until}),
 	}}
 	svc, scorer := cooldownTurnLoopService(store, true)
 
@@ -510,7 +510,7 @@ func TestTurnLoopHonoursCooldownRecordedOnHMMHistory(t *testing.T) {
 func TestTurnLoopPermanentStrikeOutranksLeftoverCooldown(t *testing.T) {
 	until := rateLimitTestNow.Add(30 * time.Second)
 	store := &rolePinStore{byRole: map[string]sessionpin.Pin{
-		sessionpin.DefaultRole: coolingPin(demotedPinModel, map[string]time.Time{demotedPinModel: until}, demotedPinModel),
+		sessionpin.DefaultRole: coolingPin(map[string]time.Time{demotedPinModel: until}, demotedPinModel),
 	}}
 	svc, scorer := cooldownTurnLoopService(store, true)
 
@@ -528,7 +528,7 @@ func TestTurnLoopPermanentStrikeOutranksLeftoverCooldown(t *testing.T) {
 // the session-lifetime strikes, as before.
 func TestTurnLoopIgnoresCooldownsWhenFlagOff(t *testing.T) {
 	store := &rolePinStore{byRole: map[string]sessionpin.Pin{
-		sessionpin.DefaultRole: coolingPin(demotedPinModel, map[string]time.Time{demotedPinModel: rateLimitTestNow.Add(time.Hour)}),
+		sessionpin.DefaultRole: coolingPin(map[string]time.Time{demotedPinModel: rateLimitTestNow.Add(time.Hour)}),
 	}}
 	svc, scorer := cooldownTurnLoopService(store, false)
 

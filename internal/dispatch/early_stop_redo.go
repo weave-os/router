@@ -12,9 +12,6 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-// EarlyStopRedo carries what ProxyMessages lends a re-serve: the gate holding
-// the stopped response, the closures that build and dispatch the candidate,
-// and the served-attempt state the redo replaces (or restores on failure).
 type EarlyStopRedo struct {
 	Gate     *EarlyStopGate
 	Prelude  *PreludeBuffer
@@ -26,7 +23,6 @@ type EarlyStopRedo struct {
 	Served   *EarlyStopServed
 }
 
-// EarlyStopServed points at ProxyMessages' record of the attempt that served.
 type EarlyStopServed struct {
 	Decision   *router.Decision
 	Bindings   *[]catalog.ProviderBinding
@@ -39,8 +35,6 @@ type EarlyStopServed struct {
 	Effort     *EffortResolution
 }
 
-// EarlyStopServedSnapshot is a copy of the served-attempt state, taken before a
-// redo overwrites it so a failed redo can put it back.
 type EarlyStopServedSnapshot struct {
 	Decision   router.Decision
 	Bindings   []catalog.ProviderBinding
@@ -53,7 +47,6 @@ type EarlyStopServedSnapshot struct {
 	Effort     EffortResolution
 }
 
-// Save copies the served-attempt state the pointers refer to.
 func (p *EarlyStopServed) Save() EarlyStopServedSnapshot {
 	return EarlyStopServedSnapshot{
 		Decision: *p.Decision, Bindings: *p.Bindings, Marker: *p.Marker, WinnerIdx: *p.WinnerIdx,
@@ -61,8 +54,6 @@ func (p *EarlyStopServed) Save() EarlyStopServedSnapshot {
 	}
 }
 
-// Restore puts back the attempt a failed redo replaced, so the stopped
-// response is what the turn serves and bills.
 func (p *EarlyStopServed) Restore(s EarlyStopServedSnapshot) {
 	*p.Decision, *p.Bindings, *p.Marker, *p.WinnerIdx = s.Decision, s.Bindings, s.Marker, s.WinnerIdx
 	*p.Extractor, *p.Summary, *p.ReqStats, *p.FastServed, *p.Effort = s.Extractor, s.Summary, s.ReqStats, s.FastServed, s.Effort

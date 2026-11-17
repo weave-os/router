@@ -7,7 +7,7 @@
       "dispatch_attempts": [],
       "response": {},
       "dispatch_error": {
-        "outcome": "error: Pi handoff expired or no longer matches this request; prepare the route again",
+        "outcome": "error: pi handoff expired or no longer matches this request; prepare the route again",
         "kind": 37,
         "status": 409,
         "message": "Pi handoff expired or no longer matches this request; prepare the route again"
