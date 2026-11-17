@@ -36,10 +36,6 @@ func hmmStayPin(s *Service, req router.Request, activePin sessionpin.Pin, hmmHis
 	return hmmCostGateFor(s).StayPin(req, activePin, hmmHistory, s.clock.Now())
 }
 
-func hmmDecisionConfidence(dec router.Decision) (float64, bool) {
-	return routingpolicy.HMMDecisionConfidence(dec)
-}
-
 func hmmFreshIsMoreExpensive(stayModel, freshModel string, inputTokens int) bool {
 	return routingpolicy.HMMFreshIsMoreExpensive(stayModel, freshModel, inputTokens)
 }
