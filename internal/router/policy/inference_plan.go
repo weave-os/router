@@ -9,7 +9,6 @@ import (
 	"weave-os/router/internal/router/catalog"
 )
 
-// ResolutionErrorCode identifies a fail-closed policy resolution failure.
 type ResolutionErrorCode string
 
 const (
@@ -25,8 +24,6 @@ const (
 	ResolutionErrorConstraintViolation ResolutionErrorCode = "constraint_violation"
 )
 
-// ResolutionError carries a stable reason code without exposing request
-// content, credentials, or an unbounded candidate explanation.
 type ResolutionError struct {
 	Code      ResolutionErrorCode
 	Purpose   Purpose
@@ -50,15 +47,11 @@ func (e *ResolutionError) Error() string {
 	return fmt.Sprintf("inference policy resolution %s for %s: %s", e.Code, identity, e.detail)
 }
 
-// CandidateSelection identifies the candidate selected by an existing router
-// or policy sidecar. ArmID is authoritative when both fields are present.
 type CandidateSelection struct {
 	ArmID    string
 	RosterID string
 }
 
-// ResolutionRequest contains the content-free inputs needed to turn a policy
-// entry and existing catalog candidates into an immutable execution plan.
 type ResolutionRequest struct {
 	Purpose       Purpose
 	RouterRequest router.Request
@@ -67,8 +60,6 @@ type ResolutionRequest struct {
 	Budget        *BudgetOverride
 }
 
-// ResolvedPlan is immutable execution authorization. Only PlanResolver can
-// construct a populated plan; slice accessors return detached copies.
 type ResolvedPlan struct {
 	purpose             Purpose
 	dispatchClass       DispatchClass
@@ -98,7 +89,6 @@ func (p ResolvedPlan) SelectionStrategy() SelectionStrategy { return p.selection
 
 func (p ResolvedPlan) SelectedBinding() Binding { return p.selectedBinding }
 
-// SelectedTarget returns the package-neutral execution target view.
 func (p ResolvedPlan) SelectedTarget() inference.Target {
 	return targetFromBinding(p.selectedBinding)
 }
@@ -107,7 +97,6 @@ func (p ResolvedPlan) AlternativeBindings() []Binding {
 	return append([]Binding(nil), p.alternativeBindings...)
 }
 
-// AlternativeTargets returns package-neutral fallback target views.
 func (p ResolvedPlan) AlternativeTargets() []inference.Target {
 	targets := make([]inference.Target, len(p.alternativeBindings))
 	for index, binding := range p.alternativeBindings {
@@ -128,8 +117,6 @@ func (p ResolvedPlan) Budget() BudgetSpec { return p.budget }
 
 func (p ResolvedPlan) Provenance() PlanProvenance { return p.provenance }
 
-// PlanResolver applies one registry to the existing catalog candidate
-// resolver. It does not score models or duplicate provider eligibility logic.
 type PlanResolver struct {
 	registry          Registry
 	candidateResolver *Resolver
@@ -145,9 +132,6 @@ func NewPlanResolver(registry Registry, candidateResolver *Resolver) (*PlanResol
 	return &PlanResolver{registry: registry, candidateResolver: candidateResolver}, nil
 }
 
-// Resolve validates typed overrides and budgets, resolves catalog candidates,
-// and returns an immutable plan. Invalid explicit inputs never fall through to
-// another target.
 func (r *PlanResolver) Resolve(request ResolutionRequest) (ResolvedPlan, error) {
 	spec, found := r.registry.Spec(request.Purpose)
 	if !found {
@@ -268,7 +252,7 @@ func selectBinding(spec PolicySpec, request ResolutionRequest, override *TargetO
 				if exceedsSpendBudget(binding.estimatedCostUSD, budget.MaxSpendUSD) {
 					continue
 				}
-				return plannedBinding{Binding: binding.Binding, estimatedCostUSD: binding.estimatedCostUSD}, PlanProvenance{
+				return plannedBinding(binding), PlanProvenance{
 					SelectionStrategy: spec.SelectionStrategy,
 					OverrideSource:    OverrideSourcePolicyDefault,
 				}, nil
@@ -453,7 +437,7 @@ func overrideBinding(resolved ResolvedCandidates, override TargetOverride) (plan
 		if override.Provider != "" && binding.Provider != override.Provider {
 			continue
 		}
-		return plannedBinding{Binding: binding.Binding, estimatedCostUSD: binding.estimatedCostUSD}, true
+		return plannedBinding(binding), true
 	}
 	return plannedBinding{}, false
 }
@@ -461,36 +445,10 @@ func overrideBinding(resolved ResolvedCandidates, override TargetOverride) (plan
 func plannedBindingFor(resolved ResolvedCandidates, selected Binding) (plannedBinding, bool) {
 	for _, binding := range resolved.bindingsByCatalogID[selected.CatalogID] {
 		if binding.Provider == selected.Provider && binding.BindingIndex == selected.BindingIndex {
-			return plannedBinding{Binding: binding.Binding, estimatedCostUSD: binding.estimatedCostUSD}, true
+			return plannedBinding(binding), true
 		}
 	}
 	return plannedBinding{}, false
-}
-
-func fallbackBindings(spec PolicySpec, selected plannedBinding, resolved ResolvedCandidates, maxSpendUSD float64) []plannedBinding {
-	var candidates []plannedBinding
-	switch spec.Fallback.Kind {
-	case FallbackKindBinding:
-		for _, binding := range resolved.bindingsByCatalogID[selected.CatalogID] {
-			candidates = append(candidates, plannedBinding{Binding: binding.Binding, estimatedCostUSD: binding.estimatedCostUSD})
-		}
-	case FallbackKindPlanAlternatives:
-		for _, catalogID := range spec.Fallback.Alternatives {
-			for _, binding := range resolved.bindingsByCatalogID[catalogID] {
-				candidates = append(candidates, plannedBinding{Binding: binding.Binding, estimatedCostUSD: binding.estimatedCostUSD})
-			}
-		}
-	}
-
-	alternatives := make([]plannedBinding, 0, len(candidates))
-	for _, candidate := range candidates {
-		if sameBinding(selected.Binding, candidate.Binding) || exceedsSpendBudget(candidate.estimatedCostUSD, maxSpendUSD) {
-			continue
-		}
-		candidate.Effort = selected.Effort
-		alternatives = append(alternatives, candidate)
-	}
-	return alternatives
 }
 
 func sameBinding(left, right Binding) bool {

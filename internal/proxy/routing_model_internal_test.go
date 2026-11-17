@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"weave-os/router/internal/providers"
@@ -90,14 +89,14 @@ func TestRoutingModelDispatchesConcreteModelAcrossClientProtocols(t *testing.T) 
 				svc := NewService(defaultRouter, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, nil, false, providers.ProviderAnthropic, completionModel, nil).
 					WithPolicyStrategy(policy.StrategySpec{Strategy: choice.strategy, Router: hmmRouter})
 				ctx := router.WithRoutingModel(router.WithStrategy(context.Background(), choice.strategy), choice.model)
-				request := httptest.NewRequest(http.MethodPost, tc.path, nil)
+				request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, tc.path, nil)
 				response := httptest.NewRecorder()
 				require.NoError(t, tc.call(svc, ctx, []byte(tc.body), response, request))
 				require.Zero(t, defaultRouter.calls)
 				require.Equal(t, 1, hmmRouter.calls)
 				require.Equal(t, completionModel, gjson.GetBytes(provider.body, "model").String())
 				require.Contains(t, response.Body.String(), "selected policy reply")
-				require.False(t, strings.Contains(string(provider.body), string(choice.model)))
+				require.NotContains(t, string(provider.body), string(choice.model))
 			})
 		}
 	}

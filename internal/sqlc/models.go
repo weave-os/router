@@ -465,7 +465,13 @@ type RouterModelRouterInferenceAttempt struct {
 	// Who owns the attempt failure: provider, router, client or unknown; NULL on a served attempt
 	FailureOwner *string
 	// TRUE when the router rewrote the request body it sent (format translation or same-format rewrite); NULL on rows written before this column
-	BodyTranslated *bool
+	BodyTranslated        *bool
+	SubscriptionAccountID *string
+	CredentialSource      *string
+	CapacitySource        *string
+	FundingPoolID         *string
+	SelectionPolicySha256 *string
+	CapacityObservedAt    pgtype.Timestamptz
 }
 
 // Customer router installations; owns API keys
@@ -786,6 +792,7 @@ type RouterModelRouterSubscriptionAccount struct {
 	CredentialRejectionCount      int32
 	CredentialFirstRejectedAt     pgtype.Timestamp
 	CredentialLastRejectionReason *string
+	TokenRefreshedAt              pgtype.Timestamptz
 	QuotaResetGeneration          int64
 }
 

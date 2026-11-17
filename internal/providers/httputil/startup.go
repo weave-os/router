@@ -8,9 +8,6 @@ import (
 	"net/url"
 )
 
-// WarmTransport exercises DNS/TCP/TLS through retained serving clients. It sends
-// no credential or inference and makes no authentication or model warmth claim.
-// A nonempty requiredOrigin limits warmup to an exactly matching configured origin.
 func WarmTransport(ctx context.Context, baseURL, requiredOrigin string, clients ...*http.Client) (bool, error) {
 	if baseURL == "" && requiredOrigin != "" {
 		return false, nil
@@ -35,7 +32,7 @@ func WarmTransport(ctx context.Context, baseURL, requiredOrigin string, clients 
 			return true, err
 		}
 		_, readErr := io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
-		response.Body.Close()
+		_ = response.Body.Close()
 		if readErr != nil {
 			return true, readErr
 		}

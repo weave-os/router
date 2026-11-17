@@ -32,7 +32,7 @@ func TestCodexForceModelSkillToolResultIsAnsweredByRouter(t *testing.T) {
 		`{"type":"custom_tool_call_output","call_id":"call_skill","output":[{"type":"input_text","text":"Script completed\nOutput:\n"},{"type":"input_text","text":" /force-model gpt-6-astra xhigh\n"}]}]}`)
 	rec := httptest.NewRecorder()
 
-	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/responses", nil)))
+	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)))
 
 	assert.Empty(t, upstream.models, "the skill's directive turn must not dispatch a model call")
 	require.NotEmpty(t, store.upserts, "pin written")

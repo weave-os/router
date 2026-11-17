@@ -13,33 +13,23 @@ import (
 	"weave-os/router/internal/observability"
 )
 
-// DefaultTimeout bounds a single policy decision. The sidecar embeds the
-// prompt (a network call to the embedding provider) before scoring, so the
-// budget is comparable to the cluster scorer's embed timeout.
 const DefaultTimeout = 2 * time.Second
 
-// HTTPDecider calls the policy sidecar's POST /route endpoint.
 type HTTPDecider struct {
 	baseURL string
 	client  *http.Client
 	headers map[string]string
 }
 
-// NewHTTPDecider builds a Decider that posts to baseURL/route. A nil client
-// uses a default client bounded by timeout; a non-nil client is used as-is.
 func NewHTTPDecider(baseURL string, client *http.Client, timeout time.Duration) *HTTPDecider {
 	return NewHTTPDeciderWithHeaders(baseURL, client, timeout, nil)
 }
 
-// NewHTTPDeciderWithHeaders is NewHTTPDecider plus static request headers
-// (e.g. Modal-Key / Modal-Secret for requires_proxy_auth ASGI apps).
 func NewHTTPDeciderWithHeaders(baseURL string, client *http.Client, timeout time.Duration, headers map[string]string) *HTTPDecider {
 	if client == nil {
 		if timeout <= 0 {
 			timeout = DefaultTimeout
 		}
-		// Sidecar URL is configuration, not discovery: hand a 3xx back (it
-		// fails the != 200 status check) instead of following it elsewhere.
 		client = &http.Client{
 			Timeout: timeout,
 			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
@@ -78,7 +68,6 @@ type routeResponse struct {
 	Error      string  `json:"error"`
 }
 
-// Decide posts the candidate set to the sidecar and returns its selection.
 func (d *HTTPDecider) Decide(ctx context.Context, q Query) (Result, error) {
 	models := make([]string, 0, len(q.Candidates))
 	providers := make(map[string]string, len(q.Candidates))
@@ -109,7 +98,7 @@ func (d *HTTPDecider) Decide(ctx context.Context, q Query) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("call policy sidecar: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {

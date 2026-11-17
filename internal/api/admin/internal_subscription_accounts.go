@@ -28,8 +28,6 @@ type internalUpdateSubscriptionAccountRequest struct {
 	Enabled *bool `json:"enabled"`
 }
 
-// InternalListSubscriptionAccountsHandler exposes credential-free account
-// health to the Weave control plane.
 func InternalListSubscriptionAccountsHandler(authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		owner, ok := internalSubscriptionOwner(c)
@@ -60,8 +58,6 @@ func InternalListSubscriptionAccountsHandler(authSvc *auth.Service) gin.HandlerF
 	}
 }
 
-// InternalUpdateSubscriptionAccountHandler enables or disables one account
-// owned by the requested subscriber.
 func InternalUpdateSubscriptionAccountHandler(authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		owner, ok := internalSubscriptionOwner(c)
@@ -92,8 +88,6 @@ func InternalUpdateSubscriptionAccountHandler(authSvc *auth.Service) gin.Handler
 	}
 }
 
-// InternalDeleteSubscriptionAccountHandler removes one account owned by the
-// requested subscriber.
 func InternalDeleteSubscriptionAccountHandler(authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		owner, ok := internalSubscriptionOwner(c)
@@ -120,10 +114,10 @@ func InternalDeleteSubscriptionAccountHandler(authSvc *auth.Service) gin.Handler
 }
 
 func internalSubscriptionOwner(c *gin.Context) (auth.SubscriptionOwner, bool) {
-	subscriberID := c.Param("subscriberID")
-	if _, err := uuid.Parse(subscriberID); err != nil {
+	subscriberID, err := uuid.Parse(c.Param("subscriberID"))
+	if err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_subscriber"})
 		return auth.SubscriptionOwner{}, false
 	}
-	return auth.SubscriptionOwner{SubscriberID: subscriberID}, true
+	return auth.SubscriptionOwner{SubscriberID: subscriberID.String()}, true
 }

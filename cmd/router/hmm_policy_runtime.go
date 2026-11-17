@@ -83,9 +83,6 @@ func hmmPolicySnapshotBuilder(
 		if capabilities.SchemaVersion != policy.SchemaVersionV4 {
 			return nil, fmt.Errorf("classifier capabilities schema %q is not %q", capabilities.SchemaVersion, policy.SchemaVersionV4)
 		}
-		// The sidecar reports these false because the v4 classifier never sees
-		// preferences or a quality/price bias; the strategy still honors both
-		// because Go's arm selector applies them after classification.
 		capabilities.HonorsQualityPriceBias = true
 		capabilities.HonorsPreferredModels = true
 		capabilities.SupportsRoutingDistribution = true
@@ -96,7 +93,7 @@ func hmmPolicySnapshotBuilder(
 			artifactID, artifactSHA := expectedClassifier.ArtifactID, expectedClassifier.PackageSHA256
 			if router.IsBetaStrategy(strategy) {
 				variant, found := expectedClassifier.Variants[strategy]
-				if !found && !(strategy == router.StrategyHMMBeta && candidate.HeadSnapshot.Head.Lane == policyregistry.LaneBeta) {
+				if !found && (strategy != router.StrategyHMMBeta || candidate.HeadSnapshot.Head.Lane != policyregistry.LaneBeta) {
 					continue
 				}
 				if found {

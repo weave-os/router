@@ -1,0 +1,18 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages",
+      "stream": false,
+      "routing_decisions": [],
+      "dispatch_attempts": [],
+      "response": {},
+      "dispatch_error": {
+        "outcome": "error: classifier thread is invalid or unavailable",
+        "kind": 39,
+        "status": 409,
+        "message": "Classifier thread history is unavailable or changed. Restore the complete original history; do not re-enroll a compacted thread."
+      }
+    }
+  ],
+  "scenario": "routing_policy_classifier_strategy_without_thread_fails_closed"
+}

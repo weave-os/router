@@ -21,8 +21,6 @@ func (r *SidecarRouter) selectEscalationArm(ctx context.Context, req router.Requ
 	if _, hasOverride := overrides[group]; !hasOverride {
 		return pick, err
 	}
-	// Key-configured arms may extend the artifact roster. Preserve that explicit
-	// order, but only inside the successfully constrained class.
 	override, overrideErr := ApplyClusterArmOverridesRequireMatch(overrides, pick.RankedFallback, resolved, pick.Arm, group)
 	if overrideErr != nil {
 		return SelectionPick{}, ErrNoEligibleArm
@@ -32,8 +30,6 @@ func (r *SidecarRouter) selectEscalationArm(ctx context.Context, req router.Requ
 	return pick, nil
 }
 
-// escalationArmOverrides serves the key's escalation target list in place of
-// each escalated group's list; without a target the overrides are unchanged.
 func escalationArmOverrides(overrides map[string][]string, groups ...string) map[string][]string {
 	target, hasTarget := overrides[escalation.TargetClusterLabel]
 	if !hasTarget {
@@ -78,8 +74,6 @@ func constrainEscalation(req router.Request, input SelectionInput, resolved Reso
 	return fallbackEscalation(req, input, resolved, decision)
 }
 
-// A failed increment can retain an earlier floor; exhausting that floor returns
-// to ordinary routing without claiming that the constraint was applied.
 func fallbackEscalation(req router.Request, input SelectionInput, resolved ResolvedCandidates, decision *escalation.Decision) (SelectionInput, *escalation.Decision, bool) {
 	failedGroup := decision.Effective
 	decision.Constrained = false
@@ -97,10 +91,6 @@ func fallbackEscalation(req router.Request, input SelectionInput, resolved Resol
 	return input, decision, false
 }
 
-// slidingThresholdGroupInput leads selection with the step group when the
-// sliding threshold moves the session part of the way toward the classified
-// group. The classifier's ranking stays behind it, so higher groups remain in
-// the fallback and rescue order.
 func slidingThresholdGroupInput(req router.Request, input SelectionInput) SelectionInput {
 	if req.SlidingThresholdPinGroup == "" || req.ForceCluster != "" || input.ForcedGroup != "" {
 		return input

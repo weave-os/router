@@ -4,12 +4,10 @@ import "context"
 
 type observationContextKey struct{}
 
-// WithObservation carries the attempt's quota fence to its header callback.
 func WithObservation(ctx context.Context, observation *Observation) context.Context {
 	return context.WithValue(ctx, observationContextKey{}, observation)
 }
 
-// ObservationFromContext returns the fence installed by the dispatch attempt.
 func ObservationFromContext(ctx context.Context) *Observation {
 	observation, _ := ctx.Value(observationContextKey{}).(*Observation)
 	return observation
@@ -20,8 +18,6 @@ type observationEpoch struct {
 	generation int64
 }
 
-// Observation fences one dispatched request against subsequent quota recovery.
-// Its token aliases are recorded atomically with the physical account key.
 type Observation struct {
 	observer *Observer
 	key      CredentialKey
@@ -30,9 +26,6 @@ type Observation struct {
 	closed   bool
 }
 
-// BeginObservation captures the account's current recovery epoch. Close must be
-// called once the attempt ends, including attempts without response headers.
-// generation is nil for direct credentials without durable account identity.
 func (o *Observer) BeginObservation(key CredentialKey, generation *int64, aliases ...CredentialKey) *Observation {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -48,7 +41,6 @@ func (o *Observer) BeginObservation(key CredentialKey, generation *int64, aliase
 	return &Observation{observer: o, key: key, aliases: append([]CredentialKey(nil), aliases...), epoch: epoch}
 }
 
-// Record stores the response only if no recovery invalidated this attempt.
 func (observation *Observation) Record(snapshot Snapshot) {
 	if !snapshot.hasData() {
 		return
@@ -65,7 +57,6 @@ func (observation *Observation) Record(snapshot Snapshot) {
 	}
 }
 
-// Close releases the epoch even when an attempt never reported quota headers.
 func (observation *Observation) Close() {
 	o := observation.observer
 	o.mu.Lock()
@@ -80,7 +71,6 @@ func (observation *Observation) Close() {
 	}
 }
 
-// Forget invalidates all pending observations before removing cached quota.
 func (o *Observer) Forget(key CredentialKey) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -88,8 +78,6 @@ func (o *Observer) Forget(key CredentialKey) {
 	delete(o.observations, key)
 }
 
-// Recover applies each durable recovery generation once per credential key.
-// Equal generations retain observations obtained after that recovery.
 func (o *Observer) Recover(key CredentialKey, generation int64) {
 	if generation <= 0 {
 		return
@@ -123,7 +111,6 @@ func (o *Observer) sweepObservationsLocked() {
 	}
 }
 
-// Record stores synchronous quota evidence outside an inference response.
 func (o *Observer) Record(key CredentialKey, snapshot Snapshot) {
 	if !snapshot.hasData() {
 		return
@@ -141,12 +128,6 @@ func (o *Observer) recordLocked(key CredentialKey, snap Snapshot) {
 	if snap.Secondary.present() {
 		snap.Secondary.ObservedAt = now
 	}
-	// Merge per-window with the prior (non-stale) observation: a single response
-	// may report only one window, and replacing the whole snapshot would erase
-	// the other window's last-known utilization — making the account look slack
-	// and selecting exhausted accounts until TTL. A genuinely reset window reports used≈0
-	// (still present), so it correctly overwrites; only an OMITTED window is
-	// preserved from the prior snapshot.
 	if prev, ok := o.data[key]; ok && o.now().Sub(prev.ObservedAt) <= o.freshFor(prev) {
 		if !snap.Primary.present() {
 			snap.Primary = prev.Primary

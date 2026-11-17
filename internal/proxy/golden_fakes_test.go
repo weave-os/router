@@ -15,12 +15,15 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 )
 
 // goldenEpoch anchors the fake clock; pins and cooldowns compare against it.
 var errGoldenAllExcluded = errors.New("golden router: every candidate excluded")
+
+var errGoldenUpstreamReset = errors.New("golden upstream: connection reset")
 
 var goldenEpoch = time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
 
@@ -56,6 +59,9 @@ type goldenStep struct {
 	err     error
 	// cancel cancels the client's request context after frames are written.
 	cancel bool
+	// pause holds the stream open before the last frame, in wall-clock time,
+	// so a keepalive writer can fire once the response has committed.
+	pause time.Duration
 }
 
 func goldenUpstreamError(status int, body string) goldenStep {
@@ -71,8 +77,12 @@ type goldenAttempt struct {
 	Provider string `json:"provider"`
 	Model    string `json:"wire_model"`
 	Endpoint string `json:"endpoint,omitempty"`
-	Body     any    `json:"outbound_body,omitempty"`
-	Outcome  string `json:"outcome"`
+	// Credential names a subscription credential's source; deployment and
+	// BYOK keys stay unlabelled.
+	Credential string            `json:"credential_source,omitempty"`
+	Resolved   *goldenCredential `json:"credential,omitempty"`
+	Body       any               `json:"outbound_body,omitempty"`
+	Outcome    string            `json:"outcome"`
 }
 
 type goldenProvider struct {
@@ -84,16 +94,25 @@ type goldenProvider struct {
 func (p *goldenProvider) SupportsSubscriptions() bool { return true }
 
 func (p *goldenProvider) Proxy(ctx context.Context, decision router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
+	credential := p.rec.credential(ctx)
+	if creds := proxy.CredentialsFromContext(ctx); creds != nil && creds.CredentialError != nil {
+		p.rec.recordAttempt(goldenAttempt{Provider: p.name, Model: decision.Model, Endpoint: goldenEndpoint(prep.Endpoint),
+			Credential: goldenCredentialSource(ctx), Resolved: credential, Outcome: goldenOutcome(creds.CredentialError)})
+		return creds.CredentialError
+	}
 	step := p.rec.nextStep(p)
 	if step.status != 0 || len(step.frames) > 0 {
 		for k, v := range step.headers {
 			w.Header().Set(k, v)
 		}
 		w.WriteHeader(max(step.status, http.StatusOK))
-		for _, frame := range step.frames {
+		for i, frame := range step.frames {
 			_, _ = w.Write([]byte(frame))
 			if f, ok := w.(http.Flusher); ok {
 				f.Flush()
+			}
+			if i == len(step.frames)-2 && step.pause > 0 {
+				time.Sleep(step.pause)
 			}
 		}
 	}
@@ -103,11 +122,13 @@ func (p *goldenProvider) Proxy(ctx context.Context, decision router.Decision, pr
 		err = ctx.Err()
 	}
 	p.rec.recordAttempt(goldenAttempt{
-		Provider: p.name,
-		Model:    decision.Model,
-		Endpoint: goldenEndpoint(prep.Endpoint),
-		Body:     goldenJSON(prep.Body),
-		Outcome:  goldenOutcome(err),
+		Provider:   p.name,
+		Model:      decision.Model,
+		Endpoint:   goldenEndpoint(prep.Endpoint),
+		Credential: goldenCredentialSource(ctx),
+		Resolved:   credential,
+		Body:       goldenJSON(prep.Body),
+		Outcome:    goldenOutcome(err),
 	})
 	return err
 }
@@ -149,13 +170,15 @@ type goldenRouteCall struct {
 	Provider          string   `json:"provider,omitempty"`
 	Reason            string   `json:"reason,omitempty"`
 	Error             string   `json:"error,omitempty"`
+	Request           any      `json:"request,omitempty"`
 }
 
 // goldenRouter returns the first decision whose model is not excluded.
 type goldenRouter struct {
-	decisions []router.Decision
-	err       error
-	rec       *goldenRecorder
+	decisions      []router.Decision
+	err            error
+	noCandidateErr error
+	rec            *goldenRecorder
 }
 
 func (g *goldenRouter) Route(_ context.Context, req router.Request) (router.Decision, error) {
@@ -181,13 +204,28 @@ func (g *goldenRouter) Route(_ context.Context, req router.Request) (router.Deci
 		return router.Decision{}, g.err
 	}
 	var d router.Decision
+	providerIneligible := false
 	for _, candidate := range g.decisions {
+		if _, enabled := req.EnabledProviders[candidate.Provider]; req.EnabledProviders != nil && !enabled {
+			providerIneligible = true
+			continue
+		}
 		_, excludedByCaller := req.ExcludedModels[candidate.Model]
 		_, excludedAutomatically := req.AutomaticExcludedModels[candidate.Model]
 		if !excludedByCaller && !excludedAutomatically {
 			d = candidate
 			break
 		}
+	}
+	if d.Model == "" && g.noCandidateErr != nil {
+		call.Error = g.noCandidateErr.Error()
+		g.rec.routes = append(g.rec.routes, call)
+		return router.Decision{}, g.noCandidateErr
+	}
+	if d.Model == "" && providerIneligible {
+		call.Error = router.ErrNoEligibleProvider.Error()
+		g.rec.routes = append(g.rec.routes, call)
+		return router.Decision{}, router.ErrNoEligibleProvider
 	}
 	if d.Model == "" {
 		call.Error = errGoldenAllExcluded.Error()
@@ -224,15 +262,12 @@ func (s *goldenPinStore) Get(_ context.Context, key [sessionpin.SessionKeyLen]by
 	s.rec.mu.Lock()
 	defer s.rec.mu.Unlock()
 	p, ok := s.pins[pinKey(key, role)]
-	if !ok || !p.PinnedUntil.After(s.clock.Now()) {
-		return sessionpin.Pin{}, false, nil
-	}
-	return p, true, nil
+	return p, ok, nil
 }
 
 func (s *goldenPinStore) Consume(ctx context.Context, key [sessionpin.SessionKeyLen]byte, role string, strategy router.Strategy) (sessionpin.Pin, bool, error) {
 	p, ok, err := s.Get(ctx, key, role)
-	if !ok || err != nil || p.Strategy != strategy {
+	if !ok || err != nil || p.Strategy != strategy || !p.PinnedUntil.After(s.clock.Now()) {
 		return sessionpin.Pin{}, false, err
 	}
 	s.rec.mu.Lock()
@@ -404,6 +439,28 @@ func (s *goldenPinStore) ExpireAndCoolDownModel(_ context.Context, expired sessi
 	return nil
 }
 
+func (s *goldenPinStore) StrikeTurnModel(_ context.Context, key [sessionpin.SessionKeyLen]byte, role, model string) error {
+	s.rec.mu.Lock()
+	defer s.rec.mu.Unlock()
+	if p, ok := s.pins[pinKey(key, role)]; ok && !slices.Contains(p.TurnStrikes, model) {
+		p.TurnStrikes = append(slices.Clone(p.TurnStrikes), model)
+		s.pins[pinKey(key, role)] = p
+	}
+	s.event("strike_turn_model", role, model)
+	return nil
+}
+
+func (s *goldenPinStore) ClearTurnStrikes(_ context.Context, key [sessionpin.SessionKeyLen]byte, role string) error {
+	s.rec.mu.Lock()
+	defer s.rec.mu.Unlock()
+	if p, ok := s.pins[pinKey(key, role)]; ok {
+		p.TurnStrikes = nil
+		s.pins[pinKey(key, role)] = p
+	}
+	s.event("clear_turn_strikes", role, nil)
+	return nil
+}
+
 func (s *goldenPinStore) SweepExpired(context.Context) error { return nil }
 
 // goldenTelemetry records request rows and inference attempts; request rows
@@ -418,6 +475,7 @@ type goldenTelemetry struct {
 func (g *goldenTelemetry) InsertRequestTelemetry(_ context.Context, p proxy.InsertTelemetryParams) error {
 	g.rec.mu.Lock()
 	g.rec.telemetry = append(g.rec.telemetry, goldenValue(p))
+	g.rec.recordRaw(p)
 	g.rec.mu.Unlock()
 	g.rows <- struct{}{}
 	return nil
@@ -427,6 +485,7 @@ func (g *goldenTelemetry) InsertInferenceAttempt(_ context.Context, p proxy.Inse
 	g.rec.mu.Lock()
 	defer g.rec.mu.Unlock()
 	g.rec.inferenceAttempts = append(g.rec.inferenceAttempts, goldenValue(p.Event))
+	g.rec.recordRaw(p)
 	return nil
 }
 
@@ -441,6 +500,7 @@ func (b *goldenBilling) DebitInference(_ context.Context, p billing.DebitParams)
 	b.rec.mu.Lock()
 	defer b.rec.mu.Unlock()
 	b.rec.debits = append(b.rec.debits, goldenValue(p))
+	b.rec.recordRaw(p)
 	return 1_000_000_000 - p.DeltaUsdMicros, nil
 }
 
@@ -461,3 +521,10 @@ func (b *goldenBilling) GetAutopayConfig(context.Context, billing.Owner) (bool, 
 }
 
 func (b *goldenBilling) BillingTablesExist(context.Context) (bool, error) { return true, nil }
+
+func goldenCredentialSource(ctx context.Context) string {
+	if creds := requestcontext.CredentialsFromContext(ctx); creds != nil && creds.OAuth {
+		return creds.Source
+	}
+	return ""
+}

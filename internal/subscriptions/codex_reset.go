@@ -16,13 +16,11 @@ import (
 	"github.com/google/uuid"
 )
 
-// ResetCredit is an available Codex rate-limit reset. A zero expiry never expires.
 type ResetCredit struct {
 	ID        string
 	ExpiresAt time.Time
 }
 
-// ResetOutcome codes that ConsumeCodexReset accepts; any other code is treated as an error.
 type ResetOutcome string
 
 const (
@@ -32,15 +30,12 @@ const (
 	ResetAlreadyRedeemed ResetOutcome = "already_redeemed"
 )
 
-// CodexResetClient accesses quota and earned resets without running inference.
 type CodexResetClient interface {
 	CodexQuotaExhausted(context.Context, Lease) (bool, error)
 	CodexResetCredits(context.Context, Lease) ([]ResetCredit, error)
 	ConsumeCodexReset(context.Context, Lease, string, string) (ResetOutcome, error)
 }
 
-// ResetClaim serializes redemption across a subscriber's sessions and installations.
-// Pending selections survive crashes so uncertain POSTs reuse the same credit and key.
 type ResetClaim struct {
 	SubscriberID string
 	LeaseID      string
@@ -49,7 +44,6 @@ type ResetClaim struct {
 	RequestID    string
 }
 
-// ResetStore persists the selection before the irreversible provider call.
 type ResetStore interface {
 	AcquireCodexReset(context.Context, string, string, time.Duration) (ResetClaim, bool, error)
 	SelectCodexReset(context.Context, ResetClaim) error
@@ -59,13 +53,10 @@ type ResetStore interface {
 	RecordCodexExhaustion(context.Context, auth.SubscriptionOwner, Lease, time.Time) (bool, error)
 }
 
-// ErrResetClaimLost prevents a stale worker from consuming or publishing a reset.
 var ErrResetClaimLost = errors.New("Codex reset claim lost")
 
 const resetOperationTimeout = 10 * time.Second
 
-// CodexAutoUsageResetEnabled applies the flag and optional personal rollout scope
-// to the authenticated subscriber, never to a client-supplied identity header.
 func CodexAutoUsageResetEnabled(ctx context.Context, subscriberID string) bool {
 	if subscriberID == "" || !flags.BoolOr(ctx, flags.KeyCodexAutoUsageReset, false) {
 		return false
@@ -82,16 +73,11 @@ func CodexAutoUsageResetEnabled(ctx context.Context, subscriberID string) bool {
 	return false
 }
 
-// WithCodexResets wires earned-reset redemption; the per-installation flag stays off by default.
 func (r *Runtime) WithCodexResets(client CodexResetClient, store ResetStore) *Runtime {
 	r.resetClient, r.resetStore, r.resetTieChoice = client, store, rand.IntN
 	return r
 }
 
-// ResetCodex recovers personal capacity only after live quota confirms exhaustion.
-// It consumes at most one credit per call; shared accounts never donate reset credits.
-// Accounts in owner.ExcludedAccountIDs cannot serve this request, so they are never
-// returned, but their headroom still prevents spending a credit.
 func (r *Runtime) ResetCodex(ctx context.Context, owner auth.SubscriptionOwner, sessionID string) (lease Lease, recovered bool, err error) {
 	if !CodexAutoUsageResetEnabled(ctx, owner.SubscriberID) || r.resetClient == nil || r.resetStore == nil {
 		return Lease{}, false, nil
@@ -170,10 +156,8 @@ func (r *Runtime) redeemReset(ctx context.Context, owner auth.SubscriptionOwner,
 	if err != nil || !found {
 		return Lease{}, false, err
 	}
-	// Re-read admission immediately before spending a credit, including resumed claims.
 	if err := r.admitReset(ctx, owner, selected.AccountID); err != nil {
 		if selectedNow {
-			// No request was sent for this new selection, so release the credit.
 			err = errors.Join(err, r.resetStore.ClearCodexReset(ctx, claim))
 		}
 		return Lease{}, false, err
@@ -193,8 +177,6 @@ func (r *Runtime) redeemReset(ctx context.Context, owner auth.SubscriptionOwner,
 	return r.recoverResetAccount(ctx, owner, sessionID, claim, selected)
 }
 
-// selectResetCredit resumes a pending selection or persists the earliest-expiring
-// credit. selectedNow reports a selection made by this call.
 func (r *Runtime) selectResetCredit(ctx context.Context, claim *ResetClaim, exhausted []Lease) (selected Lease, selectedNow, found bool, err error) {
 	if claim.CreditID != "" {
 		for _, account := range exhausted {
@@ -202,7 +184,6 @@ func (r *Runtime) selectResetCredit(ctx context.Context, claim *ResetClaim, exha
 				return account, false, true, nil
 			}
 		}
-		// An uncertain redemption remains reserved even after account access changes.
 		return Lease{}, false, false, nil
 	}
 	var candidates []resetCandidate

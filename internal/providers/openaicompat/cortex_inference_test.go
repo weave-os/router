@@ -2,7 +2,6 @@ package openaicompat_test
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -31,12 +30,12 @@ func cortexInference(served string, paths *[]string) http.HandlerFunc {
 	}
 }
 
-func chatRequest() (providers.PreparedRequest, *http.Request) {
+func chatRequest(ctx context.Context) (providers.PreparedRequest, *http.Request) {
 	return providers.PreparedRequest{
 			Body:    []byte(`{"model":"claude-sonnet-4-5","messages":[]}`),
 			Headers: make(http.Header),
 		},
-		httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+		httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 }
 
 // A base URL missing the version segment must still reach chat and must memoize
@@ -47,7 +46,7 @@ func TestProxy_GatewayBaseURLMissingVersionSegment(t *testing.T) {
 	defer srv.Close()
 
 	c := openaicompat.NewGatewayClient("tok", srv.URL+"/api/v2/cortex")
-	prep, clientReq := chatRequest()
+	prep, clientReq := chatRequest(t.Context())
 
 	rec := httptest.NewRecorder()
 	require.NoError(t, c.Proxy(context.Background(), router.Decision{Model: "claude-sonnet-4-5"}, prep, rec, clientReq))
@@ -76,12 +75,12 @@ func TestProxy_GatewayVersionProbeSurfacesRealError(t *testing.T) {
 	defer srv.Close()
 
 	c := openaicompat.NewGatewayClient("tok", srv.URL+"/api/v2/cortex")
-	prep, clientReq := chatRequest()
+	prep, clientReq := chatRequest(t.Context())
 	err := c.Proxy(context.Background(), router.Decision{Model: "gpt-5.6-luna"}, prep, httptest.NewRecorder(), clientReq)
 
 	require.Error(t, err)
 	var upstream *providers.UpstreamErrorResponse
-	require.True(t, errors.As(err, &upstream))
+	require.ErrorAs(t, err, &upstream)
 	assert.Equal(t, http.StatusBadRequest, upstream.Status)
 	assert.Contains(t, string(upstream.Body), "reasoning_effort")
 	assert.Equal(t, []string{"/api/v2/cortex/chat/completions", "/api/v2/cortex/v1/chat/completions"}, paths)
@@ -99,7 +98,7 @@ func TestProxy_GatewayVersionProbeKeepsOriginalNotFound(t *testing.T) {
 	defer srv.Close()
 
 	c := openaicompat.NewGatewayClient("tok", srv.URL+"/api/v2/cortex")
-	prep, clientReq := chatRequest()
+	prep, clientReq := chatRequest(t.Context())
 	err := c.Proxy(context.Background(), router.Decision{Model: "claude-sonnet-4-5"}, prep, httptest.NewRecorder(), clientReq)
 
 	require.Error(t, err)
@@ -115,7 +114,7 @@ func TestProxy_VersionedBaseURLIsNotProbed(t *testing.T) {
 	defer srv.Close()
 
 	c := openaicompat.NewGatewayClient("tok", srv.URL+"/api/v2/cortex/v1")
-	prep, clientReq := chatRequest()
+	prep, clientReq := chatRequest(t.Context())
 	require.NoError(t, c.Proxy(context.Background(), router.Decision{Model: "claude-sonnet-4-5"}, prep, httptest.NewRecorder(), clientReq))
 	assert.Equal(t, []string{"/api/v2/cortex/v1/chat/completions"}, paths)
 }
@@ -127,7 +126,7 @@ func TestAnthropicProxy_GatewayBaseURLWithDuplicateVersionSegment(t *testing.T) 
 	defer srv.Close()
 
 	c := anthropic.NewClient("tok", srv.URL+"/api/v2/cortex/v1", anthropic.WithAuthScheme(anthropic.AuthBearer))
-	prep, clientReq := chatRequest()
+	prep, clientReq := chatRequest(t.Context())
 	require.NoError(t, c.Proxy(context.Background(), router.Decision{Model: "claude-sonnet-4-5"}, prep, httptest.NewRecorder(), clientReq))
 	assert.Equal(t, []string{"/api/v2/cortex/v1/v1/messages", "/api/v2/cortex/v1/messages"}, paths)
 }
@@ -149,12 +148,12 @@ func TestAnthropicProxy_GatewayVersionProbeSurfacesRealError(t *testing.T) {
 	defer srv.Close()
 
 	c := anthropic.NewClient("tok", srv.URL+"/api/v2/cortex/v1", anthropic.WithAuthScheme(anthropic.AuthBearer))
-	prep, clientReq := chatRequest()
+	prep, clientReq := chatRequest(t.Context())
 	err := c.Proxy(context.Background(), router.Decision{Model: "claude-opus-9"}, prep, httptest.NewRecorder(), clientReq)
 
 	require.Error(t, err)
 	var upstream *providers.UpstreamErrorResponse
-	require.True(t, errors.As(err, &upstream))
+	require.ErrorAs(t, err, &upstream)
 	assert.Equal(t, http.StatusBadRequest, upstream.Status)
 	assert.Contains(t, string(upstream.Body), "unknown model")
 
@@ -170,7 +169,7 @@ func TestAnthropicProxy_GatewayBaseURLWithoutVersionSegment(t *testing.T) {
 	defer srv.Close()
 
 	c := anthropic.NewClient("tok", srv.URL+"/api/v2/cortex", anthropic.WithAuthScheme(anthropic.AuthBearer))
-	prep, clientReq := chatRequest()
+	prep, clientReq := chatRequest(t.Context())
 	require.NoError(t, c.Proxy(context.Background(), router.Decision{Model: "claude-sonnet-4-5"}, prep, httptest.NewRecorder(), clientReq))
 	assert.Equal(t, []string{"/api/v2/cortex/v1/messages"}, paths)
 }
@@ -183,7 +182,7 @@ func TestProxy_ResponsesEndpointUsesResponsesPath(t *testing.T) {
 	defer srv.Close()
 
 	c := openaicompat.NewGatewayClient("tok", srv.URL+"/api/v2/cortex")
-	prep, clientReq := chatRequest()
+	prep, clientReq := chatRequest(t.Context())
 	prep.Endpoint = providers.EndpointResponses
 
 	rec := httptest.NewRecorder()

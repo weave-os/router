@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -66,7 +67,7 @@ func TestExcludeObservedOverflowModelsReadmitsACompactedThread(t *testing.T) {
 // A context overflow names its own cause in the badge instead of
 // "rejected the request (client issue)".
 func TestRescueDetailLineNamesContextOverflow(t *testing.T) {
-	attempt := tracedAttempt{
+	attempt := dispatch.TracedAttempt{
 		Target:    inference.Target{Provider: providers.ProviderAnthropicGateway, CatalogID: gatewayCompactionOpusModel},
 		Diagnosis: inference.AttemptDiagnosis{FailureOwner: string(FailureOwnerClient)},
 		Err: &providers.UpstreamErrorResponse{

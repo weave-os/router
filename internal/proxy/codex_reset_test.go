@@ -77,7 +77,8 @@ func TestManagedCodexResetClearsStaleExhaustionAndRetriesSameAccount(t *testing.
 	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderOpenAI: &fakeClient{name: providers.ProviderOpenAI}}).WithManagedSubscriptions(leaser).WithUsageObserver(observer)
 	ctx := flags.WithOverrides(managedSubscriptionContext(auth.SubscriptionProviderCodex), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyCodexAutoUsageReset: true}})
 	ctx = WithSubscriptionOwner(ctx, auth.SubscriptionOwner{SubscriberID: "subscriber-1"})
-	attribution := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	attribution, ok := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	require.True(t, ok)
 	attribution.AttemptedAccounts = map[string]struct{}{account.AccountID + "\x00gpt-6.1-sol": {}}
 	_, lease, _, err := svc.leaseManagedSubscription(ctx, providers.ProviderOpenAI, "gpt-6.1-sol")
 	require.NoError(t, err)

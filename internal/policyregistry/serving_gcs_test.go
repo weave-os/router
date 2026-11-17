@@ -3,7 +3,6 @@ package policyregistry_test
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -199,7 +198,7 @@ func TestGCSManagedServingV2ObjectsRoundTripThroughReadServingObjectAndReadPrepa
 	ctx := context.Background()
 	store, _, set := controllerFixture(t)
 	v2 := newV2Fixture(t, store, set)
-	candidate := store.object(t, policyregistry.ServingCandidate, v2.candidate).(*policyregistry.CandidateV2)
+	candidate := mustAs[*policyregistry.CandidateV2](t, store.object(t, policyregistry.ServingCandidate, v2.candidate))
 	policy, err := store.ReadServingPolicy(ctx, policyregistry.ObjectRef{URI: candidate.Policy.URI, SHA256: candidate.Policy.SHA256, Generation: candidate.Policy.Generation})
 	require.NoError(t, err)
 	policyBytes, err := rosterdata.CanonicalBytes(policy)
@@ -283,7 +282,7 @@ func TestGCSManagedServingConcurrentRegistrationReturnsOneImmutableReference(t *
 		}
 		require.Equal(t, expected, ref)
 	}
-	require.Equal(t, policyregistry.Digest(payload), expected.SHA256)
+	require.Equal(t, expected.SHA256, policyregistry.Digest(payload))
 	require.NoError(t, policyregistry.ValidateServingRef(expected, testRegistryRoot, policyregistry.ServingSelectionSet))
 }
 
@@ -316,7 +315,7 @@ func TestGCSManagedServingGenerationCASAndAuthoritativeExactRead(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, second, observed)
 	fixture.mu.Lock()
-	require.GreaterOrEqual(t, fixture.exactReads, 2, fmt.Sprintf("reads: %d", fixture.exactReads))
+	require.GreaterOrEqual(t, fixture.exactReads, 2, "reads: %d", fixture.exactReads)
 	fixture.mu.Unlock()
 }
 

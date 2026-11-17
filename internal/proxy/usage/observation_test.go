@@ -35,7 +35,7 @@ func TestObservationRecoveryFencesOnlyOlderAccountEvidence(t *testing.T) {
 	late.Close()
 	snapshot, found := observer.Snapshot(account)
 	require.True(t, found)
-	require.Equal(t, 0.1, snapshot.Primary.UsedPercent, "equal recovery generations retain fresh evidence and old leases cannot replace it")
+	require.InDelta(t, 0.1, snapshot.Primary.UsedPercent, 1e-9, "equal recovery generations retain fresh evidence and old leases cannot replace it")
 	now = now.Add(2 * time.Minute)
 	observer.Sweep()
 	require.Empty(t, observer.observations, "finished epochs must not accumulate after their quota observations expire")

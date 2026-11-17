@@ -14,35 +14,24 @@ import (
 	"github.com/google/uuid"
 )
 
-// HeaderRouterFeedbackURL carries the no-login feedback page URL for the
-// served request. Omitted when the feedback-link feature is unwired.
 const HeaderRouterFeedbackURL = "x-router-feedback-url"
 
-// routerFeedbackSpanName is the OTLP span the router emits on each submission so
-// the Weave backend mirrors feedback into its own router_request_feedback table.
 const routerFeedbackSpanName = "router.feedback"
 
-// feedbackSourceLink labels feedback that arrived through the signed link page.
 const feedbackSourceLink = "link"
 
-// ErrFeedbackUnavailable is returned by the feedback service methods when no
-// repository is wired (ROUTER_FEEDBACK_LINK_SECRET / DB not configured).
 var ErrFeedbackUnavailable = errors.New("proxy: feedback repository not configured")
 
-// FeedbackContext is the routing context shown on the feedback page for one
-// request, plus any feedback already submitted for it.
 type FeedbackContext struct {
 	RequestID      string
 	ChosenModel    string
 	ChosenProvider string
 	ClientApp      string
 	RoutedAt       time.Time
-	// Rating is "" when no feedback exists yet, otherwise "up" or "down".
-	Rating  string
-	Comment *string
+	Rating         string
+	Comment        *string
 }
 
-// UpsertFeedbackParams carries one feedback row to persist.
 type UpsertFeedbackParams struct {
 	InstallationID string
 	ExternalID     string
@@ -53,7 +42,6 @@ type UpsertFeedbackParams struct {
 	RouterUserID   string
 }
 
-// SubmitFeedbackParams carries one feedback submission from the API handler.
 type SubmitFeedbackParams struct {
 	InstallationID string
 	ExternalID     string
@@ -63,16 +51,11 @@ type SubmitFeedbackParams struct {
 	Comment        *string
 }
 
-// FeedbackRepository persists and reads per-request human feedback. GetContext
-// returns sql.ErrNoRows when the request id is unknown for the installation.
 type FeedbackRepository interface {
 	Upsert(ctx context.Context, p UpsertFeedbackParams) error
 	GetContext(ctx context.Context, installationID, requestID string) (FeedbackContext, error)
 }
 
-// WithFeedback wires the feedback repository, signed-link signer, and public
-// base URL of the feedback page. Any left nil/empty disables that capability
-// (DB access, token verification, link emission respectively).
 func (s *Service) WithFeedback(repo FeedbackRepository, signer *feedback.Signer, baseURL string) *Service {
 	s.feedbackRepo = repo
 	s.feedbackSigner = signer
@@ -80,22 +63,14 @@ func (s *Service) WithFeedback(repo FeedbackRepository, signer *feedback.Signer,
 	return s
 }
 
-// FeedbackEnabled reports whether the signed feedback-link endpoints should
-// be mounted (i.e. ROUTER_FEEDBACK_LINK_SECRET is set). The repository can
-// still be nil in tests, so handlers guard independently.
 func (s *Service) FeedbackEnabled() bool {
 	return s != nil && s.feedbackSigner != nil
 }
 
-// VerifyFeedbackToken verifies a feedback-link token without leaking the
-// signer to the presentation layer. Returns feedback.ErrInvalidToken /
-// ErrExpiredToken for the handler to map to HTTP 404 / 410.
 func (s *Service) VerifyFeedbackToken(token string) (feedback.Claims, error) {
 	return s.feedbackSigner.Verify(token)
 }
 
-// GetFeedbackContext returns the routing context and any existing feedback for
-// one request. Returns sql.ErrNoRows when the request id is unknown.
 func (s *Service) GetFeedbackContext(ctx context.Context, installationID, requestID string) (FeedbackContext, error) {
 	if s.feedbackRepo == nil {
 		return FeedbackContext{}, ErrFeedbackUnavailable
@@ -103,9 +78,6 @@ func (s *Service) GetFeedbackContext(ctx context.Context, installationID, reques
 	return s.feedbackRepo.GetContext(ctx, installationID, requestID)
 }
 
-// SubmitFeedback persists feedback to the router's source-of-truth table and
-// emits a router.feedback OTLP span so Weave mirrors it. The DB write is
-// authoritative; the span is best-effort (dropped if the exporter queue is full).
 func (s *Service) SubmitFeedback(ctx context.Context, p SubmitFeedbackParams) error {
 	if s.feedbackRepo == nil {
 		return ErrFeedbackUnavailable
@@ -122,17 +94,15 @@ func (s *Service) SubmitFeedback(ctx context.Context, p SubmitFeedbackParams) er
 	if err != nil {
 		return err
 	}
-	s.emitFeedbackSpan(p)
+	s.emitFeedbackSpan(ctx, p)
 	return nil
 }
 
-// emitFeedbackSpan ships a router.feedback span to the Weave OTLP ingest. The
-// attribute keys are the contract the Weave backend's buildFeedbackRow reads.
-func (s *Service) emitFeedbackSpan(p SubmitFeedbackParams) {
+func (s *Service) emitFeedbackSpan(ctx context.Context, p SubmitFeedbackParams) {
 	if s.emitter == nil {
 		return
 	}
-	now := time.Now()
+	now := s.clock.Now()
 	b := telemetry.NewAttrBuilder(6).
 		String("external_id", p.ExternalID).
 		String("request_id", p.RequestID).
@@ -144,14 +114,11 @@ func (s *Service) emitFeedbackSpan(p SubmitFeedbackParams) {
 	if p.RouterUserID != "" {
 		b = b.String("router_user_id", p.RouterUserID)
 	}
-	ctx := telemetry.WithRecorder(context.Background(), s.newTelemetryRecorder())
+	ctx = telemetry.WithRecorder(context.WithoutCancel(ctx), s.newTelemetryRecorder())
 	telemetry.Record(ctx, telemetry.Span{Name: routerFeedbackSpanName, Start: now, End: now, Attrs: b.Build()})
 	telemetry.Flush(ctx)
 }
 
-// mintFeedbackToken signs a feedback-link token, or returns "" when the
-// feature is unwired or any required id is missing. Callers treat "" as
-// "feedback disabled".
 func (s *Service) mintFeedbackToken(installationID uuid.UUID, externalID, requestID, routerUserID string) string {
 	if s.feedbackSigner == nil || s.feedbackBaseURL == "" {
 		return ""
@@ -162,9 +129,6 @@ func (s *Service) mintFeedbackToken(installationID uuid.UUID, externalID, reques
 	return s.feedbackSigner.Mint(installationID.String(), externalID, requestID, routerUserID)
 }
 
-// setFeedbackLinkHeader mints a signed feedback link and sets it on the
-// response. No-op when the feature is unwired, any required id is missing,
-// or the installation has hidden its terminal surfaces.
 func (s *Service) setFeedbackLinkHeader(ctx context.Context, w http.ResponseWriter, installationID uuid.UUID, externalID, requestID, routerUserID string) {
 	if hideTerminalSurfacesForRequest(ctx) {
 		return
@@ -176,39 +140,16 @@ func (s *Service) setFeedbackLinkHeader(ctx context.Context, w http.ResponseWrit
 	w.Header().Set(HeaderRouterFeedbackURL, s.feedbackBaseURL+"/f/"+token)
 }
 
-// terminalFeedbackClients are agents whose entire streamed response is
-// user-facing chat, so a trailing /rf rating hint renders cleanly. IDEs
-// (cursor) and unknown clients are excluded: they reuse the endpoint for
-// inline edits, applied diffs, and commit messages, where a footer would
-// contaminate non-chat output.
 var terminalFeedbackClients = map[string]struct{}{
 	ClientAppClaudeCode: {},
 	ClientAppCodex:      {},
 	ClientAppOpencode:   {},
 }
 
-// feedbackFooterText is deliberately link-free: Claude Code's markdown
-// renderer prints "[label](url)" as "label (url)", so embedding the signed
-// feedback link would dump the whole token inline. /rf+ and /rf- render
-// identically across TUI, print mode, and IDEs.
-// Keep in sync with translate.feedbackFooterPattern, which strips this back
-// out of upstream context on ingress.
 const feedbackFooterText = "\n\n_Weave Router feedback:_ `/rf +` good experience · `/rf -` poor experience · note optional, e.g. `/rf - too slow`"
 
-// Codex reserves `/…` for built-ins, so `$rf` is used instead; the sentinel prefix is kept identical so ingress stripping matches both.
 const feedbackFooterTextCodex = "\n\n_Weave Router feedback:_ `$rf +` good experience · `$rf -` poor experience · note optional, e.g. `$rf - too slow`"
 
-// feedbackFooter returns the in-terminal rating hint for a streamed response,
-// or "" to stay transparent. Gated to terminalFeedbackClients (avoid
-// contaminating non-chat surfaces), to deployments with durable feedback
-// storage (never advertise a command we can't record — the header-based link
-// still ships for GUI clients), and to MainLoop/ToolResult turns: subagent
-// dispatches and machine turns (compaction, probe, title-gen, classifier)
-// render final text the user didn't directly initiate, where a trailing /rf
-// hint would strand beneath it (e.g. under an Explore subagent's result).
-// echoedInConversation suppresses the hint once the history already shows it,
-// so a conversation gets it at most once. Headless runs (`claude -p`, Agent
-// SDK, `codex exec`) never get it: their output is consumed by scripts.
 func (s *Service) feedbackFooter(ctx context.Context, clientApp string, tt turntype.TurnType, echoedInConversation bool) string {
 	if hideTerminalSurfacesForRequest(ctx) {
 		return ""
@@ -231,11 +172,6 @@ func (s *Service) feedbackFooter(ctx context.Context, clientApp string, tt turnt
 	return feedbackFooterText
 }
 
-// isHeadlessClientUserAgent recognizes non-interactive harness runs from the
-// User-Agent: Claude Code reports its entrypoint as "(external, sdk-cli)" for
-// `claude -p` and "sdk-ts"/"sdk-py" for the Agent SDK, while interactive use
-// reports "cli"; Codex prefixes the User-Agent with its originator
-// ("codex_exec", "codex_sdk_ts").
 func isHeadlessClientUserAgent(userAgent string) bool {
 	ua := strings.ToLower(userAgent)
 	return strings.Contains(ua, ", sdk-") || strings.HasPrefix(ua, "codex_exec") || strings.HasPrefix(ua, "codex_sdk")

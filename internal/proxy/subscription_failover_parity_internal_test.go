@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"weave-os/router/internal/credentials"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
@@ -186,7 +187,7 @@ func (in parityIngress) resolved(ctx context.Context) context.Context {
 // deploymentKeyedService builds a Service with the ingress' provider wired to a
 // deployment key — the paid fallback a rescue spends.
 func (in parityIngress) deploymentKeyedService() *Service {
-	return &Service{deploymentKeyedProviders: map[string]struct{}{in.provider: {}}}
+	return &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{in.provider: {}}}}
 }
 
 // parityObserver seeds a usage observer that already read the token's plan spent.
@@ -233,7 +234,7 @@ func TestSubscriptionFailoverParity_Eligibility(t *testing.T) {
 
 			t.Run("another provider's key is not a fallback", func(t *testing.T) {
 				other := providers.ProviderOpenRouter
-				svc := &Service{deploymentKeyedProviders: map[string]struct{}{other: {}}}
+				svc := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{other: {}}}}
 				assert.False(t, in.fallbackAvailable(svc, in.subCtx()),
 					"the fallback probe is provider-scoped; a key for another provider cannot serve this turn")
 			})
@@ -650,7 +651,7 @@ func (in parityIngress) quotaService(upstream providers.Client) *Service {
 func (in parityIngress) request(t *testing.T, stream bool) (*httptest.ResponseRecorder, *http.Request, []byte) {
 	t.Helper()
 	body := in.requestBody(stream)
-	return httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, in.path, strings.NewReader(body)), []byte(body)
+	return httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, in.path, strings.NewReader(body)), []byte(body)
 }
 
 // Credential faults must not buy API inference; confirmed exhaustion still

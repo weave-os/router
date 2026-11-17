@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"strings"
-	"time"
 
 	"context"
 	"errors"
@@ -19,20 +18,16 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/subscriptionlane"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
 )
 
-// WithInferencePlans installs the policy resolver that authorizes routed
-// main-inference decisions before the executor dispatches them.
 func (s *Service) WithInferencePlans(plans *policy.PlanResolver) *Service {
 	s.plans = plans
 	return s
 }
 
-// inferencePlans returns the wired plan resolver, or a registry-only default
-// so a Service built without the composition root still resolves routed
-// decisions against the reviewed registry.
 func (s *Service) inferencePlans() (*policy.PlanResolver, error) {
 	if s.plans != nil {
 		return s.plans, nil
@@ -55,16 +50,13 @@ func (s *Service) inferencePlans() (*policy.PlanResolver, error) {
 	return s.plans, nil
 }
 
-// inferenceExecutor returns the wired executor, or one built over the
-// service's own client registry and injectable clock so tests without a
-// composition root still dispatch through the boundary.
 func (s *Service) inferenceExecutor() (*dispatch.Executor, error) {
 	if s.executor != nil {
 		return s.executor, nil
 	}
 	var err error
 	s.defaultExecutorOnce.Do(func() {
-		opts := []dispatch.Option{dispatch.WithClock(s.clockNow)}
+		opts := []dispatch.Option{dispatch.WithClock(s.clock.Now)}
 		if s.retrySleep != nil {
 			opts = append(opts, dispatch.WithSleep(s.retrySleep))
 		}
@@ -79,8 +71,6 @@ func (s *Service) inferenceExecutor() (*dispatch.Executor, error) {
 	return s.executor, nil
 }
 
-// routedOrigin names the override source that fixed a routed decision's
-// model; empty when the router itself selected it.
 func routedOrigin(decision router.Decision, hardPinned, stickyHit bool) policy.OverrideSource {
 	switch {
 	case decision.Reason == translate.ReasonUserForceModel:
@@ -93,18 +83,11 @@ func routedOrigin(decision router.Decision, hardPinned, stickyHit bool) policy.O
 	return ""
 }
 
-// dispatchAbort marks an attempt failure the surface must return as-is: no
-// failover, no error envelope (a credential lease could not be obtained).
 type dispatchAbort struct{ err error }
 
 func (e dispatchAbort) Error() string { return e.err.Error() }
 func (e dispatchAbort) Unwrap() error { return e.err }
 
-// dispatchPlanned runs the surface's attempt closure through the dispatch
-// executor for a resolved plan, keeping the surface-level failover contract:
-// per-binding headers, credential re-resolution on fallback, managed
-// subscription leasing and account rotation, prelude discard on retry, and
-// the entry point's own error rendering on exhaustion.
 func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan inference.ResolvedPlan) (winnerIdx int, err error) {
 	log := observability.FromContext(ctx)
 	executor, err := s.inferenceExecutor()
@@ -131,20 +114,14 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			if attempt.Index == 0 {
 				return ctx, nil
 			}
-			// Fallback attempts re-resolve credentials against an empty header
-			// set: shouldFailover() already ruled out BYOK/client-credential
-			// paths, so the only source left is the deployment env key.
 			return resolveAndInjectCredentials(ctx, attempt.Target.Provider, in.initialDecision.Model, http.Header{}), nil
 		},
 		Terminal: func(_ dispatch.Attempt, err error) bool {
 			var abort dispatchAbort
 			return errors.As(err, &abort)
 		},
-		// A managed-subscription turn never fails over to a paid binding; a
-		// transient error on it still gets the same-binding retries.
-		Bound: func(dispatch.Attempt, error) bool { return managedBinding },
-		// Nil unless transient_rate_limit is on for this request.
-		RetryDelay: s.throttleRetryDelay(ctx),
+		Bound:      func(dispatch.Attempt, error) bool { return managedBinding },
+		RetryDelay: dispatch.ThrottleLedgerFromContext(ctx).RetryDelay(s.clock.Now),
 	}
 	transport.Attempt = func(attemptCtx context.Context, attempt dispatch.Attempt, client providers.Client) error {
 		decision := in.initialDecision
@@ -152,8 +129,8 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 		guarded := dispatch.GuardTarget(client, attempt.Target)
 		trace := attemptTraceFromContext(ctx)
 		if trace != nil {
-			trace.beginAttempt(attempt.Target, gatewayDeploymentBaseURL(attempt.Target.Provider, client), time.Now())
-			guarded = dispatch.ObservePrepared(guarded, trace.observeSent)
+			trace.BeginAttempt(attempt.Target, gatewayDeploymentBaseURL(attempt.Target.Provider, client), s.clock.Now())
+			guarded = dispatch.ObservePrepared(guarded, observeAttemptSent(trace))
 		}
 		var lastSubscriptionErr error
 		if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && usage.IntendedModel == "" {
@@ -171,14 +148,14 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			}
 			if current := CredentialsFromContext(attemptCtx); current != nil && current.OAuth && !s.supportsSubscriptionTransport(decision.Provider) {
 				if subscriptionAttemptOnly(ctx) || paidFallbackForbidden(ctx) || !s.managedProviderFallbackAvailable(ctx, subscriptions.ProviderCodex) && decision.Provider == providers.ProviderOpenAI || !s.managedProviderFallbackAvailable(ctx, subscriptions.ProviderClaude) && decision.Provider == providers.ProviderAnthropic {
-					return dispatchAbort{err: ErrSubscriptionPoolUnavailable}
+					return dispatchAbort{err: subscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable)}
 				}
 				attemptCtx = resolveAndInjectCredentials(withSuppressedClaudeSubscription(withSuppressedCodexSubscription(attemptCtx)), decision.Provider, decision.Model, http.Header{})
 			}
 			if !subscriptionAPIOnly(attemptCtx) && rotationBudget.remaining <= 0 {
-				return dispatchAbort{err: s.afterSubscriptionRotationBudget(ctx, decision, account, ErrSubscriptionPoolUnavailable)}
+				return dispatchAbort{err: s.afterSubscriptionRotationBudget(ctx, decision, account, subscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable))}
 			}
-			leaseCtx, finishLease := rotationBudget.leaseContext(attemptCtx, s.clockNow)
+			leaseCtx, finishLease := rotationBudget.leaseContext(attemptCtx, s.clock.Now)
 			if subscriptionAPIOnly(attemptCtx) {
 				finishLease()
 				leaseCtx = attemptCtx
@@ -192,14 +169,13 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			}
 			if leaseErr != nil {
 				if forcedClaudeClientAppRefused(ctx, decision, nil) {
-					return dispatchAbort{err: errors.Join(ErrSubscriptionClientAppRefused, leaseErr, lastSubscriptionErr)}
+					return dispatchAbort{err: errors.Join(subscriptionClientAppRefusal(ctx), leaseErr, lastSubscriptionErr)}
 				}
 				return dispatchAbort{err: errors.Join(leaseErr, lastSubscriptionErr)}
 			}
 			if !managedAttempt {
 				credentialCtx = attemptCtx
 			} else {
-				// The lease ran under the rotation deadline; dispatch must not inherit it.
 				credentialCtx = context.WithValue(attemptCtx, CredentialsContextKey{}, requestcontext.CredentialsFromContext(credentialCtx))
 			}
 			managedBinding = managedBinding || managedAttempt
@@ -213,12 +189,12 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			}
 			if forcedClaudeClientAppRefused(ctx, decision, CredentialsFromContext(credentialCtx)) {
 				lease.Release()
-				return dispatchAbort{err: ErrSubscriptionClientAppRefused}
+				return dispatchAbort{err: subscriptionClientAppRefusal(ctx)}
 			}
-			if creds := CredentialsFromContext(credentialCtx); paidFallbackForbidden(ctx) && (creds == nil || !creds.OAuth) {
+			if paidAttemptForbidden(ctx, CredentialsFromContext(credentialCtx)) {
 				lease.Release()
 				if claudeEnterpriseTurn(ctx) {
-					return dispatchAbort{err: ErrClaudeEnterpriseSubscriptionUnavailable}
+					return dispatchAbort{err: claudeEnterpriseRefusal(ctx)}
 				}
 				return dispatchAbort{err: subscriptionOnlyUnavailable(ctx)}
 			}
@@ -231,16 +207,14 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 					}
 				}
 			}
-			attemptStarted := time.Now()
-			attemptErr := attemptWithUsageObservation(credentialCtx, s.usageObserver, in.attempt, decision, guarded)
+			attemptStarted, attemptErr := invokeLeasedProviderAttempt(s, credentialCtx, plan, leasedProviderAttempt{inputs: in, decision: decision, target: attempt.Target, lease: lease, client: guarded, managed: managedAttempt})
 
-			// Health bookkeeping must persist even if the caller has gone.
 			bookkeepingCtx := context.WithoutCancel(credentialCtx)
 			if managedAttempt {
 				observability.FromContext(bookkeepingCtx).Info("Subscription account attempt completed",
 					"subscription_event", auth.SubscriptionCredentialEventAttempted, "account_id", lease.AccountID,
 					"provider", decision.Provider, "succeeded", attemptErr == nil,
-					"upstream_status", upstreamStatus(attemptErr), "attempt_ms", time.Since(attemptStarted).Milliseconds(),
+					"upstream_status", upstreamStatus(attemptErr), "attempt_ms", s.clock.Now().Sub(attemptStarted).Milliseconds(),
 					"response_committed", committed(in.buf), "subscription_account_attempt", account+1)
 			}
 			if creds := CredentialsFromContext(credentialCtx); !managedAttempt && creds != nil && creds.OAuth && attemptErr != nil {
@@ -293,11 +267,9 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 				}
 				return attemptErr
 			}
-			// Describe runs once per dispatch attempt; record the failed account
-			// call before the next account overwrites the traced body.
 			if trace != nil {
-				trace.describe(ctx, attempt, attemptErr)
-				trace.beginAttempt(attempt.Target, gatewayDeploymentBaseURL(attempt.Target.Provider, client), time.Now())
+				describeAttempt(ctx, trace, attempt, attemptErr)
+				trace.BeginAttempt(attempt.Target, gatewayDeploymentBaseURL(attempt.Target.Provider, client), s.clock.Now())
 			}
 			lastSubscriptionErr = attemptErr
 			if rotationBudget.remaining <= 0 {
@@ -317,7 +289,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 
 	if trace := attemptTraceFromContext(ctx); trace != nil {
 		transport.Describe = func(attempt dispatch.Attempt, err error) inference.AttemptDiagnosis {
-			return trace.describe(ctx, attempt, err)
+			return describeAttempt(ctx, trace, attempt, err)
 		}
 	}
 	req := inference.InvocationRequest{Purpose: in.purpose, RequestID: observability.RequestIDFromContext(ctx)}
@@ -328,10 +300,6 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 	}
 	var abort dispatchAbort
 	if errors.As(runErr, &abort) {
-		// An abort (e.g. no subscription account to lease) renders on the same
-		// terms as binding exhaustion. Skipping it left a released prelude with
-		// no terminal frame, since the handler cannot write once the client has
-		// bytes.
 		if in.flushErr != nil && !in.deferFlushOnExhaustion && !committed(in.buf) {
 			in.flushErr(in.w, abort.err)
 		}
@@ -348,24 +316,19 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 	return lastIdx, runErr
 }
 
-// WithInferenceDeployment records the boot-validated deployment facts so the
-// inspection API can report how each purpose resolves here.
 func (s *Service) WithInferenceDeployment(config policy.DeploymentPolicyConfig) *Service {
 	s.inferenceDeployment = config
 	return s
 }
 
-// InferencePolicyRegistry returns the registry every plan is resolved against.
 func (s *Service) InferencePolicyRegistry() policy.Registry {
 	return policy.DefaultRegistry()
 }
 
-// InferenceDeploymentProjection renders the registry against this deployment.
 func (s *Service) InferenceDeploymentProjection() policy.DeploymentProjection {
 	return policy.DefaultRegistry().DeploymentProjection(s.inferenceDeployment)
 }
 
-// InspectInferencePlan previews resolution for one purpose without dispatching.
 func (s *Service) InspectInferencePlan(request policy.InspectionRequest) (policy.ResolvedPlan, error) {
 	plans, err := s.inferencePlans()
 	if err != nil {
@@ -377,7 +340,7 @@ func (s *Service) InspectInferencePlan(request policy.InspectionRequest) (policy
 func (s *Service) afterSubscriptionRotationBudget(ctx context.Context, decision router.Decision, subscriptionAttempts int, rotationErr error) error {
 	observability.FromContext(ctx).Warn("Subscription admission budget spent; refusing unproven paid recovery", "model", decision.Model, "provider", decision.Provider, "budget_ms", subscriptionRotationBudget.Milliseconds(), "subscription_account_attempt", subscriptionAttempts, "err", rotationErr)
 	if forcedClaudeClientAppRefused(ctx, decision, nil) {
-		return errors.Join(ErrSubscriptionClientAppRefused, rotationErr)
+		return errors.Join(subscriptionClientAppRefusal(ctx), rotationErr)
 	}
 	if errors.Is(rotationErr, ErrSubscriptionPoolUnavailable) {
 		return rotationErr
@@ -392,8 +355,6 @@ func recordWinningCredentials(ctx, credentialCtx context.Context) {
 	}
 }
 
-// gatewayDeploymentBaseURL names the deployment-configured endpoint of a
-// customer gateway, so failures on it are attributed to that gateway.
 func gatewayDeploymentBaseURL(provider string, client providers.Client) string {
 	if !providers.IsGateway(provider) {
 		return ""

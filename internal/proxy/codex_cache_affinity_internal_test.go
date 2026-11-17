@@ -70,7 +70,7 @@ func TestCodexSubscriptionIngressKeepsCacheAffinityAcrossTurns(t *testing.T) {
 			for _, body := range fixture.turns {
 				ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 				ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: fixture.app, SessionID: session})
-				req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", strings.NewReader(body))
 				require.NoError(t, fixture.run(svc, ctx, []byte(body), httptest.NewRecorder(), req))
 			}
 			mu.Lock()

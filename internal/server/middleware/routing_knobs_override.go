@@ -22,9 +22,6 @@ const (
 	HeaderPerModelVerbosity    = "x-weave-routing-per-model-verbosity"
 )
 
-// abortInvalidKnob writes a 400 with the error envelope matching the route's
-// API format. Without this, every route returned the OpenAI shape, breaking
-// Anthropic and Gemini clients that parse their native envelopes.
 func abortInvalidKnob(c *gin.Context, message string) {
 	switch detectAPIFormat(c.Request.URL.Path) {
 	case apiFormatAnthropic:
@@ -63,8 +60,6 @@ const (
 	apiFormatGemini
 )
 
-// detectAPIFormat picks the envelope shape based on the request path. Mirrors
-// the routes mounted in internal/server/server.go.
 func detectAPIFormat(path string) apiFormat {
 	switch {
 	case strings.HasPrefix(path, "/v1beta/"):
@@ -76,7 +71,6 @@ func detectAPIFormat(path string) apiFormat {
 	}
 }
 
-// WithRoutingKnobsOverride parses the x-weave-routing-* headers and stashes them on the request context.
 func WithRoutingKnobsOverride() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if identity, managed := requestcontext.ServingIdentityFromContext(c.Request.Context()); managed && entitlement.PlanHasServingProfile(entitlement.Plan(identity.Plan)) {
@@ -129,11 +123,12 @@ func WithRoutingKnobsOverride() gin.HandlerFunc {
 
 		if raw := strings.TrimSpace(c.GetHeader(HeaderPerModelVerbosity)); raw != "" {
 			var val bool
-			if raw == "true" {
+			switch raw {
+			case "true":
 				val = true
-			} else if raw == "false" {
+			case "false":
 				val = false
-			} else {
+			default:
 				abortInvalidKnob(c, HeaderPerModelVerbosity+" must be either 'true' or 'false'.")
 				return
 			}

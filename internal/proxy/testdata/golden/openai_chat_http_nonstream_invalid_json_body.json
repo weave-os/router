@@ -1,0 +1,25 @@
+{
+  "requests": [
+    {
+      "ingress": "openai_chat_http",
+      "stream": false,
+      "routing_decisions": [],
+      "dispatch_attempts": [],
+      "response": {
+        "status": 400,
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "error": {
+            "code": null,
+            "message": "Request body must be a JSON object.",
+            "param": null,
+            "type": "invalid_request_error"
+          }
+        }
+      }
+    }
+  ],
+  "scenario": "openai_chat_http_nonstream_invalid_json_body"
+}

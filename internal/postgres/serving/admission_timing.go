@@ -8,8 +8,6 @@ import (
 	"weave-os/router/internal/policyregistry"
 )
 
-// admissionTimingRecord is the single per-admission latency line. It exists to size the
-// deferred gateway target-state cache and carries durations only, never request content.
 const admissionTimingRecord = "Serving admission timing"
 
 const (
@@ -27,8 +25,6 @@ const (
 	attrAdmissionActivation        = "activation_id"
 )
 
-// admissionOutcome classifies an admission without reproducing an error message, which
-// could carry caller identity.
 type admissionOutcome string
 
 const (
@@ -37,7 +33,6 @@ const (
 	admissionFailed   admissionOutcome = "error"
 )
 
-// admissionTiming accumulates the monotonic durations of one admission attempt.
 type admissionTiming struct {
 	started      time.Time
 	transaction  time.Duration
@@ -51,8 +46,6 @@ type admissionTiming struct {
 	activationID string
 }
 
-// emit writes the one record per admission, at Info so the measurement is collected at the
-// gateway's production log level.
 func (t admissionTiming) emit(ctx context.Context) {
 	observability.FromContext(ctx).Info(admissionTimingRecord, t.attributes()...)
 }
@@ -74,7 +67,6 @@ func (t admissionTiming) attributes() []any {
 	}
 }
 
-// milliseconds keeps sub-millisecond resolution, which the projection queries need.
 func milliseconds(elapsed time.Duration) float64 {
 	return float64(elapsed.Microseconds()) / 1000
 }

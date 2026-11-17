@@ -44,7 +44,7 @@ func TestProxy_StalledHeadersSurfaceErrorNotHang(t *testing.T) {
 	const headerTimeout = 50 * time.Millisecond
 	c := openai.NewClientWithResponseHeaderTimeout("test-key", upstream.URL, headerTimeout)
 	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 	prep := providers.PreparedRequest{
 		Body:     []byte(`{"model":"gpt-5.5","stream":true}`),
 		Headers:  make(http.Header),

@@ -16,7 +16,8 @@ type trafficCaptureRoundTripper struct {
 }
 
 func (t *trafficCaptureRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
-	scope := trafficcapture.FromContext(request.Context())
+	ctx := request.Context()
+	scope := trafficcapture.FromContext(ctx)
 	if scope == nil {
 		return t.transport.RoundTrip(request)
 	}
@@ -56,8 +57,6 @@ func (t *trafficCaptureRoundTripper) RoundTrip(request *http.Request) (*http.Res
 		}
 	}
 	finishResponse := func(responseComplete bool, responseErr error) {
-		// RoundTrip may return while the transport is still consuming/closing
-		// the request. Retain both spools until both bodies have finished.
 		requestBody.whenFinished(func(requestComplete bool, requestBodyErr error) {
 			exchangeRequest.BodyComplete = requestComplete && requestBody.spoolError() == nil
 			if responseBodySpool != nil && responseBodySpool.Err() != nil {
@@ -95,9 +94,9 @@ func (t *trafficCaptureRoundTripper) RoundTrip(request *http.Request) (*http.Res
 					exchange.Error = joinCaptureError(exchange.Error, spoolErr.Error())
 				}
 			}
-			recordUpstreamExchange(request.Context(), scope, exchange)
-			closeBodySpool(request.Context(), exchangeID, responseBodySpool)
-			closeBodySpool(request.Context(), exchangeID, requestBody.spool)
+			recordUpstreamExchange(ctx, scope, exchange)
+			closeBodySpool(ctx, exchangeID, responseBodySpool)
+			closeBodySpool(ctx, exchangeID, requestBody.spool)
 		})
 	}
 	if transportErr != nil {

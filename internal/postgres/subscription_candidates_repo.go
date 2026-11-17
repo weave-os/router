@@ -44,6 +44,7 @@ func (r *subscriptionAccountRepo) ListSubscriptionCandidates(ctx context.Context
 		account.Tier = auth.SubscriptionTier(row.Tier)
 		account.QuotaResetGeneration = row.QuotaResetGeneration
 		account.AccessTokenMissing = row.AccessTokenMissing
+		account.TokenRefreshVersion = row.TokenRefreshVersion
 		account.CredentialRejections = int(row.CredentialRejectionCount)
 		accounts = append(accounts, account)
 	}

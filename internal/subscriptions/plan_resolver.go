@@ -2,14 +2,16 @@ package subscriptions
 
 import (
 	"context"
+	"fmt"
 	"time"
+
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy/usage"
 
 	"github.com/google/uuid"
 	lru "github.com/hashicorp/golang-lru/v2"
 	"golang.org/x/sync/singleflight"
-	"weave-os/router/internal/observability"
-	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy/usage"
 )
 
 type subscriptionPlanReading struct {
@@ -17,7 +19,6 @@ type subscriptionPlanReading struct {
 	expiresAt time.Time
 }
 
-// PlanResolver owns credential-scoped provider identity and lookup freshness.
 type PlanResolver struct {
 	reader  providers.SubscriptionPlanReader
 	now     func() time.Time
@@ -26,8 +27,6 @@ type PlanResolver struct {
 	lookups singleflight.Group
 }
 
-// NewPlanResolver keeps successful readings for five minutes and failures
-// for fifteen seconds. Cache keys use this resolver's private credential salt.
 func NewPlanResolver(reader providers.SubscriptionPlanReader, now func() time.Time) *PlanResolver {
 	if now == nil {
 		now = time.Now
@@ -36,8 +35,6 @@ func NewPlanResolver(reader providers.SubscriptionPlanReader, now func() time.Ti
 	return &PlanResolver{reader: reader, now: now, salt: []byte(uuid.NewString()), entries: entries}
 }
 
-// Resolve returns Unknown on lookup failure; quota observations never classify
-// a plan. Caller cancellation is not cached across requests.
 func (r *PlanResolver) Resolve(ctx context.Context, token []byte) providers.SubscriptionPlan {
 	if err := ctx.Err(); err != nil {
 		return providers.SubscriptionPlanUnknown
@@ -77,7 +74,11 @@ func (r *PlanResolver) Resolve(ctx context.Context, token []byte) providers.Subs
 	case <-ctx.Done():
 		return providers.SubscriptionPlanUnknown
 	case outcome := <-result:
-		reading := outcome.Val.(subscriptionPlanReading)
+		reading, ok := outcome.Val.(subscriptionPlanReading)
+		if !ok {
+			observability.FromContext(ctx).Error("Claude subscription plan lookup returned an unexpected value", "value_type", fmt.Sprintf("%T", outcome.Val))
+			return providers.SubscriptionPlanUnknown
+		}
 		return reading.plan
 	}
 }

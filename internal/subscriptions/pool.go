@@ -1,4 +1,3 @@
-// Package subscriptions provides concurrency-safe provider subscription pools.
 package subscriptions
 
 import (
@@ -14,20 +13,13 @@ import (
 	"weave-os/router/internal/requestcontext"
 )
 
-// Provider identifies the subscription family an account can serve.
 type Provider string
 
 const (
-	// ProviderClaude is an Anthropic/Claude subscription.
 	ProviderClaude Provider = "claude"
-	// ProviderCodex is an OpenAI/Codex subscription.
-	ProviderCodex Provider = "codex"
+	ProviderCodex  Provider = "codex"
 )
 
-// Account is the non-secret state needed to select a subscription account.
-// AccessToken is returned only from Lease, may be cached in credential storage
-// (encrypted when configured) for cross-replica coordination, and must never
-// be logged.
 type Account struct {
 	QuotaResetGeneration int64
 	ID                   string
@@ -35,25 +27,19 @@ type Account struct {
 	Provider             Provider
 	AccessToken          string
 	AccessTokenExpiresAt time.Time
+	TokenRefreshVersion  int64
 	AccountID            string
 	Enabled              bool
 	State                auth.SubscriptionAccountState
 	CooldownTil          time.Time
 }
 
-// Refresher obtains a fresh access token for an account. Implementations may
-// rotate the refresh token and should return the replacement in Account.
 type Refresher func(context.Context, Account) (Account, error)
 
-// ErrNoAvailableAccount means every account in the provider pool is disabled,
-// cooling down, or currently leased.
 var ErrNoAvailableAccount = errors.New("no available subscription account")
 
-// ErrProviderMismatch means an account was added to the wrong provider pool.
 var ErrProviderMismatch = errors.New("subscription account provider mismatch")
 
-// Pool selects accounts for one owner and provider. A Pool never shares
-// accounts between owners or provider families.
 type Pool struct {
 	mu       sync.Mutex
 	ownerID  string
@@ -79,8 +65,6 @@ type terminalRefreshError interface {
 	Terminal() bool
 }
 
-// NewPool creates an empty pool for one owner and provider. clock is injectable
-// for deterministic cooldown tests; nil uses time.Now.
 func NewPool(ownerID string, provider Provider, clock func() time.Time) *Pool {
 	if clock == nil {
 		clock = time.Now
@@ -95,8 +79,6 @@ func NewPool(ownerID string, provider Provider, clock func() time.Time) *Pool {
 	}
 }
 
-// Upsert adds or replaces an account. The owner and provider are part of the
-// pool identity and cannot be changed through this method.
 func (p *Pool) Upsert(account Account) error {
 	if account.ID == "" || account.OwnerID == "" {
 		return errors.New("subscription account id and owner are required")
@@ -118,8 +100,6 @@ func (p *Pool) Upsert(account Account) error {
 	return nil
 }
 
-// Sync replaces persisted account metadata while retaining live access tokens
-// and in-flight lease counts for accounts that still exist.
 func (p *Pool) Sync(accounts []Account) error {
 	present := make(map[string]struct{}, len(accounts))
 	for _, account := range accounts {
@@ -143,7 +123,6 @@ func (p *Pool) Sync(accounts []Account) error {
 	return nil
 }
 
-// Disable marks an account unavailable without deleting its identity.
 func (p *Pool) Disable(accountID string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -155,8 +134,6 @@ func (p *Pool) Disable(accountID string) bool {
 	return ok
 }
 
-// Cooldown marks an account unavailable until resetAt after a quota response.
-// It returns false when accountID is not part of this owner/provider pool.
 func (p *Pool) Cooldown(accountID string, resetAt time.Time) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -171,7 +148,6 @@ func (p *Pool) Cooldown(accountID string, resetAt time.Time) bool {
 	return true
 }
 
-// Exhaust marks an account unavailable until its quota reset.
 func (p *Pool) Exhaust(accountID string, resetAt time.Time) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -186,7 +162,6 @@ func (p *Pool) Exhaust(accountID string, resetAt time.Time) bool {
 	return true
 }
 
-// ReconnectRequired removes an account from selection until it is reauthorized.
 func (p *Pool) ReconnectRequired(accountID string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -200,8 +175,6 @@ func (p *Pool) ReconnectRequired(accountID string) bool {
 	return true
 }
 
-// InvalidateAccessToken drops a cached access token the provider rejected so
-// the next lease refreshes it.
 func (p *Pool) InvalidateAccessToken(accountID string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -214,7 +187,6 @@ func (p *Pool) InvalidateAccessToken(accountID string) bool {
 	return true
 }
 
-// Activate makes an account available after a successful provider response.
 func (p *Pool) Activate(accountID string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -230,7 +202,6 @@ func (p *Pool) Activate(accountID string) bool {
 	return true
 }
 
-// restoreQuota clears a cooldown only after a live quota check has confirmed headroom.
 func (p *Pool) restoreQuota(accountID string, generation int64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -238,14 +209,11 @@ func (p *Pool) restoreQuota(accountID string, generation int64) {
 		state.account.QuotaResetGeneration = generation
 		state.account.State = auth.SubscriptionAccountStateActive
 		state.account.CooldownTil = time.Time{}
-		// Quota recovery may have refreshed credentials outside this pool.
-		// Reload the persisted token instead of reviving its old cached bearer.
 		state.account.AccessToken = ""
 		state.account.AccessTokenExpiresAt = time.Time{}
 	}
 }
 
-// Remove deletes an account and any sticky session references to it.
 func (p *Pool) Remove(accountID string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -261,8 +229,6 @@ func (p *Pool) Remove(accountID string) bool {
 	return true
 }
 
-// Lease reserves an account for one request. Release must be called exactly
-// once, including when dispatch fails before any response bytes are sent.
 func (p *Pool) Lease(ctx context.Context, provider Provider, sessionID string, refresh Refresher) (Account, func(), error) {
 	if provider != p.provider {
 		return Account{}, nil, ErrProviderMismatch
@@ -289,7 +255,6 @@ func (p *Pool) Lease(ctx context.Context, provider Provider, sessionID string, r
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return Account{}, nil, err
 		}
-		// refreshAccount already fenced the failed account; try the next one.
 	}
 	return Account{}, nil, ErrNoAvailableAccount
 }
@@ -400,25 +365,20 @@ func (p *Pool) refreshAccount(ctx context.Context, account Account, refresh Refr
 	p.refresh[account.ID] = call
 	p.mu.Unlock()
 
-	// The refresh outlives the initiating caller so joiners still get a token,
-	// while the initiator returns at its own deadline like any joiner.
 	go func() {
 		refreshCtx, cancelRefresh := context.WithTimeout(context.WithoutCancel(ctx), refreshLeaseTTL)
 		defer cancelRefresh()
 		var refreshed Account
 		var err error
 		func() {
-			// A panicking refresher must still release joiners and the in-flight entry.
 			defer func() {
 				if recovered := recover(); recovered != nil {
-					// The payload may contain credential material; record only its type.
 					observability.FromContext(refreshCtx).Error("Subscription refresh panicked", "account_id", account.ID, "panic_type", fmt.Sprintf("%T", recovered))
 					err = errors.New("subscription refresh panicked")
 				}
 			}()
 			refreshed, err = refresh(refreshCtx, account)
 		}()
-		// Classify here so a failure is recorded even when every waiter left.
 		var terminal terminalRefreshError
 		var rejected *credentialRejectionCooldownError
 		switch {

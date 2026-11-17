@@ -11,11 +11,16 @@ import (
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/postgres"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions"
 )
 
 type resetAccountHealthRepository interface {
 	UpdateSubscriptionAccountHealth(context.Context, string, auth.SubscriptionOwner, auth.SubscriptionAccountState, bool, *time.Time) (bool, error)
+}
+
+type resetCandidateLister interface {
+	ListSubscriptionCandidates(context.Context, auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error)
 }
 
 func resetAccountFixture(t *testing.T, fixture subscriptionFixture) (auth.SubscriptionOwner, *auth.SubscriptionAccount) {
@@ -27,7 +32,9 @@ func resetAccountFixture(t *testing.T, fixture subscriptionFixture) (auth.Subscr
 	})
 	require.NoError(t, err)
 	resetAt := time.Now().Add(time.Hour)
-	_, err = repo.(resetAccountHealthRepository).UpdateSubscriptionAccountHealth(context.Background(), account.ID, owner, auth.SubscriptionAccountStateExhausted, true, &resetAt)
+	health, ok := repo.(resetAccountHealthRepository)
+	require.True(t, ok)
+	_, err = health.UpdateSubscriptionAccountHealth(context.Background(), account.ID, owner, auth.SubscriptionAccountStateExhausted, true, &resetAt)
 	require.NoError(t, err)
 	return owner, account
 }
@@ -90,7 +97,9 @@ func TestCodexResetStoreRejectsForeignAndDisabledAccounts(t *testing.T) {
 	claim.AccountID, claim.CreditID, claim.RequestID = account.ID, "own-credit", uuid.NewString()
 	require.NoError(t, store.SelectCodexReset(ctx, claim))
 	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
-	_, err = repo.(resetAccountHealthRepository).UpdateSubscriptionAccountHealth(ctx, account.ID, owner, auth.SubscriptionAccountStateDisabled, false, nil)
+	health, ok := repo.(resetAccountHealthRepository)
+	require.True(t, ok)
+	_, err = health.UpdateSubscriptionAccountHealth(ctx, account.ID, owner, auth.SubscriptionAccountStateDisabled, false, nil)
 	require.NoError(t, err)
 	require.ErrorIs(t, store.RecoverCodexAccount(ctx, claim, account.ID), subscriptions.ErrResetClaimLost)
 	after, err := repo.GetSubscriptionCredentialRecord(ctx, account.ID, owner)
@@ -122,9 +131,9 @@ func TestCodexResetStoreRecoveryGenerationFencesLateExhaustion(t *testing.T) {
 	require.Equal(t, int64(1), recovered.QuotaResetGeneration)
 	require.Equal(t, auth.SubscriptionAccountStateActive, recovered.State)
 	require.Nil(t, recovered.CooldownUntil)
-	candidates, err := repo.(interface {
-		ListSubscriptionCandidates(context.Context, auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error)
-	}).ListSubscriptionCandidates(ctx, owner)
+	lister, ok := repo.(resetCandidateLister)
+	require.True(t, ok)
+	candidates, err := lister.ListSubscriptionCandidates(ctx, owner)
 	require.NoError(t, err)
 	require.Len(t, candidates, 1)
 	require.Equal(t, recovered.QuotaResetGeneration, candidates[0].QuotaResetGeneration, "the candidate reader must expose recovery to other replicas")
@@ -134,6 +143,41 @@ func TestCodexResetStoreRecoveryGenerationFencesLateExhaustion(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, applied, "a post-recovery provider failure is still authoritative")
 	require.NoError(t, store.ReleaseCodexReset(ctx, claim))
+}
+
+func TestCodexResetRefreshLeaseKeepsInferenceAndMaintenanceAdmission(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	owner, account := resetAccountFixture(t, fixture)
+	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
+	refresh, ok := repo.(auth.SubscriptionRefreshRepository)
+	require.True(t, ok)
+	maintenance, ok := repo.(auth.SubscriptionMaintenanceRefreshRepository)
+	require.True(t, ok)
+	ctx := context.Background()
+	leaseID := uuid.NewString()
+	acquisition, err := refresh.TryAcquireSubscriptionRefreshLease(ctx, account.ID, owner, leaseID, time.Minute)
+	require.NoError(t, err)
+	require.False(t, acquisition.Acquired, "inference must not refresh an exhausted account")
+	acquisition, err = maintenance.TryAcquireSubscriptionMaintenanceRefreshLease(ctx, account.ID, owner, leaseID, time.Minute)
+	require.NoError(t, err)
+	require.True(t, acquisition.Acquired, "maintenance may refresh exhausted credentials")
+	require.NoError(t, refresh.ReleaseSubscriptionRefreshLease(ctx, account.ID, owner, leaseID))
+	resetAt := time.Now().Add(time.Hour)
+	health, ok := repo.(resetAccountHealthRepository)
+	require.True(t, ok)
+	_, err = health.UpdateSubscriptionAccountHealth(ctx, account.ID, owner, auth.SubscriptionAccountStateCooldown, true, &resetAt)
+	require.NoError(t, err)
+	acquisition, err = maintenance.TryAcquireSubscriptionMaintenanceRefreshLease(ctx, account.ID, owner, leaseID, time.Minute)
+	require.NoError(t, err)
+	require.False(t, acquisition.Acquired, "maintenance must still respect a non-exhaustion cooldown")
+	recoveryCtx := requestcontext.WithSubscriptionQuotaRecovery(ctx)
+	acquisition, err = refresh.TryAcquireSubscriptionRefreshLease(recoveryCtx, account.ID, owner, leaseID, time.Minute)
+	require.NoError(t, err)
+	require.True(t, acquisition.Acquired, "quota recovery may refresh without admitting inference")
+	require.NoError(t, refresh.ReleaseSubscriptionRefreshLease(ctx, account.ID, owner, leaseID))
+	acquisition, err = refresh.TryAcquireSubscriptionRefreshLease(ctx, account.ID, owner, leaseID, time.Minute)
+	require.NoError(t, err)
+	require.False(t, acquisition.Acquired, "quota recovery does not lift the inference cooldown")
 }
 
 func TestCodexResetStoreConcurrentAcquisitionAndCrashTakeover(t *testing.T) {

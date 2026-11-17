@@ -70,3 +70,17 @@ func TestPoolRecoveryGenerationFencesDelayedRefresh(t *testing.T) {
 	require.Equal(t, int64(1), got.account.QuotaResetGeneration)
 	require.Equal(t, "recovered-token", got.account.AccessToken)
 }
+
+func TestPoolRecoveryPreservesNewerTokenRefreshVersion(t *testing.T) {
+	now := time.Now()
+	existing := Account{QuotaResetGeneration: 0, TokenRefreshVersion: 4, AccessToken: "new-token", AccessTokenExpiresAt: now.Add(time.Hour)}
+	incoming := Account{QuotaResetGeneration: 1, TokenRefreshVersion: 3}
+	merged := mergePoolAccount(existing, incoming, now)
+	require.Equal(t, int64(1), merged.QuotaResetGeneration)
+	require.Equal(t, int64(4), merged.TokenRefreshVersion)
+	require.Equal(t, "new-token", merged.AccessToken)
+	incoming.TokenRefreshVersion = 5
+	merged = mergePoolAccount(existing, incoming, now)
+	require.Equal(t, int64(5), merged.TokenRefreshVersion)
+	require.Empty(t, merged.AccessToken, "newer durable credentials must be loaded instead of reviving the stale token")
+}

@@ -14,7 +14,6 @@ import (
 
 type codexResetStore struct{ tx sqlc.DBTX }
 
-// NewCodexResetStore coordinates earned-reset redemption across router replicas.
 func NewCodexResetStore(tx sqlc.DBTX) subscriptions.ResetStore {
 	return &codexResetStore{tx: tx}
 }

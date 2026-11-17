@@ -2,6 +2,7 @@ package toolcheck
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -354,4 +355,28 @@ func countRepairAction(actions []string, want string) int {
 		}
 	}
 	return count
+}
+
+func TestCompile_OversizedSchemaIsUncheckable(t *testing.T) {
+	description := strings.Repeat("x", maxSchemaBytes)
+	tools := `[{"name":"Big","input_schema":{"type":"object","description":"` + description + `",` +
+		`"properties":{"n":{"type":"integer"}},"additionalProperties":false}}]`
+	v := Compile([]byte(tools))
+	require.NotNil(t, v)
+	require.True(t, v.KnownTool("Big"))
+
+	got := v.Check("Big", `{"n":"not a number","extra":1}`)
+	assert.True(t, got.OK, "a schema over maxSchemaBytes is not validated")
+	assert.JSONEq(t, `{"n":"not a number","extra":1}`, got.Args)
+}
+
+func TestCheck_OversizedMalformedArgsAreNotRepaired(t *testing.T) {
+	v := compileRead(t)
+	truncated := `{"file_path":"` + strings.Repeat("a", maxArgsBytes)
+	got := v.Check("Read", truncated)
+	assert.False(t, got.OK)
+	require.NotNil(t, got.Issue)
+	assert.Equal(t, BucketInvalidJSON, got.Issue.Bucket)
+	assert.False(t, got.Issue.Repaired)
+	assert.Equal(t, `{}`, got.Args)
 }

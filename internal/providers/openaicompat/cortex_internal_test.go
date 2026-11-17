@@ -100,7 +100,7 @@ func TestProxy_SnowflakeCortexResponsesOmitsReasoningSummary(t *testing.T) {
 				Endpoint: providers.EndpointResponses,
 				Headers:  make(http.Header),
 			}
-			req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)
 			rec := httptest.NewRecorder()
 
 			require.NoError(t, c.Proxy(context.Background(), router.Decision{Model: tt.model}, prep, rec, req))
@@ -130,7 +130,7 @@ func TestProxy_CortexAIGatewayRootServesChatCompletionsUnderV1(t *testing.T) {
 		Endpoint: providers.EndpointChatCompletions,
 		Headers:  make(http.Header),
 	}
-	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", nil)
 	require.NoError(t, c.Proxy(context.Background(), router.Decision{Model: "openai-gpt-5"}, prep, httptest.NewRecorder(), req))
 	assert.Equal(t, []string{"/api/v2/aigateways/ENG/v1/chat/completions"}, paths)
 }

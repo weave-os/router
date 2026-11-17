@@ -13,12 +13,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/subscriptions"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCodexSharedWorkspaceSeatsAndLegacyReconnect(t *testing.T) {
@@ -32,10 +34,10 @@ func TestCodexSharedWorkspaceSeatsAndLegacyReconnect(t *testing.T) {
 	ctx := context.Background()
 	conn, err := pgx.Connect(ctx, dsn)
 	require.NoError(t, err)
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 	tx, err := conn.Begin(ctx)
 	require.NoError(t, err)
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	installation := uuid.New()
 	_, err = tx.Exec(ctx, `INSERT INTO router.model_router_installations(id,external_id,name) VALUES($1,$2,'synthetic-identity')`, installation, installation.String())
 	require.NoError(t, err)
@@ -58,7 +60,7 @@ func TestCodexSharedWorkspaceSeatsAndLegacyReconnect(t *testing.T) {
 		require.NoError(t, err)
 	}
 	oauth := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.NoError(t, r.ParseForm())
+		assert.NoError(t, r.ParseForm())
 		user := r.Form.Get("refresh_token")
 		payload := base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf(`{"https://api.openai.com/auth":{"chatgpt_account_id":%q,"chatgpt_user_id":%q}}`, workspace, user)))
 		w.Header().Set("Content-Type", "application/json")

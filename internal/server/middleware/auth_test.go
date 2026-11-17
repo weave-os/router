@@ -240,7 +240,7 @@ func TestWithAuthPrefersRouterKeyHeader(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	req.Header.Set(middleware.RouterKeyHeader, routerToken)
 	req.Header.Set("Authorization", "Bearer anthropic-oauth-token")
 	rr := httptest.NewRecorder()
@@ -268,7 +268,7 @@ func TestWithAuthLeavesControlPlaneAvailableWhenSubscriptionEnrollmentLookupFail
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/validate", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/validate", nil)
 	req.Header.Set(middleware.RouterKeyHeader, routerToken)
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, req)
@@ -297,7 +297,7 @@ func TestWithAuthPropagatesContentCaptureOverride(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	req.Header.Set(middleware.RouterKeyHeader, routerToken)
 	rr := httptest.NewRecorder()
 	engine.ServeHTTP(rr, req)
@@ -324,7 +324,7 @@ func TestWithAuthOmitsContentCaptureOverrideWhenUnset(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	req.Header.Set(middleware.RouterKeyHeader, routerToken)
 	rr := httptest.NewRecorder()
 	engine.ServeHTTP(rr, req)
@@ -353,7 +353,7 @@ func TestWithAuthCarriesPaidFallbackOnSubscriptionRefusalOptIn(t *testing.T) {
 				c.Status(http.StatusOK)
 			})
 
-			req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 			req.Header.Set(middleware.RouterKeyHeader, routerToken)
 			rr := httptest.NewRecorder()
 			engine.ServeHTTP(rr, req)
@@ -387,7 +387,7 @@ func TestWithAuthManagedModeDropsBYOKWhenNotOptedIn(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	req.Header.Set(middleware.RouterKeyHeader, routerToken)
 	rr := httptest.NewRecorder()
 	engine.ServeHTTP(rr, req)
@@ -423,7 +423,7 @@ func TestWithAuthManagedModeKeepsBYOKWhenOptedIn(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	req.Header.Set(middleware.RouterKeyHeader, routerToken)
 	rr := httptest.NewRecorder()
 	engine.ServeHTTP(rr, req)
@@ -457,7 +457,7 @@ func TestWithAuthSelfHostedKeepsBYOKInContext(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	req.Header.Set(middleware.RouterKeyHeader, routerToken)
 	rr := httptest.NewRecorder()
 	engine.ServeHTTP(rr, req)
@@ -496,7 +496,7 @@ func TestWithAuthSnapshotsForwardedClientHeaders(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	req.Header.Set(middleware.RouterKeyHeader, routerToken)
 	req.Header.Set("X-SNOWFLAKE-APPLICATION", "cortex-cli/1.2.3")
 	req.Header.Set("X-SNOWFLAKE-BAGGAGE", `{"deployment":"prod"}`)
@@ -521,7 +521,7 @@ func TestWithAuthKeepsLegacyBearerFallback(t *testing.T) {
 	engine.Use(middleware.WithAuth(svc, false))
 	engine.GET("/probe", func(c *gin.Context) { c.Status(http.StatusOK) })
 
-	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	req.Header.Set("Authorization", "Bearer "+routerToken)
 	rr := httptest.NewRecorder()
 	engine.ServeHTTP(rr, req)
@@ -543,7 +543,7 @@ func TestWithAuthInfraFailureIsRetryable503NotInvalidKey(t *testing.T) {
 	engine.Use(middleware.WithAuth(svc, false))
 	engine.GET("/probe", func(c *gin.Context) { c.Status(http.StatusOK) })
 
-	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	req.Header.Set(middleware.RouterKeyHeader, routerToken)
 	rr := httptest.NewRecorder()
 	engine.ServeHTTP(rr, req)
@@ -563,7 +563,7 @@ func TestWithAuthUnknownKeyStays401(t *testing.T) {
 	engine.Use(middleware.WithAuth(svc, false))
 	engine.GET("/probe", func(c *gin.Context) { c.Status(http.StatusOK) })
 
-	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	req.Header.Set(middleware.RouterKeyHeader, "rk_no_such_key")
 	rr := httptest.NewRecorder()
 	engine.ServeHTTP(rr, req)
@@ -582,7 +582,7 @@ func TestWithAuthMalformedPrefixStays401(t *testing.T) {
 	engine.Use(middleware.WithAuth(svc, false))
 	engine.GET("/probe", func(c *gin.Context) { c.Status(http.StatusOK) })
 
-	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	req.Header.Set("Authorization", "Bearer sk-ant-oat-not-a-router-key")
 	rr := httptest.NewRecorder()
 	engine.ServeHTTP(rr, req)
@@ -626,7 +626,7 @@ func TestSubscriptionManagementReturnsUnavailableOnLiveIdentityLookupFailure(t *
 	group := engine.Group("/v1")
 	group.Use(middleware.WithAuth(svc, false))
 	subscriptions.Register(group, svc)
-	request := httptest.NewRequest(http.MethodGet, "/v1/subscriptions/accounts", nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/subscriptions/accounts", nil)
 	request.Header.Set(middleware.RouterKeyHeader, routerToken)
 	response := httptest.NewRecorder()
 

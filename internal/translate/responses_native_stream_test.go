@@ -85,7 +85,7 @@ func TestResponsesWriter_NativeSparseTerminalAfterUsableOutput(t *testing.T) {
 						events := parseSSEEvents(t, rec.Body.Bytes())
 						terminal := events[len(events)-1]
 						assert.Equal(t, "response."+string(status), terminal["type"])
-						assert.Equal(t, "resp_native", terminal["response"].(map[string]any)["id"])
+						assert.Equal(t, "resp_native", mustAs[map[string]any](t, terminal["response"])["id"])
 						if !display {
 							assert.Equal(t, native, rec.Body.String())
 						}
@@ -154,8 +154,8 @@ func TestResponsesWriter_NativeFailurePreservesDeliveredIdentityAndSequence(t *t
 			require.Len(t, events, len(before)+1)
 			failed := events[len(events)-1]
 			assert.Equal(t, "response.failed", failed["type"])
-			assert.Equal(t, before[len(before)-1]["sequence_number"].(float64)+1, failed["sequence_number"])
-			assert.Equal(t, before[0]["response"].(map[string]any)["id"], failed["response"].(map[string]any)["id"])
+			assert.InDelta(t, mustAs[float64](t, before[len(before)-1]["sequence_number"])+1, failed["sequence_number"], 1e-9)
+			assert.Equal(t, mustAs[map[string]any](t, before[0]["response"])["id"], mustAs[map[string]any](t, failed["response"])["id"])
 		})
 	}
 }
@@ -189,7 +189,7 @@ func TestResponsesWriter_NativeAttemptResetDiscardsOutputAndTerminalState(t *tes
 		require.Len(t, events, 2)
 		assert.Equal(t, "response.failed", events[1]["type"])
 		assert.EqualValues(t, 1, events[1]["sequence_number"])
-		assert.Equal(t, "resp_new", events[1]["response"].(map[string]any)["id"])
+		assert.Equal(t, "resp_new", mustAs[map[string]any](t, events[1]["response"])["id"])
 	}
 }
 
@@ -205,7 +205,7 @@ func TestResponsesWriter_NativeAttemptResetPreservesSyntheticPrelude(t *testing.
 	require.Len(t, events, 8)
 	assert.Equal(t, "response.failed", events[7]["type"])
 	assert.EqualValues(t, 7, events[7]["sequence_number"])
-	assert.Equal(t, events[0]["response"].(map[string]any)["id"], events[7]["response"].(map[string]any)["id"])
+	assert.Equal(t, mustAs[map[string]any](t, events[0]["response"])["id"], mustAs[map[string]any](t, events[7]["response"])["id"])
 }
 
 // The Codex backend streams every item but ends with an empty

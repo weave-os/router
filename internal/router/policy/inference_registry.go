@@ -16,41 +16,18 @@ import (
 )
 
 const (
-	// InferenceRegistrySchemaVersion is the stable static-projection schema.
 	InferenceRegistrySchemaVersion = "inference_policy_registry_v2"
 	inferencePolicyOwner           = "@steventohme"
 
-	// EscalationJudgeModel is the reviewed Switchyard judge target.
 	EscalationJudgeModel = "z-ai/glm-5.3-flash"
 
-	// HandoverSummaryDefaultModel is the reviewed default target of the
-	// handover-summary policy. Haiku-class: summarization is cheap.
-	HandoverSummaryDefaultModel = "claude-haiku-4-5"
-	// PrecompactionDefaultModel is the reviewed Sonnet-class summarizer the
-	// compaction cascade uses when the session has no warm Anthropic pin; the
-	// summary is the only record of the elided history, so it is worth a
-	// mid-tier model.
-	PrecompactionDefaultModel = "claude-sonnet-5-5"
-	// PrecompactionLargeWindowModel is the big-context Anthropic-family
-	// summarizer for histories too large for PrecompactionDefaultModel.
+	HandoverSummaryDefaultModel   = "claude-haiku-4-5"
+	PrecompactionDefaultModel     = "claude-sonnet-5-5"
 	PrecompactionLargeWindowModel = "claude-opus-5"
-	// UtilityHardPinDefaultProvider and UtilityHardPinDefaultModel are the
-	// reviewed fallback target of the utility hard-pin policies (title-gen,
-	// classifier, probe, sub-agent dispatch, client compaction without a
-	// summary-grade session model) when the deployment names no override and
-	// the cluster bundle cannot supply its fastest available model.
 	UtilityHardPinDefaultProvider = providers.ProviderAnthropic
 	UtilityHardPinDefaultModel    = "claude-haiku-4-5"
-	// ClassifierModel serves API-billed client classifier turns (Claude Code's
-	// auto-mode security monitor): a one-token verdict over a long transcript,
-	// where input price dominates.
-	ClassifierModel = "claude-haiku-5-5"
 )
 
-// compactionSummarizerModels is the reviewed set both compaction purposes may
-// summarize with, in default preference order. It includes every Anthropic
-// non-low catalog model so a session's warm pin can summarize its own history
-// and so ROUTER_COMPACTION_MODEL, which pins both purposes, validates once.
 var compactionSummarizerModels = []string{
 	PrecompactionDefaultModel,
 	PrecompactionLargeWindowModel,
@@ -69,13 +46,11 @@ var compactionSummarizerModels = []string{
 	"claude-fable-5-2",
 }
 
-// FallbackSpec declares the only fallback family and fixed alternatives a policy permits.
 type FallbackSpec struct {
 	Kind         FallbackKind `json:"kind"`
 	Alternatives []string     `json:"alternatives,omitempty"`
 }
 
-// PolicySpec is the checked-in, reviewable policy for one purpose.
 type PolicySpec struct {
 	Optional           bool              `json:"optional,omitempty"`
 	FixedProvider      string            `json:"fixed_provider,omitempty"`
@@ -96,14 +71,12 @@ type PolicySpec struct {
 	MigrationStatus    MigrationStatus   `json:"migration_status"`
 }
 
-// Registry is an immutable, validated collection of purpose policies.
 type Registry struct {
 	specs     []PolicySpec
 	byPurpose map[Purpose]PolicySpec
 	revision  string
 }
 
-// NewRegistry validates specs, sorts them by purpose, and returns an immutable registry.
 func NewRegistry(specs []PolicySpec) (Registry, error) {
 	cloned := clonePolicySpecs(specs)
 	sort.Slice(cloned, func(i, j int) bool { return cloned[i].Purpose < cloned[j].Purpose })
@@ -121,25 +94,18 @@ func NewRegistry(specs []PolicySpec) (Registry, error) {
 	return Registry{specs: cloned, byPurpose: byPurpose, revision: revision}, nil
 }
 
-// DefaultRegistry returns the checked-in inference-purpose registry.
 func DefaultRegistry() Registry {
 	return defaultInferenceRegistry
 }
 
-// Revision returns the deterministic content identity of this registry.
 func (r Registry) Revision() string {
 	return r.revision
 }
 
-// Specs returns a deep copy of the registry entries in purpose order.
 func (r Registry) Specs() []PolicySpec {
 	return clonePolicySpecs(r.specs)
 }
 
-// FixedCatalogTargetSet returns every model a fixed-catalog policy may select
-// that has a binding in availableProviders. Untiered catalog rows are included
-// only when a reviewed policy names them, so the plan resolver's deployed set
-// can honor policy membership without widening automatic routing.
 func (r Registry) FixedCatalogTargetSet(availableProviders map[string]struct{}) map[string]struct{} {
 	out := make(map[string]struct{})
 	for _, spec := range r.specs {
@@ -156,7 +122,6 @@ func (r Registry) FixedCatalogTargetSet(availableProviders map[string]struct{}) 
 	return out
 }
 
-// Spec returns a deep copy of the policy registered for purpose.
 func (r Registry) Spec(purpose Purpose) (PolicySpec, bool) {
 	spec, ok := r.byPurpose[purpose]
 	return clonePolicySpec(spec), ok
@@ -393,32 +358,6 @@ func validateOverridePrecedence(spec PolicySpec) error {
 	return nil
 }
 
-func validateSelectionContract(spec PolicySpec) error {
-	switch spec.SelectionStrategy {
-	case SelectionStrategyRouter:
-		if spec.CandidateSource != CandidateSourceRoutableCatalog {
-			return fmt.Errorf("router-selected policy %q must use routable catalog candidates", spec.PolicyID)
-		}
-	case SelectionStrategyDeploymentHardPin:
-		if spec.CandidateSource != CandidateSourceDeployment {
-			return fmt.Errorf("deployment hard-pin policy %q must use deployment candidates", spec.PolicyID)
-		}
-	case SelectionStrategyClientAuthoritative:
-		if spec.CandidateSource != CandidateSourceRequest {
-			return fmt.Errorf("client-authoritative policy %q must use request candidates", spec.PolicyID)
-		}
-	case SelectionStrategyPassthrough:
-		if spec.CandidateSource != CandidateSourceRequest && spec.CandidateSource != CandidateSourceDeployment {
-			return fmt.Errorf("passthrough policy %q must use request or deployment candidates", spec.PolicyID)
-		}
-	case SelectionStrategyNone:
-		if spec.CandidateSource != CandidateSourceNone && spec.CandidateSource != CandidateSourceLocal && spec.CandidateSource != CandidateSourceDeployment {
-			return fmt.Errorf("non-selecting policy %q has an invalid candidate source", spec.PolicyID)
-		}
-	}
-	return nil
-}
-
 func registryRevision(specs []PolicySpec) (string, error) {
 	payload, err := json.Marshal(struct {
 		SchemaVersion string       `json:"schema_version"`
@@ -459,9 +398,6 @@ func mustRegistry(specs []PolicySpec) Registry {
 var defaultInferenceRegistry = mustRegistry(defaultPolicySpecs())
 
 func defaultPolicySpecs() []PolicySpec {
-	// fixedConstraints is what the plan resolver verifies for a policy whose
-	// budget is fixed by the registry; spend joins it when the budget source
-	// lets a caller cap spend.
 	fixedConstraints := append([]Constraint(nil), coreConstraints...)
 	mainConstraints := append(append([]Constraint(nil), coreConstraints...), ConstraintSpend)
 	mainOverrides := []OverrideSource{
@@ -478,12 +414,12 @@ func defaultPolicySpecs() []PolicySpec {
 		SoftPreferenceCacheAffinity,
 		SoftPreferenceSubscriptionCapacity,
 	}
-	mainPolicy := func(purpose Purpose, id PolicyID, revision PolicyRevision, status MigrationStatus, rationale string) PolicySpec {
+	mainPolicy := func(purpose Purpose, id PolicyID, rationale string) PolicySpec {
 		return PolicySpec{
 			Purpose:            purpose,
 			DispatchClass:      DispatchClassMainInference,
 			PolicyID:           id,
-			PolicyRevision:     revision,
+			PolicyRevision:     "3",
 			Owner:              inferencePolicyOwner,
 			Rationale:          rationale,
 			SelectionStrategy:  SelectionStrategyRouter,
@@ -493,7 +429,7 @@ func defaultPolicySpecs() []PolicySpec {
 			OverridePrecedence: append([]OverrideSource(nil), mainOverrides...),
 			Budget:             BudgetSpec{Source: BudgetSourceRequest},
 			Fallback:           FallbackSpec{Kind: FallbackKindBinding},
-			MigrationStatus:    status,
+			MigrationStatus:    MigrationStatusExecutor,
 		}
 	}
 	hardPinPolicy := func(purpose Purpose, id PolicyID, rationale string) PolicySpec {
@@ -563,10 +499,10 @@ func defaultPolicySpecs() []PolicySpec {
 			Fallback:           FallbackSpec{Kind: FallbackKindNone},
 			MigrationStatus:    MigrationStatusExecutor,
 		},
-		mainPolicy(PurposeAnthropicMessages, "main-anthropic-messages", "3", MigrationStatusExecutor, "Select an eligible catalog binding for Anthropic Messages while preserving request semantics and tenant boundaries."),
-		mainPolicy(PurposeOpenAIChatCompletions, "main-openai-chat-completions", "3", MigrationStatusExecutor, "Select an eligible catalog binding for OpenAI Chat Completions while preserving request semantics and tenant boundaries."),
-		mainPolicy(PurposeOpenAIResponses, "main-openai-responses", "3", MigrationStatusExecutor, "Select an eligible catalog binding and compatible endpoint for OpenAI Responses requests."),
-		mainPolicy(PurposeGeminiGenerateContent, "main-gemini-generate-content", "3", MigrationStatusExecutor, "Select an eligible catalog binding for Gemini Generate Content while preserving native URL and body semantics."),
+		mainPolicy(PurposeAnthropicMessages, "main-anthropic-messages", "Select an eligible catalog binding for Anthropic Messages while preserving request semantics and tenant boundaries."),
+		mainPolicy(PurposeOpenAIChatCompletions, "main-openai-chat-completions", "Select an eligible catalog binding for OpenAI Chat Completions while preserving request semantics and tenant boundaries."),
+		mainPolicy(PurposeOpenAIResponses, "main-openai-responses", "Select an eligible catalog binding and compatible endpoint for OpenAI Responses requests."),
+		mainPolicy(PurposeGeminiGenerateContent, "main-gemini-generate-content", "Select an eligible catalog binding for Gemini Generate Content while preserving native URL and body semantics."),
 		{
 			Purpose:            PurposeHandoverSummary,
 			DispatchClass:      DispatchClassAuxiliaryInference,

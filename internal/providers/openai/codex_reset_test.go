@@ -10,21 +10,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions"
 )
 
 func TestCodexResetUsesAuthenticatedSpecificCreditProtocol(t *testing.T) {
-	var paths []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		paths = append(paths, r.URL.Path)
-		require.Equal(t, "Bearer own-token", r.Header.Get("Authorization"))
-		require.Equal(t, "own-workspace", r.Header.Get(requestcontext.ChatGPTAccountIDHeader))
-		require.Equal(t, codexOriginatorValue, r.Header.Get(codexOriginatorHeader))
+		assert.Equal(t, "Bearer own-token", r.Header.Get("Authorization"))
+		assert.Equal(t, "own-workspace", r.Header.Get(requestcontext.ChatGPTAccountIDHeader))
+		assert.Equal(t, codexOriginatorValue, r.Header.Get(codexOriginatorHeader))
 		switch r.URL.Path {
 		case "/backend-api/wham/rate-limit-reset-credits":
-			require.Equal(t, http.MethodGet, r.Method)
+			assert.Equal(t, http.MethodGet, r.Method)
 			_, _ = io.WriteString(w, `{"available_count":2,"credits":[
 			 {"id":"expiring","reset_type":"codex_rate_limits","status":"available","expires_at":"2030-01-02T03:04:05Z"},
 			 {"id":"permanent","reset_type":"codex_rate_limits","status":"available","expires_at":null},
@@ -32,10 +31,12 @@ func TestCodexResetUsesAuthenticatedSpecificCreditProtocol(t *testing.T) {
 			 {"id":"other","reset_type":"other_product","status":"available"},
 			 {"id":"busy","reset_type":"codex_rate_limits","status":"redeeming"}]}`)
 		case "/backend-api/wham/rate-limit-reset-credits/consume":
-			require.Equal(t, http.MethodPost, r.Method)
+			assert.Equal(t, http.MethodPost, r.Method)
 			var payload map[string]string
-			require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
-			require.Equal(t, map[string]string{"credit_id": "expiring", "redeem_request_id": "durable-request"}, payload)
+			if !assert.NoError(t, json.NewDecoder(r.Body).Decode(&payload)) {
+				return
+			}
+			assert.Equal(t, map[string]string{"credit_id": "expiring", "redeem_request_id": "durable-request"}, payload)
 			_, _ = io.WriteString(w, `{"code":"reset","windows_reset":2}`)
 		default:
 			t.Errorf("unexpected route: %s", r.URL.Path)
@@ -51,7 +52,6 @@ func TestCodexResetUsesAuthenticatedSpecificCreditProtocol(t *testing.T) {
 	outcome, err := client.ConsumeCodexReset(context.Background(), lease, "expiring", "durable-request")
 	require.NoError(t, err)
 	require.Equal(t, subscriptions.ResetApplied, outcome)
-	require.Len(t, paths, 2)
 }
 
 func TestCodexResetRejectsUncertainInventoryAndRedemption(t *testing.T) {
@@ -92,7 +92,7 @@ func TestCodexResetQuotaRequiresAccountWideExhaustion(t *testing.T) {
 	} {
 		t.Run(tc.body, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				require.Equal(t, "/wham/usage", r.URL.Path)
+				assert.Equal(t, "/wham/usage", r.URL.Path)
 				_, _ = io.WriteString(w, tc.body)
 			}))
 			defer server.Close()

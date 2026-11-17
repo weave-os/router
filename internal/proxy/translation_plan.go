@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"time"
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -14,9 +13,6 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-// TranslationCompatibilityMode controls whether broad compatibility filters
-// only report (shadow) or constrain routing (enforce). Native-only safety
-// requirements remain enforced outside the emergency off mode.
 type TranslationCompatibilityMode string
 
 const (
@@ -25,17 +21,10 @@ const (
 	TranslationCompatibilityEnforce TranslationCompatibilityMode = "enforce"
 )
 
-// ErrTranslationIntrinsicallyIncompatible means the request's requirements
-// have no supported preserving target at all. Retrying later cannot help.
 var ErrTranslationIntrinsicallyIncompatible = errors.New("translation requirements are intrinsically incompatible")
 
-// ErrTranslationCompatibleProviderUnavailable means a preserving target is
-// defined by the compatibility matrix, but none is configured/authorized for
-// this request. A configuration or credential change can make it servable.
 var ErrTranslationCompatibleProviderUnavailable = errors.New("no compatible provider is available for translation requirements")
 
-// TranslationExclusion is a stable compatibility diagnostic. Code is safe for
-// metrics; provider/model are structured-log and trace dimensions only.
 type TranslationExclusion struct {
 	Code     string
 	Provider string
@@ -43,9 +32,6 @@ type TranslationExclusion struct {
 	Enforced bool
 }
 
-// TranslationPlan is the instance-scoped result of compatibility planning.
-// It intentionally reuses Request's ordinary candidate filters so every router
-// implementation receives the same hard constraints.
 type TranslationPlan struct {
 	EnabledProviders map[string]struct{}
 	ExcludedModels   map[string]struct{}
@@ -56,17 +42,12 @@ type TranslationPlan struct {
 	Unavailable      bool
 }
 
-// translationConstraint is the code-owned compatibility matrix entry for one
-// semantic. ExactProviders pins to a single adapter when a broader protocol
-// family has only one implementation (currently OpenAI Responses).
 type translationConstraint struct {
 	Code           string
 	TargetFamily   providers.TranslationFamily
 	ExactProviders map[string]struct{}
 }
 
-// responsesRequirementsContextKey carries the original Responses contract
-// while its Chat projection is routed through the existing turn loop.
 type responsesRequirementsContextKey struct{}
 
 type responsesTransformsContextKey struct{}
@@ -76,6 +57,13 @@ type translationPlanAppliedContextKey struct{}
 func translationRequirementsFromContext(ctx context.Context) (router.TranslationRequirements, bool) {
 	req, ok := ctx.Value(responsesRequirementsContextKey{}).(router.TranslationRequirements)
 	return req, ok && !req.IsZero()
+}
+
+func customToolExcludedModels(ctx context.Context) map[string]struct{} {
+	if requirements, ok := translationRequirementsFromContext(ctx); ok && requirements.CustomTools {
+		return catalog.CustomToolUnsupportedSet()
+	}
+	return nil
 }
 
 func responseTransformationsFromContext(ctx context.Context) []providers.RequestTransformation {
@@ -108,9 +96,6 @@ func translationEndpointFor(env *translate.RequestEnvelope) router.TranslationEn
 	}
 }
 
-// planTranslation computes candidate restrictions without performing I/O.
-// Only semantics a translator can prove it preserves losslessly are listed
-// in the compatibility matrix; add entries there when a new lossless path lands.
 func (s *Service) planTranslation(req router.Request) TranslationPlan {
 	plan := TranslationPlan{}
 	if req.EnabledProviders != nil {
@@ -123,10 +108,6 @@ func (s *Service) planTranslation(req router.Request) TranslationPlan {
 		return plan
 	}
 
-	// A native search tool or result block cannot be translated to another
-	// provider family. Keep that safety boundary active independently of the
-	// broader compatibility rollout; scopeSearchRequirement has already removed
-	// advertised-only tools from this requirement.
 	plan.Enforced = requirements.CitationsOrSearch ||
 		s.translationCompatibilityMode == TranslationCompatibilityEnforce ||
 		((requirements.NativeOnly || requirements.SourceFormat == router.WireFormatGemini) && s.translationCompatibilityMode != TranslationCompatibilityOff)
@@ -143,35 +124,39 @@ func (s *Service) planTranslation(req router.Request) TranslationPlan {
 		}
 		if plan.Enforced {
 			plan.EnabledProviders = filterProvidersByConstraints(candidates, constraints)
-			// A candidate must also be registered locally. This distinguishes an
-			// unavailable compatible route from an intrinsic wire incompatibility
-			// before the scorer can turn it into a generic no-eligible-model error.
 			plan.Unavailable = len(configuredProviders(plan.EnabledProviders, s.clients.NameSet())) == 0
 		}
 	}
 
-	// Image capability was previously a soft quality preference. In enforce
-	// mode it is semantic: sending media to a known text-only model cannot be
-	// repaired by an upstream fallback after a response starts.
 	if requirements.Images {
-		for model := range catalog.ImageUnsupportedSet() {
-			plan.Exclusions = append(plan.Exclusions, TranslationExclusion{
-				Code: "image_input_unsupported", Model: model, Enforced: plan.Enforced,
-			})
-			if plan.Enforced {
-				if plan.ExcludedModels == nil {
-					plan.ExcludedModels = make(map[string]struct{})
-				}
-				plan.ExcludedModels[model] = struct{}{}
-			}
-		}
+		plan.excludeModels("image_input_unsupported", catalog.ImageUnsupportedSet(), plan.Enforced)
+	}
+
+	if requirements.CustomTools {
+		plan.excludeModels("custom_tool_unsupported", catalog.CustomToolUnsupportedSet(), true)
 	}
 	return plan
 }
 
-// translationConstraints is the compatibility matrix. Native source routing
-// uses a family for Messages/Chat/GenerateContent, but Responses is exact-
-// provider because only the OpenAI adapter currently implements EndpointResponses.
+func compatibilityExcludesModel(req router.Request, model string) bool {
+	return req.TranslationRequirements.Images && !catalog.AcceptsImages(model) ||
+		req.ImageCount > 0 && !catalog.AcceptsImageCount(model, req.ImageCount, req.EnabledProviders) ||
+		req.TranslationRequirements.CustomTools && !catalog.AcceptsCustomTools(model)
+}
+
+func (plan *TranslationPlan) excludeModels(code string, models map[string]struct{}, enforced bool) {
+	for model := range models {
+		plan.Exclusions = append(plan.Exclusions, TranslationExclusion{Code: code, Model: model, Enforced: enforced})
+		if !enforced {
+			continue
+		}
+		if plan.ExcludedModels == nil {
+			plan.ExcludedModels = make(map[string]struct{})
+		}
+		plan.ExcludedModels[model] = struct{}{}
+	}
+}
+
 func translationConstraints(req router.TranslationRequirements) ([]translationConstraint, bool) {
 	constraints := make([]translationConstraint, 0, 8)
 	addSourceNative := func(code string) bool {
@@ -185,8 +170,6 @@ func translationConstraints(req router.TranslationRequirements) ([]translationCo
 	if req.NativeOnly && !addSourceNative("native_wire_family_required") {
 		return nil, false
 	}
-	// Native Gemini emission is the only implemented Gemini path; do not let a
-	// shadow rollout turn this into an accidental cross-format request.
 	if req.SourceFormat == router.WireFormatGemini && !req.NativeOnly && !addSourceNative("native_wire_family_required") {
 		return nil, false
 	}
@@ -303,9 +286,6 @@ func cloneStringSet(in map[string]struct{}) map[string]struct{} {
 	return out
 }
 
-// applyTranslationPlan attaches hard eligibility to req and emits compact
-// structured diagnostics. It is deliberately idempotent because routeFor may
-// be invoked more than once by the turn loop.
 func (s *Service) applyTranslationPlan(ctx context.Context, req router.Request) (router.Request, error) {
 	if applied, _ := ctx.Value(translationPlanAppliedContextKey{}).(bool); applied {
 		return req, nil
@@ -330,7 +310,7 @@ func (s *Service) applyTranslationPlan(ctx context.Context, req router.Request) 
 		}
 		telemetry.RecordLog(ctx, telemetry.LogRecord{
 			Name: "translation.compatibility",
-			Time: time.Now(),
+			Time: s.clock.Now(),
 			Attrs: telemetry.NewAttrBuilder(7).
 				String("translation.requirement", exclusion.Code).
 				String("translation.source_format", string(req.TranslationRequirements.SourceFormat)).

@@ -350,6 +350,16 @@
             "ServedProvider": "fireworks",
             "Strategy": "hmm_embedding"
           }
+        },
+        {
+          "op": "strike_turn_model",
+          "role": "default_mid",
+          "detail": "claude-opus-4-7"
+        },
+        {
+          "op": "strike_turn_model",
+          "role": "default_mid_hmm_history",
+          "detail": "claude-opus-4-7"
         }
       ],
       "billing": [
@@ -599,6 +609,14 @@
         "message": "Anthropic returned 529 (overloaded) after 2 router retries: Overloaded"
       },
       "pin_events": [
+        {
+          "op": "clear_turn_strikes",
+          "role": "default_mid"
+        },
+        {
+          "op": "clear_turn_strikes",
+          "role": "default_mid_hmm_history"
+        },
         {
           "op": "upsert",
           "role": "default_mid",

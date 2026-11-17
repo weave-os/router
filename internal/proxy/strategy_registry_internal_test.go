@@ -127,7 +127,7 @@ func TestPolicyStrategyRegistryFailsClosedForUnknownStrategy(t *testing.T) {
 	_, err := svc.Route(router.WithStrategy(context.Background(), router.Strategy("missing-policy")), router.Request{})
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, router.ErrStrategyUnavailable)
+	require.ErrorIs(t, err, router.ErrStrategyUnavailable)
 	assert.Zero(t, defaultRouter.calls)
 }
 

@@ -40,9 +40,9 @@ func newSpanCollector(t *testing.T) *spanCollector {
 	c := &spanCollector{byName: make(map[string][]*tracev1.Span)}
 	c.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
+		assert.NoError(t, err)
 		var req coltracepb.ExportTraceServiceRequest
-		require.NoError(t, proto.Unmarshal(body, &req))
+		assert.NoError(t, proto.Unmarshal(body, &req))
 		c.mu.Lock()
 		for _, rs := range req.ResourceSpans {
 			for _, ss := range rs.ScopeSpans {
@@ -135,7 +135,7 @@ func TestFeedbackSpans_UseDistinctNamesAndSchemas(t *testing.T) {
 	ctx := context.WithValue(context.Background(), proxy.APIKeyIDContextKey{}, "key-1")
 	ctx = context.WithValue(ctx, proxy.InstallationIDContextKey{}, uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, cmdSvc.ProxyMessages(ctx, []byte(body), rec, httpReq))
 
 	// Force both buffers to flush and the emitter to export before asserting.

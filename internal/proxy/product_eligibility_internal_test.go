@@ -119,7 +119,7 @@ func TestDispatchRefusesAnIneligibleDecisionTheTurnLoopMinted(t *testing.T) {
 	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: anthropic})
 
 	rec := httptest.NewRecorder()
-	in := plannedInputs(rec, newPreludeBuffer(rec), []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
+	in := plannedInputs(t.Context(), rec, newPreludeBuffer(rec), []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 	in.initialDecision = router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic}
 
 	_, err := svc.dispatchWithFallback(maxScopedContext(), in)
@@ -133,7 +133,7 @@ func TestDispatchServesAnEligibleDecision(t *testing.T) {
 	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderFireworks: fireworks})
 
 	rec := httptest.NewRecorder()
-	in := plannedInputs(rec, newPreludeBuffer(rec), []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}}, nil)
+	in := plannedInputs(t.Context(), rec, newPreludeBuffer(rec), []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}}, nil)
 
 	_, err := svc.dispatchWithFallback(maxScopedContext(), in)
 
@@ -190,7 +190,7 @@ func TestIneligibleModelIsAClassifiedClientError(t *testing.T) {
 // The operator escape hatch replaces the exclusion set wholesale; the
 // product boundary still survives it.
 func TestExcludedModelsOverrideCannotWidenTheBoundary(t *testing.T) {
-	svc := &Service{excludedModelsOverride: map[string]struct{}{"gpt-5.5": {}}}
+	svc := (&Service{}).WithExcludedModelsOverride([]string{"gpt-5.5"})
 
 	excluded := svc.excludedModelsForRequest(maxScopedContext())
 
@@ -198,5 +198,5 @@ func TestExcludedModelsOverrideCannotWidenTheBoundary(t *testing.T) {
 	assert.Contains(t, excluded, "muse-spark-1.3")
 	assert.Contains(t, excluded, "gpt-5.5")
 	assert.NotContains(t, excluded, "deepseek/deepseek-v4-pro")
-	assert.NotContains(t, svc.excludedModelsOverride, "claude-opus-4-8")
+	assert.NotContains(t, svc.ExcludedModelsOverride(), "claude-opus-4-8")
 }

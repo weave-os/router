@@ -1,14 +1,3 @@
-// Package usage tracks per-credential subscription rate-limit headroom observed
-// from upstream response headers for account selection and reset tracking.
-//
-// Both subscription backends report remaining quota on every response:
-//   - Codex (chatgpt.com/backend-api/codex): x-codex-primary-* (rolling, ~5h)
-//     and x-codex-secondary-* (weekly) — used-percent + window length.
-//   - Claude (api.anthropic.com, OAuth): anthropic-ratelimit-unified-{5h,weekly}-*
-//     — the same data `claude /usage` reads.
-//
-// Inner-ring + I/O-free: pure types, maps, a mutex, and an injected clock. No
-// network, no DB, no goroutines (the composition root drives Sweep on a ticker).
 package usage
 
 import (
@@ -23,15 +12,8 @@ import (
 	"time"
 )
 
-// CredentialKey identifies a subscription credential without revealing it: an
-// HMAC-SHA256 prefix of the token, keyed by a process-scoped salt. Safe to
-// log/metric. This is a keyed identifier over a high-entropy token, NOT password
-// storage — a slow KDF (bcrypt/argon2) is unnecessary because the token isn't
-// brute-forceable; HMAC keeps the salt as the MAC key so a leaked key can't be
-// reversed via a precomputed table.
 type CredentialKey string
 
-// KeyFor derives the CredentialKey for a subscription token under salt.
 func KeyFor(salt, token []byte) CredentialKey {
 	mac := hmac.New(sha256.New, salt)
 	mac.Write(token)
@@ -39,28 +21,18 @@ func KeyFor(salt, token []byte) CredentialKey {
 	return CredentialKey(hex.EncodeToString(sum[:8]))
 }
 
-// Window is one rate-limit window's observed state.
 type Window struct {
-	// UsedPercent is the fraction of the window's quota consumed, in [0,1].
 	UsedPercent float64
-	// WindowMinutes is the window length (0 if the upstream didn't report it).
+
 	WindowMinutes int
-	// ResetAt is the absolute instant this window's quota refills, parsed from
-	// the upstream's *-reset header. Zero when the upstream didn't report it.
-	// freshFor prefers it over WindowMinutes so a near-cap reading (and any
-	// exhaustion suppression keyed off it) expires at the real refill, not a full
-	// window length from when it was observed.
+
 	ResetAt time.Time
-	// ObservedAt belongs to this window, so a sibling-only response cannot
-	// renew its exhaustion evidence when Record merges partial observations.
+
 	ObservedAt time.Time
 }
 
 func (w Window) present() bool { return w.WindowMinutes > 0 || w.UsedPercent > 0 }
 
-// Snapshot is the most recent observation for one credential: a short rolling
-// window (primary, ~5h) and a long window (secondary, weekly). Either may be
-// zero if the upstream didn't report it.
 type Snapshot struct {
 	Primary             Window
 	Secondary           Window
@@ -87,38 +59,19 @@ func PaidAnthropicOverage(claim AnthropicClaim, overageInUse string) bool {
 	return claim == AnthropicClaimOverage && overageInUse == "true"
 }
 
-// AnthropicOverageCapRejected reports a refusal of both the plan's included
-// usage and its overage: the seat cannot serve until its limits reset.
 func AnthropicOverageCapRejected(h http.Header) bool {
 	return h.Get("anthropic-ratelimit-unified-status") == "rejected" &&
 		h.Get("anthropic-ratelimit-unified-overage-status") == "rejected"
 }
 
-// BillableOrExhausted reports when a Claude subscription should not be treated
-// as free capacity. Overage still serves requests, but draws paid credits.
 func (s Snapshot) BillableOrExhausted() bool { return s.OverageInUse || s.Exhausted() }
 
-// exhaustedFraction is the per-window utilization at/above which a subscription
-// window is spent: the upstream 429s any further turn until the window resets.
-// Distinct from the usage-bypass threshold (which governs when to START
-// conserving while the token still works) — this marks the credential as
-// currently unusable, so the proxy serves the turn on a fallback key rather than
-// re-hitting a token that will keep rejecting. Just under 1.0 to absorb integer
-// rounding in the upstream's reported utilization (Anthropic reports 0-100).
 const exhaustedFraction = 0.999
 
-// Exhausted reports whether either observed window has bound to the point where
-// the subscription can no longer serve a turn (the upstream 429s until the
-// window resets). A snapshot with no usable data is never exhausted — absence of
-// a reading is treated as cold-start slack, not a spent plan.
 func (s Snapshot) Exhausted() bool {
 	return s.ExhaustedAsOf(s.ObservedAt)
 }
 
-// ExhaustedAsOf reports whether either window is still spent at now. A window
-// whose ResetAt has already passed is no longer exhausted, even if the cached
-// used-percent is still 100 — the longer sibling window can keep the snapshot
-// cached after the short window refills.
 func (s Snapshot) ExhaustedAsOf(now time.Time) bool {
 	if !s.hasData() {
 		return false
@@ -143,10 +96,6 @@ func (w Window) currentAsOf(observedAt, now time.Time) bool {
 	return observedAt.Add(time.Duration(w.WindowMinutes) * time.Minute).After(now)
 }
 
-// Observer stores the most recent Snapshot per credential. Concurrency-safe;
-// each entry stays authoritative for the life of its binding quota window (see
-// freshFor) — stale headroom must not pin the cost signal, but a reading must not
-// age out faster than the window it describes.
 type Observer struct {
 	mu           sync.RWMutex
 	salt         []byte
@@ -154,15 +103,9 @@ type Observer struct {
 	now          func() time.Time
 	data         map[CredentialKey]Snapshot
 	observations map[CredentialKey]*observationEpoch
-	// rejected holds credentials the upstream refused, until each expiry. It is
-	// not quota evidence, so Snapshot never reports it.
-	rejected map[CredentialKey]time.Time
+	rejected     map[CredentialKey]time.Time
 }
 
-// NewObserver builds an Observer. salt keys credentials; ttl is the MINIMUM
-// freshness floor (for readings that carry no window length) — a reading that
-// does report a window stays fresh for that window, not just ttl; now is the
-// injected clock (real time in prod, fake in tests).
 func NewObserver(salt []byte, ttl time.Duration, now func() time.Time) *Observer {
 	if now == nil {
 		now = time.Now
@@ -170,34 +113,11 @@ func NewObserver(salt []byte, ttl time.Duration, now func() time.Time) *Observer
 	return &Observer{salt: salt, ttl: ttl, now: now, data: make(map[CredentialKey]Snapshot), rejected: make(map[CredentialKey]time.Time)}
 }
 
-// windowConstrainedFraction is the utilization at/above which a window is a real
-// constraint whose full length must be waited out before its quota resets. Below
-// it a window is effectively slack — its CostFactor contribution is already near
-// epsilon — so it need not extend retention, and re-reading it as cold-start
-// slack costs nothing.
 const windowConstrainedFraction = 0.5
 
-// freshFor reports how long a snapshot stays authoritative. Quota is perishable
-// and refills only when its window resets, so a reading is meaningful until every
-// window that is actually near cap would reset — NOT a flat ttl far shorter than
-// any quota window (5h / weekly). Without this a near-cap reading ages out after
-// the short ttl, Snapshot returns false, and the account can appear available
-// while it is still capped, until a fresh response or 429 corrects it.
-//
-// The horizon is the LONGEST window among those at/above windowConstrainedFraction
-// (not just the binding/most-utilized one): when the 5h primary is exhausted
-// but the weekly window is also near cap, the entry must outlive the 5h window so
-// it does not appear available while weekly quota is still exhausted. A slack
-// window does not extend the horizon, so a 5h-capped + weekly-slack reading still
-// expires at ~5h rather than being unnecessarily suppressed for a week. Floored at
-// ttl so a reading carrying no constrained window still expires promptly; once
-// every constrained window has elapsed the entry is evicted and the credential
-// reads as never-observed again — correct, its quota has by then reset.
 func (o *Observer) freshFor(s Snapshot) time.Duration {
 	horizon := o.ttl
 	if s.OverageInUse {
-		// Without a reported plan reset, a timed eviction would route back
-		// onto the paid lane without any evidence that headroom returned.
 		untilReset := time.Duration(1<<63 - 1)
 		if !s.UnifiedResetAt.IsZero() {
 			if reportedResetDelay := s.UnifiedResetAt.Sub(s.ObservedAt); reportedResetDelay > 0 {
@@ -213,12 +133,7 @@ func (o *Observer) freshFor(s Snapshot) time.Duration {
 			continue
 		}
 		d := time.Duration(w.WindowMinutes) * time.Minute
-		// Prefer the upstream-reported reset instant when present: a window
-		// observed near cap late in its period refills long before a full window
-		// length from now, so retaining for WindowMinutes strands the reading past
-		// the real reset. Clamp to the window length so a garbage/far-future reset
-		// can't over-retain, and ignore a non-positive delta (reset already passed
-		// or clock skew) so it never shortens below the ttl floor below.
+
 		if !w.ResetAt.IsZero() {
 			if untilReset := w.ResetAt.Sub(s.ObservedAt); untilReset > 0 && untilReset < d {
 				d = untilReset
@@ -231,19 +146,14 @@ func (o *Observer) freshFor(s Snapshot) time.Duration {
 	return horizon
 }
 
-// Key derives the CredentialKey for a token under this observer's salt.
 func (o *Observer) Key(token []byte) CredentialKey { return KeyFor(o.salt, token) }
 
-// Snapshot returns the most recent non-stale observation for a credential, or
-// (zero, false) if none / expired. Expired entries are dropped lazily.
-// RecordRejected marks a credential the upstream refused as unusable until until.
 func (o *Observer) RecordRejected(key CredentialKey, until time.Time) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.rejected[key] = until
 }
 
-// Rejected reports whether key was refused and its hold has not yet expired.
 func (o *Observer) Rejected(key CredentialKey) bool {
 	o.mu.RLock()
 	until, ok := o.rejected[key]
@@ -278,8 +188,7 @@ func (o *Observer) Snapshot(key CredentialKey) (Snapshot, bool) {
 		o.mu.Unlock()
 		return Snapshot{}, false
 	}
-	// A longer-lived weekly window may keep the snapshot cached after the
-	// reported plan reset. Stop treating its earlier overage flag as current.
+
 	if snap.OverageInUse && snap.UnifiedResetAt.After(snap.ObservedAt) && !snap.UnifiedResetAt.After(now) {
 		snap.OverageInUse = false
 	}
@@ -292,8 +201,6 @@ func (o *Observer) Snapshot(key CredentialKey) (Snapshot, bool) {
 	return snap, true
 }
 
-// Sweep evicts all expired entries. The composition root calls this on a ticker
-// to bound memory; the package spawns no goroutines of its own.
 func (o *Observer) Sweep() {
 	cutoff := o.now()
 	o.mu.Lock()
@@ -311,11 +218,6 @@ func (o *Observer) Sweep() {
 	o.mu.Unlock()
 }
 
-// ---- Header parsing --------------------------------------------------------
-
-// ParseCodexHeaders extracts a Snapshot from the Codex backend's x-codex-*
-// rate-limit headers (primary = rolling/~5h, secondary = weekly). Reports false
-// if neither window is present. Used-percent headers are 0-100; we store [0,1].
 func ParseCodexHeaders(h http.Header) (Snapshot, bool) {
 	primary, pOK := parseCodexWindow(h, "primary", 5*60)
 	secondary, sOK := parseCodexWindow(h, "secondary", 7*24*60)
@@ -325,13 +227,6 @@ func ParseCodexHeaders(h http.Header) (Snapshot, bool) {
 	return Snapshot{Primary: primary, Secondary: secondary}, true
 }
 
-// parseCodexWindow reads one Codex window. defaultWindowMinutes is the known
-// window length (primary ~5h, secondary weekly) used when the upstream omits the
-// x-codex-*-window-minutes header — mirroring ParseAnthropicUnifiedHeaders, which
-// hardcodes its window lengths. This guarantees every observed reading carries a
-// window length, so freshFor never falls back to the short ttl floor for a real
-// subscription: a near-cap Codex reading remains authoritative for the
-// life of its window rather than aging out before the credential resets.
 func parseCodexWindow(h http.Header, which string, defaultWindowMinutes int) (Window, bool) {
 	used, ok := parsePercent(h.Get("x-codex-" + which + "-used-percent"))
 	if !ok {
@@ -345,15 +240,6 @@ func parseCodexWindow(h http.Header, which string, defaultWindowMinutes int) (Wi
 	return w, true
 }
 
-// ParseAnthropicUnifiedHeaders extracts a Snapshot from Anthropic's unified
-// subscription rate-limit headers (the `claude /usage` data):
-// anthropic-ratelimit-unified-5h-* (primary) and -7d-* (secondary; "-weekly-"
-// accepted as a legacy fallback — prod traffic emits "7d", per the Phase 0
-// unified_limit_headers capture). Prefers an explicit *-utilization header
-// (a 0-1 fraction on the wire; can exceed 1.0 mid-overage, clamped); else
-// derives used = 1 - remaining/limit. An overage-only response is also usable:
-// it proves the subscription request drew paid credits even without quota data.
-// Reports false when neither window nor the paid-lane signal is present.
 func ParseAnthropicUnifiedHeaders(h http.Header) (Snapshot, bool) {
 	primary, pOK := parseAnthropicWindow(h, "5h", 5*60)
 	secondary, sOK := parseAnthropicWindow(h, "7d", 7*24*60)
@@ -392,12 +278,6 @@ func parseAnthropicWindow(h http.Header, which string, windowMinutes int) (Windo
 	return Window{UsedPercent: used, WindowMinutes: windowMinutes, ResetAt: resetAt}, true
 }
 
-// ParseResetTime parses a rate-limit *-reset header into an absolute instant.
-// Anthropic emits these as RFC 3339 timestamps (the standard
-// anthropic-ratelimit-*-reset format); a bare unix-seconds value is accepted as
-// a fallback so a format shift doesn't silently disable reset-aware retention.
-// Returns (zero, false) when absent or unparseable — callers then fall back to
-// the window-length horizon.
 func ParseResetTime(s string) (time.Time, bool) {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -412,9 +292,6 @@ func ParseResetTime(s string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// parsePercent parses a 0-100 percent header (Codex used-percent) into a
-// clamped [0,1] fraction. Divides by 100 — not guessing scale from magnitude
-// avoids misreading boundary values (e.g. "1" = 1%, not 100%).
 func parsePercent(s string) (float64, bool) {
 	v, ok := parseFloat(s)
 	if !ok {
@@ -430,9 +307,6 @@ func parsePercent(s string) (float64, bool) {
 	return v, true
 }
 
-// parseFraction parses a 0-1 fraction header (Anthropic unified utilization)
-// into a clamped [0,1] value. Clamping to 1.0 handles overage-credit windows
-// where the wire value exceeds 1.0. Distinct from parsePercent (Codex, 0-100).
 func parseFraction(s string) (float64, bool) {
 	v, ok := parseFloat(s)
 	if !ok {

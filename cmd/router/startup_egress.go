@@ -9,10 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cenkalti/backoff/v5"
-	"golang.org/x/sync/errgroup"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/httputil"
+
+	"github.com/cenkalti/backoff/v5"
+	"golang.org/x/sync/errgroup"
 )
 
 const startupEgressTimeout = 10 * time.Second
@@ -38,14 +39,17 @@ func newStartupEgressProbe(rawOrigins string) (*startupEgressProbe, error) {
 		}
 		probe.origins = append(probe.origins, parsed.Scheme+"://"+parsed.Host)
 	}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return nil, fmt.Errorf("http.DefaultTransport is %T, not *http.Transport", http.DefaultTransport)
+	}
+	transport := defaultTransport.Clone()
 	transport.Proxy = nil
 	transport.DisableKeepAlives = true
 	probe.client = &http.Client{Transport: transport, Timeout: 5 * time.Second}
 	return probe, nil
 }
 
-// prepare waits for bounded connection preparation, but never prevents serving.
 func (p *startupEgressProbe) prepare(ctx context.Context, log *slog.Logger, clients map[string]providers.Client, enabled map[string]struct{}, initializedOrigins map[string]struct{}) {
 	if err := p.wait(ctx, log, clients, enabled, initializedOrigins); err != nil {
 		log.Warn("Startup connection preparation failed; continuing boot", "err", err)
@@ -88,7 +92,6 @@ func (p *startupEgressProbe) wait(ctx context.Context, log *slog.Logger, clients
 					matchedOrigin = matchedOrigin || warmed
 				}
 				if !matchedOrigin {
-					// Additional configured origins preserve their credential-free connectivity check.
 					_, err := httputil.WarmTransport(ctx, origin, origin, p.client)
 					return err
 				}

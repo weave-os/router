@@ -9,22 +9,27 @@ import (
 
 func mergePoolAccount(existing, incoming Account, now time.Time) Account {
 	if incoming.QuotaResetGeneration > existing.QuotaResetGeneration {
+		if incoming.TokenRefreshVersion < existing.TokenRefreshVersion {
+			incoming.TokenRefreshVersion = existing.TokenRefreshVersion
+			incoming.AccessToken, incoming.AccessTokenExpiresAt = existing.AccessToken, existing.AccessTokenExpiresAt
+		}
 		return incoming
 	}
 	if incoming.QuotaResetGeneration < existing.QuotaResetGeneration {
 		incoming.QuotaResetGeneration = existing.QuotaResetGeneration
 		incoming.State, incoming.CooldownTil = existing.State, existing.CooldownTil
 		incoming.AccessToken, incoming.AccessTokenExpiresAt = existing.AccessToken, existing.AccessTokenExpiresAt
+		incoming.TokenRefreshVersion = existing.TokenRefreshVersion
 		return incoming
 	}
-	if incoming.AccessToken == "" {
+	if incoming.TokenRefreshVersion < existing.TokenRefreshVersion ||
+		incoming.AccessToken == "" && incoming.TokenRefreshVersion == existing.TokenRefreshVersion {
+		incoming.TokenRefreshVersion = existing.TokenRefreshVersion
 		incoming.AccessToken, incoming.AccessTokenExpiresAt = existing.AccessToken, existing.AccessTokenExpiresAt
 	}
 	if existing.State == auth.SubscriptionAccountStateActive && incoming.State == auth.SubscriptionAccountStateUnknown {
 		incoming.State = existing.State
 	}
-	// Equal generations retain protection against a local failure whose write
-	// has not reached the candidate snapshot yet.
 	if existing.CooldownTil.After(incoming.CooldownTil) ||
 		existing.State == auth.SubscriptionAccountStateCooldown && incoming.State == auth.SubscriptionAccountStateExhausted && existing.CooldownTil.After(now) {
 		if existing.CooldownTil.After(incoming.CooldownTil) {
@@ -35,9 +40,6 @@ func mergePoolAccount(existing, incoming Account, now time.Time) Account {
 	return incoming
 }
 
-// ExhaustLease ignores quota failures from credentials leased before the
-// account's latest verified recovery. The conditional durable write serializes
-// with recovery, and the local check protects a recovery published meanwhile.
 func (r *Runtime) ExhaustLease(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, lease Lease, resetAt time.Time) error {
 	if provider != ProviderCodex || r.resetStore == nil {
 		return r.Exhaust(ctx, owner, provider, lease.AccountID, resetAt)
@@ -72,10 +74,15 @@ func (p *Pool) applyRefreshGeneration(accountID string, refreshed Account, err e
 	if err != nil || state == nil {
 		return refreshed, err
 	}
-	if refreshed.QuotaResetGeneration < state.account.QuotaResetGeneration {
+	if refreshed.QuotaResetGeneration < state.account.QuotaResetGeneration || refreshed.TokenRefreshVersion < state.account.TokenRefreshVersion {
 		current := state.account
-		if current.AccessToken != "" && (current.AccessTokenExpiresAt.IsZero() || current.AccessTokenExpiresAt.After(p.clock().Add(time.Minute))) {
-			return current, nil
+		if refreshed.QuotaResetGeneration < current.QuotaResetGeneration && refreshed.TokenRefreshVersion > current.TokenRefreshVersion {
+			return Account{}, ErrNoAvailableAccount
+		}
+		merged := mergePoolAccount(current, refreshed, p.clock())
+		if merged.AccessToken != "" && (merged.AccessTokenExpiresAt.IsZero() || merged.AccessTokenExpiresAt.After(p.clock().Add(time.Minute))) {
+			state.account = merged
+			return merged, nil
 		}
 		return Account{}, ErrNoAvailableAccount
 	}

@@ -45,7 +45,11 @@ func streamsFramesForever(frame string, interval time.Duration) *httptest.Server
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
-		f := w.(http.Flusher)
+		f, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+			return
+		}
 		f.Flush()
 		for {
 			select {
@@ -81,15 +85,15 @@ func TestProxy_OutputStallAbortsOnPingOnlyStream(t *testing.T) {
 	const outputStall = 120 * time.Millisecond
 	c := anthropic.NewClientWithStallTimeouts("test-key", upstream.URL, byteIdle, outputStall)
 	w := translate.NewAnthropicRoutingMarkerWriter(&flushRecorder{}, "claude-sonnet-5", "[routed]")
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	start := time.Now()
 	err := c.Proxy(context.Background(), router.Decision{Model: "claude-sonnet-5"}, messagesPrep(), w, clientReq)
 	elapsed := time.Since(start)
 
 	require.Error(t, err, "a ping-alive/output-silent stream must surface an error, not hang")
-	assert.ErrorIs(t, err, httputil.ErrUpstreamOutputStall)
-	assert.NotErrorIs(t, err, httputil.ErrUpstreamIdleTimeout,
+	require.ErrorIs(t, err, httputil.ErrUpstreamOutputStall)
+	require.NotErrorIs(t, err, httputil.ErrUpstreamIdleTimeout,
 		"the byte-idle watchdog must not be what fired — ping bytes were flowing the whole time")
 	assert.True(t, providers.IsRetryable(err),
 		"the output stall must classify retryable so dispatchWithFallback can re-attempt")
@@ -104,7 +108,7 @@ func TestProxy_ContentDeltasResetOutputStall(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
-		f := w.(http.Flusher)
+		f := assertAs[http.Flusher](t, w)
 		f.Flush()
 		for range frames {
 			select {
@@ -122,7 +126,7 @@ func TestProxy_ContentDeltasResetOutputStall(t *testing.T) {
 	const outputStall = 60 * time.Millisecond // < frames*frameInterval, so total duration exceeds it
 	c := anthropic.NewClientWithStallTimeouts("test-key", upstream.URL, byteIdle, outputStall)
 	w := translate.NewAnthropicRoutingMarkerWriter(&flushRecorder{}, "claude-sonnet-5", "[routed]")
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	err := c.Proxy(context.Background(), router.Decision{Model: "claude-sonnet-5"}, messagesPrep(), w, clientReq)
 	require.NoError(t, err, "a stream producing content_block_delta output must never trip the output-stall watchdog")
@@ -135,7 +139,7 @@ func TestProxy_NotArmedWriterStillByteIdleGuarded(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
-		w.(http.Flusher).Flush()
+		assertAs[http.Flusher](t, w).Flush()
 		<-r.Context().Done() // headers sent, then zero bytes forever
 	}))
 	defer upstream.Close()
@@ -144,14 +148,14 @@ func TestProxy_NotArmedWriterStillByteIdleGuarded(t *testing.T) {
 	const outputStall = 5 * time.Second
 	c := anthropic.NewClientWithStallTimeouts("test-key", upstream.URL, byteIdle, outputStall)
 	w := &flushRecorder{} // no ArmOutputProgress hook
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	start := time.Now()
 	err := c.Proxy(context.Background(), router.Decision{Model: "claude-sonnet-5"}, messagesPrep(), w, clientReq)
 	elapsed := time.Since(start)
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, httputil.ErrUpstreamIdleTimeout)
+	require.ErrorIs(t, err, httputil.ErrUpstreamIdleTimeout)
 	assert.GreaterOrEqual(t, elapsed, byteIdle)
 	assert.Less(t, elapsed, outputStall, "byte-idle must fire well before the output-stall budget")
 }

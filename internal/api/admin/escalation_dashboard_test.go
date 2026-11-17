@@ -37,7 +37,7 @@ func TestInternalEscalationDashboardHandlerParsesTypedFilters(t *testing.T) {
 	engine := gin.New()
 	engine.GET("/internal/v1/escalation/dashboard", admin.InternalEscalationDashboardHandler(service))
 	installationID := uuid.NewString()
-	request := httptest.NewRequest(http.MethodGet,
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet,
 		"/internal/v1/escalation/dashboard?service=xgb&mode=shadow&organization_id=org-1&installation_id="+strings.ToUpper(installationID)+"&outcome=recommended&limit=25", nil)
 	recorder := httptest.NewRecorder()
 
@@ -70,7 +70,7 @@ func TestInternalEscalationDashboardHandlerRejectsInvalidArguments(t *testing.T)
 	for _, query := range tests {
 		t.Run(query, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
-			request := httptest.NewRequest(http.MethodGet, "/internal/v1/escalation/dashboard?"+query, nil)
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/internal/v1/escalation/dashboard?"+query, nil)
 			engine.ServeHTTP(recorder, request)
 			require.Equal(t, http.StatusBadRequest, recorder.Code)
 		})
@@ -86,7 +86,7 @@ func TestInternalEscalationDashboardHandlerReportsExpiredSnapshot(t *testing.T) 
 	engine := gin.New()
 	engine.GET("/internal/v1/escalation/dashboard", admin.InternalEscalationDashboardHandler(service))
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/internal/v1/escalation/dashboard?cursor="+cursor, nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/internal/v1/escalation/dashboard?cursor="+cursor, nil)
 
 	engine.ServeHTTP(recorder, request)
 

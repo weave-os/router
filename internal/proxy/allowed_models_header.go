@@ -7,46 +7,30 @@ import (
 	"strings"
 
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 )
 
-// AllowedModelsHeader restricts routing for one request to a comma-separated
-// subset of catalog IDs or aliases. The subset is intersected with the
-// installation's allowed_models and never widens it.
 const AllowedModelsHeader = "x-weave-allowed-models"
 
-// AllowlistOverrideReasonPrefix is prepended to the persisted decision reason
-// when a request-level allowlist narrowed the candidate pool.
 const AllowlistOverrideReasonPrefix = "allowlist_override:"
 
-// RequestAllowedModelsContextKey carries the RequestAllowedModels parsed from
-// AllowedModelsHeader by the middleware.
 type RequestAllowedModelsContextKey struct{}
 
-// RequestAllowedModels is the resolved request-level allowlist. Requested is
-// every canonical model the caller named; Effective is Requested intersected
-// with the installation allowlist and is never empty.
 type RequestAllowedModels struct {
 	Requested []string
 	Effective []string
 }
 
-// AllowedModelsHeaderError is a client-input problem with AllowedModelsHeader
-// (unknown alias or an empty intersection with the installation allowlist).
 type AllowedModelsHeaderError struct {
 	Reason string
 }
 
-// Error implements error.
 func (e *AllowedModelsHeaderError) Error() string {
 	return fmt.Sprintf("invalid %s header: %s", AllowedModelsHeader, e.Reason)
 }
 
-// ParseAllowedModelsHeader resolves a comma-separated list of catalog IDs or
-// aliases and intersects it with installationAllowed (an empty installation
-// allowlist means unrestricted). Unknown entries and an empty intersection are
-// rejected instead of falling back to the full roster.
 func ParseAllowedModelsHeader(raw string, installationAllowed []string) (RequestAllowedModels, error) {
 	requested := make([]string, 0, 4)
 	seen := make(map[string]struct{}, 4)
@@ -106,8 +90,6 @@ func requestAllowedModelSet(ctx context.Context) map[string]struct{} {
 	return out
 }
 
-// modelInRequestSubset reports whether model may be served under the
-// request-level allowlist; true when no subset was sent.
 func modelInRequestSubset(ctx context.Context, model string) bool {
 	subset := requestAllowedModelSet(ctx)
 	if subset == nil {
@@ -117,8 +99,6 @@ func modelInRequestSubset(ctx context.Context, model string) bool {
 	return ok
 }
 
-// requestedAllowedModelsForTelemetry returns the caller's canonical request
-// allowlist, sorted, or nil when the header was absent.
 func requestedAllowedModelsForTelemetry(ctx context.Context) []string {
 	ram, ok := requestAllowedModelsFromContext(ctx)
 	if !ok {
@@ -129,9 +109,6 @@ func requestedAllowedModelsForTelemetry(ctx context.Context) []string {
 	return out
 }
 
-// telemetryDecisionReason prefixes reason with AllowlistOverrideReasonPrefix
-// when a request allowlist narrowed the pool. A user force is a strict pin
-// that ignores the allowlist, so its reason is left untouched.
 func telemetryDecisionReason(ctx context.Context, reason string) string {
 	if _, ok := requestAllowedModelsFromContext(ctx); !ok || isUserForcedReason(reason) {
 		return reason
@@ -139,12 +116,6 @@ func telemetryDecisionReason(ctx context.Context, reason string) string {
 	return AllowlistOverrideReasonPrefix + reason
 }
 
-// readmitForcedModel lifts a forced model's exclusion when it stems only from
-// the request allowlist, or from the installation allowlist under
-// gateway-exclusive routing: the force is a strict pin and outranks both.
-// Callers must already have validated the model against installation policy
-// (forcedModelBinding); a policy, context-window, advisor-pairing or
-// unsigned-history exclusion is never lifted.
 func (s *Service) readmitForcedModel(
 	ctx context.Context,
 	req router.Request,
@@ -166,7 +137,7 @@ func (s *Service) readmitForcedModel(
 	if advisorRejectsModel(env, pin.Model) {
 		return excluded
 	}
-	if gemini3xRequiresSignedHistory(pin.Model) && env.HasUnsignedToolCallHistory() {
+	if catalog.RequiresSignedToolHistory(pin.Model) && env.HasUnsignedToolCallHistory() {
 		return excluded
 	}
 	outputReserve := contextWindowOutputReserve
@@ -188,10 +159,6 @@ func (s *Service) readmitForcedModel(
 	return out
 }
 
-// requestAllowedModelsPresent reports whether the request carries an
-// x-weave-allowed-models subset. Such requests bypass the semantic cache: the
-// subset is not part of the cache key, so a hit could serve a body produced by
-// a model outside it.
 func requestAllowedModelsPresent(ctx context.Context) bool {
 	_, ok := requestAllowedModelsFromContext(ctx)
 	return ok

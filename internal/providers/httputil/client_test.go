@@ -71,7 +71,7 @@ func TestNewClientFailsTheCallOnARedirect(t *testing.T) {
 	defer redirector.Close()
 
 	client := NewClient(NewTransport(time.Second, time.Second))
-	req, err := http.NewRequest(http.MethodGet, redirector.URL, nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, redirector.URL, nil)
 	require.NoError(t, err)
 
 	resp, err := client.Do(req)
@@ -79,7 +79,7 @@ func TestNewClientFailsTheCallOnARedirect(t *testing.T) {
 	require.Error(t, err, "a refused redirect fails the call rather than yielding a relayable response")
 	// http.Client wraps CheckRedirect's error in *url.Error; the sentinel has to
 	// survive that for dispatch classification to recognize it.
-	assert.ErrorIs(t, err, ErrRefusedRedirect)
+	require.ErrorIs(t, err, ErrRefusedRedirect)
 	assert.False(t, redirectTargetHit.Load(), "the redirect target must never be contacted")
 
 	// Do returns the pre-redirect response alongside the error with its body already
@@ -87,5 +87,6 @@ func TestNewClientFailsTheCallOnARedirect(t *testing.T) {
 	require.NotNil(t, resp)
 	n, readErr := resp.Body.Read(make([]byte, 1))
 	assert.Zero(t, n)
-	assert.Error(t, readErr, "the returned response body is closed")
+	require.Error(t, readErr, "the returned response body is closed")
+	_ = resp.Body.Close()
 }

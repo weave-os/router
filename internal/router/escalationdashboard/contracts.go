@@ -1,4 +1,3 @@
-// Package escalationdashboard defines content-free escalation reporting contracts.
 package escalationdashboard
 
 import (
@@ -23,7 +22,6 @@ var (
 	ErrExpiredCursor = errors.New("expired escalation dashboard cursor")
 )
 
-// Service identifies the classifier that produced an evaluation.
 type Service string
 
 const (
@@ -32,7 +30,6 @@ const (
 	ServiceLLM        Service = "llm_escalation"
 )
 
-// Mode identifies a retained activation's immutable routing behavior.
 type Mode string
 
 const (
@@ -41,7 +38,6 @@ const (
 	ModeUnknown Mode = "unknown"
 )
 
-// SessionOutcome limits the session list without changing overview denominators.
 type SessionOutcome string
 
 const (
@@ -51,7 +47,6 @@ const (
 	SessionOutcomeNoEvaluation SessionOutcome = "no_evaluation"
 )
 
-// Filter selects one retained dashboard cohort and one independently filtered page.
 type Filter struct {
 	Service        Service
 	Mode           Mode
@@ -64,7 +59,6 @@ type Filter struct {
 	ExpiresAt      time.Time
 }
 
-// Summary describes the complete filtered cohort, independent of pagination.
 type Summary struct {
 	ObservedSessions         int `json:"observed_sessions"`
 	EvaluatedSessions        int `json:"evaluated_sessions"`
@@ -77,7 +71,6 @@ type Summary struct {
 	InvalidEvaluations       int `json:"invalid_evaluations"`
 }
 
-// OutcomeBreakdown provides common evaluation counts for a service and mode.
 type OutcomeBreakdown struct {
 	Service            Service `json:"service"`
 	Mode               Mode    `json:"mode"`
@@ -86,7 +79,6 @@ type OutcomeBreakdown struct {
 	InvalidEvaluations int     `json:"invalid"`
 }
 
-// ProgressBucket groups evaluations by a classifier's native progress unit.
 type ProgressBucket struct {
 	Service         Service `json:"service"`
 	Mode            Mode    `json:"mode"`
@@ -95,7 +87,6 @@ type ProgressBucket struct {
 	Recommendations int     `json:"recommendations"`
 }
 
-// FirstRecommendationBucket counts service sessions once at their first recommendation.
 type FirstRecommendationBucket struct {
 	Service       Service `json:"service"`
 	Mode          Mode    `json:"mode"`
@@ -103,7 +94,6 @@ type FirstRecommendationBucket struct {
 	Sessions      int     `json:"sessions"`
 }
 
-// FloorBucket describes current retained routing floors.
 type FloorBucket struct {
 	Service  Service           `json:"service"`
 	Mode     Mode              `json:"mode"`
@@ -111,7 +101,6 @@ type FloorBucket struct {
 	Sessions int               `json:"sessions"`
 }
 
-// OrganizationBreakdown provides comparable per-installation aggregates.
 type OrganizationBreakdown struct {
 	OrganizationID        string  `json:"organization_id"`
 	InstallationID        string  `json:"installation_id"`
@@ -126,7 +115,6 @@ type OrganizationBreakdown struct {
 	ShadowRecommendations int     `json:"shadow_recommendations"`
 }
 
-// Session is the shared, content-free row shape for both classifiers.
 type Session struct {
 	ID                       string            `json:"id"`
 	Scope                    string            `json:"scope"`
@@ -148,7 +136,6 @@ type Session struct {
 	ContinuityBroken         bool              `json:"continuity_broken"`
 }
 
-// Snapshot contains one stable retained-state capture.
 type Snapshot struct {
 	CapturedAt                      time.Time                   `json:"captured_at"`
 	Summary                         Summary                     `json:"summary"`
@@ -165,13 +152,11 @@ type Snapshot struct {
 	PreviousCursor                  string                      `json:"previous_cursor"`
 }
 
-// StoredSnapshot carries persistence identity without exposing it on the API.
 type StoredSnapshot struct {
 	Snapshot
 	SnapshotID string `json:"snapshot_id"`
 }
 
-// EncodeCursor binds a page position to one immutable snapshot.
 func EncodeCursor(snapshotID string, position int32) (string, error) {
 	parsedSnapshotID, err := uuid.Parse(snapshotID)
 	if err != nil || position < 0 {
@@ -184,7 +169,6 @@ func EncodeCursor(snapshotID string, position int32) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(encoded), nil
 }
 
-// DecodeCursor returns the immutable snapshot and zero-based page position.
 func DecodeCursor(cursor string) (string, int32, error) {
 	decoded, err := base64.RawURLEncoding.DecodeString(cursor)
 	if err != nil || len(decoded) != cursorBytes || decoded[0] != cursorVersion {
@@ -201,7 +185,6 @@ func DecodeCursor(cursor string) (string, int32, error) {
 	return snapshotID.String(), int32(position), nil
 }
 
-// Store reads normalized operational state without exposing captured content.
 type Store interface {
 	CreateSnapshot(context.Context, Filter) (StoredSnapshot, error)
 	SnapshotPage(context.Context, string, int32, int32, time.Time) (StoredSnapshot, error)

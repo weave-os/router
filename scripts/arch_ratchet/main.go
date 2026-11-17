@@ -1,27 +1,27 @@
-// Command arch_ratchet fails when a change grows code past the repository's size and
-// complexity limits. It compares the working tree with its merge base, so existing
-// over-limit code may shrink or move but never grow, and new code must meet the limits.
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 )
 
 func main() {
 	base := flag.String("base", "origin/main", "ref whose merge base with HEAD is the comparison point")
 	flag.Parse()
-	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	ctx := context.Background()
+	out, err := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel").Output()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "arch_ratchet: locate repository root:", err)
 		os.Exit(2)
 	}
 	root := strings.TrimSpace(string(out))
-	result, err := run(repo{root: root}, *base)
+	result, err := run(ctx, repo{root: root}, *base)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "arch_ratchet:", err)
 		os.Exit(2)
@@ -35,14 +35,16 @@ func main() {
 }
 
 func report(w io.Writer, result runResult) {
-	fmt.Fprintf(w, "arch_ratchet: %d violation(s) against merge base %s\n", len(result.violations), short(result.baseRev))
-	fmt.Fprintf(w, "Limits: cognitive complexity %d, %d lines and %d params per function, nesting depth %d, %d lines per file.\n",
+	_, _ = fmt.Fprintf(w, "arch_ratchet: %d violation(s) against merge base %s\n", len(result.violations), short(result.baseRev))
+	_, _ = fmt.Fprintf(w, "Limits: cognitive complexity %d, %d lines and %d params per function, nesting depth %d, %d lines per file.\n",
 		funcLimits[metricCognitive], funcLimits[metricLines], funcLimits[metricParams], funcLimits[metricNesting], limitFileLines)
 	for _, v := range result.violations {
-		fmt.Fprintf(w, "  %s\n", v)
+		_, _ = fmt.Fprintf(w, "  %s\n", v)
 	}
-	fmt.Fprintln(w, "Fix: split the code along a concept boundary (.agents/skills/fix-lint-gate-failure/SKILL.md).")
-	fmt.Fprintf(w, "Raising limits or adding //nolint is not an option; reviewed exceptions live in %s.\n", exceptionsPath)
+	if slices.ContainsFunc(result.violations, func(v violation) bool { return v.note == "" }) {
+		_, _ = fmt.Fprintln(w, "Fix: split the code along a concept boundary (.agents/skills/fix-lint-gate-failure/SKILL.md).")
+	}
+	_, _ = fmt.Fprintf(w, "Raising limits or adding //nolint is not an option; reviewed exceptions live in %s.\n", exceptionsPath)
 }
 
 func short(rev string) string {

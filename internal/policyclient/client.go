@@ -1,5 +1,3 @@
-// Package policyclient implements the versioned HTTP contract shared by
-// out-of-process policy routers.
 package policyclient
 
 import (
@@ -24,9 +22,6 @@ import (
 	"weave-os/router/internal/router/taskdomain"
 )
 
-// DefaultTimeout bounds a single delegated policy decision. It has to hold more
-// than one full attempt: 2x1.8s + a 50ms backoff = 3.65s, so the old 3s starved
-// attempt 2 and left attempt 3 unreachable.
 const DefaultTimeout = 4500 * time.Millisecond
 
 const (
@@ -34,38 +29,23 @@ const (
 	routeRetryBackoff    = 50 * time.Millisecond
 )
 
-// Per-attempt bound so a stalled instance cannot consume the whole decision
-// budget and prevent retries. Sized so a second full attempt still fits
-// (2 x fraction x timeout + backoff <= timeout); three full attempts
-// deliberately do not fit — the third covers fast failures only. The bound must
-// exceed the sidecar's own inference deadline (HMM: 1.5s), or the router
-// cancels a request it was about to answer. 0.4 x 4.5s = 1.8s satisfies both.
 const (
 	defaultAttemptFraction = 0.4
 	minAttemptTimeout      = 500 * time.Millisecond
-	// sidecarInferenceFloor is the smallest per-attempt bound that still
-	// outlives a policy sidecar's own inference deadline (constant, not
-	// fraction-scaling). Applied only when the budget can afford a retry too.
-	sidecarInferenceFloor = 1800 * time.Millisecond
+	sidecarInferenceFloor  = 1800 * time.Millisecond
 )
 
-// Option customizes a policy sidecar client.
 type Option func(*Client)
 
-// WithAttemptTimeout bounds a single HTTP attempt. A non-positive duration
-// lets one attempt consume the client's whole decision budget.
 func WithAttemptTimeout(timeout time.Duration) Option {
 	return func(c *Client) { c.attemptTimeout = timeout }
 }
 
-// DeriveAttemptTimeout is the per-attempt bound applied when none is
-// configured.
 func DeriveAttemptTimeout(timeout time.Duration) time.Duration {
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}
 	attemptTimeout := time.Duration(float64(timeout) * defaultAttemptFraction)
-	// Budgets too small to seat the floor and still leave a retry keep the old behaviour.
 	if attemptTimeout < sidecarInferenceFloor && timeout >= sidecarInferenceFloor+minAttemptTimeout {
 		attemptTimeout = sidecarInferenceFloor
 	}
@@ -79,19 +59,16 @@ func DeriveAttemptTimeout(timeout time.Duration) time.Duration {
 }
 
 const (
-	maxRouteMessages           = 96
-	maxRouteMessageTextChars   = 3000
-	maxRouteMessageTotalChars  = 48000
-	maxRouteTools              = 96
-	maxRouteToolCallInputKeys  = 24
-	maxRouteToolCallInputChars = 80
-	// Interaction-state classifiers embed up to 8,000 bytes of one message; a
-	// tighter clip serves a different document than they trained on.
+	maxRouteMessages                       = 96
+	maxRouteMessageTextChars               = 3000
+	maxRouteMessageTotalChars              = 48000
+	maxRouteTools                          = 96
+	maxRouteToolCallInputKeys              = 24
+	maxRouteToolCallInputChars             = 80
 	interactionStateRouteMessageTextChars  = 8000
 	interactionStateRouteMessageTotalChars = 128000
 )
 
-// Client calls a versioned policy sidecar.
 type Client struct {
 	taskDomain       taskdomain.Resolver
 	baseURL          string
@@ -101,8 +78,6 @@ type Client struct {
 	attemptTimeout   time.Duration
 }
 
-// NewWithClassifierService composes a classifier-only v5 client with the
-// existing integration client used for outcomes, feedback and escalation.
 func NewWithClassifierService(integrationClient, classifierClient *Client) (*Client, error) {
 	if integrationClient == nil || classifierClient == nil {
 		return nil, errors.New("policy client requires integration and classifier clients")
@@ -135,7 +110,6 @@ func validClassifierSHA256(value string) bool {
 }
 
 func taxonomyDigest(classOrder []string) string {
-	// json.Marshal cannot fail for a []string.
 	encoded, _ := json.Marshal(classOrder)
 	digest := sha256.Sum256(encoded)
 	return hex.EncodeToString(digest[:])
@@ -157,14 +131,11 @@ func decodeStrictJSON(payload []byte, target any) error {
 	return nil
 }
 
-// New builds a policy sidecar client. A nil HTTP client uses a bounded default.
 func New(baseURL string, client *http.Client, timeout time.Duration, opts ...Option) *Client {
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}
 	if client == nil {
-		// Same no-redirect policy as newGoogleIDTokenHTTPClient (auth.go):
-		// a 3xx fails the != 200 status checks instead of being followed.
 		client = &http.Client{
 			Timeout: timeout,
 			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
@@ -185,7 +156,6 @@ func New(baseURL string, client *http.Client, timeout time.Duration, opts ...Opt
 	return sidecar
 }
 
-// ClassifierHealth is the immutable classifier identity reported by readiness.
 type ClassifierHealth struct {
 	SchemaVersion         string                                        `json:"schema_version"`
 	ClassifierArtifactID  string                                        `json:"classifier_artifact_id"`
@@ -196,7 +166,6 @@ type ClassifierHealth struct {
 	ClassifierVariants    map[router.Strategy]policy.ClassifierArtifact `json:"classifier_variants,omitempty"`
 }
 
-// ClassifierCapabilitiesV5 is the release-specific v5 contract negotiated at activation.
 type ClassifierCapabilitiesV5 struct {
 	SchemaVersion         string                       `json:"schema_version"`
 	APIMajor              policy.ClassifierAPIMajor    `json:"api_major"`
@@ -261,7 +230,6 @@ type classifierResponseV5 struct {
 	Detail                   string                     `json:"detail"`
 }
 
-// ReadClassifierHealth returns the exact classifier identity behind a tagged revision.
 func (c *Client) ReadClassifierHealth(ctx context.Context) (ClassifierHealth, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/readyz", nil)
 	if err != nil {
@@ -271,7 +239,7 @@ func (c *Client) ReadClassifierHealth(ctx context.Context) (ClassifierHealth, er
 	if err != nil {
 		return ClassifierHealth{}, fmt.Errorf("call policy readiness endpoint: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return ClassifierHealth{}, fmt.Errorf("read policy readiness response: %w", err)
@@ -289,7 +257,6 @@ func (c *Client) ReadClassifierHealth(ctx context.Context) (ClassifierHealth, er
 	return health, nil
 }
 
-// CheckHealth verifies that the policy sidecar is ready to serve traffic.
 func (c *Client) CheckHealth(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/readyz", nil)
 	if err != nil {
@@ -299,24 +266,21 @@ func (c *Client) CheckHealth(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("call policy readiness endpoint: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("policy readiness status %d", resp.StatusCode)
 	}
 	return nil
 }
 
-// ReportOutcome posts final dispatch usage/status to the policy sidecar.
 func (c *Client) ReportOutcome(ctx context.Context, payload map[string]interface{}) error {
 	return c.post(ctx, "/outcome", payload, "outcome")
 }
 
-// ReportFeedback posts explicit request/session feedback to the policy sidecar.
 func (c *Client) ReportFeedback(ctx context.Context, payload map[string]interface{}) error {
 	return c.post(ctx, "/feedback", payload, "feedback")
 }
 
-// Capabilities fetches the sidecar's optional behavior declaration.
 func (c *Client) Capabilities(ctx context.Context) (policy.Capabilities, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/capabilities", nil)
 	if err != nil {
@@ -326,7 +290,7 @@ func (c *Client) Capabilities(ctx context.Context) (policy.Capabilities, error) 
 	if err != nil {
 		return policy.Capabilities{}, fmt.Errorf("call policy capabilities endpoint: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return policy.Capabilities{}, fmt.Errorf("read policy capabilities response: %w", err)
@@ -344,7 +308,6 @@ func (c *Client) Capabilities(ctx context.Context) (policy.Capabilities, error) 
 	return capabilities, nil
 }
 
-// CapabilitiesForClassifierRelease fetches strict v5 capabilities for one exact target selection and release.
 func (c *Client) CapabilitiesForClassifierRelease(ctx context.Context, selectionID, releaseID string) (ClassifierCapabilitiesV5, error) {
 	classifierClient, err := c.v5ClassifierClient()
 	if err != nil {
@@ -362,7 +325,7 @@ func (c *Client) CapabilitiesForClassifierRelease(ctx context.Context, selection
 	if err != nil {
 		return ClassifierCapabilitiesV5{}, fmt.Errorf("call v5 classifier capabilities endpoint: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return ClassifierCapabilitiesV5{}, fmt.Errorf("read v5 classifier capabilities response: %w", err)
@@ -406,7 +369,7 @@ func (c *Client) post(ctx context.Context, path string, payload map[string]inter
 	if err != nil {
 		return fmt.Errorf("call policy %s endpoint: %w", label, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	payloadBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if readErr != nil {
 		return fmt.Errorf("read policy %s response: %w", label, readErr)
@@ -507,11 +470,7 @@ type classifierRequestV4 struct {
 	TrainingAllowed           bool           `json:"training_allowed"`
 	CaptureMode               string         `json:"capture_mode,omitempty"`
 	DebugEnabled              bool           `json:"debug_enabled"`
-	// OmittedUserTurnCount is how many text-bearing user turns the route-message
-	// window dropped from the front of ConversationMessages, so a sidecar can
-	// number the visible turns as the full conversation does. Sent only to a
-	// classifier package that declared interaction-state inputs.
-	OmittedUserTurnCount *int `json:"omitted_user_turn_count,omitempty"`
+	OmittedUserTurnCount      *int           `json:"omitted_user_turn_count,omitempty"`
 }
 
 type routeCandidate struct {
@@ -635,9 +594,6 @@ type classifierResponseV4 struct {
 	Error                 string                 `json:"error,omitempty"`
 }
 
-// routeTimings is the sidecar's optional per-request latency breakdown plus
-// serving stats. Fields are nil (not zero) when not measured/reported;
-// route_ms spans the whole decision and is a superset of the other stages.
 type routeTimings struct {
 	RouteMs             *float64 `json:"route_ms"`
 	SelectMs            *float64 `json:"select_ms"`
@@ -649,15 +605,11 @@ type routeTimings struct {
 	OverrunsLive        *int64   `json:"overruns_live"`
 }
 
-// Timings are telemetry, not classifier facts: the sidecar may add stages the
-// router does not consume, so they are decoded leniently even when the
-// enclosing response is decoded with DisallowUnknownFields.
 func (t *routeTimings) UnmarshalJSON(payload []byte) error {
 	type lenientRouteTimings routeTimings
 	return json.Unmarshal(payload, (*lenientRouteTimings)(t))
 }
 
-// decomposeTimings converts sidecar wire timings into non-overlapping stages; nil when nothing was measured.
 func decomposeTimings(wire *routeTimings) *router.SidecarTimings {
 	if wire == nil || (wire.RouteMs == nil && wire.SelectMs == nil && wire.EmbedMs == nil) {
 		return nil
@@ -669,8 +621,6 @@ func decomposeTimings(wire *routeTimings) *router.SidecarTimings {
 	if wire.RouteMs != nil {
 		other := *wire.RouteMs - floatOrZero(wire.EmbedMs) - floatOrZero(wire.SelectMs)
 		if other < 0 {
-			// Stages exceeding the total they were measured inside of mean the
-			// breakdown can't be trusted for disjoint attribution; drop it.
 			return nil
 		}
 		timings.OtherMs = &other
@@ -685,9 +635,6 @@ func floatOrZero(value *float64) float64 {
 	return *value
 }
 
-// extractServingStats reads the sidecar's serving stats from the same wire
-// payload as decomposeTimings, but separately: stats are exempt from the
-// route_ms consistency check that can drop the latency breakdown wholesale.
 func extractServingStats(wire *routeTimings) *router.SidecarServingStats {
 	if wire == nil {
 		return nil
@@ -722,7 +669,6 @@ type previewResponse struct {
 	Error                 string                `json:"error"`
 }
 
-// Decide posts the supplied candidate set and returns the sidecar selection.
 func (c *Client) Decide(ctx context.Context, query policy.Query) (policy.Result, error) {
 	if c.taskDomain != nil && query.ExecutionMode == policy.ExecutionModeServing && query.TaskDomain != nil {
 		return c.decideWithTaskDomain(ctx, query)
@@ -756,7 +702,6 @@ func (c *Client) decideV5(ctx context.Context, query policy.Query) (policy.Resul
 	}, nil
 }
 
-// classifyV5 calls one v5 classifier endpoint and returns a response whose pinned identity and facts are verified.
 func (c *Client) classifyV5(ctx context.Context, path string, query policy.Query) (classifierResponseV5, error) {
 	requestBody, err := marshalClassifierRequestV5(query)
 	if err != nil {
@@ -823,7 +768,7 @@ func marshalClassifierRequestV5(query policy.Query) ([]byte, error) {
 	if query.InteractionStateInputs {
 		omittedUserTurnCount = pointerTo(userTextTurnCount(query.ConversationMessages) - routedUserTextTurnCount(messages))
 	}
-	invokedTools := clipRouteValues(invokedToolNames(query.ConversationMessages), maxRouteToolCallInputKeys, maxRouteToolCallInputChars)
+	invokedTools := clipRouteValues(invokedToolNames(query.ConversationMessages))
 	return json.Marshal(classifierRequestV5{
 		SchemaVersion: string(policy.SchemaVersionV5), ClassifierSelectionID: query.ClassifierSelectionID,
 		ClassifierReleaseID: query.ClassifierReleaseID, ClassifierVariantID: query.ClassifierVariantID,
@@ -834,13 +779,12 @@ func marshalClassifierRequestV5(query policy.Query) ([]byte, error) {
 		PriorOutputTokens: priorOutputTokens, SessionEverSwitched: sessionEverSwitched,
 		HistoryTruncated: historyTruncated, ConversationMessages: messages,
 		OmittedUserTurnCount: omittedUserTurnCount,
-		AvailableTools:       clipRouteValues(unionToolNames(query.AvailableTools, invokedTools), maxRouteToolCallInputKeys, maxRouteToolCallInputChars),
+		AvailableTools:       clipRouteValues(unionToolNames(query.AvailableTools, invokedTools)),
 		InvokedTools:         invokedTools, Tools: routeTools(query.Tools), EstimatedInputTokens: query.EstimatedInputTokens,
 		HasTools: query.HasTools, HasImages: query.HasImages,
 	})
 }
 
-// validateClassifierResponseV5 fails a mismatched pinned identity as ErrPolicyPinUnavailable and malformed facts as a protocol error.
 func validateClassifierResponseV5(query policy.Query, response classifierResponseV5) error {
 	if response.ClassifierReleaseID != query.ClassifierReleaseID || response.ClassifierSelectionID != query.ClassifierSelectionID ||
 		response.ClassifierVariantID != query.ClassifierVariantID ||
@@ -943,8 +887,6 @@ func (c *Client) decide(ctx context.Context, query policy.Query) (policy.Result,
 	selectedModel := firstNonEmpty(parsed.SelectedRosterID, parsed.Model)
 	switch parsed.SchemaVersion {
 	case policy.SchemaVersionV3:
-		// Classifier-only contract: the caller selects the arm, so a response
-		// naming one is a contract violation rather than a harmless extra.
 		if parsed.SelectedArmID != "" || selectedModel != "" || parsed.SelectedProvider != "" {
 			return policy.Result{}, fmt.Errorf("policy sidecar returned a selected arm or provider on schema %s", policy.SchemaVersionV3)
 		}
@@ -1017,7 +959,6 @@ func valueOrZero(value *float64) float64 {
 	return *value
 }
 
-// Preview evaluates the supplied candidate set without serving or callbacks.
 func (c *Client) Preview(ctx context.Context, query policy.Query) (policy.PreviewResult, error) {
 	if query.ExecutionMode != policy.ExecutionModePreview {
 		return policy.PreviewResult{}, fmt.Errorf("policy preview requires preview execution mode")
@@ -1102,8 +1043,6 @@ func (c *Client) previewV5(ctx context.Context, query policy.Query) (policy.Prev
 	}, nil
 }
 
-// supportedSchema reports whether a sidecar declares a wire contract this
-// client speaks.
 func supportedSchema(version string) bool {
 	switch version {
 	case policy.SchemaVersionV1, policy.SchemaVersionV2, policy.SchemaVersionV3, policy.SchemaVersionV4:
@@ -1165,8 +1104,8 @@ func marshalRouteRequest(query policy.Query) ([]byte, error) {
 		trainingDelta = trainingRouteMessageDelta(query.ConversationMessages)
 	}
 	harness := policy.HarnessForClientApp(query.ClientApp)
-	invokedTools := clipRouteValues(invokedToolNames(query.ConversationMessages), maxRouteToolCallInputKeys, maxRouteToolCallInputChars)
-	availableTools := clipRouteValues(unionToolNames(query.AvailableTools, invokedTools), maxRouteToolCallInputKeys, maxRouteToolCallInputChars)
+	invokedTools := clipRouteValues(invokedToolNames(query.ConversationMessages))
+	availableTools := clipRouteValues(unionToolNames(query.AvailableTools, invokedTools))
 	if schemaVersion == policy.SchemaVersionV4 {
 		body, err := json.Marshal(classifierRequestV4{
 			SchemaVersion: schemaVersion, Strategy: string(query.Strategy), ExecutionMode: query.ExecutionMode, RouteID: query.RouteID,
@@ -1275,7 +1214,6 @@ func pointerTo[T any](value T) *T {
 }
 
 func (c *Client) doPolicyRequest(ctx context.Context, path string, body []byte) (int, []byte, error) {
-	// lastStatusErr is the sidecar's own diagnosis; it diverges from lastErr when the budget cuts a final attempt short.
 	var lastErr, lastStatusErr error
 	for attempt := 1; attempt <= defaultRouteAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
@@ -1304,8 +1242,6 @@ func (c *Client) doPolicyRequest(ctx context.Context, path string, body []byte) 
 	return 0, nil, exhaustedPolicyErr(lastStatusErr, lastErr, nil)
 }
 
-// preferStatusErr picks the sidecar's own status over a transport failure, so an
-// exhausted ladder surfaces the sidecar's diagnosis and not the budget expiry.
 func preferStatusErr(statusErr, lastErr error) error {
 	if statusErr != nil {
 		return statusErr
@@ -1313,10 +1249,6 @@ func preferStatusErr(statusErr, lastErr error) error {
 	return lastErr
 }
 
-// exhaustedPolicyErr reports why the ladder ended. Both the sidecar's status and
-// the deadline are preserved: the status is the sidecar's own diagnosis; the
-// deadline keeps isPolicyDeadlineErr matching so the policy-deadline fallback
-// still degrades rather than surfacing the 503 that fallback exists to prevent.
 func exhaustedPolicyErr(statusErr, lastErr, ctxErr error) error {
 	primary := preferStatusErr(statusErr, lastErr)
 	deadline := cancellationSignal(ctxErr, lastErr, statusErr)
@@ -1325,8 +1257,6 @@ func exhaustedPolicyErr(statusErr, lastErr, ctxErr error) error {
 		return errors.New("policy sidecar retries exhausted")
 	case primary == nil:
 		return fmt.Errorf("policy sidecar retries exhausted: %w", deadline)
-	// errors.Is keeps a transport deadline from being printed twice; the
-	// sentinel is already reachable through primary.
 	case deadline == nil || errors.Is(primary, deadline):
 		return fmt.Errorf("policy sidecar retries exhausted: %w", primary)
 	default:
@@ -1334,9 +1264,6 @@ func exhaustedPolicyErr(statusErr, lastErr, ctxErr error) error {
 	}
 }
 
-// cancellationSignal returns the first context sentinel reachable from any
-// candidate, so preferring a status error for its diagnosis never costs the
-// caller the deadline it needs to degrade on.
 func cancellationSignal(candidates ...error) error {
 	for _, candidate := range candidates {
 		if candidate == nil {
@@ -1352,7 +1279,6 @@ func cancellationSignal(candidates ...error) error {
 	return nil
 }
 
-// doPolicyAttempt runs one bounded attempt; returns done=true on a final outcome (success or fatal error).
 func (c *Client) doPolicyAttempt(
 	ctx context.Context,
 	attempt int,
@@ -1376,14 +1302,14 @@ func (c *Client) doPolicyAttempt(
 		return 0, nil, false, c.attemptError(ctx, attemptCtx, attempt, fmt.Errorf("call policy sidecar: %w", err))
 	}
 	if resp.StatusCode == http.StatusRequestEntityTooLarge {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return 0, nil, true, fmt.Errorf(
 			"policy sidecar rejected %d-byte %s request (status %d): %w",
 			len(body), path, resp.StatusCode, policy.ErrContextWindowExceeded,
 		)
 	}
 	payload, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if readErr != nil {
 		return 0, nil, false, c.attemptError(ctx, attemptCtx, attempt, fmt.Errorf("read policy route response: %w", readErr))
 	}
@@ -1401,8 +1327,6 @@ func (c *Client) doPolicyAttempt(
 	return 0, nil, false, policyStatusError(resp.StatusCode, payload)
 }
 
-// attemptContext bounds one attempt so a single stalled instance cannot spend
-// the whole decision budget. The parent deadline still caps the attempt.
 func (c *Client) attemptContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if c.attemptTimeout <= 0 {
 		return context.WithCancel(ctx)
@@ -1410,7 +1334,6 @@ func (c *Client) attemptContext(ctx context.Context) (context.Context, context.C
 	return context.WithTimeout(ctx, c.attemptTimeout)
 }
 
-// attemptError distinguishes per-attempt-bound timeouts from sidecar failures; always wraps context.DeadlineExceeded so callers can degrade on it.
 func (c *Client) attemptError(ctx, attemptCtx context.Context, attempt int, err error) error {
 	if ctx.Err() == nil && errors.Is(attemptCtx.Err(), context.DeadlineExceeded) {
 		return fmt.Errorf(
@@ -1430,8 +1353,6 @@ func isTransientPolicyStatus(status int) bool {
 		status == http.StatusGatewayTimeout
 }
 
-// unknownArtifactErr maps the sidecar's 404 for a selected artifact_sha256 to
-// the pin sentinel so the turn fails closed instead of retrying elsewhere.
 func unknownArtifactErr(query policy.Query, status int) error {
 	if query.ArtifactSHA256 == "" || status != http.StatusNotFound {
 		return nil
@@ -1439,9 +1360,6 @@ func unknownArtifactErr(query policy.Query, status int) error {
 	return fmt.Errorf("policy sidecar has no artifact %q: %w", query.ArtifactSHA256, router.ErrPolicyPinUnavailable)
 }
 
-// PolicyStatusError is a non-2xx response from the sidecar, typed so the retry
-// ladder can prefer it over a transport error: a status is the sidecar's own
-// diagnosis; "context deadline exceeded" only says the budget ran out.
 type PolicyStatusError struct {
 	Status  int
 	Message string
@@ -1482,16 +1400,13 @@ func qualityBias(knobs *router.Overrides) *float64 {
 }
 
 type routeMessageLimits struct {
-	maxMessages           int
-	maxTextChars          int
-	maxTotalTextChars     int
-	maxToolCallInputKeys  int
-	maxToolCallInputChars int
-	includeToolCallInput  bool
-	includeToolResultText bool
-	// dropTextAfterBudgetCut gives every message older than the first one the
-	// shared budget cuts no text, so the routed text-bearing user turns are
-	// always the newest ones and omitted_user_turn_count can locate them.
+	maxMessages            int
+	maxTextChars           int
+	maxTotalTextChars      int
+	maxToolCallInputKeys   int
+	maxToolCallInputChars  int
+	includeToolCallInput   bool
+	includeToolResultText  bool
 	dropTextAfterBudgetCut bool
 }
 
@@ -1512,9 +1427,6 @@ var interactionStateRouteMessageLimits = routeMessageLimits{
 	dropTextAfterBudgetCut: true,
 }
 
-// classifierRouteMessageLimits keeps every classifier package on the history
-// clip it was trained on; only a package that declared interaction-state
-// inputs gets the wider one.
 func classifierRouteMessageLimits(query policy.Query) routeMessageLimits {
 	if query.InteractionStateInputs {
 		return interactionStateRouteMessageLimits
@@ -1564,8 +1476,6 @@ func trainingRouteMessageDelta(messages []router.ConversationMessage) []routeMes
 		return nil
 	}
 
-	// Each route happens before its next assistant response. Preserve the new
-	// exchange since the last response so training can reconstruct the turn.
 	start := 0
 	latestUser := -1
 	for i := len(messages) - 1; i >= 0; i-- {
@@ -1589,10 +1499,6 @@ func trainingRouteMessageDelta(messages []router.ConversationMessage) []routeMes
 	})
 }
 
-// routeMessageWindow keeps the newest maxMessages messages, except that the
-// newest user message carrying text is always kept: a long agent tool loop can
-// push every text-bearing user turn out of the window, and a routing history
-// without one describes no request at all.
 func routeMessageWindow(messages []router.ConversationMessage, maxMessages int) []router.ConversationMessage {
 	if maxMessages <= 0 || len(messages) <= maxMessages {
 		return messages
@@ -1610,7 +1516,6 @@ func routeMessageWindow(messages []router.ConversationMessage, maxMessages int) 
 	return append(kept, window[1:]...)
 }
 
-// userTextIndex is the index of the newest user message carrying text, or -1.
 func userTextIndex(messages []router.ConversationMessage) int {
 	for i := len(messages) - 1; i >= 0; i-- {
 		if routeRole(messages[i].Role) == "user" && strings.TrimSpace(messages[i].Text) != "" {
@@ -1625,7 +1530,6 @@ func convertRouteMessages(messages []router.ConversationMessage, limits routeMes
 		return nil
 	}
 	messages = routeMessageWindow(messages, limits.maxMessages)
-	// Reserve the task before newer assistant text consumes the shared budget.
 	latestUserTextIndex := userTextIndex(messages)
 	boundaryReserve := 0
 	if latestUserTextIndex >= 0 && limits.maxTotalTextChars > 0 {
@@ -1747,9 +1651,6 @@ func latestUserText(messages []routeMessage) string {
 	return ""
 }
 
-// invokedToolNames lists tools the conversation has actually called, in first-
-// call order. Sidecars use the advertised/invoked split for capability guards
-// and must not rebuild it by scanning history.
 func invokedToolNames(messages []router.ConversationMessage) []string {
 	var names []string
 	for _, message := range messages {
@@ -1797,8 +1698,6 @@ func turnIndex(messages []routeMessage) int {
 	return count - 1
 }
 
-// routedUserTextTurnCount counts the text-bearing user turns a routed history
-// still carries after windowing and budget clipping.
 func routedUserTextTurnCount(messages []routeMessage) int {
 	count := 0
 	for _, message := range messages {
@@ -1809,10 +1708,6 @@ func routedUserTextTurnCount(messages []routeMessage) int {
 	return count
 }
 
-// userTextTurnCount counts the text-bearing user turns of the full history.
-// Under interactionStateRouteMessageLimits clipping drops the oldest messages
-// first, so the difference from the routed count is the number of turns
-// missing from the front of the routed window.
 func userTextTurnCount(messages []router.ConversationMessage) int {
 	count := 0
 	for _, message := range messages {
@@ -1868,17 +1763,17 @@ func routeTools(tools []router.ToolDescriptor) []routeTool {
 	return out
 }
 
-func clipRouteValues(values []string, maxValues, maxChars int) []string {
+func clipRouteValues(values []string) []string {
 	if len(values) == 0 {
 		return nil
 	}
-	if maxValues > 0 && len(values) > maxValues {
-		values = values[:maxValues]
+	if len(values) > maxRouteToolCallInputKeys {
+		values = values[:maxRouteToolCallInputKeys]
 	}
 	out := make([]string, 0, len(values))
 	seen := make(map[string]struct{}, len(values))
 	for _, value := range values {
-		clipped := clipRouteText(value, maxChars)
+		clipped := clipRouteText(value, maxRouteToolCallInputChars)
 		if clipped == "" {
 			continue
 		}

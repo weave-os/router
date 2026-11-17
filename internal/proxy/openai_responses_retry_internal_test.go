@@ -85,7 +85,7 @@ func TestProxyOpenAIChatCompletion_SameBindingRetryStaysOnResponses(t *testing.T
 	body := `{"model":"auto","stream":false,"max_tokens":256,"messages":[{"role":"user","content":"read main.go"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}],"reasoning_effort":"medium"}`
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(context.Background(), []byte(body), rec,
-		httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))))
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(body))))
 
 	assert.Equal(t, []providers.Endpoint{providers.EndpointResponses, providers.EndpointResponses}, client.endpoints)
 	assert.NotContains(t, rec.Body.String(), "overloaded", "the failed pre-commit attempt must not reach the client")
@@ -135,7 +135,7 @@ func TestProxyMessages_SiblingFailoverOntoOpenAIUsesResponses(t *testing.T) {
 	body := `{"model":"claude-opus-5","max_tokens":1024,"stream":true,"messages":[{"role":"user","content":"read main.go"}],"tools":[{"name":"read_file","input_schema":{"type":"object","properties":{"path":{"type":"string"}}}}],"thinking":{"type":"adaptive"}}`
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyMessages(context.Background(), []byte(body), rec,
-		httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))))
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(body))))
 
 	assert.Positive(t, failing.calls, "the routed Anthropic binding must be tried first")
 	require.Len(t, rescue.endpoints, 2, "the rescue retries in place on its own binding")
@@ -195,7 +195,7 @@ func TestProxyOpenAIResponses_RetriesNativeEmptyCompletion(t *testing.T) {
 	body := "{\"model\":\"gpt-5.6-luna\",\"input\":\"hi\"}"
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyOpenAIResponses(context.Background(), []byte(body), rec,
-		httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))))
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(body))))
 	assert.Equal(t, 2, client.calls)
 	assert.Contains(t, rec.Body.String(), "resp_ok")
 }
@@ -211,7 +211,7 @@ func TestProxyOpenAIResponses_RetriesNativeStreamingEmptyCompletion(t *testing.T
 	body := "{\"model\":\"gpt-5.6-luna\",\"stream\":true,\"input\":\"hi\"}"
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyOpenAIResponses(context.Background(), []byte(body), rec,
-		httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))))
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(body))))
 	assert.Equal(t, 2, client.calls)
 	assert.Contains(t, rec.Body.String(), "ok")
 }
@@ -227,7 +227,7 @@ func TestProxyOpenAIChatCompletion_RetriesNonStreamingEmptyCompletion(t *testing
 	body := "{\"model\":\"auto\",\"stream\":false,\"max_tokens\":256,\"messages\":[{\"role\":\"user\",\"content\":\"read main.go\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"parameters\":{\"type\":\"object\"}}}],\"reasoning_effort\":\"medium\"}"
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(context.Background(), []byte(body), rec,
-		httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))))
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(body))))
 	assert.Equal(t, 2, client.calls)
 	assert.Contains(t, rec.Body.String(), "ok")
 }
@@ -270,7 +270,7 @@ func TestProxyOpenAIResponses_RetriesTranslatedStreamingEmptyCompletion(t *testi
 	svc.retrySleep = noopSleep
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
 	body := "{\"model\":\"gpt-6-astra\",\"stream\":true,\"input\":\"Continue the task.\"}"
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(body))
 	req.Header.Set("X-Weave-Routing-Marker", "off")
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, []byte(body), rec, req))
 	assert.Equal(t, 2, client.calls)

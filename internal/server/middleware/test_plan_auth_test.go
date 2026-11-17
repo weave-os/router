@@ -47,6 +47,7 @@ func (r *assignedTestRoutingPolicyRepo) HasAssignment(context.Context, string, s
 
 func TestDirectTestAuthSkipsEmailSubscriptionsAndProviderSecrets(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	t.Setenv(inferenceOrganizationAllowlistEnv, "org-not-the-test-installation")
 	const credential = "rk_synthetic_test"
 	subject, session, launch := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	key := &auth.APIKey{ID: "test-key", InstallationID: "test-installation", CredentialSubjectID: subject}
@@ -64,7 +65,7 @@ func TestDirectTestAuthSkipsEmailSubscriptionsAndProviderSecrets(t *testing.T) {
 	}
 	for _, scenario := range []string{"valid", "spoofed grant", "disabled budget", "wrong credential subject", "invalid credential"} {
 		t.Run(scenario, func(t *testing.T) {
-			request := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{}`))
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(`{}`))
 			requestCredential := credential
 			if scenario == "invalid credential" {
 				requestCredential = "rk_invalid_test"

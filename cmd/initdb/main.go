@@ -1,5 +1,3 @@
-// Command initdb bootstraps the router's Postgres database and schema.
-// Idempotent: safe to run repeatedly on an already-initialized database.
 package main
 
 import (
@@ -35,8 +33,6 @@ func main() {
 	ensureSchema(ctx, dsn)
 }
 
-// ensureDatabase connects to the "postgres" maintenance database and creates
-// the target database if it doesn't already exist.
 func ensureDatabase(ctx context.Context, u *url.URL, dbName string) {
 	adminURL := *u
 	adminURL.Path = "/postgres"
@@ -45,7 +41,7 @@ func ensureDatabase(ctx context.Context, u *url.URL, dbName string) {
 	if err != nil {
 		fatal("Cannot connect to postgres maintenance database: %v", err)
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	var exists bool
 	err = conn.QueryRow(ctx,
@@ -68,14 +64,12 @@ func ensureDatabase(ctx context.Context, u *url.URL, dbName string) {
 	fmt.Printf("Created database %q\n", dbName)
 }
 
-// ensureSchema connects to the target database and creates the router schema
-// if it doesn't already exist.
 func ensureSchema(ctx context.Context, dsn string) {
 	conn, err := pgx.Connect(ctx, dsn)
 	if err != nil {
 		fatal("Cannot connect to target database: %v", err)
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	if _, err := conn.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS router"); err != nil {
 		fatal("Cannot create router schema: %v", err)

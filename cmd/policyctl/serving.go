@@ -22,7 +22,6 @@ import (
 
 const commandApply commandName = "apply"
 
-// removedServingVerbs maps each retired verb to the invocation that absorbed it.
 var removedServingVerbs = map[commandName]string{
 	"validate": "publish --dry-run",
 	"resolve":  "apply --proposal-sha256 <sha256>",
@@ -159,7 +158,7 @@ func runServingWith(ctx context.Context, args []string, dependencies servingDepe
 		if err != nil {
 			return err
 		}
-		defer registry.Close()
+		defer func() { _ = registry.Close() }()
 		return servingProposalStatus(ctx, registry, ref, dependencies.writeOutput)
 	default:
 		if (*proposalPath == "") == (*proposalDigest == "") {
@@ -169,8 +168,6 @@ func runServingWith(ctx context.Context, args []string, dependencies servingDepe
 	}
 }
 
-// servingPublish digests the manifest bytes exactly as they would be stored; a dry run performs
-// every pre-write check and reports that digest without opening the registry.
 func servingPublish(ctx context.Context, dependencies servingDependencies, root string, kind policyregistry.ServingKind, path string, dryRun bool) error {
 	if path == "" || kind == "" {
 		return errors.New("serving publish requires --kind and --manifest")
@@ -193,7 +190,7 @@ func servingPublish(ctx context.Context, dependencies servingDependencies, root 
 	if err != nil {
 		return err
 	}
-	defer registry.Close()
+	defer func() { _ = registry.Close() }()
 	reference, err := registry.PublishServingManifest(ctx, kind, payload)
 	if err != nil {
 		return err
@@ -209,7 +206,7 @@ func servingTargetStatus(ctx context.Context, dependencies servingDependencies, 
 	if err != nil {
 		return err
 	}
-	defer registry.Close()
+	defer func() { _ = registry.Close() }()
 	snapshot, err := registry.ReadServingState(ctx, target)
 	if err != nil {
 		return err
@@ -217,8 +214,6 @@ func servingTargetStatus(ctx context.Context, dependencies servingDependencies, 
 	return dependencies.writeOutput(snapshot)
 }
 
-// servingApply drives one proposal through the controller. A dry run stops after destination
-// validation; a rollback-scoped proposal additionally has its source validated by the controller.
 func servingApply(ctx context.Context, dependencies servingDependencies, root, proposalPath, proposalDigest string, dryRun bool) error {
 	var proposalRef policyregistry.ObjectRef
 	if proposalPath != "" {
@@ -237,7 +232,7 @@ func servingApply(ctx context.Context, dependencies servingDependencies, root, p
 	if err != nil {
 		return err
 	}
-	defer registry.Close()
+	defer func() { _ = registry.Close() }()
 	if proposalPath == "" {
 		if proposalRef, err = registry.ServingRef(ctx, policyregistry.ServingProposal, proposalDigest); err != nil {
 			return err
@@ -288,7 +283,7 @@ func readServingReference(path string, reference *policyregistry.ObjectRef) erro
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	payload, err := io.ReadAll(io.LimitReader(file, (64<<10)+1))
 	if err != nil {
 		return err
@@ -343,7 +338,6 @@ func servingProposalStatus(ctx context.Context, registry servingRegistry, ref po
 	}{ref, false, snapshot.Generation})
 }
 
-// Every applied or replayed activation can change retained binding eligibility.
 func publishAdmissionInvalidation(ctx context.Context, project, topic string, target policyregistry.ServingTarget) error {
 	if project == "" || topic == "" {
 		return errors.New("admission invalidation requires project and topic configuration")
@@ -352,7 +346,7 @@ func publishAdmissionInvalidation(ctx context.Context, project, topic string, ta
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	publisher := client.Publisher(topic)
 	defer publisher.Stop()
 	_, err = publisher.Publish(ctx, &gcppubsub.Message{Data: []byte(target)}).Get(ctx)

@@ -1,4 +1,3 @@
-// Package servingvalidate is the private-endpoint validation adapter; it keeps IAM and HTTP outside registry contracts.
 package servingvalidate
 
 import (
@@ -21,17 +20,14 @@ const (
 	classifierCapabilitiesPath = "/v5/capabilities"
 )
 
-// TokenSource mints a Google identity token for the revision's IAM service audience.
 type TokenSource func(context.Context, string) (string, error)
 
-// Client never follows redirects; the revisions it calls come from immutable, validated bindings.
 type Client struct {
 	http          *http.Client
 	token         TokenSource
 	internalToken string
 }
 
-// New bounds the HTTP client: no redirects, a fixed timeout, and a capped attestation body.
 func New(client *http.Client, token TokenSource, internalToken string) (*Client, error) {
 	if client == nil || token == nil {
 		return nil, errors.New("private validation requires an HTTP client and IAM token source")
@@ -42,7 +38,6 @@ func New(client *http.Client, token TokenSource, internalToken string) (*Client,
 	return &Client{http: &bounded, token: token, internalToken: internalToken}, nil
 }
 
-// ValidateWorker forces the exact revision to load and validate this immutable default/profile snapshot.
 func (c *Client) ValidateWorker(ctx context.Context, revision policyregistry.RevisionBinding, selection policyregistry.WorkerValidationRequest) (policyregistry.WorkerAttestation, error) {
 	payload, err := json.Marshal(selection)
 	if err != nil {
@@ -53,7 +48,6 @@ func (c *Client) ValidateWorker(ctx context.Context, revision policyregistry.Rev
 	return attestation, err
 }
 
-// AttestClassifier requires the serving contract; legacy core-only readiness is not sufficient evidence.
 func (c *Client) AttestClassifier(ctx context.Context, revision policyregistry.RevisionBinding) (policyregistry.ClassifierAttestation, error) {
 	var attestation policyregistry.ClassifierAttestation
 	err := c.call(ctx, revision, http.MethodGet, policyregistry.ClassifierAttestationPath, nil, &attestation)
@@ -62,7 +56,6 @@ func (c *Client) AttestClassifier(ctx context.Context, revision policyregistry.R
 
 var _ policyregistry.ClassifierServiceAttestationEndpoints = (*Client)(nil)
 
-// AttestClassifierService reads a selection's v5 capabilities from the release's runtime-bound worker revision.
 func (c *Client) AttestClassifierService(ctx context.Context, binding policyregistry.ClassifierRuntimeBinding, selectionID string) (policyregistry.ClassifierServiceAttestation, error) {
 	query := url.Values{"classifier_selection_id": {selectionID}, "classifier_release_id": {binding.ReleaseSHA256}}
 	var attestation policyregistry.ClassifierServiceAttestation
@@ -70,7 +63,6 @@ func (c *Client) AttestClassifierService(ctx context.Context, binding policyregi
 	return attestation, err
 }
 
-// AttestClassifierWorker reads the release, image and configuration the runtime-bound worker revision loaded.
 func (c *Client) AttestClassifierWorker(ctx context.Context, binding policyregistry.ClassifierRuntimeBinding) (policyregistry.ClassifierWorkerAttestation, error) {
 	query := url.Values{"release_id": {binding.ReleaseSHA256}}
 	var attestation policyregistry.ClassifierWorkerAttestation
@@ -111,7 +103,7 @@ func (c *Client) call(ctx context.Context, revision policyregistry.RevisionBindi
 	if err != nil {
 		return fmt.Errorf("call private validation endpoint: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("private validation endpoint returned HTTP %d; exact serving attestation support and authorized internal ingress are required", response.StatusCode)
 	}

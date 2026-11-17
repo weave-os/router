@@ -1,0 +1,25 @@
+{
+  "requests": [
+    {
+      "ingress": "gemini_generate_content",
+      "stream": true,
+      "routing_decisions": [],
+      "dispatch_attempts": [],
+      "response": {
+        "status": 503,
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8",
+          "Retry-After": "1"
+        },
+        "body": {
+          "error": {
+            "code": 503,
+            "message": "No compatible provider is currently available for this request.",
+            "status": "UPSTREAM_ERROR"
+          }
+        }
+      }
+    }
+  ],
+  "scenario": "gemini_generate_content_stream_cross_format_decision"
+}

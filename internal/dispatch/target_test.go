@@ -2,7 +2,6 @@ package dispatch_test
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -18,7 +17,7 @@ import (
 func guardedProxy(t *testing.T, upstream *fakeUpstream, decision router.Decision, body string) error {
 	t.Helper()
 	guarded := dispatch.GuardTarget(upstream, primary)
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	return guarded.Proxy(context.Background(), decision, providers.PreparedRequest{Body: []byte(body)}, httptest.NewRecorder(), req)
 }
 
@@ -50,7 +49,7 @@ func TestGuardTarget_RejectsBeforeProviderIO(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			upstream := &fakeUpstream{name: primary.Provider}
 			err := guardedProxy(t, upstream, tc.decision, tc.body)
-			require.True(t, errors.Is(err, dispatch.ErrTargetMismatch), "got %v", err)
+			require.ErrorIs(t, err, dispatch.ErrTargetMismatch, "got %v", err)
 			assert.Empty(t, upstream.models, "provider must not be called")
 		})
 	}

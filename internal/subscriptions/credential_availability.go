@@ -14,17 +14,7 @@ func subscriptionCredentialAvailable(ctx context.Context, provider Provider, cre
 		cooldownUntil = *credentials.CooldownUntil
 	}
 	if requestcontext.SubscriptionQuotaRecoveryFrom(ctx) {
-		// Quota management may refresh exhausted accounts without admitting inference.
 		return credentials.Enabled && resetAccountStateEligible(credentials.State)
 	}
 	return credentials.Enabled && subscriptionAccountEligible(ctx, provider, credentials.State, cooldownUntil, now)
-}
-
-func applyRefreshedSubscriptionCredentials(account Account, credentials auth.SubscriptionCredentials, refreshed RefreshedToken) Account {
-	account = applySubscriptionCredentials(account, credentials)
-	account.AccessToken, account.AccessTokenExpiresAt = refreshed.AccessToken, refreshed.ExpiresAt
-	if refreshed.AccountID != "" {
-		account.AccountID = refreshed.AccountID
-	}
-	return account
 }

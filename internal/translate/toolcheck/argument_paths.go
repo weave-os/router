@@ -8,8 +8,6 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// lookup follows gjson's read behavior: when a duplicate object member has
-// the requested name but lacks a deeper path, later duplicates remain eligible.
 func (document *argumentDocument) lookup(path []string) *argumentNode {
 	if len(path) == 0 {
 		return document.root
@@ -43,6 +41,7 @@ func (document *argumentDocument) lookupNode(node *argumentNode, path []string) 
 		if ok && index < len(node.arrayElements) {
 			return document.lookupNode(node.arrayElements[index].value, path[1:])
 		}
+	case argumentString, argumentNumber, argumentBoolean, argumentNull:
 	}
 	return nil
 }
@@ -51,7 +50,7 @@ func argumentArrayIndex(token string) (int, bool) {
 	if token == "" {
 		return 0, false
 	}
-	// GJSON accumulates uint64 indexes with wraparound before converting to int.
+
 	var index uint64
 	for i := 0; i < len(token); i++ {
 		if token[i] < '0' || token[i] > '9' {
@@ -63,8 +62,6 @@ func argumentArrayIndex(token string) (int, bool) {
 	return position, position >= 0
 }
 
-// These unescaped prefixes denote GJSON expressions, not literal member paths.
-// Keep their interpretation in the existing library rather than duplicate it.
 func argumentLibraryPath(path []string) bool {
 	if len(path) >= 3 && path[0] == "" && path[1] == "" {
 		return true
@@ -124,12 +121,10 @@ func (document *argumentDocument) mutationParent(path []string) (*argumentNode, 
 	return current, path[len(path)-1]
 }
 
-// mutationKey preserves sjson's leading-colon path semantics.
 func mutationKey(token string) string {
 	return strings.TrimPrefix(argumentPathToken(token), ":")
 }
 
-// The historical path encoder iterated runes, replacing invalid UTF-8 bytes.
 func argumentPathToken(token string) string {
 	if utf8.ValidString(token) {
 		return token
@@ -142,6 +137,6 @@ func invalidArgumentPath(path []string) bool {
 }
 
 func quoteArgumentString(raw string) string {
-	encoded, _ := sjson.Set(`[]`, "0", raw) // A fixed array index cannot fail.
+	encoded, _ := sjson.Set(`[]`, "0", raw)
 	return encoded[1 : len(encoded)-1]
 }

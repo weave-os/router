@@ -520,9 +520,9 @@ func TestService_VerifyAPIKey_PropagatesNonNotFoundRepoError(t *testing.T) {
 	_, _, _, _, err := svc.VerifyAPIKey(context.Background(), "rk_anything")
 
 	require.Error(t, err)
-	assert.NotErrorIs(t, err, auth.ErrInvalidToken,
+	require.NotErrorIs(t, err, auth.ErrInvalidToken,
 		"infrastructure failures must surface as their own errors, not as ErrInvalidToken")
-	assert.NotErrorIs(t, err, auth.ErrInvalidPrefix)
+	require.NotErrorIs(t, err, auth.ErrInvalidPrefix)
 	assert.Contains(t, err.Error(), "postgres connection refused",
 		"original repo error must propagate so on-call can identify infrastructure failures")
 }
@@ -803,12 +803,12 @@ func TestService_VerifyAPIKey_DoesNotCacheTransportErrors(t *testing.T) {
 	rawToken := "rk_db_will_error"
 	cache := newRecordingAPIKeyCache()
 	svc, repo := makeServiceWithCacheAndCounter(t, cache)
-	repo.fakeAPIKeyRepository.override = errors.New("postgres connection refused")
+	repo.override = errors.New("postgres connection refused")
 
 	_, _, _, _, err := svc.VerifyAPIKey(context.Background(), rawToken)
 
 	require.Error(t, err)
-	assert.NotErrorIs(t, err, auth.ErrInvalidToken,
+	require.NotErrorIs(t, err, auth.ErrInvalidToken,
 		"a transport error must not collapse into ErrInvalidToken")
 	assert.Empty(t, cache.setSnapshot(),
 		"transport errors must NOT populate the cache; the next request might succeed")
@@ -992,7 +992,7 @@ func TestService_SetInstallationExcludedModels(t *testing.T) {
 	t.Run("rejects unknown model with ErrUnknownModel", func(t *testing.T) {
 		_, err := svc.SetInstallationExcludedModels(context.Background(), "ext-1", "inst-1", []string{"gemini-nope"}, allowed)
 		require.Error(t, err)
-		assert.True(t, errors.Is(err, auth.ErrUnknownModel))
+		assert.ErrorIs(t, err, auth.ErrUnknownModel)
 	})
 
 	t.Run("nil allowed skips validation", func(t *testing.T) {
@@ -1027,7 +1027,7 @@ func TestService_SetInstallationExcludedProviders(t *testing.T) {
 	t.Run("rejects unknown provider with ErrUnknownProvider", func(t *testing.T) {
 		_, err := svc.SetInstallationExcludedProviders(context.Background(), "ext-1", "inst-1", []string{"acme-cloud"}, allowed)
 		require.Error(t, err)
-		assert.True(t, errors.Is(err, auth.ErrUnknownProvider))
+		assert.ErrorIs(t, err, auth.ErrUnknownProvider)
 	})
 
 	t.Run("nil allowed skips validation", func(t *testing.T) {
@@ -1053,7 +1053,7 @@ func TestService_SetInstallationRoutingPreference(t *testing.T) {
 		err := svc.SetInstallationRoutingPreference(context.Background(), "ext-1", "inst-1", &quality)
 		require.NoError(t, err)
 		require.NotNil(t, installRepo.routingQualityByID["inst-1"])
-		assert.Equal(t, 0.6, *installRepo.routingQualityByID["inst-1"])
+		assert.InDelta(t, 0.6, *installRepo.routingQualityByID["inst-1"], 1e-9)
 	})
 
 	t.Run("nil clears the preference", func(t *testing.T) {
@@ -1308,4 +1308,47 @@ func TestService_VerifyAPIKey_ClusterModelListFetchErrorSkipsCache(t *testing.T)
 	assert.Nil(t, lists, "a failed fetch must serve artifact-default routing (nil lists)")
 	assert.Empty(t, cache.setSnapshot(),
 		"a transient cluster-list fetch error must NOT be cached, so the next request retries")
+}
+
+func TestService_VerifyAPIKey_ExternalKeyFetchErrorSkipsCache(t *testing.T) {
+	rawToken := "rk_extkey_fetch_error"
+	keyHash := auth.HashAPIKeySHA256(rawToken)
+	wantInstall := &auth.Installation{ID: "install_extskip", ExternalID: "org_extskip", Name: "extskip-tenant"}
+	wantKey := &auth.APIKey{ID: "key_extskip", InstallationID: wantInstall.ID, ExternalID: wantInstall.ExternalID, KeyHash: keyHash}
+	externalKey := &auth.ExternalAPIKey{
+		ID:             "ext-skip-1",
+		InstallationID: wantInstall.ID,
+		Provider:       "openai",
+		Plaintext:      []byte("sk-openai-test"),
+	}
+
+	cache := newRecordingAPIKeyCache()
+	fakeExternal := &fakeExternalAPIKeyRepo{err: errors.New("external key repo unavailable")}
+	apiKeys := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{keyHash: {apiKey: wantKey, installation: wantInstall}}}
+	svc := auth.NewService(
+		&fakeInstallationRepository{},
+		apiKeys,
+		fakeExternal,
+		nil,
+		cache,
+		nil,
+		frozenClock(),
+	)
+
+	_, _, externalKeys, _, err := svc.VerifyAPIKey(context.Background(), rawToken)
+
+	require.NoError(t, err, "an external key fetch error must not fail authentication")
+	assert.Nil(t, externalKeys, "a failed fetch serves this request without BYOK keys")
+	assert.Empty(t, cache.setSnapshot(),
+		"a transient external-key fetch error must NOT be cached, so the next request retries")
+
+	fakeExternal.err = nil
+	fakeExternal.keys = []*auth.ExternalAPIKey{externalKey}
+
+	_, _, externalKeys, _, err = svc.VerifyAPIKey(context.Background(), rawToken)
+
+	require.NoError(t, err)
+	require.Len(t, externalKeys, 1,
+		"once the external-key store recovers, the next request must get the installation's BYOK keys")
+	assert.Equal(t, externalKey.ID, externalKeys[0].ID)
 }

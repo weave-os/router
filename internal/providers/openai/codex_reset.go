@@ -27,7 +27,6 @@ const (
 	codexResetAvailable codexResetStatus = "available"
 )
 
-// CodexQuotaExhausted checks account-wide included quota, never purchased credits.
 func (c *Client) CodexQuotaExhausted(ctx context.Context, lease subscriptions.Lease) (bool, error) {
 	ctx = requestcontext.WithCredentials(ctx, &requestcontext.Credentials{
 		APIKey: []byte(lease.AccessToken), AccountID: []byte(lease.ProviderAccount),
@@ -41,7 +40,6 @@ func (c *Client) CodexQuotaExhausted(ctx context.Context, lease subscriptions.Le
 	return false, err
 }
 
-// CodexResetCredits lists only credits the provider says can be redeemed.
 func (c *Client) CodexResetCredits(ctx context.Context, lease subscriptions.Lease) ([]subscriptions.ResetCredit, error) {
 	body, err := c.codexResetRequest(ctx, lease, http.MethodGet, "", nil)
 	if err != nil {
@@ -72,10 +70,9 @@ func (c *Client) CodexResetCredits(ctx context.Context, lease subscriptions.Leas
 	return credits, nil
 }
 
-// ConsumeCodexReset uses the same specific-credit and idempotency contract as /usage.
 func (c *Client) ConsumeCodexReset(ctx context.Context, lease subscriptions.Lease, creditID, requestID string) (subscriptions.ResetOutcome, error) {
 	if creditID == "" || requestID == "" {
-		return "", errors.New("Codex reset requires a credit and redemption request ID")
+		return "", errors.New("codex reset requires a credit and redemption request ID")
 	}
 	payload, err := json.Marshal(struct {
 		CreditID  string `json:"credit_id"`
@@ -104,7 +101,7 @@ func (c *Client) ConsumeCodexReset(ctx context.Context, lease subscriptions.Leas
 
 func (c *Client) codexResetRequest(ctx context.Context, lease subscriptions.Lease, method, suffix string, payload []byte) ([]byte, error) {
 	if lease.AccessToken == "" || lease.ProviderAccount == "" {
-		return nil, errors.New("Codex reset requires authenticated account credentials")
+		return nil, errors.New("codex reset requires authenticated account credentials")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
@@ -127,9 +124,9 @@ func (c *Client) codexResetRequest(ctx context.Context, lease subscriptions.Leas
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Codex reset request rejected: HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("codex reset request rejected: HTTP %d", resp.StatusCode)
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 }
