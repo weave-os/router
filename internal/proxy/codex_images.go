@@ -113,7 +113,7 @@ func (c CodexImages) forwardOnLinkedSubscription(ctx context.Context, forwarder 
 		SubscriptionAccountID: lease.AccountID,
 	}
 	credentialCtx := requestcontext.WithCredentials(ctx, creds)
-	started := svc.clockNow()
+	started := svc.clock.Now()
 	attemptErr := forwarder.ForwardCodexImageRequest(credentialCtx, operation, body, headers, w)
 	bookkeepingCtx := context.WithoutCancel(credentialCtx)
 	recordCodexImageLeaseOutcome(bookkeepingCtx, svc, owner, lease, attemptErr)
@@ -151,7 +151,7 @@ func recordCodexImageUsage(ctx context.Context, svc *Service, model string, star
 		return
 	}
 	requestID := observability.RequestIDFromContext(ctx)
-	latency := svc.clockNow().Sub(started).Milliseconds()
+	latency := svc.clock.Now().Sub(started).Milliseconds()
 	params := InsertTelemetryParams{
 		InstallationID:     installationID.String(),
 		APIKeyID:           apiKeyIDFromContext(ctx),

@@ -34,6 +34,8 @@ func TestLookup(t *testing.T) {
 		{name: "gpt-6-astra", model: "gpt-6-astra", wantInput: 10.00, wantOutput: 50.00},
 		{name: "gpt-6-sol", model: "gpt-6-sol", wantInput: 2.00, wantOutput: 10.00},
 		{name: "gpt-6.1-sol", model: "gpt-6.1-sol", wantInput: 2.00, wantOutput: 10.00},
+		{name: "gpt-6.2-sol", model: "gpt-6.2-sol", wantInput: 2.00, wantOutput: 10.00},
+		{name: "gpt-6.2-astra", model: "gpt-6.2-astra", wantInput: 8.00, wantOutput: 40.00},
 		{name: "gpt-6.1-terra", model: "gpt-6.1-terra", wantInput: 1.00, wantOutput: 5.00},
 		{name: "gpt-6-luna", model: "gpt-6-luna", wantInput: 0.10, wantOutput: 0.50},
 		{name: "gpt-5.6-sol", model: "gpt-5.6-sol", wantInput: 4.00, wantOutput: 20.00},

@@ -37,7 +37,7 @@ func TestTwoModelGatewayRecoveryReadmitsStruckSibling(t *testing.T) {
 	svc := NewService(staticRouter{decision: decision}, map[string]providers.Client{
 		providers.ProviderOpenAIGateway: primary, providers.ProviderAnthropicGateway: sibling,
 	}, nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil).WithRetrySleep(func(context.Context, time.Duration) error { return nil })
-	svc.now = func() time.Time { return rateLimitTestNow }
+	svc.clock = func() time.Time { return rateLimitTestNow }
 	body := []byte(`{"model":"gpt-6-luna","stream":true,"messages":[{"role":"user","content":"synthetic exhausted pool"}]}`)
 	rec := httptest.NewRecorder()
 	err := svc.ProxyMessages(twoModelGatewayContext(), body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
@@ -71,7 +71,7 @@ func TestTwoModelRecoveryOnlyLeasesOneExpiredArmPerRequest(t *testing.T) {
 func TestLocalRecoveryProbeLeaseExpires(t *testing.T) {
 	svc, _ := cooldownTurnLoopService(&rolePinStore{byRole: map[string]sessionpin.Pin{}}, true)
 	now := rateLimitTestNow
-	svc.now = func() time.Time { return now }
+	svc.clock = func() time.Time { return now }
 	key := nonZeroSessionKey()
 
 	_, acquired := svc.acquireRecoveryProbe(context.Background(), key, recoveryOpusModel)
@@ -262,7 +262,7 @@ func TestTwoModelGatewayRecoveryRetriesThenRecordsWithdrawal(t *testing.T) {
 			}, nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil).
 				WithRescuedFailureArmDemotion(true).WithTransientRateLimit(scenario.transient, 45)
 			now := rateLimitTestNow
-			svc.now = func() time.Time { return now }
+			svc.clock = func() time.Time { return now }
 			var retryWaits []time.Duration
 			svc.WithRetrySleep(func(_ context.Context, wait time.Duration) error {
 				retryWaits = append(retryWaits, wait)
@@ -307,7 +307,7 @@ func TestTwoModelRecoveryHMMRefreshDoesNotRewriteCooldown(t *testing.T) {
 	}}
 	svc, scorer := cooldownTurnLoopService(store, true)
 	now := rateLimitTestNow
-	svc.now = func() time.Time { return now }
+	svc.clock = func() time.Time { return now }
 	res := turnLoopResult{InstallationID: uuid.New(), SessionKey: nonZeroSessionKey(), PinRole: sessionpin.DefaultRole,
 		Decision: router.Decision{Provider: providers.ProviderAnthropic, Model: freshTurnModel, Reason: hmmHistoryReason}}
 	for step := 0; step <= 96; step++ {

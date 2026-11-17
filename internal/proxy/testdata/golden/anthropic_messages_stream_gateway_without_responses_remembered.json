@@ -296,6 +296,16 @@
           "ActualInputCostUSD": 0.000009,
           "ActualOutputCostUSD": 0.0000315,
           "CaptureMode": "off",
+          "ContextSnapshot": {
+            "context_window": 400000,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 53,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "requested_model": "gpt-5.4-mini",
+            "served_model": "gpt-5.4-mini",
+            "version": 1
+          },
           "CrossFormat": true,
           "DecisionModel": "gpt-5.4-mini",
           "DecisionProvider": "openai_gateway",
@@ -585,6 +595,16 @@
           "ActualInputCostUSD": 0.000009,
           "ActualOutputCostUSD": 0.0000315,
           "CaptureMode": "off",
+          "ContextSnapshot": {
+            "context_window": 400000,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 53,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "requested_model": "gpt-5.4-mini",
+            "served_model": "gpt-5.4-mini",
+            "version": 1
+          },
           "CrossFormat": true,
           "DecisionModel": "gpt-5.4-mini",
           "DecisionProvider": "openai_gateway",

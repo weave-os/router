@@ -39,6 +39,23 @@ jobs:
           fi
           echo "BASE_REF=${BASE_REF}" >> $GITHUB_ENV
 
+      - name: Check migration immutability
+        run: |
+          VIOLATIONS=$(git diff --diff-filter=MRDT --find-renames --name-status "origin/${BASE_REF}...HEAD" -- 'db/migrations/*.sql')
+          if [ -n "$VIOLATIONS" ]; then
+            echo "::error::Migration files that already exist on ${BASE_REF} were modified, renamed, or deleted:"
+            echo "$VIOLATIONS" | sed 's/^/   /'
+            echo ""
+            echo "Merged migrations are immutable. golang-migrate stores only the latest applied version, so"
+            echo "deleting or renaming an applied migration fails deploys with 'no migration found for version N',"
+            echo "and editing one diverges the code from what already ran."
+            echo ""
+            echo "Fix forward instead: keep the original files and add a NEW migration that undoes the change."
+            echo "Renumbering is allowed only while the migration is unmerged."
+            exit 1
+          fi
+          echo "No merged migration files were modified, renamed, or deleted"
+
       - name: Check down migrations are precise
         run: |
           if grep -niE '\bIF EXISTS\b' db/migrations/*.down.sql; then

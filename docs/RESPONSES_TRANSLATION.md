@@ -47,6 +47,9 @@ bytes.
   labelled per call ID. Outputs that repeat a call ID share one label.
 - Only a user's inline image projects; a `file_id` reference or an
   assistant-authored image stays native.
+- A reasoning item the router minted from Chat reasoning (`rs_router_` id, no
+  `encrypted_content`) is dropped without pinning the turn, and stripped from
+  the body forwarded to native Responses, which never issued its id.
 - A reasoning summary is a display digest of the encrypted reasoning beside
   it and is dropped with that reasoning rather than pinning the session to
   OpenAI. Encrypted agent-to-agent messages stay native: their plaintext can
@@ -66,6 +69,11 @@ stream, or in passthrough mode forwards a native Responses upstream.
 
 - The badge is prepended to the first non-empty assistant text delta; a
   text-free passthrough turn gets a synthetic assistant item to carry it.
+- Chat `reasoning_content` (or `reasoning`) becomes a `reasoning` item whose
+  `summary` carries the text, emitted with the summary-part events before the
+  next message or function-call item. It is held until that item opens, so a
+  reasoning-only turn writes nothing and stays retryable as an empty
+  completion. There is no `encrypted_content` to carry.
 - Passthrough drops upstream `Content-Length` and `Content-Encoding`. The Codex
   subscription backend omits `Content-Type` on SSE, so the first event is
   inspected and the stream committed as `text/event-stream` exactly once.

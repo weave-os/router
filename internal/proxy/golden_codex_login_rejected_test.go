@@ -40,7 +40,7 @@ func (p goldenPlanIneligiblePools) Lease(ctx context.Context, owner auth.Subscri
 }
 
 func withRejectedCodexLoginPools(svc *proxy.Service, h *goldenHarness) *proxy.Service {
-	return withGoldenClock(svc, h).WithIngress(ingress.New(5 * time.Millisecond)).WithUsageObserver(usage.NewObserver([]byte("golden-salt"), 10*time.Minute, h.clock.Now)).
+	return svc.WithIngress(ingress.New(5 * time.Millisecond)).WithUsageObserver(usage.NewObserver([]byte("golden-salt"), 10*time.Minute, h.clock.Now)).
 		WithManagedSubscriptions(goldenPlanIneligiblePools{goldenProviderPools{
 			subscriptions.ProviderCodex:  newGoldenSubscriptionPool(h.clock.Now),
 			subscriptions.ProviderClaude: newGoldenSubscriptionPool(h.clock.Now, "claude-seat"),

@@ -293,14 +293,31 @@ func TestAuthoritativeDowngradeControlsAreOrgOverridable(t *testing.T) {
 }
 
 func TestRegistryVersionTracksRegistryMembership(t *testing.T) {
-	const membershipAtVersion30 = "5ffa40f90a156fdc182b4f76aadc2bb85eb49c863b1959357f3bc5b9c5aa61b6"
+	const membershipAtVersion31 = "5e3de924f26886bdf2e941d5e503098437b382200f7c99a9cf54cf79f2668410"
 	keys := make([]string, 0, len(flags.Registry))
 	for _, def := range flags.Registry {
 		keys = append(keys, string(def.Key))
 	}
 	sort.Strings(keys)
 	digest := sha256.Sum256([]byte(strings.Join(keys, "\n")))
-	require.Equal(t, 30, flags.RegistryVersion, "re-pin the membership digest for the new RegistryVersion")
-	assert.Equal(t, membershipAtVersion30, hex.EncodeToString(digest[:]),
+	require.Equal(t, 31, flags.RegistryVersion, "re-pin the membership digest for the new RegistryVersion")
+	assert.Equal(t, membershipAtVersion31, hex.EncodeToString(digest[:]),
 		"Registry membership changed: bump flags.RegistryVersion (currently %d) and re-pin this digest", flags.RegistryVersion)
+}
+
+func TestOverridesOverlayReplacesOnlyLayeredKeys(t *testing.T) {
+	stored := flags.Overrides{
+		Bools: map[flags.Key]bool{flags.KeyPlannerEnabled: true, flags.KeySiblingFailover: true},
+		Ints:  map[flags.Key]int{flags.KeyLoopEscalationHoldoutPct: 10},
+	}
+	layered := stored.Overlay(flags.Overrides{
+		Bools:   map[flags.Key]bool{flags.KeyPlannerEnabled: false},
+		Strings: map[flags.Key]string{flags.KeyEscalationActiveClassifier: "none"},
+	})
+
+	assert.Equal(t, map[flags.Key]bool{flags.KeyPlannerEnabled: false, flags.KeySiblingFailover: true}, layered.Bools)
+	assert.Equal(t, map[flags.Key]int{flags.KeyLoopEscalationHoldoutPct: 10}, layered.Ints)
+	assert.Equal(t, map[flags.Key]string{flags.KeyEscalationActiveClassifier: "none"}, layered.Strings)
+	assert.Nil(t, layered.Floats)
+	assert.True(t, stored.Bools[flags.KeyPlannerEnabled], "overlay must not mutate the stored overrides")
 }

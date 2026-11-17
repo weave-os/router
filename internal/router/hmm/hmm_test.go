@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/policy"
 )
 
 type fakeDecider struct {
@@ -172,8 +173,8 @@ func TestRouterDoesNotOfferOpenRouterFallbackCandidates(t *testing.T) {
 
 	_, err := r.Route(context.Background(), router.Request{PromptText: "hello"})
 
-	require.Error(t, err)
-	require.ErrorIs(t, err, ErrHMMUnavailable)
+	require.ErrorIs(t, err, policy.ErrNoRoutableModels)
+	require.NotErrorIs(t, err, ErrHMMUnavailable)
 	assert.Zero(t, decider.calls)
 }
 
