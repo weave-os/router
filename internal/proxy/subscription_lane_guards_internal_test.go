@@ -20,7 +20,7 @@ import (
 )
 
 func TestSessionHoldRequiresAnUnavailablePoolMark(t *testing.T) {
-	svc := &Service{now: time.Now}
+	svc := &Service{clock: time.Now}
 	ctx := context.WithValue(WithManagedSubscriptionUsage(context.Background()), ClientIdentityContextKey{}, ClientIdentity{SessionID: "codex-session"})
 
 	svc.holdSessionOffSubscriptionPool(ctx, providers.ProviderOpenAI, stateCodexModel)
@@ -71,7 +71,7 @@ func TestEnterpriseCapRescueNeedsAUsableAnthropicKey(t *testing.T) {
 
 func TestUnleasableSeatsDoNotHoldPaidFallbackEvenWhileEnabled(t *testing.T) {
 	now := time.Now()
-	svc := &Service{now: func() time.Time { return now }}
+	svc := &Service{clock: func() time.Time { return now }}
 	reconnect := activeCodexAccount("seat-reconnect")
 	reconnect.State = auth.SubscriptionAccountStateReconnectRequired
 	disabled := activeCodexAccount("seat-disabled")
@@ -86,7 +86,7 @@ func heldCodexOnlyService(t *testing.T) (*fakeClient, func() router.Decision) {
 	codex := &fakeClient{name: providers.ProviderOpenAI, outcomes: []fakeOutcome{{writeBytes: []byte("answer")}}}
 	svc := NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderOpenAI: codex}, nil, nil, false, "", "", nil).
 		WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderCodex: true}})
-	svc.now = time.Now
+	svc.clock = time.Now
 	turnCtx := func() context.Context {
 		ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderCodex: {}})
 		ctx = context.WithValue(ctx, InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")

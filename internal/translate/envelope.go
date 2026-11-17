@@ -1264,7 +1264,7 @@ var modelMaxOutputTokens = map[string]int{
 	"gpt-5.5-nano": 128000,
 	"gpt-5.6-sol":  128000, "gpt-5.6-sol-pro": 128000,
 	"gpt-5.6-terra": 128000, "gpt-5.6-luna": 128000, "gpt-5.6-luna-pro": 128000,
-	"gpt-6-astra": 128000, "gpt-6-sol": 128000, "gpt-6.1-sol": 128000, "gpt-6.1-terra": 128000, "gpt-6-luna": 128000,
+	"gpt-6-astra": 128000, "gpt-6-sol": 128000, "gpt-6.1-sol": 128000, "gpt-6.1-terra": 128000, "gpt-6-luna": 128000, "gpt-6.2-sol": 128000, "gpt-6.2-astra": 128000,
 	"grok-4.5": 131072, "grok-4.6": 131072, "grok-4.7": 131072,
 	"muse-spark-1.3": 131072,
 	"muse-ember-1.0": 131072, "muse-wonder-1.0": 131072,

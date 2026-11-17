@@ -73,6 +73,9 @@ rules; each is pinned by a translate unit test that fails when it is broken.
 - The text-only-turn recovery nudge fires only for tool-bearing requests whose
   turn opens with leaked tool-call markup, never after a truncated
   (`length`) turn, a suppressed tool call or on Gemini 3.x.
+- Anthropic thinking reaches Chat clients as `reasoning_content`, streamed as
+  `delta.reasoning_content`. The thinking signature and `redacted_thinking`
+  have no Chat field and are dropped.
 - Gemini 3.x signs only the first function call in a turn; that signature is
   replayed on every later call, carried in the OpenAI tool-call id. A
   non-Gemini OpenAI-compatible Chat upstream gets that id shortened to 64

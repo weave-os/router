@@ -201,7 +201,7 @@ func TestClassifierTurn_DispatchUnderSurfacePurpose(t *testing.T) {
 	assert.Equal(t, inference.PurposeAnthropicMessages, event.Purpose)
 	assert.Equal(t, inference.PolicyID("main-anthropic-messages"), event.PolicyID)
 	assert.Equal(t, inference.AttemptOutcomeServed, event.Outcome)
-	assert.Equal(t, "claude-haiku-5-5", event.Target.CatalogID)
+	assert.Equal(t, "claude-sonnet-4-6", event.Target.CatalogID)
 }
 
 func TestAutomaticProbesServeUnderIngressPolicyWithoutConversationState(t *testing.T) {

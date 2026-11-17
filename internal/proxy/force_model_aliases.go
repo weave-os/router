@@ -59,6 +59,8 @@ var forceModelAliases = map[string]string{
 	"astra":                    "gpt-6-astra",
 	"sol":                      "gpt-6.1-sol",
 	"gpt-6-1-sol":              "gpt-6.1-sol",
+	"gpt-6-2-sol":              "gpt-6.2-sol",
+	"gpt-6-2-astra":            "gpt-6.2-astra",
 	"gpt6sol":                  "gpt-6-sol",
 	"gpt-6sol":                 "gpt-6-sol",
 	"luna":                     "gpt-6-luna",

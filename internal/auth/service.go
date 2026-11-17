@@ -38,8 +38,6 @@ var ErrInvalidKeypairAuth = errors.New("auth: invalid keypair auth")
 
 var ErrInvalidEntraAuth = errors.New("auth: invalid Microsoft Entra auth")
 
-type Clock func() time.Time
-
 const (
 	blindExperimentFetchTimeout  = 5 * time.Second
 	blindExperimentFetchAttempts = 3

@@ -38,8 +38,6 @@ func responseLossAllowlist() []lossRule {
 		{hop: "responses_*>anthropic_*", kind: changed, key: "tool.*.id", holds: carriesOpenAIReasoning, why: "tool_use ids carry the OpenAI reasoning envelope for replay (TestPrepareOpenAIResponses_ReplaysReasoningCarriedOnToolUseID)"},
 		{hop: "responses_*>chat_*", kind: dropped, key: "thinking.*.signature", why: "docs/RESPONSES_TRANSLATION.md: encrypted reasoning has no Chat field"},
 		{hop: "anthropic_*>*", kind: dropped, key: "thinking.*.signature", why: "Chat has no thinking-signature field and unsigned thinking is stripped on replay (docs/REQUEST_ENVELOPE.md, Anthropic same-format overrides)"},
-		{hop: "anthropic_*>*", kind: dropped, key: "thinking.*.text", candidate: true, why: "candidate bug: Anthropic thinking never reaches Chat clients as reasoning_content, while Responses reasoning summaries do"},
-		{hop: "chat_sse>responses_sse", kind: dropped, key: "thinking.*.text", candidate: true, why: "candidate bug: Chat reasoning_content never reaches Responses clients as a reasoning item"},
 		{hop: "gemini_*>responses_*@chat", kind: added, key: "tool.*.signature", why: "docs/TRANSLATION_COMPATIBILITY.md: the first call's signature is replayed on later calls, carried in the Responses call_id (TestResponsesWriter_CallIDKeepsGeminiThoughtCarrier)"},
 		{hop: "chat_sse>anthropic_sse", kind: shape, key: " is open", candidate: true, why: "candidate bug: parallel tool calls open a second tool_use block before the first is stopped"},
 	}
