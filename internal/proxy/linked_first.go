@@ -4,32 +4,26 @@ import (
 	"context"
 
 	"weave-os/router/internal/billing"
-	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/subscriptionlane"
 )
 
 func paidFallbackForbidden(ctx context.Context) bool {
-	return paidFallbackForbiddenByPlan(ctx) || paidCapacityUnfunded(ctx)
+	return !servingCommitted(ctx, paidFallbackBinding(ctx), subscriptionlane.OrganizationCreditsServed)
 }
 
 func paidFallbackForbiddenByPlan(ctx context.Context) bool {
-	if requestcontext.IncludedSubscriptionOnlyFrom(ctx) {
-		return true
-	}
-	return claudeEnterpriseTurn(ctx) && !claudeEnterpriseCapRescue(ctx) || pickedModelOnOwnPlan(ctx) || subscriptionAttemptOnly(ctx) || subscriptionStateModelsEnabled(ctx) && !subscriptionAPIOnly(ctx)
+	return !paidFallbackBinding(ctx).Admits(subscriptionlane.OrganizationCreditsServed)
 }
 
 func paidFallbackForbiddenFor(ctx context.Context, provider string) bool {
-	return paidFallbackForbiddenByPlan(ctx) || paidCapacityUnfunded(ctx) && usableBYOK(ctx, provider) == nil
+	return !servingCommitted(ctx, paidFallbackBinding(ctx), paidFallbackEvent(usableBYOK(ctx, provider)))
 }
 
 func paidAttemptForbidden(ctx context.Context, creds *Credentials) bool {
-	if creds != nil && creds.OAuth {
-		return false
-	}
-	return paidFallbackForbiddenByPlan(ctx) || paidCapacityUnfunded(ctx) && !customerKeyFunded(creds)
+	return !servingCommitted(ctx, paidFallbackBinding(ctx), servingEvent(creds))
 }
 
 func subscriptionOnlyUnservable(ctx context.Context, provider, model string) bool {
@@ -37,17 +31,7 @@ func subscriptionOnlyUnservable(ctx context.Context, provider, model string) boo
 }
 
 func paidFallbackForbiddenForModel(ctx context.Context, model string) bool {
-	if requestcontext.IncludedSubscriptionOnlyFrom(ctx) {
-		return true
-	}
-	if claudeEnterpriseTarget(ctx, inference.Target{CatalogID: model}) || pickedModelOnOwnPlan(ctx) || subscriptionAttemptOnly(ctx) || paidCapacityUnfunded(ctx) {
-		return true
-	}
-	if !subscriptionStateModelsEnabled(ctx) || subscriptionAPIOnly(ctx) {
-		return false
-	}
-	_, exhaustedModel := modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx))[model]
-	return !exhaustedModel
+	return !servingCommitted(ctx, paidFallbackBindingForModel(ctx, model), subscriptionlane.OrganizationCreditsServed)
 }
 
 func subscriptionStatePaidRescueContext(ctx context.Context, model string) context.Context {

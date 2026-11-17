@@ -22,6 +22,7 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
 	randomrouter "weave-os/router/internal/router/random_router"
+	"weave-os/router/internal/subscriptionlane"
 	"weave-os/router/internal/subscriptions"
 )
 
@@ -229,5 +230,15 @@ func TestRandomRejectsImageUtilityBeforeCredentialsOrInference(t *testing.T) {
 		headers := http.Header{randomrouter.PolicyHeader: []string{randomrouter.PolicySHA256}}
 		err := (CodexImages{}).ForwardWithCallerCredential(context.Background(), headers, CodexImageGenerations, body, httptest.NewRecorder())
 		require.ErrorIs(t, err, randomrouter.ErrUnavailable)
+	}
+}
+
+func TestRandomIncludedFundingCannotReopenThePaidLane(t *testing.T) {
+	ctx := requestcontext.WithIncludedSubscriptionOnly(context.Background())
+	ctx = context.WithValue(ctx, subscriptionAPIOnlyKey{}, true)
+	for _, binding := range []subscriptionlane.Binding{paidFallbackBinding(ctx), paidFallbackBindingForModel(ctx, catalog.ModelGPT6Luna)} {
+		require.True(t, binding.Admits(subscriptionlane.SubscriptionServed))
+		require.False(t, binding.Admits(subscriptionlane.CustomerKeyServed))
+		require.False(t, binding.Admits(subscriptionlane.OrganizationCreditsServed))
 	}
 }

@@ -335,7 +335,7 @@ func (s *Service) bypassToAnthropic(
 		Model:    feats.Model,
 		Reason:   reason,
 	}
-	if err := catalog.CheckEligibility(entitlement.ModelBoundaryFromContext(ctx), decision.Model); err != nil {
+	if err := productEligibilityRefusal(ctx, entitlement.ModelBoundaryFromContext(ctx), decision.Model); err != nil {
 		return err
 	}
 	w.Header().Set(HeaderRouterDecision, decision.Reason)
@@ -351,7 +351,7 @@ func (s *Service) bypassToAnthropic(
 
 	ctx = s.resolveCredentials(ctx, decision.Provider, decision.Model, r.Header)
 	if claudeEnterpriseOnly(ctx) && !servedOnSubscription(ctx) {
-		return ErrClaudeEnterpriseSubscriptionUnavailable
+		return claudeEnterpriseRefusal(ctx)
 	}
 
 	outputReserve := contextWindowOutputReserve

@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"slices"
 
-	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -72,8 +71,7 @@ func (s *Service) memberPickPaidContext(ctx context.Context, req router.Request,
 	if _, admitted := paidReq.AllowedModels[pick.Model]; !admitted {
 		return ctx, false
 	}
-	paidCtx = context.WithValue(billing.ReleaseLinkedFirst(paidCtx), subscriptionAPIOnlyKey{}, true)
-	paidCtx = withSuppressedClaudeSubscription(withSuppressedCodexSubscription(paidCtx))
+	paidCtx = withIncludedLaneExhausted(paidCtx)
 	return ctx, s.subscriptionStatePaidTargetRefusal(paidCtx, headers, paidReq, openRouterOverflowTarget(paidCtx, pick)) == nil
 }
 
@@ -166,7 +164,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 		if len(attemptReq.AllowedModels) == 0 && len(attemptModels) < len(includedModels) {
 			attemptCtx, attemptReq = s.subscriptionStateRequest(ctx, request, includedModels)
 		}
-		attemptCtx = context.WithValue(attemptCtx, subscriptionOnlyAttemptKey{}, true)
+		attemptCtx = withSubscriptionAttempt(attemptCtx)
 		attemptReq.EnabledProviders = make(map[string]struct{})
 		excludedProviders := s.excludedProvidersForRequest(ctx)
 		for provider := range request.EnabledProviders {
@@ -236,9 +234,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 	}
 	paidModels := installationSubscriptionModelsWhenInactiveFromContext(ctx)
 	paidCtx, paidReq := s.subscriptionStateRequest(ctx, request, paidModels)
-	paidCtx = billing.ReleaseLinkedFirst(paidCtx)
-	paidCtx = context.WithValue(paidCtx, subscriptionAPIOnlyKey{}, true)
-	paidCtx = withSuppressedClaudeSubscription(withSuppressedCodexSubscription(paidCtx))
+	paidCtx = withIncludedLaneExhausted(paidCtx)
 	target := in.initialDecision
 	for {
 		target = openRouterOverflowTarget(paidCtx, target)

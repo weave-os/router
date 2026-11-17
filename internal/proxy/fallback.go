@@ -80,7 +80,7 @@ func dispatchOrdinary(s *Service, ctx context.Context, in failoverInputs) (winne
 	if len(in.purpose) == 0 {
 		return -1, errDispatchWithoutPurpose
 	}
-	if err := catalog.CheckEligibility(entitlement.ModelBoundaryFromContext(ctx), in.initialDecision.Model); err != nil {
+	if err := productEligibilityRefusal(ctx, entitlement.ModelBoundaryFromContext(ctx), in.initialDecision.Model); err != nil {
 		return -1, err
 	}
 	if len(in.bindings) == 0 {
@@ -325,7 +325,7 @@ func (s *Service) dispatchSubscriptionAlternatives(ctx context.Context, in failo
 		if in.buf != nil {
 			in.buf.Discard()
 		}
-		attemptCtx := context.WithValue(ctx, subscriptionOnlyAttemptKey{}, true)
+		attemptCtx := withSubscriptionAttempt(ctx)
 		if target.Provider != selected.Provider {
 			attemptCtx = clearCredentials(attemptCtx)
 		}
