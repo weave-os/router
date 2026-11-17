@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions"
 )
 
@@ -19,7 +20,8 @@ func linkedSeatsUnusable(ctx context.Context, pool subscriptions.Provider, now t
 			continue
 		}
 		linked++
-		spent := (candidate.state == auth.SubscriptionAccountStateCooldown || candidate.state == auth.SubscriptionAccountStateExhausted) && candidate.resetAt.After(now)
+		overageServes := pool == subscriptions.ProviderClaude && candidate.state == auth.SubscriptionAccountStateExhausted && requestcontext.SubscriptionExtraUsageFrom(ctx)
+		spent := (candidate.state == auth.SubscriptionAccountStateCooldown || candidate.state == auth.SubscriptionAccountStateExhausted) && candidate.resetAt.After(now) && !overageServes
 		if candidate.enabled && candidate.state != auth.SubscriptionAccountStateDisabled && candidate.state != auth.SubscriptionAccountStateReconnectRequired && !spent {
 			return false
 		}

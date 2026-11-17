@@ -9,6 +9,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
 )
 
@@ -16,9 +17,10 @@ func TestPoolExhaustionOwnerFollowsLinkedSeatState(t *testing.T) {
 	now := time.Unix(1_000_000, 0)
 	spentUntil := now.Add(24 * time.Hour)
 	for _, scenario := range []struct {
-		name  string
-		seats []*auth.SubscriptionAccount
-		owner FailureOwner
+		name    string
+		overage bool
+		seats   []*auth.SubscriptionAccount
+		owner   FailureOwner
 	}{
 		{name: "every linked seat disabled, spent or disconnected", seats: []*auth.SubscriptionAccount{
 			{ID: "disabled", Provider: auth.SubscriptionProviderClaude, Enabled: false, State: auth.SubscriptionAccountStateDisabled},
@@ -29,11 +31,17 @@ func TestPoolExhaustionOwnerFollowsLinkedSeatState(t *testing.T) {
 			{ID: "healthy", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive},
 			{ID: "disabled", Provider: auth.SubscriptionProviderClaude, Enabled: false, State: auth.SubscriptionAccountStateDisabled},
 		}, owner: FailureOwnerRouter},
+		{name: "an exhausted seat that extra usage still lets serve", overage: true, seats: []*auth.SubscriptionAccount{
+			{ID: "overage", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &spentUntil},
+		}, owner: FailureOwnerRouter},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(&scriptedSubscriptionLeaser{})
 			svc.clock = func() time.Time { return now }
 			ctx := WithManagedSubscriptionCandidates(managedSubscriptionTestContext(), scenario.seats)
+			if scenario.overage {
+				ctx = requestcontext.WithSubscriptionExtraUsage(ctx)
+			}
 
 			_, _, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String())
 
