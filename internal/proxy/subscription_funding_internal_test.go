@@ -269,7 +269,7 @@ func TestSubscriptionFundingExpiredShortWindowCannotAuthorizeAPI(t *testing.T) {
 				now := observedAt
 				observer := usage.NewObserver([]byte("synthetic-salt"), time.Minute, func() time.Time { return now })
 				svc := newServiceWithProviders(t, nil).WithUsageObserver(observer)
-				svc.now = func() time.Time { return now }
+				svc.clock = func() time.Time { return now }
 				ctx := context.Background()
 				credential, directToken := "subscription-account:seat", ""
 				if direct {
@@ -304,7 +304,7 @@ func TestSubscriptionFundingPaidOverageIsQuotaProof(t *testing.T) {
 		WithManagedSubscriptions(&scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "seat", AccessToken: "oauth-token"}}}).
 		WithUsageObserver(observer).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
-	svc.now = func() time.Time { return now }
+	svc.clock = func() time.Time { return now }
 	ctx := WithManagedSubscriptionCandidates(withClaudeCreditFallback(context.Background()), []*auth.SubscriptionAccount{{ID: "seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive}})
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
@@ -321,7 +321,7 @@ func TestSubscriptionFundingDirectTokenOverageIsQuotaProof(t *testing.T) {
 	observer := usage.NewObserver([]byte("synthetic-salt"), 24*time.Hour, func() time.Time { return now })
 	observer.Record(observer.Key([]byte("synthetic-direct-token")), usage.Snapshot{OverageInUse: true, UnifiedResetAt: now.Add(time.Hour)})
 	svc := newServiceWithProviders(t, nil).WithUsageObserver(observer)
-	svc.now = func() time.Time { return now }
+	svc.clock = func() time.Time { return now }
 	require.NoError(t, svc.authorizeSubscriptionAPI(context.Background(), subscriptions.ProviderClaude, "", "synthetic-direct-token", clientAppRefusalFunding{}))
 	now = now.Add(2 * time.Hour)
 	require.ErrorIs(t, svc.authorizeSubscriptionAPI(context.Background(), subscriptions.ProviderClaude, "", "synthetic-direct-token", clientAppRefusalFunding{}), ErrSubscriptionPoolUnavailable,

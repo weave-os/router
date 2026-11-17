@@ -11,26 +11,18 @@ import (
 )
 
 var (
-	// ErrAnthropicCacheControlInvalid marks an explicit cache policy Anthropic
-	// would reject. It is never silently stripped or rewritten.
-	ErrAnthropicCacheControlInvalid = errors.New("invalid Anthropic cache_control")
-	// ErrAnthropicCacheControlOverflow marks explicit client breakpoints beyond
-	// the provider's supported capacity.
+	ErrAnthropicCacheControlInvalid  = errors.New("invalid Anthropic cache_control")
 	ErrAnthropicCacheControlOverflow = errors.New("anthropic cache_control breakpoint capacity exceeded")
 )
 
 const anthropicCacheControlOverflowMessage = "Anthropic cache_control breakpoint capacity exceeded"
 
-// CacheControlClientMessage renders a cache_control validation error with its
-// client-facing capitalization.
 func CacheControlClientMessage(err error) string {
 	return strings.Replace(err.Error(), ErrAnthropicCacheControlOverflow.Error(), anthropicCacheControlOverflowMessage, 1)
 }
 
 const anthropicCacheControlCapacity = 4
 
-// applyAnthropicCachePolicy validates client controls and uses only spare
-// provider capacity for router-generated cache breakpoints.
 func applyAnthropicCachePolicy(body []byte, injectRouterBreakpoints bool) ([]byte, error) {
 	var request map[string]any
 	if err := json.Unmarshal(body, &request); err != nil {
@@ -90,8 +82,6 @@ const (
 	anthropicCacheTTLWire1h = "1h"
 )
 
-// forEachAnthropicCacheBlock visits every tool, system and message content
-// block that carries a cache_control, in prompt order.
 func forEachAnthropicCacheBlock(request map[string]any, visit func(block map[string]any) error) error {
 	visitBlocks := func(blocks any) error {
 		list, _ := blocks.([]any)
@@ -148,16 +138,11 @@ func validateAnthropicCacheControls(request map[string]any) (int, error) {
 	return count, nil
 }
 
-// firstPartyCacheControlBetas maps the cache_control fields only first-party
-// Anthropic accepts to the anthropic-beta prefix that enables each one.
 var firstPartyCacheControlBetas = map[string]string{
 	"scope":             "prompt-caching-scope-",
 	"evict_on_complete": "prompt-caching-evict-",
 }
 
-// dropUnsupportedCacheControlFields removes first-party cache_control fields
-// the target would reject: all of them on gateways, and on Anthropic any field
-// whose beta the client did not send.
 func dropUnsupportedCacheControlFields(body []byte, firstParty bool, beta string) ([]byte, error) {
 	if !bytes.Contains(body, []byte(`"scope"`)) && !bytes.Contains(body, []byte(`"evict_on_complete"`)) {
 		return body, nil
@@ -276,8 +261,6 @@ func addCacheControlToLastMessageBlock(request map[string]any) (func(), bool) {
 			if !ok {
 				continue
 			}
-			// Anthropic requires thinking and redacted_thinking blocks in the
-			// latest assistant message to remain byte-for-byte unchanged.
 			if messageIndex == latestAssistantIndex && isImmutableLatestAssistantBlock(candidate) {
 				continue
 			}
@@ -308,11 +291,6 @@ func isImmutableLatestAssistantBlock(block map[string]any) bool {
 		escalationWireType(blockType) == escalationWireRedactedThinking
 }
 
-// AnthropicRequestCacheTTL1h reports whether an Anthropic Messages body
-// declares at least one cache breakpoint and every breakpoint — block-level
-// and the top-level automatic one — asks for the 1-hour TTL. Callers use it
-// to price cache writes when the upstream omits usage.cache_creation; a body
-// that mixes TTLs reports false because its writes cannot be attributed.
 func AnthropicRequestCacheTTL1h(body []byte) bool {
 	declared, all1h := 0, true
 	observe := func(policy gjson.Result) {

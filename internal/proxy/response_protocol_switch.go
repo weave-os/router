@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"errors"
+	"net/http"
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -20,6 +21,7 @@ const (
 type modelAttemptBuilder func(router.Decision, translate.EmitOptions, string, context.Context) (dispatchAttempt, error)
 
 type responseProtocolSwitch struct {
+	notices             *requestNoticeStream
 	writer              *translate.ResponsesWriter
 	buffer              *preludeBuffer
 	nativeRequest       bool
@@ -89,6 +91,7 @@ func (s responseProtocolSwitch) leavePassthrough() error {
 }
 
 func (s responseProtocolSwitch) selectTarget(target router.Decision) error {
+	s.notices.selectModel(target.Model)
 	if s.writer == nil {
 		return nil
 	}
@@ -123,3 +126,28 @@ func (s *responseProtocolSwitch) wrapBuilder(build modelAttemptBuilder) modelAtt
 }
 
 var errResponsesPassthroughStuck = errors.New("responses passthrough already carries native output; another wire format cannot continue it")
+
+func resetResponsesAttempt(w http.ResponseWriter) {
+	if rw, ok := w.(*translate.ResponsesWriter); ok {
+		rw.ResetAttempt()
+	}
+}
+
+func responsesDispatchBodies(body []byte, terminalResponses bool) (nativeBody, conversionBody []byte, err error) {
+	nativeBody, err = translate.StripRouterReasoningFromResponsesInput(body)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !terminalResponses {
+		return nativeBody, body, nil
+	}
+	nativeBody, err = stripResponsesTerminalArtifacts(nativeBody)
+	if err != nil {
+		return nil, nil, err
+	}
+	conversionBody, err = stripResponsesVisualArtifacts(body)
+	if err != nil {
+		return nil, nil, err
+	}
+	return nativeBody, conversionBody, nil
+}

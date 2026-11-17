@@ -83,6 +83,7 @@ func TestSlowStartInResponsesTurn(t *testing.T) {
 		{name: "selection alone", text: selection, role: translate.EscalationRoleAssistant},
 		{name: "unmarked prose", text: strings.TrimPrefix(slowStart, codexResponsesBadgeSentinelForTest), role: translate.EscalationRoleAssistant},
 		{name: "quoted notice", text: "Docs say: " + slowStart, role: translate.EscalationRoleAssistant},
+		{name: "prose before selection and notice", text: "Docs say: " + selection + slowStart, role: translate.EscalationRoleAssistant},
 		{name: "user quote", text: slowStart, role: translate.EscalationRoleUser},
 		{name: "tool quote", text: slowStart, role: translate.EscalationRoleTool},
 		{name: "new prompt", text: slowStart, role: translate.EscalationRoleAssistant, tail: `,{"role":"user","content":[{"type":"input_text","text":"Check the serializer"}]}`},

@@ -10,9 +10,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// handleSpiralShadow records one durable event + one log line per
-// (session, role, reason). Takes no routing action. Gated upstream by
-// spiralShadowEnabled and the turn-type guard.
 func (s *Service) handleSpiralShadow(
 	ctx context.Context,
 	sig conversation.SpiralSignals,
@@ -36,8 +33,6 @@ func (s *Service) handleSpiralShadow(
 			continue
 		}
 
-		// Best-effort: a lookup failure proceeds — an extra row beats a
-		// lost one in shadow mode.
 		if s.spiralShadowStore != nil && installationID != uuid.Nil {
 			count, err := s.spiralShadowStore.CountSpiralShadowEvents(ctx, sessionKey[:], role, reasonText)
 			if err != nil {
@@ -87,25 +82,19 @@ func (s *Service) handleSpiralShadow(
 				PingPongLen:        int32(sig.PingPongLen),
 				StepsSinceProgress: int32(sig.StepsSinceProgress),
 			}
-			// context.WithoutCancel: the request ctx may already be canceled;
-			// losing the row would skew the shadow fire-rate corpus.
 			if err := s.spiralShadowStore.InsertSpiralShadowEvent(context.WithoutCancel(ctx), event); err != nil {
 				log.Error("spiral-shadow: event insert failed", "err", err)
-				continue // leave the LRU unset so the next turn retries
+				continue
 			}
 		}
 		s.spiralTracker.MarkFired(key)
 	}
 }
 
-// turnSignalCaptureAllowed requires both privacy gates. CaptureOff is the
-// fallback for an unknown mode, so both gates fail closed by default.
 func turnSignalCaptureAllowed(trainingAllowed bool, capture ContentCaptureMode) bool {
 	return trainingAllowed && (capture == CaptureHashed || capture == CaptureFull)
 }
 
-// applyTurnSignalTelemetry fills p only when all gates pass, preserving
-// the distinction between a measured zero and an absent snapshot.
 func applyTurnSignalTelemetry(
 	p *InsertTelemetryParams,
 	sig conversation.SpiralSignals,
@@ -138,18 +127,11 @@ func applyTurnSignalTelemetry(
 	p.SpiralReasons = conversation.SpiralReasonStrings(reasons)
 }
 
-// WithSpiralShadowConfig sets the shadow-mode spiral detector kill switch.
-// enabled=false skips signal computation entirely. Shadow mode takes no
-// routing action either way; the switch exists to shed the per-turn scan
-// cost if it ever misbehaves.
 func (s *Service) WithSpiralShadowConfig(enabled bool) *Service {
 	s.spiralShadowEnabled = enabled
 	return s
 }
 
-// WithSpiralShadowStore wires the durable sink for shadow spiral events
-// (router.spiral_shadow_events). Nil degrades to log-only fires with
-// replica-local de-duplication.
 func (s *Service) WithSpiralShadowStore(store conversation.SpiralShadowStore) *Service {
 	s.spiralShadowStore = store
 	return s

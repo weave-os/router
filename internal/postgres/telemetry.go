@@ -18,19 +18,12 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// usdPerMicro converts BIGINT micros (USD x 1e6) back to a float64 USD value
-// at the adapter boundary. The router's in-Go cost math is float64 USD;
-// micros is the storage representation only.
 const usdPerMicro = 1.0 / 1_000_000.0
 
-// microsToUSD is the inverse of catalog.USDToMicros, used when projecting
-// stored telemetry rows back into the proxy domain types.
 func microsToUSD(micros int64) float64 {
 	return float64(micros) * usdPerMicro
 }
 
-// int64PtrFromUSD converts *float64 USD to *int64 micros. nil stays nil.
-// Uses SignedUSDToMicros so stay-turn EV (often negative) is not clamped to 0.
 func int64PtrFromUSD(usd *float64) *int64 {
 	if usd == nil {
 		return nil
@@ -39,12 +32,10 @@ func int64PtrFromUSD(usd *float64) *int64 {
 	return &v
 }
 
-// TelemetryRepo implements proxy.TelemetryRepository via SQLC.
 type TelemetryRepo struct {
 	tx sqlc.DBTX
 }
 
-// NewTelemetryRepo constructs a TelemetryRepo backed by the given connection.
 func NewTelemetryRepo(tx sqlc.DBTX) *TelemetryRepo {
 	return &TelemetryRepo{tx: tx}
 }
@@ -277,8 +268,6 @@ func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p proxy.Inse
 	})
 }
 
-// inferenceSummaryString projects one provenance field; nil summary or empty
-// value leaves the column NULL.
 func inferenceSummaryString(summary *inference.OperationSummary, field func(inference.OperationSummary) string) *string {
 	if summary == nil {
 		return nil
@@ -292,58 +281,6 @@ func inferenceUsageKnown(summary *inference.OperationSummary) *bool {
 	}
 	known := summary.Usage.Known
 	return &known
-}
-
-// InsertInferenceAttempt persists one ordered attempt event. Usage and cost
-// columns stay NULL when the attempt's usage is unknown, so an unmeasured
-// attempt is never stored as a zero-cost one.
-func (r *TelemetryRepo) InsertInferenceAttempt(ctx context.Context, p proxy.InsertInferenceAttemptParams) error {
-	id, err := uuid.Parse(p.InstallationID)
-	if err != nil {
-		return err
-	}
-	return dbbudget.Queries(r.tx).InsertInferenceAttempt(ctx, inferenceAttemptParams(id, p.Event))
-}
-
-func inferenceAttemptParams(installationID uuid.UUID, event inference.AttemptEvent) sqlc.InsertInferenceAttemptParams {
-	params := sqlc.InsertInferenceAttemptParams{
-		InstallationID:   installationID,
-		RequestID:        event.RequestID,
-		OperationID:      event.OperationID,
-		AttemptIndex:     int32(event.AttemptIndex),
-		Purpose:          string(event.Purpose),
-		PolicyID:         string(event.PolicyID),
-		RegistryRevision: string(event.RegistryRevision),
-		PolicyRevision:   string(event.PolicyRevision),
-		Model:            event.Target.CatalogID,
-		Provider:         event.Target.Provider,
-		BindingIndex:     int32(event.Target.BindingIndex),
-		Outcome:          string(event.Outcome),
-		FailureReason:    stringPtrOrNil(event.FailureReason),
-		UsageKnown:       event.Usage.Known,
-		ErrorClass:       stringPtrOrNil(event.Diagnosis.ErrorClass),
-		FailureOwner:     stringPtrOrNil(event.Diagnosis.FailureOwner),
-		BodyTranslated:   event.Diagnosis.BodyTranslated,
-	}
-	if event.UpstreamStatusCode != 0 {
-		status := int32(event.UpstreamStatusCode)
-		params.UpstreamStatusCode = &status
-	}
-	if event.Latency > 0 {
-		latency := event.Latency.Milliseconds()
-		params.LatencyMs = &latency
-	}
-	if event.Usage.Known {
-		input, output := int32(event.Usage.InputTokens), int32(event.Usage.OutputTokens)
-		cacheCreation, cacheRead := int32(event.Usage.CacheCreationTokens), int32(event.Usage.CacheReadTokens)
-		cost := catalog.USDToMicros(event.CostUSD)
-		params.InputTokens = &input
-		params.OutputTokens = &output
-		params.CacheCreationTokens = &cacheCreation
-		params.CacheReadTokens = &cacheRead
-		params.CostUsdMicros = &cost
-	}
-	return params
 }
 
 var _ proxy.RouterFeedbackStore = (*TelemetryRepo)(nil)
@@ -441,7 +378,6 @@ func (r *TelemetryRepo) GetTelemetryTimeseries(ctx context.Context, installation
 	)
 }
 
-// GetTelemetrySummaryAll aggregates across every installation for the admin dashboard.
 func (r *TelemetryRepo) GetTelemetrySummaryAll(ctx context.Context, from, to time.Time) (proxy.TelemetrySummary, error) {
 	q := dbbudget.Queries(r.tx)
 	row, err := q.GetTelemetrySummaryAll(ctx, sqlc.GetTelemetrySummaryAllParams{
@@ -471,7 +407,6 @@ func dashboardInstallationFilter(installationID string) (pgtype.UUID, error) {
 	return pgtype.UUID{Bytes: id, Valid: true}, nil
 }
 
-// Empty installationID reads every installation.
 func (r *TelemetryRepo) GetTelemetryDashboardFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]proxy.TelemetryDashboardFact, error) {
 	installation, err := dashboardInstallationFilter(installationID)
 	if err != nil {
@@ -503,7 +438,6 @@ func (r *TelemetryRepo) GetTelemetryDashboardFacts(ctx context.Context, installa
 	}), nil
 }
 
-// Granularity "total" returns one bucket for the whole window.
 func (r *TelemetryRepo) GetTelemetryDashboardActiveUsers(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]proxy.TelemetryActiveUsers, error) {
 	installation, err := dashboardInstallationFilter(installationID)
 	if err != nil {
@@ -523,7 +457,6 @@ func (r *TelemetryRepo) GetTelemetryDashboardActiveUsers(ctx context.Context, in
 	}), nil
 }
 
-// Deleted roster users are excluded; the date window does not apply.
 func (r *TelemetryRepo) GetTelemetryDashboardPeople(ctx context.Context, installationID string) ([]proxy.TelemetryPerson, error) {
 	installation, err := dashboardInstallationFilter(installationID)
 	if err != nil {
@@ -543,7 +476,6 @@ func (r *TelemetryRepo) GetTelemetryDashboardPeople(ctx context.Context, install
 	}), nil
 }
 
-// Readings come only from turns after readingsSince, so an idle seat has none.
 func (r *TelemetryRepo) GetTelemetrySubscriptionPoolSeats(ctx context.Context, installationID string, servedSince, readingsSince time.Time) ([]proxy.TelemetrySubscriptionSeat, error) {
 	installation, err := dashboardInstallationFilter(installationID)
 	if err != nil {
@@ -603,7 +535,6 @@ func limitHeaders(raw []byte) (map[string]string, error) {
 	return headers, nil
 }
 
-// GetTelemetryTimeseriesAll is the admin-only counterpart to GetTelemetryTimeseries.
 func (r *TelemetryRepo) GetTelemetryTimeseriesAll(ctx context.Context, from, to time.Time, granularity string) ([]proxy.TelemetryBucket, error) {
 	q := dbbudget.Queries(r.tx)
 	fromTs := pgtype.Timestamptz{Time: from, Valid: true}
@@ -643,8 +574,6 @@ func (r *TelemetryRepo) GetTelemetryTimeseriesAll(ctx context.Context, from, to 
 	)
 }
 
-// GetTelemetryModelBreakdown returns per-bucket totals grouped by decision
-// model for one installation, powering the per-model usage and spend charts.
 func (r *TelemetryRepo) GetTelemetryModelBreakdown(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]proxy.TelemetryModelBucket, error) {
 	id, err := uuid.Parse(installationID)
 	if err != nil {
@@ -691,8 +620,6 @@ func (r *TelemetryRepo) GetTelemetryModelBreakdown(ctx context.Context, installa
 	)
 }
 
-// GetTelemetryModelBreakdownAll is the admin-only counterpart to
-// GetTelemetryModelBreakdown, spanning every installation.
 func (r *TelemetryRepo) GetTelemetryModelBreakdownAll(ctx context.Context, from, to time.Time, granularity string) ([]proxy.TelemetryModelBucket, error) {
 	q := dbbudget.Queries(r.tx)
 	fromTs := pgtype.Timestamptz{Time: from, Valid: true}
@@ -732,9 +659,6 @@ func (r *TelemetryRepo) GetTelemetryModelBreakdownAll(ctx context.Context, from,
 	)
 }
 
-// selectModelBreakdownGranularity dispatches to the query closure matching
-// granularity, defaulting to hourly — the model-breakdown counterpart of
-// selectTimeseriesGranularity.
 func selectModelBreakdownGranularity(
 	granularity string,
 	weekly, daily, hourly func() ([]proxy.TelemetryModelBucket, error),
@@ -749,9 +673,6 @@ func selectModelBreakdownGranularity(
 	}
 }
 
-// selectTimeseriesGranularity dispatches to the query closure matching
-// granularity, defaulting to hourly — the shared switch behind both
-// GetTelemetryTimeseries and GetTelemetryTimeseriesAll.
 func selectTimeseriesGranularity(
 	granularity string,
 	weekly, daily, hourly func() ([]proxy.TelemetryBucket, error),
@@ -766,7 +687,6 @@ func selectTimeseriesGranularity(
 	}
 }
 
-// mapRows converts a slice of SQLC rows to a slice of domain values via convert.
 func mapRows[T, U any](rows []T, convert func(T) U) []U {
 	out := make([]U, 0, len(rows))
 	for _, row := range rows {
@@ -823,7 +743,6 @@ func telemetryBucketFromHourlyAllRow(row sqlc.GetTelemetryTimeseriesHourlyAllRow
 	}
 }
 
-// GetTelemetryRows returns individual telemetry rows for an installation in [from, to) for the drill-down modal.
 func (r *TelemetryRepo) GetTelemetryRows(ctx context.Context, installationID string, from, to time.Time, limit int32) ([]proxy.TelemetryRow, error) {
 	id, err := uuid.Parse(installationID)
 	if err != nil {
@@ -843,7 +762,6 @@ func (r *TelemetryRepo) GetTelemetryRows(ctx context.Context, installationID str
 	return out, nil
 }
 
-// GetTelemetryRowsAll is the admin-only counterpart to GetTelemetryRows.
 func (r *TelemetryRepo) GetTelemetryRowsAll(ctx context.Context, from, to time.Time, limit int32) ([]proxy.TelemetryRow, error) {
 	q := dbbudget.Queries(r.tx)
 	rows, err := q.GetTelemetryRowsAll(ctx, sqlc.GetTelemetryRowsAllParams{
@@ -858,8 +776,6 @@ func (r *TelemetryRepo) GetTelemetryRowsAll(ctx context.Context, from, to time.T
 	return out, nil
 }
 
-// GetSessionCost aggregates committed cost for one session. installation_id is the authorization
-// boundary — a foreign session id matches nothing and returns not-found, not another tenant's cost.
 func (r *TelemetryRepo) GetSessionCost(ctx context.Context, installationID, sessionID string) (proxy.SessionCost, error) {
 	id, err := uuid.Parse(installationID)
 	if err != nil {
@@ -876,7 +792,6 @@ func (r *TelemetryRepo) GetSessionCost(ctx context.Context, installationID, sess
 	if err != nil {
 		return proxy.SessionCost{}, err
 	}
-	// Non-null WHERE predicate means session_id is never NULL here; SQLC types it as *string because the column is nullable.
 	if row.SessionID == nil {
 		return proxy.SessionCost{}, proxy.ErrSessionCostNotFound
 	}
@@ -895,8 +810,6 @@ func (r *TelemetryRepo) GetSessionCost(ctx context.Context, installationID, sess
 	}, nil
 }
 
-// telemetryRowFromRow centralizes SQLC -> domain conversion. The {all, per-installation}
-// queries emit isomorphic but distinctly named row types, so we accept individual fields.
 func telemetryRowFromRow(
 	ts time.Time,
 	requestID string,
@@ -1068,9 +981,6 @@ func modelBucketFromHourlyAllRow(row sqlc.GetTelemetryModelBreakdownHourlyAllRow
 	}
 }
 
-// GetTelemetryBySessionSequence returns the N-th main_loop telemetry row for
-// (installationID, sessionKey, role): seq > 0 = ASC 1-based, seq < 0 = DESC 1-based.
-// Returns pgx.ErrNoRows when fewer than |seq| rows exist.
 func (r *TelemetryRepo) GetTelemetryBySessionSequence(ctx context.Context, installationID uuid.UUID, sessionKey []byte, role string, seq int) (proxy.TelemetryTurnResult, error) {
 	q := dbbudget.Queries(r.tx)
 	if seq > 0 {
@@ -1153,7 +1063,6 @@ func (r *TelemetryRepo) GetTelemetryDashboardDrillDown(ctx context.Context, inst
 	}), nil
 }
 
-// Unlinked traffic is keyed by its API key, matching the drill-down.
 func (r *TelemetryRepo) GetTelemetryDashboardIndividualFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]proxy.TelemetryIndividualFact, error) {
 	installation, err := dashboardInstallationFilter(installationID)
 	if err != nil {

@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/refusal"
@@ -40,11 +41,32 @@ func subscriptionOnlyUnavailable(ctx context.Context) error {
 	return orgGate
 }
 
-func subscriptionPoolExhausted(ctx context.Context) error {
-	if subscriptionLaneRefusal(ctx, subscriptionlane.SubscriptionPoolExhausted) == refusal.SubscriptionPoolExhausted {
-		return ErrSubscriptionPoolExhausted
+type subscriptionPoolVerdict struct {
+	refused  subscriptionlane.State
+	sentinel error
+}
+
+var subscriptionPoolVerdicts = map[subscriptionlane.Event]subscriptionPoolVerdict{
+	subscriptionlane.SubscriptionPoolExhausted:   {refused: subscriptionlane.RefusedSubscriptionPoolExhausted, sentinel: ErrSubscriptionPoolExhausted},
+	subscriptionlane.SubscriptionPoolUnavailable: {refused: subscriptionlane.RefusedSubscriptionPoolUnavailable, sentinel: ErrSubscriptionPoolUnavailable},
+	subscriptionlane.SubscriptionPoolThrottled:   {refused: subscriptionlane.RefusedSubscriptionPoolThrottled, sentinel: ErrSubscriptionPoolThrottled},
+	subscriptionlane.CallerPlanThrottled:         {refused: subscriptionlane.RefusedSubscriptionPoolThrottled, sentinel: errCallerPlanThrottled},
+}
+
+func subscriptionPoolRefusal(ctx context.Context, on subscriptionlane.Event) error {
+	verdict := subscriptionPoolVerdicts[on]
+	if next, _ := subscriptionlane.Step(billing.SubscriptionLaneFromContext(ctx), on); next == verdict.refused {
+		return verdict.sentinel
 	}
-	return errors.Join(subscriptionOnlyUnavailable(ctx), ErrSubscriptionPoolExhausted)
+	return errors.Join(subscriptionOnlyUnavailable(ctx), verdict.sentinel)
+}
+
+func subscriptionPoolUnavailableBecause(ctx context.Context, reason string) error {
+	return fmt.Errorf("%w: %s", subscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable), reason)
+}
+
+func subscriptionPoolExhausted(ctx context.Context) error {
+	return subscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolExhausted)
 }
 
 func subscriptionLaneRefused(err error) bool {

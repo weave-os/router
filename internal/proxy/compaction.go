@@ -48,13 +48,13 @@ func (s *Service) routeCompaction(
 		providers:      s.clients.NameSet(),
 		available:      s.availableModels,
 		cortexGateways: cortexGatewayProvidersForRequest(ctx),
-		now:            time.Now(),
+		now:            s.clock.Now(),
 	}
 	decision, strikes, ok := session.decision(ctx, sessionKey, res.PinRole, req)
 	req = strikes.apply(req)
 	if ok {
 		scoreReq := req
-		scoreReq.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{})
+		scoreReq.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{}, s.clock.Now())
 		if fresh, err := s.routeFor(ctx, scoreReq); err == nil {
 			res.Fresh = fresh
 		}

@@ -10,23 +10,15 @@ import (
 	"weave-os/router/internal/router/catalog"
 )
 
-// ErrForcedModelExcluded is returned when a caller forces a model the
-// installation's exclusion policy forbids — exclusions win loudly so the
-// caller isn't silently served a different model every turn.
 var ErrForcedModelExcluded = errors.New("forced model is excluded")
 
-// ForcedModelExcludedError carries the caller-facing reason a forced model
-// was refused, so ClassifyDispatchError can name the model in the response.
 type ForcedModelExcludedError struct {
 	Model  string
 	Reason string
 }
 
-// Error implements error.
 func (e *ForcedModelExcludedError) Error() string { return e.Reason }
 
-// Unwrap ties the typed error to ErrForcedModelExcluded for errors.Is, and an
-// unfunded force also to ErrWeaveCreditsDisabled.
 func (e *ForcedModelExcludedError) Unwrap() []error {
 	if e.Reason == forcedModelUnfundedReason {
 		return []error{ErrForcedModelExcluded, ErrWeaveCreditsDisabled}
@@ -34,26 +26,14 @@ func (e *ForcedModelExcludedError) Unwrap() []error {
 	return []error{ErrForcedModelExcluded}
 }
 
-// forcedModelBinding resolves the provider a forced model should pin to
-// under exclusion policy. reason is "" when servable; provider is returned
-// as-is for passthrough IDs the catalog doesn't carry.
-//
-// The returned binding is not always the input provider: forcing resolves to
-// a model's primary, so an excluded primary whose fallback is permitted must
-// pin the fallback — otherwise the eligibility check in runTurnLoop drops it.
 func (s *Service) forcedModelBinding(ctx context.Context, model, provider string) (binding, reason string) {
 	gateways := s.gatewayProvidersForRequest(ctx)
-	// Checked directly, not via the exclusion set: a forced model may be
-	// passthrough-only and so never enters the desugared exclusions.
 	if len(gateways) == 0 && !modelPermittedByAllowlist(ctx, model) {
 		return "", fmt.Sprintf("%s is not on this organization's allowed-model list", model)
 	}
 	if _, drop := s.forcePolicyExcludedModels(ctx)[model]; drop {
 		return "", fmt.Sprintf("%s is excluded on this installation", model)
 	}
-	// Gateway-exclusive routing drops every vendor from the eligible set, so
-	// resolving to the catalog primary would produce a pin the turn loop then
-	// rejects — the force would read as applied and route automatically.
 	if len(gateways) > 0 {
 		return gatewayForcedBinding(model, gateways, s.customBindingsForRequest(ctx))
 	}
@@ -102,10 +82,6 @@ func (s *Service) forcedModelBinding(ctx context.Context, model, provider string
 	return permitted[0], ""
 }
 
-// forcePolicyExcludedModels is the installation exclusion set a forced model
-// must clear. A tenant's own gateway enforces model access upstream, so under
-// gateway-exclusive routing the positive allowlist bounds only automatic
-// selection; the gateway's aliases bound the force instead.
 func (s *Service) forcePolicyExcludedModels(ctx context.Context) map[string]struct{} {
 	if len(s.gatewayProvidersForRequest(ctx)) > 0 {
 		return s.excludedModelsFor(ctx, nil)
@@ -113,9 +89,6 @@ func (s *Service) forcePolicyExcludedModels(ctx context.Context) map[string]stru
 	return s.policyExcludedModels(ctx)
 }
 
-// gatewayForcedBinding pins a forced model to a gateway that aliases it. Only
-// a key's model_aliases say what the tenant's endpoint serves, so a model no
-// gateway names is refused rather than pinned to an unroutable provider.
 func gatewayForcedBinding(
 	model string, gateways map[string]struct{}, custom map[string][]string,
 ) (binding, reason string) {
@@ -128,10 +101,6 @@ func gatewayForcedBinding(
 		"%s isn't aliased by any of this installation's gateway keys", model)
 }
 
-// servableBindings returns the catalog bindings for model that hold a
-// deployment key, in catalog preference order, or [provider] for passthrough
-// IDs. Unkeyed bindings are excluded — they can't be dispatched to, so
-// shouldn't count as an escape hatch.
 func (s *Service) servableBindings(model, provider string) []string {
 	m, ok := catalog.ByID(model)
 	if !ok || len(m.Providers) == 0 {
@@ -147,8 +116,6 @@ func (s *Service) servableBindings(model, provider string) []string {
 		out = append(out, b.Provider)
 	}
 	if len(out) == 0 {
-		// No keyed binding at all: exclusions aren't the reason this can't be
-		// served, so leave it to the paths that own "nothing to dispatch to".
 		return []string{provider}
 	}
 	return out

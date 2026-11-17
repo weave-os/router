@@ -8,8 +8,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// AnthropicClientResponseText extracts assistant text and tool-call markers
-// from the client-facing Anthropic JSON or SSE response shape.
 func AnthropicClientResponseText(body []byte) string {
 	trimmed := bytes.TrimSpace(body)
 	if len(trimmed) == 0 {

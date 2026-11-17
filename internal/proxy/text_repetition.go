@@ -14,10 +14,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// handleTextRepetitionBreak writes a synthetic end_turn response and expires
-// the session pin so the next turn re-routes off the stuck model instead of
-// re-anchoring on it. Mirrors handleNoProgressBreak's mechanics; pin expiry is
-// best-effort.
 func (s *Service) handleTextRepetitionBreak(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -58,10 +54,6 @@ func (s *Service) handleTextRepetitionBreak(
 		"role", role,
 	)
 
-	// Expire the pin in Postgres (not just the in-proc cache) so a racing
-	// reader on another pod can't repopulate the LRU from the stale row.
-	// Skip a zero session key: a zero-keyed pin row is a zombie shared by every
-	// zero-keyed session.
 	if s.pinStore != nil && installationID != uuid.Nil && sessionKey != ([sessionpin.SessionKeyLen]byte{}) {
 		if err := s.expireSessionPinAndHMMHistory(ctx, installationID, sessionKey, role, "text_repetition_break"); err != nil {
 			log.Error("text-repetition-break: pin store upsert failed", "err", err)
@@ -72,9 +64,6 @@ func (s *Service) handleTextRepetitionBreak(
 	return writeCommandOutcome(ctx, w, env, msg, ack.outcome, inputTokens)
 }
 
-// WithTextRepetitionBreak sets the enforcing text-repetition detector kill
-// switch (default on). enabled=false skips the per-turn scan entirely. See
-// text_repetition.go.
 func (s *Service) WithTextRepetitionBreak(enabled bool) *Service {
 	s.textRepetitionBreakEnabled = enabled
 	return s
