@@ -12,13 +12,8 @@ import (
 	"weave-os/router/internal/server/middleware"
 )
 
-func registerRandomResponses(engine *gin.Engine, svc *proxy.Service, authSvc *auth.Service, handlers []gin.HandlerFunc) {
-	group := engine.Group("", append([]gin.HandlerFunc(nil), handlers...)...)
-	group.POST("/v1/random-router/responses", openaiapi.RandomRouterGate(svc), openaiapi.ResponsesHandler(svc, authSvc))
-}
 func registerRandomMetadata(group *gin.RouterGroup, svc *proxy.Service) {
-	group.GET("/v1/random-router/identity", openaiapi.RandomRouterIdentityHandler(svc))
-	group.POST("/v1/random-router/preflight", openaiapi.RandomRouterGate(svc), openaiapi.RandomRouterIdentityHandler(svc))
+	group.GET("/v1/router/models/weave-random/readiness", openaiapi.RandomRouterIdentityHandler(svc))
 }
 func registerModelDiscovery(passthroughGroup *gin.RouterGroup, proxySvc *proxy.Service, authSvc *auth.Service) {
 	passthroughGroup.GET("/v1/models/:model", anthropicapi.PassthroughHandler(proxySvc))

@@ -3,13 +3,15 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"github.com/tidwall/gjson"
 	"net/http"
+	"weave-os/router/internal/router"
 	randomrouter "weave-os/router/internal/router/random_router"
 	"weave-os/router/internal/translate"
 )
 
 func ValidateRandomBenchmarkInput(ctx context.Context, body []byte, headers http.Header) error {
-	if randomBenchmarkFrom(ctx) == nil || !randomBenchmarkHeaders(headers) {
+	if randomBenchmarkFrom(ctx) == nil || !randomBenchmarkHeaders(headers) || gjson.GetBytes(body, "weave_classifier_thread").Exists() {
 		return randomrouter.ErrUnavailable
 	}
 	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
@@ -20,7 +22,7 @@ func ValidateRandomBenchmarkInput(ctx context.Context, body []byte, headers http
 	if err != nil {
 		return err
 	}
-	if !env.Stream() {
+	if env.Model() != string(router.ModelRandom) || !env.Stream() {
 		return randomrouter.ErrUnavailable
 	}
 	_, beta := env.ExtractBetaCommand()

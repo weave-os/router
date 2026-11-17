@@ -45,7 +45,6 @@ type SubscriptionOwner struct {
 	APIKeyID           string
 	ExcludedAccountIDs []string
 	InstallationID     string
-	RequiredAccountID  string
 }
 
 type SubscriptionTier string

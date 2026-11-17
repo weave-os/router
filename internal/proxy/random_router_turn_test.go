@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
 	randomrouter "weave-os/router/internal/router/random_router"
+	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/subscriptions"
 )
 
@@ -25,8 +26,8 @@ func TestRandomResponsesDrawForMainToolAndSubagent(t *testing.T) {
 	client := &fakeClient{name: providers.ProviderOpenAI, outcomes: []fakeOutcome{success, success, success}}
 	draws := 0
 	selection := randomrouter.New(func(int) (int, error) { index := draws; draws++; return index, nil })
-	svc := NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, catalog.ModelGPT61Sol.String(), nil).
-		WithManagedSubscriptions(&scriptedSubscriptionLeaser{}).
+	svc := NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, struct{ sessionpin.Store }{}, false, providers.ProviderOpenAI, catalog.ModelGPT61Sol.String(), nil).
+		WithManagedSubscriptions(&scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "00000000-0000-4000-8000-000000000003", AccessToken: "synthetic", ProviderAccount: "synthetic-account", State: auth.SubscriptionAccountStateActive}}, repeatLast: true}).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyRandomBenchmark, Router: selection, Unavailable: randomrouter.ErrUnavailable})
 	encoded, err := json.Marshal(config)
 	require.NoError(t, err)
@@ -46,7 +47,7 @@ func TestRandomResponsesDrawForMainToolAndSubagent(t *testing.T) {
 		ctx = WithManagedSubscriptionUsage(ctx)
 		state := randomrouter.RequestFrom(ctx)
 		state.Prepared = true
-		state.Lease = subscriptions.Lease{AccountID: config.SubscriptionAccountID, State: auth.SubscriptionAccountStateActive}
+		state.Lease = subscriptions.Lease{AccountID: "00000000-0000-4000-8000-000000000003", State: auth.SubscriptionAccountStateActive}
 		state.Credentials = &Credentials{OAuth: true, Source: credSourceCodexSubscription, APIKey: []byte("synthetic"), AccountID: []byte("synthetic-account")}
 		request := httptest.NewRequestWithContext(ctx, http.MethodPost, randomrouter.ResponsesPath, strings.NewReader(string(body)))
 		request.Header.Set("Session-Id", "same-session")

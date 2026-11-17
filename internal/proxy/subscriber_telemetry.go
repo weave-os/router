@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	randomrouter "weave-os/router/internal/router/random_router"
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/requestcontext"
@@ -141,13 +140,7 @@ func canonicalTelemetryModelFamily(model string) string {
 }
 
 func applySubscriptionWinnerTelemetry(ctx context.Context, telemetry *InsertTelemetryParams) {
-	if execution := randomrouter.RequestFrom(ctx); execution != nil && execution.Prepared {
-		telemetry.SubscriptionAccountID = execution.Lease.AccountID
-		telemetry.SubscriptionOwnerID = execution.Lease.OwnerID
-		telemetry.SubscriptionTier = execution.Lease.Tier
-		telemetry.CredentialSource = execution.Credentials.Source
-		telemetry.CapacitySource = string(entitlement.CapacitySourceLinkedCodex)
-	}
+
 	telemetry.FinalModelFamily = canonicalTelemetryModelFamily(telemetry.DecisionModel)
 	telemetry.IntendedModelFamily = canonicalTelemetryModelFamily(telemetry.RequestedModel)
 	winningUsage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)

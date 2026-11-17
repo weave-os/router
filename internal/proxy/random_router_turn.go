@@ -22,6 +22,9 @@ func withRoutingTranslationRequirements(ctx context.Context, env *translate.Requ
 }
 func routeRandomTurn(s *Service, ctx context.Context, env *translate.RequestEnvelope, feats translate.RoutingFeatures, headers http.Header, req router.Request) (turnLoopResult, bool, error) {
 	if randomBenchmarkFrom(ctx) == nil {
+		if req.RequestedModel == string(router.ModelRandom) || router.StrategyFromContext(ctx) == router.StrategyRandomBenchmark {
+			return turnLoopResult{}, true, randomrouter.ErrUnavailable
+		}
 		return turnLoopResult{}, false, nil
 	}
 	res := turnLoopResult{Strategy: router.StrategyRandomBenchmark, TurnType: turntype.Detect(env, feats, subAgentHintForRequest(ctx, headers.Get("x-weave-subagent-type")), openCodeCaller(ClientIdentityFrom(ctx))), InstallationID: installationIDFromContext(ctx), PinTier: "random_benchmark"}

@@ -19,7 +19,7 @@
     },
     {
       "package": "internal/postgres",
-      "banned_lines": 320
+      "banned_lines": 317
     },
     {
       "package": "internal/providers",

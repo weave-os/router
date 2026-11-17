@@ -6814,7 +6814,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					toolNames = translate.NewOpenAIToolNameWriter(translator, prep.ResponseToolNames)
 					proxyWriter = toolNames
 				case surface == surfaceResponsesNative:
-					nativeTerminal = ingress.NewResponsesTerminalObserver(attemptSink, requestcontext.IncludedSubscriptionOnlyFrom(actx))
+					nativeTerminal = ingress.NewResponsesTerminalObserver(attemptSink)
 					proxyWriter = nativeTerminal
 					if s.usageRequired() {
 						extractor, proxyWriter = s.newUsageExtractor(nativeTerminal, d.Provider)
@@ -6912,6 +6912,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				if refusalGate.withheld {
 					err = providers.CyberPolicyRefusalError()
 				}
+
 				return err
 			}
 			return func(actx context.Context, d router.Decision, p providers.Client) error {
@@ -6922,7 +6923,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				// Same prompt_cache_key unknown-field class as ProxyMessages' OpenAI-compat
 				// path: re-emit once without the hint while pre-commit; memoize the endpoint.
 				if err != nil && !stripPCK && gatewayKey != "" && !committed(preludeBuf) &&
-					dispatch.ProtocolRepairAllowed(actx) && providers.IsUpstreamPromptCacheKeyRejection(err) {
+					providers.IsUpstreamPromptCacheKeyRejection(err) {
 					s.gatewayCaps.RememberRejectsPromptCacheKey(gatewayKey)
 					stripPCK = true
 					log.Warn("Gateway rejected prompt_cache_key; retrying without the affinity hint",
@@ -6940,7 +6941,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				// treating its 404 as "no Responses API" would memoize a false negative.
 				if err == nil || surface == surfaceChat ||
 					committed(preludeBuf) || !providers.IsUpstreamResponsesUnsupported(err) ||
-					!dispatch.ProtocolRepairAllowed(actx) || codexSubscriptionModelRejected(err) {
+					codexSubscriptionModelRejected(err) {
 					return err
 				}
 				if responseSwitch.fallbackToChat(surface) != nil {

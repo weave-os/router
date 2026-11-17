@@ -44,7 +44,25 @@ type OperationSummary struct {
 	Usage             Usage
 }
 
+type FundingSource string
+
+const FundingSourceIncludedCodex FundingSource = "codex_subscription"
+
+type CapacitySource string
+
+const CapacitySourceLinkedCodex CapacitySource = "linked_codex"
+
+type AttemptFunding struct {
+	SubscriptionAccountID string
+	Source                FundingSource
+	CapacitySource        CapacitySource
+	PoolID                string
+	PolicySHA256          string
+	ObservedAt            time.Time
+}
+
 type AttemptEvent struct {
+	Funding AttemptFunding
 	Provenance
 	RequestID          string
 	OperationID        string

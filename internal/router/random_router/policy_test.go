@@ -3,6 +3,8 @@ package randomrouter
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -56,4 +58,18 @@ func TestStrictCandidateConstraints(t *testing.T) {
 			require.ErrorIs(t, err, ErrUnavailable)
 		}
 	}
+}
+
+func TestIndependentConcurrentDraws(t *testing.T) {
+	var draws atomic.Int64
+	p := New(func(int) (int, error) { return int(draws.Add(1)-1) % 3, nil })
+	var wg sync.WaitGroup
+	for range 60 {
+		wg.Go(func() {
+			_, err := p.Route(WithRequest(context.Background(), &RequestState{Prepared: true, Config: Config{PolicySHA256: PolicySHA256}}), router.Request{})
+			require.NoError(t, err)
+		})
+	}
+	wg.Wait()
+	require.Equal(t, int64(60), draws.Load())
 }

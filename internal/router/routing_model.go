@@ -6,6 +6,7 @@ type RoutingModel string
 
 const (
 	ModelAutomatic RoutingModel = "weave-auto"
+	ModelRandom    RoutingModel = "weave-random"
 	ModelHMM       RoutingModel = "weave-hmm-20261019-0001v1"
 	ModelHMMBeta   RoutingModel = "weave-hmm-beta"
 	ModelQwen      RoutingModel = "weave-qwen-20261008-0001v2"
@@ -21,6 +22,7 @@ type RoutingModelPolicy struct {
 }
 
 var routingModelPolicies = map[RoutingModel]RoutingModelPolicy{
+	ModelRandom:   {Strategy: StrategyRandomBenchmark, UnavailableError: "random_model_unavailable"},
 	ModelHMM:      {Strategy: PrimaryRoutingStrategy, UnavailableError: "hmm_model_unavailable"},
 	ModelHMMBeta:  {Strategy: StrategyHMMBeta, FallsBackToPrimary: true, UnavailableError: "hmm_beta_model_unavailable"},
 	ModelQwen:     {Strategy: StrategyHMMQwen, FallsBackToPrimary: true, UnavailableError: "qwen_model_unavailable"},

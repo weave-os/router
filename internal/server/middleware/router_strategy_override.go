@@ -31,7 +31,7 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability
 	managedDefaultStrategy := defaultStrategy
 	defaultStrategy = NormalizeRouterStrategyDefault(defaultStrategy, available...)
 	selectable := func(strategy router.Strategy) bool {
-		if strategy == router.StrategyLLMClassifier {
+		if namedOnlyStrategy(strategy) {
 			return false
 		}
 		if !strategyAllowed(strategy, allowed) {
@@ -112,7 +112,7 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability
 func NormalizeRouterStrategyDefault(defaultStrategy router.Strategy, available ...router.Strategy) router.Strategy {
 	allowed := make(map[router.Strategy]struct{}, len(available))
 	for _, strategy := range available {
-		if router.IsBetaStrategy(strategy) || strategy == router.StrategyLLMClassifier {
+		if router.IsBetaStrategy(strategy) || namedOnlyStrategy(strategy) {
 			continue
 		}
 		allowed[strategy] = struct{}{}
@@ -129,4 +129,8 @@ func strategyAllowed(strategy router.Strategy, allowed map[router.Strategy]struc
 	}
 	_, ok := allowed[strategy]
 	return ok
+}
+
+func namedOnlyStrategy(strategy router.Strategy) bool {
+	return strategy == router.StrategyLLMClassifier || strategy == router.StrategyRandomBenchmark
 }
