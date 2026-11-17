@@ -1,0 +1,36 @@
+event: response.created
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_synthetic_1","object":"response","status":"in_progress","model":"synthetic-responses-model","output":[]}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"rs_synthetic_1","type":"reasoning","encrypted_content":"c3ludGhldGljLWVuY3J5cHRlZC1yZWFzb25pbmc=","summary":[]}}
+
+event: response.reasoning_summary_text.delta
+data: {"type":"response.reasoning_summary_text.delta","sequence_number":2,"item_id":"rs_synthetic_1","output_index":0,"summary_index":0,"delta":"Checking the tests."}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":3,"output_index":0,"item":{"id":"rs_synthetic_1","type":"reasoning","encrypted_content":"c3ludGhldGljLWVuY3J5cHRlZC1yZWFzb25pbmc=","summary":[{"type":"summary_text","text":"Checking the tests."}]}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":4,"output_index":1,"item":{"id":"msg_synthetic_r1","type":"message","role":"assistant","status":"in_progress","content":[]}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":5,"item_id":"msg_synthetic_r1","output_index":1,"content_index":0,"delta":"Running the suite."}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":6,"output_index":1,"item":{"id":"msg_synthetic_r1","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Running the suite.","annotations":[]}]}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":7,"output_index":2,"item":{"id":"fc_synthetic_1","type":"function_call","call_id":"call_synthetic_r1","name":"Bash","arguments":"","status":"in_progress"}}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":8,"item_id":"fc_synthetic_1","output_index":2,"delta":"{\"command\":\"go "}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":9,"item_id":"fc_synthetic_1","output_index":2,"delta":"test ./...\"}"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":10,"output_index":2,"item":{"id":"fc_synthetic_1","type":"function_call","call_id":"call_synthetic_r1","name":"Bash","arguments":"{\"command\":\"go test ./...\"}","status":"completed"}}
+
+event: response.completed
+data: {"type":"response.completed","sequence_number":11,"response":{"id":"resp_synthetic_1","object":"response","status":"completed","model":"synthetic-responses-model","output":[{"id":"rs_synthetic_1","type":"reasoning","encrypted_content":"c3ludGhldGljLWVuY3J5cHRlZC1yZWFzb25pbmc=","summary":[{"type":"summary_text","text":"Checking the tests."}]},{"id":"msg_synthetic_r1","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Running the suite.","annotations":[]}]},{"id":"fc_synthetic_1","type":"function_call","call_id":"call_synthetic_r1","name":"Bash","arguments":"{\"command\":\"go test ./...\"}","status":"completed"}],"usage":{"input_tokens":5000,"input_tokens_details":{"cached_tokens":4096},"output_tokens":80,"output_tokens_details":{"reasoning_tokens":30},"total_tokens":5080}}}
+
