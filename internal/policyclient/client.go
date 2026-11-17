@@ -697,7 +697,7 @@ func (c *Client) decideV5(ctx context.Context, query policy.Query) (policy.Resul
 		ClassifierReleaseID: wire.ClassifierReleaseID, ClassifierSelectionID: wire.ClassifierSelectionID,
 		ClassifierVariantID: wire.ClassifierVariantID, ClassifierTaxonomySHA256: wire.ClassifierTaxonomySHA256,
 		PredictedLabel: wire.PredictedLabel, ClassOrder: wire.ClassOrder, ClassProbabilities: wire.ClassProbabilities,
-		Confidence: pointerTo(wire.ClassifierConfidence), Margin: pointerTo(wire.ClassifierMargin),
+		Score: wire.ClassifierConfidence, Confidence: pointerTo(wire.ClassifierConfidence), Margin: pointerTo(wire.ClassifierMargin),
 		HMMStateID: stateID, HMMStatePath: wire.HMMStatePath, HMMStateProbabilities: wire.HMMStateProbabilities,
 	}, nil
 }
