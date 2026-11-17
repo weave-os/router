@@ -46,14 +46,15 @@ type AccountStore interface {
 }
 
 type Lease struct {
-	AccountID       string
-	OwnerID         string
-	Tier            auth.SubscriptionTier
-	AccessToken     string
-	ProviderAccount string
-	State           auth.SubscriptionAccountState
-	CooldownUntil   time.Time
-	release         func()
+	QuotaResetGeneration int64
+	AccountID            string
+	OwnerID              string
+	Tier                 auth.SubscriptionTier
+	AccessToken          string
+	ProviderAccount      string
+	State                auth.SubscriptionAccountState
+	CooldownUntil        time.Time
+	release              func()
 }
 
 func (l Lease) AllowsPlanAttempt(plan providers.SubscriptionPlan, allowEnterpriseOverage bool, now time.Time) bool {
@@ -87,6 +88,9 @@ type Runtime struct {
 	candidateLoads     map[string]*candidateLoad
 	explorationBudgets *expirable.LRU[string, *explorationBudget]
 	selectionSequence  uint64
+	resetClient        CodexResetClient
+	resetStore         ResetStore
+	resetTieChoice     func(int) int
 	earlyRefresh       EarlyRefreshPolicy
 }
 
@@ -185,7 +189,7 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 		if sessionID != "" {
 			r.affinity.Add(affinityKey, leased.ID)
 		}
-		return Lease{AccountID: leased.ID, OwnerID: candidate.SubscriberID, Tier: candidate.Tier, AccessToken: leased.AccessToken,
+		return Lease{AccountID: leased.ID, OwnerID: candidate.SubscriberID, Tier: candidate.Tier, AccessToken: leased.AccessToken, QuotaResetGeneration: leased.QuotaResetGeneration,
 			ProviderAccount: leased.AccountID, State: leased.State, CooldownUntil: leased.CooldownTil, release: release}, true, nil
 	}
 	if present {
@@ -387,15 +391,8 @@ func subscriptionAccessTokenUsable(credentials auth.SubscriptionCredentials, now
 	return credentials.AccessTokenExpiresAt == nil || credentials.AccessTokenExpiresAt.IsZero() || credentials.AccessTokenExpiresAt.After(now.Add(time.Minute))
 }
 
-func subscriptionCredentialAvailable(ctx context.Context, provider Provider, credentials auth.SubscriptionCredentials, now time.Time) bool {
-	var cooldownUntil time.Time
-	if credentials.CooldownUntil != nil {
-		cooldownUntil = *credentials.CooldownUntil
-	}
-	return credentials.Enabled && subscriptionAccountEligible(ctx, provider, credentials.State, cooldownUntil, now)
-}
-
 func applySubscriptionCredentials(account Account, credentials auth.SubscriptionCredentials) Account {
+	account.QuotaResetGeneration = credentials.QuotaResetGeneration
 	account.AccessToken = string(credentials.AccessToken)
 	account.TokenRefreshVersion = credentials.TokenRefreshVersion
 	if credentials.AccessTokenExpiresAt == nil {

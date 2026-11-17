@@ -7,6 +7,7 @@ import (
 )
 
 type SubscriptionCredentialRecord struct {
+	QuotaResetGeneration   int64
 	ExternalAccountID      string
 	ProviderUserID         string
 	Provider               SubscriptionProvider
@@ -22,6 +23,7 @@ type SubscriptionCredentialRecord struct {
 }
 
 type SubscriptionCredentials struct {
+	QuotaResetGeneration int64
 	ProviderUserID       string
 	RefreshToken         []byte
 	AccessToken          []byte

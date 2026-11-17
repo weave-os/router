@@ -15,11 +15,19 @@ const (
 	flagRegistryPublishBudget        = 5 * time.Minute
 )
 
+var fixedFlagDefaults = map[flags.Key]string{
+	flags.KeyCodexAutoUsageReset:            boolDefault(false),
+	flags.KeyCodexAutoUsageResetSubscribers: "",
+}
+
 type flagDefinitionPublisher interface {
 	Publish(context.Context, []flags.PublishedDefinition) error
 }
 
 func publishFlagRegistry(logger *slog.Logger, publisher flagDefinitionPublisher, defaults map[flags.Key]string) {
+	for key, value := range fixedFlagDefaults {
+		defaults[key] = value
+	}
 	published := make([]flags.PublishedDefinition, 0, len(flags.Registry))
 	for _, def := range flags.Registry {
 		value, ok := defaults[def.Key]

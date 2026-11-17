@@ -137,6 +137,7 @@ func (r *Runtime) exchangeAndPersist(ctx context.Context, op refreshOperation, h
 		return Account{}, r.releaseRefreshLease(ctx, op.owner, op.account.ID, holder.leaseID, err)
 	}
 	account := op.account
+	account.QuotaResetGeneration = credentials.QuotaResetGeneration
 	account.AccessToken, account.AccessTokenExpiresAt = refreshed.AccessToken, refreshed.ExpiresAt
 	account.TokenRefreshVersion = credentials.TokenRefreshVersion + 1
 	if refreshed.AccountID != "" {

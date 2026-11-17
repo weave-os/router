@@ -26,23 +26,24 @@ const (
 )
 
 type Credentials struct {
-	SubscriptionPlan       providers.SubscriptionPlan
-	SubscriptionAccountID  string
-	APIKey                 []byte
-	Source                 string
-	OAuth                  bool
-	AccountID              []byte
-	BaseURL                string
-	ModelAliases           map[string]string
-	IdentityHeader         string
-	IdentityHeaderFormat   string
-	ForwardedClientHeaders []string
-	BaggageHeader          string
-	AuthType               auth.AuthType
-	FundingPriority        auth.FundingPriority
-	CredentialError        error
-	PrincipalID            string
-	ExternalKeyID          string
+	SubscriptionPlan            providers.SubscriptionPlan
+	SubscriptionAccountID       string
+	SubscriptionQuotaGeneration int64
+	APIKey                      []byte
+	Source                      string
+	OAuth                       bool
+	AccountID                   []byte
+	BaseURL                     string
+	ModelAliases                map[string]string
+	IdentityHeader              string
+	IdentityHeaderFormat        string
+	ForwardedClientHeaders      []string
+	BaggageHeader               string
+	AuthType                    auth.AuthType
+	FundingPriority             auth.FundingPriority
+	CredentialError             error
+	PrincipalID                 string
+	ExternalKeyID               string
 }
 
 func (c *Credentials) UpstreamPrincipal() (principal string, secret bool) {

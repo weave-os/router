@@ -163,6 +163,9 @@ func (s *Service) recordCodexPlanSpent(ctx context.Context, codexTok string, res
 	if codexTok == "" {
 		return
 	}
+	if credentials := CredentialsFromContext(ctx); credentials != nil && credentials.SubscriptionAccountID != "" {
+		return
+	}
 	s.usageObserver.Record(s.usageObserver.Key([]byte(codexTok)), usage.Snapshot{
 		Primary: codexExhaustionWindow(resetAt, s.clock.Now()),
 	})

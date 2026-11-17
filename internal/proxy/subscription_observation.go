@@ -132,20 +132,19 @@ func (s *Service) withUsageObserver(ctx context.Context, headers http.Header) co
 		if creds == nil || !creds.OAuth {
 			return
 		}
+		observation := usage.ObservationFromContext(callCtx)
+		if observation == nil {
+			recordUnmanagedClaudeQuota(s.usageObserver, creds, h)
+			return
+		}
 		switch creds.Source {
 		case credSourceCodexSubscription:
 			if snap, ok := usage.ParseCodexHeaders(h); ok {
-				s.usageObserver.Record(s.subscriptionUsageKey(creds), snap)
-				if creds.SubscriptionAccountID != "" {
-					s.usageObserver.Record(s.usageObserver.Key(creds.APIKey), snap)
-				}
+				observation.Record(snap)
 			}
 		case credSourceSubscription:
 			if snap, ok := usage.ParseAnthropicUnifiedHeaders(h); ok {
-				s.usageObserver.Record(s.subscriptionUsageKey(creds), snap)
-				if creds.SubscriptionAccountID != "" {
-					s.usageObserver.Record(s.usageObserver.Key(creds.APIKey), snap)
-				}
+				observation.Record(snap)
 			}
 		}
 	}

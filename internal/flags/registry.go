@@ -1,8 +1,10 @@
 package flags
 
-const RegistryVersion = 31
+const RegistryVersion = 32
 
 var Registry = []Definition{
+	{Key: KeyCodexAutoUsageReset, Kind: KindBool, Description: "Redeem an earned Codex usage reset when all personal accounts are exhausted, choosing the soonest expiring credit. Off by default.", OrgOverridable: true},
+	{Key: KeyCodexAutoUsageResetSubscribers, Kind: KindString, Description: "Restrict automatic Codex resets to these comma-separated verified subscriber IDs. Empty allows all subscribers when the reset flag is enabled.", OrgOverridable: true},
 	{Key: KeyEscalationActiveClassifier, Kind: KindString, Description: "Active escalation classifier: none, xgb, switchyard_llm_v1, or llm_escalation. Absent preserves legacy XGB flags.", OrgOverridable: true},
 	{Key: KeyEscalationShadowClassifier, Kind: KindString, Description: "Independent shadow escalation classifier: none, xgb, switchyard_llm_v1, or llm_escalation.", OrgOverridable: true},
 	{Key: KeyEscalationCadence, Kind: KindInt, Description: "Completed turns between LLM checkpoints: 3, 4, or 5. Default 3.", OrgOverridable: true},

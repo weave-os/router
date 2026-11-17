@@ -254,7 +254,8 @@ acquired AS (
     AND enabled = TRUE
     AND (cooldown_until IS NULL OR cooldown_until <= CURRENT_TIMESTAMP
          OR (@allow_claude_overage::boolean AND provider = 'claude' AND health_state = 'exhausted')
- OR (@allow_quota_refresh::boolean AND health_state = 'exhausted'))
+         OR (@allow_quota_refresh::boolean AND health_state = 'exhausted')
+         OR @allow_quota_recovery::boolean)
     AND (token_refresh_lease_until IS NULL OR token_refresh_lease_until <= CURRENT_TIMESTAMP)
   RETURNING id
 )
@@ -296,6 +297,7 @@ SELECT external_account_id,
        access_token_ciphertext,
        access_token_expires_at,
        token_refresh_version,
+       quota_reset_generation,
        token_refreshed_at,
        token_refresh_lease_id,
        enabled,
@@ -399,7 +401,7 @@ WITH installation AS MATERIALIZED (
 )
 SELECT account.id, account.subscriber_id, account.api_key_id, account.provider,
        account.external_account_id, account.provider_user_id, account.display_name, account.refresh_token_ciphertext,
-       account.enabled, account.health_state, account.cooldown_until, account.created_at,
+       account.enabled, account.health_state, account.cooldown_until, account.created_at, account.quota_reset_generation,
        CASE WHEN account.subscriber_id = sqlc.narg(subscriber_id)::uuid THEN 'personal' ELSE 'shared' END AS tier,
        (account.access_token_ciphertext IS NULL)::boolean AS access_token_missing,
        account.token_refresh_version,

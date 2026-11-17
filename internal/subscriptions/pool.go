@@ -21,6 +21,7 @@ const (
 )
 
 type Account struct {
+	QuotaResetGeneration int64
 	ID                   string
 	OwnerID              string
 	Provider             Provider
@@ -91,22 +92,7 @@ func (p *Pool) Upsert(account Account) error {
 		if existing.account.Provider != account.Provider || existing.account.OwnerID != account.OwnerID {
 			return ErrProviderMismatch
 		}
-		if account.TokenRefreshVersion < existing.account.TokenRefreshVersion ||
-			account.AccessToken == "" && account.TokenRefreshVersion == existing.account.TokenRefreshVersion {
-			account.TokenRefreshVersion = existing.account.TokenRefreshVersion
-			account.AccessToken = existing.account.AccessToken
-			account.AccessTokenExpiresAt = existing.account.AccessTokenExpiresAt
-		}
-		if existing.account.State == auth.SubscriptionAccountStateActive && account.State == auth.SubscriptionAccountStateUnknown {
-			account.State = existing.account.State
-		}
-		if existing.account.CooldownTil.After(account.CooldownTil) ||
-			existing.account.State == auth.SubscriptionAccountStateCooldown && account.State == auth.SubscriptionAccountStateExhausted && existing.account.CooldownTil.After(p.clock()) {
-			if existing.account.CooldownTil.After(account.CooldownTil) {
-				account.CooldownTil = existing.account.CooldownTil
-			}
-			account.State = existing.account.State
-		}
+		account = mergePoolAccount(existing.account, account, p.clock())
 		existing.account = account
 		return nil
 	}
@@ -214,6 +200,18 @@ func (p *Pool) Activate(accountID string) bool {
 	state.account.State = auth.SubscriptionAccountStateActive
 	state.account.CooldownTil = time.Time{}
 	return true
+}
+
+func (p *Pool) restoreQuota(accountID string, generation int64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if state, ok := p.accounts[accountID]; ok && state.account.Enabled && resetAccountStateEligible(state.account.State) && generation > state.account.QuotaResetGeneration {
+		state.account.QuotaResetGeneration = generation
+		state.account.State = auth.SubscriptionAccountStateActive
+		state.account.CooldownTil = time.Time{}
+		state.account.AccessToken = ""
+		state.account.AccessTokenExpiresAt = time.Time{}
+	}
 }
 
 func (p *Pool) Remove(accountID string) bool {
@@ -393,14 +391,10 @@ func (p *Pool) refreshAccount(ctx context.Context, account Account, refresh Refr
 			p.Cooldown(account.ID, p.clock().Add(time.Minute))
 		}
 		p.mu.Lock()
+		refreshed, err = p.applyRefreshGeneration(account.ID, refreshed, err)
 		call.acct, call.err = refreshed, err
 		delete(p.refresh, account.ID)
 		close(call.done)
-		if err == nil {
-			if state, ok := p.accounts[account.ID]; ok {
-				state.account = refreshed
-			}
-		}
 		p.mu.Unlock()
 	}()
 	select {

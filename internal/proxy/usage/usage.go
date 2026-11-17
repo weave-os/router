@@ -97,13 +97,13 @@ func (w Window) currentAsOf(observedAt, now time.Time) bool {
 }
 
 type Observer struct {
-	mu   sync.RWMutex
-	salt []byte
-	ttl  time.Duration
-	now  func() time.Time
-	data map[CredentialKey]Snapshot
-
-	rejected map[CredentialKey]time.Time
+	mu           sync.RWMutex
+	salt         []byte
+	ttl          time.Duration
+	now          func() time.Time
+	data         map[CredentialKey]Snapshot
+	observations map[CredentialKey]*observationEpoch
+	rejected     map[CredentialKey]time.Time
 }
 
 func NewObserver(salt []byte, ttl time.Duration, now func() time.Time) *Observer {
@@ -147,36 +147,6 @@ func (o *Observer) freshFor(s Snapshot) time.Duration {
 }
 
 func (o *Observer) Key(token []byte) CredentialKey { return KeyFor(o.salt, token) }
-
-func (o *Observer) Record(key CredentialKey, snap Snapshot) {
-	if !snap.hasData() {
-		return
-	}
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	now := o.now()
-	if snap.Primary.present() {
-		snap.Primary.ObservedAt = now
-	}
-	if snap.Secondary.present() {
-		snap.Secondary.ObservedAt = now
-	}
-
-	if prev, ok := o.data[key]; ok && o.now().Sub(prev.ObservedAt) <= o.freshFor(prev) {
-		if !snap.Primary.present() {
-			snap.Primary = prev.Primary
-		} else if snap.Primary.ResetAt.IsZero() && prev.Primary.ResetAt.After(now) {
-			snap.Primary.ResetAt = prev.Primary.ResetAt
-		}
-		if !snap.Secondary.present() {
-			snap.Secondary = prev.Secondary
-		} else if snap.Secondary.ResetAt.IsZero() && prev.Secondary.ResetAt.After(now) {
-			snap.Secondary.ResetAt = prev.Secondary.ResetAt
-		}
-	}
-	snap.ObservedAt = now
-	o.data[key] = snap
-}
 
 func (o *Observer) RecordRejected(key CredentialKey, until time.Time) {
 	o.mu.Lock()
@@ -239,6 +209,7 @@ func (o *Observer) Sweep() {
 			delete(o.data, k)
 		}
 	}
+	o.sweepObservationsLocked()
 	for k, until := range o.rejected {
 		if !cutoff.Before(until) {
 			delete(o.rejected, k)

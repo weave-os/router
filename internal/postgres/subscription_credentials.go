@@ -44,6 +44,7 @@ func (r *subscriptionAccountRepo) GetSubscriptionCredentialRecord(ctx context.Co
 		AccessTokenExpiresAt:   timestampPtr(row.AccessTokenExpiresAt),
 		TokenRefreshedAt:       timestamptzPtr(row.TokenRefreshedAt),
 		TokenRefreshVersion:    row.TokenRefreshVersion,
+		QuotaResetGeneration:   row.QuotaResetGeneration,
 		TokenRefreshLeaseID:    leaseID,
 		Enabled:                row.Enabled,
 		State:                  auth.SubscriptionAccountState(row.HealthState),
@@ -96,6 +97,7 @@ func (r *subscriptionAccountRepo) acquireSubscriptionRefreshLease(ctx context.Co
 		LeaseSeconds:       int64(leaseTTL / time.Second),
 		AllowClaudeOverage: requestcontext.SubscriptionExtraUsageFrom(ctx),
 		AllowQuotaRefresh:  maintenance,
+		AllowQuotaRecovery: requestcontext.SubscriptionQuotaRecoveryFrom(ctx),
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

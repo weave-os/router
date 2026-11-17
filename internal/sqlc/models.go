@@ -140,6 +140,15 @@ type RouterClusterModelList struct {
 	UpdatedAt      pgtype.Timestamptz
 }
 
+type RouterCodexUsageReset struct {
+	SubscriberID uuid.UUID
+	LeaseID      pgtype.UUID
+	LeaseUntil   pgtype.Timestamptz
+	AccountID    pgtype.UUID
+	CreditID     *string
+	RequestID    pgtype.UUID
+}
+
 // Opaque account-owned identity projection; no private account table dependency
 type RouterCredentialSubject struct {
 	ID                   uuid.UUID
@@ -784,6 +793,7 @@ type RouterModelRouterSubscriptionAccount struct {
 	CredentialFirstRejectedAt     pgtype.Timestamp
 	CredentialLastRejectionReason *string
 	TokenRefreshedAt              pgtype.Timestamptz
+	QuotaResetGeneration          int64
 }
 
 type RouterModelRouterSubscriptionAccountInstallation struct {

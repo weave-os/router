@@ -106,6 +106,8 @@ const (
 	KeyEarlyStopRedo                        Key = "early_stop_redo"
 	KeyCCWorkspaceSystemAppend              Key = "cc_workspace_system_append"
 	KeySubscriptionPlanAwareRouting         Key = "subscription_plan_aware_routing_enabled"
+	KeyCodexAutoUsageReset                  Key = "codex_auto_usage_reset_enabled"
+	KeyCodexAutoUsageResetSubscribers       Key = "codex_auto_usage_reset_subscriber_ids"
 	KeyClaudeEnterpriseOnly                 Key = "claude_enterprise_only"
 	KeySubscriptionExhaustedOpenRouterOnly  Key = "subscription_exhausted_openrouter_only"
 	KeyCommittedStreamArmDemotion           Key = "committed_stream_arm_demotion"

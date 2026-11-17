@@ -7,7 +7,7 @@ import (
 )
 
 func codexQuotaCreditAdmission(ctx context.Context, body []byte, allowExtraCredits bool) (string, error) {
-	if !allowExtraCredits && !requestcontext.SubscriptionExtraUsageFrom(ctx) {
+	if requestcontext.SubscriptionQuotaRecoveryFrom(ctx) || !allowExtraCredits && !requestcontext.SubscriptionExtraUsageFrom(ctx) {
 		return codexCreditsDisabled, nil
 	}
 	var metadata struct {

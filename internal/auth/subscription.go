@@ -80,6 +80,7 @@ type SubscriptionAccount struct {
 	Enabled                bool
 	State                  SubscriptionAccountState
 	CooldownUntil          *time.Time
+	QuotaResetGeneration   int64
 	CreatedAt              time.Time
 	AccessTokenMissing     bool
 	TokenRefreshVersion    int64
@@ -348,14 +349,15 @@ func (s *Service) LoadSubscriptionCredentials(ctx context.Context, owner Subscri
 		return SubscriptionCredentials{}, err
 	}
 	credentials := SubscriptionCredentials{
-		ProviderUserID:      credentialRecord.ProviderUserID,
-		RefreshToken:        refreshToken,
-		TokenRefreshVersion: credentialRecord.TokenRefreshVersion,
-		TokenRefreshedAt:    credentialRecord.TokenRefreshedAt,
-		TokenRefreshLeaseID: credentialRecord.TokenRefreshLeaseID,
-		Enabled:             credentialRecord.Enabled,
-		State:               credentialRecord.State,
-		CooldownUntil:       credentialRecord.CooldownUntil,
+		ProviderUserID:       credentialRecord.ProviderUserID,
+		QuotaResetGeneration: credentialRecord.QuotaResetGeneration,
+		RefreshToken:         refreshToken,
+		TokenRefreshVersion:  credentialRecord.TokenRefreshVersion,
+		TokenRefreshedAt:     credentialRecord.TokenRefreshedAt,
+		TokenRefreshLeaseID:  credentialRecord.TokenRefreshLeaseID,
+		Enabled:              credentialRecord.Enabled,
+		State:                credentialRecord.State,
+		CooldownUntil:        credentialRecord.CooldownUntil,
 	}
 	if len(credentialRecord.AccessTokenCiphertext) > 0 {
 		accessToken, decryptErr := s.encryptor.Decrypt(credentialRecord.AccessTokenCiphertext, credentialRecord.ExternalAccountID, subscriptionAccessPurpose(credentialRecord.Provider))
