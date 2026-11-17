@@ -27,8 +27,15 @@ func Resolve(facts requestcontext.RequestFacts, provider string, skip Suppressio
 	suppressed := provider == providers.ProviderAnthropic && skip.Claude ||
 		provider == providers.ProviderOpenAI && skip.Codex
 	if !suppressed {
-		if sub := storedSubscription(facts, provider); sub != nil {
-			return Resolution{Credentials: sub}
+		var stored *requestcontext.Credentials
+		switch provider {
+		case providers.ProviderAnthropic:
+			stored = requestcontext.SubscriptionCredsFromToken(strings.TrimSpace(facts.AnthropicSubscription))
+		case providers.ProviderOpenAI:
+			stored = requestcontext.CodexSubscriptionCreds(facts.OpenAISubscription, facts.OpenAIAccountID)
+		}
+		if stored != nil {
+			return Resolution{Credentials: stored}
 		}
 		if provider == providers.ProviderAnthropic || provider == providers.ProviderOpenAI {
 			if inbound := requestcontext.ExtractClientCredentials(provider, facts.Headers); inbound != nil && inbound.OAuth {
@@ -48,16 +55,6 @@ func Resolve(facts requestcontext.RequestFacts, provider string, skip Suppressio
 		return Resolution{Credentials: creds}
 	}
 	return Resolution{Clear: suppressed}
-}
-
-func storedSubscription(facts requestcontext.RequestFacts, provider string) *requestcontext.Credentials {
-	switch provider {
-	case providers.ProviderAnthropic:
-		return requestcontext.SubscriptionCredsFromToken(strings.TrimSpace(facts.AnthropicSubscription))
-	case providers.ProviderOpenAI:
-		return requestcontext.CodexSubscriptionCreds(facts.OpenAISubscription, facts.OpenAIAccountID)
-	}
-	return nil
 }
 
 func KeyFirst(keys []*auth.ExternalAPIKey, provider string) bool {

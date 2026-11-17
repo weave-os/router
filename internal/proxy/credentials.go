@@ -85,7 +85,11 @@ func clearCredentials(ctx context.Context) context.Context {
 }
 
 func resolveAndInjectCredentials(ctx context.Context, provider, model string, headers http.Header) context.Context {
-	res := credentials.Resolve(requestFactsFrom(ctx, headers), provider, subscriptionSuppression(ctx, model))
+	subDisabled := subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx)
+	res := credentials.Resolve(requestFactsFrom(ctx, headers), provider, credentials.Suppression{
+		Claude: claudeSubscriptionSuppressed(ctx) || subDisabled || claudeModelSuppressed(ctx, model),
+		Codex:  codexSubscriptionSuppressed(ctx) || codexModelSuppressed(ctx, model) || codexChatEndpoint(ctx) || subDisabled || !codexSubscriptionCanAttemptModel(model),
+	})
 	if res.Credentials == nil {
 		if res.Clear {
 			return clearCredentials(ctx)
@@ -101,12 +105,4 @@ func resolveAndInjectCredentials(ctx context.Context, provider, model string, he
 		}
 	}
 	return context.WithValue(ctx, CredentialsContextKey{}, res.Credentials)
-}
-
-func subscriptionSuppression(ctx context.Context, model string) credentials.Suppression {
-	subDisabled := subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx)
-	return credentials.Suppression{
-		Claude: claudeSubscriptionSuppressed(ctx) || subDisabled || claudeModelSuppressed(ctx, model),
-		Codex:  codexSubscriptionSuppressed(ctx) || codexModelSuppressed(ctx, model) || codexChatEndpoint(ctx) || subDisabled || !codexSubscriptionCanAttemptModel(model),
-	}
 }

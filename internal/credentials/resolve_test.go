@@ -34,7 +34,7 @@ func routerKeyed(f requestcontext.RequestFacts) requestcontext.RequestFacts {
 	return f
 }
 
-func spent(t *testing.T, res credentials.Resolution) string {
+func apiKeyOf(t *testing.T, res credentials.Resolution) string {
 	t.Helper()
 	if res.Credentials == nil {
 		return ""
@@ -48,7 +48,7 @@ func TestResolve_KeyFirstBYOKBeatsStoredSubscription(t *testing.T) {
 		AnthropicSubscription: claudeToken,
 	}
 	res := credentials.Resolve(facts, providers.ProviderAnthropic, credentials.Suppression{})
-	assert.Equal(t, "byok-anthropic", spent(t, res))
+	assert.Equal(t, "byok-anthropic", apiKeyOf(t, res))
 	assert.Equal(t, requestcontext.SourceBYOK, res.Credentials.Source)
 }
 
@@ -58,7 +58,7 @@ func TestResolve_PlanFirstBYOKLeavesSubscriptionFirst(t *testing.T) {
 		AnthropicSubscription: " " + claudeToken + " ",
 	}
 	res := credentials.Resolve(facts, providers.ProviderAnthropic, credentials.Suppression{})
-	assert.Equal(t, claudeToken, spent(t, res))
+	assert.Equal(t, claudeToken, apiKeyOf(t, res))
 	assert.True(t, res.Credentials.OAuth)
 	assert.False(t, res.InboundSubscription)
 }
@@ -69,13 +69,13 @@ func TestResolve_SuppressedClaudeFallsToBYOK(t *testing.T) {
 		AnthropicSubscription: claudeToken,
 	}
 	res := credentials.Resolve(facts, providers.ProviderAnthropic, credentials.Suppression{Claude: true})
-	assert.Equal(t, "byok-anthropic", spent(t, res))
+	assert.Equal(t, "byok-anthropic", apiKeyOf(t, res))
 }
 
 func TestResolve_InboundSubscriptionBearerHonoredWhenRouterKeyed(t *testing.T) {
 	facts := routerKeyed(requestcontext.RequestFacts{Headers: bearer(claudeToken)})
 	res := credentials.Resolve(facts, providers.ProviderAnthropic, credentials.Suppression{})
-	assert.Equal(t, claudeToken, spent(t, res))
+	assert.Equal(t, claudeToken, apiKeyOf(t, res))
 	assert.True(t, res.InboundSubscription)
 }
 
@@ -83,7 +83,7 @@ func TestResolve_ClientAPIKeyOnlyOffRouterKeyPath(t *testing.T) {
 	headers := apiKeyHeaders("sk-ant-api03-client")
 
 	unkeyed := credentials.Resolve(requestcontext.RequestFacts{Headers: headers}, providers.ProviderAnthropic, credentials.Suppression{})
-	assert.Equal(t, "sk-ant-api03-client", spent(t, unkeyed))
+	assert.Equal(t, "sk-ant-api03-client", apiKeyOf(t, unkeyed))
 	assert.Equal(t, requestcontext.SourceClient, unkeyed.Credentials.Source)
 
 	keyed := credentials.Resolve(routerKeyed(requestcontext.RequestFacts{Headers: headers}), providers.ProviderAnthropic, credentials.Suppression{})
@@ -99,7 +99,7 @@ func TestResolve_SuppressedSubscriptionIsClearedNotForwarded(t *testing.T) {
 func TestResolve_SuppressionIsPerProvider(t *testing.T) {
 	facts := requestcontext.RequestFacts{AnthropicSubscription: claudeToken, OpenAISubscription: codexToken, OpenAIAccountID: codexAccountID}
 	res := credentials.Resolve(facts, providers.ProviderOpenAI, credentials.Suppression{Claude: true})
-	assert.Equal(t, codexToken, spent(t, res))
+	assert.Equal(t, codexToken, apiKeyOf(t, res))
 	assert.Equal(t, requestcontext.SourceCodexSubscription, res.Credentials.Source)
 }
 
@@ -115,7 +115,7 @@ func TestResolve_CodexSubscriptionNeedsAccountID(t *testing.T) {
 func TestResolve_SubscriptionNeverCrossesProviders(t *testing.T) {
 	facts := requestcontext.RequestFacts{Headers: bearer(claudeToken), AnthropicSubscription: claudeToken}
 	res := credentials.Resolve(facts, providers.ProviderOpenAI, credentials.Suppression{})
-	assert.NotEqual(t, claudeToken, spent(t, res))
+	assert.NotEqual(t, claudeToken, apiKeyOf(t, res))
 }
 
 func TestKeyFirst_LastUsableKeyWins(t *testing.T) {
