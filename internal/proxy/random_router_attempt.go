@@ -81,7 +81,7 @@ func invokeLeasedProviderAttempt(s *Service, ctx context.Context, plan inference
 		return started, attempt.inputs.attempt(ctx, attempt.decision, attempt.client)
 	}
 	credentials := CredentialsFromContext(ctx)
-	if !attempt.managed || credentials == nil || !credentials.OAuth || credentials.Source != credSourceCodexSubscription || attempt.decision.Model != state.SelectedModel || attempt.decision.Provider != providers.ProviderOpenAI || !state.Config.ExpiresAt.After(s.clockNow()) {
+	if !attempt.managed || credentials == nil || !credentials.OAuth || credentials.Source != credSourceCodexSubscription || len(credentials.AccountID) == 0 || len(credentials.APIKey) == 0 || credentials.SubscriptionAccountID != attempt.lease.AccountID || attempt.decision.Model != state.SelectedModel || attempt.decision.Provider != providers.ProviderOpenAI || !state.Config.ExpiresAt.After(s.clockNow()) {
 		return started, dispatchAbort{err: randomrouter.ErrUnavailable}
 	}
 	observation := &randomResponseObservation{state: state}

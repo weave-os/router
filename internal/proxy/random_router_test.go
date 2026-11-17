@@ -198,13 +198,14 @@ func TestRandomActualAttemptsRecordIndependentFundingAndUsage(t *testing.T) {
 	config := randomTestConfig()
 	state := &randomrouter.RequestState{Config: config, Prepared: true, SelectedModel: catalog.ModelGPT6Luna}
 	ctx := randomrouter.WithRequest(context.Background(), state)
-	ctx = context.WithValue(ctx, CredentialsContextKey{}, &Credentials{OAuth: true, Source: credSourceCodexSubscription})
+	ctx = context.WithValue(ctx, CredentialsContextKey{}, &Credentials{OAuth: true, Source: credSourceCodexSubscription, APIKey: []byte("synthetic"), AccountID: []byte("synthetic-account")})
 	decision := router.Decision{Provider: providers.ProviderOpenAI, Model: catalog.ModelGPT6Luna}
 	plans, err := svc.inferencePlans()
 	require.NoError(t, err)
 	plan, err := plans.ResolveRouted(policy.RoutedResolutionRequest{Purpose: policy.PurposeOpenAIResponses, Decision: decision, Bindings: []catalog.ProviderBinding{{Provider: providers.ProviderOpenAI}}})
 	require.NoError(t, err)
 	for _, seat := range []string{"first-seat", "second-seat"} {
+		ctx = context.WithValue(ctx, CredentialsContextKey{}, &Credentials{OAuth: true, Source: credSourceCodexSubscription, APIKey: []byte("synthetic"), AccountID: []byte("synthetic-account"), SubscriptionAccountID: seat})
 		client := &fakeClient{name: providers.ProviderOpenAI, outcomes: []fakeOutcome{{writeBytes: []byte("data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":10,\"output_tokens\":2}}}\n\n")}}}
 		inputs := failoverInputs{initialDecision: decision, attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
 			return p.Proxy(ctx, d, providers.PreparedRequest{Endpoint: providers.EndpointResponses}, httptest.NewRecorder(), httptest.NewRequest("POST", "/v1/responses", nil))
