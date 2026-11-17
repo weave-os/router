@@ -94,7 +94,7 @@ func newOverloadHarness(enabled bool) *overloadHarness {
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenAI: {}}).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil }).
 		WithProviderOverloaded(enabled, registry)
-	h.svc.now = now
+	h.svc.clock = now
 	return h
 }
 

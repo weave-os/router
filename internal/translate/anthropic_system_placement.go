@@ -25,13 +25,6 @@ func placeAnthropicSystemMessagesBytes(body []byte) ([]byte, error) {
 	return sjson.SetRawBytes(body, "messages", []byte("["+strings.Join(placed, ",")+"]"))
 }
 
-// placeAnthropicSystemMessages moves each run of role:"system" messages that
-// Anthropic would reject to the nearest later valid position, or the nearest
-// earlier one when none follows. A system message must follow a user turn (or
-// an assistant turn ending in a server tool result) and precede an assistant
-// turn or end the array; dropping a turn from history can strand one. A move
-// that would put a 1h cache breakpoint after a 5m one is skipped. The
-// directive-only form (empty content) is valid anywhere and stays put.
 func placeAnthropicSystemMessages(msgRaws []string) ([]string, bool) {
 	layout := newAnthropicSystemLayout(msgRaws)
 	moved := false
@@ -51,17 +44,13 @@ type anthropicLayoutMessage struct {
 	ttl anthropicCacheTTLSummary
 }
 
-// anthropicSystemLayout indexes system-message runs by the boundary before
-// turns[boundary]; boundary len(turns) is the end of the array.
 type anthropicSystemLayout struct {
 	turns      []gjson.Result
 	turnTTLs   []anthropicCacheTTLSummary
 	valid      []bool
 	runs       map[int][]anthropicLayoutMessage
 	directives map[int][]string
-	// movedIn counts messages relocated forward into a boundary; they sit
-	// ahead of the boundary's own run, in arrival order.
-	movedIn map[int]int
+	movedIn    map[int]int
 }
 
 func newAnthropicSystemLayout(msgRaws []string) *anthropicSystemLayout {
@@ -106,8 +95,6 @@ func (l *anthropicSystemLayout) validBoundary(boundary int) bool {
 	return l.valid[boundary]
 }
 
-// relocate moves the run at boundary to the nearest valid boundary that keeps
-// cache TTLs ordered, keeping runs in their original relative order.
 func (l *anthropicSystemLayout) relocate(boundary int) bool {
 	run := l.runs[boundary]
 	delete(l.runs, boundary)
@@ -201,8 +188,6 @@ func canPrecedeAnthropicSystem(msg gjson.Result) bool {
 	}
 }
 
-// anthropicCacheTTLSummary records a message's cache breakpoints; ordered is
-// false when a 1h breakpoint follows a 5m one inside the message.
 type anthropicCacheTTLSummary struct {
 	fiveMinute, oneHour, ordered bool
 }

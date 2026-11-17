@@ -16,3 +16,13 @@ func TestGPT61SolRosterIdentity(t *testing.T) {
 	assert.Equal(t, "gpt-6.1-sol", CatalogIDForRoster("openai/gpt-6.1-sol"))
 	assert.Empty(t, ValidateRosterIDs([]string{"openai/gpt-6.1-sol"}))
 }
+
+func TestGPT62RosterIdentity(t *testing.T) {
+	for _, id := range []string{"gpt-6.2-sol", "gpt-6.2-astra"} {
+		model, ok := catalog.ByID(id)
+		require.True(t, ok, id)
+		assert.Equal(t, "openai/"+id, ForModel(model))
+		assert.Equal(t, id, CatalogIDForRoster("openai/"+id))
+		assert.Empty(t, ValidateRosterIDs([]string{"openai/" + id}))
+	}
+}

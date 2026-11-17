@@ -35,8 +35,6 @@ const (
 	feedbackMissingSequence feedbackAcknowledgment = "missing_sequence"
 )
 
-// commandAcknowledgment keeps command application facts separate from presentation.
-// Pin is assigned only after the owning persistence operation succeeds.
 type commandAcknowledgment struct {
 	outcome                               translate.CommandOutcome
 	force                                 forceAcknowledgment

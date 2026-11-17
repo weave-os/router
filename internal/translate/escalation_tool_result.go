@@ -14,18 +14,11 @@ const (
 	codexWriteStdin  codexExecTool = "write_stdin"
 )
 
-// Codex emits this status before stdout, without a wire is_error field.
-// Anchor the whole header so command output cannot supply the exit verdict.
 var codexExecExitHeader = regexp.MustCompile(`^(?:Chunk ID: [^\r\n]+\n)?Wall time: [0-9]+(?:\.[0-9]+)? seconds\nProcess exited with code (-?[0-9]+)\n(?:Original token count: [0-9]+\n)?Output:(?:\n|$)`)
 
-// Code-mode exec reports its script verdict first, then one fragment per
-// printed value. Nested commands print Codex's exec envelope, whose key order
-// is fixed, so only a fragment that starts with it can supply an exit status.
 var codexScriptHeader = regexp.MustCompile(`^Script (completed|failed|running with cell ID [0-9]+)\nWall time [0-9]+(?:\.[0-9]+)? seconds\nOutput:(?:\n|$)`)
 var codexScriptExitEnvelope = regexp.MustCompile(`^(?:Warning: truncated output \(original token count: [0-9]+\)\nTotal output lines: [0-9]+\n\n)?\{"chunk_id":"[^"\\]*","wall_time_seconds":[0-9.eE+-]+,"exit_code":(-?[0-9]+),`)
 
-// ToolResultFailed recognizes explicit protocol errors and Codex exec and code-mode exit status.
-// It leaves the observed wire untouched: replay digests must survive feature fixes.
 func (block EscalationBlock) ToolResultFailed(call EscalationBlock, codexToolResults bool) bool {
 	if block.IsError != nil {
 		return *block.IsError

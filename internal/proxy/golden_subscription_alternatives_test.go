@@ -67,7 +67,7 @@ func (p *goldenSubscriptionPool) Disable(_ context.Context, _ auth.SubscriptionO
 
 func withGoldenCodexPool(accounts ...string) func(*proxy.Service, *goldenHarness) *proxy.Service {
 	return func(svc *proxy.Service, h *goldenHarness) *proxy.Service {
-		return withGoldenClock(svc, h).WithManagedSubscriptions(newGoldenSubscriptionPool(h.clock.Now, accounts...))
+		return svc.WithManagedSubscriptions(newGoldenSubscriptionPool(h.clock.Now, accounts...))
 	}
 }
 

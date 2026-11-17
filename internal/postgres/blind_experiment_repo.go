@@ -14,7 +14,6 @@ type blindExperimentRepo struct {
 	tx sqlc.DBTX
 }
 
-// NewBlindExperimentRepo constructs the read-only experiment assignment repository.
 func NewBlindExperimentRepo(tx sqlc.DBTX) auth.BlindExperimentRepository {
 	return &blindExperimentRepo{tx: tx}
 }

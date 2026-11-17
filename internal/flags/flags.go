@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 )
@@ -91,6 +92,14 @@ const (
 	KeyCyberRefusalFallback                 Key = "cyber_refusal_fallback_model"
 	KeyAnthropicServerFallback              Key = "anthropic_server_side_fallback"
 	KeyOpenAIResponsesBroad                 Key = "openai_responses_broad"
+	KeySessionPinEnabled                    Key = "session_pin_enabled"
+	KeyHMMSameTierPin                       Key = "hmm_same_tier_pin"
+	KeyHardPinExplore                       Key = "hard_pin_explore"
+	KeyCCOrchToolsCrossVendor               Key = "cc_orch_tools_crossvendor"
+	KeyEscapeNormalize                      Key = "deepseek_escape_normalize"
+	KeyPlannerTierUpgrade                   Key = "planner_tier_upgrade_enabled"
+	KeyPlannerColdPinFollowFresh            Key = "planner_cold_pin_follow_fresh"
+	KeyPlannerCorrectedEconomics            Key = "planner_corrected_economics"
 	KeyAllowedModelsHeader                  Key = "allowed_models_header"
 	KeyCCTaskToolsCrossVendor               Key = "cc_task_tools_crossvendor"
 	KeyCCAutonomySystemAppend               Key = "cc_autonomy_system_append"
@@ -133,314 +142,6 @@ type Definition struct {
 	Kind           Kind
 	Description    string
 	OrgOverridable bool
-}
-
-const RegistryVersion = 30
-
-var Registry = []Definition{
-	{Key: KeyEscalationActiveClassifier, Kind: KindString, Description: "Active escalation classifier: none, xgb, switchyard_llm_v1, or llm_escalation. Absent preserves legacy XGB flags.", OrgOverridable: true},
-	{Key: KeyEscalationShadowClassifier, Kind: KindString, Description: "Independent shadow escalation classifier: none, xgb, switchyard_llm_v1, or llm_escalation.", OrgOverridable: true},
-	{Key: KeyEscalationCadence, Kind: KindInt, Description: "Completed turns between LLM checkpoints: 3, 4, or 5. Default 3.", OrgOverridable: true},
-	{Key: KeyEscalationEpoch, Kind: KindInt, Description: "Escalation configuration generation; changes invalidate pending judgments.", OrgOverridable: true},
-	{Key: KeyEscalationXGBoostEnabled, Kind: KindBool, Description: "Route to the maximum complexity class on an XGBoost escalation checkpoint. Off by default.", OrgOverridable: true},
-	{Key: KeyEscalationXGBoostShadowEnabled, Kind: KindBool, Description: "Observe XGBoost escalation without changing routing. Off by default.", OrgOverridable: true},
-	{Key: KeyEscalationXGBoostShadowMarkerEnabled, Kind: KindBool, Description: "Show positive shadow escalation notices in assistant responses. Off by default.", OrgOverridable: true},
-	{Key: KeyEscalationXGBoostEpoch, Kind: KindInt, Description: "Observation generation; increment before enabling or resetting escalation.", OrgOverridable: true},
-	{
-		Key:            KeyClaudeEnterpriseOnly,
-		Kind:           KindBool,
-		Description:    "Keep provider-verified Claude Enterprise subscriptions on their own billing, including authorized overage, without Weave-credit fallback. Pro, Max, Team and unknown plans are never classified as Enterprise by this flag. Explicit BYOK and disabled subscription routing retain precedence.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeySubscriptionPlanAwareRouting,
-		Kind:           KindBool,
-		Description:    "Avoid models covered only by exhausted Claude/Codex plans while another plan has headroom. Off by default; ignored when subscription routing is disabled.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeySubscriptionExhaustedOpenRouterOnly,
-		Kind:           KindBool,
-		Description:    "Serve Claude/Codex subscriptions until exhausted, then only the OpenRouter version of the exhausted-state models (all OpenRouter-served models when none are configured). Never falls back to direct Anthropic/OpenAI API keys. Off by default.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyPlanUserClusterLists,
-		Kind:           KindBool,
-		Description:    "Honor each member's own per-tier model selection: apply it on Max plan requests (the installation's key-scoped tier lists stay ignored), and serve a selected model on paid capacity when no linked subscription can serve it instead of swapping it for a covered model. Off by default.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyStruggleShadowEnabled,
-		EnvVar:         "ROUTER_STRUGGLE_SHADOW_ENABLED",
-		Kind:           KindBool,
-		Description:    "Session-level struggle detector (log-only; writes struggle_shadow_events).",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeySpiralShadowEnabled,
-		EnvVar:         "ROUTER_SPIRAL_SHADOW_ENABLED",
-		Kind:           KindBool,
-		Description:    "Per-turn spiral detector (log-only).",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyTurnSignalCapture,
-		EnvVar:         "ROUTER_TURN_SIGNAL_CAPTURE_ENABLED",
-		Kind:           KindBool,
-		Description:    "Persist the per-turn behavioral signal snapshot onto telemetry rows. Skipped regardless for installations that opted out of AI training or set content capture to off.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyLoopEscalationEnabled,
-		EnvVar:         "ROUTER_LOOP_ESCALATION_ENABLED",
-		Kind:           KindBool,
-		Description:    "Cyclic-loop escalate-to-opus action. Detection telemetry continues when off.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyLoopEscalationHoldoutPct,
-		EnvVar:         "ROUTER_LOOP_ESCALATION_HOLDOUT_PCT",
-		Kind:           KindInt,
-		Description:    "Percent of loop detections recorded without escalating, as a self-recovery baseline. 0-100.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyTextRepetitionBreak,
-		EnvVar:         "ROUTER_TEXT_REPETITION_BREAK_ENABLED",
-		Kind:           KindBool,
-		Description:    "Enforcing text-repetition loop break.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyPlannerEnabled,
-		EnvVar:         "ROUTER_PLANNER_ENABLED",
-		Kind:           KindBool,
-		Description:    "Cache-aware EV planner for mid-session model switches.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyScoreToolResultTurns,
-		EnvVar:         "ROUTER_SCORE_TOOL_RESULT_TURNS",
-		Kind:           KindBool,
-		Description:    "Re-score tool-result turns instead of following the session pin.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyHMMToolResultHold,
-		Kind:           KindBool,
-		Description:    "Hold the user turn's first policy pick across its tool-result turns unless escalation constrains the request.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyPrefixTrimFreeSwitch,
-		EnvVar:         "ROUTER_PREFIX_TRIM_FREE_SWITCH",
-		Kind:           KindBool,
-		Description:    "Treat a trimmed prompt prefix as a free switch point (cache already lost).",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyAuthoritativeUpgradeGate,
-		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_GATE",
-		Kind:           KindBool,
-		Description:    "Keep the confidence floor active for authoritative-per-turn policies.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyAuthoritativeUpgradePolicy,
-		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_POLICY",
-		Kind:           KindString,
-		Description:    "Authoritative upgrade policy: score (default 0.85 floor), evidence (composite interim policy), or off (verbatim fresh policy).",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyAuthoritativeUpgradeHoldoutPct,
-		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_HOLDOUT_PCT",
-		Kind:           KindInt,
-		Description:    "Percent of sessions that stay on the score gate while evidence mode is on. Session-sticky. 0-100.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyAuthoritativeUpgradeVotes,
-		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_VOTES",
-		Kind:           KindInt,
-		Description:    "Consecutive same-group expensive upgrade votes required before evidence mode switches. 0 disables vote hysteresis.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyAuthoritativeDowngradeGate,
-		EnvVar:         "ROUTER_AUTHORITATIVE_DOWNGRADE_GATE",
-		Kind:           KindBool,
-		Description:    "Apply the upgrade gate's confidence floor to authoritative-per-turn downgrades too: a cheaper-than-pin pick below the threshold keeps the pin. Off by default.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyAuthoritativeUpgradeSlidingThreshold,
-		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_SLIDING_THRESHOLD",
-		Kind:           KindBool,
-		Description:    "Upgrade a session pin by probability bands that bypass the confidence floor: from low/medium, maximum at 0.3-0.5 serves high and >=0.5 maximum; from low, high at 0.3-0.5 serves medium and >=0.5 high, medium >=0.3 serves medium; from medium, high needs >=0.4; from high, maximum needs >=0.5. Below a band the existing upgrade gates decide. Off by default.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyHMMDowngradeHysteresisTurns,
-		EnvVar:         "ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS",
-		Kind:           KindInt,
-		Description:    "Consecutive authoritative-per-turn classifier votes for a cheaper-than-pin model required before the downgrade is applied. 2 by default; 0 downgrades on the first vote.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyHMMDowngradeHysteresisShadowTurns,
-		EnvVar:         "ROUTER_HMM_DOWNGRADE_HYSTERESIS_SHADOW_TURNS",
-		Kind:           KindInt,
-		Description:    "Hysteresis threshold the served-downgrade shadow counts against: every applied authoritative-per-turn downgrade logs whether this many consecutive votes would have held it. Telemetry only, never changes routing. 0 disables the shadow; 2 by default.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyAuthorityCacheShadow,
-		EnvVar:         "ROUTER_AUTHORITY_CACHE_SHADOW",
-		Kind:           KindBool,
-		Description:    "Record the HMM cache gate's counterfactual verdict on authoritative-per-turn turns. Observation only; never changes what is served.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyAgreementShadowEpoch,
-		Kind:           KindInt,
-		Description:    "Observation-only internal agreement comparison: 0 disables; choose a fresh positive epoch for each activation/resumption. Compares 1-up/5-down with 2-up/5-down without affecting serving.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeySiblingFailover,
-		EnvVar:         "ROUTER_SIBLING_FAILOVER",
-		Kind:           KindBool,
-		Description:    "Degrade to a same-cluster candidate when every binding for the routed model is exhausted.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyEffortEscalation,
-		EnvVar:         "ROUTER_EFFORT_ESCALATION",
-		Kind:           KindBool,
-		Description:    "Apply policy-requested reasoning-effort escalation.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyCyberRefusalRepin,
-		EnvVar:         "ROUTER_CYBER_REFUSAL_REPIN",
-		Kind:           KindBool,
-		Description:    "Re-pin a session off a model that returned a safety refusal (cyber, reasoning_extraction, ...).",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyCyberRefusalRetry,
-		EnvVar:         "ROUTER_CYBER_REFUSAL_RETRY",
-		Kind:           KindBool,
-		Description:    "Re-dispatch a turn OpenAI declined on cyber policy to a non-OpenAI fallback before any output reaches the client.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyCyberRefusalFallback,
-		EnvVar:         "ROUTER_CYBER_REFUSAL_FALLBACK_MODEL",
-		Kind:           KindString,
-		Description:    "Fallback model for a safety-refusal re-pin with no runner-up.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyAnthropicServerFallback,
-		EnvVar:         "ROUTER_ANTHROPIC_SERVER_SIDE_FALLBACK",
-		Kind:           KindBool,
-		Description:    "Ask Anthropic to re-serve a safety-refused turn on a fallback model instead of returning the refusal.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyOpenAIResponsesBroad,
-		EnvVar:         "ROUTER_OPENAI_RESPONSES_BROAD",
-		Kind:           KindBool,
-		Description:    "Serve every direct-OpenAI turn on /v1/responses. Off, only the reasoning tool turn chat/completions rejects is promoted.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyCCTaskToolsCrossVendor,
-		EnvVar:         "ROUTER_CC_TASK_TOOLS_CROSSVENDOR",
-		Kind:           KindBool,
-		Description:    "Keep Claude Code's TaskCreate/TaskUpdate/TaskGet/TaskList tools (and their reminders) on cross-vendor emits. Off by default, they are stripped; requires the cross-vendor orchestration tools to be kept.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyCCAutonomySystemAppend,
-		EnvVar:         "ROUTER_CC_AUTONOMY_SYSTEM_APPEND",
-		Kind:           KindBool,
-		Description:    "Append a non-interactive operating instruction to the system prompt of Claude Code / Agent SDK main-loop and tool-result turns, whatever model serves them. Off by default.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyEarlyStopRedo,
-		EnvVar:         "ROUTER_EARLY_STOP_REDO",
-		Kind:           KindString,
-		Description:    "When a Claude Code tool-result turn served below the top tier of its candidates ends without a tool call: off, shadow (log only), or on (re-serve it on the highest-tier candidate before the client sees it).",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyCCWorkspaceSystemAppend,
-		EnvVar:         "ROUTER_CC_WORKSPACE_SYSTEM_APPEND",
-		Kind:           KindBool,
-		Description:    "Append a workspace-inspection instruction to the system prompt of Claude Code / Agent SDK main-loop and tool-result turns served by a non-Anthropic model. Off by default.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyCommittedStreamArmDemotion,
-		EnvVar:         "ROUTER_COMMITTED_STREAM_ARM_DEMOTION",
-		Kind:           KindBool,
-		Description:    "Withdraw a model from a session's automatic selection after its stream failed with the prelude already committed. Off by default.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyRescuedFailureArmDemotion,
-		EnvVar:         "ROUTER_RESCUED_FAILURE_ARM_DEMOTION",
-		Kind:           KindBool,
-		Description:    "Withdraw the primary model from a session's automatic selection after an upstream response-header timeout, whether or not a model rescue ran, or after another pre-commit failure followed by a same-cluster sibling rescue. Off by default.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyTransientRateLimit,
-		EnvVar:         "ROUTER_TRANSIENT_RATE_LIMIT",
-		Kind:           KindBool,
-		Description:    "Treat an upstream 429 as transient throttling: a rescued 429 demotes the primary model for a cooldown instead of the session, an in-turn rescue ignores cooling-down arms only when honouring them would leave no candidate, and same-binding retries honour Retry-After. Off by default.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyRateLimitCooldownSeconds,
-		EnvVar:         "ROUTER_RATE_LIMIT_COOLDOWN_SECONDS",
-		Kind:           KindInt,
-		Description:    "Seconds a model stays out of a session's automatic selection after a rescued 429 while transient_rate_limit is on. Default 45.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyProviderOverloaded,
-		EnvVar:         "ROUTER_PROVIDER_OVERLOADED",
-		Kind:           KindBool,
-		Description:    "Per-model 529 circuit breaker: provider overloaded responses from every organization open a shared circuit, which withdraws the model from automatic selection only for organizations that have each observed overloads themselves; traffic through an organization's own gateway gets an isolated circuit. Probed again after a backoff. On by default; kill switch for the breaker.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyNativeAnthropicResponseSignals,
-		EnvVar:         "ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS",
-		Kind:           KindBool,
-		Description:    "Record stop_reason and tool_use block count on telemetry for Anthropic-native passthrough turns. On by default; kill switch for the added extraction. Observability only, never read by routing.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyNativeOpenAIResponseSignals,
-		EnvVar:         "ROUTER_NATIVE_OPENAI_RESPONSE_SIGNALS",
-		Kind:           KindBool,
-		Description:    "Record finish_reason and tool-call count on telemetry for OpenAI-native turns, both chat/completions and /v1/responses passthrough. On by default; kill switch for the added extraction. Observability only, never read by routing.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyAllowedModelsHeader,
-		EnvVar:         "ROUTER_ALLOWED_MODELS_HEADER",
-		Kind:           KindBool,
-		Description:    "Honor the x-weave-allowed-models request header (per-request routing subset) for this organization even when the installation is not authorized for policy headers.",
-		OrgOverridable: true,
-	},
 }
 
 var definitions = func() map[Key]Definition {
@@ -547,6 +248,25 @@ func ValidateOverrides(o Overrides) error {
 	return validateEscalationOverrides(o)
 }
 
+func (o Overrides) Overlay(top Overrides) Overrides {
+	return Overrides{
+		Bools:   overlayValues(o.Bools, top.Bools),
+		Ints:    overlayValues(o.Ints, top.Ints),
+		Floats:  overlayValues(o.Floats, top.Floats),
+		Strings: overlayValues(o.Strings, top.Strings),
+	}
+}
+
+func overlayValues[V any](base, top map[Key]V) map[Key]V {
+	if len(base) == 0 && len(top) == 0 {
+		return nil
+	}
+	merged := make(map[Key]V, len(base)+len(top))
+	maps.Copy(merged, base)
+	maps.Copy(merged, top)
+	return merged
+}
+
 func (o Overrides) Keys() (keys []Key) {
 	keys = make([]Key, 0, len(o.Bools)+len(o.Ints)+len(o.Floats)+len(o.Strings))
 	for k := range o.Bools {
@@ -566,6 +286,17 @@ func (o Overrides) Keys() (keys []Key) {
 }
 
 func ParseOverrides(raw []byte) (o Overrides, err error) {
+	o, err = DecodeOverrides(raw)
+	if err != nil {
+		return Overrides{}, err
+	}
+	if err := ValidateOverrides(o); err != nil {
+		return Overrides{}, err
+	}
+	return o, nil
+}
+
+func DecodeOverrides(raw []byte) (o Overrides, err error) {
 	if len(raw) == 0 {
 		return Overrides{}, nil
 	}
@@ -590,9 +321,6 @@ func ParseOverrides(raw []byte) (o Overrides, err error) {
 		if err != nil {
 			return Overrides{}, err
 		}
-	}
-	if err := ValidateOverrides(o); err != nil {
-		return Overrides{}, err
 	}
 	return o, nil
 }

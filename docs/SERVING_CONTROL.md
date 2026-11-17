@@ -470,6 +470,27 @@ in-flight transaction from repopulating stale cache entries. Installation change
 use the existing broadcast subscription; release traffic changes publish fleet
 invalidation. Missed delivery falls back to TTL expiry.
 
+## Package invariants
+
+These rules in `internal/policyregistry` are pinned by tests rather than source comments.
+
+| Invariant | Pinned by |
+| --- | --- |
+| `policyregistry.ServingIdleLifetime` is measured from the last admitted request and matches the one-hour session-pin TTL: a rebind resets routing state, so it only happens once the provider prompt cache is cold | `TestSessionReleaseIdleBoundary` |
+| `policyregistry.ServingDrainGrace` outlasts the longest (600 s) worker request | `TestServingDrainGraceOutlastsLongestWorkerRequest` |
+| Admission samples the database clock after the authoritative state and selection-set reads, so an activation during GCS I/O cannot appear to come from the future | `TestAdmissionSamplesDatabaseClockAfterAuthoritativeReads` |
+| Anonymous turns bypass the admission cache; cache keys include the routing model; a racing miss cannot repopulate after installation or fleet invalidation; a leaving caller does not cancel the shared binding transaction | `TestAdmissionCacheSendsEveryAnonymousTurnToPrimaryAdmission`, `TestAdmissionCacheGlobalInvalidationDuringMissDoesNotRepopulate`, `TestAdmissionCacheCallerCancellationDoesNotCancelSharedBinding` |
+| Shared credentials keep the legacy preference-key bytes; personal subjects survive key rotation but are scoped per installation | `TestAdmittedCredentialIdentityKeepsSharedKeyBytesAndScopesPersonalSubjects` |
+| A repeated withdrawal keeps the original `withdrawn_at` and replacement | `TestRepeatedWithdrawalKeepsOriginalWithdrawalMetadata` |
+| Every rollback-scoped proposal, and any proposal withdrawing activations, must name a source release that a retained activation served for the same target and profile | `TestRollbackSourceRequiredForRollbackScopeAndAnyWithdrawal` |
+| `policyregistry.RoutingControlsDigest` ignores order and duplicates; a controls change rebinds a pinned conversation | `TestRoutingControlsChangeRebindsPinnedConversation` |
+| Max never admits experimental classifiers | `TestRoutingModelAdmissionBindsInternalBoostButNotMax` |
+| Classifier identity equality includes alternate variants, so a retained release cannot change its model | `TestClassifierIdentityEqualityIncludesAlternateVariants` |
+| Classifier worker origins are exact `https://<host>` Cloud Run hosts of the worker service or its tagged revisions; a longer service name is rejected | `TestDecodeClassifierRuntimeBindingFailsClosed` |
+| Destination attestations, including failures, are memoized per revision binding for one activation only | `TestActivationMemoizesDestinationAttestationsPerRevisionBinding`, `TestActivationMemoizesDestinationFailuresFailClosed` |
+| A directory export writes the head last and atomically, so a failed export keeps the working head | `TestWriteDirectoryReleaseKeepsWorkingHeadWhenObjectWriteFails` |
+| Runtime-cache eviction never changes a request's pinned snapshot | `TestServingRuntimeCacheEvictsWithoutChangingPinnedSnapshots` |
+
 ## Local verification
 
 Managed admission is enabled by `ROUTER_SERVING_TARGET`. Bootstrap validates exact

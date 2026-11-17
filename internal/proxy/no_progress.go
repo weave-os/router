@@ -14,10 +14,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// shortSessionKey returns the first 8 bytes of a session key hex-encoded, for
-// safe use in logs (wider margin than auth.APIKey's 8-char KeyPrefix, still
-// short enough to limit cross-request correlation). Empty for an all-zero
-// key so logs distinguish missing-anchor breaks from real-session ones.
 func shortSessionKey(sessionKey [sessionpin.SessionKeyLen]byte) string {
 	if sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
 		return ""
@@ -25,10 +21,6 @@ func shortSessionKey(sessionKey [sessionpin.SessionKeyLen]byte) string {
 	return fmt.Sprintf("%x", sessionKey[:8])
 }
 
-// handleNoProgressBreak writes a synthetic end_turn response, expires an
-// automatic session pin, and returns a non-nil error so callers treat it as a
-// failed dispatch (skips billing/telemetry). Explicit force-model pins remain
-// intact. Its message names the cross-envelope loop mode.
 func (s *Service) handleNoProgressBreak(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -78,8 +70,6 @@ func (s *Service) handleNoProgressBreak(
 		"role", role,
 	)
 
-	// Skip when sessionKey is zero: a zero-keyed pin row would be a zombie
-	// entry shared by every zero-keyed session.
 	if s.pinStore != nil && installationID != uuid.Nil && sessionKey != ([sessionpin.SessionKeyLen]byte{}) && !preserveForcedPin {
 		if err := s.expireSessionPinAndHMMHistory(ctx, installationID, sessionKey, role, "no_progress_loop_break"); err != nil {
 			log.Error("no-progress-break: pin store upsert failed", "err", err)

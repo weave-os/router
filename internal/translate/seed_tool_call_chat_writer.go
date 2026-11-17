@@ -16,11 +16,6 @@ var (
 	_ providers.ReasoningProgressArmer = (*SeedToolCallChatWriter)(nil)
 )
 
-// SeedToolCallChatWriter rewrites an OpenAI chat/completions response whose
-// content is a leading Seed-style tool call (see seed_tool_call.go) into a
-// structured tool_calls response with finish_reason "tool_calls". Content is
-// held only while it could still be that markup; anything else, including
-// unparseable markup, reaches the client unchanged.
 type SeedToolCallChatWriter struct {
 	inner      http.ResponseWriter
 	flusher    http.Flusher
@@ -40,15 +35,11 @@ type SeedToolCallChatWriter struct {
 	convertedCount int
 }
 
-// NewSeedToolCallChatWriter wraps inner. names comes from
-// RequestEnvelope.SeedToolCallNames; only calls naming one of its keys are
-// converted. Call Finalize after the upstream returns.
 func NewSeedToolCallChatWriter(inner http.ResponseWriter, names map[string]string) *SeedToolCallChatWriter {
 	flusher, _ := inner.(http.Flusher)
 	return &SeedToolCallChatWriter{inner: inner, flusher: flusher, names: names}
 }
 
-// ConvertedToolCalls reports how many tool calls were recovered from markup.
 func (w *SeedToolCallChatWriter) ConvertedToolCalls() int { return w.convertedCount }
 
 func (w *SeedToolCallChatWriter) Header() http.Header { return w.inner.Header() }
@@ -72,8 +63,6 @@ func (w *SeedToolCallChatWriter) Flush() {
 	}
 }
 
-// ArmOutputProgress forwards the output-stall watchdog hook and keeps mark,
-// since content held as a candidate call never reaches the inner writer.
 func (w *SeedToolCallChatWriter) ArmOutputProgress(mark func()) bool {
 	arm, ok := w.inner.(providers.OutputProgressArmer)
 	if !ok || !arm.ArmOutputProgress(mark) {
@@ -83,7 +72,6 @@ func (w *SeedToolCallChatWriter) ArmOutputProgress(mark func()) bool {
 	return true
 }
 
-// ArmReasoningProgress forwards the reasoning-progress hook.
 func (w *SeedToolCallChatWriter) ArmReasoningProgress(mark func()) bool {
 	arm, ok := w.inner.(providers.ReasoningProgressArmer)
 	return ok && arm.ArmReasoningProgress(mark)
@@ -126,8 +114,6 @@ func (w *SeedToolCallChatWriter) Write(chunk []byte) (int, error) {
 	return len(chunk), nil
 }
 
-// Finalize flushes held bytes: a non-streaming body is rewritten whole, and a
-// stream that ended without a terminal releases any held text unchanged.
 func (w *SeedToolCallChatWriter) Finalize() error {
 	if !w.streaming {
 		if w.pending.Len() == 0 {
@@ -203,8 +189,6 @@ func (w *SeedToolCallChatWriter) writeRecord(record []byte) error {
 	return w.writeChunk(rewritten)
 }
 
-// resolveStream ends the gate at the turn's terminal. finish is the terminal
-// chunk to rewrite and forward, or nil at a bare [DONE].
 func (w *SeedToolCallChatWriter) resolveStream(finish []byte) error {
 	if w.resolved {
 		return nil
@@ -215,8 +199,6 @@ func (w *SeedToolCallChatWriter) resolveStream(finish []byte) error {
 	if template == nil {
 		template = w.lastChunk
 	}
-	// A turn that also streamed structured calls keeps its markup as text
-	// rather than mixing recovered calls into the upstream's indices.
 	if ok && !w.sawToolCalls {
 		w.convertedCount = len(calls)
 		if err := w.writeChunk(chatChunkWith(template, func(c []byte) []byte {
@@ -286,8 +268,6 @@ func (w *SeedToolCallChatWriter) rewriteResponse(body []byte) []byte {
 	return rewritten
 }
 
-// chatChunkWith derives a synthetic chunk from an upstream one, keeping its
-// id/model/created envelope and first choice only.
 func chatChunkWith(template []byte, edit func([]byte) []byte) []byte {
 	chunk := []byte(`{}`)
 	for _, field := range []string{"id", "object", "created", "model", "system_fingerprint"} {

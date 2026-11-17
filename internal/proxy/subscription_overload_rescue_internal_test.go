@@ -294,7 +294,7 @@ func TestSubscriptionSiblingAllowed(t *testing.T) {
 // never qualifies and the mark expires with its cooldown.
 func TestAuthorizeSubscriptionAPI_ProviderOverloadAuthorizesPaidRescue(t *testing.T) {
 	now := time.Now()
-	svc := &Service{now: func() time.Time { return now }}
+	svc := &Service{clock: func() time.Time { return now }}
 	ctx := WithManagedSubscriptionUsage(context.Background())
 	ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "acct-1", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive}})
 

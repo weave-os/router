@@ -14,26 +14,19 @@ import (
 	"weave-os/router/internal/sqlc"
 )
 
-// ErrTaskProfileCapacity reports that every inference transaction slot stayed busy for the
-// bounded wait; it is capacity pressure, not a classifier or request timeout.
 var ErrTaskProfileCapacity = errors.New("task profile transaction capacity reached")
 
-// slotWait bounds how long a first turn waits for an inference transaction slot, leaving
-// most of the request's taskdomain.Timeout for classification itself.
 const slotWait = time.Second
 
-// TaskDomainRepo bounds connections held by optional first-turn inference.
 type TaskDomainRepo struct {
 	pool         *pgxpool.Pool
 	transactions *semaphore.Weighted
 }
 
-// NewTaskDomainRepo requires the writable router database.
 func NewTaskDomainRepo(pool *pgxpool.Pool) *TaskDomainRepo {
 	return &TaskDomainRepo{pool: pool, transactions: semaphore.NewWeighted(2)}
 }
 
-// Resolve commits one terminal profile under a row lock shared by all workers.
 func (r *TaskDomainRepo) Resolve(ctx context.Context, key taskdomain.Key, resume bool, classify func(context.Context) taskdomain.Outcome) (taskdomain.Outcome, error) {
 	if !taskdomain.ValidDigest(key.Conversation) || !taskdomain.ValidDigest(key.Release) || !taskdomain.ValidDigest(key.Evidence) || (!resume && !taskdomain.ValidDigest(key.Root)) {
 		return taskdomain.Outcome{}, errors.New("invalid task profile identity")
@@ -55,8 +48,6 @@ func (r *TaskDomainRepo) Resolve(ctx context.Context, key taskdomain.Key, resume
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return taskdomain.Outcome{}, err
 	}
-	// Wait briefly for a slot: one that frees moments later is used, but a long wait would
-	// leave classification too little budget and persist a timeout for this task.
 	slotCtx, cancelSlot := context.WithTimeout(ctx, slotWait)
 	err = r.transactions.Acquire(slotCtx, 1)
 	cancelSlot()
@@ -119,7 +110,6 @@ func decodeTaskProfile(encoded []byte, key taskdomain.Key) (taskdomain.Outcome, 
 	return outcome, nil
 }
 
-// Sweep removes expired content-free profiles during the normal worker sweep.
 func (r *TaskDomainRepo) Sweep(ctx context.Context) error {
 	return dbbudget.Queries(r.pool).DeleteExpiredTaskDomainProfiles(ctx)
 }
