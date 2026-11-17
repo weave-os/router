@@ -18,13 +18,6 @@ import (
 
 var _ providers.OutputProgressArmer = (*ResponsesToAnthropicWriter)(nil)
 
-// ResponsesToAnthropicWriter adapts a streaming OpenAI Responses upstream
-// (`POST /v1/responses` with `stream:true`) into an Anthropic Messages
-// response. Streaming clients get incremental Anthropic SSE (reasoning →
-// thinking, output text → text, function_call → tool_use); non-streaming
-// clients get a one-shot JSON body built at Finalize from the terminal
-// `response.completed` event. Exposes the same Prelude/Write/Finalize/Summary
-// surface as AnthropicSSETranslator so the dispatch closure is identical.
 type ResponsesToAnthropicWriter struct {
 	providerUsageState
 	inner        http.ResponseWriter
@@ -32,17 +25,11 @@ type ResponsesToAnthropicWriter struct {
 	bw           *bufio.Writer
 	requestModel string
 	usageSink    UsageSink
-	// messageID: generated fresh per response since Prelude fires message_start
-	// before upstream produces a `resp_...` id (no passthrough possible). Must
-	// be unique — clients like ccusage dedupe usage records by message id, so a
-	// constant id would collapse a session's turns into one undercounted record.
-	messageID string
+	messageID    string
 
 	estimatedInputTokens int
 	requestHadTools      bool
-	// reasoningScope binds minted reasoning signatures to the account+model
-	// serving this attempt, so a later turn on another one cannot replay them.
-	reasoningScope string
+	reasoningScope       string
 
 	buf            bytes.Buffer
 	scanner        sse.Scanner
@@ -50,45 +37,30 @@ type ResponsesToAnthropicWriter struct {
 	streaming      bool
 	headersEmitted bool
 	started        bool
-	// closed guards against a second close after Finalize emits the trailer.
-	closed bool
+	closed         bool
 
-	// Reasoning resets the stall clock without changing output latency/throughput.
 	onOutputProgress    func()
 	onReasoningProgress func()
 
-	// blockIdx is the next Anthropic content-block index to assign.
-	blockIdx int
-	// itemBlocks maps an output_index to its Anthropic content block index, so
-	// deltas stay correlated to the right block regardless of event ordering.
-	itemBlocks map[int]int
-	// itemKind records the Anthropic block kind per output_index so the matching
-	// output_item.done can close it correctly.
+	blockIdx                  int
+	itemBlocks                map[int]int
 	itemKind                  map[int]string
 	reasoningSignatures       map[int]string
 	pendingReasoningSignature string
 	emittedTools              map[int]struct{}
 	outputLimitReached        bool
-	// toolValidator validates/repairs tool args against the request's schemas
-	// (see toolcheck); nil means syntax-check-only (no tools in the request).
-	toolValidator *toolcheck.Validator
-	// toolCallIssues collects every validation/repair finding so the proxy
-	// can emit per-block router.tool_call_invalid telemetry from Summary.
-	toolCallIssues []toolcheck.Issue
+	toolValidator             *toolcheck.Validator
+	toolCallIssues            []toolcheck.Issue
 
-	// Captured from the terminal response.completed/.failed/.incomplete event.
 	finalStopReason string
 	hasUsage        bool
 
-	// Summary fields.
 	toolUseCount      int
 	emittedStopReason string
 	lifecycle         *StreamLifecycle
 	toolLedger        *ToolCallLedger
 }
 
-// NewResponsesToAnthropicWriter wraps w to translate a streaming Responses
-// upstream into Anthropic for the client.
 func NewResponsesToAnthropicWriter(w http.ResponseWriter, requestModel string, sink UsageSink) *ResponsesToAnthropicWriter {
 	flusher, _ := w.(http.Flusher)
 	return &ResponsesToAnthropicWriter{
@@ -108,16 +80,11 @@ func NewResponsesToAnthropicWriter(w http.ResponseWriter, requestModel string, s
 	}
 }
 
-// WithToolValidator installs the request's compiled tool-schema validator so
-// emitted tool args are validated and repaired before reaching the client.
 func (t *ResponsesToAnthropicWriter) WithToolValidator(v *toolcheck.Validator) *ResponsesToAnthropicWriter {
 	t.toolValidator = v
 	return t
 }
 
-// WithReasoningScope binds the reasoning signatures this writer mints to the
-// upstream account+model serving the attempt; only a later turn dispatched to
-// the same one replays them.
 func (t *ResponsesToAnthropicWriter) WithReasoningScope(scope string) *ResponsesToAnthropicWriter {
 	t.reasoningScope = scope
 	return t
@@ -135,8 +102,6 @@ func (t *ResponsesToAnthropicWriter) WithRequestHadTools(hadTools bool) *Respons
 	return t
 }
 
-// ArmOutputProgress installs the output-only callback. Call after Prelude;
-// buffered clients decline because they parse only at Finalize.
 func (t *ResponsesToAnthropicWriter) ArmOutputProgress(mark func()) (armed bool) {
 	if !t.streaming {
 		return false
@@ -145,8 +110,6 @@ func (t *ResponsesToAnthropicWriter) ArmOutputProgress(mark func()) (armed bool)
 	return true
 }
 
-// ArmReasoningProgress installs the stall-only callback for advancing reasoning.
-// Call after Prelude; buffered clients decline.
 func (t *ResponsesToAnthropicWriter) ArmReasoningProgress(mark func()) (armed bool) {
 	if !t.streaming {
 		return false
@@ -169,8 +132,6 @@ func (t *ResponsesToAnthropicWriter) markOutputProgress() {
 
 func (t *ResponsesToAnthropicWriter) Header() http.Header { return t.inner.Header() }
 
-// WriteHeader captures the upstream status. The streaming decision is the
-// CLIENT's, committed in Prelude, so we never flip to SSE here.
 func (t *ResponsesToAnthropicWriter) WriteHeader(code int) {
 	if t.headersEmitted {
 		return
@@ -178,8 +139,6 @@ func (t *ResponsesToAnthropicWriter) WriteHeader(code int) {
 	t.statusCode = code
 }
 
-// Write receives upstream Responses bytes: streams parse and translate SSE
-// events on the fly; non-streaming buffers the raw stream for Finalize.
 func (t *ResponsesToAnthropicWriter) Write(data []byte) (int, error) {
 	n := len(data)
 	t.buf.Write(data)
@@ -195,8 +154,6 @@ func (t *ResponsesToAnthropicWriter) Flush() {
 	}
 }
 
-// Prelude eagerly commits SSE headers + message_start for
-// streaming clients, so the envelope arrives while upstream is still reasoning.
 func (t *ResponsesToAnthropicWriter) Prelude(streaming bool) error {
 	if !streaming || t.started {
 		return nil
@@ -218,9 +175,6 @@ func (t *ResponsesToAnthropicWriter) Prelude(streaming bool) error {
 	return nil
 }
 
-// Finalize emits the streaming trailer (message_delta + message_stop) for a
-// streaming client, or renders the buffered stream as one-shot Anthropic JSON
-// for a non-streaming client.
 func (t *ResponsesToAnthropicWriter) Finalize() error {
 	if t.streaming {
 		if t.closed {
@@ -255,8 +209,6 @@ func (t *ResponsesToAnthropicWriter) Summary() ResponseSummary {
 	}
 }
 
-// --- streaming path ---
-
 func (t *ResponsesToAnthropicWriter) processResponsesSSEBuffer() error {
 	for {
 		event, n := t.scanner.Next(t.buf.Bytes())
@@ -271,8 +223,6 @@ func (t *ResponsesToAnthropicWriter) processResponsesSSEBuffer() error {
 	}
 }
 
-// processFinalResponsesSSETail flushes any buffered SSE bytes that arrived
-// without a trailing blank separator before EOF is classified.
 func (t *ResponsesToAnthropicWriter) processFinalResponsesSSETail() error {
 	if t.buf.Len() == 0 {
 		return nil
@@ -283,8 +233,6 @@ func (t *ResponsesToAnthropicWriter) processFinalResponsesSSETail() error {
 	return t.translateResponsesEvent(event)
 }
 
-// log routes this translator's diagnostics through one observability.Get()
-// call site (see internal/observability's global-logger budget).
 func (t *ResponsesToAnthropicWriter) log() *slog.Logger {
 	return observability.Get()
 }
@@ -303,7 +251,6 @@ func (t *ResponsesToAnthropicWriter) translateResponsesEvent(raw []byte) error {
 			"frame_bytes", len(data))
 		return t.emitStreamErrorEvent("api_error", malformedResponsesFrameMessage)
 	}
-	// Match on the payload type: intermediaries may drop the SSE event name.
 	switch responsesEventType(gjson.GetBytes(data, "type").String()) {
 	case responsesOutputItemAdded:
 		if responsesItemType(gjson.GetBytes(data, "item.type").String()) != responsesReasoningItem {
@@ -323,8 +270,6 @@ func (t *ResponsesToAnthropicWriter) translateResponsesEvent(raw []byte) error {
 		t.bufferToolArgs(data, "delta", true)
 		return nil
 	case "response.function_call_arguments.done":
-		// Terminal event carries the complete arguments; adopt it so a call whose
-		// deltas were absent/lost still emits real params instead of `{}`.
 		t.markOutputProgress()
 		t.bufferToolArgs(data, "arguments", false)
 		return nil
@@ -336,12 +281,8 @@ func (t *ResponsesToAnthropicWriter) translateResponsesEvent(raw []byte) error {
 		}
 		return t.handleOutputItemDone(data)
 	case "error":
-		// Stream-level failure over HTTP 200 — surface it as an Anthropic error
-		// event instead of closing the turn as if it succeeded.
 		return t.emitStreamErrorEvent(responsesErrorEventFailure(data))
 	case "response.failed":
-		// Always an upstream failure; responsesError fills a generic message if
-		// no error object rode along, matching the buffered path's rejection.
 		resp := gjson.GetBytes(data, "response")
 		errType, msg := responsesFailureFromResponse(resp)
 		return t.emitStreamErrorEvent(errType, msg)
@@ -369,6 +310,7 @@ func (t *ResponsesToAnthropicWriter) translateResponsesEvent(raw []byte) error {
 		}
 		t.captureFinalResponse(data)
 		return nil
+	default:
 	}
 	return nil
 }
@@ -398,6 +340,7 @@ func (t *ResponsesToAnthropicWriter) handleOutputItemAdded(data []byte) error {
 		return t.emitContentBlockStartTool(index, t.toolLedger.ProjectID(oi, sanitizeToolUseID), entry.Name)
 	case responsesReasoningItem:
 		t.captureReasoningSignature(oi, item)
+	case responsesMessageItem, responsesCustomToolCallItem, responsesComputerCallItem:
 	}
 	return nil
 }
@@ -446,9 +389,6 @@ func (t *ResponsesToAnthropicWriter) handleOutputItemDone(data []byte) error {
 	}
 	idx, ok := t.itemBlocks[oi]
 	if !ok {
-		// No delta opened a block: some upstreams send full content only on
-		// output_item.done (or output_item.added was lost). Synthesize the block
-		// from the terminal item instead of emitting an empty assistant turn.
 		return t.emitDoneOnlyItem(oi, item)
 	}
 	switch t.itemKind[oi] {
@@ -462,9 +402,6 @@ func (t *ResponsesToAnthropicWriter) handleOutputItemDone(data []byte) error {
 	return t.emitContentBlockStop(idx)
 }
 
-// emitDoneOnlyItem synthesizes a start/delta/stop block for an item that never
-// opened one via streamed deltas (full content arrived only on done, or added
-// was lost), so a delta-less item still produces content.
 func (t *ResponsesToAnthropicWriter) emitDoneOnlyItem(oi int, item gjson.Result) error {
 	switch item.Get("type").String() {
 	case "function_call":
@@ -524,8 +461,6 @@ func (t *ResponsesToAnthropicWriter) captureReasoningSignature(oi int, item gjso
 	}
 }
 
-// openBlock returns the Anthropic block index for output_index oi, opening a
-// new block of the given kind (text/thinking) on first use.
 func (t *ResponsesToAnthropicWriter) openBlock(oi int, kind string) (int, error) {
 	if idx, ok := t.itemBlocks[oi]; ok {
 		return idx, nil
@@ -540,8 +475,6 @@ func (t *ResponsesToAnthropicWriter) openBlock(oi int, kind string) (int, error)
 	return idx, t.emitContentBlockStartText(idx)
 }
 
-// captureFinalResponse records usage + stop reason from a terminal event's
-// nested `response` object.
 func (t *ResponsesToAnthropicWriter) captureFinalResponse(data []byte) {
 	resp := gjson.GetBytes(data, "response")
 	if !resp.Exists() {
@@ -574,8 +507,6 @@ func (t *ResponsesToAnthropicWriter) captureFinalResponse(data []byte) {
 }
 
 func (t *ResponsesToAnthropicWriter) finishStream() error {
-	// Tool calls settle before the terminal transition; close remaining
-	// text/thinking blocks after a successful terminal event.
 	for oi, idx := range t.itemBlocks {
 		switch t.itemKind[oi] {
 		case "thinking":
@@ -612,8 +543,6 @@ func (t *ResponsesToAnthropicWriter) hasPendingOutput() bool {
 	return false
 }
 
-// emitTerminalOutput covers a valid Responses stream whose terminal envelope
-// carries completed output but whose item events were dropped in transit.
 func (t *ResponsesToAnthropicWriter) emitTerminalOutput(resp gjson.Result) error {
 	var emitErr error
 	index := 0
@@ -629,10 +558,6 @@ func (t *ResponsesToAnthropicWriter) emitTerminalOutput(resp gjson.Result) error
 	return emitErr
 }
 
-// reconciledStopReason enforces that a turn with tool_use blocks reports
-// stop_reason "tool_use" and one without never does, independent of the
-// terminal Responses payload (which can be absent or disagree with what
-// actually streamed). Mirrors AnthropicSSETranslator.emitMessageDelta.
 func (t *ResponsesToAnthropicWriter) reconciledStopReason() string {
 	switch {
 	case t.toolUseCount > 0:
@@ -640,17 +565,12 @@ func (t *ResponsesToAnthropicWriter) reconciledStopReason() string {
 	case t.outputLimitReached:
 		return "max_tokens"
 	case t.finalStopReason == "" || t.finalStopReason == "tool_use":
-		// No terminal event, or it claimed tool_use with no block surviving.
 		return "end_turn"
 	default:
 		return t.finalStopReason
 	}
 }
 
-// --- non-streaming path ---
-
-// finalizeBuffered renders the buffered stream as a one-shot Anthropic JSON
-// body, extracting the final `response` object and reusing ResponsesToAnthropicResponse.
 func (t *ResponsesToAnthropicWriter) finalizeBuffered() error {
 	if t.statusCode >= 400 {
 		return t.finalizeError()
@@ -660,7 +580,6 @@ func (t *ResponsesToAnthropicWriter) finalizeBuffered() error {
 		t.log().Error("ResponsesToAnthropic: no terminal response event in stream")
 		return t.finalizeError()
 	}
-	// Only max_output_tokens is a valid incomplete terminal response.
 	resp := gjson.ParseBytes(finalResp)
 	if responsesTerminalIsFailure(resp) {
 		errType, errMsg := responsesFailureFromResponse(resp)
@@ -686,8 +605,6 @@ func (t *ResponsesToAnthropicWriter) finalizeBuffered() error {
 		return t.finalizeEmptyCompletion()
 	}
 	root := gjson.ParseBytes(anthropic)
-	// Anthropic body is fresh-only for the client; sink keeps OpenAI's cache-inclusive
-	// count so EffectiveInputCost can apply the correct multipliers.
 	recordOutputLimit(t.usageSink, responsesOutputLimitReached(resp))
 	t.emittedStopReason = root.Get("stop_reason").String()
 	root.Get("content").ForEach(func(_, block gjson.Result) bool {
@@ -712,8 +629,6 @@ func (t *ResponsesToAnthropicWriter) recordOpenAIUsage(object gjson.Result) {
 	t.hasUsage = facts.Present
 }
 
-// finalizeError renders a one-shot Anthropic error body. Streaming errors are
-// instead rendered by the dispatch's emitAnthropicSSEErrorEvent before Finalize.
 func (t *ResponsesToAnthropicWriter) finalizeError() error {
 	if err := bufferedContextOverflow(t.buf.Bytes(), responsesErrorBody); err != nil {
 		return err
@@ -736,10 +651,6 @@ func (t *ResponsesToAnthropicWriter) finalizeEmptyCompletion() error {
 	return emptyCompletionAnthropicError()
 }
 
-// anthropicErrorFromBuffer builds an error envelope from buf. With stream:true
-// buf is raw SSE, not a JSON error body, so this scans for a terminal `error`
-// event or failed response's error instead of feeding it directly to
-// ResponsesToAnthropicError (which would yield an empty message).
 func (t *ResponsesToAnthropicWriter) anthropicErrorFromBuffer() []byte {
 	b := t.buf.Bytes()
 	if gjson.ValidBytes(b) && gjson.GetBytes(b, "error").Exists() {
@@ -751,9 +662,6 @@ func (t *ResponsesToAnthropicWriter) anthropicErrorFromBuffer() []byte {
 	return responsesError("api_error", "upstream Responses stream ended without a terminal response event")
 }
 
-// responsesFailureFromResponse extracts an error type/message from a
-// response.failed terminal event's `response` object. A parsed error type is
-// kept even if the message is empty and a fallback is used.
 func responsesFailureFromResponse(resp gjson.Result) (errType, msg string) {
 	if !resp.Exists() {
 		return "", ""
@@ -778,10 +686,6 @@ func responsesFailureFromResponse(resp gjson.Result) (errType, msg string) {
 
 const malformedResponsesFrameMessage = "upstream sent a malformed Responses event"
 
-// malformedResponsesFrame reports whether an SSE payload is not parseable JSON.
-// Skipping silently would present a dropped-content turn as a clean completion;
-// a `[DONE]` sentinel is tolerated since gateways emit it even though Responses
-// terminates on response.completed.
 func malformedResponsesFrame(data []byte) bool {
 	if bytes.Equal(bytes.TrimSpace(data), []byte("[DONE]")) {
 		return false
@@ -789,21 +693,6 @@ func malformedResponsesFrame(data []byte) bool {
 	return !gjson.ValidBytes(data)
 }
 
-func responsesTerminalIsFailure(resp gjson.Result) bool {
-	if !resp.Exists() {
-		return true
-	}
-	if resp.Get("status").String() == "failed" {
-		return true
-	}
-	if err := resp.Get("error"); err.Exists() && err.Type != gjson.Null {
-		return true
-	}
-	return resp.Get("status").String() == "incomplete" && resp.Get("incomplete_details.reason").String() != "max_output_tokens"
-}
-
-// responsesError builds an Anthropic error envelope from a Responses-style
-// type/message pair via ResponsesToAnthropicError, keeping the wire shape single-sourced.
 func responsesError(errType, msg string) []byte {
 	return ResponsesToAnthropicError(responsesErrorBody(errType, msg))
 }
@@ -828,8 +717,6 @@ func responsesErrorBody(errType, msg string) []byte {
 	return jw.Bytes()
 }
 
-// extractFinalResponseObject scans a buffered SSE stream for the last terminal
-// event and returns its nested `response` object as raw JSON, or nil.
 func extractFinalResponseObject(sseBytes []byte) []byte {
 	var out []byte
 	rest := sseBytes
@@ -852,8 +739,6 @@ func extractFinalResponseObject(sseBytes []byte) []byte {
 	}
 	return out
 }
-
-// --- Anthropic SSE frame emitters (wire shapes mirror AnthropicSSETranslator) ---
 
 func (t *ResponsesToAnthropicWriter) emitMessageStart() error {
 	model := t.requestModel
@@ -1020,8 +905,6 @@ func (t *ResponsesToAnthropicWriter) emitMessageStop() error {
 	return t.flushEvent()
 }
 
-// emitStreamErrorEvent returns pre-output failures to dispatch for fallback;
-// after output starts it emits an error frame because the stream is committed.
 func (t *ResponsesToAnthropicWriter) emitStreamErrorEvent(errType, msg string) error {
 	if t.lifecycle.State() == StreamStarted {
 		if err := t.lifecycle.Fail(); err != nil {

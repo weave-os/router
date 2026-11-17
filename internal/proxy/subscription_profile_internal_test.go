@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
@@ -15,6 +14,8 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
+
+	"github.com/stretchr/testify/require"
 )
 
 type subscriptionPlanReaderFunc func(context.Context, []byte) (providers.SubscriptionPlan, error)
@@ -46,7 +47,7 @@ func TestSubscriptionProfileCacheIsCredentialScopedAndExpires(t *testing.T) {
 		}
 		return providers.SubscriptionPlanMax, nil
 	}))
-	service.now = func() time.Time { return now }
+	service.clock = func() time.Time { return now }
 	for range 2 {
 		for _, token := range []string{"sk-ant-oat01-enterprise", "sk-ant-oat01-ordinary"} {
 			ctx := service.withClaudeSubscriptionProfile(routerKeyedCtx(), http.Header{"Authorization": []string{"Bearer " + token}})
@@ -123,7 +124,7 @@ func TestSkippedPoolSeatDoesNotSetTheServedPlan(t *testing.T) {
 			ctx := managedSubscriptionTestContext()
 			_, _, _, err := service.leaseManagedSubscription(ctx, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String())
 			require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
-			state := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+			state := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{}))
 			require.Empty(t, state.ClaudeSubscriptionPlan, "a seat excluded before dispatch cannot become the request's served plan")
 			require.Equal(t, plan == providers.SubscriptionPlanUnknown, state.ClaudePlanUnverified)
 		})
@@ -132,7 +133,7 @@ func TestSkippedPoolSeatDoesNotSetTheServedPlan(t *testing.T) {
 
 func TestEnterpriseSeatDoesNotMarkAnIndependentNonClaudeTurn(t *testing.T) {
 	ctx := WithManagedSubscriptionUsage(context.Background())
-	state := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	state := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{}))
 	state.ClaudeSubscriptionPlan = providers.SubscriptionPlanEnterprise
 	nonClaude := withClaudeEnterpriseTurn(ctx, router.Decision{Provider: providers.ProviderGoogle, Model: catalog.ModelIDGemini31ProPreview.String()})
 	require.False(t, claudeEnterpriseTurn(nonClaude))

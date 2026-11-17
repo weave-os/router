@@ -14,7 +14,7 @@ import (
 )
 
 // Anthropic Messages requires max_tokens; we inject a per-model default when
-// absent. Always-on adaptive targets receive the reasoning floor.
+// absent. Always-on adaptive targets receive room for reasoning and long tool calls.
 
 func TestAnthropicSameFormat_DefaultMaxTokensInjectedWhenAbsent(t *testing.T) {
 	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"}]}`)
@@ -23,7 +23,7 @@ func TestAnthropicSameFormat_DefaultMaxTokensInjectedWhenAbsent(t *testing.T) {
 		Capabilities: router.Lookup("claude-opus-4-7"),
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
-	assert.Equal(t, float64(16000), out["max_tokens"])
+	assert.InDelta(t, float64(64000), out["max_tokens"], 1e-9)
 }
 
 func TestAnthropicSameFormat_ExistingMaxTokensUnchanged(t *testing.T) {
@@ -33,7 +33,7 @@ func TestAnthropicSameFormat_ExistingMaxTokensUnchanged(t *testing.T) {
 		Capabilities: router.Lookup("claude-opus-4-7"),
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
-	assert.Equal(t, float64(1024), out["max_tokens"])
+	assert.InDelta(t, float64(1024), out["max_tokens"], 1e-9)
 }
 
 func TestMythos52AnthropicOutputLimit(t *testing.T) {
@@ -42,7 +42,7 @@ func TestMythos52AnthropicOutputLimit(t *testing.T) {
 	for _, tc := range []struct{ requested, want int }{{128000, 128000}, {200000, 128000}} {
 		body := []byte(fmt.Sprintf(`{"model":"claude-opus-5","messages":[{"role":"user","content":"hi"}],"max_tokens":%d}`, tc.requested))
 		out := parseAndEmit(t, body, "anthropic", opts)
-		assert.Equal(t, float64(tc.want), out["max_tokens"])
+		assert.InDelta(t, float64(tc.want), out["max_tokens"], 1e-9)
 	}
 }
 
@@ -54,17 +54,17 @@ func TestPrepareAnthropic_ClampsTitleGenerationOutputToHaikuLimit(t *testing.T) 
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
 	assert.Equal(t, "claude-haiku-4-5", out["model"])
-	assert.Equal(t, float64(64000), out["max_tokens"])
+	assert.InDelta(t, float64(64000), out["max_tokens"], 1e-9)
 
 	validBody := []byte(`{"model":"claude-opus-5-5","max_tokens":32000,"messages":[{"role":"user","content":"Give this conversation a title"}]}`)
 	validOutput := parseAndEmit(t, validBody, "anthropic", opts)
-	assert.Equal(t, float64(32000), validOutput["max_tokens"])
+	assert.InDelta(t, float64(32000), validOutput["max_tokens"], 1e-9)
 
 	opusOutput := parseAndEmit(t, body, "anthropic", translate.EmitOptions{
 		TargetModel:  "claude-opus-5-5",
 		Capabilities: router.Lookup("claude-opus-5-5"),
 	})
-	assert.Equal(t, float64(128000), opusOutput["max_tokens"])
+	assert.InDelta(t, float64(128000), opusOutput["max_tokens"], 1e-9)
 }
 
 func TestPrepareAnthropic_ClampsCrossFormatOutputToHaikuLimit(t *testing.T) {
@@ -78,7 +78,7 @@ func TestPrepareAnthropic_ClampsCrossFormatOutputToHaikuLimit(t *testing.T) {
 	require.NoError(t, err)
 	var output map[string]any
 	require.NoError(t, json.Unmarshal(prepared.Body, &output))
-	assert.Equal(t, float64(64000), output["max_tokens"])
+	assert.InDelta(t, float64(64000), output["max_tokens"], 1e-9)
 }
 
 func TestAnthropicSameFormat_AdaptiveDefaultsHaveReasoningHeadroom(t *testing.T) {
@@ -91,14 +91,14 @@ func TestAnthropicSameFormat_AdaptiveDefaultsHaveReasoningHeadroom(t *testing.T)
 			out := parseAndEmit(t, body, "anthropic", translate.EmitOptions{
 				TargetModel: model, Capabilities: router.Lookup(model),
 			})
-			assert.Equal(t, float64(16000), out["max_tokens"])
+			assert.InDelta(t, float64(64000), out["max_tokens"], 1e-9)
 		})
 	}
 
 	control := parseAndEmit(t, body, "anthropic", translate.EmitOptions{
 		TargetModel: "claude-opus-4-5", Capabilities: router.Lookup("claude-opus-4-5"),
 	})
-	assert.Equal(t, float64(8192), control["max_tokens"])
+	assert.InDelta(t, float64(8192), control["max_tokens"], 1e-9)
 }
 
 func TestAnthropicCrossFormat_AdaptiveDefaultHasReasoningHeadroom(t *testing.T) {
@@ -112,7 +112,7 @@ func TestAnthropicCrossFormat_AdaptiveDefaultHasReasoningHeadroom(t *testing.T) 
 	require.NoError(t, err)
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(prep.Body, &out))
-	assert.Equal(t, float64(16000), out["max_tokens"])
+	assert.InDelta(t, float64(64000), out["max_tokens"], 1e-9)
 
 	responsesBody := []byte(`{"model":"gpt-5","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}]}`)
 	conversion, err := translate.ConvertResponsesToChatCompletions(responsesBody)
@@ -125,7 +125,7 @@ func TestAnthropicCrossFormat_AdaptiveDefaultHasReasoningHeadroom(t *testing.T) 
 	})
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(prep.Body, &out))
-	assert.Equal(t, float64(16000), out["max_tokens"])
+	assert.InDelta(t, float64(64000), out["max_tokens"], 1e-9)
 }
 
 func TestOpenAISameFormat_DefaultMaxTokensInjectedForNonReasoningTarget(t *testing.T) {
@@ -135,7 +135,7 @@ func TestOpenAISameFormat_DefaultMaxTokensInjectedForNonReasoningTarget(t *testi
 		Capabilities: router.Lookup("gpt-4o"),
 	}
 	out := parseAndEmit(t, body, "openai", opts)
-	assert.Equal(t, float64(8192), out["max_tokens"])
+	assert.InDelta(t, float64(8192), out["max_tokens"], 1e-9)
 	assert.NotContains(t, out, "max_completion_tokens")
 }
 
@@ -146,7 +146,7 @@ func TestOpenAISameFormat_DefaultMaxCompletionTokensInjectedForReasoningTarget(t
 		Capabilities: router.Lookup("o3"),
 	}
 	out := parseAndEmit(t, body, "openai", opts)
-	assert.Equal(t, float64(8192), out["max_completion_tokens"])
+	assert.InDelta(t, float64(8192), out["max_completion_tokens"], 1e-9)
 	assert.NotContains(t, out, "max_tokens")
 }
 
@@ -159,7 +159,7 @@ func TestOpenAISameFormat_DefaultRespectsLowerPerModelCap(t *testing.T) {
 		Capabilities: router.Lookup("gpt-4-turbo"),
 	}
 	out := parseAndEmit(t, body, "openai", opts)
-	assert.Equal(t, float64(4096), out["max_tokens"])
+	assert.InDelta(t, float64(4096), out["max_tokens"], 1e-9)
 }
 
 // gpt-4.1 caps at 32768 above the global default (8192); the global cap is
@@ -171,7 +171,7 @@ func TestOpenAISameFormat_DefaultCappedByGlobalCap(t *testing.T) {
 		Capabilities: router.Lookup("gpt-4.1"),
 	}
 	out := parseAndEmit(t, body, "openai", opts)
-	assert.Equal(t, float64(8192), out["max_tokens"])
+	assert.InDelta(t, float64(8192), out["max_tokens"], 1e-9)
 }
 
 func TestOpenAISameFormat_DefaultNotInjectedWhenMaxTokensPresent(t *testing.T) {
@@ -181,7 +181,7 @@ func TestOpenAISameFormat_DefaultNotInjectedWhenMaxTokensPresent(t *testing.T) {
 		Capabilities: router.Lookup("gpt-4o"),
 	}
 	out := parseAndEmit(t, body, "openai", opts)
-	assert.Equal(t, float64(512), out["max_tokens"])
+	assert.InDelta(t, float64(512), out["max_tokens"], 1e-9)
 }
 
 func TestOpenAISameFormat_DefaultNotInjectedWhenMaxCompletionTokensPresent(t *testing.T) {
@@ -191,7 +191,7 @@ func TestOpenAISameFormat_DefaultNotInjectedWhenMaxCompletionTokensPresent(t *te
 		Capabilities: router.Lookup("o3"),
 	}
 	out := parseAndEmit(t, body, "openai", opts)
-	assert.Equal(t, float64(512), out["max_completion_tokens"])
+	assert.InDelta(t, float64(512), out["max_completion_tokens"], 1e-9)
 	assert.NotContains(t, out, "max_tokens")
 }
 
@@ -207,7 +207,7 @@ func TestCrossFormat_OpenAIToAnthropic_DefaultMaxTokensInjectedWhenAbsent(t *tes
 	require.NoError(t, err)
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(prep.Body, &out))
-	assert.Equal(t, float64(16000), out["max_tokens"])
+	assert.InDelta(t, float64(64000), out["max_tokens"], 1e-9)
 }
 
 // Source omits max_tokens, non-reasoning target: injection populates max_tokens.
@@ -222,7 +222,7 @@ func TestCrossFormat_AnthropicToOpenAI_DefaultMaxTokensInjectedWhenAbsent(t *tes
 	require.NoError(t, err)
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(prep.Body, &out))
-	assert.Equal(t, float64(8192), out["max_tokens"])
+	assert.InDelta(t, float64(8192), out["max_tokens"], 1e-9)
 }
 
 // Reasoning target: injection, rename to max_completion_tokens, and the
@@ -238,7 +238,7 @@ func TestCrossFormat_AnthropicToOpenAI_DefaultMaxCompletionTokensForReasoning(t 
 	require.NoError(t, err)
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(prep.Body, &out))
-	assert.Equal(t, float64(16000), out["max_completion_tokens"])
+	assert.InDelta(t, float64(16000), out["max_completion_tokens"], 1e-9)
 	assert.NotContains(t, out, "max_tokens")
 }
 
@@ -268,7 +268,7 @@ func TestAnthropicSameFormat_ExplicitMaxTokensClampsToHaiku55Ceiling(t *testing.
 		Capabilities: router.Lookup("claude-haiku-5-5"),
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
-	assert.Equal(t, float64(128000), out["max_tokens"])
+	assert.InDelta(t, float64(128000), out["max_tokens"], 1e-9)
 }
 
 // Regression: an explicit max_tokens is clamped to modelMaxOutputTokens, whose
@@ -282,7 +282,7 @@ func TestOpenAISameFormat_ExplicitMaxTokensClampsToKimiK3Ceiling(t *testing.T) {
 		Capabilities: router.Lookup("moonshotai/kimi-k3"),
 	}
 	out := parseAndEmit(t, body, "openai", opts)
-	assert.Equal(t, float64(32000), out["max_tokens"])
+	assert.InDelta(t, float64(32000), out["max_tokens"], 1e-9)
 }
 
 // Regression: qwen/qwen3.8-max was absent from modelMaxOutputTokens, so
@@ -294,7 +294,7 @@ func TestOpenAISameFormat_ExplicitMaxTokensNotClampedTo8192ForQwen38Max(t *testi
 		Capabilities: router.Lookup("qwen/qwen3.8-max"),
 	}
 	out := parseAndEmit(t, body, "openai", opts)
-	assert.Equal(t, float64(32000), out["max_tokens"])
+	assert.InDelta(t, float64(32000), out["max_tokens"], 1e-9)
 }
 
 // Regression: GPT-6 Astra supports 128K output, so its always-on reasoning
@@ -306,7 +306,7 @@ func TestOpenAISameFormat_ExplicitMaxTokensNotClampedTo8192ForGPT6Astra(t *testi
 		Capabilities: router.Lookup("gpt-6-astra"),
 	}
 	out := parseAndEmit(t, body, "openai", opts)
-	assert.Equal(t, float64(64000), out["max_completion_tokens"])
+	assert.InDelta(t, float64(64000), out["max_completion_tokens"], 1e-9)
 	assert.NotContains(t, out, "max_tokens")
 }
 
@@ -317,7 +317,7 @@ func TestOpenAISameFormat_ExplicitMaxTokensNotClampedTo8192ForGPT61Sol(t *testin
 		Capabilities: router.Lookup("gpt-6.1-sol"),
 	}
 	out := parseAndEmit(t, body, "openai", opts)
-	assert.Equal(t, float64(64000), out["max_completion_tokens"])
+	assert.InDelta(t, float64(64000), out["max_completion_tokens"], 1e-9)
 	assert.NotContains(t, out, "max_tokens")
 }
 
@@ -331,7 +331,7 @@ func TestOpenAISameFormat_ExplicitMaxTokensNotClampedTo8192ForGLM53(t *testing.T
 			Capabilities: router.Lookup(model),
 		}
 		out := parseAndEmit(t, body, "openai", opts)
-		assert.Equal(t, float64(64000), out["max_tokens"], model)
+		assert.InDelta(t, float64(64000), out["max_tokens"], 1e-9, model)
 	}
 }
 
@@ -345,7 +345,7 @@ func TestOpenAISameFormat_BedrockQwenClampedAt16384Ceiling(t *testing.T) {
 			Capabilities: router.Lookup(model),
 		}
 		out := parseAndEmit(t, body, "openai", opts)
-		assert.Equal(t, float64(16384), out["max_tokens"], model)
+		assert.InDelta(t, float64(16384), out["max_tokens"], 1e-9, model)
 	}
 }
 
@@ -358,7 +358,7 @@ func TestOpenAISameFormat_Qwen38MaxClampsAt64000Ceiling(t *testing.T) {
 		Capabilities: router.Lookup("qwen/qwen3.8-max"),
 	}
 	out := parseAndEmit(t, body, "openai", opts)
-	assert.Equal(t, float64(64000), out["max_tokens"])
+	assert.InDelta(t, float64(64000), out["max_tokens"], 1e-9)
 }
 
 func TestOpenAISameFormat_GPT56ProClampsAt128000Ceiling(t *testing.T) {
@@ -369,7 +369,7 @@ func TestOpenAISameFormat_GPT56ProClampsAt128000Ceiling(t *testing.T) {
 			Capabilities: router.Lookup(model),
 		}
 		out := parseAndEmit(t, body, "openai", opts)
-		assert.Equal(t, float64(128000), out["max_completion_tokens"], model)
+		assert.InDelta(t, float64(128000), out["max_completion_tokens"], 1e-9, model)
 		assert.NotContains(t, out, "max_tokens", model)
 	}
 }
@@ -387,5 +387,22 @@ func TestCrossFormat_AnthropicToOpenAI_Qwen38MaxExplicitMaxTokensPassedThrough(t
 	require.NoError(t, err)
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(prep.Body, &out))
-	assert.Equal(t, float64(64000), out["max_tokens"])
+	assert.InDelta(t, float64(64000), out["max_tokens"], 1e-9)
+}
+
+// Codex sends no max_output_tokens; a 16k default cut long code-mode exec
+// calls off mid tool_use on always-on adaptive targets (prod 2026-11).
+func TestAnthropicCrossFormat_CodexDefaultLeavesRoomForLongToolCalls(t *testing.T) {
+	responsesBody := []byte(`{"model":"gpt-6-astra","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}]}`)
+	conversion, err := translate.ConvertResponsesToChatCompletions(responsesBody)
+	require.NoError(t, err)
+	env, err := translate.ParseOpenAI(conversion.Body)
+	require.NoError(t, err)
+	for _, model := range []string{"claude-fable-5-2", "claude-opus-5-5", "claude-mythos-5-2"} {
+		prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: model, Capabilities: router.Lookup(model)})
+		require.NoError(t, err)
+		var out map[string]any
+		require.NoError(t, json.Unmarshal(prep.Body, &out))
+		assert.InDelta(t, float64(64000), out["max_tokens"], 1e-9, model)
+	}
 }

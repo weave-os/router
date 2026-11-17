@@ -2,7 +2,6 @@ package selection_test
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -128,7 +127,7 @@ func TestDocsNeitherCorrectsNorDilutes(t *testing.T) {
 	logicAndDocs := fullProfile(selection.DomainLogic)
 	logicAndDocs[selection.DomainDocs] = true
 	assert.Equal(t, []selection.Domain{selection.DomainLogic}, selection.ScoredDomains(logicAndDocs))
-	assert.Equal(t, selection.TaskQualityDelta(selection.ScoredDomains(logicOnly), arm), selection.TaskQualityDelta(selection.ScoredDomains(logicAndDocs), arm))
+	assert.InDelta(t, selection.TaskQualityDelta(selection.ScoredDomains(logicOnly), arm), selection.TaskQualityDelta(selection.ScoredDomains(logicAndDocs), arm), 1e-9)
 	assert.Empty(t, selection.ScoredDomains(fullProfile(selection.DomainDocs)))
 	assert.Empty(t, selection.ScoredDomains(nil))
 	assert.Empty(t, selection.ScoredDomains(selection.DomainProfile{selection.DomainInfra: true}))
@@ -160,7 +159,7 @@ func TestDomainArmWithoutRelevantScoresKeepsItsScore(t *testing.T) {
 		nil, nil, evidence, fullProfile(selection.DomainLogic),
 	)
 	require.True(t, ok)
-	assert.Equal(t, float32(25), scores["low"]["vendor-b/cheap"])
+	assert.InDelta(t, float32(25), scores["low"]["vendor-b/cheap"], 1e-9)
 	assert.Zero(t, components["low"]["vendor-b/cheap"].TaskDomainCorrection)
 	assert.Less(t, scores["low"]["vendor-a/quality"], float32(30))
 }
@@ -228,7 +227,7 @@ func TestDomainZeroCorrectionKeepsNeutralOrder(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "vendor-a/quality", pick.Arm)
 	assert.Equal(t, cluster.Arms, orders["low"])
-	assert.Equal(t, float32(30), scores["low"]["vendor-a/quality"])
+	assert.InDelta(t, float32(30), scores["low"]["vendor-a/quality"], 1e-9)
 }
 
 func TestDomainKeepsUserQualityPreference(t *testing.T) {
@@ -285,7 +284,7 @@ func TestDomainEvidenceRejectsRecipeDriftAndInvalidArms(t *testing.T) {
 			if test.valid {
 				require.NoError(t, err)
 			} else {
-				require.Error(t, err, fmt.Sprintf("%s should fail closed", test.name))
+				require.Error(t, err, "%s should fail closed", test.name)
 			}
 		})
 	}
@@ -314,7 +313,7 @@ func TestDomainInvalidEvidencePreservesBaseline(t *testing.T) {
 			pick, scores, _, order, ok := selection.SelectGroupsWithDomainPreferences(roster, groups, "", candidates, nil, nil, evidence, profile)
 			require.True(t, ok)
 			assert.Equal(t, "vendor-a/quality", pick.Arm)
-			assert.Equal(t, float32(30), scores["low"]["vendor-a/quality"])
+			assert.InDelta(t, float32(30), scores["low"]["vendor-a/quality"], 1e-9)
 			assert.Equal(t, roster.Clusters["low"].Arms, order["low"])
 		})
 	}
@@ -344,7 +343,7 @@ func TestDomainUnlistedScoredArmPreservesBaseline(t *testing.T) {
 			)
 			require.True(t, ok)
 			assert.Equal(t, "vendor-a/quality", pick.Arm)
-			assert.Equal(t, selection.Scores(roster, "low", cluster, test.bias)["vendor-a/quality"], scores["low"]["vendor-a/quality"])
+			assert.InDelta(t, selection.Scores(roster, "low", cluster, test.bias)["vendor-a/quality"], scores["low"]["vendor-a/quality"], 1e-9)
 		})
 	}
 }

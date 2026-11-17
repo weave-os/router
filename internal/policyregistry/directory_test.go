@@ -117,7 +117,7 @@ func TestDirectoryRegistryRejectsTamperedPolicyBytes(t *testing.T) {
 
 func TestDirectoryRegistryFailsClosedOnMissingHeadOrBadSidecarURL(t *testing.T) {
 	_, err := policyregistry.NewDirectoryRegistry(t.TempDir(), "")
-	assert.ErrorIs(t, err, policyregistry.ErrNotFound)
+	require.ErrorIs(t, err, policyregistry.ErrNotFound)
 
 	baked := writeBakedRegistry(t)
 	for _, raw := range []string{"hmm-sidecar:8093", "ftp://hmm-sidecar", "http://user:pass@hmm-sidecar"} {
@@ -142,7 +142,7 @@ func TestWriteDirectoryReleaseKeepsWorkingHeadWhenObjectWriteFails(t *testing.T)
 	require.NoError(t, err)
 	head.ReleaseSHA256 = policyregistry.Digest(releasePayload)
 	head.ReleaseURI = testRegistryRoot + "/router_policy/v1/releases/sha256/" + head.ReleaseSHA256 + ".json"
-	require.NoError(t, os.MkdirAll(filepath.Join(baked.dir, "router_policy", "v1", "releases", "sha256", head.ReleaseSHA256+".json"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(baked.dir, "router_policy", "v1", "releases", "sha256", head.ReleaseSHA256+".json"), 0o750))
 	policyPayload, err := os.ReadFile(baked.policyPath)
 	require.NoError(t, err)
 

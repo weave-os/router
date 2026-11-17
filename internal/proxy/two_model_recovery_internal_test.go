@@ -37,10 +37,10 @@ func TestTwoModelGatewayRecoveryReadmitsStruckSibling(t *testing.T) {
 	svc := NewService(staticRouter{decision: decision}, map[string]providers.Client{
 		providers.ProviderOpenAIGateway: primary, providers.ProviderAnthropicGateway: sibling,
 	}, nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil).WithRetrySleep(func(context.Context, time.Duration) error { return nil })
-	svc.now = func() time.Time { return rateLimitTestNow }
+	svc.clock = func() time.Time { return rateLimitTestNow }
 	body := []byte(`{"model":"gpt-6-luna","stream":true,"messages":[{"role":"user","content":"synthetic exhausted pool"}]}`)
 	rec := httptest.NewRecorder()
-	err := svc.ProxyMessages(twoModelGatewayContext(), body, rec, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+	err := svc.ProxyMessages(twoModelGatewayContext(), body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
 	assert.Equal(t, 3, primary.calls)
 	assert.Equal(t, 1, sibling.calls)
 	require.NoError(t, err, "after both strikes a precommit primary failure must still try the permitted sibling")
@@ -71,7 +71,7 @@ func TestTwoModelRecoveryOnlyLeasesOneExpiredArmPerRequest(t *testing.T) {
 func TestLocalRecoveryProbeLeaseExpires(t *testing.T) {
 	svc, _ := cooldownTurnLoopService(&rolePinStore{byRole: map[string]sessionpin.Pin{}}, true)
 	now := rateLimitTestNow
-	svc.now = func() time.Time { return now }
+	svc.clock = func() time.Time { return now }
 	key := nonZeroSessionKey()
 
 	_, acquired := svc.acquireRecoveryProbe(context.Background(), key, recoveryOpusModel)
@@ -262,7 +262,7 @@ func TestTwoModelGatewayRecoveryRetriesThenRecordsWithdrawal(t *testing.T) {
 			}, nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil).
 				WithRescuedFailureArmDemotion(true).WithTransientRateLimit(scenario.transient, 45)
 			now := rateLimitTestNow
-			svc.now = func() time.Time { return now }
+			svc.clock = func() time.Time { return now }
 			var retryWaits []time.Duration
 			svc.WithRetrySleep(func(_ context.Context, wait time.Duration) error {
 				retryWaits = append(retryWaits, wait)
@@ -271,7 +271,7 @@ func TestTwoModelGatewayRecoveryRetriesThenRecordsWithdrawal(t *testing.T) {
 			})
 			rec := httptest.NewRecorder()
 			body := []byte(`{"model":"gpt-6-luna","stream":true,"messages":[{"role":"user","content":"synthetic recovery check"}]}`)
-			err := svc.ProxyMessages(twoModelGatewayContext(), body, rec, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+			err := svc.ProxyMessages(twoModelGatewayContext(), body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
 			require.NoError(t, err)
 			assert.Equal(t, 3, primary.calls)
 			assert.Equal(t, 1, sibling.calls)
@@ -303,11 +303,11 @@ func TestTwoModelGatewayRecoveryRetriesThenRecordsWithdrawal(t *testing.T) {
 func TestTwoModelRecoveryHMMRefreshDoesNotRewriteCooldown(t *testing.T) {
 	until := rateLimitTestNow.Add(45 * time.Second)
 	store := &rolePinStore{byRole: map[string]sessionpin.Pin{
-		hmmHistoryRole(sessionpin.DefaultRole): coolingPin(demotedPinModel, map[string]time.Time{demotedPinModel: until}),
+		hmmHistoryRole(sessionpin.DefaultRole): coolingPin(map[string]time.Time{demotedPinModel: until}),
 	}}
 	svc, scorer := cooldownTurnLoopService(store, true)
 	now := rateLimitTestNow
-	svc.now = func() time.Time { return now }
+	svc.clock = func() time.Time { return now }
 	res := turnLoopResult{InstallationID: uuid.New(), SessionKey: nonZeroSessionKey(), PinRole: sessionpin.DefaultRole,
 		Decision: router.Decision{Provider: providers.ProviderAnthropic, Model: freshTurnModel, Reason: hmmHistoryReason}}
 	for step := 0; step <= 96; step++ {

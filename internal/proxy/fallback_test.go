@@ -9,12 +9,13 @@ import (
 	"net/url"
 	"testing"
 	"time"
-	"weave-os/router/internal/dispatch"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -80,42 +81,17 @@ func responseHeaderTimeoutErr(t *testing.T) error {
 	defer close(release)
 
 	client := &http.Client{Transport: &http.Transport{ResponseHeaderTimeout: 10 * time.Millisecond}}
-	_, err := client.Get(upstream.URL)
+	request, buildErr := http.NewRequestWithContext(t.Context(), http.MethodGet, upstream.URL, nil)
+	require.NoError(t, buildErr)
+	resp, err := client.Do(request)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.Contains(t, err.Error(), "timeout awaiting response headers")
 	return err
-}
-
-func TestPreludeBuffer_CommitsEagerPreludeAndBuffersProviderOutput(t *testing.T) {
-	rec := httptest.NewRecorder()
-	buf := newPreludeBuffer(rec)
-
-	buf.Header().Set("Content-Type", "text/event-stream")
-	buf.WriteHeader(http.StatusOK)
-	_, err := buf.Write([]byte("marker"))
-	require.NoError(t, err)
-	require.NoError(t, buf.CommitPrelude())
-	assert.True(t, buf.PreludeSent())
-	assert.False(t, buf.Committed())
-	assert.Equal(t, "marker", rec.Body.String())
-
-	buf.Seal()
-	buf.Discard()
-	assert.Equal(t, "marker", rec.Body.String())
-
-	_, err = buf.Write([]byte("fallback-marker"))
-	require.NoError(t, err)
-	require.NoError(t, buf.CommitPrelude())
-	assert.Equal(t, "markerfallback-marker", rec.Body.String())
-
-	buf.Seal()
-	_, err = buf.Write([]byte("provider-output"))
-	require.NoError(t, err)
-	require.NoError(t, buf.commit())
-	assert.True(t, buf.Committed())
-	assert.Equal(t, "markerfallback-markerprovider-output", rec.Body.String())
 }
 
 func TestDispatchWithFallback_PrimarySucceedsNoRetry(t *testing.T) {
@@ -128,8 +104,8 @@ func TestDispatchWithFallback_PrimarySucceedsNoRetry(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	buf := newPreludeBuffer(rec)
-	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	buf := dispatch.NewPreludeBuffer(rec)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
 	winnerIdx, err := s.dispatchWithFallback(context.Background(), failoverInputs{
 		w:               rec,
@@ -164,7 +140,7 @@ func TestDispatchWithFallback_RejectsMissingPurposeBeforeAnyAttempt(t *testing.T
 		initialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
 		bindings:        []catalog.ProviderBinding{{Provider: "fireworks"}},
 		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
-			return p.Proxy(ctx, d, providers.PreparedRequest{}, rec, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+			return p.Proxy(ctx, d, providers.PreparedRequest{}, rec, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil))
 		},
 	})
 
@@ -190,8 +166,8 @@ func TestDispatchWithFallback_RetriesOnRetryableBufferedError(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	buf := newPreludeBuffer(rec)
-	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	buf := dispatch.NewPreludeBuffer(rec)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
 	winnerIdx, err := s.dispatchWithFallback(context.Background(), failoverInputs{
 		w:               rec,
@@ -241,8 +217,8 @@ func TestDispatchWithFallback_SchemaRejectionDoesNotFailoverCrossBinding(t *test
 	})
 
 	rec := httptest.NewRecorder()
-	buf := newPreludeBuffer(rec)
-	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	buf := dispatch.NewPreludeBuffer(rec)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
 	_, err := s.dispatchWithFallback(context.Background(), failoverInputs{
 		w:               rec,
@@ -280,8 +256,8 @@ func TestDispatchWithFallback_RetriesOnTransportError(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	buf := newPreludeBuffer(rec)
-	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	buf := dispatch.NewPreludeBuffer(rec)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
 	winnerIdx, err := s.dispatchWithFallback(context.Background(), failoverInputs{
 		w:               rec,
@@ -321,8 +297,8 @@ func TestDispatchWithFallback_RetriesOnResponseHeaderTimeout(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	buf := newPreludeBuffer(rec)
-	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	buf := dispatch.NewPreludeBuffer(rec)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
 	winnerIdx, err := s.dispatchWithFallback(context.Background(), failoverInputs{
 		w:               rec,
@@ -366,8 +342,8 @@ func TestDispatchWithFallback_RetriesOnUpstreamIdleTimeout(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	buf := newPreludeBuffer(rec)
-	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	buf := dispatch.NewPreludeBuffer(rec)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
 	winnerIdx, err := s.dispatchWithFallback(context.Background(), failoverInputs{
 		w:               rec,
@@ -405,8 +381,8 @@ func TestDispatchWithFallback_NoRetryOnNonRetryableStatus(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	buf := newPreludeBuffer(rec)
-	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	buf := dispatch.NewPreludeBuffer(rec)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
 	winnerIdx, err := s.dispatchWithFallback(context.Background(), failoverInputs{
 		w:               rec,
@@ -451,8 +427,8 @@ func TestDispatchWithFallback_ModelNotFoundFailsOverToNextBinding(t *testing.T) 
 	})
 
 	rec := httptest.NewRecorder()
-	buf := newPreludeBuffer(rec)
-	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	buf := dispatch.NewPreludeBuffer(rec)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
 	winnerIdx, err := s.dispatchWithFallback(context.Background(), failoverInputs{
 		w:               rec,
@@ -487,8 +463,8 @@ func TestDispatchWithFallback_ModelNotFoundSingleBindingFlushes(t *testing.T) {
 	s := newServiceWithProviders(t, map[string]providers.Client{"bedrock": only})
 
 	rec := httptest.NewRecorder()
-	buf := newPreludeBuffer(rec)
-	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	buf := dispatch.NewPreludeBuffer(rec)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
 	_, err := s.dispatchWithFallback(context.Background(), failoverInputs{
 		w:               rec,
@@ -529,8 +505,8 @@ func TestDispatchWithFallback_BillingBlockedFailsOverToNextBinding(t *testing.T)
 	})
 
 	rec := httptest.NewRecorder()
-	buf := newPreludeBuffer(rec)
-	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	buf := dispatch.NewPreludeBuffer(rec)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
 	winnerIdx, err := s.dispatchWithFallback(context.Background(), failoverInputs{
 		w:               rec,
@@ -566,8 +542,8 @@ func TestDispatchWithFallback_BillingBlockedSingleBindingFlushes(t *testing.T) {
 	s := newServiceWithProviders(t, map[string]providers.Client{"makora": only})
 
 	rec := httptest.NewRecorder()
-	buf := newPreludeBuffer(rec)
-	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	buf := dispatch.NewPreludeBuffer(rec)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
 	_, err := s.dispatchWithFallback(context.Background(), failoverInputs{
 		w:               rec,
@@ -606,8 +582,8 @@ func TestDispatchWithFallback_NoRetryAfterBytesFlushed(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	buf := newPreludeBuffer(rec)
-	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	buf := dispatch.NewPreludeBuffer(rec)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
 	winnerIdx, err := s.dispatchWithFallback(context.Background(), failoverInputs{
 		w:               rec,
@@ -646,8 +622,8 @@ func TestDispatchWithFallback_BothFailFinalBodyFlushed(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	buf := newPreludeBuffer(rec)
-	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	buf := dispatch.NewPreludeBuffer(rec)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
 	winnerIdx, err := s.dispatchWithFallback(context.Background(), failoverInputs{
 		w:               rec,
@@ -694,8 +670,8 @@ func TestDispatchWithFallback_SingleBindingExhaustsRetries(t *testing.T) {
 	s.retrySleep = noopSleep
 
 	rec := httptest.NewRecorder()
-	buf := newPreludeBuffer(rec)
-	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	buf := dispatch.NewPreludeBuffer(rec)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
 	winnerIdx, err := s.dispatchWithFallback(context.Background(), failoverInputs{
 		w:               rec,
@@ -746,7 +722,7 @@ func TestDispatchWithFallback_SlowAttemptsStopBeforeRetryCount(t *testing.T) {
 	const slowAttempt = 30 * time.Second
 	base := time.Now()
 	reads := 0
-	s.now = func() time.Time {
+	s.clock = func() time.Time {
 		now := base.Add(time.Duration(reads) * slowAttempt)
 		reads++
 		return now
@@ -754,8 +730,8 @@ func TestDispatchWithFallback_SlowAttemptsStopBeforeRetryCount(t *testing.T) {
 	require.Greater(t, slowAttempt, subscriptionRotationBudget, "attempt must outrun the budget for this test to mean anything")
 
 	rec := httptest.NewRecorder()
-	buf := newPreludeBuffer(rec)
-	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	buf := dispatch.NewPreludeBuffer(rec)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
 	_, err := s.dispatchWithFallback(context.Background(), failoverInputs{
 		w:               rec,
@@ -790,8 +766,8 @@ func TestDispatchWithFallback_SingleBindingRetrySucceeds(t *testing.T) {
 	s.retrySleep = noopSleep
 
 	rec := httptest.NewRecorder()
-	buf := newPreludeBuffer(rec)
-	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	buf := dispatch.NewPreludeBuffer(rec)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
 	winnerIdx, err := s.dispatchWithFallback(context.Background(), failoverInputs{
 		w:               rec,
@@ -824,8 +800,8 @@ func TestDispatchWithFallback_SingleBindingNonRetryableNoRetry(t *testing.T) {
 	s.retrySleep = noopSleep
 
 	rec := httptest.NewRecorder()
-	buf := newPreludeBuffer(rec)
-	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	buf := dispatch.NewPreludeBuffer(rec)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
 	_, err := s.dispatchWithFallback(context.Background(), failoverInputs{
 		w:               rec,
@@ -860,8 +836,8 @@ func TestDispatchWithFallback_SingleBindingBackoffAbortsOnCancel(t *testing.T) {
 	s.retrySleep = func(context.Context, time.Duration) error { return context.Canceled }
 
 	rec := httptest.NewRecorder()
-	buf := newPreludeBuffer(rec)
-	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	buf := dispatch.NewPreludeBuffer(rec)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 
 	_, err := s.dispatchWithFallback(context.Background(), failoverInputs{
 		w:               rec,
@@ -886,7 +862,7 @@ func TestShouldFailover(t *testing.T) {
 		assert.True(t, s.shouldFailover(context.Background()))
 	})
 	t.Run("BYOK-only deployment skips failover", func(t *testing.T) {
-		s := &Service{byokOnly: true}
+		s := &Service{credentials: credentials.Brokerage{BYOKOnly: true}}
 		assert.False(t, s.shouldFailover(context.Background()))
 	})
 	t.Run("inbound credentials in context skip failover", func(t *testing.T) {
@@ -929,14 +905,14 @@ func TestResolveBindingsForDispatch(t *testing.T) {
 		assert.Equal(t, "fireworks", bs[0].Provider)
 	})
 	t.Run("multi-binding model with both keys returns ordered list", func(t *testing.T) {
-		s := &Service{deploymentKeyedProviders: map[string]struct{}{"fireworks": {}, "openrouter": {}}}
+		s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{"fireworks": {}, "openrouter": {}}}}
 		bs := s.resolveBindingsForDispatch(context.Background(), router.Decision{Model: "deepseek/deepseek-v4-pro", Provider: "fireworks"})
 		require.GreaterOrEqual(t, len(bs), 2, "deepseek/deepseek-v4-pro must have at least 2 bindings in catalog")
 		assert.Equal(t, "fireworks", bs[0].Provider, "catalog order: fireworks primary")
 		assert.Equal(t, "openrouter", bs[1].Provider, "catalog order: openrouter fallback")
 	})
 	t.Run("selected temporal arm is first dispatch attempt", func(t *testing.T) {
-		s := &Service{deploymentKeyedProviders: map[string]struct{}{"fireworks": {}, "openrouter": {}}}
+		s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{"fireworks": {}, "openrouter": {}}}}
 		bs := s.resolveBindingsForDispatch(context.Background(), router.Decision{
 			Model:    "deepseek/deepseek-v4-pro",
 			Provider: "openrouter",
@@ -951,13 +927,13 @@ func TestResolveBindingsForDispatch(t *testing.T) {
 		assert.Equal(t, "fireworks", bs[1].Provider)
 	})
 	t.Run("single-binding Anthropic model returns one binding even with multiple keys wired", func(t *testing.T) {
-		s := &Service{deploymentKeyedProviders: map[string]struct{}{"anthropic": {}, "openrouter": {}}}
+		s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{"anthropic": {}, "openrouter": {}}}}
 		bs := s.resolveBindingsForDispatch(context.Background(), router.Decision{Model: "claude-opus-4-7", Provider: "anthropic"})
 		require.Len(t, bs, 1)
 		assert.Equal(t, "anthropic", bs[0].Provider)
 	})
 	t.Run("excluded provider cannot be resurrected as a fallback binding", func(t *testing.T) {
-		s := &Service{deploymentKeyedProviders: map[string]struct{}{"fireworks": {}, "openrouter": {}}}
+		s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{"fireworks": {}, "openrouter": {}}}}
 		ctx := context.WithValue(context.Background(), InstallationExcludedProvidersContextKey{}, []string{"openrouter"})
 		bs := s.resolveBindingsForDispatch(ctx, router.Decision{Model: "deepseek/deepseek-v4-pro", Provider: "fireworks"})
 		require.Len(t, bs, 1, "openrouter fallback binding must be filtered out by the provider exclusion")
@@ -966,14 +942,14 @@ func TestResolveBindingsForDispatch(t *testing.T) {
 	t.Run("all bindings excluded with excluded primary returns empty walk", func(t *testing.T) {
 		// If exclusion filters out every binding, the walk must be empty so
 		// dispatch 502s instead of serving a forbidden provider.
-		s := &Service{deploymentKeyedProviders: map[string]struct{}{"fireworks": {}, "openrouter": {}}}
+		s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{"fireworks": {}, "openrouter": {}}}}
 		ctx := context.WithValue(context.Background(), InstallationExcludedProvidersContextKey{}, []string{"fireworks", "openrouter"})
 		bs := s.resolveBindingsForDispatch(ctx, router.Decision{Model: "deepseek/deepseek-v4-pro", Provider: "fireworks"})
 		assert.Empty(t, bs, "no eligible binding may remain when the primary itself is excluded")
 	})
 	t.Run("catalog-miss model keeps legacy single-attempt primary", func(t *testing.T) {
 		// Catalog-miss model keeps the legacy [primary] walk when primary isn't excluded.
-		s := &Service{deploymentKeyedProviders: map[string]struct{}{"anthropic": {}}}
+		s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{"anthropic": {}}}}
 		ctx := context.WithValue(context.Background(), InstallationExcludedProvidersContextKey{}, []string{"openrouter"})
 		bs := s.resolveBindingsForDispatch(ctx, router.Decision{Model: "not-in-catalog", Provider: "anthropic"})
 		require.Len(t, bs, 1)
@@ -982,7 +958,7 @@ func TestResolveBindingsForDispatch(t *testing.T) {
 	t.Run("excluded primary is never re-added as the first attempt", func(t *testing.T) {
 		// Defense in depth: routing already filters excluded providers, so this
 		// would be an upstream bug — dispatch must not re-prepend the excluded primary.
-		s := &Service{deploymentKeyedProviders: map[string]struct{}{"fireworks": {}, "openrouter": {}}}
+		s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{"fireworks": {}, "openrouter": {}}}}
 		ctx := context.WithValue(context.Background(), InstallationExcludedProvidersContextKey{}, []string{"fireworks"})
 		bs := s.resolveBindingsForDispatch(ctx, router.Decision{Model: "deepseek/deepseek-v4-pro", Provider: "fireworks"})
 		require.NotEmpty(t, bs)
@@ -1067,12 +1043,12 @@ func TestProvidersIsUpstreamProviderBillingBlocked(t *testing.T) {
 	}
 }
 
-// Core preludeBuffer contract: pre-Seal writes are buffered; the first
+// Core dispatch.PreludeBuffer contract: pre-Seal writes are buffered; the first
 // post-Seal write commits, ordering buffered bytes ahead of upstream content.
 func TestPreludeBuffer_BuffersUntilSealedFirstWrite(t *testing.T) {
 	rec := httptest.NewRecorder()
 	rec.Header().Set("Content-Type", "application/json") // simulate middleware default
-	buf := newPreludeBuffer(rec)
+	buf := dispatch.NewPreludeBuffer(rec)
 
 	// Simulate translator.Prelude phase: set SSE content type, write status,
 	// emit message_start.
@@ -1100,7 +1076,7 @@ func TestPreludeBuffer_DiscardResetsBufferAndHeaders(t *testing.T) {
 	rec := httptest.NewRecorder()
 	rec.Header().Set("Content-Type", "application/json")
 	rec.Header().Set("Content-Length", "0")
-	buf := newPreludeBuffer(rec)
+	buf := dispatch.NewPreludeBuffer(rec)
 
 	// Attempt 1: Prelude writes + status + body.
 	buf.Header().Set("Content-Type", "text/event-stream")
@@ -1136,7 +1112,7 @@ func TestPreludeBuffer_DiscardResetsBufferAndHeaders(t *testing.T) {
 func TestPreludeBuffer_NoOpFlushPreCommit(t *testing.T) {
 	flushCount := 0
 	w := &fakeFlushTracker{ResponseRecorder: httptest.NewRecorder(), onFlush: func() { flushCount++ }}
-	buf := newPreludeBuffer(w)
+	buf := dispatch.NewPreludeBuffer(w)
 
 	buf.WriteHeader(http.StatusOK)
 	_, _ = buf.Write([]byte("prelude"))
@@ -1185,14 +1161,14 @@ type fakeFlushTracker struct {
 func (f *fakeFlushTracker) Flush() { f.onFlush() }
 
 func TestResolveBindingsForDispatch_LinkedSubscriptionWithoutAPIKey(t *testing.T) {
-	svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: &fakeClient{}}), deploymentKeyedProviders: map[string]struct{}{}}
+	svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: &fakeClient{}}), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{}}}
 	ctx := managedSubscriptionContext(auth.SubscriptionProviderCodex)
 	decision := router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-6.1-sol", Reason: translate.ReasonUserForceModel}
 	t.Run("linked Codex supplies the forced model binding", func(t *testing.T) {
 		bindings := svc.resolveBindingsForDispatch(ctx, decision)
 		require.Len(t, bindings, 1)
 		assert.Equal(t, providers.ProviderOpenAI, bindings[0].Provider)
-		assert.Empty(t, svc.deploymentKeyedProviders, "linked request must not change deployment credentials")
+		assert.Empty(t, svc.credentials.KeyedProviders, "linked request must not change deployment credentials")
 	})
 	t.Run("provider exclusions still refuse the binding", func(t *testing.T) {
 		excluded := context.WithValue(ctx, InstallationExcludedProvidersContextKey{}, []string{providers.ProviderOpenAI})
@@ -1203,13 +1179,13 @@ func TestResolveBindingsForDispatch_LinkedSubscriptionWithoutAPIKey(t *testing.T
 		assert.Empty(t, svc.resolveBindingsForDispatch(paid, decision))
 	})
 	t.Run("unsupported transport cannot use linked binding", func(t *testing.T) {
-		unsupported := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: nil}), deploymentKeyedProviders: map[string]struct{}{}}
+		unsupported := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: nil}), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{}}}
 		assert.Empty(t, unsupported.resolveBindingsForDispatch(ctx, decision))
 	})
 }
 
 func TestResolveBindingsForDispatch_LinkedSubscriptionPreservesFundedBindings(t *testing.T) {
-	svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeClient{}}), deploymentKeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderAnthropicGateway: {}}}
+	svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeClient{}}), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderAnthropicGateway: {}}}}
 	decision := router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-5"}
 	before := svc.resolveBindingsForDispatch(context.Background(), decision)
 	require.Len(t, before, 2)

@@ -9,8 +9,6 @@ import (
 	"weave-os/router/internal/router/policy"
 )
 
-// WorkerIdentity is release-owned boot configuration attested during preparation.
-// A policy-only release can reuse it; a different image, target or revision cannot.
 type WorkerIdentity struct {
 	Target        ServingTarget `json:"target"`
 	Project       string        `json:"project"`
@@ -20,7 +18,6 @@ type WorkerIdentity struct {
 	Configuration ObjectRef     `json:"configuration"`
 }
 
-// Validate requires exact local identity before the managed worker mounts inference endpoints.
 func (w WorkerIdentity) Validate() error {
 	if _, err := w.Target.Environment(); err != nil {
 		return err
@@ -31,7 +28,6 @@ func (w WorkerIdentity) Validate() error {
 	return validateArtifactRef(w.Configuration)
 }
 
-// ValidateBinding enforces physical identity for both preparation and request admission.
 func (w WorkerIdentity) ValidateBinding(target ServingTarget, binding LaneBinding) error {
 	if err := w.Validate(); err != nil {
 		return err
@@ -42,8 +38,6 @@ func (w WorkerIdentity) ValidateBinding(target ServingTarget, binding LaneBindin
 	return nil
 }
 
-// ResolveAdmissionBinding validates the target-local destination without consulting a newer head.
-// Reading lifecycle again here would change the decision of an already admitted request.
 func ResolveAdmissionBinding(ctx context.Context, store ServingStore, admission SessionReleaseBinding) (LaneBinding, error) {
 	if err := admission.Selection.validate(store.RootURI(), admission.ProfileKey != ""); err != nil {
 		return LaneBinding{}, err
@@ -65,7 +59,6 @@ func ResolveAdmissionBinding(ctx context.Context, store ServingStore, admission 
 	return binding.lane(), nil
 }
 
-// ValidateWorkerAdmission rejects a signed request addressed to a different physical worker.
 func ValidateWorkerAdmission(ctx context.Context, store ServingStore, identity WorkerIdentity, assertion ServingAssertion, installationID, apiKeyID string) (LaneBinding, error) {
 	if err := identity.Validate(); err != nil {
 		return LaneBinding{}, err
@@ -83,8 +76,6 @@ func ValidateWorkerAdmission(ctx context.Context, store ServingStore, identity W
 	return binding, nil
 }
 
-// ValidateWorkerSelection exercises the destination's real loader without provider calls.
-// IAM validation identities can prepare snapshots but cannot mint admission assertions.
 func ValidateWorkerSelection(ctx context.Context, store ServingStore, cache *ServingRuntimeCache, identity WorkerIdentity, request WorkerValidationRequest) (WorkerAttestation, error) {
 	if request.Target != identity.Target {
 		return WorkerAttestation{}, errors.New("validation target differs from worker identity")
@@ -103,8 +94,6 @@ func ValidateWorkerSelection(ctx context.Context, store ServingStore, cache *Ser
 	return WorkerAttestation{Identity: identity, Requirements: prepared.Candidate.Requirements, SupportedAPIMajors: policy.SupportedClassifierAPIMajors(), CatalogArms: snapshotCatalogArms(snapshot), Selection: request.Selection, Ready: true}, nil
 }
 
-// snapshotCatalogArms attests every arm the loaded snapshot can select,
-// including independently pinned strategy rosters.
 func snapshotCatalogArms(snapshot *Snapshot) []string {
 	arms := snapshot.Policy.AllArms()
 	strategies := slices.Sorted(maps.Keys(snapshot.StrategyPolicies))

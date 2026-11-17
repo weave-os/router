@@ -2,12 +2,12 @@ package proxy
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"weave-os/router/internal/dispatch"
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -88,6 +88,44 @@ func TestTranslationPlan_ImageConstraintShadowsBeforeEnforcement(t *testing.T) {
 	assert.False(t, shadowReported)
 	_, enforced := enforce.ExcludedModels["z-ai/glm-5"]
 	assert.True(t, enforced, "known text-only models are hard excluded in enforce mode")
+}
+
+func TestTranslationPlan_CustomToolsExcludeUnsupportedModelsInEveryMode(t *testing.T) {
+	// Codex code mode projects a freeform custom tool to {"input": string}.
+	// MiMo v2.6 Pro returns {} for it and the committed stream fails, so the
+	// exclusion holds even while the broader compatibility rollout is off.
+	for _, mode := range []TranslationCompatibilityMode{
+		TranslationCompatibilityOff,
+		TranslationCompatibilityShadow,
+		TranslationCompatibilityEnforce,
+	} {
+		t.Run(string(mode), func(t *testing.T) {
+			plan := compatibilityService(mode).planTranslation(router.Request{
+				TranslationRequirements: router.TranslationRequirements{
+					SourceFormat:  router.WireFormatOpenAI,
+					Endpoint:      router.EndpointOpenAIResponses,
+					FunctionTools: true,
+					CustomTools:   true,
+				},
+			})
+
+			assert.Contains(t, plan.ExcludedModels, catalog.ModelMiMoV26Pro)
+			assert.NotContains(t, plan.ExcludedModels, catalog.ModelMiMoV26Flash)
+			requireModelExclusion(t, plan, "custom_tool_unsupported", catalog.ModelMiMoV26Pro, true)
+		})
+	}
+}
+
+func TestTranslationPlan_FunctionToolsKeepCustomToolUnsupportedModels(t *testing.T) {
+	plan := compatibilityService(TranslationCompatibilityEnforce).planTranslation(router.Request{
+		TranslationRequirements: router.TranslationRequirements{
+			SourceFormat:  router.WireFormatOpenAI,
+			Endpoint:      router.EndpointOpenAIResponses,
+			FunctionTools: true,
+		},
+	})
+
+	assert.NotContains(t, plan.ExcludedModels, catalog.ModelMiMoV26Pro)
 }
 
 func TestTranslationPlan_OffRestoresNativeFamilyEligibility(t *testing.T) {
@@ -240,7 +278,7 @@ func TestApplyTranslationPlan_IntrinsicallyIncompatible(t *testing.T) {
 		TranslationRequirements: router.TranslationRequirements{NativeOnly: true},
 	})
 
-	assert.True(t, errors.Is(err, ErrTranslationIntrinsicallyIncompatible))
+	assert.ErrorIs(t, err, ErrTranslationIntrinsicallyIncompatible)
 }
 
 func requireExclusion(t *testing.T, plan TranslationPlan, code, provider string, enforced bool) {
@@ -252,4 +290,15 @@ func requireExclusion(t *testing.T, plan TranslationPlan, code, provider string,
 		}
 	}
 	t.Fatalf("missing exclusion code=%q provider=%q in %#v", code, provider, plan.Exclusions)
+}
+
+func requireModelExclusion(t *testing.T, plan TranslationPlan, code, model string, enforced bool) {
+	t.Helper()
+	for _, exclusion := range plan.Exclusions {
+		if exclusion.Code == code && exclusion.Model == model {
+			assert.Equal(t, enforced, exclusion.Enforced)
+			return
+		}
+	}
+	t.Fatalf("missing exclusion code=%q model=%q in %#v", code, model, plan.Exclusions)
 }

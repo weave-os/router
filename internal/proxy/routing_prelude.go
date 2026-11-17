@@ -12,9 +12,8 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-// The coordinator outlives binding attempts; the buffer's provider commitment
-// remains the retry gate even after a notice becomes visible.
 type requestNoticeStream struct {
+	now        func() time.Time
 	delivery   *translate.NoticeDelivery
 	lastNotice translate.RouterNotice
 	modelShown bool
@@ -27,7 +26,7 @@ func (s *requestNoticeStream) prepare(ctx context.Context, sink http.ResponseWri
 	}
 	if trace := attemptTraceFromContext(ctx); trace != nil && streaming {
 		s.delivery.SetBeforeProviderContent(func() (translate.RouterNotice, bool) {
-			return slowStartNotice(ctx, trace, slowStarts, time.Now())
+			return slowStartNotice(ctx, trace, slowStarts, s.now())
 		})
 	}
 	retainNotices := prelude == nil || prelude.PreludeSent()
@@ -39,9 +38,6 @@ func (s *requestNoticeStream) prepare(ctx context.Context, sink http.ResponseWri
 	if s.suppressed(notice) {
 		return s.delivery, nil
 	}
-	// Eager streams show the first marker immediately. Once one is visible, a
-	// fallback candidate's marker waits for its output, so failed candidates
-	// never add markers and only the model that served can correct the first.
 	if s.modelShown && notice.Kind == translate.NoticeModelSelection && s.delivery.DeferIfEager(notice) {
 		return s.delivery, nil
 	}
@@ -51,12 +47,16 @@ func (s *requestNoticeStream) prepare(ctx context.Context, sink http.ResponseWri
 	return s.delivery, nil
 }
 
+func (s *requestNoticeStream) selectModel(model string) {
+	if s != nil && s.delivery != nil {
+		s.delivery.SetRoutedModel(model)
+	}
+}
+
 func (s *requestNoticeStream) suppressed(notice translate.RouterNotice) bool {
 	return notice.Text == "" || (notice.Kind == s.lastNotice.Kind && notice.Text == s.lastNotice.Text)
 }
 
-// deliver shows notice within the attempt prepare started, keeping that
-// attempt's deferred marker.
 func (s *requestNoticeStream) deliver(notice translate.RouterNotice) error {
 	if s.suppressed(notice) {
 		return nil
@@ -72,7 +72,7 @@ func (s *requestNoticeStream) deliver(notice translate.RouterNotice) error {
 	return nil
 }
 
-func addRoutingFundingSource(ctx context.Context, provider, model string, notice translate.RouterNotice) translate.RouterNotice {
+func addRoutingFundingSource(ctx context.Context, seats seatAdmission, provider, model string, notice translate.RouterNotice) translate.RouterNotice {
 	if notice.Kind != translate.NoticeModelSelection || notice.Text == "" {
 		return notice
 	}
@@ -80,7 +80,8 @@ func addRoutingFundingSource(ctx context.Context, provider, model string, notice
 	if credentials := CredentialsFromContext(ctx); credentials != nil {
 		credentialSource = credentials.Source
 	}
-	if managedSubscriptionCanServe(ctx, provider, model) {
+	seats.verifiedPlanOnly = true
+	if seats.mayAdmit(ctx, provider, model) {
 		if source, eligible := managedSubscriptionProviderFromUpstream(provider, model); eligible {
 			switch source {
 			case subscriptions.ProviderClaude:
@@ -109,6 +110,7 @@ func addRoutingFundingSource(ctx context.Context, provider, model string, notice
 		return setFundingSource(notice, "Weave Router allowance")
 	case entitlement.CapacitySourceBillingOverride:
 		return setFundingSource(notice, "Weave-managed billing")
+	case entitlement.CapacitySourceLinkedClaude, entitlement.CapacitySourceLinkedCodex:
 	}
 	if billing.OrganizationPrepaidFromContext(ctx) {
 		return setFundingSource(notice, "Weave credits")

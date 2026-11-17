@@ -17,7 +17,7 @@ import (
 
 const (
 	testSol   = "gpt-5.6-sol"
-	testTerra = "gpt-5.6-terra"
+	testTerra = "gpt-6.1-terra"
 	testOpus  = "claude-opus-5"
 )
 

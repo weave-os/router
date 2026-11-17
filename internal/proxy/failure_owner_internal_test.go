@@ -38,7 +38,7 @@ func declaredConstsOfType(t *testing.T, typeName string) []string {
 			}
 			current := ""
 			for _, spec := range gen.Specs {
-				value := spec.(*ast.ValueSpec)
+				value := mustAs[*ast.ValueSpec](t, spec)
 				if ident, ok := value.Type.(*ast.Ident); ok {
 					current = ident.Name
 				} else if value.Type != nil || len(value.Values) > 0 {
@@ -65,6 +65,7 @@ func TestDispatchErrorKindOwner_EveryKindLabeled(t *testing.T) {
 		switch kind {
 		case DispatchErrorNone, DispatchErrorUpstreamStatus:
 			continue
+		default:
 		}
 		assert.NotEqual(t, FailureOwnerUnknown, dispatchErrorKindOwner(kind), "%s has no failure owner", name)
 	}
@@ -117,6 +118,7 @@ func TestClassifyFailureOwner_Cases(t *testing.T) {
 		{"stalled stream", failureOwnerInput{Err: fmt.Errorf("read: %w", providers.ErrUpstreamOutputStall)}, FailureOwnerProvider},
 		{"client canceled", failureOwnerInput{Err: fmt.Errorf("proxy: %w", context.Canceled)}, FailureOwnerClient},
 		{"weave key 401", failureOwnerInput{Err: &providers.UpstreamErrorResponse{Status: http.StatusUnauthorized}}, FailureOwnerRouter},
+		{"own Codex login rejected", failureOwnerInput{Err: attributeCodexLoginRejection(&providers.UpstreamErrorResponse{Status: http.StatusUnauthorized})}, FailureOwnerClient},
 		{"byok 401", failureOwnerInput{Err: &providers.UpstreamErrorResponse{Status: http.StatusUnauthorized}, CustomerCredential: true}, FailureOwnerClient},
 		{"upstream 404", failureOwnerInput{Err: &providers.UpstreamErrorResponse{Status: http.StatusNotFound}}, FailureOwnerRouter},
 		{"status argument wins over chain", failureOwnerInput{Err: errors.New("boom"), Status: http.StatusServiceUnavailable}, FailureOwnerProvider},
@@ -125,8 +127,16 @@ func TestClassifyFailureOwner_Cases(t *testing.T) {
 		{"handoff invalid", failureOwnerInput{Err: ErrHandoffInvalid}, FailureOwnerClient},
 		{"context overflow", failureOwnerInput{Err: &providers.UpstreamErrorResponse{Status: http.StatusBadRequest, Body: []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 250000 tokens > 200000 maximum"}}`)}, BodyTranslated: true}, FailureOwnerClient},
 		{"subscription pool exhausted", failureOwnerInput{Err: fmt.Errorf("dispatch: %w", ErrSubscriptionPoolExhausted)}, FailureOwnerRouter},
+		{"subscription pool exhausted by an upstream 429 on every seat", failureOwnerInput{Err: errors.Join(ErrSubscriptionPoolExhausted, &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"detail":"Rate limit exceeded"}`)})}, FailureOwnerProvider},
+		{"subscription pool exhausted after an upstream 401 stays router-owned", failureOwnerInput{Err: errors.Join(ErrSubscriptionPoolExhausted, &providers.UpstreamErrorResponse{Status: http.StatusUnauthorized})}, FailureOwnerRouter},
+		{"pool refused because every seat is in a provider rate-limit cooldown", failureOwnerInput{Err: fmt.Errorf("dispatch: %w", ErrSubscriptionPoolThrottled)}, FailureOwnerProvider},
+		{"pool unavailable for a non-throttle reason stays router-owned", failureOwnerInput{Err: ErrSubscriptionPoolUnavailable}, FailureOwnerRouter},
+		{"customer key over its own usage limit on a translated body", failureOwnerInput{Err: &providers.UpstreamErrorResponse{Status: http.StatusBadRequest, Rejection: providers.UpstreamRejection{Kind: providers.UpstreamRejectionCredential}}, BodyTranslated: true, CustomerCredential: true}, FailureOwnerClient},
+		{"deployment key over its usage limit stays router-owned", failureOwnerInput{Err: &providers.UpstreamErrorResponse{Status: http.StatusBadRequest, Rejection: providers.UpstreamRejection{Kind: providers.UpstreamRejectionCredential}}, BodyTranslated: true}, FailureOwnerRouter},
+		{"translated body rejected for a field the client sent unchanged", failureOwnerInput{Err: &providers.UpstreamErrorResponse{Status: http.StatusBadRequest}, BodyTranslated: true, RejectedFieldUnchanged: true}, FailureOwnerClient},
+		{"spend-cap lane refusal outranks the last seat's 429", failureOwnerInput{Err: errors.Join(ErrSpendCapSubscriptionUnavailable, ErrSubscriptionPoolExhausted, &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests})}, FailureOwnerClient},
 		{"responses passthrough cannot switch format", failureOwnerInput{Err: errResponsesPassthroughStuck}, FailureOwnerRouter},
-		{"custom tool arguments untranslatable", failureOwnerInput{Err: fmt.Errorf("write: %w", translate.ErrCustomToolArguments), BodyTranslated: true}, FailureOwnerRouter},
+		{"malformed custom tool arguments", failureOwnerInput{Err: fmt.Errorf("write: %w", translate.ErrCustomToolArguments), BodyTranslated: true}, FailureOwnerProvider},
 		{"http/2 connection lost to the provider", failureOwnerInput{Err: http2LostPing()}, FailureOwnerProvider},
 		{"http/2 stream reset by the provider", failureOwnerInput{Err: http2PeerStreamReset()}, FailureOwnerProvider},
 		{"unmatched", failureOwnerInput{Err: errors.New("mystery")}, FailureOwnerUnknown},
@@ -173,7 +183,7 @@ func TestTurnFailureOwnerAfterUpstreamFinish(t *testing.T) {
 func TestLeaveResponsesPassthrough(t *testing.T) {
 	clean := translate.NewResponsesWriter(httptest.NewRecorder(), "synthetic")
 	clean.SetPassthrough()
-	require.NoError(t, leaveResponsesPassthrough(clean, nil))
+	require.NoError(t, (responseProtocolSwitch{writer: clean}).leavePassthrough())
 	assert.False(t, clean.Passthrough(), "a writer with nothing forwarded translates the next attempt")
 
 	forwarded := translate.NewResponsesWriter(httptest.NewRecorder(), "synthetic")
@@ -181,6 +191,6 @@ func TestLeaveResponsesPassthrough(t *testing.T) {
 	forwarded.Header().Set("Content-Type", "text/event-stream")
 	_, err := forwarded.Write([]byte(`data: {"type":"response.created","response":{"id":"resp_synthetic"}}` + "\n\n"))
 	require.NoError(t, err)
-	assert.ErrorIs(t, leaveResponsesPassthrough(forwarded, nil), errResponsesPassthroughStuck)
+	require.ErrorIs(t, (responseProtocolSwitch{writer: forwarded}).leavePassthrough(), errResponsesPassthroughStuck)
 	assert.True(t, forwarded.Passthrough())
 }

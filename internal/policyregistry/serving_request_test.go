@@ -6,12 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
+
+	"github.com/stretchr/testify/require"
 )
 
 type admittedTestRouter struct {
@@ -97,5 +98,23 @@ func TestAdmittedIdentitySeparatesIncarnationsAndSessionlessRequests(t *testing.
 	assertion.Admission.BindingGeneration++
 	require.NotEqual(t, first.StateNamespace, identity(assertion).StateNamespace)
 	assertion.Scope.Persistent = false
-	require.NotEqual(t, identity(assertion).StateNamespace, identity(assertion).StateNamespace, "missing session ID must not share learned state")
+	unscoped := identity(assertion).StateNamespace
+	require.NotEqual(t, unscoped, identity(assertion).StateNamespace, "missing session ID must not share learned state")
+}
+
+func TestAdmittedCredentialIdentityKeepsSharedKeyBytesAndScopesPersonalSubjects(t *testing.T) {
+	identity := func(apiKeyID, installation, subject string) string {
+		ctx := policyregistry.WithServingAssertion(context.Background(), policyregistry.ServingAssertion{
+			APIKeyID: apiKeyID,
+			Scope:    policyregistry.AdmissionScope{InstallationID: installation, CredentialIdentity: subject, Persistent: true},
+		})
+		value, ok := requestcontext.ServingIdentityFromContext(ctx)
+		require.True(t, ok)
+		return value.CredentialIdentity
+	}
+	require.Equal(t, "shared-key", identity("shared-key", "installation-a", "shared-key"), "shared credentials keep legacy preference key bytes")
+	personal := identity("key-1", "installation-a", "subject")
+	require.Equal(t, personal, identity("key-2", "installation-a", "subject"), "personal subjects survive key rotation")
+	require.NotEqual(t, personal, identity("key-1", "installation-b", "subject"), "personal subjects must not share preferences across installations")
+	require.NotEqual(t, "subject", personal)
 }

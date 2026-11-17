@@ -5,11 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/router/escalationdashboard"
 	"weave-os/router/internal/sqlc"
+
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEscalationDashboardSnapshotPageRoundTrip(t *testing.T) {

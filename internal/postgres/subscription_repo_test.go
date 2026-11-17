@@ -154,7 +154,7 @@ func TestSubscriptionAccountsFollowSubscriberAcrossKeys(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, otherAccounts, 1)
 	assert.Equal(t, otherAccount.ID, otherAccounts[0].ID)
-	assert.ErrorIs(t, repo.DeleteSubscriptionAccount(ctx, otherAccount.ID, rotatedOwner), auth.ErrSubscriptionAccountNotFound)
+	require.ErrorIs(t, repo.DeleteSubscriptionAccount(ctx, otherAccount.ID, rotatedOwner), auth.ErrSubscriptionAccountNotFound)
 
 	// Re-enrolling an existing account through the rotated key updates the same
 	// row rather than creating a duplicate.
@@ -173,9 +173,9 @@ func TestSubscriptionAccountsFollowSubscriberAcrossKeys(t *testing.T) {
 func TestSubscriptionAccountHealthIsOwnerScoped(t *testing.T) {
 	fixture := newSubscriptionFixture(t)
 	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
-	healthRepo := repo.(interface {
+	healthRepo := mustAs[interface {
 		UpdateSubscriptionAccountHealth(context.Context, string, auth.SubscriptionOwner, auth.SubscriptionAccountState, bool, *time.Time) (bool, error)
-	})
+	}](t, repo)
 	updateHealth := func(ctx context.Context, accountID string, owner auth.SubscriptionOwner, state auth.SubscriptionAccountState, enabled bool, until *time.Time) error {
 		_, err := healthRepo.UpdateSubscriptionAccountHealth(ctx, accountID, owner, state, enabled, until)
 		return err
@@ -211,7 +211,7 @@ func TestSubscriptionAccountHealthIsOwnerScoped(t *testing.T) {
 	assert.WithinDuration(t, resetAt, *accounts[0].CooldownUntil, time.Microsecond)
 
 	otherOwner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberB.String(), APIKeyID: fixture.keyB1.String()}
-	assert.ErrorIs(t, updateHealth(
+	require.ErrorIs(t, updateHealth(
 		ctx, account.ID, otherOwner, auth.SubscriptionAccountStateDisabled, false, nil,
 	), auth.ErrSubscriptionAccountNotFound)
 
@@ -244,7 +244,7 @@ func TestSubscriptionAccountsKeepLegacyAPIKeyOwnership(t *testing.T) {
 	subscriberAccounts, err := repo.ListSubscriptionAccounts(ctx, subscriberOwner)
 	require.NoError(t, err)
 	assert.Empty(t, subscriberAccounts)
-	assert.ErrorIs(t, repo.UpdateSubscriptionAccountState(ctx, legacyID.String(), subscriberOwner, false, nil),
+	require.ErrorIs(t, repo.UpdateSubscriptionAccountState(ctx, legacyID.String(), subscriberOwner, false, nil),
 		auth.ErrSubscriptionAccountNotFound)
 
 	// The legacy owner still manages its own row until it is reconnected.
@@ -365,7 +365,7 @@ func TestSubscriptionRefreshLeaseSurvivesKeyRotation(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, foreign.Acquired)
 	_, err = repo.GetSubscriptionCredentialRecord(ctx, account.ID, foreignOwner)
-	assert.ErrorIs(t, err, auth.ErrSubscriptionAccountNotFound)
+	require.ErrorIs(t, err, auth.ErrSubscriptionAccountNotFound)
 
 	record, err := repo.GetSubscriptionCredentialRecord(ctx, account.ID, rotatedOwner)
 	require.NoError(t, err)
@@ -374,7 +374,7 @@ func TestSubscriptionRefreshLeaseSurvivesKeyRotation(t *testing.T) {
 	// A stale version is rejected, and the fenced write from the lease holder wins.
 	staleErr := repo.PersistSubscriptionTokens(ctx, account.ID, rotatedOwner, leaseID, record.TokenRefreshVersion+1,
 		[]byte("refresh-new"), []byte("access-new"), time.Now().Add(time.Hour))
-	assert.ErrorIs(t, staleErr, auth.ErrSubscriptionRefreshConflict)
+	require.ErrorIs(t, staleErr, auth.ErrSubscriptionRefreshConflict)
 	require.NoError(t, repo.PersistSubscriptionTokens(ctx, account.ID, rotatedOwner, leaseID, record.TokenRefreshVersion,
 		[]byte("refresh-new"), []byte("access-new"), time.Now().Add(time.Hour)))
 
@@ -388,9 +388,9 @@ func TestSubscriptionRefreshLeaseSurvivesKeyRotation(t *testing.T) {
 func TestSubscriptionCandidatesAdmitLiveSharedKeys(t *testing.T) {
 	fixture := newSubscriptionFixture(t)
 	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
-	admission := repo.(interface {
+	admission := mustAs[interface {
 		ListSubscriptionCandidates(context.Context, auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error)
-	})
+	}](t, repo)
 	ctx := context.Background()
 	_, err := fixture.pool.Exec(ctx,
 		"UPDATE router.model_router_installations SET subscription_sharing_enabled = TRUE WHERE id = $1", fixture.installationID)
@@ -489,9 +489,9 @@ func TestSubscriptionCandidatesCarryOnlyUnresolvedCredentialRejections(t *testin
 		require.NoError(t, err)
 	})
 	candidateRejections := func() int {
-		candidates, err := repo.(interface {
+		candidates, err := mustAs[interface {
 			ListSubscriptionCandidates(context.Context, auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error)
-		}).ListSubscriptionCandidates(ctx, owner)
+		}](t, repo).ListSubscriptionCandidates(ctx, owner)
 		require.NoError(t, err)
 		require.Len(t, candidates, 1)
 		return candidates[0].CredentialRejections
@@ -568,9 +568,9 @@ func TestSubscriptionCandidatesReportMissingAccessToken(t *testing.T) {
 	})
 	require.NoError(t, err)
 	accessTokenMissing := func() bool {
-		candidates, err := repo.(interface {
+		candidates, err := mustAs[interface {
 			ListSubscriptionCandidates(context.Context, auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error)
-		}).ListSubscriptionCandidates(ctx, owner)
+		}](t, repo).ListSubscriptionCandidates(ctx, owner)
 		require.NoError(t, err)
 		for _, candidate := range candidates {
 			if candidate.ID == account.ID {
@@ -642,9 +642,9 @@ func TestSubscriptionCredentialEventsSurviveReconnectAndFenceStaleRefresh(t *tes
 func TestConcurrentSubscriptionHealthTransitionsCommitOneDisconnect(t *testing.T) {
 	fixture := newSubscriptionFixture(t)
 	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
-	healthRepo := repo.(interface {
+	healthRepo := mustAs[interface {
 		UpdateSubscriptionAccountHealth(context.Context, string, auth.SubscriptionOwner, auth.SubscriptionAccountState, bool, *time.Time) (bool, error)
-	})
+	}](t, repo)
 	ctx := context.Background()
 	owner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
 	account, _, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{

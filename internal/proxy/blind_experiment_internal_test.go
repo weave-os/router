@@ -216,7 +216,7 @@ func TestCallerModelPassthroughHonorsExcludedModels(t *testing.T) {
 	)
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, router.ErrNoEligibleProvider)
+	require.ErrorIs(t, err, router.ErrNoEligibleProvider)
 	assert.Zero(t, routerSpy.routeCalls, "an excluded requested model must fail directly instead of falling through to automatic routing")
 }
 
@@ -537,7 +537,7 @@ func TestBlindPassthroughUnknownModelBaselineHonoursExclusions(t *testing.T) {
 			require.Error(t, err, "the swapped-in baseline must not bypass the installation's model restrictions")
 			assert.Empty(t, decision.Model)
 			var unknown *PassthroughModelUnknownError
-			assert.False(t, errors.As(err, &unknown), "the error must be the one router_on gives for an ineligible model")
+			assert.NotErrorAs(t, err, &unknown, "the error must be the one router_on gives for an ineligible model")
 			assert.True(t, errors.Is(err, router.ErrNoEligibleProvider) || errors.Is(err, router.ErrAllowlistEmptiesPool))
 		})
 	}

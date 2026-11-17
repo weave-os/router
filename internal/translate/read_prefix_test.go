@@ -87,3 +87,12 @@ func TestReadPrefixes_ArrayContentAndStableOutput(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, string(first.Body), string(second.Body), "a stable rewrite keeps the prompt cache warm")
 }
+
+func TestReadPrefixes_OnlyEditToolDescriptionsAreRewritten(t *testing.T) {
+	body := strings.Replace(readPrefixBody, `{"name":"Read","description":"Reads a file."`, `{"name":"Read","description":"Lines start with line number + tab."`, 1)
+	env, err := translate.ParseAnthropic([]byte(body))
+	require.NoError(t, err)
+	p, err := env.PrepareOpenAI(http.Header{}, translate.EmitOptions{TargetModel: "grok-4.6"})
+	require.NoError(t, err)
+	assert.Contains(t, decodedJSON(p.Body), "Lines start with line number + tab.")
+}

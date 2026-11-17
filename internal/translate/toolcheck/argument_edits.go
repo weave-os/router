@@ -190,9 +190,6 @@ func (document *argumentDocument) installNode(node *argumentNode, path []string,
 	return true
 }
 
-// A duplicate-parent read can find a descendant that the first write parent
-// lacks. Let SJSON create that missing suffix (including its numeric/empty-key
-// rules) rather than introducing a second path-creation algorithm.
 func (node *argumentNode) installMissingPath(path []string, value *argumentNode) bool {
 	var current, replacement strings.Builder
 	node.writeTo(&current)
@@ -240,9 +237,6 @@ func (node *argumentNode) addMember(key string, value *argumentNode) {
 	node.memberIndex[key] = positions
 }
 
-// wrap preserves current child edits. A read through a later duplicate parent
-// must instead copy the subtree: SJSON historically wrote an independent value
-// at the first parent, leaving the later one eligible for subsequent repairs.
 func (document *argumentDocument) wrap(path []string, value *argumentNode) bool {
 	if document.firstSmallEdit() || document.libraryEdits || argumentLibraryPath(path) {
 		return document.install(path, newArgumentArray(value))
@@ -262,6 +256,7 @@ func (document *argumentDocument) wrap(path []string, value *argumentNode) bool 
 			if index, ok := argumentArrayIndex(mutationKey(target)); ok && index < len(parent.arrayElements) {
 				current = parent.arrayElements[index].value
 			}
+		case argumentString, argumentNumber, argumentBoolean, argumentNull:
 		}
 	}
 	if current != value {

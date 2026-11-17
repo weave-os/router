@@ -89,7 +89,7 @@ func TestClassifierReleaseV1SupportsWeaveDataAndQwenBundleSources(t *testing.T) 
 	qwenVariant := fakeQwenRef.Variants[policy.ClassifierVariantQwen]
 	qwenVariant.PackageWeaveDataRef = wrongVariant.PackageWeaveDataRef
 	fakeQwenRef.Variants[policy.ClassifierVariantQwen] = qwenVariant
-	require.ErrorContains(t, fakeQwenRef.Validate(classifierContractRegistryRoot), "Qwen variant")
+	require.ErrorContains(t, fakeQwenRef.Validate(classifierContractRegistryRoot), "qwen variant")
 
 	unsupportedAuxiliaryRelease := classifierContractRelease()
 	primary := unsupportedAuxiliaryRelease.Variants[policy.ClassifierVariantPrimary]

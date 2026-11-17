@@ -77,8 +77,7 @@ func TestSlowStartNotice_ReplayedCodexToolLoop(t *testing.T) {
 			inbound, err := json.Marshal(map[string]any{"input": input})
 			require.NoError(t, err)
 			tracker, now := slowStartAfterBaseline(t)
-			trace := slowStartTrace(now.Add(-41*time.Second), now.Add(-41*time.Second))
-			trace.inbound = inbound
+			trace := slowStartTraceOf(inbound, now.Add(-41*time.Second), now.Add(-41*time.Second))
 			ctx := slowStartCtx("synthetic-session", "synthetic-key", "codex/0.166.0")
 			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex, UserAgent: "codex/0.166.0"})
 			_, shown := slowStartNotice(ctx, trace, tracker, now)

@@ -117,7 +117,7 @@ func TestRouteNoEligibleCandidatesIsUnavailable(t *testing.T) {
 		EnabledProviders: enabled(providers.ProviderOpenAI), // no binding for opus
 	})
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, rl.ErrPolicyUnavailable))
+	assert.ErrorIs(t, err, rl.ErrPolicyUnavailable)
 }
 
 func TestRouteDeciderErrorIsUnavailable(t *testing.T) {
@@ -129,7 +129,7 @@ func TestRouteDeciderErrorIsUnavailable(t *testing.T) {
 		EnabledProviders: enabled(providers.ProviderAnthropic),
 	})
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, rl.ErrPolicyUnavailable))
+	assert.ErrorIs(t, err, rl.ErrPolicyUnavailable)
 }
 
 func TestRouteNilEnabledProvidersIsUnrestricted(t *testing.T) {
@@ -162,7 +162,7 @@ func TestRouteToolTurnDropsToolUseLowFromCandidatesAndIndex(t *testing.T) {
 		EnabledProviders: nil,
 	})
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, rl.ErrPolicyUnavailable))
+	require.ErrorIs(t, err, rl.ErrPolicyUnavailable)
 	for _, c := range dec.got.Candidates {
 		assert.NotEqual(t, "qwen/qwen3-235b-a22b-2507", c.RosterID,
 			"ToolUseLow model must not be offered on a tool turn")
@@ -196,5 +196,17 @@ func TestRouteUnknownReturnedModelIsUnavailable(t *testing.T) {
 		EnabledProviders: enabled(providers.ProviderAnthropic),
 	})
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, rl.ErrPolicyUnavailable))
+	assert.ErrorIs(t, err, rl.ErrPolicyUnavailable)
+}
+
+func TestRouteSendsZeroTurnIndexBecauseRequestCarriesNoTurnDepth(t *testing.T) {
+	dec := &fakeDecider{result: rl.Result{Model: "anthropic/claude-opus-4-8"}}
+	r := rl.New(dec, deployed("claude-opus-4-8"), allProviders)
+
+	_, err := r.Route(context.Background(), router.Request{
+		PromptText:       "refactor the auth module",
+		EnabledProviders: enabled(providers.ProviderAnthropic),
+	})
+	require.NoError(t, err)
+	assert.Zero(t, dec.got.TurnIndex)
 }

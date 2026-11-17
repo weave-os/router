@@ -1,5 +1,3 @@
-// Package policyregistry owns the immutable HMM release and mutable lane-head
-// contracts used by the router control plane.
 package policyregistry
 
 import (
@@ -22,16 +20,12 @@ import (
 	"weave-os/router/internal/router/policy"
 )
 
-// ReleaseSchemaV1 is the first atomic classifier-and-selection-policy release.
 const ReleaseSchemaV1 = "hmm_go_policy_release_v1"
 
-// LaneHeadSchemaV1 is the first generation-CAS lane-head contract.
 const LaneHeadSchemaV1 = "router_policy_lane_head_v1"
 
-// ClassifierWireSchemaV4 is the classification-facts-only sidecar contract.
 const ClassifierWireSchemaV4 = "policy_router_v4"
 
-// Environment identifies one runtime deployment environment.
 type Environment string
 
 const (
@@ -39,7 +33,6 @@ const (
 	EnvironmentProd    Environment = "prod-01"
 )
 
-// Lane identifies an independently promoted policy lane.
 type Lane string
 
 const (
@@ -47,7 +40,6 @@ const (
 	LaneBeta   Lane = "beta"
 )
 
-// ClassifierIdentity binds a release to immutable classifier bytes and taxonomy.
 type ClassifierIdentity struct {
 	ArtifactID     string                                        `json:"artifact_id"`
 	PackageSHA256  string                                        `json:"package_sha256"`
@@ -58,7 +50,6 @@ type ClassifierIdentity struct {
 	Variants       map[router.Strategy]policy.ClassifierArtifact `json:"variants,omitempty"`
 }
 
-// Equal includes alternate classifiers so a retained release cannot change its model.
 func (c ClassifierIdentity) Equal(other ClassifierIdentity) bool {
 	return c.ArtifactID == other.ArtifactID && c.PackageSHA256 == other.PackageSHA256 && c.ImageDigest == other.ImageDigest && c.WireSchema == other.WireSchema && c.TaxonomySHA256 == other.TaxonomySHA256 && slices.Equal(c.ClassOrder, other.ClassOrder) && maps.Equal(c.Variants, other.Variants)
 }
@@ -78,12 +69,12 @@ func (c ClassifierIdentity) validateVariants() error {
 			if err != nil || endpoint.Scheme != "https" || !strings.HasSuffix(endpoint.Hostname(), ".modal.run") || endpoint.User != nil || endpoint.Port() != "" || endpoint.Path != "" && endpoint.Path != "/" || endpoint.RawQuery != "" || endpoint.Fragment != "" || strings.TrimSpace(artifact.Audience) == "" || artifact.ServingRevision != "" && !validDigest(artifact.ServingRevision) {
 				return fmt.Errorf("invalid alternate Qwen classifier")
 			}
+		default:
 		}
 	}
 	return nil
 }
 
-// PolicyObject identifies immutable Go selection-policy bytes.
 type PolicyObject struct {
 	URI           string                   `json:"uri"`
 	SHA256        string                   `json:"sha256"`
@@ -91,7 +82,6 @@ type PolicyObject struct {
 	Generation    int64                    `json:"generation"`
 }
 
-// Provenance records where a release and its optional offline evidence came from.
 type Provenance struct {
 	SourceRevision string `json:"source_revision"`
 	EvidenceURI    string `json:"evidence_uri,omitempty"`
@@ -100,7 +90,6 @@ type Provenance struct {
 	CreatedAt      string `json:"created_at"`
 }
 
-// Release atomically names the classifier and Go selection policy promoted together.
 type Release struct {
 	SchemaVersion string             `json:"schema_version"`
 	Classifier    ClassifierIdentity `json:"classifier"`
@@ -108,7 +97,6 @@ type Release struct {
 	Provenance    Provenance         `json:"provenance"`
 }
 
-// LaneHead is the only mutable HMM activation object.
 type LaneHead struct {
 	SchemaVersion          string      `json:"schema_version"`
 	Environment            Environment `json:"environment"`
@@ -125,20 +113,17 @@ type LaneHead struct {
 	Reason                 string      `json:"reason"`
 }
 
-// ObjectRef identifies exact immutable bytes in GCS.
 type ObjectRef struct {
 	URI        string `json:"uri"`
 	SHA256     string `json:"sha256"`
 	Generation int64  `json:"generation"`
 }
 
-// HeadSnapshot couples decoded lane-head bytes to their GCS concurrency token.
 type HeadSnapshot struct {
 	Head       LaneHead `json:"head"`
 	Generation int64    `json:"generation"`
 }
 
-// ReleaseID returns the content-derived lowercase SHA-256 identity.
 func ReleaseID(release Release) (string, error) {
 	canonical, err := CanonicalBytes(release)
 	if err != nil {
@@ -147,7 +132,6 @@ func ReleaseID(release Release) (string, error) {
 	return Digest(canonical), nil
 }
 
-// CanonicalBytes encodes a contract as stable compact JSON with no trailing newline.
 func CanonicalBytes(value any) ([]byte, error) {
 	payload, err := json.Marshal(value)
 	if err != nil {
@@ -156,13 +140,11 @@ func CanonicalBytes(value any) ([]byte, error) {
 	return payload, nil
 }
 
-// Digest returns a lowercase hex SHA-256 digest.
 func Digest(payload []byte) string {
 	sum := sha256.Sum256(payload)
 	return hex.EncodeToString(sum[:])
 }
 
-// DecodeRelease strictly decodes and semantically validates a stored immutable release.
 func DecodeRelease(payload []byte, registryRoot string) (Release, error) {
 	var release Release
 	if err := strictDecode(payload, &release); err != nil {
@@ -174,7 +156,6 @@ func DecodeRelease(payload []byte, registryRoot string) (Release, error) {
 	return release, nil
 }
 
-// DecodeLaneHead strictly decodes and validates a mutable lane head.
 func DecodeLaneHead(payload []byte, registryRoot string, environment Environment, lane Lane) (LaneHead, error) {
 	var head LaneHead
 	if err := strictDecode(payload, &head); err != nil {
@@ -186,7 +167,6 @@ func DecodeLaneHead(payload []byte, registryRoot string, environment Environment
 	return head, nil
 }
 
-// Validate enforces the immutable release contract.
 func (r Release) Validate(registryRoot string) error {
 	if r.SchemaVersion != ReleaseSchemaV1 {
 		return fmt.Errorf("unsupported release schema_version %q", r.SchemaVersion)
@@ -227,7 +207,6 @@ func (r Release) Validate(registryRoot string) error {
 	return nil
 }
 
-// Validate enforces facet identity and immutable release binding.
 func (h LaneHead) Validate(registryRoot string, environment Environment, lane Lane) error {
 	if h.SchemaVersion != LaneHeadSchemaV1 {
 		return fmt.Errorf("unsupported lane-head schema_version %q", h.SchemaVersion)
@@ -266,7 +245,6 @@ func (h LaneHead) Validate(registryRoot string, environment Environment, lane La
 	return nil
 }
 
-// ValidateEnvironment rejects unrecognized serving environments.
 func ValidateEnvironment(environment Environment) error {
 	switch environment {
 	case EnvironmentStaging, EnvironmentProd:
@@ -276,7 +254,6 @@ func ValidateEnvironment(environment Environment) error {
 	}
 }
 
-// ValidateLane rejects unrecognized promotion lanes.
 func ValidateLane(lane Lane) error {
 	switch lane {
 	case LaneStable, LaneBeta:
@@ -286,7 +263,6 @@ func ValidateLane(lane Lane) error {
 	}
 }
 
-// TaxonomyDigest returns the classifier's canonical ordered-label digest.
 func TaxonomyDigest(classOrder []string) string {
 	payload, _ := json.Marshal(classOrder)
 	return Digest(payload)

@@ -36,7 +36,7 @@ func TestDeployedModelsSource_ManagedAdmissionListsCatalogUnauthed(t *testing.T)
 
 	for _, path := range []string{"/v1/router/models", "/v1/router/models?strategy=hmm", "/v1/router/models?strategy=hmm_embedding"} {
 		response := httptest.NewRecorder()
-		engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		engine.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
 		require.Equal(t, http.StatusOK, response.Code, path)
 		var body catalog.ModelListingResponse
 		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body), path)

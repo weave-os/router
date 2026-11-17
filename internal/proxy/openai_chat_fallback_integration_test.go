@@ -67,7 +67,7 @@ func TestProxyMessages_OpenAIResponses404UsesValidChatToolFallback(t *testing.T)
 			body := []byte(`{"model":"auto","stream":true,"max_tokens":1024,"thinking":{"type":"enabled","budget_tokens":2048},"messages":[{"role":"user","content":"list files"}],"tools":[{"name":"read_file","input_schema":{"type":"object","properties":{"path":{"type":"string"}}}}]}`)
 			for i := 0; i < 2; i++ {
 				rec := httptest.NewRecorder()
-				req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 				require.NoError(t, svc.ProxyMessages(context.Background(), body, rec, req))
 				assert.Equal(t, http.StatusOK, rec.Code)
 				assert.Contains(t, rec.Body.String(), `"text":"hi"`)

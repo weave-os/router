@@ -6,13 +6,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/server/middleware"
+
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFederationAdmissionFailureHonorsBYOKOptIn(t *testing.T) {
@@ -41,11 +42,11 @@ func TestFederationAdmissionFailureHonorsBYOKOptIn(t *testing.T) {
 					assert.Empty(t, resolved)
 				} else {
 					require.Len(t, resolved, 1)
-					assert.ErrorIs(t, resolved[0].CredentialError, auth.ErrAnthropicFederationUnavailable)
+					require.ErrorIs(t, resolved[0].CredentialError, auth.ErrAnthropicFederationUnavailable)
 				}
 				c.Status(http.StatusOK)
 			})
-			request := httptest.NewRequest(http.MethodGet, "/probe", nil)
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 			request.Header.Set(middleware.RouterKeyHeader, token)
 			recorder := httptest.NewRecorder()
 			engine.ServeHTTP(recorder, request)
@@ -68,7 +69,7 @@ func TestFederationFailureDoesNotBlockOtherProviders(t *testing.T) {
 	engine := gin.New()
 	engine.Use(middleware.WithAuth(svc, true))
 	engine.GET("/probe", func(c *gin.Context) { c.Status(http.StatusOK) })
-	request := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	request.Header.Set(middleware.RouterKeyHeader, token)
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, request)

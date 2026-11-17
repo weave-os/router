@@ -1,0 +1,29 @@
+{
+  "requests": [
+    {
+      "ingress": "gemini_generate_content",
+      "stream": false,
+      "routing_decisions": [
+        {
+          "requested_model": "gemini-2.5-flash",
+          "error": "router: no eligible provider for request"
+        }
+      ],
+      "dispatch_attempts": [],
+      "response": {
+        "status": 400,
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "error": {
+            "code": 400,
+            "message": "No enabled provider can serve any deployed model: add a provider key (BYOK or a provider Authorization header), or re-enable an excluded provider.",
+            "status": "FAILED_PRECONDITION"
+          }
+        }
+      }
+    }
+  ],
+  "scenario": "gemini_generate_content_nonstream_no_eligible_provider"
+}

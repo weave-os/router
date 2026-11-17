@@ -19,15 +19,14 @@ description: Decide where new router behavior belongs before writing code — wh
 | is a model quirk | catalog data (see `add-model-or-quirk`) |
 | is new I/O | a port in the owning context, an adapter package, wiring in `cmd/router` (see `add-context-port`) |
 
-Accounting and shadows/experiments stay in the orchestrator for now. The proxy guide's "Where new behavior goes" section in [internal/proxy/CLAUDE.md](../../../internal/proxy/CLAUDE.md) maps each context to the files that own it today.
+Accounting and shadows/experiments stay in the orchestrator for now.
 
 ## Steps
 
-1. Find where the concept lives today and read the owning package's `CLAUDE.md`:
+1. Find where the concept lives today:
    ```bash
    rg -l '<concept>' internal --type go
    go list ./internal/...
-   ls internal/<pkg>/CLAUDE.md
    ```
 2. If a package for the context exists, add the logic there. If not, add a **new focused file** next to the files that own the concept, as a free function or a small collaborator struct whose dependencies are explicit parameters. Pass request-scoped values as arguments.
 3. Write the placement in the PR description: `Placement: <context/package>, because <reason>.`

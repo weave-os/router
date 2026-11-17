@@ -270,8 +270,8 @@ func TestStripRouterCommandsFromResponsesInput_RemovesAgentToolCommand(t *testin
 	body := []byte(`{"model":"gpt-5.6-sol","input":[{"type":"custom_tool_call_output","call_id":"call_skill","output":" /router-feedback too slow"},{"type":"function_call_output","call_id":"call_fm","output":[{"type":"input_text","text":" /force-model gpt-5"}]}]}`)
 	out, err := translate.StripRouterCommandsFromResponsesInput(body)
 	require.NoError(t, err)
-	assert.Equal(t, "", gjson.GetBytes(out, "input.0.output").String())
-	assert.Equal(t, "", gjson.GetBytes(out, "input.1.output.0.text").String())
+	assert.Empty(t, gjson.GetBytes(out, "input.0.output").String())
+	assert.Empty(t, gjson.GetBytes(out, "input.1.output.0.text").String())
 }
 
 func TestStripRouterCommandsFromResponsesInput_RemovesCollapsedExecCommand(t *testing.T) {
@@ -343,7 +343,7 @@ func TestStripRoutingBadgeFromResponsesInput_KeepsItemWithRemainingContent(t *te
 
 	input := gjson.GetBytes(out, "input").Array()
 	require.Len(t, input, 1)
-	assert.Equal(t, "", input[0].Get("content.0.text").Str)
+	assert.Empty(t, input[0].Get("content.0.text").Str)
 	assert.Equal(t, "the answer", input[0].Get("content.1.text").Str)
 }
 
@@ -454,7 +454,7 @@ func TestResponsesWriter_FinalizeErrorEmitsFailed(t *testing.T) {
 
 	final := events[len(events)-1]
 	require.Equal(t, "response.failed", final["type"])
-	resp := final["response"].(map[string]any)
+	resp := mustAs[map[string]any](t, final["response"])
 	assert.Equal(t, "failed", resp["status"])
 	assert.NotNil(t, resp["error"])
 }
@@ -471,7 +471,7 @@ func TestResponsesWriter_EmitRoutingBadgeAfterPrelude(t *testing.T) {
 	var deltas []string
 	for _, event := range events {
 		if event["type"] == "response.output_text.delta" {
-			deltas = append(deltas, event["delta"].(string))
+			deltas = append(deltas, mustAs[string](t, event["delta"]))
 		}
 	}
 	require.Len(t, deltas, 2)
@@ -501,15 +501,15 @@ func TestResponsesWriter_NativePreludeFallbackAndFailureStaySequenced(t *testing
 	assert.Contains(t, events[3]["delta"], "initial decision")
 	assert.Contains(t, events[9]["delta"], "fallback decision")
 	assert.Equal(t, "response.failed", events[13]["type"])
-	failed := events[13]["response"].(map[string]any)
+	failed := mustAs[map[string]any](t, events[13]["response"])
 	assert.Equal(t, "failed", failed["status"])
 	assert.Equal(t, "claude-opus-4-8", failed["model"])
-	output := failed["output"].([]any)
+	output := mustAs[[]any](t, failed["output"])
 	require.Len(t, output, 2)
-	initialContent := output[0].(map[string]any)["content"].([]any)
-	assert.Contains(t, initialContent[0].(map[string]any)["text"], "initial decision")
-	content := output[1].(map[string]any)["content"].([]any)
-	assert.Contains(t, content[0].(map[string]any)["text"], "fallback decision")
+	initialContent := mustAs[[]any](t, mustAs[map[string]any](t, output[0])["content"])
+	assert.Contains(t, mustAs[map[string]any](t, initialContent[0])["text"], "initial decision")
+	content := mustAs[[]any](t, mustAs[map[string]any](t, output[1])["content"])
+	assert.Contains(t, mustAs[map[string]any](t, content[0])["text"], "fallback decision")
 }
 
 func TestResponsesWriter_NativePreludeRewritesFinalServingModel(t *testing.T) {
@@ -529,7 +529,7 @@ func TestResponsesWriter_NativePreludeRewritesFinalServingModel(t *testing.T) {
 	events := parseSSEEvents(t, rec.Body.Bytes())
 	completed := events[len(events)-1]
 	require.Equal(t, "response.completed", completed["type"])
-	response := completed["response"].(map[string]any)
+	response := mustAs[map[string]any](t, completed["response"])
 	assert.Equal(t, "gpt-5.6-luna", response["model"])
 }
 
@@ -554,7 +554,7 @@ func TestResponsesWriter_ClearPassthroughContinuesVisiblePrelude(t *testing.T) {
 	assert.Contains(t, events[3]["delta"], "initial decision")
 	assert.Contains(t, events[9]["delta"], "fallback decision")
 	assert.Equal(t, "response.failed", events[len(events)-1]["type"])
-	failed := events[len(events)-1]["response"].(map[string]any)
+	failed := mustAs[map[string]any](t, events[len(events)-1]["response"])
 	assert.Equal(t, "claude-opus-4-8", failed["model"])
 }
 
@@ -609,7 +609,7 @@ func TestResponsesWriter_StreamingText(t *testing.T) {
 		if e["type"] != "response.output_text.delta" {
 			continue
 		}
-		d := e["delta"].(string)
+		d := mustAs[string](t, e["delta"])
 		if strings.HasPrefix(d, "**Weave Router**") {
 			continue
 		}
@@ -620,7 +620,7 @@ func TestResponsesWriter_StreamingText(t *testing.T) {
 	// Final completed event carries usage.
 	final := events[len(events)-1]
 	assert.Equal(t, "response.completed", final["type"])
-	usage := final["response"].(map[string]any)["usage"].(map[string]any)
+	usage := mustAs[map[string]any](t, mustAs[map[string]any](t, final["response"])["usage"])
 	assert.EqualValues(t, 3, usage["input_tokens"])
 	assert.EqualValues(t, 2, usage["output_tokens"])
 }
@@ -651,7 +651,7 @@ func TestResponsesWriter_TrailingUsageFramePrecedesCompletion(t *testing.T) {
 		}
 	}
 	require.Len(t, completed, 1)
-	usage := completed[0]["response"].(map[string]any)["usage"].(map[string]any)
+	usage := mustAs[map[string]any](t, mustAs[map[string]any](t, completed[0]["response"])["usage"])
 	assert.EqualValues(t, 21, usage["input_tokens"])
 	assert.EqualValues(t, 4, usage["output_tokens"])
 	assert.EqualValues(t, 25, usage["total_tokens"])
@@ -672,7 +672,7 @@ func TestResponsesWriter_MissingUsageEmitsValidTerminalUsage(t *testing.T) {
 	events := parseSSEEvents(t, rec.Body.Bytes())
 	final := events[len(events)-1]
 	require.Equal(t, "response.completed", final["type"])
-	usage := final["response"].(map[string]any)["usage"].(map[string]any)
+	usage := mustAs[map[string]any](t, mustAs[map[string]any](t, final["response"])["usage"])
 	assert.EqualValues(t, 0, usage["input_tokens"])
 	assert.EqualValues(t, 0, usage["output_tokens"])
 	assert.EqualValues(t, 0, usage["total_tokens"])
@@ -870,13 +870,13 @@ func TestResponsesWriter_PassthroughBadgePreservesNativeStream(t *testing.T) {
 			assert.Equal(t, badge+"o", events[4]["delta"], "only the first text delta gets the badge")
 			assert.Equal(t, "k", events[5]["delta"], "later deltas stay native")
 			assert.Equal(t, badge+"ok", events[6]["text"])
-			assert.Equal(t, badge+"ok", events[7]["part"].(map[string]any)["text"])
-			assert.Equal(t, badge+"ok", events[8]["item"].(map[string]any)["content"].([]any)[0].(map[string]any)["text"])
-			response := events[13]["response"].(map[string]any)
+			assert.Equal(t, badge+"ok", mustAs[map[string]any](t, events[7]["part"])["text"])
+			assert.Equal(t, badge+"ok", mustAs[map[string]any](t, mustAs[[]any](t, mustAs[map[string]any](t, events[8]["item"])["content"])[0])["text"])
+			response := mustAs[map[string]any](t, events[13]["response"])
 			assert.Equal(t, "resp_native", response["id"])
 			assert.Equal(t, "gpt-5.6-terra", response["model"])
-			output := response["output"].([]any)
-			assert.Equal(t, badge+"ok", output[0].(map[string]any)["content"].([]any)[0].(map[string]any)["text"])
+			output := mustAs[[]any](t, response["output"])
+			assert.Equal(t, badge+"ok", mustAs[map[string]any](t, mustAs[[]any](t, mustAs[map[string]any](t, output[0])["content"])[0])["text"])
 
 			// Tool events and the completed aggregate tool item stay untouched.
 			for _, index := range []int{9, 10, 11, 12} {
@@ -886,7 +886,7 @@ func TestResponsesWriter_PassthroughBadgePreservesNativeStream(t *testing.T) {
 			}
 			var originalTerminal map[string]any
 			require.NoError(t, json.Unmarshal([]byte(payloads[13]), &originalTerminal))
-			originalTool := originalTerminal["response"].(map[string]any)["output"].([]any)[1]
+			originalTool := mustAs[[]any](t, mustAs[map[string]any](t, originalTerminal["response"])["output"])[1]
 			assert.Equal(t, originalTool, output[1])
 		})
 	}
@@ -947,15 +947,15 @@ func TestResponsesWriter_PassthroughBadgeEmitsNativeItemForToolOnlyTurn(t *testi
 		}
 		assert.EqualValues(t, i, event["sequence_number"])
 	}
-	assert.Equal(t, "message", events[1]["item"].(map[string]any)["type"])
+	assert.Equal(t, "message", mustAs[map[string]any](t, events[1]["item"])["type"])
 	assert.Equal(t, codexResponsesBadgeSentinelForTest+passthroughTestMarker+"\n\n", events[3]["delta"])
 	assert.EqualValues(t, 0, events[1]["output_index"])
 	assert.EqualValues(t, 1, events[7]["output_index"])
-	completed := events[len(events)-1]["response"].(map[string]any)
-	output := completed["output"].([]any)
+	completed := mustAs[map[string]any](t, events[len(events)-1]["response"])
+	output := mustAs[[]any](t, completed["output"])
 	require.Len(t, output, 2)
-	assert.Equal(t, "message", output[0].(map[string]any)["type"])
-	assert.Equal(t, "function_call", output[1].(map[string]any)["type"])
+	assert.Equal(t, "message", mustAs[map[string]any](t, output[0])["type"])
+	assert.Equal(t, "function_call", mustAs[map[string]any](t, output[1])["type"])
 }
 
 func TestResponsesWriter_PassthroughBadgeRewritesNonStreamingBody(t *testing.T) {
@@ -970,8 +970,8 @@ func TestResponsesWriter_PassthroughBadgeRewritesNonStreamingBody(t *testing.T) 
 	require.NoError(t, w.Finalize())
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-	output := body["output"].([]any)
-	text := output[0].(map[string]any)["content"].([]any)[0].(map[string]any)["text"]
+	output := mustAs[[]any](t, body["output"])
+	text := mustAs[map[string]any](t, mustAs[[]any](t, mustAs[map[string]any](t, output[0])["content"])[0])["text"]
 	assert.Equal(t, codexResponsesBadgeSentinelForTest+passthroughTestMarker+"\n\nok", text)
 }
 
@@ -999,7 +999,7 @@ func TestResponsesWriter_PrependsRoutingMarkerBadge(t *testing.T) {
 	var deltas []string
 	for _, e := range events {
 		if e["type"] == "response.output_text.delta" {
-			deltas = append(deltas, e["delta"].(string))
+			deltas = append(deltas, mustAs[string](t, e["delta"]))
 		}
 	}
 	require.Len(t, deltas, 3)
@@ -1036,7 +1036,7 @@ func TestResponsesWriter_WithoutMarkerEmitsNoBadge(t *testing.T) {
 	var deltas []string
 	for _, e := range events {
 		if e["type"] == "response.output_text.delta" {
-			deltas = append(deltas, e["delta"].(string))
+			deltas = append(deltas, mustAs[string](t, e["delta"]))
 		}
 	}
 	assert.Equal(t, []string{"hi"}, deltas)
@@ -1068,7 +1068,7 @@ func TestResponsesWriter_EmitsBadgeOnToolCallOnlyTurn(t *testing.T) {
 	var deltas []string
 	for _, e := range events {
 		if e["type"] == "response.output_text.delta" {
-			deltas = append(deltas, e["delta"].(string))
+			deltas = append(deltas, mustAs[string](t, e["delta"]))
 		}
 	}
 	require.Equal(t, []string{passthroughTestMarker + "\n\n"}, deltas)
@@ -1078,21 +1078,21 @@ func TestResponsesWriter_EmitsBadgeOnToolCallOnlyTurn(t *testing.T) {
 	var completed map[string]any
 	for _, e := range events {
 		if e["type"] == "response.completed" {
-			completed = e["response"].(map[string]any)
+			completed = mustAs[map[string]any](t, e["response"])
 		}
 	}
 	require.NotNil(t, completed)
-	output := completed["output"].([]any)
+	output := mustAs[[]any](t, completed["output"])
 	require.Len(t, output, 2)
-	message := output[0].(map[string]any)
+	message := mustAs[map[string]any](t, output[0])
 	assert.Equal(t, "message", message["type"])
-	assert.Equal(t, passthroughTestMarker+"\n\n", message["content"].([]any)[0].(map[string]any)["text"])
-	assert.Equal(t, "function_call", output[1].(map[string]any)["type"])
-	assert.Equal(t, `{"cmd":"ls"}`, output[1].(map[string]any)["arguments"])
+	assert.Equal(t, passthroughTestMarker+"\n\n", mustAs[map[string]any](t, mustAs[[]any](t, message["content"])[0])["text"])
+	assert.Equal(t, "function_call", mustAs[map[string]any](t, output[1])["type"])
+	assert.Equal(t, `{"cmd":"ls"}`, mustAs[map[string]any](t, output[1])["arguments"])
 }
 
-// Reasoning deltas are not translated into output items, so a reasoning-only
-// turn must not be reported as a badge-only successful answer.
+// A reasoning-only turn carries no answer, so it must not be reported as a
+// badge-only successful answer.
 func TestResponsesWriter_RejectsReasoningOnlyTurn(t *testing.T) {
 	for _, field := range []string{"reasoning", "reasoning_content"} {
 		t.Run(field, func(t *testing.T) {
@@ -1145,9 +1145,9 @@ func TestResponsesWriter_UsesRoutedModelFromHeader(t *testing.T) {
 	for _, e := range events {
 		switch e["type"] {
 		case "response.created":
-			created = e["response"].(map[string]any)
+			created = mustAs[map[string]any](t, e["response"])
 		case "response.completed":
-			completed = e["response"].(map[string]any)
+			completed = mustAs[map[string]any](t, e["response"])
 		}
 	}
 	require.NotNil(t, created)
@@ -1174,7 +1174,7 @@ func TestResponsesWriter_UsesCustomBadgeText(t *testing.T) {
 	var firstDelta string
 	for _, e := range events {
 		if e["type"] == "response.output_text.delta" {
-			firstDelta = e["delta"].(string)
+			firstDelta = mustAs[string](t, e["delta"])
 			break
 		}
 	}
@@ -1213,7 +1213,7 @@ func TestResponsesWriter_StreamingToolCall(t *testing.T) {
 	var args strings.Builder
 	for _, e := range events {
 		if e["type"] == "response.function_call_arguments.delta" {
-			args.WriteString(e["delta"].(string))
+			args.WriteString(mustAs[string](t, e["delta"]))
 		}
 	}
 	assert.Equal(t, `{"x":1}`, args.String())
@@ -1262,18 +1262,18 @@ func TestResponsesWriter_NonContiguousToolCallIndices(t *testing.T) {
 	}
 	require.NotNil(t, completed, "response.completed event must be present")
 
-	response := completed["response"].(map[string]any)
-	output := response["output"].([]any)
+	response := mustAs[map[string]any](t, completed["response"])
+	output := mustAs[[]any](t, response["output"])
 
 	// Both tool calls must appear in output — not just the first one.
 	require.Len(t, output, 2, "both tool calls must appear in output; got %d", len(output))
 
 	// Verify each tool call by name (order: index 0 then index 2).
-	first := output[0].(map[string]any)
+	first := mustAs[map[string]any](t, output[0])
 	assert.Equal(t, "search", first["name"], "first tool call must be 'search'")
 	assert.Equal(t, `{"q":"x"}`, first["arguments"])
 
-	second := output[1].(map[string]any)
+	second := mustAs[map[string]any](t, output[1])
 	assert.Equal(t, "lookup", second["name"], "second tool call must be 'lookup'")
 	assert.Equal(t, `{"id":1}`, second["arguments"])
 }
@@ -1336,8 +1336,8 @@ func TestResponsesWriter_PassthroughAppendsFeedbackFooter(t *testing.T) {
 	require.Len(t, events, 3)
 	assert.Equal(t, "ok", events[0]["delta"])
 	assert.Equal(t, "ok"+footer, events[1]["text"])
-	output := events[2]["response"].(map[string]any)["output"].([]any)
-	assert.Equal(t, "ok"+footer, output[0].(map[string]any)["content"].([]any)[0].(map[string]any)["text"])
+	output := mustAs[[]any](t, mustAs[map[string]any](t, events[2]["response"])["output"])
+	assert.Equal(t, "ok"+footer, mustAs[map[string]any](t, mustAs[[]any](t, mustAs[map[string]any](t, output[0])["content"])[0])["text"])
 }
 
 func TestResponsesWriter_PassthroughReasoningThenTextKeepsBadgeAndFooter(t *testing.T) {
@@ -1380,21 +1380,21 @@ func TestResponsesWriter_PassthroughReasoningThenTextKeepsBadgeAndFooter(t *test
 		}
 		assert.EqualValues(t, i, event["sequence_number"], "sequence at %d", i)
 	}
-	assert.Equal(t, "message", events[1]["item"].(map[string]any)["type"])
+	assert.Equal(t, "message", mustAs[map[string]any](t, events[1]["item"])["type"])
 	assert.EqualValues(t, 0, events[1]["output_index"])
 	badge := codexResponsesBadgeSentinelForTest + passthroughTestMarker + "\n\n"
 	assert.Equal(t, badge, events[3]["delta"])
-	assert.Equal(t, "reasoning", events[7]["item"].(map[string]any)["type"])
+	assert.Equal(t, "reasoning", mustAs[map[string]any](t, events[7]["item"])["type"])
 	assert.EqualValues(t, 1, events[7]["output_index"])
 	assert.EqualValues(t, 2, events[9]["output_index"])
 	assert.Equal(t, "ok", events[11]["delta"])
 	assert.Equal(t, "ok"+footer, events[12]["text"])
-	output := events[len(events)-1]["response"].(map[string]any)["output"].([]any)
+	output := mustAs[[]any](t, mustAs[map[string]any](t, events[len(events)-1]["response"])["output"])
 	require.Len(t, output, 3)
-	assert.Equal(t, "message", output[0].(map[string]any)["type"])
-	assert.Equal(t, badge, output[0].(map[string]any)["content"].([]any)[0].(map[string]any)["text"])
-	assert.Equal(t, "reasoning", output[1].(map[string]any)["type"])
-	assert.Equal(t, "ok"+footer, output[2].(map[string]any)["content"].([]any)[0].(map[string]any)["text"])
+	assert.Equal(t, "message", mustAs[map[string]any](t, output[0])["type"])
+	assert.Equal(t, badge, mustAs[map[string]any](t, mustAs[[]any](t, mustAs[map[string]any](t, output[0])["content"])[0])["text"])
+	assert.Equal(t, "reasoning", mustAs[map[string]any](t, output[1])["type"])
+	assert.Equal(t, "ok"+footer, mustAs[map[string]any](t, mustAs[[]any](t, mustAs[map[string]any](t, output[2])["content"])[0])["text"])
 }
 
 func TestResponsesWriter_PassthroughFooterSkippedOnToolCall(t *testing.T) {
@@ -1444,7 +1444,7 @@ func TestResponsesWriter_TranslatedStreamAppendsFeedbackFooter(t *testing.T) {
 	var deltas []string
 	for _, e := range events {
 		if e["type"] == "response.output_text.delta" {
-			deltas = append(deltas, e["delta"].(string))
+			deltas = append(deltas, mustAs[string](t, e["delta"]))
 		}
 	}
 	require.GreaterOrEqual(t, len(deltas), 2)

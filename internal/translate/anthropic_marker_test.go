@@ -62,7 +62,7 @@ func TestAnthropicRoutingMarkerWriter_StreamingInjectsMarker(t *testing.T) {
 	msgData := extractDataField(events[0])
 	assert.Equal(t, "message_start", gjson.Get(msgData, "type").String())
 	assert.Equal(t, "claude-opus-4", gjson.Get(msgData, "message.model").String())
-	assert.True(t, gjson.Get(msgData, "message.id").String() != "", "prelude message_start should have a non-empty id")
+	assert.NotEmpty(t, gjson.Get(msgData, "message.id").String(), "prelude message_start should have a non-empty id")
 
 	// Event 1: prelude content_block_start at index 0 (text)
 	startData := extractDataField(events[1])
@@ -538,4 +538,28 @@ func TestAnthropicRoutingMarkerWriter_NoUpstreamUsageLeavesDeltaUntouched(t *tes
 
 	assert.Contains(t, rec.Body.String(), deltaEvent, "delta must pass through verbatim")
 	assert.False(t, gjson.Get(deltaEvent, "usage.input_tokens").Exists())
+}
+
+func TestAnthropicRoutingMarkerWriter_MessageStartOutputTokensAreNotMerged(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewAnthropicRoutingMarkerWriter(rec, "claude-opus-5", "✦ marker\n\n")
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+
+	upstream := buildAnthropicSSE("message_start", `{"type":"message_start","message":{"usage":{"input_tokens":10,"output_tokens":7}}}`) +
+		buildAnthropicSSE("message_delta", `{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{}}`)
+	_, err := w.Write([]byte(upstream))
+	require.NoError(t, err)
+
+	var delta string
+	for _, ev := range splitSSEEvents(rec.Body.String()) {
+		if strings.Contains(ev, "event: message_delta") {
+			delta = ev
+		}
+	}
+	require.NotEmpty(t, delta)
+	data := delta[strings.Index(delta, "data: ")+len("data: "):]
+	assert.Equal(t, int64(10), gjson.Get(data, "usage.input_tokens").Int())
+	assert.False(t, gjson.Get(data, "usage.output_tokens").Exists(),
+		"message_start output_tokens is a placeholder that must not leak into message_delta")
 }

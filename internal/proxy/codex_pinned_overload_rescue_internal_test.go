@@ -79,7 +79,7 @@ func proxyPinnedCodexOverload(t *testing.T, pinFound bool) (*anthropicServingCli
 	ctx = router.WithStrategy(ctx, strategy)
 	ctx = WithManagedSubscriptionUsage(ctx)
 	ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyLinkedFirst)
-	err := svc.ProxyOpenAIResponses(ctx, []byte(pinnedOverloadToolTurnBody), rec, codexSubHTTPRequest("/v1/responses", pinnedOverloadToolTurnBody))
+	err := svc.ProxyOpenAIResponses(ctx, []byte(pinnedOverloadToolTurnBody), rec, codexSubHTTPRequest(t.Context(), "/v1/responses", pinnedOverloadToolTurnBody))
 	return sibling, rec, err
 }
 
@@ -122,10 +122,10 @@ func TestClearWithheldPassthrough_KeepsDeliveredHeaders(t *testing.T) {
 	}
 
 	withheld := newPreludeBuffer(httptest.NewRecorder())
-	assert.True(t, clearWithheldPassthrough(newPassthroughWriter(withheld), withheld), "a withheld header is not a commitment")
+	require.NoError(t, (responseProtocolSwitch{writer: newPassthroughWriter(withheld), buffer: withheld}).leavePassthrough(), "a withheld header is not a commitment")
 
 	delivered := newPreludeBuffer(httptest.NewRecorder())
 	rw := newPassthroughWriter(delivered)
 	require.NoError(t, delivered.CommitPrelude())
-	assert.False(t, clearWithheldPassthrough(rw, delivered), "a header the client received must keep the stream native")
+	assert.ErrorIs(t, (responseProtocolSwitch{writer: rw, buffer: delivered}).leavePassthrough(), errResponsesPassthroughStuck, "a header the client received must keep the stream native")
 }

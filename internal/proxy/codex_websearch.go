@@ -20,11 +20,8 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// nativeSearchLoggerContextKey carries the pre-bind logger so nested Responses
-// dispatch can bind session fields without duplicating log keys.
 type nativeSearchLoggerContextKey struct{}
 
-// codexWebSearchContextKey keeps isolated helpers out of conversation pin state.
 type codexWebSearchContextKey struct{}
 
 const (
@@ -56,7 +53,6 @@ func (s *Service) serveCodexWebSearch(ctx context.Context, body []byte, model st
 	}
 	callCtx, cancel := context.WithTimeout(ctx, nativeSearchTimeout)
 	defer cancel()
-	// The search bridge never authorizes API-key fallback, even for funded callers.
 	callCtx = context.WithValue(callCtx, subscriptionOnlyAttemptKey{}, true)
 	callCtx = context.WithValue(callCtx, codexWebSearchContextKey{}, true)
 	if base, ok := ctx.Value(nativeSearchLoggerContextKey{}).(*slog.Logger); ok {
@@ -108,7 +104,7 @@ func (s *Service) serveCodexWebSearch(ctx context.Context, body []byte, model st
 	}
 	query, _ := websearch.DetectSearchTurn(body)
 	tool, _ := websearch.FindServerTool(body)
-	message := websearch.SynthesizeMessage("msg_router_search_"+fmt.Sprintf("%x", time.Now().UnixNano()), servedModel, tool.Name, query, result, 0)
+	message := websearch.SynthesizeMessage("msg_router_search_"+fmt.Sprintf("%x", s.clock.Now().UnixNano()), servedModel, tool.Name, query, result, 0)
 	observability.FromContext(ctx).Info("Served native web search through Codex subscription", "results", len(result.Results))
 	return true, writeWebSearchMessage(w, message, stream)
 }
@@ -157,7 +153,7 @@ func (b *nativeSearchBuffer) Write(p []byte) (int, error) {
 			_, data := sse.ParseEvent(event)
 			value := gjson.ParseBytes(data)
 			kind := value.Get("type").String()
-			if kind != "response.web_search_call.in_progress" && !(kind == "response.output_item.added" && value.Get("item.type").String() == "web_search_call") {
+			if kind != "response.web_search_call.in_progress" && (kind != "response.output_item.added" || value.Get("item.type").String() != "web_search_call") {
 				continue
 			}
 			id := value.Get("item_id").String()
@@ -189,12 +185,14 @@ func copyNativeSearchHeaders(w http.ResponseWriter, headers http.Header) {
 }
 
 func nativeSearchInvalidRequest(err error) error {
-	encoded, _ := json.Marshal(map[string]any{"type": "error", "error": map[string]any{"type": "invalid_request_error", "message": err.Error()}})
+	message := err.Error()
+	if errors.Is(err, websearch.ErrDomainFilterNotHostname) {
+		message = websearch.DomainFilterNotHostnameMessage
+	}
+	encoded, _ := json.Marshal(map[string]any{"type": "error", "error": map[string]any{"type": "invalid_request_error", "message": message}})
 	return &providers.UpstreamErrorResponse{Status: http.StatusBadRequest, Body: encoded}
 }
 
-// nativeSearchErrorResponse normalizes buffered Responses failures for Messages
-// clients, retaining status and cause while diagnostics are copied separately.
 func nativeSearchErrorResponse(status int, body []byte, cause error) *providers.UpstreamErrorResponse {
 	kind := providers.ProviderErrorTypeAPI
 	switch status {

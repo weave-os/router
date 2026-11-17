@@ -5,16 +5,10 @@ import (
 	"strings"
 )
 
-// APIKeyPrefix fronts a routing (data-plane) bearer token: "rk_<24 random chars>".
 const APIKeyPrefix = "rk"
 
-// AnalyticsAPIKeyPrefix fronts a read-only analytics export token: "ra_<24 random chars>".
-// A distinct prefix makes the credential's authority visible in logs and configs
-// without requiring a DB lookup on the token alone.
 const AnalyticsAPIKeyPrefix = "ra"
 
-// SessionTokenPrefix fronts a delegated session JWT: "rs_<compact JWS>". The
-// prefix tells it apart from provider JWTs and keeps it out of upstream headers.
 const SessionTokenPrefix = "rs"
 
 const (
@@ -29,8 +23,6 @@ func GenerateID(prefix string) string {
 	var b strings.Builder
 	b.WriteString(prefix)
 	b.WriteString("_")
-	// Rejection-sample to avoid modulo bias: 256 % 62 != 0, so a plain
-	// mod would skew toward the first characters of the alphabet.
 	limit := byte(256 - (256 % len(alphaNumericCharacters)))
 	buf := make([]byte, idLength)
 	for written := 0; written < idLength; {
@@ -51,8 +43,6 @@ func GenerateID(prefix string) string {
 	return b.String()
 }
 
-// HasAPIKeyPrefix reports whether the token carries any router-issued prefix (rk_, ra_ or rs_).
-// Scope enforcement happens in VerifyAPIKey / VerifyAnalyticsAPIKey, not here.
 func HasAPIKeyPrefix(token string) bool {
 	return strings.HasPrefix(token, APIKeyPrefix+"_") ||
 		strings.HasPrefix(token, AnalyticsAPIKeyPrefix+"_") ||

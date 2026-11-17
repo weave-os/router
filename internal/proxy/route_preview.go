@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
@@ -79,14 +80,14 @@ func (s *Service) anthropicRoutingRequest(
 
 	enabledProviders := s.enabledProvidersForRequest(ctx, providers.ProviderAnthropic, headers)
 	if paidFallbackForbidden(ctx) {
-		enabledProviders = restrictToSubscriptionProviders(ctx, headers, enabledProviders)
+		enabledProviders = restrictToFundedProviders(ctx, headers, enabledProviders)
 	}
 	outputReserve := contextWindowOutputReserve
 	if features.MaxTokens > outputReserve {
 		outputReserve = features.MaxTokens
 	}
 	excluded := s.excludeCodexOAuthOnlyModels(ctx, headers, enabledProviders, s.excludedModelsForRequest(ctx))
-	excluded, _ = excludeContextOverflowModels(
+	excluded, _ = routingpolicy.ExcludeContextOverflowModels(
 		env.ContextOverflowTokenEstimate(),
 		env.SignatureTokenSavings(),
 		outputReserve,
@@ -94,7 +95,7 @@ func (s *Service) anthropicRoutingRequest(
 		excluded,
 		s.availableModels,
 	)
-	excluded, _ = excludeGemini3xOnUnsignedHistory(env, excluded, s.availableModels)
+	excluded, _ = routingpolicy.ExcludeGemini3xOnUnsignedHistory(env, excluded, s.availableModels)
 	excluded, _ = excludeAdvisorOutrankingModels(env, excluded, s.routableUniverse())
 
 	organizationID, _ := ctx.Value(ExternalIDContextKey{}).(string)
@@ -130,8 +131,6 @@ func (s *Service) anthropicRoutingRequest(
 	}, nil
 }
 
-// PreviewAnthropicRoute evaluates an Anthropic request with the registered
-// policy preview contract without dispatching or invoking serving lifecycle state.
 func (s *Service) PreviewAnthropicRoute(ctx context.Context, body []byte, headers http.Header) (policy.PreviewResult, error) {
 	ctx, req, err := s.anthropicRoutingRequest(ctx, body, headers, "anthropic_route_preview")
 	if err != nil {

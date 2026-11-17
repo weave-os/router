@@ -21,17 +21,14 @@ import (
 	"weave-os/router/internal/sqlc"
 )
 
-// LLMEscalationRepo persists short claims separately from XGBoost observations.
 type LLMEscalationRepo struct{ pool *pgxpool.Pool }
 
-// NewLLMEscalationRepo wires the shared pool without owning its lifecycle.
 func NewLLMEscalationRepo(pool *pgxpool.Pool) *LLMEscalationRepo {
 	return &LLMEscalationRepo{pool: pool}
 }
 
 var _ llmescalation.Store = (*LLMEscalationRepo)(nil)
 
-// Start updates instruction freshness before returning any consumable verdict.
 func (r *LLMEscalationRepo) Start(ctx context.Context, request llmescalation.StartRequest) (llmescalation.Session, error) {
 	installationID, err := uuid.Parse(request.InstallationID)
 	if err != nil {
@@ -79,7 +76,6 @@ func (r *LLMEscalationRepo) Start(ctx context.Context, request llmescalation.Sta
 	return session, err
 }
 
-// Complete deduplicates a successful response and atomically claims each cadence boundary.
 func (r *LLMEscalationRepo) Complete(ctx context.Context, request llmescalation.CompleteRequest) (llmescalation.Completion, error) {
 	completion := llmescalation.Completion{}
 	lifetime, err := uuid.Parse(request.Session.Lifetime)
@@ -171,7 +167,6 @@ func (r *LLMEscalationRepo) Complete(ctx context.Context, request llmescalation.
 	return completion, err
 }
 
-// FinishJob writes only the job verdict; later turns' state is never overwritten.
 func (r *LLMEscalationRepo) FinishJob(ctx context.Context, job llmescalation.Job, judgment llmescalation.Judgment, failure llmescalation.FailureCode) error {
 	lifetime, err := uuid.Parse(job.Lifetime)
 	if err != nil {
@@ -219,7 +214,6 @@ func (r *LLMEscalationRepo) FinishJob(ctx context.Context, job llmescalation.Job
 	})
 }
 
-// Apply latches a floor only for a still-current positive verdict.
 func (r *LLMEscalationRepo) Apply(ctx context.Context, request llmescalation.ApplyRequest) (bool, error) {
 	applied := false
 	if escalation.Rank(request.Floor) < 0 {
@@ -269,8 +263,6 @@ func (r *LLMEscalationRepo) Apply(ctx context.Context, request llmescalation.App
 	return applied, err
 }
 
-// RecordNoTarget annotates a fresh positive verdict while leaving it available
-// for another eligible request until normal checkpoint or instruction expiry.
 func (r *LLMEscalationRepo) RecordNoTarget(ctx context.Context, request llmescalation.ApplyRequest) error {
 	return pgx.BeginFunc(ctx, dbbudget.NewDBTX(r.pool), func(tx pgx.Tx) error {
 		queries := dbbudget.Queries(tx)
@@ -356,7 +348,6 @@ func currentLLMJob(ctx context.Context, queries *sqlc.Queries, session llmescala
 	return job, err == nil, err
 }
 
-// SaveContinuation persists only bounded immutable protocol recovery state.
 func (r *LLMEscalationRepo) SaveContinuation(ctx context.Context, request llmescalation.ContinuationRequest) error {
 	if request.ResponseID == "" || len(request.History) > 1024*1024 {
 		return errors.New("invalid escalation continuation")
@@ -369,7 +360,6 @@ func (r *LLMEscalationRepo) SaveContinuation(ctx context.Context, request llmesc
 	return dbbudget.Queries(r.pool).InsertLLMEscalationContinuation(ctx, sqlc.InsertLLMEscalationContinuationParams{Activation: request.Activation[:], ResponseDigest: digest[:], Lifetime: lifetime, History: request.History})
 }
 
-// Continuation resolves history within the activation's installation/key boundary.
 func (r *LLMEscalationRepo) Continuation(ctx context.Context, activation [32]byte, responseID string) (llmescalation.Continuation, bool, error) {
 	digest := sha256.Sum256([]byte(responseID))
 	row, err := dbbudget.Queries(r.pool).GetLLMEscalationContinuation(ctx, sqlc.GetLLMEscalationContinuationParams{Activation: activation[:], ResponseDigest: digest[:]})
@@ -384,7 +374,6 @@ func (r *LLMEscalationRepo) Continuation(ctx context.Context, activation [32]byt
 	return continuation, true, nil
 }
 
-// ListJobs returns recent installation-owned checkpoint metadata.
 func (r *LLMEscalationRepo) ListJobs(ctx context.Context, installation string, limit int) ([]llmescalation.Job, error) {
 	id, err := uuid.Parse(installation)
 	if err != nil {
@@ -397,7 +386,6 @@ func (r *LLMEscalationRepo) ListJobs(ctx context.Context, installation string, l
 	return decodeLLMJobs(rows)
 }
 
-// GetJob checks installation ownership before returning a checkpoint.
 func (r *LLMEscalationRepo) GetJob(ctx context.Context, installation, jobID string) (llmescalation.Job, bool, error) {
 	id, err := uuid.Parse(installation)
 	if err != nil {
@@ -419,7 +407,6 @@ func (r *LLMEscalationRepo) GetJob(ctx context.Context, installation, jobID stri
 	return job, err == nil, err
 }
 
-// ListSessions returns bounded pages of installation-owned sessions.
 func (r *LLMEscalationRepo) ListSessions(ctx context.Context, installation string, limit, offset int32) ([]llmescalation.Session, error) {
 	id := uuid.Nil
 	if installation != "" {
@@ -455,7 +442,6 @@ func (r *LLMEscalationRepo) ListSessions(ctx context.Context, installation strin
 	return sessions, nil
 }
 
-// Summary returns content-free counters across retained sessions.
 func (r *LLMEscalationRepo) Summary(ctx context.Context, installation string) (llmescalation.Summary, error) {
 	id := uuid.Nil
 	if installation != "" {
@@ -477,7 +463,6 @@ func (r *LLMEscalationRepo) Summary(ctx context.Context, installation string) (l
 	}, nil
 }
 
-// GetSession resolves a scope only within the requested installation.
 func (r *LLMEscalationRepo) GetSession(ctx context.Context, installation string, scope [32]byte) (llmescalation.Session, []llmescalation.Job, bool, error) {
 	id, err := uuid.Parse(installation)
 	if err != nil {
@@ -522,7 +507,6 @@ const (
 	llmEscalationSweepOperationTimeout = 5 * time.Second
 )
 
-// SweepExpired deletes expired histories, then their sessions, in bounded batches.
 func (r *LLMEscalationRepo) SweepExpired(ctx context.Context) error {
 	if err := dbbudget.Queries(r.pool).ExpireLLMEscalationJobLeases(ctx); err != nil {
 		return err

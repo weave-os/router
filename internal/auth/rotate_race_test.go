@@ -276,7 +276,7 @@ func TestRotateAPIKey_LosingToDelete_DoesNotIssue(t *testing.T) {
 	done.Wait()
 
 	require.NoError(t, deleteErr, "DeleteAPIKey must succeed")
-	assert.ErrorIs(t, rotateErr, auth.ErrAPIKeyNotFound,
+	require.ErrorIs(t, rotateErr, auth.ErrAPIKeyNotFound,
 		"RotateAPIKey must not mint after Delete already soft-deleted the key")
 	assert.Equal(t, 0, inner.activeCount(raceInstallID),
 		"no zombie successor after Delete wins")

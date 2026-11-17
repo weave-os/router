@@ -18,14 +18,11 @@ var openAIServerToolTypes = map[string]struct{}{
 	"computer_use_preview": {},
 }
 
-// NativeServerTool describes a provider-executed tool declaration.
 type NativeServerTool struct {
 	Name string
 	Type string
 }
 
-// NativeServerTools reports tools that the source provider, rather than the
-// calling client, must execute.
 func (e *RequestEnvelope) NativeServerTools() []NativeServerTool {
 	if e == nil {
 		return nil
@@ -33,8 +30,6 @@ func (e *RequestEnvelope) NativeServerTools() []NativeServerTool {
 	return nativeServerToolsFromBody(e.body, e.format)
 }
 
-// AdvisorToolModel returns the advisor model declared by an Anthropic
-// advisor_* server tool, or "" when the request carries none.
 func (e *RequestEnvelope) AdvisorToolModel() string {
 	if e.format != FormatAnthropic {
 		return ""
@@ -94,6 +89,7 @@ func nativeServerTool(tool gjson.Result, format Format) (name, typ string, ok bo
 				return key, key, true
 			}
 		}
+	case FormatOpenAIResponses:
 	}
 	return "", "", false
 }

@@ -30,7 +30,7 @@ func TestCatalogModelsHandler_SortsByProviderThenModel(t *testing.T) {
 	engine := gin.New()
 	engine.GET("/v1/router/models", admin.CatalogModelsHandler(src))
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/router/models", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/router/models", nil)
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, req)
 
@@ -58,7 +58,7 @@ func TestCatalogModelsHandler_ServesCatalogPricesPerRow(t *testing.T) {
 		{Model: "claude-haiku-4-5", Provider: providers.ProviderAnthropic},
 	}}))
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/router/models", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/router/models", nil)
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, req)
 
@@ -72,7 +72,7 @@ func TestCatalogModelsHandler_EmptyListReturnsEmptyArray(t *testing.T) {
 	engine := gin.New()
 	engine.GET("/v1/router/models", admin.CatalogModelsHandler(&fakeHMMRoster{}))
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/router/models", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/router/models", nil)
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, req)
 
@@ -108,7 +108,7 @@ func TestCatalogModelsHandler_ServesHMMRosterForEveryStrategy(t *testing.T) {
 	engine.GET("/v1/router/models", admin.CatalogModelsHandler(hmmSrc))
 
 	for _, query := range []string{"", "?strategy=hmm", "?strategy=hmm_embedding", "?strategy=cluster"} {
-		req := httptest.NewRequest(http.MethodGet, "/v1/router/models"+query, nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/router/models"+query, nil)
 		rec := httptest.NewRecorder()
 		engine.ServeHTTP(rec, req)
 
@@ -134,7 +134,7 @@ func TestCatalogModelsHandler_WireShapeContract(t *testing.T) {
 	engine := gin.New()
 	engine.GET("/v1/router/models", admin.CatalogModelsHandler(hmmSrc))
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/router/models", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/router/models", nil)
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, req)
 
@@ -145,12 +145,23 @@ func TestCatalogModelsHandler_WireShapeContract(t *testing.T) {
 	rows := body["models"]
 	require.Len(t, rows, 2)
 	for _, row := range rows {
-		require.Len(t, row, 5, "each row is exactly {model, provider, fast_mode, input_usd_per_1m, output_usd_per_1m}: %v", row)
+		require.Contains(t, row, "model")
+		require.Contains(t, row, "provider")
+		require.Contains(t, row, "fast_mode")
+		require.Contains(t, row, "input_usd_per_1m")
+		require.Contains(t, row, "output_usd_per_1m")
 		assert.IsType(t, "", row["model"])
 		assert.IsType(t, "", row["provider"])
 		assert.IsType(t, false, row["fast_mode"])
 		assert.IsType(t, float64(0), row["input_usd_per_1m"])
 		assert.IsType(t, float64(0), row["output_usd_per_1m"])
+		if row["fast_mode"] == true {
+			require.Len(t, row, 7, "fast-tier rows also carry exact fast prices: %v", row)
+			assert.IsType(t, float64(0), row["fast_input_usd_per_1m"])
+			assert.IsType(t, float64(0), row["fast_output_usd_per_1m"])
+		} else {
+			require.Len(t, row, 5, "each row is exactly {model, provider, fast_mode, input_usd_per_1m, output_usd_per_1m}: %v", row)
+		}
 	}
 	assert.Equal(t, "claude-opus-4-6", rows[0]["model"])
 	assert.Equal(t, "anthropic", rows[0]["provider"])
@@ -166,7 +177,7 @@ func TestCatalogModelsHandler_HMMRosterErrorReturns503(t *testing.T) {
 	engine := gin.New()
 	engine.GET("/v1/router/models", admin.CatalogModelsHandler(hmmSrc))
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/router/models?strategy=hmm_embedding", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/router/models?strategy=hmm_embedding", nil)
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, req)
 
@@ -183,7 +194,7 @@ func TestCatalogModelsHandler_ScopeCatalogReturnsFullCatalog(t *testing.T) {
 	engine := gin.New()
 	engine.GET("/v1/router/models", admin.CatalogModelsHandler(hmmSrc))
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/router/models?scope=catalog&strategy=hmm", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/router/models?scope=catalog&strategy=hmm", nil)
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, req)
 

@@ -6,12 +6,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// EndsWithUserPrompt reports whether the trailing conversational turn is text
-// a person typed: a user message with visible text that answers no tool call.
-// Out-of-band role:"system" notices are skipped, and the wrapper blocks Claude
-// Code injects (<system-reminder>, <command-name>, ...) are not visible text,
-// so harness follow-ups that only carry those do not count. Any other tagged
-// text is the person's own. Anthropic, OpenAI, and Gemini shapes.
 func (e *RequestEnvelope) EndsWithUserPrompt() bool {
 	if e.format == FormatGemini {
 		return geminiEndsWithUserPrompt(e.body)
@@ -65,8 +59,6 @@ func geminiEndsWithUserPrompt(body []byte) bool {
 	return sawTypedText
 }
 
-// userTurnText returns whether a user message carries a tool result and the
-// concatenation of its text blocks.
 func userTurnText(content gjson.Result) (answersToolCall bool, text string) {
 	if content.Type == gjson.String {
 		return false, content.String()
@@ -91,8 +83,6 @@ func userTurnText(content gjson.Result) (answersToolCall bool, text string) {
 	return answersToolCall, b.String()
 }
 
-// assistantCallsTools reports whether an assistant message requested tool
-// calls, in either the OpenAI tool_calls or the Anthropic tool_use shape.
 func assistantCallsTools(assistant gjson.Result) bool {
 	if toolCalls := assistant.Get("tool_calls"); toolCalls.IsArray() && len(toolCalls.Array()) > 0 {
 		return true
@@ -109,11 +99,6 @@ func assistantCallsTools(assistant gjson.Result) bool {
 	return false
 }
 
-// LatestToolCallOutcomes returns the outcomes of the most recent assistant
-// message's tool_use blocks: the calls whose results this request delivers.
-// Earlier assistant messages are excluded. Client retries can deliver the
-// same results again; these are observations, not distinct executions.
-// Anthropic format only.
 func (e *RequestEnvelope) LatestToolCallOutcomes() []ToolCallOutcome {
 	if e.format != FormatAnthropic {
 		return nil

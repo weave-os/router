@@ -220,3 +220,18 @@ func TestExportPropagatesRepositoryError(t *testing.T) {
 
 	require.ErrorIs(t, err, boom)
 }
+
+func TestExportCursorPageKeepsIngestTimeRangeBoundAndDrainedCursor(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	repo := &fakeRepo{rows: decisionsAt(base, 2)}
+	svc := analytics.NewService(repo, fixedNow(base.Add(time.Hour)))
+
+	first, err := svc.ExportRoutingDecisions(context.Background(), analytics.ExportParams{InstallationID: "inst", Since: base, Limit: 1})
+	require.NoError(t, err)
+	final, err := svc.ExportRoutingDecisions(context.Background(), analytics.ExportParams{InstallationID: "inst", Cursor: first.NextCursor, Limit: 1})
+	require.NoError(t, err)
+
+	require.Equal(t, base, repo.lastQ.From, "a cursor page still bounds From by the cursor's ingest time so the (installation_id, created_at, id) index is used")
+	require.False(t, final.HasMore)
+	require.NotEmpty(t, final.NextCursor, "a drained consumer needs a cursor to resume from once new rows land")
+}

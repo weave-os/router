@@ -7,8 +7,6 @@ import (
 )
 
 func (t *ResponsesWriter) validateNativeResponsesEvent(event gjson.Result) error {
-	// Inspect provider content before badges or footers can make an empty turn
-	// look usable. Some providers omit already streamed output from the terminal.
 	if nativeResponsesEventHasUsableOutput(event) {
 		t.hasUpstreamOutput = true
 	}
@@ -18,6 +16,7 @@ func (t *ResponsesWriter) validateNativeResponsesEvent(event gjson.Result) error
 			t.nativeEmptyRejected = true
 			return emptyCompletionOpenAIError()
 		}
+	default:
 	}
 	return nil
 }
@@ -36,6 +35,7 @@ func nativeResponsesEventHasUsableOutput(event gjson.Result) bool {
 		return event.Get("part.text").Str != ""
 	case responsesOutputItemAdded, responsesOutputItemDone:
 		return nativeResponsesItemHasUsableOutput(event.Get("item"))
+	default:
 	}
 	return false
 }
@@ -56,7 +56,6 @@ func (t *ResponsesWriter) writeNativeResponsesFrame(event, delimiter []byte) err
 	if id := root.Get("response.id").Str; id != "" {
 		t.nativeResponseID = id
 	}
-	// Held footer events may be written after events with higher sequences.
 	if sequence := root.Get("sequence_number"); sequence.Type == gjson.Number && (!t.nativeLastSequenceSet || sequence.Int() > t.nativeLastSequence) {
 		t.nativeLastSequence = sequence.Int()
 		t.nativeLastSequenceSet = true
@@ -64,6 +63,21 @@ func (t *ResponsesWriter) writeNativeResponsesFrame(event, delimiter []byte) err
 	switch responsesEventType(root.Get("type").Str) {
 	case responsesCompleted, responsesIncomplete, responsesFailed:
 		t.completedEmitted = true
+	default:
 	}
 	return nil
+}
+
+func (t *ResponsesWriter) shouldHoldNativeEvent(eventType responsesEventType, itemType responsesItemType) bool {
+	if t.footerText == "" || t.sawToolCall {
+		return false
+	}
+	switch eventType {
+	case responsesOutputTextDone, responsesContentPartDone:
+		return true
+	case responsesOutputItemDone:
+		return itemType == responsesMessageItem || itemType == ""
+	default:
+	}
+	return false
 }

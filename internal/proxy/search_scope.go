@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -11,13 +12,8 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2/expirable"
 )
 
-// DefaultSearchRequirementDecayTurns is how many routed turns after the last
-// actual search-tool use keep the citations/search native requirement alive.
 const DefaultSearchRequirementDecayTurns = 3
 
-// searchUseTracker is a per-session decay counter for the native-search requirement.
-//
-// mu serialises observe's Get+Add so concurrent turns on one session can't both read the same prior counter.
 type searchUseTracker struct {
 	mu    sync.Mutex
 	cache *lru.LRU[string, int]
@@ -25,13 +21,10 @@ type searchUseTracker struct {
 
 func newSearchUseTracker() *searchUseTracker {
 	return &searchUseTracker{
-		cache: lru.NewLRU[string, int](noProgressCacheSize, nil, noProgressCacheTTL),
+		cache: lru.NewLRU[string, int](conversation.NoProgressCacheSize, nil, conversation.NoProgressCacheTTL),
 	}
 }
 
-// observe folds recency into the session's decay counter and reports whether the
-// requirement is still active (current-turn use, or fewer than decayTurns turns since last use).
-// The counter covers uses the client's history no longer carries (compaction, previous_response_id).
 func (t *searchUseTracker) observe(key string, recency, decayTurns int) bool {
 	if t == nil || t.cache == nil {
 		return recency == 0
@@ -49,9 +42,6 @@ func (t *searchUseTracker) observe(key string, recency, decayTurns int) bool {
 	return recency == 0 || remaining > 0
 }
 
-// scopeSearchRequirement narrows CitationsOrSearch from tool-advertisement to actual recent use,
-// returning advertised-only turns to policy routing. Gemini is excluded: a declared googleSearch
-// tool grounds every response, so advertisement is use.
 func (s *Service) scopeSearchRequirement(sessionKey [sessionpin.SessionKeyLen]byte, env *translate.RequestEnvelope, reqs router.TranslationRequirements) router.TranslationRequirements {
 	if !s.scopedSearchRequirement || env == nil || !reqs.CitationsOrSearch ||
 		reqs.SourceFormat == router.WireFormatGemini {
@@ -62,9 +52,6 @@ func (s *Service) scopeSearchRequirement(sessionKey [sessionpin.SessionKeyLen]by
 	return reqs
 }
 
-// searchUseEnvelope returns the envelope whose history records search use. A
-// Responses turn routes on its portable projection, which drops hosted
-// web_search_call items, so recency must be read from the caller's native body.
 func searchUseEnvelope(ctx context.Context, env *translate.RequestEnvelope) *translate.RequestEnvelope {
 	native, ok := ctx.Value(nativeResponsesBodyContextKey{}).([]byte)
 	if !ok || len(native) == 0 {

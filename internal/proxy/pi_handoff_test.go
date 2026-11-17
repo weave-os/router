@@ -41,7 +41,7 @@ func handoffTestService() (*Service, *betaTestRouter, *betaCaptureProvider, cont
 func prepareTestHandoff(t *testing.T, svc *Service, ctx context.Context) preparedHandoff {
 	t.Helper()
 	recorder := httptest.NewRecorder()
-	require.NoError(t, svc.ProxyMessages(WithHandoffPreparation(ctx), []byte(handoffTestBody), recorder, httptest.NewRequest("POST", "/v1/route/handoff", nil)))
+	require.NoError(t, svc.ProxyMessages(WithHandoffPreparation(ctx), []byte(handoffTestBody), recorder, httptest.NewRequestWithContext(ctx, "POST", "/v1/route/handoff", nil)))
 	var prepared preparedHandoff
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &prepared), recorder.Body.String())
 	require.NotEmpty(t, prepared.Token)
@@ -61,7 +61,7 @@ func TestPiHandoffPreparationDoesNotDispatchAndContinuationDoesNotReclassify(t *
 	body, err = sjson.Set(body, piHandoffField, prepared.Token)
 	require.NoError(t, err)
 	recorder := httptest.NewRecorder()
-	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), recorder, httptest.NewRequest("POST", "/v1/messages", nil)))
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), recorder, httptest.NewRequestWithContext(t.Context(), "POST", "/v1/messages", nil)))
 	require.Equal(t, 1, classifier.calls)
 	require.Equal(t, prepared.Model, gjson.GetBytes(upstream.body, "model").String())
 	require.False(t, gjson.GetBytes(upstream.body, piHandoffField).Exists())
@@ -144,11 +144,11 @@ func TestPiHandoffDisabledAndUtilityTurnsDoNotDispatch(t *testing.T) {
 		body, err := sjson.Set(handoffTestBody, "messages.0.content", prompt)
 		require.NoError(t, err)
 		recorder := httptest.NewRecorder()
-		require.NoError(t, svc.ProxyMessages(WithHandoffPreparation(ctx), []byte(body), recorder, httptest.NewRequest("POST", "/v1/route/handoff", nil)))
+		require.NoError(t, svc.ProxyMessages(WithHandoffPreparation(ctx), []byte(body), recorder, httptest.NewRequestWithContext(t.Context(), "POST", "/v1/route/handoff", nil)))
 		require.True(t, gjson.GetBytes(recorder.Body.Bytes(), "bypass").Bool())
 	}
 	svc.piHandoffSecret = nil
-	err := svc.ProxyMessages(WithHandoffPreparation(ctx), []byte(handoffTestBody), httptest.NewRecorder(), httptest.NewRequest("POST", "/v1/route/handoff", nil))
+	err := svc.ProxyMessages(WithHandoffPreparation(ctx), []byte(handoffTestBody), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), "POST", "/v1/route/handoff", nil))
 	require.ErrorIs(t, err, ErrHandoffUnavailable)
 	require.Zero(t, classifier.calls)
 	require.Empty(t, upstream.body)
@@ -173,10 +173,10 @@ func TestPiHandoffSummaryUsesPreviousModelWithoutReclassifyingOrWritingUsageToIt
 	require.NoError(t, err)
 	require.Equal(t, inference.PurposeClientCompaction, handoffFromContext(parsed).Route.Purpose)
 	require.Equal(t, policy.OverrideSourceSession, handoffFromContext(parsed).Route.Origin)
-	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequest("POST", "/v1/messages", nil)))
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), "POST", "/v1/messages", nil)))
 	require.Equal(t, "claude-sonnet-4-6", gjson.GetBytes(upstream.body, "model").String())
 	require.Equal(t, 1, classifier.calls)
-	require.Equal(t, pinWrites, len(store.upserts))
+	require.Len(t, store.upserts, pinWrites)
 	require.Zero(t, store.usageHits)
 }
 
@@ -196,7 +196,7 @@ func TestPiHandoffRecordsEscalationOutcomeOnlyAfterContinuation(t *testing.T) {
 	}
 	body, err := sjson.Set(handoffTestBody, piHandoffField, prepared.Token)
 	require.NoError(t, err)
-	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequest("POST", "/v1/messages", nil)))
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), "POST", "/v1/messages", nil)))
 	require.Len(t, observer.requests, 1)
 	for _, session := range store.sessions {
 		require.NotNil(t, session.PreviousOutcome)
@@ -213,12 +213,12 @@ func TestPiHandoffRejectsConcurrentForceAndCrossSessionCommandsBeforeMutation(t 
 	store.getFound = true
 	store.getPin = sessionpin.Pin{Model: "claude-haiku-4-5", Provider: providers.ProviderAnthropic, Reason: translate.ReasonUserForceModel, PinnedUntil: time.Now().Add(time.Hour)}
 	svc.pinStore = store
-	err = svc.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequest("POST", "/v1/messages", nil))
+	err = svc.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), "POST", "/v1/messages", nil))
 	require.ErrorIs(t, err, ErrHandoffInvalid)
 	for _, prompt := range []string{"/beta", "/force-model claude-opus-4-7", "/unforce-model"} {
 		changed, err := sjson.Set(body, "messages.0.content", prompt)
 		require.NoError(t, err)
-		err = svc.ProxyMessages(ctx, []byte(changed), httptest.NewRecorder(), httptest.NewRequest("POST", "/v1/messages", nil))
+		err = svc.ProxyMessages(ctx, []byte(changed), httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), "POST", "/v1/messages", nil))
 		require.ErrorIs(t, err, ErrHandoffInvalid)
 	}
 	require.Empty(t, upstream.body)

@@ -8,7 +8,6 @@ import (
 	"weave-os/router/internal/router"
 )
 
-// byID is built once at init from Models so accessors are O(1).
 var byID map[string]Model
 
 func init() {
@@ -18,8 +17,6 @@ func init() {
 	}
 }
 
-// ByID returns the model with the given ID. If the exact ID isn't found,
-// retries after stripping a trailing Anthropic (-20251001) or OpenAI (-2024-08-06) date suffix.
 func ByID(id string) (Model, bool) {
 	if m, ok := byID[id]; ok {
 		return m, true
@@ -32,8 +29,6 @@ func ByID(id string) (Model, bool) {
 	return Model{}, false
 }
 
-// CodexSubscriptionModels returns the canonical models served by native
-// ChatGPT/Codex OAuth rather than OpenAI API credentials.
 func CodexSubscriptionModels() []string {
 	models := make([]string, 0, 8)
 	for _, model := range Models {
@@ -44,15 +39,11 @@ func CodexSubscriptionModels() []string {
 	return models
 }
 
-// CodexSubscriptionCoversModel reports whether the catalog marks model for
-// native ChatGPT/Codex OAuth. Unknown models fail closed.
 func CodexSubscriptionCoversModel(id string) bool {
 	model, ok := byID[id]
 	return ok && model.CodexSubscription
 }
 
-// ResolveBinding returns the first ProviderBinding whose Provider is in
-// `available`. Used at boot to pick each routable model's upstream.
 func ResolveBinding(id string, available map[string]struct{}) (ProviderBinding, bool) {
 	m, ok := ByID(id)
 	if !ok {
@@ -66,8 +57,6 @@ func ResolveBinding(id string, available map[string]struct{}) (ProviderBinding, 
 	return ProviderBinding{}, false
 }
 
-// RoutableBindings returns the model's bindings that routing and failover may
-// use, in catalog order. Subscription-overflow bindings are omitted.
 func RoutableBindings(m Model) []ProviderBinding {
 	out := make([]ProviderBinding, 0, len(m.Providers))
 	for _, b := range m.Providers {
@@ -78,15 +67,10 @@ func RoutableBindings(m Model) []ProviderBinding {
 	return out
 }
 
-// AcceptsImageCount reports whether this binding accepts n image parts in one
-// request. A zero cap means the limit is unknown.
 func (b ProviderBinding) AcceptsImageCount(n int) bool {
 	return b.MaxImagesPerRequest == 0 || n <= b.MaxImagesPerRequest
 }
 
-// AcceptsImageCount reports whether a model can accept n image parts through
-// any enabled routable binding. Unknown models and models without an enabled
-// catalog binding have no known limit.
 func AcceptsImageCount(id string, n int, enabledProviders map[string]struct{}) bool {
 	if n == 0 {
 		return true
@@ -113,8 +97,6 @@ func AcceptsImageCount(id string, n int, enabledProviders map[string]struct{}) b
 	return !foundEnabledBinding
 }
 
-// BindingFor returns the model's binding for provider, including a
-// subscription-overflow binding.
 func BindingFor(id, provider string) (ProviderBinding, bool) {
 	m, ok := ByID(id)
 	if !ok {
@@ -128,9 +110,6 @@ func BindingFor(id, provider string) (ProviderBinding, bool) {
 	return ProviderBinding{}, false
 }
 
-// ResolveBindingWithCustom resolves like ResolveBinding, then falls back to
-// configuration-declared bindings. Synthesized bindings inherit primary pricing
-// (custom endpoint bills on its own contract; list price is the only rate we have).
 func ResolveBindingWithCustom(id string, available map[string]struct{}, custom map[string][]string) (ProviderBinding, bool) {
 	if b, ok := ResolveBinding(id, available); ok {
 		return b, true
@@ -150,8 +129,6 @@ func ResolveBindingWithCustom(id string, available map[string]struct{}, custom m
 	return binding, true
 }
 
-// CustomProviderFor returns the first available configuration-declared
-// provider for the model, or "" when none is.
 func CustomProviderFor(id string, available map[string]struct{}, custom map[string][]string) string {
 	if ps := customProvidersFor(id, available, custom); len(ps) > 0 {
 		return ps[0]
@@ -159,9 +136,6 @@ func CustomProviderFor(id string, available map[string]struct{}, custom map[stri
 	return ""
 }
 
-// customProvidersFor returns the model's available configuration-declared
-// providers, skipping any the catalog already binds so a model never resolves
-// to the same provider twice.
 func customProvidersFor(id string, available map[string]struct{}, custom map[string][]string) []string {
 	if len(custom) == 0 {
 		return nil
@@ -187,9 +161,6 @@ func customProvidersFor(id string, available map[string]struct{}, custom map[str
 	return out
 }
 
-// EnumerateBindingsWithCustom is EnumerateBindings plus configuration-declared
-// bindings appended after catalog entries; catalog provider wins on overlap.
-// Synthesized bindings inherit primary pricing.
 func EnumerateBindingsWithCustom(id string, available map[string]struct{}, custom map[string][]string) []IndexedBinding {
 	out := EnumerateBindings(id, available)
 	customProviders := customProvidersFor(id, available, custom)
@@ -209,9 +180,6 @@ func EnumerateBindingsWithCustom(id string, available map[string]struct{}, custo
 	return out
 }
 
-// AvailableBindings returns every ProviderBinding for the model whose Provider
-// is in `available`, in catalog order. Used by the proxy's failover loop:
-// index 0 is primary, indexes >0 are ordered fallbacks.
 func AvailableBindings(id string, available map[string]struct{}) []ProviderBinding {
 	indexed := EnumerateBindings(id, available)
 	out := make([]ProviderBinding, 0, len(indexed))
@@ -221,13 +189,11 @@ func AvailableBindings(id string, available map[string]struct{}) []ProviderBindi
 	return out
 }
 
-// IndexedBinding identifies a provider binding by its stable catalog order.
 type IndexedBinding struct {
 	Index int
 	ProviderBinding
 }
 
-// EnumerateBindings returns every enabled binding in stable catalog order.
 func EnumerateBindings(id string, available map[string]struct{}) []IndexedBinding {
 	m, ok := ByID(id)
 	if !ok {
@@ -242,9 +208,6 @@ func EnumerateBindings(id string, available map[string]struct{}) []IndexedBindin
 	return out
 }
 
-// RoutingTargetSet returns the automatic routing targets that have at least
-// one binding backed by a provider registered in this deployment. Untiered
-// catalog rows are passthrough-only and must never become policy candidates.
 func RoutingTargetSet(availableProviders map[string]struct{}) map[string]struct{} {
 	out := make(map[string]struct{}, len(Models))
 	for _, model := range Models {
@@ -259,9 +222,6 @@ func RoutingTargetSet(availableProviders map[string]struct{}) map[string]struct{
 	return out
 }
 
-// HMMRoutingTargetSet returns the HMM policy candidate universe. It includes
-// generic routing targets plus catalog rows explicitly reserved for HMM policy
-// sidecars, without making those rows eligible for generic cluster routing.
 func HMMRoutingTargetSet(availableProviders map[string]struct{}) map[string]struct{} {
 	out := RoutingTargetSet(availableProviders)
 	for _, model := range Models {
@@ -273,7 +233,6 @@ func HMMRoutingTargetSet(availableProviders map[string]struct{}) map[string]stru
 	return out
 }
 
-// UpstreamIDFor returns the upstream model ID for a catalog binding.
 func UpstreamIDFor(catalogID, bindingID string) string {
 	if bindingID != "" {
 		return bindingID
@@ -281,7 +240,6 @@ func UpstreamIDFor(catalogID, bindingID string) string {
 	return catalogID
 }
 
-// PriceFor returns the per-(provider, model) pricing.
 func PriceFor(provider, id string) (Pricing, bool) {
 	m, ok := ByID(id)
 	if !ok {
@@ -295,8 +253,6 @@ func PriceFor(provider, id string) (Pricing, bool) {
 	return Pricing{}, false
 }
 
-// PrimaryPriceFor returns the pricing of the model's first (primary) binding,
-// for call sites that don't thread a specific provider through.
 func PrimaryPriceFor(id string) (Pricing, bool) {
 	m, ok := ByID(id)
 	if !ok {
@@ -308,7 +264,6 @@ func PrimaryPriceFor(id string) (Pricing, bool) {
 	return m.Providers[0].Price, true
 }
 
-// TierFor returns the tier of the model, or TierUnknown if absent.
 func TierFor(id string) Tier {
 	m, ok := ByID(id)
 	if !ok {
@@ -317,16 +272,11 @@ func TierFor(id string) Tier {
 	return m.Tier
 }
 
-// AdvisorRankFor returns the model's advisor-tool rank; ok is false for
-// models that take no advisor.
 func AdvisorRankFor(id string) (rank int, ok bool) {
 	m, found := ByID(id)
 	return m.AdvisorRank, found && m.AdvisorRank > 0
 }
 
-// ThinkTagReasoningFor reports whether the model streams chain-of-thought as
-// inline <think>…</think> in content (the Anthropic translator reroutes it
-// into thinking). Unknown models return false.
 func ThinkTagReasoningFor(id string) bool {
 	m, ok := ByID(id)
 	if !ok {
@@ -335,8 +285,6 @@ func ThinkTagReasoningFor(id string) bool {
 	return m.ThinkTagReasoning
 }
 
-// IsAtOrBelow reports whether the model has a known tier at or below the
-// ceiling. Unknown-tier models return false.
 func IsAtOrBelow(id string, ceiling Tier) bool {
 	t := TierFor(id)
 	if t == TierUnknown {
@@ -345,8 +293,6 @@ func IsAtOrBelow(id string, ceiling Tier) bool {
 	return t <= ceiling
 }
 
-// AllowedAtOrBelow returns the set of known model IDs whose tier is at or
-// below the ceiling.
 func AllowedAtOrBelow(ceiling Tier) map[string]struct{} {
 	out := make(map[string]struct{}, len(Models))
 	for _, m := range Models {
@@ -357,12 +303,8 @@ func AllowedAtOrBelow(ceiling Tier) map[string]struct{} {
 	return out
 }
 
-// DefaultContextWindow is the fallback context window in tokens for models
-// with no ContextWindow set in the catalog.
 const DefaultContextWindow = 128_000
 
-// ContextWindowFor returns the context window in tokens for the given model.
-// Returns DefaultContextWindow when the model is absent or has no ContextWindow set.
 func ContextWindowFor(id string) int {
 	m, ok := ByID(id)
 	if !ok || m.ContextWindow <= 0 {
@@ -371,9 +313,6 @@ func ContextWindowFor(id string) int {
 	return m.ContextWindow
 }
 
-// ContextWindowForBinding returns the context window for modelID on provider,
-// preferring a non-zero ProviderBinding.ContextWindow over the model-level value.
-// Returns DefaultContextWindow for an unknown model.
 func ContextWindowForBinding(modelID, provider string) int {
 	m, ok := ByID(modelID)
 	if !ok {
@@ -391,9 +330,6 @@ func ContextWindowForBinding(modelID, provider string) int {
 	return cw
 }
 
-// ToolUseLowSet returns model IDs with ToolUseLow quality. The cluster scorer
-// excludes these when req.HasTools, falling back to the unfiltered pool if
-// that would empty the eligible set.
 func ToolUseLowSet() map[string]struct{} {
 	out := make(map[string]struct{}, len(Models))
 	for _, m := range Models {
@@ -404,10 +340,6 @@ func ToolUseLowSet() map[string]struct{} {
 	return out
 }
 
-// AgenticLowSet returns model IDs whose AgenticUse is AgenticLow — models that
-// emit valid tool calls but can't sustain an agentic harness loop. Excluded
-// alongside ToolUseLowSet so a cost demotion lands on a harness-capable model,
-// not just the cheapest one. Mirrors ToolUseLowSet's fallback behavior.
 func AgenticLowSet() map[string]struct{} {
 	out := make(map[string]struct{}, len(Models))
 	for _, m := range Models {
@@ -418,9 +350,16 @@ func AgenticLowSet() map[string]struct{} {
 	return out
 }
 
-// ImageUnsupportedSet returns model IDs flagged ImageInputUnsupported,
-// excluded when the request carries image content. Mirrors ToolUseLowSet's
-// fallback behavior.
+func CustomToolUnsupportedSet() map[string]struct{} {
+	out := make(map[string]struct{})
+	for _, m := range Models {
+		if m.CustomToolInput == CustomToolInputUnsupported {
+			out[m.ID] = struct{}{}
+		}
+	}
+	return out
+}
+
 func ImageUnsupportedSet() map[string]struct{} {
 	out := make(map[string]struct{}, len(Models))
 	for _, m := range Models {
@@ -431,9 +370,6 @@ func ImageUnsupportedSet() map[string]struct{} {
 	return out
 }
 
-// AcceptsImages reports whether the model accepts image content. Unknown
-// models default to true; only an explicit ImageInputUnsupported flag
-// returns false.
 func AcceptsImages(id string) bool {
 	m, ok := ByID(id)
 	if !ok {
@@ -442,8 +378,11 @@ func AcceptsImages(id string) bool {
 	return m.ImageInput != ImageInputUnsupported
 }
 
-// AllPrimaryPricing returns primary-binding pricing for every known model,
-// keyed by model ID.
+func AcceptsCustomTools(id string) bool {
+	m, ok := ByID(id)
+	return !ok || m.CustomToolInput != CustomToolInputUnsupported
+}
+
 func AllPrimaryPricing() map[string]Pricing {
 	out := make(map[string]Pricing, len(Models))
 	for _, m := range Models {
@@ -455,8 +394,6 @@ func AllPrimaryPricing() map[string]Pricing {
 	return out
 }
 
-// ValidateDeployed returns an error naming any deployed model missing from
-// the catalog or lacking a tier.
 func ValidateDeployed(deployed []string) error {
 	var missing []string
 	for _, id := range deployed {

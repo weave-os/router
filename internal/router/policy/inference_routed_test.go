@@ -1,7 +1,6 @@
 package policy_test
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -112,7 +111,7 @@ func TestResolveRouted_FailsClosed(t *testing.T) {
 			tc.mutate(&request)
 			_, err := resolver.ResolveRouted(request)
 			var resolution *policy.ResolutionError
-			require.True(t, errors.As(err, &resolution), "got %v", err)
+			require.ErrorAs(t, err, &resolution, "got %v", err)
 			assert.Equal(t, tc.code, resolution.Code)
 		})
 	}
@@ -173,7 +172,7 @@ func TestResolveRouted_AuthorizesHardPinnedUtilityTurns(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			_, err := resolver.ResolveRouted(tc.request)
 			var resolution *policy.ResolutionError
-			require.True(t, errors.As(err, &resolution), "got %v", err)
+			require.ErrorAs(t, err, &resolution, "got %v", err)
 			assert.Equal(t, tc.code, resolution.Code)
 		})
 	}

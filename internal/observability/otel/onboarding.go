@@ -5,19 +5,16 @@ import (
 	"weave-os/router/internal/telemetry"
 )
 
-// OnboardingObserver exports auth lifecycle facts through the shared span queue.
 type OnboardingObserver struct {
 	emitter *Emitter
 }
 
 var _ auth.OnboardingObserver = (*OnboardingObserver)(nil)
 
-// NewOnboardingObserver wraps the emitter; a nil emitter disables export.
 func NewOnboardingObserver(emitter *Emitter) *OnboardingObserver {
 	return &OnboardingObserver{emitter: emitter}
 }
 
-// APIKeyFirstUsed maps a routing key's first authentication to an onboarding span.
 func (o *OnboardingObserver) APIKeyFirstUsed(event auth.APIKeyFirstUsedEvent) {
 	buf := o.emitter.NewBuffer()
 	if buf == nil {
@@ -34,7 +31,6 @@ func (o *OnboardingObserver) APIKeyFirstUsed(event auth.APIKeyFirstUsedEvent) {
 	buf.Flush()
 }
 
-// SubscriptionConnected records the enrollment or adoption of an account.
 func (o *OnboardingObserver) SubscriptionConnected(event auth.SubscriptionConnectedEvent) {
 	buf := o.emitter.NewBuffer()
 	if buf == nil {
@@ -52,9 +48,6 @@ func (o *OnboardingObserver) SubscriptionConnected(event auth.SubscriptionConnec
 	buf.Flush()
 }
 
-// HarnessLifecycle records a client-reported off/on/uninstall of a harness. A
-// reported connection exports as router.harness_connected, the span key first
-// use emits for every other harness.
 func (o *OnboardingObserver) HarnessLifecycle(event auth.HarnessLifecycleEvent) {
 	if event.Action == auth.HarnessLifecycleActionConnected {
 		o.APIKeyFirstUsed(auth.APIKeyFirstUsedEvent{

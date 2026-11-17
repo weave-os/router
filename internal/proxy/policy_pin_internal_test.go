@@ -67,7 +67,7 @@ func TestRouteWithStrategyRefusesDecisionsThatDidNotServeThePin(t *testing.T) {
 	svc := serviceWithDefaultRouter(unpinned)
 
 	_, err := svc.routeWithStrategy(pinnedContext(true), router.StrategyHMMEmbedding, router.Request{})
-	assert.ErrorIs(t, err, router.ErrPolicyPinUnavailable, "a router that ignores an artifact pin must not be served silently")
+	require.ErrorIs(t, err, router.ErrPolicyPinUnavailable, "a router that ignores an artifact pin must not be served silently")
 
 	decision, err := svc.routeWithStrategy(pinnedContext(false), router.StrategyHMMEmbedding, router.Request{})
 	require.NoError(t, err, "an unauthorized pin must not affect routing")
@@ -271,7 +271,7 @@ func TestRunTurnLoop_HonouredPinScoresAutomaticProbesWithoutConversationState(t 
 				rt.decision.Metadata = nil
 				_, err = svc.runTurnLoop(pinnedContext(true), env, feats, "key", uuid.Nil, "", nil,
 					router.Request{RequestedModel: model, ForceModel: forceModel})
-				assert.ErrorIs(t, err, router.ErrPolicyPinUnavailable)
+				require.ErrorIs(t, err, router.ErrPolicyPinUnavailable)
 				store.mu.Lock()
 				defer store.mu.Unlock()
 				if forceModel == "" {
@@ -290,7 +290,7 @@ func TestRunTurnLoop_HonouredPinNeverServes200WithHonouredFalse(t *testing.T) {
 	svc := pinnedTurnLoopService(t, rt, &rolePinStore{byRole: map[string]sessionpin.Pin{}})
 
 	_, err := svc.runTurnLoop(pinnedContext(true), env, feats, "key", uuid.Nil, "", nil, router.Request{RequestedModel: feats.Model})
-	assert.ErrorIs(t, err, router.ErrPolicyPinUnavailable)
+	require.ErrorIs(t, err, router.ErrPolicyPinUnavailable)
 
 	_, err = svc.runTurnLoop(pinnedContext(false), env, feats, "key", uuid.Nil, "", nil, router.Request{RequestedModel: feats.Model})
 	assert.NoError(t, err, "an unauthorized pin must not fail the turn")
@@ -302,9 +302,9 @@ func TestPolicyPinServedGuard(t *testing.T) {
 	bypass := turnLoopResult{Decision: router.Decision{Model: "m"}, UsageBypass: true}
 	utility := turnLoopResult{Decision: router.Decision{Model: "m"}, HardPinned: true, Purpose: inference.Purpose("title_generation")}
 
-	assert.NoError(t, policyPinServed(pinnedContext(true), served))
-	assert.ErrorIs(t, policyPinServed(pinnedContext(true), sticky), router.ErrPolicyPinUnavailable)
-	assert.ErrorIs(t, policyPinServed(pinnedContext(true), bypass), router.ErrPolicyPinUnavailable)
+	require.NoError(t, policyPinServed(pinnedContext(true), served))
+	require.ErrorIs(t, policyPinServed(pinnedContext(true), sticky), router.ErrPolicyPinUnavailable)
+	require.ErrorIs(t, policyPinServed(pinnedContext(true), bypass), router.ErrPolicyPinUnavailable)
 	assert.NoError(t, policyPinServed(pinnedContext(true), utility), "utility hard pins are never policy-scored")
 	assert.NoError(t, policyPinServed(pinnedContext(false), sticky))
 	assert.NoError(t, policyPinServed(context.Background(), sticky))

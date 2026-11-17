@@ -61,16 +61,16 @@ func TestResponsesWriter_RestoresCodexCustomToolFromSplitChatArguments(t *testin
 	require.NotNil(t, done)
 	require.NotNil(t, completed)
 	assert.Equal(t, "const x = 1;", delta["delta"])
-	item := done["item"].(map[string]any)
+	item := mustAs[map[string]any](t, done["item"])
 	assert.Equal(t, "exec", item["name"])
 	assert.Equal(t, "call_exec", item["call_id"])
 	assert.Equal(t, "const x = 1;", item["input"])
 	// ctc_ required for custom_tool_call; Codex replays this id next turn.
-	assert.Truef(t, strings.HasPrefix(item["id"].(string), "ctc_"), "custom_tool_call id %q must start with ctc_", item["id"])
-	output := completed["response"].(map[string]any)["output"].([]any)
-	assert.Equal(t, "custom_tool_call", output[0].(map[string]any)["type"])
-	assert.Equal(t, "const x = 1;", output[0].(map[string]any)["input"])
-	assert.Truef(t, strings.HasPrefix(output[0].(map[string]any)["id"].(string), "ctc_"), "response.completed custom_tool_call id %q must start with ctc_", output[0].(map[string]any)["id"])
+	assert.Truef(t, strings.HasPrefix(mustAs[string](t, item["id"]), "ctc_"), "custom_tool_call id %q must start with ctc_", item["id"])
+	output := mustAs[[]any](t, mustAs[map[string]any](t, completed["response"])["output"])
+	assert.Equal(t, "custom_tool_call", mustAs[map[string]any](t, output[0])["type"])
+	assert.Equal(t, "const x = 1;", mustAs[map[string]any](t, output[0])["input"])
+	assert.Truef(t, strings.HasPrefix(mustAs[string](t, mustAs[map[string]any](t, output[0])["id"]), "ctc_"), "response.completed custom_tool_call id %q must start with ctc_", mustAs[map[string]any](t, output[0])["id"])
 }
 
 func TestResponsesWriter_RecoversRawCustomToolArguments(t *testing.T) {
@@ -192,10 +192,10 @@ func TestResponsesWriter_NonStreamingCustomToolAcceptsRawArguments(t *testing.T)
 
 	var response map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
-	output := response["output"].([]any)
+	output := mustAs[[]any](t, response["output"])
 	require.Len(t, output, 1)
-	assert.Equal(t, "custom_tool_call", output[0].(map[string]any)["type"])
-	assert.Equal(t, "text(1);", output[0].(map[string]any)["input"])
+	assert.Equal(t, "custom_tool_call", mustAs[map[string]any](t, output[0])["type"])
+	assert.Equal(t, "text(1);", mustAs[map[string]any](t, output[0])["input"])
 }
 
 func customExecToolMappings(t *testing.T) map[string]translate.ResponsesToolMapping {
@@ -261,14 +261,14 @@ func TestResponsesWriter_RestoresCodexFunctionNamespace(t *testing.T) {
 		if event["type"] != "response.output_item.done" {
 			continue
 		}
-		item := event["item"].(map[string]any)
+		item := mustAs[map[string]any](t, event["item"])
 		if item["type"] != "function_call" {
 			continue
 		}
 		assert.Equal(t, "send_message", item["name"])
 		assert.Equal(t, "collaboration", item["namespace"])
-		assert.JSONEq(t, `{"target":"/root"}`, item["arguments"].(string))
-		assert.Truef(t, strings.HasPrefix(item["id"].(string), "fc_"), "function_call id %q must start with fc_", item["id"])
+		assert.JSONEq(t, `{"target":"/root"}`, mustAs[string](t, item["arguments"]))
+		assert.Truef(t, strings.HasPrefix(mustAs[string](t, item["id"]), "fc_"), "function_call id %q must start with fc_", item["id"])
 		return
 	}
 	t.Fatal("missing namespaced function_call output item")
@@ -299,11 +299,11 @@ func TestResponsesWriter_NonStreamingRestoresCodexCustomTool(t *testing.T) {
 
 	var response map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
-	output := response["output"].([]any)
-	assert.Equal(t, "custom_tool_call", output[0].(map[string]any)["type"])
-	assert.Equal(t, "exec", output[0].(map[string]any)["name"])
-	assert.Equal(t, "return 1;", output[0].(map[string]any)["input"])
-	assert.Truef(t, strings.HasPrefix(output[0].(map[string]any)["id"].(string), "ctc_"), "non-streaming custom_tool_call id %q must start with ctc_", output[0].(map[string]any)["id"])
+	output := mustAs[[]any](t, response["output"])
+	assert.Equal(t, "custom_tool_call", mustAs[map[string]any](t, output[0])["type"])
+	assert.Equal(t, "exec", mustAs[map[string]any](t, output[0])["name"])
+	assert.Equal(t, "return 1;", mustAs[map[string]any](t, output[0])["input"])
+	assert.Truef(t, strings.HasPrefix(mustAs[string](t, mustAs[map[string]any](t, output[0])["id"]), "ctc_"), "non-streaming custom_tool_call id %q must start with ctc_", mustAs[map[string]any](t, output[0])["id"])
 }
 
 func TestResponsesWriter_RejectsMalformedCodexCustomWrapperAndTerminatesFailed(t *testing.T) {
@@ -354,11 +354,11 @@ func TestResponsesWriter_PortableCodexBuffersUntilLateCustomToolName(t *testing.
 		if event["type"] != "response.output_item.added" && event["type"] != "response.output_item.done" {
 			continue
 		}
-		item := event["item"].(map[string]any)
+		item := mustAs[map[string]any](t, event["item"])
 		assert.NotEmpty(t, item["name"])
 		assert.Equal(t, "custom_tool_call", item["type"])
 		// id must be ctc_ even though name (and thus mapping.Custom) arrives late.
-		assert.Truef(t, strings.HasPrefix(item["id"].(string), "ctc_"), "late-named custom_tool_call id %q must start with ctc_", item["id"])
+		assert.Truef(t, strings.HasPrefix(mustAs[string](t, item["id"]), "ctc_"), "late-named custom_tool_call id %q must start with ctc_", item["id"])
 		customAdded = customAdded || event["type"] == "response.output_item.added"
 		customDone = customDone || event["type"] == "response.output_item.done"
 		if event["type"] == "response.output_item.done" {
@@ -407,4 +407,41 @@ func TestResponsesWriter_WithoutCodexMappingsPreservesLegacyFunctionShape(t *tes
 		_, hasNamespace := item["namespace"]
 		assert.False(t, hasNamespace, "non-Codex translated Responses output must retain its legacy shape")
 	}
+}
+
+// Anthropic streams no input_json_delta when max_tokens lands inside a
+// tool_use block, so the call surfaces with its `{}` placeholder and a
+// length finish; that is a truncation, not a malformed call.
+func TestResponsesWriter_CustomToolCutOffByOutputLimitIsTruncation(t *testing.T) {
+	w := translate.NewResponsesWriter(httptest.NewRecorder(), "synthetic-model")
+	w.SetToolMappings(customExecToolMappings(t))
+	require.NoError(t, w.Prelude(true))
+	_, err := w.Write(customExecToolChunk(t, `{}`, true, "length"))
+	if err == nil {
+		err = w.Finalize()
+	}
+	require.ErrorIs(t, err, translate.ErrToolCallTruncated)
+	require.ErrorIs(t, err, translate.ErrCustomToolArguments)
+}
+
+func TestResponsesWriter_NonStreamingCustomToolCutOffByOutputLimitIsTruncation(t *testing.T) {
+	w := translate.NewResponsesWriter(httptest.NewRecorder(), "synthetic-model")
+	w.SetToolMappings(customExecToolMappings(t))
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	raw, err := json.Marshal(map[string]any{
+		"choices": []any{map[string]any{
+			"finish_reason": "length",
+			"message": map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{
+				"id": "call_exec", "type": "function",
+				"function": map[string]any{"name": "exec", "arguments": "{}"},
+			}}},
+		}},
+	})
+	require.NoError(t, err)
+	_, err = w.Write(raw)
+	require.NoError(t, err)
+	err = w.Finalize()
+	require.ErrorIs(t, err, translate.ErrToolCallTruncated)
+	require.ErrorIs(t, err, translate.ErrCustomToolArguments)
 }

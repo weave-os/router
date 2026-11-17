@@ -145,6 +145,6 @@ data: {"type":"response.completed","response":{"id":"resp_empty","status":"compl
 func TestEmptyCompletionErrorUnwrapsRetrySentinel(t *testing.T) {
 	err := errors.New("wrapped")
 	wrapped := &providers.UpstreamErrorResponse{Status: 502, Cause: errors.Join(providers.ErrUpstreamEmptyCompletion, err)}
-	assert.ErrorIs(t, wrapped, providers.ErrUpstreamEmptyCompletion)
+	require.ErrorIs(t, wrapped, providers.ErrUpstreamEmptyCompletion)
 	assert.True(t, providers.IsRetryable(wrapped))
 }

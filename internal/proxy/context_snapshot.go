@@ -16,7 +16,6 @@ const ContextSnapshotVersion = 1
 const ContextSnapshotTTL = 5 * time.Minute
 const maxContextSnapshotTokens = 2_147_483_647
 
-// ContextSnapshot describes a single Router request, never client-local usage.
 type ContextSnapshot struct {
 	Version             int                 `json:"version"`
 	EstimateKind        ContextEstimateKind `json:"estimate_kind"`

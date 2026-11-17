@@ -49,9 +49,9 @@ func TestPrepareOpenAIResponses_StrictTools(t *testing.T) {
 	params, _ := tool0["parameters"].(map[string]any)
 	require.NotNil(t, params)
 	assert.Equal(t, false, params["additionalProperties"])
-	assert.ElementsMatch(t, []any{"file_path", "pages"}, params["required"].([]any),
+	assert.ElementsMatch(t, []any{"file_path", "pages"}, mustAs[[]any](t, params["required"]),
 		"strict mode requires every property in required")
-	pages := params["properties"].(map[string]any)["pages"].(map[string]any)
+	pages := mustAs[map[string]any](t, mustAs[map[string]any](t, params["properties"])["pages"])
 	assert.Equal(t, []any{"string", "null"}, pages["type"],
 		"the optional param is expressed as a null union, not omission")
 }
@@ -87,7 +87,7 @@ func TestPrepareOpenAIResponses_NonStrictifiableFallsBack(t *testing.T) {
 	require.NotNil(t, params)
 	assert.Equal(t, false, params["additionalProperties"],
 		"the root object must be explicitly closed even when oneOf prevents strict mode")
-	choice := params["properties"].(map[string]any)["choice"].(map[string]any)
+	choice := mustAs[map[string]any](t, mustAs[map[string]any](t, params["properties"])["choice"])
 	assert.Contains(t, choice, "oneOf")
 }
 
@@ -125,20 +125,20 @@ func TestPrepareOpenAIResponses_FallbackClosesNestedObjectsSafely(t *testing.T) 
 	require.NotNil(t, params)
 	assert.NotContains(t, params, "additionalProperties", "closing the root would forbid the allOf branch's required extra key")
 
-	properties := params["properties"].(map[string]any)
-	steps := properties["steps"].(map[string]any)
-	items := steps["items"].(map[string]any)
+	properties := mustAs[map[string]any](t, params["properties"])
+	steps := mustAs[map[string]any](t, properties["steps"])
+	items := mustAs[map[string]any](t, steps["items"])
 	assert.Equal(t, false, items["additionalProperties"], "object array items are closed")
-	empty := properties["empty"].(map[string]any)
+	empty := mustAs[map[string]any](t, properties["empty"])
 	assert.Equal(t, false, empty["additionalProperties"], "explicit empty property objects are closed")
-	freeform := properties["freeform"].(map[string]any)
+	freeform := mustAs[map[string]any](t, properties["freeform"])
 	assert.Equal(t, map[string]any{"type": "string"}, freeform["additionalProperties"], "freeform dictionaries keep their value schema")
-	dynamic := properties["dynamic"].(map[string]any)
-	dynamicValues := dynamic["additionalProperties"].(map[string]any)
+	dynamic := mustAs[map[string]any](t, properties["dynamic"])
+	dynamicValues := mustAs[map[string]any](t, dynamic["additionalProperties"])
 	assert.Equal(t, false, dynamicValues["additionalProperties"], "object schemas under additionalProperties are closed")
-	choice := properties["choice"].(map[string]any)["oneOf"].([]any)[0].(map[string]any)
+	choice := mustAs[map[string]any](t, mustAs[[]any](t, mustAs[map[string]any](t, properties["choice"])["oneOf"])[0])
 	assert.Equal(t, false, choice["additionalProperties"], "object union branches are closed")
-	allOf := params["allOf"].([]any)[0].(map[string]any)
+	allOf := mustAs[map[string]any](t, mustAs[[]any](t, params["allOf"])[0])
 	assert.NotContains(t, allOf, "additionalProperties", "allOf branches stay open to sibling branch properties")
 }
 
@@ -150,7 +150,7 @@ func TestPrepareGemini_ValidatedModeOnGemini3x(t *testing.T) {
 
 	doc := unmarshalBody(t, prep.Body)
 	tc := getMap(t, doc, "toolConfig")
-	fcc := tc["functionCallingConfig"].(map[string]any)
+	fcc := mustAs[map[string]any](t, tc["functionCallingConfig"])
 	assert.Equal(t, "VALIDATED", fcc["mode"],
 		"tools present + no forced tool_choice → schema-constrained decoding without forcing a call")
 }
@@ -181,9 +181,9 @@ func TestPrepareGemini_ForcedToolChoicePreserved(t *testing.T) {
 	require.NoError(t, err)
 
 	doc := unmarshalBody(t, prep.Body)
-	fcc := getMap(t, doc, "toolConfig")["functionCallingConfig"].(map[string]any)
+	fcc := mustAs[map[string]any](t, getMap(t, doc, "toolConfig")["functionCallingConfig"])
 	assert.Equal(t, "ANY", fcc["mode"])
-	assert.Equal(t, []any{"Read"}, fcc["allowedFunctionNames"].([]any))
+	assert.Equal(t, []any{"Read"}, mustAs[[]any](t, fcc["allowedFunctionNames"]))
 }
 
 func TestPrepareGemini_ValidatedModeFromOpenAIIngress(t *testing.T) {
@@ -200,7 +200,7 @@ func TestPrepareGemini_ValidatedModeFromOpenAIIngress(t *testing.T) {
 	require.NoError(t, err)
 
 	doc := unmarshalBody(t, prep.Body)
-	fcc := getMap(t, doc, "toolConfig")["functionCallingConfig"].(map[string]any)
+	fcc := mustAs[map[string]any](t, getMap(t, doc, "toolConfig")["functionCallingConfig"])
 	assert.Equal(t, "VALIDATED", fcc["mode"])
 }
 
@@ -217,7 +217,7 @@ func TestPrepareGemini_OpenAIIngressForcedChoicePreserved(t *testing.T) {
 	require.NoError(t, err)
 
 	doc := unmarshalBody(t, prep.Body)
-	fcc := getMap(t, doc, "toolConfig")["functionCallingConfig"].(map[string]any)
+	fcc := mustAs[map[string]any](t, getMap(t, doc, "toolConfig")["functionCallingConfig"])
 	assert.Equal(t, "ANY", fcc["mode"], "an explicit tool_choice must never be clobbered by the VALIDATED upgrade")
 }
 
@@ -259,7 +259,7 @@ func TestPrepareGemini_DowngradeValidatedToAuto(t *testing.T) {
 	require.NoError(t, err)
 
 	doc := unmarshalBody(t, prep.Body)
-	fcc := getMap(t, doc, "toolConfig")["functionCallingConfig"].(map[string]any)
+	fcc := mustAs[map[string]any](t, getMap(t, doc, "toolConfig")["functionCallingConfig"])
 	assert.Equal(t, "AUTO", fcc["mode"], "the downgrade replaces VALIDATED with AUTO")
 	assert.False(t, prep.Stats.GeminiValidatedToolMode,
 		"once downgraded the request no longer uses VALIDATED, so a second retry must not fire")
@@ -280,7 +280,7 @@ func TestPrepareGemini_DowngradeValidatedToAutoFromOpenAIIngress(t *testing.T) {
 	require.NoError(t, err)
 
 	doc := unmarshalBody(t, prep.Body)
-	fcc := getMap(t, doc, "toolConfig")["functionCallingConfig"].(map[string]any)
+	fcc := mustAs[map[string]any](t, getMap(t, doc, "toolConfig")["functionCallingConfig"])
 	assert.Equal(t, "AUTO", fcc["mode"])
 }
 
@@ -302,7 +302,7 @@ func TestPrepareGemini_DowngradeNoOpWhenForcedChoice(t *testing.T) {
 	require.NoError(t, err)
 
 	doc := unmarshalBody(t, prep.Body)
-	fcc := getMap(t, doc, "toolConfig")["functionCallingConfig"].(map[string]any)
+	fcc := mustAs[map[string]any](t, getMap(t, doc, "toolConfig")["functionCallingConfig"])
 	assert.Equal(t, "ANY", fcc["mode"], "a forced tool_choice is untouched by the downgrade")
 	assert.False(t, prep.Stats.GeminiValidatedToolMode)
 }

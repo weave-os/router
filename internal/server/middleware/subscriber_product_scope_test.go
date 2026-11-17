@@ -32,12 +32,12 @@ func runProductScopeMiddleware(
 	svc := entitlement.NewService(entitlements, allowances).WithClock(func() time.Time { return allowanceNow })
 
 	reached := false
-	observed := context.Background()
+	observed := make(chan context.Context, 1)
 	engine := gin.New()
 	engine.POST("/v1/messages", func(c *gin.Context) {
 		c.Set("router_api_key", subscriberAPIKey())
 		middleware.WithSubscriberAllowance(svc)(c)
-		observed = c.Request.Context()
+		observed <- c.Request.Context()
 		if c.IsAborted() {
 			return
 		}
@@ -45,12 +45,12 @@ func runProductScopeMiddleware(
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	if authHeader != "" {
 		req.Header.Set("Authorization", authHeader)
 	}
 	engine.ServeHTTP(httptest.NewRecorder(), req)
-	return reached, observed
+	return reached, <-observed
 }
 
 func maxSubscriberEntitlement() entitlement.Entitlement {
@@ -78,7 +78,7 @@ func TestWithSubscriberProductScope_StampsDryRunsWithoutAllowanceAccounting(t *t
 			})
 
 			response := httptest.NewRecorder()
-			engine.ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, nil))
+			engine.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodPost, path, nil))
 
 			require.Equal(t, http.StatusOK, response.Code)
 			plan, scoped := entitlement.ProductScopeFromContext(observed)
@@ -100,7 +100,7 @@ func TestWithSubscriberProductScope_RejectsUnreadableProjection(t *testing.T) {
 	engine.POST("/v1/route", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	response := httptest.NewRecorder()
-	engine.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/route", nil))
+	engine.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/route", nil))
 
 	assert.Equal(t, http.StatusServiceUnavailable, response.Code)
 }
@@ -180,7 +180,7 @@ func TestWithSubscriberAllowance_ScopesAgentShadowWithoutSpendingAllowance(t *te
 	svc := entitlement.NewService(entitlements, spent).WithClock(func() time.Time { return allowanceNow })
 
 	reached := false
-	observed := context.Background()
+	observed := make(chan context.Context, 1)
 	engine := gin.New()
 	engine.POST("/v1/messages", func(c *gin.Context) {
 		c.Set("router_api_key", subscriberAPIKey())
@@ -194,21 +194,22 @@ func TestWithSubscriberAllowance_ScopesAgentShadowWithoutSpendingAllowance(t *te
 			return
 		}
 		reached = true
-		observed = c.Request.Context()
+		observed <- c.Request.Context()
 		c.Status(http.StatusOK)
 	})
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	req.Header.Set("Authorization", "Bearer sk-ant-oat01-covering-subscription")
 	engine.ServeHTTP(httptest.NewRecorder(), req)
 
 	require.True(t, reached, "a shadow evaluation is not refused by a spent allowance")
-	_, covered := entitlement.CoverageFromContext(observed)
+	ctx := <-observed
+	_, covered := entitlement.CoverageFromContext(ctx)
 	assert.False(t, covered, "a shadow evaluation draws nothing against the allowance")
-	assert.False(t, billing.SubscriptionOnlyFromContext(observed), "shadow traffic must not use a subscriber's linked credential")
-	plan, scoped := entitlement.ProductScopeFromContext(observed)
+	assert.False(t, billing.SubscriptionOnlyFromContext(ctx), "shadow traffic must not use a subscriber's linked credential")
+	plan, scoped := entitlement.ProductScopeFromContext(ctx)
 	require.True(t, scoped)
 	assert.Equal(t, entitlement.PlanMax, plan)
-	assert.False(t, entitlement.ModelBoundaryFromContext(observed).PermitsSource(eligibility.SourceClosedSource))
+	assert.False(t, entitlement.ModelBoundaryFromContext(ctx).PermitsSource(eligibility.SourceClosedSource))
 }
 
 func TestWithSubscriberAllowance_LeavesNonSubscribersUnscoped(t *testing.T) {

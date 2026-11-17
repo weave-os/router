@@ -19,13 +19,10 @@ import (
 const maxPolicyObjectBytes = 8 << 20
 
 var (
-	// ErrNotFound means a lane or immutable policy object has not been published.
 	ErrNotFound = errors.New("router policy registry object not found")
-	// ErrConflict means the caller's lane-head generation lost a CAS race.
 	ErrConflict = errors.New("router policy lane-head generation conflict")
 )
 
-// Registry reads and promotes content-addressed router policies in GCS.
 type Registry struct {
 	client     *storage.Client
 	bucket     *storage.BucketHandle
@@ -34,7 +31,6 @@ type Registry struct {
 	rootURI    string
 }
 
-// NewRegistry validates registryURI and binds it to a GCS client.
 func NewRegistry(client *storage.Client, registryURI string) (*Registry, error) {
 	if client == nil {
 		return nil, errors.New("router policy registry requires a storage client")
@@ -52,7 +48,6 @@ func NewRegistry(client *storage.Client, registryURI string) (*Registry, error) 
 	}, nil
 }
 
-// NewGCSRegistry creates the official Cloud Storage client and a registry.
 func NewGCSRegistry(ctx context.Context, registryURI string) (*Registry, error) {
 	client, err := storage.NewClient(ctx)
 	if err != nil {
@@ -66,13 +61,10 @@ func NewGCSRegistry(ctx context.Context, registryURI string) (*Registry, error) 
 	return registry, nil
 }
 
-// Close releases the underlying Cloud Storage client.
 func (r *Registry) Close() error { return r.client.Close() }
 
-// RootURI returns the registry prefix used for contract validation.
 func (r *Registry) RootURI() string { return r.rootURI }
 
-// PublishPolicy validates and creates immutable canonical policy bytes.
 func (r *Registry) PublishPolicy(ctx context.Context, payload []byte) (ObjectRef, error) {
 	roster, err := rosterdata.ParseValidated(payload)
 	if err != nil {
@@ -86,7 +78,6 @@ func (r *Registry) PublishPolicy(ctx context.Context, payload []byte) (ObjectRef
 	return r.publishImmutable(ctx, r.policyObjectName(digest), canonical, digest)
 }
 
-// PublishRelease validates and creates an immutable canonical release manifest.
 func (r *Registry) PublishRelease(ctx context.Context, release Release) (ObjectRef, error) {
 	if err := release.Validate(r.rootURI); err != nil {
 		return ObjectRef{}, err
@@ -99,7 +90,6 @@ func (r *Registry) PublishRelease(ctx context.Context, release Release) (ObjectR
 	return r.publishImmutable(ctx, r.releaseObjectName(digest), canonical, digest)
 }
 
-// ReadRelease reads exact immutable manifest bytes by URI, digest, and generation.
 func (r *Registry) ReadRelease(ctx context.Context, ref ObjectRef) (Release, error) {
 	payload, err := r.readExact(ctx, ref, "router_policy/v1/releases/sha256/")
 	if err != nil {
@@ -112,10 +102,6 @@ func (r *Registry) ReadRelease(ctx context.Context, ref ObjectRef) (Release, err
 	return release, nil
 }
 
-// ExportHead copies a lane head and the exact objects it references into dir for
-// DirectoryRegistry, after the same validation the router applies when serving them.
-// A non-empty classifierImageDigest re-pins the release to the image that will serve
-// it; the rewritten release gets its own content address.
 func (r *Registry) ExportHead(ctx context.Context, environment Environment, lane Lane, dir, classifierImageDigest string) (HeadSnapshot, error) {
 	head, err := r.ReadHead(ctx, environment, lane)
 	if err != nil {
@@ -153,7 +139,6 @@ func (r *Registry) ExportHead(ctx context.Context, environment Environment, lane
 	return head, WriteDirectoryRelease(dir, head.Head, releasePayload, policyPayload)
 }
 
-// ReadPolicy reads and fully validates exact immutable Go selection-policy bytes.
 func (r *Registry) ReadPolicy(ctx context.Context, ref ObjectRef) (*rosterdata.Roster, error) {
 	roster, err := r.ReadServingPolicy(ctx, ref)
 	if err != nil {
@@ -165,8 +150,6 @@ func (r *Registry) ReadPolicy(ctx context.Context, ref ObjectRef) (*rosterdata.R
 	return roster, nil
 }
 
-// ReadServingPolicy validates schema only. Managed compatibility must use the selected
-// worker image's catalog, not whichever catalog the controller was built with.
 func (r *Registry) ReadServingPolicy(ctx context.Context, ref ObjectRef) (*rosterdata.Roster, error) {
 	payload, err := r.readExact(ctx, ref, "router_policy/v1/policies/sha256/")
 	if err != nil {
@@ -180,7 +163,6 @@ func (r *Registry) ReadServingPolicy(ctx context.Context, ref ObjectRef) (*roste
 	return roster, nil
 }
 
-// ReleaseRef resolves a content-derived release identity to its exact generation.
 func (r *Registry) ReleaseRef(ctx context.Context, digest string) (ObjectRef, error) {
 	if !validDigest(digest) {
 		return ObjectRef{}, fmt.Errorf("invalid release digest %q", digest)
@@ -188,7 +170,6 @@ func (r *Registry) ReleaseRef(ctx context.Context, digest string) (ObjectRef, er
 	return r.objectRef(ctx, r.releaseObjectName(digest), digest)
 }
 
-// ReadHead returns the current facet head and its generation concurrency token.
 func (r *Registry) ReadHead(ctx context.Context, environment Environment, lane Lane) (HeadSnapshot, error) {
 	if err := ValidateEnvironment(environment); err != nil {
 		return HeadSnapshot{}, err
@@ -212,7 +193,6 @@ func (r *Registry) ReadHead(ctx context.Context, environment Environment, lane L
 	return HeadSnapshot{Head: head, Generation: attrs.Generation}, nil
 }
 
-// Promote validates a complete head and writes exactly one generation-CAS update.
 func (r *Registry) Promote(ctx context.Context, head LaneHead, expectedGeneration int64) (HeadSnapshot, error) {
 	if expectedGeneration < 0 {
 		return HeadSnapshot{}, errors.New("expected lane-head generation cannot be negative")
@@ -339,7 +319,7 @@ func (r *Registry) readObject(ctx context.Context, name string, generation int64
 	if err != nil {
 		return nil, classifyStorageError("open router policy object", err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	payload, err := io.ReadAll(io.LimitReader(reader, maxPolicyObjectBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read router policy object: %w", err)

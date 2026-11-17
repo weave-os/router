@@ -67,7 +67,7 @@ func TestCodexResponsesTitleGenerationScoresWithoutMarker(t *testing.T) {
 		"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Generate a concise task title."}]}]
 	}`)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
 
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
@@ -99,7 +99,7 @@ func TestCodexResponsesTitlePromptScoresWithoutMarker(t *testing.T) {
 		]
 	}`)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
 
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
@@ -131,7 +131,7 @@ func TestCodexResponsesTitlePromptAfterHarnessContextScores(t *testing.T) {
 		]
 	}`)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
 
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
@@ -171,7 +171,7 @@ func TestCodexDesktopThreadTitleScoresWithoutMarker(t *testing.T) {
 		]
 	}`)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
 
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
@@ -201,7 +201,7 @@ func TestCodexResponsesTitlePromptWithAssistantHistoryUsesScorer(t *testing.T) {
 		]
 	}`)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
 
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
@@ -225,7 +225,7 @@ func TestResponsesTitlePromptWithoutCodexIdentityUsesScorer(t *testing.T) {
 		"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Respond directly to the user's prompt. You are generating a short conversation title."}]}]
 	}`)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)
 
 	require.NoError(t, svc.ProxyOpenAIResponses(context.Background(), body, rec, req))
 	require.Len(t, provider.endpoints, 1)

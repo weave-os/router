@@ -1,5 +1,3 @@
-// Command escalation_state_check exercises durable classifier leases against a
-// migrated disposable database. Set ROUTER_TEST_DATABASE_URL to opt in.
 package main
 
 import (
@@ -56,7 +54,7 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 	scope := sha256.Sum256([]byte(uuid.NewString()))
 	fixture := postgres.NewEscalationCheckFixture(pool, *installation, scope)
 	defer func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		checkErr = errors.Join(checkErr, fixture.Cleanup(cleanupCtx))
 	}()
@@ -139,10 +137,9 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 	if err = commitRace.Wait(); err != nil {
 		return err
 	}
-	// A duplicate may lose its claim, then invalidate after the winner commits.
 	err = store.Invalidate(ctx, scope, boundary, "")
 	if err != nil {
-		return err
+		return fmt.Errorf("duplicate that lost its claim could not invalidate after the winner committed: %w", err)
 	}
 	history := json.RawMessage(`[{"role":"assistant","blocks":[{"type":"text","text":"first response"}]}]`)
 	err = store.SaveContinuation(ctx, activation, "response-1", scope, 1, history)
@@ -330,7 +327,6 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 	if err != nil {
 		return err
 	}
-	// A released owner must leave the deferred reset for the next claimant.
 	releasedToken := uuid.NewString()
 	_, acquired, err = store.Claim(ctx, scope, installation.ID, releasedToken, boundary)
 	if err != nil || !acquired {
@@ -360,7 +356,6 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 	if err != nil {
 		return err
 	}
-	// With no owner, invalidation resets immediately and late outcome writes lose.
 	err = store.Invalidate(ctx, scope, missedBoundary, "")
 	if err != nil {
 		return err
@@ -401,17 +396,16 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 	if err != nil || found {
 		return fmt.Errorf("expired continuation survived a new lifetime: found=%t: %w", found, err)
 	}
-	// Leave one child in each table so deferred cleanup verifies its cascades.
 	fresh.Ordinal = 1
 	fresh.FeatureTurns = 1
 	fresh.FeatureState = json.RawMessage(`{"turns":1}`)
 	err = store.Commit(ctx, scope, boundary, freshToken, fresh, escalation.Checkpoint{Ordinal: 1})
 	if err != nil {
-		return err
+		return fmt.Errorf("seed checkpoint child for deferred cleanup cascade: %w", err)
 	}
 	err = store.SaveContinuation(ctx, activation, "response-fresh", scope, 1, history)
 	if err != nil {
-		return err
+		return fmt.Errorf("seed continuation child for deferred cleanup cascade: %w", err)
 	}
 	failedBoundary := sha256.Sum256([]byte("failed observation boundary"))
 	failedToken := uuid.NewString()
@@ -419,8 +413,6 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 	if err != nil || !acquired {
 		return fmt.Errorf("claim failed observation fixture: acquired=%t: %w", acquired, err)
 	}
-	// Recovery and the next claimant race; any successful claim must see
-	// the reset in the same snapshot as the released lease.
 	var recoveryRace errgroup.Group
 	recoveryRace.Go(func() error {
 		return store.Invalidate(ctx, scope, failedBoundary, failedToken)

@@ -123,10 +123,7 @@ func TestRoutableModels_NilServiceReportsUnknownUniverse(t *testing.T) {
 // a deployment is not silently constrained by one org's allowlist.
 func TestExcludedModelsForRequest_EnvOverrideBypassesAllowlist(t *testing.T) {
 	override := map[string]struct{}{"env-excluded": {}}
-	s := &Service{
-		availableModels:        map[string]struct{}{"a": {}, "b": {}},
-		excludedModelsOverride: override,
-	}
+	s := (&Service{availableModels: map[string]struct{}{"a": {}, "b": {}}}).WithExcludedModelsOverride([]string{"env-excluded"})
 
 	got := s.excludedModelsForRequest(ctxWithAllowedModels("a"))
 

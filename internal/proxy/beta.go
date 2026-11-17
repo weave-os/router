@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/requestcontext"
@@ -31,8 +32,6 @@ const (
 	qwenUnavailable     = "Qwen beta is unavailable for this session."
 )
 
-// WriteRetiredBetaRequest keeps this protocol-specific, non-inference reply
-// after authenticated admission and ahead of inference and billing gates.
 func WriteRetiredBetaRequest(w http.ResponseWriter, r *http.Request, body []byte) (bool, error) {
 	var surface requestcontext.ConversationSurface
 	switch r.URL.Path {
@@ -54,8 +53,6 @@ func WriteRetiredBetaRequest(w http.ResponseWriter, r *http.Request, body []byte
 
 type betaArtifactHistoryContextKey struct{}
 
-// Historical /beta control turns prove this transcript crossed a policy
-// boundary even though its strategy-specific pin history was invalidated.
 func withBetaArtifactHistory(ctx context.Context) context.Context {
 	return context.WithValue(ctx, betaArtifactHistoryContextKey{}, true)
 }
@@ -70,15 +67,11 @@ func internalBetaSession(ctx context.Context) bool {
 	return managed && policyregistry.ExperimentalRoutingModelsPermitted(policyregistry.ServingTarget(identity.Target), entitlement.Plan(identity.Plan)) && identity.ReleaseID != "" && identity.BindingID != "" && identity.CredentialIdentity != ""
 }
 
-// WithSessionStrategyStore wires durable per-session routing preferences.
-// A nil store leaves normal routing unchanged and makes /beta unavailable.
 func (s *Service) WithSessionStrategyStore(store sessionstrategy.Store) *Service {
 	s.sessionStrategyStore = store
 	return s
 }
 
-// applySessionStrategy reads the /beta preference stored under preferenceKey
-// (see deriveBetaSessionKeyForRequest), not the per-thread pin key.
 func (s *Service) applySessionStrategy(
 	ctx context.Context,
 	installationID uuid.UUID,
@@ -150,22 +143,17 @@ func (s *Service) handleBetaCommand(
 	if found {
 		previousStrategy = previous.Strategy
 	}
-	// Runs before applySessionStrategy, so the context strategy here is the
-	// installation's baseline; a session toggle cannot leave an installation pin.
 	if router.StrategyFromContext(ctx) == strategy {
 		return writeBetaCommandResponse(w, env, betaPinnedMessage, inputTokens)
 	}
 
-	// Both branches decide from what the store persisted rather than a prior
-	// read, so overlapping /beta commands for one session cannot act on the
-	// same stale state: an unavailable beta policy can only ever be left.
 	nowEnabled := false
 	available := s.PolicyStrategyAvailable(strategy)
 	if snapshot := policyregistry.ServingSnapshotFromContext(ctx); snapshot != nil {
 		available = snapshot.Routers[strategy] != nil
 	}
 	if available {
-		enabled, err := s.sessionStrategyStore.Toggle(context.Background(), sessionstrategy.Preference{
+		enabled, err := s.sessionStrategyStore.Toggle(context.WithoutCancel(ctx), sessionstrategy.Preference{
 			InstallationID: installationID,
 			SessionKey:     preferenceKey,
 			Strategy:       strategy,
@@ -175,7 +163,7 @@ func (s *Service) handleBetaCommand(
 		}
 		nowEnabled = enabled
 	} else {
-		wasEnabled, err := s.sessionStrategyStore.Disable(context.Background(), installationID, preferenceKey, strategy)
+		wasEnabled, err := s.sessionStrategyStore.Disable(context.WithoutCancel(ctx), installationID, preferenceKey, strategy)
 		if err != nil {
 			return fmt.Errorf("disable beta routing: %w", err)
 		}
@@ -191,9 +179,6 @@ func (s *Service) handleBetaCommand(
 	}
 
 	log := observability.FromContext(ctx)
-	// Persist first: strategy-bound reads make old-strategy pins ineligible
-	// immediately, so cleanup cannot overwrite a concurrent new-mode pin.
-	// Pins stay keyed per thread, so only this thread's state is dropped.
 	if err := s.invalidateSessionRoutingState(
 		router.WithStrategy(ctx, previousStrategy),
 		sessionKey,
@@ -230,13 +215,13 @@ func (s *Service) invalidateSessionRoutingState(
 		for _, stateRole := range []string{
 			role,
 			hmmHistoryRole(role),
-			commandContinuationRole(role),
+			conversation.CommandContinuationRole(role),
 		} {
 			if _, duplicate := seen[stateRole]; duplicate {
 				continue
 			}
 			seen[stateRole] = struct{}{}
-			if _, _, err := s.pinStore.Consume(context.Background(), sessionKey, stateRole, strategy); err != nil && firstErr == nil {
+			if _, _, err := s.pinStore.Consume(context.WithoutCancel(ctx), sessionKey, stateRole, strategy); err != nil && firstErr == nil {
 				firstErr = err
 			}
 		}

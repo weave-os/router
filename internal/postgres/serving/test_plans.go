@@ -13,15 +13,12 @@ import (
 	"weave-os/router/internal/sqlc"
 )
 
-// TestPlanRepo reads eligible subjects and stores grant digests on the primary database.
 type TestPlanRepo struct{ queries *sqlc.Queries }
 
-// NewTestPlanRepo binds test authorization to budgeted primary queries.
 func NewTestPlanRepo(pool *pgxpool.Pool) *TestPlanRepo {
 	return &TestPlanRepo{queries: dbbudget.Queries(pool)}
 }
 
-// ListTestIdentities lists enrolled personal identities with funded enabled budgets.
 func (r *TestPlanRepo) ListTestIdentities(ctx context.Context) ([]policyregistry.TestPlanIdentity, error) {
 	rows, err := r.queries.GetInternalTestIdentities(ctx)
 	if err != nil {
@@ -34,7 +31,6 @@ func (r *TestPlanRepo) ListTestIdentities(ctx context.Context) ([]policyregistry
 	return identities, nil
 }
 
-// GetTestIdentity reads current eligibility and funding for a subject.
 func (r *TestPlanRepo) GetTestIdentity(ctx context.Context, subjectID string) (policyregistry.TestPlanIdentity, error) {
 	subject, err := uuid.Parse(subjectID)
 	if err != nil {
@@ -47,7 +43,6 @@ func (r *TestPlanRepo) GetTestIdentity(ctx context.Context, subjectID string) (p
 	return policyregistry.TestPlanIdentity{SubjectID: row.SubjectID.String(), InstallationID: row.InstallationID.String(), Label: row.Label, BalanceMicros: row.BalanceUsdMicros, EnrollmentGeneration: row.EnrollmentGeneration}, nil
 }
 
-// SaveTestLaunch persists the exact preview and grant digest without the bearer token.
 func (r *TestPlanRepo) SaveTestLaunch(ctx context.Context, launch policyregistry.TestPlanLaunch, hash string) error {
 	encoded, err := json.Marshal(launch)
 	if err != nil {
@@ -56,7 +51,6 @@ func (r *TestPlanRepo) SaveTestLaunch(ctx context.Context, launch policyregistry
 	return r.queries.InsertInternalTestLaunch(ctx, sqlc.InsertInternalTestLaunchParams{ID: uuid.MustParse(launch.ID), TokenSha256: hash, SubjectID: uuid.MustParse(launch.Preview.Identity.SubjectID), InstallationID: uuid.MustParse(launch.Preview.Identity.InstallationID), Launch: encoded, CreatedAt: pgtype.Timestamptz{Time: launch.CreatedAt, Valid: true}, ExpiresAt: pgtype.Timestamptz{Time: launch.ExpiresAt, Valid: true}})
 }
 
-// AuthorizeTestLaunch checks key ownership and binds a grant to one session atomically.
 func (r *TestPlanRepo) AuthorizeTestLaunch(ctx context.Context, hash, installationID, keyID, sessionID string) (policyregistry.TestPlanLaunch, error) {
 	installation, err := uuid.Parse(installationID)
 	if err != nil {
@@ -79,7 +73,6 @@ func (r *TestPlanRepo) AuthorizeTestLaunch(ctx context.Context, hash, installati
 	return launch, err
 }
 
-// RevokeTestLaunch stops subsequent admissions without changing entitlements.
 func (r *TestPlanRepo) RevokeTestLaunch(ctx context.Context, id string) error {
 	launchID, err := uuid.Parse(id)
 	if err != nil {

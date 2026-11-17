@@ -23,6 +23,7 @@ func (g stubAllowedModelsGate) ResolveAllowedModelsHeader(ctx context.Context) b
 }
 
 func runAllowedModelsMiddleware(t *testing.T, installation *auth.Installation, header string) (int, proxy.RequestAllowedModels, bool) {
+	t.Helper()
 	return runAllowedModelsMiddlewareWithDefault(t, installation, header, false)
 }
 
@@ -44,7 +45,7 @@ func runAllowedModelsMiddlewareWithDefault(t *testing.T, installation *auth.Inst
 		observed, ok = c.Request.Context().Value(proxy.RequestAllowedModelsContextKey{}).(proxy.RequestAllowedModels)
 		c.Status(http.StatusOK)
 	})
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	if header != "" {
 		req.Header.Set(proxy.AllowedModelsHeader, header)
 	}
@@ -66,7 +67,7 @@ func TestAllowedModelsOverride_UnauthorizedIsForbidden(t *testing.T) {
 }
 
 func TestAllowedModelsOverride_PolicyHeadersAuthorize(t *testing.T) {
-	status, got, ok := runAllowedModelsMiddleware(t, &auth.Installation{PolicyHeaderOverridesEnabled: true}, "gpt-5-6-sol,terra")
+	status, got, ok := runAllowedModelsMiddleware(t, &auth.Installation{PolicyHeaderOverridesEnabled: true}, "gpt-5-6-sol,gpt-5-6-terra")
 	require.Equal(t, http.StatusOK, status)
 	require.True(t, ok)
 	assert.Equal(t, []string{"gpt-5.6-sol", "gpt-5.6-terra"}, got.Effective)
@@ -82,7 +83,7 @@ func TestAllowedModelsOverride_OrgFlagAuthorizes(t *testing.T) {
 
 func TestAllowedModelsOverride_IntersectsInstallationAllowlist(t *testing.T) {
 	installation := &auth.Installation{PolicyHeaderOverridesEnabled: true, AllowedModels: []string{"gpt-5.6-sol"}}
-	status, got, ok := runAllowedModelsMiddleware(t, installation, "gpt-5-6-sol,terra")
+	status, got, ok := runAllowedModelsMiddleware(t, installation, "gpt-5-6-sol,gpt-5-6-terra")
 	require.Equal(t, http.StatusOK, status)
 	require.True(t, ok)
 	assert.Equal(t, []string{"gpt-5.6-sol", "gpt-5.6-terra"}, got.Requested)
@@ -91,7 +92,7 @@ func TestAllowedModelsOverride_IntersectsInstallationAllowlist(t *testing.T) {
 
 func TestAllowedModelsOverride_EmptyIntersectionIsBadRequest(t *testing.T) {
 	installation := &auth.Installation{PolicyHeaderOverridesEnabled: true, AllowedModels: []string{"gpt-5.6-sol"}}
-	status, _, ok := runAllowedModelsMiddleware(t, installation, "terra")
+	status, _, ok := runAllowedModelsMiddleware(t, installation, "gpt-5-6-terra")
 	assert.Equal(t, http.StatusBadRequest, status)
 	assert.False(t, ok)
 }

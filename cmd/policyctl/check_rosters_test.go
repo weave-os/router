@@ -68,7 +68,7 @@ const v6SchemaRoster = `{
 
 func writeRoster(t *testing.T, dir, name, payload string) {
 	t.Helper()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(payload), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(payload), 0o600))
 }
 
 func TestCheckRosterDirCompilesV7SourceAndSkipsPreGoSchemas(t *testing.T) {

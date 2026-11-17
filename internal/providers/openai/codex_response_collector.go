@@ -13,9 +13,6 @@ import (
 
 var errCodexStreamWithoutTerminal = fmt.Errorf("%w: Codex stream ended without a terminal response", translate.ErrStreamIncomplete)
 
-// codexResponseCollector serves a non-streaming Responses caller from the Codex
-// backend, which only streams: it consumes the SSE events and writes the
-// terminal response object as one JSON body.
 type codexResponseCollector struct {
 	w        http.ResponseWriter
 	status   int
@@ -36,8 +33,6 @@ func (c *codexResponseCollector) Header() http.Header { return c.w.Header() }
 
 func (c *codexResponseCollector) WriteHeader(code int) { c.status = code }
 
-// ArmOutputProgress arms the output-stall watchdog on the upstream stream even
-// though the caller receives one buffered body.
 func (c *codexResponseCollector) ArmOutputProgress(mark func()) bool {
 	c.onOutputProgress = mark
 	return true
@@ -93,12 +88,9 @@ func (c *codexResponseCollector) observe(event []byte) {
 	}
 }
 
-// finish writes the collected terminal response, filling an empty output from
-// the streamed items.
 func (c *codexResponseCollector) finish() error {
 	if tail := bytes.TrimSpace(c.pending); len(tail) > 0 {
 		if !c.sawEvent && tail[0] == '{' && gjson.ValidBytes(tail) {
-			// An upstream that already answered with one JSON body.
 			c.response = bytes.Clone(tail)
 		} else {
 			c.observe(tail)

@@ -5,17 +5,18 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestServingCandidatePinsAnIndependentQwenRoster(t *testing.T) {
 	store, _, legacySet := controllerFixture(t)
 	fixture := newV2Fixture(t, store, legacySet)
-	baseCandidate := store.object(t, policyregistry.ServingCandidate, fixture.candidate).(*policyregistry.CandidateV2)
-	strategyPolicy := publishRosterArm(t, store, baseCandidate.Policy, alternateRosterArm)
+	baseCandidate := mustAs[*policyregistry.CandidateV2](t, store.object(t, policyregistry.ServingCandidate, fixture.candidate))
+	strategyPolicy := publishRosterArm(t, store, baseCandidate.Policy)
 	candidate := *baseCandidate
 	candidate.StrategyPolicies = map[router.Strategy]policyregistry.PolicyObject{router.StrategyHMMQwen: strategyPolicy}
 	candidate.Classifier.Identity.Variants = map[router.Strategy]policy.ClassifierArtifact{
@@ -87,7 +88,7 @@ func TestServingCandidatePinsAnIndependentQwenRoster(t *testing.T) {
 	t.Run("policy identity affects composition", func(t *testing.T) {
 		changed := candidate.CandidateComposition
 		changed.StrategyPolicies = map[router.Strategy]policyregistry.PolicyObject{router.StrategyHMMQwen: baseCandidate.Policy}
-		require.False(t, candidate.CandidateComposition.Equal(changed))
+		require.False(t, candidate.Equal(changed))
 	})
 	t.Run("incompatible strategy taxonomy fails closed", func(t *testing.T) {
 		incompatible := *qwenPolicy.Roster
