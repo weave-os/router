@@ -12,9 +12,6 @@ const (
 	ModelDecision  RoutingModel = "weave-decision-model-20261019-0001v1"
 )
 
-// ModelAutomaticDisplayName is the human-readable spelling of ModelAutomatic.
-// Clients such as Cursor send the custom model name exactly as the user typed
-// it, so the router accepts it as an alias.
 const ModelAutomaticDisplayName = "Weave Auto"
 
 const PrimaryRoutingStrategy = StrategyHMM
@@ -37,8 +34,6 @@ func RoutingModelPolicyFor(model RoutingModel) (RoutingModelPolicy, bool) {
 	return selection, found
 }
 
-// CanonicalRoutingModel maps ModelAutomaticDisplayName to ModelAutomatic and
-// returns every other value unchanged.
 func CanonicalRoutingModel(model string) RoutingModel {
 	if model == ModelAutomaticDisplayName {
 		return ModelAutomatic
