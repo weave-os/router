@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/subscriptionlane"
 	"weave-os/router/internal/subscriptions"
 )
 
@@ -109,71 +110,6 @@ func managedSubscriptionEnrollmentUnavailable(ctx context.Context) bool {
 	return unavailable
 }
 
-func (s *Service) markManagedSubscriptionServed(ctx context.Context, credentialCtx context.Context, leases ...subscriptions.Lease) {
-	var lease subscriptions.Lease
-	if len(leases) > 0 {
-		lease = leases[0]
-	}
-	usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
-	if usage != nil {
-		usage.Served = true
-		usage.SubscriptionAccountID = lease.AccountID
-		usage.SubscriptionOwnerID = lease.OwnerID
-		usage.SubscriptionTier = lease.Tier
-		if creds := CredentialsFromContext(credentialCtx); creds != nil {
-			usage.CredentialSource = creds.Source
-			if s.usageObserver != nil && creds.Source == credSourceSubscription {
-				if snapshot, observed := s.usageObserver.Snapshot(s.usageObserver.Key(creds.APIKey)); observed {
-					usage.OverageInUse = snapshot.OverageInUse
-				}
-			}
-		}
-	}
-}
-
-func managedSubscriptionCredentialSource(ctx context.Context) string {
-	usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
-	if usage == nil || !usage.Served {
-		return ""
-	}
-	return usage.CredentialSource
-}
-
-func managedSubscriptionServed(ctx context.Context) bool {
-	usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
-	return usage != nil && usage.Served
-}
-
-func (s *Service) subscriptionOverageInUse(ctx context.Context) bool {
-	if !servedOnSubscription(ctx) {
-		return false
-	}
-	if creds := CredentialsFromContext(ctx); creds != nil && creds.Source == credSourceCodexSubscription {
-		return false
-	}
-	if managedSubscriptionCredentialSource(ctx) == credSourceCodexSubscription {
-		return false
-	}
-	headers := UnifiedLimitHeadersFrom(ctx)
-	if claim, present := headers["anthropic-ratelimit-unified-representative-claim"]; present {
-		return usage.PaidAnthropicOverage(
-			usage.AnthropicClaim(claim), headers["anthropic-ratelimit-unified-overage-in-use"])
-	}
-	if managedUsage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); managedUsage != nil && managedUsage.Served {
-		return managedUsage.OverageInUse
-	}
-	creds := CredentialsFromContext(ctx)
-	if creds == nil || creds.Source != credSourceSubscription || s.usageObserver == nil {
-		return false
-	}
-	snapshot, observed := s.usageObserver.Snapshot(s.usageObserver.Key(creds.APIKey))
-	return observed && snapshot.OverageInUse
-}
-
-func (s *Service) costNeutralSubscriptionServed(ctx context.Context) bool {
-	return servedOnSubscription(ctx) && !s.subscriptionOverageInUse(ctx)
-}
-
 func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model string) (context.Context, subscriptions.Lease, bool, error) {
 	if byokFirst(ctx, provider) {
 		return ctx, subscriptions.Lease{}, false, nil
@@ -183,7 +119,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		if credentials := CredentialsFromContext(ctx); credentials != nil && credentials.OAuth && s.supportsSubscriptionTransport(provider) {
 			return ctx, subscriptions.Lease{}, false, nil
 		}
-		return ctx, subscriptions.Lease{}, true, ErrSubscriptionPoolUnavailable
+		return ctx, subscriptions.Lease{}, true, subscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable)
 	}
 	if subscriptionAPIOnly(ctx) {
 		return ctx, subscriptions.Lease{}, false, nil
@@ -227,7 +163,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 			return ctx, subscriptions.Lease{}, false, nil
 		}
 		if unadmitted {
-			return ctx, subscriptions.Lease{}, true, ErrSubscriptionPoolUnavailable
+			return ctx, subscriptions.Lease{}, true, subscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable)
 		}
 		if modelDenial != nil {
 			return ctx, subscriptions.Lease{}, true, modelDenial
@@ -251,7 +187,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 			if !unadmitted && !subscriptionAttemptOnly(ctx) && !paidFallbackForbiddenFor(ctx, provider) && s.managedProviderFallbackAvailable(ctx, poolProvider) && s.subscriptionAPIAuthorization(ctx, provider, model) == nil {
 				return ctx, subscriptions.Lease{}, false, nil
 			}
-			return ctx, subscriptions.Lease{}, present, errors.Join(ErrSubscriptionPoolUnavailable, err)
+			return ctx, subscriptions.Lease{}, present, errors.Join(subscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable), err)
 		}
 		if err != nil || !present {
 			return poolSpent()

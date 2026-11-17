@@ -37,6 +37,9 @@ var transitions = [eventCount][pendingStateCount]Transition{
 	OrganizationCreditsServed:   {to(ServedOnOrganizationCredits), to(ServedOnOrganizationCredits), rejected, rejected},
 	SubscriptionUnservable:      {to(RefusedSubscriptionUnavailableForTurn), to(RefusedSubscriptionUnavailableForTurn), to(RefusedSpendCapReached), to(RefusedCreditsExhausted)},
 	SubscriptionPoolExhausted:   {to(RefusedSubscriptionPoolExhausted), to(RefusedSubscriptionPoolExhausted), to(RefusedSpendCapReached), to(RefusedCreditsExhausted)},
+	SubscriptionPoolUnavailable: {to(RefusedSubscriptionPoolUnavailable), to(RefusedSubscriptionPoolUnavailable), to(RefusedSubscriptionPoolUnavailable), to(RefusedSubscriptionPoolUnavailable)},
+	SubscriptionPoolThrottled:   {to(RefusedSubscriptionPoolThrottled), to(RefusedSubscriptionPoolThrottled), to(RefusedSubscriptionPoolThrottled), to(RefusedSubscriptionPoolThrottled)},
+	CallerPlanThrottled:         {to(RefusedSubscriptionPoolThrottled), to(RefusedSubscriptionPoolThrottled), to(RefusedSubscriptionPoolThrottled), to(RefusedSubscriptionPoolThrottled)},
 }
 
 func Lookup(from State, on Event) Transition {
