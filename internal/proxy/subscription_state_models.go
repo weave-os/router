@@ -234,7 +234,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 	}
 	paidModels := installationSubscriptionModelsWhenInactiveFromContext(ctx)
 	paidCtx, paidReq := s.subscriptionStateRequest(ctx, request, paidModels)
-	paidCtx = withIncludedLaneExhausted(paidCtx)
+	paidCtx = withIncludedLaneExhausted(s.sessionHolds.withUnservedHoldsReleased(paidCtx))
 	target := in.initialDecision
 	for {
 		target = openRouterOverflowTarget(paidCtx, target)
