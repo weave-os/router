@@ -18,6 +18,7 @@ This page is the exhaustive reference; the [README](../README.md) has the
 - [Routing](#routing)
   - [Kill switches and staged behaviors](#kill-switches-and-staged-behaviors)
 - [Per-organization flag overrides](#per-organization-flag-overrides)
+  - [Task-arm experiment](#task-arm-experiment)
 - [Plan-aware subscription routing](#plan-aware-subscription-routing)
 - [Provider and model exclusions](#provider-and-model-exclusions)
 - [Policy sidecars](#policy-sidecars)
@@ -805,6 +806,60 @@ override, then organization override, then deployment default.
 - Routing code reads a flag through the `Resolve*` helpers in
   `internal/proxy/flag_resolution.go`. Reading the deployment default off
   `proxy.Service` directly silently ignores any organization override.
+
+### Task-arm experiment
+
+An opt-in randomized experiment, off at its defaults, that compares ordinary
+routing against one policy cluster on tasks at chosen steps of an agent's work.
+It only reads the turn label some agent setups write as the last line of the
+message that ends a turn: `@cycle <goal> <task> <step> <status> | <reason>`, or
+`@cycle =` when nothing changed since the label before.
+
+| Flag | Default | Effect |
+| ---- | ------- | ------ |
+| `task_arm_experiment_treatment_pct` | `0` | Percent of eligible tasks in the treatment arm (0-100). `0` turns the experiment off. |
+| `task_arm_experiment_steps` | empty | Comma-separated label steps that make a task eligible. Empty makes no task eligible. |
+| `task_arm_experiment_treatment_cluster` | empty | Cluster the treatment arm is constrained to, with the semantics of `x-weave-force-cluster`. Empty turns the experiment off. |
+
+- **Where the step comes from.** The router has no label for the turn it is
+  routing, only the conversation history in the request. It takes the message
+  that closed the turn before the latest user prompt and reads its last line. A
+  repeated label resolves to the label of the turn before it. A previous turn
+  that ended without a valid label makes the turn ineligible, so an older label
+  is never used in its place. History rewritten by compaction, and sub-agent
+  requests, which carry their own history, are therefore ineligible.
+- **Assignment.** The arm is a hash of the session key, goal and task, so every
+  eligible request of a task draws the same arm while the percentage is
+  unchanged. Changing the percentage mid-run reassigns tasks; start a new run
+  instead.
+- **Scope.** Only main-loop and tool-result turns the router decides on an HMM
+  strategy are assigned. A forced model, a forced cluster, caller-model
+  passthrough, a plan with its own serving policy, a handoff and agent shadow
+  evaluation all leave the turn outside the experiment, as do sub-agent,
+  compaction, title and other utility turns. The Gemini surface is not wired.
+- **Control** turns are routed exactly as without the experiment.
+  **Treatment** turns carry the treatment cluster as a forced cluster, which
+  constrains them to that cluster in both directions: a turn the policy would
+  have put in a cheaper cluster is moved up to it as well. The session pin
+  gates still apply, so a treated turn can be held on the session's current
+  model for a few requests before the constraint takes effect. When the
+  treatment cluster cannot serve the request, the turn is routed as a control
+  turn would be; the experiment never fails a request ordinary routing would
+  serve.
+- **Telemetry.** Assigned turns carry these attributes on the `router.decision`
+  and upstream spans; unassigned turns carry none of them.
+
+  | Attribute | Meaning |
+  | --------- | ------- |
+  | `routing.task_arm_experiment_arm` | `control` or `treatment`. |
+  | `routing.task_arm_experiment_propensity` | Probability the task had of drawing that arm. |
+  | `routing.task_arm_experiment_task_key` | Opaque hash identifying the task; goal and task names are never recorded. |
+  | `routing.task_arm_experiment_step` | The label step that made the turn eligible. |
+  | `routing.task_arm_experiment_treatment_applied` | Whether a treatment turn was actually served from the treatment cluster. Always `false` on control turns. |
+
+Analyse by assigned arm, not by `treatment_applied`: the fallback, the pin
+gates and the ineligible turns of a task are part of what the treatment does.
+`treatment_applied` measures how much of the treatment arm was treated.
 
 ## Plan-aware subscription routing
 
