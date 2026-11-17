@@ -5,19 +5,8 @@ import (
 	"strings"
 )
 
-// thoughtSignatureIDDelimiter separates the tool-use id from a base64-encoded
-// Gemini thoughtSignature smuggled inside it. The id field survives all
-// Anthropic/OpenAI client SDKs (typed string, tool_use/tool_result correlation),
-// making it a stateless round-trip channel for opaque signatures that typed SDKs
-// would otherwise drop as unknown fields.
-//
-// Prior art: BerriAI/litellm PR #16895.
 const thoughtSignatureIDDelimiter = "__thought__"
 
-// embedSignatureInID returns id with sig base64-encoded and appended. It is
-// idempotent: an id that already carries a signature is returned unchanged, so
-// a translation merge point (a pre-embedded id arriving with a redundant sig)
-// never stacks two delimiters.
 func embedSignatureInID(id, sig string) string {
 	if sig == "" || strings.Contains(id, thoughtSignatureIDDelimiter) {
 		return id
@@ -25,7 +14,6 @@ func embedSignatureInID(id, sig string) string {
 	return id + thoughtSignatureIDDelimiter + base64.RawURLEncoding.EncodeToString([]byte(sig))
 }
 
-// extractSignatureFromID is the inverse of embedSignatureInID.
 func extractSignatureFromID(id string) (cleanID, signature string) {
 	i := strings.Index(id, thoughtSignatureIDDelimiter)
 	if i < 0 {

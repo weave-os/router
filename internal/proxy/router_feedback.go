@@ -22,19 +22,12 @@ import (
 	"github.com/google/uuid"
 )
 
-// routerFeedbackCommandSpanName is the OTLP span for the /router-feedback (/rf)
-// slash command. Distinct from routerFeedbackSpanName ("router.feedback" in
-// feedback.go), which is a downstream contract (buildFeedbackRow); do not reuse
-// that name or alter its schema.
 const routerFeedbackCommandSpanName = "router.feedback.command"
 
-// RouterFeedbackStore persists /router-feedback submissions durably
-// (router.router_feedback). Nil degrades to span + log only.
 type RouterFeedbackStore interface {
 	InsertRouterFeedback(ctx context.Context, p RouterFeedbackEvent) error
 }
 
-// RouterFeedbackEvent mirrors one router.router_feedback row.
 type RouterFeedbackEvent struct {
 	InstallationID string
 	SessionKey     []byte
@@ -44,32 +37,19 @@ type RouterFeedbackEvent struct {
 	SessionID      string
 	RequestedModel string
 	ServedModel    string
-	// Rating is the thumbs verdict ("up", "down", or "" for note-only),
-	// parsed from /rf+ /rf- or a leading verdict token in the note.
-	Rating string
-	// SuggestedLabel is the complexity label from a --label flag ("fast" | "explore" | "balanced" | "high" | "maximum").
+	Rating         string
 	SuggestedLabel string
-	// Feedback is the persisted submission text; verdict-only submissions
-	// get a compact emoji so the column is never empty.
-	Feedback string
-	// Source is how the feedback was submitted: "user" (explicit /rf command)
-	// or "auto" (automated judge at session stop).
-	Source string
-	// RequestID is the telemetry request_id of the rated turn; empty when no sequence was specified.
-	RequestID string
-	// RouteID is the opaque sidecar join key (HMM/RL) for credit assignment; empty when no sequence was specified.
-	RouteID string
+	Feedback       string
+	Source         string
+	RequestID      string
+	RouteID        string
 }
 
-// RouterFeedbackSource values for validated event persistence.
 const (
 	RouterFeedbackSourceUser = "user"
 	RouterFeedbackSourceAuto = "auto"
 )
 
-// handleRouterFeedbackCommand persists a /router-feedback submission and emits
-// a router.feedback.command span. User-issued commands receive a synthetic
-// acknowledgment; agent-issued tool-result commands continue through routing.
 func (s *Service) handleRouterFeedbackCommand(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -96,7 +76,6 @@ func (s *Service) handleRouterFeedbackCommand(
 		return nil
 	}
 
-	// The model to attribute: pin's last served (or target), overridden by the resolved telemetry turn when a sequence was specified.
 	var servedModel string
 	var telemetryRequestID string
 	var telemetryRouteID string
@@ -113,8 +92,6 @@ func (s *Service) handleRouterFeedbackCommand(
 				}
 				return nil
 			}
-			// Infrastructure error: log it, fall through to the pin path so the
-			// rating is persisted with the pin's servedModel rather than dropped.
 		} else {
 			servedModel = turn.DecisionModel
 			telemetryRequestID = turn.RequestID
@@ -162,14 +139,11 @@ func (s *Service) handleRouterFeedbackCommand(
 			RequestID:      telemetryRequestID,
 			RouteID:        telemetryRouteID,
 		}
-		// context.WithoutCancel: ctx may already be canceled (client disconnected
-		// mid-command); don't drop feedback the user explicitly typed.
 		if err := s.feedbackStore.InsertRouterFeedback(context.WithoutCancel(ctx), event); err != nil {
 			log.Error("/router-feedback: feedback insert failed", "err", err)
 			return err
 		}
 	}
-	// Skip upsert for note-only ratings: up/down-only column rejects empty rating and would overwrite a prior thumb.
 	if telemetryRequestID != "" && rating != "" && s.feedbackRepo != nil {
 		comment := feedback
 		upsertParams := UpsertFeedbackParams{
@@ -186,16 +160,12 @@ func (s *Service) handleRouterFeedbackCommand(
 		}
 	}
 
-	// Use the resolved turn's strategy, not the current request: StrategyFromContext credits the wrong reporter
-	// when the rated turn ran under a different strategy. A resolved strategy with no reporter (e.g. cluster) suppresses feedback — falling back would credit the active reporter with another strategy's request_id/route_id.
 	strategy := router.StrategyFromContext(ctx)
 	if telemetryStrategy != "" {
 		strategy = router.Strategy(telemetryStrategy)
 	}
 	if registered, ok := s.strategies[strategy]; ok && registered.feedback != nil {
 		trainingAllowed := policyTrainingAllowedForRequest(ctx)
-		// Delta only matches the rated turn for sequence 0 (latest) or -1 (the last assistant segment in env).
-		// For anything older, suppress the delta; request_id + route_id give the sidecar the join key.
 		trainingDelta := []router.ConversationMessage(nil)
 		if (cmd.Sequence == 0 || cmd.Sequence == -1) && router.IsHMMStrategy(strategy) && trainingAllowed {
 			trainingDelta = routerFeedbackTrainingDelta(env)
@@ -345,8 +315,6 @@ func routerFeedbackTrainingDelta(env *translate.RequestEnvelope) []router.Conver
 	return append([]router.ConversationMessage(nil), messages[start:ratedAssistant+1]...)
 }
 
-// persistedFeedbackText is the value written to router.router_feedback.feedback.
-// Verdict-only submissions get a compact emoji so the NOT NULL column is never empty.
 func persistedFeedbackText(rating, feedback string) string {
 	if feedback != "" {
 		return feedback

@@ -88,6 +88,7 @@ type Client struct {
 	apiKey                 string
 	baseURL                string
 	http                   *http.Client
+	imagesHTTP             *http.Client
 	modelIDMap             map[string]string
 	sseIdleTimeout         time.Duration
 	outputStall            time.Duration
@@ -124,6 +125,7 @@ func newClientWithModelIDMap(apiKey, baseURL string, headerTimeout time.Duration
 		modelIDMap:   modelIDMap,
 		codexBaseURL: chatGPTCodexBaseURL,
 		http:         httputil.NewClient(httputil.NewTransportWithResponseHeaderTimeout(5*time.Second, 5*time.Second, headerTimeout)),
+		imagesHTTP:   httputil.NewClient(httputil.NewTransportWithResponseHeaderTimeout(5*time.Second, 5*time.Second, codexImagesResponseHeaderTimeout)),
 	}
 }
 

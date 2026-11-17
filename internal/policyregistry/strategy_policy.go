@@ -10,7 +10,6 @@ import (
 	"weave-os/router/internal/router/hmm/rosterdata"
 )
 
-// StrategyPolicy pairs one beta strategy's immutable policy identity and roster.
 type StrategyPolicy struct {
 	Reference PolicyObject
 	Roster    *rosterdata.Roster

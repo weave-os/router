@@ -15,11 +15,9 @@ import (
 type NoticeKind string
 
 const (
-	NoticeModelSelection NoticeKind = "model_selection"
-	NoticeFundingWarning NoticeKind = "funding_warning"
-	NoticeSlowStart      NoticeKind = "slow_start"
-	// NoticeSubscriptionReconnect points the user at the dashboard to connect
-	// or reconnect a subscription seat.
+	NoticeModelSelection        NoticeKind = "model_selection"
+	NoticeFundingWarning        NoticeKind = "funding_warning"
+	NoticeSlowStart             NoticeKind = "slow_start"
 	NoticeSubscriptionReconnect NoticeKind = "subscription_reconnect"
 )
 
@@ -43,7 +41,6 @@ const (
 	NoticeDuplicate  NoticeOutcome = "duplicate"
 )
 
-// RouterNotice describes router-owned content, independently of its client encoding.
 type RouterNotice struct {
 	ID         string
 	Provenance NoticeProvenance
@@ -76,8 +73,6 @@ func (c NoticeCapabilities) SupportsNotices() bool {
 	}
 }
 
-// NoticeSink is the client-protocol integration contract. Implementations own
-// wire lifecycle and retry continuation, including independent prelude commitment.
 type NoticeSink interface {
 	http.ResponseWriter
 	http.Flusher
@@ -91,9 +86,6 @@ type NoticeSink interface {
 
 var ErrInvalidNotice = errors.New("router notice requires identity, provenance, kind and text")
 
-// NoticeDelivery serializes notices and complete client SSE records. Its output
-// must sit below conversion and above the provider-commit buffer: notice writes
-// can then be committed independently of provider output.
 type NoticeDelivery struct {
 	mu                     sync.Mutex
 	ctx                    context.Context
@@ -110,9 +102,6 @@ type NoticeDelivery struct {
 	deferred               RouterNotice
 }
 
-// DeferIfEager holds notice until this attempt commits or starts provider
-// content, so an attempt that fails first never shows it. A later call replaces
-// it. Non-eager streams buffer notices already, so it reports false there.
 func (d *NoticeDelivery) DeferIfEager(notice RouterNotice) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -123,9 +112,6 @@ func (d *NoticeDelivery) DeferIfEager(notice RouterNotice) bool {
 	return true
 }
 
-// SetBeforeProviderContent registers a notice decided when the attempt's first
-// provider content arrives. It runs just before that content is written, so it
-// can never precede the provider commit.
 func (d *NoticeDelivery) SetBeforeProviderContent(fn func() (RouterNotice, bool)) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -184,7 +170,6 @@ func (d *NoticeDelivery) Write(payload []byte) (int, error) {
 	if err := d.err(); err != nil {
 		return 0, err
 	}
-	// Preserve JSON text while preventing reflected HTML on passthrough paths.
 	consumedBytes := len(payload)
 	var escaped bytes.Buffer
 	json.HTMLEscape(&escaped, payload)
@@ -213,7 +198,6 @@ func (d *NoticeDelivery) Write(payload []byte) (int, error) {
 	return consumedBytes, nil
 }
 
-// beforeEvent emits notices due before a pending SSE record. Callers hold d.mu.
 func (d *NoticeDelivery) beforeEvent(event []byte) (bool, error) {
 	providerContent := noticeProviderContent(d.capabilities.Format, event)
 	if providerContent && !d.providerContentStarted && !d.terminal {
@@ -222,8 +206,6 @@ func (d *NoticeDelivery) beforeEvent(event []byte) (bool, error) {
 	return providerContent, d.failure
 }
 
-// afterEvent records a written SSE record and emits notices due after it.
-// Callers hold d.mu.
 func (d *NoticeDelivery) afterEvent(event []byte, consumed int, providerContent bool) error {
 	if providerContent {
 		d.providerContentStarted = true
@@ -247,8 +229,6 @@ func (d *NoticeDelivery) afterEvent(event []byte, consumed int, providerContent 
 	return nil
 }
 
-// emitDeferredOnCommit shows a deferred marker once its attempt has committed,
-// even when that attempt then fails before any provider content.
 func (d *NoticeDelivery) emitDeferredOnCommit() error {
 	if d.deferred.Text == "" || d.terminal || !d.sink.Committed() {
 		return nil
@@ -258,8 +238,6 @@ func (d *NoticeDelivery) emitDeferredOnCommit() error {
 	return d.emitOnce(deferred)
 }
 
-// ResetAttempt drops an abandoned partial record, retaining client-visible
-// lifecycle and notice identities across pre-provider-commit retries.
 func (d *NoticeDelivery) ResetAttempt(retainNotices bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()

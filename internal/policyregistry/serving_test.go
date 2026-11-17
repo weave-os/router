@@ -1070,3 +1070,20 @@ func TestConcurrentServingActivationsHaveOneCASWinner(t *testing.T) {
 	assert.Equal(t, 1, conflicts)
 	assert.Equal(t, int64(1), store.states[policyregistry.TargetStable].State.Sequence)
 }
+
+func TestRepeatedWithdrawalKeepsOriginalWithdrawalMetadata(t *testing.T) {
+	first, _ := activateFixture(t, policyregistry.ServingStateSnapshot{}, fixtureSet("one"), servingEpoch)
+	firstID := first.State.CurrentActivationID
+	second, _ := activateFixture(t, first, fixtureSet("two"), servingEpoch.Add(time.Minute), firstID)
+	secondID := second.State.CurrentActivationID
+	third, _ := activateFixture(t, second, fixtureSet("three"), servingEpoch.Add(2*time.Minute), firstID)
+	withdrawn := third.State.Activations[firstID]
+	require.NotNil(t, withdrawn.WithdrawnAt)
+	assert.Equal(t, servingEpoch.Add(time.Minute), *withdrawn.WithdrawnAt)
+	assert.Equal(t, secondID, withdrawn.ReplacementID)
+}
+
+func TestServingDrainGraceOutlastsLongestWorkerRequest(t *testing.T) {
+	const longestWorkerRequest = 600 * time.Second
+	assert.Greater(t, policyregistry.ServingDrainGrace, longestWorkerRequest)
+}
