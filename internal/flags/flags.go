@@ -278,6 +278,17 @@ func (o Overrides) Keys() (keys []Key) {
 }
 
 func ParseOverrides(raw []byte) (o Overrides, err error) {
+	o, err = DecodeOverrides(raw)
+	if err != nil {
+		return Overrides{}, err
+	}
+	if err := ValidateOverrides(o); err != nil {
+		return Overrides{}, err
+	}
+	return o, nil
+}
+
+func DecodeOverrides(raw []byte) (o Overrides, err error) {
 	if len(raw) == 0 {
 		return Overrides{}, nil
 	}
@@ -302,9 +313,6 @@ func ParseOverrides(raw []byte) (o Overrides, err error) {
 		if err != nil {
 			return Overrides{}, err
 		}
-	}
-	if err := ValidateOverrides(o); err != nil {
-		return Overrides{}, err
 	}
 	return o, nil
 }

@@ -115,3 +115,16 @@ func TestFlagOverridesHeader_AbsentHeaderKeepsStoredOverrides(t *testing.T) {
 	require.Equal(t, http.StatusOK, probe.status)
 	assert.Equal(t, map[flags.Key]bool{flags.KeyPlannerEnabled: true, flags.KeySiblingFailover: true}, probe.overrides.Bools)
 }
+
+func TestFlagOverridesHeader_CrossKeyRulesApplyToMergedOverrides(t *testing.T) {
+	installation := flagHeaderInstallation(true)
+	installation.FlagOverrides.Strings = map[flags.Key]string{flags.KeyEscalationActiveClassifier: "llm_escalation"}
+
+	probe := runFlagOverridesHeader(t, installation, false, `{"escalation_shadow_classifier":"xgb"}`)
+
+	require.Equal(t, http.StatusOK, probe.status)
+	assert.Equal(t, map[flags.Key]string{
+		flags.KeyEscalationActiveClassifier: "llm_escalation",
+		flags.KeyEscalationShadowClassifier: "xgb",
+	}, probe.overrides.Strings)
+}

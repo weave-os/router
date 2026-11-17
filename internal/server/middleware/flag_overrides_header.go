@@ -27,7 +27,7 @@ func WithFlagOverridesHeader(svc *auth.Service) gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		requested, err := flags.ParseOverrides([]byte(raw))
+		requested, err := flags.DecodeOverrides([]byte(raw))
 		if err != nil {
 			abortRefusal(c, refusal.FlagOverridesMalformed, gin.H{"message": err.Error()})
 			return
