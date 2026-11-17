@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/translate"
 
@@ -170,7 +171,7 @@ func TestBoostServingKeepsLegacyForceModelPinActive(t *testing.T) {
 	}
 	svc := &Service{pinStore: store}
 
-	pin, active, noStoredState := svc.loadPinWithStoreState(boostDefaultRoutingContext(), sessionKey, role)
+	pin, active, noStoredState := routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now).LoadWithStoreState(boostDefaultRoutingContext(), sessionKey, role)
 
 	assert.Equal(t, "claude-opus-5", pin.Model)
 	assert.True(t, active)

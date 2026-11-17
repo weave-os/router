@@ -1,6 +1,10 @@
 package proxy
 
-import "strings"
+import (
+	"strings"
+
+	"weave-os/router/internal/routingpolicy"
+)
 
 func cutSpelledEffort(name string) (head, level string, ok bool) {
 	folded := foldModelSpelling(name)
@@ -10,18 +14,8 @@ func cutSpelledEffort(name string) (head, level string, ok bool) {
 		}
 	}
 	idx := strings.LastIndexByte(folded, '-')
-	if idx <= 0 || !looksLikeEffortAlias(folded[idx+1:]) {
+	if idx <= 0 || !routingpolicy.LooksLikeEffortAlias(folded[idx+1:]) {
 		return "", "", false
 	}
 	return folded[:idx], folded[idx+1:], true
-}
-
-func looksLikeEffortAlias(tail string) bool {
-	switch strings.ToLower(strings.TrimSpace(tail)) {
-	case "fast", "low", "medium", "med", "high", "max", "xhigh",
-		"ultra", "minimal", "min":
-		return true
-	default:
-		return false
-	}
 }

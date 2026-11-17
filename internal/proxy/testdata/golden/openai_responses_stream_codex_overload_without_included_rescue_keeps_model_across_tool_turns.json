@@ -682,7 +682,7 @@
         {
           "Diagnosis": {
             "ErrorClass": "other",
-            "FailureOwner": "router"
+            "FailureOwner": "client"
           },
           "FailureReason": "transport",
           "Outcome": "failed",
