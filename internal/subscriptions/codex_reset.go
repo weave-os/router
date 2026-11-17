@@ -65,12 +65,9 @@ func CodexAutoUsageResetEnabled(ctx context.Context, subscriberID string) bool {
 	if allowed == "" {
 		return true
 	}
-	for _, candidate := range strings.Split(allowed, ",") {
-		if strings.TrimSpace(candidate) == subscriberID {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(strings.Split(allowed, ","), func(candidate string) bool {
+		return strings.TrimSpace(candidate) == subscriberID
+	})
 }
 
 func (r *Runtime) WithCodexResets(client CodexResetClient, store ResetStore) *Runtime {
