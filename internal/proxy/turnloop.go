@@ -23,6 +23,7 @@ import (
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
+
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/telemetry"
@@ -568,11 +569,7 @@ func (s *Service) runTurnLoop(
 		}
 	}()
 	log := observability.FromContext(ctx)
-	if requirements, ok := translationRequirementsFromContext(ctx); ok {
-		req.TranslationRequirements = requirements
-	} else if req.TranslationRequirements.IsZero() {
-		req.TranslationRequirements = env.TranslationRequirements(translationEndpointFor(env))
-	}
+	req = withRoutingTranslationRequirements(ctx, env, req)
 	isolatedSearch, _ := ctx.Value(codexWebSearchContextKey{}).(bool)
 	var threadSessionKey [sessionpin.SessionKeyLen]byte
 	if !isolatedSearch {

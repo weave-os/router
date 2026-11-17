@@ -3888,47 +3888,6 @@ func (s *Service) logPlannerOutcome(ctx context.Context, res turnLoopResult) {
 	)
 }
 
-func (s *Service) recordTurnUsage(ctx context.Context, res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int, outputLimitReached bool) {
-	if s.pinStore == nil || res.HardPinned || res.CallerModelPassthrough {
-		return
-	}
-	if isHMMTurn(res) {
-		s.recordHMMTurnHistory(ctx, res, servedProvider, servedModel, in, out, cacheCreation, cacheRead, outputLimitReached)
-		return
-	}
-	var zeroKey [sessionpin.SessionKeyLen]byte
-	if res.SessionKey == zeroKey {
-		return
-	}
-	if in == 0 && out == 0 && cacheCreation == 0 && cacheRead == 0 {
-		return
-	}
-	usage := sessionpin.Usage{
-		Strategy:            strategyForTurnLoopResult(res),
-		InputTokens:         in,
-		CachedReadTokens:    cacheRead,
-		CachedWriteTokens:   cacheCreation,
-		OutputTokens:        out,
-		OutputLimitReached:  outputLimitReached,
-		EndedAt:             time.Now(),
-		ServedModel:         servedModel,
-		ServedProvider:      servedProvider,
-		PriorServedModel:    res.PriorServedModel,
-		SessionEverSwitched: res.SessionEverSwitched,
-	}
-	role := res.PinRole
-	if isUserForcedReason(res.Decision.Reason) {
-		role = forceModelHistoryRole(role)
-	}
-	if role == "" {
-		role = sessionpin.DefaultRole
-	}
-	if err := s.pinStore.UpdateUsage(context.WithoutCancel(ctx), res.SessionKey, role, usage); err != nil {
-		observability.Get().Error("session pin usage writeback failed", "err", err)
-	}
-	s.recordTokenizerObservation(ctx, res, role, servedProvider, in, cacheCreation, cacheRead)
-}
-
 func isHMMTurn(res turnLoopResult) bool {
 	return isHMMDecision(res.Decision) || isHMMDecision(res.Fresh)
 }
@@ -5439,6 +5398,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				if refusalGate.withheld {
 					err = providers.CyberPolicyRefusalError()
 				}
+
 				return err
 			}
 			return func(actx context.Context, d router.Decision, p providers.Client) error {

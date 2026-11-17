@@ -97,17 +97,9 @@ func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) (quo
 	planReported := quotaStatus.PlanType != ""
 	limitReached := (quotaStatus.SpendControl != nil && quotaStatus.SpendControl.Reached) ||
 		(quotaStatus.RateLimitReachedType != nil && codexReachedTypes[quotaStatus.RateLimitReachedType.Type])
-	creditReason := codexCreditsDisabled
-	if c.allowCodexExtraCredits || requestcontext.SubscriptionExtraUsageFrom(ctx) {
-		var metadata struct {
-			Credits      json.RawMessage `json:"credits"`
-			SpendControl json.RawMessage `json:"spend_control"`
-			ReachedType  json.RawMessage `json:"rate_limit_reached_type"`
-		}
-		if err := json.Unmarshal(body, &metadata); err != nil {
-			return codexQuotaUnavailable(providers.QuotaVerificationFailureInvalidResponse, resp.StatusCode)
-		}
-		creditReason = codexCreditAdmissionReason(metadata.Credits, metadata.SpendControl, metadata.ReachedType)
+	creditReason, creditErr := codexQuotaCreditAdmission(ctx, body, c.allowCodexExtraCredits)
+	if creditErr != nil {
+		return codexQuotaUnavailable(providers.QuotaVerificationFailureInvalidResponse, resp.StatusCode)
 	}
 	allowCredits := creditReason == codexCreditsAvailable && quotaStatus.RateLimit != nil &&
 		(quotaStatus.RateLimit.Primary != nil || quotaStatus.RateLimit.Secondary != nil)
