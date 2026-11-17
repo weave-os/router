@@ -8,16 +8,11 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// BetaCommandResult describes a leading /beta directive. Invalid is true
-// when the command has arguments or trailing prompt text; /beta intentionally
-// has one toggle-only form.
 type BetaCommandResult struct {
 	Invalid  bool
 	Strategy router.Strategy
 }
 
-// ExtractBetaCommand scans the final user message for a leading /beta
-// directive and strips it so the command is never forwarded upstream.
 func (e *RequestEnvelope) ExtractBetaCommand() (BetaCommandResult, bool) {
 	var result BetaCommandResult
 	found := e.extractLeadingCommand(func(text string) (bool, string) {
@@ -30,9 +25,6 @@ func (e *RequestEnvelope) ExtractBetaCommand() (BetaCommandResult, bool) {
 	return result, found
 }
 
-// StripBetaArtifacts removes prior command-only /beta turns and the router's
-// synthetic acknowledgements from model-visible history. The trailing user
-// command is preserved so ExtractBetaCommand can still toggle the session.
 func (e *RequestEnvelope) StripBetaArtifacts() int {
 	switch e.format {
 	case FormatAnthropic, FormatOpenAI:

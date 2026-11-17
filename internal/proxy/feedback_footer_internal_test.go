@@ -2,12 +2,15 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type footerFakeStore struct{}
@@ -95,4 +98,13 @@ func TestFeedbackFooter_TurnTypeGating(t *testing.T) {
 			assert.Empty(t, withStore.feedbackFooter(context.Background(), ClientAppClaudeCode, tt, false), "expected no footer for %q — hint would strand under output the user never initiated", tt)
 		}
 	})
+}
+
+func TestFeedbackFooter_TextIsRecognisedOnIngress(t *testing.T) {
+	for _, footer := range []string{feedbackFooterText, feedbackFooterTextCodex} {
+		text, err := json.Marshal("answer" + footer)
+		require.NoError(t, err)
+		body := []byte(`{"messages":[{"role":"assistant","content":` + string(text) + `}]}`)
+		assert.True(t, translate.FeedbackFooterInHistory(body), "ingress stripping must recognise %q", footer)
+	}
 }

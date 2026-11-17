@@ -21,6 +21,11 @@ const (
 	RefusedSpendCapReached
 	RefusedSubscriptionPoolExhausted
 	RefusedSubscriptionUnavailableForTurn
+	RefusedSubscriptionPoolUnavailable
+	RefusedSubscriptionPoolThrottled
+	RefusedProductIneligible
+	RefusedSubscriptionClientApp
+	RefusedClaudeEnterpriseOnly
 	stateCount
 )
 
@@ -44,6 +49,12 @@ const (
 	OrganizationCreditsServed
 	SubscriptionUnservable
 	SubscriptionPoolExhausted
+	SubscriptionPoolUnavailable
+	SubscriptionPoolThrottled
+	CallerPlanThrottled
+	ModelOutsidePlan
+	ClientAppRefused
+	ClaudeEnterpriseUnservable
 	eventCount
 )
 
@@ -78,6 +89,11 @@ var states = [stateCount]stateSpec{
 	RefusedSpendCapReached:                {name: "RefusedSpendCapReached", outcome: Refused, refusal: refusal.SpendCapReached},
 	RefusedSubscriptionPoolExhausted:      {name: "RefusedSubscriptionPoolExhausted", outcome: Refused, refusal: refusal.SubscriptionPoolExhausted},
 	RefusedSubscriptionUnavailableForTurn: {name: "RefusedSubscriptionUnavailableForTurn", outcome: Refused, refusal: refusal.SubscriptionUnavailableForTurn},
+	RefusedSubscriptionPoolUnavailable:    {name: "RefusedSubscriptionPoolUnavailable", outcome: Refused, refusal: refusal.SubscriptionPoolUnavailable},
+	RefusedSubscriptionPoolThrottled:      {name: "RefusedSubscriptionPoolThrottled", outcome: Refused, refusal: refusal.SubscriptionPoolThrottled},
+	RefusedProductIneligible:              {name: "RefusedProductIneligible", outcome: Refused, refusal: refusal.ProductIneligible},
+	RefusedSubscriptionClientApp:          {name: "RefusedSubscriptionClientApp", outcome: Refused, refusal: refusal.SubscriptionClientAppRefused},
+	RefusedClaudeEnterpriseOnly:           {name: "RefusedClaudeEnterpriseOnly", outcome: Refused, refusal: refusal.ClaudeEnterpriseOnly},
 }
 
 var eventNames = [eventCount]string{
@@ -98,6 +114,12 @@ var eventNames = [eventCount]string{
 	OrganizationCreditsServed:   "OrganizationCreditsServed",
 	SubscriptionUnservable:      "SubscriptionUnservable",
 	SubscriptionPoolExhausted:   "SubscriptionPoolExhausted",
+	SubscriptionPoolUnavailable: "SubscriptionPoolUnavailable",
+	SubscriptionPoolThrottled:   "SubscriptionPoolThrottled",
+	CallerPlanThrottled:         "CallerPlanThrottled",
+	ModelOutsidePlan:            "ModelOutsidePlan",
+	ClientAppRefused:            "ClientAppRefused",
+	ClaudeEnterpriseUnservable:  "ClaudeEnterpriseUnservable",
 }
 
 func (s State) String() string { return states[s].name }

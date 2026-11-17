@@ -12,10 +12,6 @@ const (
 
 var codexSkillMention = regexp.MustCompile(`^\[\$([a-z][a-z0-9-]*)\]\([^)]*/skills/([a-z][a-z0-9-]*)/SKILL\.md\)`)
 
-// typedMessageInWrapper returns the message the user typed, split from the text
-// a client wrapped around it: Cursor's <user_query>, or the header Codex
-// prepends when the user pastes a file ("# Files pasted by the user: … ## My
-// request: <typed>"). A Codex-encoded directive is decoded to its plain form.
 func typedMessageInWrapper(text string) (before, query, after string, ok bool) {
 	before, query, after, ok = clientWrappedMessage(text)
 	if !ok {
@@ -42,9 +38,6 @@ func clientWrappedMessage(text string) (before, query, after string, ok bool) {
 	return text[:start], text[start:], "", true
 }
 
-// codexTypedDirective decodes how the Codex app writes a typed directive: a
-// picked skill becomes a link to its SKILL.md ("[$fm](…/skills/fm/SKILL.md)
-// astra"), and a directive the user quoted keeps its code span.
 func codexTypedDirective(text string) (string, bool) {
 	trimmed := strings.TrimSpace(text)
 	if inner, ok := strings.CutPrefix(trimmed, "`"); ok {

@@ -264,6 +264,15 @@ func TestWithBalanceCheck_BlocksAtZeroWhenThresholdIsZero(t *testing.T) {
 	assert.Equal(t, http.StatusPaymentRequired, w.Code)
 }
 
+func TestWithBalanceCheck_ProductionThresholdBlocksAtZeroAndAdmitsOneMicro(t *testing.T) {
+	w, reached := runMiddleware(t, &stubBillingRepo{balance: 0}, billing.MinBalanceMicros)
+	assert.False(t, reached, "a zero balance must be refused at the production threshold")
+	assert.Equal(t, http.StatusPaymentRequired, w.Code)
+
+	_, reached = runMiddleware(t, &stubBillingRepo{balance: 1}, billing.MinBalanceMicros)
+	assert.True(t, reached, "a one-micro balance must pass the production threshold")
+}
+
 func TestWithBalanceCheck_SkipsWhenInstallationMissing(t *testing.T) {
 	// Synthetic / unauthed request — should never happen because WithAuth
 	// runs first, but the middleware must not panic. Pass-through.
