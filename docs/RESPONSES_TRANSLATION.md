@@ -78,6 +78,10 @@ stream, or in passthrough mode forwards a native Responses upstream.
   items in `output_index` order; a populated one is left alone.
 - Synthesized native events continue after the highest upstream
   `sequence_number`, even when held footer events are written out of order.
+- A Chat tool-call id becomes the `call_id` with its base clamped to 64
+  characters and any Gemini thought-signature carrier kept, so the client
+  echoes the signature back and the next turn can still be served by Gemini
+  3.x. The carrier can make the `call_id` much longer than 64 characters.
 - `translate.ClampResponsesInputCallIDs` deterministically shortens `call_id`s
   minted cross-format (they carry a Gemini thought signature) to OpenAI's
   64-character limit, so a call and its output keep matching.

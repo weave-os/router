@@ -26,3 +26,8 @@ func extractSignatureFromID(id string) (cleanID, signature string) {
 	}
 	return id[:i], string(decoded)
 }
+
+func clampResponsesCallID(id string) string {
+	_, sig := extractSignatureFromID(id)
+	return embedSignatureInID(clampOpenAIToolCallID(id), sig)
+}
