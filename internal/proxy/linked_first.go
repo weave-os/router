@@ -5,7 +5,6 @@ import (
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptionlane"
 )
