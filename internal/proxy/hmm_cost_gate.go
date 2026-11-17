@@ -105,17 +105,12 @@ func hmmToolExecutionPhaseChanged(stayReason, freshReason string) bool {
 	return isHMMToolExecutionReason(stayReason) != isHMMToolExecutionReason(freshReason)
 }
 
-func hmmStayPinServedModel(p sessionpin.Pin) (model, effort string) {
+func (s *Service) normalizeHMMStayPin(req router.Request, p sessionpin.Pin) (sessionpin.Pin, bool) {
 	served := p.LastServedModel
 	if served == "" {
 		served = p.Model
 	}
-	effort, model = stripEffortSuffix(served)
-	return model, effort
-}
-
-func (s *Service) normalizeHMMStayPin(req router.Request, p sessionpin.Pin) (sessionpin.Pin, bool) {
-	model, effort := hmmStayPinServedModel(p)
+	effort, model := stripEffortSuffix(served)
 	if model == "" {
 		return sessionpin.Pin{}, false
 	}
@@ -128,10 +123,8 @@ func (s *Service) normalizeHMMStayPin(req router.Request, p sessionpin.Pin) (ses
 	if maxedOutServedModel(p) != "" {
 		return sessionpin.Pin{}, false
 	}
-	if req.ExcludedModels != nil {
-		if _, excluded := req.ExcludedModels[model]; excluded {
-			return sessionpin.Pin{}, false
-		}
+	if _, excluded := req.ExcludedModels[model]; excluded {
+		return sessionpin.Pin{}, false
 	}
 	if automaticallyDisabled(req, model) {
 		return sessionpin.Pin{}, false
@@ -192,6 +185,5 @@ func hmmEffectiveInputUSDPer1M(model string, inputTokens int) (float64, bool) {
 		return 0, false
 	}
 	price = price.ForInputTokens(inputTokens)
-	value := price.InputUSDPer1M
-	return value, true
+	return price.InputUSDPer1M, true
 }
