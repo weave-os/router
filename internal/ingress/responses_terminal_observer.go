@@ -17,23 +17,16 @@ const (
 )
 
 type ResponsesTerminalObserver struct {
-	inner            http.ResponseWriter
-	buf              bytes.Buffer
-	framing          sse.Scanner
-	signals          translate.ResponsesTerminalSignals
-	observed         bool
-	state            StreamTerminalState
-	requireCompleted bool
-	completed        bool
-	failed           bool
+	inner    http.ResponseWriter
+	buf      bytes.Buffer
+	framing  sse.Scanner
+	signals  translate.ResponsesTerminalSignals
+	observed bool
+	state    StreamTerminalState
 }
 
-func NewResponsesTerminalObserver(inner http.ResponseWriter, requireCompleted ...bool) *ResponsesTerminalObserver {
-	observer := &ResponsesTerminalObserver{inner: inner}
-	if len(requireCompleted) > 0 {
-		observer.requireCompleted = requireCompleted[0]
-	}
-	return observer
+func NewResponsesTerminalObserver(inner http.ResponseWriter) *ResponsesTerminalObserver {
+	return &ResponsesTerminalObserver{inner: inner}
 }
 
 func (o *ResponsesTerminalObserver) Header() http.Header { return o.inner.Header() }
@@ -98,18 +91,6 @@ func (o *ResponsesTerminalObserver) observeEvent(event []byte) {
 	if kind == "" {
 		kind = string(eventType)
 	}
-	if kind == responsesFailedEvent || kind == responsesIncompleteEvent || kind == StreamErrorEvent || kind == "response.refusal.delta" || kind == "response.refusal.done" {
-		o.failed = true
-	}
-	if kind == responsesCompletedEvent {
-		response := gjson.GetBytes(payload, "response")
-		o.completed = response.Get("status").String() == "completed" && response.Get("error").Type == gjson.Null
-		for _, output := range response.Get("output").Array() {
-			for _, content := range output.Get("content").Array() {
-				o.failed = o.failed || content.Get("type").String() == "refusal"
-			}
-		}
-	}
 	switch kind {
 	case "":
 	case responsesCompletedEvent, responsesIncompleteEvent, responsesFailedEvent, StreamErrorEvent:
@@ -128,12 +109,7 @@ func (o *ResponsesTerminalObserver) Observed() bool { return o.observed }
 
 func (o *ResponsesTerminalObserver) Signals() translate.ResponsesTerminalSignals { return o.signals }
 
-func (o *ResponsesTerminalObserver) Err() error {
-	if o.requireCompleted && (!o.completed || o.failed) {
-		return translate.ErrStreamIncomplete
-	}
-	return o.state.Err()
-}
+func (o *ResponsesTerminalObserver) Err() error { return o.state.Err() }
 
 var (
 	_ http.ResponseWriter = (*ResponsesTerminalObserver)(nil)

@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/gitcontext"
+	"weave-os/router/internal/router/turntype"
 )
 
 type InstallationIDContextKey struct{}
@@ -567,9 +569,6 @@ type attemptSink struct {
 }
 
 func (s attemptSink) RecordAttempt(ctx context.Context, event inference.AttemptEvent) {
-	if randomBenchmarkFrom(ctx) != nil {
-		return
-	}
 	if s.store == nil {
 		return
 	}
@@ -595,3 +594,34 @@ func NewAttemptSink(store InferenceAttemptStore, logger *slog.Logger) dispatch.A
 const DecisionReasonPolicyPinUnservable = router.PolicyPinUnavailableReason
 
 const DecisionReasonRoutingFailed = "routing_failed"
+
+func (s *Service) recordPolicyPinRouteFailure(ctx context.Context, requestID string, requestStart time.Time, requestedModel string, turnType turntype.TurnType, userPrompt bool, routeErr error) {
+	if _, honoured := router.HonouredPolicyPin(ctx); !honoured {
+		return
+	}
+	installationID := installationIDFromContext(ctx)
+	if installationID == uuid.Nil {
+		return
+	}
+	params := InsertTelemetryParams{
+		InstallationID: installationID.String(),
+		APIKeyID:       apiKeyIDFromContext(ctx),
+		RequestID:      requestID,
+		SpanType:       "router.upstream",
+		TraceID:        requestID,
+		Timestamp:      requestStart,
+		RequestedModel: requestedModel,
+		TurnType:       string(turnType),
+		DecisionReason: DecisionReasonPolicyPinUnservable,
+		ErrorClass:     TurnErrorRoutingRefused,
+		UserPrompt:     &userPrompt,
+		Strategy:       string(router.StrategyFromContext(ctx)),
+		RouterUserID:   auth.UserIDFrom(ctx),
+	}
+	if !errors.Is(routeErr, router.ErrPolicyPinUnavailable) {
+		params.DecisionReason = DecisionReasonRoutingFailed
+	}
+	applyBlindExperimentTelemetry(ctx, &params, nil)
+	applyPolicyPinTelemetry(ctx, &params, nil)
+	s.fireTelemetry(ctx, params)
+}

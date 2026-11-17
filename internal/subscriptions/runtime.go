@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -148,8 +149,21 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 	if sessionID != "" {
 		preferred, _ = r.affinity.Get(affinityKey)
 	}
-	eligible, present := eligibleSubscriptionAccounts(ctx, requester, provider, accounts, r.clock())
-
+	present := false
+	eligible := make([]*auth.SubscriptionAccount, 0, len(accounts))
+	for _, candidate := range accounts {
+		if candidate.SubscriberID == "" || Provider(candidate.Provider) != provider || slices.Contains(requester.ExcludedAccountIDs, candidate.ID) {
+			continue
+		}
+		present = true
+		var cooldown time.Time
+		if candidate.CooldownUntil != nil {
+			cooldown = *candidate.CooldownUntil
+		}
+		if candidate.Enabled && subscriptionAccountEligible(ctx, provider, candidate.State, cooldown, r.clock()) {
+			eligible = append(eligible, candidate)
+		}
+	}
 	for len(eligible) > 0 {
 		if err := ctx.Err(); err != nil {
 			return Lease{}, present, err

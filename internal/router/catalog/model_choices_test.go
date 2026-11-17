@@ -10,7 +10,7 @@ import (
 
 func TestModelChoicesDescribeRoutersWithoutAddingDispatchModels(t *testing.T) {
 	choices := ModelChoices()
-	require.Len(t, choices, len(Listing())+6)
+	require.Len(t, choices, len(Listing())+5)
 	seen := make(map[string]bool)
 	for _, choice := range choices {
 		require.NotEmpty(t, choice.Description)

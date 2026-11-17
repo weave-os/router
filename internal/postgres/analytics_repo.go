@@ -46,7 +46,7 @@ func (r *AnalyticsRepo) GetRoutingDecisions(ctx context.Context, q analytics.Que
 }
 
 func decisionFromExportRow(row sqlc.GetRoutingDecisionsForExportRow) analytics.Decision {
-	return enrichRandomBenchmarkDecision(row, analytics.Decision{
+	return analytics.Decision{
 		ID:              row.ID.String(),
 		RecordedAt:      row.CreatedAt.Time,
 		RequestedAt:     row.Timestamp.Time,
@@ -149,7 +149,7 @@ func decisionFromExportRow(row sqlc.GetRoutingDecisionsForExportRow) analytics.D
 		ClientGitHeadSHA: row.ClientGitHeadSha,
 		ClientGitBranch:  row.ClientGitBranch,
 		ClientGitDirty:   row.ClientGitDirty,
-	})
+	}
 }
 
 func blindExperimentArmPtr(value *string) *auth.BlindExperimentArm {

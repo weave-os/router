@@ -108,14 +108,9 @@ type Decision struct {
 	SelectionPolicyReleaseID *string `json:"selection_policy_release_id"`
 	SelectionPolicySHA256    *string `json:"selection_policy_sha256"`
 
-	ClientGitHeadSHA       *string  `json:"client_git_head_sha"`
-	ClientGitBranch        *string  `json:"client_git_branch"`
-	ClientGitDirty         *bool    `json:"client_git_dirty"`
-	APIKeyID               *string  `json:"api_key_id"`
-	Propensity             *float64 `json:"propensity"`
-	PlannerOutcome         *string  `json:"planner_outcome"`
-	InferenceAttemptCount  *int64   `json:"inference_attempt_count"`
-	InferenceAttemptModels []string `json:"inference_attempt_models"`
+	ClientGitHeadSHA *string `json:"client_git_head_sha"`
+	ClientGitBranch  *string `json:"client_git_branch"`
+	ClientGitDirty   *bool   `json:"client_git_dirty"`
 }
 
 type Query struct {
