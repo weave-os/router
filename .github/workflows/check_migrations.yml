@@ -46,6 +46,26 @@ jobs:
             exit 1
           fi
 
+      - name: Check existing migrations are not deleted or renamed
+        run: |
+          set -o pipefail
+          BASE_DUPLICATE_NUMBERS=$(git ls-tree --name-only "origin/${BASE_REF}" db/migrations/ | grep -E '\.sql$' | sed -E 's|.*/||; s/\.(up|down)\.sql$//' | sort -u | cut -d_ -f1 | sort | uniq -d)
+          REMOVED_MIGRATIONS=$(git diff --no-renames --diff-filter=D --name-only "origin/${BASE_REF}...HEAD" -- 'db/migrations/*.sql' | sort)
+          FAILED=false
+          for file in $REMOVED_MIGRATIONS; do
+            NUMBER=$(basename "$file" | grep -oE '^[0-9]+' || true)
+            if [ -n "$NUMBER" ] && printf '%s\n' "$BASE_DUPLICATE_NUMBERS" | grep -qx "$NUMBER"; then
+              echo "Allowing $file to move: ${BASE_REF} has a duplicate ${NUMBER}"
+              continue
+            fi
+            VERSION=$((10#${NUMBER:-0}))
+            echo "::error file=${file}::${file} exists on ${BASE_REF}, so deployed databases may already record version ${VERSION}; deleting or renaming it makes migrate fail with 'no migration found for version ${VERSION}'. Restore the file and undo its schema change in a new migration."
+            FAILED=true
+          done
+          if [ "$FAILED" = true ]; then
+            exit 1
+          fi
+
       - name: Check migration sequence numbers are unique
         run: |
           PREFIXES=$(printf '%s\n' db/migrations/*.sql | sed -E 's|.*/||; s/\.(up|down)\.sql$//' | sort -u)
