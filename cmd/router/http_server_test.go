@@ -186,7 +186,11 @@ func TestHTTPServerH2CShutdownDrainsInFlightStream(t *testing.T) {
 		defer cancel()
 		shutdownDone <- srv.Shutdown(ctx)
 	}()
-	time.Sleep(50 * time.Millisecond)
+	select {
+	case err := <-shutdownDone:
+		t.Fatalf("Shutdown returned %v before the in-flight stream finished", err)
+	case <-time.After(100 * time.Millisecond):
+	}
 	close(release)
 	got := <-results
 	require.NoError(t, got.err)
