@@ -226,7 +226,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 			break
 		}
 	}
-	if err := includedLaneVerdict(ctx); err != nil {
+	if err := includedLaneVerdict(s.sessionHolds.withUnservedHoldsReleased(ctx)); err != nil {
 		return -1, flushIncludedLaneVerdict(in, err)
 	}
 	if ctx.Err() != nil {
