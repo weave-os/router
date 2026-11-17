@@ -5260,9 +5260,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		switch providers.FamilyFor(target.Provider) {
 		case providers.FamilyOpenAICompat:
 			dispatchOpenAI := func(actx context.Context, d router.Decision, p providers.Client, surface openAISurface, stripPromptCacheKey bool) error {
-				if rw, ok := w.(*translate.ResponsesWriter); ok {
-					rw.ResetAttempt()
-				}
+				resetResponsesAttempt(w)
 				var prep providers.PreparedRequest
 				switch surface {
 				case surfaceResponsesNative:
@@ -5487,6 +5485,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				return nil, fmt.Errorf("translate openai request to gemini: %w", emitErr)
 			}
 			dispatchGemini := func(actx context.Context, d router.Decision, p providers.Client, pr providers.PreparedRequest) (func(error) error, error) {
+				resetResponsesAttempt(w)
 				var usage translate.UsageSink
 				if s.usageRequired() {
 					extractor = telemetry.NewUsageExtractor(d.Provider)
@@ -5526,6 +5525,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				return nil, fmt.Errorf("translate openai request: %w", emitErr)
 			}
 			dispatchAnthropic := func(actx context.Context, d router.Decision, p providers.Client, attemptPrep providers.PreparedRequest, fast bool) (func(error) error, error) {
+				resetResponsesAttempt(w)
 				fastServed = fast
 				var usage translate.UsageSink
 				if s.usageRequired() {
@@ -5973,19 +5973,12 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		ctx = context.WithValue(ctx, responsesFooterEchoedContextKey{}, true)
 	}
 	ctx = withSubscriptionOnlyWarningEcho(ctx, body)
-	nativeBody := body
-	conversionBody := body
-	var err error
+	nativeBody, conversionBody, err := responsesDispatchBodies(body, terminalResponses)
+	if err != nil {
+		return err
+	}
 	if terminalResponses {
 		ctx = context.WithValue(ctx, responsesLastAnnouncedModelContextKey{}, translate.LastAnnouncedResponsesModel(body))
-		nativeBody, err = stripResponsesTerminalArtifacts(body)
-		if err != nil {
-			return err
-		}
-		conversionBody, err = stripResponsesVisualArtifacts(body)
-		if err != nil {
-			return err
-		}
 	} else {
 		ctx = context.WithValue(ctx, responsesReplayedModelContextKey{}, translate.LastReplayedResponsesModel(body))
 	}

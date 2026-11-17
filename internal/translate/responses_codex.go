@@ -461,41 +461,6 @@ func (c *portableCodexResponsesConverter) convertInput(input gjson.Result) []map
 	return messages
 }
 
-func (c *portableCodexResponsesConverter) convertReasoning(item gjson.Result, path string) {
-	summary := item.Get("summary")
-	if summary.Exists() && !summary.IsArray() {
-		c.result.Requirements.ReasoningReplay = true
-		c.markNativeOnly("responses_reasoning_summary_native_only", path+".summary")
-		return
-	}
-	content := item.Get("content")
-	if content.Type != gjson.Null && (!content.IsArray() || len(content.Array()) > 0) {
-		c.result.Requirements.ReasoningReplay = true
-		c.markNativeOnly("responses_reasoning_content_native_only", path+".content")
-		return
-	}
-	unknown := false
-	item.ForEach(func(key, _ gjson.Result) bool {
-		switch key.Str {
-		case "type", "id", "summary", "content", "encrypted_content", "status", "internal_chat_message_metadata_passthrough":
-		default:
-			unknown = true
-		}
-		return true
-	})
-	if unknown {
-		c.result.Requirements.ReasoningReplay = true
-		c.markNativeOnly("responses_reasoning_unknown_native_only", path)
-		return
-	}
-	if encrypted := item.Get("encrypted_content"); encrypted.Type != gjson.String || encrypted.Str == "" {
-		c.result.Requirements.ReasoningReplay = true
-		c.markNativeOnly("responses_reasoning_replay_native_only", path)
-		return
-	}
-	c.report("responses_encrypted_reasoning_dropped", "dropped", path)
-}
-
 func (c *portableCodexResponsesConverter) convertMessage(item gjson.Result, path string) (map[string]any, bool) {
 	role := item.Get("role").Str
 	if role == "" {
