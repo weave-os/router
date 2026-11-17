@@ -10,28 +10,66 @@ import (
 	"weave-os/router/internal/subscriptions"
 )
 
-var errLinkedSeatsUnusable = errors.New("every linked subscription account is disabled, disconnected or spent")
+var (
+	errLinkedSeatsUnusable  = errors.New("every linked subscription account is disabled, disconnected or spent")
+	errLinkedSeatsThrottled = errors.New("every usable linked subscription account is in a provider rate-limit cooldown")
+)
 
-func linkedSeatsUnusable(ctx context.Context, pool subscriptions.Provider, now time.Time) bool {
+const longestProviderThrottleCooldown = 24 * time.Hour
+
+type linkedSeatAvailability int
+
+const (
+	linkedSeatUsable linkedSeatAvailability = iota
+	linkedSeatThrottled
+	linkedSeatUnusable
+)
+
+func linkedSeatAvailabilityOf(ctx context.Context, pool subscriptions.Provider, candidate managedSubscriptionCandidate, now time.Time) linkedSeatAvailability {
+	resetPending := candidate.resetAt.IsZero() || candidate.resetAt.After(now)
+	switch {
+	case !candidate.enabled || candidate.state == auth.SubscriptionAccountStateDisabled || candidate.state == auth.SubscriptionAccountStateReconnectRequired:
+		return linkedSeatUnusable
+	case candidate.state == auth.SubscriptionAccountStateExhausted && pool == subscriptions.ProviderClaude && requestcontext.SubscriptionExtraUsageFrom(ctx):
+		return linkedSeatUsable
+	case candidate.state == auth.SubscriptionAccountStateExhausted && resetPending:
+		return linkedSeatUnusable
+	case candidate.state == auth.SubscriptionAccountStateCooldown && resetPending && !candidate.credentialRejected && !candidate.resetAt.IsZero() && !candidate.resetAt.After(now.Add(longestProviderThrottleCooldown)):
+		return linkedSeatThrottled
+	case candidate.state == auth.SubscriptionAccountStateCooldown && resetPending:
+		return linkedSeatUnusable
+	}
+	return linkedSeatUsable
+}
+
+func linkedSeatsAvailability(ctx context.Context, pool subscriptions.Provider, now time.Time) linkedSeatAvailability {
 	candidates, _ := ctx.Value(managedSubscriptionCandidatesKey{}).([]managedSubscriptionCandidate)
-	linked := 0
+	availability := linkedSeatUsable
 	for _, candidate := range candidates {
 		if candidate.provider != auth.SubscriptionProvider(pool) {
 			continue
 		}
-		linked++
-		overageServes := pool == subscriptions.ProviderClaude && candidate.state == auth.SubscriptionAccountStateExhausted && requestcontext.SubscriptionExtraUsageFrom(ctx)
-		spent := (candidate.state == auth.SubscriptionAccountStateCooldown || candidate.state == auth.SubscriptionAccountStateExhausted) && candidate.resetAt.After(now) && !overageServes
-		if candidate.enabled && candidate.state != auth.SubscriptionAccountStateDisabled && candidate.state != auth.SubscriptionAccountStateReconnectRequired && !spent {
-			return false
+		switch linkedSeatAvailabilityOf(ctx, pool, candidate, now) {
+		case linkedSeatUsable:
+			return linkedSeatUsable
+		case linkedSeatThrottled:
+			availability = linkedSeatThrottled
+		case linkedSeatUnusable:
+			if availability == linkedSeatUsable {
+				availability = linkedSeatUnusable
+			}
 		}
 	}
-	return linked > 0
+	return availability
 }
 
 func linkedPoolExhausted(ctx context.Context, pool subscriptions.Provider, now time.Time) error {
-	if linkedSeatsUnusable(ctx, pool, now) {
+	switch linkedSeatsAvailability(ctx, pool, now) {
+	case linkedSeatThrottled:
+		return errors.Join(subscriptionPoolExhausted(ctx), errLinkedSeatsThrottled)
+	case linkedSeatUnusable:
 		return errors.Join(subscriptionPoolExhausted(ctx), errLinkedSeatsUnusable)
+	case linkedSeatUsable:
 	}
 	return subscriptionPoolExhausted(ctx)
 }

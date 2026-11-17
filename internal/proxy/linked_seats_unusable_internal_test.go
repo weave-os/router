@@ -15,7 +15,8 @@ import (
 
 func TestPoolExhaustionOwnerFollowsLinkedSeatState(t *testing.T) {
 	now := time.Unix(1_000_000, 0)
-	spentUntil := now.Add(24 * time.Hour)
+	spentUntil := now.Add(30 * 24 * time.Hour)
+	throttledUntil := now.Add(time.Minute)
 	for _, scenario := range []struct {
 		name    string
 		overage bool
@@ -31,6 +32,13 @@ func TestPoolExhaustionOwnerFollowsLinkedSeatState(t *testing.T) {
 			{ID: "healthy", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive},
 			{ID: "disabled", Provider: auth.SubscriptionProviderClaude, Enabled: false, State: auth.SubscriptionAccountStateDisabled},
 		}, owner: FailureOwnerRouter},
+		{name: "an exhausted seat with no recorded reset", seats: []*auth.SubscriptionAccount{
+			{ID: "exhausted", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateExhausted},
+		}, owner: FailureOwnerClient},
+		{name: "a seat in a short provider rate-limit cooldown", seats: []*auth.SubscriptionAccount{
+			{ID: "throttled", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateCooldown, CooldownUntil: &throttledUntil},
+			{ID: "disabled", Provider: auth.SubscriptionProviderClaude, Enabled: false, State: auth.SubscriptionAccountStateDisabled},
+		}, owner: FailureOwnerProvider},
 		{name: "an exhausted seat that extra usage still lets serve", overage: true, seats: []*auth.SubscriptionAccount{
 			{ID: "overage", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &spentUntil},
 		}, owner: FailureOwnerRouter},
