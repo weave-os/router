@@ -62,11 +62,11 @@ func TestNormalizeHMMStayPin_HighOutputIsNotExhaustion(t *testing.T) {
 		providers.ProviderAnthropic, outputLimitFirstModel, nil)
 	pin := sessionpin.Pin{Provider: providers.ProviderAnthropic, LastServedModel: outputLimitFirstModel,
 		LastOutputTokens: 32000, LastTurnEndedAt: time.Now().Add(-time.Second), PinnedUntil: time.Now().Add(time.Hour)}
-	got, ok := svc.normalizeHMMStayPin(router.Request{}, pin)
+	got, ok := hmmCostGateFor(svc).NormalizeStayPin(router.Request{}, pin, svc.clock.Now())
 	require.True(t, ok)
 	assert.Equal(t, outputLimitFirstModel, got.Model)
 	pin.LastOutputLimitAt = pin.LastTurnEndedAt
-	_, ok = svc.normalizeHMMStayPin(router.Request{}, pin)
+	_, ok = hmmCostGateFor(svc).NormalizeStayPin(router.Request{}, pin, svc.clock.Now())
 	assert.False(t, ok)
 }
 

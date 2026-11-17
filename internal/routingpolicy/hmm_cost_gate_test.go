@@ -28,19 +28,21 @@ func hmmGate() routingpolicy.HMMCostGate {
 	}
 }
 
+var gateNow = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+
 func hmmPin(reason string, endedAgo time.Duration) sessionpin.Pin {
 	return sessionpin.Pin{
 		Provider:        providers.ProviderAnthropic,
 		Model:           stayModel,
 		Reason:          reason,
-		LastTurnEndedAt: time.Now().Add(-endedAgo),
-		PinnedUntil:     time.Now().Add(time.Hour),
+		LastTurnEndedAt: gateNow.Add(-endedAgo),
+		PinnedUntil:     gateNow.Add(time.Hour),
 	}
 }
 
 func TestHMMCostGateDecideWithoutStayPinSwitches(t *testing.T) {
 	fresh := router.Decision{Provider: providers.ProviderAnthropic, Model: otherModel}
-	stay, plan, sticky := hmmGate().Decide(router.Request{}, sessionpin.Pin{}, sessionpin.Pin{}, fresh, 1000, false)
+	stay, plan, sticky := hmmGate().Decide(routingpolicy.HMMCostGateInput{Fresh: fresh, EstimatedInputTokens: 1000, Now: gateNow})
 	assert.False(t, sticky)
 	assert.Empty(t, stay.Model)
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
@@ -48,10 +50,10 @@ func TestHMMCostGateDecideWithoutStayPinSwitches(t *testing.T) {
 }
 
 func TestHMMCostGateStayPinIgnoresNonHMMActivePin(t *testing.T) {
-	_, ok := hmmGate().StayPin(router.Request{}, hmmPin("cluster_scorer", time.Minute), sessionpin.Pin{})
+	_, ok := hmmGate().StayPin(router.Request{}, hmmPin("cluster_scorer", time.Minute), sessionpin.Pin{}, gateNow)
 	assert.False(t, ok, "active pin not written by HMM")
 
-	got, ok := hmmGate().StayPin(router.Request{}, hmmPin("hmm_policy", time.Minute), sessionpin.Pin{})
+	got, ok := hmmGate().StayPin(router.Request{}, hmmPin("hmm_policy", time.Minute), sessionpin.Pin{}, gateNow)
 	require.True(t, ok)
 	assert.Equal(t, stayModel, got.Model)
 }
@@ -60,7 +62,7 @@ func TestHMMCostGateStayPinPrefersMostRecentTurn(t *testing.T) {
 	older := hmmPin("hmm_policy", time.Hour)
 	newer := hmmPin(routingpolicy.HMMHistoryReason, time.Minute)
 	newer.Model = otherModel
-	got, ok := hmmGate().StayPin(router.Request{}, older, newer)
+	got, ok := hmmGate().StayPin(router.Request{}, older, newer, gateNow)
 	require.True(t, ok)
 	assert.Equal(t, otherModel, got.Model)
 }
@@ -80,24 +82,24 @@ func TestHMMCostGateNormalizeStayPinRejectsIneligibleModels(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			_, ok := tc.gate.NormalizeStayPin(tc.req, pin)
+			_, ok := tc.gate.NormalizeStayPin(tc.req, pin, gateNow)
 			assert.False(t, ok)
 		})
 	}
-	_, ok := hmmGate().NormalizeStayPin(router.Request{}, pin)
+	_, ok := hmmGate().NormalizeStayPin(router.Request{}, pin, gateNow)
 	assert.True(t, ok, "eligible pin")
 }
 
 func TestHMMCostGateNormalizeStayPinRejectsStalePins(t *testing.T) {
 	expired := hmmPin("hmm_policy", time.Minute)
-	expired.PinnedUntil = time.Now().Add(-time.Second)
+	expired.PinnedUntil = gateNow.Add(-time.Second)
 	noTurn := hmmPin("hmm_policy", 0)
 	noTurn.LastTurnEndedAt = time.Time{}
 	maxedOut := hmmPin("hmm_policy", time.Minute)
 	maxedOut.LastOutputLimitAt = maxedOut.LastTurnEndedAt
 	for name, pin := range map[string]sessionpin.Pin{"expired": expired, "no prior turn": noTurn, "maxed out": maxedOut} {
 		t.Run(name, func(t *testing.T) {
-			_, ok := hmmGate().NormalizeStayPin(router.Request{}, pin)
+			_, ok := hmmGate().NormalizeStayPin(router.Request{}, pin, gateNow)
 			assert.False(t, ok)
 		})
 	}
@@ -107,4 +109,24 @@ func TestBaseModelOfStripsEffort(t *testing.T) {
 	gpt := string(catalog.ModelIDGPT55)
 	assert.Equal(t, gpt, routingpolicy.BaseModelOf(gpt+":high"))
 	assert.Equal(t, stayModel, routingpolicy.BaseModelOf(stayModel))
+}
+
+func TestHMMCostGateNormalizeStayPinSplitsServedEffort(t *testing.T) {
+	pin := hmmPin("hmm_policy", time.Minute)
+	pin.LastServedModel = stayModel + ":high"
+	got, ok := hmmGate().NormalizeStayPin(router.Request{}, pin, gateNow)
+	require.True(t, ok)
+	assert.Equal(t, stayModel, got.Model)
+	assert.Equal(t, "high", got.Effort)
+}
+
+func TestHMMCostGateDecideSwitchesOnPricierPhaseChange(t *testing.T) {
+	fresh := router.Decision{Provider: providers.ProviderAnthropic, Model: otherModel, Reason: "hmm_policy:tool_execution"}
+	stay, plan, sticky := hmmGate().Decide(routingpolicy.HMMCostGateInput{
+		ActivePin: hmmPin("hmm_policy", time.Minute), Fresh: fresh, EstimatedInputTokens: 1000, Now: gateNow,
+	})
+	assert.False(t, sticky)
+	assert.Equal(t, stayModel, stay.Model)
+	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
+	assert.Equal(t, routingpolicy.HMMReasonPhaseChange, plan.Reason)
 }

@@ -15,13 +15,3 @@ func cutSpelledEffort(name string) (head, level string, ok bool) {
 	}
 	return folded[:idx], folded[idx+1:], true
 }
-
-func looksLikeEffortAlias(tail string) bool {
-	switch strings.ToLower(strings.TrimSpace(tail)) {
-	case "fast", "low", "medium", "med", "high", "max", "xhigh",
-		"ultra", "minimal", "min":
-		return true
-	default:
-		return false
-	}
-}
