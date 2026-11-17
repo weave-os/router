@@ -398,8 +398,6 @@ Limitations:
   that change settings are handled by the installed clients and do nothing in an
   SDK app; to bypass the router, create the session without it.
 
-||||||| 5249e152
-
 ### Claude Desktop (`--claude-desktop`)
 
 Covers Claude Desktop's **Code** tab and **Cowork**. Desktop sets
