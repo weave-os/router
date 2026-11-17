@@ -1,10 +1,15 @@
 package middleware_test
 
 import (
+	"bufio"
 	"bytes"
+	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -19,7 +24,7 @@ func TestRequestBodyBudgetRejectsLargeBodiesBeyondBudget(t *testing.T) {
 	release := make(chan struct{})
 	entered := make(chan struct{}, 1)
 	engine := gin.New()
-	engine.Use(middleware.WithRequestBodyBudget(48 << 20))
+	engine.Use(middleware.WithRequestBodyBudget(48<<20, time.Minute))
 	engine.POST("/v1/responses", func(c *gin.Context) {
 		if c.Query("hold") != "" {
 			entered <- struct{}{}
@@ -48,4 +53,35 @@ func TestRequestBodyBudgetRejectsLargeBodiesBeyondBudget(t *testing.T) {
 	close(release)
 	require.Equal(t, http.StatusOK, (<-held).Code)
 	assert.Equal(t, http.StatusOK, post("/v1/responses", largeBody).Code, "a finished request returns its budget")
+}
+
+func TestRequestBodyBudgetReleasesStalledUploadsAfterReadTimeout(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const declaredBytes = 8 << 20
+	engine := gin.New()
+	engine.Use(middleware.WithRequestBodyBudget(declaredBytes*8, 200*time.Millisecond))
+	engine.POST("/v1/responses", func(c *gin.Context) {
+		if _, err := io.ReadAll(c.Request.Body); err != nil {
+			c.Status(http.StatusRequestTimeout)
+			return
+		}
+		c.Status(http.StatusOK)
+	})
+	server := httptest.NewServer(engine)
+	t.Cleanup(server.Close)
+
+	stalled, err := net.Dial("tcp", server.Listener.Addr().String())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = stalled.Close() })
+	_, err = fmt.Fprintf(stalled, "POST /v1/responses HTTP/1.1\r\nHost: router\r\nContent-Length: %d\r\n\r\n", declaredBytes)
+	require.NoError(t, err)
+	require.NoError(t, stalled.SetReadDeadline(time.Now().Add(10*time.Second)))
+	stalledResponse, err := http.ReadResponse(bufio.NewReader(stalled), nil)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusRequestTimeout, stalledResponse.StatusCode)
+
+	resp, err := server.Client().Post(server.URL+"/v1/responses", "application/json", bytes.NewReader(bytes.Repeat([]byte("a"), declaredBytes)))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "a timed-out upload returns its budget")
 }

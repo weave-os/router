@@ -8,6 +8,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
 )
 
@@ -32,4 +33,12 @@ func TestWithRequestBodyBytesKeepsExplicitSizeWithoutContextShape(t *testing.T) 
 
 	req = withRequestBodyBytes(withRequestShape(t.Context(), 0, 5<<20), router.Request{})
 	assert.Equal(t, 5<<20, req.RequestBodyBytes)
+}
+
+func TestPrimaryBindingWithinBodyLimitDropsOversizedSubscriptionPrimary(t *testing.T) {
+	decision := router.Decision{Model: "claude-sonnet-4-6", Provider: providers.ProviderAnthropic}
+
+	assert.Empty(t, primaryBindingWithinBodyLimit(withRequestShape(t.Context(), 0, oversizedAnthropicBodyBytes), decision))
+	assert.Equal(t, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
+		primaryBindingWithinBodyLimit(withRequestShape(t.Context(), 0, 1<<20), decision))
 }

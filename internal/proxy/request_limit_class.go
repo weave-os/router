@@ -47,3 +47,10 @@ func dispatchPreconditions(ctx context.Context, in failoverInputs) error {
 	}
 	return nil
 }
+
+func primaryBindingWithinBodyLimit(ctx context.Context, decision router.Decision) []catalog.ProviderBinding {
+	if requestBodyTooLargeFor(ctx, decision) != nil {
+		return nil
+	}
+	return []catalog.ProviderBinding{{Provider: decision.Provider}}
+}

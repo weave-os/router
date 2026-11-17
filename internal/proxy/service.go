@@ -3027,7 +3027,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				"requested_model", feats.Model, "external_id", externalID, "decision_provider", decision.Provider)
 			return subscriptionOnlyUnavailable(ctx)
 		default:
-			bindings = []catalog.ProviderBinding{{Provider: decision.Provider}}
+			bindings = primaryBindingWithinBodyLimit(ctx, decision)
 		}
 	}
 	clientSink := w
@@ -5117,7 +5117,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			}
 			ctx = released
 		} else {
-			bindings = []catalog.ProviderBinding{{Provider: decision.Provider}}
+			bindings = primaryBindingWithinBodyLimit(ctx, decision)
 		}
 	}
 	clientSink := w

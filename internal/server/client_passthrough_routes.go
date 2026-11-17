@@ -17,12 +17,12 @@ import (
 
 const codexImagesTimeout = 300 * time.Second
 
-func registerClientPassthroughRoutes(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, byokRequiresOptIn bool, servingAdmission *middleware.ServingAdmissionConfig, servingAdmissionMiddleware []gin.HandlerFunc) {
+func registerClientPassthroughRoutes(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, byokRequiresOptIn bool, servingAdmission *middleware.ServingAdmissionConfig, postAuthMiddleware []gin.HandlerFunc) {
 	codexImagesGroup := engine.Group("",
 		middleware.WithTimeout(codexImagesTimeout),
 		middleware.WithAuth(authSvc, byokRequiresOptIn, servingAdmission),
 	)
-	codexImagesGroup.Use(servingAdmissionMiddleware...)
+	codexImagesGroup.Use(postAuthMiddleware...)
 	codexImages := proxy.NewCodexImages(proxySvc)
 	codexImagesGroup.POST("/v1/images/generations", openaiapi.ImagesHandler(proxy.CodexImageGenerations, codexImages.ForwardWithCallerCredential))
 	codexImagesGroup.POST("/v1/images/edits", openaiapi.ImagesHandler(proxy.CodexImageEdits, codexImages.ForwardWithCallerCredential))
@@ -31,7 +31,7 @@ func registerClientPassthroughRoutes(engine *gin.Engine, authSvc *auth.Service, 
 		middleware.WithTimeout(passthroughTimeout),
 		middleware.WithAuth(authSvc, byokRequiresOptIn, servingAdmission),
 	)
-	passthroughGroup.Use(servingAdmissionMiddleware...)
+	passthroughGroup.Use(postAuthMiddleware...)
 	passthroughGroup.POST("/v1/messages/count_tokens", anthropicapi.PassthroughHandler(proxySvc))
 	passthroughGroup.GET("/v1/models", openaiapi.ModelsHandler(anthropicapi.PassthroughHandler(proxySvc), proxySvc.CodexModelCatalog))
 	passthroughGroup.GET("/v1/models/:model", anthropicapi.PassthroughHandler(proxySvc))
