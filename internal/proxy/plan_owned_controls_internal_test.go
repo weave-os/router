@@ -141,7 +141,7 @@ func TestBoostServingHeaderForceModelCarriesEffortSameTurn(t *testing.T) {
 	svc := &Service{}
 	ctx, forced, err := svc.applyForceModelHeader(request.Context(), request, uuid.Nil, [sessionpin.SessionKeyLen]byte{})
 	require.NoError(t, err)
-	assert.Equal(t, "gpt-6.1-sol:medium", forced)
+	assert.Equal(t, "gpt-6.2-sol:medium", forced)
 
 	env := forceCommandEnv(t)
 	features := env.RoutingFeatures()
@@ -150,7 +150,7 @@ func TestBoostServingHeaderForceModelCarriesEffortSameTurn(t *testing.T) {
 		router.Request{RequestedModel: features.Model, ForceModel: forced},
 	)
 	require.NoError(t, err)
-	assert.Equal(t, "gpt-6.1-sol", result.Decision.Model)
+	assert.Equal(t, "gpt-6.2-sol", result.Decision.Model)
 	assert.Equal(t, "medium", result.Decision.Effort)
 }
 
@@ -188,14 +188,14 @@ func TestBoostServingAppliesForceModelCommand(t *testing.T) {
 		boostDefaultRoutingContext(), translate.ForceModelResult{Model: "sol"}, uuid.New(), threadKey, forceKey,
 	)
 	require.NoError(t, err)
-	assert.Equal(t, "gpt-6.1-sol", forcedModel)
+	assert.Equal(t, "gpt-6.2-sol", forcedModel)
 	assert.Contains(t, message.render(env.SourceFormat()), "force-model applied")
 	assert.NotContains(t, message.render(env.SourceFormat()), "automatic model selection")
 
 	stored, found, err := store.Get(context.Background(), forceKey, forceModelSessionRole)
 	require.NoError(t, err)
 	require.True(t, found)
-	assert.Equal(t, "gpt-6.1-sol", stored.Model)
+	assert.Equal(t, "gpt-6.2-sol", stored.Model)
 }
 
 func TestBoostServingRoutesExplicitForceModel(t *testing.T) {
@@ -208,7 +208,7 @@ func TestBoostServingRoutesExplicitForceModel(t *testing.T) {
 		router.Request{RequestedModel: features.Model, ForceModel: "sol"},
 	)
 	require.NoError(t, err)
-	assert.Equal(t, "gpt-6.1-sol", result.Decision.Model)
+	assert.Equal(t, "gpt-6.2-sol", result.Decision.Model)
 	assert.Equal(t, translate.ReasonUserForceModel, result.Decision.Reason)
 }
 

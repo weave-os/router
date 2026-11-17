@@ -353,7 +353,7 @@ func TestApplyForceModelCommand_FableThenAstraWritesAndClearsSessionControl(t *t
 	const (
 		apiKeyID     = "api-key"
 		fableModelID = "claude-fable-5-2"
-		astraModelID = "gpt-6-astra"
+		astraModelID = "gpt-6.2-astra"
 	)
 	installationID := uuid.New()
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{SessionID: "client-session"})

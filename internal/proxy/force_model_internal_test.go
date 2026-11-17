@@ -53,7 +53,7 @@ func TestResolveForceModel(t *testing.T) {
 		{
 			name:         "alias gpt",
 			input:        "gpt",
-			wantID:       "gpt-6.1-sol",
+			wantID:       "gpt-6.2-sol",
 			wantProvider: providers.ProviderOpenAI,
 			wantKnown:    true,
 		},
@@ -72,9 +72,9 @@ func TestResolveForceModel(t *testing.T) {
 			wantKnown:    true,
 		},
 		{
-			name:         "sol follows 6.1",
+			name:         "sol follows newest Sol",
 			input:        "sol",
-			wantID:       "gpt-6.1-sol",
+			wantID:       "gpt-6.2-sol",
 			wantProvider: providers.ProviderOpenAI,
 			wantKnown:    true,
 		},
@@ -207,7 +207,7 @@ func TestResolveForceModel(t *testing.T) {
 		{
 			name:         "alias kimi current release",
 			input:        "kimi",
-			wantID:       "moonshotai/kimi-k3",
+			wantID:       "moonshotai/kimi-k3.1",
 			wantProvider: providers.ProviderFireworks,
 			wantKnown:    true,
 		},
@@ -507,7 +507,7 @@ func TestResolveForceModel_ObservedSpellings(t *testing.T) {
 		{"gemini-3-1-pro-preview", "gemini-3.1-pro-preview", ""},
 		{"glm 5.3", "z-ai/glm-5.3", ""},
 		{"kimi-k2-7", "moonshotai/kimi-k2.7", ""},
-		{"astra high", "gpt-6-astra", "high"},
+		{"astra high", "gpt-6.2-astra", "high"},
 		{"gpt-6-sol-max", "gpt-6-sol", "max"},
 		{"gpt-6-astra-max", "gpt-6-astra", "max"},
 		{"opus 5.5 xhigh", "claude-opus-5-5", "xhigh"},
@@ -629,4 +629,21 @@ func TestSuggestForceModel_SuggestionsResolve(t *testing.T) {
 			assert.True(t, known, "suggestion %q must resolve", s)
 		})
 	}
+}
+
+func TestUnversionedAliasesFollowNewestFamilyRelease(t *testing.T) {
+	servable := func(id string) bool {
+		_, ok := servableForceModel(id, "")
+		return ok
+	}
+	for alias, target := range forceModelAliases {
+		if strings.ContainsAny(alias, "0123456789") {
+			continue
+		}
+		assert.Equal(t, catalog.LatestInFamily(target, servable), target, alias)
+	}
+	assert.Equal(t, "gpt-6.2-sol", forceModelAliases["sol"])
+	assert.Equal(t, "gpt-6.2-astra", forceModelAliases["astra"])
+	assert.Equal(t, "gpt-6.1-sol", forceModelAliases["gpt-6-1-sol"], "versioned aliases stay exact")
+	assert.Equal(t, "gpt-6-astra", forceModelAliases["gpt-6"], "versioned aliases stay exact")
 }
