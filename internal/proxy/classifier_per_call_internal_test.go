@@ -49,7 +49,7 @@ func TestClassifierPerCallHistoryWithinSingleHumanTurn(t *testing.T) {
 			require.Equal(t, router.ClassifierComplexity((response.ResponseIndex/2)%4), response.Complexity)
 		}
 		// A replacement replica must deduplicate this call, not the human turn.
-		replica := &Service{now: svc.now}
+		replica := &Service{clock: svc.clock}
 		require.NoError(t, replica.WithClassifierSessions(svc.classifierSessions.config, store, svc.classifierSessions.classifier))
 		retried, err := replica.classifyThread(ctx, input)
 		require.NoError(t, err)

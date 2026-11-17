@@ -414,7 +414,7 @@ func (s *Service) routeWithoutPin(
 		res.PinTier = translate.ReasonUserForceModel
 		return res, nil
 	}
-	req.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{}, s.now.Now())
+	req.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{}, s.clock.Now())
 	if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req, nil, res.TurnType); ok {
 		res.Decision = dec
 		res.UsageBypass = true
@@ -546,7 +546,7 @@ func (s *Service) runTurnLoop(
 	req router.Request,
 ) (res turnLoopResult, routeErr error) {
 	subAgentHint = subAgentHintForRequest(ctx, subAgentHint)
-	shadowStartedAt := s.now.Now()
+	shadowStartedAt := s.clock.Now()
 	defer func() {
 		if routeErr == nil {
 			routeErr = policyPinServed(ctx, res)
@@ -599,7 +599,7 @@ func (s *Service) runTurnLoop(
 			}
 			telemetry.RecordLog(ctx, telemetry.LogRecord{
 				Name: "translation.transform",
-				Time: s.now.Now(),
+				Time: s.clock.Now(),
 				Attrs: telemetry.NewAttrBuilder(5).
 					String("translation.code", transform.Code).
 					String("translation.action", transform.Action).
@@ -713,7 +713,7 @@ func (s *Service) runTurnLoop(
 			res.SessionKey = threadSessionKey
 			_, _, res.SessionFirstTurn = s.loadPinWithStoreState(ctx, res.SessionKey, res.PinRole)
 		}
-		req.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{}, s.now.Now())
+		req.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{}, s.clock.Now())
 		decision, err := s.routeFor(ctx, req)
 		if err != nil {
 			return res, err
@@ -769,7 +769,7 @@ func (s *Service) runTurnLoop(
 			}
 			res.SessionKey = threadSessionKey
 			res.PinModel = forceModelPin.Model
-			res.PinAgeSec = pinAge(forceModelPin, s.now.Now())
+			res.PinAgeSec = pinAge(forceModelPin, s.clock.Now())
 			res.applySwitchHistory(threadPin, hmmHistory, forceHistory)
 			res.EscalateEffort = !forceHistory.LastTurnEndedAt.IsZero() &&
 				(forceHistory.LastOutputTokens == 0 || forceHistory.ConsecutiveUpstreamErrors > 0)
@@ -1024,7 +1024,7 @@ func (s *Service) runTurnLoop(
 	res.SessionStrikeReadmitModels = harnessSafeModels(imageSafeModels(demoted, req.ImageCount), req.HasTools)
 	if s.ResolveTransientRateLimit(ctx) && (!forceModelFound || !forcedPinEligible(forceModelPin, req)) {
 		cooldowns := mergeDemotionCooldowns(pin.DemotionCooldowns, hmmHistory.DemotionCooldowns)
-		now := s.now.Now()
+		now := s.clock.Now()
 		cooling := activeDemotionCooldowns(cooldowns, now)
 		if len(cooling) > 0 {
 			res.SessionCooldownModels = readmittableCooldowns(cooling, demoted, req.ImageCount)
@@ -1059,19 +1059,19 @@ func (s *Service) runTurnLoop(
 	}
 	res.applySwitchHistory(pin, hmmHistory, forceHistory)
 	req, res.ObservedOverflowModels = s.excludeObservedOverflowModels(ctx, req, res, max(contextWindowOutputReserve, feats.MaxTokens))
-	req.PolicyTurnContext = buildPolicyTurnContext(req, res, pin, hmmHistory, s.now.Now())
+	req.PolicyTurnContext = buildPolicyTurnContext(req, res, pin, hmmHistory, s.clock.Now())
 	res.EscalateEffort = pinFound && !pin.LastTurnEndedAt.IsZero() &&
 		(pin.LastOutputTokens == 0 || pin.ConsecutiveUpstreamErrors > 0)
 	if pinFound {
 		res.PinTurnCount = pin.TurnCount + 1
 		res.PinFirstPinnedAt = pin.FirstPinnedAt
-		applyPinEvidence(&res, pin, s.now.Now())
+		applyPinEvidence(&res, pin, s.clock.Now())
 		log.Info("turnloop pin lookup hit",
 			"pin_model", pin.Model,
 			"pin_provider", pin.Provider,
 			"pin_reason", pin.Reason,
 			"pin_age_s", res.PinAgeSec,
-			"pin_cache_warm", cacheWarm(pin, s.now.Now()),
+			"pin_cache_warm", cacheWarm(pin, s.clock.Now()),
 			"last_output_tokens", pin.LastOutputTokens,
 			"session_ever_switched", pin.HasEverSwitched,
 		)
@@ -1103,7 +1103,7 @@ func (s *Service) runTurnLoop(
 		}
 		if !excluded && providerEligible && imageCapable {
 			res.PinModel = forceModelPin.Model
-			res.PinAgeSec = pinAge(forceModelPin, s.now.Now())
+			res.PinAgeSec = pinAge(forceModelPin, s.clock.Now())
 			res.EscalateEffort = !forceHistory.LastTurnEndedAt.IsZero() &&
 				(forceHistory.LastOutputTokens == 0 || forceHistory.ConsecutiveUpstreamErrors > 0)
 			res.Decision = pinDecision(forceModelPin)
@@ -1343,7 +1343,7 @@ func (s *Service) runTurnLoop(
 		res.StickyHit = true
 		res.PinTier = "post_command_continuation"
 		res.PinModel = commandContinuation.Model
-		res.PinAgeSec = pinAge(commandContinuation, s.now.Now())
+		res.PinAgeSec = pinAge(commandContinuation, s.clock.Now())
 		if forceModelCleared {
 			res.applySwitchHistory(commandContinuation, hmmHistory, forceHistory, forceModelPin)
 		} else {
@@ -1705,7 +1705,7 @@ func (s *Service) runTurnLoop(
 			if hmmStayModel != "" {
 				res.PinModel = hmmStayModel
 				if hmmPin, ok := s.hmmStayPin(req, activePin, hmmHistory); ok && hmmPin.Model == hmmStayModel {
-					applyPinEvidence(&res, hmmPin, s.now.Now())
+					applyPinEvidence(&res, hmmPin, s.clock.Now())
 				}
 			}
 			if hmmSticky {
@@ -1781,7 +1781,7 @@ func (s *Service) runTurnLoop(
 			CachePrefixKnown:      prefixKnown,
 			PriorOutputTokens:     pin.LastOutputTokens,
 			AvailableModels:       s.availableModels,
-			PinCacheCold:          pinFound && pinCacheCold(pin, prefixBroken, s.now.Now()),
+			PinCacheCold:          pinFound && pinCacheCold(pin, prefixBroken, s.clock.Now()),
 		}
 		if !pinFound {
 			plannerIn.Pin = sessionpin.Pin{}
@@ -1833,10 +1833,10 @@ func (s *Service) runTurnLoop(
 				} else {
 					summCtx = clearCredentials(ctx)
 				}
-				start := s.now.Now()
+				start := s.clock.Now()
 				summary, summaryUsage, sumErr := s.summarizer.Summarize(summCtx, env, req)
 				res.Handover.Invoked = true
-				res.Handover.LatencyMS = s.now.Now().Sub(start).Milliseconds()
+				res.Handover.LatencyMS = s.clock.Now().Sub(start).Milliseconds()
 				switch {
 				case sumErr != nil:
 					res.Handover.FallbackToFullHistory = true
@@ -1928,7 +1928,7 @@ func (s *Service) hmmCostGatedDecision(
 		CachePrefixKnown:      stayPrefixKnown,
 		PriorOutputTokens:     stayPin.LastOutputTokens,
 		AvailableModels:       s.availableModels,
-		PinCacheCold:          pinCacheCold(stayPin, prefixBroken, s.now.Now()),
+		PinCacheCold:          pinCacheCold(stayPin, prefixBroken, s.clock.Now()),
 	}, cfg)
 
 	if hmmFreshIsMoreExpensive(stayPin.Model, fresh.Model, estimatedInputTokens) {
@@ -2132,7 +2132,7 @@ func (s *Service) normalizeHMMStayPin(req router.Request, p sessionpin.Pin) (ses
 	if p.LastTurnEndedAt.IsZero() {
 		return sessionpin.Pin{}, false
 	}
-	if !p.PinnedUntil.IsZero() && !p.PinnedUntil.After(s.now.Now()) {
+	if !p.PinnedUntil.IsZero() && !p.PinnedUntil.After(s.clock.Now()) {
 		return sessionpin.Pin{}, false
 	}
 	if maxedOutServedModel(p) != "" {
@@ -2253,7 +2253,7 @@ func (s *Service) loadPinWithStoreState(ctx context.Context, sessionKey [session
 	if !pinMatchesEffectiveStrategy(ctx, pin) {
 		return sessionpin.Pin{}, false, false
 	}
-	if !pin.PinnedUntil.After(s.now.Now()) {
+	if !pin.PinnedUntil.After(s.clock.Now()) {
 		return pin, false, false
 	}
 	return pin, true, false
@@ -2389,7 +2389,7 @@ func (s *Service) refreshPinVotes(ctx context.Context, installationID uuid.UUID,
 		Strategy:              router.StrategyFromContext(ctx),
 		PolicyGroup:           existing.PolicyGroup,
 		TurnCount:             1,
-		PinnedUntil:           pinExpiry(chosen.Reason, s.now.Now()),
+		PinnedUntil:           pinExpiry(chosen.Reason, s.clock.Now()),
 		LastInputTokens:       existing.LastInputTokens,
 		LastCachedReadTokens:  existing.LastCachedReadTokens,
 		LastCachedWriteTokens: existing.LastCachedWriteTokens,
@@ -2429,7 +2429,7 @@ func (s *Service) writeNewPin(ctx context.Context, installationID uuid.UUID, ses
 		Strategy:       router.StrategyFromContext(ctx),
 		PolicyGroup:    decisionPolicyGroup(chosen),
 		TurnCount:      1,
-		PinnedUntil:    pinExpiry(chosen.Reason, s.now.Now()),
+		PinnedUntil:    pinExpiry(chosen.Reason, s.clock.Now()),
 	}
 	s.upsertPin(ctx, p)
 }

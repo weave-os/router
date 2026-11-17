@@ -14,7 +14,7 @@ type claudeSubscriptionPlanKey struct{}
 func (s *Service) WithClaudeSubscriptionPlanReader(reader providers.SubscriptionPlanReader) *Service {
 	s.claudePlans = nil
 	if reader != nil {
-		s.claudePlans = subscriptions.NewPlanResolver(reader, func() time.Time { return s.now.Now() })
+		s.claudePlans = subscriptions.NewPlanResolver(reader, func() time.Time { return s.clock.Now() })
 	}
 	return s
 }

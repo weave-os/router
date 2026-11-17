@@ -116,8 +116,8 @@ func committed(b *dispatch.PreludeBuffer) bool {
 
 const subscriptionRotationBudget = 10 * time.Second
 
-func (s *Service) WithClock(now auth.Clock) *Service {
-	s.now = now
+func (s *Service) WithClock(clock auth.Clock) *Service {
+	s.clock = clock
 	return s
 }
 

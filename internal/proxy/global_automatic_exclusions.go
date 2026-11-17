@@ -91,7 +91,7 @@ func (s *Service) controlPlaneExcludedModels(ctx context.Context) map[string]str
 	if s.globalAutomaticExclusions == nil {
 		return nil
 	}
-	byModel := s.globalAutomaticExclusions.snapshot(ctx, s.now.Now)
+	byModel := s.globalAutomaticExclusions.snapshot(ctx, s.clock.Now)
 	if len(byModel) == 0 {
 		return nil
 	}
@@ -104,7 +104,7 @@ func (s *Service) controlPlaneExcludedModels(ctx context.Context) map[string]str
 
 func (s *Service) globalAutomaticExclusionReason(ctx context.Context, model string) (string, bool) {
 	if s.globalAutomaticExclusions != nil {
-		if reason, disabled := s.globalAutomaticExclusions.snapshot(ctx, s.now.Now)[model]; disabled {
+		if reason, disabled := s.globalAutomaticExclusions.snapshot(ctx, s.clock.Now)[model]; disabled {
 			return reason, true
 		}
 	}

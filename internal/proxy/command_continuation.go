@@ -46,7 +46,7 @@ func (s *Service) grantPostCommandContinuation(
 	pin.InstallationID = installationID
 	pin.Strategy = router.StrategyFromContext(ctx)
 	pin.TurnCount = 1
-	pin.PinnedUntil = pinExpiry(pin.Reason, s.now.Now())
+	pin.PinnedUntil = pinExpiry(pin.Reason, s.clock.Now())
 	s.upsertPin(ctx, pin)
 	observability.FromContext(ctx).Info("stored one-shot post-command continuation", "model", pin.Model, "provider", pin.Provider, "role", role)
 }

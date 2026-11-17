@@ -219,7 +219,7 @@ func (s *Service) handleLoopEscalation(
 			Reason:          translate.ReasonLoopEscalation,
 			Strategy:        router.StrategyFromContext(ctx),
 			TurnCount:       1,
-			PinnedUntil:     s.now.Now().Add(pinSessionTTL),
+			PinnedUntil:     s.clock.Now().Add(pinSessionTTL),
 			LastServedModel: lastServed,
 		}
 		if err := s.pinStore.Upsert(context.WithoutCancel(ctx), pin); err != nil {

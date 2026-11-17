@@ -68,7 +68,7 @@ func (s *Service) classifierPassthroughEngaged(ctx context.Context, headers http
 		return "", false
 	}
 	provider, token, covered := subscriptionCoveredTarget(ctx, headers, req)
-	if !covered || provider != providers.ProviderAnthropic || s.subscriptionModels.denied([]byte(token), req.RequestedModel, s.now.Now()) {
+	if !covered || provider != providers.ProviderAnthropic || s.subscriptionModels.denied([]byte(token), req.RequestedModel, s.clock.Now()) {
 		return "", false
 	}
 	if s.usageObserver == nil {
@@ -93,7 +93,7 @@ func (s *Service) usageBypassEngaged(ctx context.Context, headers http.Header, r
 	if !covered || !s.supportsSubscriptionTransport(provider) {
 		return "", false
 	}
-	if provider == providers.ProviderAnthropic && s.subscriptionModels.denied([]byte(token), req.RequestedModel, s.now.Now()) {
+	if provider == providers.ProviderAnthropic && s.subscriptionModels.denied([]byte(token), req.RequestedModel, s.clock.Now()) {
 		return "", false
 	}
 	threshold := defaultUsageBypassThreshold
@@ -392,7 +392,7 @@ func (s *Service) bypassToAnthropic(
 		respW = streamCost
 	}
 	preludeBuf := newPreludeBuffer(respW)
-	notices := &requestNoticeStream{now: s.now.Now}
+	notices := &requestNoticeStream{now: s.clock.Now}
 	notice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, decision.Model, "")
 	respW, noticeErr := notices.prepare(ctx, preludeBuf, preludeBuf, translate.FormatAnthropic, env.Stream(), notice)
 	if noticeErr != nil {
@@ -416,7 +416,7 @@ func (s *Service) bypassToAnthropic(
 	}
 	preludeBuf.Seal()
 
-	proxyStart := s.now.Now()
+	proxyStart := s.clock.Now()
 	inferenceParentCtx := ctx
 	ctx, inferenceSpan := startInferenceSpan(ctx, decision, clientSessionIDForRequest(ctx, env))
 	toolNames := translate.NewAnthropicToolNameWriter(respW, prep.ResponseToolNames)
@@ -486,7 +486,7 @@ func (s *Service) bypassToAnthropic(
 	telemetry.Record(ctx, telemetry.Span{
 		Name:  "router.usage_bypass",
 		Start: requestStart,
-		End:   s.now.Now(),
+		End:   s.clock.Now(),
 		Attrs: bypassBuilder.Build(),
 	})
 	telemetry.Flush(ctx)
@@ -514,15 +514,15 @@ func (s *Service) bypassToAnthropic(
 			DecisionReason:         telemetryDecisionReason(ctx, decision.Reason),
 			RequestedAllowedModels: requestedAllowedModelsForTelemetry(ctx),
 			EstimatedInputTokens:   int32(feats.Tokens),
-			ContextSnapshot:        contextSnapshotJSON(w.Header(), requestID, feats.Model, requestStart, s.now.Now()),
+			ContextSnapshot:        contextSnapshotJSON(w.Header(), requestID, feats.Model, requestStart, s.clock.Now()),
 			InputTokens:            int32(in),
 			OutputTokens:           int32(out),
 			RequestedInputCostUSD:  inputCost,
 			RequestedOutputCostUSD: outputCost,
 			ActualInputCostUSD:     inputCost,
 			ActualOutputCostUSD:    outputCost,
-			UpstreamLatencyMs:      s.now.Now().Sub(proxyStart).Milliseconds(),
-			TotalLatencyMs:         s.now.Now().Sub(requestStart).Milliseconds(),
+			UpstreamLatencyMs:      s.clock.Now().Sub(proxyStart).Milliseconds(),
+			TotalLatencyMs:         s.clock.Now().Sub(requestStart).Milliseconds(),
 			UpstreamStatusCode:     int32(upstreamStatus(outcomeErr)),
 			ErrorClass:             classifyTurnError(outcomeErr, stopReason, 0),
 			FailureOwner:           turnFailureOwnerFor(ctx, outcomeErr, classifyTurnError(outcomeErr, stopReason, 0)),
@@ -560,8 +560,8 @@ func (s *Service) bypassToAnthropic(
 		"external_id", externalID,
 		"requested_model", feats.Model,
 		"decision_model", decision.Model,
-		"proxy_ms", s.now.Now().Sub(proxyStart).Milliseconds(),
-		"total_ms", s.now.Now().Sub(requestStart).Milliseconds(),
+		"proxy_ms", s.clock.Now().Sub(proxyStart).Milliseconds(),
+		"total_ms", s.clock.Now().Sub(requestStart).Milliseconds(),
 		"proxy_err", proxyErr,
 		"credential_source", servedCredentialSource,
 		"subscription_tier", servedSubscriptionTier,

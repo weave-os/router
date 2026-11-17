@@ -176,7 +176,7 @@ func (s *Service) recordCallLog(ctx context.Context, base []telemetry.Attr, rout
 	}
 	telemetry.RecordLog(ctx, telemetry.LogRecord{
 		Name:     "router.call",
-		Time:     s.now.Now(),
+		Time:     s.clock.Now(),
 		Severity: sev,
 		Attrs:    attrs,
 	})
@@ -268,7 +268,7 @@ func (s *Service) recordPermanentError(ctx context.Context, base []telemetry.Att
 	}
 	attrs = append(attrs, permanentErrorDiagnosticAttrs(proxyErr, requestBytes, s.redactor, responsesSurface)...)
 	telemetry.RecordLog(ctx, telemetry.LogRecord{
-		Name: permanentErrorEventName, Time: s.now.Now(),
+		Name: permanentErrorEventName, Time: s.clock.Now(),
 		Severity: telemetry.SeverityError, Attrs: attrs,
 	})
 }

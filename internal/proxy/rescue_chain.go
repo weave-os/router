@@ -49,7 +49,7 @@ type rescueServices interface {
 type rescueChain struct {
 	svc              rescueServices
 	seats            seatAdmission
-	now              auth.Clock
+	clock            auth.Clock
 	usageObserver    *usage.Observer
 	r                *http.Request
 	log              *slog.Logger

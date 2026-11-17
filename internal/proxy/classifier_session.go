@@ -86,12 +86,12 @@ func (s *Service) StartClassifierThread(ctx context.Context, requestID uuid.UUID
 		return "", router.ErrClassifierThreadInvalid
 	}
 	thread.RequestID, thread.ThreadID = requestID, uuid.New()
-	thread.ExpiresAt = s.now.Now().Add(classifierThreadLifetime).Truncate(time.Second)
+	thread.ExpiresAt = s.clock.Now().Add(classifierThreadLifetime).Truncate(time.Second)
 	thread, err = s.classifierSessions.store.Create(ctx, thread)
 	if err != nil {
 		return "", fmt.Errorf("persist classifier handshake: %w", err)
 	}
-	if thread.Release != s.classifierSessions.config.Release || thread.ReleaseSHA256 != s.classifierSessions.config.ReleaseSHA256 || thread.SelectionPolicySHA256 != s.classifierSessions.config.SelectionPolicySHA256 || !thread.ExpiresAt.After(s.now.Now()) {
+	if thread.Release != s.classifierSessions.config.Release || thread.ReleaseSHA256 != s.classifierSessions.config.ReleaseSHA256 || thread.SelectionPolicySHA256 != s.classifierSessions.config.SelectionPolicySHA256 || !thread.ExpiresAt.After(s.clock.Now()) {
 		return "", router.ErrClassifierThreadInvalid
 	}
 	claims := classifierThreadClaims{RegisteredClaims: jwt.RegisteredClaims{Issuer: classifierThreadIssuer, ExpiresAt: jwt.NewNumericDate(thread.ExpiresAt)}, Thread: thread}
@@ -110,9 +110,9 @@ func (s *Service) AdmitClassifierThread(ctx context.Context, threadToken string)
 		return ctx, router.ErrClassifierThreadInvalid
 	}
 	claims := &classifierThreadClaims{}
-	_, err = jwt.ParseWithClaims(threadToken, claims, func(*jwt.Token) (any, error) { return s.classifierSessions.config.SigningKey, nil }, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithIssuer(classifierThreadIssuer), jwt.WithExpirationRequired(), jwt.WithTimeFunc(s.now.Now))
+	_, err = jwt.ParseWithClaims(threadToken, claims, func(*jwt.Token) (any, error) { return s.classifierSessions.config.SigningKey, nil }, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithIssuer(classifierThreadIssuer), jwt.WithExpirationRequired(), jwt.WithTimeFunc(s.clock.Now))
 	thread := claims.Thread
-	if err != nil || thread.InstallationID != principal.InstallationID || thread.CredentialSHA256 != principal.CredentialSHA256 || thread.Release != principal.Release || thread.ReleaseSHA256 != principal.ReleaseSHA256 || thread.SelectionPolicySHA256 != principal.SelectionPolicySHA256 || thread.ThreadID == uuid.Nil || !thread.ExpiresAt.After(s.now.Now()) {
+	if err != nil || thread.InstallationID != principal.InstallationID || thread.CredentialSHA256 != principal.CredentialSHA256 || thread.Release != principal.Release || thread.ReleaseSHA256 != principal.ReleaseSHA256 || thread.SelectionPolicySHA256 != principal.SelectionPolicySHA256 || thread.ThreadID == uuid.Nil || !thread.ExpiresAt.After(s.clock.Now()) {
 		return ctx, router.ErrClassifierThreadInvalid
 	}
 	ctx = context.WithValue(ctx, classifierThreadContextKey{}, thread)
@@ -141,7 +141,7 @@ func (s *Service) withClassifierSearchChild(ctx context.Context, input router.Cl
 		log.Error("Failed to persist classifier search child", "err", err)
 		return ctx, fmt.Errorf("persist search child: %w: %w", err, router.ErrClassifierUnavailable)
 	}
-	if child.Release != parent.Release || child.ReleaseSHA256 != parent.ReleaseSHA256 || child.SelectionPolicySHA256 != parent.SelectionPolicySHA256 || child.ExpiresAt.After(parent.ExpiresAt) || !child.ExpiresAt.After(s.now.Now()) {
+	if child.Release != parent.Release || child.ReleaseSHA256 != parent.ReleaseSHA256 || child.SelectionPolicySHA256 != parent.SelectionPolicySHA256 || child.ExpiresAt.After(parent.ExpiresAt) || !child.ExpiresAt.After(s.clock.Now()) {
 		log.Warn("Classifier search child metadata rejected", "child_thread_id", child.ThreadID, "err", router.ErrClassifierThreadInvalid)
 		return ctx, router.ErrClassifierThreadInvalid
 	}

@@ -38,7 +38,7 @@ func (s *Service) recordTurnUsage(ctx context.Context, res turnLoopResult, serve
 		CachedWriteTokens:   cacheCreation,
 		OutputTokens:        out,
 		OutputLimitReached:  outputLimitReached,
-		EndedAt:             s.now.Now(),
+		EndedAt:             s.clock.Now(),
 		ServedModel:         servedModel,
 		ServedProvider:      servedProvider,
 		PriorServedModel:    res.PriorServedModel,

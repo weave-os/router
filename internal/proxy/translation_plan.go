@@ -310,7 +310,7 @@ func (s *Service) applyTranslationPlan(ctx context.Context, req router.Request) 
 		}
 		telemetry.RecordLog(ctx, telemetry.LogRecord{
 			Name: "translation.compatibility",
-			Time: s.now.Now(),
+			Time: s.clock.Now(),
 			Attrs: telemetry.NewAttrBuilder(7).
 				String("translation.requirement", exclusion.Code).
 				String("translation.source_format", string(req.TranslationRequirements.SourceFormat)).

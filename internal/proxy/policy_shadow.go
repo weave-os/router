@@ -73,10 +73,10 @@ func (s *Service) firePolicyShadowDecision(ctx context.Context, servingStrategy 
 		"shadow_strategy", shadowStrategy,
 	)
 	observability.SafeGoContext(withoutRequestValues(ctx), log, policyShadowDecisionTimeout, "policyShadowDecision", func(shadowCtx context.Context) {
-		started := s.now.Now()
+		started := s.clock.Now()
 		shadow, err := s.routeWithStrategy(shadowCtx, shadowStrategy, shadowReq)
 		event := base
-		event.ShadowLatencyMs = s.now.Now().Sub(started).Milliseconds()
+		event.ShadowLatencyMs = s.clock.Now().Sub(started).Milliseconds()
 		if err != nil {
 			event.ShadowError = truncatePolicyShadowError(err.Error())
 		} else {
