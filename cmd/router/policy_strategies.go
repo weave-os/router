@@ -7,6 +7,6 @@ import (
 	"weave-os/router/internal/router/rl"
 )
 
-func withSidecarPolicies(service *proxy.Service, sidecar router.Router) *proxy.Service {
-	return service.WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyRL, Router: sidecar, Unavailable: rl.ErrPolicyUnavailable})
+func withRLPolicyStrategy(service *proxy.Service, rlRouter router.Router) *proxy.Service {
+	return service.WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyRL, Router: rlRouter, Unavailable: rl.ErrPolicyUnavailable})
 }

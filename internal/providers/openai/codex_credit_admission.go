@@ -6,8 +6,8 @@ import (
 	"weave-os/router/internal/requestcontext"
 )
 
-func codexQuotaCreditAdmission(ctx context.Context, body []byte, deployment bool) (string, error) {
-	if !deployment && !requestcontext.SubscriptionExtraUsageFrom(ctx) {
+func codexQuotaCreditAdmission(ctx context.Context, body []byte, allowExtraCredits bool) (string, error) {
+	if !allowExtraCredits && !requestcontext.SubscriptionExtraUsageFrom(ctx) {
 		return codexCreditsDisabled, nil
 	}
 	var metadata struct {
