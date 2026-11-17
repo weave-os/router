@@ -79,32 +79,6 @@ func reasoningOutputItem(itemID, text string) map[string]any {
 	}
 }
 
-func (t *ResponsesWriter) interleaveReasoning(items []any) []any {
-	if len(t.reasoningItems) == 0 {
-		return items
-	}
-	indexOf := map[string]int{}
-	if t.textItem != nil {
-		indexOf[t.textItem.itemID] = t.textItem.outputIndex
-	}
-	for _, tool := range t.toolItems {
-		indexOf[tool.itemID] = tool.outputIndex
-	}
-	out := make([]any, 0, len(items)+len(t.reasoningItems))
-	next := 0
-	for _, item := range items {
-		id, _ := item.(map[string]any)["id"].(string)
-		for ; next < len(t.reasoningItems) && t.reasoningItems[next].outputIndex < indexOf[id]; next++ {
-			out = append(out, reasoningOutputItem(t.reasoningItems[next].itemID, t.reasoningItems[next].text))
-		}
-		out = append(out, item)
-	}
-	for _, item := range t.reasoningItems[next:] {
-		out = append(out, reasoningOutputItem(item.itemID, item.text))
-	}
-	return out
-}
-
 func isRouterReasoningItem(item gjson.Result) bool {
 	if item.Get("type").Str != "reasoning" || !strings.HasPrefix(item.Get("id").Str, routerReasoningItemIDPrefix+"_") {
 		return false

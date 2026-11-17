@@ -17,10 +17,18 @@ func (t *ResponsesWriter) acceptLedgerCalls() {
 	}
 }
 
+type indexedOutputItem struct {
+	outputIndex int
+	item        map[string]any
+}
+
 func (t *ResponsesWriter) assembleOutput() []any {
-	out := make([]any, 0, len(t.toolItems)+1)
+	items := make([]indexedOutputItem, 0, len(t.toolItems)+len(t.reasoningItems)+1)
+	for _, reasoning := range t.reasoningItems {
+		items = append(items, indexedOutputItem{reasoning.outputIndex, reasoningOutputItem(reasoning.itemID, reasoning.text)})
+	}
 	if t.textItem != nil {
-		out = append(out, map[string]any{
+		items = append(items, indexedOutputItem{t.textItem.outputIndex, map[string]any{
 			"id":     t.textItem.itemID,
 			"type":   "message",
 			"status": "completed",
@@ -30,15 +38,9 @@ func (t *ResponsesWriter) assembleOutput() []any {
 				"text":        t.textItem.text.String(),
 				"annotations": []any{},
 			}},
-		})
+		}})
 	}
-	indices := make([]int, 0, len(t.toolItems))
-	for idx := range t.toolItems {
-		indices = append(indices, idx)
-	}
-	sort.Ints(indices)
-	for _, idx := range indices {
-		item := t.toolItems[idx]
+	for _, item := range t.toolItems {
 		if len(t.toolMappings) > 0 && !item.opened {
 			continue
 		}
@@ -58,7 +60,7 @@ func (t *ResponsesWriter) assembleOutput() []any {
 			if item.mapping.Namespace != "" {
 				call["namespace"] = item.mapping.Namespace
 			}
-			out = append(out, call)
+			items = append(items, indexedOutputItem{item.outputIndex, call})
 			continue
 		}
 		call := map[string]any{
@@ -73,7 +75,12 @@ func (t *ResponsesWriter) assembleOutput() []any {
 		if item.mapping.Namespace != "" {
 			call["namespace"] = item.mapping.Namespace
 		}
-		out = append(out, call)
+		items = append(items, indexedOutputItem{item.outputIndex, call})
 	}
-	return t.interleaveReasoning(out)
+	sort.Slice(items, func(i, j int) bool { return items[i].outputIndex < items[j].outputIndex })
+	out := make([]any, 0, len(items))
+	for _, item := range items {
+		out = append(out, item.item)
+	}
+	return out
 }

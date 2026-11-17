@@ -774,6 +774,8 @@ func (t *ResponsesWriter) ResetAttempt() {
 	t.finishReason = ""
 	t.toolItems = map[int]*responsesToolItem{}
 	t.pendingReasoning.Reset()
+	t.reasoningItems = nil
+	t.lifecycle.RewindOutput(t.nextOutputIndex())
 	t.providerUsageState = providerUsageState{}
 	t.toolLedger = NewToolCallLedger()
 }

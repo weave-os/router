@@ -165,3 +165,58 @@ func TestResponsesWriter_ResetAttemptDropsFailedAttemptReasoning(t *testing.T) {
 	}
 	assert.Equal(t, "Need both.", summary)
 }
+
+func TestResponsesWriter_RetryAfterFlushedReasoningDropsStaleReasoningItems(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "client-model")
+	require.NoError(t, w.Prelude(true))
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+	_, err := w.Write([]byte("data: {\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"Stale.\"},\"finish_reason\":null}]}\n\n" +
+		"data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_a\",\"type\":\"function\",\"function\":{\"name\":\"Read\",\"arguments\":\"{}\"}}]},\"finish_reason\":null}]}\n\n"))
+	require.NoError(t, err)
+	w.ResetAttempt()
+	_, err = w.Write([]byte(chatSplitReasoningThenText))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+
+	var output gjson.Result
+	for _, frame := range reasoningToResponsesDataFrames(rec.Body.String()) {
+		if frame.Get("type").Str == "response.completed" {
+			output = frame.Get("response.output")
+		}
+	}
+	assert.Equal(t, []string{"reasoning", "message"}, outputTypes(output))
+	assert.Equal(t, "Need both.", output.Get("0.summary.0.text").Str)
+}
+
+const chatToolThenReasoningThenText = "data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_a\",\"type\":\"function\",\"function\":{\"name\":\"Read\",\"arguments\":\"{}\"}}]},\"finish_reason\":null}]}\n\n" +
+	"data: {\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"Now answer.\"},\"finish_reason\":null}]}\n\n" +
+	"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Done.\"},\"finish_reason\":null}]}\n\n" +
+	"data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n" +
+	"data: [DONE]\n\n"
+
+func TestResponsesWriter_CompletedOutputFollowsAssignedOutputIndex(t *testing.T) {
+	assigned := map[string]int64{}
+	var output gjson.Result
+	for _, frame := range streamedChatReasoning(t, chatToolThenReasoningThenText) {
+		switch frame.Get("type").Str {
+		case "response.output_item.added":
+			assigned[frame.Get("item.id").Str] = frame.Get("output_index").Int()
+		case "response.completed":
+			output = frame.Get("response.output")
+		}
+	}
+	assert.Equal(t, []string{"function_call", "reasoning", "message"}, outputTypes(output))
+	for position, item := range output.Array() {
+		assert.EqualValues(t, position, assigned[item.Get("id").Str], item.Get("type").Str)
+	}
+}
+
+func outputTypes(output gjson.Result) []string {
+	var out []string
+	for _, item := range output.Array() {
+		out = append(out, item.Get("type").Str)
+	}
+	return out
+}
