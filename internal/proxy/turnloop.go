@@ -407,7 +407,7 @@ func (s *Service) routeWithoutPin(
 	forceModelFound bool,
 	forceModelPin sessionpin.Pin,
 ) (turnLoopResult, error) {
-	if forceModelFound && forcedPinEligible(forceModelPin, req) {
+	if forceModelFound && res.TurnType != turntype.Classifier && forcedPinEligible(forceModelPin, req) {
 		res.Decision = pinDecision(forceModelPin)
 		res.Decision.Reason = translate.ReasonUserForceModel
 		res.StickyHit = true
@@ -420,7 +420,7 @@ func (s *Service) routeWithoutPin(
 		res.UsageBypass = true
 		return res, nil
 	}
-	if dec, ok := s.classifierModelDecision(ctx, reqHeaders, req, res.TurnType); ok {
+	if dec, ok := s.classifierModelDecision(ctx, req, res.TurnType); ok {
 		res.Decision = dec
 		res.CallerModelPassthrough = true
 		res.Origin = policy.OverrideSourceDeployment
@@ -435,19 +435,15 @@ func (s *Service) routeWithoutPin(
 	return res, nil
 }
 
-func (s *Service) classifierModelDecision(ctx context.Context, headers http.Header, req router.Request, tt turntype.TurnType) (router.Decision, bool) {
-	if tt != turntype.Classifier || subscriptionStateModelsEnabled(ctx) || !catalog.PermittedBy(req.ProductEligibility, policy.ClassifierModel) {
+func (s *Service) classifierModelDecision(ctx context.Context, req router.Request, tt turntype.TurnType) (router.Decision, bool) {
+	if tt != turntype.Classifier || subscriptionStateModelsEnabled(ctx) || !catalog.PermittedBy(req.ProductEligibility, req.RequestedModel) {
 		return router.Decision{}, false
 	}
-	if _, anthropicSub := presentSubscriptionTokens(ctx, headers); anthropicSub != "" {
-		return router.Decision{}, false
-	}
-	req.RequestedModel = policy.ClassifierModel
 	dec, err := s.callerModelPassthroughDecision(ctx, req)
 	if err != nil || !s.clients.Has(dec.Provider) {
 		return router.Decision{}, false
 	}
-	dec.Reason = reasonClassifierModel
+	dec.Reason = reasonClassifierRequestedModel
 	return dec, true
 }
 
@@ -666,7 +662,7 @@ func (s *Service) runTurnLoop(
 	if !forceModelFound {
 		forceModelPin, forceModelFound, forceModelCleared = s.loadForceModelSessionPin(ctx, forceModelSessionKey, threadSessionKey, turntype.IsSubAgent(env, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx))))
 	}
-	if forceModelFound {
+	if forcePinBindsNonClassifierTurn(forceModelFound, res.TurnType) {
 		binding, reason := s.forcedModelBinding(ctx, forceModelPin.Model, forceModelPin.Provider)
 		if reason != "" {
 			return res, &ForcedModelExcludedError{Model: forceModelPin.Model, Reason: reason}
@@ -2324,4 +2320,8 @@ func (s *Service) hardPinBlockedByContextWindow(hardPinReq HardPinRequest, req r
 	hardPinReq.ExcludedModels = nonSizeExcluded
 	_, _, ok := s.hardPinResolver(hardPinReq)
 	return ok
+}
+
+func forcePinBindsNonClassifierTurn(found bool, tt turntype.TurnType) bool {
+	return found && tt != turntype.Classifier
 }
