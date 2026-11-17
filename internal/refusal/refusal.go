@@ -38,6 +38,7 @@ const (
 	ServingSnapshotUnavailable
 	ServingAttributionUnavailable
 	SubscriptionUnavailableForTurn
+	RequestBodyBudgetExhausted
 	kindCount
 )
 
@@ -83,6 +84,7 @@ var contracts = [kindCount]Contract{
 	ServingSnapshotUnavailable:     {Status: http.StatusServiceUnavailable, Code: "serving_snapshot_unavailable", Message: "The admitted serving snapshot is unavailable."},
 	ServingAttributionUnavailable:  {Status: http.StatusServiceUnavailable, Code: "serving_attribution_unavailable", Message: "Request attribution is unavailable."},
 	SubscriptionUnavailableForTurn: {Status: http.StatusPaymentRequired, Code: "subscription_unavailable_for_turn", NoClientRetry: true, Message: "Your subscription can't serve this turn."},
+	RequestBodyBudgetExhausted:     {Status: http.StatusServiceUnavailable, Code: "request_body_budget_exhausted", RetryAfter: true, Message: "This router is processing too many large requests. Retry in a few moments."},
 }
 
 func (k Kind) Contract() Contract {

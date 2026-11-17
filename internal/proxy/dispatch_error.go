@@ -74,6 +74,7 @@ const (
 	DispatchErrorWeaveCreditsDisabled
 	DispatchErrorSubscriptionUnavailableForTurn
 	DispatchErrorNoEligibleArm
+	DispatchErrorRequestBodyTooLarge
 )
 
 type DispatchErrorClass struct {
@@ -300,14 +301,8 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "warn",
 			LogMessage: "Gateway-exclusive routing has no aliased model",
 		}, true
-	case errors.Is(err, policy.ErrImageLimitExceeded):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorImageLimitExceeded,
-			Status:     http.StatusBadRequest,
-			Message:    "This request carries more images than any model available to it accepts in one request. Send fewer images (or start a new conversation without earlier screenshots).",
-			LogLevel:   "warn",
-			LogMessage: "Request image count exceeds every eligible model's limit",
-		}, true
+	case errors.Is(err, policy.ErrRequestBodyTooLarge), errors.Is(err, policy.ErrImageLimitExceeded):
+		return requestLimitClass(err), true
 	case errors.Is(err, policy.ErrNoProviderCredentials):
 		return noEligibleProviderClass(), true
 	case errors.Is(err, policy.ErrNoRoutableModels), errors.Is(err, policy.ErrNoEligibleArm):
@@ -389,7 +384,7 @@ func (k DispatchErrorKind) IsClientError() bool {
 	switch k {
 	case DispatchErrorClassifierHistory, DispatchErrorClassifierInputTooLong:
 		return true
-	case DispatchErrorRequestNotJSONObject, DispatchErrorResponsesChatCompletionsBody, DispatchErrorNoEligibleProvider, DispatchErrorAllowlistEmptiesPool, DispatchErrorContextWindowExceeded, DispatchErrorImageLimitExceeded, DispatchErrorInvalidRoutingKnobs, DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded, DispatchErrorForcedModelUnknown, DispatchErrorPassthroughModelUnknown, DispatchErrorForcedClusterUnsupportedStrategy, DispatchErrorForcedClusterUnservable, DispatchErrorGatewayServesNoModel, DispatchErrorNoRoutableModels, DispatchErrorPlanOverrideRejected, DispatchErrorProductIneligible, DispatchErrorSubscriptionClientAppRefused, DispatchErrorNoEligibleArm:
+	case DispatchErrorRequestNotJSONObject, DispatchErrorResponsesChatCompletionsBody, DispatchErrorNoEligibleProvider, DispatchErrorAllowlistEmptiesPool, DispatchErrorContextWindowExceeded, DispatchErrorImageLimitExceeded, DispatchErrorRequestBodyTooLarge, DispatchErrorInvalidRoutingKnobs, DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded, DispatchErrorForcedModelUnknown, DispatchErrorPassthroughModelUnknown, DispatchErrorForcedClusterUnsupportedStrategy, DispatchErrorForcedClusterUnservable, DispatchErrorGatewayServesNoModel, DispatchErrorNoRoutableModels, DispatchErrorPlanOverrideRejected, DispatchErrorProductIneligible, DispatchErrorSubscriptionClientAppRefused, DispatchErrorNoEligibleArm:
 		return true
 	default:
 		return false

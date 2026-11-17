@@ -39,6 +39,10 @@ type serverProxyResponseRecorder struct {
 	done        bool
 }
 
+func (w *serverProxyResponseRecorder) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
 func (w *serverProxyResponseRecorder) Write(b []byte) (int, error) {
 	w.scan(b)
 	if w.Header().Get("Content-Type") == "" {

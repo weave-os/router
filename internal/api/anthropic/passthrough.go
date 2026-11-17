@@ -5,7 +5,9 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router/catalog"
 
 	"github.com/gin-gonic/gin"
 )
@@ -14,13 +16,13 @@ func PassthroughHandler(svc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 
-		body, err := io.ReadAll(io.LimitReader(c.Request.Body, proxy.MaxRequestBodyBytes+1))
+		body, err := io.ReadAll(io.LimitReader(c.Request.Body, int64(catalog.MaxRequestBodyBytesForProvider(providers.ProviderAnthropic))+1))
 		if err != nil {
 			log.Debug("Failed to read passthrough request body", "err", err)
 			writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body.")
 			return
 		}
-		if len(body) > proxy.MaxRequestBodyBytes {
+		if len(body) > catalog.MaxRequestBodyBytesForProvider(providers.ProviderAnthropic) {
 			logOversizeBody(log, c.Request)
 			writeAnthropicError(c, http.StatusRequestEntityTooLarge, "invalid_request_error", "Request body too large.")
 			return

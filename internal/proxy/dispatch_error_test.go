@@ -38,6 +38,15 @@ func TestClassifyDispatchError_ClaudeEnterpriseOnlyIsNotRetryable(t *testing.T) 
 	require.Contains(t, classification.Message, "Enterprise-only billing")
 }
 
+func TestClassifyDispatchError_RequestBodyTooLarge(t *testing.T) {
+	err := fmt.Errorf("route: %w", policy.ErrRequestBodyTooLarge)
+	classification, ok := proxy.ClassifyDispatchError(err)
+	require.True(t, ok)
+	assert.Equal(t, proxy.DispatchErrorRequestBodyTooLarge, classification.Kind)
+	assert.Equal(t, http.StatusRequestEntityTooLarge, classification.Status)
+	assert.True(t, classification.Kind.IsClientError())
+}
+
 func TestClassifyDispatchError_ImageLimitExceeded(t *testing.T) {
 	err := fmt.Errorf("route: %w", policy.ErrImageLimitExceeded)
 	classification, ok := proxy.ClassifyDispatchError(err)

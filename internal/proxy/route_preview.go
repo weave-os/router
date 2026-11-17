@@ -72,7 +72,7 @@ func (s *Service) anthropicRoutingRequest(
 		return ctx, router.Request{}, err
 	}
 	features := env.RoutingFeatures()
-	ctx = withRequestImageCount(ctx, features.ImageCount)
+	ctx = withRequestShape(ctx, features.ImageCount, len(body))
 	promptText := features.PromptText
 	if features.OnlyUserMessageText != "" {
 		promptText = features.OnlyUserMessageText
@@ -150,5 +150,5 @@ func (s *Service) PreviewAnthropicRoute(ctx context.Context, body []byte, header
 	if !ok {
 		return policy.PreviewResult{}, fmt.Errorf("strategy %q has no route preview contract: %w", strategy, registered.unavailable)
 	}
-	return previewer.PreviewRoute(ctx, req)
+	return previewer.PreviewRoute(ctx, withRequestBodyBytes(ctx, req))
 }

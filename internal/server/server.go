@@ -127,15 +127,15 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		subscriberAllowanceMiddleware = []gin.HandlerFunc{middleware.WithSubscriberAllowance(features.SubscriberAllowance)}
 		subscriberProductScopeMiddleware = []gin.HandlerFunc{middleware.WithSubscriberProductScope(features.SubscriberAllowance)}
 	}
-	var servingAdmissionMiddleware []gin.HandlerFunc
+	postAuthMiddleware := []gin.HandlerFunc{middleware.WithRequestBodyBudget(middleware.RequestBodyBudgetBytes, middleware.DefaultRequestBodyReadLimits)}
 	if features.ServingAdmission != nil {
-		servingAdmissionMiddleware = []gin.HandlerFunc{middleware.WithServingAdmission(features.ServingAdmission)}
+		postAuthMiddleware = append(postAuthMiddleware, middleware.WithServingAdmission(features.ServingAdmission))
 		engine.POST(policyregistry.WorkerValidationPath, middleware.WithTimeout(30*time.Second), middleware.WithInternalServiceAuth(strings.TrimSpace(os.Getenv("ROUTER_INTERNAL_SERVICE_TOKEN"))), middleware.ServingValidationHandler(features.ServingAdmission))
 	}
 	var discoveryMiddleware []gin.HandlerFunc
 	if features.ServingAdmission != nil {
 		discoveryMiddleware = append(discoveryMiddleware, middleware.WithAuth(authSvc, byokRequiresOptIn, features.ServingAdmission))
-		discoveryMiddleware = append(discoveryMiddleware, servingAdmissionMiddleware...)
+		discoveryMiddleware = append(discoveryMiddleware, postAuthMiddleware...)
 	}
 	discovery := engine.Group("", discoveryMiddleware...)
 	if features.ServingAdmission != nil && mode == DeploymentModeManaged {
@@ -209,15 +209,15 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 
 	adminAuthed := engine.Group("", middleware.WithTimeout(validateTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn, features.ServingAdmission))
 	threadHandlers := []gin.HandlerFunc{middleware.WithTimeout(validateTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn, features.ServingAdmission)}
-	threadHandlers = append(threadHandlers, servingAdmissionMiddleware...)
+	threadHandlers = append(threadHandlers, postAuthMiddleware...)
 	threadHandlers = append(threadHandlers, classifierapi.StartThreadHandler(proxySvc))
 	engine.POST("/v1/router/threads", threadHandlers...)
-	adminAuthed.Use(servingAdmissionMiddleware...)
+	adminAuthed.Use(postAuthMiddleware...)
 	adminAuthed.GET("/validate", admin.ValidateHandler)
 	adminAuthed.POST("/v1/client-events", admin.ClientEventHandler(authSvc))
 	if authSvc.SubscriptionAccountsEnabled() {
 		subscriptionGroup := engine.Group("/v1", middleware.WithTimeout(subscriptionAccountTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn, features.ServingAdmission))
-		subscriptionGroup.Use(servingAdmissionMiddleware...)
+		subscriptionGroup.Use(postAuthMiddleware...)
 		subscriptionsapi.Register(subscriptionGroup, authSvc)
 	}
 
@@ -277,7 +277,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithTimeout(messagesTimeout),
 		middleware.WithAuth(authSvc, byokRequiresOptIn, features.ServingAdmission),
 	}
-	messagesMiddleware = append(messagesMiddleware, servingAdmissionMiddleware...)
+	messagesMiddleware = append(messagesMiddleware, postAuthMiddleware...)
 	messagesMiddleware = append(messagesMiddleware, middleware.WithAgentShadowEvaluation())
 	messagesMiddleware = append(messagesMiddleware, subscriberAllowanceMiddleware...)
 	if billingSvc != nil {
@@ -308,7 +308,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithTimeout(chatCompletionTimeout),
 		middleware.WithAuth(authSvc, byokRequiresOptIn, features.ServingAdmission),
 	}
-	chatCompletionMiddleware = append(chatCompletionMiddleware, servingAdmissionMiddleware...)
+	chatCompletionMiddleware = append(chatCompletionMiddleware, postAuthMiddleware...)
 	chatCompletionMiddleware = append(chatCompletionMiddleware, subscriberAllowanceMiddleware...)
 	if billingSvc != nil {
 		chatCompletionMiddleware = append(chatCompletionMiddleware,
@@ -336,7 +336,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	chatCompletionWithoutPolicyPinGroup.POST("/v1/responses", openaiapi.ResponsesHandler(proxySvc, authSvc))
 	chatCompletionWithoutPolicyPinGroup.POST("/v1beta/models/:modelAction", geminiapi.GenerateContentHandler(proxySvc, authSvc))
 
-	registerClientPassthroughRoutes(engine, authSvc, proxySvc, byokRequiresOptIn, features.ServingAdmission, servingAdmissionMiddleware)
+	registerClientPassthroughRoutes(engine, authSvc, proxySvc, byokRequiresOptIn, features.ServingAdmission, postAuthMiddleware)
 
 	sessionCostGroup := engine.Group("",
 		middleware.WithTimeout(sessionCostTimeout),
@@ -349,7 +349,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithTimeout(routeTimeout),
 		middleware.WithAuth(authSvc, byokRequiresOptIn, features.ServingAdmission),
 	}
-	routeMiddleware = append(routeMiddleware, servingAdmissionMiddleware...)
+	routeMiddleware = append(routeMiddleware, postAuthMiddleware...)
 	routeMiddleware = append(routeMiddleware, subscriberProductScopeMiddleware...)
 	if billingSvc != nil {
 		routeMiddleware = append(routeMiddleware,
@@ -378,7 +378,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithTimeout(routeTimeout),
 		middleware.WithAuth(authSvc, byokRequiresOptIn, features.ServingAdmission),
 	}
-	previewMiddleware = append(previewMiddleware, servingAdmissionMiddleware...)
+	previewMiddleware = append(previewMiddleware, postAuthMiddleware...)
 	previewMiddleware = append(previewMiddleware, subscriberProductScopeMiddleware...)
 	previewMiddleware = append(previewMiddleware,
 		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),

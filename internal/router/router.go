@@ -79,6 +79,7 @@ type Request struct {
 	HasTools                     bool
 	HasImages                    bool
 	ImageCount                   int
+	RequestBodyBytes             int
 	TranslationRequirements      TranslationRequirements
 	ReasoningConfigurationSHA256 string
 	ToolConfigurationSHA256      string

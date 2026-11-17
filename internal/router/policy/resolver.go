@@ -38,6 +38,7 @@ const (
 	ExclusionAmbiguousRoster     ExclusionReason = "ambiguous_roster_id"
 	ExclusionContextWindow       ExclusionReason = "context_window"
 	ExclusionImageLimit          ExclusionReason = "image_limit"
+	ExclusionRequestBodySize     ExclusionReason = "request_body_size"
 	ExclusionUnsignedHistory     ExclusionReason = "unsigned_history"
 	ExclusionGatewayNotServed    ExclusionReason = "gateway_not_served"
 	ExclusionAutomaticDisabled   ExclusionReason = "automatic_disabled"
@@ -304,9 +305,9 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 				diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: ExclusionGatewayNotServed})
 				continue
 			}
-			allowedBindings = imageEligibleBindings(allowedBindings, req.ImageCount)
+			allowedBindings, exclusion := requestEligibleBindings(allowedBindings, req)
 			if len(allowedBindings) == 0 {
-				diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: ExclusionImageLimit})
+				diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: exclusion})
 				continue
 			}
 			base = r.appendCandidates(base, candidateContext{
@@ -334,9 +335,9 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: reason})
 			continue
 		}
-		allowedBindings = imageEligibleBindings(allowedBindings, req.ImageCount)
+		allowedBindings, exclusion := requestEligibleBindings(allowedBindings, req)
 		if len(allowedBindings) == 0 {
-			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: ExclusionImageLimit})
+			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: exclusion})
 			continue
 		}
 
@@ -394,19 +395,6 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 		}
 	}
 	return resolved
-}
-
-func imageEligibleBindings(bindings []catalog.IndexedBinding, imageCount int) []catalog.IndexedBinding {
-	if imageCount <= 0 {
-		return bindings
-	}
-	filtered := make([]catalog.IndexedBinding, 0, len(bindings))
-	for _, binding := range bindings {
-		if binding.AcceptsImageCount(imageCount) {
-			filtered = append(filtered, binding)
-		}
-	}
-	return filtered
 }
 
 func (r ResolvedCandidates) BindingForSelection(armID, rosterID string) (Binding, bool) {

@@ -13,6 +13,7 @@ type BindingRequest struct {
 	SubscriptionServes       bool
 	Excluded                 map[string]struct{}
 	ImageCount               int
+	RequestBodyBytes         int
 	UserForced               bool
 	ForceModel               bool
 }
@@ -22,17 +23,21 @@ func OrderedBindings(req BindingRequest) []catalog.ProviderBinding {
 	primary := catalog.ProviderBinding{Provider: decision.Provider}
 	if req.DeploymentKeyedProviders == nil {
 		if binding, ok := catalog.BindingFor(decision.Model, decision.Provider); ok &&
-			!binding.AcceptsImageCount(req.ImageCount) && !req.UserForced {
+			(!binding.AcceptsImageCount(req.ImageCount) && !req.UserForced || !binding.AcceptsRequestBodyBytes(req.RequestBodyBytes)) {
 			return nil
 		}
 		return []catalog.ProviderBinding{primary}
 	}
 	_, primaryExcluded := req.Excluded[decision.Provider]
-	indexedBindings, imagePrimaryExcluded, ok := imageCapableBindings(catalog.EnumerateBindings(decision.Model, eligibleProviders(req)), req)
+	indexedBindings, bodyPrimaryExcluded, ok := bodySizeEligibleBindings(catalog.EnumerateBindings(decision.Model, eligibleProviders(req)), req)
 	if !ok {
 		return nil
 	}
-	primaryExcluded = primaryExcluded || imagePrimaryExcluded
+	indexedBindings, imagePrimaryExcluded, ok := imageCapableBindings(indexedBindings, req)
+	if !ok {
+		return nil
+	}
+	primaryExcluded = primaryExcluded || bodyPrimaryExcluded || imagePrimaryExcluded
 	bindings := make([]catalog.ProviderBinding, 0, len(indexedBindings))
 	for _, binding := range indexedBindings {
 		bindings = append(bindings, binding.ProviderBinding)
