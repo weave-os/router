@@ -48,6 +48,7 @@ type bypassFakeProvider struct {
 	dispatches   int
 	capturedW    http.ResponseWriter
 	capturedBody []byte
+	capturedHdr  http.Header
 	capturedR    *http.Request
 	capturedCtx  context.Context
 	capturedDec  router.Decision
@@ -62,6 +63,7 @@ func (f *bypassFakeProvider) Proxy(ctx context.Context, decision router.Decision
 	f.capturedW = w
 	f.capturedR = r
 	f.capturedBody = append([]byte(nil), prep.Body...)
+	f.capturedHdr = prep.Headers.Clone()
 	if f.respBody != "" {
 		_, _ = io.WriteString(w, f.respBody)
 	}

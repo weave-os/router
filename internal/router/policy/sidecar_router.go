@@ -398,8 +398,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	if len(resolved.Candidates) == 0 {
 		observability.FromContext(ctx).Error("Policy router resolved no eligible candidate",
 			append([]any{"strategy", strategy}, candidateLogFields(resolved)...)...)
-		return router.Decision{}, fmt.Errorf("%s: no eligible candidate: %w: %w",
-			strategy, emptyCandidateError(resolved.Diagnostics), r.config.Unavailable)
+		return router.Decision{}, fmt.Errorf("%s: no eligible candidate: %w", strategy, emptyCandidateError(resolved.Diagnostics))
 	}
 	requestRouteID := uuid.NewString()
 	pin, pinned := router.HonouredPolicyPin(ctx)
@@ -497,7 +496,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 					Reason:  fmt.Sprintf("no model in cluster %q can serve this request", req.ForceCluster),
 				}
 			}
-			return router.Decision{}, fmt.Errorf("%s: arm selection: %w: %w", strategy, selectErr, r.config.Unavailable)
+			return router.Decision{}, armSelectionError(fmt.Sprintf("%s: arm selection", strategy), selectErr, r.config.Unavailable)
 		}
 		if escalationDecision != nil {
 			escalationDecision.Constrained = constrained
@@ -762,7 +761,7 @@ func (r *SidecarRouter) RouteWithoutUserText(ctx context.Context, req router.Req
 		if errors.Is(err, router.ErrPolicyPinUnavailable) {
 			return router.Decision{}, fmt.Errorf("%s: unscorable roster selection: %w", r.config.Strategy, err)
 		}
-		return router.Decision{}, fmt.Errorf("%s: unscorable roster selection: %w: %w", r.config.Strategy, err, r.config.Unavailable)
+		return router.Decision{}, armSelectionError(fmt.Sprintf("%s: unscorable roster selection", r.config.Strategy), err, r.config.Unavailable)
 	}
 	selectedArm := pick.Arm
 	selectedGroup := pick.Group

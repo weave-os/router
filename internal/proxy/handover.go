@@ -357,9 +357,9 @@ func (s *Service) runCompactionHandover(ctx context.Context, env *translate.Requ
 		} else {
 			summCtx = clearCredentials(ctx)
 		}
-		start := time.Now()
+		start := s.clock.Now()
 		summary, summaryUsage, sumErr := summarizer.Summarize(summCtx, env, scope)
-		out.LatencyMS = time.Since(start).Milliseconds()
+		out.LatencyMS = s.clock.Now().Sub(start).Milliseconds()
 		switch {
 		case sumErr != nil:
 			out.FallbackToFullHistory = true

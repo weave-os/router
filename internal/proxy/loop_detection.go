@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/binary"
 	"strings"
-	"time"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -220,7 +219,7 @@ func (s *Service) handleLoopEscalation(
 			Reason:          translate.ReasonLoopEscalation,
 			Strategy:        router.StrategyFromContext(ctx),
 			TurnCount:       1,
-			PinnedUntil:     time.Now().Add(pinSessionTTL),
+			PinnedUntil:     s.clock.Now().Add(pinSessionTTL),
 			LastServedModel: lastServed,
 		}
 		if err := s.pinStore.Upsert(context.WithoutCancel(ctx), pin); err != nil {

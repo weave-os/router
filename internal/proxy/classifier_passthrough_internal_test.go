@@ -177,7 +177,7 @@ func TestRunTurnLoop_ClassifierPassthrough_NoSessionState(t *testing.T) {
 	assert.False(t, res.SessionEverSwitched)
 }
 
-func TestRunTurnLoop_ClassifierForceModel_OutranksPassthrough(t *testing.T) {
+func TestRunTurnLoop_ClassifierForceModel_DoesNotApply(t *testing.T) {
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-haiku-4-5","max_tokens":5,"messages":[{"role":"user","content":"hello"}]}`))
 	require.NoError(t, err)
 	feats := env.RoutingFeatures()
@@ -187,9 +187,9 @@ func TestRunTurnLoop_ClassifierForceModel_OutranksPassthrough(t *testing.T) {
 	res, err := svc.runTurnLoop(ctx, env, feats, "api-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: feats.Model, ForceModel: "claude-sonnet-5"})
 
 	require.NoError(t, err)
-	assert.False(t, res.UsageBypass)
-	assert.Equal(t, translate.ReasonUserForceModel, res.Decision.Reason)
-	assert.Equal(t, "claude-sonnet-5", res.Decision.Model)
+	assert.True(t, res.UsageBypass)
+	assert.Equal(t, reasonClassifierPassthrough, res.Decision.Reason)
+	assert.Equal(t, "claude-haiku-4-5", res.Decision.Model)
 }
 
 // The telemetry row for a passthrough classifier carries the lane's own

@@ -669,7 +669,7 @@ sweep backstops any lost signal.
 | --------------------------------- | ---------------------------- | ------- |
 | `ROUTER_DEFAULT_STRATEGY`         | `hmm_embedding`              | Strategy used when an installation has no persisted strategy (a persisted `cluster` also follows it). Change only after the policy rollout gate passes. Beta lanes and `llm_classifier` are opt-in per installation and fail boot as a default. The router refuses to boot, and `/readyz` fails, when this strategy has no router configured (e.g. `hmm_embedding` without `ROUTER_POLICY_ENVIRONMENT`); the retired value `cluster` also fails boot. Requests whose persisted or default strategy is unregistered or unavailable get `503 routing_strategy_unavailable`. Managed serving workers (`ROUTER_DEPLOYMENT_MODE=managed` with `ROUTER_SERVING_TARGET`) additionally refuse to boot unless it is set to one of the policy strategies they register (`hmm`, `hmm_embedding`). |
 | `ROUTER_STICKY_DECISION_TTL_MS`   | `0` (disabled)               | Reuse a routing decision per API key for this many ms. |
-| `ROUTER_SESSION_PIN_ENABLED`      | `true`                       | Pin a session to its first-routed model so multi-turn conversations stay coherent. |
+| `ROUTER_SESSION_PIN_ENABLED`      | `true`                       | Pin a session to its first-routed model so multi-turn conversations stay coherent. When on, the `session_pin_enabled` flag can turn pinning off per organization or request; when off, the pin store is not built and the flag has no effect. |
 | `ROUTER_HARD_PIN_MODEL`           | *(none)*                     | Force every request to a specific model, bypassing the routing policy. Debugging only. Without this explicit override, titles and probes with auto/empty/`weave-*` routing models are scored independently, while provider/quota probes with concrete models preserve their requested target; none anchors an automatic conversation pin. |
 | `ROUTER_HARD_PIN_PROVIDER`        | *(none)*                     | Pair with `ROUTER_HARD_PIN_MODEL`. |
 | `ROUTER_HARD_PIN_EXPLORE`         | `true`                       | Pin Claude Code Task-tool sub-agent turns to `ROUTER_HARD_PIN_MODEL`/`ROUTER_HARD_PIN_PROVIDER` (or the cheapest deployed model, if those are unset). Set `false` to route sub-agents through the routing policy like any other turn. Ignored under the HMM strategy, whose classifier selects sub-agent turns like any other turn. |
@@ -1084,6 +1084,17 @@ The request header is ignored unless the installation explicitly enables
 policy-header overrides. `x-weave-router-debug` follows the same authorization
 rule and cannot enable training. Shadow decisions are always non-dispatching,
 non-debug, and non-learning.
+
+`x-weave-flag-overrides` follows the same authorization rule. Its value is a
+JSON object of org-overridable flag keys, for example
+`{"planner_enabled":false,"escalation_active_classifier":"none"}`, validated by
+the same registry as stored org overrides and layered over them for that
+request only, so benchmark arms on one installation can each disable different
+components. For an authorized installation an unknown, non-overridable or
+invalid value is HTTP 400 (`flag_overrides_malformed`); for every other
+installation, or when `ROUTER_FLAG_OVERRIDES_DISABLED` is set, the header is
+ignored. Session-scoped behavior (pins, planner stays, escalation state) reads
+the flags on each turn, so send the same header on every turn of a session.
 
 ## BYOK encryption
 
