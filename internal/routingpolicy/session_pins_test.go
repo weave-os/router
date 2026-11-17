@@ -53,7 +53,7 @@ func strategyCtx() context.Context {
 func TestSessionPinsLoadWithStoreState(t *testing.T) {
 	ctx := strategyCtx()
 	store := newMemPinStore()
-	pins := routingpolicy.NewSessionPins(store)
+	pins := routingpolicy.NewSessionPins(store, time.Now)
 
 	_, active, noStoredState := pins.LoadWithStoreState(ctx, sessionKey, "main")
 	assert.False(t, active)
@@ -82,7 +82,7 @@ func TestSessionPinsLoadWithStoreState(t *testing.T) {
 func TestSessionPinsWriteNewAndRefresh(t *testing.T) {
 	ctx := strategyCtx()
 	store := newMemPinStore()
-	pins := routingpolicy.NewSessionPins(store)
+	pins := routingpolicy.NewSessionPins(store, time.Now)
 	installation := uuid.New()
 
 	pins.WriteNew(ctx, uuid.Nil, sessionKey, "main", router.Decision{Model: "m"})
@@ -111,10 +111,12 @@ func TestSessionPinsWriteNewAndRefresh(t *testing.T) {
 }
 
 func TestSessionPinsForcedPinsNeverExpire(t *testing.T) {
-	assert.Equal(t, routingpolicy.PinNeverExpires, routingpolicy.PinExpiry(translate.ReasonUserForceModel))
+	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	assert.Equal(t, routingpolicy.PinNeverExpires, routingpolicy.PinExpiry(translate.ReasonUserForceModel, now))
+	assert.Equal(t, now.Add(routingpolicy.PinSessionTTL), routingpolicy.PinExpiry("cluster", now))
 
 	store := newMemPinStore()
-	pins := routingpolicy.NewSessionPins(store)
+	pins := routingpolicy.NewSessionPins(store, time.Now)
 	pins.AnchorForceModelHistory(strategyCtx(), uuid.New(), sessionKey, "", sessionpin.Pin{Provider: "p", Model: "forced"})
 	history, ok := store.pins[pinKey{sessionKey, routingpolicy.ForceModelHistoryRole("")}]
 	require.True(t, ok)
@@ -125,7 +127,7 @@ func TestSessionPinsForcedPinsNeverExpire(t *testing.T) {
 func TestSessionPinsLoadHMMHistory(t *testing.T) {
 	ctx := strategyCtx()
 	store := newMemPinStore()
-	pins := routingpolicy.NewSessionPins(store)
+	pins := routingpolicy.NewSessionPins(store, time.Now)
 	store.pins[pinKey{sessionKey, routingpolicy.HMMHistoryRole("")}] = sessionpin.Pin{Model: "prior", Strategy: "hmm", PinnedUntil: time.Now().Add(-time.Hour)}
 
 	assert.Equal(t, "prior", pins.LoadHMMHistory(ctx, sessionKey, "").Model, "history survives pin expiry")

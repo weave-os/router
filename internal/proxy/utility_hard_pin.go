@@ -5,8 +5,6 @@ import (
 	"weave-os/router/internal/router/policy"
 )
 
-// CatalogUtilityHardPin is the production HardPinResolver: the catalog utility
-// target for the request's enabled providers, exclusions and bindings.
 func CatalogUtilityHardPin(req HardPinRequest) (provider, model string, ok bool) {
 	return policy.UtilityTarget(policy.UtilityTargetRequest{
 		EnabledProviders: req.EnabledProviders,

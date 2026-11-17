@@ -144,7 +144,7 @@ func TestCodexOutOfRosterModel_SubscriptionFirstFunding(t *testing.T) {
 				}
 				body := `{"model":"codex-auto-review","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic"}]}]}`
 				rec := httptest.NewRecorder()
-				err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest("/v1/responses", body))
+				err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/responses", body))
 
 				if tc.wantErr {
 					require.Error(t, err)
@@ -213,7 +213,7 @@ func TestCodexOutOfRosterModel_ManagedPoolFundsBeforeAPICredential(t *testing.T)
 			}
 			ctx = outOfRosterBillingCtx(ctx)
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(body))
 
 			err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, req)
 			if tc.wantErr {
@@ -245,7 +245,7 @@ func TestCodexOutOfRosterModel_ChatOnlyRequestDoesNotBypassIncludedQuota(t *test
 	ctx := outOfRosterBillingCtx(codexSubscriptionTestCtx())
 	body := `{"model":"gpt-6-astra","stream":true,"n":2,"messages":[{"role":"user","content":"synthetic"}]}`
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 
 	require.Error(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, req))
 	assert.Empty(t, client.attempts, "unsupported subscription transport does not establish quota exhaustion")
@@ -258,9 +258,9 @@ func TestCodexOutOfRosterModel_ChatOnlyRequestWithoutAPICredentialRefusesBeforeD
 	ctx := outOfRosterBillingCtx(codexSubscriptionTestCtx())
 	body := `{"model":"gpt-6-astra","stream":true,"n":2,"messages":[{"role":"user","content":"synthetic"}]}`
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 
 	err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, req)
-	assert.ErrorIs(t, err, ErrCreditsExhaustedSubscriptionUnavailable)
+	require.ErrorIs(t, err, ErrSubscriptionUnavailableForTurn)
 	assert.Empty(t, client.attempts, "the Codex token must not be sent to Chat Completions without an API fallback")
 }

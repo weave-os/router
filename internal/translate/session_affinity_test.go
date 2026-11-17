@@ -304,6 +304,7 @@ func TestSessionAffinity_OpenAIFallsBackToStablePrefixKey(t *testing.T) {
 	src := []byte(`{"model":"claude-opus-4-7","system":"you are a helpful assistant","tools":[{"name":"read","input_schema":{"type":"object"}}],"messages":[{"role":"user","content":"hi"}],"max_tokens":256}`)
 
 	prepare := func(t *testing.T) string {
+		t.Helper()
 		env, err := translate.ParseAnthropic(src)
 		require.NoError(t, err)
 		out, err := env.PrepareOpenAI(nil, translate.EmitOptions{
@@ -326,6 +327,7 @@ func TestSessionAffinity_OpenAIFallsBackToStablePrefixKey(t *testing.T) {
 // fallback key, so unrelated conversations don't share one cache bucket.
 func TestSessionAffinity_OpenAIFallbackKeyVariesByPrefix(t *testing.T) {
 	keyFor := func(t *testing.T, system string) string {
+		t.Helper()
 		src := []byte(`{"model":"claude-opus-4-7","system":` + system + `,"messages":[{"role":"user","content":"hi"}],"max_tokens":256}`)
 		env, err := translate.ParseAnthropic(src)
 		require.NoError(t, err)

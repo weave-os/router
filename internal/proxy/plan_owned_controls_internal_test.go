@@ -171,7 +171,7 @@ func TestBoostServingKeepsLegacyForceModelPinActive(t *testing.T) {
 	}
 	svc := &Service{pinStore: store}
 
-	pin, active, noStoredState := routingpolicy.NewSessionPins(svc.pinStore).LoadWithStoreState(boostDefaultRoutingContext(), sessionKey, role)
+	pin, active, noStoredState := routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now).LoadWithStoreState(boostDefaultRoutingContext(), sessionKey, role)
 
 	assert.Equal(t, "claude-opus-5", pin.Model)
 	assert.True(t, active)

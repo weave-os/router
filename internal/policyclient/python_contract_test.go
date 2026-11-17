@@ -46,7 +46,7 @@ for payload in payloads:
     assert users and "Inspect the synthetic regression" in users[-1], users
     assert "[missing prompt text]" not in users[-1]
 print(len(payloads))`
-	command := exec.Command(python, "-c", program)
+	command := exec.CommandContext(t.Context(), python, "-c", program)
 	command.Env = append(os.Environ(), "PYTHONPATH="+filepath.Join("..", "..", "sidecars", "hmm"))
 	command.Stdin = bytes.NewReader(wire)
 	output, err := command.CombinedOutput()

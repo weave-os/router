@@ -1,5 +1,3 @@
-// Command replay-switch-policy evaluates frozen, content-free routing proposals.
-// It performs no inference, database access, or serving configuration changes.
 package main
 
 import (

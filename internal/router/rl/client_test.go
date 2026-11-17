@@ -21,7 +21,7 @@ func TestHTTPDeciderPostsContractAndParsesResult(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		raw, _ := io.ReadAll(r.Body)
-		require.NoError(t, json.Unmarshal(raw, &gotBody))
+		assert.NoError(t, json.Unmarshal(raw, &gotBody))
 		// Mirror router_policy_server.py's success envelope.
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"model":       "anthropic/claude-opus-4-8",
@@ -101,4 +101,22 @@ func TestHTTPDeciderSurfacesSidecarError(t *testing.T) {
 	_, err := d.Decide(context.Background(), rl.Query{PromptText: "x"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "policy artifact roster")
+}
+
+func TestHTTPDeciderDoesNotFollowRedirects(t *testing.T) {
+	var redirectedTo bool
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		redirectedTo = true
+		_ = json.NewEncoder(w).Encode(map[string]any{"model": "anthropic/claude-opus-4-8"})
+	}))
+	defer target.Close()
+	sidecar := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/route", http.StatusTemporaryRedirect)
+	}))
+	defer sidecar.Close()
+
+	_, err := rl.NewHTTPDecider(sidecar.URL, nil, 0).Decide(context.Background(), rl.Query{PromptText: "fix the bug"})
+
+	require.Error(t, err)
+	assert.False(t, redirectedTo, "the configured sidecar URL must not be redirected elsewhere")
 }

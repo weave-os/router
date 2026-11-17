@@ -30,8 +30,6 @@ const (
 	metricContextKeys    metric = "context_keys"
 )
 
-// The limits mirror the weave qa gate (clippy's cognitive_complexity, too_many_lines and
-// too_many_arguments defaults, and its guard's file limit).
 var funcLimits = map[metric]int{
 	metricCognitive: 25,
 	metricLines:     100,
@@ -55,7 +53,6 @@ type fileMetrics struct {
 	funcs         []funcMetrics
 }
 
-// measureFiles measures every non-generated file; generated files have no metrics.
 func measureFiles(sources map[string][]byte) (map[string]fileMetrics, error) {
 	measured := make(map[string]fileMetrics, len(sources))
 	for _, filePath := range sortedKeys(sources) {
@@ -115,8 +112,6 @@ func measureFunc(fset *token.FileSet, codeLines map[int]bool, key string, fn *as
 	}
 }
 
-// measureFuncLits measures the function literals directly inside body, keyed by a
-// content hash so an inserted or edited literal never re-keys an unchanged one.
 func measureFuncLits(fset *token.FileSet, codeLines map[int]bool, prefix string, body *ast.BlockStmt) []funcMetrics {
 	var funcs []funcMetrics
 	ast.Inspect(body, func(node ast.Node) bool {
@@ -131,9 +126,6 @@ func measureFuncLits(fset *token.FileSet, codeLines map[int]bool, prefix string,
 	return funcs
 }
 
-// funcLitKey identifies a function literal by its rendered source, so it keeps its
-// identity when other literals are inserted before it and counts as a move (not a
-// rename) when its own body is edited.
 func funcLitKey(prefix string, lit *ast.FuncLit) string {
 	var src bytes.Buffer
 	_ = printer.Fprint(&src, token.NewFileSet(), lit)
@@ -142,8 +134,6 @@ func funcLitKey(prefix string, lit *ast.FuncLit) string {
 	return fmt.Sprintf("%s.func%x", prefix, sum.Sum32())
 }
 
-// measurePackageFuncLits measures function literals in package-level var and const
-// values, keyed <dir>.<var>.func<hash>.
 func measurePackageFuncLits(fset *token.FileSet, codeLines map[int]bool, dir string, decl *ast.GenDecl) []funcMetrics {
 	var funcs []funcMetrics
 	for _, spec := range decl.Specs {
@@ -167,7 +157,6 @@ func measurePackageFuncLits(fset *token.FileSet, codeLines map[int]bool, dir str
 	return funcs
 }
 
-// codeLineSet returns the lines holding at least one non-comment token.
 func codeLineSet(src []byte) map[int]bool {
 	fset := token.NewFileSet()
 	file := fset.AddFile("", fset.Base(), len(src))
@@ -199,9 +188,6 @@ func linesWithin(fset *token.FileSet, fn *ast.FuncDecl, codeLines map[int]bool) 
 	return count
 }
 
-// funcKey identifies a function by package directory, receiver and name, so moving it
-// between files of one package keeps its identity. An external test package (foo_test)
-// is qualified so its helpers can't reuse the tested package's keys.
 func funcKey(dir, filePath, pkg string, fn *ast.FuncDecl) string {
 	name := fn.Name.Name
 	if pkg != path.Base(dir) {
@@ -248,8 +234,6 @@ func countNolint(file *ast.File) int {
 
 var nameMatchers = map[string]bool{"HasPrefix": true, "HasSuffix": true, "Contains": true, "EqualFold": true}
 
-// countModelMatching counts string matches of a model- or provider-named value against
-// a literal, the pattern that hard-codes model quirks outside catalog data.
 func countModelMatching(file *ast.File) int {
 	count := 0
 	ast.Inspect(file, func(node ast.Node) bool {

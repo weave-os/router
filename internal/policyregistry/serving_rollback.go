@@ -7,7 +7,6 @@ import (
 )
 
 func (c *ServingController) validateExactRollback(ctx context.Context, proposal ProposalView) error {
-	// Only the exact historical object may bypass forward profile preservation.
 	snapshot, err := c.store.ReadServingState(ctx, proposal.Target)
 	if err != nil {
 		c.logger.Error("Failed to read exact rollback history", "target", proposal.Target, "selection_set_sha256", proposal.SelectionSet.SHA256, "err", err)

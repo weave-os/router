@@ -22,12 +22,11 @@ import (
 // the translated body and Summary for assertions.
 func driveAnthropicSSEWithSummary(
 	t *testing.T,
-	model string,
 	events []string,
 ) (string, translate.ResponseSummary) {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	translator := translate.NewAnthropicSSETranslator(rec, model, nil)
+	translator := translate.NewAnthropicSSETranslator(rec, "z-ai/glm-5.1", nil)
 	translator.Header().Set("Content-Type", "text/event-stream")
 	translator.WriteHeader(http.StatusOK)
 	for _, e := range events {
@@ -41,7 +40,7 @@ func driveAnthropicSSEWithSummary(
 func TestAnthropicSSETranslator_RepairsTruncatedToolArgs(t *testing.T) {
 	// Truncated JSON (brace/key/colon/string then EOF) is the common GLM/Kimi
 	// max_tokens-cutoff shape; repair closes it, preserving intact args instead of `{}`.
-	body, summary := driveAnthropicSSEWithSummary(t, "z-ai/glm-5.1", []string{
+	body, summary := driveAnthropicSSEWithSummary(t, []string{
 		`data: {"id":"c1","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_x","type":"function","function":{"name":"Edit","arguments":"{\"path\":\"a.go\",\"old_string\":\"hel"}}]},"finish_reason":null}]}` + "\n\n",
 		`data: {"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}` + "\n\n",
 		"data: [DONE]\n\n",
@@ -67,7 +66,7 @@ func TestAnthropicSSETranslator_SubstitutesEmptyArgsWhenUnrepairable(t *testing.
 	// Mismatched closer can't be minimally repaired, so the translator falls
 	// back to `{}`; CC's parser accepts it, the tool errors on missing params,
 	// and CC retries normally instead of dying mid-stream.
-	body, summary := driveAnthropicSSEWithSummary(t, "z-ai/glm-5.1", []string{
+	body, summary := driveAnthropicSSEWithSummary(t, []string{
 		`data: {"id":"c1","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_x","type":"function","function":{"name":"Edit","arguments":"{\"path\":\"a.go\"]"}}]},"finish_reason":null}]}` + "\n\n",
 		`data: {"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}` + "\n\n",
 		"data: [DONE]\n\n",
@@ -83,7 +82,7 @@ func TestAnthropicSSETranslator_SubstitutesEmptyArgsWhenUnrepairable(t *testing.
 }
 
 func TestAnthropicSSETranslator_AcceptsValidToolArgs(t *testing.T) {
-	body, summary := driveAnthropicSSEWithSummary(t, "z-ai/glm-5.1", []string{
+	body, summary := driveAnthropicSSEWithSummary(t, []string{
 		`data: {"id":"c1","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_x","type":"function","function":{"name":"Edit","arguments":"{\"path\":\"a.go\","}}]},"finish_reason":null}]}` + "\n\n",
 		`data: {"id":"c1","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"old_string\":\"x\",\"new_string\":\"y\"}"}}]},"finish_reason":null}]}` + "\n\n",
 		`data: {"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}` + "\n\n",
@@ -102,7 +101,7 @@ func TestAnthropicSSETranslator_AcceptsValidToolArgs(t *testing.T) {
 func TestAnthropicSSETranslator_FlagsEachInvalidBlockIndependently(t *testing.T) {
 	// Two tool_calls, one valid and one unrepairable. Each block is
 	// buffered/validated under its own content-block index, so the count tracks blocks not turns.
-	_, summary := driveAnthropicSSEWithSummary(t, "z-ai/glm-5.1", []string{
+	_, summary := driveAnthropicSSEWithSummary(t, []string{
 		`data: {"id":"c1","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"name":"Read","arguments":"{\"path\":\"a.go\"}"}}]},"finish_reason":null}]}` + "\n\n",
 		`data: {"id":"c1","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"id":"call_b","type":"function","function":{"name":"Edit","arguments":"{\"path\":\"b.go\"]"}}]},"finish_reason":null}]}` + "\n\n",
 		`data: {"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}` + "\n\n",
@@ -447,7 +446,7 @@ func TestAnthropicSSETranslator_TextOnlyTurnNudge_FiresOnEmptyTurn(t *testing.T)
 func TestAnthropicSSETranslator_EmptyArgsNotFlagged(t *testing.T) {
 	// Some tools take no input, so an empty/missing arguments buffer is the
 	// trivial case, not malformed.
-	_, summary := driveAnthropicSSEWithSummary(t, "z-ai/glm-5.1", []string{
+	_, summary := driveAnthropicSSEWithSummary(t, []string{
 		`data: {"id":"c1","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_x","type":"function","function":{"name":"Ping"}}]},"finish_reason":null}]}` + "\n\n",
 		`data: {"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}` + "\n\n",
 		"data: [DONE]\n\n",

@@ -52,7 +52,7 @@ func TestInternalSubscriptionRefreshAuthenticatesAndScopesSeat(t *testing.T) {
 			engine := gin.New()
 			group := engine.Group("/internal/v1", middleware.WithInternalServiceAuth(internalAccountsToken))
 			group.POST("/subscription-accounts/:subscriberID/:accountID/refresh", admin.InternalRefreshSubscriptionAccountHandler(stub))
-			request := httptest.NewRequest(http.MethodPost, "/internal/v1/subscription-accounts/"+subscriber+"/"+seat+"/refresh", nil)
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/internal/v1/subscription-accounts/"+subscriber+"/"+seat+"/refresh", nil)
 			if scenario.authenticated {
 				request.Header.Set("X-Weave-Internal-Token", internalAccountsToken)
 			}
@@ -86,7 +86,7 @@ func TestInternalSubscriptionRefreshCanonicalizesValidUUIDForms(t *testing.T) {
 			engine := gin.New()
 			group := engine.Group("/internal/v1", middleware.WithInternalServiceAuth(internalAccountsToken))
 			group.POST("/subscription-accounts/:subscriberID/:accountID/refresh", admin.InternalRefreshSubscriptionAccountHandler(stub))
-			request := httptest.NewRequest(http.MethodPost, "/internal/v1/subscription-accounts/"+scenario.subscriber+"/"+scenario.seat+"/refresh", nil)
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/internal/v1/subscription-accounts/"+scenario.subscriber+"/"+scenario.seat+"/refresh", nil)
 			request.Header.Set("X-Weave-Internal-Token", internalAccountsToken)
 			rec := httptest.NewRecorder()
 			engine.ServeHTTP(rec, request)

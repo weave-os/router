@@ -15,8 +15,8 @@ import (
 func TestServingCandidatePinsAnIndependentQwenRoster(t *testing.T) {
 	store, _, legacySet := controllerFixture(t)
 	fixture := newV2Fixture(t, store, legacySet)
-	baseCandidate := store.object(t, policyregistry.ServingCandidate, fixture.candidate).(*policyregistry.CandidateV2)
-	strategyPolicy := publishRosterArm(t, store, baseCandidate.Policy, alternateRosterArm)
+	baseCandidate := mustAs[*policyregistry.CandidateV2](t, store.object(t, policyregistry.ServingCandidate, fixture.candidate))
+	strategyPolicy := publishRosterArm(t, store, baseCandidate.Policy)
 	candidate := *baseCandidate
 	candidate.StrategyPolicies = map[router.Strategy]policyregistry.PolicyObject{router.StrategyHMMQwen: strategyPolicy}
 	candidate.Classifier.Identity.Variants = map[router.Strategy]policy.ClassifierArtifact{

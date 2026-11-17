@@ -1,0 +1,6 @@
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":"I will read "}]},"index":0}]}
+
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":"both files."}]},"index":0}]}
+
+data: {"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"Read","args":{"file_path":"/tmp/a.go"}},"thoughtSignature":"c3ludGhldGljLWdlbWluaS1zaWduYXR1cmUtMQ=="},{"functionCall":{"name":"Read","args":{"file_path":"/tmp/b.go"}}}]},"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":1200,"cachedContentTokenCount":800,"candidatesTokenCount":40,"thoughtsTokenCount":25,"totalTokenCount":1265}}
+

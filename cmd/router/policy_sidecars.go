@@ -36,7 +36,6 @@ func isReservedPolicyStrategy(strategy router.Strategy) bool {
 	return reserved || router.IsRetiredStrategy(strategy)
 }
 
-// buildConfiguredPolicySidecars turns a JSON strategy-to-URL map into policy.StrategySpec registrations; sidecars own model logic, the router owns candidate resolution and lifecycle.
 func buildConfiguredPolicySidecars(
 	ctx context.Context,
 	raw, rawAuth string,
@@ -105,8 +104,6 @@ func buildConfiguredPolicySidecars(
 		capabilities, capabilityErr := client.Capabilities(capabilityCtx)
 		cancel()
 		if capabilityErr != nil {
-			// Serving remains wired and fail-closed. Optional behavior stays
-			// conservative until the next restart can discover capabilities.
 			logger.Warn("Policy sidecar capabilities unavailable at boot",
 				"strategy", strategy,
 				"sidecar_url", sidecarURL,

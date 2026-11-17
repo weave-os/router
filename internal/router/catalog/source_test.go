@@ -44,11 +44,11 @@ func TestPermittedByAndCheckEligibility(t *testing.T) {
 	max := eligibility.MaxOpenSourceOnly
 
 	assert.True(t, PermittedBy(max, "z-ai/glm-5.3"))
-	assert.NoError(t, CheckEligibility(max, "z-ai/glm-5.3"))
+	require.NoError(t, CheckEligibility(max, "z-ai/glm-5.3"))
 
 	for _, id := range []string{"claude-opus-4-7", "muse-spark-1.3", "not-in-the-catalog"} {
 		assert.Falsef(t, PermittedBy(max, id), "%q should be ineligible for Max", id)
-		assert.ErrorIsf(t, CheckEligibility(max, id), eligibility.ErrModelIneligible, "%q should be refused", id)
+		require.ErrorIsf(t, CheckEligibility(max, id), eligibility.ErrModelIneligible, "%q should be refused", id)
 	}
 
 	// An unrestricted boundary keeps pre-product behavior, including for IDs

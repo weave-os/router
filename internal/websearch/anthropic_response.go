@@ -5,12 +5,8 @@ import (
 	"strings"
 )
 
-// resultBlockType is the block Anthropic wraps each hit in inside a
-// web_search_tool_result.
 const resultBlockType = "web_search_result"
 
-// Message is a synthesized Anthropic Messages response for a search turn the
-// router executed itself. Field order mirrors the wire shape.
 type Message struct {
 	ID           string  `json:"id"`
 	Type         string  `json:"type"`
@@ -22,28 +18,20 @@ type Message struct {
 	Usage        Usage   `json:"usage"`
 }
 
-// Block is one content block of a synthesized message.
 type Block struct {
-	Type string `json:"type"`
-	// Text is set on text blocks.
-	Text string `json:"text,omitempty"`
-	// ID and Input are set on server_tool_use blocks.
-	ID    string       `json:"id,omitempty"`
-	Name  string       `json:"name,omitempty"`
-	Input *SearchInput `json:"input,omitempty"`
-	// ToolUseID and Content are set on web_search_tool_result blocks. Content
-	// is a pointer so a zero-hit search still serializes as "content":[] —
-	// Claude Code's WebSearch tool crashes when the key is missing.
+	Type      string         `json:"type"`
+	Text      string         `json:"text,omitempty"`
+	ID        string         `json:"id,omitempty"`
+	Name      string         `json:"name,omitempty"`
+	Input     *SearchInput   `json:"input,omitempty"`
 	ToolUseID string         `json:"tool_use_id,omitempty"`
 	Content   *[]ResultBlock `json:"content,omitempty"`
 }
 
-// SearchInput is the input recorded on a server_tool_use block.
 type SearchInput struct {
 	Query string `json:"query"`
 }
 
-// ResultBlock is one hit inside a web_search_tool_result block.
 type ResultBlock struct {
 	Type    string `json:"type"`
 	Title   string `json:"title"`
@@ -51,9 +39,6 @@ type ResultBlock struct {
 	PageAge string `json:"page_age,omitempty"`
 }
 
-// Usage reports the synthesized message's token accounting. Server-tool
-// requests are counted separately by Anthropic; we report the searches we ran
-// so a client rendering usage sees a non-zero count.
 type Usage struct {
 	CacheReadInputTokens int              `json:"cache_read_input_tokens,omitempty"`
 	InputTokens          int              `json:"input_tokens"`
@@ -61,14 +46,10 @@ type Usage struct {
 	ServerToolUse        *ServerToolUsage `json:"server_tool_use,omitempty"`
 }
 
-// ServerToolUsage counts server-side tool invocations.
 type ServerToolUsage struct {
 	WebSearchRequests int `json:"web_search_requests"`
 }
 
-// SynthesizeMessage builds the Anthropic response for a search the router
-// executed: the server_tool_use the model would have emitted, the results
-// Anthropic would have appended, and the answer text.
 func SynthesizeMessage(msgID, model, toolName string, q Query, resp Response, inputTokens int) Message {
 	if toolName == "" {
 		toolName = "web_search"
@@ -105,9 +86,6 @@ func SynthesizeMessage(msgID, model, toolName string, q Query, resp Response, in
 	}
 }
 
-// answerText renders the assistant prose for a search turn: the backend's own
-// synthesis when it produced one, else a linked digest of the hits so the
-// caller always gets citable text.
 func answerText(resp Response) string {
 	var b strings.Builder
 	if summary := strings.TrimSpace(resp.Summary); summary != "" {
@@ -139,7 +117,6 @@ func answerText(resp Response) string {
 	return b.String()
 }
 
-// TextOf returns the message's assistant prose, for logging and tests.
 func (m Message) TextOf() string {
 	for _, block := range m.Content {
 		if block.Type == "text" {

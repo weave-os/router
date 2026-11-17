@@ -6,12 +6,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
+
+	"github.com/stretchr/testify/require"
 )
 
 func expiredRotationContext(provider auth.SubscriptionProvider) context.Context {
@@ -25,7 +26,7 @@ func TestExpiredAdmissionBudgetDoesNotAuthorizeAPI(t *testing.T) {
 	ctx := expiredRotationContext(auth.SubscriptionProviderCodex)
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderOpenAI}}, nil)
+	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderOpenAI}}, nil)
 	in.initialDecision = router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel}
 	var oauthCalls, apiCalls int
 	in.attempt = func(attemptCtx context.Context, _ router.Decision, _ providers.Client) error {
@@ -47,7 +48,7 @@ func TestExpiredAdmissionBudgetDoesNotAuthorizeAPI(t *testing.T) {
 	require.Zero(t, apiCalls)
 	require.Empty(t, rec.Body.String())
 	require.Empty(t, leaser.cooldownIDs, "budget expiry alone never cools down an account")
-	require.False(t, ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage).Served)
+	require.False(t, mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{})).Served)
 }
 
 func TestExpiredRotationBudgetRendersCleanErrorWithoutAPI(t *testing.T) {
@@ -56,7 +57,7 @@ func TestExpiredRotationBudgetRendersCleanErrorWithoutAPI(t *testing.T) {
 	ctx := expiredRotationContext(auth.SubscriptionProviderCodex)
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
-	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderOpenAI}}, nil)
+	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderOpenAI}}, nil)
 	in.initialDecision = router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel}
 	in.flushErr = func(w http.ResponseWriter, err error) {
 		w.WriteHeader(http.StatusTooManyRequests)

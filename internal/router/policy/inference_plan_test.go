@@ -275,12 +275,12 @@ func TestRegistryValidatesDeploymentTargets(t *testing.T) {
 
 	config.TargetOverrides = config.TargetOverrides[:len(config.TargetOverrides)-1]
 	err := policy.DefaultRegistry().ValidateDeployment(config)
-	assert.ErrorContains(t, err, "requires a typed deployment target")
+	require.ErrorContains(t, err, "requires a typed deployment target")
 
 	config = validDeploymentPolicyConfig()
 	config.TargetOverrides[0].Target.Provider = providers.ProviderOpenAI
 	err = policy.DefaultRegistry().ValidateDeployment(config)
-	assert.ErrorContains(t, err, "has no available catalog binding")
+	require.ErrorContains(t, err, "has no available catalog binding")
 
 	config = validDeploymentPolicyConfig()
 	config.TargetOverrides[0].Target.CatalogID = "claude-opus-4-0"

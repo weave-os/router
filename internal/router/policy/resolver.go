@@ -1,5 +1,3 @@
-// Package policy provides shared, I/O-free building blocks for router
-// implementations that delegate a decision to an external policy.
 package policy
 
 import (
@@ -10,81 +8,48 @@ import (
 	"weave-os/router/internal/router/catalog"
 )
 
-// RosterMapper maps a catalog model to the identifier understood by a policy
-// artifact. An empty identifier intentionally excludes the model.
 type RosterMapper func(catalog.Model) string
 
-// ProviderPolicy limits which dispatch providers a policy router may offer.
 type ProviderPolicy struct {
 	Denied map[string]struct{}
 }
 
-// ManagedProviderPolicy excludes OpenRouter from managed policy candidates.
 func ManagedProviderPolicy() ProviderPolicy {
 	return ProviderPolicy{Denied: map[string]struct{}{providers.ProviderOpenRouter: {}}}
 }
 
-// Allows reports whether provider may be offered to the policy.
 func (p ProviderPolicy) Allows(provider string) bool {
 	_, denied := p.Denied[provider]
 	return !denied
 }
 
-// ExclusionReason identifies why a deployed catalog model was not offered.
 type ExclusionReason string
 
 const (
-	// ExclusionRequested means the installation or request excluded the model.
-	ExclusionRequested ExclusionReason = "requested_exclusion"
-	// ExclusionNotAllowlisted means the org's positive model allowlist omits the
-	// model. The resolver enforces it directly as well as honoring the usual
-	// upstream exclusion desugaring, so strategy-specific candidates cannot
-	// bypass the allowlist.
-	ExclusionNotAllowlisted ExclusionReason = "not_allowlisted"
-	// ExclusionUnknownCatalogModel means the deployed set named no catalog row.
+	ExclusionRequested           ExclusionReason = "requested_exclusion"
+	ExclusionNotAllowlisted      ExclusionReason = "not_allowlisted"
 	ExclusionUnknownCatalogModel ExclusionReason = "unknown_catalog_model"
-	// ExclusionProductIneligible means the plan the caller bought cannot serve
-	// the model's source classification. Hard and unconditional: it precedes
-	// provider resolution and no funding path or allowlist widens it.
-	ExclusionProductIneligible ExclusionReason = "product_ineligible"
-	// ExclusionUnmappedRoster means the strategy intentionally has no roster ID.
-	ExclusionUnmappedRoster ExclusionReason = "unmapped_roster"
-	// ExclusionNoProvider means no request-enabled provider can dispatch the model.
-	ExclusionNoProvider ExclusionReason = "no_enabled_provider"
-	// ExclusionProviderPolicy means all resolvable providers were policy-denied.
-	ExclusionProviderPolicy ExclusionReason = "provider_policy"
-	// ExclusionImageCapability means a capable peer replaced this text-only model.
-	ExclusionImageCapability ExclusionReason = "image_capability"
-	// ExclusionToolCapability means a capable peer replaced this weak tool model.
-	ExclusionToolCapability ExclusionReason = "tool_capability"
-	// ExclusionAmbiguousRoster means multiple catalog models mapped to one roster ID.
-	ExclusionAmbiguousRoster ExclusionReason = "ambiguous_roster_id"
-	// ExclusionContextWindow means the estimated input cannot fit the model.
-	ExclusionContextWindow ExclusionReason = "context_window"
-	// ExclusionImageLimit means every available binding caps below the request image count.
-	ExclusionImageLimit ExclusionReason = "image_limit"
-	// ExclusionUnsignedHistory means the model cannot accept this request's unsigned tool-call history.
-	ExclusionUnsignedHistory ExclusionReason = "unsigned_history"
-	// ExclusionGatewayNotServed means the installation routes exclusively through
-	// its own gateway and no gateway key aliases this model.
-	ExclusionGatewayNotServed ExclusionReason = "gateway_not_served"
-	// ExclusionAutomaticDisabled means Weave withdrew the model from automatic
-	// routing deployment-wide. Soft: an explicit user pin still reaches it, and
-	// the filter is skipped entirely rather than emptying the candidate set.
-	ExclusionAutomaticDisabled ExclusionReason = "automatic_disabled"
+	ExclusionProductIneligible   ExclusionReason = "product_ineligible"
+	ExclusionUnmappedRoster      ExclusionReason = "unmapped_roster"
+	ExclusionNoProvider          ExclusionReason = "no_enabled_provider"
+	ExclusionProviderPolicy      ExclusionReason = "provider_policy"
+	ExclusionImageCapability     ExclusionReason = "image_capability"
+	ExclusionToolCapability      ExclusionReason = "tool_capability"
+	ExclusionAmbiguousRoster     ExclusionReason = "ambiguous_roster_id"
+	ExclusionContextWindow       ExclusionReason = "context_window"
+	ExclusionImageLimit          ExclusionReason = "image_limit"
+	ExclusionUnsignedHistory     ExclusionReason = "unsigned_history"
+	ExclusionGatewayNotServed    ExclusionReason = "gateway_not_served"
+	ExclusionAutomaticDisabled   ExclusionReason = "automatic_disabled"
 )
 
-// Diagnostic describes one candidate exclusion for conformance checks and
-// debug-mode inspection. It contains no request content.
 type Diagnostic struct {
 	CatalogID string          `json:"catalog_id"`
 	RosterID  string          `json:"roster_id,omitempty"`
 	Reason    ExclusionReason `json:"reason"`
 }
 
-// Candidate is one catalog-backed model offered to a policy sidecar.
 type Candidate struct {
-	// ArmID is a configuration-level temporal-Q action ID; equals RosterID on the legacy resolver.
 	ArmID                        string                `json:"arm_id"`
 	RosterID                     string                `json:"roster_id"`
 	CatalogID                    string                `json:"catalog_id"`
@@ -107,8 +72,6 @@ type Candidate struct {
 	Capabilities                 CandidateCapabilities `json:"capabilities"`
 }
 
-// CandidateCapabilities describes only dispatch-relevant catalog facts. It is
-// deliberately compact and versioned by the enclosing policy contract.
 type CandidateCapabilities struct {
 	ContextWindow  int    `json:"context_window"`
 	Tier           string `json:"tier"`
@@ -116,7 +79,6 @@ type CandidateCapabilities struct {
 	SupportsImages bool   `json:"supports_images"`
 }
 
-// Binding is the authoritative dispatch binding for an offered roster ID.
 type Binding struct {
 	ArmID                        string
 	CatalogID                    string
@@ -127,12 +89,9 @@ type Binding struct {
 	ModelRevision                string
 	ReasoningConfigurationSHA256 string
 	ToolConfigurationSHA256      string
-	// Effort is the canonical reasoning-effort level, split from the arm ID
-	// when the roster carries effort-qualified arms (e.g. "model:xhigh").
-	Effort string
+	Effort                       string
 }
 
-// ResolvedCandidates is the complete result of candidate resolution.
 type ResolvedCandidates struct {
 	Candidates          []Candidate
 	ByArmID             map[string]Binding
@@ -141,8 +100,6 @@ type ResolvedCandidates struct {
 	bindingsByCatalogID map[string][]resolvedBinding
 }
 
-// BindingsForCatalog returns every eligible provider binding for a catalog
-// model in catalog order. The returned slice is detached from resolver state.
 func (r ResolvedCandidates) BindingsForCatalog(catalogID string) []Binding {
 	resolvedBindings := r.bindingsByCatalogID[catalogID]
 	bindings := make([]Binding, len(resolvedBindings))
@@ -157,7 +114,6 @@ type resolvedBinding struct {
 	estimatedCostUSD float64
 }
 
-// CandidateModels returns unique catalog IDs in first-candidate order.
 func (r ResolvedCandidates) CandidateModels() []string {
 	models := make([]string, 0, len(r.Candidates))
 	seen := make(map[string]struct{}, len(r.Candidates))
@@ -171,7 +127,6 @@ func (r ResolvedCandidates) CandidateModels() []string {
 	return models
 }
 
-// CandidateArmIDs returns configuration-level action IDs in candidate order.
 func (r ResolvedCandidates) CandidateArmIDs() []string {
 	armIDs := make([]string, 0, len(r.Candidates))
 	for _, candidate := range r.Candidates {
@@ -180,7 +135,6 @@ func (r ResolvedCandidates) CandidateArmIDs() []string {
 	return armIDs
 }
 
-// CandidateProviders returns the resolved provider for each catalog model.
 func (r ResolvedCandidates) CandidateProviders() map[string]string {
 	result := make(map[string]string, len(r.Candidates))
 	for _, candidate := range r.Candidates {
@@ -192,7 +146,6 @@ func (r ResolvedCandidates) CandidateProviders() map[string]string {
 	return result
 }
 
-// CandidateArmProviders returns the resolved provider for every configuration-level arm.
 func (r ResolvedCandidates) CandidateArmProviders() map[string]string {
 	result := make(map[string]string, len(r.Candidates))
 	for _, candidate := range r.Candidates {
@@ -201,7 +154,6 @@ func (r ResolvedCandidates) CandidateArmProviders() map[string]string {
 	return result
 }
 
-// CatalogCandidateScores translates sidecar roster IDs to telemetry catalog IDs.
 func (r ResolvedCandidates) CatalogCandidateScores(scores map[string]float32) map[string]float32 {
 	result := make(map[string]float32, len(scores))
 	for _, candidate := range r.Candidates {
@@ -222,7 +174,6 @@ func (r ResolvedCandidates) CatalogCandidateScores(scores map[string]float32) ma
 	return result
 }
 
-// ArmCandidateScores keeps arm-level scores distinct for configuration-aware telemetry.
 func (r ResolvedCandidates) ArmCandidateScores(scores map[string]float32) map[string]float32 {
 	result := make(map[string]float32, len(scores))
 	for armID, score := range scores {
@@ -236,7 +187,6 @@ func (r ResolvedCandidates) ArmCandidateScores(scores map[string]float32) map[st
 	return result
 }
 
-// Resolver builds the eligible catalog-backed candidate set for a policy.
 type Resolver struct {
 	deployed          map[string]struct{}
 	available         map[string]struct{}
@@ -248,7 +198,6 @@ type Resolver struct {
 	imageLow          map[string]struct{}
 }
 
-// NewResolver constructs a reusable policy candidate resolver.
 func NewResolver(deployed, available map[string]struct{}, mapper RosterMapper, providerPolicy ProviderPolicy) *Resolver {
 	return &Resolver{
 		deployed:       deployed,
@@ -260,20 +209,16 @@ func NewResolver(deployed, available map[string]struct{}, mapper RosterMapper, p
 	}
 }
 
-// NewArmResolver enumerates every enabled provider binding as a distinct candidate for arm-scoring policies; use NewResolver for model-scoring policies.
 func NewArmResolver(deployed, available map[string]struct{}, mapper RosterMapper, providerPolicy ProviderPolicy) *Resolver {
 	resolver := NewResolver(deployed, available, mapper, providerPolicy)
 	resolver.enumerateBindings = true
 	return resolver
 }
 
-// RouterSelectsArm negotiates the classifier-only contract: the sidecar
-// classifies, this router selects. Set when an ArmSelector is installed.
 func (r *Resolver) RouterSelectsArm() {
 	r.routerSelectsArm = true
 }
 
-// SchemaVersion returns the sidecar contract required by this resolver.
 func (r *Resolver) SchemaVersion() string {
 	if r.routerSelectsArm {
 		return SchemaVersionV4
@@ -289,8 +234,6 @@ type eligibleCandidate struct {
 	bindings []resolvedBinding
 }
 
-// Resolve applies request filters, provider policy, capability soft filters,
-// and roster mapping. The returned candidate order is deterministic.
 func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 	diagnostics := make([]Diagnostic, 0)
 	base := make([]eligibleCandidate, 0, len(r.deployed))
@@ -321,9 +264,6 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, Reason: ExclusionUnknownCatalogModel})
 			continue
 		}
-		// Ahead of the generic exclusion set, which the plan's boundary is also
-		// desugared into: reported as a request exclusion, a product refusal
-		// would be indistinguishable from an org's own excluded_models entry.
 		if !req.ProductEligibility.PermitsSource(model.Source) {
 			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, Reason: ExclusionProductIneligible})
 			continue
@@ -413,9 +353,6 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 
 	base, diagnostics = softFilter(base, req.HasImages, r.imageLow, ExclusionImageCapability, diagnostics)
 	base, diagnostics = softFilter(base, req.HasTools, r.toolLow, ExclusionToolCapability, diagnostics)
-	// Soft on purpose: a deployment-wide disable withdraws a model from the
-	// policy's choices without being able to fail the turn, since the same model
-	// stays reachable through an explicit user pin.
 	base, diagnostics = softFilter(base, true, req.AutomaticExcludedModels, ExclusionAutomaticDisabled, diagnostics)
 
 	selectionCounts := make(map[string]int, len(base))
@@ -472,9 +409,6 @@ func imageEligibleBindings(bindings []catalog.IndexedBinding, imageCount int) []
 	return filtered
 }
 
-// BindingForSelection resolves a sidecar selection by arm ID first, then
-// preserves legacy roster-ID selection for existing policy artifacts.
-// Effort-qualified arm/roster IDs are split before map lookup; base ID drives resolution and the suffix sets Binding.Effort.
 func (r ResolvedCandidates) BindingForSelection(armID, rosterID string) (Binding, bool) {
 	if armID != "" {
 		lookup, effort := splitEffort(armID)
@@ -491,7 +425,6 @@ func (r ResolvedCandidates) BindingForSelection(armID, rosterID string) (Binding
 	return binding, ok
 }
 
-// splitEffort mirrors hmm.SplitEffort: only recognized effort levels are stripped; model IDs with ":" (e.g. "anthropic/opus-5:custom") stay intact.
 func splitEffort(armID string) (string, string) {
 	for i := len(armID) - 1; i > 0; i-- {
 		if armID[i] == ':' {
@@ -516,10 +449,6 @@ func requiredContextTokens(req router.Request) int {
 	return max(req.EstimatedInputTokens, 0) + expectedOutputTokens(req)
 }
 
-// exceedsContextWindow reports whether the request's estimate rules the model
-// out. A model the proxy admitted on total overflow is never ruled out here:
-// its provider's exact count decides, so a real overflow reaches the client as
-// the native prompt-too-long error it compacts on.
 func exceedsContextWindow(req router.Request, catalogID string, contextWindow int) bool {
 	if _, admitted := req.OverflowAdmittedModels[catalogID]; admitted {
 		return false
@@ -534,8 +463,6 @@ func expectedOutputTokens(req router.Request) int {
 	return max(*req.RoutingKnobs.ExpectedOutputTokens, 0)
 }
 
-// candidateContext carries the per-model facts shared by every binding of that
-// model, so binding expansion stays a single call regardless of routing mode.
 type candidateContext struct {
 	req             router.Request
 	catalogID       string
@@ -623,9 +550,6 @@ func bindingFromCandidate(candidate Candidate) Binding {
 	}
 }
 
-// gatewayBindings limits a model to the gateways whose key aliases it. A
-// catalog-declared gateway binding is not enough: only the key's aliases say
-// which models that tenant's endpoint actually serves.
 func gatewayBindings(id string, gateways map[string]struct{}, custom map[string][]string) []catalog.IndexedBinding {
 	aliased := make(map[string]struct{}, len(custom[id]))
 	for _, provider := range custom[id] {

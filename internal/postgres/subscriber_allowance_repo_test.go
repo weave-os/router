@@ -130,17 +130,29 @@ func assignScanTargets(dest []any, values []any) error {
 	for i := range dest {
 		switch target := dest[i].(type) {
 		case *string:
-			*target = values[i].(string)
+			if err := setFrom(target, values[i]); err != nil {
+				return err
+			}
 		case **string:
-			*target = values[i].(*string)
+			if err := setFrom(target, values[i]); err != nil {
+				return err
+			}
 		case *int64:
-			*target = values[i].(int64)
+			if err := setFrom(target, values[i]); err != nil {
+				return err
+			}
 		case **int64:
-			*target = values[i].(*int64)
+			if err := setFrom(target, values[i]); err != nil {
+				return err
+			}
 		case *uuid.UUID:
-			*target = values[i].(uuid.UUID)
+			if err := setFrom(target, values[i]); err != nil {
+				return err
+			}
 		case *pgtype.Timestamptz:
-			*target = values[i].(pgtype.Timestamptz)
+			if err := setFrom(target, values[i]); err != nil {
+				return err
+			}
 		default:
 			return errors.New("unsupported scan target")
 		}

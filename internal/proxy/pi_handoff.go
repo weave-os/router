@@ -38,11 +38,14 @@ const (
 type handoffPreparationKey struct{}
 type handoffClaimsKey struct{}
 
-// ErrHandoffUnavailable means the deployment has no shared signing secret.
-var ErrHandoffUnavailable = errors.New("Pi handoff requires a shared ROUTER_PI_HANDOFF_SECRET of at least 32 bytes")
+var ErrHandoffUnavailable = errors.New("pi handoff requires a shared ROUTER_PI_HANDOFF_SECRET of at least 32 bytes")
 
-// ErrHandoffInvalid rejects tickets whose identity or selection is no longer valid.
-var ErrHandoffInvalid = errors.New("Pi handoff expired or no longer matches this request; prepare the route again")
+var ErrHandoffInvalid = errors.New("pi handoff expired or no longer matches this request; prepare the route again")
+
+const (
+	handoffUnavailableMessage = "Pi handoff requires a shared ROUTER_PI_HANDOFF_SECRET of at least 32 bytes"
+	handoffInvalidMessage     = "Pi handoff expired or no longer matches this request; prepare the route again"
+)
 
 type handoffClaims struct {
 	jwt.RegisteredClaims
@@ -65,8 +68,6 @@ type preparedHandoff struct {
 	Complexity   string `json:"complexity,omitempty"`
 }
 
-// WithPiHandoffSecret requires the same secret on every serving replica. Tickets
-// carry routing state, never credentials or conversation text.
 func (s *Service) WithPiHandoffSecret(secret string) *Service {
 	if len(secret) >= 32 {
 		s.piHandoffSecret = []byte(secret)
@@ -74,7 +75,6 @@ func (s *Service) WithPiHandoffSecret(secret string) *Service {
 	return s
 }
 
-// WithHandoffPreparation stops Messages after selection without dispatching.
 func WithHandoffPreparation(ctx context.Context) context.Context {
 	return context.WithValue(ctx, handoffPreparationKey{}, true)
 }
@@ -113,7 +113,7 @@ func (s *Service) parseHandoff(ctx context.Context, body []byte) (context.Contex
 	claims := &handoffClaims{}
 	_, err = jwt.ParseWithClaims(encoded.String(), claims, func(_ *jwt.Token) (any, error) {
 		return s.piHandoffSecret, nil
-	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithExpirationRequired(), jwt.WithIssuer("weave-pi-handoff-v1"))
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithExpirationRequired(), jwt.WithIssuer("weave-pi-handoff-v1"), jwt.WithTimeFunc(s.clock.Now))
 	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
 	if err != nil || apiKeyID == "" || claims.APIKeyID != apiKeyID ||
 		claims.Route.InstallationID != installationIDFromContext(ctx) ||
@@ -126,7 +126,7 @@ func (s *Service) parseHandoff(ctx context.Context, body []byte) (context.Contex
 
 func (s *Service) mintHandoff(claims handoffClaims) (string, error) {
 	claims.RegisteredClaims = jwt.RegisteredClaims{
-		Issuer: "weave-pi-handoff-v1", ExpiresAt: jwt.NewNumericDate(time.Now().Add(piHandoffTTL)),
+		Issuer: "weave-pi-handoff-v1", ExpiresAt: jwt.NewNumericDate(s.clock.Now().Add(piHandoffTTL)),
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(s.piHandoffSecret)
 }
@@ -162,7 +162,7 @@ func (s *Service) finishHandoffPreparation(ctx context.Context, w http.ResponseW
 		previousProvider = route.PinProvider
 	}
 	if previousModel != "" && s.pinStore != nil && (router.IsHMMStrategy(route.Strategy) || isHMMTurn(route)) {
-		history := routingpolicy.NewSessionPins(s.pinStore).LoadHMMHistory(ctx, route.SessionKey, route.PinRole)
+		history := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now).LoadHMMHistory(ctx, route.SessionKey, route.PinRole)
 		if history.LastServedModel == route.PriorServedModel {
 			previousProvider = history.Provider
 		}

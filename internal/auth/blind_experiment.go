@@ -10,23 +10,17 @@ import (
 
 const blindExperimentBucketCount = 10_000
 
-// BlindExperimentArm is the effective routing behavior assigned to a subject.
 type BlindExperimentArm string
 
 const (
-	// BlindExperimentArmRouterOn keeps the router's normal automatic selection.
-	BlindExperimentArmRouterOn BlindExperimentArm = "router_on"
-	// BlindExperimentArmPassthrough dispatches the caller's requested model directly.
+	BlindExperimentArmRouterOn    BlindExperimentArm = "router_on"
 	BlindExperimentArmPassthrough BlindExperimentArm = "passthrough"
 )
 
-// Valid reports whether arm is a supported effective experiment arm.
 func (arm BlindExperimentArm) Valid() bool {
 	return arm == BlindExperimentArmRouterOn || arm == BlindExperimentArmPassthrough
 }
 
-// BlindExperimentAssignmentSource records whether an effective arm came from
-// deterministic allocation or a manager override.
 type BlindExperimentAssignmentSource string
 
 type CohortBypassReason string
@@ -42,27 +36,18 @@ const (
 )
 
 const (
-	// BlindExperimentAssignmentAutomatic is a deterministic seed/subject assignment.
 	BlindExperimentAssignmentAutomatic BlindExperimentAssignmentSource = "automatic"
-	// BlindExperimentAssignmentManual is a manager-selected override.
-	BlindExperimentAssignmentManual BlindExperimentAssignmentSource = "manual"
+	BlindExperimentAssignmentManual    BlindExperimentAssignmentSource = "manual"
 )
 
-// BlindExperimentMode is how an experiment assigns arms.
 type BlindExperimentMode string
 
 const (
-	// BlindExperimentModeUser draws once per canonical subject.
-	BlindExperimentModeUser BlindExperimentMode = "user"
-	// BlindExperimentModeCohort follows a scheduled group treatment.
-	BlindExperimentModeCohort BlindExperimentMode = "cohort"
-	// BlindExperimentModeSession draws once per credential-scoped client
-	// session, so subagents and side calls inherit the parent's arm.
+	BlindExperimentModeUser    BlindExperimentMode = "user"
+	BlindExperimentModeCohort  BlindExperimentMode = "cohort"
 	BlindExperimentModeSession BlindExperimentMode = "session"
 )
 
-// BlindExperimentState is the active request-scoped experiment decision.
-// Inactive states are cached but never stashed on a request context.
 type BlindExperimentState struct {
 	Active                    bool
 	Enabled                   bool
@@ -85,15 +70,12 @@ type BlindExperimentState struct {
 	sessionRouterOnPercentage int
 }
 
-// BlindExperimentEmergencyOverride temporarily replaces the scheduled arm.
-// The cohort membership and scheduled treatment never change.
 type BlindExperimentEmergencyOverride struct {
 	StartsAt time.Time          `json:"starts_at"`
 	EndsAt   time.Time          `json:"ends_at"`
 	Arm      BlindExperimentArm `json:"arm"`
 }
 
-// BlindExperimentPhase is one immutable group treatment interval.
 type BlindExperimentPhase struct {
 	Index    int                `json:"phase_index"`
 	StartsAt time.Time          `json:"starts_at"`
@@ -101,7 +83,6 @@ type BlindExperimentPhase struct {
 	Arm      BlindExperimentArm `json:"arm"`
 }
 
-// BlindExperimentRecord is the repository projection needed to resolve one user.
 type BlindExperimentRecord struct {
 	Configured          bool
 	Enabled             bool
@@ -120,31 +101,23 @@ type BlindExperimentRecord struct {
 	CohortOverrides     []BlindExperimentEmergencyOverride
 }
 
-// BlindExperimentRepository reads experiment state owned by the control plane.
 type BlindExperimentRepository interface {
 	GetForUser(ctx context.Context, installationID, routerUserID string) (BlindExperimentRecord, error)
-	// InstallationExperimentEnabled reports false with a nil error when the installation has no configuration.
 	InstallationExperimentEnabled(ctx context.Context, installationID string) (bool, error)
 }
 
-// BlindExperimentContextKey is the request-context key for an active assignment.
 type BlindExperimentContextKey struct{}
 
-// BlindExperimentFrom returns the active experiment assignment on ctx.
 func BlindExperimentFrom(ctx context.Context) (BlindExperimentState, bool) {
 	state, ok := ctx.Value(BlindExperimentContextKey{}).(BlindExperimentState)
 	return state, ok && state.Active
 }
 
-// BlindExperimentStatusFrom includes inactive cohort states for the private
-// analytics export; routing only consults BlindExperimentFrom.
 func BlindExperimentStatusFrom(ctx context.Context) (BlindExperimentState, bool) {
 	state, ok := ctx.Value(BlindExperimentContextKey{}).(BlindExperimentState)
 	return state, ok
 }
 
-// AssignBlindExperimentArm deterministically assigns a subject to a stable
-// 10,000-bucket cohort. Boundary percentages are exact and avoid hash work.
 func AssignBlindExperimentArm(seed, canonicalSubjectKey string, routerOnPercentage int) BlindExperimentArm {
 	if routerOnPercentage <= 0 {
 		return BlindExperimentArmPassthrough
@@ -219,8 +192,6 @@ func resolveBlindExperiment(record BlindExperimentRecord, routerUserID string) B
 	}
 }
 
-// BlindExperimentSessionSubjectKey scopes a client session id to the
-// credential it arrived on. Empty when either side is unknown.
 func BlindExperimentSessionSubjectKey(credentialIdentity, clientSessionID string) string {
 	if credentialIdentity == "" || clientSessionID == "" {
 		return ""
@@ -229,8 +200,6 @@ func BlindExperimentSessionSubjectKey(credentialIdentity, clientSessionID string
 	return "session:" + hex.EncodeToString(digest[:16])
 }
 
-// ForSession draws a session-mode arm from the session key. Other modes and
-// requests without a session key keep the user-level arm.
 func (state BlindExperimentState) ForSession(sessionSubjectKey string) BlindExperimentState {
 	if !state.Active || sessionSubjectKey == "" || state.Mode != BlindExperimentModeSession {
 		return state
@@ -240,8 +209,6 @@ func (state BlindExperimentState) ForSession(sessionSubjectKey string) BlindExpe
 	return state
 }
 
-// AtTime resolves a cached cohort schedule for this request, including the
-// exact boundary where one phase ends and the next begins.
 func (state BlindExperimentState) AtTime(now time.Time) BlindExperimentState {
 	if state.CohortExperimentID == "" {
 		return state
@@ -275,7 +242,6 @@ func (state BlindExperimentState) AtTime(now time.Time) BlindExperimentState {
 	return state
 }
 
-// BlindExperimentModelSource names what chose the served model on an experiment turn.
 type BlindExperimentModelSource string
 
 const (

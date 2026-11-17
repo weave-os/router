@@ -64,6 +64,8 @@ func TestRegister_DeploymentMode(t *testing.T) {
 		"GET /v1/models",
 		"GET /v1/models/:model",
 		"GET /v1/codex/models",
+		"POST /v1/images/generations",
+		"POST /v1/images/edits",
 		// The Codex status hook reads this on hosted (managed) installs, so
 		// mounting it inside the selfhosted block would strand every customer.
 		"GET /v1/sessions/:session_id/cost",
@@ -179,7 +181,7 @@ func TestRegisterSeparatesResponsiveAndStartupChecksFromReadiness(t *testing.T) 
 	} {
 		t.Run(test.path, func(t *testing.T) {
 			response := httptest.NewRecorder()
-			engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, test.path, nil))
+			engine.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, test.path, nil))
 			assert.Equal(t, test.wantStatus, response.Code)
 		})
 	}
@@ -201,7 +203,7 @@ func TestStartupCheckRequiresDatabaseAndRecovers(t *testing.T) {
 			for _, available := range []bool{false, true, false} {
 				databaseAvailable.Store(available)
 				response := httptest.NewRecorder()
-				engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/startupz", nil))
+				engine.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/startupz", nil))
 				if available {
 					assert.Equal(t, http.StatusOK, response.Code)
 				} else {
@@ -217,7 +219,7 @@ func TestStartupCheckRequiresDatabaseWiring(t *testing.T) {
 	engine := gin.New()
 	server.Register(engine, nil, nil, nil, server.DeploymentModeManaged, nil, nil, nil, nil)
 	response := httptest.NewRecorder()
-	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/startupz", nil))
+	engine.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/startupz", nil))
 	assert.Equal(t, http.StatusServiceUnavailable, response.Code)
 }
 
@@ -235,7 +237,7 @@ func TestStartupDatabaseTimeoutDoesNotBlockResponsiveChecks(t *testing.T) {
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)
-		engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/startupz", nil))
+		engine.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/startupz", nil))
 	}()
 	select {
 	case ctx := <-started:
@@ -247,7 +249,7 @@ func TestStartupDatabaseTimeoutDoesNotBlockResponsiveChecks(t *testing.T) {
 	}
 	for _, path := range []string{"/livez", "/health"} {
 		probe := httptest.NewRecorder()
-		engine.ServeHTTP(probe, httptest.NewRequest(http.MethodGet, path, nil))
+		engine.ServeHTTP(probe, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
 		assert.Equal(t, http.StatusOK, probe.Code)
 	}
 	select {
@@ -277,7 +279,7 @@ func TestManagedValidationRejectsPublicCredentials(t *testing.T) {
 	engine := gin.New()
 	server.RegisterWithFeatures(engine, nil, nil, nil, server.DeploymentModeManaged, nil, nil, nil, nil, server.Features{ServingAdmission: &middleware.ServingAdmissionConfig{}})
 	for _, credential := range []string{"", "rk_public-key"} {
-		request := httptest.NewRequest(http.MethodPost, policyregistry.WorkerValidationPath, nil)
+		request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, policyregistry.WorkerValidationPath, nil)
 		request.Header.Set("Authorization", "Bearer "+credential)
 		response := httptest.NewRecorder()
 		engine.ServeHTTP(response, request)
@@ -291,7 +293,7 @@ func TestManagedCatalogMetadataRemainsPublic(t *testing.T) {
 	server.RegisterWithFeatures(engine, nil, nil, fakeHMMRosterSource{}, server.DeploymentModeManaged, nil, nil, nil, nil, server.Features{ServingAdmission: &middleware.ServingAdmissionConfig{}})
 	for _, path := range []string{"/v1/router/models?scope=catalog", "/v1/router/models", "/v1/router/models?strategy=hmm"} {
 		response := httptest.NewRecorder()
-		engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		engine.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
 		assert.Equal(t, http.StatusOK, response.Code, path)
 	}
 }

@@ -88,7 +88,7 @@ func postLogin(t *testing.T, engine *gin.Engine, path string, body any) *httptes
 	t.Helper()
 	encoded, err := json.Marshal(body)
 	require.NoError(t, err)
-	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(encoded))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, path, bytes.NewReader(encoded))
 	req.Header.Set("X-Weave-Internal-Token", internalAccountsToken)
 	req.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()

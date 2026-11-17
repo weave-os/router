@@ -5,6 +5,7 @@ package proxy_test
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -26,7 +27,13 @@ const weatherTool = `[{"name":"get_weather","description":"Get the weather","inp
 const readTool = `[{"name":"Read","description":"Read a file","input_schema":{"type":"object","properties":{"file_path":{"type":"string"},"pages":{"type":"string"},"limit":{"type":"integer"}},"required":["file_path"],"additionalProperties":false}}]`
 
 func TestConformance_OpenAIChat(t *testing.T) {
-	cases := []conformanceCase{
+	for _, c := range slices.Concat(openAIChatTranslationCases(), openAIChatToolcheckCases()) {
+		t.Run(c.name, func(t *testing.T) { runConformanceCase(t, c) })
+	}
+}
+
+func openAIChatTranslationCases() []conformanceCase {
+	return []conformanceCase{
 		{
 			name:            "openai_chat/basic_text",
 			provider:        providers.ProviderOpenRouter,
@@ -36,6 +43,7 @@ func TestConformance_OpenAIChat(t *testing.T) {
 			stream:          true,
 			upstreamFixture: "openai_chat/basic_text.upstream.sse",
 			wantUpstream: func(t *testing.T, path string, body []byte, _ http.Header) {
+				t.Helper()
 				assert.True(t, strings.HasSuffix(path, "/chat/completions"), "path=%s", path)
 				assert.Equal(t, "deepseek/deepseek-v4-pro", gjson.GetBytes(body, "model").String())
 				assert.True(t, gjson.GetBytes(body, "stream").Bool(), "inbound stream must propagate upstream")
@@ -51,6 +59,7 @@ func TestConformance_OpenAIChat(t *testing.T) {
 			stream:          false,
 			upstreamFixture: "openai_chat/basic_text.upstream.json",
 			wantUpstream: func(t *testing.T, _ string, body []byte, _ http.Header) {
+				t.Helper()
 				assert.False(t, gjson.GetBytes(body, "stream").Bool(), "non-streaming inbound must not request an upstream stream")
 			},
 		},
@@ -63,6 +72,7 @@ func TestConformance_OpenAIChat(t *testing.T) {
 			stream:          true,
 			upstreamFixture: "openai_chat/toolcall.upstream.sse",
 			wantUpstream: func(t *testing.T, _ string, body []byte, _ http.Header) {
+				t.Helper()
 				assert.Equal(t, "get_weather", gjson.GetBytes(body, "tools.0.function.name").String(), "Anthropic tool must translate to OpenAI function shape")
 			},
 		},
@@ -89,6 +99,7 @@ func TestConformance_OpenAIChat(t *testing.T) {
 			stream:          true,
 			upstreamFixture: "openai_chat/basic_text.upstream.sse",
 			wantUpstream: func(t *testing.T, _ string, body []byte, _ http.Header) {
+				t.Helper()
 				assert.Equal(t, "deepseek", gjson.GetBytes(body, "provider.order.0").String(), "deepseek/* must pin the deepseek upstream on OpenRouter")
 				assert.False(t, gjson.GetBytes(body, "reasoning.enabled").Bool(), "reasoning must be disabled to avoid burning max_tokens on hidden thinking")
 			},
@@ -102,10 +113,16 @@ func TestConformance_OpenAIChat(t *testing.T) {
 			stream:          true,
 			upstreamFixture: "openai_chat/basic_text.upstream.sse",
 			wantUpstream: func(t *testing.T, _ string, body []byte, _ http.Header) {
+				t.Helper()
 				assert.Equal(t, "system", gjson.GetBytes(body, "messages.0.role").String(), "top-level Anthropic system must become a leading system message")
 				assert.Contains(t, gjson.GetBytes(body, "messages.0.content").String(), "helpful assistant")
 			},
 		},
+	}
+}
+
+func openAIChatToolcheckCases() []conformanceCase {
+	return []conformanceCase{
 		{
 			// Unrepairable args degrade to `{}` (never raw malformed bytes)
 			// so the tool_use block stays dispatchable.
@@ -128,8 +145,5 @@ func TestConformance_OpenAIChat(t *testing.T) {
 			stream:          true,
 			upstreamFixture: "openai_chat/toolcall_repaired_args.upstream.sse",
 		},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) { runConformanceCase(t, c) })
 	}
 }

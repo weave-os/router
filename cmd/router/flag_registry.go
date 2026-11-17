@@ -10,11 +10,7 @@ import (
 )
 
 const (
-	// flagRegistryPublishTimeout bounds a single publish attempt so a slow or
-	// unreachable database can't hold a connection for the whole retry budget.
-	flagRegistryPublishTimeout = 10 * time.Second
-	// flagRegistryPublishRetryInterval and flagRegistryPublishBudget cover the
-	// Cloud SQL connector's first-dial latency (routinely >10s on Cloud Run).
+	flagRegistryPublishTimeout       = 10 * time.Second
 	flagRegistryPublishRetryInterval = 5 * time.Second
 	flagRegistryPublishBudget        = 5 * time.Minute
 )
@@ -23,9 +19,6 @@ type flagDefinitionPublisher interface {
 	Publish(context.Context, []flags.PublishedDefinition) error
 }
 
-// publishFlagRegistry builds PublishedDefinition entries from flags.Registry and
-// defaults (injected because they are locals in main), then publishes in the
-// background — the table is never on the request path.
 func publishFlagRegistry(logger *slog.Logger, publisher flagDefinitionPublisher, defaults map[flags.Key]string) {
 	published := make([]flags.PublishedDefinition, 0, len(flags.Registry))
 	for _, def := range flags.Registry {
@@ -43,8 +36,6 @@ func publishFlagRegistry(logger *slog.Logger, publisher flagDefinitionPublisher,
 	})
 }
 
-// publishFlagRegistryWithRetry retries until ctx expires. Retrying is safe
-// because upserts are idempotent and the prune is registry-version guarded.
 func publishFlagRegistryWithRetry(
 	ctx context.Context,
 	logger *slog.Logger,

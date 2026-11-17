@@ -29,7 +29,7 @@ func runPolicyDebugOverride(t *testing.T, installation *auth.Installation, heade
 		observed, _ = c.Request.Context().Value(proxy.PolicyDebugEnabledContextKey{}).(bool)
 		c.Status(http.StatusOK)
 	})
-	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
 	if header != "" {
 		req.Header.Set(middleware.RouterPolicyDebugHeader, header)
 	}

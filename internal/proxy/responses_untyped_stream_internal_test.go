@@ -56,7 +56,7 @@ func TestCodexCompactionPreservesUntypedResponsesStream(t *testing.T) {
 				`{"type":"message","role":"user","content":[{"type":"input_text","text":"Fix the bug."}]},` +
 				`{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Working."}]},` +
 				`{"type":"message","role":"user","content":[{"type":"input_text","text":"You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary."}]}]}`)
-			req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)
 			if tc.forceModel != "" {
 				req.Header.Set(ForceModelHeader, tc.forceModel)
 			}

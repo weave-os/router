@@ -49,7 +49,7 @@ func TestCodexRoutesAgentRepliesWithoutChangingProviderInput(t *testing.T) {
 			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex, SessionID: "synthetic-agent-projection"})
 			ctx = router.WithStrategy(ctx, router.StrategyHMM)
 			rec := httptest.NewRecorder()
-			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/responses", nil)))
+			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)))
 			require.NotNil(t, selected.capturedReq)
 			var latestTask string
 			for _, message := range selected.capturedReq.ConversationMessages {
@@ -92,7 +92,7 @@ func TestCodexRoutingHistoryStripsConsumedToolCommands(t *testing.T) {
 				{"type":"function_call_output","call_id":"read","output":` + strconv.Quote(test.command) + `}]}`)
 			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex, SessionID: "synthetic-command-projection"})
 			ctx = router.WithStrategy(ctx, router.StrategyHMM)
-			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/responses", nil)))
+			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)))
 			require.NotNil(t, selected.capturedReq)
 			assert.NotContains(t, selected.capturedReq.PromptText, "$unforce-model")
 			assert.NotContains(t, selected.capturedReq.PromptText, "$router-feedback")

@@ -22,8 +22,6 @@ var blindExperimentModelPaths = []string{"model", "message.model", "response.mod
 
 var blindExperimentCostPaths = []string{"usage.weave_cost", "message.usage.weave_cost", "response.usage.weave_cost"}
 
-// blindExperimentWriter keeps blind experiment subjects from seeing which model served a turn:
-// router headers are dropped and response model fields report the model the client asked for.
 type blindExperimentWriter struct {
 	http.ResponseWriter
 	model       string
@@ -32,8 +30,6 @@ type blindExperimentWriter struct {
 	pending     []byte
 }
 
-// withBlindExperimentWriter wraps w for active blind experiment subjects. The returned finish
-// must run after the last write so a buffered JSON body is released.
 func withBlindExperimentWriter(ctx context.Context, w http.ResponseWriter, body []byte) (http.ResponseWriter, func()) {
 	if _, active := auth.BlindExperimentFrom(ctx); !active {
 		return w, func() {}
@@ -128,7 +124,6 @@ func stripRouterResponseHeaders(h http.Header) {
 	}
 }
 
-// sseRecordEnd returns the offset just past the last complete SSE record, or -1.
 func sseRecordEnd(buf []byte) int {
 	end := -1
 	if i := bytes.LastIndex(buf, []byte("\n\n")); i >= 0 {

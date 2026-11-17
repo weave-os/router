@@ -53,12 +53,8 @@ func goldenRetryScenarios(ingress string, stream bool) []goldenScenario {
 	}
 }
 
-func withArmDemotion(svc *proxy.Service, h *goldenHarness) *proxy.Service {
-	return proxy.WithGoldenClock(svc, h.clock.Now).WithRescuedFailureArmDemotion(true)
-}
-
-func withGoldenClock(svc *proxy.Service, h *goldenHarness) *proxy.Service {
-	return proxy.WithGoldenClock(svc, h.clock.Now)
+func withArmDemotion(svc *proxy.Service, _ *goldenHarness) *proxy.Service {
+	return svc.WithRescuedFailureArmDemotion(true)
 }
 
 // goldenArmScenarios replay a session across requests so a rescued primary's
@@ -118,8 +114,7 @@ func goldenNativeCommitScenarios() []goldenScenario {
 				providers.ProviderFireworks: {compatOK(true, "rescued")}},
 			requests: []goldenRequest{
 				{body: goldenToolResultBody, decorateContext: goldenClaudeCodeCtx},
-				{body: goldenToolResultBody, decorateContext: goldenClaudeCodeCtx}},
-			configure: withGoldenClock},
+				{body: goldenToolResultBody, decorateContext: goldenClaudeCodeCtx}}},
 	}
 }
 
@@ -154,8 +149,7 @@ func goldenCapabilityScenarios() []goldenScenario {
 			upstreams: map[string][]goldenStep{providers.ProviderOpenAIGateway: {
 				goldenUpstreamError(http.StatusNotFound, `{"message":"unknown path"}`),
 				compatOK(true, "chat"), compatOK(true, "chat again")}},
-			requests:  []goldenRequest{{body: goldenGatewayToolTurn}, {body: goldenGatewayToolTurn}},
-			configure: withGoldenClock},
+			requests: []goldenRequest{{body: goldenGatewayToolTurn}, {body: goldenGatewayToolTurn}}},
 		{name: ingressOpenAI + "_stream_codex_plan_spent_fails_over_to_deployment_key", ingress: ingressOpenAI,
 			decisions: []router.Decision{{Provider: providers.ProviderOpenAI, Model: goldenCodexModel, Reason: "golden_route"}},
 			upstreams: map[string][]goldenStep{providers.ProviderOpenAI: {
@@ -165,7 +159,7 @@ func goldenCapabilityScenarios() []goldenScenario {
 				{body: ingressBody(ingressOpenAI, true), decorateContext: goldenCodexCtx},
 				{body: ingressBody(ingressOpenAI, true), decorateContext: goldenCodexCtx, advance: time.Minute}},
 			configure: func(svc *proxy.Service, h *goldenHarness) *proxy.Service {
-				return withGoldenClock(svc, h).WithUsageObserver(usage.NewObserver([]byte("golden-salt"), 10*time.Minute, h.clock.Now))
+				return svc.WithUsageObserver(usage.NewObserver([]byte("golden-salt"), 10*time.Minute, h.clock.Now))
 			}},
 	}
 }

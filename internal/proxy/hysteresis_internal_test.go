@@ -6,18 +6,18 @@ import (
 	"weave-os/router/internal/router"
 )
 
-func hysteresisDecision(model string, armScores map[string]float32) router.Decision {
+func hysteresisDecision(armScores map[string]float32) router.Decision {
 	return router.Decision{
-		Model: model,
+		Model: "claude-opus-5",
 		Metadata: &router.RoutingMetadata{
-			SelectedRosterArmID: "anthropic/" + model + ":high",
+			SelectedRosterArmID: "anthropic/" + "claude-opus-5" + ":high",
 			ArmScores:           armScores,
 		},
 	}
 }
 
 func TestEffortHysteresisHoldsSmallGapOnSameModel(t *testing.T) {
-	fresh := hysteresisDecision("claude-opus-5", map[string]float32{
+	fresh := hysteresisDecision(map[string]float32{
 		"anthropic/claude-opus-5:low":  4.0,
 		"anthropic/claude-opus-5:high": 4.5,
 	})
@@ -30,7 +30,7 @@ func TestEffortHysteresisHoldsSmallGapOnSameModel(t *testing.T) {
 }
 
 func TestEffortHysteresisAllowsGapAboveThreshold(t *testing.T) {
-	fresh := hysteresisDecision("claude-opus-5", map[string]float32{
+	fresh := hysteresisDecision(map[string]float32{
 		"anthropic/claude-opus-5:low":  4.0,
 		"anthropic/claude-opus-5:high": 6.0,
 	})
@@ -43,7 +43,7 @@ func TestEffortHysteresisAllowsGapAboveThreshold(t *testing.T) {
 }
 
 func TestEffortHysteresisAllowsCrossModelSwitch(t *testing.T) {
-	fresh := hysteresisDecision("claude-opus-5", map[string]float32{
+	fresh := hysteresisDecision(map[string]float32{
 		"anthropic/claude-opus-5:low":  4.0,
 		"anthropic/claude-opus-5:high": 4.5,
 	})
@@ -56,7 +56,7 @@ func TestEffortHysteresisAllowsCrossModelSwitch(t *testing.T) {
 }
 
 func TestEffortHysteresisAllowsStayOnModelTheFreshArmDoesNotDescribe(t *testing.T) {
-	fresh := hysteresisDecision("claude-opus-5", map[string]float32{
+	fresh := hysteresisDecision(map[string]float32{
 		"anthropic/claude-opus-5:low":  4.0,
 		"anthropic/claude-opus-5:high": 4.5,
 	})
@@ -69,7 +69,7 @@ func TestEffortHysteresisAllowsStayOnModelTheFreshArmDoesNotDescribe(t *testing.
 }
 
 func TestEffortHysteresisPassesThroughWithoutArmScores(t *testing.T) {
-	fresh := hysteresisDecision("claude-opus-5", nil)
+	fresh := hysteresisDecision(nil)
 
 	got := effortHysteresisHold(fresh, "claude-opus-5:low", "claude-opus-5", "high")
 
@@ -79,7 +79,7 @@ func TestEffortHysteresisPassesThroughWithoutArmScores(t *testing.T) {
 }
 
 func TestEffortHysteresisPassesThroughOnBarePin(t *testing.T) {
-	fresh := hysteresisDecision("claude-opus-5", map[string]float32{
+	fresh := hysteresisDecision(map[string]float32{
 		"anthropic/claude-opus-5:low":  4.0,
 		"anthropic/claude-opus-5:high": 4.5,
 	})
@@ -92,7 +92,7 @@ func TestEffortHysteresisPassesThroughOnBarePin(t *testing.T) {
 }
 
 func TestEffortHysteresisPassesThroughWhenIncumbentArmUnscored(t *testing.T) {
-	fresh := hysteresisDecision("claude-opus-5", map[string]float32{
+	fresh := hysteresisDecision(map[string]float32{
 		"anthropic/claude-opus-5:high": 4.5,
 	})
 
@@ -104,7 +104,7 @@ func TestEffortHysteresisPassesThroughWhenIncumbentArmUnscored(t *testing.T) {
 }
 
 func TestEffortHysteresisHoldsWhenChallengerScoresWorse(t *testing.T) {
-	fresh := hysteresisDecision("claude-opus-5", map[string]float32{
+	fresh := hysteresisDecision(map[string]float32{
 		"anthropic/claude-opus-5:low":  5.0,
 		"anthropic/claude-opus-5:high": 1.0,
 	})
@@ -117,7 +117,7 @@ func TestEffortHysteresisHoldsWhenChallengerScoresWorse(t *testing.T) {
 }
 
 func TestEffortHysteresisPassesThroughOnUnchangedEffort(t *testing.T) {
-	fresh := hysteresisDecision("claude-opus-5", map[string]float32{
+	fresh := hysteresisDecision(map[string]float32{
 		"anthropic/claude-opus-5:low": 4.0,
 	})
 

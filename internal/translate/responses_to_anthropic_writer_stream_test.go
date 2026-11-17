@@ -347,7 +347,7 @@ data: {"type":"response.completed","response":{"id":"r","status":"completed","ou
 	require.Len(t, content, 1)
 	tool, _ := content[0].(map[string]any)
 	input, _ := tool["input"].(map[string]any)
-	assert.Equal(t, "", input["pages"],
+	assert.Empty(t, mustAs[string](t, input["pages"]),
 		"schema for a different tool must not authorize stripping this tool's args")
 }
 
