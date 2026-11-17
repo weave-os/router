@@ -75,3 +75,8 @@ func NormalizeAnthropicFederation(authType AuthType, provider, baseURL string, f
 type AnthropicFederationTokenSource interface {
 	Token(context.Context, *ExternalAPIKey) ([]byte, error)
 }
+
+func (s *Service) WithAnthropicFederationTokenSource(source AnthropicFederationTokenSource) *Service {
+	s.anthropicFederationTokens = source
+	return s
+}

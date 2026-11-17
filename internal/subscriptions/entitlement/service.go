@@ -137,19 +137,6 @@ func (s *Service) projectedEntitlement(ctx context.Context, subscriberID Subscri
 	return current, true, nil
 }
 
-func spentWindow(usage Usage) (bool, PeriodKind) {
-	if usage.Billing.ConsumedUsdMicros() >= usage.Billing.LimitUsdMicros {
-		return true, PeriodKindBilling
-	}
-	if usage.Weekly.ConsumedUsdMicros() >= usage.Weekly.LimitUsdMicros {
-		return true, PeriodKindWeekly
-	}
-	if usage.SixHour.ConsumedUsdMicros() >= usage.SixHour.LimitUsdMicros {
-		return true, PeriodKindSixHour
-	}
-	return false, ""
-}
-
 type Settlement struct {
 	Coverage        Coverage
 	ActionID        string

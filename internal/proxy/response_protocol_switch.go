@@ -20,6 +20,7 @@ const (
 type modelAttemptBuilder func(router.Decision, translate.EmitOptions, string, context.Context) (dispatchAttempt, error)
 
 type responseProtocolSwitch struct {
+	notices             *requestNoticeStream
 	writer              *translate.ResponsesWriter
 	buffer              *preludeBuffer
 	nativeRequest       bool
@@ -89,6 +90,7 @@ func (s responseProtocolSwitch) leavePassthrough() error {
 }
 
 func (s responseProtocolSwitch) selectTarget(target router.Decision) error {
+	s.notices.selectModel(target.Model)
 	if s.writer == nil {
 		return nil
 	}

@@ -4,13 +4,8 @@ import (
 	"net/http"
 )
 
-// TurnErrorClass buckets how a served turn failed, for the telemetry
-// error_class column. The empty value is a normal completion.
 type TurnErrorClass string
 
-// TurnErrorClass values: upstream HTTP status buckets, transport failures by
-// owner, a refused routing decision, and completed turns whose output was
-// unusable (refusal, output cap, malformed tool calls).
 const (
 	TurnErrorRateLimited     TurnErrorClass = "rate_limited"
 	TurnErrorInvalidRequest  TurnErrorClass = "invalid_request"
@@ -29,20 +24,11 @@ const (
 	TurnErrorInvalidToolArgs TurnErrorClass = "invalid_tool_args"
 )
 
-// classifyTurnError names the failure of a turn from its final dispatch error
-// and, when the upstream completed, the stop reason and invalid tool-call
-// count it reported. A transport failure is bucketed by its owner through
-// classifyStreamFailure, so a watchdog abort is not mistaken for a client
-// cancel.
 func classifyTurnError(err error, stopReason string, invalidToolArgsBlocks int) TurnErrorClass {
 	if err != nil {
 		if isUpstreamWatchdogError(err) {
 			return TurnErrorStreamStalled
 		}
-		// Ahead of the status: a post-commit cut is rendered as a synthetic 502
-		// frame that wraps this verdict. An empty stream shares stream_cut
-		// because consumers mirror this vocabulary as a closed enum; the stream
-		// failure class keeps the two apart.
 		if isStreamTerminalMissing(err) {
 			return TurnErrorStreamCut
 		}
