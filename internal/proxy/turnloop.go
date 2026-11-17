@@ -171,6 +171,7 @@ type turnLoopResult struct {
 	InstallationID              uuid.UUID
 	Strategy                    router.Strategy
 	TurnType                    turntype.TurnType
+	AutoModeReviewer            bool
 	StickyHit                   bool
 	HardPinned                  bool
 	SessionFirstTurn            bool
@@ -407,7 +408,7 @@ func (s *Service) routeWithoutPin(
 	forceModelFound bool,
 	forceModelPin sessionpin.Pin,
 ) (turnLoopResult, error) {
-	if forceModelFound && forcedPinEligible(forceModelPin, req) {
+	if forceModelFound && !res.AutoModeReviewer && forcedPinEligible(forceModelPin, req) {
 		res.Decision = pinDecision(forceModelPin)
 		res.Decision.Reason = translate.ReasonUserForceModel
 		res.StickyHit = true
@@ -420,7 +421,7 @@ func (s *Service) routeWithoutPin(
 		res.UsageBypass = true
 		return res, nil
 	}
-	if dec, ok := s.classifierModelDecision(ctx, reqHeaders, req, res.TurnType); ok {
+	if dec, ok := s.classifierModelDecision(ctx, reqHeaders, req, res); ok {
 		res.Decision = dec
 		res.CallerModelPassthrough = true
 		res.Origin = policy.OverrideSourceDeployment
@@ -433,22 +434,6 @@ func (s *Service) routeWithoutPin(
 	res.Decision = decision
 	res.Fresh = decision
 	return res, nil
-}
-
-func (s *Service) classifierModelDecision(ctx context.Context, headers http.Header, req router.Request, tt turntype.TurnType) (router.Decision, bool) {
-	if tt != turntype.Classifier || subscriptionStateModelsEnabled(ctx) || !catalog.PermittedBy(req.ProductEligibility, policy.ClassifierModel) {
-		return router.Decision{}, false
-	}
-	if _, anthropicSub := presentSubscriptionTokens(ctx, headers); anthropicSub != "" {
-		return router.Decision{}, false
-	}
-	req.RequestedModel = policy.ClassifierModel
-	dec, err := s.callerModelPassthroughDecision(ctx, req)
-	if err != nil || !s.clients.Has(dec.Provider) {
-		return router.Decision{}, false
-	}
-	dec.Reason = reasonClassifierModel
-	return dec, true
 }
 
 func authoritativePolicyTurn(tt turntype.TurnType) bool {
@@ -614,16 +599,7 @@ func (s *Service) runTurnLoop(
 	if installationID != uuid.Nil {
 		req.InstallationID = installationID.String()
 	}
-	res = turnLoopResult{
-		ContextEstimate:             env.ContextOverflowTokenEstimate(),
-		TranslationEnabledProviders: req.EnabledProviders,
-		InstallationID:              installationID,
-		Strategy:                    router.StrategyFromContext(ctx),
-		TurnType:                    turntype.Detect(env, feats, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx))),
-		PinTier:                     "miss",
-		RequestedTier:               catalog.TierFor(feats.Model),
-		StripThinkingBlocks:         betaArtifactHistoryFromContext(ctx),
-	}
+	res = newTurnLoopResult(ctx, env, feats, req, installationID, subAgentHint)
 	res.AuthoritativePerTurn = authoritativePolicyTurn(res.TurnType) &&
 		s.authoritativePerTurnSelection(ctx)
 	if !isolatedSearch {

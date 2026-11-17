@@ -2712,7 +2712,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 
 	if routeRes.UsageBypass && routeRes.Decision.Provider == providers.ProviderAnthropic {
-		err := s.bypassToAnthropic(ctx, env, feats, routeRes.modelSwitched(), requestStart, requestID, externalID, routeRes.TurnType, routeRes.Decision.Reason, r, w)
+		err := serveAutoModeReviewer(ctx, body, env, feats, routeRes.AutoModeReviewer, w, bypassAttemptFor(s, ctx, routeRes, requestStart, requestID, externalID, r))
 		if !errors.Is(err, errBypassRetryable) {
 			if !agentShadowMode {
 				s.firePolicyShadowForServingDecision(ctx, routeRes.Decision, req)

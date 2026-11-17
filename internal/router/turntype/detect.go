@@ -99,7 +99,7 @@ func Detect(env *translate.RequestEnvelope, feats translate.RoutingFeatures, sub
 		return SubAgentDispatch
 	}
 
-	if isClassifier(feats) || isSecurityMonitor(env, feats) {
+	if isClassifier(feats) || IsSecurityMonitor(env, feats) {
 		return Classifier
 	}
 	if isSubAgentDispatch("", "", env.FirstUserMessageText(), "") {
@@ -135,7 +135,7 @@ func isClassifier(feats translate.RoutingFeatures) bool {
 	return true
 }
 
-func isSecurityMonitor(env *translate.RequestEnvelope, feats translate.RoutingFeatures) bool {
+func IsSecurityMonitor(env *translate.RequestEnvelope, feats translate.RoutingFeatures) bool {
 	if feats.HasTools || env.SourceFormat() != translate.FormatAnthropic {
 		return false
 	}

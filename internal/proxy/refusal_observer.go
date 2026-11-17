@@ -122,6 +122,11 @@ func (o *passiveRefusalObserver) Write(p []byte) (int, error) {
 	return o.inner.Write(p)
 }
 
+func (o *passiveRefusalObserver) ArmOutputProgress(mark func()) bool {
+	armer, ok := o.inner.(interface{ ArmOutputProgress(func()) bool })
+	return ok && armer.ArmOutputProgress(mark)
+}
+
 func (o *passiveRefusalObserver) Flush() {
 	if f, ok := o.inner.(http.Flusher); ok {
 		f.Flush()

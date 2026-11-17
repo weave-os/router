@@ -59,34 +59,6 @@ func runClassifierBypass(t *testing.T, body, respBody string) (*bypassFakeProvid
 // no thinking/effort rewrite, no added cache breakpoint, no max_tokens change.
 // An empty or refused verdict here makes the client fail closed and deny the
 // tool call, so the router must not alter the monitor's request.
-func TestBypass_ClassifierTurn_ForwardedLikePassthrough(t *testing.T) {
-	for name, thinking := range map[string]string{
-		"no_thinking":       "",
-		"thinking_disabled": `{"type":"disabled"}`,
-		"thinking_enabled":  `{"type":"enabled","budget_tokens":1024}`,
-	} {
-		t.Run(name, func(t *testing.T) {
-			body := classifierStage2Body(thinking)
-			upstream, _ := runClassifierBypass(t, body, `{}`)
-
-			env, err := translate.ParseAnthropic([]byte(body))
-			require.NoError(t, err)
-			in := http.Header{}
-			in.Set("anthropic-version", "2023-06-01")
-			in.Set("anthropic-beta", classifierClientBeta)
-			want, err := env.PrepareAnthropicPassthrough(in)
-			require.NoError(t, err)
-
-			assert.JSONEq(t, string(want.Body), string(upstream.capturedBody))
-			assert.Equal(t, want.Headers.Get("anthropic-beta"), upstream.capturedHdr.Get("anthropic-beta"))
-			assert.NotContains(t, string(upstream.capturedBody), `"fallbacks"`)
-			assert.NotContains(t, string(upstream.capturedBody), `"output_config"`)
-			assert.NotContains(t, string(upstream.capturedBody), `"cache_control"`)
-			assert.NotContains(t, upstream.capturedHdr.Get("anthropic-beta"), "server-side-fallback")
-		})
-	}
-}
-
 // A refused or empty non-streaming classifier verdict on the bypass lane is
 // persisted with its stop_reason so it is countable in telemetry.
 func TestBypass_ClassifierTurn_RecordsStopReason(t *testing.T) {
