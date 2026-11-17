@@ -108,7 +108,7 @@ func routeRandomBenchmark(ctx context.Context, request router.Request) (router.D
 	if err != nil {
 		return router.Decision{}, err
 	}
-	if !randomrouter.IncludesTarget(decision) || decision.Metadata == nil || decision.Metadata.PolicyArtifactSHA256 != profile.Config.PolicySHA256 || decision.Metadata.Propensity != 1.0/3.0 {
+	if !randomrouter.IsIncludedSubscriptionDecision(decision) || decision.Metadata == nil || decision.Metadata.PolicyArtifactSHA256 != profile.Config.PolicySHA256 || decision.Metadata.Propensity != 1.0/3.0 {
 		return router.Decision{}, randomrouter.ErrUnavailable
 	}
 	profile.SelectedModel = decision.Model

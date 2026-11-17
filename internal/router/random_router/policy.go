@@ -77,7 +77,7 @@ func (p *Policy) Route(ctx context.Context, request router.Request) (router.Deci
 
 var _ router.Router = (*Policy)(nil)
 
-func IncludesTarget(decision router.Decision) bool {
+func IsIncludedSubscriptionDecision(decision router.Decision) bool {
 	if !slices.Contains(Models(), decision.Model) {
 		return false
 	}

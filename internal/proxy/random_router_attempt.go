@@ -78,7 +78,7 @@ func invokeLeasedProviderAttempt(s *Service, ctx context.Context, plan inference
 		return started, attempt.inputs.attempt(ctx, attempt.decision, attempt.client)
 	}
 	credentials := CredentialsFromContext(ctx)
-	if !attempt.managed || credentials == nil || !credentials.OAuth || credentials.Source != credSourceCodexSubscription || len(credentials.AccountID) == 0 || len(credentials.APIKey) == 0 || credentials.SubscriptionAccountID != attempt.lease.AccountID || attempt.decision.Model != state.SelectedModel || !randomrouter.IncludesTarget(attempt.decision) || !state.Config.ExpiresAt.After(s.clockNow()) {
+	if !attempt.managed || credentials == nil || !credentials.OAuth || credentials.Source != credSourceCodexSubscription || len(credentials.AccountID) == 0 || len(credentials.APIKey) == 0 || credentials.SubscriptionAccountID != attempt.lease.AccountID || attempt.decision.Model != state.SelectedModel || !randomrouter.IsIncludedSubscriptionDecision(attempt.decision) || !state.Config.ExpiresAt.After(s.clockNow()) {
 		return started, dispatchAbort{err: randomrouter.ErrUnavailable}
 	}
 	observation := &randomResponseObservation{state: state}
@@ -102,7 +102,7 @@ type randomResponseObservation struct {
 }
 
 func (o *randomResponseObservation) start(_ context.Context, decision router.Decision, prepared providers.PreparedRequest, writer http.ResponseWriter) (http.ResponseWriter, func(error) error, error) {
-	if o.called || prepared.Endpoint != providers.EndpointResponses || decision.Model != o.state.SelectedModel || !randomrouter.IncludesTarget(decision) {
+	if o.called || prepared.Endpoint != providers.EndpointResponses || decision.Model != o.state.SelectedModel || !randomrouter.IsIncludedSubscriptionDecision(decision) {
 		return nil, nil, randomrouter.ErrUnavailable
 	}
 	o.called = true

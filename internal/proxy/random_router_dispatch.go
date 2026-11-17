@@ -10,7 +10,7 @@ import (
 
 func dispatchRandomRequest(s *Service, ctx context.Context, in failoverInputs) (int, error) {
 	state := randomBenchmarkFrom(ctx)
-	if state == nil || !state.Prepared || !state.Config.ExpiresAt.After(s.clockNow()) || state.SelectedModel == "" || in.initialDecision.Model != state.SelectedModel || !randomrouter.IncludesTarget(in.initialDecision) || in.purpose != inference.PurposeOpenAIResponses {
+	if state == nil || !state.Prepared || !state.Config.ExpiresAt.After(s.clockNow()) || state.SelectedModel == "" || in.initialDecision.Model != state.SelectedModel || !randomrouter.IsIncludedSubscriptionDecision(in.initialDecision) || in.purpose != inference.PurposeOpenAIResponses {
 		return -1, randomrouter.ErrUnavailable
 	}
 	in.alternatives = nil
