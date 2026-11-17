@@ -6,16 +6,11 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// CodexSkillTurn names the router skill whose emitted directive a Codex
-// tool-result turn returns.
 type CodexSkillTurn int
 
 const (
 	CodexSkillTurnNone CodexSkillTurn = iota
-	// CodexSkillTurnFeedback is a user-invoked $rf/$router-feedback skill.
 	CodexSkillTurnFeedback
-	// CodexSkillTurnForceModel is a force-model skill's emit.sh, whose
-	// directive ends the turn.
 	CodexSkillTurnForceModel
 )
 
@@ -32,8 +27,6 @@ func codexSkillTurnFor(input gjson.Result) CodexSkillTurn {
 
 var codexForceModelSkillScript = regexp.MustCompile(`/skills/(force-model|fm|force-parent|unforce-model|ufm)/scripts/emit\.sh`)
 
-// codexForceModelSkillToolOutput reports whether the latest tool output since
-// the last user message answers a call that ran a force-model skill script.
 func codexForceModelSkillToolOutput(input gjson.Result) bool {
 	if !input.IsArray() {
 		return false

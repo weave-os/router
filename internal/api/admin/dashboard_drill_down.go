@@ -34,11 +34,10 @@ type dashboardDrillDownSession struct {
 }
 
 type dashboardDrillDownPerson struct {
-	ID          string `json:"id"`
-	Linked      bool   `json:"linked"`
-	DisplayName string `json:"display_name"`
-	Email       string `json:"email"`
-	// SessionCount counts every session, including those past the per-person cap on Sessions.
+	ID           string                      `json:"id"`
+	Linked       bool                        `json:"linked"`
+	DisplayName  string                      `json:"display_name"`
+	Email        string                      `json:"email"`
 	SessionCount int                         `json:"session_count"`
 	Sessions     []dashboardDrillDownSession `json:"sessions"`
 }
@@ -48,8 +47,6 @@ type dashboardDrillDownResponse struct {
 	People          []dashboardDrillDownPerson `json:"people"`
 }
 
-// MetricsDrillDownHandler lists the people, sessions and model pairs behind a
-// dashboard data point; `group`+`key` narrow to the clicked series.
 func MetricsDrillDownHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		group := dashboardMetricGroup(c.Query("group"))

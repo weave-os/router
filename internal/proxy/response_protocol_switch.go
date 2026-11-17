@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"errors"
+	"net/http"
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
@@ -10,27 +11,18 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-// openAISurface names which OpenAI endpoint an attempt POSTs to and in what
-// representation; the three cases differ in both emit and response handling.
 type openAISurface int
 
 const (
-	// surfaceChat is /v1/chat/completions with the client's own format.
 	surfaceChat openAISurface = iota
-	// surfaceResponsesNative is /v1/responses with a Responses caller's
-	// original bytes, streamed back verbatim.
 	surfaceResponsesNative
-	// surfaceResponsesTranslated is /v1/responses emitted from a
-	// chat/completions request, with the response translated back to chat.
 	surfaceResponsesTranslated
 )
 
 type modelAttemptBuilder func(router.Decision, translate.EmitOptions, string, context.Context) (dispatchAttempt, error)
 
-// responseProtocolSwitch owns the client writer's protocol across model changes.
-// A synthetic routing prelude can remain visible while a failed provider
-// attempt is replaced without committing its output.
 type responseProtocolSwitch struct {
+	notices             *requestNoticeStream
 	writer              *translate.ResponsesWriter
 	buffer              *preludeBuffer
 	nativeRequest       bool
@@ -100,6 +92,7 @@ func (s responseProtocolSwitch) leavePassthrough() error {
 }
 
 func (s responseProtocolSwitch) selectTarget(target router.Decision) error {
+	s.notices.selectModel(target.Model)
 	if s.writer == nil {
 		return nil
 	}
@@ -125,7 +118,6 @@ func (s *responseProtocolSwitch) wrapBuilder(build modelAttemptBuilder) modelAtt
 			return nil, err
 		}
 		return func(ctx context.Context, binding router.Decision, client dispatch.Upstream) error {
-			// Binding failover may change the provider after the model was chosen.
 			if err := s.selectTarget(binding); err != nil {
 				return err
 			}
@@ -135,3 +127,28 @@ func (s *responseProtocolSwitch) wrapBuilder(build modelAttemptBuilder) modelAtt
 }
 
 var errResponsesPassthroughStuck = errors.New("responses passthrough already carries native output; another wire format cannot continue it")
+
+func resetResponsesAttempt(w http.ResponseWriter) {
+	if rw, ok := w.(*translate.ResponsesWriter); ok {
+		rw.ResetAttempt()
+	}
+}
+
+func responsesDispatchBodies(body []byte, terminalResponses bool) (nativeBody, conversionBody []byte, err error) {
+	nativeBody, err = translate.StripRouterReasoningFromResponsesInput(body)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !terminalResponses {
+		return nativeBody, body, nil
+	}
+	nativeBody, err = stripResponsesTerminalArtifacts(nativeBody)
+	if err != nil {
+		return nil, nil, err
+	}
+	conversionBody, err = stripResponsesVisualArtifacts(body)
+	if err != nil {
+		return nil, nil, err
+	}
+	return nativeBody, conversionBody, nil
+}

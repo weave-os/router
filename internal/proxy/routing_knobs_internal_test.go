@@ -24,7 +24,7 @@ func TestRoutingKnobsForRequest(t *testing.T) {
 		got := routingKnobsForRequest(ctx)
 		require.NotNil(t, got)
 		require.NotNil(t, got.Alpha)
-		assert.Equal(t, 0.6, *got.Alpha)
+		assert.InDelta(t, 0.6, *got.Alpha, 1e-9)
 	})
 
 	t.Run("header override wins over installation knobs", func(t *testing.T) {
@@ -35,6 +35,6 @@ func TestRoutingKnobsForRequest(t *testing.T) {
 		got := routingKnobsForRequest(ctx)
 		require.NotNil(t, got)
 		require.NotNil(t, got.Alpha)
-		assert.Equal(t, 0.95, *got.Alpha)
+		assert.InDelta(t, 0.95, *got.Alpha, 1e-9)
 	})
 }

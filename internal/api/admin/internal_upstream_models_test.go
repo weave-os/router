@@ -28,7 +28,7 @@ func internalUpstreamModelsRequest(t *testing.T, installationID, keyID string) *
 	t.Helper()
 	body, err := json.Marshal(map[string]string{"installation_id": installationID, "key_id": keyID})
 	require.NoError(t, err)
-	return httptest.NewRequest(http.MethodPost, "/internal/v1/provider-keys/models", bytes.NewReader(body))
+	return httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/internal/v1/provider-keys/models", bytes.NewReader(body))
 }
 
 func TestInternalListUpstreamModelsHandler_ListsWithMintedCredential(t *testing.T) {

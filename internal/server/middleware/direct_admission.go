@@ -68,16 +68,12 @@ func directAssertion(ctx context.Context, cfg *ServingAdmissionConfig, installat
 	if binding.Target != cfg.Identity.Target {
 		return policyregistry.ServingAssertion{}, errServingFleetMismatch
 	}
-	// Historical policy/classifier references survive a code release; physical
-	// revision identity remains mandatory for release preparation, not retention.
 	if _, err := policyregistry.ResolveAdmissionBinding(ctx, cfg.Store, binding); err != nil {
 		return policyregistry.ServingAssertion{}, err
 	}
 	return policyregistry.ServingAssertion{APIKeyID: keyID, BodySHA256: policyregistry.Digest(body), Scope: scope, Admission: binding}, nil
 }
 
-// directRoutingModel returns a classifier selector when the request chooses one.
-// Concrete upstream models do not establish a classifier pin for the conversation.
 func directRoutingModel(r *http.Request, body []byte) (router.RoutingModel, bool) {
 	if r.Method != http.MethodPost {
 		return "", false
@@ -89,7 +85,6 @@ func directRoutingModel(r *http.Request, body []byte) (router.RoutingModel, bool
 		if !strings.HasPrefix(r.URL.Path, "/v1beta/models/") || (!strings.HasSuffix(r.URL.Path, ":generateContent") && !strings.HasSuffix(r.URL.Path, ":streamGenerateContent")) {
 			return "", false
 		}
-		// Gemini's handler injects this URL model over any synthetic body.model.
 		model, _, _ = strings.Cut(strings.TrimPrefix(r.URL.Path, "/v1beta/models/"), ":")
 	}
 	if model == "" {
@@ -97,9 +92,6 @@ func directRoutingModel(r *http.Request, body []byte) (router.RoutingModel, bool
 	}
 	if router.IsRoutingModel(model) {
 		return router.RoutingModel(model), true
-	}
-	if strings.HasPrefix(model, "weave-") {
-		return "", false // Unknown selectors are rejected by routing-model middleware.
 	}
 	return "", false
 }

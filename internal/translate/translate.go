@@ -1,5 +1,3 @@
-// Package translate converts request/response bodies between OpenAI and
-// Anthropic wire formats. This file handles non-streaming responses.
 package translate
 
 import (
@@ -14,8 +12,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// clientFacingModel returns requestModel when set, so BYOK aliases (model_aliases) never leak
-// to the client and streaming/non-streaming responses agree on the same id.
 func clientFacingModel(requestModel, upstreamModel string) string {
 	if requestModel != "" {
 		return requestModel
@@ -23,7 +19,6 @@ func clientFacingModel(requestModel, upstreamModel string) string {
 	return upstreamModel
 }
 
-// AnthropicToOpenAIResponse converts a non-streaming Anthropic response to OpenAI format.
 func AnthropicToOpenAIResponse(body []byte, requestModel string) ([]byte, error) {
 	translated, _, err := anthropicToOpenAIResponse(body, requestModel, usage.ParseAnthropic(gjson.GetBytes(body, "usage")), NewToolCallLedger())
 	return translated, err
@@ -71,6 +66,7 @@ func writeOpenAIMessageFromAnthropic(jw *jsonWriter, content gjson.Result, ledge
 	jw.Str("assistant")
 
 	var textParts []string
+	var thinkingParts []string
 	var toolCallBlocks []AcceptedToolCall
 	var issues []toolcheck.Issue
 
@@ -79,6 +75,10 @@ func writeOpenAIMessageFromAnthropic(jw *jsonWriter, content gjson.Result, ledge
 		case "text":
 			if t := block.Get("text").String(); t != "" {
 				textParts = append(textParts, t)
+			}
+		case "thinking":
+			if t := block.Get("thinking").String(); t != "" {
+				thinkingParts = append(thinkingParts, t)
 			}
 		case "tool_use":
 			sourceIndex := int(index.Int())
@@ -100,6 +100,10 @@ func writeOpenAIMessageFromAnthropic(jw *jsonWriter, content gjson.Result, ledge
 	} else {
 		jw.Null()
 	}
+	if len(thinkingParts) > 0 {
+		jw.Key("reasoning_content")
+		jw.Str(strings.Join(thinkingParts, "\n"))
+	}
 
 	if len(toolCallBlocks) > 0 {
 		jw.Key("tool_calls")
@@ -114,7 +118,7 @@ func writeOpenAIMessageFromAnthropic(jw *jsonWriter, content gjson.Result, ledge
 			jw.Obj()
 			jw.Key("name")
 			jw.Str(block.Name)
-			// Anthropic input is a JSON object; OpenAI arguments is that object serialized as a string.
+
 			jw.Key("arguments")
 			jw.Str(block.Arguments)
 			jw.EndObj()
@@ -127,7 +131,6 @@ func writeOpenAIMessageFromAnthropic(jw *jsonWriter, content gjson.Result, ledge
 	return len(toolCallBlocks), issues
 }
 
-// mapStopReason converts an Anthropic stop_reason to an OpenAI finish_reason.
 func mapStopReason(reason any) string {
 	s, _ := reason.(string)
 	switch s {
@@ -140,15 +143,13 @@ func mapStopReason(reason any) string {
 	case "tool_use":
 		return "tool_calls"
 	case "refusal":
-		// claude-fable-5 safety classifiers decline with stop_reason
-		// "refusal" on HTTP 200; content_filter is the OpenAI equivalent.
+
 		return "content_filter"
 	default:
 		return "stop"
 	}
 }
 
-// AnthropicToOpenAIError re-wraps an Anthropic error as OpenAI format.
 func AnthropicToOpenAIError(body []byte) []byte {
 	errType := gjson.GetBytes(body, "error.type").String()
 	errMsg := gjson.GetBytes(body, "error.message").String()
@@ -172,28 +173,21 @@ func AnthropicToOpenAIError(body []byte) []byte {
 	return jw.Bytes()
 }
 
-// OpenAIToAnthropicResponse converts a non-streaming OpenAI response to
-// Anthropic Messages format.
 func OpenAIToAnthropicResponse(body []byte, requestModel string) ([]byte, error) {
 	out, _, err := openAIToAnthropicResponse(body, requestModel, nil, false, false, nil, usage.ParseOpenAI(gjson.GetBytes(body, "usage")), 1)
 	return out, err
 }
 
-// openAIToAnthropicResponse is the validator-aware variant: tool_use inputs
-// are checked/repaired against the request's tool schemas, returning one
-// toolcheck.Issue per offending block. A nil validator is syntax-check-only.
 func openAIToAnthropicResponse(body []byte, requestModel string, toolValidator *toolcheck.Validator, thinkTagReasoning, escapeNormalize bool, seedToolNames map[string]string, facts usage.Facts, clientInputScale float64) ([]byte, []toolcheck.Issue, error) {
 	if !gjson.ValidBytes(body) {
 		return nil, nil, fmt.Errorf("unmarshal openai response: invalid JSON")
 	}
 	id := gjson.GetBytes(body, "id").String()
 	if id == "" {
-		// Unique per response: clients (notably ccusage) dedupe usage records
-		// by message id, so a constant placeholder undercounts tokens/cost.
+
 		id = "msg_translated_" + randomHex(8)
 	}
-	// Per-response nonce so deterministic upstream ids don't repeat across turns
-	// (see uniqueToolUseIDWithNonce for full rationale).
+
 	toolIDNonce := randomHex(6)
 	model := clientFacingModel(requestModel, gjson.GetBytes(body, "model").String())
 
@@ -245,8 +239,6 @@ func writeAnthropicThinkingBlock(jw *jsonWriter, thinking string) {
 	jw.EndObj()
 }
 
-// anthropicReasoningAndText splits a chat message into its reasoning and
-// visible text, rerouting a leading <think>…</think> when enabled.
 func anthropicReasoningAndText(message gjson.Result, thinkTagReasoning bool) (string, string) {
 	reasoning := message.Get("reasoning_content").String()
 	if reasoning == "" {
@@ -254,8 +246,7 @@ func anthropicReasoningAndText(message gjson.Result, thinkTagReasoning bool) (st
 	}
 	text := message.Get("content").String()
 	if thinkTagReasoning && text != "" {
-		// Reroute a leading <think>…</think> into the thinking channel; the
-		// remainder (and any non-leading tag) stays text (see think_tag.go).
+
 		var splitter thinkTagSplitter
 		segs := append(splitter.Feed(text), splitter.Flush()...)
 		var think, prose strings.Builder
@@ -266,8 +257,7 @@ func anthropicReasoningAndText(message gjson.Result, thinkTagReasoning bool) (st
 				prose.WriteString(seg.text)
 			}
 		}
-		// Fold into the same thinking block as reasoning_content/reasoning,
-		// matching the streaming translator so both channels shape identically.
+
 		reasoning += think.String()
 		text = prose.String()
 	}
@@ -363,13 +353,11 @@ func acceptedSeedToolCalls(seedCalls []seedToolCall, validator *toolcheck.Valida
 	return calls, issues
 }
 
-// isEditToolName reports whether name is a file-edit tool subject to escape normalization.
 func isEditToolName(name string) bool {
 	_, ok := escapeNormalizeToolNames[strings.ToLower(name)]
 	return ok
 }
 
-// openAIFinishToAnthropicStopReason is the non-streaming variant.
 func openAIFinishToAnthropicStopReason(s string) string {
 	switch s {
 	case "length":
@@ -383,7 +371,6 @@ func openAIFinishToAnthropicStopReason(s string) string {
 	}
 }
 
-// OpenAIToAnthropicError re-wraps an OpenAI error as Anthropic format.
 func OpenAIToAnthropicError(body []byte) []byte {
 	errType := gjson.GetBytes(body, "error.type").String()
 	errMsg := gjson.GetBytes(body, "error.message").String()
@@ -403,6 +390,13 @@ func OpenAIToAnthropicError(body []byte) []byte {
 	jw.EndObj()
 	jw.EndObj()
 	return jw.Bytes()
+}
+
+func AnthropicErrorAsOpenAI(body []byte) []byte {
+	if gjson.GetBytes(body, "type").String() != "error" || gjson.GetBytes(body, "error.code").Exists() {
+		return body
+	}
+	return AnthropicToOpenAIError(body)
 }
 
 type chatFinishReason string

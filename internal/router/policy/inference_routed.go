@@ -5,28 +5,14 @@ import (
 	"weave-os/router/internal/router/catalog"
 )
 
-// RoutedResolutionRequest adapts a decision the turn loop already made into a
-// plan: the router's own selection for a main-inference purpose, or the
-// deployment hard pin for an auxiliary utility purpose. The ordered provider
-// bindings are the runtime failover walk the surface computed (exclusions,
-// BYOK, and deployment-key filtering already applied); the adapter authorizes
-// exactly that walk for the decision's model and records where the model came
-// from.
 type RoutedResolutionRequest struct {
 	Purpose  Purpose
 	Decision router.Decision
 	Bindings []catalog.ProviderBinding
-	// Origin names the override source that fixed the decision's model
-	// (request force-model, session pin, deployment hard pin). Empty means
-	// the router's own selection, which only a router-selected policy accepts.
-	Origin OverrideSource
-	Budget *BudgetOverride
+	Origin   OverrideSource
+	Budget   *BudgetOverride
 }
 
-// ResolveRouted builds the immutable plan for a decision the turn loop made.
-// It fails closed on unregistered purposes, purposes whose policy neither
-// routes nor hard-pins, an empty model, an empty binding walk, a hard-pin
-// decision with no origin, or an origin the policy does not declare.
 func (r *PlanResolver) ResolveRouted(request RoutedResolutionRequest) (ResolvedPlan, error) {
 	spec, found := r.registry.Spec(request.Purpose)
 	if !found {
@@ -103,10 +89,6 @@ func (r *PlanResolver) ResolveRouted(request RoutedResolutionRequest) (ResolvedP
 	}, nil
 }
 
-// acceptsRoutedDecision reports whether a policy's model is chosen by the
-// turn loop rather than by PlanResolver.Resolve: the public surfaces' router
-// selection and the hard-pinned turns' deployment (or session/request
-// override) selection.
 func acceptsRoutedDecision(spec PolicySpec) bool {
 	switch spec.SelectionStrategy {
 	case SelectionStrategyRouter:
@@ -119,10 +101,6 @@ func acceptsRoutedDecision(spec PolicySpec) bool {
 	return false
 }
 
-// catalogBinding locates the binding in the catalog entry so telemetry can
-// join to the reviewed binding order and a binding that names only its
-// provider inherits the catalog upstream ID. Index is -1 for custom or
-// gateway bindings the catalog does not list.
 func catalogBinding(model string, binding catalog.ProviderBinding) (int, string) {
 	entry, found := catalog.ByID(model)
 	if !found {

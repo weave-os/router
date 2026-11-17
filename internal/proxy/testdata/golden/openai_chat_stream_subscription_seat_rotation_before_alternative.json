@@ -214,6 +214,16 @@
             "gpt-6-sol"
           ],
           "CaptureMode": "off",
+          "ContextSnapshot": {
+            "context_window": 1050000,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 19,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "requested_model": "auto",
+            "served_model": "gpt-5.6-sol",
+            "version": 1
+          },
           "CredentialSource": "codex_subscription",
           "DecisionModel": "gpt-5.6-sol",
           "DecisionProvider": "openai",

@@ -52,7 +52,7 @@ func runPolicyPinOverride(t *testing.T, installation *auth.Installation, header 
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	if header != "" {
 		req.Header.Set(middleware.PolicyPinOverrideHeader, header)
 	}

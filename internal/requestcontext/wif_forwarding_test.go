@@ -52,7 +52,7 @@ func TestApplyWIFTokenType_LeavesOtherAuthTypesAlone(t *testing.T) {
 }
 
 func TestApplyWIFTokenType_NoCredentials(t *testing.T) {
-	req, err := http.NewRequest(http.MethodPost, "https://acct.example.com/api", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://acct.example.com/api", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

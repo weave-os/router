@@ -8,8 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/require"
-	"github.com/tidwall/gjson"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
@@ -20,6 +18,9 @@ import (
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/translate"
+
+	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 type verificationAlternativeLeaser struct{ scriptedSubscriptionLeaser }
@@ -101,7 +102,7 @@ func TestVerificationAutomaticAlternativeHTTP(t *testing.T) {
 			}
 			body := `{"model":"` + requested + `","reasoning_effort":"medium","stream":true,"messages":[{"role":"user","content":"synthetic"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
 			rec := httptest.NewRecorder()
-			dispatchErr := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body)))
+			dispatchErr := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), "POST", "/v1/chat/completions", strings.NewReader(body)))
 			if scenario.max {
 				require.ErrorContains(t, dispatchErr, "cannot be served on max_subscription")
 				require.Empty(t, bearers)
@@ -117,7 +118,7 @@ func TestVerificationAutomaticAlternativeHTTP(t *testing.T) {
 				require.Contains(t, rec.Body.String(), alternative)
 				require.Equal(t, "read_file", gjson.GetBytes(sent[1], "tools.0.name").String())
 				require.Equal(t, "medium", gjson.GetBytes(sent[1], "reasoning.effort").String())
-				winner := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+				winner := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{}))
 				require.Equal(t, codexCoveredModel, winner.IntendedModel)
 				require.Equal(t, "alternative-account", winner.SubscriptionAccountID)
 				require.Equal(t, "synthetic-owner", winner.SubscriptionOwnerID)

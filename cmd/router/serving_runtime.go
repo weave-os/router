@@ -16,16 +16,12 @@ import (
 )
 
 const (
-	envDefaultStrategy = "ROUTER_DEFAULT_STRATEGY"
+	envDefaultStrategy   = "ROUTER_DEFAULT_STRATEGY"
+	hmmAttemptTimeoutEnv = "ROUTER_HMM_SIDECAR_ATTEMPT_TIMEOUT_MS"
 )
 
-// managedServingStrategies are the policy strategies a managed serving worker
-// registers from its admitted selection set. The deployment default must be
-// one of them: anything else silently scores managed traffic on the legacy
-// cluster embedder.
 var managedServingStrategies = []router.Strategy{router.StrategyHMM, router.StrategyHMMEmbedding}
 
-// Presence of serving configuration requires an explicit fleet target.
 var managedServingEnvVars = []string{
 	"ROUTER_SERVING_TARGET",
 	"ROUTER_SERVING_PROJECT",
@@ -46,7 +42,6 @@ func managedServingEnabled(mode server.DeploymentMode) bool {
 	return mode == server.DeploymentModeManaged && strings.TrimSpace(config.GetOr("ROUTER_SERVING_TARGET", "")) != ""
 }
 
-// A stamped managed revision must not boot without fleet admission.
 func validateManagedServingBoot(mode server.DeploymentMode, lookup func(string) (string, bool)) error {
 	if mode != server.DeploymentModeManaged {
 		return nil
@@ -117,7 +112,7 @@ func buildManagedServingRuntime(ctx context.Context, availableProviders map[stri
 	}
 	closeRegistry := func() { _ = registry.Close() }
 	timeout := parseEnvDurationMs("ROUTER_HMM_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout)
-	attemptTimeout := parseEnvAttemptTimeoutMs("ROUTER_HMM_SIDECAR_ATTEMPT_TIMEOUT_MS", policyclient.DeriveAttemptTimeout(timeout))
+	attemptTimeout := parseEnvAttemptTimeoutMs(policyclient.DeriveAttemptTimeout(timeout))
 	cache, err := policyregistry.NewServingRuntimeCache(registry, hmmPolicySnapshotBuilder(
 		availableProviders, append(slices.Clone(managedServingStrategies), router.StrategyHMMBeta, router.StrategyHMMQwen),
 		config.GetOr("ROUTER_HMM_SIDECAR_AUTH", policySidecarAuthGoogleIDToken), timeout, attemptTimeout,

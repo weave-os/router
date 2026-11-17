@@ -1,0 +1,1 @@
+{"candidates":[{"content":{"role":"model","parts":[{"text":"Listing files."},{"functionCall":{"name":"Bash","args":{"command":"ls -la"}},"thoughtSignature":"c3ludGhldGljLWdlbWluaS1zaWduYXR1cmUtMg=="}]},"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":900,"cachedContentTokenCount":0,"candidatesTokenCount":30,"thoughtsTokenCount":12,"totalTokenCount":942}}

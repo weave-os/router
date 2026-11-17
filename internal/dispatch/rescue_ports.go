@@ -10,8 +10,6 @@ import (
 	"weave-os/router/internal/router/turntype"
 )
 
-// RescueCredentials is what the rescue chain needs from Credential Brokerage:
-// per-target credentials, subscription pool state and fallback-key presence.
 type RescueCredentials interface {
 	ResolveCredentials(ctx context.Context, provider, model string, headers http.Header) context.Context
 	RecordSubscriptionUnavailable(ctx context.Context, provider, model string, attemptErr error)
@@ -23,9 +21,6 @@ type RescueCredentials interface {
 	OpenAIFallbackKeyAvailable(ctx context.Context) bool
 	RecordCodexQuotaExhaustion(ctx context.Context, headers http.Header, err error)
 }
-
-// RescueRouting is what the rescue chain needs from Routing Policy: bindings
-// for a target, and which rescue targets a failed turn may move to.
 type RescueRouting interface {
 	ResolveBindingsForDispatch(ctx context.Context, decision router.Decision) []catalog.ProviderBinding
 	BaselineFor(ctx context.Context, requested string) string

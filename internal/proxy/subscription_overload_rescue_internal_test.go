@@ -88,7 +88,7 @@ func TestCodexPlanOverload_RescuedBySiblingCandidate(t *testing.T) {
 	rec := httptest.NewRecorder()
 	ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
 	ctx = WithManagedSubscriptionUsage(ctx)
-	err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest("/v1/chat/completions", body))
+	err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/chat/completions", body))
 	require.NoError(t, err, "the sibling must serve the turn the overloaded plan model could not")
 	assert.GreaterOrEqual(t, primary.calls, 1)
 	assert.Equal(t, 1, sibling.calls, "exactly one sibling dispatch serves the turn")
@@ -106,7 +106,7 @@ func TestCodexPlanOverload_NoSiblingSurfacesUpstreamError(t *testing.T) {
 	rec := httptest.NewRecorder()
 	ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
 	ctx = WithManagedSubscriptionUsage(ctx)
-	err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest("/v1/chat/completions", body))
+	err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/chat/completions", body))
 	require.Error(t, err)
 	assert.Equal(t, 0, sibling.calls)
 	assert.True(t, strings.Contains(rec.Body.String(), "server_is_overloaded") || strings.Contains(rec.Body.String(), "overloaded"),
@@ -142,7 +142,7 @@ func proxyCodexResponsesOverload(t *testing.T, withSibling bool) (*codexInStream
 	rec := httptest.NewRecorder()
 	ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
 	ctx = WithManagedSubscriptionUsage(ctx)
-	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest("/v1/responses", body))
+	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/responses", body))
 	return primary, sibling, rec, err
 }
 
@@ -206,11 +206,11 @@ func TestCodexPlanThrottle_DoesNotBuyPaidSibling(t *testing.T) {
 			ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
 			ctx = WithManagedSubscriptionUsage(ctx)
 			ctx = outOfRosterBillingCtx(ctx)
-			err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest("/v1/chat/completions", body))
+			err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/chat/completions", body))
 			require.Error(t, err)
 			assert.Equal(t, 0, sibling.calls, "no paid sibling without a plan 5xx")
 			assert.Empty(t, repo.snapshot())
-			state := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+			state := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{}))
 			assert.Empty(t, state.UnavailableProviders)
 		})
 	}
@@ -294,7 +294,7 @@ func TestSubscriptionSiblingAllowed(t *testing.T) {
 // never qualifies and the mark expires with its cooldown.
 func TestAuthorizeSubscriptionAPI_ProviderOverloadAuthorizesPaidRescue(t *testing.T) {
 	now := time.Now()
-	svc := &Service{now: func() time.Time { return now }}
+	svc := &Service{clock: func() time.Time { return now }}
 	ctx := WithManagedSubscriptionUsage(context.Background())
 	ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "acct-1", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive}})
 
@@ -346,7 +346,7 @@ func TestCodexPlanOverloadAfterReasoning_RescuedBySiblingCandidate(t *testing.T)
 	rec := httptest.NewRecorder()
 	ctx := context.WithValue(codexSubscriptionTestCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
 	ctx = WithManagedSubscriptionUsage(ctx)
-	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest("/v1/responses", body))
+	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/responses", body))
 
 	require.NoError(t, err, "the sibling must serve the turn the plan model failed before output")
 	assert.Greater(t, primary.calls, 1, "the overloaded binding is retried before the rescue")

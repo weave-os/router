@@ -41,7 +41,7 @@ func TestHMMRosterHandler_PreservesRosterArmsAndCatalogModels(t *testing.T) {
 	}}))
 
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/router/hmm-roster", nil))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/router/hmm-roster", nil))
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	var body struct {
@@ -71,7 +71,7 @@ func TestHMMRosterHandler_SelectsBetaPolicy(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/router/hmm-roster?strategy=hmm_beta", nil))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/router/hmm-roster?strategy=hmm_beta", nil))
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	var body struct {
@@ -90,7 +90,7 @@ func TestHMMRosterHandler_RejectsUnsupportedStrategy(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/router/hmm-roster?strategy=cluster", nil))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/router/hmm-roster?strategy=cluster", nil))
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }

@@ -41,7 +41,6 @@ func collectAnthropicToolNameEdits(blocks gjson.Result, path string, aliases map
 	}
 	switch anthropicToolNameBlock(blocks.Get("type").String()) {
 	case anthropicToolNameReference:
-		// ToolSearch results carry tool_name; tool_addition/tool_removal carry name.
 		nameField := "name"
 		if blocks.Get("tool_name").Exists() {
 			nameField = "tool_name"

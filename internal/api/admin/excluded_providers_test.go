@@ -41,7 +41,7 @@ func hmmProviderRoster() *fakeHMMRoster {
 
 func TestGetExcludedProvidersHandler_AvailableComesFromHMMRoster(t *testing.T) {
 	rec := httptest.NewRecorder()
-	excludedProvidersEngine(hmmProviderRoster()).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/v1/excluded-providers", nil))
+	excludedProvidersEngine(hmmProviderRoster()).ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/admin/v1/excluded-providers", nil))
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	var body struct {
@@ -55,7 +55,7 @@ func TestGetExcludedProvidersHandler_AvailableComesFromHMMRoster(t *testing.T) {
 
 func TestUpdateExcludedProvidersHandler_RejectsProviderOutsideHMMRoster(t *testing.T) {
 	payload, _ := json.Marshal(map[string]any{"excluded": []string{providers.ProviderFireworks}})
-	req := httptest.NewRequest(http.MethodPut, "/admin/v1/excluded-providers", bytes.NewReader(payload))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/admin/v1/excluded-providers", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	excludedProvidersEngine(hmmProviderRoster()).ServeHTTP(rec, req)
@@ -67,11 +67,11 @@ func TestExcludedProvidersHandlers_RosterUnavailableIs503(t *testing.T) {
 	engine := excludedProvidersEngine(&fakeHMMRoster{err: errors.New("policy not loaded")})
 
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/v1/excluded-providers", nil))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/admin/v1/excluded-providers", nil))
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 
 	payload, _ := json.Marshal(map[string]any{"excluded": []string{providers.ProviderOpenAI}})
-	req := httptest.NewRequest(http.MethodPut, "/admin/v1/excluded-providers", bytes.NewReader(payload))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/admin/v1/excluded-providers", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	engine.ServeHTTP(rec, req)

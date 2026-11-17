@@ -9,14 +9,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
-	"github.com/tidwall/gjson"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 // Pool-first dispatch must preserve translation without a paid API credential.
@@ -32,7 +34,7 @@ func TestVerificationSafeTransportInboundOAuthUsesLinkedWithoutAPI(t *testing.T)
 		accountIDs = append(accountIDs, r.Header.Get("ChatGPT-Account-ID"))
 		paths = append(paths, r.URL.Path)
 		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
+		assert.NoError(t, err)
 		sent = append(sent, body)
 		if r.Header.Get("Authorization") != "Bearer linked-token" {
 			w.WriteHeader(http.StatusForbidden)
@@ -52,7 +54,7 @@ func TestVerificationSafeTransportInboundOAuthUsesLinkedWithoutAPI(t *testing.T)
 	ctx = context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderCodex: {}})
 	ctx = WithManagedSubscriptionUsage(ctx)
 	recorder := httptest.NewRecorder()
-	err := svc.ProxyOpenAIChatCompletion(ctx, body, recorder, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body))))
+	err := svc.ProxyOpenAIChatCompletion(ctx, body, recorder, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body))))
 	require.NoError(t, err)
 	require.Equal(t, []string{"Bearer linked-token"}, bearers)
 	require.Equal(t, []string{"linked-provider-account"}, accountIDs)
@@ -89,7 +91,7 @@ func TestVerificationSafeTransportManagedWinnerQuotaObservedFromHTTP(t *testing.
 	body := []byte(`{"model":"auto","stream":true,"messages":[{"role":"user","content":"inspect synthetic quota"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`)
 	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 	recorder := httptest.NewRecorder()
-	err := svc.ProxyOpenAIChatCompletion(ctx, body, recorder, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body))))
+	err := svc.ProxyOpenAIChatCompletion(ctx, body, recorder, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body))))
 	require.NoError(t, err)
 	require.Equal(t, "Bearer quota-token", winnerBearer)
 	require.Contains(t, recorder.Body.String(), "quota answer")

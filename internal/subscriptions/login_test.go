@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -35,7 +36,7 @@ func TestCodexBrowserLoginPollsUntilApprovedThenReturnsIdentity(t *testing.T) {
 			}
 			_, _ = w.Write([]byte(`{"authorization_code":"auth-code","code_verifier":"verifier"}`))
 		case "/oauth/token":
-			require.NoError(t, r.ParseForm())
+			assert.NoError(t, r.ParseForm())
 			exchanged = r.PostForm
 			idToken := unsignedJWT(t, map[string]any{"email": "dev@example.com", "https://api.openai.com/auth": map[string]any{"chatgpt_account_id": "workspace-1"}})
 			_, _ = w.Write([]byte(`{"access_token":"at","refresh_token":"rt","id_token":"` + idToken + `"}`))
@@ -71,7 +72,7 @@ func TestCodexBrowserLoginPollsUntilApprovedThenReturnsIdentity(t *testing.T) {
 func TestClaudeBrowserLoginExchangesPastedCodeForItsOwnState(t *testing.T) {
 	var exchanged map[string]string
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&exchanged))
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&exchanged))
 		_, _ = w.Write([]byte(`{"refresh_token":"rt","account":{"uuid":"11111111-1111-4111-8111-111111111111","email_address":"dev@example.com"},"organization":{"uuid":"22222222-2222-4222-8222-222222222222","name":"Acme"}}`))
 	}))
 	defer tokenServer.Close()

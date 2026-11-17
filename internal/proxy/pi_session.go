@@ -18,9 +18,6 @@ const piSessionIssuer = "weave-pi-session-v1"
 
 type piSessionClaimsKey struct{}
 
-// This ticket preserves a thread digest, not a model selection or authorization.
-// It lasts for the conversation; every use still requires the bound API key and
-// installation. Rotating the signing secret invalidates it.
 type piSessionClaims struct {
 	jwt.RegisteredClaims
 	APIKeyID              string                         `json:"key"`

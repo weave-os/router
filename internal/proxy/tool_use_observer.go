@@ -11,13 +11,8 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// toolUseScanCap bounds how much of a non-streaming Anthropic JSON body a
-// toolUseObserver retains for the post-completion parse. Bodies beyond the
-// cap yield no detail rather than a partial, misleading one.
 const toolUseScanCap = 8 << 20
 
-// Anthropic Messages wire vocabulary the observer keys on. Kept local so the
-// observer stays independent of the translator's private constants.
 const (
 	toolUseEventContentBlockStart = "content_block_start"
 	toolUseEventContentBlockDelta = "content_block_delta"
@@ -27,18 +22,11 @@ const (
 	toolUseStopReason             = "tool_use"
 )
 
-// toolCallTally is one tool's history on this request: how many of its calls
-// received a tool_result and how many of those results errored (is_error or
-// an early error marker, the spiral detector's definition).
 type toolCallTally struct {
 	Calls  int `json:"calls"`
 	Errors int `json:"errors"`
 }
 
-// toolErrorCounts tallies resolved tool calls per tool name. The still
-// in-flight call at the end of a tool_use turn is excluded because its result
-// has not come back yet. Returns nil when the history holds no resolved call
-// so the telemetry column stays NULL rather than "{}".
 func toolErrorCounts(outcomes []translate.ToolCallOutcome) map[string]toolCallTally {
 	var counts map[string]toolCallTally
 	for _, outcome := range outcomes {
@@ -58,8 +46,6 @@ func toolErrorCounts(outcomes []translate.ToolCallOutcome) map[string]toolCallTa
 	return counts
 }
 
-// toolErrorCountsJSON marshals toolErrorCounts for the JSONB telemetry
-// column. nil in, nil out.
 func toolErrorCountsJSON(counts map[string]toolCallTally) []byte {
 	if len(counts) == 0 {
 		return nil
@@ -71,33 +57,20 @@ func toolErrorCountsJSON(counts map[string]toolCallTally) []byte {
 	return encoded
 }
 
-// lastToolUse names the final tool_use block a turn handed to the client and
-// how large its input JSON was on the wire.
 type lastToolUse struct {
 	Name       string
 	InputBytes int
 }
 
-// toolUseObserver tees the client-facing Anthropic response to inner
-// unchanged while tracking the last tool_use block's name and input size and
-// the message's stop_reason. It sits below every translator on the Messages
-// path, so native and cross-format upstreams are observed alike in Anthropic
-// wire format. Observe-only: nothing on the request path reads it.
 type toolUseObserver struct {
 	inner http.ResponseWriter
 
-	pending bytes.Buffer
-	// framing resumes the delimiter search in pending where the previous
-	// write left it.
-	framing sse.Scanner
-	// jsonBody accumulates a non-streaming response for a single parse in
-	// terminal(); streaming frames are parsed as they pass.
+	pending   bytes.Buffer
+	framing   sse.Scanner
 	jsonBody  []byte
 	jsonMode  bool
 	modeKnown bool
-	// overflow is set once a JSON body outgrows toolUseScanCap; the observer
-	// then reports nothing for the response.
-	overflow bool
+	overflow  bool
 
 	stopReason string
 	last       lastToolUse
@@ -166,8 +139,6 @@ func (o *toolUseObserver) observeEvent(event []byte) {
 		o.haveLast = true
 		o.lastIndex = gjson.GetBytes(data, "index").Int()
 		o.last = lastToolUse{Name: gjson.GetBytes(data, "content_block.name").String()}
-		// A pre-populated input (non-streamed tool_use) counts as-is; the
-		// streaming form starts with {} and grows through input_json_delta.
 		if input := gjson.GetBytes(data, "content_block.input"); input.Exists() && input.Raw != "{}" {
 			o.last.InputBytes = len(input.Raw)
 		}
@@ -186,10 +157,6 @@ func (o *toolUseObserver) observeEvent(event []byte) {
 	}
 }
 
-// terminal reports the final tool_use block when the observed message ended
-// on stop_reason=tool_use. ok is false for every other outcome: a text or
-// max_tokens stop, an error body, a stream cut before message_delta, or a
-// response the observer could not parse.
 func (o *toolUseObserver) terminal() (lastToolUse, bool) {
 	if o == nil {
 		return lastToolUse{}, false

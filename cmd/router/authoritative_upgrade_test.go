@@ -39,7 +39,7 @@ func TestAuthoritativeUpgradeConfigFromEnv(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, calibration.MarginThreshold)
 			if tc.name == "calibrated" {
-				assert.Equal(t, 0.2, *calibration.MarginThreshold)
+				assert.InDelta(t, 0.2, *calibration.MarginThreshold, 1e-9)
 				assert.Equal(t, 2*time.Hour, calibration.StalePinAfter)
 			}
 		})

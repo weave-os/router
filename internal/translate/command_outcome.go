@@ -1,6 +1,5 @@
 package translate
 
-// CommandKind identifies router control operations independently of their prose.
 type CommandKind string
 
 const (
@@ -34,8 +33,6 @@ type CommandPin struct {
 	Effort     string        `json:"effort,omitempty"`
 }
 
-// CommandOutcome records one command application. It is historical evidence,
-// not a snapshot of the current server pin. Only persistence owners decide Pin.
 type CommandOutcome struct {
 	Version     int                `json:"version"`
 	ID          string             `json:"id"`

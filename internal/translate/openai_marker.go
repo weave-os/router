@@ -10,9 +10,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// OpenAIRoutingMarkerWriter wraps an http.ResponseWriter and injects a
-// routing-marker chunk at the start of an OpenAI-format SSE stream.
-// Non-streaming responses pass through unmodified.
 type OpenAIRoutingMarkerWriter struct {
 	sse.ChunkedWriter
 
@@ -21,25 +18,11 @@ type OpenAIRoutingMarkerWriter struct {
 
 	markerEmitted bool
 
-	// onOutputProgress, when set via ArmOutputProgress, is invoked whenever a
-	// written upstream chunk carries an output-bearing delta (content,
-	// reasoning/reasoning_content, tool_calls, or a terminal finish_reason) and
-	// never on keepalive comments or empty/role-only frames. This is the
-	// OpenAI→OpenAI passthrough path's only place to tell output from keepalive,
-	// since no translator parses the stream here. It feeds the openaicompat
-	// client's output-progress watchdog (see httputil.DefaultOutputStallTimeout).
-	// nil disables it.
 	onOutputProgress func()
-	// outputLeftover holds the unconsumed tail of the most recent Write so output
-	// detection splits on SSE event boundaries that span Write calls. Complete
-	// events are scanned and discarded immediately.
-	outputLeftover  []byte
-	leftoverScanner sse.Scanner
+	outputLeftover   []byte
+	leftoverScanner  sse.Scanner
 }
 
-// NewOpenAIRoutingMarkerWriter creates a writer that emits marker as the first
-// chat.completion.chunk before any upstream data. If marker is empty, all
-// writes pass through unchanged.
 func NewOpenAIRoutingMarkerWriter(w http.ResponseWriter, model, marker string) *OpenAIRoutingMarkerWriter {
 	return &OpenAIRoutingMarkerWriter{
 		ChunkedWriter: sse.NewChunkedWriter(w, 4096),
@@ -63,13 +46,6 @@ func (w *OpenAIRoutingMarkerWriter) Write(data []byte) (int, error) {
 	return sse.WriteJSONChunk(w.Inner, data)
 }
 
-// ArmOutputProgress installs the output-progress watchdog mark. The writer
-// invokes mark whenever a written upstream chunk carries an output-bearing
-// delta — assistant content, streamed reasoning, tool-call fragments, or a
-// terminal finish_reason — and never on keepalive comments or empty/role-only
-// frames. It returns false (and installs nothing) when the response is not
-// streaming: a non-streaming passthrough has nothing to mark mid-stream. Call
-// after WriteHeader / Prelude, which set the streaming flag.
 func (w *OpenAIRoutingMarkerWriter) ArmOutputProgress(mark func()) (armed bool) {
 	if !w.Streaming {
 		return false
@@ -78,10 +54,6 @@ func (w *OpenAIRoutingMarkerWriter) ArmOutputProgress(mark func()) (armed bool) 
 	return true
 }
 
-// scanOutputProgress splits buffered passthrough bytes on SSE event boundaries
-// and marks output progress for each complete event that carries an
-// output-bearing delta. Unlike a translator it does not re-encode; it only
-// classifies, so the raw OpenAI Chat Completions chunk is probed directly.
 func (w *OpenAIRoutingMarkerWriter) scanOutputProgress(data []byte) {
 	w.outputLeftover = append(w.outputLeftover, data...)
 	buf := w.outputLeftover
@@ -103,12 +75,6 @@ func (w *OpenAIRoutingMarkerWriter) scanOutputProgress(data []byte) {
 	w.outputLeftover = w.outputLeftover[:rest]
 }
 
-// chunkCarriesOutput reports whether a raw OpenAI Chat Completions SSE chunk
-// payload carries model output: a non-empty content / reasoning delta, a
-// tool_calls array, or a terminal finish_reason. Role-only opening deltas,
-// null-valued deltas (the GLM-5.1 keepalive shape), usage-only chunks, and the
-// [DONE] sentinel return false — matching the AnthropicSSETranslator's
-// classification so the two openaicompat paths trip the watchdog identically.
 func chunkCarriesOutput(payload []byte) bool {
 	choice := gjson.GetBytes(payload, "choices.0")
 	if !choice.Exists() {
@@ -133,12 +99,6 @@ func chunkCarriesOutput(payload []byte) bool {
 	return false
 }
 
-// Prelude commits headers and emits the routing marker immediately, before the
-// upstream provider has returned a single byte. Call this right after the
-// routing decision is made when the client requested streaming (streaming=true)
-// so first-byte latency drops to ~routing time rather than upstream prefill +
-// first decode. Safe to call once; subsequent Write/WriteHeader calls are
-// idempotent. No-op when streaming is false.
 func (w *OpenAIRoutingMarkerWriter) Prelude(streaming bool) error {
 	if !streaming || w.markerEmitted {
 		return nil
@@ -151,15 +111,12 @@ func (w *OpenAIRoutingMarkerWriter) Prelude(streaming bool) error {
 	}
 	w.markerEmitted = true
 	if w.marker == "" {
-		// Still flush a comment so TCP gets a packet — TTFB is what we're optimizing for.
 		w.BW.WriteString(": routing complete\n\n")
 		return w.FlushEvent()
 	}
 	return w.emitMarkerChunk()
 }
 
-// ContinueAfterPrelude resumes rewriting after an earlier attempt already made
-// the routing marker visible.
 func (w *OpenAIRoutingMarkerWriter) ContinueAfterPrelude(streaming bool) {
 	if !streaming {
 		return

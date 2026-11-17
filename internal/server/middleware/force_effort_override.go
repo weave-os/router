@@ -11,11 +11,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ForceEffortOverrideHeader is the request-header key for x-weave-effort.
 const ForceEffortOverrideHeader = "x-weave-effort"
 
-// WithForceEffortOverride parses x-weave-effort and stashes the canonical
-// level on the request context. Invalid values abort with 400.
 func WithForceEffortOverride() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if identity, managed := requestcontext.ServingIdentityFromContext(c.Request.Context()); managed && entitlement.PlanHasServingProfile(entitlement.Plan(identity.Plan)) {
@@ -32,8 +29,6 @@ func WithForceEffortOverride() gin.HandlerFunc {
 			return
 		}
 		canonical := router.CanonicalizeEffort(raw)
-		// Merge with any existing routing knobs (e.g. from WithRoutingKnobsOverride)
-		// so ForceEffort doesn't silently drop a separately-configured Alpha/QualityBias.
 		merged := router.Overrides{ForceEffort: canonical}
 		if existing := router.RoutingKnobsFromContext(c.Request.Context()); existing != nil {
 			merged.Alpha = existing.Alpha

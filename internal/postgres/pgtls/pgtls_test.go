@@ -1,13 +1,16 @@
 package pgtls
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
+	"net"
 	"testing"
 	"time"
 
@@ -71,7 +74,11 @@ func TestConfigureInstallsClientCertificateAndDropsPlaintextFallback(t *testing.
 }
 
 func TestConfigureVerifiesTheExpectedServerIdentity(t *testing.T) {
-	serverDER, certPEM, keyPEM := selfSigned(t, "workweave-staging-01:us-central1:main-instance")
+	_, certPEM, keyPEM := selfSigned(t, "workweave-staging-01:us-central1:main-instance")
+	serverCertificate, err := tls.X509KeyPair([]byte(certPEM), []byte(keyPEM))
+	if err != nil {
+		t.Fatalf("X509KeyPair: %v", err)
+	}
 	t.Setenv(serverCACertEnvVar, certPEM)
 	t.Setenv(clientCertEnvVar, certPEM)
 	t.Setenv(clientKeyEnvVar, keyPEM)
@@ -92,12 +99,67 @@ func TestConfigureVerifiesTheExpectedServerIdentity(t *testing.T) {
 				t.Fatalf("Configure: %v", err)
 			}
 
-			err := poolConfig.ConnConfig.TLSConfig.VerifyPeerCertificate([][]byte{serverDER}, nil)
+			err := handshake(t, poolConfig.ConnConfig.TLSConfig, serverCertificate)
 			if accepted := err == nil; accepted != testCase.wantAccepted {
 				t.Fatalf("accepted = %t, want %t (err: %v)", accepted, testCase.wantAccepted, err)
 			}
 		})
 	}
+}
+
+func TestConfigureRejectsServerCertificateFromAnotherCA(t *testing.T) {
+	certPEM, keyPEM := selfSignedPEM(t)
+	t.Setenv(serverCACertEnvVar, certPEM)
+	t.Setenv(clientCertEnvVar, certPEM)
+	t.Setenv(clientKeyEnvVar, keyPEM)
+	poolConfig := parseConfig(t, "postgres://user:pw@10.55.0.3:5432/db")
+	if _, err := Configure(poolConfig); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+
+	untrustedCertPEM, untrustedKeyPEM := selfSignedPEM(t)
+	untrusted, err := tls.X509KeyPair([]byte(untrustedCertPEM), []byte(untrustedKeyPEM))
+	if err != nil {
+		t.Fatalf("X509KeyPair: %v", err)
+	}
+	if err := handshake(t, poolConfig.ConnConfig.TLSConfig, untrusted); err == nil {
+		t.Fatal("expected a server certificate outside the configured CA to be rejected")
+	}
+}
+
+// handshake runs a real TLS handshake between clientConfig and a server
+// presenting serverCertificate, returning the client-side error.
+func handshake(t *testing.T, clientConfig *tls.Config, serverCertificate tls.Certificate) error {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		serverConn, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer func() { _ = serverConn.Close() }()
+		server := tls.Server(serverConn, &tls.Config{Certificates: []tls.Certificate{serverCertificate}, MinVersion: tls.VersionTLS12})
+		if server.HandshakeContext(ctx) == nil {
+			_, _ = server.Read(make([]byte, 1))
+		}
+	}()
+	clientConn, err := (&net.Dialer{}).DialContext(ctx, "tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	err = tls.Client(clientConn, clientConfig.Clone()).HandshakeContext(ctx)
+	_ = clientConn.Close()
+	<-serverDone
+	return err
 }
 
 func parseConfig(t *testing.T, dsn string) *pgxpool.Config {

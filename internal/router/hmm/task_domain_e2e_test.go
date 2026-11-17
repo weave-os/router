@@ -8,13 +8,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/taskdomain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type taskOutcomeResolver struct{ outcome taskdomain.Outcome }
@@ -26,7 +27,7 @@ func (r taskOutcomeResolver) Resolve(context.Context, taskdomain.Input) taskdoma
 func TestHTTPRouterCarriesTaskOutcomeThroughGoSelection(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request map[string]any
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&request))
 		assert.NotContains(t, request, "TaskDomain", "task text must not be added to the complexity wire contract")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"schema_version": policy.SchemaVersionV4, "classifier_artifact_id": "synthetic-classifier",
