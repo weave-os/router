@@ -67,7 +67,7 @@ func (e *RequestEnvelope) PrepareAnthropicVerbatim(in http.Header) providers.Pre
 }
 
 func (e *RequestEnvelope) PrepareOpenAIVerbatim(opts EmitOptions) (providers.PreparedRequest, bool) {
-	if e.format != FormatOpenAI || opts.TargetModel != e.Model() {
+	if e.format != FormatOpenAI || opts.TargetModel != e.Model() || opts.StripPromptCacheKey {
 		return providers.PreparedRequest{}, false
 	}
 	if e.Stream() && opts.IncludeStreamUsage && !gjson.GetBytes(e.body, "stream_options.include_usage").Bool() {
