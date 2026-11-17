@@ -72,7 +72,7 @@ func (s *Service) anthropicRoutingRequest(
 		return ctx, router.Request{}, err
 	}
 	features := env.RoutingFeatures()
-	ctx = withRequestImageCount(ctx, features.ImageCount)
+	ctx = withRequestShape(ctx, features.ImageCount, len(body))
 	promptText := features.PromptText
 	if features.OnlyUserMessageText != "" {
 		promptText = features.OnlyUserMessageText

@@ -169,6 +169,22 @@ func TestMessagesHandler_RequestTooLarge(t *testing.T) {
 	assert.Equal(t, "invalid_request_error", errObj["type"])
 }
 
+func TestMessagesHandler_BodyOverHTTP1FrontendCapIsAccepted(t *testing.T) {
+	svc := newTestService(&fakeRouter{}, "", nil)
+	engine := messagesEngine(svc)
+
+	padding := bytes.Repeat([]byte("a"), 40*1024*1024)
+	body, err := json.Marshal(map[string]any{
+		"model":    "claude-fable-5",
+		"messages": []map[string]string{{"role": "user", "content": string(padding)}},
+	})
+	require.NoError(t, err)
+
+	rec := postMessages(t.Context(), engine, body)
+
+	assert.NotEqual(t, http.StatusRequestEntityTooLarge, rec.Code)
+}
+
 // Bodies over the old 10 MB cap but under Anthropic's 32 MB limit must not be rejected.
 func TestMessagesHandler_BodyOverLegacyTenMegabyteCapIsAccepted(t *testing.T) {
 	svc := newTestService(&fakeRouter{}, "", nil)

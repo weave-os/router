@@ -2081,7 +2081,7 @@ func (s *Service) routeWithStrategyUnchecked(ctx context.Context, strategy route
 	if router.IsHMMStrategy(strategy) && req.ConversationMessages != nil && !hasTextUserBoundary(req.ConversationMessages) {
 		req.Unscorable = true
 	}
-	return registered.router.Route(ctx, req)
+	return registered.router.Route(ctx, withRequestBodyBytes(ctx, req))
 }
 
 func hasTextUserBoundary(messages []router.ConversationMessage) bool {
@@ -2524,7 +2524,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 
 	feats := env.RoutingFeatures()
-	ctx = withRequestImageCount(ctx, feats.ImageCount)
+	ctx = withRequestShape(ctx, feats.ImageCount, len(body))
 	if err := validateHandoffEnvelope(ctx, env, r.Header, body); err != nil {
 		return err
 	}
@@ -4723,7 +4723,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	codexTitleGen, _ := ctx.Value(codexTitleGenerationContextKey{}).(bool)
 	feats := env.RoutingFeatures()
-	ctx = withRequestImageCount(ctx, feats.ImageCount)
+	ctx = withRequestShape(ctx, feats.ImageCount, len(body))
 	if codexTitleGen {
 		feats.TitleGenHint = true
 	}

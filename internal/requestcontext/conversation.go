@@ -20,7 +20,7 @@ const (
 	ConversationGemini    ConversationSurface = "gemini"
 )
 
-const MaxRequestBodyBytes = 32 * 1024 * 1024
+const MaxRequestBodyBytes = 64 * 1024 * 1024
 
 const MaxClientIdentifierLen = 128
 

@@ -64,6 +64,7 @@ func TestContractTable(t *testing.T) {
 		ServingSnapshotUnavailable:     {Status: 503, Code: "serving_snapshot_unavailable"},
 		ServingAttributionUnavailable:  {Status: 503, Code: "serving_attribution_unavailable"},
 		SubscriptionUnavailableForTurn: {Status: 402, Code: "subscription_unavailable_for_turn", NoClientRetry: true},
+		RequestBodyBudgetExhausted:     {Status: 503, Code: "request_body_budget_exhausted", RetryAfter: true},
 	}
 	assert.Len(t, want, int(kindCount), "every kind must be pinned here")
 	for kind, expected := range want {

@@ -115,7 +115,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	if features.TrafficCapture != nil {
 		engine.Use(middleware.WithTrafficCapture(features.TrafficCapture))
 	}
-	engine.Use(gin.Recovery())
+	engine.Use(gin.Recovery(), middleware.WithRequestBodyBudget(middleware.RequestBodyBudgetBytes))
 	byokRequiresOptIn := mode == DeploymentModeManaged
 	var policyPinMiddleware []gin.HandlerFunc
 	if features.PolicyPinEnabled {

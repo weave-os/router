@@ -21,7 +21,13 @@ var ErrContextWindowExceeded = errors.New("policy: request context exceeds every
 var ErrImageLimitExceeded = fmt.Errorf(
 	"policy: request images exceed every eligible model's per-request image limit: %w", ErrNoRoutableModels)
 
+var ErrRequestBodyTooLarge = fmt.Errorf(
+	"policy: request body exceeds every eligible provider's request size limit: %w", ErrNoRoutableModels)
+
 func emptyCandidateError(diagnostics []Diagnostic) error {
+	if slices.ContainsFunc(diagnostics, func(d Diagnostic) bool { return d.Reason == ExclusionRequestBodySize }) {
+		return ErrRequestBodyTooLarge
+	}
 	if slices.ContainsFunc(diagnostics, func(d Diagnostic) bool { return d.Reason == ExclusionContextWindow }) {
 		return ErrContextWindowExceeded
 	}

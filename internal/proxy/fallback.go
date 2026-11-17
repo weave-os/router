@@ -137,10 +137,11 @@ func (s *Service) shouldFailover(ctx context.Context) bool {
 
 func (s *Service) resolveBindingsForDispatch(ctx context.Context, decision router.Decision) []catalog.ProviderBinding {
 	req := dispatch.BindingRequest{
-		Decision:   decision,
-		ImageCount: requestImageCountFromContext(ctx),
-		UserForced: isUserForcedReason(decision.Reason),
-		ForceModel: decision.Reason == translate.ReasonUserForceModel,
+		Decision:         decision,
+		ImageCount:       requestImageCountFromContext(ctx),
+		RequestBodyBytes: requestBodyBytesFromContext(ctx),
+		UserForced:       isUserForcedReason(decision.Reason),
+		ForceModel:       decision.Reason == translate.ReasonUserForceModel,
 	}
 	if s.shouldFailover(ctx) && s.credentials.KeyedProviders != nil {
 		req.DeploymentKeyedProviders = s.credentials.KeyedProviders
