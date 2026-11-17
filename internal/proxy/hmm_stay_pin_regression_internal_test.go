@@ -3,6 +3,7 @@ package proxy
 import (
 	"testing"
 	"time"
+	"weave-os/router/internal/routingpolicy"
 
 	"github.com/stretchr/testify/assert"
 
@@ -45,15 +46,10 @@ func TestHMMCostGate_EffortQualifiedHistoryStaysOnWarmCache(t *testing.T) {
 		LastTurnEndedAt: time.Now().Add(-30 * time.Second),
 	}
 
-	decision, plan, sticky, stayModel := svc.hmmCostGatedDecision(
-		t.Context(),
-		router.Request{},
-		sessionpin.Pin{},
-		history,
-		hmmStayPinRegressionFresh("hmm_policy(classifier 'fast')"),
-		100,
-		false,
-	)
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: hmmStayPinRegressionFresh("hmm_policy(classifier 'fast')"),
+		EstimatedInputTokens: 100, PrefixBroken: false,
+	})
 
 	assert.True(t, sticky, "an effort-qualified served identity must stay usable as the HMM stay pin")
 	assert.Equal(t, "claude-sonnet-5", decision.Model)
@@ -73,15 +69,10 @@ func TestHMMCostGate_EffortQualifiedHistoryIsPricedByEVGate(t *testing.T) {
 		LastTurnEndedAt: time.Now().Add(-30 * time.Second),
 	}
 
-	decision, plan, sticky, stayModel := svc.hmmCostGatedDecision(
-		t.Context(),
-		router.Request{},
-		sessionpin.Pin{},
-		history,
-		hmmStayPinRegressionFresh("hmm_policy(classifier 'fast')"),
-		10_000,
-		false,
-	)
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: hmmStayPinRegressionFresh("hmm_policy(classifier 'fast')"),
+		EstimatedInputTokens: 10_000, PrefixBroken: false,
+	})
 
 	assert.False(t, sticky)
 	assert.Equal(t, "deepseek/deepseek-v4.1-flash", decision.Model)
@@ -100,15 +91,10 @@ func TestHMMCostGate_PhaseChangeStaysWhenEVDoesNotCoverWarmCache(t *testing.T) {
 		PinnedUntil:     time.Now().Add(time.Hour),
 	}
 
-	decision, plan, sticky, stayModel := svc.hmmCostGatedDecision(
-		t.Context(),
-		router.Request{},
-		sessionpin.Pin{},
-		history,
-		hmmStayPinRegressionFresh("hmm_policy(classifier 'balanced')"),
-		100,
-		false,
-	)
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: hmmStayPinRegressionFresh("hmm_policy(classifier 'balanced')"),
+		EstimatedInputTokens: 100, PrefixBroken: false,
+	})
 
 	assert.True(t, sticky, "a phase change must not evict a warm cache the EV gate says is worth keeping")
 	assert.Equal(t, "claude-sonnet-5", decision.Model)
@@ -128,20 +114,15 @@ func TestHMMCostGate_PhaseChangeSwitchRecordsEvictionCost(t *testing.T) {
 		PinnedUntil:     time.Now().Add(time.Hour),
 	}
 
-	decision, plan, sticky, _ := svc.hmmCostGatedDecision(
-		t.Context(),
-		router.Request{},
-		sessionpin.Pin{},
-		history,
-		hmmStayPinRegressionFresh("hmm_policy(classifier 'balanced')"),
-		10_000,
-		false,
-	)
+	decision, plan, sticky, _ := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: hmmStayPinRegressionFresh("hmm_policy(classifier 'balanced')"),
+		EstimatedInputTokens: 10_000, PrefixBroken: false,
+	})
 
 	assert.False(t, sticky)
 	assert.Equal(t, "deepseek/deepseek-v4.1-flash", decision.Model)
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
-	assert.Equal(t, hmmReasonPhaseChange, plan.Reason)
+	assert.Equal(t, routingpolicy.HMMReasonPhaseChange, plan.Reason)
 	assert.Positive(t, plan.EvictionCostUSD, "a warm-cache phase-change switch must record the eviction it pays")
 }
 
@@ -165,19 +146,14 @@ func TestHMMCostGate_PhaseChangeUpgradeFollowsFreshAtLowConfidence(t *testing.T)
 		},
 	}
 
-	decision, plan, sticky, _ := svc.hmmCostGatedDecision(
-		t.Context(),
-		router.Request{},
-		sessionpin.Pin{},
-		history,
-		fresh,
-		10_000,
-		false,
-	)
+	decision, plan, sticky, _ := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: fresh,
+		EstimatedInputTokens: 10_000, PrefixBroken: false,
+	})
 
 	assert.False(t, sticky, "leaving tool execution must not trap the main loop on the cheaper explore model")
 	assert.Equal(t, "claude-opus-4-7", decision.Model)
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
-	assert.Equal(t, hmmReasonPhaseChange, plan.Reason)
+	assert.Equal(t, routingpolicy.HMMReasonPhaseChange, plan.Reason)
 	assert.True(t, plan.ShadowComputed, "the switch still records the planner's cost evidence")
 }

@@ -418,7 +418,7 @@ func TestAuthorityCacheShadowPersistsGateDivergenceVerdict(t *testing.T) {
 // evidence would repeat the stored-zero-as-evidence failure.
 func TestAuthorityCacheShadowEarlyExitLeavesEVColumnsNull(t *testing.T) {
 	// A pin serving a model absent from the catalog is rejected by
-	// normalizeHMMStayPin, so the gate takes the no_pin early exit with no EV math.
+	// HMMCostGate.NormalizeStayPin, so the gate takes the no_pin early exit with no EV math.
 	result := runAuthorityShadowTurnWithPin(t, true,
 		hmmFreshDecision(map[string]float32{shadowFreshModel: 0.71}),
 		authorityShadowPinServing("not-a-catalog-model"),

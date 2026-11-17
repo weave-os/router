@@ -290,19 +290,6 @@ var bareCatalogNames = func() map[string]string {
 	return out
 }()
 
-func stripEffortSuffix(model string) (effort string, modelOut string) {
-	const sep = ":"
-	idx := strings.LastIndex(model, sep)
-	if idx < 0 || idx == len(model)-1 {
-		return "", model
-	}
-	tail := strings.TrimSpace(model[idx+1:])
-	if !looksLikeEffortAlias(tail) {
-		return "", model
-	}
-	return router.CanonicalizeEffort(tail), model[:idx]
-}
-
 const (
 	forceModelSessionRole = "force_model"
 	userUnforcedReason    = "user_unforced"

@@ -78,17 +78,6 @@ func installationIDFromContext(ctx context.Context) uuid.UUID {
 	return id
 }
 
-func cacheWarm(pin sessionpin.Pin, now time.Time) bool {
-	if pin.LastTurnEndedAt.IsZero() {
-		return false
-	}
-	return now.Sub(pin.LastTurnEndedAt) < providers.CacheTTLFor(pin.Provider)
-}
-
-func pinCacheCold(pin sessionpin.Pin, prefixBroken bool, now time.Time) bool {
-	return !cacheWarm(pin, now) || prefixBroken
-}
-
 func applyPinEvidence(res *turnLoopResult, pin sessionpin.Pin, now time.Time) {
 	res.PinModel = pin.Model
 	res.PinProvider = pin.Provider
@@ -106,26 +95,6 @@ func clearPinEvidence(res *turnLoopResult) {
 	res.PinPolicyGroup = ""
 	res.PinAgeSec = 0
 	res.PriorTurnGapMS = nil
-}
-
-func cacheablePrefixTokens(pin sessionpin.Pin, total int, prefixBroken bool) (int, bool) {
-	if prefixBroken {
-		return 0, true
-	}
-	cached := pin.LastCachedReadTokens + pin.LastCachedWriteTokens
-	prior := priorPromptTokens(pin)
-	if prior <= 0 {
-		return 0, false
-	}
-	share := min(1.0, float64(cached)/float64(prior))
-	return int(share * float64(total)), true
-}
-
-func priorPromptTokens(pin sessionpin.Pin) int {
-	if providers.FamilyFor(pin.Provider) == providers.FamilyAnthropic {
-		return pin.LastInputTokens + pin.LastCachedReadTokens + pin.LastCachedWriteTokens
-	}
-	return pin.LastInputTokens
 }
 
 func plannerInputTokens(env *translate.RequestEnvelope, feats translate.RoutingFeatures) int {
@@ -296,18 +265,13 @@ func isHMMDecision(dec router.Decision) bool {
 	return strings.HasPrefix(strings.TrimSpace(dec.Reason), "hmm_policy")
 }
 
-const hmmHistoryReason = "hmm_history"
-
 const DefaultHMMUpgradeConfidenceThreshold = 0.50
 
 const DefaultHMMDowngradeHysteresisTurns = 2
 
 const (
-	hmmReasonConfidentUpgrade        = "hmm_confident_upgrade"
-	hmmReasonUpgradeConfidenceLow    = "hmm_upgrade_confidence_low"
 	hmmReasonDowngradeConfidenceLow  = "hmm_downgrade_confidence_low"
 	hmmReasonDowngradeHysteresis     = "hmm_downgrade_hysteresis"
-	hmmReasonPhaseChange             = "hmm_phase_change"
 	nativeWebSearchPassthroughReason = "native_web_search_passthrough"
 )
 
@@ -473,11 +437,6 @@ func pinEligible(pin sessionpin.Pin, req router.Request) bool {
 	}
 	_, ok := req.EnabledProviders[pin.Provider]
 	return ok
-}
-
-func automaticallyDisabled(req router.Request, model string) bool {
-	_, disabled := req.AutomaticExcludedModels[model]
-	return disabled
 }
 
 func automaticPinEligible(pin sessionpin.Pin, req router.Request) bool {
@@ -1666,14 +1625,10 @@ func (s *Service) runTurnLoop(
 			if pinFound {
 				activePin = pin
 			}
-			hmmDecision, hmmPlannerDecision, hmmSticky, hmmStayModel := s.hmmCostGatedDecision(
-				ctx, req,
-				activePin,
-				hmmHistory,
-				fresh,
-				s.plannerTokensFor(ctx, env, feats),
-				prefixBroken,
-			)
+			hmmDecision, hmmPlannerDecision, hmmSticky, hmmStayModel := hmmCostGatedDecision(ctx, s, routingpolicy.HMMCostGateInput{
+				Request: req, ActivePin: activePin, HMMHistory: hmmHistory, Fresh: fresh,
+				EstimatedInputTokens: s.plannerTokensFor(ctx, env, feats), PrefixBroken: prefixBroken,
+			})
 			res.Decision = hmmDecision
 			res.PlannerDecision = hmmPlannerDecision
 			if heldEffort := effortHysteresisHold(fresh, res.PriorServedModel, hmmDecision.Model, hmmDecision.Effort); heldEffort != "" {
@@ -1687,7 +1642,7 @@ func (s *Service) runTurnLoop(
 			}
 			if hmmStayModel != "" {
 				res.PinModel = hmmStayModel
-				if hmmPin, ok := s.hmmStayPin(req, activePin, hmmHistory); ok && hmmPin.Model == hmmStayModel {
+				if hmmPin, ok := hmmStayPin(s, req, activePin, hmmHistory); ok && hmmPin.Model == hmmStayModel {
 					applyPinEvidence(&res, hmmPin, s.clock.Now())
 				}
 			}
@@ -1899,12 +1854,13 @@ func (s *Service) authorityCacheShadowFor(
 	if !isHMMDecision(fresh) {
 		return authorityCacheShadow{}
 	}
-	_, plannerDecision, sticky, stayModel := s.hmmCostGatedDecision(
-		ctx, req, activePin, hmmHistory, fresh, estimatedInputTokens, prefixBroken,
-	)
+	_, plannerDecision, sticky, stayModel := hmmCostGatedDecision(ctx, s, routingpolicy.HMMCostGateInput{
+		Request: req, ActivePin: activePin, HMMHistory: hmmHistory, Fresh: fresh,
+		EstimatedInputTokens: estimatedInputTokens, PrefixBroken: prefixBroken,
+	})
 	stayProvider := activePin.Provider
 	stayIdentity := stayModel
-	stayPin, stayPinOK := s.hmmStayPin(req, activePin, hmmHistory)
+	stayPin, stayPinOK := hmmStayPin(s, req, activePin, hmmHistory)
 	if stayPinOK && stayPin.Model == stayModel {
 		stayProvider = stayPin.Provider
 		stayIdentity = pinDecision(stayPin).ServedIdentity()
@@ -2015,24 +1971,6 @@ func (s *Service) logAuthorityCacheShadow(ctx context.Context, res turnLoopResul
 		"shadow_corrected_outcome", plannerOutcome(shadow.Decision.ShadowOutcome),
 		"shadow_corrected_savings_usd", shadow.Decision.ShadowExpectedSavingsUSD,
 	)
-}
-
-func maxedOutServedModel(pin sessionpin.Pin) string {
-	if pin.LastOutputLimitAt.IsZero() || !pin.LastOutputLimitAt.Equal(pin.LastTurnEndedAt) {
-		return ""
-	}
-	model := pin.LastServedModel
-	if model == "" {
-		model = pin.Model
-	}
-	return baseModelOf(model)
-}
-
-func baseModelOf(servedIdentity string) string {
-	if idx := strings.LastIndex(servedIdentity, ":"); idx > 0 {
-		return servedIdentity[:idx]
-	}
-	return servedIdentity
 }
 
 func roleForTier(t catalog.Tier) string {
