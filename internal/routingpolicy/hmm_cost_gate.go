@@ -37,33 +37,33 @@ const (
 	HMMReasonPhaseChange          = "hmm_phase_change"
 )
 
-func (g HMMCostGate) Decide(in HMMCostGateInput) (sessionpin.Pin, planner.Decision, bool) {
-	stayPin, ok := g.StayPin(in.Request, in.ActivePin, in.HMMHistory, in.Now)
+func (g HMMCostGate) Decide(input HMMCostGateInput) (sessionpin.Pin, planner.Decision, bool) {
+	stayPin, ok := g.StayPin(input.Request, input.ActivePin, input.HMMHistory, input.Now)
 	if !ok {
 		return stayPin, planner.Decision{Outcome: planner.OutcomeSwitch, Reason: planner.ReasonNoPin}, false
 	}
-	phaseChanged := HMMToolExecutionPhaseChanged(stayPin.Reason, in.Fresh.Reason)
+	phaseChanged := HMMToolExecutionPhaseChanged(stayPin.Reason, input.Fresh.Reason)
 
-	cfg := in.Planner
+	cfg := input.Planner
 	cfg.TierUpgradeEnabled = false
-	stayPrefix, stayPrefixKnown := CacheablePrefixTokens(stayPin, in.EstimatedInputTokens, in.PrefixBroken)
+	stayPrefix, stayPrefixKnown := CacheablePrefixTokens(stayPin, input.EstimatedInputTokens, input.PrefixBroken)
 	plan := planner.Decide(planner.Inputs{
 		Pin:                   stayPin,
-		Fresh:                 in.Fresh,
-		EstimatedInputTokens:  in.EstimatedInputTokens,
+		Fresh:                 input.Fresh,
+		EstimatedInputTokens:  input.EstimatedInputTokens,
 		CacheablePrefixTokens: stayPrefix,
 		CachePrefixKnown:      stayPrefixKnown,
 		PriorOutputTokens:     stayPin.LastOutputTokens,
 		AvailableModels:       g.AvailableModels,
-		PinCacheCold:          PinCacheCold(stayPin, in.PrefixBroken, in.Now),
+		PinCacheCold:          PinCacheCold(stayPin, input.PrefixBroken, input.Now),
 	}, cfg)
 
-	freshIsMoreExpensive := HMMFreshIsMoreExpensive(stayPin.Model, in.Fresh.Model, in.EstimatedInputTokens)
+	freshIsMoreExpensive := HMMFreshIsMoreExpensive(stayPin.Model, input.Fresh.Model, input.EstimatedInputTokens)
 	if phaseChanged && freshIsMoreExpensive {
 		plan.Outcome = planner.OutcomeSwitch
 		plan.Reason = HMMReasonPhaseChange
 	} else if freshIsMoreExpensive {
-		confidence, ok := HMMDecisionConfidence(in.Fresh)
+		confidence, ok := HMMDecisionConfidence(input.Fresh)
 		if ok && confidence >= g.UpgradeConfidenceThreshold {
 			plan.Outcome = planner.OutcomeSwitch
 			plan.Reason = HMMReasonConfidentUpgrade
@@ -73,8 +73,8 @@ func (g HMMCostGate) Decide(in HMMCostGateInput) (sessionpin.Pin, planner.Decisi
 		}
 	}
 
-	if in.SameTierPin && plan.Outcome == planner.OutcomeSwitch && plan.Reason == planner.ReasonEVPositive {
-		pinTier, freshTier := catalog.TierFor(stayPin.Model), catalog.TierFor(in.Fresh.Model)
+	if input.SameTierPin && plan.Outcome == planner.OutcomeSwitch && plan.Reason == planner.ReasonEVPositive {
+		pinTier, freshTier := catalog.TierFor(stayPin.Model), catalog.TierFor(input.Fresh.Model)
 		if pinTier != catalog.TierUnknown && pinTier == freshTier {
 			plan.Outcome = planner.OutcomeStay
 			plan.Reason = planner.ReasonSameTierPinned
@@ -85,7 +85,7 @@ func (g HMMCostGate) Decide(in HMMCostGateInput) (sessionpin.Pin, planner.Decisi
 		plan.Reason = HMMReasonPhaseChange
 	}
 
-	return stayPin, plan, plan.Outcome == planner.OutcomeStay && stayPin.Model != in.Fresh.Model
+	return stayPin, plan, plan.Outcome == planner.OutcomeStay && stayPin.Model != input.Fresh.Model
 }
 
 func (g HMMCostGate) StayPin(req router.Request, activePin sessionpin.Pin, hmmHistory sessionpin.Pin, now time.Time) (sessionpin.Pin, bool) {

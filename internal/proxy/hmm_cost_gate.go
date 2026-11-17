@@ -21,15 +21,15 @@ func hmmCostGateFor(s *Service) routingpolicy.HMMCostGate {
 	}
 }
 
-func hmmCostGatedDecision(ctx context.Context, s *Service, in routingpolicy.HMMCostGateInput) (router.Decision, planner.Decision, bool, string) {
-	in.Planner = plannerConfigFor(ctx, s.planner)
-	in.SameTierPin = flags.BoolOr(ctx, flags.KeyHMMSameTierPin, s.hmmSameTierPin)
-	in.Now = s.clock.Now()
-	stayPin, plan, sticky := hmmCostGateFor(s).Decide(in)
+func hmmCostGatedDecision(ctx context.Context, s *Service, input routingpolicy.HMMCostGateInput) (router.Decision, planner.Decision, bool, string) {
+	input.Planner = plannerConfigFor(ctx, s.planner)
+	input.SameTierPin = flags.BoolOr(ctx, flags.KeyHMMSameTierPin, s.hmmSameTierPin)
+	input.Now = s.clock.Now()
+	stayPin, plan, sticky := hmmCostGateFor(s).Decide(input)
 	if sticky {
 		return pinDecision(stayPin), plan, true, stayPin.Model
 	}
-	return in.Fresh, plan, false, stayPin.Model
+	return input.Fresh, plan, false, stayPin.Model
 }
 
 func hmmStayPin(s *Service, req router.Request, activePin sessionpin.Pin, hmmHistory sessionpin.Pin) (sessionpin.Pin, bool) {
@@ -71,5 +71,3 @@ func baseModelOf(servedIdentity string) string { return routingpolicy.BaseModelO
 func stripEffortSuffix(model string) (effort string, modelOut string) {
 	return routingpolicy.StripEffortSuffix(model)
 }
-
-func looksLikeEffortAlias(tail string) bool { return routingpolicy.LooksLikeEffortAlias(tail) }

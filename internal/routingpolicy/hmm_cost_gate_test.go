@@ -41,8 +41,9 @@ func hmmPin(reason string, endedAgo time.Duration) sessionpin.Pin {
 }
 
 func TestHMMCostGateDecideWithoutStayPinSwitches(t *testing.T) {
-	fresh := router.Decision{Provider: providers.ProviderAnthropic, Model: otherModel}
-	stay, plan, sticky := hmmGate().Decide(routingpolicy.HMMCostGateInput{Fresh: fresh, EstimatedInputTokens: 1000, Now: gateNow})
+	stay, plan, sticky := hmmGate().Decide(routingpolicy.HMMCostGateInput{
+		Fresh: router.Decision{Provider: providers.ProviderAnthropic, Model: otherModel}, EstimatedInputTokens: 1000, Now: gateNow,
+	})
 	assert.False(t, sticky)
 	assert.Empty(t, stay.Model)
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
@@ -121,9 +122,11 @@ func TestHMMCostGateNormalizeStayPinSplitsServedEffort(t *testing.T) {
 }
 
 func TestHMMCostGateDecideSwitchesOnPricierPhaseChange(t *testing.T) {
-	fresh := router.Decision{Provider: providers.ProviderAnthropic, Model: otherModel, Reason: "hmm_policy:tool_execution"}
 	stay, plan, sticky := hmmGate().Decide(routingpolicy.HMMCostGateInput{
-		ActivePin: hmmPin("hmm_policy", time.Minute), Fresh: fresh, EstimatedInputTokens: 1000, Now: gateNow,
+		ActivePin:            hmmPin("hmm_policy", time.Minute),
+		Fresh:                router.Decision{Provider: providers.ProviderAnthropic, Model: otherModel, Reason: "hmm_policy:tool_execution"},
+		EstimatedInputTokens: 1000,
+		Now:                  gateNow,
 	})
 	assert.False(t, sticky)
 	assert.Equal(t, stayModel, stay.Model)
