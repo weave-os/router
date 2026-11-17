@@ -39,11 +39,7 @@ type Assignment struct {
 func PreviousTurnLabel(messages []router.ConversationMessage) (Label, bool) {
 	end := len(messages)
 	for {
-		prompt := lastUserPrompt(messages[:end])
-		if prompt < 0 {
-			return Label{}, false
-		}
-		closing := lastAssistantText(messages[:prompt])
+		closing := closingMessage(messages[:end])
 		if closing < 0 {
 			return Label{}, false
 		}
@@ -56,6 +52,19 @@ func PreviousTurnLabel(messages []router.ConversationMessage) (Label, bool) {
 		}
 		end = closing
 	}
+}
+
+func closingMessage(messages []router.ConversationMessage) int {
+	prompt := lastUserPrompt(messages)
+	for i := len(messages) - 1; i > prompt; i-- {
+		if messages[i].Role == "assistant" && strings.HasPrefix(lastLine(messages[i].Text), labelPrefix) {
+			return i
+		}
+	}
+	if prompt < 0 {
+		return -1
+	}
+	return lastAssistantText(messages[:prompt])
 }
 
 func lastUserPrompt(messages []router.ConversationMessage) int {
@@ -80,10 +89,13 @@ func lastAssistantText(messages []router.ConversationMessage) int {
 	return -1
 }
 
-func labelFields(text string) ([]string, bool) {
+func lastLine(text string) string {
 	text = strings.TrimSpace(text)
-	line := text[strings.LastIndexByte(text, '\n')+1:]
-	rest, found := strings.CutPrefix(strings.TrimSpace(line), labelPrefix)
+	return strings.TrimSpace(text[strings.LastIndexByte(text, '\n')+1:])
+}
+
+func labelFields(text string) ([]string, bool) {
+	rest, found := strings.CutPrefix(lastLine(text), labelPrefix)
 	if !found {
 		return nil, false
 	}

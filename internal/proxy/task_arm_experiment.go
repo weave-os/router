@@ -39,7 +39,8 @@ func assignTaskArm(ctx context.Context, env *translate.RequestEnvelope, sessionK
 	if !routerDecides || sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
 		return taskArmTurn{}
 	}
-	label, found := taskarm.PreviousTurnLabel(conversationMessagesForRouting(env))
+	_, messages := routingInputForRequest(ctx, env, "")
+	label, found := taskarm.PreviousTurnLabel(messages)
 	if !found {
 		return taskArmTurn{}
 	}
