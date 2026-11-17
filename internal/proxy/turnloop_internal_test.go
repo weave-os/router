@@ -640,6 +640,7 @@ func TestHMMCostGate_StaysOnWarmCacheWhenCheaperFreshDoesNotClearEV(t *testing.T
 	}
 
 	decision, plan, sticky, stayModel := svc.hmmCostGatedDecision(
+		t.Context(),
 		router.Request{},
 		sessionpin.Pin{},
 		history,
@@ -683,6 +684,7 @@ func TestHMMCostGate_SwitchesCheaperFreshWhenEVPositive(t *testing.T) {
 	}
 
 	decision, plan, sticky, stayModel := svc.hmmCostGatedDecision(
+		t.Context(),
 		router.Request{},
 		sessionpin.Pin{},
 		history,
@@ -729,6 +731,7 @@ func TestHMMCostGate_SameTierPinSuppressesLateralSwitchWhenEnabled(t *testing.T)
 
 	// Flag off (default): unaffected, same as any other EV-positive switch.
 	decision, plan, sticky, stayModel := svc.hmmCostGatedDecision(
+		t.Context(),
 		router.Request{},
 		sessionpin.Pin{},
 		history,
@@ -745,6 +748,7 @@ func TestHMMCostGate_SameTierPinSuppressesLateralSwitchWhenEnabled(t *testing.T)
 	// Flag on: the lateral same-tier switch is suppressed; the pin sticks.
 	svc.WithHMMSameTierPin(true)
 	decision, plan, sticky, stayModel = svc.hmmCostGatedDecision(
+		t.Context(),
 		router.Request{},
 		sessionpin.Pin{},
 		history,
@@ -788,6 +792,7 @@ func TestHMMCostGate_SameTierPinDoesNotBlockCrossTierSwitch(t *testing.T) {
 	require.NotEqual(t, catalog.TierFor(history.LastServedModel), catalog.TierFor(fresh.Model))
 
 	decision, plan, sticky, stayModel := svc.hmmCostGatedDecision(
+		t.Context(),
 		router.Request{},
 		sessionpin.Pin{},
 		history,
@@ -831,6 +836,7 @@ func TestHMMCostGate_SameTierPinDoesNotBlockConfidentUpgrade(t *testing.T) {
 	require.NotEqual(t, catalog.TierFor(history.LastServedModel), catalog.TierFor(fresh.Model))
 
 	decision, plan, sticky, stayModel := svc.hmmCostGatedDecision(
+		t.Context(),
 		router.Request{},
 		sessionpin.Pin{},
 		history,
@@ -874,6 +880,7 @@ func TestHMMCostGate_SameTierPinIgnoresUnknownTierModels(t *testing.T) {
 	require.Equal(t, catalog.TierUnknown, catalog.TierFor(history.LastServedModel))
 
 	decision, plan, sticky, stayModel := svc.hmmCostGatedDecision(
+		t.Context(),
 		router.Request{},
 		sessionpin.Pin{},
 		history,
@@ -919,6 +926,7 @@ func TestHMMCostGate_PhaseChangeFollowsFreshDecisionWhenEVPositive(t *testing.T)
 	}
 
 	decision, plan, sticky, stayModel := svc.hmmCostGatedDecision(
+		t.Context(),
 		router.Request{},
 		activePin,
 		sessionpin.Pin{},
@@ -963,6 +971,7 @@ func TestHMMCostGate_HistoryPhaseChangeFollowsFreshDecisionWhenEVPositive(t *tes
 	}
 
 	decision, plan, sticky, stayModel := svc.hmmCostGatedDecision(
+		t.Context(),
 		router.Request{},
 		sessionpin.Pin{},
 		history,
@@ -1005,6 +1014,7 @@ func TestHMMCostGate_ExpensiveUpgradeRequiresHighConfidence(t *testing.T) {
 	}
 
 	decision, plan, sticky, stayModel := svc.hmmCostGatedDecision(
+		t.Context(),
 		router.Request{},
 		sessionpin.Pin{},
 		history,
@@ -1021,6 +1031,7 @@ func TestHMMCostGate_ExpensiveUpgradeRequiresHighConfidence(t *testing.T) {
 
 	fresh.Metadata.ChosenScore = 0.50
 	decision, plan, sticky, stayModel = svc.hmmCostGatedDecision(
+		t.Context(),
 		router.Request{},
 		sessionpin.Pin{},
 		history,
@@ -1068,6 +1079,7 @@ func TestHMMCostGate_LowConfidenceUpgradeKeepsIndependentPlannerSwitch(t *testin
 	}
 
 	decision, plan, sticky, stayModel := svc.hmmCostGatedDecision(
+		t.Context(),
 		router.Request{},
 		sessionpin.Pin{},
 		history,
@@ -1112,6 +1124,7 @@ func TestHMMCostGate_IgnoresExpiredActivePin(t *testing.T) {
 	}
 
 	decision, plan, sticky, stayModel := svc.hmmCostGatedDecision(
+		t.Context(),
 		router.Request{},
 		expired,
 		sessionpin.Pin{},
@@ -1159,6 +1172,7 @@ func TestHMMCostGate_IgnoresNonHMMActivePin(t *testing.T) {
 	}
 
 	decision, plan, sticky, stayModel := svc.hmmCostGatedDecision(
+		t.Context(),
 		router.Request{},
 		clusterPin,
 		sessionpin.Pin{},
@@ -1206,6 +1220,7 @@ func TestHMMCostGate_HonorsHMMReasonedActivePin(t *testing.T) {
 	}
 
 	decision, plan, sticky, stayModel := svc.hmmCostGatedDecision(
+		t.Context(),
 		router.Request{},
 		hmmPin,
 		sessionpin.Pin{},
@@ -1252,6 +1267,7 @@ func TestHMMCostGate_IgnoresMaxedHistory(t *testing.T) {
 	}
 
 	decision, plan, sticky, stayModel := svc.hmmCostGatedDecision(
+		t.Context(),
 		router.Request{},
 		sessionpin.Pin{},
 		history,
@@ -1526,6 +1542,7 @@ func TestHMMCostGate_UpgradeThresholdConfigurable(t *testing.T) {
 	}
 
 	decision, plan, sticky, stayModel := svc.hmmCostGatedDecision(
+		t.Context(),
 		router.Request{},
 		sessionpin.Pin{},
 		history,

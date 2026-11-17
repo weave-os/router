@@ -46,6 +46,7 @@ func TestHMMCostGate_EffortQualifiedHistoryStaysOnWarmCache(t *testing.T) {
 	}
 
 	decision, plan, sticky, stayModel := svc.hmmCostGatedDecision(
+		t.Context(),
 		router.Request{},
 		sessionpin.Pin{},
 		history,
@@ -73,6 +74,7 @@ func TestHMMCostGate_EffortQualifiedHistoryIsPricedByEVGate(t *testing.T) {
 	}
 
 	decision, plan, sticky, stayModel := svc.hmmCostGatedDecision(
+		t.Context(),
 		router.Request{},
 		sessionpin.Pin{},
 		history,
@@ -99,6 +101,7 @@ func TestHMMCostGate_PhaseChangeStaysWhenEVDoesNotCoverWarmCache(t *testing.T) {
 	}
 
 	decision, plan, sticky, stayModel := svc.hmmCostGatedDecision(
+		t.Context(),
 		router.Request{},
 		sessionpin.Pin{},
 		history,
@@ -126,6 +129,7 @@ func TestHMMCostGate_PhaseChangeSwitchRecordsEvictionCost(t *testing.T) {
 	}
 
 	decision, plan, sticky, _ := svc.hmmCostGatedDecision(
+		t.Context(),
 		router.Request{},
 		sessionpin.Pin{},
 		history,
@@ -162,6 +166,7 @@ func TestHMMCostGate_PhaseChangeUpgradeFollowsFreshAtLowConfidence(t *testing.T)
 	}
 
 	decision, plan, sticky, _ := svc.hmmCostGatedDecision(
+		t.Context(),
 		router.Request{},
 		sessionpin.Pin{},
 		history,

@@ -1,9 +1,11 @@
 package proxy
 
 import (
+	"context"
 	"strings"
 	"time"
 
+	"weave-os/router/internal/flags"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/planner"
@@ -11,7 +13,7 @@ import (
 )
 
 func (s *Service) hmmCostGatedDecision(
-	req router.Request,
+	ctx context.Context, req router.Request,
 	activePin sessionpin.Pin,
 	hmmHistory sessionpin.Pin,
 	fresh router.Decision,
@@ -24,7 +26,7 @@ func (s *Service) hmmCostGatedDecision(
 	}
 	phaseChanged := hmmToolExecutionPhaseChanged(stayPin.Reason, fresh.Reason)
 
-	cfg := s.planner
+	cfg := plannerConfigFor(ctx, s.planner)
 	cfg.TierUpgradeEnabled = false
 	stayPrefix, stayPrefixKnown := cacheablePrefixTokens(stayPin, estimatedInputTokens, prefixBroken)
 	base := planner.Decide(planner.Inputs{
@@ -53,7 +55,7 @@ func (s *Service) hmmCostGatedDecision(
 		}
 	}
 
-	if s.hmmSameTierPin && base.Outcome == planner.OutcomeSwitch && base.Reason == planner.ReasonEVPositive {
+	if flags.BoolOr(ctx, flags.KeyHMMSameTierPin, s.hmmSameTierPin) && base.Outcome == planner.OutcomeSwitch && base.Reason == planner.ReasonEVPositive {
 		pinTier, freshTier := catalog.TierFor(stayPin.Model), catalog.TierFor(fresh.Model)
 		if pinTier != catalog.TierUnknown && pinTier == freshTier {
 			base.Outcome = planner.OutcomeStay
