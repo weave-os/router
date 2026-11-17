@@ -113,3 +113,47 @@ func TestAnthropicSSETranslator_StreamedToolUseIDStableWithinResponse(t *testing
 	assert.Equal(t, suffix(ids[0]), suffix(ids[1]), "all tool_use ids in one response share the response nonce")
 	assert.NotEqual(t, ids[0], ids[1], "distinct upstream ids stay distinct")
 }
+
+func TestAnthropicSSETranslator_ParallelToolCallsKeepInterleavedArgumentsPerBlock(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewAnthropicSSETranslator(rec, "client-model", nil)
+	require.NoError(t, w.Prelude(true))
+	feedChat(t, w,
+		`{"choices":[{"delta":{"tool_calls":[{"index":1,"id":"call_b","function":{"name":"Grep","arguments":"{\"pattern\":"}}]},"finish_reason":null}]}`,
+		`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_a","function":{"name":"Read","arguments":"{\"file_path\":","thought_signature":"sig-a"}}]},"finish_reason":null}]}`,
+		`{"choices":[{"delta":{"tool_calls":[{"index":1,"function":{"arguments":"\"TODO\"}"}}]},"finish_reason":null}]}`,
+		`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"/tmp/a.go\"}"}}]},"finish_reason":"tool_calls"}]}`,
+	)
+
+	names := map[int64]string{}
+	ids := map[int64]string{}
+	args := map[int64]string{}
+	var order []int64
+	openBlock := int64(-1)
+	for _, line := range strings.Split(rec.Body.String(), "\n") {
+		data, ok := strings.CutPrefix(line, "data: ")
+		if !ok {
+			continue
+		}
+		idx := gjson.Get(data, "index").Int()
+		switch gjson.Get(data, "type").String() {
+		case "content_block_start":
+			require.Equal(t, int64(-1), openBlock, "block %d starts while block %d is open", idx, openBlock)
+			openBlock = idx
+			order = append(order, idx)
+			names[idx] = gjson.Get(data, "content_block.name").String()
+			ids[idx] = gjson.Get(data, "content_block.id").String()
+		case "content_block_delta":
+			args[idx] += gjson.Get(data, "delta.partial_json").String()
+		case "content_block_stop":
+			openBlock = -1
+		}
+	}
+
+	require.Len(t, order, 2)
+	assert.Equal(t, "Grep", names[order[0]])
+	assert.JSONEq(t, `{"pattern":"TODO"}`, args[order[0]])
+	assert.Equal(t, "Read", names[order[1]])
+	assert.JSONEq(t, `{"file_path":"/tmp/a.go"}`, args[order[1]])
+	assert.Contains(t, ids[order[1]], "__thought__", "a deferred tool_use block keeps its thought signature")
+}

@@ -168,7 +168,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		if modelDenial != nil {
 			return ctx, subscriptions.Lease{}, true, modelDenial
 		}
-		return ctx, subscriptions.Lease{}, true, subscriptionPoolExhausted(ctx)
+		return ctx, subscriptions.Lease{}, true, linkedPoolExhausted(ctx, poolProvider, s.clock.Now())
 	}
 	for {
 		if poolProvider == subscriptions.ProviderClaude && claudePoolRefusesClientApp(ctx) {

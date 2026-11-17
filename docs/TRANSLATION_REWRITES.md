@@ -68,6 +68,14 @@ declared, `tool_choice` is `"none"`, or `n > 1`.
 omit IDs on early deltas or reuse one ID for parallel calls. Late source IDs are
 aliases; an emitted client ID is never replaced.
 
+Anthropic streams allow one open content block at a time. When a Chat
+Completions upstream streams parallel tool calls, `AnthropicSSETranslator`
+opens a `tool_use` block for the first named call only; later calls and all
+arguments stay in the ledger, even when deltas interleave across indices. At
+the end of the turn the open block gets its arguments and `content_block_stop`,
+then each remaining call is emitted as start, arguments, stop in source-index
+order.
+
 Opaque provider state rides inside tool-call IDs because the ID survives every
 client SDK round trip. Gemini thought signatures and OpenAI encrypted reasoning
 are base64-appended after a delimiter, and embedding is idempotent. OpenAI

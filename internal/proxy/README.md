@@ -66,7 +66,7 @@ variables are in [CONFIGURATION.md](../../docs/CONFIGURATION.md).
 
 - User-forced pins (`translate.ReasonUserForceModel`, including the tier-clamp
   suffix) record `pinNeverExpires` and clear only on `/unforce-model`; every
-  other pin uses the sliding `pinSessionTTL`. The sentinel stays inside the
+  other pin uses the sliding `routingpolicy.PinSessionTTL`. The sentinel stays inside the
   Postgres timestamp range.
 - Hard-pinned turns (probe, compaction, title generation, classifiers) keep a
   zero session key; nothing persists a pin under the zero key.

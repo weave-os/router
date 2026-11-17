@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -188,7 +189,7 @@ func (s *Service) handleNoProgressBreak(
 	log := observability.FromContext(ctx)
 	preserveForcedPin := len(decisionReason) > 0 && isUserForcedReason(decisionReason[0])
 	if !preserveForcedPin && s.pinStore != nil && installationID != uuid.Nil && sessionKey != ([sessionpin.SessionKeyLen]byte{}) {
-		pin, found := s.loadPin(ctx, sessionKey, role)
+		pin, found := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now).Load(ctx, sessionKey, role)
 		preserveForcedPin = found && isUserForcedReason(pin.Reason)
 	}
 	pinAction := "clearing the session pin so the next message re-routes"
