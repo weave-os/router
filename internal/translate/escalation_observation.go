@@ -109,7 +109,7 @@ func (e *RequestEnvelope) EscalationObservation() (EscalationObservation, error)
 		return EscalationObservation{}, fmt.Errorf("missing request envelope")
 	}
 	observation := newEscalationObservation()
-	root := gjson.ParseBytes(e.body)
+	root := viewJSON(e.body)
 	switch e.format {
 	case FormatAnthropic:
 		if root.Get("system").Exists() {
@@ -195,7 +195,7 @@ func (e *RequestEnvelope) EscalationObservation() (EscalationObservation, error)
 		return observation, fmt.Errorf("unsupported escalation request format %d", e.format)
 	}
 	observation.setTurnType()
-	return observation, nil
+	return detachFromBody(observation), nil
 }
 
 func ParseResponsesEscalationObservation(body []byte) (EscalationObservation, error) {
@@ -203,7 +203,7 @@ func ParseResponsesEscalationObservation(body []byte) (EscalationObservation, er
 	if err := validateResponsesRequest(body); err != nil {
 		return observation, err
 	}
-	root := gjson.ParseBytes(body)
+	root := viewJSON(body)
 	observation.ContinuationID = root.Get("previous_response_id").String()
 	observation.HistoryComplete = observation.ContinuationID == ""
 	if instructions := root.Get("instructions"); instructions.Exists() && instructions.Type != gjson.Null {
@@ -283,7 +283,7 @@ func ParseResponsesEscalationObservation(body []byte) (EscalationObservation, er
 		}
 	}
 	observation.setTurnType()
-	return observation, nil
+	return detachFromBody(observation), nil
 }
 
 func newEscalationObservation() EscalationObservation {

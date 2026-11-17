@@ -68,7 +68,7 @@ func ConvertResponsesToChatCompletions(body []byte) (ResponsesConversion, error)
 		return ResponsesConversion{}, err
 	}
 
-	root := gjson.ParseBytes(body)
+	root := viewJSON(body)
 	result := ResponsesConversion{
 		OriginalBody: body,
 		Requirements: router.TranslationRequirements{
@@ -76,7 +76,7 @@ func ConvertResponsesToChatCompletions(body []byte) (ResponsesConversion, error)
 			Endpoint:     router.EndpointOpenAIResponses,
 		},
 	}
-	result.Requirements.Images = gjson.GetBytes(body, "input").Exists() && containsAnyKey(body, "image_url", "input_image")
+	result.Requirements.Images = viewJSONPath(body, "input").Exists() && containsAnyKey(body, "image_url", "input_image")
 	result.Requirements.Audio, result.Requirements.Files = openAIMediaRequirements(body)
 	result.Requirements.CitationsOrSearch = len(nativeServerToolsFromBody(body, FormatOpenAI)) > 0
 	result.Requirements.StructuredOutput = root.Get("text.format").Exists() || root.Get("response_format").Exists()
@@ -200,7 +200,7 @@ func ConvertResponsesToChatCompletions(body []byte) (ResponsesConversion, error)
 		return ResponsesConversion{}, fmt.Errorf("marshal chat completions: %w", err)
 	}
 	result.Body = bodyOut
-	return result, nil
+	return detachFromBody(result), nil
 }
 
 func responsesInputItemToMessages(item gjson.Result) ([]map[string]any, error) {
@@ -272,7 +272,7 @@ const responsesTerminalBadgeSentinel = routerNoticeSentinel
 var responsesTerminalBadgePattern = regexp.MustCompile(`(?is)\A` + regexp.QuoteMeta(routerNoticeSentinel) + `.*?\n\n` + rescueDetailExpression)
 
 func StripRoutingBadgeFromResponsesInput(body []byte) ([]byte, error) {
-	input := gjson.GetBytes(body, "input")
+	input := viewJSONPath(body, "input")
 	if !input.IsArray() {
 		return body, nil
 	}
@@ -365,7 +365,7 @@ func StripRoutingBadgeFromResponsesInput(body []byte) ([]byte, error) {
 }
 
 func StripFeedbackFooterFromResponsesInput(body []byte) ([]byte, error) {
-	input := gjson.GetBytes(body, "input")
+	input := viewJSONPath(body, "input")
 	if !input.IsArray() {
 		return body, nil
 	}
@@ -456,7 +456,7 @@ func replaceResponsesRawField(raw []byte, path string, value []byte) ([]byte, er
 }
 
 func StripRouterCommandsFromResponsesInput(body []byte) ([]byte, error) {
-	input := gjson.GetBytes(body, "input")
+	input := viewJSONPath(body, "input")
 	if !input.IsArray() {
 		return body, nil
 	}

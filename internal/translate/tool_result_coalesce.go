@@ -27,7 +27,7 @@ type toolResultKey struct {
 }
 
 func (e *RequestEnvelope) coalesceOpenAIToolResults() int {
-	msgs := gjson.GetBytes(e.body, "messages")
+	msgs := viewJSONPath(e.body, "messages")
 	if !msgs.IsArray() {
 		return 0
 	}

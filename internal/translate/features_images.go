@@ -56,7 +56,7 @@ func anthropicImageBytes(body []byte) (total, count int) {
 }
 
 func openAIImageBytes(body []byte) (total, count int) {
-	gjson.GetBytes(body, "messages").ForEach(func(_, msg gjson.Result) bool {
+	viewJSONPath(body, "messages").ForEach(func(_, msg gjson.Result) bool {
 		msg.Get("content").ForEach(func(_, part gjson.Result) bool {
 			if part.Get("type").String() != "image_url" {
 				return true

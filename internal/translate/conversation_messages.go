@@ -92,9 +92,9 @@ func (e *RequestEnvelope) anthropicConversationMessages(includeClientText, claud
 	return compactConversationMessages(out), changed
 }
 
-func (e *RequestEnvelope) openAIConversationMessages() []ConversationMessage {
+func (e *RequestEnvelope) openAIConversationMessagesFromView() []ConversationMessage {
 	out := make([]ConversationMessage, 0)
-	gjson.GetBytes(e.body, "messages").ForEach(func(_, msg gjson.Result) bool {
+	viewJSONPath(e.body, "messages").ForEach(func(_, msg gjson.Result) bool {
 		role := strings.TrimSpace(msg.Get("role").String())
 		if role == "" {
 			return true

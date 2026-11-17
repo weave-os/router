@@ -29,7 +29,7 @@ func prepareAnthropicMessageTail(body []byte, supportsPrefill bool) ([]byte, err
 }
 
 func normalizeAnthropicFinalAssistant(body []byte) ([]byte, error) {
-	messages := gjson.GetBytes(body, "messages").Array()
+	messages := viewJSONPath(body, "messages").Array()
 	for messageIndex := len(messages) - 1; messageIndex >= 0; messageIndex-- {
 		message := messages[messageIndex]
 		if EscalationRole(message.Get("role").String()) != EscalationRoleAssistant {

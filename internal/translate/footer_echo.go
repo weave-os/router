@@ -6,7 +6,7 @@ func FeedbackFooterInHistory(body []byte) bool {
 	if FeedbackFooterInResponsesHistory(body) {
 		return true
 	}
-	msgs := gjson.GetBytes(body, "messages")
+	msgs := viewJSONPath(body, "messages")
 	if !msgs.IsArray() {
 		return false
 	}
@@ -19,7 +19,7 @@ func FeedbackFooterInHistory(body []byte) bool {
 }
 
 func FeedbackFooterInResponsesHistory(body []byte) bool {
-	input := gjson.GetBytes(body, "input")
+	input := viewJSONPath(body, "input")
 	if !input.IsArray() {
 		return false
 	}

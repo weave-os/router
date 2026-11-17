@@ -27,7 +27,7 @@ func (e *RequestEnvelope) StripHistoricalCommands() (int, error) {
 	default:
 		return 0, nil
 	}
-	msgs := gjson.GetBytes(e.body, "messages")
+	msgs := viewJSONPath(e.body, "messages")
 	if !msgs.IsArray() {
 		return 0, nil
 	}
@@ -280,7 +280,7 @@ func stripDirectiveFromMessage(msg gjson.Result, textType string) (raw string, e
 }
 
 func StripHistoricalCommandsFromResponsesInput(body []byte) ([]byte, error) {
-	input := gjson.GetBytes(body, "input")
+	input := viewJSONPath(body, "input")
 	if !input.IsArray() {
 		return body, nil
 	}

@@ -81,8 +81,8 @@ func LastReplayedResponsesModel(body []byte) string {
 	return lastAnnouncedResponsesModel(body, replayedAnnouncementPattern)
 }
 
-func lastAnnouncedResponsesModel(body []byte, pattern *regexp.Regexp) string {
-	items := gjson.GetBytes(body, "input").Array()
+func lastAnnouncedResponsesModelFromView(body []byte, pattern *regexp.Regexp) string {
+	items := viewJSONPath(body, "input").Array()
 	for i := len(items) - 1; i >= 0; i-- {
 		item := items[i]
 		if item.Get("role").Str != "assistant" || (item.Get("type").Str != "message" && item.Get("type").Str != "") {
@@ -111,8 +111,8 @@ func lastAnnouncedResponsesModel(body []byte, pattern *regexp.Regexp) string {
 
 var replayedAnnouncementPattern = regexp.MustCompile(`(?s)\A(?:` + regexp.QuoteMeta(routerNoticeSentinel) + `.*?\n\n|` + legacyRoutingMarkerExpression + `|` + trimmedRoutingMarkerExpression + `)` + rescueDetailExpression)
 
-func LastAnnouncedMessagesModel(body []byte) string {
-	messages := gjson.GetBytes(body, "messages").Array()
+func lastAnnouncedMessagesModelFromView(body []byte) string {
+	messages := viewJSONPath(body, "messages").Array()
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Get("role").Str != "assistant" {
 			continue

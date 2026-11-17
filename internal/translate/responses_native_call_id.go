@@ -8,7 +8,7 @@ import (
 )
 
 func ClampResponsesInputCallIDs(body []byte) ([]byte, error) {
-	input := gjson.GetBytes(body, "input")
+	input := viewJSONPath(body, "input")
 	if !input.IsArray() {
 		return body, nil
 	}

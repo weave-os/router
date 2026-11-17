@@ -38,7 +38,7 @@ func anthropicHasUnsignedToolUse(body []byte) bool {
 
 func openAIHasUnsignedToolCalls(body []byte) bool {
 	found := false
-	gjson.GetBytes(body, "messages").ForEach(func(_, msg gjson.Result) bool {
+	viewJSONPath(body, "messages").ForEach(func(_, msg gjson.Result) bool {
 		if msg.Get("role").String() != "assistant" {
 			return true
 		}

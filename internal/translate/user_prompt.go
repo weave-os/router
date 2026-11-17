@@ -15,7 +15,7 @@ func (e *RequestEnvelope) EndsWithUserPrompt() bool {
 	default:
 		return false
 	}
-	msgs := gjson.GetBytes(e.body, "messages")
+	msgs := viewJSONPath(e.body, "messages")
 	if !msgs.IsArray() {
 		return false
 	}

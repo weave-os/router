@@ -15,12 +15,12 @@ func EchoedInAssistantText(body []byte, needles []string) map[string]bool {
 			}
 		}
 	}
-	for _, msg := range gjson.GetBytes(body, "messages").Array() {
+	for _, msg := range viewJSONPath(body, "messages").Array() {
 		if msg.Get("role").Str == "assistant" {
 			visit(assistantMessageText(msg))
 		}
 	}
-	for _, item := range gjson.GetBytes(body, "input").Array() {
+	for _, item := range viewJSONPath(body, "input").Array() {
 		if item.Get("role").Str != "assistant" {
 			continue
 		}

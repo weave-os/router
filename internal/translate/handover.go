@@ -531,7 +531,7 @@ func (e *RequestEnvelope) SanitizeOrphanedToolCalls() int {
 }
 
 func (e *RequestEnvelope) sanitizeOrphanedOpenAIToolCalls() int {
-	msgs := gjson.GetBytes(e.body, "messages")
+	msgs := viewJSONPath(e.body, "messages")
 	if !msgs.IsArray() {
 		return 0
 	}

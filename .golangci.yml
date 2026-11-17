@@ -154,6 +154,11 @@ linters:
         linters:
           - gosec
         text: G402
+      # Zero-copy gjson views over immutable request bodies; callers never mutate a body after reading it.
+      - path: internal/translate/json_view(_test)?\.go
+        linters:
+          - gosec
+        text: G103
       # Read by other containers or executed as a stub binary.
       - path: (internal/policyregistry/directory\.go|smoke/mitmproxy/(main|store)\.go|scripts/subscription_enrollment_check/enrollment_test\.go)
         linters:
