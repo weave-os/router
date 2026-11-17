@@ -304,3 +304,20 @@ func TestRegistryVersionTracksRegistryMembership(t *testing.T) {
 	assert.Equal(t, membershipAtVersion30, hex.EncodeToString(digest[:]),
 		"Registry membership changed: bump flags.RegistryVersion (currently %d) and re-pin this digest", flags.RegistryVersion)
 }
+
+func TestOverridesOverlayReplacesOnlyLayeredKeys(t *testing.T) {
+	stored := flags.Overrides{
+		Bools: map[flags.Key]bool{flags.KeyPlannerEnabled: true, flags.KeySiblingFailover: true},
+		Ints:  map[flags.Key]int{flags.KeyLoopEscalationHoldoutPct: 10},
+	}
+	layered := stored.Overlay(flags.Overrides{
+		Bools:   map[flags.Key]bool{flags.KeyPlannerEnabled: false},
+		Strings: map[flags.Key]string{flags.KeyEscalationActiveClassifier: "none"},
+	})
+
+	assert.Equal(t, map[flags.Key]bool{flags.KeyPlannerEnabled: false, flags.KeySiblingFailover: true}, layered.Bools)
+	assert.Equal(t, map[flags.Key]int{flags.KeyLoopEscalationHoldoutPct: 10}, layered.Ints)
+	assert.Equal(t, map[flags.Key]string{flags.KeyEscalationActiveClassifier: "none"}, layered.Strings)
+	assert.Nil(t, layered.Floats)
+	assert.True(t, stored.Bools[flags.KeyPlannerEnabled], "overlay must not mutate the stored overrides")
+}

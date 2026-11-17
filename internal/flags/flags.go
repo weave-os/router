@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 )
@@ -237,6 +238,25 @@ func ValidateOverrides(o Overrides) error {
 		}
 	}
 	return validateEscalationOverrides(o)
+}
+
+func (o Overrides) Overlay(top Overrides) Overrides {
+	return Overrides{
+		Bools:   overlayValues(o.Bools, top.Bools),
+		Ints:    overlayValues(o.Ints, top.Ints),
+		Floats:  overlayValues(o.Floats, top.Floats),
+		Strings: overlayValues(o.Strings, top.Strings),
+	}
+}
+
+func overlayValues[V any](base, top map[Key]V) map[Key]V {
+	if len(base) == 0 && len(top) == 0 {
+		return nil
+	}
+	merged := make(map[Key]V, len(base)+len(top))
+	maps.Copy(merged, base)
+	maps.Copy(merged, top)
+	return merged
 }
 
 func (o Overrides) Keys() (keys []Key) {
