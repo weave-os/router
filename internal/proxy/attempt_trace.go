@@ -59,9 +59,10 @@ func describeAttempt(ctx context.Context, trace *dispatch.AttemptTrace, attempt 
 		if err != nil {
 			diagnosis.ErrorClass = string(classifyTurnError(err, "", 0))
 			diagnosis.FailureOwner = string(classifyFailureOwner(failureOwnerInput{
-				Err:                err,
-				BodyTranslated:     diagnosis.BodyTranslated,
-				CustomerCredential: customerCredential,
+				Err:                    err,
+				BodyTranslated:         diagnosis.BodyTranslated,
+				CustomerCredential:     customerCredential,
+				RejectedFieldUnchanged: rejectedFieldUnchanged(err, inbound, sent),
 			}))
 			logAttemptFailure(ctx, attempt, err, diagnosis)
 		}

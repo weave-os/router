@@ -95,10 +95,10 @@ func TestCodexOwnTokenRejectionIsRememberedAcrossTurns(t *testing.T) {
 		ctx := WithManagedSubscriptionUsage(context.WithValue(context.Background(), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111"))
 		body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"synthetic"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
 		rec := httptest.NewRecorder()
-		require.Error(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/chat/completions", body)))
+		require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/chat/completions", body)))
 	}
 	mu.Lock()
 	defer mu.Unlock()
 	require.Equal(t, 1, callerPreflights, "a rejected caller token must be suppressed on the second turn")
-	require.Zero(t, paidCalls, "a rejected token is not quota evidence, so paid recovery stays closed")
+	require.Equal(t, 2, paidCalls, "a rejected token cannot serve, so Weave credits serve each turn")
 }

@@ -21,6 +21,7 @@ const (
 type modelAttemptBuilder func(router.Decision, translate.EmitOptions, string, context.Context) (dispatchAttempt, error)
 
 type responseProtocolSwitch struct {
+	notices             *requestNoticeStream
 	writer              *translate.ResponsesWriter
 	buffer              *preludeBuffer
 	nativeRequest       bool
@@ -90,6 +91,7 @@ func (s responseProtocolSwitch) leavePassthrough() error {
 }
 
 func (s responseProtocolSwitch) selectTarget(target router.Decision) error {
+	s.notices.selectModel(target.Model)
 	if s.writer == nil {
 		return nil
 	}
@@ -143,10 +145,6 @@ func responsesDispatchBodies(body []byte, terminalResponses bool) (nativeBody, c
 	if err != nil {
 		return nil, nil, err
 	}
-	// Keep router directives in the portable projection so the shared chat
-	// path can record them, identify Codex skill invocations, and key the
-	// session on the opening message before stripping it. The native body
-	// has already been sanitized for direct Responses dispatch.
 	conversionBody, err = stripResponsesVisualArtifacts(body)
 	if err != nil {
 		return nil, nil, err

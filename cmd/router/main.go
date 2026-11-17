@@ -1381,6 +1381,7 @@ func main() {
 	}
 	processCtx, stopProcess := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stopProcess()
+	waitForKeepWarm := startSubscriptionKeepWarm(processCtx, subscriptionRuntime, logger)
 	egressProbe.prepare(processCtx, logger, providerMap, envKeyedProviders, initializedOrigins)
 	logger.Info("Router startup initialization complete")
 	serverFeatures := server.Features{
@@ -1440,9 +1441,7 @@ func main() {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		logger.Error("Graceful shutdown failed", "err", err)
-	}
+	drainServer(shutdownCtx, srv, logger, waitForKeepWarm)
 	emitterCtx, emitterCancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	defer emitterCancel()
 	if err := emitter.Shutdown(emitterCtx); err != nil {

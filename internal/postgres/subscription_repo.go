@@ -407,3 +407,17 @@ func (r *subscriptionAccountRepo) SubscriberEnrollmentOwner(ctx context.Context,
 	}
 	return auth.SubscriptionOwner{SubscriberID: subscriberID, APIKeyID: row.APIKeyID.String(), InstallationID: row.InstallationID.String()}, nil
 }
+
+func (r *subscriptionAccountRepo) ListSubscriptionAccountsDueForKeepWarm(ctx context.Context, refreshedBefore time.Time, limit int32) ([]*auth.SubscriptionAccount, error) {
+	rows, err := dbbudget.Queries(r.tx).ListModelRouterSubscriptionAccountsDueForKeepWarm(ctx, sqlc.ListModelRouterSubscriptionAccountsDueForKeepWarmParams{
+		RefreshedBefore: pgtype.Timestamp{Time: refreshedBefore.UTC(), Valid: true}, RowLimit: limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	accounts := make([]*auth.SubscriptionAccount, 0, len(rows))
+	for _, row := range rows {
+		accounts = append(accounts, toAuthSubscriptionAccountListRow(sqlc.ListModelRouterSubscriptionAccountsRow(row)))
+	}
+	return accounts, nil
+}

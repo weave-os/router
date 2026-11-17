@@ -409,7 +409,13 @@ USAGE
 }
 
 ensure_jq() {
-  command -v jq >/dev/null 2>&1 && return 0
+  if command -v jq >/dev/null 2>&1; then
+    jq_meets_minimum jq && return 0
+    if jq_meets_minimum "$HOME/.weave/bin/jq"; then
+      export PATH="$HOME/.weave/bin:$PATH"
+      return 0
+    fi
+  fi
   local asset checksum destination temporary actual_checksum
   case "$(uname -s):$(uname -m)" in
     Darwin:arm64) asset=jq-macos-arm64; checksum=a9fe3ea2f86dfc72f6728417521ec9067b343277152b114f4e98d8cb0e263603 ;;
@@ -417,7 +423,7 @@ ensure_jq() {
     Linux:x86_64) asset=jq-linux-amd64; checksum=020468de7539ce70ef1bceaf7cde2e8c4f2ca6c3afb84642aabc5c97d9fc2a0d ;;
     Linux:aarch64|Linux:arm64) asset=jq-linux-arm64; checksum=6bc62f25981328edd3cfcfe6fe51b073f2d7e7710d7ef7fcdac28d4e384fc3d4 ;;
     MINGW*:x86_64|MSYS*:x86_64|CYGWIN*:x86_64) asset=jq-windows-amd64.exe; checksum=23cb60a1354eed6bcc8d9b9735e8c7b388cd1fdcb75726b93bc299ef22dd9334 ;;
-    *) err "Automatic jq installation is unavailable for $(uname -s)/$(uname -m). Install jq and retry."; exit 1 ;;
+    *) err "Automatic jq installation is unavailable for $(uname -s)/$(uname -m). Install jq 1.6 or newer and retry."; exit 1 ;;
   esac
   require_cmd curl "curl is required to download jq."
   destination="$HOME/.weave/bin"
@@ -446,7 +452,15 @@ ensure_jq() {
     *) mv -f "$temporary" "$destination/jq" ;;
   esac
   jq_download_tmp=""
+  export PATH="$destination:$PATH"
   jq --version >/dev/null
+}
+
+jq_meets_minimum() {
+  local version
+  version="$("$1" --version 2>/dev/null)" || return 1
+  [[ "$version" =~ ^jq-([0-9]+)\.([0-9]+) ]] || return 1
+  [ "${BASH_REMATCH[1]}" -gt 1 ] || { [ "${BASH_REMATCH[1]}" -eq 1 ] && [ "${BASH_REMATCH[2]}" -ge 6 ]; }
 }
 
 require_cmd() {
@@ -602,8 +616,8 @@ normalize_name() {
 
 # resolve_user_email picks the email to plant in router request headers so the
 # router can attribute traffic to a person even on shared API keys. Priority:
-# explicit --email → WEAVE_USER_EMAIL env override → git config user.email →
-# interactive prompt (pre-filled with whatever we found). In --non-interactive
+# explicit --email → WEAVE_USER_EMAIL env override → the email already installed
+# for this target → git config user.email → interactive prompt (pre-filled with whatever we found). In --non-interactive
 # mode we never prompt, so unset/invalid means we ship no header (router treats
 # that as account_uuid-only, same as today). Echoes the validated email on stdout.
 resolve_user_email() {
@@ -625,6 +639,9 @@ resolve_user_email() {
     if [ -z "$candidate" ]; then
       warn "WEAVE_USER_EMAIL=\"$WEAVE_USER_EMAIL\" is not a valid email; ignoring."
     fi
+  fi
+  if [ -z "$candidate" ]; then
+    candidate="$(normalize_email "$(read_installed_header X-Weave-User-Email)")"
   fi
   if [ -z "$candidate" ]; then
     local git_email
@@ -1464,10 +1481,10 @@ install_lsp_servers() {
 }
 
 # resolve_user_name mirrors resolve_user_email but for display name. Priority:
-# WEAVE_USER_NAME env override → git config user.name → empty. We don't
-# prompt for name independently: if email prompting yielded nothing, name
-# almost certainly will too, and a second prompt is noise. Echoes the
-# validated name on stdout.
+# WEAVE_USER_NAME env override → installed name → git config user.name →
+# empty. We don't prompt for name independently: if email prompting yielded
+# nothing, name almost certainly will too, and a second prompt is noise. Echoes
+# the validated name on stdout.
 resolve_user_name() {
   local candidate=""
   if [ -n "${WEAVE_USER_NAME:-}" ]; then
@@ -1475,6 +1492,9 @@ resolve_user_name() {
     if [ -z "$candidate" ]; then
       warn "WEAVE_USER_NAME=\"$WEAVE_USER_NAME\" is not a usable name; ignoring."
     fi
+  fi
+  if [ -z "$candidate" ]; then
+    candidate="$(normalize_name "$(read_installed_header X-Weave-User-Name)")"
   fi
   if [ -z "$candidate" ]; then
     local git_name
@@ -2737,6 +2757,61 @@ read_installed_key() {
     copilot)  read_copilot_key ;;
     claude-desktop) json_get "$desktop_shim_config" '.router_key' ;;
   esac
+}
+
+# read_installed_header prints the value of identity header $1 (for example
+# X-Weave-User-Email) from this target's managed config, or nothing. Reading it
+# back keeps a re-run or `update` from dropping the identity an earlier install
+# planted when nothing else on the machine (git config, env) supplies one.
+read_installed_header() {
+  local header="$1" candidate value=""
+  case "$target" in
+    claude)
+      while IFS= read -r candidate; do
+        [ -n "$candidate" ] || continue
+        value="$(json_get "$candidate" '.env.ANTHROPIC_CUSTOM_HEADERS' \
+          | sed -n "s/^[[:space:]]*${header}:[[:space:]]*//p" | head -n 1)"
+        [ -n "$value" ] && break
+      done <<<"$(models_key_file_order)"
+      ;;
+    codex)
+      key_source_is_own "$codex_config_file" || return 0
+      value="$(awk -v header="$header" '
+        /^[[:space:]]*\[/ {
+          in_provider = ($0 ~ /^[[:space:]]*\[[[:space:]]*model_providers[[:space:]]*\.[[:space:]]*weave[[:space:]]*(\.[^]]*)?\][[:space:]]*(#.*)?$/)
+          next
+        }
+        in_provider && match($0, "\"?" header "\"?[[:space:]]*=[[:space:]]*\"([^\"\\\\]|\\\\.)*\"") {
+          hdr = substr($0, RSTART, RLENGTH)
+          sub(/^[^=]*=[[:space:]]*"/, "", hdr)
+          sub(/"$/, "", hdr)
+          # Undo toml_escape so the writer does not escape the value twice.
+          value = ""
+          for (i = 1; i <= length(hdr); i++) {
+            c = substr(hdr, i, 1)
+            if (c == "\\") { i++; c = substr(hdr, i, 1) }
+            value = value c
+          }
+          print value
+          exit
+        }
+      ' "$codex_config_file" 2>/dev/null || true)"
+      ;;
+    opencode)
+      key_source_is_own "$opencode_config_file" || return 0
+      value="$(json_get "$opencode_config_file" ".provider.weave.options.headers[\"$header\"]")"
+      ;;
+    pi)
+      key_source_is_own "$pi_models_file" || return 0
+      value="$(json_get "$pi_models_file" ".providers.weave.headers[\"$header\"]")"
+      ;;
+    copilot)
+      key_source_is_own "$copilot_providers_file" || return 0
+      value="$(jq -r --arg h "$header" '[(.providers // [])[] | select(.name == "weave") | .headers[$h] // empty][0] // empty' \
+        "$copilot_providers_file" 2>/dev/null || true)"
+      ;;
+  esac
+  printf '%s' "$value"
 }
 
 # resolve_installed_base_url prints the router endpoint this Claude Code install
@@ -4041,7 +4116,7 @@ run_login_claude() {
     else $organization end
   ')"
   external_account_id="${account_uuid}:${organization_uuid}"
-  body="$(jq -nc --arg provider claude --arg account "$external_account_id" --arg token "$refresh_token" --arg label "$display_name" '{provider:$provider,external_account_id:$account,refresh_token:$token} | if $label != "" then .display_name = $label else . end')"
+  body="$(jq -nc --arg provider claude --arg account "$external_account_id" --arg token "$refresh_token" --arg display_name "$display_name" '{provider:$provider,external_account_id:$account,refresh_token:$token} | if $display_name != "" then .display_name = $display_name else . end')"
   models_api POST "/v1/subscriptions/accounts" "$body" || models_fail "enrolling Claude subscription"
   forget_plan_warning claude
   ok "Claude subscription enrolled."
@@ -4119,7 +4194,7 @@ run_login_codex() {
     err "Codex token exchange omitted account identity or refresh credentials."
     exit 1
   fi
-  body="$(jq -nc --arg provider codex --arg account "$account_id" --arg token "$refresh_token" --arg label "$display_name" '{provider:$provider,external_account_id:$account,refresh_token:$token} | if $label != "" then .display_name = $label else . end')"
+  body="$(jq -nc --arg provider codex --arg account "$account_id" --arg token "$refresh_token" --arg display_name "$display_name" '{provider:$provider,external_account_id:$account,refresh_token:$token} | if $display_name != "" then .display_name = $display_name else . end')"
   models_api POST "/v1/subscriptions/accounts" "$body" || models_fail "enrolling Codex subscription"
   forget_plan_warning codex
   ok "Codex subscription enrolled."
