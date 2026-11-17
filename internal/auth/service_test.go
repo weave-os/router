@@ -1309,3 +1309,46 @@ func TestService_VerifyAPIKey_ClusterModelListFetchErrorSkipsCache(t *testing.T)
 	assert.Empty(t, cache.setSnapshot(),
 		"a transient cluster-list fetch error must NOT be cached, so the next request retries")
 }
+
+func TestService_VerifyAPIKey_ExternalKeyFetchErrorSkipsCache(t *testing.T) {
+	rawToken := "rk_extkey_fetch_error"
+	keyHash := auth.HashAPIKeySHA256(rawToken)
+	wantInstall := &auth.Installation{ID: "install_extskip", ExternalID: "org_extskip", Name: "extskip-tenant"}
+	wantKey := &auth.APIKey{ID: "key_extskip", InstallationID: wantInstall.ID, ExternalID: wantInstall.ExternalID, KeyHash: keyHash}
+	externalKey := &auth.ExternalAPIKey{
+		ID:             "ext-skip-1",
+		InstallationID: wantInstall.ID,
+		Provider:       "openai",
+		Plaintext:      []byte("sk-openai-test"),
+	}
+
+	cache := newRecordingAPIKeyCache()
+	fakeExternal := &fakeExternalAPIKeyRepo{err: errors.New("external key repo unavailable")}
+	apiKeys := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{keyHash: {apiKey: wantKey, installation: wantInstall}}}
+	svc := auth.NewService(
+		&fakeInstallationRepository{},
+		apiKeys,
+		fakeExternal,
+		nil,
+		cache,
+		nil,
+		frozenClock(),
+	)
+
+	_, _, externalKeys, _, err := svc.VerifyAPIKey(context.Background(), rawToken)
+
+	require.NoError(t, err, "an external key fetch error must not fail authentication")
+	assert.Nil(t, externalKeys, "a failed fetch serves this request without BYOK keys")
+	assert.Empty(t, cache.setSnapshot(),
+		"a transient external-key fetch error must NOT be cached, so the next request retries")
+
+	fakeExternal.err = nil
+	fakeExternal.keys = []*auth.ExternalAPIKey{externalKey}
+
+	_, _, externalKeys, _, err = svc.VerifyAPIKey(context.Background(), rawToken)
+
+	require.NoError(t, err)
+	require.Len(t, externalKeys, 1,
+		"once the external-key store recovers, the next request must get the installation's BYOK keys")
+	assert.Equal(t, externalKey.ID, externalKeys[0].ID)
+}

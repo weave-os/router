@@ -11,15 +11,11 @@ import (
 	"weave-os/router/internal/subscriptions"
 )
 
-// ErrClaudeEnterpriseSubscriptionUnavailable refuses a Claude turn rather
-// than charging a different funding source when Enterprise-only is enabled.
 var ErrClaudeEnterpriseSubscriptionUnavailable = errors.New("enterprise-only Claude billing requires a usable Claude subscription")
 
 type claudeEnterpriseTurnKey struct{}
 type claudeSubscriptionTurnKey struct{}
 
-// Enterprise billing applies only to a provider-verified Enterprise account.
-// An organization flag cannot turn a Pro, Max, Team or unknown plan into one.
 func claudeEnterpriseOnly(ctx context.Context) bool {
 	return claudeEnterpriseEnabled(ctx) && claudeSubscriptionPlan(ctx) == providers.SubscriptionPlanEnterprise
 }
