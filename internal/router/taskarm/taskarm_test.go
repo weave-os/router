@@ -70,7 +70,7 @@ func TestPreviousTurnLabel(t *testing.T) {
 
 func TestAssignIsStablePerTaskAndSplitsByTreatmentPct(t *testing.T) {
 	steps := []string{"verify", "review"}
-	session := []byte("session-a")
+	session := taskarm.Subject{InstallationID: "installation-a", UserID: "user-a"}
 	label := taskarm.Label{Goal: "export", Task: "csv-writer", Step: "verify"}
 
 	first, ok := taskarm.Assign(session, label, steps, 50)
@@ -117,7 +117,7 @@ func TestAssignEligibility(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			label.Step = tc.step
-			got, ok := taskarm.Assign([]byte("s"), label, tc.steps, tc.pct)
+			got, ok := taskarm.Assign(taskarm.Subject{InstallationID: "i"}, label, tc.steps, tc.pct)
 			assert.Equal(t, tc.ok, ok)
 			assert.Equal(t, tc.arm, got.Arm)
 		})

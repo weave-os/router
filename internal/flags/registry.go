@@ -329,7 +329,7 @@ var Registry = []Definition{
 	{
 		Key:            KeyTaskArmExperimentTreatmentPct,
 		Kind:           KindInt,
-		Description:    "Experiment (expires 2027-01-15): percent of eligible tasks whose router-decided turns are constrained to task_arm_experiment_treatment_cluster; the rest are the control arm and route as usual. A task is eligible when the agent's previous turn label names a step in task_arm_experiment_steps. 0-100; 0 (default) turns the experiment off.",
+		Description:    "Experiment (expires 2027-01-15): percent of eligible tasks whose router-decided turns are capped at task_arm_experiment_treatment_cluster; the rest are the control arm and route as usual. A task is eligible when the agent's previous turn label names a step in task_arm_experiment_steps. 0-100; 0 (default) turns the experiment off.",
 		OrgOverridable: true,
 	},
 	{
@@ -341,7 +341,7 @@ var Registry = []Definition{
 	{
 		Key:            KeyTaskArmExperimentTreatmentCluster,
 		Kind:           KindString,
-		Description:    "Experiment (expires 2027-01-15): policy cluster label the task-arm experiment's treatment arm is constrained to. Empty (default) turns the experiment off.",
+		Description:    "Experiment (expires 2027-01-15): highest policy cluster (low, medium, high or maximum) the task-arm experiment's treatment arm may be routed to; turns ordinary routing puts at or below it are untouched. Empty (default) turns the experiment off.",
 		OrgOverridable: true,
 	},
 	{

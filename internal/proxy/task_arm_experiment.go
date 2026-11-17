@@ -2,15 +2,15 @@ package proxy
 
 import (
 	"context"
-	"errors"
 	"net/http"
 
 	"github.com/google/uuid"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/taskarm"
 	"weave-os/router/internal/router/turntype"
@@ -19,24 +19,26 @@ import (
 )
 
 type taskArmTurn struct {
-	assignment    taskarm.Assignment
-	assigned      bool
-	cluster       string
-	unservable    bool
-	servedCluster string
+	assignment     taskarm.Assignment
+	assigned       bool
+	cluster        string
+	controlModel   string
+	controlCluster string
+	ceilingBinds   bool
+	capped         bool
 }
 
-func assignTaskArm(ctx context.Context, env *translate.RequestEnvelope, sessionKey [sessionpin.SessionKeyLen]byte, forceModel, forceCluster string) taskArmTurn {
+func assignTaskArm(ctx context.Context, env *translate.RequestEnvelope, installationID uuid.UUID, forceModel, forceCluster string) taskArmTurn {
 	treatmentPct := flags.IntOr(ctx, flags.KeyTaskArmExperimentTreatmentPct, 0)
 	cluster := flags.StringOr(ctx, flags.KeyTaskArmExperimentTreatmentCluster, "")
 	steps := taskarm.Steps(flags.StringOr(ctx, flags.KeyTaskArmExperimentSteps, ""))
-	if treatmentPct <= 0 || cluster == "" || len(steps) == 0 {
+	if treatmentPct <= 0 || escalation.Rank(escalation.Group(cluster)) < 0 || len(steps) == 0 {
 		return taskArmTurn{}
 	}
 	routerDecides := forceModel == "" && forceCluster == "" &&
 		router.IsHMMStrategy(router.StrategyFromContext(ctx)) &&
 		!callerModelPassthroughActive(ctx) && !planHasDedicatedServingPolicy(ctx) && !policyPinHonoured(ctx)
-	if !routerDecides || sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
+	if !routerDecides || installationID == uuid.Nil {
 		return taskArmTurn{}
 	}
 	_, messages := routingInputForRequest(ctx, env, "")
@@ -44,23 +46,9 @@ func assignTaskArm(ctx context.Context, env *translate.RequestEnvelope, sessionK
 	if !found {
 		return taskArmTurn{}
 	}
-	assignment, assigned := taskarm.Assign(sessionKey[:], label, steps, treatmentPct)
+	subject := taskarm.Subject{InstallationID: installationID.String(), UserID: auth.UserIDFrom(ctx)}
+	assignment, assigned := taskarm.Assign(subject, label, steps, treatmentPct)
 	return taskArmTurn{assignment: assignment, assigned: assigned, cluster: cluster}
-}
-
-func (turn taskArmTurn) treated() bool {
-	return turn.assigned && turn.assignment.Arm == taskarm.ArmTreatment && !turn.unservable
-}
-
-func (turn taskArmTurn) treatmentServed() bool {
-	return turn.treated() && turn.servedCluster == turn.cluster
-}
-
-func (turn taskArmTurn) forcedCluster(current string) string {
-	if turn.treated() {
-		return turn.cluster
-	}
-	return current
 }
 
 type turnRoute func(ctx context.Context, env *translate.RequestEnvelope, feats translate.RoutingFeatures, apiKeyID string, installationID uuid.UUID, subAgentHint string, reqHeaders http.Header, req router.Request) (turnLoopResult, error)
@@ -69,28 +57,38 @@ type taskArmRoute func(env *translate.RequestEnvelope, feats translate.RoutingFe
 
 func (turn *taskArmTurn) route(ctx context.Context, route turnRoute) taskArmRoute {
 	return func(env *translate.RequestEnvelope, feats translate.RoutingFeatures, apiKeyID string, installationID uuid.UUID, subAgentHint string, reqHeaders http.Header, req router.Request) (turnLoopResult, error) {
-		res, err := route(ctx, env, feats, apiKeyID, installationID, subAgentHint, reqHeaders, req)
-		if err == nil || !turn.treated() || !errors.Is(err, policy.ErrForcedClusterUnservable) {
-			turn.settle(res)
-			return res, err
+		control, err := route(ctx, env, feats, apiKeyID, installationID, subAgentHint, reqHeaders, req)
+		if err != nil || !turn.observeControl(control) {
+			return control, err
 		}
-		res.releaseCooldownProbes()
-		turn.unservable = true
-		req.ForceCluster = ""
-		observability.FromContext(ctx).Warn("Task-arm treatment cluster could not serve the turn; routing as control",
-			"cluster", turn.cluster, "task_key", turn.assignment.TaskKey)
-		res, err = route(ctx, env, feats, apiKeyID, installationID, subAgentHint, reqHeaders, req)
-		turn.settle(res)
-		return res, err
+		req.ForceCluster = turn.cluster
+		req.SkipSessionPin = true
+		capped, err := route(ctx, env, feats, apiKeyID, installationID, subAgentHint, reqHeaders, req)
+		if err != nil {
+			capped.releaseCooldownProbes()
+			observability.FromContext(ctx).Warn("Task-arm ceiling cluster could not serve the turn; serving the control decision",
+				"cluster", turn.cluster, "task_key", turn.assignment.TaskKey, "err", err)
+			return control, nil
+		}
+		control.releaseCooldownProbes()
+		capped.PrefixTrimmed, capped.PrefixBroken = control.PrefixTrimmed, control.PrefixBroken
+		turn.capped = true
+		return capped, nil
 	}
 }
 
-func (turn *taskArmTurn) settle(res turnLoopResult) {
-	if isUserForcedReason(res.Decision.Reason) {
-		*turn = taskArmTurn{}
-		return
+func (turn *taskArmTurn) observeControl(control turnLoopResult) bool {
+	if !turn.assigned {
+		return false
 	}
-	turn.servedCluster = servedPolicyGroup(res)
+	if isUserForcedReason(control.Decision.Reason) {
+		*turn = taskArmTurn{}
+		return false
+	}
+	turn.controlModel = control.Decision.Model
+	turn.controlCluster = servedPolicyGroup(control)
+	turn.ceilingBinds = escalation.Rank(escalation.Group(turn.controlCluster)) > escalation.Rank(escalation.Group(turn.cluster))
+	return turn.ceilingBinds && turn.assignment.Arm == taskarm.ArmTreatment
 }
 
 func policyPinHonoured(ctx context.Context) bool {
@@ -113,10 +111,13 @@ func applyTaskArmAttrs(b *telemetry.AttrBuilder, turn taskArmTurn) {
 		Float64("routing.task_arm_experiment_propensity", turn.assignment.Propensity).
 		String("routing.task_arm_experiment_task_key", turn.assignment.TaskKey).
 		String("routing.task_arm_experiment_step", turn.assignment.Step).
-		Bool("routing.task_arm_experiment_treatment_applied", turn.treatmentServed())
+		String("routing.task_arm_experiment_control_model", turn.controlModel).
+		String("routing.task_arm_experiment_control_cluster", turn.controlCluster).
+		Bool("routing.task_arm_experiment_ceiling_binds", turn.ceilingBinds).
+		Bool("routing.task_arm_experiment_treatment_applied", turn.capped)
 }
 
-func forceClusterForTurn(ctx context.Context, r *http.Request, env *translate.RequestEnvelope, feats translate.RoutingFeatures, sessionKey [sessionpin.SessionKeyLen]byte, forceModel string) (string, taskArmTurn, error) {
+func forceClusterForTurn(ctx context.Context, r *http.Request, env *translate.RequestEnvelope, feats translate.RoutingFeatures, installationID uuid.UUID, forceModel string) (string, taskArmTurn, error) {
 	forceCluster, err := applyForceClusterHeader(ctx, r)
 	if err != nil || handoffFromContext(ctx) != nil {
 		return forceCluster, taskArmTurn{}, err
@@ -126,11 +127,14 @@ func forceClusterForTurn(ctx context.Context, r *http.Request, env *translate.Re
 	if turnType != turntype.MainLoop && turnType != turntype.ToolResult {
 		return forceCluster, taskArmTurn{}, nil
 	}
-	turn := assignTaskArm(ctx, env, sessionKey, forceModel, forceCluster)
-	return turn.forcedCluster(forceCluster), turn, nil
+	return forceCluster, assignTaskArm(ctx, env, installationID, forceModel, forceCluster), nil
 }
 
 func applyExperimentAttrs(ctx context.Context, b *telemetry.AttrBuilder, routed *turnLoopResult, turn taskArmTurn, requestedModel, servedModel string) {
 	applyBlindExperimentOutcomeAttrs(ctx, b, routed, requestedModel, servedModel)
 	applyTaskArmAttrs(b, turn)
+}
+
+func routesWithoutSessionPin(store sessionpin.Store, req router.Request) bool {
+	return store == nil || req.SkipSessionPin
 }

@@ -2561,7 +2561,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if headerForceModel != "" {
 			forceModel = headerForceModel
 		}
-		forceCluster, taskArm, forceErr = forceClusterForTurn(ctx, r, env, feats, sessionKey, forceModel)
+		forceCluster, taskArm, forceErr = forceClusterForTurn(ctx, r, env, feats, installationID, forceModel)
 		if forceErr != nil {
 			return forceErr
 		}
@@ -4723,7 +4723,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if forceModel == "" {
 		forceModel = codexSelectedModel(ctx)
 	}
-	forceCluster, taskArm, forceErr := forceClusterForTurn(ctx, r, env, feats, sessionKey, forceModel)
+	forceCluster, taskArm, forceErr := forceClusterForTurn(ctx, r, env, feats, installationID, forceModel)
 	if forceErr != nil {
 		return forceErr
 	}

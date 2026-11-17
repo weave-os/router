@@ -30,6 +30,11 @@ type Label struct {
 	Step string
 }
 
+type Subject struct {
+	InstallationID string
+	UserID         string
+}
+
 type Assignment struct {
 	Arm        Arm
 	Propensity float64
@@ -108,16 +113,15 @@ func labelFields(text string) ([]string, bool) {
 	return nil, false
 }
 
-func Assign(sessionKey []byte, label Label, steps []string, treatmentPct int) (Assignment, bool) {
+func Assign(subject Subject, label Label, steps []string, treatmentPct int) (Assignment, bool) {
 	if treatmentPct <= 0 || treatmentPct > 100 || !slices.Contains(steps, label.Step) {
 		return Assignment{}, false
 	}
 	hash := sha256.New()
-	hash.Write(sessionKey)
-	hash.Write([]byte{0})
-	hash.Write([]byte(label.Goal))
-	hash.Write([]byte{0})
-	hash.Write([]byte(label.Task))
+	for _, part := range []string{subject.InstallationID, subject.UserID, label.Goal, label.Task} {
+		hash.Write([]byte(part))
+		hash.Write([]byte{0})
+	}
 	sum := hash.Sum(nil)
 	treatmentShare := float64(treatmentPct) / 100
 	assignment := Assignment{

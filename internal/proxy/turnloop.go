@@ -933,7 +933,7 @@ func (s *Service) runTurnLoop(
 		)
 	}
 
-	if s.pinStore == nil {
+	if routesWithoutSessionPin(s.pinStore, req) {
 		return s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
 	}
 
