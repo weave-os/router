@@ -39,6 +39,9 @@ type PolicyShadowDecision struct {
 }
 
 func (s *Service) firePolicyShadowForServingDecision(ctx context.Context, serving router.Decision, req router.Request) {
+	if randomBenchmarkFrom(ctx) != nil {
+		return
+	}
 	req = s.withPolicyRequestContext(ctx, req)
 	s.firePolicyShadowDecision(ctx, router.StrategyFromContext(ctx), serving, req)
 }

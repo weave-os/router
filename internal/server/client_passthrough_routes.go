@@ -32,6 +32,7 @@ func registerClientPassthroughRoutes(engine *gin.Engine, authSvc *auth.Service, 
 		middleware.WithAuth(authSvc, byokRequiresOptIn, servingAdmission),
 	)
 	passthroughGroup.Use(servingAdmissionMiddleware...)
+	registerRandomMetadata(passthroughGroup, proxySvc)
 	passthroughGroup.POST("/v1/messages/count_tokens", anthropicapi.PassthroughHandler(proxySvc))
 	passthroughGroup.GET("/v1/models", openaiapi.ModelsHandler(anthropicapi.PassthroughHandler(proxySvc), proxySvc.CodexModelCatalog))
 	passthroughGroup.GET("/v1/models/:model", anthropicapi.PassthroughHandler(proxySvc))

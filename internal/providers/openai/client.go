@@ -249,11 +249,10 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 			return err
 		}
 	}
-	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+path, bytes.NewReader(reqBody))
+	upstream, err := newInferenceRequest(ctx, baseURL+path, reqBody)
 	if err != nil {
 		return fmt.Errorf("build upstream request: %w", err)
 	}
-	upstream.Header.Set("Content-Type", "application/json")
 	c.setAuth(ctx, upstream, r)
 	for k, vs := range prep.Headers {
 		upstream.Header[http.CanonicalHeaderKey(k)] = vs

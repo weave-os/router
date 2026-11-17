@@ -39,7 +39,7 @@ func TestAddCodexRoutingModels_AdvertisesInternalVariantsWithoutDuplicates(t *te
 	const upstream = `{"models":[{"slug":"gpt-6-sol","context_window":272000},{"slug":"weave-auto","display_name":"existing"}],"etag":"catalog-v2"}`
 	merged, err := addCodexRoutingModels([]byte(upstream), true)
 	require.NoError(t, err)
-	require.Len(t, gjson.GetBytes(merged, "models").Array(), 6)
+	require.Len(t, gjson.GetBytes(merged, "models").Array(), 7)
 	require.Equal(t, "catalog-v2", gjson.GetBytes(merged, "etag").String())
 	require.Equal(t, "existing", gjson.GetBytes(merged, "models.1.display_name").String())
 	require.Equal(t, string(router.ModelHMM), gjson.GetBytes(merged, "models.2.slug").String())

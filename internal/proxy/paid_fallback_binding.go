@@ -5,6 +5,7 @@ import (
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptionlane"
 )
 
@@ -24,6 +25,9 @@ func stepPaidFallbackBinding(observations ...paidFallbackObservation) subscripti
 }
 
 func paidFallbackBinding(ctx context.Context) subscriptionlane.Binding {
+	if requestcontext.IncludedSubscriptionOnlyFrom(ctx) {
+		return subscriptionlane.SubscriptionAttempt
+	}
 	enterpriseSeat := claudeEnterpriseTurn(ctx)
 	return stepPaidFallbackBinding(
 		paidFallbackObservation{subscriptionStateModelsEnabled(ctx), subscriptionlane.IncludedLaneEntered},
@@ -36,6 +40,9 @@ func paidFallbackBinding(ctx context.Context) subscriptionlane.Binding {
 }
 
 func paidFallbackBindingForModel(ctx context.Context, model string) subscriptionlane.Binding {
+	if requestcontext.IncludedSubscriptionOnlyFrom(ctx) {
+		return subscriptionlane.SubscriptionAttempt
+	}
 	includedLane := subscriptionStateModelsEnabled(ctx)
 	_, exhaustedSetModel := modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx))[model]
 	return stepPaidFallbackBinding(

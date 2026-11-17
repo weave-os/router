@@ -10,13 +10,14 @@ var ErrStrategyUnavailable = errors.New("router: strategy unavailable")
 type Strategy string
 
 const (
-	StrategyRL            Strategy = "rl"
-	StrategyHMM           Strategy = "hmm"
-	StrategyHMMEmbedding  Strategy = "hmm_embedding"
-	StrategyHMMBeta       Strategy = "hmm_beta"
-	StrategyHMMQwen       Strategy = "hmm_qwen"
-	StrategyDecisionModel Strategy = "decision_model"
-	StrategyLLMClassifier Strategy = "llm_classifier"
+	StrategyRandomBenchmark Strategy = "random_benchmark"
+	StrategyRL              Strategy = "rl"
+	StrategyHMM             Strategy = "hmm"
+	StrategyHMMEmbedding    Strategy = "hmm_embedding"
+	StrategyHMMBeta         Strategy = "hmm_beta"
+	StrategyHMMQwen         Strategy = "hmm_qwen"
+	StrategyDecisionModel   Strategy = "decision_model"
+	StrategyLLMClassifier   Strategy = "llm_classifier"
 )
 
 func IsHMMStrategy(strategy Strategy) bool {
