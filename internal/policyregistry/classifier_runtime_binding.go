@@ -13,10 +13,8 @@ import (
 	"unicode"
 )
 
-// ClassifierRuntimeBindingSchema tags the wire format of a release's environment dispatch binding; DecodeClassifierRuntimeBinding rejects any other value.
 type ClassifierRuntimeBindingSchema string
 
-// ClassifierRuntimeBindingSchemaV1 is the only supported runtime binding schema.
 const ClassifierRuntimeBindingSchemaV1 ClassifierRuntimeBindingSchema = "router_classifier_runtime_binding_v1"
 
 const (
@@ -33,9 +31,6 @@ var (
 	imageDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 )
 
-// ClassifierRuntimeBinding pins one immutable classifier release to the tagged
-// worker revision that serves it in one environment. The release publisher owns
-// the object; the Router only reads it.
 type ClassifierRuntimeBinding struct {
 	SchemaVersion       ClassifierRuntimeBindingSchema `json:"schema_version"`
 	Environment         Environment                    `json:"environment"`
@@ -46,17 +41,14 @@ type ClassifierRuntimeBinding struct {
 	WorkerAudience      string                         `json:"worker_audience"`
 	ImageDigest         string                         `json:"image_digest"`
 	ConfigurationSHA256 string                         `json:"configuration_sha256"`
-	// Variants holds worker-private dispatch targets (e.g. Qwen); the Router never calls them.
-	Variants json.RawMessage `json:"variants,omitempty"`
+	Variants            json.RawMessage                `json:"variants,omitempty"`
 }
 
-// ResolvedClassifierRuntimeBinding is a runtime binding and the exact bytes it was read from.
 type ResolvedClassifierRuntimeBinding struct {
 	Ref     ObjectRef
 	Binding ClassifierRuntimeBinding
 }
 
-// ClassifierRuntimeBindingURI is the publisher-owned location of a release's binding in one environment.
 func ClassifierRuntimeBindingURI(root string, environment Environment, releaseSHA256 string) string {
 	return strings.TrimSuffix(root, "/") + "/" + classifierRuntimeBindingRelativeName(environment, releaseSHA256)
 }
@@ -65,8 +57,6 @@ func classifierRuntimeBindingRelativeName(environment Environment, releaseSHA256
 	return fmt.Sprintf("%s%s/classifier_releases/%s.json", classifierRuntimeBindingsNamespace, environment, releaseSHA256)
 }
 
-// DecodeClassifierRuntimeBinding strictly decodes a binding and requires it to
-// name the expected environment and release with canonical worker origins.
 func DecodeClassifierRuntimeBinding(payload []byte, environment Environment, releaseSHA256 string) (ClassifierRuntimeBinding, error) {
 	decoder := json.NewDecoder(bytes.NewReader(payload))
 	decoder.DisallowUnknownFields()
@@ -110,8 +100,6 @@ func (b ClassifierRuntimeBinding) validate(environment Environment, releaseSHA25
 	return nil
 }
 
-// canonicalClassifierWorkerOrigin accepts only the exact "https://<host>" form of
-// the environment's classifier worker service or one of its tagged revision hosts.
 func canonicalClassifierWorkerOrigin(raw string) bool {
 	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Port() != "" || parsed.Opaque != "" {
@@ -124,12 +112,8 @@ func canonicalClassifierWorkerOrigin(raw string) bool {
 	return host == classifierWorkerService+cloudRunHostSuffix || classifierWorkerHostPattern.MatchString(host)
 }
 
-// classifierWorkerHostPattern is "[<tag>---]router-classifier-worker-<hash>-<region>.a.run.app";
-// the hash segment excludes dashes so a longer service name cannot pass as the worker.
 var classifierWorkerHostPattern = regexp.MustCompile(`^(?:[a-z0-9]+(?:-[a-z0-9]+)*---)?` + regexp.QuoteMeta(classifierWorkerService) + `-[a-z0-9]+-[a-z]{2,4}` + regexp.QuoteMeta(cloudRunHostSuffix) + `$`)
 
-// ReadClassifierRuntimeBinding reads the current generation of a release's
-// environment binding and records the exact digest and generation it served.
 func (r *Registry) ReadClassifierRuntimeBinding(ctx context.Context, environment Environment, releaseSHA256 string) (ResolvedClassifierRuntimeBinding, error) {
 	if !validDigest(releaseSHA256) {
 		return ResolvedClassifierRuntimeBinding{}, errors.New("classifier runtime binding requires a release digest")

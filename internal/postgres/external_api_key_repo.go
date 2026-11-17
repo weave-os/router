@@ -14,13 +14,11 @@ import (
 	"github.com/google/uuid"
 )
 
-// ExternalAPIKeyRepo implements auth.ExternalAPIKeyRepository over SQLC.
 type ExternalAPIKeyRepo struct {
 	tx        sqlc.DBTX
 	encryptor auth.Encryptor
 }
 
-// NewExternalAPIKeyRepo constructs an ExternalAPIKeyRepo.
 func NewExternalAPIKeyRepo(tx sqlc.DBTX, encryptor auth.Encryptor) *ExternalAPIKeyRepo {
 	return &ExternalAPIKeyRepo{tx: tx, encryptor: encryptor}
 }
@@ -98,8 +96,6 @@ func (r *ExternalAPIKeyRepo) GetForInstallation(ctx context.Context, installatio
 		if err != nil {
 			return nil, err
 		}
-		// Workload-identity rows store no secret at all — the credential is
-		// minted per request — so there is nothing to decrypt.
 		if len(row.KeyCiphertext) > 0 {
 			plaintext, err := r.encryptor.Decrypt(row.KeyCiphertext, row.ExternalID, row.Provider)
 			if err != nil {
@@ -215,8 +211,6 @@ func (r *ExternalAPIKeyRepo) MarkUsed(ctx context.Context, id string) error {
 	return q.MarkExternalAPIKeyUsed(ctx, keyUUID)
 }
 
-// marshalModelAliases encodes the alias map for the jsonb column; a nil or
-// empty map stores SQL NULL so "no aliases" has one on-disk representation.
 func marshalModelAliases(aliases map[string]string) ([]byte, error) {
 	if len(aliases) == 0 {
 		return nil, nil

@@ -2,10 +2,6 @@ package translate
 
 import "github.com/tidwall/gjson"
 
-// FeedbackFooterInHistory reports whether any assistant message in the
-// request history already carries the rating hint, so the hint is shown at
-// most once per conversation. Must run on the original body before ingress
-// strips the hint.
 func FeedbackFooterInHistory(body []byte) bool {
 	if FeedbackFooterInResponsesHistory(body) {
 		return true
@@ -22,9 +18,6 @@ func FeedbackFooterInHistory(body []byte) bool {
 	return false
 }
 
-// FeedbackFooterInResponsesHistory is the Responses-input analogue of
-// FeedbackFooterInHistory. Must run on the original body before portable
-// conversion strips the hint.
 func FeedbackFooterInResponsesHistory(body []byte) bool {
 	input := gjson.GetBytes(body, "input")
 	if !input.IsArray() {

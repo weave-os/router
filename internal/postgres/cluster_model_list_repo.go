@@ -14,7 +14,6 @@ type clusterModelListRepo struct {
 	tx sqlc.DBTX
 }
 
-// NewClusterModelListRepo constructs a per-key per-cluster allowlist repo.
 func NewClusterModelListRepo(tx sqlc.DBTX) auth.ClusterModelListRepository {
 	return &clusterModelListRepo{tx: tx}
 }

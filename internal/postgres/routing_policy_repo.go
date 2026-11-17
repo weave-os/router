@@ -10,7 +10,6 @@ import (
 
 type routingPolicyRepo struct{ tx sqlc.DBTX }
 
-// NewRoutingPolicyRepo constructs read-only generic installation policy access.
 func NewRoutingPolicyRepo(tx sqlc.DBTX) auth.RoutingPolicyRepository {
 	return &routingPolicyRepo{tx: tx}
 }
