@@ -336,15 +336,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	chatCompletionWithoutPolicyPinGroup.POST("/v1/responses", openaiapi.ResponsesHandler(proxySvc, authSvc))
 	chatCompletionWithoutPolicyPinGroup.POST("/v1beta/models/:modelAction", geminiapi.GenerateContentHandler(proxySvc, authSvc))
 
-	passthroughGroup := engine.Group("",
-		middleware.WithTimeout(passthroughTimeout),
-		middleware.WithAuth(authSvc, byokRequiresOptIn, features.ServingAdmission),
-	)
-	passthroughGroup.Use(servingAdmissionMiddleware...)
-	passthroughGroup.POST("/v1/messages/count_tokens", anthropicapi.PassthroughHandler(proxySvc))
-	passthroughGroup.GET("/v1/models", openaiapi.ModelsHandler(anthropicapi.PassthroughHandler(proxySvc), proxySvc.CodexModelCatalog))
-	registerRandomMetadata(passthroughGroup, proxySvc)
-	registerModelDiscovery(passthroughGroup, proxySvc, authSvc)
+	registerClientPassthroughRoutes(engine, authSvc, proxySvc, byokRequiresOptIn, features.ServingAdmission, servingAdmissionMiddleware)
 
 	sessionCostGroup := engine.Group("",
 		middleware.WithTimeout(sessionCostTimeout),

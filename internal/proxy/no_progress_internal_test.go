@@ -586,3 +586,31 @@ func TestNoProgressTracker_SequentialFiringGuarantee(t *testing.T) {
 			"early firing suggests double-counting, late firing suggests fingerprint loss",
 		noProgressMatchThreshold, firedAt)
 }
+
+func TestHandleNoProgressBreak_ZeroSessionKeyWritesNoPin(t *testing.T) {
+	store := &overwritingPinStore{}
+	svc := &Service{pinStore: store}
+	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"retry"}]}`))
+	require.NoError(t, err)
+
+	err = svc.handleNoProgressBreak(
+		context.Background(), httptest.NewRecorder(), env, noProgressMatchThreshold, uuid.New(),
+		[sessionpin.SessionKeyLen]byte{}, "default_high", "claude-opus-4-8", "anthropic", 10,
+	)
+	require.NoError(t, err)
+	assert.False(t, store.found, "a zero-keyed pin row would be shared by every zero-keyed session")
+}
+
+func TestHandleNoProgressBreak_ExpiresNonZeroSessionPin(t *testing.T) {
+	store := &overwritingPinStore{}
+	svc := &Service{pinStore: store}
+	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"retry"}]}`))
+	require.NoError(t, err)
+
+	err = svc.handleNoProgressBreak(
+		context.Background(), httptest.NewRecorder(), env, noProgressMatchThreshold, uuid.New(),
+		sessionKeyFromString("stuck-session"), "default_high", "claude-opus-4-8", "anthropic", 10,
+	)
+	require.NoError(t, err)
+	assert.True(t, store.found)
+}

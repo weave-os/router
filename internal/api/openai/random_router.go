@@ -30,7 +30,7 @@ func RandomRouterIdentityHandler(svc *proxy.Service) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{
 			"model":                    router.ModelRandom,
 			"api_key_id":               keyID,
-			"capacity_account_id":      state.Lease.AccountID,
+			"capacity_account_id":      state.CapacityAccountID,
 			"policy_id":                randomrouter.PolicyID,
 			"policy_sha256":            config.PolicySHA256,
 			"config":                   config,

@@ -193,5 +193,5 @@ func TestCallerPlanRateLimitRefusalIsClientOwned(t *testing.T) {
 	recordManagedThrottle(pooled, "seat-1", now.Add(time.Minute))
 	managedRefusal := svc.authorizeSubscriptionAPI(pooled, subscriptions.ProviderCodex, "", "", clientAppRefusalFunding{})
 	requireThrottledRefusal(t, managedRefusal)
-	require.Equal(t, FailureOwnerRouter, turnFailureOwnerFor(pooled, fmt.Errorf("%w: %w", dispatch.ErrAuthorizationDenied, managedRefusal), TurnErrorOther), "a throttled managed pool is still the router's capacity")
+	require.Equal(t, FailureOwnerProvider, turnFailureOwnerFor(pooled, fmt.Errorf("%w: %w", dispatch.ErrAuthorizationDenied, managedRefusal), TurnErrorOther), "a managed pool throttled by the provider is the provider's rate limit")
 }

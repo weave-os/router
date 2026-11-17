@@ -13,8 +13,10 @@ This page is the exhaustive reference; the [README](../README.md) has the
   - [Anthropic workload identity federation](#anthropic-workload-identity-federation)
 - [Postgres](#postgres)
 - [Server](#server)
+- [Upstream transport and stream watchdogs](#upstream-transport-and-stream-watchdogs)
 - [Managed serving (`ROUTER_SERVING_*`)](#managed-serving-router_serving_)
 - [Routing](#routing)
+  - [Kill switches and staged behaviors](#kill-switches-and-staged-behaviors)
 - [Per-organization flag overrides](#per-organization-flag-overrides)
 - [Plan-aware subscription routing](#plan-aware-subscription-routing)
 - [Provider and model exclusions](#provider-and-model-exclusions)
@@ -583,6 +585,22 @@ Set `DATABASE_URL` directly, or compose it from the individual vars:
 - Login is throttled per immediate TCP peer, not `X-Forwarded-For`, so rotating that header cannot bypass the failure limit.
 - Router-key routes scope every lookup to the key's installation; an ID from another installation answers `404`, the same as an unknown ID.
 
+## Upstream transport and stream watchdogs
+
+Every value is whole seconds (or a count); an unset, unparsable or non-positive duration keeps the default.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `ROUTER_SSE_IDLE_TIMEOUT_SECONDS` | `45` | Fails over a stream that sends no bytes for this long. Keep it below the 350s idle reaper of AWS NAT gateways, NLBs and VPC endpoints, or a stall hangs until the request deadline. |
+| `ROUTER_RESPONSES_SSE_IDLE_TIMEOUT_SECONDS` | `90` | Byte-idle budget for OpenAI Responses streams, wider because a reasoning turn can go tens of seconds between frames. |
+| `ROUTER_OUTPUT_STALL_TIMEOUT_SECONDS` | `240` | Fails over a Chat Completions stream that stays byte-alive (keepalive comments, empty or role-only deltas) without producing output or reasoning. |
+| `ROUTER_RESPONSES_OUTPUT_STALL_TIMEOUT_SECONDS` | `240` | The same output-stall budget for Responses streams; keepalives, status events and empty reasoning frames do not reset it. |
+| `ROUTER_MIN_THROUGHPUT_DELTAS_PER_WINDOW` | `8` | Fails over a stream producing fewer output deltas than this per window after warmup. `0` or a negative value disables the throughput watchdog. |
+| `ROUTER_THROUGHPUT_WINDOW_SECONDS` | `20` | Rolling window for the throughput floor; long enough to absorb brief mid-stream pauses. |
+| `ROUTER_THROUGHPUT_MIN_ELAPSED_SECONDS` | `90` | Warmup during which the throughput watchdog never fires, covering prefill and initial reasoning. |
+| `ROUTER_H2_READ_IDLE_TIMEOUT_SECONDS` | `15` | Idle time before a pooled HTTP/2 connection is pinged, so a connection an upstream load balancer reaped is detected. |
+| `ROUTER_H2_PING_TIMEOUT_SECONDS` | `5` | Time to wait for a PING ACK before closing the connection. Read-idle plus ping may use at most two thirds of the transport's time-to-first-byte guard (30s by default); a larger pair is scaled down proportionally. |
+
 ## Managed serving (`ROUTER_SERVING_*`)
 
 These variables apply to managed workers that admit and serve requests directly.
@@ -673,6 +691,53 @@ If the routing policy can't decide (sidecar unavailable, invalid decision,
 etc.), the router returns HTTP 503 — it does *not* silently fall back to a
 default model. Failures are loud by design.
 
+`ROUTER_POLICY_DEADLINE_FALLBACK` below is the one opt-in exception: it turns a
+policy sidecar deadline or transport failure into the session pin (or
+`ROUTER_POLICY_DEADLINE_DEFAULT_MODEL`) instead of a 503.
+
+### Kill switches and staged behaviors
+
+Each switch is read once at boot; an unset switch takes its listed default.
+When set, a boolean switch is on only for the literal `true` (any other value is
+off), except `ROUTER_SUBSCRIBER_ALLOWANCE_ENABLED`, which accepts `true` in any
+letter case. Integer switches marked *0 allowed* treat `0` as
+a real "off" value; elsewhere a non-positive or unparseable value logs a warning
+and keeps the default.
+
+| Variable | Default | Purpose |
+| -------- | ------- | ------- |
+| `ROUTER_FLAG_OVERRIDES_DISABLED` | `false` | Ignores every per-organization flag override so an incident rollback via env var always wins. |
+| `ROUTER_PLANNER_ENABLED` | `true` | Cache-aware planner that decides whether a mid-session model switch pays for its cache-write cost. |
+| `ROUTER_SWITCH_EV_THRESHOLD_USD` | `proxy.DefaultPlannerThresholdUSD` | Minimum expected saving for a planner switch. Zero and negative values are valid and force aggressive switching. |
+| `ROUTER_CYBER_REFUSAL_REPIN` | `true` | On a safety refusal, re-pins the session off the refusing model and re-serves the refused turn on a fallback model. |
+| `ROUTER_SIBLING_FAILOVER` | `true` | Degrades to a same-cluster candidate when every binding of the routed model is exhausted by a transient upstream fault. |
+| `ROUTER_COMMITTED_STREAM_ARM_DEMOTION` | `false` | Session-level demotion of an arm whose stream died after commit. |
+| `ROUTER_RESCUED_FAILURE_ARM_DEMOTION` | `false` | Session-level demotion of the primary arm after a response-header timeout or another pre-commit failure that a sibling rescued. |
+| `ROUTER_TRANSIENT_RATE_LIMIT` | `false` | Treats upstream 429s as transient throttling: cooldown demotion, fail-open rescue and `Retry-After`-aware same-binding retry. |
+| `ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS` | `true` | Records the stop reason and `tool_use` block count of Anthropic-native turns into telemetry. |
+| `ROUTER_NATIVE_OPENAI_RESPONSE_SIGNALS` | `true` | The same extraction for the OpenAI-native chat/completions and `/v1/responses` passthrough surfaces. |
+| `ROUTER_BAND_SWAP` | `false` | Per-turn large-vs-small action-classifier swap; enabling loads the compiled-in head. |
+| `ROUTER_LOOP_ESCALATION_ENABLED` | `true` | Cyclic-loop escalation action. Off detaches the action but keeps detection telemetry. |
+| `ROUTER_LOOP_ESCALATION_HOLDOUT_PCT` | `10` (0-100), 0 allowed | Percentage of detected loops that are recorded but not escalated, giving a self-recovery baseline for rescue-rate claims. |
+| `ROUTER_SPIRAL_SHADOW_ENABLED` | `true` | Log-only spiral detector; the switch sheds its per-turn signal scan. |
+| `ROUTER_STRUGGLE_SHADOW_ENABLED` | `true` | Log-only session struggle detector; the switch sheds its per-turn check. |
+| `ROUTER_TURN_SIGNAL_CAPTURE_ENABLED` | `true` | Per-turn signal snapshot on telemetry rows. Always skipped for opted-out installations. |
+| `ROUTER_TEXT_REPETITION_BREAK_ENABLED` | `true` | Enforcing text-repetition break; turn off if it false-positives on legitimately repeated narration. |
+| `ROUTER_AUTHORITATIVE_DOWNGRADE_GATE` | `false` | Confidence floor for authoritative-per-turn picks that are cheaper than the pin (mirror of the upgrade gate). |
+| `ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS` | `proxy.DefaultHMMDowngradeHysteresisTurns`, 0 allowed | Consecutive cheaper-than-pin authoritative votes required before a downgrade is served; `0` switches on the first vote. |
+| `ROUTER_HMM_DOWNGRADE_HYSTERESIS_SHADOW_TURNS` | `2`, 0 allowed | Threshold every served authoritative downgrade is shadow-scored against; telemetry only, `0` silences it. |
+| `ROUTER_AUTHORITY_CACHE_SHADOW` | `true` | Records the HMM cache gate's counterfactual verdict on authoritative-per-turn turns, which return before that gate runs. |
+| `ROUTER_POLICY_DEADLINE_FALLBACK` | `false` | Serves the session pin, or `ROUTER_POLICY_DEADLINE_DEFAULT_MODEL`, when a policy sidecar misses its deadline or fails in transport. |
+| `ROUTER_POLICY_DEADLINE_DEFAULT_MODEL` | *(none)* | Static fallback for a deadline miss with no pin; empty keeps the 503. |
+| `ROUTER_SUBSCRIBER_ALLOWANCE_ENABLED` | `false` | Enforces and meters individual Max/Boost allowances. Only meaningful with billing wired. |
+| `ROUTER_OPENROUTER_PLATFORM_ENABLED` | `false` | Lets a `managed` deployment use its own OpenRouter key as a platform source. `selfhosted` always reads `OPENROUTER_API_KEY`; BYOK OpenRouter keys dispatch either way. |
+| `ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS` | `15`, 0 allowed | Interval between SSE keepalive comments; `0` disables them. Keep it well below the load balancer's idle reaper. |
+| `ROUTER_FEEDBACK_LINK_SECRET` | *(none)* | Signs feedback links. Feedback links are emitted only when this and `ROUTER_FEEDBACK_BASE_URL` are both set. |
+| `ROUTER_FEEDBACK_LINK_TTL_SEC` | `2592000` (30 days), 0 allowed | Feedback-link lifetime; `0` means links never expire. |
+| `ROUTER_DEFAULT_BASELINE_MODEL` | `claude-sonnet-4-5` | Cost-comparison baseline when the requested model has no price. Set to an empty string to disable substitution (unset and empty differ). |
+| `PUBSUB_SUBSCRIPTION_ROUTER_INVALIDATION` | *(required)* | Subscription-name prefix. Each replica creates `<prefix>-<uuid>` so every replica receives every cache invalidation; a shared subscription would load-balance and break the broadcast. The 5-minute auth cache TTL bounds staleness if the listener falls behind. |
+| `PUBSUB_TOPIC_ROUTER_AUTOPAY` | *(none)* | When set with billing wired, the debit hook publishes a signal once an organization's balance crosses its recharge threshold. Unset leaves autopay disabled. |
+
 ### Authoritative upgrade evidence policy
 
 For the independent observation-only agreement experiment, see
@@ -732,6 +797,9 @@ override, then organization override, then deployment default.
 - `flags.RegistryVersion` changes whenever registry membership changes. Publish
   uses it so a revision with an older registry cannot prune definitions
   published by a newer one.
+- `ROUTER_FLAG_OVERRIDES_DISABLED=true` suppresses every organization override
+  deployment-wide, so an incident rollback through a deployment default cannot
+  be defeated by a stored per-organization row.
 - `hmm_tool_result_hold` is an eval control owned by router policy: promote or
   remove it after the escalation benchmark comparison.
 - Routing code reads a flag through the `Resolve*` helpers in

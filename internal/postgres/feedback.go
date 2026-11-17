@@ -12,21 +12,16 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// FeedbackRepo implements proxy.FeedbackRepository via SQLC. It owns
-// router.request_feedback and reads routing context from
-// router.model_router_request_telemetry to render the feedback page.
 type FeedbackRepo struct {
 	tx sqlc.DBTX
 }
 
-// NewFeedbackRepo constructs a FeedbackRepo backed by the given connection.
 func NewFeedbackRepo(tx sqlc.DBTX) *FeedbackRepo {
 	return &FeedbackRepo{tx: tx}
 }
 
 var _ proxy.FeedbackRepository = (*FeedbackRepo)(nil)
 
-// Upsert writes (or revises) one request's feedback row.
 func (r *FeedbackRepo) Upsert(ctx context.Context, p proxy.UpsertFeedbackParams) error {
 	installationID, err := uuid.Parse(p.InstallationID)
 	if err != nil {
@@ -48,11 +43,6 @@ func (r *FeedbackRepo) Upsert(ctx context.Context, p proxy.UpsertFeedbackParams)
 	})
 }
 
-// GetContext returns the routing context plus any existing feedback for a
-// request. Both reads are best-effort: an absent telemetry row (telemetry
-// disabled/pruned, or still in flight via async fireTelemetry) and an absent
-// feedback row are not errors, so a saved rating is still returned even when
-// the routing context is missing, and vice versa.
 func (r *FeedbackRepo) GetContext(ctx context.Context, installationID, requestID string) (proxy.FeedbackContext, error) {
 	id, err := uuid.Parse(installationID)
 	if err != nil {
@@ -62,8 +52,6 @@ func (r *FeedbackRepo) GetContext(ctx context.Context, installationID, requestID
 
 	out := proxy.FeedbackContext{RequestID: requestID}
 
-	// Routing context is best-effort: its absence must not hide a saved rating,
-	// so ErrNoRows here is not fatal — we just leave the context fields empty.
 	tele, err := q.GetRequestForFeedback(ctx, sqlc.GetRequestForFeedbackParams{
 		InstallationID: id,
 		RequestID:      requestID,

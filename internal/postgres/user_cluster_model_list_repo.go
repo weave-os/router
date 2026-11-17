@@ -14,7 +14,6 @@ type userClusterModelListRepo struct {
 	tx sqlc.DBTX
 }
 
-// NewUserClusterModelListRepo constructs a per-user per-cluster selection repo.
 func NewUserClusterModelListRepo(tx sqlc.DBTX) auth.UserClusterModelListRepository {
 	return &userClusterModelListRepo{tx: tx}
 }

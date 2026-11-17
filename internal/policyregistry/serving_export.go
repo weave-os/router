@@ -9,7 +9,6 @@ import (
 	"weave-os/router/internal/router/hmm/rosterdata"
 )
 
-// ServingExport is what a directory export of a managed serving target pins.
 type ServingExport struct {
 	Head         LaneHead  `json:"head"`
 	ActivationID string    `json:"activation_id"`
@@ -18,21 +17,15 @@ type ServingExport struct {
 	Package      ObjectRef `json:"package"`
 }
 
-// ServingExportStore reads the serving objects an export resolves plus exact policy bytes.
 type ServingExportStore interface {
 	ServingStore
 	ReadPolicyPayload(context.Context, ObjectRef) ([]byte, error)
 }
 
-// ReadPolicyPayload returns the exact promoted bytes of a selection policy.
 func (r *Registry) ReadPolicyPayload(ctx context.Context, ref ObjectRef) ([]byte, error) {
 	return r.readExact(ctx, ref, policyObjectPrefix)
 }
 
-// ExportServingTarget writes the default lane of a managed target's active selection set into
-// the directory layout DirectoryRegistry serves. Managed candidates have no v1 release object,
-// so the export synthesizes one from the candidate's classifier identity and the lane's effective
-// policy; the policy object keeps its exact promoted bytes. Profile rosters are not exported.
 func ExportServingTarget(ctx context.Context, store ServingExportStore, target ServingTarget, dir, classifierImageDigest string) (ServingExport, error) {
 	environment, err := target.Environment()
 	if err != nil {

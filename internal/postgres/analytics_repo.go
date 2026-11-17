@@ -12,19 +12,16 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// AnalyticsRepo implements analytics.Repository via SQLC.
 type AnalyticsRepo struct {
 	tx sqlc.DBTX
 }
 
-// NewAnalyticsRepo constructs an AnalyticsRepo backed by the given connection.
 func NewAnalyticsRepo(tx sqlc.DBTX) *AnalyticsRepo {
 	return &AnalyticsRepo{tx: tx}
 }
 
 var _ analytics.Repository = (*AnalyticsRepo)(nil)
 
-// GetRoutingDecisions returns one keyset page of exported routing decisions.
 func (r *AnalyticsRepo) GetRoutingDecisions(ctx context.Context, q analytics.Query) ([]analytics.Decision, error) {
 	installationID, err := uuid.Parse(q.InstallationID)
 	if err != nil {
@@ -211,7 +208,6 @@ func int32PtrToInt64(v *int32) *int64 {
 	return &out
 }
 
-// servedCostUSD returns $0 for subscription-served turns (quota already paid) and the catalog rate otherwise.
 func servedCostUSD(micros *int64, subscriptionServed bool) *float64 {
 	if micros == nil {
 		return nil
@@ -231,8 +227,6 @@ func microsPtrToUSD(micros *int64) *float64 {
 	return &out
 }
 
-// uuidStringPtr returns nil for a NULL uuid so the export emits null rather
-// than the all-zeroes uuid.
 func uuidStringPtr(u pgtype.UUID) *string {
 	if !u.Valid {
 		return nil

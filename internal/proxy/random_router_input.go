@@ -40,3 +40,10 @@ func detectCyclicToolCallLoopForRequest(ctx context.Context, env *translate.Requ
 	}
 	return detectCyclicToolCallLoop(env)
 }
+
+func rejectRandomUnsupportedSurface(headers http.Header, body []byte) error {
+	if headers.Get(randomrouter.PolicyHeader) != "" || gjson.GetBytes(body, "model").String() == string(router.ModelRandom) {
+		return randomrouter.ErrUnavailable
+	}
+	return nil
+}

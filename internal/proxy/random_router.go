@@ -90,8 +90,7 @@ func PrepareRandomBenchmark(s *Service, ctx context.Context) (context.Context, f
 		return ctx, func() {}, err
 	}
 	execution := randomrouter.RequestFrom(ctx)
-	execution.Lease = subscriptions.Lease{AccountID: lease.AccountID, OwnerID: lease.OwnerID, Tier: lease.Tier, AccessToken: lease.AccessToken, ProviderAccount: lease.ProviderAccount, State: lease.State, CooldownUntil: lease.CooldownUntil}
-	execution.Credentials = CredentialsFromContext(credentialCtx)
+	execution.CapacityAccountID = lease.AccountID
 	execution.Prepared = true
 	lease.Release()
 	return ctx, func() {}, nil
@@ -114,7 +113,7 @@ func routeRandomBenchmark(ctx context.Context, request router.Request) (router.D
 		return router.Decision{}, randomrouter.ErrUnavailable
 	}
 	profile.SelectedModel = decision.Model
-	observability.FromContext(ctx).Info("Strict random benchmark selected", "model", decision.Model, "policy_sha256", profile.Config.PolicySHA256, "propensity", decision.Metadata.Propensity, "candidate_count", len(models), "subscription_account_id", profile.Lease.AccountID)
+	observability.FromContext(ctx).Info("Strict random benchmark selected", "model", decision.Model, "policy_sha256", profile.Config.PolicySHA256, "propensity", decision.Metadata.Propensity, "candidate_count", len(models), "subscription_account_id", profile.CapacityAccountID)
 	return decision, nil
 }
 

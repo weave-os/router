@@ -47,8 +47,6 @@ func TestRandomResponsesDrawForMainToolAndSubagent(t *testing.T) {
 		ctx = WithManagedSubscriptionUsage(ctx)
 		state := randomrouter.RequestFrom(ctx)
 		state.Prepared = true
-		state.Lease = subscriptions.Lease{AccountID: "00000000-0000-4000-8000-000000000003", State: auth.SubscriptionAccountStateActive}
-		state.Credentials = &Credentials{OAuth: true, Source: credSourceCodexSubscription, APIKey: []byte("synthetic"), AccountID: []byte("synthetic-account")}
 		request := httptest.NewRequestWithContext(ctx, http.MethodPost, randomrouter.ResponsesPath, strings.NewReader(string(body)))
 		request.Header.Set("Session-Id", "same-session")
 		response := httptest.NewRecorder()

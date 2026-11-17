@@ -11,7 +11,6 @@ import (
 	"weave-os/router/internal/subscriptions/entitlement"
 )
 
-// TestPlan selects request behavior without granting a subscriber entitlement.
 type TestPlan string
 
 const (
@@ -23,10 +22,8 @@ const (
 	TestPlanLaunchLifetime          = time.Hour
 )
 
-// ErrTestLaunchNotFound indicates a revoke request named no launch.
 var ErrTestLaunchNotFound = errors.New("internal test launch not found")
 
-// Profile resolves the server-owned serving profile for a test selector.
 func (p TestPlan) Profile() (entitlement.ServingProfile, error) {
 	switch p {
 	case TestPlanStable:
@@ -40,7 +37,6 @@ func (p TestPlan) Profile() (entitlement.ServingProfile, error) {
 	return entitlement.ServingProfile{}, errors.New("unsupported internal test plan")
 }
 
-// TestPlanIdentity names an eligible personal subject and its isolated prepaid budget.
 type TestPlanIdentity struct {
 	SubjectID            string `json:"subject_id"`
 	InstallationID       string `json:"installation_id"`
@@ -49,7 +45,6 @@ type TestPlanIdentity struct {
 	EnrollmentGeneration int64  `json:"enrollment_generation"`
 }
 
-// TestPlanPreview binds cost confirmation to an exact production serving selection.
 type TestPlanPreview struct {
 	Identity       TestPlanIdentity      `json:"identity"`
 	Plan           TestPlan              `json:"plan"`
@@ -57,7 +52,6 @@ type TestPlanPreview struct {
 	PolicyRevision string                `json:"policy_revision"`
 }
 
-// TestPlanLaunch retains one preview with an immutable expiration.
 type TestPlanLaunch struct {
 	ID        string          `json:"id"`
 	Preview   TestPlanPreview `json:"preview"`
@@ -65,13 +59,11 @@ type TestPlanLaunch struct {
 	ExpiresAt time.Time       `json:"expires_at"`
 }
 
-// TestPlanConfiguration carries the bearer grant only to the session launcher.
 type TestPlanConfiguration struct {
 	Launch TestPlanLaunch `json:"launch"`
 	Grant  string         `json:"grant"`
 }
 
-// TestPlanScope is carried only inside a versioned, gateway-signed assertion.
 type TestPlanScope struct {
 	Plan           TestPlan  `json:"plan"`
 	SubjectID      string    `json:"subject_id"`
@@ -81,7 +73,6 @@ type TestPlanScope struct {
 	ExpiresAt      time.Time `json:"expires_at"`
 }
 
-// TestPlanRepository owns primary eligibility and expiring, single-session grants.
 type TestPlanRepository interface {
 	ListTestIdentities(context.Context) ([]TestPlanIdentity, error)
 	GetTestIdentity(context.Context, string) (TestPlanIdentity, error)
@@ -90,14 +81,12 @@ type TestPlanRepository interface {
 	RevokeTestLaunch(context.Context, string) error
 }
 
-// TestPlanTools prepares and admits production tests independently of subscriber state.
 type TestPlanTools struct {
 	Repository TestPlanRepository
 	Store      ServingStore
 	Clock      func() time.Time
 }
 
-// Preview resolves prod/stable after checking current internal identity and funding.
 func (s *TestPlanTools) Preview(ctx context.Context, subjectID string, plan TestPlan) (TestPlanPreview, error) {
 	identity, err := s.Repository.GetTestIdentity(ctx, subjectID)
 	if err != nil {
@@ -107,7 +96,6 @@ func (s *TestPlanTools) Preview(ctx context.Context, subjectID string, plan Test
 	if err != nil {
 		return TestPlanPreview{}, err
 	}
-	// Test selection never projects a subscriber entitlement or internal lane.
 	admission, err := (ServingAdmission{Store: s.Store}).Decide(ctx, SerializedAdmission{
 		Projection: AdmissionProjection{Target: TargetStable, ProfileKey: profile.Key, EnrollmentGeneration: identity.EnrollmentGeneration},
 		Clock:      func(context.Context) (time.Time, error) { return s.Clock().UTC(), nil },
@@ -122,7 +110,6 @@ func (s *TestPlanTools) Preview(ctx context.Context, subjectID string, plan Test
 	return TestPlanPreview{Identity: identity, Plan: plan, Admission: admission, PolicyRevision: prepared.PolicyReference.SHA256}, nil
 }
 
-// Prepare rechecks the confirmed selection and stores only the grant digest.
 func (s *TestPlanTools) Prepare(ctx context.Context, expected TestPlanPreview, confirmed bool) (TestPlanConfiguration, error) {
 	if !confirmed {
 		return TestPlanConfiguration{}, errors.New("live inference budget confirmation is required")
@@ -155,7 +142,6 @@ func sameTestSelection(expected, actual TestPlanPreview) bool {
 		expected.Admission.ProfileKey == actual.Admission.ProfileKey && sameSelection(expected.Admission.Selection, actual.Admission.Selection) && expected.PolicyRevision == actual.PolicyRevision
 }
 
-// Admit verifies the grant and exact retained selection for every request.
 func (s *TestPlanTools) Admit(ctx context.Context, token, installationID, keyID, sessionID string) (ServingAssertion, error) {
 	if len(token) != 43 {
 		return ServingAssertion{}, errors.New("invalid test launch grant")

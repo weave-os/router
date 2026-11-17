@@ -15,8 +15,6 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// responseCostBuffer holds non-streaming response bytes until usage has been
-// extracted and cost headers can be written before the body reaches the client.
 type responseCostBuffer struct {
 	inner       http.ResponseWriter
 	body        bytes.Buffer
@@ -48,8 +46,6 @@ func (b *responseCostBuffer) Write(p []byte) (int, error) {
 	return b.body.Write(p)
 }
 
-// FlushToClient commits the buffered status and body after cost headers have
-// been populated. It is safe to call more than once.
 func (b *responseCostBuffer) FlushToClient() error {
 	if b.flushed || !b.wrote {
 		return nil
@@ -75,8 +71,6 @@ type routerResponseCost struct {
 
 type routerCostCalculator func(inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens int, speed catalog.Speed, mods catalog.UsageModifiers) routerResponseCost
 
-// routerCostCalculatorFor binds the attempt's rate; a reported fast speed
-// reprices at the fast rate even when the router did not dispatch fast.
 func routerCostCalculatorFor(model, provider string, fast bool) routerCostCalculator {
 	pricing, ok := servedPricing(provider, model, fast)
 	if !ok {
@@ -103,8 +97,6 @@ func routerResponseCostFromPricing(pricing catalog.Pricing, provider string, inp
 	}
 }
 
-// roundUSD trims binary float noise so "0.0000495" is not rendered as
-// "0.000049500000000000004"; ten decimals keeps sub-micro-dollar precision.
 func roundUSD(v float64) float64 {
 	return math.Round(v*1e10) / 1e10
 }
@@ -117,23 +109,15 @@ func setRouterCostHeaders(h http.Header, cost routerResponseCost) {
 	h.Set(HeaderRouterCacheCreationTokens, strconv.Itoa(cost.CacheCreationTokens))
 }
 
-// streamCostWriter adds the final turn's authoritative cost to the Anthropic
-// message_delta usage object while preserving all other SSE events verbatim.
 type streamCostWriter struct {
-	inner   http.ResponseWriter
-	pending bytes.Buffer
-	// framing resumes the delimiter search across writes. A found event
-	// rewinds it, so when the forward write fails before pending consumes the
-	// event, the next write presents that same event again.
+	inner              http.ResponseWriter
+	pending            bytes.Buffer
 	framing            sse.Scanner
 	calculate          routerCostCalculator
 	inputIncludesCache bool
 	facts              usage.Facts
 	source             func() usage.Facts
-	// requestCacheTTL1h prices unsplit cache writes at the 1-hour rate when
-	// every breakpoint of the dispatched request asked for it; nil when the
-	// attempt is not an Anthropic-spec request.
-	requestCacheTTL1h func() bool
+	requestCacheTTL1h  func() bool
 }
 
 func newStreamCostWriter(inner http.ResponseWriter) *streamCostWriter {
@@ -161,9 +145,6 @@ func (w *streamCostWriter) SetCostCalculator(calculator routerCostCalculator, in
 }
 
 func (w *streamCostWriter) Write(p []byte) (int, error) {
-	// Error fallback rendering writes a plain JSON envelope rather than an SSE
-	// event. Pass it through immediately instead of retaining it indefinitely
-	// while waiting for an SSE boundary that will never arrive.
 	if w.pending.Len() == 0 {
 		trimmed := bytes.TrimSpace(p)
 		if len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[') {
@@ -223,9 +204,6 @@ func (w *streamCostWriter) annotateEvent(event []byte) []byte {
 	if err != nil {
 		return event
 	}
-	// Replace only the data payload, preserving event fields and line endings
-	// supplied by the upstream. This keeps the annotation transparent to SSE
-	// clients that rely on optional fields such as id/retry.
 	dataField := bytes.Index(event, []byte("data:"))
 	if dataField < 0 {
 		return event

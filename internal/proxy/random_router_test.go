@@ -118,8 +118,6 @@ func TestRandomResponsesNeverRepairOrRescue(t *testing.T) {
 			ctx = WithManagedSubscriptionUsage(ctx)
 			state := randomrouter.RequestFrom(ctx)
 			state.Prepared = true
-			state.Lease = subscriptions.Lease{AccountID: "00000000-0000-4000-8000-000000000003", State: auth.SubscriptionAccountStateActive}
-			state.Credentials = &Credentials{OAuth: true, Source: credSourceCodexSubscription, APIKey: []byte("synthetic"), AccountID: []byte("synthetic-account")}
 			body := []byte(`{"model":"weave-random","stream":true,"input":[{"role":"user","content":"synthetic benchmark turn"}]}`)
 			req := httptest.NewRequestWithContext(ctx, http.MethodPost, randomrouter.ResponsesPath, bytes.NewReader(body))
 			req.Header.Set("Session-Id", "synthetic-session")
@@ -152,9 +150,9 @@ func TestRandomPolicyUnavailableRefusesClientRetry(t *testing.T) {
 	require.False(t, classification.RetryAfter)
 }
 
-func TestRandomUndispatchedFailureRetainsFundingIdentity(t *testing.T) {
+func TestRandomUndispatchedFailureHasNoServedSeat(t *testing.T) {
 	config := randomTestConfig()
-	state := &randomrouter.RequestState{Config: config, Prepared: true, Lease: subscriptions.Lease{AccountID: "00000000-0000-4000-8000-000000000003"}, Credentials: &Credentials{Source: credSourceCodexSubscription}}
+	state := &randomrouter.RequestState{Config: config, Prepared: true}
 	ctx := randomrouter.WithRequest(randomTestContext(config), state)
 	telemetry := InsertTelemetryParams{}
 	applySubscriberTelemetry(ctx, &telemetry)
@@ -223,5 +221,13 @@ func TestRandomActualAttemptsRecordIndependentFundingAndUsage(t *testing.T) {
 		require.True(t, row.Event.Usage.Known)
 		require.Equal(t, 10, row.Event.Usage.InputTokens)
 		require.Equal(t, 2, row.Event.Usage.OutputTokens)
+	}
+}
+
+func TestRandomRejectsImageUtilityBeforeCredentialsOrInference(t *testing.T) {
+	for _, body := range [][]byte{[]byte(`{"model":"weave-random","prompt":"synthetic"}`), []byte(`{"model":"gpt-image-2","prompt":"synthetic"}`)} {
+		headers := http.Header{randomrouter.PolicyHeader: []string{randomrouter.PolicySHA256}}
+		err := (CodexImages{}).ForwardWithCallerCredential(context.Background(), headers, CodexImageGenerations, body, httptest.NewRecorder())
+		require.ErrorIs(t, err, randomrouter.ErrUnavailable)
 	}
 }
