@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"weave-os/router/internal/billing"
@@ -19,7 +20,17 @@ func attributeCodexLoginRejection(err error) error {
 		return err
 	}
 	rejection := &providers.UpstreamErrorResponse{Status: http.StatusUnauthorized, Body: codexLoginRejectedBody}
-	return attributedError{err: rejection, message: codexLoginRejectedMessage}
+	return attributedError{err: ownLoginRejection{err: rejection}, message: codexLoginRejectedMessage}
+}
+
+type ownLoginRejection struct{ err error }
+
+func (e ownLoginRejection) Error() string { return e.err.Error() }
+func (e ownLoginRejection) Unwrap() error { return e.err }
+
+func isOwnLoginRejection(err error) bool {
+	var rejection ownLoginRejection
+	return errors.As(err, &rejection)
 }
 
 func ownCodexLoginRejected(ctx context.Context, headers http.Header, observer *usage.Observer) bool {

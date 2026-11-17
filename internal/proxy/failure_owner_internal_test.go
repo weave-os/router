@@ -118,6 +118,7 @@ func TestClassifyFailureOwner_Cases(t *testing.T) {
 		{"stalled stream", failureOwnerInput{Err: fmt.Errorf("read: %w", providers.ErrUpstreamOutputStall)}, FailureOwnerProvider},
 		{"client canceled", failureOwnerInput{Err: fmt.Errorf("proxy: %w", context.Canceled)}, FailureOwnerClient},
 		{"weave key 401", failureOwnerInput{Err: &providers.UpstreamErrorResponse{Status: http.StatusUnauthorized}}, FailureOwnerRouter},
+		{"own Codex login rejected", failureOwnerInput{Err: attributeCodexLoginRejection(&providers.UpstreamErrorResponse{Status: http.StatusUnauthorized})}, FailureOwnerClient},
 		{"byok 401", failureOwnerInput{Err: &providers.UpstreamErrorResponse{Status: http.StatusUnauthorized}, CustomerCredential: true}, FailureOwnerClient},
 		{"upstream 404", failureOwnerInput{Err: &providers.UpstreamErrorResponse{Status: http.StatusNotFound}}, FailureOwnerRouter},
 		{"status argument wins over chain", failureOwnerInput{Err: errors.New("boom"), Status: http.StatusServiceUnavailable}, FailureOwnerProvider},
