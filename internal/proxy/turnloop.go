@@ -1913,9 +1913,7 @@ func (s *Service) hmmCostGatedDecision(
 	if !ok {
 		return fresh, planner.Decision{Outcome: planner.OutcomeSwitch, Reason: planner.ReasonNoPin}, false, ""
 	}
-	if hmmToolExecutionPhaseChanged(stayPin.Reason, fresh.Reason) {
-		return fresh, planner.Decision{Outcome: planner.OutcomeSwitch, Reason: hmmReasonPhaseChange}, false, stayPin.Model
-	}
+	phaseChanged := hmmToolExecutionPhaseChanged(stayPin.Reason, fresh.Reason)
 
 	cfg := s.planner
 	cfg.TierUpgradeEnabled = false
@@ -1931,7 +1929,11 @@ func (s *Service) hmmCostGatedDecision(
 		PinCacheCold:          pinCacheCold(stayPin, prefixBroken),
 	}, cfg)
 
-	if hmmFreshIsMoreExpensive(stayPin.Model, fresh.Model, estimatedInputTokens) {
+	freshIsMoreExpensive := hmmFreshIsMoreExpensive(stayPin.Model, fresh.Model, estimatedInputTokens)
+	if phaseChanged && freshIsMoreExpensive {
+		base.Outcome = planner.OutcomeSwitch
+		base.Reason = hmmReasonPhaseChange
+	} else if freshIsMoreExpensive {
 		confidence, ok := hmmDecisionConfidence(fresh)
 		if ok && confidence >= s.hmmUpgradeConfidenceThreshold {
 			base.Outcome = planner.OutcomeSwitch
@@ -1948,6 +1950,10 @@ func (s *Service) hmmCostGatedDecision(
 			base.Outcome = planner.OutcomeStay
 			base.Reason = planner.ReasonSameTierPinned
 		}
+	}
+
+	if phaseChanged && base.Outcome == planner.OutcomeSwitch && base.Reason == planner.ReasonEVPositive {
+		base.Reason = hmmReasonPhaseChange
 	}
 
 	if base.Outcome == planner.OutcomeStay && stayPin.Model != fresh.Model {
@@ -2129,6 +2135,7 @@ func (s *Service) normalizeHMMStayPin(req router.Request, p sessionpin.Pin) (ses
 	if model == "" {
 		return sessionpin.Pin{}, false
 	}
+	effort, model := stripEffortSuffix(model)
 	if p.LastTurnEndedAt.IsZero() {
 		return sessionpin.Pin{}, false
 	}
@@ -2156,6 +2163,9 @@ func (s *Service) normalizeHMMStayPin(req router.Request, p sessionpin.Pin) (ses
 		return sessionpin.Pin{}, false
 	}
 	p.Model = model
+	if effort != "" {
+		p.Effort = effort
+	}
 	providerSet := req.EnabledProviders
 	if providerSet == nil {
 		providerSet = s.clients.NameSet()
