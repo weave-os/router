@@ -6,10 +6,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/telemetry"
@@ -50,18 +52,20 @@ func (f *fakeTurnAdmission) newTelemetryRecorder() telemetry.Recorder {
 func TestAdmitTurnRejectsOverCapUserBeforeOpeningTurnState(t *testing.T) {
 	capErr := errors.New("monthly spend limit reached")
 	fake := &fakeTurnAdmission{spendErr: capErr}
-	ctx, _, err := admitTurn(context.Background(), fake, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
-	assert.ErrorIs(t, err, capErr)
+	ctx, _, err := admitTurn(context.Background(), fake, nil, httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/v1/messages", nil))
+	require.ErrorIs(t, err, capErr)
 	assert.Empty(t, fake.opened)
 	assert.Nil(t, turnFailuresFromContext(ctx))
 }
 
 func TestAdmitTurnOpensTurnState(t *testing.T) {
 	fake := &fakeTurnAdmission{}
-	ctx, turn, err := admitTurn(context.Background(), fake, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+	admittedAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	clock := auth.Clock(func() time.Time { return admittedAt })
+	ctx, turn, err := admitTurn(context.Background(), fake, clock, httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/v1/messages", nil))
 	require.NoError(t, err)
 	assert.Equal(t, []string{"usage observer", "rate limit", "telemetry"}, fake.opened)
 	assert.NotNil(t, turnFailuresFromContext(ctx))
 	assert.NotEmpty(t, turn.facts.RequestID)
-	assert.False(t, turn.start.IsZero())
+	assert.Equal(t, admittedAt, turn.start)
 }

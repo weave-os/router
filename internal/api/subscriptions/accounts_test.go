@@ -90,7 +90,7 @@ func TestListPoolReturnsSharedCandidatesWithoutIdentifyingFields(t *testing.T) {
 	}
 	apiKey := &auth.APIKey{ID: "shared-key", ExternalID: "kid-key", InstallationID: "installation", Scope: auth.ScopeRouting}
 	engine := newPoolEngine(repo, apiKey)
-	response := requestPool(engine)
+	response := requestPool(t.Context(), engine)
 
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 	var got []struct {
@@ -128,7 +128,7 @@ func TestListPoolReturnsSharedCandidatesWithoutIdentifyingFields(t *testing.T) {
 func TestListPoolReturnsEmptyArray(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := newPoolEngine(accountRepo{}, &auth.APIKey{ID: "key", InstallationID: "installation", Scope: auth.ScopeRouting})
-	response := requestPool(engine)
+	response := requestPool(t.Context(), engine)
 
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 	require.JSONEq(t, `[]`, response.Body.String())
@@ -138,7 +138,7 @@ func TestListPoolRequiresAPIKey(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	subscriptionsapi.Register(engine.Group("/v1"), nil)
-	response := requestPool(engine)
+	response := requestPool(t.Context(), engine)
 
 	require.Equal(t, http.StatusUnauthorized, response.Code)
 	require.JSONEq(t, `{"error":"router_key_required"}`, response.Body.String())
@@ -147,7 +147,7 @@ func TestListPoolRequiresAPIKey(t *testing.T) {
 func TestListPoolReturnsUnavailableWhenCandidatesFail(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := newPoolEngine(accountRepo{candidatesErr: errors.New("candidate repository unavailable")}, &auth.APIKey{ID: "key", InstallationID: "installation", Scope: auth.ScopeRouting})
-	response := requestPool(engine)
+	response := requestPool(t.Context(), engine)
 
 	require.Equal(t, http.StatusInternalServerError, response.Code)
 	require.JSONEq(t, `{"error":"subscription_pool_unavailable"}`, response.Body.String())
@@ -162,8 +162,8 @@ func newPoolEngine(repo accountRepo, apiKey *auth.APIKey) *gin.Engine {
 	return engine
 }
 
-func requestPool(engine *gin.Engine) *httptest.ResponseRecorder {
-	request := httptest.NewRequest(http.MethodGet, "/v1/subscriptions/pool", nil)
+func requestPool(ctx context.Context, engine *gin.Engine) *httptest.ResponseRecorder {
+	request := httptest.NewRequestWithContext(ctx, http.MethodGet, "/v1/subscriptions/pool", nil)
 	request.Header.Set("Authorization", "Bearer rk_test")
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, request)
@@ -183,7 +183,7 @@ func TestCreateAccountAttributesConnectionToInstallation(t *testing.T) {
 		"provider": auth.SubscriptionProviderCodex, "external_account_id": "external-account", "refresh_token": "refresh",
 	})
 	require.NoError(t, err)
-	request := httptest.NewRequest(http.MethodPost, "/v1/subscriptions/accounts", bytes.NewReader(body))
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/subscriptions/accounts", bytes.NewReader(body))
 	request.Header.Set("Authorization", "Bearer rk_test")
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -223,7 +223,7 @@ func TestCreateAccountEnrollsVerifiedPersonalKeyOwner(t *testing.T) {
 		"provider": auth.SubscriptionProviderCodex, "external_account_id": "external-account", "refresh_token": "refresh",
 	})
 	require.NoError(t, err)
-	request := httptest.NewRequest(http.MethodPost, "/v1/subscriptions/accounts", bytes.NewReader(body))
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/subscriptions/accounts", bytes.NewReader(body))
 	request.Header.Set("Authorization", "Bearer rk_test")
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("X-Weave-User-Email", "Ali@Weave.test")

@@ -1,4 +1,3 @@
-// Package entra provides Microsoft Entra client-credentials token sources.
 package entra
 
 import (
@@ -32,8 +31,6 @@ type cachedToken struct {
 	refreshAt time.Time
 }
 
-// ClientCredentialsSource obtains Microsoft Entra access tokens using an
-// external API key's tenant, client ID, and client secret.
 type ClientCredentialsSource struct {
 	httpClient *http.Client
 	now        auth.Clock
@@ -43,8 +40,6 @@ type ClientCredentialsSource struct {
 	group singleflight.Group
 }
 
-// NewClientCredentialsSource constructs a source with the supplied HTTP client
-// and clock. A nil client uses http.DefaultClient; a nil clock uses time.Now.
 func NewClientCredentialsSource(httpClient *http.Client, now auth.Clock) *ClientCredentialsSource {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
@@ -64,7 +59,6 @@ func NewClientCredentialsSource(httpClient *http.Client, now auth.Clock) *Client
 	}
 }
 
-// Token returns a cached or freshly minted Microsoft Entra access token for key.
 func (s *ClientCredentialsSource) Token(ctx context.Context, key *auth.ExternalAPIKey) ([]byte, error) {
 	if key == nil {
 		return nil, fmt.Errorf("%w: key is nil", auth.ErrEntraUnavailable)
@@ -88,8 +82,6 @@ func (s *ClientCredentialsSource) Token(ctx context.Context, key *auth.ExternalA
 		return append([]byte(nil), cached.token...), nil
 	}
 
-	// The shared mint runs under a detached context so a cancelling caller
-	// doesn't abort the flight for waiters whose own contexts are still live.
 	result := s.group.DoChan(cacheKey, func() (any, error) {
 		mintCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), mintTimeout)
 		defer cancel()

@@ -12,19 +12,15 @@ import (
 	"weave-os/router/internal/router/llmescalation"
 )
 
-// ErrEscalationJudgeUnavailable prevents selecting an LLM judge that this
-// deployment cannot execute.
 var ErrEscalationJudgeUnavailable = errors.New("escalation judge is unavailable")
 
 const escalationDashboardSnapshotTTL = 15 * time.Minute
 
-// WithEscalationDashboard wires the common content-free reporting projection.
 func (s *Service) WithEscalationDashboard(store escalationdashboard.Store) *Service {
 	s.escalationDashboardStore = store
 	return s
 }
 
-// EscalationDashboard returns one retained-state snapshot for both classifiers.
 func (s *Service) EscalationDashboard(ctx context.Context, filter escalationdashboard.Filter) (escalationdashboard.Snapshot, error) {
 	if s.escalationDashboardStore == nil {
 		return escalationdashboard.Snapshot{}, ErrEscalationJudgeUnavailable
@@ -32,7 +28,7 @@ func (s *Service) EscalationDashboard(ctx context.Context, filter escalationdash
 	if filter.Limit < 1 || filter.Limit > 200 {
 		return escalationdashboard.Snapshot{}, errors.New("invalid escalation dashboard page")
 	}
-	now := time.Now().UTC()
+	now := s.clock.Now().UTC()
 	pageStart := int32(0)
 	var stored escalationdashboard.StoredSnapshot
 	var err error
@@ -75,20 +71,17 @@ func (s *Service) EscalationDashboard(ctx context.Context, filter escalationdash
 	return stored.Snapshot, nil
 }
 
-// LLMEscalationSnapshot is a bounded operational page without conversation content.
 type LLMEscalationSnapshot struct {
 	Sessions []llmescalation.Session `json:"sessions"`
 	Summary  llmescalation.Summary   `json:"summary"`
 	HasMore  bool                    `json:"has_more"`
 }
 
-// LLMEscalationDetail contains one session and its bounded checkpoint metadata.
 type LLMEscalationDetail struct {
 	Session     llmescalation.Session `json:"session"`
 	Checkpoints []llmescalation.Job   `json:"checkpoints"`
 }
 
-// WithEscalationConfiguration wires internal control-plane reads and writes.
 func (s *Service) WithEscalationConfiguration(store llmescalation.ConfigurationStore, invalidate func(string), activeEnabled bool) *Service {
 	s.llmEscalationConfiguration = store
 	s.llmEscalationInvalidate = invalidate

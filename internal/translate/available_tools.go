@@ -9,7 +9,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// ToolDescriptors returns structural declarations suitable for policy routing.
 func (e *RequestEnvelope) ToolDescriptors() []router.ToolDescriptor {
 	if e == nil {
 		return nil
@@ -43,7 +42,6 @@ func (e *RequestEnvelope) ToolDescriptors() []router.ToolDescriptor {
 	return descriptors
 }
 
-// AvailableToolNames returns provider-neutral names from the request's tools.
 func (e *RequestEnvelope) AvailableToolNames() []string {
 	if e == nil {
 		return nil
@@ -73,12 +71,6 @@ func (e *RequestEnvelope) AvailableToolNames() []string {
 	return names
 }
 
-// SeedToolCallNames maps each wire name a Seed-style text tool call may use
-// to the client tool it recovers as, honoring tool_choice: nil when the
-// request declared no client tools, disabled them with "none", or asked for
-// several choices (n > 1). wireAliases is the prepared request's
-// ResponseToolNames, so a call naming a sanitized upstream alias restores the
-// client's original name.
 func (e *RequestEnvelope) SeedToolCallNames(wireAliases map[string]string) map[string]string {
 	kind, namedTool := anthropicToolChoice(e.body)
 	if e.format == FormatOpenAI {

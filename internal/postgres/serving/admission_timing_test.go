@@ -59,13 +59,13 @@ func TestAdmissionTimingRecordCarriesDurationsWithoutIdentity(t *testing.T) {
 	record := records[0]
 	assert.Equal(t, admissionTimingRecord, record["msg"])
 	assert.Equal(t, slog.LevelInfo.String(), record["level"])
-	assert.Equal(t, 20.0, record[attrAdmissionTransaction])
-	assert.Equal(t, 3.0, record[attrAdmissionLockWait])
-	assert.Equal(t, 5.0, record[attrAdmissionStateRead])
-	assert.Equal(t, 2.5, record[attrAdmissionSelectionSetRead])
-	assert.Equal(t, 2.0, record[attrAdmissionSelectionSetReads])
-	assert.Equal(t, 8.0, record[attrAdmissionDecide])
-	assert.Equal(t, 4.0, record[attrAdmissionProjection])
+	assert.InDelta(t, 20.0, record[attrAdmissionTransaction], 1e-9)
+	assert.InDelta(t, 3.0, record[attrAdmissionLockWait], 1e-9)
+	assert.InDelta(t, 5.0, record[attrAdmissionStateRead], 1e-9)
+	assert.InDelta(t, 2.5, record[attrAdmissionSelectionSetRead], 1e-9)
+	assert.InDelta(t, 2.0, record[attrAdmissionSelectionSetReads], 1e-9)
+	assert.InDelta(t, 8.0, record[attrAdmissionDecide], 1e-9)
+	assert.InDelta(t, 4.0, record[attrAdmissionProjection], 1e-9)
 	assert.Equal(t, true, record[attrAdmissionPersistent])
 	assert.Equal(t, string(admissionDenied), record[attrAdmissionOutcome])
 	assert.Equal(t, string(policyregistry.TargetStable), record[attrAdmissionTarget])
@@ -96,7 +96,7 @@ func TestAdmissionTimingRecordReportsInternalLaneWithoutEnrollmentIdentity(t *te
 	require.Len(t, records, 1)
 	record := records[0]
 	assert.Equal(t, string(policyregistry.TargetInternal), record[attrAdmissionTarget])
-	assert.Equal(t, 6.0, record[attrAdmissionProjection])
+	assert.InDelta(t, 6.0, record[attrAdmissionProjection], 1e-9)
 	for _, attribute := range forbiddenAdmissionAttributes {
 		assert.NotContains(t, record, attribute)
 	}

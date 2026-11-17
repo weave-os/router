@@ -1,10 +1,18 @@
 package proxy
 
 import (
+	"context"
 	"encoding/json"
+	"net/http/httptest"
 	"testing"
 
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // A substantive narration line (>= textRepetitionMinLen) that a stuck model
@@ -168,5 +176,27 @@ func TestDetectTextRepetition_FiresOnOpenAIAssistantOnlyContinuations(t *testing
 	looped, count, _ := detectTextRepetition(env)
 	if !looped || count != 3 {
 		t.Fatalf("OpenAI assistant-only continuation loop must fire; looped=%v count=%d", looped, count)
+	}
+}
+
+func TestHandleTextRepetitionBreak_ZeroSessionKeyWritesNoPin(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		key       [sessionpin.SessionKeyLen]byte
+		wantWrite bool
+	}{
+		{name: "zero key", key: [sessionpin.SessionKeyLen]byte{}, wantWrite: false},
+		{name: "real key", key: sessionKeyFromString("repeating-session"), wantWrite: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &overwritingPinStore{}
+			svc := &Service{pinStore: store}
+			env, err := translate.ParseAnthropic([]byte(`{"model":"synthetic-model","messages":[{"role":"user","content":"continue"}]}`))
+			require.NoError(t, err)
+
+			err = svc.handleTextRepetitionBreak(context.Background(), httptest.NewRecorder(), env, 3, "synthetic", uuid.New(), tt.key, "maximum", "synthetic-model", providers.ProviderAnthropic, 1)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantWrite, store.found)
+		})
 	}
 }

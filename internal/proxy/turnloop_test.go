@@ -30,10 +30,14 @@ type fakeSummarizer struct {
 	summary   string
 	errOnCall error
 	calls     atomic.Int32
+	creds     atomic.Pointer[proxy.Credentials]
 }
 
 func (f *fakeSummarizer) Summarize(ctx context.Context, env *translate.RequestEnvelope, _ router.Request) (string, handover.Usage, error) {
 	f.calls.Add(1)
+	if creds, ok := ctx.Value(proxy.CredentialsContextKey{}).(*proxy.Credentials); ok {
+		f.creds.Store(creds)
+	}
 	if f.errOnCall != nil {
 		return "", handover.Usage{}, f.errOnCall
 	}
@@ -172,7 +176,7 @@ func TestTurnLoop_ToolResultScoringDisabledSkipsScorer(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(toolResultPinnedBody), rec, httpReq))
 
 	assert.Equal(t, 0, fr.routeCalls, "disabled tool-result scoring must not invoke the scorer")
@@ -197,7 +201,7 @@ func TestTurnLoop_ToolResultScoringEnabledRunsScorerAndStays(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(toolResultPinnedBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "tool_result must run the scorer under MainLoop parity")
@@ -234,7 +238,7 @@ func TestTurnLoop_ToolResultScoringEnabledSwitchesSafely(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, toolResultLargeBody, rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "tool_result must run the scorer under MainLoop parity")
@@ -270,7 +274,7 @@ func TestTurnLoop_HMMToolResultCommunicationFollowsFreshDecision(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(toolResultPinnedBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "tool_result must ask HMM for a fresh communication decision")
@@ -303,7 +307,7 @@ func TestTurnLoop_HMMToolResultToolExecutionUsesFreshDecision(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(toolResultPinnedBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "tool_result still scores so HMM can decide whether execution continues")
@@ -338,7 +342,7 @@ func TestTurnLoop_HMMToolExecutionStaysWhenWarmCacheEVBeatsCheapFresh(t *testing
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "ongoing HMM execution still scores to see if execution continues")
@@ -374,7 +378,7 @@ func TestTurnLoop_HMMHistoryMaxedOutExcludesServedModelBeforeRouting(t *testing.
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	require.NotNil(t, fr.capturedReq)
@@ -413,7 +417,7 @@ func TestTurnLoop_HMMExpiredHistoryMaxedOutStillExcludesServedModel(t *testing.T
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	require.NotNil(t, fr.capturedReq)
@@ -449,7 +453,7 @@ func TestTurnLoop_HMMConversationFollowsFreshDecision(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "HMM conversation turns must score fresh")
@@ -460,7 +464,7 @@ func TestTurnLoop_HMMConversationFollowsFreshDecision(t *testing.T) {
 	store.mu.Unlock()
 }
 
-func TestTurnLoop_HMMToolExecutionPhaseChangeUsesFreshDecision(t *testing.T) {
+func TestTurnLoop_HMMToolExecutionPhaseChangeKeepsWarmPinWhenEVNegative(t *testing.T) {
 	store := newFakePinStore()
 	store.hasPin = true
 	store.pin = sessionpin.Pin{
@@ -484,12 +488,12 @@ func TestTurnLoop_HMMToolExecutionPhaseChangeUsesFreshDecision(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "main-loop HMM turn must ask for a fresh decision")
-	assert.Equal(t, "claude-sonnet-5", rec.Header().Get(proxy.HeaderRouterModel),
-		"HMM tool/explore phase changes should follow the fresh sidecar decision")
+	assert.Equal(t, "claude-sonnet-4-5", rec.Header().Get(proxy.HeaderRouterModel),
+		"a lateral HMM phase change must keep the warm pin when the EV gate does not pay for the cache rebuild")
 
 	store.mu.Lock()
 	assertOnlyHMMHistoryUpserts(t, store)
@@ -520,7 +524,7 @@ func TestTurnLoop_HMMToolExecutionSameModelDoesNotRewritePin(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "main-loop HMM turn must ask for a fresh decision")
@@ -573,7 +577,7 @@ func TestTurnLoop_ToolResultPinOnExcludedProviderFallsThroughToScorer(t *testing
 	ctx := context.WithValue(authedCtx(uuid.New().String()),
 		proxy.InstallationExcludedProvidersContextKey{}, []string{providers.ProviderOpenAI})
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(toolResultBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls,
@@ -598,7 +602,7 @@ func TestTurnLoop_PlannerStaysWhenScorerAgrees(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "planner re-eval still runs the scorer")
@@ -624,7 +628,7 @@ func TestTurnLoop_PlannerSwitchesOnPositiveEV(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, largeBody(t), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls)
@@ -658,7 +662,7 @@ func TestTurnLoop_SummarizerErrorPreservesFullHistory(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, largeMultiTurnBody(t), rec, httpReq))
 
 	assert.Equal(t, int32(1), sz.calls.Load(), "summarizer must be tried before the fallback")
@@ -686,7 +690,7 @@ func TestTurnLoop_HandoverPreservesFullHistoryWhenSummarizerNotWired(t *testing.
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, largeMultiTurnBody(t), rec, httpReq))
 
 	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel), "switch must proceed even without a summarizer")
@@ -713,7 +717,7 @@ func TestTurnLoop_HandoverUsesClientCredsForSummarizerProvider(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	httpReq.Header.Set("x-api-key", "sk-ant-customer-byok-key")
 	require.NoError(t, svc.ProxyMessages(ctx, largeBody(t), rec, httpReq))
 
@@ -741,13 +745,62 @@ func TestTurnLoop_HandoverSkippedWhenClientCredsCrossProvider(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	// Client-supplied OpenAI key — does NOT match the Anthropic summarizer.
 	httpReq.Header.Set("Authorization", "Bearer sk-customer-openai-key")
 	require.NoError(t, svc.ProxyMessages(ctx, largeBody(t), rec, httpReq))
 
 	assert.Equal(t, int32(0), sz.calls.Load(), "summarizer must NOT run when client creds are for a different provider than the summarizer")
 	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel), "switch must still happen with full history passed through")
+}
+
+func TestTurnLoop_HandoverSummarizesOnStoredBYOKKeyForSummarizerProvider(t *testing.T) {
+	store := newFakePinStore()
+	store.hasPin = true
+	store.pin = sessionpin.Pin{
+		Provider:        providers.ProviderAnthropic,
+		Model:           "claude-opus-4-7",
+		Reason:          "cluster:v0.2",
+		PinnedUntil:     time.Now().Add(time.Hour),
+		LastInputTokens: 5000,
+		LastTurnEndedAt: time.Now().Add(-30 * time.Second),
+	}
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster:v0.2"}}
+	sz := &fakeSummarizer{summary: "Prior conversation summary."}
+	svc := newPinSvc(fr, store).WithSummarizer(sz)
+
+	ctx := authedCtxWithExternalKey(uuid.New().String(), providers.ProviderAnthropic, []byte("sk-ant-stored-byok-key"))
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
+	require.NoError(t, svc.ProxyMessages(ctx, largeBody(t), rec, httpReq))
+
+	require.Equal(t, int32(1), sz.calls.Load())
+	creds := sz.creds.Load()
+	require.NotNil(t, creds, "summarizer must receive the tenant's stored key, not fall back to the deployment key")
+	assert.Equal(t, []byte("sk-ant-stored-byok-key"), creds.APIKey)
+}
+
+func TestTurnLoop_HandoverSkippedWhenStoredBYOKKeyIsForAnotherProvider(t *testing.T) {
+	store := newFakePinStore()
+	store.hasPin = true
+	store.pin = sessionpin.Pin{
+		Provider:        providers.ProviderAnthropic,
+		Model:           "claude-opus-4-7",
+		Reason:          "cluster:v0.2",
+		PinnedUntil:     time.Now().Add(time.Hour),
+		LastInputTokens: 5000,
+		LastTurnEndedAt: time.Now().Add(-30 * time.Second),
+	}
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster:v0.2"}}
+	sz := &fakeSummarizer{summary: "Should not be invoked."}
+	svc := newPinSvc(fr, store).WithSummarizer(sz)
+
+	ctx := authedCtxWithExternalKey(uuid.New().String(), providers.ProviderOpenAI, []byte("sk-stored-openai-byok-key"))
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
+	require.NoError(t, svc.ProxyMessages(ctx, largeBody(t), rec, httpReq))
+
+	assert.Equal(t, int32(0), sz.calls.Load(), "a BYOK tenant's history must not reach the summarizer on the deployment key")
 }
 
 // ROUTER_PLANNER_ENABLED kill switch: an existing pin wins outright without
@@ -766,7 +819,7 @@ func TestTurnLoop_PlannerDisabledPreservesFirstDecisionWins(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	assert.Equal(t, 0, fr.routeCalls, "planner-disabled with pin must skip the scorer")
@@ -791,7 +844,7 @@ func TestTurnLoop_UsageWritebackPersistsCacheStats(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	select {
@@ -812,7 +865,7 @@ func TestTurnLoop_UsageWritebackPersistsCacheStats(t *testing.T) {
 // first message, so every turn derives the same session key.
 func trimSessionTurn(t *testing.T, msgCount int) []byte {
 	t.Helper()
-	require.Equal(t, msgCount%2, 1, "odd msgCount keeps the trailing message a user turn")
+	require.Equal(t, 1, msgCount%2, "odd msgCount keeps the trailing message a user turn")
 	msgs := make([]string, 0, msgCount)
 	for i := 0; i < msgCount; i++ {
 		role := "user"
@@ -857,14 +910,14 @@ func TestTurnLoop_PrefixTrimPricesPinColdAndSkipsSummarizer(t *testing.T) {
 
 	// Turn 1 (9 messages) records the compaction baseline.
 	rec1 := httptest.NewRecorder()
-	req1 := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req1 := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, trimSessionTurn(t, 9), rec1, req1))
 	require.Equal(t, "claude-opus-4-7", rec1.Header().Get(proxy.HeaderRouterModel),
 		"warm pin must stay on turn 1 (cold lever must not fire on a warm cache)")
 
 	// Turn 2 drops to 3 messages: a full-compaction trim.
 	rec2 := httptest.NewRecorder()
-	req2 := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req2 := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, trimSessionTurn(t, 3), rec2, req2))
 	assert.Equal(t, "claude-haiku-4-5", rec2.Header().Get(proxy.HeaderRouterModel),
 		"trim turn must price the pin cold and switch to the fresh pick")
@@ -888,12 +941,12 @@ func TestTurnLoop_PrefixTrimKillSwitchPreservesWarmStay(t *testing.T) {
 	ctx := authedCtx(uuid.New().String())
 
 	rec1 := httptest.NewRecorder()
-	req1 := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req1 := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, trimSessionTurn(t, 9), rec1, req1))
 	require.Equal(t, "claude-opus-4-7", rec1.Header().Get(proxy.HeaderRouterModel))
 
 	rec2 := httptest.NewRecorder()
-	req2 := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req2 := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, trimSessionTurn(t, 3), rec2, req2))
 	assert.Equal(t, "claude-opus-4-7", rec2.Header().Get(proxy.HeaderRouterModel),
 		"kill switch off must preserve the warm-priced EV stay on the trim turn")
@@ -918,13 +971,13 @@ func TestTurnLoop_PrefixTrimSkipsExpiredPinReAnchor(t *testing.T) {
 	// Turn 1 (9 messages, no trim): the expired pin re-anchors, proving the
 	// re-anchor path is live before the trim turn bypasses it.
 	rec1 := httptest.NewRecorder()
-	req1 := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req1 := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, trimSessionTurn(t, 9), rec1, req1))
 	require.Equal(t, "claude-opus-4-7", rec1.Header().Get(proxy.HeaderRouterModel),
 		"expired pin must re-anchor on a normal turn (guard baseline)")
 
 	rec2 := httptest.NewRecorder()
-	req2 := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req2 := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, trimSessionTurn(t, 3), rec2, req2))
 	assert.Equal(t, "claude-haiku-4-5", rec2.Header().Get(proxy.HeaderRouterModel),
 		"trim turn must skip the expired-pin re-anchor and follow the fresh pick")
@@ -942,7 +995,7 @@ func TestTurnLoop_SubAgentDoesNotInheritMainLoopTrimBaseline(t *testing.T) {
 	ctx := authedCtx(uuid.New().String())
 
 	rec1 := httptest.NewRecorder()
-	req1 := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req1 := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, trimSessionTurn(t, 9), rec1, req1))
 	require.Equal(t, "claude-opus-4-7", rec1.Header().Get(proxy.HeaderRouterModel))
 
@@ -952,7 +1005,7 @@ func TestTurnLoop_SubAgentDoesNotInheritMainLoopTrimBaseline(t *testing.T) {
 		{"role":"user","content":"narrow to the proxy package"}
 	]}`)
 	rec2 := httptest.NewRecorder()
-	req2 := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req2 := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, subAgentBody, rec2, req2))
 	assert.Equal(t, "claude-opus-4-7", rec2.Header().Get(proxy.HeaderRouterModel),
 		"a sub-agent's small opening turn must not read as a trim of the main loop's baseline")
@@ -981,7 +1034,7 @@ func TestTurnLoop_MaxedOutPinExcludedFromCandidates(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	require.NotNil(t, fr.capturedReq, "scorer must run after a maxed-out pin is dropped")
@@ -1013,7 +1066,7 @@ func TestTurnLoop_MaxedOutExcludesLastServedModelNotAnchor(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	require.NotNil(t, fr.capturedReq, "scorer must run after a maxed-out pin is dropped")
@@ -1040,7 +1093,7 @@ func TestTurnLoop_UnconfirmedHighOutputKeepsPin(t *testing.T) {
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	require.NotNil(t, fr.capturedReq)

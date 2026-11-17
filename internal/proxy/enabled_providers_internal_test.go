@@ -271,6 +271,20 @@ func TestExcludeCodexOAuthOnlyModels(t *testing.T) {
 		assert.NotContains(t, got, "gpt-5.6-sol")
 	})
 
+	t.Run("subscription-only keeps models the customer's OpenAI key funds", func(t *testing.T) {
+		s := &Service{
+			clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: nil}),
+			credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{
+				providers.ProviderOpenAI: {},
+			}, PassthroughEligible: map[string]struct{}{}},
+		}
+		byokCtx := context.WithValue(billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+			{Provider: providers.ProviderOpenAI, Plaintext: []byte("sk-oai-byok"), FundingPriority: auth.FundingPriorityPlanFirst},
+		})
+		got := s.excludeCodexOAuthOnlyModels(byokCtx, http.Header{}, enabled, nil)
+		assert.NotContains(t, got, "gpt-5.4-nano")
+	})
+
 	t.Run("managed subscription excludes unsupported OpenAI models", func(t *testing.T) {
 		s := &Service{
 			clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: nil}),

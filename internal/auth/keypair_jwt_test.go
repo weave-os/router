@@ -64,7 +64,7 @@ func TestMintKeypairJWT_ClaimsMatchSnowflakeFormat(t *testing.T) {
 		"the issuer must bind the public-key fingerprint so a rotated key stops authenticating")
 	assert.InDelta(t, float64(now.Add(auth.KeypairTokenTTL).Unix()), claims["exp"], 1,
 		"exp must be the requested expiry")
-	assert.Less(t, claims["iat"].(float64), float64(now.Unix()),
+	assert.Less(t, mustAs[float64](t, claims["iat"]), float64(now.Unix()),
 		"iat must be backdated so a signer running ahead of Snowflake's clock still produces a usable token")
 }
 
@@ -74,7 +74,7 @@ func TestMintKeypairJWT_LifetimeStaysUnderSnowflakeCeiling(t *testing.T) {
 	require.NoError(t, err)
 
 	claims := decodeClaims(t, token)
-	lifetime := time.Duration(claims["exp"].(float64)-claims["iat"].(float64)) * time.Second
+	lifetime := time.Duration(mustAs[float64](t, claims["exp"])-mustAs[float64](t, claims["iat"])) * time.Second
 	assert.Less(t, lifetime, time.Hour,
 		"Snowflake clamps key-pair JWTs to one hour, so a token must never claim a longer window than it can hold")
 }
@@ -85,7 +85,7 @@ func TestMintKeypairJWT_ClampsOverlongTTL(t *testing.T) {
 	require.NoError(t, err)
 
 	claims := decodeClaims(t, token)
-	lifetime := time.Duration(claims["exp"].(float64)-claims["iat"].(float64)) * time.Second
+	lifetime := time.Duration(mustAs[float64](t, claims["exp"])-mustAs[float64](t, claims["iat"])) * time.Second
 	assert.LessOrEqual(t, lifetime, time.Hour,
 		"a caller asking for more than the upstream ceiling must get a token clamped to it, not one rejected on arrival")
 }

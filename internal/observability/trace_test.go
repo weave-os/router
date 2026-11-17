@@ -106,7 +106,7 @@ func TestMiddlewareIncludesTraceContextInRequestLogs(t *testing.T) {
 		observability.FromGin(c).Info("handler ran")
 		c.Status(http.StatusOK)
 	})
-	req := httptest.NewRequest(http.MethodGet, "/x", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil)
 	req.Header.Set("traceparent", "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01")
 	engine.ServeHTTP(httptest.NewRecorder(), req)
 

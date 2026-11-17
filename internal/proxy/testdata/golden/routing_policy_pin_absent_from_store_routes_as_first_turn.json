@@ -316,9 +316,6 @@
               null,
               1
             ],
-            "LastInputTokens": 12,
-            "LastOutputTokens": 7,
-            "LastServedModel": "claude-opus-4-7",
             "Model": "claude-haiku-4-5",
             "Provider": "anthropic",
             "Reason": "golden_route",

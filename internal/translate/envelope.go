@@ -17,10 +17,6 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// INVARIANTS: e.body is immutable after parse. Same-format emit overrides it via
-// gjson/sjson with no cloning; cross-format emit reads via gjson, writes via jsonWriter.
-
-// ErrNotJSONObject is returned when the request body is not a valid JSON object.
 var ErrNotJSONObject = errors.New("request body must be a JSON object")
 
 type Format int
@@ -32,100 +28,51 @@ const (
 	FormatOpenAIResponses
 )
 
-// EmitOptions parameterizes output-body construction.
 type EmitOptions struct {
 	TargetModel string
-	// TargetProvider is the resolved upstream provider (providers.Provider*,
-	// e.g. "openrouter", "fireworks"). Gates OpenRouter-only body fields
-	// (provider/reasoning hints, tool-turn temp override) so a model slug
-	// rebound to a non-OpenRouter upstream doesn't send fields it 400s on.
-	// Empty falls back to model-slug behavior for callers not yet plumbing it.
+
 	TargetProvider     string
 	Capabilities       router.ModelSpec
 	IncludeStreamUsage bool
-	// SessionAffinity is a per-conversation ID forwarded as a prompt-cache
-	// stickiness hint so a session lands on the same warm replica instead of
-	// a cold one. Knob differs per upstream — see applySessionAffinity.
+
 	SessionAffinity string
-	// StripPromptCacheKey drops prompt_cache_key instead of injecting the
-	// affinity hint. Set when a gateway's schema trails the spec and rejected
-	// the field as unknown, so the retry and later turns go out without it.
+
 	StripPromptCacheKey bool
-	// ModelSwitched reports the serving model changed since the last turn.
-	// Thinking-block signatures are only valid for the model that produced
-	// them, so carried-over blocks make Anthropic 400 with "Invalid signature
-	// in thinking block". When set, the emit path strips thinking blocks.
+
 	ModelSwitched bool
-	// ForceReasoningEffort, when non-empty, overrides the request-derived
-	// reasoning effort for gpt-5.x (Responses API) / gemini-3.x (thinkingConfig).
-	// Set by the proxy's escalate-on-failure policy: gpt-5.x starts "low", goes
-	// "high" after a failed/no-progress turn; gemini stays "low" (effort-immune).
+
 	ForceReasoningEffort string
-	// ForceEffort, when non-empty, is the user-requested effort level
-	// (x-weave-effort header / :level suffix). Wins over ForceReasoningEffort;
-	// per-model caps applied by ResolveForceEffort.
+
 	ForceEffort string
-	// CapExtendedContext targets (Opus 4.6+, Sonnet 4.6) get a 1M window
-	// instead of 200K, avoiding a 400 "prompt is too long" on large requests.
-	// No-op below 200K input. deriveAnthropicHeaders gates on CapExtendedContext.
+
 	EnableExtendedContext bool
-	// EnableServerSideFallback opts an Anthropic-targeted request into
-	// Anthropic re-serving a safety-refused turn on a fallback model. Ignored
-	// for non-first-party Anthropic targets; see applyServerSideFallback.
+
 	EnableServerSideFallback bool
-	// KeepCrossVendorOrchestrationTools preserves CC orchestration tools
-	// (Task/Agent, Workflow, Skill, plan-mode) on cross-vendor emit; other CC-only
-	// tools are always stripped. Set from ROUTER_CC_ORCH_TOOLS_CROSSVENDOR;
-	// zero value false preserves historical strip-all behavior.
+
 	KeepCrossVendorOrchestrationTools bool
-	// KeepCrossVendorTaskTools additionally preserves the task-list tools
-	// (TaskCreate/TaskUpdate/TaskGet/TaskList) and their system reminders on
-	// cross-vendor emit. Nested under KeepCrossVendorOrchestrationTools. Set
-	// from ROUTER_CC_TASK_TOOLS_CROSSVENDOR; zero value false strips them.
+
 	KeepCrossVendorTaskTools bool
-	// AppendAutonomySystem adds AutonomySystemText as the last system element
-	// of the outgoing request, after any client cache_control block and
-	// itself uncached; the cross-format emitters carry it into the OpenAI
-	// system message / Responses instructions / Gemini systemInstruction.
-	// The proxy decides eligibility (client, turn type, idempotence).
+
 	AppendAutonomySystem bool
-	// AppendWorkspaceSystem adds WorkspaceSystemText the same way, but only on
-	// the cross-format emitters (OpenAI chat / Responses instructions / Gemini
-	// systemInstruction); PrepareAnthropic ignores it.
+
 	AppendWorkspaceSystem bool
-	// StripOutputConfigFormat drops output_config.format. Anthropic-spec
-	// gateways are documented to serve the knob (Cortex does), so the proxy sets
-	// this only on a one-shot retry after one 400s on it.
+
 	StripOutputConfigFormat bool
-	// DowngradeGeminiValidatedToAuto emits functionCallingConfig.mode=AUTO
-	// instead of VALIDATED for Gemini 3.x. VALIDATED compiles tool schemas into
-	// a decode-time grammar and 400s INVALID_ARGUMENT if one won't compile; the
-	// proxy sets this on a one-shot retry after such a 400 since AUTO skips
-	// compilation. No-op when VALIDATED wouldn't have been used.
+
 	DowngradeGeminiValidatedToAuto bool
-	// ReasoningReplayScope identifies the upstream account+model this request
-	// dispatches to, so encrypted reasoning carried on the history is replayed
-	// only where it was minted (see openai_reasoning_signature.go). Empty
-	// replays nothing.
+
 	ReasoningReplayScope string
-	// FastMode dispatches on the provider's paid fast tier: OpenAI
-	// service_tier:"priority", Anthropic speed:"fast" (+ beta). Honored only
-	// for first-party OpenAI/Anthropic targets; gateways relay their own tier.
+
 	FastMode bool
 }
 
-// RequestEnvelope wraps a parsed request body regardless of wire format.
-// Use Prepare* to emit target-format bytes; accessors read fields.
 type RequestEnvelope struct {
 	body   []byte
 	format Format
-	// threadDiscriminator is the opening user text as the client sent it,
-	// captured before router-only history is stripped from body.
+
 	threadDiscriminator *string
 }
 
-// Clone returns an independent copy of the envelope; mutations to either
-// envelope's body do not affect the other.
 func (e *RequestEnvelope) Clone() *RequestEnvelope {
 	if e == nil {
 		return nil
@@ -133,7 +80,6 @@ func (e *RequestEnvelope) Clone() *RequestEnvelope {
 	return &RequestEnvelope{body: append([]byte(nil), e.body...), format: e.format, threadDiscriminator: e.threadDiscriminator}
 }
 
-// ParseOpenAI validates body as a JSON object and wraps it in a RequestEnvelope.
 func ParseOpenAI(body []byte) (*RequestEnvelope, error) {
 	if err := validateJSONObject(body); err != nil {
 		return nil, err
@@ -141,7 +87,6 @@ func ParseOpenAI(body []byte) (*RequestEnvelope, error) {
 	return &RequestEnvelope{body: body, format: FormatOpenAI}, nil
 }
 
-// ParseAnthropic validates body as a JSON object and wraps it in a RequestEnvelope.
 func ParseAnthropic(body []byte) (*RequestEnvelope, error) {
 	if err := validateJSONObject(body); err != nil {
 		return nil, err
@@ -149,8 +94,6 @@ func ParseAnthropic(body []byte) (*RequestEnvelope, error) {
 	return &RequestEnvelope{body: body, format: FormatAnthropic}, nil
 }
 
-// ParseGemini validates body as a JSON object and wraps it in a RequestEnvelope
-// sourced from Gemini's native generateContent shape.
 func ParseGemini(body []byte) (*RequestEnvelope, error) {
 	if err := validateJSONObject(body); err != nil {
 		return nil, err
@@ -158,7 +101,6 @@ func ParseGemini(body []byte) (*RequestEnvelope, error) {
 	return &RequestEnvelope{body: body, format: FormatGemini}, nil
 }
 
-// validateJSONObject rejects arrays, scalars, and null.
 func validateJSONObject(body []byte) error {
 	if !gjson.ValidBytes(body) {
 		return fmt.Errorf("%w: invalid JSON", ErrNotJSONObject)
@@ -171,8 +113,6 @@ func validateJSONObject(body []byte) error {
 
 func (e *RequestEnvelope) SourceFormat() Format { return e.format }
 
-// Stream reports whether the request has "stream": true. Rejects numeric coercion.
-// For Gemini ingress, the handler injects a synthetic "stream": true.
 func (e *RequestEnvelope) Stream() bool {
 	r := gjson.GetBytes(e.body, "stream")
 	if r.Type == gjson.Number {
@@ -181,22 +121,14 @@ func (e *RequestEnvelope) Stream() bool {
 	return r.Bool()
 }
 
-// Model returns the requested model name.
 func (e *RequestEnvelope) Model() string {
 	return gjson.GetBytes(e.body, "model").String()
 }
 
-// MetadataUserID returns the raw metadata.user_id string.
 func (e *RequestEnvelope) MetadataUserID() string {
 	return gjson.GetBytes(e.body, "metadata.user_id").String()
 }
 
-// ClientSessionID returns the calling client's own session identifier for log
-// correlation — unlike the internal session_key (sha256 of apiKeyID+user_id),
-// this is the value visible to the client itself (e.g. via `/status`).
-// Extracted from metadata.user_id (Anthropic/Gemini) or user (OpenAI); a
-// UUID-shaped marker is pulled out bare, otherwise the raw value is truncated
-// to the legacy 64-byte envelope bound. Returns "" when nothing usable is set.
 func (e *RequestEnvelope) ClientSessionID() string {
 	switch e.format {
 	case FormatAnthropic:
@@ -210,7 +142,6 @@ func (e *RequestEnvelope) ClientSessionID() string {
 	return ""
 }
 
-// SystemText returns the concatenated system-prompt text format-neutrally.
 func (e *RequestEnvelope) SystemText() string {
 	switch e.format {
 	case FormatAnthropic:
@@ -224,10 +155,6 @@ func (e *RequestEnvelope) SystemText() string {
 	}
 }
 
-// SystemBlocks returns the system prompt as its constituent text blocks.
-// Anthropic requests keep their content-block boundaries (Claude Code sends
-// its gitStatus context as a separate block); other formats yield a single
-// block with the concatenated system text. Nil when there is no system prompt.
 func (e *RequestEnvelope) SystemBlocks() []string {
 	if e.format == FormatAnthropic {
 		return anthropicSystemTexts(gjson.GetBytes(e.body, "system"))
@@ -238,19 +165,15 @@ func (e *RequestEnvelope) SystemBlocks() []string {
 	return nil
 }
 
-// LastUserMessageInfo summarizes the trailing user-side input.
 type LastUserMessageInfo struct {
 	HasText         bool
 	HasToolResult   bool
 	ToolResultCount int
 	Text            string
-	// ToolResultBytes sums the trailing turn's tool_result payload size — a
-	// cheap triviality proxy for the tier-cap shadow (tiny result → likely
-	// trivial continuation). 0 when no tool_result is present.
+
 	ToolResultBytes int
 }
 
-// LastUserMessage returns format-neutral information about the last user input.
 func (e *RequestEnvelope) LastUserMessage() LastUserMessageInfo {
 	switch e.format {
 	case FormatAnthropic:
@@ -264,8 +187,6 @@ func (e *RequestEnvelope) LastUserMessage() LastUserMessageInfo {
 	}
 }
 
-// FirstUserMessageText returns the text of the first user-authored message.
-// Returns "" if there is no first user message.
 func (e *RequestEnvelope) FirstUserMessageText() string {
 	if e.format == FormatGemini {
 		return geminiFirstUserMessageText(e.body)
@@ -288,9 +209,6 @@ func (e *RequestEnvelope) FirstUserMessageText() string {
 	}
 }
 
-// ThreadDiscriminatorText is the opening user text the session key hashes.
-// Once StripHistoricalCommands has run it is the pre-strip text, so removing an
-// opening directive from the model-visible body does not re-key the thread.
 func (e *RequestEnvelope) ThreadDiscriminatorText() string {
 	if e.threadDiscriminator != nil {
 		return *e.threadDiscriminator
@@ -306,17 +224,11 @@ func (e *RequestEnvelope) captureThreadDiscriminator() {
 	e.threadDiscriminator = &text
 }
 
-// HasTools reports whether the request has a non-empty tools array.
 func (e *RequestEnvelope) HasTools() bool {
 	r := gjson.GetBytes(e.body, "tools.#")
 	return r.Int() > 0
 }
 
-// ToolValidator compiles the inbound request's tool definitions into a
-// toolcheck.Validator for validating/repairing model-emitted tool calls.
-// Returns nil when no compilable tool schemas exist for the format or the
-// request has no tools (translators treat nil as syntax-check-only); cached
-// via toolcheck's LRU since sessions resend a byte-identical block every turn.
 func (e *RequestEnvelope) ToolValidator() *toolcheck.Validator {
 	tools := gjson.GetBytes(e.body, "tools")
 	if !tools.IsArray() {
@@ -332,9 +244,6 @@ func (e *RequestEnvelope) ToolValidator() *toolcheck.Validator {
 	}
 }
 
-// anthropicToolShapeFromOpenAI projects chat function tools into the
-// {name, input_schema} shape toolcheck compiles, so a chat-ingress turn gets
-// the same tool-call validation an Anthropic one does.
 func anthropicToolShapeFromOpenAI(tools gjson.Result) []byte {
 	jw := newJSONWriter()
 	jw.Arr()
@@ -357,7 +266,6 @@ func anthropicToolShapeFromOpenAI(tools gjson.Result) []byte {
 	return jw.Bytes()
 }
 
-// ImageCount counts image parts across the whole history.
 func (e *RequestEnvelope) ImageCount() int {
 	switch e.format {
 	case FormatAnthropic:
@@ -371,14 +279,10 @@ func (e *RequestEnvelope) ImageCount() int {
 	}
 }
 
-// HasImages reports whether any message carries image content.
 func (e *RequestEnvelope) HasImages() bool {
 	return e.ImageCount() > 0
 }
 
-// RequestsTitleSchema reports whether the request asks for a JSON-schema response
-// with a top-level string "title" property. Used to identify client title
-// generation calls without content-matching the prompt.
 func (e *RequestEnvelope) RequestsTitleSchema() bool {
 	return requestRootRequestsTitleSchema(gjson.ParseBytes(e.body), e.format)
 }
@@ -390,7 +294,7 @@ func requestRootRequestsTitleSchema(root gjson.Result, format Format) bool {
 		return formatNode.Get("type").String() == "json_schema" &&
 			formatNode.Get("schema.properties.title.type").String() == "string"
 	case FormatOpenAI:
-		// Chat Completions uses response_format; Responses uses text.format.
+
 		if formatNode := root.Get("response_format"); formatNode.Exists() {
 			return formatNode.Get("type").String() == "json_schema" &&
 				formatNode.Get("json_schema.schema.properties.title.type").String() == "string"
@@ -435,9 +339,6 @@ const (
 	codexThreadTitleSource          = "thread_title"
 )
 
-// requestRootCodexTurnIsThreadTitle reads the turn origin Codex app-server
-// stamps on every request. Codex Desktop titles a thread with a hidden
-// structured turn whose origin is "thread_title".
 func requestRootCodexTurnIsThreadTitle(root gjson.Result) bool {
 	metadata := root.Get("client_metadata.x-codex-turn-metadata")
 	if metadata.Type != gjson.String || !gjson.Valid(metadata.Str) {
@@ -461,14 +362,6 @@ func requestRootRequestsCodexTitle(root gjson.Result) bool {
 		strings.Contains(lower, codexDirectResponsePromptMarker)
 }
 
-// freshCodexResponsesUserText returns the trailing user message from a new
-// Responses conversation — one with no assistant turn, tool call, or tool
-// output yet. Conductor generates titles in a separate hidden session, so
-// accepting conversation history here would make quoted title instructions in
-// a normal coding session a false positive. Earlier user items are allowed:
-// Codex prepends harness context (`<recommended_plugins>`,
-// `<environment_context>`, AGENTS.md instructions) as its own user messages,
-// and requiring a sole user message missed those title turns.
 func freshCodexResponsesUserText(input gjson.Result) (string, bool) {
 	if input.Type == gjson.String {
 		return input.Str, input.Str != ""
@@ -503,8 +396,6 @@ func freshCodexResponsesUserText(input gjson.Result) (string, bool) {
 	return userText, userText != ""
 }
 
-// EmitOverrides describes byte-level mutations for same-format serialization.
-// Zero-valued fields are no-ops.
 type EmitOverrides struct {
 	Model                   string
 	DeleteKeys              []string
@@ -516,51 +407,28 @@ type EmitOverrides struct {
 	DefaultMaxTokensValue   int64
 	InjectStreamUsage       bool
 	StripThinkingBlocks     bool
-	// StripUnsignedThinkingBlocks removes `thinking` blocks lacking a non-empty
-	// `signature`. Set unconditionally for Anthropic targets: unsigned blocks are
-	// cross-format artifacts; Anthropic 400s on them regardless of switch state.
+
 	StripUnsignedThinkingBlocks bool
-	// StripForeignSignedThinkingBlocks removes `thinking` blocks whose signature
-	// is a router-minted cross-format envelope (`encodeOpenAIReasoningSignature`),
-	// not a real Anthropic signature. Set unconditionally for Anthropic targets.
+
 	StripForeignSignedThinkingBlocks bool
-	// SanitizeToolUseIDs strips the router-minted OpenAI reasoning carrier and rewrites
-	// tool_use.id / tool_use_id values outside ^[a-zA-Z0-9_-]+$. Always set for
-	// Anthropic targets: upstreams like Kimi-k2.6 emit IDs (e.g.
-	// "functions.Read:0") Anthropic rejects on replay.
+
 	SanitizeToolUseIDs bool
-	// StripThoughtSignature removes `thought_signature` from content blocks.
-	// Set for Anthropic targets: the field is Gemini-only and Anthropic 400s
-	// on unknown block fields.
+
 	StripThoughtSignature bool
-	// SanitizeAnthropicToolSchemas removes schema constraints Anthropic rejects
-	// from tools[].input_schema on same-format Anthropic requests; also omits
-	// empty allowed_domains/blocked_domains on native web_search/web_fetch tools (Anthropic 400s them).
+
 	SanitizeAnthropicToolSchemas bool
-	// RewriteThinkingAdaptive replaces the inbound thinking block with
-	// {"type":"adaptive"} and sets output_config.effort. Used when the target
-	// model only accepts adaptive thinking (claude-opus-4-6+ / sonnet-4-6+).
+
 	RewriteThinkingAdaptive bool
 	OutputConfigEffort      string
-	// FloorMaxTokensValue raises an inbound max_tokens below it to this value.
-	// Set when the router turns thinking on for a caller that disabled it, so
-	// hidden reasoning cannot exhaust a budget sized for a visible-only answer.
+
 	FloorMaxTokensValue int64
-	// ForceOutputConfigEffort, when set, overrides any inbound output_config.effort
-	// and the heuristic OutputConfigEffort — user knob beats request-derived default.
-	// Value is already cap-applied (xhigh→max) by resolveForceEffort upstream.
+
 	ForceOutputConfigEffort string
-	// StripOutputConfigFormat drops output_config.format, pruning output_config
-	// when nothing else remains. Mirrors EmitOptions.StripOutputConfigFormat.
+
 	StripOutputConfigFormat bool
-	// ClampEffortXhighTo downgrades a caller-supplied "xhigh" effort (`effort`
-	// and `output_config.effort`) to this value. Set when the target lacks
-	// xhigh (router.CapXhighEffort) so a mid-session re-route doesn't forward
-	// an effort level Anthropic rejects with a session-killing 400.
+
 	ClampEffortXhighTo string
-	// DowngradeForcedToolChoice rewrites an Anthropic tool_choice of type
-	// "any" / "tool" to {"type":"auto"} (keeping disable_parallel_tool_use).
-	// Set when the target carries router.CapAutoToolChoiceOnly.
+
 	DowngradeForcedToolChoice bool
 }
 
@@ -568,7 +436,6 @@ func (e *RequestEnvelope) emitSameFormat(ov EmitOverrides) ([]byte, error) {
 	return applyOverrides(e.body, ov)
 }
 
-// applyOverrides applies mutations in order: structural, field overrides, deletions.
 func applyOverrides(body []byte, ov EmitOverrides) ([]byte, error) {
 	var err error
 	out := body
@@ -688,10 +555,6 @@ func applyOverrides(body []byte, ov EmitOverrides) ([]byte, error) {
 		}
 	}
 
-	// ForceOutputConfigEffort wins over any request-derived or inbound
-	// output_config.effort. Anthropic Messages only accepts the nested form;
-	// a top-level `effort` field is rejected as an unknown input. Delete any
-	// client-supplied top-level value rather than forwarding it upstream.
 	if ov.ForceOutputConfigEffort != "" {
 		out, err = sjson.SetBytes(out, "output_config.effort", ov.ForceOutputConfigEffort)
 		if err != nil {
@@ -727,8 +590,6 @@ func applyOverrides(body []byte, ov EmitOverrides) ([]byte, error) {
 	return out, nil
 }
 
-// downgradeForcedToolChoiceBytes rewrites tool_choice type "any"/"tool" to
-// "auto", keeping disable_parallel_tool_use; other shapes pass through.
 func downgradeForcedToolChoiceBytes(body []byte) ([]byte, error) {
 	tc := gjson.GetBytes(body, "tool_choice")
 	if !tc.IsObject() {
@@ -752,8 +613,6 @@ func downgradeForcedToolChoiceBytes(body []byte) ([]byte, error) {
 	return out, nil
 }
 
-// stripOutputConfigFormatBytes drops output_config.format and, when that
-// leaves output_config empty, the container too.
 func stripOutputConfigFormatBytes(body []byte) ([]byte, error) {
 	if !gjson.GetBytes(body, "output_config.format").Exists() {
 		return body, nil
@@ -772,7 +631,6 @@ func stripOutputConfigFormatBytes(body []byte) ([]byte, error) {
 	return out, nil
 }
 
-// clampFieldBytes caps a numeric JSON field to maxVal. No-op if absent or non-numeric.
 func clampFieldBytes(body []byte, key string, maxVal int64) []byte {
 	r := gjson.GetBytes(body, key)
 	if !r.Exists() || r.Type != gjson.Number {
@@ -788,15 +646,6 @@ func clampFieldBytes(body []byte, key string, maxVal int64) []byte {
 	return out
 }
 
-// rewriteMessageBlocks walks messages[*].content[*], rewriting each block for
-// which needsRewrite reports true by calling rewrite with that block's raw
-// JSON. rewrite returning "" drops the block from its message's content array.
-// A message whose content array is emptied by rewriting is dropped entirely —
-// Anthropic rejects an assistant/user message with content:[] outright, so
-// leaving the shell behind would trade one 400 for another.
-// Uses two-phase reconstruction per message (cheap predicate scan, then
-// rebuild only messages that actually matched) for O(B) work. Returns body
-// unchanged if nothing matched.
 func rewriteMessageBlocks(
 	body []byte,
 	needsRewrite func(block gjson.Result) bool,
@@ -855,8 +704,7 @@ func rewriteMessageBlocks(
 		}
 
 		if len(kept) == 0 {
-			// Every block in this message was dropped; drop the message itself
-			// rather than emit an empty content array.
+
 			droppedMessage = true
 			return true
 		}
@@ -883,8 +731,6 @@ func rewriteMessageBlocks(
 	return sjson.SetRawBytes(body, "messages", []byte("["+strings.Join(msgRaws, ",")+"]"))
 }
 
-// stripThinkingBlocksBytes removes thinking/redacted_thinking blocks from
-// messages[*].content[*].
 func stripThinkingBlocksBytes(body []byte) ([]byte, error) {
 	return rewriteMessageBlocks(body, isThinkingBlock, dropMatchedBlock)
 }
@@ -894,9 +740,6 @@ func isThinkingBlock(block gjson.Result) bool {
 	return blockType == "thinking" || blockType == "redacted_thinking"
 }
 
-// stripUnsignedThinkingBlocksBytes removes `thinking` blocks with absent or
-// empty `signature` from messages[*].content[*]. Unsigned blocks only come from
-// cross-format emit; Anthropic rejects them. redacted_thinking is exempt.
 func stripUnsignedThinkingBlocksBytes(body []byte) ([]byte, error) {
 	return rewriteMessageBlocks(body, isUnsignedThinkingBlock, dropMatchedBlock)
 }
@@ -905,9 +748,6 @@ func isUnsignedThinkingBlock(block gjson.Result) bool {
 	return block.Get("type").String() == "thinking" && block.Get("signature").String() == ""
 }
 
-// stripForeignSignedThinkingBlocksBytes removes `thinking` blocks carrying a
-// router-minted cross-format signature (`encodeOpenAIReasoningSignature`);
-// ModelSwitched misses these when client-side compaction re-keys the session.
 func stripForeignSignedThinkingBlocksBytes(body []byte) ([]byte, error) {
 	return rewriteMessageBlocks(body, isForeignSignedThinkingBlock, dropMatchedBlock)
 }
@@ -920,13 +760,8 @@ func isForeignSignedThinkingBlock(block gjson.Result) bool {
 	return ok
 }
 
-// dropMatchedBlock drops any block that matched needsRewrite by returning "".
 func dropMatchedBlock(string) (string, error) { return "", nil }
 
-// sanitizeToolUseIDsBytes rewrites tool_use.id and tool_use_id in
-// messages[*].content[*] that contain characters outside ^[a-zA-Z0-9_-]+$.
-// Non-Anthropic upstreams (e.g. Kimi-k2.6) emit IDs like "functions.Read:0";
-// Anthropic rejects those with a 400 when the history is forwarded back to it.
 func sanitizeToolUseIDsBytes(body []byte) ([]byte, error) {
 	return rewriteMessageBlocks(body, blockNeedsToolUseIDSanitize, sanitizeBlockToolUseID)
 }
@@ -944,10 +779,6 @@ func blockNeedsToolUseIDSanitize(block gjson.Result) bool {
 	}
 }
 
-// anthropicRequestToolUseID drops the router-minted OpenAI reasoning carrier
-// before sanitizing: Anthropic cannot use it, and it costs up to ~8KB of prompt
-// per echoed id. Both ends of a tool_use/tool_result pair reduce to the same id.
-// The Gemini thought carrier stays (see StripThoughtSignature).
 func anthropicRequestToolUseID(id string) string {
 	id, _ = stripOpenAIReasoningCarrier(id)
 	return sanitizeToolUseID(id)
@@ -975,9 +806,6 @@ func sanitizeBlockToolUseID(raw string) (string, error) {
 	}
 }
 
-// stripThoughtSignatureBytes removes the `thought_signature` field from every
-// messages[*].content[*] block. Anthropic rejects this Gemini-only field; tool
-// signatures still survive through the id carrier.
 func stripThoughtSignatureBytes(body []byte) ([]byte, error) {
 	return rewriteMessageBlocks(body, hasThoughtSignature, deleteThoughtSignature)
 }
@@ -994,8 +822,6 @@ func deleteThoughtSignature(raw string) (string, error) {
 	return out, nil
 }
 
-// encodeJSONStringNoHTMLEscape marshals s without HTML-escaping <, >, or &.
-// Preserves the client's original escaping for upstream prompt-cache keys.
 func encodeJSONStringNoHTMLEscape(s string) ([]byte, error) {
 	var buf strings.Builder
 	enc := json.NewEncoder(&buf)
@@ -1004,39 +830,22 @@ func encodeJSONStringNoHTMLEscape(s string) ([]byte, error) {
 		return nil, err
 	}
 	out := buf.String()
-	// json.Encoder appends a trailing newline; strip it for sjson.
+
 	return []byte(strings.TrimSuffix(out, "\n")), nil
 }
 
-// routingMarkerPattern matches the "✦ **Weave Router** → ..." snippet
-// injected in cross-format responses.
 var routingMarkerPattern = replayedNoticePattern
 
-// feedbackFooterPattern matches the rating footer appended to streamed
-// responses (see proxy.Service.feedbackFooter), absorbing leading newlines
-// and everything to end of line since there's no fixed end-anchor. Keep the
-// sentinel in sync with proxy.feedbackFooterText.
-var feedbackFooterPattern = regexp.MustCompile("\\n*_Weave Router feedback:_ [^\\n]*")
+var feedbackFooterPattern = regexp.MustCompile(`\n*_Weave Router feedback:_ [^\n]*`)
 
-// StripRoutingMarkerFromMessages removes the routing-marker snippet from every
-// text block in messages[*].content[*]. Stripping on ingress keeps it out of
-// upstream context and stabilizes assistant prefixes for prompt-cache reuse.
 func StripRoutingMarkerFromMessages(body []byte) ([]byte, error) {
 	return stripPatternFromMessages(body, routingMarkerPattern)
 }
 
-// StripFeedbackFooterFromMessages removes the rating footer from every
-// text block in messages[*].content[*]. Like the routing marker, the footer is
-// injected as assistant text on egress, so clients echo it back verbatim on the
-// next turn; stripping it on ingress keeps it out of upstream context.
 func StripFeedbackFooterFromMessages(body []byte) ([]byte, error) {
 	return stripPatternFromMessages(body, feedbackFooterPattern)
 }
 
-// stripPatternFromMessages removes every match of pattern from each text block
-// in messages[*].content[*], handling both the OpenAI plain-string content shape
-// and the Anthropic typed-block-array shape. Blocks whose text becomes empty are
-// dropped. Returns the original body unchanged when nothing matched.
 func stripPatternFromMessages(body []byte, pattern *regexp.Regexp) ([]byte, error) {
 	messages := gjson.GetBytes(body, "messages")
 	if !messages.Exists() || !messages.IsArray() {
@@ -1054,7 +863,6 @@ func stripPatternFromMessages(body []byte, pattern *regexp.Regexp) ([]byte, erro
 			return true
 		}
 
-		// OpenAI format: content is a plain string.
 		if content.Type == gjson.String {
 			text := content.String()
 			if !pattern.MatchString(text) {
@@ -1077,7 +885,6 @@ func stripPatternFromMessages(body []byte, pattern *regexp.Regexp) ([]byte, erro
 			return true
 		}
 
-		// Anthropic format: content is an array of typed blocks.
 		if !content.IsArray() {
 			msgRaws = append(msgRaws, msg.Raw)
 			return true
@@ -1143,17 +950,10 @@ func stripPatternFromMessages(body []byte, pattern *regexp.Regexp) ([]byte, erro
 	return sjson.SetRawBytes(body, "messages", []byte(newMessagesArray))
 }
 
-// StripFeedbackFooterFromGeminiContents removes the one-click thumbs footer from
-// every text part in contents[*].parts[*]. The Gemini footer is emitted as its
-// own model text part on egress (see GeminiRoutingFooterWriter), so clients echo
-// it back as a standalone part on the next turn; stripping it on ingress keeps
-// it out of upstream context. Parts whose text becomes empty are dropped.
 func StripFeedbackFooterFromGeminiContents(body []byte) ([]byte, error) {
 	return stripPatternFromGeminiContents(body, feedbackFooterPattern)
 }
 
-// StripRoutingMarkerFromGeminiContents removes the router-owned selection
-// marker, including its optional reasoning line, from echoed model text.
 func StripRoutingMarkerFromGeminiContents(body []byte) ([]byte, error) {
 	return stripPatternFromGeminiContents(body, routingMarkerPattern)
 }
@@ -1241,8 +1041,6 @@ func resolveOpenAIOverrides(body []byte, opts EmitOptions) EmitOverrides {
 
 	ov.DeleteKeys = append(ov.DeleteKeys, "thinking")
 
-	// gpt-5.x chat/completions rejects reasoning_effort when tools are present;
-	// effort belongs on the Responses API for those models.
 	if gjson.GetBytes(body, "reasoning_effort").Exists() &&
 		(!opts.Capabilities.Supports(router.CapReasoning) ||
 			!reasoningEffortAcceptedOnChatCompletions(opts, hasNonEmptyTools(body))) {
@@ -1250,7 +1048,7 @@ func resolveOpenAIOverrides(body []byte, opts EmitOptions) EmitOverrides {
 	}
 
 	supportsReasoning := opts.Capabilities.Supports(router.CapReasoning)
-	// CapReasoning models reject stop / presence_penalty / frequency_penalty.
+
 	if supportsReasoning {
 		for _, key := range []string{"stop", "presence_penalty", "frequency_penalty"} {
 			if gjson.GetBytes(body, key).Exists() {
@@ -1307,8 +1105,6 @@ func resolveOpenAIOverrides(body []byte, opts EmitOptions) EmitOverrides {
 	return ov
 }
 
-// Anthropic adaptive effort levels referenced by emit logic. Every adaptive
-// model accepts low/medium/high/max; xhigh requires router.CapXhighEffort.
 const (
 	effortLow    = "low"
 	effortMedium = "medium"
@@ -1317,9 +1113,6 @@ const (
 	effortXhigh  = "xhigh"
 )
 
-// ResolveForceEffort canonicalizes level and applies the per-model cap
-// (xhigh → max on non-CapXhighEffort, max → xhigh on a menu that tops out
-// there). Empty input → "".
 func ResolveForceEffort(caps router.ModelSpec, level string) string {
 	if level == "" {
 		return ""
@@ -1331,9 +1124,7 @@ func ResolveForceEffort(caps router.ModelSpec, level string) string {
 			return effortMax
 		}
 	case effortMax:
-		// A menu whose ceiling is xhigh (GPT-5.6 on the public Responses API,
-		// where max is Codex-backend only) has no max rung; rank-clamping it
-		// would fall to high, one rung below what the target can serve.
+
 		if caps.Supports(router.CapXhighEffort) && !containsReasoningLevel(caps.Reasoning().Levels, effortMax) {
 			return effortXhigh
 		}
@@ -1341,8 +1132,6 @@ func ResolveForceEffort(caps router.ModelSpec, level string) string {
 	return canonical
 }
 
-// resolveForceEffort is the package-private variant of ResolveForceEffort;
-// exists so call sites inside EmitOptions don't repeat caps + level extraction.
 func resolveForceEffort(opts EmitOptions) string {
 	return ResolveForceEffort(opts.Capabilities, opts.ForceEffort)
 }
@@ -1362,7 +1151,6 @@ func resolveAnthropicOverrides(body []byte, opts EmitOptions) EmitOverrides {
 		}
 	}
 
-	// User-forced effort wins over inbound heuristic; no-op on non-adaptive targets.
 	if forced := resolveForceEffort(opts); forced != "" && opts.Capabilities.Supports(router.CapAdaptiveThinking) {
 		ov.RewriteThinkingAdaptive = true
 		ov.OutputConfigEffort = forced
@@ -1378,7 +1166,7 @@ func resolveAnthropicOverrides(body []byte, opts EmitOptions) EmitOverrides {
 			shouldDelete = !opts.Capabilities.Supports(router.CapAdaptiveThinking)
 		case "enabled":
 			if opts.Capabilities.Supports(router.CapExtendedThinking) {
-				// Target accepts the legacy shape; leave it untouched.
+
 			} else if opts.Capabilities.Supports(router.CapAdaptiveThinking) {
 				ov.RewriteThinkingAdaptive = true
 				ov.OutputConfigEffort = effortForBudget(thinkingResult.Get("budget_tokens").Int())
@@ -1387,16 +1175,12 @@ func resolveAnthropicOverrides(body []byte, opts EmitOptions) EmitOverrides {
 			}
 		case "disabled":
 			if opts.Capabilities.Supports(router.CapExtendedThinking) {
-				// Legacy extended-thinking models accept thinking.type=disabled.
+
 			} else if opts.Capabilities.Supports(router.CapAdaptiveThinking) &&
 				!opts.Capabilities.Reasoning().AlwaysOn {
-				// Adaptive models that are not always-on (claude-haiku-5-5) accept it too.
+
 			} else if opts.Capabilities.Supports(router.CapAdaptiveThinking) {
-				// Adaptive models are always-on and 400 on thinking.type=disabled
-				// (e.g. claude-fable-5); map the "no thinking" intent to the
-				// lowest adaptive effort instead of forwarding the rejected shape.
-				// The caller sized max_tokens and sampling for a visible-only
-				// answer (Claude Code's 64-token auto-mode verdict).
+
 				ov.RewriteThinkingAdaptive = true
 				ov.OutputConfigEffort = effortLow
 				ov.FloorMaxTokensValue = minReasoningOutputTokens
@@ -1424,8 +1208,6 @@ func resolveAnthropicOverrides(body []byte, opts EmitOptions) EmitOverrides {
 
 	ov.StripOutputConfigFormat = opts.StripOutputConfigFormat
 
-	// "xhigh" is opus-4-7+ only; clamp to the max every adaptive model accepts
-	// so a re-route can't turn a valid request into an invalid one.
 	if opts.Capabilities.Supports(router.CapAdaptiveThinking) && !opts.Capabilities.Supports(router.CapXhighEffort) {
 		ov.ClampEffortXhighTo = effortMax
 	}
@@ -1434,18 +1216,12 @@ func resolveAnthropicOverrides(body []byte, opts EmitOptions) EmitOverrides {
 		ov.StripThinkingBlocks = true
 	}
 
-	// Carried-over thinking blocks were signed by the previous model; strip
-	// them so stale signatures don't 400 against the new one.
 	if opts.ModelSwitched {
 		ov.StripThinkingBlocks = true
 	}
 
 	ov.DowngradeForcedToolChoice = opts.Capabilities.Supports(router.CapAutoToolChoiceOnly)
 
-	// Floor under the switch-history guard: Anthropic rejects unsigned blocks
-	// regardless of pin TTL, so strip them unconditionally (#860). Foreign-signed
-	// blocks fail the same way and are missed by ModelSwitched when client-side
-	// compaction re-keys the session.
 	ov.StripUnsignedThinkingBlocks = true
 	ov.StripForeignSignedThinkingBlocks = true
 
@@ -1457,8 +1233,6 @@ func resolveAnthropicOverrides(body []byte, opts EmitOptions) EmitOverrides {
 	return ov
 }
 
-// resolvePassthroughOverrides strips inference-time fields that non-routing
-// Anthropic endpoints reject.
 func resolvePassthroughOverrides(body []byte) (EmitOverrides, bool) {
 	var deleteKeys []string
 	for _, key := range []string{"effort", "thinking", "context_management", "output_config"} {
@@ -1490,9 +1264,9 @@ var modelMaxOutputTokens = map[string]int{
 	"gpt-5.5-nano": 128000,
 	"gpt-5.6-sol":  128000, "gpt-5.6-sol-pro": 128000,
 	"gpt-5.6-terra": 128000, "gpt-5.6-luna": 128000, "gpt-5.6-luna-pro": 128000,
-	"gpt-6-astra": 128000, "gpt-6-sol": 128000, "gpt-6.1-sol": 128000, "gpt-6.1-terra": 128000, "gpt-6-luna": 128000,
+	"gpt-6-astra": 128000, "gpt-6-sol": 128000, "gpt-6.1-sol": 128000, "gpt-6.1-terra": 128000, "gpt-6-luna": 128000, "gpt-6.2-sol": 128000, "gpt-6.2-astra": 128000,
 	"grok-4.5": 131072, "grok-4.6": 131072, "grok-4.7": 131072,
-	"muse-spark-1.3": 131072, // Meta documents a 128K max output; always-on reasoning shares the budget
+	"muse-spark-1.3": 131072,
 	"muse-ember-1.0": 131072, "muse-wonder-1.0": 131072,
 	"o1": 100000, "o1-pro": 100000, "o1-mini": 65536,
 	"o3": 100000, "o3-pro": 100000, "o3-mini": 100000,
@@ -1506,26 +1280,24 @@ var modelMaxOutputTokens = map[string]int{
 	"gemini-2.5-pro":         65536, "gemini-2.5-flash": 65536,
 	"gemini-2.5-flash-lite": 65536,
 	"gemini-2.0-flash":      8192, "gemini-2.0-flash-lite": 8192,
-	// Keyed by full catalog ID, since decision.Model keeps the vendor prefix.
-	// OSS models accept far more than the 8192 fallback; leaving them unlisted
-	// clamped Claude Code's 64K output request, truncating every long turn.
+
 	"moonshotai/kimi-k3":               131072,
 	"moonshotai/kimi-k3.1":             131072,
-	"qwen/qwen3.8-max":                 64000, // Fireworks reports a 64000 output token ceiling
-	"qwen/qwen3-coder-next":            16384, // Bedrock (primary) caps Qwen models at 16K output
+	"qwen/qwen3.8-max":                 64000,
+	"qwen/qwen3-coder-next":            16384,
 	"qwen/qwen3-235b-a22b-2507":        16384,
 	"qwen/qwen3-next-80b-a3b-instruct": 16384,
-	"deepseek/deepseek-v4-flash":       131072, // DeepSeek V4 documents 384K max output
+	"deepseek/deepseek-v4-flash":       131072,
 	"deepseek/deepseek-v4.1-flash":     131072,
 	"deepseek/deepseek-v4-pro":         131072,
 	"deepseek/deepseek-v4-pro-0813":    131072,
 	"minimax/minimax-m3.1-flash":       131072,
-	catalog.ModelMuseSparkOpen:         131072, // Together accepts more; matches Muse Spark 1.3's 128K
-	"minimax/minimax-m3":               131072, // 512K context, output up to the window
+	catalog.ModelMuseSparkOpen:         131072,
+	"minimax/minimax-m3":               131072,
 	"minimax/minimax-m2.7":             65536,
 	"z-ai/glm-5":                       65536,
 	"z-ai/glm-5.1":                     65536,
-	"z-ai/glm-5.3":                     131072, // Both 5.3 arms document a 128K max output (docs.z.ai/guides/llm/glm-5.3)
+	"z-ai/glm-5.3":                     131072,
 	"z-ai/glm-5.3-flash":               131072,
 	"google/gemini-3.7-flash":          65536,
 	"google/gemini-3.8-flash":          65536,
@@ -1533,8 +1305,6 @@ var modelMaxOutputTokens = map[string]int{
 
 const defaultMaxOutputTokenCap = 8192
 
-// defaultOutputTokens returns the default max output tokens for a model,
-// floored by the model's own cap and globally at defaultMaxOutputTokenCap.
 func defaultOutputTokens(model string) int64 {
 	if tokenCap, ok := modelMaxOutputTokens[model]; ok && tokenCap < defaultMaxOutputTokenCap {
 		return int64(tokenCap)
@@ -1542,10 +1312,6 @@ func defaultOutputTokens(model string) int64 {
 	return defaultMaxOutputTokenCap
 }
 
-// defaultAnthropicOutputTokens leaves room for hidden reasoning and long tool
-// calls on always-on adaptive targets while respecting a documented model cap
-// below anthropicAdaptiveDefaultOutputTokens. Explicit caller max_tokens values are handled separately
-// and are intentionally not changed here.
 func defaultAnthropicOutputTokens(model string, capabilities router.ModelSpec) int64 {
 	if !capabilities.Supports(router.CapAdaptiveThinking) {
 		catalogCapabilities := router.Lookup(model)
@@ -1564,9 +1330,6 @@ func defaultAnthropicOutputTokens(model string, capabilities router.ModelSpec) i
 	return floored
 }
 
-// setMessages writes rebuilt back to the "messages" array and returns ret on
-// success, 0 on marshal failure. Shared by the Anthropic/OpenAI message-array
-// rewriters.
 func (e *RequestEnvelope) setMessages(rebuilt []string, ret int) int {
 	out, err := sjson.SetRawBytes(e.body, "messages", []byte("["+strings.Join(rebuilt, ",")+"]"))
 	if err != nil {

@@ -3,8 +3,9 @@ package catalog
 import (
 	"testing"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/providers"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestMiMoV26FlashProviderOrder(t *testing.T) {
@@ -43,14 +44,14 @@ func TestMiMoV26FlashProviderPricing(t *testing.T) {
 		t.Run(tc.provider, func(t *testing.T) {
 			price, ok := PriceFor(tc.provider, ModelMiMoV26Flash)
 			require.True(t, ok)
-			require.Equal(t, tc.inputUSD, price.InputUSDPer1M)
-			require.Equal(t, 0.28, price.OutputUSDPer1M)
+			require.InDelta(t, tc.inputUSD, price.InputUSDPer1M, 1e-9)
+			require.InDelta(t, 0.28, price.OutputUSDPer1M, 1e-9)
 			require.InDelta(t, tc.cacheUSD, EffectiveInputCost(1_000_000, 0, 1_000_000, price, tc.provider, UsageModifiers{}), 1e-12)
 		})
 	}
 	primaryPrice, ok := PrimaryPriceFor(ModelMiMoV26Flash)
 	require.True(t, ok)
-	require.Equal(t, 0.13, primaryPrice.InputUSDPer1M)
+	require.InDelta(t, 0.13, primaryPrice.InputUSDPer1M, 1e-9)
 	require.Equal(t, TierMid, TierFor(ModelMiMoV26Flash))
 	require.Equal(t, 1_048_576, ContextWindowFor(ModelMiMoV26Flash))
 }

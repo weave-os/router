@@ -164,9 +164,20 @@ func (s *routingPolicySession) editPins(role string, edit func(*sessionpin.Pin))
 	}
 }
 
-func routingPolicyExpire(p *sessionpin.Pin) { p.PinnedUntil = time.Now().Add(-time.Minute) }
+func (s *routingPolicySession) evictPins(role string) func(context.Context) context.Context {
+	return func(ctx context.Context) context.Context {
+		s.h.rec.mu.Lock()
+		defer s.h.rec.mu.Unlock()
+		for k, p := range s.h.pins.pins {
+			if p.Role == role {
+				delete(s.h.pins.pins, k)
+			}
+		}
+		return ctx
+	}
+}
 
-func routingPolicyEvict(p *sessionpin.Pin) { p.PinnedUntil = goldenEpoch.Add(-time.Minute) }
+func routingPolicyExpire(p *sessionpin.Pin) { p.PinnedUntil = goldenEpoch.Add(-time.Minute) }
 
 type routingPolicySetup struct {
 	turns   [][]router.Decision
@@ -291,7 +302,7 @@ func routingPolicySessionPinScenarios() []goldenScenario {
 			first, routingPolicyRequest(next.body, expired.editPins("default_mid", routingPolicyExpire))),
 		routingPolicyScenario("pin_absent_from_store_routes_as_first_turn", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyHigh), routingPolicyAnthropic(routingPolicyLow)),
 			session: evicted, options: []func(*proxy.Service) *proxy.Service{withAvailable}},
-			first, routingPolicyRequest(next.body, evicted.editPins("default_mid", routingPolicyEvict))),
+			first, routingPolicyRequest(next.body, evicted.evictPins("default_mid"))),
 		routingPolicyScenario("pin_from_other_strategy_ignored", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyHigh), routingPolicyAnthropic(routingPolicyLow)), session: mismatched},
 			first, routingPolicyRequest(next.body, mismatched.editPins("default_mid", func(p *sessionpin.Pin) { p.Strategy = router.StrategyHMMBeta }))),
 		routingPolicyScenario("pin_on_excluded_provider_falls_through", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyLow)), trace: true, session: providerNotEnabled,

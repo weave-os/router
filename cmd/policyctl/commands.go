@@ -37,14 +37,10 @@ const defaultRegistryURI = "gs://weave_ml/weave_registry"
 type classifierVerification string
 
 const (
-	classifierVerificationProbe classifierVerification = "probe"
-	// control-plane exists for callers outside the VPC that cannot reach an
-	// internal-ingress revision; the router still probes /readyz at boot.
+	classifierVerificationProbe        classifierVerification = "probe"
 	classifierVerificationControlPlane classifierVerification = "control-plane"
 )
 
-// Identity observable on a Cloud Run revision without calling it: the
-// container image plus the pinned package env the sidecar refuses to boot without.
 type classifierRevisionIdentity struct {
 	ArtifactID    string
 	PackageSHA256 string
@@ -106,7 +102,7 @@ func runCompile(args []string) error {
 		return err
 	}
 	if !*checkOnly {
-		if err := os.WriteFile(*outputPath, canonical, 0o644); err != nil {
+		if err := os.WriteFile(*outputPath, canonical, 0o600); err != nil {
 			return fmt.Errorf("write compiled policy: %w", err)
 		}
 	}
@@ -317,8 +313,6 @@ func runPromote(ctx context.Context, args []string, rollback bool) error {
 	return writeJSON(updated)
 }
 
-// runExport snapshots a promoted lane into the directory layout served by
-// ROUTER_POLICY_RELEASE_DIR, so a self-hosted router can run that exact release.
 func runExport(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet(string(commandExport), flag.ContinueOnError)
 	registryURI := flags.String("registry", defaultRegistryURI, "GCS registry root")

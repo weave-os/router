@@ -34,8 +34,8 @@ func TestSidecarRouterV5ArtifactMismatchFailsClosedAsPinError(t *testing.T) {
 
 	_, err := adapter.Route(context.Background(), router.Request{})
 	require.Error(t, err)
-	assert.ErrorIs(t, err, router.ErrPolicyPinUnavailable)
-	assert.NotErrorIs(t, err, unavailable, "an artifact mismatch must not be classified as a degradable classifier outage")
+	require.ErrorIs(t, err, router.ErrPolicyPinUnavailable)
+	require.NotErrorIs(t, err, unavailable, "an artifact mismatch must not be classified as a degradable classifier outage")
 	assert.Equal(t, pinnedArtifactSHA, decider.query.ClassifierArtifactSHA256)
 }
 
@@ -56,7 +56,7 @@ func TestSidecarRouterV5PinnedPreviewTakesRosterFromGoSelector(t *testing.T) {
 	adapter.WithClassifierReleaseIdentity(releaseID, selectionID, taxonomySHA, policy.ClassifierVariantPrimary, "hmm-v5", artifactSHA)
 	adapter.WithArmSelector(func(_ context.Context, input policy.SelectionInput) (policy.SelectionPick, error) {
 		assert.Equal(t, pinnedRoster, input.RosterSHA256)
-		return policy.SelectionPick{Group: "maximum", Arm: "anthropic/claude-sonnet-5", RosterSHA256: input.RosterSHA256, RankedFallback: classifierFallback("maximum")}, nil
+		return policy.SelectionPick{Group: "maximum", Arm: "anthropic/claude-sonnet-5", RosterSHA256: input.RosterSHA256, RankedFallback: classifierFallback()}, nil
 	})
 	ctx := router.WithPolicyPinRequest(context.Background(), router.PolicyPinRequest{
 		Pin: router.PolicyPin{ArtifactSHA256: artifactSHA, RosterSHA256: pinnedRoster}, Authorized: true,

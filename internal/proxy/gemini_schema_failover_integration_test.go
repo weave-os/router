@@ -69,7 +69,7 @@ func TestProxyMessages_GeminiBuildIncompatibilityFailsOverToBaselineAnthropic(t 
 	})
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	// The tool_use id carries no "__thought__" signature, so
 	// HasUnsignedToolCallHistory is true and PrepareGemini deterministically
 	// fails with ErrGeminiUnsignedToolHistory against a Gemini 3.x target.

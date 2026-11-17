@@ -82,7 +82,7 @@ func TestOpenCodeBackgroundCompletionUsesAgentRoutingContext(t *testing.T) {
 				"input": input,
 			})
 			require.NoError(t, err)
-			request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)
 			request.Header.Set("X-App", test.clientApp)
 			request.Header.Set("Session-Id", "synthetic-opencode-parent")
 			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentityFromHeaders(request.Header))

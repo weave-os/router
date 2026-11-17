@@ -11,22 +11,16 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// CaptureModeSource reports the deployment-wide content-capture setting.
-// Implemented by *proxy.Service.
 type CaptureModeSource interface {
 	CaptureMode() proxy.ContentCaptureMode
 }
 
-// contentCaptureResponse shows deployment, installation, and effective capture
-// modes so the ceiling is visible rather than inferred.
 type contentCaptureResponse struct {
 	Deployment   string  `json:"deployment"`
 	Installation *string `json:"installation"`
 	Effective    string  `json:"effective"`
 }
 
-// updateContentCaptureRequest carries the requested ceiling. A nil Mode clears
-// the override so the deployment setting applies unmodified.
 type updateContentCaptureRequest struct {
 	Mode *string `json:"mode"`
 }
@@ -43,8 +37,6 @@ func contentCaptureFor(installation *auth.Installation, deployment proxy.Content
 	}
 }
 
-// GetContentCaptureHandler returns the deployment capture mode, the
-// installation's override, and the resulting effective mode.
 func GetContentCaptureHandler(authSvc *auth.Service, capture CaptureModeSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
@@ -55,8 +47,6 @@ func GetContentCaptureHandler(authSvc *auth.Service, capture CaptureModeSource) 
 	}
 }
 
-// UpdateContentCaptureHandler persists the installation's capture ceiling.
-// 400 on a mode outside off/hashed/full.
 func UpdateContentCaptureHandler(authSvc *auth.Service, capture CaptureModeSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)

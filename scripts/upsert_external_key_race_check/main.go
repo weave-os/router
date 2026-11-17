@@ -1,15 +1,3 @@
-// Command upsert_external_key_race_check races N=2 concurrent
-// UpsertExternalAPIKey calls for the same (installation, provider) to see
-// whether the UNIQUE (installation_id, provider) WHERE deleted_at IS NULL
-// index cleanly fails the loser (vs. silently minting two live BYOK rows).
-//
-// SoftDeleteExternalAPIKeyByProvider is :exec (same shape as the RotateAPIKey
-// bug); the question is whether Create's unique-violation error propagates.
-//
-// Gated on ROUTER_TEST_DATABASE_URL; no-op when unset.
-//
-//	ROUTER_TEST_DATABASE_URL="postgres://router:router@localhost:5433/router?search_path=router" \
-//	    go run ./scripts/upsert_external_key_race_check
 package main
 
 import (
@@ -66,7 +54,6 @@ func fail(step string, err error) {
 func checkUpsertExternalRace(ctx context.Context, pool *pgxpool.Pool) error {
 	repo := postgres.NewRepository(pool, auth.NoOpEncryptor{})
 
-	// Seed with the unwrapped repo so SoftDelete hold isn't engaged yet.
 	seedSvc := auth.NewService(
 		repo.Installations,
 		repo.APIKeys,
@@ -98,8 +85,6 @@ func checkUpsertExternalRace(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 	fmt.Printf("seeded_key_id=%s\n", seeded.ID)
 
-	// Barrier AFTER SoftDeleteByProvider so both soft-deletes finish before
-	// either Create — Upsert's SoftDelete→Create window held open.
 	hold := newBarrier(n)
 	var softDeleteCalls atomic.Int64
 	ext := &holdingExternalRepo{
@@ -235,8 +220,6 @@ func (h *barrier) Wait() {
 	<-release
 }
 
-// holdingExternalRepo parks SoftDeleteByProvider after the real UPDATE so both
-// racers finish soft-delete before either Create.
 type holdingExternalRepo struct {
 	inner           auth.ExternalAPIKeyRepository
 	hold            *barrier

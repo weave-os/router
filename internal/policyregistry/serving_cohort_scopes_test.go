@@ -6,10 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/subscriptions/entitlement"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCohortCustomSelectionRetiresProfileAndRetainsHistory(t *testing.T) {
@@ -75,7 +76,7 @@ func TestCohortConfigurationScopesRejectCodeOrUnrelatedPolicyChanges(t *testing.
 				"revision":      func(s *policyregistry.SelectionSetV3) { s.Code.Router.Name = "different-worker" },
 				"configuration": func(s *policyregistry.SelectionSetV3) { s.Code.Router.Configuration = artifactRef("different-config") },
 				"candidate": func(s *policyregistry.SelectionSetV3) {
-					candidate := *store.object(t, policyregistry.ServingCandidate, s.Code.Candidate).(*policyregistry.CandidateV2)
+					candidate := *mustAs[*policyregistry.CandidateV2](t, store.object(t, policyregistry.ServingCandidate, s.Code.Candidate))
 					candidate.Policy = original.Profiles[profileKeyTwo]
 					s.Code.Candidate = store.publishArtifact(t, policyregistry.ServingCandidate, candidate)
 				},
@@ -106,7 +107,7 @@ func TestCohortCodeComponentChangesPreserveEffectivePolicies(t *testing.T) {
 			initialRef := store.publishArtifact(t, policyregistry.ServingSelectionSet, initial)
 			next := initial
 			next.Profiles = maps.Clone(initial.Profiles)
-			candidate := *store.object(t, policyregistry.ServingCandidate, initial.Code.Candidate).(*policyregistry.CandidateV2)
+			candidate := *mustAs[*policyregistry.CandidateV2](t, store.object(t, policyregistry.ServingCandidate, initial.Code.Candidate))
 			if scope == policyregistry.ChangeRouter {
 				candidate.RouterImageDigest = "sha256:" + strings.Repeat("4", 64)
 				candidate.Provenance.RouterRevision = strings.Repeat("4", 40)
@@ -162,7 +163,7 @@ func TestCohortWorkerColdStartAndDestinationValidationUseEveryAssignedPolicy(t *
 
 func expandCohortV2(t *testing.T, store *servingMemoryStore, set policyregistry.SelectionSetV3) policyregistry.SelectionSetV2 {
 	t.Helper()
-	candidate := *store.object(t, policyregistry.ServingCandidate, set.Code.Candidate).(*policyregistry.CandidateV2)
+	candidate := *mustAs[*policyregistry.CandidateV2](t, store.object(t, policyregistry.ServingCandidate, set.Code.Candidate))
 	lane := func(key string, policy policyregistry.PolicyObject) policyregistry.ServingLane {
 		configured := candidate
 		configured.Policy = policy
@@ -195,7 +196,7 @@ func TestCohortV3AndV2TransitionsCompareEffectivePolicies(t *testing.T) {
 	require.NoError(t, controller.ValidateProposal(context.Background(), proposal))
 
 	// A code-only upgrade can compact v2 derived candidates into one v3 candidate while retaining every policy.
-	candidate := *store.object(t, policyregistry.ServingCandidate, initial.Code.Candidate).(*policyregistry.CandidateV2)
+	candidate := *mustAs[*policyregistry.CandidateV2](t, store.object(t, policyregistry.ServingCandidate, initial.Code.Candidate))
 	candidate.RouterImageDigest = "sha256:" + strings.Repeat("7", 64)
 	candidate.Provenance.RouterRevision = strings.Repeat("7", 40)
 	next := initial
@@ -223,7 +224,7 @@ func TestCohortRosterRollbackKeepsNewerCodeCandidate(t *testing.T) {
 	updated := original
 	updated.DefaultPolicy = original.Profiles[profileKeyTwo]
 	rosterUpdate := apply(updated, &initial.Activation.SelectionSet, policyregistry.ChangeRoster)
-	candidate := *store.object(t, policyregistry.ServingCandidate, original.Code.Candidate).(*policyregistry.CandidateV2)
+	candidate := *mustAs[*policyregistry.CandidateV2](t, store.object(t, policyregistry.ServingCandidate, original.Code.Candidate))
 	candidate.RouterImageDigest = "sha256:" + strings.Repeat("8", 64)
 	candidate.Provenance.RouterRevision = strings.Repeat("8", 40)
 	updated.Code.Candidate = store.publishArtifact(t, policyregistry.ServingCandidate, candidate)

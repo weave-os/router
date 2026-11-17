@@ -651,7 +651,7 @@ func (in parityIngress) quotaService(upstream providers.Client) *Service {
 func (in parityIngress) request(t *testing.T, stream bool) (*httptest.ResponseRecorder, *http.Request, []byte) {
 	t.Helper()
 	body := in.requestBody(stream)
-	return httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, in.path, strings.NewReader(body)), []byte(body)
+	return httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, in.path, strings.NewReader(body)), []byte(body)
 }
 
 // Credential faults must not buy API inference; confirmed exhaustion still

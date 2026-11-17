@@ -15,17 +15,14 @@ import (
 	"weave-os/router/internal/subscriptions/entitlement"
 )
 
-// SubscriberEntitlementRepo persists projected subscriber entitlements.
 type SubscriberEntitlementRepo struct {
 	queries *sqlc.Queries
 }
 
-// NewSubscriberEntitlementRepo binds entitlement projections to a SQLC database handle.
 func NewSubscriberEntitlementRepo(db sqlc.DBTX) *SubscriberEntitlementRepo {
 	return &SubscriberEntitlementRepo{queries: dbbudget.Queries(db)}
 }
 
-// Project inserts a projection, advances its version, or accepts an identical retry.
 func (r *SubscriberEntitlementRepo) Project(ctx context.Context, projected entitlement.Entitlement) error {
 	if err := projected.Validate(); err != nil {
 		return err
@@ -67,7 +64,6 @@ func (r *SubscriberEntitlementRepo) Project(ctx context.Context, projected entit
 	return fmt.Errorf("project subscriber entitlement: %w", err)
 }
 
-// Get returns the current entitlement projection for a subscriber.
 func (r *SubscriberEntitlementRepo) Get(ctx context.Context, subscriberID entitlement.SubscriberID) (entitlement.Entitlement, error) {
 	if !subscriberID.Valid() {
 		return entitlement.Entitlement{}, entitlement.ErrInvalidContract

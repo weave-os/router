@@ -77,7 +77,7 @@ func serveLunaTurnBody(t *testing.T, store sessionpin.Store, billedPrompt int, b
 		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(body))
 	require.NoError(t, svc.ProxyMessages(context.Background(), []byte(body), rec, req))
 	return rec.Body.String()
 }

@@ -63,7 +63,7 @@ func TestVerificationOpaqueReasoningWireScope(t *testing.T) {
 			body := `{"model":"auto","stream":true,"max_tokens":1000,"thinking":{"type":"enabled","budget_tokens":8192},"messages":[{"role":"user","content":"synthetic"},{"role":"assistant","content":[{"type":"thinking","thinking":"summary","signature":` + strconv.Quote(signature) + `},{"type":"text","text":"continue"}]}],"tools":[{"name":"read_file","input_schema":{"type":"object"}}]}`
 			ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 			rec := httptest.NewRecorder()
-			require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequest("POST", "/v1/messages", strings.NewReader(body))))
+			require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), "POST", "/v1/messages", strings.NewReader(body))))
 			require.Contains(t, rec.Body.String(), "reasoning answer")
 			winningPayload := string(sent[len(sent)-1])
 			if scenario.wantOpaque {

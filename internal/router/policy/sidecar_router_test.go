@@ -66,8 +66,9 @@ func TestSidecarRouterReportsImageLimitWhenNoBindingCanServe(t *testing.T) {
 		ImageCount:       17,
 	})
 	require.Error(t, err)
-	assert.ErrorIs(t, err, policy.ErrImageLimitExceeded)
-	assert.ErrorIs(t, err, policy.ErrNoRoutableModels)
+	require.ErrorIs(t, err, policy.ErrImageLimitExceeded)
+	require.ErrorIs(t, err, policy.ErrNoRoutableModels)
+	require.NotErrorIs(t, err, router.ErrStrategyUnavailable, "an empty candidate set is not a policy outage")
 
 	prefiltered := router.Request{
 		EnabledProviders:         set(providers.ProviderDeepInfra),
@@ -84,7 +85,7 @@ func TestSidecarRouterReportsImageLimitWhenNoBindingCanServe(t *testing.T) {
 	})
 	_, err = adapter.Route(context.Background(), prefiltered)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, policy.ErrImageLimitExceeded)
+	require.ErrorIs(t, err, policy.ErrImageLimitExceeded)
 	assert.ErrorIs(t, err, policy.ErrNoRoutableModels)
 }
 
@@ -868,4 +869,48 @@ func TestSidecarRouterCapabilityRefreshIsConcurrentSafe(t *testing.T) {
 	}
 
 	workers.Wait()
+}
+
+func TestSidecarRouterServesOnlyResolvedGatewayBindings(t *testing.T) {
+	haiku, sonnet := string(catalog.ModelIDClaudeHaiku45), string(catalog.ModelIDClaudeSonnet46)
+	resolver := policy.NewResolver(
+		set(haiku, sonnet),
+		set(providers.ProviderAnthropic, providers.ProviderAnthropicGateway),
+		func(model catalog.Model) string { return model.ID },
+		policy.ManagedProviderPolicy(),
+	)
+	req := router.Request{
+		EnabledProviders: set(providers.ProviderAnthropicGateway),
+		GatewayProviders: set(providers.ProviderAnthropicGateway),
+		CustomBindings:   map[string][]string{haiku: {providers.ProviderAnthropicGateway}},
+	}
+	tests := []struct {
+		name         string
+		pick         policy.Result
+		wantErr      string
+		wantProvider string
+	}{
+		{name: "provider not enabled for request", pick: policy.Result{Model: haiku, Provider: providers.ProviderAnthropic},
+			wantErr: `sidecar returned provider "anthropic"`},
+		{name: "model outside gateway roster", pick: policy.Result{Model: sonnet, Provider: providers.ProviderAnthropic},
+			wantErr: `sidecar returned unknown arm`},
+		{name: "gateway alias", pick: policy.Result{Model: haiku}, wantProvider: providers.ProviderAnthropicGateway},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			adapter := policy.NewSidecarRouter(policy.SidecarRouterConfig{Strategy: router.StrategyHMM}, &recordingPolicy{result: tc.pick}, resolver)
+
+			decision, err := adapter.Route(context.Background(), req)
+
+			if tc.wantErr != "" {
+				require.ErrorIs(t, err, router.ErrStrategyUnavailable)
+				require.ErrorContains(t, err, tc.wantErr)
+				assert.Empty(t, decision.Provider)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, haiku, decision.Model)
+			assert.Equal(t, tc.wantProvider, decision.Provider)
+		})
+	}
 }

@@ -55,7 +55,7 @@ func TestProxyCodexSubscriptionUsesPreparedConversationAffinity(t *testing.T) {
 				Headers:  http.Header{codexSessionIDHeader: []string{"stale-affinity"}},
 			}
 			for i := 0; i < 2; i++ {
-				err := client.Proxy(ctx, router.Decision{Model: "gpt-6.1-sol", Provider: providers.ProviderOpenAI}, prep, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+				err := client.Proxy(ctx, router.Decision{Model: "gpt-6.1-sol", Provider: providers.ProviderOpenAI}, prep, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
 				require.NoError(t, err)
 			}
 			assert.Equal(t, []string{tc.expected, tc.expected}, received)

@@ -10,10 +10,6 @@ import (
 	"github.com/tink-crypto/tink-go/v2/tink"
 )
 
-// Encryptor encrypts/decrypts secrets via AES-256-GCM.
-// AAD binds each ciphertext to (externalID, purpose). Existing external API
-// keys and refresh tokens use the provider as their purpose; subscription
-// access tokens use a distinct purpose suffix.
 type Encryptor interface {
 	Encrypt(plaintext []byte, externalID, provider string) (ciphertext []byte, err error)
 	Decrypt(ciphertext []byte, externalID, provider string) (plaintext []byte, err error)
@@ -23,7 +19,6 @@ type tinkEncryptor struct {
 	aead tink.AEAD
 }
 
-// NewTinkEncryptor creates an Encryptor from a Tink keyset JSON.
 func NewTinkEncryptor(keysetJSON string) (Encryptor, error) {
 	reader := keyset.NewJSONReader(bytes.NewBufferString(keysetJSON))
 	handle, err := insecurecleartextkeyset.Read(reader)
@@ -45,13 +40,10 @@ func (e *tinkEncryptor) Decrypt(ciphertext []byte, externalID, provider string) 
 	return e.aead.Decrypt(ciphertext, aadFor(externalID, provider))
 }
 
-// aadFor MUST stay byte-identical with the Weave-side helper at
-// backend/internal/app/weaverouter/crypto.go.
 func aadFor(externalID, provider string) []byte {
 	return []byte(externalID + "\x00" + provider)
 }
 
-// NoOpEncryptor is a pass-through for development without encryption.
 type NoOpEncryptor struct{}
 
 func (NoOpEncryptor) Encrypt(plaintext []byte, _, _ string) ([]byte, error) {

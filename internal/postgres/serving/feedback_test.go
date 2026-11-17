@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -37,11 +38,12 @@ func (row feedbackRow) Scan(dest ...any) error {
 	if row.err != nil {
 		return row.err
 	}
-	*dest[0].(*string) = row.request
-	*dest[1].(*uuid.UUID) = uuid.New()
-	*dest[2].(*[]byte) = row.scope
-	*dest[3].(*[]byte) = row.binding
-	return nil
+	return errors.Join(
+		scanInto(dest[0], row.request),
+		scanInto(dest[1], uuid.New()),
+		scanInto(dest[2], row.scope),
+		scanInto(dest[3], row.binding),
+	)
 }
 
 func TestFeedbackLookupConstrainsInstallationAndPreservesTuple(t *testing.T) {

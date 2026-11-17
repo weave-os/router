@@ -1,4 +1,3 @@
-// Package postgres implements auth repositories over the SQLC-generated *sqlc.Queries.
 package postgres
 
 import (
@@ -13,31 +12,24 @@ import (
 	"github.com/google/uuid"
 )
 
-// Repository aggregates all repositories backed by the same DBTX.
 type Repository struct {
-	Installations     auth.InstallationRepository
-	APIKeys           auth.APIKeyRepository
-	ExternalAPIKeys   auth.ExternalAPIKeyRepository
-	Users             auth.UserRepository
-	ClusterModelLists auth.ClusterModelListRepository
-	// UserClusterModelLists is the per-user sibling of ClusterModelLists: the
-	// key-scoped list is the org default, this narrows it per router user.
-	UserClusterModelLists   auth.UserClusterModelListRepository
-	BlindExperiments        auth.BlindExperimentRepository
-	BlindExperimentSessions auth.BlindExperimentSessionRepository
-	RoutingPolicies         auth.RoutingPolicyRepository
-	SubscriptionAccounts    auth.SubscriptionAccountRepository
-	Telemetry               *TelemetryRepo
-	Feedback                *FeedbackRepo
-	Analytics               *AnalyticsRepo
-	FlagDefinitions         *FlagDefinitionRepo
-	// GlobalAutomaticExclusions is deployment-scoped rather than
-	// installation-scoped: it is the control plane's list of models withdrawn
-	// from automatic routing for every tenant.
+	Installations             auth.InstallationRepository
+	APIKeys                   auth.APIKeyRepository
+	ExternalAPIKeys           auth.ExternalAPIKeyRepository
+	Users                     auth.UserRepository
+	ClusterModelLists         auth.ClusterModelListRepository
+	UserClusterModelLists     auth.UserClusterModelListRepository
+	BlindExperiments          auth.BlindExperimentRepository
+	BlindExperimentSessions   auth.BlindExperimentSessionRepository
+	RoutingPolicies           auth.RoutingPolicyRepository
+	SubscriptionAccounts      auth.SubscriptionAccountRepository
+	Telemetry                 *TelemetryRepo
+	Feedback                  *FeedbackRepo
+	Analytics                 *AnalyticsRepo
+	FlagDefinitions           *FlagDefinitionRepo
 	GlobalAutomaticExclusions *GlobalAutomaticExclusionRepo
 }
 
-// NewRepository constructs a Repository. Pass auth.NoOpEncryptor{} for local dev without a keyset.
 func NewRepository(tx sqlc.DBTX, encryptor auth.Encryptor) *Repository {
 	return &Repository{
 		Installations:             &installationRepo{tx: tx},
@@ -335,9 +327,6 @@ func (r *installationRepo) UpdateShowModelSelectionReasoning(ctx context.Context
 	return nil
 }
 
-// UpdateFlagOverrides writes the whole sparse override set. Callers pass the
-// post-modification set (read-modify-write), so an override is cleared by
-// omitting its key rather than by writing a sentinel value.
 func (r *installationRepo) UpdateFlagOverrides(ctx context.Context, externalID, id string, overrides flags.Overrides) error {
 	parsed, err := uuid.Parse(id)
 	if err != nil {

@@ -14,11 +14,11 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/refusal"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions/entitlement"
 )
 
-// ServingAdmissionConfig is assembled only when the worker is running with managed serving.
 type TestPlanAdmitter interface {
 	Admit(context.Context, string, string, string, string) (policyregistry.ServingAssertion, error)
 }
@@ -33,8 +33,6 @@ type ServingAdmissionConfig struct {
 	Attribution       policyregistry.RequestAttributionStore
 }
 
-// WithServingAdmission admits the authenticated principal and loads the selected snapshot.
-// A nil config is a no-op so existing self-hosted and old-config managed workers boot unchanged.
 func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 	if cfg == nil {
 		return func(c *gin.Context) { c.Next() }
@@ -61,7 +59,7 @@ func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 		key := APIKeyFrom(c)
 		installation := InstallationFrom(c)
 		if key == nil || installation == nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid_key"})
+			abortRefusal(c, refusal.InvalidKey, nil)
 			return
 		}
 		assertion, err := directAssertion(c.Request.Context(), cfg, installation.ID, key.ID, c.Request, body)
@@ -80,22 +78,21 @@ func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 				return
 			}
 			if errors.Is(err, errServingFleetMismatch) {
-				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "serving_admission_rejected"})
+				abortRefusal(c, refusal.ServingAdmissionRejected, nil)
 				return
 			}
-			c.Header("Retry-After", "1")
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "serving_admission_unavailable"})
+			abortRefusal(c, refusal.ServingAdmissionUnavailable, nil)
 			return
 		}
 		snapshot, err := cfg.Cache.Snapshot(c.Request.Context(), assertion.Admission)
 		if err != nil {
 			observability.FromGin(c).Error("Admitted worker snapshot unavailable", "target", assertion.Admission.Target, "activation_id", assertion.Admission.ActivationID, "release_sha256", assertion.Admission.Selection.Release.SHA256, "err", err)
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "serving_snapshot_unavailable"})
+			abortRefusal(c, refusal.ServingSnapshotUnavailable, nil)
 			return
 		}
 		if assertion.TestPlan != nil && (!cfg.TestBudgetEnabled || assertion.TestPlan.PolicyRevision != snapshot.Release.Policy.SHA256) {
 			observability.FromGin(c).Warn("Internal test snapshot or billing scope rejected", "activation_id", assertion.Admission.ActivationID)
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "test_scope_rejected"})
+			abortRefusal(c, refusal.TestScopeRejected, nil)
 			return
 		}
 		ctx := policyregistry.WithServingAssertion(c.Request.Context(), assertion)
@@ -120,7 +117,7 @@ func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 		requestID := observability.RequestIDFromContext(ctx)
 		if cfg.Attribution == nil || requestID == "" {
 			log.Error("Managed worker request attribution is not configured")
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "serving_attribution_unavailable"})
+			abortRefusal(c, refusal.ServingAttributionUnavailable, nil)
 			return
 		}
 		recordCtx, cancelRecord := context.WithTimeout(ctx, 5*time.Second)
@@ -128,7 +125,7 @@ func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 		cancelRecord()
 		if err != nil {
 			log.Error("Managed worker request attribution failed", "err", err)
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "serving_attribution_unavailable"})
+			abortRefusal(c, refusal.ServingAttributionUnavailable, nil)
 			return
 		}
 		c.Request = c.Request.WithContext(ctx)
