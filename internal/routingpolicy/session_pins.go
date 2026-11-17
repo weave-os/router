@@ -14,36 +14,26 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-// SessionPins reads and writes the session-sticky routing pins.
-type SessionPins struct{ store sessionpin.Store }
+type SessionPins struct {
+	store sessionpin.Store
+	now   func() time.Time
+}
 
-// NewSessionPins returns SessionPins backed by store.
-func NewSessionPins(store sessionpin.Store) SessionPins { return SessionPins{store: store} }
+func NewSessionPins(store sessionpin.Store, now func() time.Time) SessionPins {
+	return SessionPins{store: store, now: now}
+}
 
-// PinSessionTTL mirrors Anthropic's prompt-cache TTL on Sonnet/Haiku/Opus 4.5+
-// so the pin lifecycle tracks the cache it's keeping warm.
 const PinSessionTTL = time.Hour
 
-// PinNeverExpires is the sentinel PinnedUntil for user-forced pins: a
-// /force-model must survive arbitrarily long idle gaps and only clear on
-// /unforce-model, never lapse on the session TTL. Far enough out to read as
-// live indefinitely everywhere PinnedUntil is checked, but still within
-// Postgres's timestamp range. /unforce-model rewrites it to a past time.
 var PinNeverExpires = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
 
-// PinExpiry returns the PinnedUntil to record for a pin with the given decision
-// reason. User-forced pins get the never-expires sentinel; every other pin keeps
-// the sliding one-hour session TTL.
-func PinExpiry(reason string) time.Time {
+func PinExpiry(reason string, now time.Time) time.Time {
 	if strings.HasPrefix(reason, translate.ReasonUserForceModel) {
 		return PinNeverExpires
 	}
-	return time.Now().Add(PinSessionTTL)
+	return now.Add(PinSessionTTL)
 }
 
-// PinMatchesEffectiveStrategy reports whether a stored pin belongs to the
-// strategy serving this request. An explicit user force is policy-independent;
-// legacy empty-strategy rows remain eligible outside beta during rollout.
 func PinMatchesEffectiveStrategy(ctx context.Context, pin sessionpin.Pin) bool {
 	if IsUserForcedReason(pin.Reason) {
 		return true
@@ -55,8 +45,6 @@ func PinMatchesEffectiveStrategy(ctx context.Context, pin sessionpin.Pin) bool {
 	return pin.Strategy == "" && !router.IsBetaStrategy(expected)
 }
 
-// DecisionPolicyGroup returns the policy cluster/group a decision was drawn
-// from, or "" for reconstructed pins and routers that report no group.
 func DecisionPolicyGroup(dec router.Decision) string {
 	if dec.Metadata == nil {
 		return ""
@@ -64,7 +52,6 @@ func DecisionPolicyGroup(dec router.Decision) string {
 	return dec.Metadata.PolicyGroup
 }
 
-// HMMHistoryRole is the pin role that stores role's HMM switch history.
 func HMMHistoryRole(role string) string {
 	if role == "" {
 		role = sessionpin.DefaultRole
@@ -72,23 +59,15 @@ func HMMHistoryRole(role string) string {
 	return role + "_hmm_history"
 }
 
-// IsUserForcedReason reports whether a decision reason is a /force-model pin.
 func IsUserForcedReason(reason string) bool {
 	return strings.HasPrefix(reason, translate.ReasonUserForceModel)
 }
 
-// Load returns the stored pin and whether it may actively serve this turn.
-// Expired rows are misses for routing, but their history fields still protect
-// Anthropic emit from stale thinking-block signatures in the client transcript.
 func (sp SessionPins) Load(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (sessionpin.Pin, bool) {
 	pin, active, _ := sp.LoadWithStoreState(ctx, sessionKey, role)
 	return pin, active
 }
 
-// LoadWithStoreState is Load plus noStoredState: the store answered and
-// held nothing for this key. A store error routes exactly like a miss (fall
-// through to the scorer), but a caller that reads absence as session state —
-// first-turn telemetry capture — must not read an outage as a fresh session.
 func (sp SessionPins) LoadWithStoreState(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (_ sessionpin.Pin, active, noStoredState bool) {
 	log := observability.FromContext(ctx)
 	log.Debug("loadPin called", "role", role, "session_key_hex", fmt.Sprintf("%x", sessionKey))
@@ -103,14 +82,12 @@ func (sp SessionPins) LoadWithStoreState(ctx context.Context, sessionKey [sessio
 	if !PinMatchesEffectiveStrategy(ctx, pin) {
 		return sessionpin.Pin{}, false, false
 	}
-	if !pin.PinnedUntil.After(time.Now()) {
+	if !pin.PinnedUntil.After(sp.now()) {
 		return pin, false, false
 	}
 	return pin, true, false
 }
 
-// LoadHMMHistory returns the session's HMM switch history, or the zero pin on
-// a miss, a store error, or a row from another strategy.
 func (sp SessionPins) LoadHMMHistory(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) sessionpin.Pin {
 	log := observability.FromContext(ctx)
 	pin, found, err := sp.store.Get(ctx, sessionKey, HMMHistoryRole(role))
@@ -127,19 +104,14 @@ func (sp SessionPins) LoadHMMHistory(ctx context.Context, sessionKey [sessionpin
 	return pin
 }
 
-// Refresh extends the TTL on an existing pin. Carries the existing pin's
-// usage forward so the planner has evidence before the next UpdateUsage
-// writeback lands.
 func (sp SessionPins) Refresh(ctx context.Context, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, existing sessionpin.Pin, role string, chosen router.Decision) {
 	sp.RefreshVotes(ctx, installationID, sessionKey, existing, role, chosen, 0, 0)
 }
 
-// RefreshDowngradeVotes is Refresh carrying a pending downgrade vote count.
 func (sp SessionPins) RefreshDowngradeVotes(ctx context.Context, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, existing sessionpin.Pin, role string, chosen router.Decision, downgradeVotes int) {
 	sp.RefreshVotes(ctx, installationID, sessionKey, existing, role, chosen, downgradeVotes, 0)
 }
 
-// RefreshVotes is Refresh carrying both pending vote counts.
 func (sp SessionPins) RefreshVotes(ctx context.Context, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, existing sessionpin.Pin, role string, chosen router.Decision, downgradeVotes, upgradeVotes int) {
 	if installationID == uuid.Nil {
 		return
@@ -149,23 +121,19 @@ func (sp SessionPins) RefreshVotes(ctx context.Context, installationID uuid.UUID
 		effort = existing.Effort
 	}
 	p := sessionpin.Pin{
-		SessionKey:     sessionKey,
-		Role:           role,
-		InstallationID: installationID,
-		Provider:       chosen.Provider,
-		Model:          chosen.Model,
-		Effort:         effort,
-		// No scorer runs on a plain refresh, so carry the existing pair
-		// forward unchanged (ON CONFLICT preserves an empty one).
-		PairedProvider: existing.PairedProvider,
-		PairedModel:    existing.PairedModel,
-		Reason:         chosen.Reason,
-		Strategy:       router.StrategyFromContext(ctx),
-		// Same rationale as the pair above: a refresh runs no policy, so the
-		// reconstructed decision carries no group. Carry the stored one forward.
+		SessionKey:            sessionKey,
+		Role:                  role,
+		InstallationID:        installationID,
+		Provider:              chosen.Provider,
+		Model:                 chosen.Model,
+		Effort:                effort,
+		PairedProvider:        existing.PairedProvider,
+		PairedModel:           existing.PairedModel,
+		Reason:                chosen.Reason,
+		Strategy:              router.StrategyFromContext(ctx),
 		PolicyGroup:           existing.PolicyGroup,
 		TurnCount:             1,
-		PinnedUntil:           PinExpiry(chosen.Reason),
+		PinnedUntil:           PinExpiry(chosen.Reason, sp.now()),
 		LastInputTokens:       existing.LastInputTokens,
 		LastCachedReadTokens:  existing.LastCachedReadTokens,
 		LastCachedWriteTokens: existing.LastCachedWriteTokens,
@@ -180,13 +148,8 @@ func (sp SessionPins) RefreshVotes(ctx context.Context, installationID uuid.UUID
 	sp.Upsert(ctx, p)
 }
 
-// WriteNew records a freshly-routed decision as the active pin. Used on
-// first-turn routing and switch turns. UpdateUsage fills in usage stats later.
 func (sp SessionPins) WriteNew(ctx context.Context, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, role string, chosen router.Decision) {
 	log := observability.FromContext(ctx)
-	// pinDecision(pin) reconstructions carry no Metadata, so the nil guard
-	// leaves the pair empty; ON CONFLICT then preserves the stored pair
-	// instead of wiping it.
 	var pairedProvider, pairedModel string
 	if chosen.Metadata != nil {
 		pairedProvider = chosen.Metadata.PairedProvider
@@ -210,14 +173,11 @@ func (sp SessionPins) WriteNew(ctx context.Context, installationID uuid.UUID, se
 		Strategy:       router.StrategyFromContext(ctx),
 		PolicyGroup:    DecisionPolicyGroup(chosen),
 		TurnCount:      1,
-		PinnedUntil:    PinExpiry(chosen.Reason),
+		PinnedUntil:    PinExpiry(chosen.Reason, sp.now()),
 	}
 	sp.Upsert(ctx, p)
 }
 
-// Upsert synchronously persists a pin write. The context drops cancellation
-// so the DB write survives request-ctx cancellation after the response has
-// finished streaming.
 func (sp SessionPins) Upsert(ctx context.Context, p sessionpin.Pin) {
 	log := observability.FromContext(ctx)
 	if p.Strategy == "" {
@@ -235,7 +195,6 @@ const (
 	forceModelHistoryReason     = "force_model_history"
 )
 
-// ForceModelHistoryRole is the pin role that remembers role's forced model.
 func ForceModelHistoryRole(role string) string {
 	if role == "" {
 		role = sessionpin.DefaultRole
@@ -243,8 +202,6 @@ func ForceModelHistoryRole(role string) string {
 	return role + forceModelHistoryRoleSuffix
 }
 
-// AnchorForceModelHistory records forcedPin's provider and model as the
-// session's force-model history.
 func (sp SessionPins) AnchorForceModelHistory(
 	ctx context.Context,
 	installationID uuid.UUID,

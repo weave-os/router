@@ -37,7 +37,7 @@ func TestStreamCostWriterAnnotatesFinalMessageDelta(t *testing.T) {
 		}
 	}
 	require.True(t, annotated.Exists())
-	require.Equal(t, float64(1.25), annotated.Get("usd").Float())
+	require.InDelta(t, float64(1.25), annotated.Get("usd").Float(), 1e-9)
 	require.Equal(t, int64(3), annotated.Get("cache_read_tokens").Int())
 }
 

@@ -20,9 +20,9 @@ func TestSetAuth_PassthroughRejectsRouterKey(t *testing.T) {
 	c := &Client{apiKey: ""} // passthrough mode
 
 	t.Run("router-key Bearer is not forwarded", func(t *testing.T) {
-		inbound := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		inbound := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", nil)
 		inbound.Header.Set("Authorization", "Bearer rk_abc123")
-		upstream := httptest.NewRequest(http.MethodPost, "https://api.openai.com/v1/chat/completions", nil)
+		upstream := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "https://api.openai.com/v1/chat/completions", nil)
 
 		c.setAuth(context.Background(), upstream, inbound)
 
@@ -31,9 +31,9 @@ func TestSetAuth_PassthroughRejectsRouterKey(t *testing.T) {
 	})
 
 	t.Run("genuine OpenAI Bearer flows through", func(t *testing.T) {
-		inbound := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		inbound := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", nil)
 		inbound.Header.Set("Authorization", "Bearer sk-proj-real")
-		upstream := httptest.NewRequest(http.MethodPost, "https://api.openai.com/v1/chat/completions", nil)
+		upstream := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "https://api.openai.com/v1/chat/completions", nil)
 
 		c.setAuth(context.Background(), upstream, inbound)
 
@@ -42,10 +42,10 @@ func TestSetAuth_PassthroughRejectsRouterKey(t *testing.T) {
 	})
 
 	t.Run("ChatGPT OAuth is never forwarded to public OpenAI", func(t *testing.T) {
-		inbound := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+		inbound := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)
 		inbound.Header.Set("Authorization", "Bearer eyJhbGciOi.codex.jwt")
 		inbound.Header.Set("ChatGPT-Account-ID", "acct-123")
-		upstream := httptest.NewRequest(http.MethodPost, "https://api.openai.com/v1/responses", nil)
+		upstream := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "https://api.openai.com/v1/responses", nil)
 
 		c.setAuth(context.Background(), upstream, inbound)
 
@@ -54,10 +54,10 @@ func TestSetAuth_PassthroughRejectsRouterKey(t *testing.T) {
 	})
 
 	t.Run("genuine OpenAI Bearer with stray account id still flows through", func(t *testing.T) {
-		inbound := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+		inbound := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)
 		inbound.Header.Set("Authorization", "Bearer sk-proj-real")
 		inbound.Header.Set("ChatGPT-Account-ID", "acct-stray")
-		upstream := httptest.NewRequest(http.MethodPost, "https://api.openai.com/v1/responses", nil)
+		upstream := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "https://api.openai.com/v1/responses", nil)
 
 		c.setAuth(context.Background(), upstream, inbound)
 
@@ -70,9 +70,9 @@ func TestSetAuth_PassthroughRejectsRouterKey(t *testing.T) {
 		// know whether it's a router key without the prefix check, so we
 		// fall through — upstream will 401 on invalid creds, which is the
 		// correct failure mode.
-		inbound := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		inbound := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", nil)
 		inbound.Header.Set("Authorization", "sk-proj-bare")
-		upstream := httptest.NewRequest(http.MethodPost, "https://api.openai.com/v1/chat/completions", nil)
+		upstream := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "https://api.openai.com/v1/chat/completions", nil)
 
 		c.setAuth(context.Background(), upstream, inbound)
 
@@ -80,8 +80,8 @@ func TestSetAuth_PassthroughRejectsRouterKey(t *testing.T) {
 	})
 
 	t.Run("empty authorization is a no-op", func(t *testing.T) {
-		inbound := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-		upstream := httptest.NewRequest(http.MethodPost, "https://api.openai.com/v1/chat/completions", nil)
+		inbound := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", nil)
+		upstream := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "https://api.openai.com/v1/chat/completions", nil)
 
 		c.setAuth(context.Background(), upstream, inbound)
 

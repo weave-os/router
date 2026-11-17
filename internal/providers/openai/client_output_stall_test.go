@@ -72,7 +72,11 @@ func streamsNonOutputFramesForever(interval time.Duration) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
-		f := w.(http.Flusher)
+		f, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+			return
+		}
 		f.Flush()
 		for {
 			select {
@@ -98,15 +102,15 @@ func TestProxy_OutputStallAbortsRetryable_ByteAliveNoOutput(t *testing.T) {
 	const outputStall = 120 * time.Millisecond
 	c := openai.NewClientWithStallTimeouts("test-key", upstream.URL, stallTestHeaderTimeout, byteIdle, outputStall)
 	w := &fakeProgressWriter{armReturns: true} // streaming translator; never marks output
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 
 	start := time.Now()
 	err := c.Proxy(context.Background(), router.Decision{Model: "gpt-5.5"}, responsesPrep(), w, clientReq)
 	elapsed := time.Since(start)
 
 	require.Error(t, err, "a byte-alive/output-silent stream must surface an error, not hang")
-	assert.ErrorIs(t, err, httputil.ErrUpstreamOutputStall)
-	assert.NotErrorIs(t, err, httputil.ErrUpstreamIdleTimeout,
+	require.ErrorIs(t, err, httputil.ErrUpstreamOutputStall)
+	require.NotErrorIs(t, err, httputil.ErrUpstreamIdleTimeout,
 		"the byte-idle watchdog must not be what fired — bytes were flowing the whole time")
 	assert.True(t, providers.IsRetryable(err),
 		"the output stall must classify retryable so dispatchWithFallback can re-attempt")
@@ -124,7 +128,7 @@ func TestProxy_OutputFlowingStreamIsNotOutputStalled(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
-		f := w.(http.Flusher)
+		f := assertAs[http.Flusher](t, w)
 		f.Flush()
 		for range frames {
 			select {
@@ -142,7 +146,7 @@ func TestProxy_OutputFlowingStreamIsNotOutputStalled(t *testing.T) {
 	const outputStall = 60 * time.Millisecond // < frames*frameInterval, so total duration exceeds it
 	c := openai.NewClientWithStallTimeouts("test-key", upstream.URL, stallTestHeaderTimeout, byteIdle, outputStall)
 	w := &fakeProgressWriter{armReturns: true, markOnWrite: true}
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 
 	err := c.Proxy(context.Background(), router.Decision{Model: "gpt-5.5"}, responsesPrep(), w, clientReq)
 

@@ -22,12 +22,12 @@ func TestClassifierSearchChildIsolationAndReplay(t *testing.T) {
 		return classifierMedium(ctx, input)
 	})
 	parent := classifierAdmit(t, svc, principal)
-	parentThread := parent.Value(classifierThreadContextKey{}).(router.ClassifierThread)
+	parentThread := mustAs[router.ClassifierThread](t, parent.Value(classifierThreadContextKey{}))
 	classify := func(ctx context.Context, body string) context.Context {
 		t.Helper()
 		captured, err := svc.withClassifierInput(ctx, []byte(body), router.EndpointAnthropicMessages)
 		require.NoError(t, err)
-		_, err = svc.classifyThread(captured, captured.Value(classifierInputContextKey{}).(router.ClassifierContext))
+		_, err = svc.classifyThread(captured, mustAs[router.ClassifierContext](t, captured.Value(classifierInputContextKey{})))
 		require.NoError(t, err)
 		return captured
 	}
@@ -36,7 +36,7 @@ func TestClassifierSearchChildIsolationAndReplay(t *testing.T) {
 	classify(parent, first)
 	checkpoint := store.prefixCheckpoints[parentThread.ThreadID]
 	child := classify(parent, classifierSearchBody)
-	childThread := child.Value(classifierThreadContextKey{}).(router.ClassifierThread)
+	childThread := mustAs[router.ClassifierThread](t, child.Value(classifierThreadContextKey{}))
 	require.NotEqual(t, parentThread.ThreadID, childThread.ThreadID)
 	require.NotEqual(t, deriveSessionKeyForRequest(parent, nil, "credential"), deriveSessionKeyForRequest(child, nil, "credential"))
 	require.Equal(t, parentThread.InstallationID, childThread.InstallationID)
@@ -59,7 +59,7 @@ func TestClassifierSearchChildIsolationAndReplay(t *testing.T) {
 	require.Equal(t, "Synthetic answer", inputs[2].User.PrecedingResponses[0].Content)
 
 	// Parent advancement cannot change a retry's child identity.
-	replica := &Service{now: svc.now}
+	replica := &Service{clock: svc.clock}
 	require.NoError(t, replica.WithClassifierSessions(svc.classifierSessions.config, store, svc.classifierSessions.classifier))
 	var workers sync.WaitGroup
 	for range 8 {
@@ -72,7 +72,7 @@ func TestClassifierSearchChildIsolationAndReplay(t *testing.T) {
 			if captured.Value(classifierThreadContextKey{}) != childThread {
 				t.Error("retry changed child identity")
 			}
-			_, err = replica.classifyThread(captured, captured.Value(classifierInputContextKey{}).(router.ClassifierContext))
+			_, err = replica.classifyThread(captured, assertAs[router.ClassifierContext](t, captured.Value(classifierInputContextKey{})))
 			if err != nil {
 				t.Errorf("classify retry: %v", err)
 			}
@@ -82,15 +82,15 @@ func TestClassifierSearchChildIsolationAndReplay(t *testing.T) {
 	require.Len(t, inputs, 3)
 	require.Len(t, store.threads, 2)
 	differentQueryChild := classify(parent, strings.ReplaceAll(classifierSearchBody, "language documentation", "compiler documentation"))
-	require.NotEqual(t, childThread.ThreadID, differentQueryChild.Value(classifierThreadContextKey{}).(router.ClassifierThread).ThreadID)
+	require.NotEqual(t, childThread.ThreadID, mustAs[router.ClassifierThread](t, differentQueryChild.Value(classifierThreadContextKey{})).ThreadID)
 	separateParent := classifierAdmit(t, svc, principal)
 	differentParentChild := classify(separateParent, classifierSearchBody)
-	require.NotEqual(t, childThread.ThreadID, differentParentChild.Value(classifierThreadContextKey{}).(router.ClassifierThread).ThreadID)
+	require.NotEqual(t, childThread.ThreadID, mustAs[router.ClassifierThread](t, differentParentChild.Value(classifierThreadContextKey{})).ThreadID)
 
 	// An ordinary history reset is still rejected, even after a helper succeeds.
 	captured, err := svc.withClassifierInput(parent, []byte(first), router.EndpointAnthropicMessages)
 	require.NoError(t, err)
-	_, err = svc.classifyThread(captured, captured.Value(classifierInputContextKey{}).(router.ClassifierContext))
+	_, err = svc.classifyThread(captured, mustAs[router.ClassifierContext](t, captured.Value(classifierInputContextKey{})))
 	require.ErrorIs(t, err, router.ErrClassifierHistoryUnavailable)
 }
 
@@ -122,7 +122,7 @@ func TestClassifierSearchDoesNotResetOrdinaryThreads(t *testing.T) {
 func TestClassifierSearchRejectsMissingParentAndRetiredChild(t *testing.T) {
 	svc, principal, store := classifierSessionFixture(t, classifierMedium)
 	parent := classifierAdmit(t, svc, principal)
-	thread := parent.Value(classifierThreadContextKey{}).(router.ClassifierThread)
+	thread := mustAs[router.ClassifierThread](t, parent.Value(classifierThreadContextKey{}))
 	delete(store.threads, thread.ThreadID)
 	_, err := svc.withClassifierInput(parent, []byte(classifierSearchBody), router.EndpointAnthropicMessages)
 	require.ErrorIs(t, err, router.ErrClassifierThreadInvalid)
@@ -130,7 +130,7 @@ func TestClassifierSearchRejectsMissingParentAndRetiredChild(t *testing.T) {
 	store.threads[thread.ThreadID] = thread
 	captured, err := svc.withClassifierInput(parent, []byte(classifierSearchBody), router.EndpointAnthropicMessages)
 	require.NoError(t, err)
-	child := captured.Value(classifierThreadContextKey{}).(router.ClassifierThread)
+	child := mustAs[router.ClassifierThread](t, captured.Value(classifierThreadContextKey{}))
 	child.ReleaseSHA256 = strings.Repeat("f", 64)
 	store.threads[child.ThreadID] = child
 	_, err = svc.withClassifierInput(parent, []byte(classifierSearchBody), router.EndpointAnthropicMessages)

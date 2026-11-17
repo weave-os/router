@@ -209,3 +209,15 @@ func TestSynthesizeMessageWithoutResults(t *testing.T) {
 		}
 	}
 }
+
+func TestSynthesizeMessageSerializesZeroHitsAsEmptyContent(t *testing.T) {
+	msg := websearch.SynthesizeMessage("msg_1", "model", "", websearch.Query{Text: "q"}, websearch.Response{}, 10)
+
+	raw, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"content":[]`) {
+		t.Fatalf("zero-hit result must serialize content as [] (Claude Code's WebSearch tool crashes without it): %s", raw)
+	}
+}

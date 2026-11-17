@@ -10,9 +10,6 @@ import (
 	"weave-os/router/internal/router/policy"
 )
 
-// PrepareWorker validates the immutable bootstrap closure without contacting
-// classifiers. A reused revision must cold-start after its bootstrap classifier
-// retires. Private destination validation and admission load the live runtime.
 func (c *ServingRuntimeCache) PrepareWorker(ctx context.Context, identity WorkerIdentity, ref ObjectRef) (*Snapshot, error) {
 	set, err := readSelectionSetView(ctx, c.store, ref)
 	if err != nil {
@@ -46,11 +43,8 @@ func (c *ServingRuntimeCache) PrepareWorker(ctx context.Context, identity Worker
 	return baseline, nil
 }
 
-// AdmittedRosterSource exposes the requesting installation's exact roster only.
-// A request without admission cannot obtain a default or another customer's roster.
 type AdmittedRosterSource struct{}
 
-// DistributionRoster exposes the same immutable customer policy used by selection.
 func (AdmittedRosterSource) DistributionRoster(ctx context.Context) (*rosterdata.Roster, error) {
 	snapshot := ServingSnapshotFromContext(ctx)
 	if snapshot == nil || snapshot.Policy == nil {
@@ -60,7 +54,6 @@ func (AdmittedRosterSource) DistributionRoster(ctx context.Context) (*rosterdata
 	return roster, nil
 }
 
-// ClusterRoster supplies the admitted policy to discovery and escalation.
 func (AdmittedRosterSource) ClusterRoster(ctx context.Context) (policy.RosterSnapshot, error) {
 	snapshot := ServingSnapshotFromContext(ctx)
 	if snapshot == nil {
@@ -69,7 +62,6 @@ func (AdmittedRosterSource) ClusterRoster(ctx context.Context) (policy.RosterSna
 	return snapshotRoster(snapshot, router.StrategyFromContext(ctx)), nil
 }
 
-// Roster supplies the complete arm union without a mutable cross-profile cache.
 func (AdmittedRosterSource) Roster(ctx context.Context) ([]string, error) {
 	snapshot := ServingSnapshotFromContext(ctx)
 	if snapshot == nil {

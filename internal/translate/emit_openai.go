@@ -1,7 +1,7 @@
 package translate
 
 import (
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -16,12 +16,8 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// maxToolCallIDLen is OpenAI's limit on a tool-call id (tool_calls[].id,
-// call_id) — longer ids get a 400 ("string too long").
 const maxToolCallIDLen = 64
 
-// resolveReasoningEffortFor returns the effort to write on chat/completions:
-// ForceEffort wins over ForceReasoningEffort; both empty → "".
 func resolveReasoningEffortFor(opts EmitOptions) string {
 	if opts.ForceEffort != "" {
 		return ResolveForceEffort(opts.Capabilities, opts.ForceEffort)
@@ -29,11 +25,6 @@ func resolveReasoningEffortFor(opts EmitOptions) string {
 	return opts.ForceReasoningEffort
 }
 
-// reasoningEffortAcceptedOnChatCompletions reports whether the target accepts
-// reasoning_effort on /v1/chat/completions. gpt-5.x rejects it (routed through
-// Responses API); other CapReasoning models (OpenRouter OSS) accept it freely.
-// Gateways reject it alongside tools for any model and have no Responses
-// surface to fall back to, so the effort is dropped rather than 400ing.
 func reasoningEffortAcceptedOnChatCompletions(opts EmitOptions, hasTools bool) bool {
 	if strings.HasPrefix(opts.TargetModel, "gpt-5") {
 		return false
@@ -44,18 +35,11 @@ func reasoningEffortAcceptedOnChatCompletions(opts EmitOptions, hasTools bool) b
 	return true
 }
 
-// toolTurnNeedsExplicitEffortNone reports whether the target refuses a
-// function-tool turn on chat/completions unless reasoning_effort is "none".
-// gpt-5.6 applies its own effort when the field is absent; /v1/responses
-// dispatch is what preserves reasoning. Gateways excluded: proxy downgrades them.
 func toolTurnNeedsExplicitEffortNone(opts EmitOptions, hasTools bool) bool {
 	return hasTools && opts.TargetProvider == providers.ProviderOpenAI &&
 		strings.HasPrefix(opts.TargetModel, "gpt-5.6")
 }
 
-// samplersAccepted reports whether the target accepts temperature / top_p.
-// OpenAI reasoning models 400 on non-default values on both endpoints;
-// other CapReasoning targets (OpenRouter, xAI) sample normally.
 func samplersAccepted(opts EmitOptions) bool {
 	return !opts.Capabilities.Supports(router.CapReasoning) ||
 		!isOpenAIReasoningTarget(opts)
@@ -66,9 +50,6 @@ func isOpenAIReasoningTarget(opts EmitOptions) bool {
 		strings.HasPrefix(opts.TargetModel, "gpt-") || strings.HasPrefix(opts.TargetModel, "o")
 }
 
-// clampOpenAIToolCallID makes a tool-call id safe for the OpenAI wire format:
-// strips any smuggled Gemini thoughtSignature, then hashes ids still over 64
-// chars so a tool_use block and its tool_result stay paired on the same id.
 func clampOpenAIToolCallID(id string) string {
 	if id == "" {
 		return id
@@ -78,8 +59,8 @@ func clampOpenAIToolCallID(id string) string {
 	if len(cleanID) <= maxToolCallIDLen {
 		return cleanID
 	}
-	sum := sha1.Sum([]byte(cleanID))
-	return "tc_" + hex.EncodeToString(sum[:])
+	sum := sha256.Sum256([]byte(cleanID))
+	return "tc_" + hex.EncodeToString(sum[:20])
 }
 
 func hasNonEmptyTools(body []byte) bool {
@@ -87,7 +68,6 @@ func hasNonEmptyTools(body []byte) bool {
 	return tools.Exists() && tools.IsArray() && tools.Get("#").Int() > 0
 }
 
-// PrepareOpenAI builds an OpenAI Chat Completions request body.
 func (e *RequestEnvelope) PrepareOpenAI(in http.Header, opts EmitOptions) (providers.PreparedRequest, error) {
 	e, err := e.withRouterSystemAppends(opts)
 	if err != nil {
@@ -134,30 +114,6 @@ func (e *RequestEnvelope) PrepareOpenAI(in http.Header, opts EmitOptions) (provi
 	return providers.PreparedRequest{Body: body, Headers: headers, Stats: stats, ResponseToolNames: toolNames}, nil
 }
 
-// applySessionAffinity attaches an upstream-specific prompt-cache routing hint
-// from opts.SessionAffinity. Serverless upstreams fan a session across
-// replicas and hold prefix KV-cache per replica; without a stickiness hint a
-// turn can land on a cold replica and pay a full prefill (the
-// deepseek-v4-pro/Fireworks incident: 60k-token turn, zero cache read, 26s
-// TTFT). Each upstream takes a different knob: OpenAI-compat serverless
-// (Fireworks/Makora/Together/…) gets x-session-affinity (the
-// default for any OpenAI-compat target, so new upstreams need no edit here),
-// OpenRouter gets x-session-id, OpenAI and customer openai_gateway endpoints
-// get the prompt_cache_key body field (a spec Chat Completions field, so a
-// gateway that forwards the body forwards the hint — no unknown-header risk),
-// xAI Chat Completions gets x-grok-conv-id — including grok served through an
-// openai_gateway, since xAI only honors prompt_cache_key on the Responses API
-// and keys Chat Completions cache routing on the header alone. Bedrock's explicit cachePoint
-// caching is centrally routed, so it gets nothing.
-//
-// The header-based hints are gated on a real session key — collapsing keyless
-// requests onto one synthetic bucket would herd unrelated conversations onto
-// a single replica. OpenAI's prompt_cache_key is a soft hint rather than a
-// hard pin, so it's always set on OpenAI-format cross-format routes: a
-// session key is used directly, otherwise we fall back to a hash of the
-// cacheable prefix (system + tools), preserving any caller-supplied key and
-// leaving prefix-less requests unhinted. Without this, an Anthropic→OpenAI
-// route re-bills the full prefix every turn (NULL cache_read in prod).
 func applySessionAffinity(body []byte, headers http.Header, opts EmitOptions) ([]byte, error) {
 	switch opts.TargetProvider {
 	case providers.ProviderOpenRouter:
@@ -171,8 +127,6 @@ func applySessionAffinity(body []byte, headers http.Header, opts EmitOptions) ([
 			headers.Set("x-grok-conv-id", opts.SessionAffinity)
 		}
 		if opts.StripPromptCacheKey {
-			// The endpoint rejects the field as unknown; a caller-supplied key
-			// would 400 identically, so it is dropped too.
 			out, err := sjson.DeleteBytes(body, "prompt_cache_key")
 			if err != nil {
 				return nil, fmt.Errorf("delete prompt_cache_key: %w", err)
@@ -181,13 +135,9 @@ func applySessionAffinity(body []byte, headers http.Header, opts EmitOptions) ([
 		}
 		cacheKey := opts.SessionAffinity
 		if cacheKey == "" {
-			// A same-format OpenAI caller may partition caching with its own
-			// prompt_cache_key; don't clobber it with our synthetic prefix hash.
 			if gjson.GetBytes(body, "prompt_cache_key").Exists() {
 				return body, nil
 			}
-			// Only hash if there's an actual prefix; hashing nothing would
-			// collapse every keyless conversation onto one synthetic key.
 			cacheKey = stablePromptCacheKey(body)
 			if cacheKey == "" {
 				return body, nil
@@ -199,31 +149,21 @@ func applySessionAffinity(body []byte, headers http.Header, opts EmitOptions) ([
 		}
 		return out, nil
 	case providers.ProviderBedrock:
-		// Explicit cachePoint caching, centrally routed — no replica roulette.
 		return body, nil
 	case providers.ProviderXAI:
-		// Chat Completions affinity header; Responses API uses prompt_cache_key
-		// (we stay on chat/completions for CapReasoning×xAI in Stage A).
 		if opts.SessionAffinity != "" {
 			headers.Set("x-grok-conv-id", opts.SessionAffinity)
 		}
 		return body, nil
 	}
-	// Other OpenAI-compat serverless upstreams get x-session-affinity, gated
-	// on a real session key (see doc comment above).
 	if providers.IsOpenAICompat(opts.TargetProvider) && opts.SessionAffinity != "" {
 		headers.Set("x-session-affinity", opts.SessionAffinity)
 	}
 	return body, nil
 }
 
-// stablePromptCacheKey hashes the request's cacheable prefix (system message
-// + tool definitions) into a deterministic prompt_cache_key, used as a
-// fallback when no session key is available. Returns "" when there's no
-// cacheable prefix, so prefix-less requests stay unhinted rather than all
-// hashing to the same synthetic key.
 func stablePromptCacheKey(body []byte) string {
-	h := sha1.New()
+	h := sha256.New()
 	var hasPrefix bool
 	gjson.GetBytes(body, "messages").ForEach(func(_, msg gjson.Result) bool {
 		if msg.Get("role").String() == "system" {
@@ -235,8 +175,6 @@ func stablePromptCacheKey(body []byte) string {
 		return true
 	})
 	h.Write([]byte{0x00})
-	// An empty "tools":[] still has .Exists()==true, so gate on non-empty
-	// to avoid treating it as a cacheable prefix.
 	if hasNonEmptyTools(body) {
 		h.Write([]byte(gjson.GetBytes(body, "tools").Raw))
 		hasPrefix = true
@@ -244,7 +182,7 @@ func stablePromptCacheKey(body []byte) string {
 	if !hasPrefix {
 		return ""
 	}
-	return "wv_" + hex.EncodeToString(h.Sum(nil))
+	return "wv_" + hex.EncodeToString(h.Sum(nil)[:20])
 }
 
 func (e *RequestEnvelope) buildOpenAIFromOpenAI(opts EmitOptions) ([]byte, error) {
@@ -257,7 +195,6 @@ func (e *RequestEnvelope) buildOpenAIFromOpenAI(opts EmitOptions) ([]byte, error
 	if forced == "" {
 		forced = alwaysOnFloorForDisabledEffort(body, opts)
 	}
-	// Write reasoning_effort for CapReasoning targets that accept it on chat/completions.
 	if forced != "" && opts.Capabilities.Supports(router.CapReasoning) && reasoningEffortAcceptedOnChatCompletions(opts, hasNonEmptyTools(body)) {
 		body, err = sjson.SetBytes(body, "reasoning_effort", forced)
 		if err != nil {
@@ -307,10 +244,6 @@ func (e *RequestEnvelope) buildOpenAIFromOpenAI(opts EmitOptions) ([]byte, error
 	return body, nil
 }
 
-// targetIsOpenRouter reports whether the emit target is OpenRouter — direct
-// upstreams (Fireworks/Bedrock/Makora/Together) reject OpenRouter-only fields like
-// `provider`/`reasoning`. Empty TargetProvider falls back to the model-slug
-// match for callers not yet plumbed through (the handover summarizer).
 func targetIsOpenRouter(opts EmitOptions) bool {
 	if opts.TargetProvider != "" {
 		return opts.TargetProvider == providers.ProviderOpenRouter
@@ -326,39 +259,30 @@ func (e *RequestEnvelope) buildOpenAIFromAnthropic(opts EmitOptions) ([]byte, pr
 	}
 	stats.CCOnlyToolsStripped = ccFilter.ToolsRemoved
 	stats.CCTaskRemindersStripped = ccFilter.TaskRemindersRemoved
-	// Anthropic executes web_search_*/web_fetch_* itself; passing them through
-	// writeOpenAIToolsFromAnthropic creates phantom function tools. Drop them.
 	body, stats.ServerToolsStripped = websearch.StripServerTools(body)
 	jw := newJSONWriter()
 	jw.Obj()
 	jw.Key("model")
 	jw.Str(opts.TargetModel)
 
-	// Stream
 	if r := gjson.GetBytes(body, "stream"); r.Exists() {
 		jw.Key("stream")
 		jw.Raw(r.Raw)
 	}
 
-	// System + Messages
 	writeOpenAISystemAndMessagesFromAnthropic(jw, body, opts)
 
-	// Stop sequences — reasoning OpenAI models (gpt-5.x) reject `stop` on
-	// /v1/chat/completions ("Unsupported parameter: 'stop' is not supported").
 	if r := gjson.GetBytes(body, "stop_sequences"); r.Exists() &&
 		!opts.Capabilities.Supports(router.CapReasoning) {
 		jw.Key("stop")
 		jw.Raw(r.Raw)
 	}
 
-	// Tools
 	writeOpenAIToolsFromAnthropic(jw, body)
 
-	// Tool choice
 	writeOpenAIToolChoiceFromAnthropic(jw, body)
 	writeOpenAIParallelToolCallsFromAnthropic(jw, body)
 
-	// Temperature, top_p
 	clientSetTemp := false
 	sampleOK := samplersAccepted(opts)
 	if r := gjson.GetBytes(body, "temperature"); r.Exists() && sampleOK {
@@ -371,7 +295,6 @@ func (e *RequestEnvelope) buildOpenAIFromAnthropic(opts EmitOptions) ([]byte, pr
 		jw.Raw(r.Raw)
 	}
 
-	// Tool temperature override for OpenRouter
 	if !clientSetTemp && targetIsOpenRouter(opts) && openRouterForcesToolTemperatureZero(opts.TargetModel) {
 		if hasNonEmptyTools(body) {
 			jw.Key("temperature")
@@ -379,16 +302,13 @@ func (e *RequestEnvelope) buildOpenAIFromAnthropic(opts EmitOptions) ([]byte, pr
 		}
 	}
 
-	// Max tokens
 	writeOpenAIMaxTokensFromAnthropic(jw, body, opts)
 
-	// Write reasoning_effort for CapReasoning targets that accept it on chat/completions.
 	if forced := resolveReasoningEffortFor(opts); forced != "" && opts.Capabilities.Supports(router.CapReasoning) && reasoningEffortAcceptedOnChatCompletions(opts, hasNonEmptyTools(body)) {
 		jw.Key("reasoning_effort")
 		jw.Str(forced)
 	}
 
-	// Stream usage option
 	if opts.IncludeStreamUsage && gjson.GetBytes(body, "stream").Bool() {
 		jw.Key("stream_options")
 		jw.Obj()
@@ -397,7 +317,6 @@ func (e *RequestEnvelope) buildOpenAIFromAnthropic(opts EmitOptions) ([]byte, pr
 		jw.EndObj()
 	}
 
-	// OpenRouter hints
 	if targetIsOpenRouter(opts) {
 		if hint := openRouterProviderHint(opts.TargetModel); hint != nil {
 			if hintBytes, err := json.Marshal(hint); err == nil {
@@ -429,14 +348,6 @@ func (e *RequestEnvelope) buildOpenAIFromAnthropic(opts EmitOptions) ([]byte, pr
 	return body, stats, nil
 }
 
-// applyGLM51FlagsIfNeeded sets two GLM-5.1 knobs, both gated on isGLM51 and
-// both leaving client-set values alone:
-//   - tool_stream=true — without it GLM-5.1 reproduces the GLM-5 empty-input
-//     loop (docs/investigations/2026-05-26-glm5-empty-tool-loop.md).
-//   - chat_template_kwargs.enable_thinking=false — disables the vLLM chat
-//     template's default-on thinking mode (Fireworks/Together) so reasoning
-//     doesn't leak into the response stream. Skipped for OpenRouter, which
-//     disables thinking via its own reasoning={enabled:false} hint instead.
 func applyGLM51FlagsIfNeeded(body []byte, opts EmitOptions) ([]byte, error) {
 	if !isGLM51(opts.TargetModel) {
 		return body, nil
@@ -458,9 +369,6 @@ func applyGLM51FlagsIfNeeded(body []byte, opts EmitOptions) ([]byte, error) {
 	return body, nil
 }
 
-// applyGLM53FlashFlagsIfNeeded sets tool_stream=true for GLM-5.3-Flash
-// (docs.z.ai/guides/vlm/glm-5.3-flash requires it for streaming tool calls).
-// Unlike GLM-5.1, thinking is not force-disabled — it can't be turned off.
 func applyGLM53FlashFlagsIfNeeded(body []byte, opts EmitOptions) ([]byte, error) {
 	if !isGLM53Flash(opts.TargetModel) {
 		return body, nil
@@ -475,15 +383,6 @@ func applyGLM53FlashFlagsIfNeeded(body []byte, opts EmitOptions) ([]byte, error)
 	return out, nil
 }
 
-// applyQwen3SamplersIfNeeded layers the Qwen3 model-card sampling defaults
-// onto the body for qwen3-family models, unless the client already set them.
-// The recommendation is model-keyed, not provider-keyed, so it's applied
-// across all OpenAI-compat providers — except repetition_penalty, which
-// Fireworks' serving stack 400s on ("repetition_penalty can't be combined
-// with frequency_penalty or presence_penalty") when presence_penalty is also
-// set; presence_penalty is the one that actually suppresses the tool-call
-// loop (see qwen3PresencePenalty doc), so it wins and repetition_penalty is
-// dropped there instead of the other way around.
 func applyQwen3SamplersIfNeeded(body []byte, opts EmitOptions) ([]byte, error) {
 	if !isQwen3Family(opts.TargetModel) {
 		return body, nil
@@ -513,8 +412,6 @@ func applyQwen3SamplersIfNeeded(body []byte, opts EmitOptions) ([]byte, error) {
 	return body, nil
 }
 
-// writeOpenAISystemAndMessagesFromAnthropic emits the "messages" key into jw by
-// converting the Anthropic system field and messages array to OpenAI format.
 func writeOpenAISystemAndMessagesFromAnthropic(jw *jsonWriter, body []byte, opts EmitOptions) {
 	systemText := flattenAnthropicSystemGJSON(gjson.GetBytes(body, "system"))
 	if targetIsOpenRouter(opts) && hasNonEmptyTools(body) {
@@ -553,8 +450,6 @@ func writeOpenAISystemAndMessagesFromAnthropic(jw *jsonWriter, body []byte, opts
 	jw.EndArr()
 }
 
-// flattenAnthropicSystemGJSON converts the Anthropic system field (string or
-// array of text blocks) to a single plain string, stripping the billing header.
 func flattenAnthropicSystemGJSON(system gjson.Result) string {
 	switch system.Type {
 	case gjson.String:
@@ -580,8 +475,6 @@ func flattenAnthropicSystemGJSON(system gjson.Result) string {
 	}
 }
 
-// writeOpenAIAssistantFromAnthropic emits an OpenAI assistant message from an
-// Anthropic assistant message.
 func writeOpenAIAssistantFromAnthropic(jw *jsonWriter, msg gjson.Result) {
 	jw.Obj()
 	jw.Key("role")
@@ -622,9 +515,6 @@ func writeOpenAIAssistantFromAnthropic(jw *jsonWriter, msg gjson.Result) {
 			jw.Key("content")
 			jw.Null()
 		default:
-			// An assistant turn left empty after marker stripping (e.g. the
-			// /force-model ack) must still carry content: some upstreams 400
-			// on an assistant message with neither content nor tool_calls.
 			jw.Key("content")
 			jw.Str("")
 		}
@@ -644,8 +534,6 @@ func writeOpenAIAssistantFromAnthropic(jw *jsonWriter, msg gjson.Result) {
 	jw.EndObj()
 }
 
-// buildOpenAIToolCall serializes an Anthropic tool_use block as an OpenAI tool
-// call JSON string (returned as raw JSON for direct embedding).
 func buildOpenAIToolCall(block gjson.Result) string {
 	inner := newJSONWriter()
 	inner.Obj()
@@ -657,7 +545,6 @@ func buildOpenAIToolCall(block gjson.Result) string {
 	inner.Obj()
 	inner.Key("name")
 	inner.Str(sanitizeResponsesToolAlias(block.Get("name").String()))
-	// input is a JSON object; encode it as a JSON string (arguments field).
 	inputRaw := block.Get("input").Raw
 	if inputRaw == "" {
 		inputRaw = "{}"
@@ -669,11 +556,6 @@ func buildOpenAIToolCall(block gjson.Result) string {
 	return string(inner.Bytes())
 }
 
-// writeOpenAIUserFromAnthropic emits zero or more OpenAI messages for an
-// Anthropic user message. Mixed content (tool_result + text + image) is split
-// into separate tool-role messages followed by a single user message. Images
-// nested inside tool_result blocks are hoisted into that user message because
-// OpenAI role:tool content is text-only.
 func writeOpenAIUserFromAnthropic(jw *jsonWriter, msg gjson.Result) {
 	content := msg.Get("content")
 	switch content.Type {
@@ -693,7 +575,6 @@ func writeOpenAIUserFromAnthropic(jw *jsonWriter, msg gjson.Result) {
 		return
 	}
 
-	// Separate tool_result blocks from user content blocks.
 	var toolResultRaws []string
 	var userPartRaws []string
 
@@ -701,8 +582,6 @@ func writeOpenAIUserFromAnthropic(jw *jsonWriter, msg gjson.Result) {
 		switch block.Get("type").String() {
 		case "tool_result":
 			toolResultRaws = append(toolResultRaws, buildOpenAIToolResultMessage(block))
-			// Hoist nested images into the trailing user message; role:tool
-			// content is text-only, so leaving them here would drop them.
 			block.Get("content").ForEach(func(_, inner gjson.Result) bool {
 				if inner.Get("type").String() == "image" {
 					if part := buildOpenAIImagePart(inner); part != "" {
@@ -736,7 +615,6 @@ func writeOpenAIUserFromAnthropic(jw *jsonWriter, msg gjson.Result) {
 		return
 	}
 
-	// Single plain text part: emit as string content.
 	if len(userPartRaws) == 1 {
 		p := gjson.Parse(userPartRaws[0])
 		if p.Get("type").String() == "text" {
@@ -762,8 +640,6 @@ func writeOpenAIUserFromAnthropic(jw *jsonWriter, msg gjson.Result) {
 	jw.EndObj()
 }
 
-// buildOpenAIToolResultMessage converts an Anthropic tool_result block to an
-// OpenAI role:tool message JSON string.
 func buildOpenAIToolResultMessage(block gjson.Result) string {
 	inner := newJSONWriter()
 	inner.Obj()
@@ -777,8 +653,6 @@ func buildOpenAIToolResultMessage(block gjson.Result) string {
 	return string(inner.Bytes())
 }
 
-// buildOpenAIImagePart converts an Anthropic image block to an OpenAI
-// image_url content-part JSON string. Returns "" if the block is malformed.
 func buildOpenAIImagePart(block gjson.Result) string {
 	src := block.Get("source")
 	if !src.Exists() {
@@ -818,8 +692,6 @@ func buildOpenAIImagePart(block gjson.Result) string {
 
 const openAIMaxTools = 128
 
-// writeOpenAIToolsFromAnthropic emits the "tools" key into jw by converting
-// Anthropic tool definitions to OpenAI function-calling format.
 func writeOpenAIToolsFromAnthropic(jw *jsonWriter, body []byte) {
 	tools := gjson.GetBytes(body, "tools")
 	if !tools.Exists() || !tools.IsArray() || tools.Get("#").Int() == 0 {
@@ -866,11 +738,6 @@ func writeOpenAIToolsFromAnthropic(jw *jsonWriter, body []byte) {
 	jw.EndArr()
 }
 
-// writeOpenAIMaxTokensFromAnthropic emits either "max_tokens" or
-// "max_completion_tokens" (for reasoning-capable models), clamped to the
-// model's output-token cap. max_completion_tokens counts reasoning tokens, so
-// a reasoning target that isn't pinned to effort "none" gets headroom above a
-// tiny client budget.
 func writeOpenAIMaxTokensFromAnthropic(jw *jsonWriter, body []byte, opts EmitOptions) {
 	r := gjson.GetBytes(body, "max_tokens")
 	val := defaultOutputTokens(opts.TargetModel)
@@ -892,13 +759,6 @@ func writeOpenAIMaxTokensFromAnthropic(jw *jsonWriter, body []byte, opts EmitOpt
 	jw.Int(val)
 }
 
-// inlineSchemaDefs replaces "$ref" pointers to "#/$defs/<name>" or
-// "#/definitions/<name>" with a deep copy of the referenced definition and
-// strips the defs maps. Some upstreams (notably Fireworks) don't dereference
-// $ref themselves and 400 on tool schemas that use $defs, so inlining keeps
-// the schema self-contained. Sibling keys on a $ref (common from Pydantic
-// v2/OpenAPI 3.1/MCP servers) are dropped on substitution — per JSON Schema
-// Draft 7 they're ignored anyway. Cyclic and unresolvable refs are left intact.
 func inlineSchemaDefs(node any) any {
 	root, ok := node.(map[string]any)
 	if !ok {
@@ -977,9 +837,6 @@ func deepCopyJSON(node any) any {
 
 var emptyOpenAIToolParameters = []byte(`{"type":"object","properties":{}}`)
 
-// ensureOpenAIToolParameters fills a missing function-tool parameters schema.
-// xAI (and some other OpenAI-compat gateways) serde-require the field; a
-// no-arg tool that omitted it 400s as tools[N]: missing field parameters.
 func ensureOpenAIToolParameters(body []byte) ([]byte, error) {
 	tools := gjson.GetBytes(body, "tools")
 	if !tools.IsArray() {
@@ -1053,8 +910,6 @@ func sanitizeOpenAIToolSchema(node any) {
 	sanitizeOpenAIToolSchema(m["not"])
 }
 
-// addOpenAIAnyOfBranchType makes an unconstrained JSON Schema branch explicit.
-// OpenAI rejects a typeless anyOf branch, while `{}` means every JSON value.
 func addOpenAIAnyOfBranchType(node any) {
 	m, ok := node.(map[string]any)
 	if !ok {
@@ -1067,13 +922,8 @@ func addOpenAIAnyOfBranchType(node any) {
 }
 
 func appendSchemaConstraintDescription(node map[string]any, key string, value any) {
-	// Hash the constraint value so different patterns yield different fingerprints
-	// while identical patterns stay byte-identical. OpenAI-compat grammar
-	// compilers (Fireworks) unify tool-schema definitions by rendering the full
-	// schema — description included — so verbatim patterns in description text
-	// cause "Conflict in schema definitions" 400s. Hashing also prevents leak.
 	raw := compactJSONValue(value)
-	fingerprint := sha1.Sum([]byte(key + "|" + raw))
+	fingerprint := sha256.Sum256([]byte(key + "|" + raw))
 	note := fmt.Sprintf("(%s constraint %s)", key, hex.EncodeToString(fingerprint[:4]))
 	if desc, _ := node["description"].(string); desc != "" {
 		node["description"] = desc + " " + note
@@ -1082,8 +932,6 @@ func appendSchemaConstraintDescription(node map[string]any, key string, value an
 	node["description"] = note
 }
 
-// alwaysOnFloorForDisabledEffort maps a client's disabled reasoning_effort to
-// the lowest level of a target that always reasons, which 400s on "none".
 func alwaysOnFloorForDisabledEffort(body []byte, opts EmitOptions) string {
 	caps := opts.Capabilities.Reasoning()
 	if !caps.AlwaysOn || len(caps.Levels) == 0 || ParseReasoningIntent(FormatOpenAI, body).Kind != ReasoningDisabled {

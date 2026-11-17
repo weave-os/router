@@ -11,8 +11,6 @@ import (
 
 const RouterCommandHeader = "X-Weave-Router-Command"
 
-// WriteCommandResponse serializes an already decided command outcome. TextCarrier
-// is selected by the harness adapter because Codex drops unknown Responses fields.
 func WriteCommandResponse(w http.ResponseWriter, env *RequestEnvelope, text string, inputTokens int, outcome CommandOutcome, textCarrier bool) error {
 	encoded, err := json.Marshal(outcome)
 	if err != nil {
@@ -37,7 +35,6 @@ func WriteCommandResponse(w http.ResponseWriter, env *RequestEnvelope, text stri
 	return writeSyntheticAnthropicJSON(w, id, text, inputTokens, &outcome)
 }
 
-// WriteSyntheticAnthropicResponse renders a control reply without a provider request.
 func WriteSyntheticAnthropicResponse(w http.ResponseWriter, env *RequestEnvelope, text string, inputTokens int) error {
 	msgID := fmt.Sprintf("msg_router_cmd_%x", time.Now().UnixNano())
 	if env.Stream() {
@@ -123,9 +120,6 @@ func writeSyntheticAnthropicSSE(w http.ResponseWriter, msgID, text string, input
 	return nil
 }
 
-// WriteSyntheticOpenAIResponse writes a minimal OpenAI Chat Completions
-// response without hitting an upstream, handling both streaming and
-// non-streaming shapes.
 func WriteSyntheticOpenAIResponse(w http.ResponseWriter, env *RequestEnvelope, text string, inputTokens int) error {
 	respID := fmt.Sprintf("chatcmpl_router_cmd_%x", time.Now().UnixNano())
 	if env.Stream() {

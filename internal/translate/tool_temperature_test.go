@@ -42,7 +42,7 @@ func TestToolTemperature_AnthropicSource_ForcesZeroForDeepSeekWithTools(t *testi
 
 	temp, present := temperatureField(t, out.Body)
 	require.True(t, present, "deepseek/* with tools and no client temp must get temperature override")
-	assert.Equal(t, 0.0, temp)
+	assert.InDelta(t, 0.0, temp, 1e-9)
 }
 
 func TestToolTemperature_AnthropicSource_ClientTempWins(t *testing.T) {
@@ -61,7 +61,7 @@ func TestToolTemperature_AnthropicSource_ClientTempWins(t *testing.T) {
 
 	temp, present := temperatureField(t, out.Body)
 	require.True(t, present)
-	assert.Equal(t, 0.7, temp, "client-set temperature must override the deepseek default-to-zero")
+	assert.InDelta(t, 0.7, temp, 1e-9, "client-set temperature must override the deepseek default-to-zero")
 }
 
 func TestToolTemperature_AnthropicSource_NoOverrideWithoutTools(t *testing.T) {
@@ -120,7 +120,7 @@ func TestToolTemperature_OpenAISource_ForcesZeroForDeepSeekWithTools(t *testing.
 
 	temp, present := temperatureField(t, out.Body)
 	require.True(t, present, "OpenAI source path must also apply the override")
-	assert.Equal(t, 0.0, temp)
+	assert.InDelta(t, 0.0, temp, 1e-9)
 }
 
 func TestToolTemperature_OpenAISource_ClientTempWins(t *testing.T) {
@@ -139,5 +139,5 @@ func TestToolTemperature_OpenAISource_ClientTempWins(t *testing.T) {
 
 	temp, present := temperatureField(t, out.Body)
 	require.True(t, present)
-	assert.Equal(t, 0.5, temp)
+	assert.InDelta(t, 0.5, temp, 1e-9)
 }

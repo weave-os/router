@@ -11,7 +11,7 @@ import (
 
 var pinNeverExpires = routingpolicy.PinNeverExpires
 
-func pinExpiry(reason string) time.Time { return routingpolicy.PinExpiry(reason) }
+func pinExpiry(reason string, now time.Time) time.Time { return routingpolicy.PinExpiry(reason, now) }
 
 func pinMatchesEffectiveStrategy(ctx context.Context, pin sessionpin.Pin) bool {
 	return routingpolicy.PinMatchesEffectiveStrategy(ctx, pin)

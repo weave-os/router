@@ -110,8 +110,8 @@ func internalSubscriptionAccountsEngine(repo *internalSubscriptionAccountRepo) *
 	return engine
 }
 
-func internalSubscriptionAccountsRequest(method, path string, body []byte) *http.Request {
-	request := httptest.NewRequest(method, path, bytes.NewReader(body))
+func internalSubscriptionAccountsRequest(ctx context.Context, method, path string, body []byte) *http.Request {
+	request := httptest.NewRequestWithContext(ctx, method, path, bytes.NewReader(body))
 	request.Header.Set("X-Weave-Internal-Token", internalAccountsToken)
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
@@ -128,7 +128,7 @@ func TestInternalSubscriptionAccountsListsSafeHealthMetadata(t *testing.T) {
 	}}}
 	engine := internalSubscriptionAccountsEngine(repo)
 	response := httptest.NewRecorder()
-	engine.ServeHTTP(response, internalSubscriptionAccountsRequest(
+	engine.ServeHTTP(response, internalSubscriptionAccountsRequest(t.Context(),
 		http.MethodGet,
 		"/internal/v1/subscription-accounts/"+testSubscriberID,
 		nil,
@@ -150,7 +150,7 @@ func TestInternalSubscriptionAccountsMutationsStaySubscriberScoped(t *testing.T)
 	engine := internalSubscriptionAccountsEngine(repo)
 
 	updateResponse := httptest.NewRecorder()
-	engine.ServeHTTP(updateResponse, internalSubscriptionAccountsRequest(
+	engine.ServeHTTP(updateResponse, internalSubscriptionAccountsRequest(t.Context(),
 		http.MethodPatch,
 		"/internal/v1/subscription-accounts/"+testSubscriberID+"/"+testAccountID,
 		[]byte(`{"enabled":false}`),
@@ -161,7 +161,7 @@ func TestInternalSubscriptionAccountsMutationsStaySubscriberScoped(t *testing.T)
 	assert.False(t, repo.enabled)
 
 	deleteResponse := httptest.NewRecorder()
-	engine.ServeHTTP(deleteResponse, internalSubscriptionAccountsRequest(
+	engine.ServeHTTP(deleteResponse, internalSubscriptionAccountsRequest(t.Context(),
 		http.MethodDelete,
 		"/internal/v1/subscription-accounts/"+testSubscriberID+"/"+testAccountID,
 		nil,
@@ -175,7 +175,7 @@ func TestInternalSubscriptionAccountsRejectInvalidOwnershipAndRequireServiceToke
 	engine := internalSubscriptionAccountsEngine(&internalSubscriptionAccountRepo{})
 
 	invalidResponse := httptest.NewRecorder()
-	engine.ServeHTTP(invalidResponse, internalSubscriptionAccountsRequest(
+	engine.ServeHTTP(invalidResponse, internalSubscriptionAccountsRequest(t.Context(),
 		http.MethodGet,
 		"/internal/v1/subscription-accounts/not-a-subscriber",
 		nil,
@@ -183,7 +183,7 @@ func TestInternalSubscriptionAccountsRejectInvalidOwnershipAndRequireServiceToke
 	assert.Equal(t, http.StatusBadRequest, invalidResponse.Code)
 
 	unauthorizedResponse := httptest.NewRecorder()
-	engine.ServeHTTP(unauthorizedResponse, httptest.NewRequest(
+	engine.ServeHTTP(unauthorizedResponse, httptest.NewRequestWithContext(t.Context(),
 		http.MethodGet,
 		"/internal/v1/subscription-accounts/"+testSubscriberID,
 		nil,

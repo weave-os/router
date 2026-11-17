@@ -53,7 +53,7 @@ func inspectionRequest(t *testing.T, method, path string, body any) *http.Reques
 		payload, err = json.Marshal(body)
 		require.NoError(t, err)
 	}
-	req := httptest.NewRequest(method, path, bytes.NewReader(payload))
+	req := httptest.NewRequestWithContext(t.Context(), method, path, bytes.NewReader(payload))
 	req.Header.Set("X-Weave-Internal-Token", inspectionToken)
 	return req
 }
@@ -62,11 +62,11 @@ func TestInternalInferencePolicies_RequireServiceToken(t *testing.T) {
 	engine := inferencePoliciesEngine(t)
 	for _, path := range []string{"/internal/v1/inference-policies", "/internal/v1/inference-policies/deployment"} {
 		rec := httptest.NewRecorder()
-		engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
 		assert.Equal(t, http.StatusUnauthorized, rec.Code, path)
 	}
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/internal/v1/inference-policies/resolve", bytes.NewReader([]byte(`{"purpose":"handover_summary"}`))))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/internal/v1/inference-policies/resolve", bytes.NewReader([]byte(`{"purpose":"handover_summary"}`))))
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 }
 

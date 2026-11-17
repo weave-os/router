@@ -29,8 +29,8 @@ func TestClientPreservesNullableMarginAcrossSchemas(t *testing.T) {
 					var payload map[string]any
 					if schema == policy.SchemaVersionV4 {
 						encoded, err := json.Marshal(validClassifierResponseV4())
-						require.NoError(t, err)
-						require.NoError(t, json.Unmarshal(encoded, &payload))
+						assert.NoError(t, err)
+						assert.NoError(t, json.Unmarshal(encoded, &payload))
 					} else {
 						payload = map[string]any{"schema_version": schema, "model": "test-model"}
 						if schema == policy.SchemaVersionV3 {
@@ -42,7 +42,7 @@ func TestClientPreservesNullableMarginAcrossSchemas(t *testing.T) {
 					if tc.margin != nil {
 						payload["classifier_margin"] = *tc.margin
 					}
-					require.NoError(t, json.NewEncoder(w).Encode(payload))
+					assert.NoError(t, json.NewEncoder(w).Encode(payload))
 				}))
 				defer server.Close()
 				classification, err := New(server.URL, server.Client(), 0).Decide(context.Background(), policy.Query{SchemaVersion: schema, Strategy: router.StrategyHMM})
@@ -55,7 +55,7 @@ func TestClientPreservesNullableMarginAcrossSchemas(t *testing.T) {
 
 func TestClientLegacyMarginTakesPrecedenceIncludingZero(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		require.NoError(t, json.NewEncoder(w).Encode(routeResponse{Model: "test-model", Margin: floatPtr(0), ClassifierMargin: floatPtr(0.4)}))
+		assert.NoError(t, json.NewEncoder(w).Encode(routeResponse{Model: "test-model", Margin: floatPtr(0), ClassifierMargin: floatPtr(0.4)}))
 	}))
 	defer server.Close()
 	classification, err := New(server.URL, server.Client(), 0).Decide(context.Background(), policy.Query{})

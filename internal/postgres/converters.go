@@ -20,7 +20,6 @@ func parseUUID(value string) (uuid.UUID, error) {
 	return uuid.Parse(value)
 }
 
-// derefString returns the pointed-to string or "" for a nil pointer.
 func derefString(value *string) string {
 	if value == nil {
 		return ""
@@ -55,9 +54,6 @@ func toAuthInstallation(row sqlc.RouterModelRouterInstallation) *auth.Installati
 	if fastModeModels == nil {
 		fastModeModels = []string{}
 	}
-	// Parsed once per API-key cache fill, not per request. A malformed or
-	// retired-key payload degrades to "no overrides" rather than failing the
-	// request — a stored row must not be able to take an org's traffic down.
 	overrides, err := flags.ParseOverrides(row.FlagOverrides)
 	if err != nil {
 		observability.Get().Error(
@@ -129,9 +125,6 @@ func toAuthAPIKey(row sqlc.RouterModelRouterAPIKey) *auth.APIKey {
 	}
 }
 
-// issuerPublicKey decodes a session issuer's stored JWK. The column is written
-// only from a validated key; a row that fails to decode yields nil, which the
-// verifier rejects as an unknown issuer.
 func issuerPublicKey(row sqlc.RouterModelRouterAPIKey) ed25519.PublicKey {
 	if auth.APIKeyScope(row.Scope) != auth.ScopeSessionIssuer || len(row.PublicJwk) == 0 {
 		return nil
@@ -166,7 +159,6 @@ func timestamptzPtr(t pgtype.Timestamptz) *time.Time {
 	return &out
 }
 
-// stringPtrOrNil returns nil for empty strings so SQLC's nullable columns receive NULL instead of "".
 func stringPtrOrNil(s string) *string {
 	if s == "" {
 		return nil
@@ -174,8 +166,6 @@ func stringPtrOrNil(s string) *string {
 	return &s
 }
 
-// uuidOrNil parses s into a pgtype.UUID, returning an invalid (NULL) value for
-// empty or malformed input so SQLC's nullable uuid column receives NULL.
 func uuidOrNil(s string) pgtype.UUID {
 	if s == "" {
 		return pgtype.UUID{}
@@ -187,7 +177,6 @@ func uuidOrNil(s string) pgtype.UUID {
 	return pgtype.UUID{Bytes: parsed, Valid: true}
 }
 
-// uuidString returns the canonical string form of a pgtype.UUID, or "" when NULL.
 func uuidString(u pgtype.UUID) string {
 	if !u.Valid {
 		return ""
@@ -195,8 +184,6 @@ func uuidString(u pgtype.UUID) string {
 	return uuid.UUID(u.Bytes).String()
 }
 
-// catalogModelsExcept resolves a subscription-state exclusion list against the
-// deployed catalog, so models added after the settings were saved are included.
 func catalogModelsExcept(excluded []string) []string {
 	models := make([]string, 0, len(catalog.Models))
 	for _, model := range catalog.Models {

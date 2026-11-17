@@ -69,7 +69,7 @@ func (f compactionRoutingFixture) run(t *testing.T, ctx context.Context, env *tr
 func (f compactionRoutingFixture) pinSession(t *testing.T, ctx context.Context, env *translate.RequestEnvelope, decision router.Decision) {
 	t.Helper()
 	role := roleForTier(catalog.TierFor(env.RoutingFeatures().Model))
-	routingpolicy.NewSessionPins(f.svc.pinStore).WriteNew(ctx, f.installationID, deriveSessionKeyForRequest(ctx, env, "test-key"), role, decision)
+	routingpolicy.NewSessionPins(f.svc.pinStore, f.svc.clock.Now).WriteNew(ctx, f.installationID, deriveSessionKeyForRequest(ctx, env, "test-key"), role, decision)
 }
 
 func openAICatalogModels() map[string]struct{} {
@@ -101,7 +101,7 @@ func TestCompactionWithoutSessionPinUsesScorer(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	assert.NotErrorIs(t, err, router.ErrRoutingUnavailable)
+	require.NotErrorIs(t, err, router.ErrRoutingUnavailable)
 	assert.Equal(t, turntype.Compaction, turn.TurnType)
 	assert.Equal(t, compactionStrategyModel, turn.Decision.Model)
 	assert.Equal(t, int32(1), f.scorerCalls.Load())

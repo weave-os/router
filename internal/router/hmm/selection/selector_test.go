@@ -33,7 +33,8 @@ func TestSelectorFailsClosedWithoutClassification(t *testing.T) {
 
 	_, err := selector(context.Background(), policy.SelectionInput{Harness: "claude-code"})
 
-	assert.ErrorIs(t, err, selection.ErrNoEligibleArm)
+	require.ErrorIs(t, err, selection.ErrInvalidClassifierOutput)
+	assert.NotErrorIs(t, err, selection.ErrNoEligibleArm, "a broken classifier is an outage, not an eligibility result")
 }
 
 func TestSelectorUnscorableUsesRosterAndDoesNotDowngradeEscalation(t *testing.T) {
@@ -79,8 +80,8 @@ func TestSelectorRejectsMismatchedClassOrder(t *testing.T) {
 	}
 
 	_, err := selector(context.Background(), input)
-	assert.ErrorIs(t, err, selection.ErrClassifierTaxonomyMismatch)
-	assert.NotErrorIs(t, err, selection.ErrNoEligibleArm)
+	require.ErrorIs(t, err, selection.ErrClassifierTaxonomyMismatch)
+	require.NotErrorIs(t, err, selection.ErrNoEligibleArm)
 
 	input.ClassOrder = append([]string(nil), roster.ClassOrder...)
 	pick, err := selector(context.Background(), input)

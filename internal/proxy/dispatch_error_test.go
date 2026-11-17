@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/decisionmodel"
 	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/hmm/selection"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/rl"
 	"weave-os/router/internal/translate"
@@ -304,6 +305,7 @@ func TestClassifyDispatchError_AnthropicCacheControlOverflowIs400(t *testing.T) 
 	assert.False(t, cls.RetryAfter)
 	assert.NotContains(t, cls.Message, "emit body:", "the internal wrap-chain prefix must not leak into the client-facing message")
 	assert.Contains(t, cls.Message, "got 5, maximum is 4", "the validator's dynamic detail must survive unwrapping")
+	assert.Equal(t, "Anthropic cache_control breakpoint capacity exceeded: got 5, maximum is 4", cls.Message)
 }
 
 func TestClassifyDispatchError_AnthropicCacheControlInvalidTTLOrderingIs400(t *testing.T) {
@@ -435,6 +437,32 @@ func TestClassifyDispatchError_NoRoutableModels(t *testing.T) {
 	assert.False(t, cls.RetryAfter)
 }
 
+func TestClassifyDispatchError_NoEligibleArmIsNotAnOutage(t *testing.T) {
+	err := fmt.Errorf("hmm_embedding: arm selection: %w: %w",
+		policy.ErrNoEligibleArm, hmm.ErrHMMUnavailable)
+
+	cls, ok := proxy.ClassifyDispatchError(err)
+
+	require.True(t, ok)
+	assert.Equal(t, http.StatusBadRequest, cls.Status)
+	assert.False(t, cls.RetryAfter, "every retry of the same turn meets the same eligibility")
+	assert.True(t, cls.NoClientRetry)
+	assert.NotContains(t, cls.Message, "Router unavailable")
+	assert.Contains(t, cls.Message, "No model can serve this request")
+}
+
+func TestClassifyDispatchError_InvalidClassifierOutputStaysAnOutage(t *testing.T) {
+	err := fmt.Errorf("hmm_embedding: arm selection: %w: %w",
+		selection.ErrInvalidClassifierOutput, hmm.ErrHMMUnavailable)
+
+	cls, ok := proxy.ClassifyDispatchError(err)
+
+	require.True(t, ok)
+	assert.Equal(t, proxy.DispatchErrorHMMUnavailable, cls.Kind)
+	assert.Equal(t, http.StatusServiceUnavailable, cls.Status)
+	assert.True(t, cls.RetryAfter)
+}
+
 func TestClassifyDispatchError_NoProviderCredentials(t *testing.T) {
 	err := fmt.Errorf("hmm_embedding: no eligible candidate: %w: %w",
 		policy.ErrNoProviderCredentials, hmm.ErrHMMUnavailable)
@@ -485,7 +513,7 @@ func TestClassifyDispatchError_QwenWarmingIsActionable(t *testing.T) {
 	classification, found := proxy.ClassifyDispatchError(fmt.Errorf("route: %w: %w", policy.ErrClassifierWarming, hmm.ErrHMMUnavailable))
 	require.True(t, found)
 	assert.Equal(t, http.StatusServiceUnavailable, classification.Status)
-	assert.Contains(t, classification.Message, "prepare-model")
+	assert.Equal(t, "Qwen classifier is warming; run wv router prepare-model weave-qwen-20261008-0001v2 before retrying", classification.Message)
 	assert.True(t, classification.RetryAfter)
 }
 

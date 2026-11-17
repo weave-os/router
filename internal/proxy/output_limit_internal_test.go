@@ -62,11 +62,11 @@ func TestNormalizeHMMStayPin_HighOutputIsNotExhaustion(t *testing.T) {
 		providers.ProviderAnthropic, outputLimitFirstModel, nil)
 	pin := sessionpin.Pin{Provider: providers.ProviderAnthropic, LastServedModel: outputLimitFirstModel,
 		LastOutputTokens: 32000, LastTurnEndedAt: time.Now().Add(-time.Second), PinnedUntil: time.Now().Add(time.Hour)}
-	got, ok := hmmCostGateFor(svc).NormalizeStayPin(router.Request{}, pin)
+	got, ok := hmmCostGateFor(svc).NormalizeStayPin(router.Request{}, pin, svc.clock.Now())
 	require.True(t, ok)
 	assert.Equal(t, outputLimitFirstModel, got.Model)
 	pin.LastOutputLimitAt = pin.LastTurnEndedAt
-	_, ok = hmmCostGateFor(svc).NormalizeStayPin(router.Request{}, pin)
+	_, ok = hmmCostGateFor(svc).NormalizeStayPin(router.Request{}, pin, svc.clock.Now())
 	assert.False(t, ok)
 }
 
@@ -102,7 +102,7 @@ func TestRefreshPin_PreservesOutputLimitEvidence(t *testing.T) {
 	ended := time.Now().Add(-time.Second)
 	pin := sessionpin.Pin{Provider: providers.ProviderAnthropic, Model: outputLimitSecondModel, LastServedModel: outputLimitFirstModel,
 		LastTurnEndedAt: ended, LastOutputLimitAt: ended, LastOutputTokens: 128}
-	routingpolicy.NewSessionPins(svc.pinStore).Refresh(context.Background(), uuid.New(), [sessionpin.SessionKeyLen]byte{1}, pin, sessionpin.DefaultRole,
+	routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now).Refresh(context.Background(), uuid.New(), [sessionpin.SessionKeyLen]byte{1}, pin, sessionpin.DefaultRole,
 		router.Decision{Provider: providers.ProviderAnthropic, Model: outputLimitSecondModel})
 	require.Len(t, store.upserts, 1)
 	assert.Equal(t, outputLimitFirstModel, maxedOutServedModel(store.upserts[0]), "refreshing the anchor cannot lose the prior served outcome")
@@ -178,7 +178,7 @@ func TestProxyMessages_OutputLimitEightActionSequence(t *testing.T) {
 						"messages": messages, "tools": []any{map[string]any{"name": "Read", "description": "Read a file", "input_schema": map[string]any{"type": "object"}}}})
 					require.NoError(t, err)
 					rec := httptest.NewRecorder()
-					req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(body)))
+					req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(string(body)))
 					require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
 					want := outputLimitFirstModel
 					if trueCap && action == 4 {

@@ -75,7 +75,7 @@ func TestWithTrafficCapturePreservesRequestAndStreamedResponse(t *testing.T) {
 		_, _ = c.Writer.WriteString("event: two\n\n")
 	})
 
-	request := httptest.NewRequest(http.MethodPost, "/v1/messages?beta=1", strings.NewReader(`{"model":"test","stream":true}`))
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages?beta=1", strings.NewReader(`{"model":"test","stream":true}`))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, request)
@@ -119,8 +119,8 @@ func TestWithTrafficCaptureSkipsHealthAndAdminRequests(t *testing.T) {
 	engine.POST("/admin/v1/config", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	for _, request := range []*http.Request{
-		httptest.NewRequest(http.MethodGet, "/health", nil),
-		httptest.NewRequest(http.MethodPost, "/admin/v1/config", strings.NewReader("secret")),
+		httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/health", nil),
+		httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/admin/v1/config", strings.NewReader("secret")),
 	} {
 		engine.ServeHTTP(httptest.NewRecorder(), request)
 	}
@@ -138,7 +138,7 @@ func TestWithTrafficCaptureDoesNotReadRequestBeforeHandler(t *testing.T) {
 		c.Status(http.StatusAccepted)
 	})
 
-	request := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader("unread payload"))
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader("unread payload"))
 	engine.ServeHTTP(httptest.NewRecorder(), request)
 
 	if len(recorder.exchanges) != 1 {
@@ -158,7 +158,7 @@ func TestWithTrafficCaptureRecordsRecoveredHandlerPanic(t *testing.T) {
 		panic("synthetic handler failure")
 	})
 
-	request := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"prompt":"synthetic"}`))
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(`{"prompt":"synthetic"}`))
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, request)
 
@@ -187,7 +187,7 @@ func TestWithTrafficCaptureMarksFailedResponseWriteIncomplete(t *testing.T) {
 		_, _ = c.Writer.Write([]byte("partial response"))
 	})
 
-	request := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader("synthetic request"))
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader("synthetic request"))
 	engine.ServeHTTP(httptest.NewRecorder(), request)
 
 	if len(recorder.exchanges) != 1 {

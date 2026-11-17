@@ -42,8 +42,6 @@ var providerDisplayNames = map[string]string{
 	providers.ProviderWaferAnthropic:   "Wafer",
 }
 
-// providerDisplayNameFor names who served an attempt. A customer gateway is
-// named by its host so a gateway failure is never blamed on the model vendor.
 func providerDisplayNameFor(provider, baseURL string) string {
 	if baseURL == "" {
 		return providerDisplayName(provider)
@@ -52,8 +50,6 @@ func providerDisplayNameFor(provider, baseURL string) string {
 	if u, err := url.Parse(baseURL); err == nil && u.Host != "" {
 		host, hostname = u.Host, u.Hostname()
 	}
-	// Any Cortex account host, not only the paths IsCortexBaseURL accepts,
-	// since the Anthropic gateway mounts under its own Cortex path.
 	if providers.IsCortexBaseURL(baseURL) || strings.HasSuffix(strings.ToLower(hostname), ".snowflakecomputing.com") {
 		return cortexDisplayName
 	}
@@ -74,8 +70,6 @@ func providerDisplayName(provider string) string {
 	return provider
 }
 
-// failureWording is how a failed attempt reads in a routing badge ("timed
-// out") and in a terminal error ("timeout").
 type failureWording struct {
 	badge    string
 	terminal string
@@ -142,22 +136,17 @@ func failureWordingFor(a dispatch.TracedAttempt) failureWording {
 	return failureWording{"failed", "error"}
 }
 
-// rescueDetailLine is the badge's second line naming the failed attempt the
-// rescue replaced and who owned the failure.
 func rescueDetailLine(a dispatch.TracedAttempt) string {
 	owner := attemptOwner(a)
 	if owner == "" || owner == FailureOwnerUnknown {
 		return ""
 	}
-	// The conversation outgrew this model's window: neither side did anything wrong.
 	if isUpstreamContextOverflow(a.Err) {
 		return translate.RescueDetailPrefix + attemptProviderName(a) + " " + failureWordingFor(a).badge + "\n\n"
 	}
 	return translate.RescueDetailPrefix + attemptProviderName(a) + " " + failureWordingFor(a).badge + " (" + string(owner) + " issue)\n\n"
 }
 
-// withRescueDetail appends the rescue detail line to a rendered badge. An
-// empty badge (suppressed or not shown) stays empty.
 func withRescueDetail(marker, detail string) string {
 	if marker == "" || detail == "" {
 		return marker
@@ -165,8 +154,6 @@ func withRescueDetail(marker, detail string) string {
 	return marker + detail
 }
 
-// lastFailureDetail renders the detail line for the request's latest failed
-// attempt, or "" when none was traced.
 func lastFailureDetail(trace *dispatch.AttemptTrace) string {
 	last, ok := trace.LastFailure()
 	if !ok {
@@ -175,9 +162,6 @@ func lastFailureDetail(trace *dispatch.AttemptTrace) string {
 	return rescueDetailLine(last)
 }
 
-// attributedError carries a terminal message naming the owner of the failed
-// attempt that ended the turn, and the attribution prefixed onto the upstream
-// error message; it unwraps to the attempt's error.
 type attributedError struct {
 	err     error
 	message string
@@ -187,8 +171,6 @@ type attributedError struct {
 func (e attributedError) Error() string { return e.err.Error() }
 func (e attributedError) Unwrap() error { return e.err }
 
-// attributeTerminalError names the owner of err's attempt for the terminal
-// message, unless the request hides router surfaces.
 func attributeTerminalError(trace *dispatch.AttemptTrace, err error) error {
 	if err == nil || trace == nil || trace.HideDetails() {
 		return err
@@ -200,8 +182,6 @@ func attributeTerminalError(trace *dispatch.AttemptTrace, err error) error {
 	return attributeAttempt(last, trace.RetriesOf(last), err)
 }
 
-// attributeStreamError attributes a failure the serving attempt hit after its
-// stream committed, before dispatch has traced it.
 func attributeStreamError(ctx context.Context, provider string, err error) error {
 	trace := attemptTraceFromContext(ctx)
 	if err == nil || trace.HideDetails() {
@@ -230,8 +210,6 @@ func attributeAttempt(a dispatch.TracedAttempt, retries int, err error) error {
 	return attributedError{err: err, message: message, prefix: prefix}
 }
 
-// attributionPrefix states what the provider did, e.g. "Cortex
-// returned 429 (rate limited) after 2 router retries".
 func attributionPrefix(a dispatch.TracedAttempt, retries int) string {
 	if attemptOwner(a) == FailureOwnerRouter {
 		return ""
@@ -295,7 +273,6 @@ func attributedTerminalMessage(a dispatch.TracedAttempt, prefix string) string {
 
 const maxUpstreamErrorText = 500
 
-// Reads error.message, then message, from a JSON upstream body.
 func upstreamErrorText(err error) string {
 	var body []byte
 	var resp *providers.UpstreamErrorResponse
@@ -321,9 +298,6 @@ func upstreamErrorText(err error) string {
 	return ""
 }
 
-// TerminalErrorMessage is the client-facing message for a failed dispatch the
-// handler renders generically: the owner-attributed message when dispatch
-// recorded one, else the generic upstream failure text.
 func TerminalErrorMessage(err error) string {
 	var attributed attributedError
 	if errors.As(err, &attributed) && attributed.message != "" {
@@ -332,9 +306,6 @@ func TerminalErrorMessage(err error) string {
 	return upstreamCallFailedMessage
 }
 
-// attributedErrorBody prefixes the error message of an upstream error body
-// with err's attribution. Status, error type and every other field are kept,
-// so client retry decisions are unchanged.
 func attributedErrorBody(body []byte, err error) []byte {
 	var attributed attributedError
 	if !errors.As(err, &attributed) || attributed.prefix == "" || !gjson.ValidBytes(body) {
@@ -358,8 +329,6 @@ func attributedErrorBody(body []byte, err error) []byte {
 	return body
 }
 
-// attributedStreamFailure is the message for a stream failure with no
-// upstream body: the attribution when known, else the generic text.
 func attributedStreamFailure(err error) string {
 	var attributed attributedError
 	if errors.As(err, &attributed) && attributed.prefix != "" {

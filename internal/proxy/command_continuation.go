@@ -11,8 +11,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Roles live in router.session_pins.role (VARCHAR(32)); the longest normal
-// role is default_high, so keep this internal suffix compact.
 const commandContinuationRoleSuffix = "_cmd_next"
 
 func commandContinuationRole(role string) string {
@@ -22,16 +20,13 @@ func commandContinuationRole(role string) string {
 	return role + commandContinuationRoleSuffix
 }
 
-// grantPostCommandContinuation preserves an active automatic pin for exactly
-// one following normal turn. The command itself never reaches the upstream,
-// so it must not provoke a new model selection for the user's continuation.
 func (s *Service) grantPostCommandContinuation(
 	ctx context.Context,
 	installationID uuid.UUID,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
 ) {
-	sessionPins := routingpolicy.NewSessionPins(s.pinStore)
+	sessionPins := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now)
 	if s.pinStore == nil || installationID == uuid.Nil {
 		return
 	}
@@ -53,15 +48,11 @@ func (s *Service) grantPostCommandContinuation(
 	pin.InstallationID = installationID
 	pin.Strategy = router.StrategyFromContext(ctx)
 	pin.TurnCount = 1
-	// A slash command can arrive just before the active pin expires. Renew the
-	// one-shot independently so its immediate follow-up remains eligible.
-	pin.PinnedUntil = pinExpiry(pin.Reason)
+	pin.PinnedUntil = pinExpiry(pin.Reason, s.clock.Now())
 	sessionPins.Upsert(ctx, pin)
 	observability.FromContext(ctx).Info("stored one-shot post-command continuation", "model", pin.Model, "provider", pin.Provider, "role", role)
 }
 
-// consumePostCommandContinuation atomically takes the pending continuation so
-// simultaneous requests cannot both serve it.
 func (s *Service) consumePostCommandContinuation(
 	ctx context.Context,
 	sessionKey [sessionpin.SessionKeyLen]byte,
@@ -81,9 +72,6 @@ func (s *Service) consumePostCommandContinuation(
 	return pin, found
 }
 
-// invalidatePostCommandContinuation removes an active one-shot continuation
-// after its source pin has been intentionally cleared. Consume is safe here:
-// it deletes only an unexpired continuation for this exact session and role.
 func (s *Service) invalidatePostCommandContinuation(
 	ctx context.Context,
 	sessionKey [sessionpin.SessionKeyLen]byte,

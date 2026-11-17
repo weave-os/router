@@ -17,7 +17,7 @@ import (
 func guardedProxy(t *testing.T, upstream *fakeUpstream, decision router.Decision, body string) error {
 	t.Helper()
 	guarded := dispatch.GuardTarget(upstream, primary)
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	return guarded.Proxy(context.Background(), decision, providers.PreparedRequest{Body: []byte(body)}, httptest.NewRecorder(), req)
 }
 

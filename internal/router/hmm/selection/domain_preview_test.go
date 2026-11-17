@@ -19,7 +19,7 @@ func TestDomainPreviewMatchesServingSelection(t *testing.T) {
 
 	assert.Equal(t, "vendor-b/cheap", preview.EffectiveWinner)
 	assert.Equal(t, "vendor-a/quality", preview.BaselineWinner)
-	assert.Equal(t, 0.15, preview.Influence)
+	assert.InDelta(t, 0.15, preview.Influence, 1e-9)
 	quality, cheap := preview.Arms[0], preview.Arms[1]
 	assert.Equal(t, []int{1, 2}, []int{quality.BaselineRank, quality.EffectiveRank})
 	assert.Equal(t, []int{2, 1}, []int{cheap.BaselineRank, cheap.EffectiveRank})

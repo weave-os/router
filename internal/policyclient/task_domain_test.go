@@ -10,9 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/router/taskdomain"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"weave-os/router/internal/router/taskdomain"
 )
 
 func TestTaskDomainTransportValidatesPinnedFacts(t *testing.T) {
@@ -37,7 +38,7 @@ func TestTaskDomainTransportValidatesPinnedFacts(t *testing.T) {
 				assert.Equal(t, "/classify", r.URL.Path)
 				assert.Equal(t, "Bearer "+strings.Repeat("s", 32), r.Header.Get("Authorization"))
 				var request map[string]string
-				require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
+				assert.NoError(t, json.NewDecoder(r.Body).Decode(&request))
 				assert.Equal(t, "Review the deployment", request["user_text"])
 				assert.Equal(t, taskdomain.ProjectionVersion, request["projection_version"])
 				w.Header().Set("Location", "/unexpected")

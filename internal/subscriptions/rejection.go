@@ -11,10 +11,6 @@ import (
 	"weave-os/router/internal/observability"
 )
 
-// A provider rejection is ambiguous on its own (rotated token race, transient
-// edge 401, Cloudflare 403), so an account only needs a reconnect after
-// strikes sustained over credentialRejectionMinSpan, or back-to-back explicit
-// invalid_grant rejections.
 const (
 	credentialRejectionWindow      = 24 * time.Hour
 	credentialRejectionMinSpan     = 6 * time.Hour
@@ -51,9 +47,6 @@ func refreshRejectionReason(err error) string {
 	return "refresh_rejected"
 }
 
-// credentialRejectionCooldownError reports a terminal-looking rejection that
-// was absorbed as a strike. It is deliberately not Terminal so the pool cools
-// the account down instead of marking it reconnect-required.
 type credentialRejectionCooldownError struct {
 	err   error
 	until time.Time
@@ -65,9 +58,6 @@ func (e *credentialRejectionCooldownError) Error() string {
 func (e *credentialRejectionCooldownError) Unwrap() error  { return e.err }
 func (e *credentialRejectionCooldownError) Terminal() bool { return false }
 
-// RejectCredential records an upstream 401/403 for a leased account. The
-// cached access token is dropped so the next lease refreshes, and the account
-// cools down unless its strike history warrants a reconnect, reported as true.
 func (r *Runtime) RejectCredential(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, accountID string, upstreamStatus int) (bool, error) {
 	store, ok := r.store.(credentialRejectionStore)
 	if !ok {

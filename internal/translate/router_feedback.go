@@ -6,34 +6,19 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// RouterFeedbackResult holds the parsed outcome of a /router-feedback command.
 type RouterFeedbackResult struct {
-	// Rating is the thumbs verdict: "up", "down", or "" when the user gave a
-	// note-only command. Set from the /rf+ /rf- shortcuts or a leading
-	// 👍/👎/+/-/up/down token in the note.
-	Rating string
-	// SuggestedLabel is the complexity label extracted from a trailing --label="<value>" flag.
+	Rating         string
 	SuggestedLabel string
-	// Feedback is the free-form note the user submitted after the command,
-	// minus any leading rating token and trailing --label flag.
-	Feedback string
-	// Sequence is an optional leading turn-selector: 0 = last turn (default),
-	// positive = absolute 1-based index, negative = relative offset from last (e.g. -3).
-	Sequence int
-	// FromToolResult is true for directives arriving via a tool result; they
-	// continue routing rather than end with a synthetic response.
+	Feedback       string
+	Sequence       int
 	FromToolResult bool
 }
 
-// RouterFeedbackRatingUp and RouterFeedbackRatingDown are the canonical
-// RouterFeedbackResult.Rating values, shared with telemetry and the handler so
-// the string never drifts.
 const (
 	RouterFeedbackRatingUp   = "up"
 	RouterFeedbackRatingDown = "down"
 )
 
-// RouterFeedbackLabels is the closed vocabulary of complexity labels.
 var RouterFeedbackLabels = map[string]struct{}{
 	"fast":     {},
 	"explore":  {},
@@ -42,14 +27,9 @@ var RouterFeedbackLabels = map[string]struct{}{
 	"maximum":  {},
 }
 
-// ExtractRouterFeedbackCommand scans the trailing user/tool-result message in
-// env for a /router-feedback <text> directive. When found, it strips the
-// command from env.body and returns the feedback text. A bare command still
-// matches (found=true, empty Feedback) so user-issued commands can receive
-// usage guidance. Returns (zero, false) when no command is present.
-func (env *RequestEnvelope) ExtractRouterFeedbackCommand() (RouterFeedbackResult, bool) {
+func (e *RequestEnvelope) ExtractRouterFeedbackCommand() (RouterFeedbackResult, bool) {
 	var res RouterFeedbackResult
-	found, fromToolResult := env.extractLeadingCommandWithSource(func(text string, _ bool) (bool, string) {
+	found, fromToolResult := e.extractLeadingCommandWithSource(func(text string, _ bool) (bool, string) {
 		r, ok, stripped := parseRouterFeedbackCommand(text)
 		if ok {
 			res = r
@@ -60,16 +40,13 @@ func (env *RequestEnvelope) ExtractRouterFeedbackCommand() (RouterFeedbackResult
 	return res, found
 }
 
-// StripRouterFeedbackArtifacts removes prior router-feedback command turns and
-// synthetic ack turns from model-visible history. The current trailing user
-// command is preserved so ExtractRouterFeedbackCommand can still record it.
-func (env *RequestEnvelope) StripRouterFeedbackArtifacts() int {
-	switch env.format {
+func (e *RequestEnvelope) StripRouterFeedbackArtifacts() int {
+	switch e.format {
 	case FormatAnthropic, FormatOpenAI:
 	default:
 		return 0
 	}
-	msgs := gjson.GetBytes(env.body, "messages")
+	msgs := gjson.GetBytes(e.body, "messages")
 	if !msgs.IsArray() {
 		return 0
 	}
@@ -80,10 +57,6 @@ func (env *RequestEnvelope) StripRouterFeedbackArtifacts() int {
 		if all[i].Get("role").String() != "user" {
 			continue
 		}
-		// Codex appends the invoked skill's SKILL.md as its own user message
-		// after the typed directive. Counting that attachment as the trailing
-		// user turn makes the directive itself look like a prior one, so it gets
-		// stripped here before ExtractRouterFeedbackCommand ever sees it.
 		if isSkillAttachment(all, i) {
 			continue
 		}
@@ -110,18 +83,9 @@ func (env *RequestEnvelope) StripRouterFeedbackArtifacts() int {
 	if removed == 0 {
 		return 0
 	}
-	return env.setMessages(rebuilt, removed)
+	return e.setMessages(rebuilt, removed)
 }
 
-// parseRouterFeedbackCommand scans text for a /router-feedback (alias /rf)
-// directive on the first non-empty line, applying the same leading-line +
-// injected-prefix guards as parseForceModelCommandFromSource (see that function for the
-// rationale; the router-side alias serves clients without local slash-command
-// expansion). Codex exec results get a narrow exception for their known
-// "Script completed" preamble. Unlike /force-model, everything after the
-// command — same line AND following lines — is the feedback payload, so the
-// whole body is consumed and the stripped output keeps only the injected
-// prefix.
 func parseRouterFeedbackCommand(text string) (res RouterFeedbackResult, found bool, stripped string) {
 	prefixEnd := leadingInjectedPrefixEnd(text)
 	prefix := text[:prefixEnd]
@@ -133,8 +97,6 @@ func parseRouterFeedbackCommand(text string) (res RouterFeedbackResult, found bo
 
 	rating, inline, ok := matchRouterFeedbackCommand(first)
 	if !ok {
-		// Codex's exec tool joins a "Script completed … Output:" preamble with
-		// the skill directive; check only the first non-empty output line.
 		if strings.HasPrefix(strings.TrimSpace(text), "Script completed") {
 			lines := strings.Split(text, "\n")
 			for i, line := range lines {
@@ -145,7 +107,6 @@ func parseRouterFeedbackCommand(text string) (res RouterFeedbackResult, found bo
 					if strings.TrimSpace(lines[i]) == "" {
 						continue
 					}
-					// Feed the whole block: /router-feedback consumes everything to EOF; one line truncates the note and leaks the rest upstream.
 					candidate, found, _ := parseRouterFeedbackCommand(strings.Join(lines[i:], "\n"))
 					if !found {
 						break
@@ -166,15 +127,11 @@ func parseRouterFeedbackCommand(text string) (res RouterFeedbackResult, found bo
 		}
 		feedback += rest
 	}
-	// Must precede splitLeadingRating so a bare "-" is left for the verdict parser.
 	var seq int
 	seq, feedback = splitSequence(feedback)
-	// A note that opens with a bare verdict ("/rf 👍 too slow") promotes to a
-	// rating, so a single command can carry both verdict and explanation.
 	if rating == "" {
 		rating, feedback = splitLeadingRating(feedback)
 	}
-	// Must precede stripTrailingLabel so a leading digit is not misread as prose by the --label scanner.
 	var label string
 	if rating == RouterFeedbackRatingDown {
 		label, feedback = stripTrailingLabel(feedback)
@@ -256,10 +213,6 @@ func isRouterFeedbackAckText(text string) bool {
 		strings.HasPrefix(trimmed, "✦ **Weave Router** → No turn found at that sequence number")
 }
 
-// matchRouterFeedbackCommand recognizes the command token at the start of the
-// first line. It returns the rating encoded directly in the token (for the
-// /rf+ and /rf- shortcuts, plus the Codex $rf forms), the inline text
-// following the token, and whether a command matched at all.
 func matchRouterFeedbackCommand(first string) (rating, inline string, ok bool) {
 	for _, c := range []struct{ tok, rating string }{
 		{"/rf+", RouterFeedbackRatingUp},
@@ -287,9 +240,6 @@ func matchRouterFeedbackCommand(first string) (rating, inline string, ok bool) {
 	return "", "", false
 }
 
-// splitLeadingRating promotes a leading 👍/👎/+/-/up/down token in a note to a
-// rating, returning the rating and the remaining note. Returns ("", s) when the
-// note does not open with a recognized verdict.
 func splitLeadingRating(s string) (rating, rest string) {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -305,7 +255,6 @@ func splitLeadingRating(s string) (rating, rest string) {
 	return "", s
 }
 
-// stripTrailingLabel removes a trailing --label="<value>" flag from s, validates it against RouterFeedbackLabels, and returns the label and cleaned text.
 func stripTrailingLabel(s string) (label, cleaned string) {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -319,8 +268,6 @@ func stripTrailingLabel(s string) (label, cleaned string) {
 
 	rest := s[idx+len("--label="):]
 	val, tail, ok := extractQuotedOrBareValue(rest)
-	// The flag must be genuinely trailing: any text after the value means the
-	// "--label=" was prose, not a flag, so leave the note untouched.
 	if !ok || strings.TrimSpace(tail) != "" {
 		return "", s
 	}
@@ -333,7 +280,6 @@ func stripTrailingLabel(s string) (label, cleaned string) {
 	return val, cleaned
 }
 
-// extractQuotedOrBareValue extracts a "--label=foo" or "--label=\"foo\"" value.
 func extractQuotedOrBareValue(s string) (val, rest string, ok bool) {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -350,9 +296,6 @@ func extractQuotedOrBareValue(s string) (val, rest string, ok bool) {
 	return val, tail, true
 }
 
-// splitSequence extracts an optional leading sequence token from s.
-// Negative (-N, 1–2 digits) = relative offset from last turn; positive (1–2 digits) = absolute 1-based index;
-// 3+ digits stay in the note. "-", "-0", and bare zero are left untouched. Returns (0, s) when no token found.
 func splitSequence(s string) (seq int, rest string) {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -363,7 +306,6 @@ func splitSequence(s string) (seq int, rest string) {
 		return 0, s
 	}
 	if strings.HasPrefix(tok, "-") && len(tok) > 1 && tok[1] >= '1' && tok[1] <= '9' {
-		// Same 1-2 digit cap as positives: "-404 not found" is a status code in a note, not turn -404.
 		if len(tok) > 3 {
 			return 0, s
 		}
@@ -392,7 +334,6 @@ func splitSequence(s string) (seq int, rest string) {
 		}
 	}
 	if allDigits {
-		// Only consume 1-2 digit tokens; 3+ digits are almost always status codes or IDs (404, 1001).
 		if len(tok) > 2 {
 			return 0, s
 		}

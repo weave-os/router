@@ -57,7 +57,7 @@ func TestCodexPlanOverload_RetriesSameModelOnWeaveKey(t *testing.T) {
 	rec := httptest.NewRecorder()
 	ctx := context.WithValue(codexSubscriptionTestCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
 	ctx = WithManagedSubscriptionUsage(ctx)
-	err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest("/v1/chat/completions", body))
+	err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/chat/completions", body))
 
 	require.NoError(t, err)
 	assert.Equal(t, []bool{true, false}, client.oauthPerCall, "plan attempt first, then the deployment key")
@@ -102,7 +102,7 @@ func TestCodexPlanOverloadAfterMetadata_RetriesSameModelOnWeaveKey(t *testing.T)
 	rec := httptest.NewRecorder()
 	ctx := context.WithValue(codexSubscriptionTestCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
 	ctx = WithManagedSubscriptionUsage(ctx)
-	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest("/v1/responses", body))
+	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest(t.Context(), "/v1/responses", body))
 
 	require.NoError(t, err)
 	assert.Equal(t, []bool{true, false}, client.oauthPerCall, "plan attempt first, then the deployment key")

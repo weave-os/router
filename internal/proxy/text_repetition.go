@@ -16,37 +16,16 @@ import (
 	"github.com/google/uuid"
 )
 
-// Enforcing assistant-text repetition detector.
-//
-// Existing detectors key on stagnation evidence (identical tool signatures,
-// errored results, no tool activity). Fresh tool calls each turn advance the
-// no-progress fingerprint while the assistant narrates the same intent
-// verbatim — the repeated text is the only durable tell.
-//
-// Scans narration since the last real user turn; fires when a normalized text
-// of ≥textRepetitionMinLen chars recurs ≥textRepetitionThreshold times within
-// textRepetitionWindow messages. Gated by ROUTER_TEXT_REPETITION_BREAK_ENABLED.
 const (
-	// textRepetitionWindow bounds the scan to recent messages so an early
-	// duplicate the agent recovered from doesn't count against it.
-	textRepetitionWindow = 12
-	// textRepetitionThreshold: verbatim recurrences of one line that trip the
-	// break. Three identical substantive turns is a loop, not a coincidence.
+	textRepetitionWindow    = 12
 	textRepetitionThreshold = 3
-	// textRepetitionMinLen: ignore short lines ("Done.", "OK") whose repetition
-	// is benign; only count narration long enough to be a real intent restatement.
-	textRepetitionMinLen = 40
+	textRepetitionMinLen    = 40
 )
 
-// normalizeAssistantText lowercases and collapses whitespace so cosmetic
-// drift (re-wrap, trailing newline) doesn't defeat the exact-match count.
 func normalizeAssistantText(s string) string {
 	return strings.ToLower(strings.Join(strings.Fields(s), " "))
 }
 
-// detectTextRepetition reports whether a normalized assistant text recurs
-// textRepetitionThreshold+ times within textRepetitionWindow messages. Returns
-// count and an 8-byte hash of the offending text (safe for logs).
 func detectTextRepetition(env *translate.RequestEnvelope) (looped bool, count int, sampleHash string) {
 	texts := env.TrailingAssistantTexts()
 	if len(texts) < textRepetitionThreshold {
@@ -78,10 +57,6 @@ func detectTextRepetition(env *translate.RequestEnvelope) (looped bool, count in
 	return true, count, hex.EncodeToString(h[:8])
 }
 
-// handleTextRepetitionBreak writes a synthetic end_turn response and expires
-// the session pin so the next turn re-routes off the stuck model instead of
-// re-anchoring on it. Mirrors handleNoProgressBreak's mechanics; pin expiry is
-// best-effort.
 func (s *Service) handleTextRepetitionBreak(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -122,10 +97,6 @@ func (s *Service) handleTextRepetitionBreak(
 		"role", role,
 	)
 
-	// Expire the pin in Postgres (not just the in-proc cache) so a racing
-	// reader on another pod can't repopulate the LRU from the stale row.
-	// Skip a zero session key: a zero-keyed pin row is a zombie shared by every
-	// zero-keyed session.
 	if s.pinStore != nil && installationID != uuid.Nil && sessionKey != ([sessionpin.SessionKeyLen]byte{}) {
 		if err := s.expireSessionPinAndHMMHistory(ctx, installationID, sessionKey, role, "text_repetition_break"); err != nil {
 			log.Error("text-repetition-break: pin store upsert failed", "err", err)

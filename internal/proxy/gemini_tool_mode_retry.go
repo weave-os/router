@@ -16,12 +16,10 @@ type geminiToolModeAttempt struct {
 	opts    translate.EmitOptions
 }
 
-// Finalization waits until the retry decision: it may otherwise commit the
-// failed attempt's synthetic prelude and make recovery impossible.
 func (a geminiToolModeAttempt) dispatch(prepared providers.PreparedRequest,
-	send func(providers.PreparedRequest) (error, func(error) error),
+	send func(providers.PreparedRequest) (func(error) error, error),
 ) error {
-	upstreamErr, finalize := send(prepared)
+	finalize, upstreamErr := send(prepared)
 	if upstreamErr == nil || !prepared.Stats.GeminiValidatedToolMode || committed(a.buffer) || upstreamStatus(upstreamErr) != http.StatusBadRequest {
 		return finalize(upstreamErr)
 	}
@@ -36,6 +34,6 @@ func (a geminiToolModeAttempt) dispatch(prepared providers.PreparedRequest,
 	if a.buffer != nil {
 		a.buffer.Discard()
 	}
-	upstreamErr, finalize = send(autoRequest)
+	finalize, upstreamErr = send(autoRequest)
 	return finalize(upstreamErr)
 }

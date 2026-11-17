@@ -90,7 +90,7 @@ func TestService_ProxyOpenAIResponses_NativeTurnRecordsTerminalFinishReason(t *t
 
 			body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"reasoning","id":"rs_0","encrypted_content":"opaque"},{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}]}`)
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 			require.NoError(t, svc.ProxyOpenAIResponses(codexNativeResponsesCtx(), body, rec, req))
 
 			require.Len(t, provider.proxyEndpoints, 1)
@@ -122,7 +122,7 @@ func TestService_ProxyOpenAIResponses_NativeFailedTerminalRecordsNoFinishReason(
 
 	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"reasoning","id":"rs_0","encrypted_content":"opaque"},{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}]}`)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 	require.NoError(t, svc.ProxyOpenAIResponses(codexNativeResponsesCtx(), body, rec, req))
 
 	row := telemetry.firstRow(t)
@@ -145,7 +145,7 @@ func TestService_ProxyOpenAIResponses_NativeClientCancelAfterCompletedIsSuccess(
 
 	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}]}`)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
 	require.NoError(t, svc.ProxyOpenAIResponses(codexNativeResponsesCtx(), body, rec, req),
 		"a client that hangs up after response.completed received the whole turn")
 

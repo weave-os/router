@@ -94,7 +94,7 @@ func TestSessionCostHandler(t *testing.T) {
 		engine := sessionCostEngine(t, repo, &auth.Installation{ID: uuid.NewString()})
 
 		rec := httptest.NewRecorder()
-		engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/sessions/session-1/cost", nil))
+		engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/sessions/session-1/cost", nil))
 
 		require.Equal(t, http.StatusOK, rec.Code)
 		var body sessionCostBody
@@ -128,7 +128,7 @@ func TestSessionCostHandler(t *testing.T) {
 		engine := sessionCostEngine(t, repo, &auth.Installation{ID: uuid.NewString()})
 
 		rec := httptest.NewRecorder()
-		engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/sessions/session-1/cost", nil))
+		engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/sessions/session-1/cost", nil))
 
 		require.Equal(t, http.StatusNotFound, rec.Code)
 		require.NotContains(t, rec.Body.String(), "savings")
@@ -139,7 +139,7 @@ func TestSessionCostHandler(t *testing.T) {
 		repo := &sessionCostRepo{cost: proxy.SessionCost{SessionID: "session-1"}}
 		engine := sessionCostEngine(t, repo, &auth.Installation{ID: installationID})
 
-		engine.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/v1/sessions/session-1/cost", nil))
+		engine.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/sessions/session-1/cost", nil))
 
 		require.Equal(t, installationID, repo.seenInstallationID)
 	})
@@ -153,7 +153,7 @@ func TestSessionCostHandler(t *testing.T) {
 		engine := sessionCostEngine(t, repo, &auth.Installation{ID: uuid.NewString()})
 
 		rec := httptest.NewRecorder()
-		engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/sessions/session-1/cost", nil))
+		engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/sessions/session-1/cost", nil))
 
 		require.Equal(t, http.StatusOK, rec.Code)
 		var body sessionCostBody
@@ -166,7 +166,7 @@ func TestSessionCostHandler(t *testing.T) {
 		engine := sessionCostEngine(t, repo, &auth.Installation{ID: uuid.NewString()})
 
 		rec := httptest.NewRecorder()
-		engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/sessions/session-1/cost", nil))
+		engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/sessions/session-1/cost", nil))
 
 		require.Equal(t, http.StatusNotFound, rec.Code)
 		decodePublicError(t, rec)
@@ -177,7 +177,7 @@ func TestSessionCostHandler(t *testing.T) {
 		engine := sessionCostEngine(t, repo, &auth.Installation{ID: uuid.NewString()})
 
 		rec := httptest.NewRecorder()
-		engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/sessions/"+strings.Repeat("s", proxy.MaxClientIdentifierLen+1)+"/cost", nil))
+		engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/sessions/"+strings.Repeat("s", proxy.MaxClientIdentifierLen+1)+"/cost", nil))
 
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 		body := decodePublicError(t, rec)
@@ -191,7 +191,7 @@ func TestSessionCostHandler(t *testing.T) {
 		sessionID := strings.Repeat("s", proxy.MaxClientIdentifierLen)
 
 		rec := httptest.NewRecorder()
-		engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/sessions/"+sessionID+"/cost", nil))
+		engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/sessions/"+sessionID+"/cost", nil))
 
 		require.Equal(t, http.StatusOK, rec.Code)
 		require.Equal(t, sessionID, repo.seenSessionID)
@@ -201,7 +201,7 @@ func TestSessionCostHandler(t *testing.T) {
 		engine := sessionCostEngine(t, nil, &auth.Installation{ID: uuid.NewString()})
 
 		rec := httptest.NewRecorder()
-		engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/sessions/session-1/cost", nil))
+		engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/sessions/session-1/cost", nil))
 
 		require.Equal(t, http.StatusServiceUnavailable, rec.Code)
 		decodePublicError(t, rec)
@@ -212,7 +212,7 @@ func TestSessionCostHandler(t *testing.T) {
 		engine := sessionCostEngine(t, repo, &auth.Installation{ID: uuid.NewString()})
 
 		rec := httptest.NewRecorder()
-		engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/sessions/session-1/cost", nil))
+		engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/sessions/session-1/cost", nil))
 
 		require.Equal(t, http.StatusInternalServerError, rec.Code)
 		decodePublicError(t, rec)
@@ -224,7 +224,7 @@ func TestSessionCostHandler(t *testing.T) {
 		engine := sessionCostEngine(t, repo, nil)
 
 		rec := httptest.NewRecorder()
-		engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/sessions/session-1/cost", nil))
+		engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/sessions/session-1/cost", nil))
 
 		require.Equal(t, http.StatusUnauthorized, rec.Code)
 		require.Empty(t, repo.seenSessionID, "an unauthenticated caller must not reach the repository")
@@ -241,7 +241,7 @@ func TestSessionCostContextExpiry(t *testing.T) {
 			}}}
 			engine := sessionCostEngine(t, repo, &auth.Installation{ID: uuid.NewString()})
 			rec := httptest.NewRecorder()
-			engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/sessions/session-context/cost", nil))
+			engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/sessions/session-context/cost", nil))
 			require.Equal(t, http.StatusOK, rec.Code)
 			require.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
 			var body map[string]json.RawMessage

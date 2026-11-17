@@ -111,9 +111,9 @@ func TestPinCacheCold_OrdinaryAndHMMShareTheSameRule(t *testing.T) {
 	cold := warm
 	cold.LastTurnEndedAt = time.Now().Add(-2 * time.Hour)
 
-	assert.False(t, pinCacheCold(warm, false), "a warm unmodified prefix remains cache-eligible")
-	assert.True(t, pinCacheCold(warm, true), "a prefix break makes a warm pin cold")
-	assert.True(t, pinCacheCold(cold, false), "an expired pin is cold without a prefix break")
+	assert.False(t, pinCacheCold(warm, false, time.Now()), "a warm unmodified prefix remains cache-eligible")
+	assert.True(t, pinCacheCold(warm, true, time.Now()), "a prefix break makes a warm pin cold")
+	assert.True(t, pinCacheCold(cold, false, time.Now()), "an expired pin is cold without a prefix break")
 }
 
 func TestConsumePostCommandContinuation_RequiresEffectiveStrategy(t *testing.T) {
@@ -140,7 +140,7 @@ func TestApplyPinEvidence_UsesAvailablePriorTurnData(t *testing.T) {
 	applyPinEvidence(&zeroTimestamp, sessionpin.Pin{
 		Provider: providers.ProviderAnthropic,
 		Model:    "claude-haiku-4-5",
-	})
+	}, time.Now())
 	assert.Equal(t, providers.ProviderAnthropic, zeroTimestamp.PinProvider)
 	assert.Nil(t, zeroTimestamp.PriorTurnGapMS)
 
@@ -150,7 +150,7 @@ func TestApplyPinEvidence_UsesAvailablePriorTurnData(t *testing.T) {
 		Model:           "accounts/fireworks/models/qwen3-235b-a22b",
 		PolicyGroup:     "high",
 		LastTurnEndedAt: time.Now().Add(-time.Second),
-	})
+	}, time.Now())
 	assert.Equal(t, providers.ProviderFireworks, withHistory.PinProvider)
 	assert.Equal(t, "high", withHistory.PinPolicyGroup)
 	require.NotNil(t, withHistory.PriorTurnGapMS)
@@ -490,7 +490,7 @@ func TestNormalizeHMMStayPin_RepairsMismatchedProvider(t *testing.T) {
 		PinnedUntil:     time.Now().Add(time.Hour),
 	}
 
-	normalized, ok := hmmCostGateFor(svc).NormalizeStayPin(router.Request{}, pin)
+	normalized, ok := hmmCostGateFor(svc).NormalizeStayPin(router.Request{}, pin, svc.clock.Now())
 	require.True(t, ok)
 	assert.Equal(t, "deepseek/deepseek-v4.1-flash", normalized.Model)
 	assert.Equal(t, providers.ProviderMakora, normalized.Provider,
@@ -516,7 +516,7 @@ func TestNormalizeHMMStayPin_ReResolvesDisabledProvider(t *testing.T) {
 
 	normalized, ok := hmmCostGateFor(svc).NormalizeStayPin(router.Request{
 		EnabledProviders: map[string]struct{}{providers.ProviderMakora: {}},
-	}, pin)
+	}, pin, svc.clock.Now())
 	require.True(t, ok)
 	assert.Equal(t, providers.ProviderMakora, normalized.Provider,
 		"a sticky HMM pin must re-resolve a disabled provider for its retained model")
@@ -541,7 +541,7 @@ func TestNormalizeHMMStayPin_PreservesCatalogRoutableTerra(t *testing.T) {
 		PinnedUntil:     time.Now().Add(time.Hour),
 	}
 
-	normalized, ok := hmmCostGateFor(svc).NormalizeStayPin(router.Request{}, pin)
+	normalized, ok := hmmCostGateFor(svc).NormalizeStayPin(router.Request{}, pin, svc.clock.Now())
 
 	require.True(t, ok)
 	assert.Equal(t, "gpt-5.6-terra", normalized.Model)
@@ -640,14 +640,10 @@ func TestHMMCostGate_StaysOnWarmCacheWhenCheaperFreshDoesNotClearEV(t *testing.T
 		},
 	}
 
-	decision, plan, sticky, stayModel := hmmCostGatedDecision(svc,
-		router.Request{},
-		sessionpin.Pin{},
-		history,
-		fresh,
-		100,
-		false,
-	)
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: fresh,
+		EstimatedInputTokens: 100, PrefixBroken: false,
+	})
 
 	assert.True(t, sticky)
 	assert.Equal(t, "claude-sonnet-5", decision.Model)
@@ -683,14 +679,10 @@ func TestHMMCostGate_SwitchesCheaperFreshWhenEVPositive(t *testing.T) {
 		},
 	}
 
-	decision, plan, sticky, stayModel := hmmCostGatedDecision(svc,
-		router.Request{},
-		sessionpin.Pin{},
-		history,
-		fresh,
-		10_000,
-		false,
-	)
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: fresh,
+		EstimatedInputTokens: 10_000, PrefixBroken: false,
+	})
 
 	assert.False(t, sticky)
 	assert.Equal(t, "deepseek/deepseek-v4.1-flash", decision.Model)
@@ -729,14 +721,10 @@ func TestHMMCostGate_SameTierPinSuppressesLateralSwitchWhenEnabled(t *testing.T)
 	require.NotEqual(t, catalog.TierUnknown, catalog.TierFor(history.LastServedModel))
 
 	// Flag off (default): unaffected, same as any other EV-positive switch.
-	decision, plan, sticky, stayModel := hmmCostGatedDecision(svc,
-		router.Request{},
-		sessionpin.Pin{},
-		history,
-		fresh,
-		10_000,
-		false,
-	)
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: fresh,
+		EstimatedInputTokens: 10_000, PrefixBroken: false,
+	})
 	assert.False(t, sticky)
 	assert.Equal(t, "deepseek/deepseek-v4.1-flash", decision.Model)
 	assert.Equal(t, "gpt-4.1-mini", stayModel)
@@ -745,14 +733,10 @@ func TestHMMCostGate_SameTierPinSuppressesLateralSwitchWhenEnabled(t *testing.T)
 
 	// Flag on: the lateral same-tier switch is suppressed; the pin sticks.
 	svc.WithHMMSameTierPin(true)
-	decision, plan, sticky, stayModel = hmmCostGatedDecision(svc,
-		router.Request{},
-		sessionpin.Pin{},
-		history,
-		fresh,
-		10_000,
-		false,
-	)
+	decision, plan, sticky, stayModel = hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: fresh,
+		EstimatedInputTokens: 10_000, PrefixBroken: false,
+	})
 	assert.True(t, sticky)
 	assert.Equal(t, "gpt-4.1-mini", decision.Model)
 	assert.Equal(t, providers.ProviderOpenAI, decision.Provider)
@@ -788,14 +772,10 @@ func TestHMMCostGate_SameTierPinDoesNotBlockCrossTierSwitch(t *testing.T) {
 	}
 	require.NotEqual(t, catalog.TierFor(history.LastServedModel), catalog.TierFor(fresh.Model))
 
-	decision, plan, sticky, stayModel := hmmCostGatedDecision(svc,
-		router.Request{},
-		sessionpin.Pin{},
-		history,
-		fresh,
-		10_000,
-		false,
-	)
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: fresh,
+		EstimatedInputTokens: 10_000, PrefixBroken: false,
+	})
 
 	assert.False(t, sticky)
 	assert.Equal(t, "deepseek/deepseek-v4.1-flash", decision.Model)
@@ -831,14 +811,10 @@ func TestHMMCostGate_SameTierPinDoesNotBlockConfidentUpgrade(t *testing.T) {
 	}
 	require.NotEqual(t, catalog.TierFor(history.LastServedModel), catalog.TierFor(fresh.Model))
 
-	decision, plan, sticky, stayModel := hmmCostGatedDecision(svc,
-		router.Request{},
-		sessionpin.Pin{},
-		history,
-		fresh,
-		10_000,
-		false,
-	)
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: fresh,
+		EstimatedInputTokens: 10_000, PrefixBroken: false,
+	})
 
 	assert.False(t, sticky)
 	assert.Equal(t, "claude-sonnet-5", decision.Model)
@@ -874,14 +850,10 @@ func TestHMMCostGate_SameTierPinIgnoresUnknownTierModels(t *testing.T) {
 	}
 	require.Equal(t, catalog.TierUnknown, catalog.TierFor(history.LastServedModel))
 
-	decision, plan, sticky, stayModel := hmmCostGatedDecision(svc,
-		router.Request{},
-		sessionpin.Pin{},
-		history,
-		fresh,
-		10_000,
-		false,
-	)
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: fresh,
+		EstimatedInputTokens: 10_000, PrefixBroken: false,
+	})
 
 	assert.False(t, sticky)
 	assert.Equal(t, "deepseek/deepseek-v4.1-flash", decision.Model)
@@ -890,7 +862,7 @@ func TestHMMCostGate_SameTierPinIgnoresUnknownTierModels(t *testing.T) {
 	assert.Equal(t, planner.ReasonEVPositive, plan.Reason)
 }
 
-func TestHMMCostGate_PhaseChangeFollowsFreshDecision(t *testing.T) {
+func TestHMMCostGate_PhaseChangeFollowsFreshDecisionWhenEVPositive(t *testing.T) {
 	svc := NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
@@ -919,14 +891,10 @@ func TestHMMCostGate_PhaseChangeFollowsFreshDecision(t *testing.T) {
 		},
 	}
 
-	decision, plan, sticky, stayModel := hmmCostGatedDecision(svc,
-		router.Request{},
-		activePin,
-		sessionpin.Pin{},
-		fresh,
-		100,
-		false,
-	)
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+		Request: router.Request{}, ActivePin: activePin, HMMHistory: sessionpin.Pin{}, Fresh: fresh,
+		EstimatedInputTokens: 10_000, PrefixBroken: false,
+	})
 
 	assert.False(t, sticky)
 	assert.Equal(t, "deepseek/deepseek-v4.1-flash", decision.Model)
@@ -935,7 +903,7 @@ func TestHMMCostGate_PhaseChangeFollowsFreshDecision(t *testing.T) {
 	assert.Equal(t, routingpolicy.HMMReasonPhaseChange, plan.Reason)
 }
 
-func TestHMMCostGate_HistoryPhaseChangeFollowsFreshDecision(t *testing.T) {
+func TestHMMCostGate_HistoryPhaseChangeFollowsFreshDecisionWhenEVPositive(t *testing.T) {
 	svc := NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
@@ -963,14 +931,10 @@ func TestHMMCostGate_HistoryPhaseChangeFollowsFreshDecision(t *testing.T) {
 		},
 	}
 
-	decision, plan, sticky, stayModel := hmmCostGatedDecision(svc,
-		router.Request{},
-		sessionpin.Pin{},
-		history,
-		fresh,
-		100,
-		false,
-	)
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: fresh,
+		EstimatedInputTokens: 10_000, PrefixBroken: false,
+	})
 
 	assert.False(t, sticky)
 	assert.Equal(t, "deepseek/deepseek-v4.1-flash", decision.Model)
@@ -1005,14 +969,10 @@ func TestHMMCostGate_ExpensiveUpgradeRequiresHighConfidence(t *testing.T) {
 		},
 	}
 
-	decision, plan, sticky, stayModel := hmmCostGatedDecision(svc,
-		router.Request{},
-		sessionpin.Pin{},
-		history,
-		fresh,
-		10_000,
-		false,
-	)
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: fresh,
+		EstimatedInputTokens: 10_000, PrefixBroken: false,
+	})
 
 	assert.True(t, sticky)
 	assert.Equal(t, "moonshotai/kimi-k2.7", decision.Model)
@@ -1021,14 +981,10 @@ func TestHMMCostGate_ExpensiveUpgradeRequiresHighConfidence(t *testing.T) {
 	assert.Equal(t, routingpolicy.HMMReasonUpgradeConfidenceLow, plan.Reason)
 
 	fresh.Metadata.ChosenScore = 0.50
-	decision, plan, sticky, stayModel = hmmCostGatedDecision(svc,
-		router.Request{},
-		sessionpin.Pin{},
-		history,
-		fresh,
-		10_000,
-		false,
-	)
+	decision, plan, sticky, stayModel = hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: fresh,
+		EstimatedInputTokens: 10_000, PrefixBroken: false,
+	})
 
 	assert.False(t, sticky)
 	assert.Equal(t, "claude-sonnet-5", decision.Model)
@@ -1068,14 +1024,10 @@ func TestHMMCostGate_LowConfidenceUpgradeKeepsIndependentPlannerSwitch(t *testin
 		},
 	}
 
-	decision, plan, sticky, stayModel := hmmCostGatedDecision(svc,
-		router.Request{},
-		sessionpin.Pin{},
-		history,
-		fresh,
-		10_000,
-		true,
-	)
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: fresh,
+		EstimatedInputTokens: 10_000, PrefixBroken: true,
+	})
 
 	assert.False(t, sticky)
 	assert.Equal(t, "claude-sonnet-5", decision.Model)
@@ -1112,14 +1064,10 @@ func TestHMMCostGate_IgnoresExpiredActivePin(t *testing.T) {
 		},
 	}
 
-	decision, plan, sticky, stayModel := hmmCostGatedDecision(svc,
-		router.Request{},
-		expired,
-		sessionpin.Pin{},
-		fresh,
-		100,
-		false,
-	)
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+		Request: router.Request{}, ActivePin: expired, HMMHistory: sessionpin.Pin{}, Fresh: fresh,
+		EstimatedInputTokens: 100, PrefixBroken: false,
+	})
 
 	assert.False(t, sticky)
 	assert.Equal(t, "deepseek/deepseek-v4.1-flash", decision.Model)
@@ -1159,14 +1107,10 @@ func TestHMMCostGate_IgnoresNonHMMActivePin(t *testing.T) {
 		},
 	}
 
-	decision, plan, sticky, stayModel := hmmCostGatedDecision(svc,
-		router.Request{},
-		clusterPin,
-		sessionpin.Pin{},
-		fresh,
-		100,
-		false,
-	)
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+		Request: router.Request{}, ActivePin: clusterPin, HMMHistory: sessionpin.Pin{}, Fresh: fresh,
+		EstimatedInputTokens: 100, PrefixBroken: false,
+	})
 
 	assert.False(t, sticky, "a non-HMM cluster pin must not win an HMM EV stay")
 	assert.Equal(t, "deepseek/deepseek-v4.1-flash", decision.Model)
@@ -1206,14 +1150,10 @@ func TestHMMCostGate_HonorsHMMReasonedActivePin(t *testing.T) {
 		},
 	}
 
-	decision, plan, sticky, stayModel := hmmCostGatedDecision(svc,
-		router.Request{},
-		hmmPin,
-		sessionpin.Pin{},
-		fresh,
-		100,
-		false,
-	)
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+		Request: router.Request{}, ActivePin: hmmPin, HMMHistory: sessionpin.Pin{}, Fresh: fresh,
+		EstimatedInputTokens: 100, PrefixBroken: false,
+	})
 
 	assert.True(t, sticky, "an HMM-reasoned active pin remains a valid stay candidate")
 	assert.Equal(t, "claude-sonnet-5", decision.Model)
@@ -1252,14 +1192,10 @@ func TestHMMCostGate_IgnoresMaxedHistory(t *testing.T) {
 		},
 	}
 
-	decision, plan, sticky, stayModel := hmmCostGatedDecision(svc,
-		router.Request{},
-		sessionpin.Pin{},
-		history,
-		fresh,
-		100,
-		false,
-	)
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: fresh,
+		EstimatedInputTokens: 100, PrefixBroken: false,
+	})
 
 	assert.False(t, sticky)
 	assert.Equal(t, "deepseek/deepseek-v4.1-flash", decision.Model)
@@ -1302,7 +1238,7 @@ func TestLoadPin_DoesNotServeExpiredPostgresPinButKeepsEmitHistory(t *testing.T)
 	}
 	store.getFound = true
 
-	pin, found := routingpolicy.NewSessionPins(svc.pinStore).Load(context.Background(), sessionKey, sessionpin.DefaultRole)
+	pin, found := routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now).Load(context.Background(), sessionKey, sessionpin.DefaultRole)
 	assert.False(t, found, "expired Postgres row must not be served")
 	assert.Equal(t, "claude-opus-4-7", pin.LastServedModel, "expired row history must be available for emit")
 	assert.True(t, pin.HasEverSwitched, "expired row latch must be available for emit")
@@ -1345,7 +1281,7 @@ func TestLoadPin_ServesFreshPostgresPin(t *testing.T) {
 	}
 	store.getFound = true
 
-	pin, found := routingpolicy.NewSessionPins(svc.pinStore).Load(context.Background(), sessionKey, sessionpin.DefaultRole)
+	pin, found := routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now).Load(context.Background(), sessionKey, sessionpin.DefaultRole)
 	require.True(t, found, "non-expired Postgres row must be returned")
 	assert.Equal(t, "claude-opus-4-7", pin.Model)
 	assert.Equal(t, "anthropic", pin.Provider)
@@ -1380,7 +1316,7 @@ func TestLoadPin_RequiresBetaStrategyMatch(t *testing.T) {
 				providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 			ctx := router.WithStrategy(context.Background(), tt.request)
 
-			pin, found := routingpolicy.NewSessionPins(svc.pinStore).Load(ctx, [sessionpin.SessionKeyLen]byte{1}, sessionpin.DefaultRole)
+			pin, found := routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now).Load(ctx, [sessionpin.SessionKeyLen]byte{1}, sessionpin.DefaultRole)
 			assert.Equal(t, tt.found, found)
 			if !tt.found {
 				assert.Equal(t, sessionpin.Pin{}, pin, "a mismatched pin must not leak reuse or history evidence")
@@ -1471,7 +1407,7 @@ func TestService_NewService_HMMUpgradeConfidenceDefaults(t *testing.T) {
 		"anthropic", "claude-haiku-4-5",
 		nil,
 	)
-	assert.Equal(t, DefaultHMMUpgradeConfidenceThreshold, svc.hmmUpgradeConfidenceThreshold)
+	assert.InDelta(t, DefaultHMMUpgradeConfidenceThreshold, svc.hmmUpgradeConfidenceThreshold, 1e-9)
 }
 
 func TestService_WithHMMUpgradeConfidenceThreshold(t *testing.T) {
@@ -1486,16 +1422,16 @@ func TestService_WithHMMUpgradeConfidenceThreshold(t *testing.T) {
 	)
 
 	svc.WithHMMUpgradeConfidenceThreshold(0.50)
-	assert.Equal(t, 0.50, svc.hmmUpgradeConfidenceThreshold)
+	assert.InDelta(t, 0.50, svc.hmmUpgradeConfidenceThreshold, 1e-9)
 
 	svc.WithHMMUpgradeConfidenceThreshold(-0.10)
-	assert.Equal(t, 0.50, svc.hmmUpgradeConfidenceThreshold)
+	assert.InDelta(t, 0.50, svc.hmmUpgradeConfidenceThreshold, 1e-9)
 
 	svc.WithHMMUpgradeConfidenceThreshold(1.50)
-	assert.Equal(t, 0.50, svc.hmmUpgradeConfidenceThreshold)
+	assert.InDelta(t, 0.50, svc.hmmUpgradeConfidenceThreshold, 1e-9)
 
 	svc.WithHMMUpgradeConfidenceThreshold(0.0)
-	assert.Equal(t, 0.0, svc.hmmUpgradeConfidenceThreshold)
+	assert.InDelta(t, 0.0, svc.hmmUpgradeConfidenceThreshold, 1e-9)
 }
 
 func TestHMMCostGate_UpgradeThresholdConfigurable(t *testing.T) {
@@ -1526,14 +1462,10 @@ func TestHMMCostGate_UpgradeThresholdConfigurable(t *testing.T) {
 		},
 	}
 
-	decision, plan, sticky, stayModel := hmmCostGatedDecision(svc,
-		router.Request{},
-		sessionpin.Pin{},
-		history,
-		fresh,
-		10_000,
-		false,
-	)
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: fresh,
+		EstimatedInputTokens: 10_000, PrefixBroken: false,
+	})
 
 	assert.False(t, sticky)
 	assert.Equal(t, "claude-sonnet-5", decision.Model)

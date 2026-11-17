@@ -12,12 +12,10 @@ import (
 
 const maxCodexModelCatalogBytes = 1 << 20
 
-// FetchCodexModelCatalog reads the caller's account-specific Codex catalog.
-// Only the paired ChatGPT OAuth credential may go to the Codex backend.
 func (c *Client) FetchCodexModelCatalog(ctx context.Context, clientVersion string) ([]byte, error) {
 	creds := codexSubscriptionCreds(ctx)
 	if creds == nil {
-		return nil, errors.New("Codex model discovery requires ChatGPT OAuth and account ID")
+		return nil, errors.New("codex model discovery requires ChatGPT OAuth and account ID")
 	}
 	endpoint, err := url.Parse(c.codexBaseURL + "/models")
 	if err != nil {
@@ -44,14 +42,14 @@ func (c *Client) FetchCodexModelCatalog(ctx context.Context, clientVersion strin
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Codex models endpoint returned HTTP %d", response.StatusCode)
+		return nil, fmt.Errorf("codex models endpoint returned HTTP %d", response.StatusCode)
 	}
 	catalog, err := io.ReadAll(io.LimitReader(response.Body, maxCodexModelCatalogBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read Codex models: %w", err)
 	}
 	if len(catalog) > maxCodexModelCatalogBytes {
-		return nil, fmt.Errorf("Codex model catalog exceeds %d bytes", maxCodexModelCatalogBytes)
+		return nil, fmt.Errorf("codex model catalog exceeds %d bytes", maxCodexModelCatalogBytes)
 	}
 	return catalog, nil
 }

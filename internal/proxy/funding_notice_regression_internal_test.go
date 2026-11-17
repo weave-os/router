@@ -10,9 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"github.com/tidwall/gjson"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
@@ -20,6 +17,10 @@ import (
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 type fundingStreamProvider struct{ bypassFakeProvider }
@@ -37,7 +38,7 @@ func TestFundingBypassEmptyStreamCannotSucceed(t *testing.T) {
 	require.NoError(t, err)
 	rec := httptest.NewRecorder()
 	ctx := billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlyCreditsDepleted)
-	err = svc.bypassToAnthropic(ctx, env, env.RoutingFeatures(), false, time.Now(), "synthetic", "synthetic", turntype.MainLoop, reasonUsageBypass, httptest.NewRequest(http.MethodPost, "/v1/messages", nil), rec)
+	err = svc.bypassToAnthropic(ctx, env, env.RoutingFeatures(), false, time.Now(), "synthetic", "synthetic", turntype.MainLoop, reasonUsageBypass, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil), rec)
 	require.ErrorIs(t, err, errBypassRetryable)
 	assert.Empty(t, rec.Body.String())
 }
@@ -54,7 +55,7 @@ func TestFundingBypassCommittedFailureCannotRecover(t *testing.T) {
 			require.NoError(t, err)
 			rec := httptest.NewRecorder()
 			ctx := billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlyCreditsDepleted)
-			err = svc.bypassToAnthropic(ctx, env, env.RoutingFeatures(), false, time.Now(), "synthetic", "synthetic", turntype.MainLoop, reasonUsageBypass, httptest.NewRequest(http.MethodPost, "/v1/messages", nil), rec)
+			err = svc.bypassToAnthropic(ctx, env, env.RoutingFeatures(), false, time.Now(), "synthetic", "synthetic", turntype.MainLoop, reasonUsageBypass, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil), rec)
 			require.Error(t, err)
 			require.NotErrorIs(t, err, errBypassRetryable)
 			assert.Equal(t, 1, strings.Count(rec.Body.String(), "event: message_start\n"))
@@ -73,7 +74,7 @@ func TestFundingBypassCancellationDoesNotDispatch(t *testing.T) {
 	ctx, cancel := context.WithCancel(billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlySpendCapReached))
 	cancel()
 	rec := httptest.NewRecorder()
-	err = svc.bypassToAnthropic(ctx, env, env.RoutingFeatures(), false, time.Now(), "synthetic", "synthetic", turntype.MainLoop, reasonUsageBypass, httptest.NewRequest(http.MethodPost, "/v1/messages", nil), rec)
+	err = svc.bypassToAnthropic(ctx, env, env.RoutingFeatures(), false, time.Now(), "synthetic", "synthetic", turntype.MainLoop, reasonUsageBypass, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil), rec)
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Zero(t, upstream.dispatches)
 	assert.Empty(t, rec.Body.String())
@@ -83,15 +84,22 @@ func TestFundingNoticePolicyAndReplay(t *testing.T) {
 	const model = "synthetic-model"
 	const marker = "✦ **Weave Router** → synthetic-model\n\n"
 	for _, warning := range subscriptionFundingWarnings {
-		t.Run(string(warning.reason)+"/"+string(warning.source), func(t *testing.T) {
+		t.Run(fmt.Sprintf("%s/%s/key=%t", warning.reason, warning.source, warning.customerKey), func(t *testing.T) {
 			ctx := billing.WithSubscriptionOnly(context.Background(), warning.reason)
+			if warning.customerKey {
+				ctx = context.WithValue(ctx, CredentialsContextKey{}, &Credentials{APIKey: []byte("synthetic-key"), Source: credSourceBYOK})
+			}
 			notice := routerNoticeForRequest(ctx, http.Header{}, warning.source, model, marker)
 			assert.Equal(t, translate.NoticeFundingWarning, notice.Kind)
 			assert.Equal(t, translate.NoticeFromRouter, notice.Provenance)
 			assert.Equal(t, model, notice.Model)
-			if warning.source == subscriptions.ProviderClaude {
+			switch {
+			case warning.customerKey:
+				assert.Contains(t, notice.Text, "your own provider API key")
+				assert.NotContains(t, notice.Text, "subscription")
+			case warning.source == subscriptions.ProviderClaude:
 				assert.Contains(t, notice.Text, "Anthropic subscription")
-			} else {
+			default:
 				assert.Contains(t, notice.Text, "ChatGPT (Codex) subscription")
 			}
 			assert.Contains(t, notice.Text, "spend cap has been reached")
@@ -151,7 +159,7 @@ func TestFundingNoticeDoesNotEstablishProviderFacts(t *testing.T) {
 	input, output := extractor.Tokens()
 	assert.Zero(t, input)
 	assert.Zero(t, output)
-	assert.ErrorIs(t, terminal.streamErr(), translate.ErrStreamEmpty)
+	require.ErrorIs(t, terminal.streamErr(), translate.ErrStreamEmpty)
 	assert.False(t, buffer.Committed())
 	buffer.Seal()
 	_, err = terminal.Write([]byte("event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":7}}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"provider answer\"}}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":2}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"))
@@ -197,7 +205,7 @@ func TestFundingBypassBufferedResponseStaysWarningFree(t *testing.T) {
 	env := bypassAnthropicEnvelope(t)
 	ctx := billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlySpendCapReached)
 	rec := httptest.NewRecorder()
-	err := svc.bypassToAnthropic(ctx, env, env.RoutingFeatures(), false, time.Now(), "synthetic", "synthetic", turntype.MainLoop, reasonUsageBypass, httptest.NewRequest(http.MethodPost, "/v1/messages", nil), rec)
+	err := svc.bypassToAnthropic(ctx, env, env.RoutingFeatures(), false, time.Now(), "synthetic", "synthetic", turntype.MainLoop, reasonUsageBypass, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil), rec)
 	require.NoError(t, err)
 	assert.JSONEq(t, upstream.respBody, rec.Body.String())
 	assert.Equal(t, "application/json", rec.Result().Header.Get("Content-Type"))
@@ -211,7 +219,7 @@ func TestFundingBypassPartialStreamLeavesRecoveryPristine(t *testing.T) {
 			env, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-4-6","stream":true,"messages":[{"role":"user","content":"hello"}]}`))
 			require.NoError(t, err)
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 			ctx := billing.WithSubscriptionOnly(context.Background(), reason)
 			err = svc.bypassToAnthropic(ctx, env, env.RoutingFeatures(), false, time.Now(), "synthetic", "synthetic", turntype.MainLoop, reasonUsageBypass, req, rec)
 			require.ErrorIs(t, err, errBypassRetryable)
@@ -227,7 +235,7 @@ func TestFundingBypassBufferedFailureCannotRecover(t *testing.T) {
 	svc := newBypassService(upstream)
 	env := bypassAnthropicEnvelope(t)
 	ctx := billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlyCreditsDepleted)
-	err := svc.bypassToAnthropic(ctx, env, env.RoutingFeatures(), false, time.Now(), "synthetic", "synthetic", turntype.MainLoop, reasonUsageBypass, httptest.NewRequest(http.MethodPost, "/v1/messages", nil), httptest.NewRecorder())
+	err := svc.bypassToAnthropic(ctx, env, env.RoutingFeatures(), false, time.Now(), "synthetic", "synthetic", turntype.MainLoop, reasonUsageBypass, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil), httptest.NewRecorder())
 	require.Error(t, err)
 	require.NotErrorIs(t, err, errBypassRetryable)
 }

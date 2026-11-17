@@ -1,6 +1,10 @@
 package proxy
 
 import (
+	"context"
+	"time"
+
+	"weave-os/router/internal/flags"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
@@ -11,28 +15,25 @@ const hmmHistoryReason = routingpolicy.HMMHistoryReason
 
 func hmmCostGateFor(s *Service) routingpolicy.HMMCostGate {
 	return routingpolicy.HMMCostGate{
-		Planner:                    s.planner,
 		AvailableModels:            s.availableModels,
 		RegisteredProviders:        func() map[string]struct{} { return s.clients.NameSet() },
 		UpgradeConfidenceThreshold: s.hmmUpgradeConfidenceThreshold,
-		SameTierPin:                s.hmmSameTierPin,
 	}
 }
 
-func hmmCostGatedDecision(
-	s *Service,
-	req router.Request,
-	activePin sessionpin.Pin,
-	hmmHistory sessionpin.Pin,
-	fresh router.Decision,
-	estimatedInputTokens int,
-	prefixBroken bool,
-) (router.Decision, planner.Decision, bool, string) {
-	stayPin, plan, sticky := hmmCostGateFor(s).Decide(req, activePin, hmmHistory, fresh, estimatedInputTokens, prefixBroken)
+func hmmCostGatedDecision(ctx context.Context, s *Service, in routingpolicy.HMMCostGateInput) (router.Decision, planner.Decision, bool, string) {
+	in.Planner = plannerConfigFor(ctx, s.planner)
+	in.SameTierPin = flags.BoolOr(ctx, flags.KeyHMMSameTierPin, s.hmmSameTierPin)
+	in.Now = s.clock.Now()
+	stayPin, plan, sticky := hmmCostGateFor(s).Decide(in)
 	if sticky {
 		return pinDecision(stayPin), plan, true, stayPin.Model
 	}
-	return fresh, plan, false, stayPin.Model
+	return in.Fresh, plan, false, stayPin.Model
+}
+
+func hmmStayPin(s *Service, req router.Request, activePin sessionpin.Pin, hmmHistory sessionpin.Pin) (sessionpin.Pin, bool) {
+	return hmmCostGateFor(s).StayPin(req, activePin, hmmHistory, s.clock.Now())
 }
 
 func hmmFreshIsMoreExpensive(stayModel, freshModel string, inputTokens int) bool {
@@ -49,8 +50,10 @@ func cacheablePrefixTokens(pin sessionpin.Pin, total int, prefixBroken bool) (in
 
 func priorPromptTokens(pin sessionpin.Pin) int { return routingpolicy.PriorPromptTokens(pin) }
 
-func pinCacheCold(pin sessionpin.Pin, prefixBroken bool) bool {
-	return routingpolicy.PinCacheCold(pin, prefixBroken)
+func cacheWarm(pin sessionpin.Pin, now time.Time) bool { return routingpolicy.CacheWarm(pin, now) }
+
+func pinCacheCold(pin sessionpin.Pin, prefixBroken bool, now time.Time) bool {
+	return routingpolicy.PinCacheCold(pin, prefixBroken, now)
 }
 
 func automaticallyDisabled(req router.Request, model string) bool {
@@ -60,3 +63,9 @@ func automaticallyDisabled(req router.Request, model string) bool {
 func maxedOutServedModel(pin sessionpin.Pin) string { return routingpolicy.MaxedOutServedModel(pin) }
 
 func baseModelOf(servedIdentity string) string { return routingpolicy.BaseModelOf(servedIdentity) }
+
+func stripEffortSuffix(model string) (effort string, modelOut string) {
+	return routingpolicy.StripEffortSuffix(model)
+}
+
+func looksLikeEffortAlias(tail string) bool { return routingpolicy.LooksLikeEffortAlias(tail) }
