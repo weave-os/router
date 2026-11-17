@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -2260,98 +2259,6 @@ func (s *Service) anthropicNativeAttempt(
 	}
 }
 
-const anthropicRefusalStopReason = "refusal"
-
-const refusalScanCap = 64 * 1024
-
-const refusalScanOverlap = 32
-
-type refusalObserver struct {
-	inner    http.ResponseWriter
-	buf      []byte
-	refused  bool
-	category string
-}
-
-func newRefusalObserver(inner http.ResponseWriter) *refusalObserver {
-	return &refusalObserver{inner: inner}
-}
-
-func (o *refusalObserver) Header() http.Header { return o.inner.Header() }
-
-func (o *refusalObserver) WriteHeader(status int) {
-	sse.PrepareJSONResponse(o.inner)
-	o.inner.WriteHeader(status)
-}
-
-func (o *refusalObserver) Write(p []byte) (int, error) {
-	if !o.refused && len(o.buf) < refusalScanCap {
-		prevLen := len(o.buf)
-		room := refusalScanCap - len(o.buf)
-		if room > len(p) {
-			room = len(p)
-		}
-		o.buf = append(o.buf, p[:room]...)
-		scanFrom := prevLen - refusalScanOverlap
-		if scanFrom < 0 {
-			scanFrom = 0
-		}
-		if detectRefusalSignal(o.buf[scanFrom:]) {
-			o.refused = true
-			o.category = refusalCategory(o.buf)
-		}
-	}
-	return sse.WriteJSONChunk(o.inner, p)
-}
-
-func (o *refusalObserver) Flush() {
-	if f, ok := o.inner.(http.Flusher); ok {
-		f.Flush()
-	}
-}
-
-func detectRefusalSignal(b []byte) bool {
-	if bytes.Contains(b, []byte(`"stop_reason":"refusal"`)) ||
-		bytes.Contains(b, []byte(`"type":"refusal"`)) ||
-		bytes.Contains(b, []byte("api_refusal_category")) {
-		return true
-	}
-	return bytes.Contains(bytes.ToLower(b), []byte("safeguards flagged"))
-}
-
-const refusalCategoryMaxLen = 64
-
-var refusalCategoryKeys = [][]byte{
-	[]byte(`"api_refusal_category":"`),
-	[]byte(`"refusal_category":"`),
-	[]byte(`"category":"`),
-}
-
-func refusalCategory(b []byte) string {
-	for _, key := range refusalCategoryKeys {
-		if v, ok := delimitedValue(b, key, '"'); ok {
-			return v
-		}
-	}
-	if v, ok := delimitedValue(b, []byte("Details: ["), ']'); ok {
-		return v
-	}
-	return ""
-}
-
-func delimitedValue(b, prefix []byte, end byte) (string, bool) {
-	i := bytes.Index(b, prefix)
-	if i < 0 {
-		return "", false
-	}
-	rest := b[i+len(prefix):]
-	j := bytes.IndexByte(rest, end)
-	if j <= 0 || j > refusalCategoryMaxLen {
-		return "", false
-	}
-	return string(rest[:j]), true
-}
-
 func (s *Service) maybeRepinOnRefusal(ctx context.Context, obs *refusalObserver, sessionKey [sessionpin.SessionKeyLen]byte, role string, served router.Decision) {
 	if obs == nil || !obs.refused {
 		return
@@ -2991,7 +2898,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		ModelSwitched:                     routeRes.modelSwitched(),
 		EnableExtendedContext:             shouldEnableExtendedContext(env.FullTokenEstimate(), outputReserve),
 		EnableServerSideFallback:          s.ResolveAnthropicServerSideFallback(ctx),
-		KeepCrossVendorOrchestrationTools: s.ccOrchToolsCrossVendor,
+		KeepCrossVendorOrchestrationTools: flags.BoolOr(ctx, flags.KeyCCOrchToolsCrossVendor, s.ccOrchToolsCrossVendor),
 		KeepCrossVendorTaskTools:          s.ResolveCCTaskToolsCrossVendor(ctx),
 		AppendAutonomySystem:              s.autonomySystemAppendApplies(ctx, body, env, routeRes.TurnType),
 		AppendWorkspaceSystem:             s.workspaceSystemAppendApplies(ctx, body, env, routeRes.TurnType),
@@ -3120,7 +3027,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		targetNotice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(s), target.Provider, target.Model, targetNotice)
 		switch providers.FamilyFor(target.Provider) {
 		case providers.FamilyAnthropic:
-			prep, emitErr := env.PrepareAnthropic(r.Header, targetOpts)
+			prep, emitErr := prepareAnthropicForTurn(env, r.Header, targetOpts, routeRes.TurnType)
 			if emitErr != nil {
 				log.Error("Failed to emit Anthropic body", "err", emitErr)
 				return nil, fmt.Errorf("emit body: %w", emitErr)
@@ -3205,7 +3112,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 						WithRequestHadTools(feats.HasTools).
 						WithThinkTagReasoning(catalog.ThinkTagReasoningFor(d.Model)).
 						WithSeedToolCallMarkup(env.SeedToolCallNames(prep.ResponseToolNames)).
-						WithEscapeNormalize(s.escapeNormalize).
+						WithEscapeNormalize(flags.BoolOr(ctx, flags.KeyEscapeNormalize, s.escapeNormalize)).
 						WithToolValidator(toolValidator)
 					if providers.OutputExcludesReasoning(d.Provider) {
 						chatTranslator.SetUsageOutputBasis(providerusage.OutputExcludesReasoning)
@@ -3296,7 +3203,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					WithLogger(log).
 					WithEstimatedInputTokens(feats.Tokens).
 					WithRequestHadTools(feats.HasTools).
-					WithEscapeNormalize(s.escapeNormalize).
+					WithEscapeNormalize(flags.BoolOr(ctx, flags.KeyEscapeNormalize, s.escapeNormalize)).
 					WithToolValidator(toolValidator)
 				if err := anthropicTr.Prelude(env.Stream()); err != nil {
 					return func(err error) error { return err }, fmt.Errorf("emit Anthropic routing marker: %w", err)
@@ -5236,11 +5143,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					nativeOpts.TargetProvider = d.Provider
 					nativeOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)
 					fastServed = nativeOpts.FastMode
-					outBody, setErr = translate.ApplyOpenAIFastMode(outBody, nativeOpts)
+					outBody, setErr = codexNativeFastMode(outBody, nativeOpts, routeRes.TurnType)
 					if setErr != nil {
 						return fmt.Errorf("set codex service_tier: %w", setErr)
 					}
-					outBody, setErr = translate.ApplyOpenAIResponsesEffort(outBody, nativeOpts)
+					outBody, setErr = codexNativeEffort(outBody, nativeOpts, routeRes.TurnType)
 					if setErr != nil {
 						return fmt.Errorf("set codex reasoning effort: %w", setErr)
 					}
@@ -5263,7 +5170,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					if surface == surfaceResponsesTranslated {
 						prep, emitErr = env.PrepareOpenAIResponses(r.Header, attemptOpts)
 					} else {
-						prep, emitErr = env.PrepareOpenAI(r.Header, attemptOpts)
+						prep, emitErr = prepareOpenAIForTurn(env, r.Header, attemptOpts, routeRes.TurnType)
 					}
 					if emitErr != nil {
 						log.Error("Failed to emit OpenAI body", "err", emitErr,

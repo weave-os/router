@@ -27,9 +27,9 @@ import (
 )
 
 const (
-	reasonUsageBypass           = "usage_bypass"
-	reasonClassifierPassthrough = "classifier_subscription_passthrough"
-	reasonClassifierModel       = "classifier_model"
+	reasonUsageBypass              = "usage_bypass"
+	reasonClassifierPassthrough    = "classifier_subscription_passthrough"
+	reasonClassifierRequestedModel = "classifier_requested_model"
 )
 
 func (s *Service) usageBypassDecision(ctx context.Context, headers http.Header, req router.Request, sessionDemotedModels []string, turnType turntype.TurnType) (router.Decision, bool) {
@@ -58,27 +58,6 @@ func (s *Service) subscriptionPassthroughEngaged(ctx context.Context, headers ht
 		return provider, reasonUsageBypass, true
 	}
 	return "", "", false
-}
-
-func (s *Service) classifierPassthroughEngaged(ctx context.Context, headers http.Header, req router.Request, turnType turntype.TurnType) (string, bool) {
-	if !s.supportsSubscriptionTransport(providers.ProviderAnthropic) {
-		return "", false
-	}
-	if turnType != turntype.Classifier {
-		return "", false
-	}
-	provider, token, covered := subscriptionCoveredTarget(ctx, headers, req)
-	if !covered || provider != providers.ProviderAnthropic || s.subscriptionModels.denied([]byte(token), req.RequestedModel, s.clock.Now()) {
-		return "", false
-	}
-	if s.usageObserver == nil {
-		return provider, true
-	}
-	snap, observed := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(token)))
-	if observed && claudeSnapshotUnservable(ctx, snap) {
-		return "", false
-	}
-	return provider, true
 }
 
 func (s *Service) usageBypassEngaged(ctx context.Context, headers http.Header, req router.Request) (string, bool) {
@@ -368,21 +347,13 @@ func (s *Service) bypassToAnthropic(
 		ModelSwitched:            modelSwitched,
 		FastMode:                 fastModeForAttempt(ctx, decision.Model, decision.Provider),
 	}
-	prep, emitErr := env.PrepareAnthropic(r.Header, opts)
+	prep, emitErr := prepareAnthropicForTurn(env, r.Header, opts, turnType)
 	if emitErr != nil {
 		log.Error("Failed to emit Anthropic body on usage-bypass path", "err", emitErr)
 		return fmt.Errorf("emit bypass body: %w", emitErr)
 	}
-	var responseBuffer *responseCostBuffer
-	if !env.Stream() {
-		responseBuffer = newResponseCostBuffer(w)
-		w = responseBuffer
-		defer func() {
-			if flushErr := responseBuffer.FlushToClient(); flushErr != nil {
-				log.Error("Failed to flush buffered response", "err", flushErr)
-			}
-		}()
-	}
+	w, flushBuffered := bufferNonStreamBypassResponse(w, env.Stream(), log)
+	defer flushBuffered()
 
 	respW := http.ResponseWriter(w)
 	var streamCost *streamCostWriter
@@ -419,7 +390,8 @@ func (s *Service) bypassToAnthropic(
 	proxyStart := s.clock.Now()
 	inferenceParentCtx := ctx
 	ctx, inferenceSpan := startInferenceSpan(ctx, decision, clientSessionIDForRequest(ctx, env))
-	toolNames := translate.NewAnthropicToolNameWriter(respW, prep.ResponseToolNames)
+	passiveRefusal := newPassiveRefusalObserver(respW)
+	toolNames := translate.NewAnthropicToolNameWriter(passiveRefusal, prep.ResponseToolNames)
 	proxyErr := p.Proxy(ctx, decision, prep, toolNames, r)
 	proxyErr = finalizeAfterProxy(proxyErr, toolNames.Finalize)
 	if proxyErr == nil && terminal != nil {
@@ -499,7 +471,7 @@ func (s *Service) bypassToAnthropic(
 		}
 		credentialKeyPrefix, credentialKeySuffix, credSource := s.credentialKeyParts(ctx)
 		s.markServedExternalKeyUsed(ctx, outcomeErr)
-		stopReason, _, _ := extractor.AnthropicResponse()
+		stopReason := passiveRefusal.stopReason(extractor)
 		sessionKey := deriveSessionKeyForRequest(ctx, env, apiKeyIDFromContext(ctx))
 		telemetryParams := InsertTelemetryParams{
 			InstallationID:         installationID.String(),
@@ -524,6 +496,8 @@ func (s *Service) bypassToAnthropic(
 			UpstreamLatencyMs:      s.clock.Now().Sub(proxyStart).Milliseconds(),
 			TotalLatencyMs:         s.clock.Now().Sub(requestStart).Milliseconds(),
 			UpstreamStatusCode:     int32(upstreamStatus(outcomeErr)),
+			UpstreamFinishReason:   stringPtrOrEmpty(stopReason),
+			StopReason:             stringPtrOrEmpty(stopReason),
 			ErrorClass:             classifyTurnError(outcomeErr, stopReason, 0),
 			FailureOwner:           turnFailureOwnerFor(ctx, outcomeErr, classifyTurnError(outcomeErr, stopReason, 0)),
 			UserPrompt:             &userPrompt,

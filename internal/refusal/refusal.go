@@ -38,6 +38,7 @@ const (
 	ServingSnapshotUnavailable
 	ServingAttributionUnavailable
 	SubscriptionUnavailableForTurn
+	FlagOverridesMalformed
 	kindCount
 )
 
@@ -83,6 +84,7 @@ var contracts = [kindCount]Contract{
 	ServingSnapshotUnavailable:     {Status: http.StatusServiceUnavailable, Code: "serving_snapshot_unavailable", Message: "The admitted serving snapshot is unavailable."},
 	ServingAttributionUnavailable:  {Status: http.StatusServiceUnavailable, Code: "serving_attribution_unavailable", Message: "Request attribution is unavailable."},
 	SubscriptionUnavailableForTurn: {Status: http.StatusPaymentRequired, Code: "subscription_unavailable_for_turn", NoClientRetry: true, Message: "Your subscription can't serve this turn."},
+	FlagOverridesMalformed:         {Status: http.StatusBadRequest, Code: "flag_overrides_malformed", Message: "The flag overrides header is malformed."},
 }
 
 func (k Kind) Contract() Contract {

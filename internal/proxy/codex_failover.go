@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/subscriptions"
 )
 
 var codexQuotaErrorTypes = map[string]struct{}{
@@ -131,11 +132,11 @@ func codexQuotaExhaustion(err error) (time.Time, bool) {
 }
 
 func (s *Service) recordCodexQuotaExhaustion(ctx context.Context, headers http.Header, err error) {
-	if s.usageObserver == nil {
-		return
-	}
 	resetAt, exhausted := codexQuotaExhaustion(err)
-	if !exhausted {
+	if !exhausted && upstreamStatus(err) == http.StatusTooManyRequests {
+		recordCallerPlanThrottle(ctx, subscriptions.ProviderCodex, managedSubscriptionResetAt(err, s.clock.Now()))
+	}
+	if !exhausted || s.usageObserver == nil {
 		return
 	}
 	codexTok, _ := presentSubscriptionTokens(ctx, headers)

@@ -1,6 +1,6 @@
 package flags
 
-const RegistryVersion = 30
+const RegistryVersion = 31
 
 var Registry = []Definition{
 	{Key: KeyEscalationActiveClassifier, Kind: KindString, Description: "Active escalation classifier: none, xgb, switchyard_llm_v1, or llm_escalation. Absent preserves legacy XGB flags.", OrgOverridable: true},
@@ -304,6 +304,61 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_ALLOWED_MODELS_HEADER",
 		Kind:           KindBool,
 		Description:    "Honor the x-weave-allowed-models request header (per-request routing subset) for this organization even when the installation is not authorized for policy headers.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeySessionPinEnabled,
+		Kind:           KindBool,
+		Description:    "Read and write session pins. Off routes every turn as if the session had no pin history. Has no effect when ROUTER_SESSION_PIN_ENABLED=false, which disables the pin store for the deployment.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyHMMSameTierPin,
+		EnvVar:         "ROUTER_HMM_SAME_TIER_PIN",
+		Kind:           KindBool,
+		Description:    "Keep an HMM session on its pinned model when the fresh pick is in the same tier, even when switching is EV-positive. Off by default.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyHardPinExplore,
+		EnvVar:         "ROUTER_HARD_PIN_EXPLORE",
+		Kind:           KindBool,
+		Description:    "Pin non-HMM Claude Code Task-tool sub-agent turns to the hard-pin model. On by default.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyCCOrchToolsCrossVendor,
+		EnvVar:         "ROUTER_CC_ORCH_TOOLS_CROSSVENDOR",
+		Kind:           KindBool,
+		Description:    "Keep Claude Code orchestration tools on cross-vendor emits. On by default.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyEscapeNormalize,
+		EnvVar:         "ROUTER_DEEPSEEK_ESCAPE_NORMALIZE",
+		Kind:           KindBool,
+		Description:    "Repair double-escaped sequences in edit-tool arguments from OpenAI-compatible upstreams. Off by default.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyPlannerTierUpgrade,
+		EnvVar:         "ROUTER_SWITCH_TIER_UPGRADE_ENABLED",
+		Kind:           KindBool,
+		Description:    "Let the switch planner leave a pin when the fresh pick is a higher tier. On by default.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyPlannerColdPinFollowFresh,
+		EnvVar:         "ROUTER_SWITCH_COLD_PIN_FOLLOW_FRESH",
+		Kind:           KindBool,
+		Description:    "Let the switch planner follow the fresh pick when the pinned model's prompt cache is cold. Off by default.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyPlannerCorrectedEconomics,
+		EnvVar:         "ROUTER_SWITCH_CORRECTED_ECONOMICS",
+		Kind:           KindBool,
+		Description:    "Use full-request token estimates and corrected cache economics in the switch planner. Off by default.",
 		OrgOverridable: true,
 	},
 }
