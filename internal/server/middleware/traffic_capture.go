@@ -173,6 +173,10 @@ type trafficCaptureResponseWriter struct {
 	bytesWritten int64
 }
 
+func (w *trafficCaptureResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
 func (w *trafficCaptureResponseWriter) Write(body []byte) (int, error) {
 	// codeql[go/reflected-xss]
 	written, err := w.ResponseWriter.Write(body)

@@ -57,8 +57,22 @@ func TestRequestBodyBudgetRejectsLargeBodiesBeyondBudget(t *testing.T) {
 
 func TestRequestBodyBudgetReleasesStalledUploadsAfterReadTimeout(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	cases := map[string][]gin.HandlerFunc{
+		"plain writer":            nil,
+		"traffic capture wrapper": {middleware.WithTrafficCapture(&exchangeRecorder{})},
+	}
+	for name, outer := range cases {
+		t.Run(name, func(t *testing.T) {
+			requireStalledUploadReleasesBudget(t, outer)
+		})
+	}
+}
+
+func requireStalledUploadReleasesBudget(t *testing.T, outer []gin.HandlerFunc) {
+	t.Helper()
 	const declaredBytes = 8 << 20
 	engine := gin.New()
+	engine.Use(outer...)
 	engine.Use(middleware.WithRequestBodyBudget(declaredBytes*8, 200*time.Millisecond))
 	engine.POST("/v1/responses", func(c *gin.Context) {
 		if _, err := io.ReadAll(c.Request.Body); err != nil {
