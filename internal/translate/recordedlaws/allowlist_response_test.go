@@ -39,6 +39,5 @@ func responseLossAllowlist() []lossRule {
 		{hop: "responses_*>chat_*", kind: dropped, key: "thinking.*.signature", why: "docs/RESPONSES_TRANSLATION.md: encrypted reasoning has no Chat field"},
 		{hop: "anthropic_*>*", kind: dropped, key: "thinking.*.signature", why: "Chat has no thinking-signature field and unsigned thinking is stripped on replay (docs/REQUEST_ENVELOPE.md, Anthropic same-format overrides)"},
 		{hop: "gemini_*>responses_*@chat", kind: added, key: "tool.*.signature", why: "docs/TRANSLATION_COMPATIBILITY.md: the first call's signature is replayed on later calls, carried in the Responses call_id (TestResponsesWriter_CallIDKeepsGeminiThoughtCarrier)"},
-		{hop: "chat_sse>anthropic_sse", kind: shape, key: " is open", candidate: true, why: "candidate bug: parallel tool calls open a second tool_use block before the first is stopped"},
 	}
 }
