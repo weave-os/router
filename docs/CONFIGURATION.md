@@ -854,13 +854,16 @@ message that ends a turn: `@cycle <goal> <task> <step> <status> | <reason>`, or
   request, the control decision serves it; the experiment never fails a
   request ordinary routing would serve.
 - **Session pin.** The second, capped route neither reads nor writes the
-  session pin, and the turn's usage is not written back to it. The pin a
+  session pin, and it excludes the models the session has demoted. The pin a
   treatment task leaves behind is therefore the one the control decision
-  wrote, and a later control task in the same session starts from the model
-  control routing chose. What the pin records about the last served turn
-  (output tokens, cache warmth) is not refreshed by a capped turn, and a
-  provider failure on a capped turn can still evict the pin as it would on any
-  turn.
+  wrote, and the routing history keeps the cluster control routing chose, so a
+  later control task in the same session starts from the model control
+  routing would have had. What was actually served is still recorded
+  truthfully: the turn's usage, the model that served it (so the next turn
+  sees a model switch and handles thinking blocks accordingly), failure
+  strikes against the capped model, and the outcome of an escalation
+  checkpoint. A refusal on a capped turn can still move the pin, as it would
+  on any turn.
 - **Telemetry.** Assigned turns carry these attributes on the `router.decision`
   and upstream spans; unassigned turns carry none of them.
 

@@ -63,18 +63,26 @@ func (turn *taskArmTurn) route(ctx context.Context, route turnRoute) taskArmRout
 		}
 		req.ForceCluster = turn.cluster
 		req.SkipSessionPin = true
+		for _, model := range control.SessionDemotedModels {
+			req.ExcludedModels = excludingModel(req.ExcludedModels, model)
+		}
 		capped, err := route(ctx, env, feats, apiKeyID, installationID, subAgentHint, reqHeaders, req)
+		capped.releaseCooldownProbes()
 		if err != nil {
-			capped.releaseCooldownProbes()
 			observability.FromContext(ctx).Warn("Task-arm ceiling cluster could not serve the turn; serving the control decision",
 				"cluster", turn.cluster, "task_key", turn.assignment.TaskKey, "err", err)
 			return control, nil
 		}
-		control.releaseCooldownProbes()
-		capped.PrefixTrimmed, capped.PrefixBroken = control.PrefixTrimmed, control.PrefixBroken
 		turn.capped = true
-		return capped, nil
+		return cappedTurn(control, capped.Decision), nil
 	}
+}
+
+func cappedTurn(control turnLoopResult, decision router.Decision) turnLoopResult {
+	control.Decision = decision
+	control.StickyHit = false
+	control.PinTier = ""
+	return control
 }
 
 func (turn *taskArmTurn) observeControl(control turnLoopResult) bool {

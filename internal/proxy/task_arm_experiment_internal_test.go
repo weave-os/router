@@ -110,6 +110,7 @@ func TestTaskArmTurnRoute(t *testing.T) {
 	control := taskArmTurn{assignment: taskarm.Assignment{Arm: taskarm.ArmControl}, assigned: true, cluster: "medium"}
 	sidecarDown := errors.New("sidecar down")
 	unservable := &policy.ForcedClusterUnservableError{Cluster: "medium", Reason: "no model"}
+	cappedRequest := router.Request{ForceCluster: "medium", SkipSessionPin: true, ExcludedModels: map[string]struct{}{"struck": {}}}
 	cases := []struct {
 		name         string
 		turn         taskArmTurn
@@ -123,14 +124,14 @@ func TestTaskArmTurnRoute(t *testing.T) {
 		wantErr      error
 	}{
 		{"a treatment turn control would route above the ceiling is routed again inside it without the session pin",
-			treated, "high", nil, nil, []router.Request{{}, {ForceCluster: "medium", SkipSessionPin: true}}, "capped", true, true, nil},
+			treated, "high", nil, nil, []router.Request{{}, cappedRequest}, "capped", true, true, nil},
 		{"a treatment turn a session pin holds above the ceiling is capped", treated, "pin:maximum", nil, nil,
-			[]router.Request{{}, {ForceCluster: "medium", SkipSessionPin: true}}, "capped", true, true, nil},
+			[]router.Request{{}, cappedRequest}, "capped", true, true, nil},
 		{"a treatment turn control routes at the ceiling is served as control", treated, "medium", nil, nil, []router.Request{{}}, "control", false, false, nil},
 		{"a treatment turn control routes below the ceiling is never moved up", treated, "low", nil, nil, []router.Request{{}}, "control", false, false, nil},
 		{"a treatment turn outside the cost ladder is served as control", treated, "", nil, nil, []router.Request{{}}, "control", false, false, nil},
 		{"a ceiling cluster that cannot serve leaves the control decision in place", treated, "high", nil, unservable,
-			[]router.Request{{}, {ForceCluster: "medium", SkipSessionPin: true}}, "control", true, false, nil},
+			[]router.Request{{}, cappedRequest}, "control", true, false, nil},
 		{"a control turn above the ceiling is recorded as binding and served unchanged", control, "high", nil, nil, []router.Request{{}}, "control", true, false, nil},
 		{"a routing error is returned unchanged", treated, "", sidecarDown, nil, []router.Request{{}}, "", false, false, sidecarDown},
 	}
@@ -141,13 +142,19 @@ func TestTaskArmTurnRoute(t *testing.T) {
 			route := turnRoute(func(_ context.Context, _ *translate.RequestEnvelope, _ translate.RoutingFeatures, _ string, _ uuid.UUID, _ string, _ http.Header, req router.Request) (turnLoopResult, error) {
 				routes = append(routes, req)
 				if req.SkipSessionPin {
-					return turnLoopResult{PinTier: "capped"}, tc.cappedErr
+					return turnLoopResult{Decision: router.Decision{Model: "capped"}}, tc.cappedErr
+				}
+				control := turnLoopResult{
+					SessionKey: [sessionpin.SessionKeyLen]byte{7}, PriorServedModel: "control", EscalationOrdinal: 3,
+					SessionDemotedModels: []string{"struck"}, PrefixTrimmed: true,
 				}
 				if group, pinned := strings.CutPrefix(tc.controlGroup, "pin:"); pinned {
-					return turnLoopResult{PinTier: "control", StickyHit: true, PinPolicyGroup: group, PrefixTrimmed: true}, tc.controlErr
+					control.Decision = router.Decision{Model: "control"}
+					control.StickyHit, control.PinPolicyGroup = true, group
+					return control, tc.controlErr
 				}
-				served := router.Decision{Model: "control-model", Metadata: &router.RoutingMetadata{PolicyGroup: tc.controlGroup}}
-				return turnLoopResult{PinTier: "control", Decision: served, PrefixTrimmed: true}, tc.controlErr
+				control.Decision = router.Decision{Model: "control", Metadata: &router.RoutingMetadata{PolicyGroup: tc.controlGroup}}
+				return control, tc.controlErr
 			})
 
 			res, err := turn.route(context.Background(), route)(nil, translate.RoutingFeatures{}, "", uuid.Nil, "", nil, router.Request{})
@@ -157,8 +164,12 @@ func TestTaskArmTurnRoute(t *testing.T) {
 			if tc.wantErr != nil {
 				return
 			}
-			assert.Equal(t, tc.wantServed, res.PinTier)
+			assert.Equal(t, tc.wantServed, res.Decision.Model)
 			assert.True(t, res.PrefixTrimmed, "the served turn keeps the history-trim signal of the first route")
+			assert.Equal(t, [sessionpin.SessionKeyLen]byte{7}, res.SessionKey, "the served turn stays in its session for failure handling and usage")
+			assert.Equal(t, "control", res.PriorServedModel, "a capped turn that changes model is seen as a model switch")
+			assert.EqualValues(t, 3, res.EscalationOrdinal, "the escalation checkpoint of the first route gets the served turn's outcome")
+			assert.False(t, tc.wantCapped && res.StickyHit, "a capped turn is not served by the session pin")
 			assert.Equal(t, tc.wantBinds, turn.ceilingBinds)
 			assert.Equal(t, tc.wantCapped, turn.capped)
 			assert.Equal(t, strings.TrimPrefix(tc.controlGroup, "pin:"), turn.controlCluster)
@@ -255,7 +266,8 @@ func TestACappedTreatmentTurnLeavesTheSessionPinAsControlWouldHaveLeftIt(t *test
 	assert.Equal(t, controlTurn.controlModel, treatedTurn.controlModel, "both arms record the same counterfactual control decision")
 	assert.True(t, controlTurn.ceilingBinds)
 	assert.False(t, treatedRes.StickyHit, "the capped turn does not inherit the session pin")
-	assert.Equal(t, [sessionpin.SessionKeyLen]byte{}, treatedRes.SessionKey, "usage writebacks have no pin to update")
+	assert.Equal(t, controlRes.SessionKey, treatedRes.SessionKey)
+	assert.Equal(t, controlRes.Fresh, treatedRes.Fresh, "the routing history keeps the decision control routing made")
 	assert.Equal(t, append(controlStore.getRoles, forceModelSessionRole), treatedStore.getRoles, "the capped route reads the user's forced-model choice and no session pin")
 	require.Len(t, treatedStore.upserts, len(controlStore.upserts))
 	for i, pin := range treatedStore.upserts {
