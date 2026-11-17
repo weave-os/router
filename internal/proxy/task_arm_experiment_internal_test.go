@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/breaker"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/taskarm"
@@ -139,14 +140,19 @@ func TestTaskArmTurnRoute(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			turn := tc.turn
 			var routes []router.Request
+			var released []string
 			route := turnRoute(func(_ context.Context, _ *translate.RequestEnvelope, _ translate.RoutingFeatures, _ string, _ uuid.UUID, _ string, _ http.Header, req router.Request) (turnLoopResult, error) {
 				routes = append(routes, req)
 				if req.SkipSessionPin {
-					return turnLoopResult{Decision: router.Decision{Model: "capped"}}, tc.cappedErr
+					return turnLoopResult{
+						Decision: router.Decision{Model: "capped"}, OverloadProbe: &breaker.Probe{Model: "capped"},
+						CooldownProbeReleases: []func(){func() { released = append(released, "capped") }},
+					}, tc.cappedErr
 				}
 				control := turnLoopResult{
 					SessionKey: [sessionpin.SessionKeyLen]byte{7}, PriorServedModel: "control", EscalationOrdinal: 3,
-					SessionDemotedModels: []string{"struck"}, PrefixTrimmed: true,
+					SessionDemotedModels: []string{"struck"}, PrefixTrimmed: true, OverloadProbe: &breaker.Probe{Model: "control"},
+					CooldownProbeReleases: []func(){func() { released = append(released, "control") }},
 				}
 				if group, pinned := strings.CutPrefix(tc.controlGroup, "pin:"); pinned {
 					control.Decision = router.Decision{Model: "control"}
@@ -170,6 +176,17 @@ func TestTaskArmTurnRoute(t *testing.T) {
 			assert.Equal(t, "control", res.PriorServedModel, "a capped turn that changes model is seen as a model switch")
 			assert.EqualValues(t, 3, res.EscalationOrdinal, "the escalation checkpoint of the first route gets the served turn's outcome")
 			assert.False(t, tc.wantCapped && res.StickyHit, "a capped turn is not served by the session pin")
+			require.NotNil(t, res.OverloadProbe)
+			assert.Equal(t, tc.wantServed, res.OverloadProbe.Model, "the served route's recovery probe is the one that gets the outcome")
+			res.releaseCooldownProbes()
+			wantReleased := []string{"control"}
+			if len(routes) == 2 {
+				wantReleased = []string{"control", "capped"}
+				if !tc.wantCapped {
+					wantReleased = []string{"capped", "control"}
+				}
+			}
+			assert.Equal(t, wantReleased, released, "the route that is not served gives its probes back first")
 			assert.Equal(t, tc.wantBinds, turn.ceilingBinds)
 			assert.Equal(t, tc.wantCapped, turn.capped)
 			assert.Equal(t, strings.TrimPrefix(tc.controlGroup, "pin:"), turn.controlCluster)
