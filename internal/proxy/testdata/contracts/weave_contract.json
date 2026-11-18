@@ -186,12 +186,16 @@
   "model_router_request_telemetry_vocabularies": {
     "decision_reason": [
       "classifier_requested_model",
+      "cluster_argmax",
+      "decision_model_policy",
       "early-stop-redo",
       "golden_route",
       "hmm_policy",
       "hmm_policy:tool_execution",
       "loop_escalation",
       "policy_pin_unavailable",
+      "probe_hard_pin",
+      "rl_policy",
       "sibling_failover",
       "user_forced"
     ],
@@ -215,6 +219,7 @@
       "postgres_stay_ev_negative",
       "postgres_stay_same_model",
       "postgres_tool_result_sc",
+      "probe_hard_pin",
       "switch_tier_upgrade",
       "user_forced"
     ],
@@ -226,18 +231,24 @@
       "true"
     ],
     "strategy": [
+      "decision_model",
       "hmm",
-      "hmm_embedding"
+      "hmm_embedding",
+      "rl"
     ]
   },
   "decision_reason_classification": {
     "classifier_requested_model": "router_decision",
+    "cluster_argmax": "router_decision",
+    "decision_model_policy": "router_decision",
     "early-stop-redo": "router_decision",
     "golden_route": "router_decision",
     "hmm_policy": "router_decision",
     "hmm_policy:tool_execution": "router_decision",
     "loop_escalation": "router_decision",
     "policy_pin_unavailable": "router_decision",
+    "probe_hard_pin": "utility",
+    "rl_policy": "router_decision",
     "sibling_failover": "router_decision",
     "user_forced": "forced"
   },

@@ -279,7 +279,7 @@ func withAvailable(svc *proxy.Service) *proxy.Service {
 
 func goldenRoutingPolicyScenarios() []goldenScenario {
 	return append(append(append(append(routingPolicySessionPinScenarios(), routingPolicyEscalationAndClassifierScenarios()...),
-		routingPolicySelectionGateScenarios()...), routingPolicyForceModelScenarios()...), routingPolicyEligibilityScenarios()...)
+		routingPolicySelectionGateScenarios()...), routingPolicyForceModelScenarios()...), append(routingPolicyEligibilityScenarios(), routingPolicyPrecedenceScenarios()...)...)
 }
 
 // routingPolicySessionPinScenarios cover pin load, refresh, expiry and every guard that
