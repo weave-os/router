@@ -67,3 +67,8 @@ func TestRoutingDistributionHonorsExclusions(t *testing.T) {
 		assert.NotEqual(t, "gpt-5.6-luna", point.Models[0].Model)
 	}
 }
+
+func TestRoutingDistributionWithoutAdmittedPolicyFailsClosed(t *testing.T) {
+	_, err := RoutingDistribution(nil, 3, nil, nil)
+	require.ErrorIs(t, err, errNoDistributionPolicy)
+}

@@ -80,18 +80,18 @@ func TestSelectGroupsWithPreferenceReweightsWithinClassifierBand(t *testing.T) {
 	groups := []rosterdata.Group{"low"}
 
 	neutral := 0.7
-	pick, scores, _, _, ok := selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: groups, LadderKey: SubscriptionLadder("", nil), Candidates: candidates, QualityBias: &neutral}).tuple()
+	pick, scores, _, _, ok := selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: groups, LadderKey: SubscriptionLadder("", nil), Candidates: candidates, QualityBias: &neutral}).legacyResults()
 	require.True(t, ok)
 	assert.Equal(t, "vendor-a/quality", pick.Arm.String())
 	assert.InDelta(t, float32(30), scores["low"]["vendor-a/quality"], 1e-9)
 
 	priceHeavy := 0.0
-	pick, _, _, _, ok = selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: groups, LadderKey: SubscriptionLadder("", nil), Candidates: candidates, QualityBias: &priceHeavy}).tuple()
+	pick, _, _, _, ok = selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: groups, LadderKey: SubscriptionLadder("", nil), Candidates: candidates, QualityBias: &priceHeavy}).legacyResults()
 	require.True(t, ok)
 	assert.Equal(t, "vendor-b/cheap", pick.Arm.String())
 
 	qualityHeavy := 1.0
-	pick, _, _, _, ok = selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: groups, LadderKey: SubscriptionLadder("", nil), Candidates: candidates, QualityBias: &qualityHeavy}).tuple()
+	pick, _, _, _, ok = selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: groups, LadderKey: SubscriptionLadder("", nil), Candidates: candidates, QualityBias: &qualityHeavy}).legacyResults()
 	require.True(t, ok)
 	assert.Equal(t, "vendor-a/quality", pick.Arm.String())
 }
@@ -105,11 +105,11 @@ func TestSelectGroupsWithPreferencePreservesPolicyTiers(t *testing.T) {
 	qualityHeavy := 1.0
 	candidates := candidateSet("vendor-a/quality", "vendor-b/cheap")
 
-	pick, _, _, _, ok := selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: []rosterdata.Group{"low"}, Harness: "pi", LadderKey: SubscriptionLadder("pi", nil), Candidates: candidates, QualityBias: &qualityHeavy}).tuple()
+	pick, _, _, _, ok := selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: []rosterdata.Group{"low"}, Harness: "pi", LadderKey: SubscriptionLadder("pi", nil), Candidates: candidates, QualityBias: &qualityHeavy}).legacyResults()
 	require.True(t, ok)
 	assert.Equal(t, "vendor-b/cheap", pick.Arm.String(), "manual pin must outrank the dynamic score")
 
-	pick, _, _, _, ok = selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: []rosterdata.Group{"low"}, Harness: "codex", LadderKey: SubscriptionLadder("codex", nil), Candidates: candidates, QualityBias: &qualityHeavy}).tuple()
+	pick, _, _, _, ok = selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: []rosterdata.Group{"low"}, Harness: "codex", LadderKey: SubscriptionLadder("codex", nil), Candidates: candidates, QualityBias: &qualityHeavy}).legacyResults()
 	require.True(t, ok)
 	assert.Equal(t, "vendor-b/cheap", pick.Arm.String(), "vendor affinity must outrank the dynamic score")
 }
@@ -126,7 +126,7 @@ func TestSelectGroupsWithPreferenceKeepsFallbackOrder(t *testing.T) {
 	roster.Ranking.AlphaMax["high"] = 0.98
 	qualityHeavy := 1.0
 
-	pick, _, _, _, ok := selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: []rosterdata.Group{"low", "high"}, LadderKey: SubscriptionLadder("", nil), Candidates: candidateSet("vendor-a/quality", "vendor-c/high"), QualityBias: &qualityHeavy}).tuple()
+	pick, _, _, _, ok := selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: []rosterdata.Group{"low", "high"}, LadderKey: SubscriptionLadder("", nil), Candidates: candidateSet("vendor-a/quality", "vendor-c/high"), QualityBias: &qualityHeavy}).legacyResults()
 	require.True(t, ok)
 	assert.Equal(t, rosterdata.Group("low"), pick.Group)
 }
@@ -170,7 +170,7 @@ func TestArmOrderOpenCodeHarness(t *testing.T) {
 	assert.True(t, harnessSpecific)
 	assert.Equal(t, []string{"vendor-b/cheap", "vendor-a/cheap"}, order)
 
-	pick, _, _, _, ok := selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: rankedGroups([]string{"low"}), Harness: policy.HarnessOpenCode, LadderKey: SubscriptionLadder(policy.HarnessOpenCode, nil), Candidates: candidateSet("vendor-a/cheap", "vendor-b/cheap")}).tuple()
+	pick, _, _, _, ok := selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: rankedGroups([]string{"low"}), Harness: policy.HarnessOpenCode, LadderKey: SubscriptionLadder(policy.HarnessOpenCode, nil), Candidates: candidateSet("vendor-a/cheap", "vendor-b/cheap")}).legacyResults()
 	require.True(t, ok)
 	assert.Equal(t, Pick{Group: "low", Arm: armid.Parse("vendor-b/cheap"), HarnessOrder: true}, pick)
 }
@@ -268,7 +268,7 @@ func TestSelect(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			pick, _, _, _, ok := selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: rankedGroups(tc.rankedGroups), Harness: tc.harness, LadderKey: SubscriptionLadder(tc.harness, nil), Candidates: tc.candidates}).tuple()
+			pick, _, _, _, ok := selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: rankedGroups(tc.rankedGroups), Harness: tc.harness, LadderKey: SubscriptionLadder(tc.harness, nil), Candidates: tc.candidates}).legacyResults()
 			require.Equal(t, tc.wantOK, ok)
 			if tc.wantOK {
 				assert.Equal(t, tc.want, pick)
@@ -280,10 +280,10 @@ func TestSelect(t *testing.T) {
 func TestSelectIsDeterministic(t *testing.T) {
 	roster := testRoster()
 	candidates := candidateSet("vendor-a/mid", "vendor-b/mid", "vendor-a/cheap", "vendor-b/cheap")
-	first, _, _, _, ok := selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: rankedGroups([]string{"balanced", "low"}), LadderKey: SubscriptionLadder("", nil), Candidates: candidates}).tuple()
+	first, _, _, _, ok := selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: rankedGroups([]string{"balanced", "low"}), LadderKey: SubscriptionLadder("", nil), Candidates: candidates}).legacyResults()
 	require.True(t, ok)
 	for range 100 {
-		pick, _, _, _, ok := selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: rankedGroups([]string{"balanced", "low"}), LadderKey: SubscriptionLadder("", nil), Candidates: candidates}).tuple()
+		pick, _, _, _, ok := selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: rankedGroups([]string{"balanced", "low"}), LadderKey: SubscriptionLadder("", nil), Candidates: candidates}).legacyResults()
 		require.True(t, ok)
 		require.Equal(t, first, pick)
 	}
@@ -338,7 +338,7 @@ func TestSelectParityFixture(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			pick, _, _, _, ok := selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: rankedGroups(tc.rankedGroups), Harness: tc.harness, LadderKey: SubscriptionLadder(tc.harness, nil), Candidates: candidateSet(tc.candidates...)}).tuple()
+			pick, _, _, _, ok := selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: rankedGroups(tc.rankedGroups), Harness: tc.harness, LadderKey: SubscriptionLadder(tc.harness, nil), Candidates: candidateSet(tc.candidates...)}).legacyResults()
 			require.True(t, ok)
 			assert.Equal(t, rosterdata.Group(tc.wantGroup), pick.Group)
 			assert.Equal(t, tc.wantArm, pick.Arm.String())
@@ -354,6 +354,6 @@ func rankedGroups(labels []string) []rosterdata.Group {
 	return groups
 }
 
-func (s Selection) tuple() (Pick, map[string]map[string]float32, map[string]map[string]router.SelectionScoreComponents, map[string][]string, bool) {
+func (s Selection) legacyResults() (Pick, map[string]map[string]float32, map[string]map[string]router.SelectionScoreComponents, map[string][]string, bool) {
 	return s.Pick, s.ScoresByGroup, s.ComponentsByGroup, s.OrdersByGroup, s.Found
 }

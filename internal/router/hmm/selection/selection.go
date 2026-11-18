@@ -8,7 +8,6 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/hmm/rosterdata"
-	"weave-os/router/internal/router/hmm/selectionpolicy"
 )
 
 type Pick struct {
@@ -47,10 +46,6 @@ func ArmOrder(cluster rosterdata.Cluster, harness string) (order []string, harne
 		return arms, true
 	}
 	return cluster.Arms, false
-}
-
-func Select(policy *selectionpolicy.Policy, request Request) Selection {
-	return selectGroups(policy.Roster(), policy.CatalogID, request)
 }
 
 func selectGroups(roster *rosterdata.Roster, catalogID func(string) string, request Request) Selection {

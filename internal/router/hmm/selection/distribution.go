@@ -1,6 +1,7 @@
 package selection
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 
@@ -13,13 +14,18 @@ import (
 
 const defaultDistributionGrid = 21
 
+var errNoDistributionPolicy = errors.New("HMM routing distribution requires a dynamic roster or compiled serving policy")
+
 func RoutingDistribution(admitted *selectionpolicy.Policy, gridN int, excludedModels, excludedProviders map[string]struct{}) ([]router.DistributionPoint, error) {
+	if admitted == nil {
+		return nil, errNoDistributionPolicy
+	}
 	return routingDistribution(admitted.Roster(), admitted.CatalogID, gridN, excludedModels, excludedProviders)
 }
 
 func routingDistribution(roster *rosterdata.Roster, catalogIDForArm func(string) string, gridN int, excludedModels, excludedProviders map[string]struct{}) ([]router.DistributionPoint, error) {
 	if roster == nil || !roster.SchemaVersion.IsGoSelectionSchema() {
-		return nil, fmt.Errorf("HMM routing distribution requires a dynamic roster or compiled serving policy")
+		return nil, errNoDistributionPolicy
 	}
 	if gridN < 2 {
 		gridN = defaultDistributionGrid
