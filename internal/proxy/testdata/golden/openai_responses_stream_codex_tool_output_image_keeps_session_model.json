@@ -1,0 +1,973 @@
+{
+  "requests": [
+    {
+      "ingress": "openai_responses",
+      "stream": true,
+      "routing_decisions": [
+        {
+          "requested_model": "auto",
+          "model": "gpt-5.6-sol",
+          "provider": "openai",
+          "reason": "hmm_policy"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "openai",
+          "wire_model": "gpt-5.6-sol",
+          "endpoint": "responses",
+          "credential_source": "codex_subscription",
+          "outbound_body": {
+            "input": [
+              {
+                "content": [
+                  {
+                    "text": "fix the failing build",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "user",
+                "type": "message"
+              }
+            ],
+            "model": "gpt-5.6-sol",
+            "stream": true,
+            "tools": [
+              {
+                "name": "exec",
+                "parameters": {
+                  "properties": {
+                    "cmd": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "function"
+              }
+            ]
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-openai-responses",
+            "PolicyRevision": "3",
+            "Purpose": "openai_responses",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "gpt-5.6-sol",
+            "Provider": "openai",
+            "UpstreamID": "gpt-5.6-sol"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "text/event-stream",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "71",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "1050000",
+          "X-Router-Decision": "hmm_policy",
+          "X-Router-Model": "gpt-5.6-sol",
+          "X-Router-Provider": "openai"
+        },
+        "events": [
+          {
+            "event": "response.created",
+            "data": {
+              "response": {
+                "id": "resp_\u003cid\u003e",
+                "model": "gpt-5.6-sol",
+                "object": "response",
+                "status": "in_progress"
+              },
+              "sequence_number": 0,
+              "type": "response.created"
+            }
+          },
+          {
+            "event": "response.output_item.added",
+            "data": {
+              "item": {
+                "content": [],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "in_progress",
+                "type": "message"
+              },
+              "output_index": 0,
+              "sequence_number": 1,
+              "type": "response.output_item.added"
+            }
+          },
+          {
+            "event": "response.content_part.added",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "part": {
+                "annotations": [],
+                "text": "",
+                "type": "output_text"
+              },
+              "sequence_number": 2,
+              "type": "response.content_part.added"
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "content_index": 0,
+              "delta": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn · funded by Codex subscription\n\n",
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "sequence_number": 3,
+              "type": "response.output_text.delta"
+            }
+          },
+          {
+            "event": "response.output_text.done",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "sequence_number": 4,
+              "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn · funded by Codex subscription\n\n",
+              "type": "response.output_text.done"
+            }
+          },
+          {
+            "event": "response.content_part.done",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "part": {
+                "annotations": [],
+                "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn · funded by Codex subscription\n\n",
+                "type": "output_text"
+              },
+              "sequence_number": 5,
+              "type": "response.content_part.done"
+            }
+          },
+          {
+            "event": "response.output_item.done",
+            "data": {
+              "item": {
+                "content": [
+                  {
+                    "annotations": [],
+                    "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn · funded by Codex subscription\n\n",
+                    "type": "output_text"
+                  }
+                ],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "completed",
+                "type": "message"
+              },
+              "output_index": 0,
+              "sequence_number": 6,
+              "type": "response.output_item.done"
+            }
+          },
+          {
+            "data": {
+              "delta": "planned the fix",
+              "type": "response.output_text.delta"
+            }
+          },
+          {
+            "data": {
+              "response": {
+                "id": "resp_\u003cid\u003e",
+                "status": "completed",
+                "usage": {
+                  "input_tokens": 12,
+                  "output_tokens": 7
+                }
+              },
+              "type": "response.completed"
+            }
+          }
+        ]
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "default_hmm_history",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "Provider": "openai",
+            "Reason": "hmm_policy",
+            "Role": "default_hmm_history",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "update_usage",
+          "role": "default_hmm_history",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "ServedModel": "gpt-5.6-sol",
+            "ServedProvider": "openai",
+            "Strategy": "hmm_embedding"
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 188,
+          "OrganizationID": "golden-org",
+          "RouterModel": "gpt-5.6-sol"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.000048,
+          "ActualOutputCostUSD": 0.00014,
+          "CaptureMode": "off",
+          "ChosenScore": 0.8999999761581421,
+          "ClientApp": "codex",
+          "ContextSnapshot": {
+            "context_window": 1050000,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 71,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "requested_model": "auto",
+            "served_model": "gpt-5.6-sol",
+            "version": 1
+          },
+          "CredentialKeyPrefix": "eyJhbGci",
+          "CredentialKeySuffix": "ture",
+          "CredentialSource": "codex_subscription",
+          "DecisionModel": "gpt-5.6-sol",
+          "DecisionProvider": "openai",
+          "DecisionReason": "hmm_policy",
+          "EmbedInput": "only_user_message",
+          "EstimatedInputTokens": 5,
+          "FinalModelFamily": "gpt-sol",
+          "FreshDecisionModel": "gpt-5.6-sol",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "gpt-sol",
+          "OutputTokens": 7,
+          "PinTier": "hmm_fresh_unpinned",
+          "PlannerOutcome": "switch",
+          "PlannerReason": "no_pin",
+          "RequestedModel": "auto",
+          "Role": "default",
+          "SelectionTrace": {
+            "served_group": "golden-group"
+          },
+          "SessionID": "\u003cuuid\u003e",
+          "SpanType": "router.upstream",
+          "StopReason": "stop",
+          "Strategy": "hmm_embedding",
+          "TurnType": "main_loop",
+          "UpstreamFinishReason": "stop",
+          "UpstreamStatusCode": 200,
+          "UserPrompt": true
+        }
+      ]
+    },
+    {
+      "ingress": "openai_responses",
+      "stream": true,
+      "routing_decisions": [
+        {
+          "requested_model": "auto",
+          "model": "gpt-5.6-sol",
+          "provider": "openai",
+          "reason": "hmm_policy"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "openai",
+          "wire_model": "gpt-5.6-sol",
+          "endpoint": "responses",
+          "credential_source": "codex_subscription",
+          "outbound_body": {
+            "input": [
+              {
+                "content": [
+                  {
+                    "text": "fix the failing build",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "user",
+                "type": "message"
+              },
+              {
+                "arguments": "{\"cmd\":\"make build\"}",
+                "call_id": "call_1",
+                "name": "exec",
+                "type": "function_call"
+              },
+              {
+                "call_id": "call_1",
+                "output": "compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; build failed",
+                "type": "function_call_output"
+              }
+            ],
+            "model": "gpt-5.6-sol",
+            "stream": true,
+            "tools": [
+              {
+                "name": "exec",
+                "parameters": {
+                  "properties": {
+                    "cmd": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "function"
+              }
+            ]
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-openai-responses",
+            "PolicyRevision": "3",
+            "Purpose": "openai_responses",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "gpt-5.6-sol",
+            "Provider": "openai",
+            "UpstreamID": "gpt-5.6-sol"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "text/event-stream",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "1824",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "1050000",
+          "X-Router-Decision": "hmm_policy",
+          "X-Router-Model": "gpt-5.6-sol",
+          "X-Router-Provider": "openai"
+        },
+        "events": [
+          {
+            "event": "response.created",
+            "data": {
+              "response": {
+                "id": "resp_\u003cid\u003e",
+                "model": "gpt-5.6-sol",
+                "object": "response",
+                "status": "in_progress"
+              },
+              "sequence_number": 0,
+              "type": "response.created"
+            }
+          },
+          {
+            "event": "response.output_item.added",
+            "data": {
+              "item": {
+                "content": [],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "in_progress",
+                "type": "message"
+              },
+              "output_index": 0,
+              "sequence_number": 1,
+              "type": "response.output_item.added"
+            }
+          },
+          {
+            "event": "response.content_part.added",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "part": {
+                "annotations": [],
+                "text": "",
+                "type": "output_text"
+              },
+              "sequence_number": 2,
+              "type": "response.content_part.added"
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "content_index": 0,
+              "delta": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn · funded by Codex subscription\n\n",
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "sequence_number": 3,
+              "type": "response.output_text.delta"
+            }
+          },
+          {
+            "event": "response.output_text.done",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "sequence_number": 4,
+              "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn · funded by Codex subscription\n\n",
+              "type": "response.output_text.done"
+            }
+          },
+          {
+            "event": "response.content_part.done",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "part": {
+                "annotations": [],
+                "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn · funded by Codex subscription\n\n",
+                "type": "output_text"
+              },
+              "sequence_number": 5,
+              "type": "response.content_part.done"
+            }
+          },
+          {
+            "event": "response.output_item.done",
+            "data": {
+              "item": {
+                "content": [
+                  {
+                    "annotations": [],
+                    "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn · funded by Codex subscription\n\n",
+                    "type": "output_text"
+                  }
+                ],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "completed",
+                "type": "message"
+              },
+              "output_index": 0,
+              "sequence_number": 6,
+              "type": "response.output_item.done"
+            }
+          },
+          {
+            "data": {
+              "delta": "read the build log",
+              "type": "response.output_text.delta"
+            }
+          },
+          {
+            "data": {
+              "response": {
+                "id": "resp_\u003cid\u003e",
+                "status": "completed",
+                "usage": {
+                  "input_tokens": 12,
+                  "output_tokens": 7
+                }
+              },
+              "type": "response.completed"
+            }
+          }
+        ]
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "default_hmm_history",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "LastInputTokens": 12,
+            "LastOutputTokens": 7,
+            "LastServedModel": "gpt-5.6-sol",
+            "Provider": "openai",
+            "Reason": "hmm_policy",
+            "Role": "default_hmm_history",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "update_usage",
+          "role": "default_hmm_history",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "PriorServedModel": "gpt-5.6-sol",
+            "ServedModel": "gpt-5.6-sol",
+            "ServedProvider": "openai",
+            "Strategy": "hmm_embedding"
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 188,
+          "OrganizationID": "golden-org",
+          "RouterModel": "gpt-5.6-sol"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.000048,
+          "ActualOutputCostUSD": 0.00014,
+          "CaptureMode": "off",
+          "ChosenScore": 0.8999999761581421,
+          "ClientApp": "codex",
+          "ContextSnapshot": {
+            "context_window": 1050000,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 1824,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "requested_model": "auto",
+            "served_model": "gpt-5.6-sol",
+            "version": 1
+          },
+          "CredentialKeyPrefix": "eyJhbGci",
+          "CredentialKeySuffix": "ture",
+          "CredentialSource": "codex_subscription",
+          "DecisionModel": "gpt-5.6-sol",
+          "DecisionProvider": "openai",
+          "DecisionReason": "hmm_policy",
+          "EmbedInput": "only_user_message",
+          "EstimatedInputTokens": 1708,
+          "FinalModelFamily": "gpt-sol",
+          "FreshDecisionModel": "gpt-5.6-sol",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "gpt-sol",
+          "OutputTokens": 7,
+          "PinTier": "hmm_ev_same_same_model",
+          "PlannerOutcome": "stay",
+          "PlannerPinModel": "gpt-5.6-sol",
+          "PlannerPinProvider": "openai",
+          "PlannerReason": "same_model",
+          "RequestedModel": "auto",
+          "Role": "default",
+          "SelectionTrace": {
+            "served_group": "golden-group"
+          },
+          "SessionID": "\u003cuuid\u003e",
+          "SpanType": "router.upstream",
+          "StopReason": "stop",
+          "Strategy": "hmm_embedding",
+          "ToolResultBytes": 6814,
+          "TurnType": "tool_result",
+          "UpstreamFinishReason": "stop",
+          "UpstreamStatusCode": 200
+        }
+      ]
+    },
+    {
+      "ingress": "openai_responses",
+      "stream": true,
+      "routing_decisions": [
+        {
+          "requested_model": "auto",
+          "model": "gpt-5.6-luna",
+          "provider": "openai",
+          "reason": "hmm_policy:tool_execution"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "openai",
+          "wire_model": "gpt-5.6-luna",
+          "endpoint": "responses",
+          "credential_source": "codex_subscription",
+          "outbound_body": {
+            "input": [
+              {
+                "content": [
+                  {
+                    "text": "fix the failing build",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "user",
+                "type": "message"
+              },
+              {
+                "arguments": "{\"cmd\":\"make build\"}",
+                "call_id": "call_1",
+                "name": "exec",
+                "type": "function_call"
+              },
+              {
+                "call_id": "call_1",
+                "output": "compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; compile step ok; build failed",
+                "type": "function_call_output"
+              },
+              {
+                "arguments": "{\"cmd\":\"view_image screenshot.png\"}",
+                "call_id": "call_2",
+                "name": "exec",
+                "type": "function_call"
+              },
+              {
+                "call_id": "call_2",
+                "output": [
+                  {
+                    "image_url": "data:image/png;base64,iVBORw0KGgo=",
+                    "type": "input_image"
+                  }
+                ],
+                "type": "function_call_output"
+              }
+            ],
+            "model": "gpt-5.6-luna",
+            "stream": true,
+            "tools": [
+              {
+                "name": "exec",
+                "parameters": {
+                  "properties": {
+                    "cmd": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "function"
+              }
+            ]
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-openai-responses",
+            "PolicyRevision": "3",
+            "Purpose": "openai_responses",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "gpt-5.6-luna",
+            "Provider": "openai",
+            "UpstreamID": "gpt-5.6-luna"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "text/event-stream",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "3518",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "1050000",
+          "X-Router-Decision": "hmm_policy:tool_execution",
+          "X-Router-Model": "gpt-5.6-luna",
+          "X-Router-Provider": "openai"
+        },
+        "events": [
+          {
+            "event": "response.created",
+            "data": {
+              "response": {
+                "id": "resp_\u003cid\u003e",
+                "model": "gpt-5.6-luna",
+                "object": "response",
+                "status": "in_progress"
+              },
+              "sequence_number": 0,
+              "type": "response.created"
+            }
+          },
+          {
+            "event": "response.output_item.added",
+            "data": {
+              "item": {
+                "content": [],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "in_progress",
+                "type": "message"
+              },
+              "output_index": 0,
+              "sequence_number": 1,
+              "type": "response.output_item.added"
+            }
+          },
+          {
+            "event": "response.content_part.added",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "part": {
+                "annotations": [],
+                "text": "",
+                "type": "output_text"
+              },
+              "sequence_number": 2,
+              "type": "response.content_part.added"
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "content_index": 0,
+              "delta": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-luna · funded by Codex subscription\n\n",
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "sequence_number": 3,
+              "type": "response.output_text.delta"
+            }
+          },
+          {
+            "event": "response.output_text.done",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "sequence_number": 4,
+              "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-luna · funded by Codex subscription\n\n",
+              "type": "response.output_text.done"
+            }
+          },
+          {
+            "event": "response.content_part.done",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "part": {
+                "annotations": [],
+                "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-luna · funded by Codex subscription\n\n",
+                "type": "output_text"
+              },
+              "sequence_number": 5,
+              "type": "response.content_part.done"
+            }
+          },
+          {
+            "event": "response.output_item.done",
+            "data": {
+              "item": {
+                "content": [
+                  {
+                    "annotations": [],
+                    "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-luna · funded by Codex subscription\n\n",
+                    "type": "output_text"
+                  }
+                ],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "completed",
+                "type": "message"
+              },
+              "output_index": 0,
+              "sequence_number": 6,
+              "type": "response.output_item.done"
+            }
+          },
+          {
+            "data": {
+              "delta": "looked at the screenshot",
+              "type": "response.output_text.delta"
+            }
+          },
+          {
+            "data": {
+              "response": {
+                "id": "resp_\u003cid\u003e",
+                "status": "completed",
+                "usage": {
+                  "input_tokens": 12,
+                  "output_tokens": 7
+                }
+              },
+              "type": "response.completed"
+            }
+          }
+        ]
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "default_hmm_history",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "LastInputTokens": 12,
+            "LastOutputTokens": 7,
+            "LastServedModel": "gpt-5.6-sol",
+            "Provider": "openai",
+            "Reason": "hmm_policy:tool_execution",
+            "Role": "default_hmm_history",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "update_usage",
+          "role": "default_hmm_history",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "PriorServedModel": "gpt-5.6-sol",
+            "ServedModel": "gpt-5.6-luna",
+            "ServedProvider": "openai",
+            "Strategy": "hmm_embedding"
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 11,
+          "OrganizationID": "golden-org",
+          "RouterModel": "gpt-5.6-luna"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.0000024000000000000003,
+          "ActualOutputCostUSD": 0.0000084,
+          "CaptureMode": "off",
+          "ChosenScore": 0.4399999976158142,
+          "ClientApp": "codex",
+          "ContextSnapshot": {
+            "context_window": 1050000,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 3518,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "requested_model": "auto",
+            "served_model": "gpt-5.6-luna",
+            "version": 1
+          },
+          "CredentialKeyPrefix": "eyJhbGci",
+          "CredentialKeySuffix": "ture",
+          "CredentialSource": "codex_subscription",
+          "DecisionModel": "gpt-5.6-luna",
+          "DecisionProvider": "openai",
+          "DecisionReason": "hmm_policy:tool_execution",
+          "EmbedInput": "only_user_message",
+          "EstimatedInputTokens": 1717,
+          "FinalModelFamily": "gpt-luna",
+          "FreshDecisionModel": "gpt-5.6-luna",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "gpt-luna",
+          "OutputTokens": 7,
+          "PinTier": "hmm_ev_switch_hmm_phase_change",
+          "PlannerEvictionCostUSD": 0.00030906000000000005,
+          "PlannerExpectedSavingsUSD": 0.00195738,
+          "PlannerOutcome": "switch",
+          "PlannerPinModel": "gpt-5.6-sol",
+          "PlannerPinProvider": "openai",
+          "PlannerReason": "hmm_phase_change",
+          "PlannerShadowExpectedSavingsUSD": 0.019573800000000002,
+          "PlannerShadowOutcome": "switch",
+          "RequestedModel": "auto",
+          "Role": "default",
+          "SelectionTrace": {
+            "served_group": "golden-group"
+          },
+          "SessionID": "\u003cuuid\u003e",
+          "SpanType": "router.upstream",
+          "StopReason": "stop",
+          "Strategy": "hmm_embedding",
+          "TurnType": "main_loop",
+          "UpstreamFinishReason": "stop",
+          "UpstreamStatusCode": 200
+        }
+      ]
+    }
+  ],
+  "scenario": "openai_responses_stream_codex_tool_output_image_keeps_session_model"
+}
