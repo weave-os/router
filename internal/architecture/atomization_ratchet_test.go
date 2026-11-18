@@ -145,7 +145,7 @@ func measureAtomization(t *testing.T, root string, patterns ...string) atomizati
 	for _, pkg := range loadTypedPackages(t, root, patterns...) {
 		path := pkg.PkgPath
 		measurePackage(counts, pkg, atomizationScope{
-			proxy:      path == proxyPackagePath,
+			proxy:      hasPathPrefix(path, proxyPackagePath),
 			strategy:   isStrategyPackage(path),
 			serving:    isServingLayerPackage(path),
 			pinAllowed: hasPathPrefix(path, hmmPackagePath),
