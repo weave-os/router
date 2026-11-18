@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/flags"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions/entitlement"
 
@@ -542,4 +543,40 @@ func TestWithSubscriberAllowance_StampsSpentWindow(t *testing.T) {
 			}
 		})
 	}
+}
+
+func runPoolAllowanceMiddleware(t *testing.T, entitlements *stubEntitlements, poolEnabled bool) (bool, entitlement.Coverage) {
+	t.Helper()
+	svc := entitlement.NewService(entitlements, &stubAllowances{}).WithClock(func() time.Time { return allowanceNow })
+	reached := false
+	var observed entitlement.Coverage
+	engine := gin.New()
+	engine.POST("/v1/messages", func(c *gin.Context) {
+		c.Set("router_api_key", &auth.APIKey{ID: "33333333-3333-3333-3333-333333333333"})
+		c.Set("router_installation", &auth.Installation{ID: "installation", PoolSubjectID: allowanceSubscriberID})
+		c.Request = c.Request.WithContext(flags.WithOverrides(c.Request.Context(), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyInstallationPoolAllowance: poolEnabled}}))
+		middleware.WithSubscriberAllowance(svc)(c)
+		if c.IsAborted() {
+			return
+		}
+		reached = true
+		observed, _ = entitlement.CoverageFromContext(c.Request.Context())
+		c.Status(http.StatusOK)
+	})
+	engine.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
+	return reached, observed
+}
+
+func TestWithSubscriberAllowance_OwnerlessKeyUsesInstallationPoolWhenEnabled(t *testing.T) {
+	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
+	reached, coverage := runPoolAllowanceMiddleware(t, entitlements, true)
+	require.True(t, reached)
+	assert.Equal(t, entitlement.SubscriberID(allowanceSubscriberID), coverage.SubscriberID)
+}
+
+func TestWithSubscriberAllowance_OwnerlessKeyIgnoresPoolWhenDisabled(t *testing.T) {
+	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
+	reached, coverage := runPoolAllowanceMiddleware(t, entitlements, false)
+	require.True(t, reached)
+	assert.Empty(t, coverage.SubscriberID)
 }
