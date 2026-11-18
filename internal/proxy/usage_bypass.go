@@ -443,9 +443,7 @@ func (s *Service) bypassToAnthropic(
 		String("decision.model", decision.Model).
 		String("decision.provider", decision.Provider).
 		String("decision.reason", decision.Reason).
-		String("upstream.stop_reason", stopReason).
-		Bool("upstream.refusal", passiveRefusal.scan.refused).
-		String("upstream.refusal_category", passiveRefusal.scan.category).
+		String("upstream.stop_reason", stopReason).Bool("upstream.refusal", passiveRefusal.scan.refused).String("upstream.refusal_category", passiveRefusal.scan.category).
 		Bool("cost.subscription_served", proxyErr == nil && upstreamErr == nil && s.costNeutralSubscriptionServed(ctx)).
 		Int64("usage.input_tokens", int64(in)).
 		Int64("usage.output_tokens", int64(out)).
@@ -469,10 +467,6 @@ func (s *Service) bypassToAnthropic(
 
 	if installationID := installationIDFromContext(ctx); installationID != uuid.Nil {
 		userPrompt := env.EndsWithUserPrompt()
-		outcomeErr := proxyErr
-		if upstreamErr != nil {
-			outcomeErr = upstreamErr
-		}
 		credentialKeyPrefix, credentialKeySuffix, credSource := s.credentialKeyParts(ctx)
 		s.markServedExternalKeyUsed(ctx, outcomeErr)
 		sessionKey := deriveSessionKeyForRequest(ctx, env, apiKeyIDFromContext(ctx))
@@ -532,6 +526,17 @@ func (s *Service) bypassToAnthropic(
 	}
 
 	servedCredentialSource, servedSubscriptionTier := s.servedCredentialLogValues(ctx)
-	bypassCompletionLog{externalID: externalID, requestedModel: feats.Model, decisionModel: decision.Model, proxyMs: s.clock.Now().Sub(proxyStart).Milliseconds(), totalMs: s.clock.Now().Sub(requestStart).Milliseconds(), proxyErr: proxyErr, stopReason: stopReason, refusal: &passiveRefusal.scan, credentialSource: servedCredentialSource, subscriptionTier: servedSubscriptionTier}.emit(log)
+	log.Info("ProxyMessages usage-bypass complete",
+		"request_id", requestID,
+		"external_id", externalID,
+		"requested_model", feats.Model,
+		"decision_model", decision.Model,
+		"proxy_ms", s.clock.Now().Sub(proxyStart).Milliseconds(),
+		"total_ms", s.clock.Now().Sub(requestStart).Milliseconds(),
+		"proxy_err", proxyErr,
+		"resp_stop_reason", stopReason, "resp_refusal", passiveRefusal.scan.refused, "resp_refusal_category", passiveRefusal.scan.category,
+		"credential_source", servedCredentialSource,
+		"subscription_tier", servedSubscriptionTier,
+	)
 	return proxyErr
 }
