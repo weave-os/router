@@ -155,6 +155,31 @@ failures rotate to another eligible account before authorized Weave-funded API
 capacity serves the selected model. Depleted Weave credits
 prohibit paid API fallback, not subscription use.
 
+## Shared team keys
+
+A team can run on one installation-shared key instead of one key per person.
+A shared key has no credential subject: it names no person, and whoever created
+it is metadata only. Organization administrators create shared keys in Weave on
+every plan; personal keys stay available and an organization may hold many of
+both.
+
+- **Seats.** Traffic on a shared key draws from the organization's shared pool
+  whenever sharing is on. No seat, including its creator's, gets priority.
+- **Payment.** A shared key has no subscriber, so no per-person allowance or
+  prepaid balance applies; its spend belongs to the organization.
+- **Client identity.** The email or Claude account UUID a client reports
+  becomes a router user id. On any key it is self-declared and unverified: it
+  labels telemetry and attribution and keys soft per-user controls (spend-limit
+  overrides, model lists, routing policy, experiments). It never establishes
+  subscription ownership, seat management or billing ownership. On a shared key
+  anyone can report any email, so treat those controls as advisory.
+- **Connecting a seat.** `login claude|codex` refuses a shared key before
+  provider sign-in: `/validate` reports `"shared": true` and subscription
+  management returns `personal_identity_required`. People connect their own
+  seat from the Weave subscriptions page while signed in. Any active
+  installation member may enroll without a personal key; the newest personal
+  key, when one exists, is kept only as enrollment attribution.
+
 ## Subscription pass-through lanes
 
 Two lanes serve the requested model verbatim on the caller's own subscription,
