@@ -23,18 +23,17 @@ const (
 type AuthoritativeUpgradePolicy string
 
 const (
-	AuthoritativeUpgradePolicyScore    AuthoritativeUpgradePolicy = "score"
-	AuthoritativeUpgradePolicyEvidence AuthoritativeUpgradePolicy = "evidence"
-	AuthoritativeUpgradePolicyOff      AuthoritativeUpgradePolicy = "off"
+	AuthoritativeUpgradePolicyScore AuthoritativeUpgradePolicy = "score"
+	AuthoritativeUpgradePolicyOff   AuthoritativeUpgradePolicy = "off"
 )
 
 func ParseAuthoritativeUpgradePolicy(raw string) (AuthoritativeUpgradePolicy, error) {
 	policy := AuthoritativeUpgradePolicy(raw)
 	switch policy {
-	case AuthoritativeUpgradePolicyScore, AuthoritativeUpgradePolicyEvidence, AuthoritativeUpgradePolicyOff:
+	case AuthoritativeUpgradePolicyScore, AuthoritativeUpgradePolicyOff:
 		return policy, nil
 	default:
-		return "", fmt.Errorf("authoritative upgrade policy must be score, evidence, or off, got %q", raw)
+		return "", fmt.Errorf("authoritative upgrade policy must be score or off, got %q", raw)
 	}
 }
 
@@ -77,7 +76,6 @@ const (
 	KeyPrefixTrimFreeSwitch                 Key = "prefix_trim_free_switch"
 	KeyAuthoritativeUpgradeGate             Key = "authoritative_upgrade_gate"
 	KeyAuthoritativeUpgradePolicy           Key = "authoritative_upgrade_policy"
-	KeyAuthoritativeUpgradeHoldoutPct       Key = "authoritative_upgrade_holdout_pct"
 	KeyAuthoritativeUpgradeVotes            Key = "authoritative_upgrade_votes"
 	KeyAuthoritativeDowngradeGate           Key = "authoritative_downgrade_gate"
 	KeyAuthoritativeUpgradeSlidingThreshold Key = "authoritative_upgrade_sliding_threshold"
@@ -94,7 +92,6 @@ const (
 	KeyAnthropicServerFallback              Key = "anthropic_server_side_fallback"
 	KeyOpenAIResponsesBroad                 Key = "openai_responses_broad"
 	KeySessionPinEnabled                    Key = "session_pin_enabled"
-	KeyHMMSameTierPin                       Key = "hmm_same_tier_pin"
 	KeyHardPinExplore                       Key = "hard_pin_explore"
 	KeyTaskArmExperimentTreatmentPct        Key = "task_arm_experiment_treatment_pct"
 	KeyTaskArmExperimentSteps               Key = "task_arm_experiment_steps"
@@ -102,7 +99,6 @@ const (
 	KeyCCOrchToolsCrossVendor               Key = "cc_orch_tools_crossvendor"
 	KeyEscapeNormalize                      Key = "deepseek_escape_normalize"
 	KeyPlannerTierUpgrade                   Key = "planner_tier_upgrade_enabled"
-	KeyPlannerColdPinFollowFresh            Key = "planner_cold_pin_follow_fresh"
 	KeyPlannerCorrectedEconomics            Key = "planner_corrected_economics"
 	KeyAllowedModelsHeader                  Key = "allowed_models_header"
 	KeyCCTaskToolsCrossVendor               Key = "cc_task_tools_crossvendor"
@@ -217,7 +213,7 @@ func ValidateOverrides(o Overrides) error {
 		if err := check(key, KindInt); err != nil {
 			return err
 		}
-		if key == KeyLoopEscalationHoldoutPct || key == KeyAuthoritativeUpgradeHoldoutPct || key == KeyTaskArmExperimentTreatmentPct {
+		if key == KeyLoopEscalationHoldoutPct || key == KeyTaskArmExperimentTreatmentPct {
 			if value < 0 || value > 100 {
 				return fmt.Errorf("%w: %q must be between 0 and 100, got %d", ErrInvalidValue, key, value)
 			}
@@ -243,9 +239,9 @@ func ValidateOverrides(o Overrides) error {
 		}
 		if key == KeyAuthoritativeUpgradePolicy {
 			switch AuthoritativeUpgradePolicy(value) {
-			case AuthoritativeUpgradePolicyScore, AuthoritativeUpgradePolicyEvidence, AuthoritativeUpgradePolicyOff:
+			case AuthoritativeUpgradePolicyScore, AuthoritativeUpgradePolicyOff:
 			default:
-				return fmt.Errorf("%w: %q must be score, evidence, or off, got %q", ErrInvalidValue, key, value)
+				return fmt.Errorf("%w: %q must be score or off, got %q", ErrInvalidValue, key, value)
 			}
 		}
 	}

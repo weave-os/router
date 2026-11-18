@@ -1,6 +1,6 @@
 package flags
 
-const RegistryVersion = 33
+const RegistryVersion = 34
 
 var Registry = []Definition{
 	{Key: KeyEscalationActiveClassifier, Kind: KindString, Description: "Active escalation classifier: none, xgb, switchyard_llm_v1, or llm_escalation. Absent preserves legacy XGB flags.", OrgOverridable: true},
@@ -115,14 +115,7 @@ var Registry = []Definition{
 		Key:            KeyAuthoritativeUpgradePolicy,
 		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_POLICY",
 		Kind:           KindString,
-		Description:    "Authoritative upgrade policy: score (default 0.85 floor), evidence (composite interim policy), or off (verbatim fresh policy).",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyAuthoritativeUpgradeHoldoutPct,
-		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_HOLDOUT_PCT",
-		Kind:           KindInt,
-		Description:    "Percent of sessions that stay on the score gate while evidence mode is on. Session-sticky. 0-100.",
+		Description:    "Authoritative upgrade policy: score (default 0.85 floor) or off (verbatim fresh policy).",
 		OrgOverridable: true,
 	},
 	{
@@ -320,13 +313,6 @@ var Registry = []Definition{
 		OrgOverridable: true,
 	},
 	{
-		Key:            KeyHMMSameTierPin,
-		EnvVar:         "ROUTER_HMM_SAME_TIER_PIN",
-		Kind:           KindBool,
-		Description:    "Keep an HMM session on its pinned model when the fresh pick is in the same tier, even when switching is EV-positive. Off by default.",
-		OrgOverridable: true,
-	},
-	{
 		Key:            KeyHardPinExplore,
 		EnvVar:         "ROUTER_HARD_PIN_EXPLORE",
 		Kind:           KindBool,
@@ -370,13 +356,6 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_SWITCH_TIER_UPGRADE_ENABLED",
 		Kind:           KindBool,
 		Description:    "Let the switch planner leave a pin when the fresh pick is a higher tier. On by default.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyPlannerColdPinFollowFresh,
-		EnvVar:         "ROUTER_SWITCH_COLD_PIN_FOLLOW_FRESH",
-		Kind:           KindBool,
-		Description:    "Let the switch planner follow the fresh pick when the pinned model's prompt cache is cold. Off by default.",
 		OrgOverridable: true,
 	},
 	{

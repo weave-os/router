@@ -119,7 +119,6 @@ const policyPinTier = "policy_pin"
 type pinTier string
 
 const (
-	pinTierAuthoritativeUpgradeEvidence         pinTier = "authoritative_upgrade_evidence"
 	pinTierAuthoritativeSlidingThresholdUpgrade pinTier = "authoritative_sliding_threshold_upgrade"
 	pinTierAuthoritativeUpgradeConfidenceLow    pinTier = "authoritative_hmm_upgrade_confidence_low"
 	pinTierAuthoritativeDowngradeConfidenceLow  pinTier = "authoritative_hmm_downgrade_confidence_low"
@@ -1509,28 +1508,7 @@ func (s *Service) runTurnLoop(
 					"probability", slidingProbability,
 				)
 			}
-			if !slidingServed && s.evidenceUpgradeApplies(ctx, res.SessionKey) && res.UpgradeShadow != nil {
-				res.UpgradeShadow.Applied = true
-				switch res.UpgradeShadow.Verdict.Outcome {
-				case upgradeAllow, upgradeExistingPolicy, upgradeNotApplicable, upgradeExcluded:
-				case upgradeHold:
-					decision := pinDecision(pin)
-					res.Decision = decision
-					res.StickyHit = true
-					res.PinTier = string(pinTierAuthoritativeUpgradeEvidence)
-					votes := *res.UpgradeShadow.Evidence.VoteCount
-					log.Info("turnloop held authoritative upgrade on evidence; keeping session pin",
-						"pin_model", pin.Model,
-						"fresh_model", fresh.Model,
-						"reason", res.UpgradeShadow.Verdict.Reason,
-						"upgrade_votes", votes,
-					)
-					sessionPins.RefreshVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, 0, votes)
-					return res, nil
-				}
-			}
-			evidenceServedFresh := s.evidenceUpgradeApplies(ctx, res.SessionKey) && res.UpgradeShadow != nil && res.UpgradeShadow.Verdict.Outcome == upgradeAllow
-			verdict := authoritativeGuardsFor(ctx, s, evidenceServedFresh, slidingServed).Judge(pin, pinFound, fresh, plannerTokens)
+			verdict := authoritativeGuardsFor(ctx, s, slidingServed).Judge(pin, pinFound, fresh, plannerTokens)
 			if holdAuthoritativePin(ctx, sessionPins, installationID, &res, pin, fresh, verdict) {
 				return res, nil
 			}

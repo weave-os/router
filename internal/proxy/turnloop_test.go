@@ -902,9 +902,8 @@ func TestTurnLoop_PrefixTrimPricesPinColdAndSkipsSummarizer(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster:v0.2"}}
 	sz := &fakeSummarizer{summary: "Prior conversation summary."}
 	svc := newPinSvc(fr, store).WithSummarizer(sz).WithPlanner(planner.EVConfig{
-		ThresholdUSD:           0.001,
+		ThresholdUSD:           0.00002,
 		ExpectedRemainingTurns: 3,
-		ColdPinFollowFresh:     true,
 	})
 	ctx := authedCtx(uuid.New().String())
 
@@ -913,7 +912,7 @@ func TestTurnLoop_PrefixTrimPricesPinColdAndSkipsSummarizer(t *testing.T) {
 	req1 := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, trimSessionTurn(t, 9), rec1, req1))
 	require.Equal(t, "claude-opus-4-7", rec1.Header().Get(proxy.HeaderRouterModel),
-		"warm pin must stay on turn 1 (cold lever must not fire on a warm cache)")
+		"warm pin must stay on turn 1")
 
 	// Turn 2 drops to 3 messages: a full-compaction trim.
 	rec2 := httptest.NewRecorder()
@@ -926,7 +925,7 @@ func TestTurnLoop_PrefixTrimPricesPinColdAndSkipsSummarizer(t *testing.T) {
 }
 
 // With the kill switch off, the trim is detected but the planner keeps
-// pricing the pin warm and stays, even with the cold-pin lever armed.
+// pricing the pin warm and stays.
 func TestTurnLoop_PrefixTrimKillSwitchPreservesWarmStay(t *testing.T) {
 	store := newFakePinStore()
 	store.hasPin = true
@@ -936,7 +935,6 @@ func TestTurnLoop_PrefixTrimKillSwitchPreservesWarmStay(t *testing.T) {
 	svc := newPinSvc(fr, store).WithSummarizer(sz).WithPrefixTrimFreeSwitch(false).WithPlanner(planner.EVConfig{
 		ThresholdUSD:           0.001,
 		ExpectedRemainingTurns: 3,
-		ColdPinFollowFresh:     true,
 	})
 	ctx := authedCtx(uuid.New().String())
 
