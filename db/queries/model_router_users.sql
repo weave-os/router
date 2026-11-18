@@ -118,13 +118,11 @@ RETURNING *;
 -- name: UpsertModelRouterUserByUnidentifiedKey :one
 INSERT INTO router.model_router_users (
     installation_id,
-    unidentified_api_key_id,
-    display_name
+    unidentified_api_key_id
 )
 VALUES (
     @installation_id::uuid,
-    @shared_key_id::uuid,
-    sqlc.narg('display_name')::text
+    @shared_key_id::uuid
 )
 ON CONFLICT (installation_id, unidentified_api_key_id)
   WHERE email IS NULL AND claude_account_uuid IS NULL AND credential_subject_id IS NULL AND unidentified_api_key_id IS NOT NULL AND deleted_at IS NULL

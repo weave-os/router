@@ -59,39 +59,34 @@ func (r *userRepo) UpsertByAccountUUID(ctx context.Context, params auth.UpsertUs
 }
 
 func (r *userRepo) UpsertByCredentialSubject(ctx context.Context, params auth.UpsertUserByCredentialSubjectParams) (*auth.User, error) {
-	installationID, err := uuid.Parse(params.InstallationID)
-	if err != nil {
-		return nil, err
-	}
-	credentialSubjectID, err := uuid.Parse(params.CredentialSubjectID)
-	if err != nil {
-		return nil, err
-	}
-	row, err := dbbudget.Queries(r.tx).UpsertModelRouterUserByCredentialSubject(ctx, sqlc.UpsertModelRouterUserByCredentialSubjectParams{
-		InstallationID:      installationID,
-		CredentialSubjectID: credentialSubjectID,
-		DisplayName:         nullableTextArg(params.DisplayName),
+	return upsertScopedUser(params.InstallationID, params.CredentialSubjectID, func(installationID, credentialSubjectID uuid.UUID) (sqlc.RouterModelRouterUser, error) {
+		return dbbudget.Queries(r.tx).UpsertModelRouterUserByCredentialSubject(ctx, sqlc.UpsertModelRouterUserByCredentialSubjectParams{
+			InstallationID:      installationID,
+			CredentialSubjectID: credentialSubjectID,
+			DisplayName:         nullableTextArg(params.DisplayName),
+		})
 	})
-	if err != nil {
-		return nil, err
-	}
-	return toAuthUser(row), nil
 }
 
 func (r *userRepo) UpsertByUnidentifiedKey(ctx context.Context, params auth.UpsertUserByUnidentifiedKeyParams) (*auth.User, error) {
-	installationID, err := uuid.Parse(params.InstallationID)
-	if err != nil {
-		return nil, err
-	}
-	sharedKeyID, err := uuid.Parse(params.SharedKeyID)
-	if err != nil {
-		return nil, err
-	}
-	row, err := dbbudget.Queries(r.tx).UpsertModelRouterUserByUnidentifiedKey(ctx, sqlc.UpsertModelRouterUserByUnidentifiedKeyParams{
-		InstallationID: installationID,
-		SharedKeyID:    sharedKeyID,
-		DisplayName:    nullableTextArg(params.DisplayName),
+	return upsertScopedUser(params.InstallationID, params.SharedKeyID, func(installationID, sharedKeyID uuid.UUID) (sqlc.RouterModelRouterUser, error) {
+		return dbbudget.Queries(r.tx).UpsertModelRouterUserByUnidentifiedKey(ctx, sqlc.UpsertModelRouterUserByUnidentifiedKeyParams{
+			InstallationID: installationID,
+			SharedKeyID:    sharedKeyID,
+		})
 	})
+}
+
+func upsertScopedUser(installationID, scopeID string, upsert func(installationID, scopeID uuid.UUID) (sqlc.RouterModelRouterUser, error)) (*auth.User, error) {
+	parsedInstallationID, err := uuid.Parse(installationID)
+	if err != nil {
+		return nil, err
+	}
+	parsedScopeID, err := uuid.Parse(scopeID)
+	if err != nil {
+		return nil, err
+	}
+	row, err := upsert(parsedInstallationID, parsedScopeID)
 	if err != nil {
 		return nil, err
 	}

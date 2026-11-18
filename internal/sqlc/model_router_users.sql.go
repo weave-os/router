@@ -379,13 +379,11 @@ func (q *Queries) UpsertModelRouterUserByEmail(ctx context.Context, arg UpsertMo
 const upsertModelRouterUserByUnidentifiedKey = `-- name: UpsertModelRouterUserByUnidentifiedKey :one
 INSERT INTO router.model_router_users (
     installation_id,
-    unidentified_api_key_id,
-    display_name
+    unidentified_api_key_id
 )
 VALUES (
     $1::uuid,
-    $2::uuid,
-    $3::text
+    $2::uuid
 )
 ON CONFLICT (installation_id, unidentified_api_key_id)
   WHERE email IS NULL AND claude_account_uuid IS NULL AND credential_subject_id IS NULL AND unidentified_api_key_id IS NOT NULL AND deleted_at IS NULL
@@ -397,20 +395,17 @@ RETURNING id, installation_id, email, claude_account_uuid, first_seen_at, last_s
 type UpsertModelRouterUserByUnidentifiedKeyParams struct {
 	InstallationID uuid.UUID
 	SharedKeyID    uuid.UUID
-	DisplayName    *string
 }
 
 // UpsertModelRouterUserByUnidentifiedKey
 //
 //	INSERT INTO router.model_router_users (
 //	    installation_id,
-//	    unidentified_api_key_id,
-//	    display_name
+//	    unidentified_api_key_id
 //	)
 //	VALUES (
 //	    $1::uuid,
-//	    $2::uuid,
-//	    $3::text
+//	    $2::uuid
 //	)
 //	ON CONFLICT (installation_id, unidentified_api_key_id)
 //	  WHERE email IS NULL AND claude_account_uuid IS NULL AND credential_subject_id IS NULL AND unidentified_api_key_id IS NOT NULL AND deleted_at IS NULL
@@ -418,7 +413,7 @@ type UpsertModelRouterUserByUnidentifiedKeyParams struct {
 //	    last_seen_at = CURRENT_TIMESTAMP
 //	RETURNING id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name, credential_subject_id, unidentified_api_key_id
 func (q *Queries) UpsertModelRouterUserByUnidentifiedKey(ctx context.Context, arg UpsertModelRouterUserByUnidentifiedKeyParams) (RouterModelRouterUser, error) {
-	row := q.db.QueryRow(ctx, upsertModelRouterUserByUnidentifiedKey, arg.InstallationID, arg.SharedKeyID, arg.DisplayName)
+	row := q.db.QueryRow(ctx, upsertModelRouterUserByUnidentifiedKey, arg.InstallationID, arg.SharedKeyID)
 	var i RouterModelRouterUser
 	err := row.Scan(
 		&i.ID,

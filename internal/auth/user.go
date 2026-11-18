@@ -52,7 +52,6 @@ type UpsertUserByCredentialSubjectParams struct {
 type UpsertUserByUnidentifiedKeyParams struct {
 	InstallationID string
 	SharedKeyID    string
-	DisplayName    *string
 }
 
 type UserRepository interface {
