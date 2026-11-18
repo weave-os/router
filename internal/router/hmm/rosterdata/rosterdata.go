@@ -33,10 +33,6 @@ func (s SchemaVersion) IsGoSelectionSchema() bool {
 
 type Group string
 
-func (g Group) Valid() bool {
-	return strings.TrimSpace(string(g)) != ""
-}
-
 const NoSubscriptionLadderKey = "none"
 
 type Harness string
@@ -252,7 +248,7 @@ func validateSchema(r *Roster) error {
 		}
 	}
 	for label, cluster := range r.Clusters {
-		if !Group(label).Valid() || cluster.ComplexityLabel != label {
+		if strings.TrimSpace(label) == "" || cluster.ComplexityLabel != label {
 			return fmt.Errorf("cluster %q has mismatched complexity_label %q", label, cluster.ComplexityLabel)
 		}
 		if len(cluster.Arms) == 0 {

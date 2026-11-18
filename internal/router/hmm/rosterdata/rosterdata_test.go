@@ -303,10 +303,3 @@ func TestGoSelectionSchemasAreTheCompilableSchemas(t *testing.T) {
 	assert.True(t, rosterdata.SchemaVersionV75C.IsGoSelectionSchema())
 	assert.True(t, rosterdata.SchemaVersionPolicyV1.IsGoSelectionSchema())
 }
-
-func TestGroupIsAnyNonBlankLabel(t *testing.T) {
-	assert.True(t, rosterdata.Group("low").Valid())
-	assert.True(t, rosterdata.Group("a-new-group").Valid())
-	assert.False(t, rosterdata.Group("").Valid())
-	assert.False(t, rosterdata.Group(" ").Valid())
-}

@@ -47,7 +47,7 @@ func selectGroups(
 	roster *rosterdata.Roster,
 	groups []rosterdata.Group,
 	harness string,
-	ladder Ladder,
+	ladder string,
 	candidates map[string]struct{},
 	qualityBias *float64,
 	preferredModels []string,
@@ -69,7 +69,7 @@ func selectGroups(
 			componentsByGroup[label] = components
 			order, _ := ArmOrder(cluster, harness)
 			order = preferenceOrder(roster, cluster, harness, order, qualityBias, hasPreferenceInputs || domainActive, scores)
-			ordersByGroup[label] = leadWith(order, ladder.LeadArmEvenOutsideGroup(roster, group))
+			ordersByGroup[label] = leadWith(order, roster.SubscriptionLadders[ladder][group])
 		}
 	}
 	depth := 0

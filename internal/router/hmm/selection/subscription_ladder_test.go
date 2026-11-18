@@ -143,13 +143,13 @@ func TestSubscriptionLadderNamesTheLadderInPlay(t *testing.T) {
 		name                  string
 		harness               string
 		subscriptionProviders []string
-		want                  selection.Ladder
+		want                  string
 	}{
-		{name: "no subscription", harness: "claude_code", want: selection.Ladder{Choice: selection.LadderNoSubscription}},
-		{name: "native subscription", harness: "codex", subscriptionProviders: both, want: selection.Ladder{Choice: selection.LadderSubscription, Provider: providers.ProviderOpenAI}},
-		{name: "foreign subscription in a native harness", harness: "codex", subscriptionProviders: []string{providers.ProviderAnthropic}, want: selection.Ladder{}},
-		{name: "single subscription in an unknown harness", harness: "pi", subscriptionProviders: []string{providers.ProviderAnthropic}, want: selection.Ladder{Choice: selection.LadderSubscription, Provider: providers.ProviderAnthropic}},
-		{name: "several subscriptions in an unknown harness", harness: "pi", subscriptionProviders: both, want: selection.Ladder{}},
+		{name: "no subscription", harness: "claude_code", want: rosterdata.NoSubscriptionLadderKey},
+		{name: "native subscription", harness: "codex", subscriptionProviders: both, want: providers.ProviderOpenAI},
+		{name: "foreign subscription in a native harness", harness: "codex", subscriptionProviders: []string{providers.ProviderAnthropic}, want: ""},
+		{name: "single subscription in an unknown harness", harness: "pi", subscriptionProviders: []string{providers.ProviderAnthropic}, want: providers.ProviderAnthropic},
+		{name: "several subscriptions in an unknown harness", harness: "pi", subscriptionProviders: both, want: ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, selection.SubscriptionLadder(tc.harness, tc.subscriptionProviders))
@@ -160,9 +160,10 @@ func TestSubscriptionLadderNamesTheLadderInPlay(t *testing.T) {
 func TestLadderLeadMayComeFromOutsideTheGroup(t *testing.T) {
 	roster := ladderRoster()
 	require.NotContains(t, roster.Clusters["medium"].Arms, "anthropic/sonnet")
-	ladder := selection.Ladder{Choice: selection.LadderSubscription, Provider: providers.ProviderAnthropic}
 
-	assert.Equal(t, "anthropic/sonnet", ladder.LeadArmEvenOutsideGroup(roster, "medium"))
-	assert.Empty(t, selection.Ladder{}.LeadArmEvenOutsideGroup(roster, "medium"))
-	assert.Equal(t, "xiaomi/mimo", selection.Ladder{Choice: selection.LadderNoSubscription}.LeadArmEvenOutsideGroup(roster, "medium"))
+	pick, _, _, _, ok := selection.SelectGroupsWithSubscriptions(roster, []rosterdata.Group{"medium"}, "claude_code", []string{providers.ProviderAnthropic}, candidateSet("anthropic/sonnet", "anthropic/haiku"), nil, nil, nil, nil)
+
+	require.True(t, ok)
+	assert.Equal(t, rosterdata.Group("medium"), pick.Group)
+	assert.Equal(t, "anthropic/sonnet", pick.Arm)
 }

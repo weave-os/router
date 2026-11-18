@@ -52,7 +52,7 @@ func RoutingDistribution(roster *rosterdata.Roster, gridN int, excludedModels, e
 					prices[catalogID] = model.Providers[0].Price.InputUSDPer1M / 1000
 				}
 			}
-			pick, _, _, _, ok := selectGroups(roster, []rosterdata.Group{rosterdata.Group(label)}, "", Ladder{}, candidates, &qualityBias, nil, nil, nil)
+			pick, _, _, _, ok := selectGroups(roster, []rosterdata.Group{rosterdata.Group(label)}, "", "", candidates, &qualityBias, nil, nil, nil)
 			if !ok {
 				continue
 			}

@@ -7,47 +7,23 @@ import (
 	"weave-os/router/internal/router/hmm/rosterdata"
 )
 
-type LadderChoice int
-
-const (
-	LadderNotApplied LadderChoice = iota
-	LadderNoSubscription
-	LadderSubscription
-)
-
-type Ladder struct {
-	Choice   LadderChoice
-	Provider string
-}
-
 var harnessSubscriptionProvider = map[rosterdata.Harness]string{
 	rosterdata.HarnessClaudeCode: providers.ProviderAnthropic,
 	rosterdata.HarnessCodex:      providers.ProviderOpenAI,
 }
 
-func SubscriptionLadder(harness string, subscriptionProviders []string) Ladder {
+func SubscriptionLadder(harness string, subscriptionProviders []string) string {
 	if len(subscriptionProviders) == 0 {
-		return Ladder{Choice: LadderNoSubscription}
+		return rosterdata.NoSubscriptionLadderKey
 	}
 	if native, ok := harnessSubscriptionProvider[rosterdata.SelectionHarness(harness)]; ok {
 		if slices.Contains(subscriptionProviders, native) {
-			return Ladder{Choice: LadderSubscription, Provider: native}
+			return native
 		}
-		return Ladder{}
+		return ""
 	}
 	if len(subscriptionProviders) == 1 {
-		return Ladder{Choice: LadderSubscription, Provider: subscriptionProviders[0]}
-	}
-	return Ladder{}
-}
-
-func (l Ladder) LeadArmEvenOutsideGroup(roster *rosterdata.Roster, group rosterdata.Group) string {
-	switch l.Choice {
-	case LadderNoSubscription:
-		return roster.SubscriptionLadders[rosterdata.NoSubscriptionLadderKey][group]
-	case LadderSubscription:
-		return roster.SubscriptionLadders[l.Provider][group]
-	case LadderNotApplied:
+		return subscriptionProviders[0]
 	}
 	return ""
 }
