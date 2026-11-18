@@ -349,6 +349,16 @@ func (s *Service) recordManagedSubscriptionFailure(ctx context.Context, provider
 			"provider", poolProvider, "account_id", lease.AccountID, "model", model)
 		return true
 	}
+	if provider == providers.ProviderAnthropic && providers.IsUpstreamCredentialRefusal(attemptErr) {
+		cooldownUntil := managedSubscriptionResetAt(attemptErr, s.clock.Now())
+		if err := s.managedSubscriptions.Cooldown(ctx, owner, poolProvider, lease.AccountID, cooldownUntil); err != nil {
+			observability.FromContext(ctx).Error("Failed to persist refused subscription account cooldown",
+				"provider", poolProvider, "account_id", lease.AccountID, "err", err)
+		}
+		observability.FromContext(ctx).Warn("Subscription account refused on usage limits; rotating",
+			"provider", poolProvider, "account_id", lease.AccountID, "cooldown_until", cooldownUntil)
+		return true
+	}
 	switch status {
 	case http.StatusTooManyRequests, http.StatusUnauthorized, http.StatusForbidden:
 		return recordManagedSubscriptionStatus(ctx, s, owner, poolProvider, lease, attemptErr)

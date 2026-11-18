@@ -127,6 +127,9 @@ func failureWordingFor(a dispatch.TracedAttempt) failureWording {
 	if isUpstreamContextOverflow(a.Err) {
 		return failureWording{"found the conversation too long for its context window", withStatus("context window exceeded")}
 	}
+	if providers.IsUpstreamCredentialRefusal(a.Err) {
+		return failureWording{"refused our account credential", withStatus("refused our account credential")}
+	}
 	if status >= 400 && status < 500 {
 		if a.Diagnosis.BodyTranslated && attemptOwner(a) == FailureOwnerRouter {
 			return failureWording{"rejected our translated request", withStatus("rejected our translated request")}
