@@ -270,3 +270,36 @@ func TestClassifierV5MalformedResponseIsAProtocolErrorNotAPinError(t *testing.T)
 		})
 	}
 }
+
+func TestClassifierV5NamesTypeOnlyTools(t *testing.T) {
+	body, err := marshalClassifierRequestV5(policy.Query{
+		SchemaVersion: policy.SchemaVersionV5, ClassifierReleaseID: classifierV5ReleaseID,
+		ClassifierSelectionID: classifierV5SelectionID, ClassifierVariantID: policy.ClassifierVariantPrimary,
+		RouteID: "route-v5", ClientApp: "codex",
+		Tools: []router.ToolDescriptor{{Type: "web_search"}, {Name: "shell", Type: "function"}, {Type: "local_shell"}},
+	})
+	require.NoError(t, err)
+	var wire classifierRequestV5
+	require.NoError(t, json.Unmarshal(body, &wire))
+	assert.Equal(t, []routeTool{
+		{Name: "web_search", Type: "web_search"},
+		{Name: "shell", Type: "function"},
+		{Name: "local_shell", Type: "local_shell"},
+	}, wire.Tools)
+}
+
+func TestClassifierV5ValidationDetailListIsReported(t *testing.T) {
+	classifierServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"detail":[{"type":"string_too_short","loc":["body","tools",0,"name"],"msg":"String should have at least 1 character","input":"synthetic-input"}]}`))
+	}))
+	defer classifierServer.Close()
+	_, err := New(classifierServer.URL, nil, time.Second).Decide(context.Background(), policy.Query{
+		SchemaVersion: policy.SchemaVersionV5, ClassifierReleaseID: classifierV5ReleaseID,
+		ClassifierSelectionID: classifierV5SelectionID, ClassifierVariantID: policy.ClassifierVariantPrimary,
+		RouteID: "route-v5", ExecutionMode: policy.ExecutionModeServing,
+	})
+	require.Error(t, err)
+	require.ErrorContains(t, err, "status 422: body.tools.0.name: String should have at least 1 character")
+	assert.NotContains(t, err.Error(), "synthetic-input")
+}
