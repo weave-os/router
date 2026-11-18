@@ -7,8 +7,6 @@ import (
 	"strings"
 )
 
-// HTML entities would change JSON values, so re-express escaped HTML
-// metacharacters as JSON unicode escapes and restore structural quotes.
 var htmlToJSONEscapes = strings.NewReplacer(
 	"&lt;", `\u003c`,
 	"&gt;", `\u003e`,
@@ -19,8 +17,6 @@ var htmlToJSONEscapes = strings.NewReplacer(
 	"\u2029", `\u2029`,
 )
 
-// PrepareJSONResponse must run before headers commit: escaping expands bytes,
-// and provider-controlled media types must never turn API output into HTML.
 func PrepareJSONResponse(w http.ResponseWriter) {
 	if strings.Contains(w.Header().Get("Content-Type"), "text/event-stream") {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -31,8 +27,6 @@ func PrepareJSONResponse(w http.ResponseWriter) {
 	w.Header().Del("Content-Length")
 }
 
-// WriteJSONChunk keeps SSE metadata intact and HTML-escapes JSON responses.
-// It reports consumed input bytes, since escaping can expand the wire bytes.
 func WriteJSONChunk(w http.ResponseWriter, chunk []byte) (int, error) {
 	PrepareJSONResponse(w)
 	if w.Header().Get("Content-Type") == "text/event-stream" {

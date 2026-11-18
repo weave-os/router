@@ -409,7 +409,13 @@ USAGE
 }
 
 ensure_jq() {
-  command -v jq >/dev/null 2>&1 && return 0
+  if command -v jq >/dev/null 2>&1; then
+    jq_meets_minimum jq && return 0
+    if jq_meets_minimum "$HOME/.weave/bin/jq"; then
+      export PATH="$HOME/.weave/bin:$PATH"
+      return 0
+    fi
+  fi
   local asset checksum destination temporary actual_checksum
   case "$(uname -s):$(uname -m)" in
     Darwin:arm64) asset=jq-macos-arm64; checksum=a9fe3ea2f86dfc72f6728417521ec9067b343277152b114f4e98d8cb0e263603 ;;
@@ -417,7 +423,7 @@ ensure_jq() {
     Linux:x86_64) asset=jq-linux-amd64; checksum=020468de7539ce70ef1bceaf7cde2e8c4f2ca6c3afb84642aabc5c97d9fc2a0d ;;
     Linux:aarch64|Linux:arm64) asset=jq-linux-arm64; checksum=6bc62f25981328edd3cfcfe6fe51b073f2d7e7710d7ef7fcdac28d4e384fc3d4 ;;
     MINGW*:x86_64|MSYS*:x86_64|CYGWIN*:x86_64) asset=jq-windows-amd64.exe; checksum=23cb60a1354eed6bcc8d9b9735e8c7b388cd1fdcb75726b93bc299ef22dd9334 ;;
-    *) err "Automatic jq installation is unavailable for $(uname -s)/$(uname -m). Install jq and retry."; exit 1 ;;
+    *) err "Automatic jq installation is unavailable for $(uname -s)/$(uname -m). Install jq 1.6 or newer and retry."; exit 1 ;;
   esac
   require_cmd curl "curl is required to download jq."
   destination="$HOME/.weave/bin"
@@ -446,7 +452,15 @@ ensure_jq() {
     *) mv -f "$temporary" "$destination/jq" ;;
   esac
   jq_download_tmp=""
+  export PATH="$destination:$PATH"
   jq --version >/dev/null
+}
+
+jq_meets_minimum() {
+  local version
+  version="$("$1" --version 2>/dev/null)" || return 1
+  [[ "$version" =~ ^jq-([0-9]+)\.([0-9]+) ]] || return 1
+  [ "${BASH_REMATCH[1]}" -gt 1 ] || { [ "${BASH_REMATCH[1]}" -eq 1 ] && [ "${BASH_REMATCH[2]}" -ge 6 ]; }
 }
 
 require_cmd() {
@@ -602,8 +616,8 @@ normalize_name() {
 
 # resolve_user_email picks the email to plant in router request headers so the
 # router can attribute traffic to a person even on shared API keys. Priority:
-# explicit --email → WEAVE_USER_EMAIL env override → git config user.email →
-# interactive prompt (pre-filled with whatever we found). In --non-interactive
+# explicit --email → WEAVE_USER_EMAIL env override → the email already installed
+# for this target → git config user.email → interactive prompt (pre-filled with whatever we found). In --non-interactive
 # mode we never prompt, so unset/invalid means we ship no header (router treats
 # that as account_uuid-only, same as today). Echoes the validated email on stdout.
 resolve_user_email() {
@@ -625,6 +639,9 @@ resolve_user_email() {
     if [ -z "$candidate" ]; then
       warn "WEAVE_USER_EMAIL=\"$WEAVE_USER_EMAIL\" is not a valid email; ignoring."
     fi
+  fi
+  if [ -z "$candidate" ]; then
+    candidate="$(normalize_email "$(read_installed_header X-Weave-User-Email)")"
   fi
   if [ -z "$candidate" ]; then
     local git_email
@@ -1464,10 +1481,10 @@ install_lsp_servers() {
 }
 
 # resolve_user_name mirrors resolve_user_email but for display name. Priority:
-# WEAVE_USER_NAME env override → git config user.name → empty. We don't
-# prompt for name independently: if email prompting yielded nothing, name
-# almost certainly will too, and a second prompt is noise. Echoes the
-# validated name on stdout.
+# WEAVE_USER_NAME env override → installed name → git config user.name →
+# empty. We don't prompt for name independently: if email prompting yielded
+# nothing, name almost certainly will too, and a second prompt is noise. Echoes
+# the validated name on stdout.
 resolve_user_name() {
   local candidate=""
   if [ -n "${WEAVE_USER_NAME:-}" ]; then
@@ -1475,6 +1492,9 @@ resolve_user_name() {
     if [ -z "$candidate" ]; then
       warn "WEAVE_USER_NAME=\"$WEAVE_USER_NAME\" is not a usable name; ignoring."
     fi
+  fi
+  if [ -z "$candidate" ]; then
+    candidate="$(normalize_name "$(read_installed_header X-Weave-User-Name)")"
   fi
   if [ -z "$candidate" ]; then
     local git_name
@@ -2739,6 +2759,61 @@ read_installed_key() {
   esac
 }
 
+# read_installed_header prints the value of identity header $1 (for example
+# X-Weave-User-Email) from this target's managed config, or nothing. Reading it
+# back keeps a re-run or `update` from dropping the identity an earlier install
+# planted when nothing else on the machine (git config, env) supplies one.
+read_installed_header() {
+  local header="$1" candidate value=""
+  case "$target" in
+    claude)
+      while IFS= read -r candidate; do
+        [ -n "$candidate" ] || continue
+        value="$(json_get "$candidate" '.env.ANTHROPIC_CUSTOM_HEADERS' \
+          | sed -n "s/^[[:space:]]*${header}:[[:space:]]*//p" | head -n 1)"
+        [ -n "$value" ] && break
+      done <<<"$(models_key_file_order)"
+      ;;
+    codex)
+      key_source_is_own "$codex_config_file" || return 0
+      value="$(awk -v header="$header" '
+        /^[[:space:]]*\[/ {
+          in_provider = ($0 ~ /^[[:space:]]*\[[[:space:]]*model_providers[[:space:]]*\.[[:space:]]*weave[[:space:]]*(\.[^]]*)?\][[:space:]]*(#.*)?$/)
+          next
+        }
+        in_provider && match($0, "\"?" header "\"?[[:space:]]*=[[:space:]]*\"([^\"\\\\]|\\\\.)*\"") {
+          hdr = substr($0, RSTART, RLENGTH)
+          sub(/^[^=]*=[[:space:]]*"/, "", hdr)
+          sub(/"$/, "", hdr)
+          # Undo toml_escape so the writer does not escape the value twice.
+          value = ""
+          for (i = 1; i <= length(hdr); i++) {
+            c = substr(hdr, i, 1)
+            if (c == "\\") { i++; c = substr(hdr, i, 1) }
+            value = value c
+          }
+          print value
+          exit
+        }
+      ' "$codex_config_file" 2>/dev/null || true)"
+      ;;
+    opencode)
+      key_source_is_own "$opencode_config_file" || return 0
+      value="$(json_get "$opencode_config_file" ".provider.weave.options.headers[\"$header\"]")"
+      ;;
+    pi)
+      key_source_is_own "$pi_models_file" || return 0
+      value="$(json_get "$pi_models_file" ".providers.weave.headers[\"$header\"]")"
+      ;;
+    copilot)
+      key_source_is_own "$copilot_providers_file" || return 0
+      value="$(jq -r --arg h "$header" '[(.providers // [])[] | select(.name == "weave") | .headers[$h] // empty][0] // empty' \
+        "$copilot_providers_file" 2>/dev/null || true)"
+      ;;
+  esac
+  printf '%s' "$value"
+}
+
 # resolve_installed_base_url prints the router endpoint this Claude Code install
 # already points at, or nothing when none of its files carry a router-shaped
 # one. The parked sidecar comes first: `off` moves the router URL there and
@@ -3535,6 +3610,7 @@ toggle_copilot() {
 # router cannot resolve without an admitted request.
 MODELS_CATALOG_PATH="/v1/router/models?scope=catalog"
 MODELS_DASHBOARD_URL="https://app.weaveos.com/organization/settings/weave-router/models"
+SUBSCRIPTIONS_DASHBOARD_URL="https://app.weaveos.com/home/router/settings/subscriptions"
 
 # Set by models_api on every call.
 models_http_status=""
@@ -3577,6 +3653,37 @@ models_api_error() {
   printf '%s' "$models_http_body" | jq -r '.error // empty' 2>/dev/null || true
 }
 
+# shared_key_login_hint explains why a shared team key cannot enroll a seat: it
+# names no person, so the seat has no owner. The signed-in web flow does.
+shared_key_login_hint() {
+  err "This Router key is a shared team key, so it can't tell whose subscription to connect."
+  if hosted_router; then
+    printf '  Manage your Claude or ChatGPT seats while signed in to Weave: %s\n' "$SUBSCRIPTIONS_DASHBOARD_URL" >&2
+  else
+    printf '  This router connects subscription seats only through a personal key tied to one person.\n' >&2
+  fi
+}
+
+# hosted_router reports whether $base_url is Weave's hosted router, where seats
+# are connected by the person signed in to Weave rather than by a router key.
+hosted_router() {
+  case "$base_url" in
+    "$HOSTED_BASE_URL"|"$LEGACY_HOSTED_BASE_URL") return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# run_login_in_browser hands seat enrollment to the Weave subscriptions page,
+# which connects the seat to whoever is signed in. Router keys are org keys,
+# so the terminal never decides whose seat it is.
+run_login_in_browser() {
+  local provider="$1" url
+  url="$SUBSCRIPTIONS_DASHBOARD_URL?reconnect=$provider"
+  info "Connect your subscription in the browser while signed in to Weave."
+  printf '  If the browser does not open, visit:\n  %s\n' "$url"
+  open_url_in_browser "$url" || true
+}
+
 # models_fail turns the status left by models_api into a message that says what
 # to do next, then exits. $1 names the attempted operation.
 models_fail() {
@@ -3585,13 +3692,16 @@ models_fail() {
   case "$detail" in
     subscription_owner_unavailable|subscription_accounts_unavailable|subscription_account_update_failed|subscription_account_delete_failed)
       err "The router couldn't finish ${what} just now. Nothing changed; try again in a minute."
-      return ;;
+      exit 1 ;;
     subscription_account_not_found)
       err "No enrolled account has that id. Run 'npx $npm_package_name accounts list' to see the ids."
-      return ;;
+      exit 1 ;;
     subscription_account_rejected)
       err "The router didn't accept that sign-in. Run 'npx $npm_package_name login claude' or 'login codex' again."
-      return ;;
+      exit 1 ;;
+    personal_identity_required)
+      shared_key_login_hint
+      exit 1 ;;
   esac
   case "$models_http_status" in
     ""|000)
@@ -4041,7 +4151,7 @@ run_login_claude() {
     else $organization end
   ')"
   external_account_id="${account_uuid}:${organization_uuid}"
-  body="$(jq -nc --arg provider claude --arg account "$external_account_id" --arg token "$refresh_token" --arg label "$display_name" '{provider:$provider,external_account_id:$account,refresh_token:$token} | if $label != "" then .display_name = $label else . end')"
+  body="$(jq -nc --arg provider claude --arg account "$external_account_id" --arg token "$refresh_token" --arg display_name "$display_name" '{provider:$provider,external_account_id:$account,refresh_token:$token} | if $display_name != "" then .display_name = $display_name else . end')"
   models_api POST "/v1/subscriptions/accounts" "$body" || models_fail "enrolling Claude subscription"
   forget_plan_warning claude
   ok "Claude subscription enrolled."
@@ -4119,7 +4229,7 @@ run_login_codex() {
     err "Codex token exchange omitted account identity or refresh credentials."
     exit 1
   fi
-  body="$(jq -nc --arg provider codex --arg account "$account_id" --arg token "$refresh_token" --arg label "$display_name" '{provider:$provider,external_account_id:$account,refresh_token:$token} | if $label != "" then .display_name = $label else . end')"
+  body="$(jq -nc --arg provider codex --arg account "$account_id" --arg token "$refresh_token" --arg display_name "$display_name" '{provider:$provider,external_account_id:$account,refresh_token:$token} | if $display_name != "" then .display_name = $display_name else . end')"
   models_api POST "/v1/subscriptions/accounts" "$body" || models_fail "enrolling Codex subscription"
   forget_plan_warning codex
   ok "Codex subscription enrolled."
@@ -4136,6 +4246,14 @@ run_login() {
     claude|codex) models_api GET "/validate" || models_fail "checking Router setup" ;;
     *) err "Unknown subscription provider: $provider."; exit 2 ;;
   esac
+  if hosted_router; then
+    run_login_in_browser "$provider"
+    return 0
+  fi
+  if [ "$(printf '%s' "$models_http_body" | jq -r '.shared // false' 2>/dev/null)" = "true" ]; then
+    shared_key_login_hint
+    exit 1
+  fi
   require_cmd openssl "Install OpenSSL to enroll a subscription account."
   case "$provider" in
     claude) run_login_claude ;;
@@ -7584,6 +7702,8 @@ prices='{
     "gpt-6-sol":                        0.002,
     "gpt-6.1-sol":                      0.002,
     "gpt-6.1-terra":                    0.001,
+    "gpt-6.2-astra":                    0.008,
+    "gpt-6.2-sol":                      0.002,
     "grok-4.5":                         0.002,
     "grok-4.6":                         0.002,
     "grok-4.7":                         0.002,
@@ -7685,6 +7805,8 @@ prices='{
     "gpt-6-sol":                        0.01,
     "gpt-6.1-sol":                      0.01,
     "gpt-6.1-terra":                    0.005,
+    "gpt-6.2-astra":                    0.04,
+    "gpt-6.2-sol":                      0.01,
     "grok-4.5":                         0.006,
     "grok-4.6":                         0.006,
     "grok-4.7":                         0.006,
@@ -7786,6 +7908,8 @@ prices='{
     "gpt-6-sol":                        0.1,
     "gpt-6.1-sol":                      0.05,
     "gpt-6.1-terra":                    0.05,
+    "gpt-6.2-astra":                    0.05,
+    "gpt-6.2-sol":                      0.05,
     "grok-4.5":                         0.25,
     "grok-4.6":                         0.25,
     "grok-4.7":                         0.25,

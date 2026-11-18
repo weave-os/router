@@ -1,4 +1,3 @@
-// Package subscriptions exposes authenticated subscription-account management.
 package subscriptions
 
 import (
@@ -43,7 +42,6 @@ type updateAccountRequest struct {
 	CooldownUntil *time.Time `json:"cooldown_until"`
 }
 
-// Register mounts account management endpoints on an authenticated group.
 func Register(group *gin.RouterGroup, authSvc *auth.Service) {
 	group.GET("/subscriptions/accounts", listAccountsHandler(authSvc))
 	group.GET("/subscriptions/pool", listPoolHandler(authSvc))
@@ -85,7 +83,7 @@ func listAccountsHandler(authSvc *auth.Service) gin.HandlerFunc {
 		}
 		owner, err := middleware.SubscriptionOwnerLive(c, authSvc)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "subscription_owner_unavailable"})
+			abortSubscriptionOwnerError(c, key, err)
 			return
 		}
 		accounts, err := authSvc.ListSubscriptionAccounts(c.Request.Context(), owner)
@@ -116,7 +114,7 @@ func createAccountHandler(authSvc *auth.Service) gin.HandlerFunc {
 		}
 		owner, err := middleware.SubscriptionOwnerLive(c, authSvc)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "subscription_owner_unavailable"})
+			abortSubscriptionOwnerError(c, key, err)
 			return
 		}
 		account, err := authSvc.AddSubscriptionAccount(c.Request.Context(), auth.CreateSubscriptionAccountParams{Owner: owner, Provider: request.Provider, ExternalAccountID: request.ExternalAccountID, DisplayName: request.DisplayName, RefreshToken: []byte(request.RefreshToken), InstallationExternalID: installation.ExternalID})
@@ -142,7 +140,7 @@ func updateAccountHandler(authSvc *auth.Service) gin.HandlerFunc {
 		}
 		owner, err := middleware.SubscriptionOwnerLive(c, authSvc)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "subscription_owner_unavailable"})
+			abortSubscriptionOwnerError(c, key, err)
 			return
 		}
 		if err := authSvc.UpdateSubscriptionAccountState(c.Request.Context(), owner, c.Param("id"), *request.Enabled, request.CooldownUntil); err != nil {
@@ -166,7 +164,7 @@ func deleteAccountHandler(authSvc *auth.Service) gin.HandlerFunc {
 		}
 		owner, err := middleware.SubscriptionOwnerLive(c, authSvc)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "subscription_owner_unavailable"})
+			abortSubscriptionOwnerError(c, key, err)
 			return
 		}
 		if err := authSvc.DeleteSubscriptionAccount(c.Request.Context(), owner, c.Param("id")); err != nil {
@@ -179,4 +177,12 @@ func deleteAccountHandler(authSvc *auth.Service) gin.HandlerFunc {
 		}
 		c.Status(http.StatusNoContent)
 	}
+}
+
+func abortSubscriptionOwnerError(c *gin.Context, key *auth.APIKey, err error) {
+	if key.CredentialSubjectID == "" && errors.Is(err, auth.ErrPersonalCredentialRequired) {
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "personal_identity_required"})
+		return
+	}
+	c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "subscription_owner_unavailable"})
 }

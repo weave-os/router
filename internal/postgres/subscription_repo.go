@@ -23,14 +23,10 @@ const (
 
 type subscriptionAccountRepo struct{ tx sqlc.DBTX }
 
-// NewSubscriptionAccountRepo constructs the encrypted subscription-account repository.
 func NewSubscriptionAccountRepo(tx sqlc.DBTX) auth.SubscriptionAccountRepository {
 	return &subscriptionAccountRepo{tx: tx}
 }
 
-// subscriptionOwnerPredicate maps an owner onto the two nullable columns every
-// ownership predicate reads. An owner that resolves to neither addresses no
-// row, so it fails closed instead of matching legacy rows with a NULL owner.
 func subscriptionOwnerPredicate(owner auth.SubscriptionOwner) (subscriberID, apiKeyID pgtype.UUID, err error) {
 	subscriberID, apiKeyID = uuidOrNil(owner.SubscriberID), uuidOrNil(owner.APIKeyID)
 	if !subscriberID.Valid && !apiKeyID.Valid {
@@ -40,9 +36,13 @@ func subscriptionOwnerPredicate(owner auth.SubscriptionOwner) (subscriberID, api
 }
 
 func (r *subscriptionAccountRepo) UpsertSubscriptionAccount(ctx context.Context, params auth.CreateSubscriptionAccountParams) (*auth.SubscriptionAccount, auth.SubscriptionUpsertKind, error) {
-	apiKeyID, err := uuid.Parse(params.Owner.APIKeyID)
-	if err != nil {
-		return nil, auth.SubscriptionUpsertUpdated, err
+	var apiKeyID pgtype.UUID
+	if params.Owner.APIKeyID != "" {
+		parsed, err := uuid.Parse(params.Owner.APIKeyID)
+		if err != nil {
+			return nil, auth.SubscriptionUpsertUpdated, err
+		}
+		apiKeyID = pgtype.UUID{Bytes: parsed, Valid: true}
 	}
 	if params.Owner.SubscriberID == "" {
 		return nil, auth.SubscriptionUpsertUpdated, auth.ErrSubscriptionAccountNotFound
@@ -56,8 +56,6 @@ func (r *subscriptionAccountRepo) UpsertSubscriptionAccount(ctx context.Context,
 	if err != nil {
 		return nil, auth.SubscriptionUpsertUpdated, err
 	}
-	// Concurrent enrollments of one physical account retry against the winning
-	// owner row; Codex reconnects may repair only that owner's legacy row.
 	for attempt := 0; ; attempt++ {
 		row, err := dbbudget.Queries(r.tx).UpsertModelRouterSubscriptionAccountForSubscriber(ctx, sqlc.UpsertModelRouterSubscriptionAccountForSubscriberParams{
 			InstallationID: installationID, SubscriberID: subscriberID, APIKeyID: apiKeyID, Provider: string(params.Provider),
@@ -404,12 +402,26 @@ func (r *subscriptionAccountRepo) SubscriberEnrollmentOwner(ctx context.Context,
 	if err != nil {
 		return auth.SubscriptionOwner{}, err
 	}
-	row, err := dbbudget.Queries(r.tx).GetSubscriberEnrollmentKey(ctx, subscriber)
+	row, err := dbbudget.Queries(r.tx).GetSubscriberEnrollmentOwner(ctx, subscriber)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return auth.SubscriptionOwner{}, auth.ErrSubscriptionEnrollmentKeyNotFound
+		return auth.SubscriptionOwner{}, auth.ErrSubscriptionEnrollmentMembershipNotFound
 	}
 	if err != nil {
 		return auth.SubscriptionOwner{}, err
 	}
-	return auth.SubscriptionOwner{SubscriberID: subscriberID, APIKeyID: row.APIKeyID.String(), InstallationID: row.InstallationID.String()}, nil
+	return auth.SubscriptionOwner{SubscriberID: subscriberID, APIKeyID: row.APIKeyID, InstallationID: row.InstallationID.String()}, nil
+}
+
+func (r *subscriptionAccountRepo) ListSubscriptionAccountsDueForKeepWarm(ctx context.Context, refreshedBefore time.Time, limit int32) ([]*auth.SubscriptionAccount, error) {
+	rows, err := dbbudget.Queries(r.tx).ListModelRouterSubscriptionAccountsDueForKeepWarm(ctx, sqlc.ListModelRouterSubscriptionAccountsDueForKeepWarmParams{
+		RefreshedBefore: pgtype.Timestamp{Time: refreshedBefore.UTC(), Valid: true}, RowLimit: limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	accounts := make([]*auth.SubscriptionAccount, 0, len(rows))
+	for _, row := range rows {
+		accounts = append(accounts, toAuthSubscriptionAccountListRow(sqlc.ListModelRouterSubscriptionAccountsRow(row)))
+	}
+	return accounts, nil
 }

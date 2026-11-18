@@ -8,13 +8,8 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// serverToolPrefix marks Anthropic's dated native web-search server tools
-// (web_search_20250305, web_search_20260209, and whatever they date next).
-// Client-executed function tools carry no type, so the prefix is sufficient.
 const serverToolPrefix = "web_search_"
 
-// claudeCodeSearchPrompt is the sub-turn Claude Code sends when its WebSearch
-// tool fires: a single user message whose text is this prefix plus the query.
 const claudeCodeSearchPrompt = "Perform a web search for the query: "
 const claudeCodeSearchSystemPrompt = "You are an assistant for performing a web search tool use"
 const claudeCodeSearchSystemPromptCurrent = "You run a web search for another Claude model, which is waiting on the result and can search again. Search once, then reply with a brief summary of the results."
@@ -28,8 +23,6 @@ func isClaudeCodeSearchSystemPrompt(prompt string) bool {
 	}
 }
 
-// IsClaudeCodeWebSearchHelper recognizes the one-shot child conversation created by
-// Claude Code's WebSearch tool, not a parent merely offering native search.
 func IsClaudeCodeWebSearchHelper(body []byte) bool {
 	if len(gjson.GetBytes(body, "tools").Array()) != 1 {
 		return false
@@ -45,18 +38,11 @@ func IsClaudeCodeWebSearchHelper(body []byte) bool {
 	return len(blocks) > 0 && isClaudeCodeSearchSystemPrompt(blocks[len(blocks)-1].Get("text").String())
 }
 
-// ServerTool is an inbound native web-search tool declaration.
 type ServerTool struct {
-	// Type is the dated tool type, e.g. "web_search_20250305".
 	Type string
-	// Name is the logical name the model calls and the client renders,
-	// normally "web_search". Preserved verbatim: a client keyed off its own
-	// name drops result blocks announced under a different one.
 	Name string
 }
 
-// FindServerTool returns the first native web-search server tool declared in
-// an Anthropic Messages body.
 func FindServerTool(body []byte) (ServerTool, bool) {
 	var found ServerTool
 	gjson.GetBytes(body, "tools").ForEach(func(_, tool gjson.Result) bool {
@@ -74,8 +60,6 @@ func FindServerTool(body []byte) (ServerTool, bool) {
 	return found, found.Type != ""
 }
 
-// nativeServerToolPrefixes lists Anthropic server tools the provider executes, not the model.
-// Broader than serverToolPrefix: FindServerTool/DetectSearchTurn cover only the tool we can emulate.
 var nativeServerToolPrefixes = []string{serverToolPrefix, "web_fetch_"}
 
 func isNativeServerTool(toolType string) bool {
@@ -87,13 +71,9 @@ func isNativeServerTool(toolType string) bool {
 	return false
 }
 
-// StripServerTools removes Anthropic native server tools (web_search_*, web_fetch_*)
-// from an Anthropic Messages body; non-Anthropic upstreams cannot execute them and
-// they become phantom function tools emitting unhandleable tool_use blocks.
 func StripServerTools(body []byte) ([]byte, int) {
 	removed := 0
 	strippedNames := make(map[string]struct{})
-	// Reverse order: deleting by index shifts every later element.
 	tools := gjson.GetBytes(body, "tools").Array()
 	for i := len(tools) - 1; i >= 0; i-- {
 		tool := tools[i]
@@ -132,10 +112,6 @@ func StripServerTools(body []byte) ([]byte, int) {
 	return body, removed
 }
 
-// DetectSearchTurn returns the query of a self-contained web-search turn: one
-// user message whose only purpose is to run a search, with the native tool
-// declared. Anything longer is a real conversation that happens to offer the
-// tool, and must keep going to the model.
 func DetectSearchTurn(body []byte) (Query, bool) {
 	tool, ok := FindServerTool(body)
 	if !ok {
@@ -149,8 +125,6 @@ func DetectSearchTurn(body []byte) (Query, bool) {
 	if text == "" {
 		return Query{}, false
 	}
-	// A forced choice only counts when it names the search tool; forcing some
-	// other tool is an ordinary turn that happens to also declare web_search.
 	forced := gjson.GetBytes(body, "tool_choice.type").String() == "tool" &&
 		gjson.GetBytes(body, "tool_choice.name").String() == tool.Name
 	trimmed, prompted := cutSearchPrompt(text)
@@ -160,8 +134,6 @@ func DetectSearchTurn(body []byte) (Query, bool) {
 	return Query{Text: trimmed}, true
 }
 
-// cutSearchPrompt strips Claude Code's search preamble, reporting whether the
-// text carried it.
 func cutSearchPrompt(text string) (string, bool) {
 	idx := strings.Index(text, claudeCodeSearchPrompt)
 	if idx < 0 {
@@ -171,15 +143,12 @@ func cutSearchPrompt(text string) (string, bool) {
 	if query == "" {
 		return text, false
 	}
-	// Claude Code appends usage guidance after the query on its own line.
 	if nl := strings.IndexByte(query, '\n'); nl >= 0 {
 		query = strings.TrimSpace(query[:nl])
 	}
 	return strings.Trim(query, `"`), true
 }
 
-// userText concatenates the text of a message whose content is either a bare
-// string or Anthropic's content-block array.
 func userText(message gjson.Result) string {
 	content := message.Get("content")
 	if content.Type == gjson.String {

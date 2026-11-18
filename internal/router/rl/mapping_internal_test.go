@@ -60,7 +60,7 @@ func TestRosterIDForCoversEveryProvider(t *testing.T) {
 		_, defaulted := defaultRosterPrefixProviders[p]
 		assert.Truef(t, explicit || defaulted,
 			"provider %q not accounted for in expectedRosterPrefix or defaultRosterPrefixProviders — "+
-				"review internal/router/rl/mapping.go's rosterIDFor and internal/providers/CLAUDE.md's onboarding recipe step 5", p)
+				"review internal/router/rl/mapping.go's rosterIDFor", p)
 		assert.Falsef(t, explicit && defaulted,
 			"provider %q is listed in both expectedRosterPrefix and defaultRosterPrefixProviders", p)
 	}

@@ -101,3 +101,20 @@ func TestAdmittedIdentitySeparatesIncarnationsAndSessionlessRequests(t *testing.
 	unscoped := identity(assertion).StateNamespace
 	require.NotEqual(t, unscoped, identity(assertion).StateNamespace, "missing session ID must not share learned state")
 }
+
+func TestAdmittedCredentialIdentityKeepsSharedKeyBytesAndScopesPersonalSubjects(t *testing.T) {
+	identity := func(apiKeyID, installation, subject string) string {
+		ctx := policyregistry.WithServingAssertion(context.Background(), policyregistry.ServingAssertion{
+			APIKeyID: apiKeyID,
+			Scope:    policyregistry.AdmissionScope{InstallationID: installation, CredentialIdentity: subject, Persistent: true},
+		})
+		value, ok := requestcontext.ServingIdentityFromContext(ctx)
+		require.True(t, ok)
+		return value.CredentialIdentity
+	}
+	require.Equal(t, "shared-key", identity("shared-key", "installation-a", "shared-key"), "shared credentials keep legacy preference key bytes")
+	personal := identity("key-1", "installation-a", "subject")
+	require.Equal(t, personal, identity("key-2", "installation-a", "subject"), "personal subjects survive key rotation")
+	require.NotEqual(t, personal, identity("key-1", "installation-b", "subject"), "personal subjects must not share preferences across installations")
+	require.NotEqual(t, "subject", personal)
+}

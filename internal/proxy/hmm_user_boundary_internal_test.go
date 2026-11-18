@@ -159,10 +159,11 @@ func TestHMMCommandOnlyEscalationRespectsSessionFloor(t *testing.T) {
 	req.ExcludedModels = map[string]struct{}{"claude-opus-5-5": {}}
 	_, err = svc.routeWithStrategy(ctx, router.StrategyHMMEmbedding, req)
 	require.ErrorIs(t, err, policy.ErrNoEligibleArm)
-	require.ErrorIs(t, err, hmm.ErrHMMUnavailable)
+	require.NotErrorIs(t, err, hmm.ErrHMMUnavailable)
 	classified, matched := ClassifyDispatchError(err)
 	require.True(t, matched)
-	assert.Equal(t, http.StatusServiceUnavailable, classified.Status)
+	assert.Equal(t, DispatchErrorNoEligibleArm, classified.Kind)
+	assert.Equal(t, http.StatusBadRequest, classified.Status)
 
 	req.ExcludedModels = nil
 	req.Escalation = &escalation.Constraint{Escalate: true}
@@ -203,11 +204,13 @@ func TestHMMCommandOnlyTurnHonorsForcedClusterAndKeyList(t *testing.T) {
 	req.ClusterArmOverrides = map[string][]string{"maximum": {"claude-opus-5-5"}}
 	req.ExcludedModels = map[string]struct{}{"claude-haiku-4-5": {}, "claude-sonnet-4-6": {}, "claude-opus-5-5": {}}
 	_, err = svc.routeWithStrategy(ctx, router.StrategyHMMEmbedding, req)
-	require.ErrorIs(t, err, hmm.ErrHMMUnavailable)
+	require.ErrorIs(t, err, policy.ErrNoEligibleArm)
+	require.NotErrorIs(t, err, hmm.ErrHMMUnavailable)
 	require.NotErrorIs(t, err, policy.ErrForcedClusterUnservable)
 	classified, matched = ClassifyDispatchError(err)
 	require.True(t, matched)
-	assert.Equal(t, http.StatusServiceUnavailable, classified.Status)
+	assert.Equal(t, DispatchErrorNoEligibleArm, classified.Kind)
+	assert.Equal(t, http.StatusBadRequest, classified.Status)
 }
 
 func TestHMMCommandOnlyTurnKeepsEligibleSessionPin(t *testing.T) {

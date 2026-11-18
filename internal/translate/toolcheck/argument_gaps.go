@@ -2,8 +2,6 @@ package toolcheck
 
 import "strings"
 
-// Deleting a non-first member retains whitespace before its comma. Immutable
-// gap joins keep successive deletions from repeatedly copying that whitespace.
 type argumentGap struct {
 	raw         string
 	left, right *argumentGap

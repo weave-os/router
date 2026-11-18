@@ -62,3 +62,33 @@ func TestAdmissionTimingsCountEveryAuthoritativeRead(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, binding.ActivationID, unmeasured.ActivationID)
 }
+
+type orderedServingStore struct {
+	*servingMemoryStore
+	events *[]string
+}
+
+func (s orderedServingStore) ReadServingState(ctx context.Context, target policyregistry.ServingTarget) (policyregistry.ServingStateSnapshot, error) {
+	*s.events = append(*s.events, "state")
+	return s.servingMemoryStore.ReadServingState(ctx, target)
+}
+
+func (s orderedServingStore) ReadServingObject(ctx context.Context, kind policyregistry.ServingKind, ref policyregistry.ObjectRef) (policyregistry.ServingManifest, []byte, error) {
+	*s.events = append(*s.events, "object")
+	return s.servingMemoryStore.ReadServingObject(ctx, kind, ref)
+}
+
+func TestAdmissionSamplesDatabaseClockAfterAuthoritativeReads(t *testing.T) {
+	memory, _, first := controllerFixture(t)
+	memory.states[policyregistry.TargetStable] = storedActivateFixture(t, memory, policyregistry.ServingStateSnapshot{}, first, servingEpoch)
+	var events []string
+	admission := policyregistry.ServingAdmission{Store: orderedServingStore{servingMemoryStore: memory, events: &events}}
+	clock := func(context.Context) (time.Time, error) {
+		events = append(events, "clock")
+		return servingEpoch, nil
+	}
+	_, err := admission.Decide(context.Background(), policyregistry.SerializedAdmission{Projection: policyregistry.AdmissionProjection{Target: policyregistry.TargetStable}, Clock: clock})
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(events), 3)
+	assert.Equal(t, []string{"state", "object", "clock"}, events, "an activation committed during GCS I/O must not look like it came from the future")
+}

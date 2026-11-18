@@ -15,7 +15,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// SubscriptionLoginFlow runs the provider side of a browser login.
 type SubscriptionLoginFlow interface {
 	StartLogin(context.Context, subscriptions.Provider) (subscriptions.StartedLogin, error)
 	CompleteLogin(context.Context, subscriptions.PendingLogin, string) (subscriptions.CompletedLogin, error)
@@ -35,13 +34,9 @@ type internalStartSubscriptionLoginResponse struct {
 
 type internalCompleteSubscriptionLoginRequest struct {
 	LoginToken string `json:"login_token" binding:"required"`
-	// Code is Claude's pasted `code#state`; Codex completes by polling without one.
-	Code string `json:"code"`
+	Code       string `json:"code"`
 }
 
-// InternalStartSubscriptionLoginHandler begins a browser reconnect for a
-// subscriber. The pending provider state is sealed into the returned token, so
-// any replica can complete it.
 func InternalStartSubscriptionLoginHandler(authSvc *auth.Service, flow SubscriptionLoginFlow) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		owner, ok := internalSubscriptionOwner(c)
@@ -76,9 +71,6 @@ func InternalStartSubscriptionLoginHandler(authSvc *auth.Service, flow Subscript
 	}
 }
 
-// InternalCompleteSubscriptionLoginHandler finishes a browser login and
-// enrolls (or reconnects) the account through the same path as `router login`.
-// A Codex login the user has not approved yet answers 202 so the caller polls.
 func InternalCompleteSubscriptionLoginHandler(authSvc *auth.Service, flow SubscriptionLoginFlow) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		owner, ok := internalSubscriptionOwner(c)
@@ -99,9 +91,9 @@ func InternalCompleteSubscriptionLoginHandler(authSvc *auth.Service, flow Subscr
 		}
 		log = log.With("provider", pending.Provider)
 		enrollmentOwner, err := authSvc.SubscriberEnrollmentOwner(c.Request.Context(), owner.SubscriberID)
-		if errors.Is(err, auth.ErrSubscriptionEnrollmentKeyNotFound) {
-			log.Warn("Subscription login has no routing key to enroll through")
-			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "routing_key_required"})
+		if errors.Is(err, auth.ErrSubscriptionEnrollmentMembershipNotFound) {
+			log.Warn("Subscription login subscriber is not an active installation member")
+			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "installation_membership_required"})
 			return
 		}
 		if err != nil {

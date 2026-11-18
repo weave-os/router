@@ -303,29 +303,26 @@ func TestApplyAuthorityShadowTelemetryPreservesSignedEV(t *testing.T) {
 	assert.Nil(t, params.AuthorityShadowFreshScore)
 }
 
-// TestAuthorityCacheShadowEffortBearingPinIsNotAStayCandidate documents a
-// pre-existing property of hmmCostGatedDecision: effort-bearing pins land as
-// no_pin because catalog.ByID strips date suffixes but not effort suffixes, so
-// normalizeHMMStayPin rejects them. Not fixed here to avoid altering live HMM
-// routing for self-hosters. Locked by test so analysts do not misread no_pin as
-// "no pin existed".
-func TestAuthorityCacheShadowEffortBearingPinIsNotAStayCandidate(t *testing.T) {
+// TestAuthorityCacheShadowEffortBearingPinIsAStayCandidate locks that a pin whose
+// served identity carries an effort suffix is priced as a stay candidate on its
+// base catalog model instead of being misread as no_pin.
+func TestAuthorityCacheShadowEffortBearingPinIsAStayCandidate(t *testing.T) {
 	const servedIdentity = shadowPinnedModel + ":high"
 
 	result := runAuthorityShadowTurnWithPin(t, true,
-		hmmFreshDecisionWithArmScores(map[string]float32{shadowPinnedModel: 0.40, shadowFreshModel: 0.71},
-			map[string]float32{servedIdentity: 0.66},
+		hmmFreshDecisionWithArmScores(map[string]float32{shadowFreshModel: 0.71},
+			map[string]float32{"anthropic/" + servedIdentity: 0.66},
 		),
 		authorityShadowPinServing(servedIdentity),
 	)
 
 	require.True(t, result.AuthorityShadow.Computed)
-	assert.Equal(t, planner.ReasonNoPin, result.AuthorityShadow.Reason(),
-		"an effort-bearing pin does not resolve in the catalog, so the gate sees no pin")
-	assert.Empty(t, result.AuthorityShadow.StayModel)
-	assert.False(t, result.AuthorityShadow.Sticky)
-	assert.Nil(t, result.AuthorityShadow.StayScore,
-		"no stay candidate means no stay score, regardless of what the sidecar scored")
+	require.True(t, result.AuthorityShadow.EVRan(), "an effort-bearing pin must reach the EV block")
+	assert.NotEqual(t, planner.ReasonNoPin, result.AuthorityShadow.Reason())
+	assert.Equal(t, shadowPinnedModel, result.AuthorityShadow.StayModel,
+		"the stay candidate is the base catalog model")
+	require.NotNil(t, result.AuthorityShadow.StayScore, "the stay score is looked up on the effort-qualified arm")
+	assert.InDelta(t, 0.66, *result.AuthorityShadow.StayScore, 1e-6)
 }
 
 // TestCandidateScoreFor covers the lookup directly. CandidateScores is keyed
@@ -420,11 +417,11 @@ func TestAuthorityCacheShadowPersistsGateDivergenceVerdict(t *testing.T) {
 // and ShadowOutcome is the zero value (rendered "stay"). Persisting those as
 // evidence would repeat the stored-zero-as-evidence failure.
 func TestAuthorityCacheShadowEarlyExitLeavesEVColumnsNull(t *testing.T) {
-	// An effort-bearing pin is rejected by normalizeHMMStayPin, so the gate takes
-	// the no_pin early exit with no EV math.
+	// A pin serving a model absent from the catalog is rejected by
+	// HMMCostGate.NormalizeStayPin, so the gate takes the no_pin early exit with no EV math.
 	result := runAuthorityShadowTurnWithPin(t, true,
 		hmmFreshDecision(map[string]float32{shadowFreshModel: 0.71}),
-		authorityShadowPinServing(shadowPinnedModel+":high"),
+		authorityShadowPinServing("not-a-catalog-model"),
 	)
 	require.True(t, result.AuthorityShadow.Computed)
 	require.False(t, result.AuthorityShadow.EVRan(), "no_pin returns before the EV block")

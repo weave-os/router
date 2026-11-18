@@ -2,13 +2,10 @@ package sse
 
 import "bytes"
 
-// SplitNext returns the next complete SSE event in buf (without delimiter) and the total bytes consumed; n=0 means no complete event yet. Accepts both LF (\n\n) and CRLF (\r\n\r\n) boundaries.
 func SplitNext(buf []byte) (event []byte, n int) {
 	return splitFrom(buf, 0)
 }
 
-// Search LF candidates in order; checking the preceding CR preserves the
-// earliest-delimiter rule without scanning the whole suffix twice.
 func splitFrom(buf []byte, start int) (event []byte, n int) {
 	for i := start; i < len(buf); i++ {
 		offset := bytes.IndexByte(buf[i:], '\n')
@@ -26,10 +23,6 @@ func splitFrom(buf []byte, start int) (event []byte, n int) {
 	return nil, 0
 }
 
-// ParseEvent extracts the event type and data payload from a single SSE
-// event without allocating. Both return values are subslices of the input.
-// Multi-line data: fields return only the first line's content, which is
-// sufficient for the single-line JSON payloads both Anthropic and OpenAI emit.
 func ParseEvent(event []byte) (eventType, data []byte) {
 	remaining := event
 	for len(remaining) > 0 {

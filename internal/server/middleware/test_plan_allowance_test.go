@@ -26,7 +26,7 @@ func TestVerifiedInternalTestSkipsAllSubscriberAllowanceAndProductReads(t *testi
 		c.Request = c.Request.WithContext(entitlement.WithProductScope(ctx, entitlement.PlanMax))
 	})
 	// A nil service panics if either subscriber path is entered.
-	engine.Use(WithSubscriberAllowance(nil), WithSubscriberProductScope(nil))
+	engine.Use(WithSubscriberAllowance(nil, false), WithSubscriberProductScope(nil, false))
 	engine.POST("/v1/messages", func(c *gin.Context) {
 		require.Empty(t, SubscriptionOwnerFrom(c).SubscriberID)
 		plan, ok := entitlement.ProductScopeFromContext(c.Request.Context())

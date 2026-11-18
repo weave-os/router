@@ -4,22 +4,7 @@ import (
 	"context"
 
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/sessionpin"
 )
-
-// pinMatchesEffectiveStrategy reports whether a stored pin belongs to the
-// strategy serving this request. An explicit user force is policy-independent;
-// legacy empty-strategy rows remain eligible outside beta during rollout.
-func pinMatchesEffectiveStrategy(ctx context.Context, pin sessionpin.Pin) bool {
-	if isUserForcedReason(pin.Reason) {
-		return true
-	}
-	expected := router.StrategyFromContext(ctx)
-	if pin.Strategy == expected {
-		return true
-	}
-	return pin.Strategy == "" && !router.IsBetaStrategy(expected)
-}
 
 func strategyContext(ctx context.Context, strategy router.Strategy) context.Context {
 	return router.WithStrategy(context.WithoutCancel(ctx), strategy)

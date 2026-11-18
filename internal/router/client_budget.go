@@ -1,6 +1,5 @@
 package router
 
-// ClientBudgetEvidence describes what an inbound request establishes about its harness budget.
 type ClientBudgetEvidence string
 
 const (
@@ -9,8 +8,6 @@ const (
 	ClientBudgetAmbiguousLongContext ClientBudgetEvidence = "ambiguous_long_context"
 )
 
-// ClientBudget is recomputed at ingress, never inherited from a session pin.
-// Defaults are not effective limits: local overrides and account caps are private to the harness.
 type ClientBudget struct {
 	Evidence                ClientBudgetEvidence
 	Version                 string

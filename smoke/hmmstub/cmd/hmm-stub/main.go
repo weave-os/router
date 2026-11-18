@@ -1,5 +1,3 @@
-// Command hmm-stub bakes the stub policy release and serves the stub HMM
-// classifier for the smoke stack.
 package main
 
 import (

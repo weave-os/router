@@ -10,7 +10,6 @@ const (
 	effortXhigh  = "xhigh"
 )
 
-// CanonicalizeEffort maps user-facing aliases to canonical routing effort levels.
 func CanonicalizeEffort(level string) string {
 	switch strings.ToLower(strings.TrimSpace(level)) {
 	case "fast", "low", "minimal", "min":
@@ -28,8 +27,6 @@ func CanonicalizeEffort(level string) string {
 	}
 }
 
-// HigherEffort returns whichever of a and b sits higher on the reasoning
-// ladder, canonicalized. An unrecognized level loses to a recognized one.
 func HigherEffort(a, b string) string {
 	rankA, okA := effortRank(a)
 	rankB, okB := effortRank(b)
@@ -62,7 +59,6 @@ func effortRank(level string) (int, bool) {
 	}
 }
 
-// IsValidEffort reports whether level is a recognized routing effort level or alias.
 func IsValidEffort(level string) bool {
 	switch CanonicalizeEffort(level) {
 	case effortLow, effortMedium, effortHigh, effortMax, effortXhigh:

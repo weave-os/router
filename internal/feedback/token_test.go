@@ -60,6 +60,13 @@ func TestNewSigner_EmptySecretReturnsNil(t *testing.T) {
 	assert.Nil(t, feedback.NewSigner("", time.Hour))
 }
 
+func TestSigner_NonPositiveTTLMintsTokensThatNeverExpire(t *testing.T) {
+	s := feedback.NewSigner("super-secret", 0)
+	claims, err := s.Verify(s.Mint("inst-1", "org-1", "req-1", ""))
+	require.NoError(t, err)
+	assert.Zero(t, claims.ExpiresAt)
+}
+
 func flip(b byte) string {
 	if b == 'A' {
 		return "B"

@@ -50,7 +50,6 @@ func newStartupEgressProbe(rawOrigins string) (*startupEgressProbe, error) {
 	return probe, nil
 }
 
-// prepare waits for bounded connection preparation, but never prevents serving.
 func (p *startupEgressProbe) prepare(ctx context.Context, log *slog.Logger, clients map[string]providers.Client, enabled map[string]struct{}, initializedOrigins map[string]struct{}) {
 	if err := p.wait(ctx, log, clients, enabled, initializedOrigins); err != nil {
 		log.Warn("Startup connection preparation failed; continuing boot", "err", err)
@@ -93,7 +92,6 @@ func (p *startupEgressProbe) wait(ctx context.Context, log *slog.Logger, clients
 					matchedOrigin = matchedOrigin || warmed
 				}
 				if !matchedOrigin {
-					// Additional configured origins preserve their credential-free connectivity check.
 					_, err := httputil.WarmTransport(ctx, origin, origin, p.client)
 					return err
 				}

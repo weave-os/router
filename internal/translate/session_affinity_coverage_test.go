@@ -29,8 +29,7 @@ const (
 // Provider* constant that's OpenAI-compat family forces a decision here
 // instead of silently inheriting whatever the switch's default happens to
 // do. If this test fails after adding a provider, either add an explicit
-// mechanism here (if the provider needs bespoke affinity handling, per
-// internal/providers/CLAUDE.md's onboarding recipe) or add it to
+// mechanism here (if the provider needs bespoke affinity handling) or add it to
 // defaultMechanismProviders below to affirm the generic header is correct.
 var expectedSessionAffinityMechanism = map[string]sessionAffinityMechanism{
 	providers.ProviderOpenRouter:    mechanismSessionIDHeader,
@@ -71,7 +70,7 @@ func TestSessionAffinityCoversEveryOpenAICompatProvider(t *testing.T) {
 		_, defaulted := defaultMechanismProviders[p]
 		require.Truef(t, explicit || defaulted,
 			"provider %q is OpenAI-compat but not accounted for in expectedSessionAffinityMechanism or defaultMechanismProviders — "+
-				"review internal/translate/emit_openai.go's applySessionAffinity and internal/providers/CLAUDE.md's onboarding recipe step 5", p)
+				"review internal/translate/emit_openai.go's applySessionAffinity", p)
 		require.Falsef(t, explicit && defaulted,
 			"provider %q is listed in both expectedSessionAffinityMechanism and defaultMechanismProviders", p)
 	}

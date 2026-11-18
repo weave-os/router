@@ -16,13 +16,10 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// ModelPassthroughHeader opts a client into serving any requested model that
-// is not a Weave routing model as-is, so only an explicit routing model routes.
 const ModelPassthroughHeader = "X-Weave-Model-Passthrough"
 
-// applyRoutingModel runs after classifier admission and reuses its parsed body.
 func applyRoutingModel(c *gin.Context, body []byte, available StrategyAvailability) bool {
-	model := router.RoutingModel(requestedModel(c, body))
+	model := router.CanonicalRoutingModel(requestedModel(c, body))
 	if !router.IsRoutingModel(string(model)) {
 		if strings.HasPrefix(string(model), "weave-") {
 			observability.FromGin(c).Debug("Unknown routing model rejected")
@@ -75,8 +72,6 @@ func applyRoutingModel(c *gin.Context, body []byte, available StrategyAvailabili
 	return true
 }
 
-// routingStrategyServable requires managed strategies to exist in the admitted
-// snapshot; the decision model is configured outside serving releases.
 func routingStrategyServable(c *gin.Context, managed bool, strategy router.Strategy, available StrategyAvailability) bool {
 	if managed && strategy != router.StrategyDecisionModel {
 		snapshot := policyregistry.ServingSnapshotFromContext(c.Request.Context())
@@ -87,8 +82,6 @@ func routingStrategyServable(c *gin.Context, managed bool, strategy router.Strat
 	return available != nil && available(strategy)
 }
 
-// requestedModel follows Gemini's authoritative URL model; its handler replaces
-// body.model before dispatch. Other protocols select through the body field.
 func requestedModel(c *gin.Context, body []byte) string {
 	if model, _, _ := strings.Cut(c.Param("modelAction"), ":"); model != "" {
 		return model

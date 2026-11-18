@@ -1,0 +1,22 @@
+data: {"id":"chatcmpl-synthetic-1","object":"chat.completion.chunk","created":1,"model":"synthetic-chat-model","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-synthetic-1","object":"chat.completion.chunk","created":1,"model":"synthetic-chat-model","choices":[{"index":0,"delta":{"reasoning_content":"Need both "},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-synthetic-1","object":"chat.completion.chunk","created":1,"model":"synthetic-chat-model","choices":[{"index":0,"delta":{"reasoning_content":"files."},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-synthetic-1","object":"chat.completion.chunk","created":1,"model":"synthetic-chat-model","choices":[{"index":0,"delta":{"content":"Reading them now."},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-synthetic-1","object":"chat.completion.chunk","created":1,"model":"synthetic-chat-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_synthetic_a","type":"function","function":{"name":"Read","arguments":""}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-synthetic-1","object":"chat.completion.chunk","created":1,"model":"synthetic-chat-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"file_pa"}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-synthetic-1","object":"chat.completion.chunk","created":1,"model":"synthetic-chat-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"th\":\"/tmp/a.go\"}"}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-synthetic-1","object":"chat.completion.chunk","created":1,"model":"synthetic-chat-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"id":"call_synthetic_b","type":"function","function":{"name":"Read","arguments":"{\"file_path\":\"/tmp/b.go\"}"}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-synthetic-1","object":"chat.completion.chunk","created":1,"model":"synthetic-chat-model","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+data: {"id":"chatcmpl-synthetic-1","object":"chat.completion.chunk","created":1,"model":"synthetic-chat-model","choices":[],"usage":{"prompt_tokens":2000,"completion_tokens":60,"total_tokens":2060,"prompt_tokens_details":{"cached_tokens":1500}}}
+
+data: [DONE]
+

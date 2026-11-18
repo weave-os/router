@@ -9,11 +9,8 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-// FailureOwner names who is at fault for a failed attempt or turn, for the
-// telemetry failure_owner column. The empty value is a normal completion.
 type FailureOwner string
 
-// FailureOwner values. FailureOwnerUnknown marks an error no rule covers yet.
 const (
 	FailureOwnerProvider FailureOwner = "provider"
 	FailureOwnerRouter   FailureOwner = "router"
@@ -21,21 +18,14 @@ const (
 	FailureOwnerUnknown  FailureOwner = "unknown"
 )
 
-// failureOwnerInput is what classifyFailureOwner needs about one attempt.
 type failureOwnerInput struct {
-	Err    error
-	Status int
-	// BodyTranslated is true when the router rewrote the request body it sent
-	// this attempt, by format translation or a same-format rewrite.
-	BodyTranslated bool
-	// CustomerCredential is true when the attempt ran on a credential the
-	// customer supplied (BYOK key or their own subscription OAuth).
-	CustomerCredential bool
+	Err                    error
+	Status                 int
+	BodyTranslated         bool
+	CustomerCredential     bool
+	RejectedFieldUnchanged bool
 }
 
-// classifyFailureOwner assigns the fault of a failed attempt. Status is the
-// upstream HTTP status when one was read; zero falls back to the status the
-// error chain carries.
 func classifyFailureOwner(in failureOwnerInput) FailureOwner {
 	err := in.Err
 	if err == nil {
@@ -44,9 +34,7 @@ func classifyFailureOwner(in failureOwnerInput) FailureOwner {
 	if isUpstreamWatchdogError(err) || isStreamTerminalMissing(err) || providers.IsUpstreamCyberPolicyRefusal(err) {
 		return FailureOwnerProvider
 	}
-	// A committed stream the client abandoned is rendered as a synthetic 502;
-	// the cancellation, not the status, says who ended it.
-	if errors.Is(err, context.Canceled) {
+	if errors.Is(err, context.Canceled) || isOwnLoginRejection(err) {
 		return FailureOwnerClient
 	}
 	if errors.Is(err, translate.ErrCustomToolArguments) {
@@ -59,8 +47,13 @@ func classifyFailureOwner(in failureOwnerInput) FailureOwner {
 		return FailureOwnerClient
 	}
 	if cls, ok := ClassifyDispatchError(err); ok && cls.Kind != DispatchErrorUpstreamStatus {
-		if cls.Kind == DispatchErrorHandoff && errors.Is(err, ErrHandoffUnavailable) {
+		switch {
+		case cls.Kind == DispatchErrorHandoff && errors.Is(err, ErrHandoffUnavailable):
 			return FailureOwnerRouter
+		case cls.Kind == DispatchErrorSubscriptionPoolExhausted && (upstreamStatus(err) == http.StatusTooManyRequests || errors.Is(err, errLinkedSeatsThrottled)):
+			return FailureOwnerProvider
+		case cls.Kind == DispatchErrorSubscriptionPoolExhausted && errors.Is(err, errLinkedSeatsUnusable):
+			return FailureOwnerClient
 		}
 		return dispatchErrorKindOwner(cls.Kind)
 	}
@@ -68,20 +61,22 @@ func classifyFailureOwner(in failureOwnerInput) FailureOwner {
 	if status == 0 {
 		status = upstreamStatus(err)
 	}
+	if status == http.StatusBadRequest && in.RejectedFieldUnchanged && !providers.IsUpstreamCredentialRefusal(err) {
+		return FailureOwnerClient
+	}
 	if status != 0 {
 		return upstreamStatusOwner(status, err, in.BodyTranslated, in.CustomerCredential)
 	}
 	return streamFailureOwner(classifyStreamFailure(err, ""))
 }
 
-// upstreamStatusOwner assigns the fault of an upstream HTTP error status.
 func upstreamStatusOwner(status int, err error, bodyTranslated, customerCredential bool) FailureOwner {
 	credentialOwner := FailureOwnerRouter
 	if customerCredential {
 		credentialOwner = FailureOwnerClient
 	}
 	switch {
-	case providers.IsUpstreamProviderBillingBlocked(err):
+	case providers.IsUpstreamProviderBillingBlocked(err), providers.IsUpstreamCredentialRefusal(err):
 		return credentialOwner
 	case status == http.StatusUnauthorized, status == http.StatusForbidden, status == http.StatusPaymentRequired:
 		return credentialOwner
@@ -99,8 +94,6 @@ func upstreamStatusOwner(status int, err error, bodyTranslated, customerCredenti
 	}
 }
 
-// streamFailureOwner assigns the fault of a transport failure. A watchdog
-// abort is the provider's: the stream stopped making progress.
 func streamFailureOwner(class streamFailureClass) FailureOwner {
 	switch class {
 	case streamFailureUpstreamEOF, streamFailureUpstreamReset, streamFailureIdleWatchdog,
@@ -114,20 +107,17 @@ func streamFailureOwner(class streamFailureClass) FailureOwner {
 	}
 }
 
-// dispatchErrorKindOwner assigns the fault of a classified dispatch error.
-// DispatchErrorUpstreamStatus depends on the status and is resolved by
-// upstreamStatusOwner instead.
 func dispatchErrorKindOwner(kind DispatchErrorKind) FailureOwner {
 	switch kind {
-	case DispatchErrorSubscriptionPoolExhausted, DispatchErrorSubscriptionPoolThrottled, DispatchErrorNotImplemented, DispatchErrorProviderNotConfigured, DispatchErrorAnthropicFederationUnavailable, DispatchErrorRLPolicyUnavailable,
+	case DispatchErrorSubscriptionPoolExhausted, DispatchErrorNotImplemented, DispatchErrorProviderNotConfigured, DispatchErrorAnthropicFederationUnavailable, DispatchErrorRLPolicyUnavailable,
 		DispatchErrorHMMUnavailable, DispatchErrorPolicyUnavailable,
 		DispatchErrorClusterUnavailable, DispatchErrorDecisionModelUnavailable, DispatchErrorClassifierUnavailable,
 		DispatchErrorPolicyPinUnavailable, DispatchErrorPlanTargetMismatch, DispatchErrorPlanUnresolvable,
 		DispatchErrorSpendLimitUnavailable, DispatchErrorSubscriptionPoolUnavailable,
 		DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorTranslationProviderUnavailable,
-		DispatchErrorRoutedModelIncompatible:
+		DispatchErrorRoutedModelIncompatible, DispatchErrorNoEligibleArm:
 		return FailureOwnerRouter
-	case DispatchErrorCompactionUnservable:
+	case DispatchErrorCompactionUnservable, DispatchErrorSubscriptionPoolThrottled:
 		return FailureOwnerProvider
 	case DispatchErrorRequestNotJSONObject, DispatchErrorResponsesChatCompletionsBody, DispatchErrorContextWindowExceeded, DispatchErrorImageLimitExceeded,
 		DispatchErrorInvalidRoutingKnobs, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded,
@@ -137,17 +127,13 @@ func dispatchErrorKindOwner(kind DispatchErrorKind) FailureOwner {
 		DispatchErrorUserSpendLimitReached, DispatchErrorSpendCapReached, DispatchErrorNoEligibleProvider,
 		DispatchErrorAllowlistEmptiesPool, DispatchErrorGatewayServesNoModel, DispatchErrorNoRoutableModels,
 		DispatchErrorProductIneligible, DispatchErrorSubscriptionClientAppRefused, DispatchErrorClaudeEnterpriseOnly,
-		DispatchErrorWeaveCreditsDisabled:
+		DispatchErrorWeaveCreditsDisabled, DispatchErrorSubscriptionUnavailableForTurn:
 		return FailureOwnerClient
 	default:
 		return FailureOwnerUnknown
 	}
 }
 
-// turnFailureOwnerAfterFinish is turnFailureOwnerFor for a turn whose upstream
-// finish reason is known. A finish reason is recorded only once the upstream's
-// own terminal arrived, so a stream that still ended without one lost it
-// inside the router.
 func turnFailureOwnerAfterFinish(ctx context.Context, err error, class TurnErrorClass, upstreamFinishReason string) FailureOwner {
 	if upstreamFinishReason != "" && isStreamTerminalMissing(err) {
 		return FailureOwnerRouter
@@ -155,9 +141,6 @@ func turnFailureOwnerAfterFinish(ctx context.Context, err error, class TurnError
 	return turnFailureOwnerFor(ctx, err, class)
 }
 
-// turnFailureOwner assigns the fault of a turn that completed with unusable
-// output, from its error class. A refusal is the model's choice; hitting the
-// output cap is a served completion, not a failure.
 func turnFailureOwner(class TurnErrorClass) FailureOwner {
 	switch class {
 	case "", TurnErrorMaxTokens:

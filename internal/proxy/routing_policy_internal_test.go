@@ -204,6 +204,15 @@ func TestCallerRoutingStateFollowsRoutingPrecedence(t *testing.T) {
 		}, wantPassthrough: true, wantSource: callerRoutingSourceClientModel},
 		{name: "experiment passthrough arm keeps a client-selected model", ctx: func(*testing.T) context.Context {
 			return auth.WithClientModelPassthrough(experiment(context.Background(), passthroughArm))
+		}, wantPassthrough: true, wantSource: callerRoutingSourceExperiment},
+		{name: "cohort passthrough phase keeps a client-selected model", ctx: func(*testing.T) context.Context {
+			return auth.WithClientModelPassthrough(experiment(context.Background(), auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmPassthrough, CohortExperimentID: "cohort"}))
+		}, wantPassthrough: true, wantSource: callerRoutingSourceCohort},
+		{name: "client-selected model without an experiment", ctx: func(*testing.T) context.Context {
+			return auth.WithClientModelPassthrough(context.Background())
+		}, wantPassthrough: true, wantSource: callerRoutingSourceClientModel},
+		{name: "client-selected model under an inactive experiment", ctx: func(*testing.T) context.Context {
+			return auth.WithClientModelPassthrough(experiment(context.Background(), auth.BlindExperimentState{Arm: auth.BlindExperimentArmRouterOn}))
 		}, wantPassthrough: true, wantSource: callerRoutingSourceClientModel},
 		{name: "inherit policy defers to experiment", ctx: func(t *testing.T) context.Context {
 			t.Helper()
@@ -308,7 +317,7 @@ func TestPickedModelKeepsSpentPlanAndRefusesMeteredRescue(t *testing.T) {
 	svc := &Service{
 		usageObserver: observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()),
 		credentials:   credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}},
-		now:           func() time.Time { return time.Unix(1_000_000, 0) },
+		clock:         func() time.Time { return time.Unix(1_000_000, 0) },
 	}
 	routed := withClaudeCreditFallback(context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, exhaustedSubToken))
 	picked := withPickedModelFunding(auth.WithClientModelPassthrough(routed), true, providers.ProviderAnthropic)

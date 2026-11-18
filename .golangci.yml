@@ -122,6 +122,7 @@ linters:
             - "**/internal/telemetry/**"
             - "**/internal/routingpolicy/**"
             - "**/internal/credentials/**"
+            - "**/internal/conversation/**"
             - "!**/*_test.go"
           deny:
             - pkg: weave-os/router/internal/observability/otel
@@ -140,6 +141,16 @@ linters:
             - pkg: weave-os/router/internal/dispatch
             - pkg: weave-os/router/internal/providers/
               desc: routing policy never touches provider clients
+        conversation-context:
+          files:
+            - "**/internal/conversation/**"
+            - "!**/*_test.go"
+          deny:
+            - pkg: net/http
+              desc: conversation lifecycle detectors are pure; the orchestrator writes responses
+            - pkg: weave-os/router/internal/proxy
+            - pkg: weave-os/router/internal/postgres
+              desc: durable state goes through the store ports declared in internal/conversation
   exclusions:
     rules:
       # Only the router process logs through slog; CLI tools, scripts and smoke stubs print their output.

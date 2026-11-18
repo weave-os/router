@@ -13,8 +13,11 @@ This page is the exhaustive reference; the [README](../README.md) has the
   - [Anthropic workload identity federation](#anthropic-workload-identity-federation)
 - [Postgres](#postgres)
 - [Server](#server)
+- [Upstream transport and stream watchdogs](#upstream-transport-and-stream-watchdogs)
 - [Managed serving (`ROUTER_SERVING_*`)](#managed-serving-router_serving_)
 - [Routing](#routing)
+  - [Kill switches and staged behaviors](#kill-switches-and-staged-behaviors)
+- [Per-organization flag overrides](#per-organization-flag-overrides)
 - [Plan-aware subscription routing](#plan-aware-subscription-routing)
 - [Provider and model exclusions](#provider-and-model-exclusions)
 - [Policy sidecars](#policy-sidecars)
@@ -67,6 +70,11 @@ Claude Code keep using the user's logged-in plan.
 | `OPENAI_GATEWAY_TOKEN`       | *(none)*                                           | Token for that gateway, sent as `Authorization: Bearer`. Only used when `OPENAI_GATEWAY_BASE_URL` is also set. |
 | `WAFER_API_KEY`   | *(none)*                                                  | Enables Wafer Serverless (both its OpenAI-compatible `wafer` and Anthropic-compatible `wafer_anthropic` surfaces; one key covers both). |
 | `WAFER_BASE_URL`  | `https://pass.wafer.ai/v1`                                | Override for the Wafer OpenAI-compatible endpoint (`wafer_anthropic` uses the fixed `/v1/messages` endpoint). |
+| `AWS_BEARER_TOKEN_BEDROCK` | *(none)* | Enables Bedrock through its OpenAI-compatible `bedrock-mantle` surface, which AWS recommends over `bedrock-runtime` for OpenAI-format traffic. The value is a long-term Bedrock API key sent as a bearer token, not SigV4 access keys. Model IDs are rewritten to Bedrock's dot form from the catalog. |
+| `AWS_REGION` | `us-east-1` | Region of the default Bedrock endpoint, `https://bedrock-mantle.<region>.api.aws/v1`. |
+| `BEDROCK_BASE_URL` | regional default | Override the Bedrock endpoint. |
+| `ROUTER_GROK_HEADER_TIMEOUT_SECONDS` | `90` | Time-to-first-byte guard for Grok models on OpenAI-compatible upstreams (30s for every other model). Snowflake Cortex prefill can push Grok's first byte past 30s; stream inactivity stays bounded by the SSE idle watchdog. |
+| `ROUTER_ANTHROPIC_LARGE_PROMPT_HEADER_TIMEOUT_SECONDS` | `120` | Time-to-first-byte guard for Anthropic Messages request bodies over 1 MiB (30s for smaller bodies). Anthropic withholds response headers until prefill completes, even when streaming, and cache-miss prefill near the 1M-token window can run past 30s. Dead connections are still caught by the HTTP/2 keepalive PING and stream inactivity by the SSE idle watchdog. |
 
 **Anthropic-compatible gateway.** Some enterprises front Claude with their own
 gateway that speaks the Anthropic Messages spec but authenticates with a bearer
@@ -554,6 +562,10 @@ Set `DATABASE_URL` directly, or compose it from the individual vars:
 | `POSTGRES_PORT`            | `5432`                            | Port. |
 | `POSTGRES_SSLMODE`         | `require`                         | TLS mode. Use `disable` for local Docker. |
 | `POSTGRES_CONNECTION_NAME` | *(none)*                          | Cloud SQL Auth Proxy instance connection name. |
+| `POSTGRES_CLIENT_CERT`     | *(none)*                          | PEM client certificate for mutual TLS. Set with `POSTGRES_CLIENT_KEY` and `POSTGRES_SERVER_CA_CERT`, or none of them. Required by Cloud SQL instances in `TRUSTED_CLIENT_CERTIFICATE_REQUIRED` mode. |
+| `POSTGRES_CLIENT_KEY`      | *(none)*                          | PEM private key for `POSTGRES_CLIENT_CERT`. |
+| `POSTGRES_SERVER_CA_CERT`  | *(none)*                          | PEM CA the server certificate must chain to. Cloud SQL certificates name the instance, not the dialed IP, so the chain is checked instead of the hostname, and pgx's sslmode fallbacks are disabled. |
+| `POSTGRES_SERVER_NAME`     | *(none)*                          | Identity (subject CN or DNS SAN) the server certificate must carry, e.g. the instance connection name. Set it whenever the CA signs more than one endpoint. |
 
 ## Server
 
@@ -562,9 +574,34 @@ Set `DATABASE_URL` directly, or compose it from the individual vars:
 | `PORT`                   | `8080`       | HTTP listen port. |
 | `ROUTER_DEPLOYMENT_MODE` | `selfhosted` | `selfhosted` mounts `/ui/*` and `/admin/v1/*`. `managed` skips both (for SaaS deployments with a separate admin UI). |
 | `ROUTER_ADMIN_PASSWORD`  | *(none)*     | Dashboard password. When unset, inference stays available but dashboard login and management endpoints return `admin_login_disabled`. |
+| `ROUTER_COOKIE_INSECURE` | `false`      | Set to `true` only for plain-HTTP local development; otherwise the admin session cookie is always `Secure`, `HttpOnly` and `SameSite=Lax`. |
 | `ROUTER_RESTRICT_UPSTREAM_EGRESS` | follows `ROUTER_DEPLOYMENT_MODE` | When true, provider adapters refuse to dial an upstream that resolves outside the public internet (loopback, private, link-local, CGNAT). Defaults to true in `managed` mode and false in `selfhosted`, where pointing a provider at an in-cluster or loopback gateway is normal. While on, provider adapters also ignore `HTTP_PROXY`/`HTTPS_PROXY`, since a proxied connection makes the destination unverifiable. |
 | `ROUTER_INFERENCE_ORGANIZATION_ALLOWLIST` | *(none)* | Comma-separated organization IDs (installation external IDs) allowed to authenticate. When set, router keys and session tokens for any other organization get `403 organization_not_allowed` before routing or dispatch. Signed internal test plans are exempt. Use it on shared non-production deployments so self-serve signups cannot spend provider keys. |
 | `ROUTER_MODEL_DISCOVERY_PRIVATE_ORIGINS` | *(none)* | Comma-separated exact origins allowed to use private addresses for model discovery (for example, `https://gateway.internal:8443`). Discovery always blocks non-public destinations otherwise and always ignores ambient proxies, regardless of `ROUTER_RESTRICT_UPSTREAM_EGRESS`. Entries may contain only scheme, host, and port; paths, wildcards, and CIDRs are rejected at startup. |
+
+### Admin authentication
+
+- Inference routes accept a router key (`rk_` as a bearer token, `x-api-key` or the router key header) or a delegated session token, never the admin cookie. `/v1/analytics/*` takes only `ra_` analytics keys, and public discovery routes such as `/v1/version` need no key.
+- Read-only `/admin/v1/*` routes accept the admin cookie or a router key. A missing, stale or tampered cookie falls through to router-key auth.
+- Control-plane mutations (minting or rotating keys, provider credentials) require the admin cookie; a leaked router key is rejected.
+- Login is throttled per immediate TCP peer, not `X-Forwarded-For`, so rotating that header cannot bypass the failure limit.
+- Router-key routes scope every lookup to the key's installation; an ID from another installation answers `404`, the same as an unknown ID.
+
+## Upstream transport and stream watchdogs
+
+Every value is whole seconds (or a count); an unset, unparsable or non-positive duration keeps the default.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `ROUTER_SSE_IDLE_TIMEOUT_SECONDS` | `45` | Fails over a stream that sends no bytes for this long. Keep it below the 350s idle reaper of AWS NAT gateways, NLBs and VPC endpoints, or a stall hangs until the request deadline. |
+| `ROUTER_RESPONSES_SSE_IDLE_TIMEOUT_SECONDS` | `90` | Byte-idle budget for OpenAI Responses streams, wider because a reasoning turn can go tens of seconds between frames. |
+| `ROUTER_OUTPUT_STALL_TIMEOUT_SECONDS` | `240` | Fails over a Chat Completions stream that stays byte-alive (keepalive comments, empty or role-only deltas) without producing output or reasoning. |
+| `ROUTER_RESPONSES_OUTPUT_STALL_TIMEOUT_SECONDS` | `240` | The same output-stall budget for Responses streams; keepalives, status events and empty reasoning frames do not reset it. |
+| `ROUTER_MIN_THROUGHPUT_DELTAS_PER_WINDOW` | `8` | Fails over a stream producing fewer output deltas than this per window after warmup. `0` or a negative value disables the throughput watchdog. |
+| `ROUTER_THROUGHPUT_WINDOW_SECONDS` | `20` | Rolling window for the throughput floor; long enough to absorb brief mid-stream pauses. |
+| `ROUTER_THROUGHPUT_MIN_ELAPSED_SECONDS` | `90` | Warmup during which the throughput watchdog never fires, covering prefill and initial reasoning. |
+| `ROUTER_H2_READ_IDLE_TIMEOUT_SECONDS` | `15` | Idle time before a pooled HTTP/2 connection is pinged, so a connection an upstream load balancer reaped is detected. |
+| `ROUTER_H2_PING_TIMEOUT_SECONDS` | `5` | Time to wait for a PING ACK before closing the connection. Read-idle plus ping may use at most two thirds of the transport's time-to-first-byte guard (30s by default); a larger pair is scaled down proportionally. |
 
 ## Managed serving (`ROUTER_SERVING_*`)
 
@@ -617,13 +654,24 @@ The `policyctl serving` runner and worker fleets must also share `PUBSUB_PROJECT
 and `PUBSUB_TOPIC_ROUTER_POLICY_INVALIDATION` so activation invalidations reach
 the admission caches using the same Pub/Sub project and topic.
 
+Cache invalidation is a broadcast: each replica creates its own subscription
+(with an expiration TTL that reclaims subscriptions leaked by a crashed replica)
+because a shared subscription would load-balance messages and leave other
+replicas stale. Shutdown deletes the replica's subscription even after the
+serving context is canceled. Publishing is fire-and-forget: a lost message is
+recovered by the cache TTL, never by blocking the request that changed state.
+Publishers must be stopped at shutdown; closing the client does not flush them.
+Autopay recharge signals follow the same rule: the debit has already committed,
+so a failed publish is logged and dropped, and the control plane's reconciliation
+sweep backstops any lost signal.
+
 ## Routing
 
 | Variable                          | Default                      | Purpose |
 | --------------------------------- | ---------------------------- | ------- |
 | `ROUTER_DEFAULT_STRATEGY`         | `hmm_embedding`              | Strategy used when an installation has no persisted strategy (a persisted `cluster` also follows it). Change only after the policy rollout gate passes. Beta lanes and `llm_classifier` are opt-in per installation and fail boot as a default. The router refuses to boot, and `/readyz` fails, when this strategy has no router configured (e.g. `hmm_embedding` without `ROUTER_POLICY_ENVIRONMENT`); the retired value `cluster` also fails boot. Requests whose persisted or default strategy is unregistered or unavailable get `503 routing_strategy_unavailable`. Managed serving workers (`ROUTER_DEPLOYMENT_MODE=managed` with `ROUTER_SERVING_TARGET`) additionally refuse to boot unless it is set to one of the policy strategies they register (`hmm`, `hmm_embedding`). |
 | `ROUTER_STICKY_DECISION_TTL_MS`   | `0` (disabled)               | Reuse a routing decision per API key for this many ms. |
-| `ROUTER_SESSION_PIN_ENABLED`      | `true`                       | Pin a session to its first-routed model so multi-turn conversations stay coherent. |
+| `ROUTER_SESSION_PIN_ENABLED`      | `true`                       | Pin a session to its first-routed model so multi-turn conversations stay coherent. When on, the `session_pin_enabled` flag can turn pinning off per organization or request; when off, the pin store is not built and the flag has no effect. |
 | `ROUTER_HARD_PIN_MODEL`           | *(none)*                     | Force every request to a specific model, bypassing the routing policy. Debugging only. Without this explicit override, titles and probes with auto/empty/`weave-*` routing models are scored independently, while provider/quota probes with concrete models preserve their requested target; none anchors an automatic conversation pin. |
 | `ROUTER_HARD_PIN_PROVIDER`        | *(none)*                     | Pair with `ROUTER_HARD_PIN_MODEL`. |
 | `ROUTER_HARD_PIN_EXPLORE`         | `true`                       | Pin Claude Code Task-tool sub-agent turns to `ROUTER_HARD_PIN_MODEL`/`ROUTER_HARD_PIN_PROVIDER` (or the cheapest deployed model, if those are unset). Set `false` to route sub-agents through the routing policy like any other turn. Ignored under the HMM strategy, whose classifier selects sub-agent turns like any other turn. |
@@ -639,11 +687,58 @@ the admission caches using the same Pub/Sub project and topic.
 | `ROUTER_ESCALATION_JUDGE_ENABLED` | `false` | Enables the optional Weave-funded Switchyard LLM judge and requires `FIREWORKS_API_KEY`. The judge uses only the Fireworks binding for `z-ai/glm-5.3-flash`. |
 | `ROUTER_ESCALATION_SHADOW_CLASSIFIER_DEFAULT` | `none` | Shadow classifier (`llm_escalation` or `switchyard_llm_v1`) for installations with no escalation selection and no active classifier. `switchyard_llm_v1` requires `ROUTER_ESCALATION_JUDGE_ENABLED=true`; `llm_escalation` requires `ROUTER_LLM_ESCALATION_URL` and `ROUTER_LLM_ESCALATION_API_KEY`; startup fails otherwise. Shadow judging uses its own pool of 8 slots per instance. Each successful verdict is written to the judge's auxiliary telemetry row (`classifier_predicted_label`); failed judgments keep their cost row with no label. |
 | `ROUTER_ESCALATION_JUDGE_ACTIVE_ENABLED` | `false` | Allows `switchyard_llm_v1` to be selected as the active classifier. Keep false during shadow evaluation; requires `ROUTER_ESCALATION_JUDGE_ENABLED=true`. |
-| `ROUTER_PROVIDER_OVERLOADED`      | `true`                       | Per-model 529 circuit breaker. Provider-direct overloaded responses from every organization feed one shared circuit per model (3 overloaded operations within 2 minutes open it); once it opens, the model leaves automatic selection only for organizations that have each observed 2 overloads themselves. Traffic through an organization's own gateway gets a circuit of its own that no other organization feeds or sees. `/force-model` still reaches the model, and one request probes it after 30s, doubling to a 10-minute cap on each failed probe. Thresholds are fixed in `internal/router/breaker/thresholds.go`. Org-overridable as `provider_overloaded`. |
+| `ROUTER_PROVIDER_OVERLOADED`      | `true`                       | Per-model 529 circuit breaker. Provider-direct overloaded responses from every organization feed one shared circuit per model (3 overloaded operations within 2 minutes open it); once it opens, the model leaves automatic selection only for organizations that have each observed 2 overloads themselves. Traffic through an organization's own gateway gets a circuit of its own that no other organization feeds or sees. `/force-model` still reaches the model, and one request probes it after 30s, doubling to a 10-minute cap on each failed probe. Retries on the same binding count as one overloaded operation, and a claimed probe holds the slot for up to 15 minutes (a long streamed turn) before another request may claim it. Thresholds are fixed in `internal/router/breaker/thresholds.go` rather than configurable, because every replica pools organizations' evidence about the same provider and a per-deployment knob would only let replicas disagree; change them there, with a test, when production evidence says so. Org-overridable as `provider_overloaded`. |
 
 If the routing policy can't decide (sidecar unavailable, invalid decision,
 etc.), the router returns HTTP 503 — it does *not* silently fall back to a
 default model. Failures are loud by design.
+
+`ROUTER_POLICY_DEADLINE_FALLBACK` below is the one opt-in exception: it turns a
+policy sidecar deadline or transport failure into the session pin (or
+`ROUTER_POLICY_DEADLINE_DEFAULT_MODEL`) instead of a 503.
+
+### Kill switches and staged behaviors
+
+Each switch is read once at boot; an unset switch takes its listed default.
+When set, a boolean switch is on only for the literal `true` (any other value is
+off), except `ROUTER_SUBSCRIBER_ALLOWANCE_ENABLED`, which accepts `true` in any
+letter case. Integer switches marked *0 allowed* treat `0` as
+a real "off" value; elsewhere a non-positive or unparseable value logs a warning
+and keeps the default.
+
+| Variable | Default | Purpose |
+| -------- | ------- | ------- |
+| `ROUTER_FLAG_OVERRIDES_DISABLED` | `false` | Ignores every per-organization flag override so an incident rollback via env var always wins. |
+| `ROUTER_PLANNER_ENABLED` | `true` | Cache-aware planner that decides whether a mid-session model switch pays for its cache-write cost. |
+| `ROUTER_SWITCH_EV_THRESHOLD_USD` | `proxy.DefaultPlannerThresholdUSD` | Minimum expected saving for a planner switch. Zero and negative values are valid and force aggressive switching. |
+| `ROUTER_CYBER_REFUSAL_REPIN` | `true` | On a safety refusal, re-pins the session off the refusing model and re-serves the refused turn on a fallback model. |
+| `ROUTER_SIBLING_FAILOVER` | `true` | Degrades to a same-cluster candidate when every binding of the routed model is exhausted by a transient upstream fault. |
+| `ROUTER_COMMITTED_STREAM_ARM_DEMOTION` | `false` | Session-level demotion of an arm whose stream died after commit. |
+| `ROUTER_RESCUED_FAILURE_ARM_DEMOTION` | `false` | Session-level demotion of the primary arm after a response-header timeout or another pre-commit failure that a sibling rescued. |
+| `ROUTER_TRANSIENT_RATE_LIMIT` | `false` | Treats upstream 429s as transient throttling: cooldown demotion, fail-open rescue and `Retry-After`-aware same-binding retry. |
+| `ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS` | `true` | Records the stop reason and `tool_use` block count of Anthropic-native turns into telemetry. |
+| `ROUTER_NATIVE_OPENAI_RESPONSE_SIGNALS` | `true` | The same extraction for the OpenAI-native chat/completions and `/v1/responses` passthrough surfaces. |
+| `ROUTER_BAND_SWAP` | `false` | Per-turn large-vs-small action-classifier swap; enabling loads the compiled-in head. |
+| `ROUTER_LOOP_ESCALATION_ENABLED` | `true` | Cyclic-loop escalation action. Off detaches the action but keeps detection telemetry. |
+| `ROUTER_LOOP_ESCALATION_HOLDOUT_PCT` | `10` (0-100), 0 allowed | Percentage of detected loops that are recorded but not escalated, giving a self-recovery baseline for rescue-rate claims. |
+| `ROUTER_SPIRAL_SHADOW_ENABLED` | `true` | Log-only spiral detector; the switch sheds its per-turn signal scan. |
+| `ROUTER_STRUGGLE_SHADOW_ENABLED` | `true` | Log-only session struggle detector; the switch sheds its per-turn check. |
+| `ROUTER_TURN_SIGNAL_CAPTURE_ENABLED` | `true` | Per-turn signal snapshot on telemetry rows. Always skipped for opted-out installations. |
+| `ROUTER_TEXT_REPETITION_BREAK_ENABLED` | `true` | Enforcing text-repetition break; turn off if it false-positives on legitimately repeated narration. |
+| `ROUTER_AUTHORITATIVE_DOWNGRADE_GATE` | `false` | Confidence floor for authoritative-per-turn picks that are cheaper than the pin (mirror of the upgrade gate). |
+| `ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS` | `proxy.DefaultHMMDowngradeHysteresisTurns`, 0 allowed | Consecutive cheaper-than-pin authoritative votes required before a downgrade is served; `0` switches on the first vote. |
+| `ROUTER_HMM_DOWNGRADE_HYSTERESIS_SHADOW_TURNS` | `2`, 0 allowed | Threshold every served authoritative downgrade is shadow-scored against; telemetry only, `0` silences it. |
+| `ROUTER_AUTHORITY_CACHE_SHADOW` | `true` | Records the HMM cache gate's counterfactual verdict on authoritative-per-turn turns, which return before that gate runs. |
+| `ROUTER_POLICY_DEADLINE_FALLBACK` | `false` | Serves the session pin, or `ROUTER_POLICY_DEADLINE_DEFAULT_MODEL`, when a policy sidecar misses its deadline or fails in transport. |
+| `ROUTER_POLICY_DEADLINE_DEFAULT_MODEL` | *(none)* | Static fallback for a deadline miss with no pin; empty keeps the 503. |
+| `ROUTER_SUBSCRIBER_ALLOWANCE_ENABLED` | `false` | Enforces and meters individual Max/Boost allowances. Only meaningful with billing wired. |
+| `ROUTER_OPENROUTER_PLATFORM_ENABLED` | `false` | Lets a `managed` deployment use its own OpenRouter key as a platform source. `selfhosted` always reads `OPENROUTER_API_KEY`; BYOK OpenRouter keys dispatch either way. |
+| `ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS` | `15`, 0 allowed | Interval between SSE keepalive comments; `0` disables them. Keep it well below the load balancer's idle reaper. |
+| `ROUTER_FEEDBACK_LINK_SECRET` | *(none)* | Signs feedback links. Feedback links are emitted only when this and `ROUTER_FEEDBACK_BASE_URL` are both set. |
+| `ROUTER_FEEDBACK_LINK_TTL_SEC` | `2592000` (30 days), 0 allowed | Feedback-link lifetime; `0` means links never expire. |
+| `ROUTER_DEFAULT_BASELINE_MODEL` | `claude-sonnet-4-5` | Cost-comparison baseline when the requested model has no price. Set to an empty string to disable substitution (unset and empty differ). |
+| `PUBSUB_SUBSCRIPTION_ROUTER_INVALIDATION` | *(required)* | Subscription-name prefix. Each replica creates `<prefix>-<uuid>` so every replica receives every cache invalidation; a shared subscription would load-balance and break the broadcast. The 5-minute auth cache TTL bounds staleness if the listener falls behind. |
+| `PUBSUB_TOPIC_ROUTER_AUTOPAY` | *(none)* | When set with billing wired, the debit hook publishes a signal once an organization's balance crosses its recharge threshold. Unset leaves autopay disabled. |
 
 ### Authoritative upgrade evidence policy
 
@@ -687,6 +782,31 @@ turn was already served by one of these models.
 the installation's flag overrides (no environment variable), default `false`. When on, authoritative per-turn selection
 scores only the first call after a user message; that turn's tool-result calls
 reuse the session pin unless escalation constrains the request.
+
+## Per-organization flag overrides
+
+`internal/flags` layers a sparse per-organization override on top of each
+behavioral flag's deployment default, so a flag can be piloted or disabled for
+one installation without a global rollout. Precedence at a read site is header
+override, then organization override, then deployment default.
+
+- A flag `Key` is the JSON object key in the installation's `flag_overrides`
+  column and the primary key in `router.flag_definitions`; renaming one orphans
+  existing overrides.
+- A retired key stays parse-only, so an installation row written by an older
+  revision cannot invalidate unrelated overrides during a rolling deploy. It is
+  never registered, published, or read by routing code.
+- `flags.RegistryVersion` changes whenever registry membership changes. Publish
+  uses it so a revision with an older registry cannot prune definitions
+  published by a newer one.
+- `ROUTER_FLAG_OVERRIDES_DISABLED=true` suppresses every organization override
+  deployment-wide, so an incident rollback through a deployment default cannot
+  be defeated by a stored per-organization row.
+- `hmm_tool_result_hold` is an eval control owned by router policy: promote or
+  remove it after the escalation benchmark comparison.
+- Routing code reads a flag through the `Resolve*` helpers in
+  `internal/proxy/flag_resolution.go`. Reading the deployment default off
+  `proxy.Service` directly silently ignores any organization override.
 
 ## Plan-aware subscription routing
 
@@ -779,6 +899,31 @@ cluster](#forcing-a-model-or-a-routing-cluster)).
 
 Excluding every provider that serves the models you route to leaves requests
 with nowhere to go (HTTP 503), so exclude deliberately.
+
+The control plane also keeps a deployment-wide list of models removed from
+automatic routing. Each replica serves it from a snapshot refreshed every
+minute, so an edit takes up to that long to reach every replica. A failed
+refresh keeps the previous snapshot, and a replica whose first read fails
+excludes nothing rather than refusing traffic. These are soft exclusions: the
+router never picks such a model, but an explicit force still serves it, and
+`/router-models` marks it separately from hard exclusions. A model whose
+overload circuit is open joins the same soft set.
+
+### Request-scoped model subset (`x-weave-allowed-models`)
+
+`x-weave-allowed-models` narrows one request to a comma-separated list of
+catalog IDs or aliases. The list is intersected with the installation's
+`allowed_models` and never widens it. Only installations with policy-header
+overrides enabled, or organizations with the `allowed_models_header` flag on,
+may send it; any other caller gets HTTP 403. The header is ignored, and the
+request routes normally, when its value is empty or whitespace-only, when the
+request has no installation, and on managed plans that have a serving
+profile. Otherwise an unknown entry, a list of only empty entries (such as
+`,`) or an empty intersection fails the request with HTTP 400 instead of
+falling back to the full roster. A narrowed decision's persisted reason gets the
+`allowlist_override:` prefix; a user force is a strict pin, ignores the subset
+and keeps its reason. Requests carrying the header bypass the semantic cache,
+because the subset is not part of the cache key.
 
 ## Forcing a model or a routing cluster
 
@@ -942,6 +1087,17 @@ policy-header overrides. `x-weave-router-debug` follows the same authorization
 rule and cannot enable training. Shadow decisions are always non-dispatching,
 non-debug, and non-learning.
 
+`x-weave-flag-overrides` follows the same authorization rule. Its value is a
+JSON object of org-overridable flag keys, for example
+`{"planner_enabled":false,"escalation_active_classifier":"none"}`, validated by
+the same registry as stored org overrides and layered over them for that
+request only, so benchmark arms on one installation can each disable different
+components. For an authorized installation an unknown, non-overridable or
+invalid value is HTTP 400 (`flag_overrides_malformed`); for every other
+installation, or when `ROUTER_FLAG_OVERRIDES_DISABLED` is set, the header is
+ignored. Session-scoped behavior (pins, planner stays, escalation state) reads
+the flags on each turn, so send the same header on every turn of a session.
+
 ## BYOK encryption
 
 | Variable                      | Default   | Purpose |
@@ -967,6 +1123,16 @@ with routing decisions, token usage, cost estimates, and latency. Export is
 async/non-blocking; when `OTEL_EXPORTER_OTLP_ENDPOINT` is unset, OTel is
 fully disabled at zero runtime cost. Everything the router records leaves the
 process over OTLP only — there is no hardcoded analytics endpoint.
+
+Router-originated provider calls that are not the client's turn (switch
+handover, pre-compaction and compaction-handover summaries) are billed to the
+customer and recorded with span type `router.auxiliary_inference`, never
+`router.upstream`, so request counts and policy training data exclude them.
+Weave-funded overhead uses `router.platform_auxiliary_inference` and stays out
+of customer session cost. An auxiliary row's request id carries the same
+suffix as its credit-ledger debit, so the two join on `request_id`. A
+summarizer call with no model or no tokens records nothing, and its requested
+cost equals its actual cost so it never counts as router savings.
 
 ### High-fidelity content capture (`router.call` log records)
 
@@ -1007,6 +1173,13 @@ asking for `full` under a `hashed` deployment still gets `hashed`.
 | `OTEL_BSP_MAX_EXPORT_BATCH_SIZE` | `50`         | Max spans per OTLP POST. |
 | `OTEL_BSP_SCHEDULE_DELAY`        | `500`        | Partial-batch flush interval in ms. |
 | `OTEL_EXPORT_WORKERS`            | `2`          | Export-goroutine count (spans and logs each get this many workers). |
+
+APM (HTTP server spans and Go runtime metrics, independent of the emitter above):
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `WV_APM_OTLP_ENDPOINT` | *(disabled)* | OTLP/gRPC `host:port`. W3C trace context still propagates when unset. Health probes and `/validate` are not traced. |
+| `WV_APM_OTLP_INSECURE` | `false` | Plaintext gRPC. TLS is the default because span attributes carry key IDs, models and decision reasons; enable only on trusted networks. |
 
 The first five follow the [OTel SDK env spec](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/);
 `OTEL_BSP_*` follows the [Batch Span Processor spec](https://opentelemetry.io/docs/specs/otel/trace/sdk/#batch-span-processor).

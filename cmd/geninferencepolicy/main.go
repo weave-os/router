@@ -1,4 +1,3 @@
-// Command geninferencepolicy writes the static inference-policy projections.
 package main
 
 import (

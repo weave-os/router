@@ -17,21 +17,15 @@ import (
 )
 
 const (
-	// DefaultClaudeAuthorizeURL starts Claude's paste-the-code OAuth flow, the
-	// same one `router login claude` opens.
 	DefaultClaudeAuthorizeURL = "https://claude.ai/oauth/authorize"
 	claudeLoginRedirectURI    = "https://console.anthropic.com/oauth/code/callback"
 	claudeLoginScope          = "org:create_api_key user:profile user:inference"
 
-	// LoginTTL bounds how long a started browser login can be completed.
 	LoginTTL = 15 * time.Minute
 )
 
-// ErrLoginPending reports that the user has not approved the device code yet.
 var ErrLoginPending = errors.New("subscription login is waiting for approval")
 
-// PendingLogin is the provider state a started browser login needs to finish.
-// It carries PKCE and device secrets, so callers seal it before handing it out.
 type PendingLogin struct {
 	Provider     Provider  `json:"provider"`
 	DeviceAuthID string    `json:"device_auth_id,omitempty"`
@@ -41,8 +35,6 @@ type PendingLogin struct {
 	ExpiresAt    time.Time `json:"expires_at"`
 }
 
-// StartedLogin is what the user sees: where to sign in and, for Codex, the
-// code to confirm there.
 type StartedLogin struct {
 	Pending         PendingLogin
 	VerificationURL string
@@ -50,7 +42,6 @@ type StartedLogin struct {
 	PollInterval    time.Duration
 }
 
-// CompletedLogin is an enrollable subscription credential.
 type CompletedLogin struct {
 	Provider          Provider
 	ExternalAccountID string
@@ -116,8 +107,6 @@ func (c *OAuthClient) StartLogin(ctx context.Context, provider Provider) (Starte
 	}
 }
 
-// CompleteLogin finishes a started login. Codex returns ErrLoginPending until
-// the user approves the device code; Claude needs the pasted `code#state`.
 func (c *OAuthClient) CompleteLogin(ctx context.Context, pending PendingLogin, pastedCode string) (CompletedLogin, error) {
 	if !c.now().Before(pending.ExpiresAt) {
 		return CompletedLogin{}, errors.New("subscription login expired")

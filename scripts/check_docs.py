@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import html
+import json
 import re
 import subprocess
 import sys
@@ -16,9 +17,10 @@ INLINE_LINK_RE = re.compile(r"!?\[[^\]]*\]\((<[^>]+>|[^)\s]+)")
 REFERENCE_LINK_RE = re.compile(r"^\s*\[(?!\^)[^\]]+\]:\s*(<[^>]+>|\S+)", re.MULTILINE)
 HEADING_RE = re.compile(r"^ {0,3}#{1,6}\s+(.+?)\s*#*\s*$", re.MULTILINE)
 CODE_SPAN_RE = re.compile(r"(?<!`)`([^`\n]+)`(?!`)")
-QUALIFIED_SYMBOL_RE = re.compile(r"\b([a-z][a-z0-9_]*)\.([A-Z][A-Za-z0-9_]*)\b")
-PACKAGE_RE = re.compile(r"^package\s+(\w+)", re.MULTILINE)
+QUALIFIED_SYMBOL_RE = re.compile(r"\b([a-z][a-z0-9_]*)\.([A-Z][A-Za-z0-9_]*)\b(\*)?")
 FENCE_RE = re.compile(r"^ {0,3}(```|~~~).*?^ {0,3}\1\s*$", re.MULTILINE | re.DOTALL)
+
+MODULE_ROOT = Path(__file__).resolve().parent.parent
 
 # These public governance documents are maintained by a separate workstream.
 # Keeping the exceptions exact prevents them from masking any other broken link.
@@ -120,16 +122,22 @@ def check_links(
     return errors, linked
 
 
-def repository_packages(root: Path) -> dict[str, str]:
-    contents: defaultdict[str, list[str]] = defaultdict(list)
-    for relative in tracked(root, "*.go"):
-        if relative.name.endswith("_test.go"):
-            continue
-        text = (root / relative).read_text(errors="replace")
-        match = PACKAGE_RE.search(text)
-        if match:
-            contents[match.group(1)].append(text)
-    return {name: "\n".join(parts) for name, parts in contents.items()}
+def repository_packages(root: Path) -> dict[str, set[str]]:
+    """Map each Go package name to the identifiers its non-test sources declare."""
+    sources = [
+        str((root / relative).resolve())
+        for relative in tracked(root, "*.go")
+        if not relative.name.endswith("_test.go")
+    ]
+    output = subprocess.run(
+        ["go", "run", "./scripts/docsymbols"],
+        cwd=MODULE_ROOT,
+        input="\n".join(sources),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    return {name: set(symbols) for name, symbols in json.loads(output).items()}
 
 
 def check_symbols(root: Path, markdown: list[Path]) -> list[str]:
@@ -140,13 +148,18 @@ def check_symbols(root: Path, markdown: list[Path]) -> list[str]:
         scan_text = without_fences(text)
         for span in CODE_SPAN_RE.finditer(scan_text):
             for match in QUALIFIED_SYMBOL_RE.finditer(span.group(1)):
-                package, symbol = match.groups()
+                package, symbol, wildcard = match.groups()
                 if package not in packages:
                     continue
-                if not re.search(rf"\b{re.escape(symbol)}\b", packages[package]):
+                declared = packages[package]
+                if wildcard:
+                    found = any(name.startswith(symbol) for name in declared)
+                else:
+                    found = symbol in declared
+                if not found:
                     errors.append(
                         f"{relative}:{line_number(scan_text, span.start())}: "
-                        f"missing repository symbol {package}.{symbol}"
+                        f"missing repository symbol {package}.{symbol}{wildcard or ''}"
                     )
     return errors
 
@@ -170,8 +183,10 @@ def main() -> int:
             + check_symbols(root, markdown)
             + check_docs_index(markdown, linked)
         )
-    except (OSError, subprocess.CalledProcessError, UnicodeError) as error:
+    except (OSError, subprocess.CalledProcessError, UnicodeError, ValueError) as error:
         print(f"documentation check failed: {error}", file=sys.stderr)
+        if isinstance(error, subprocess.CalledProcessError) and error.stderr:
+            print(error.stderr.rstrip(), file=sys.stderr)
         return 1
 
     if errors:

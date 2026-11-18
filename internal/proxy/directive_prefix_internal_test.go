@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/translate"
 )
@@ -102,12 +103,12 @@ func TestSupportsResponsesTerminalSurfaces(t *testing.T) {
 }
 
 func TestRouterSessionMessage_NamesTheIDAndTheClientsOwnSigil(t *testing.T) {
-	codex := routerSessionMessage("01a08ca1-6f83-7233", ClientAppCodex, translate.FormatOpenAI)
+	codex := conversation.RouterSessionMessage("01a08ca1-6f83-7233", directivePrefix(ClientAppCodex), translate.FormatOpenAI)
 	assert.Contains(t, codex, "01a08ca1-6f83-7233")
 	assert.Contains(t, codex, "$router-feedback")
 	assert.NotContains(t, codex, "/router-feedback")
 
-	claude := routerSessionMessage("sess-abc", ClientAppClaudeCode, translate.FormatAnthropic)
+	claude := conversation.RouterSessionMessage("sess-abc", directivePrefix(ClientAppClaudeCode), translate.FormatAnthropic)
 	assert.Contains(t, claude, "sess-abc")
 	assert.Contains(t, claude, "/router-feedback")
 	// Anthropic-format acks are formatted as routing markers so
@@ -119,7 +120,7 @@ func TestRouterSessionMessage_NamesTheIDAndTheClientsOwnSigil(t *testing.T) {
 // absent id has to read as absent.
 func TestRouterSessionMessage_MissingIDSaysSoRatherThanGuessing(t *testing.T) {
 	for _, format := range []translate.Format{translate.FormatOpenAI, translate.FormatAnthropic} {
-		msg := routerSessionMessage("", ClientAppCodex, format)
+		msg := conversation.RouterSessionMessage("", directivePrefix(ClientAppCodex), format)
 		assert.Contains(t, msg, "no session id")
 		assert.NotContains(t, msg, "session id: ")
 	}

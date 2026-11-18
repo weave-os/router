@@ -13,17 +13,16 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
+
+	"github.com/google/uuid"
 )
 
-// AuthoritativeUpgradeConfig holds evidence-policy calibration. Nil margin and
-// zero age leave those rules uncalibrated; the evaluator then falls back to the
-// existing score gate instead of inventing quality cutoffs.
 type AuthoritativeUpgradeConfig struct {
 	MarginThreshold *float64
 	StalePinAfter   time.Duration
 }
 
-// Validate rejects invalid deployment calibration rather than silently substituting defaults.
 func (c AuthoritativeUpgradeConfig) Validate() error {
 	if c.MarginThreshold != nil && (math.IsNaN(*c.MarginThreshold) || math.IsInf(*c.MarginThreshold, 0) || *c.MarginThreshold < 0 || *c.MarginThreshold > 1) {
 		return fmt.Errorf("upgrade evidence margin threshold must be finite and within [0, 1]")
@@ -34,7 +33,6 @@ func (c AuthoritativeUpgradeConfig) Validate() error {
 	return nil
 }
 
-// WithAuthoritativeUpgradeConfig installs boot-validated evidence calibration.
 func (s *Service) WithAuthoritativeUpgradeConfig(calibration AuthoritativeUpgradeConfig) *Service {
 	s.authoritativeUpgradeConfig = calibration
 	return s
@@ -79,8 +77,6 @@ type upgradeVerdict struct {
 	Reason  upgradeReason
 }
 
-// Threshold comparisons happen at the boundary, so replay can evaluate several
-// calibrations over identical evidence without reading clocks, stores, or flags.
 type upgradeEvidence struct {
 	HasPin          bool
 	SameModel       bool
@@ -216,24 +212,21 @@ func (s *Service) authoritativeUpgradeFor(ctx context.Context, req router.Reques
 		decision.Evidence.MarginQualified = &qualified
 	}
 	if decision.Evidence.HasPin {
-		decision.Evidence.CacheCold = pinCacheCold(pin, decision.Evidence.PrefixBroken)
+		decision.Evidence.CacheCold = pinCacheCold(pin, decision.Evidence.PrefixBroken, s.clock.Now())
 		_, pinPriced := hmmEffectiveInputUSDPer1M(pin.Model, inputTokens)
 		_, freshPriced := hmmEffectiveInputUSDPer1M(fresh.Model, inputTokens)
 		decision.Evidence.PricingKnown = pinPriced && freshPriced
 		decision.Evidence.MoreExpensive = hmmFreshIsMoreExpensive(pin.Model, fresh.Model, inputTokens)
 		if !pin.FirstPinnedAt.IsZero() {
-			age := pinAge(pin)
+			age := pinAge(pin, s.clock.Now())
 			decision.PinAgeSec = &age
-			decision.Evidence.StalePin = s.authoritativeUpgradeConfig.StalePinAfter > 0 && time.Since(pin.FirstPinnedAt) >= s.authoritativeUpgradeConfig.StalePinAfter
+			decision.Evidence.StalePin = s.authoritativeUpgradeConfig.StalePinAfter > 0 && s.clock.Now().Sub(pin.FirstPinnedAt) >= s.authoritativeUpgradeConfig.StalePinAfter
 		}
 	}
 	if s.authoritativeUpgradeConfig.StalePinAfter > 0 {
 		seconds := int64(s.authoritativeUpgradeConfig.StalePinAfter.Seconds())
 		decision.StalePinAfterSec = &seconds
 	}
-	// Votes are consecutive only while every proposal remains an eligible,
-	// expensive, same-group upgrade. A held proposal outside that shape must
-	// clear the counter before a later same-group proposal can vote again.
 	votes := 0
 	if decision.Evidence.HasPin && decision.Evidence.MoreExpensive && !decision.Evidence.SameModel &&
 		decision.Evidence.FreshEligible && !decision.Evidence.Demoted &&
@@ -262,4 +255,68 @@ func logAuthoritativeUpgrade(ctx context.Context, res turnLoopResult) {
 	case upgradeExistingPolicy, upgradeNotApplicable, upgradeExcluded:
 	}
 	observability.FromContext(ctx).Info("authoritative upgrade evidence", "installation_id", res.InstallationID.String(), "role", res.PinRole, "mode", decision.Mode, "applied", decision.Applied, "holdout_control", decision.HoldoutControl, "turn_type", res.TurnType, "fresh_model", res.Fresh.Model, "fresh_provider", res.Fresh.Provider, "fresh_score", decision.FreshScore, "pin_model", decision.PinModel, "pin_provider", decision.PinProvider, "fresh_group", decision.Evidence.FreshGroup, "pin_group", decision.Evidence.PinGroup, "margin", decision.Evidence.Margin, "margin_threshold", decision.MarginThreshold, "requested_tier", decision.RequestedTier.String(), "pin_tier", decision.PinTier.String(), "explicit_requested_group", decision.Evidence.RequestedGroup, "cache_cold", decision.Evidence.CacheCold, "prefix_broken", decision.Evidence.PrefixBroken, "pin_age_sec", decision.PinAgeSec, "stale_pin_after_sec", decision.StalePinAfterSec, "vote_count", decision.Evidence.VoteCount, "required_votes", decision.Evidence.RequiredVotes, "demoted", decision.Evidence.Demoted, "fresh_eligible", decision.Evidence.FreshEligible, "outcome", decision.Verdict.Outcome, "reason", decision.Verdict.Reason, "served_model", res.Decision.Model, "pin_tier_path", res.PinTier, "would_diverge", wouldDiverge)
+}
+
+func authoritativeGuardsFor(ctx context.Context, s *Service, evidenceServedFresh, slidingServed bool) routingpolicy.AuthoritativeGuards {
+	return routingpolicy.AuthoritativeGuards{
+		ConfidenceThreshold:   s.hmmUpgradeConfidenceThreshold,
+		UpgradeGate:           s.ResolveAuthoritativeUpgradeGate(ctx) && s.resolveUpgradePolicyMode(ctx) != flags.AuthoritativeUpgradePolicyOff && !evidenceServedFresh && !slidingServed,
+		DowngradeGate:         s.ResolveAuthoritativeDowngradeGate(ctx),
+		HysteresisTurns:       s.ResolveHMMDowngradeHysteresisTurns(ctx),
+		ShadowHysteresisTurns: s.ResolveHMMDowngradeHysteresisShadowTurns(ctx),
+	}
+}
+
+func holdAuthoritativePin(
+	ctx context.Context,
+	sessionPins routingpolicy.SessionPins,
+	installationID uuid.UUID,
+	res *turnLoopResult,
+	pin sessionpin.Pin,
+	fresh router.Decision,
+	verdict routingpolicy.AuthoritativeVerdict,
+) bool {
+	log := observability.FromContext(ctx)
+	fields := []any{
+		"pin_model", pin.Model,
+		"pin_provider", pin.Provider,
+		"fresh_model", fresh.Model,
+		"fresh_provider", fresh.Provider,
+		"confidence", verdict.Confidence,
+		"threshold", verdict.Threshold,
+	}
+	if verdict.Downgrade {
+		fields = append(fields, "downgrade_votes", verdict.DowngradeVotes, "hysteresis_turns", verdict.HysteresisTurns)
+	}
+	if verdict.Hold == routingpolicy.AuthoritativeServe {
+		if verdict.Downgrade {
+			res.DowngradeShadow = downgradeGuardShadow{
+				Served:              true,
+				Votes:               verdict.DowngradeVotes,
+				HysteresisWouldHold: verdict.HysteresisWouldHold,
+				ConfidenceWouldHold: verdict.ConfidenceWouldHold,
+			}
+			fields = append(fields, "shadow_hysteresis_turns", verdict.ShadowHysteresisTurns, "shadow_hysteresis_would_hold", verdict.HysteresisWouldHold, "shadow_confidence_would_hold", verdict.ConfidenceWouldHold)
+			log.Info("turnloop served authoritative downgrade", fields...)
+		}
+		return false
+	}
+	decision := pinDecision(pin)
+	res.Decision = decision
+	res.StickyHit = true
+	switch verdict.Hold {
+	case routingpolicy.AuthoritativeHoldUpgradeConfidenceLow:
+		res.PinTier = string(pinTierAuthoritativeUpgradeConfidenceLow)
+		log.Info("turnloop suppressed low-confidence authoritative upgrade; keeping session pin", fields...)
+		sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
+	case routingpolicy.AuthoritativeHoldDowngradeConfidenceLow:
+		res.PinTier = string(pinTierAuthoritativeDowngradeConfidenceLow)
+		log.Info("turnloop suppressed low-confidence authoritative downgrade; keeping session pin", fields...)
+		sessionPins.RefreshDowngradeVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, verdict.DowngradeVotes)
+	default:
+		res.PinTier = string(pinTierAuthoritativeDowngradeHysteresis)
+		log.Info("turnloop held authoritative downgrade below the hysteresis threshold; keeping session pin", fields...)
+		sessionPins.RefreshDowngradeVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, verdict.DowngradeVotes)
+	}
+	return true
 }

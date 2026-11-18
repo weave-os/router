@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"time"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/inference"
@@ -24,17 +23,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// ErrGeminiCrossFormatUnsupported is returned when a Gemini-source request
-// lands on a non-Google provider.
 var ErrGeminiCrossFormatUnsupported = ingress.ErrGeminiCrossFormatUnsupported
 
-// ProxyGeminiGenerateContent routes a native Gemini generateContent request.
-// Only same-format passthrough (Gemini-in → Google-out) is supported;
-// cross-format returns ErrGeminiCrossFormatUnsupported.
-//
-// The handler must inject synthetic top-level "model" (URL :model segment)
-// and "stream" (true for :streamGenerateContent) fields into body before
-// calling; both are stripped before forwarding upstream.
 func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
 	ctx = withWeaveCreditsFunding(ctx, r.Header)
 	w, finishBlindExperimentWriter := withBlindExperimentWriter(ctx, w, body)
@@ -52,20 +42,14 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	}
 
 	if subscriptionStateModelsEnabled(ctx) {
-		// Native Gemini cannot use Claude or Codex OAuth capacity.
 		ctx = context.WithValue(ctx, subscriptionStateAllowedModelsKey{}, modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx)))
 		ctx = context.WithValue(ctx, subscriptionAPIOnlyKey{}, true)
 	}
 	ctx, rateLimit := s.withRateLimitTurn(ctx)
 	log := observability.FromContext(ctx)
-	requestStart := time.Now()
-	requestID := requestIDFor(ctx)
+	requestStart := s.clock.Now()
+	facts := requestFactsFrom(ctx, r.Header)
 	ctx = telemetry.WithRecorder(ctx, s.newTelemetryRecorder())
-
-	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
-	externalID, _ := ctx.Value(ExternalIDContextKey{}).(string)
-	installationID := installationIDFromContext(ctx)
-	clientID := ClientIdentityFrom(ctx)
 
 	env, body, parseErr := s.ingress.Gemini.Parse(ctx, body)
 	if parseErr != nil {
@@ -94,7 +78,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	}
 
 	var sessionKey [sessionpin.SessionKeyLen]byte
-	ctx, log, sessionKey = bindRequestLogger(ctx, env, apiKeyID, requestID, "gemini_generate_content")
+	ctx, log, sessionKey = bindRequestLogger(ctx, env, facts.APIKeyID, facts.RequestID, "gemini_generate_content")
 	log.Info("ProxyGeminiGenerateContent start",
 		"requested_model", feats.Model,
 		"stream", env.Stream(),
@@ -163,19 +147,19 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		ClusterArmOverrides:           clusterArmOverridesForRequest(ctx),
 		ProductEligibility:            entitlement.ModelBoundaryFromContext(ctx),
 	}
-	routeStart := time.Now()
+	routeStart := s.clock.Now()
 	routeCtx, routeSpan := startRoutingSpan(ctx, routeRequest)
-	routeRes, err := s.runTurnLoop(routeCtx, env, feats, apiKeyID, installationID, subAgentHint, r.Header, routeRequest)
+	routeRes, err := s.runTurnLoop(routeCtx, env, feats, facts.APIKeyID, facts.InstallationID, subAgentHint, r.Header, routeRequest)
 	defer routeRes.releaseCooldownProbes()
 	var escalationCapture *captureWriter
 	defer func() {
 		s.completeEscalation(ctx, routeRes, returnErr, escalationCapture, translate.EscalationResponseGemini)
 	}()
 	finishRoutingSpan(routeSpan, routeRes.Decision, err)
-	routeMs := time.Since(routeStart).Milliseconds()
+	routeMs := s.clock.Now().Sub(routeStart).Milliseconds()
 	if err != nil {
 		log.Error("Routing failed for Gemini request", "err", err, "route_ms", routeMs, "requested_model", feats.Model, "total_input_tokens", feats.Tokens)
-		s.recordPolicyPinRouteFailure(ctx, requestID, requestStart, feats.Model, routeRes.TurnType, inboundUserPrompt, err)
+		s.recordPolicyPinRouteFailure(ctx, facts.RequestID, requestStart, feats.Model, routeRes.TurnType, inboundUserPrompt, err)
 		return err
 	}
 	ctx = requestcontext.WithCallerModelPassthrough(ctx, routeRes.CallerModelPassthrough)
@@ -211,22 +195,20 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	w.Header().Set(HeaderRouterModel, decision.Model)
 	w.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
 	setContextEstimateHeaders(w.Header(), overflowEstimate, outputReserve)
-	// Gemini path does not resolve a router user, matching the decision span
-	// below which omits router_user_id.
-	s.setFeedbackLinkHeader(ctx, w, installationID, externalID, requestID, "")
+	s.setFeedbackLinkHeader(ctx, w, facts.InstallationID, facts.ExternalID, facts.RequestID, "")
 
 	reqPricing, _ := catalog.PrimaryPriceFor(s.baselineFor(ctx, feats.Model))
 	actPricing, _ := catalog.PrimaryPriceFor(decision.Model)
 	reqDecisionPricing := reqPricing.ForInputTokens(feats.Tokens)
 	actDecisionPricing := actPricing.ForInputTokens(feats.Tokens)
 	geminiDecisionBuilder := telemetry.NewAttrBuilder(46).
-		String("request_id", requestID).
-		String("external_id", externalID).
-		String("client.device_id", clientID.DeviceID).
-		String("client.account_id", clientID.AccountID).
-		String("client.session_id", clientID.SessionID).
-		String("client.user_agent", clientID.UserAgent).
-		String("client.app", clientID.TelemetryClientApp()).
+		String("request_id", facts.RequestID).
+		String("external_id", facts.ExternalID).
+		String("client.device_id", facts.Client.DeviceID).
+		String("client.account_id", facts.Client.AccountID).
+		String("client.session_id", facts.Client.SessionID).
+		String("client.user_agent", facts.Client.UserAgent).
+		String("client.app", facts.Client.TelemetryClientApp()).
 		String("rollout_id", policyRolloutIDFromContext(ctx)).
 		String("requested.model", feats.Model).
 		String("decision.model", decision.Model).
@@ -254,7 +236,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	telemetry.Record(ctx, telemetry.Span{
 		Name:  "router.decision",
 		Start: requestStart,
-		End:   time.Now(),
+		End:   s.clock.Now(),
 		Attrs: geminiDecisionBuilder.Build(),
 	})
 	telemetry.Flush(ctx)
@@ -273,20 +255,17 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	effortServed.apply(&opts)
 	ctx = resolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
 
-	prep, emitErr := env.PrepareGemini(r.Header, opts)
+	prep, emitErr := env.PrepareGemini(r.Header, geminiOptionsForTurn(opts, routeRes.TurnType))
 	if emitErr != nil {
 		log.Error("Failed to emit Gemini body", "err", emitErr)
 		return fmt.Errorf("emit body: %w", emitErr)
 	}
 
-	proxyStart := time.Now()
+	proxyStart := s.clock.Now()
 	inferenceParentCtx := ctx
 	ctx, inferenceSpan := startInferenceSpan(ctx, decision, clientSessionIDForRequest(ctx, env))
 	defer inferenceSpan.End()
 	var extractor *telemetry.UsageExtractor
-	// Append the one-click feedback thumbs as a trailing part on streaming
-	// answers (see ProxyMessages for the rationale). The Gemini path resolves no
-	// router user, matching the decision span and feedback header above.
 	clientSink := w
 	if env.Stream() {
 		if footer := s.feedbackFooter(ctx, ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType, false); footer != "" {
@@ -295,13 +274,12 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	}
 	clientSink, escalationCapture = s.captureEscalationResponse(clientSink, routeRes)
 	contentSink, contentCap := s.maybeCaptureResponse(ctx, clientSink)
-	// preludeBuf delays commit so a 429 or empty stream stays retryable.
 	preludeBuf := newPreludeBuffer(contentSink)
 	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, routingMarkerFor(routeRes), decision.Model, ""))
 	muteSlowStartFor(ctx, routeRes)
 	bindings := s.resolveBindingsForDispatch(ctx, decision)
 	primaryDecision := decision
-	notices := &requestNoticeStream{}
+	notices := &requestNoticeStream{now: s.clock.Now}
 	attempt := func(actx context.Context, d router.Decision, p providers.Client) error {
 		attemptSink, noticeErr := notices.prepare(actx, preludeBuf, preludeBuf, translate.FormatGemini, env.Stream(), translate.NewRouterNotice(translate.NoticeModelSelection, marker, d.Model, ""))
 		if noticeErr != nil {
@@ -338,7 +316,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		origin:  routeRes.dispatchOrigin(decision),
 	})
 	primaryFailureErr := proxyErr
-	proxyMs := time.Since(proxyStart).Milliseconds()
+	proxyMs := s.clock.Now().Sub(proxyStart).Milliseconds()
 	primaryProvider := decision.Provider
 	finalProvider := primaryProvider
 	if winnerIdx >= 0 && winnerIdx < len(bindings) {
@@ -360,13 +338,13 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead, usageMods))
 	}
 	geminiUpstreamBuilder := telemetry.NewAttrBuilder(41).
-		String("request_id", requestID).
-		String("external_id", externalID).
-		String("client.device_id", clientID.DeviceID).
-		String("client.account_id", clientID.AccountID).
-		String("client.session_id", clientID.SessionID).
-		String("client.user_agent", clientID.UserAgent).
-		String("client.app", clientID.TelemetryClientApp()).
+		String("request_id", facts.RequestID).
+		String("external_id", facts.ExternalID).
+		String("client.device_id", facts.Client.DeviceID).
+		String("client.account_id", facts.Client.AccountID).
+		String("client.session_id", facts.Client.SessionID).
+		String("client.user_agent", facts.Client.UserAgent).
+		String("client.app", facts.Client.TelemetryClientApp()).
 		String("rollout_id", policyRolloutIDFromContext(ctx)).
 		String("requested.model", feats.Model).
 		String("decision.model", decision.Model).
@@ -384,7 +362,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		Float64("cost.actual_output_usd", catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, decision.Provider), out, actPricing, usageMods)).
 		Bool("cost.subscription_served", s.costNeutralSubscriptionServed(ctx)).
 		Int64("latency.upstream_ms", proxyMs).
-		Int64("latency.total_ms", time.Since(requestStart).Milliseconds()).
+		Int64("latency.total_ms", s.clock.Now().Sub(requestStart).Milliseconds()).
 		Int64("upstream.status_code", int64(upstreamStatus(proxyErr))).
 		Bool("routing.cross_format", false)
 	if s.effectiveCaptureMode(ctx) == CaptureOff {
@@ -403,33 +381,30 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	telemetry.Record(ctx, telemetry.Span{
 		Name:  "router.upstream",
 		Start: proxyStart,
-		End:   time.Now(),
+		End:   s.clock.Now(),
 		Attrs: geminiUpstreamBuilder.Build(),
 	})
 	respBody, respTrunc := capturedResponse(contentCap)
 	s.recordCallLog(ctx, geminiUpstreamBuilder.Build(), routeMs, proxyErr, body, respBody, respTrunc)
 	telemetry.Flush(ctx)
 
-	// Persist last-turn usage to the pin row so the next turn's planner
-	// has cache-hit and output-limit evidence.
 	s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead, extractor.OutputLimitReached())
 	s.clearRecoveredCooldown(ctx, routeRes, decision.Model, proxyErr)
 
 	var subscriberTelemetry *InsertTelemetryParams
-	if installationID != uuid.Nil {
+	if facts.InstallationID != uuid.Nil {
 		credentialKeyPrefix, credentialKeySuffix, credentialSource := s.credentialKeyParts(ctx)
 		s.markServedExternalKeyUsed(ctx, proxyErr)
-		// Gemini reports its output cap as a flag rather than a stop reason.
 		errorClass := classifyTurnError(proxyErr, "", 0)
 		if errorClass == "" && extractor.OutputLimitReached() {
 			errorClass = TurnErrorMaxTokens
 		}
 		telemetryParams := InsertTelemetryParams{
-			InstallationID:         installationID.String(),
+			InstallationID:         facts.InstallationID.String(),
 			APIKeyID:               apiKeyIDFromContext(ctx),
-			RequestID:              requestID,
+			RequestID:              facts.RequestID,
 			SpanType:               "router.upstream",
-			TraceID:                requestID,
+			TraceID:                facts.RequestID,
 			Timestamp:              requestStart,
 			RequestedModel:         feats.Model,
 			DecisionModel:          decision.Model,
@@ -437,7 +412,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 			DecisionReason:         telemetryDecisionReason(ctx, decision.Reason),
 			RequestedAllowedModels: requestedAllowedModelsForTelemetry(ctx),
 			EstimatedInputTokens:   int32(feats.Tokens),
-			ContextSnapshot:        contextSnapshotJSON(w.Header(), requestID, feats.Model, requestStart, s.clockNow()),
+			ContextSnapshot:        contextSnapshotJSON(w.Header(), facts.RequestID, feats.Model, requestStart, s.clock.Now()),
 			StickyHit:              stickyHit,
 			PinTier:                routeRes.PinTier,
 			EmbedInput:             embedInput,
@@ -449,7 +424,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 			ActualOutputCostUSD:    catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, finalProvider), out, actPricing, usageMods),
 			RouteLatencyMs:         routeMs,
 			UpstreamLatencyMs:      proxyMs,
-			TotalLatencyMs:         time.Since(requestStart).Milliseconds(),
+			TotalLatencyMs:         s.clock.Now().Sub(requestStart).Milliseconds(),
 			CrossFormat:            false,
 			UpstreamStatusCode:     int32(upstreamStatus(proxyErr)),
 			CandidateModels:        geminiObs.CandidateModels,
@@ -470,10 +445,10 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 			CacheCreationTokens:    cacheTokenPtr(cacheCreation),
 			CacheReadTokens:        cacheTokenPtr(cacheRead),
 			ReasoningTokens:        cacheTokenPtr(extractor.ReasoningTokens()),
-			DeviceID:               clientID.DeviceID,
-			SessionID:              clientID.SessionID,
+			DeviceID:               facts.Client.DeviceID,
+			SessionID:              facts.Client.SessionID,
 			RouterUserID:           auth.UserIDFrom(ctx),
-			ClientApp:              clientID.TelemetryClientApp(),
+			ClientApp:              facts.Client.TelemetryClientApp(),
 			TurnType:               string(routeRes.TurnType),
 			RolloutID:              geminiObs.RolloutID,
 			FailoverUsed:           boolPtrTrue(finalProvider != primaryProvider),
@@ -503,7 +478,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 
 	var subscriberSettlement subscriberSettlementState
 	if turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead) {
-		subscriberSettlement = s.emitBilling(ctx, requestID, externalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead, usageMods)
+		subscriberSettlement = s.emitBilling(ctx, facts.RequestID, facts.ExternalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead, usageMods)
 	}
 	if subscriberTelemetry != nil {
 		if turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead) {
@@ -514,24 +489,21 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		s.fireTelemetry(ctx, *subscriberTelemetry)
 	}
 
-	// Two-strike provider disable: see ProxyMessages. Gemini rarely produces a
-	// real 529, but covers a future translate-layer path that might synthesize one.
 	armDemoted := ""
 	var armDemotionReason sessionpin.DemotionReason
 	primaryFailureDemoted := ""
 	var primaryFailureDemotionReason sessionpin.DemotionReason
 	if !routeRes.CallerModelPassthrough {
-		s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
-		// See ProxyMessages for the committed-stream demotion rationale.
-		armDemoted = s.maybeDemoteArmAfterCommittedStreamFailure(ctx, committed(preludeBuf), routeRes.HardPinned, proxyErr, decision.Model, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+		s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, facts.InstallationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+		armDemoted = s.maybeDemoteArmAfterCommittedStreamFailure(ctx, committed(preludeBuf), routeRes.HardPinned, proxyErr, decision.Model, decision.Reason, facts.InstallationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
 		if armDemoted != "" {
 			armDemotionReason = sessionpin.DemotionReasonCommittedStreamFailure
 		}
 		if providers.IsResponseHeaderTimeout(primaryFailureErr) && (proxyErr != nil || decision.Model != primaryDecision.Model) {
-			primaryFailureDemoted, primaryFailureDemotionReason = s.maybeStrikeArmAfterRescuedFailure(ctx, false, routeRes.HardPinned, primaryFailureErr, primaryDecision, installationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+			primaryFailureDemoted, primaryFailureDemotionReason = s.maybeStrikeArmAfterRescuedFailure(ctx, false, routeRes.HardPinned, primaryFailureErr, primaryDecision, facts.InstallationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
 		}
 		if proxyErr != nil {
-			unrescuedStallDemoted := s.maybeDemoteArmAfterUnrescuedStall(ctx, false, committed(preludeBuf), routeRes.HardPinned, primaryFailureErr, primaryDecision, installationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+			unrescuedStallDemoted := s.maybeDemoteArmAfterUnrescuedStall(ctx, false, committed(preludeBuf), routeRes.HardPinned, primaryFailureErr, primaryDecision, facts.InstallationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
 			if unrescuedStallDemoted != "" {
 				armDemoted = unrescuedStallDemoted
 				armDemotionReason = sessionpin.DemotionReasonUnrescuedStall
@@ -541,7 +513,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 
 	demotionLogFields := armStrikeLogFieldsWithPrimaryReason(armDemoted, armDemotionReason, primaryFailureDemoted, primaryFailureDemotionReason)
 	servedCredentialSource, servedSubscriptionTier := s.servedCredentialLogValues(ctx)
-	log.Info("ProxyGeminiGenerateContent complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(ctx, feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "decision_reason", decision.Reason, "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "error_class", classifyTurnError(proxyErr, "", 0), "failure_owner", turnFailureOwnerFor(ctx, proxyErr, classifyTurnError(proxyErr, "", 0)), "upstream_status", upstreamStatus(proxyErr), "credential_source", servedCredentialSource, "client_app", completionLogClientApp(clientID), "subscription_tier", servedSubscriptionTier}, demotionLogFields...), append(plannerLogFields(routeRes), rateLimit.CompletionLogFields()...)...)...)
+	log.Info("ProxyGeminiGenerateContent complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(ctx, feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "decision_reason", decision.Reason, "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "error_class", classifyTurnError(proxyErr, "", 0), "failure_owner", turnFailureOwnerFor(ctx, proxyErr, classifyTurnError(proxyErr, "", 0)), "upstream_status", upstreamStatus(proxyErr), "credential_source", servedCredentialSource, "client_app", completionLogClientApp(facts.Client), "subscription_tier", servedSubscriptionTier}, demotionLogFields...), append(plannerLogFields(routeRes), rateLimit.CompletionLogFields()...)...)...)
 	s.reportPolicyOutcome(ctx, routeRes, decision, effortServed, decision.Provider, false, feats.Tokens, in, out, cacheCreation, cacheRead, usageMods, routeMs, proxyMs, proxyErr, nil)
 	return proxyErr
 }

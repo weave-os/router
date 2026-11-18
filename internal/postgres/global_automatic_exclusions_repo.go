@@ -8,9 +8,6 @@ import (
 	"weave-os/router/internal/sqlc"
 )
 
-// GlobalAutomaticExclusionRepo reads the deployment-wide models the Weave
-// control plane has withdrawn from automatic routing. Read-only here: the rows
-// are written by the control plane, which owns catalog validation.
 type GlobalAutomaticExclusionRepo struct {
 	tx sqlc.DBTX
 }
@@ -21,8 +18,6 @@ func NewGlobalAutomaticExclusionRepo(tx sqlc.DBTX) *GlobalAutomaticExclusionRepo
 
 var _ proxy.GlobalAutomaticExclusionStore = (*GlobalAutomaticExclusionRepo)(nil)
 
-// ListGlobalAutomaticRoutingExclusions returns each disabled model mapped to
-// the operator's reason, which is empty when none was recorded.
 func (r *GlobalAutomaticExclusionRepo) ListGlobalAutomaticRoutingExclusions(ctx context.Context) (map[string]string, error) {
 	rows, err := dbbudget.Queries(r.tx).ListGlobalAutomaticRoutingExclusions(ctx)
 	if err != nil {

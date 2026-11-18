@@ -57,6 +57,11 @@ After a working Claude Code or Codex install, the installer lists the everyday
 commands (`status`, `off`, `on`, feedback, uninstall) and exits. `--quiet`,
 `update`, and failed key checks skip the list.
 
+The installer needs jq 1.6 or newer. When jq is missing, older than 1.6, or
+reports a version the installer can't parse, it downloads jq 1.8.1 from the jq
+GitHub release, verifies its SHA-256 checksum and keeps it in `~/.weave/bin`
+for its own use. A jq already installed on your system is left unchanged.
+
 ### Self-hosted via `docker compose` (zero-config)
 
 If you're running the router locally with the bundled `docker-compose.yml`
@@ -392,8 +397,6 @@ Limitations:
   `/router-off`, `/router-on`, `/router-status` and the `/router-models` forms
   that change settings are handled by the installed clients and do nothing in an
   SDK app; to bypass the router, create the session without it.
-
-||||||| 5249e152
 
 ### Claude Desktop (`--claude-desktop`)
 
@@ -761,7 +764,7 @@ What each `off` does (and `on` reverses byte-for-byte):
 - **Copilot CLI** — puts back the default model parked during install;
   `weave/auto` stays selectable in `/model`. Next `copilot` run.
 
-**Cursor** has no config file we own — its key, base URL, and `weave-auto`
+**Cursor** has no config file we own — its key, base URL, and `Weave Auto`
 custom model live in Cursor's own settings UI. To toggle it, open **Settings →
 Models → Override OpenAI Base URL** and turn the override (`<base-url>/v1`) on
 or off there. Cursor calls that URL from its own servers, so it must be

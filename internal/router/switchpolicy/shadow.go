@@ -7,7 +7,6 @@ import (
 	"time"
 )
 
-// ShadowKey is isolated from the live session-pin namespace.
 type ShadowKey struct {
 	InstallationID string
 	SessionKey     []byte
@@ -62,8 +61,6 @@ type ShadowOutcome struct {
 	TwoUp              Decision
 }
 
-// EvaluateShadow computes both candidate states without I/O. Older completions
-// invalidate the segment instead of manufacturing consecutive evidence.
 func EvaluateShadow(prior ShadowSnapshot, found bool, observation ShadowObservation) (ShadowSnapshot, ShadowOutcome, error) {
 	if observation.RequestID == "" || observation.StartedAt.IsZero() {
 		return ShadowSnapshot{}, ShadowOutcome{}, errors.New("agreement shadow request identity and time are required")

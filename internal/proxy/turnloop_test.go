@@ -30,10 +30,14 @@ type fakeSummarizer struct {
 	summary   string
 	errOnCall error
 	calls     atomic.Int32
+	creds     atomic.Pointer[proxy.Credentials]
 }
 
 func (f *fakeSummarizer) Summarize(ctx context.Context, env *translate.RequestEnvelope, _ router.Request) (string, handover.Usage, error) {
 	f.calls.Add(1)
+	if creds, ok := ctx.Value(proxy.CredentialsContextKey{}).(*proxy.Credentials); ok {
+		f.creds.Store(creds)
+	}
 	if f.errOnCall != nil {
 		return "", handover.Usage{}, f.errOnCall
 	}
@@ -460,7 +464,7 @@ func TestTurnLoop_HMMConversationFollowsFreshDecision(t *testing.T) {
 	store.mu.Unlock()
 }
 
-func TestTurnLoop_HMMToolExecutionPhaseChangeUsesFreshDecision(t *testing.T) {
+func TestTurnLoop_HMMToolExecutionPhaseChangeKeepsWarmPinWhenEVNegative(t *testing.T) {
 	store := newFakePinStore()
 	store.hasPin = true
 	store.pin = sessionpin.Pin{
@@ -488,8 +492,8 @@ func TestTurnLoop_HMMToolExecutionPhaseChangeUsesFreshDecision(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "main-loop HMM turn must ask for a fresh decision")
-	assert.Equal(t, "claude-sonnet-5", rec.Header().Get(proxy.HeaderRouterModel),
-		"HMM tool/explore phase changes should follow the fresh sidecar decision")
+	assert.Equal(t, "claude-sonnet-4-5", rec.Header().Get(proxy.HeaderRouterModel),
+		"a lateral HMM phase change must keep the warm pin when the EV gate does not pay for the cache rebuild")
 
 	store.mu.Lock()
 	assertOnlyHMMHistoryUpserts(t, store)
@@ -748,6 +752,55 @@ func TestTurnLoop_HandoverSkippedWhenClientCredsCrossProvider(t *testing.T) {
 
 	assert.Equal(t, int32(0), sz.calls.Load(), "summarizer must NOT run when client creds are for a different provider than the summarizer")
 	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel), "switch must still happen with full history passed through")
+}
+
+func TestTurnLoop_HandoverSummarizesOnStoredBYOKKeyForSummarizerProvider(t *testing.T) {
+	store := newFakePinStore()
+	store.hasPin = true
+	store.pin = sessionpin.Pin{
+		Provider:        providers.ProviderAnthropic,
+		Model:           "claude-opus-4-7",
+		Reason:          "cluster:v0.2",
+		PinnedUntil:     time.Now().Add(time.Hour),
+		LastInputTokens: 5000,
+		LastTurnEndedAt: time.Now().Add(-30 * time.Second),
+	}
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster:v0.2"}}
+	sz := &fakeSummarizer{summary: "Prior conversation summary."}
+	svc := newPinSvc(fr, store).WithSummarizer(sz)
+
+	ctx := authedCtxWithExternalKey(uuid.New().String(), providers.ProviderAnthropic, []byte("sk-ant-stored-byok-key"))
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
+	require.NoError(t, svc.ProxyMessages(ctx, largeBody(t), rec, httpReq))
+
+	require.Equal(t, int32(1), sz.calls.Load())
+	creds := sz.creds.Load()
+	require.NotNil(t, creds, "summarizer must receive the tenant's stored key, not fall back to the deployment key")
+	assert.Equal(t, []byte("sk-ant-stored-byok-key"), creds.APIKey)
+}
+
+func TestTurnLoop_HandoverSkippedWhenStoredBYOKKeyIsForAnotherProvider(t *testing.T) {
+	store := newFakePinStore()
+	store.hasPin = true
+	store.pin = sessionpin.Pin{
+		Provider:        providers.ProviderAnthropic,
+		Model:           "claude-opus-4-7",
+		Reason:          "cluster:v0.2",
+		PinnedUntil:     time.Now().Add(time.Hour),
+		LastInputTokens: 5000,
+		LastTurnEndedAt: time.Now().Add(-30 * time.Second),
+	}
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster:v0.2"}}
+	sz := &fakeSummarizer{summary: "Should not be invoked."}
+	svc := newPinSvc(fr, store).WithSummarizer(sz)
+
+	ctx := authedCtxWithExternalKey(uuid.New().String(), providers.ProviderOpenAI, []byte("sk-stored-openai-byok-key"))
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
+	require.NoError(t, svc.ProxyMessages(ctx, largeBody(t), rec, httpReq))
+
+	assert.Equal(t, int32(0), sz.calls.Load(), "a BYOK tenant's history must not reach the summarizer on the deployment key")
 }
 
 // ROUTER_PLANNER_ENABLED kill switch: an existing pin wins outright without

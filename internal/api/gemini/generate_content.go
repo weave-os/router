@@ -23,9 +23,6 @@ const (
 	streamGenerateContentSuffix = ":streamGenerateContent"
 )
 
-// GenerateContentHandler wires POST /v1beta/models/:modelAction to proxy.Service.ProxyGeminiGenerateContent.
-// The colon-suffixed action lives inside a single Gin path parameter because Gin treats `:` outside the
-// leading position as a literal.
 func GenerateContentHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
@@ -134,11 +131,6 @@ func injectModelAndStream(body []byte, model string, stream bool) ([]byte, error
 	return out, nil
 }
 
-// geminiErrorStatus maps a classified dispatch error to the Gemini native
-// error envelope's "status" field. Gemini's taxonomy is finer-grained than
-// Anthropic/OpenAI's two-way split, so this switches on Kind directly rather
-// than reusing DispatchErrorKind.IsClientError. Refusals take the status for
-// their HTTP status from the refusal table.
 func geminiErrorStatus(cls proxy.DispatchErrorClass) string {
 	if cls.Refusal != nil {
 		return cls.Refusal.GeminiStatus()

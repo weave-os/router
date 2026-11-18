@@ -1,9 +1,11 @@
 package proxy
 
-import "strings"
+import (
+	"strings"
 
-// cutSpelledEffort splits an effort level typed without the colon
-// ("astra high", "gpt-6-sol-max", "astra extra high") off the end of name.
+	"weave-os/router/internal/routingpolicy"
+)
+
 func cutSpelledEffort(name string) (head, level string, ok bool) {
 	folded := foldModelSpelling(name)
 	for _, spelled := range []string{"-extra-high", "-x-high"} {
@@ -12,20 +14,8 @@ func cutSpelledEffort(name string) (head, level string, ok bool) {
 		}
 	}
 	idx := strings.LastIndexByte(folded, '-')
-	if idx <= 0 || !looksLikeEffortAlias(folded[idx+1:]) {
+	if idx <= 0 || !routingpolicy.LooksLikeEffortAlias(folded[idx+1:]) {
 		return "", "", false
 	}
 	return folded[:idx], folded[idx+1:], true
-}
-
-// looksLikeEffortAlias guards against future catalog IDs that contain `:`,
-// ensuring the colon is only treated as a suffix separator for known levels.
-func looksLikeEffortAlias(tail string) bool {
-	switch strings.ToLower(strings.TrimSpace(tail)) {
-	case "fast", "low", "medium", "med", "high", "max", "xhigh",
-		"ultra", "minimal", "min":
-		return true
-	default:
-		return false
-	}
 }

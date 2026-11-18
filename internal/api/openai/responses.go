@@ -13,11 +13,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ResponsesHandler accepts OpenAI Responses API requests (the surface that
-// Codex CLI requires after wire_api="chat" was retired) and routes them
-// through the chat-completions proxy via translate.ResponsesToChatCompletions.
-// Errors are written in the Responses error shape, which matches the OpenAI
-// chat error envelope verbatim, so writeOpenAIError is reused.
 func ResponsesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)

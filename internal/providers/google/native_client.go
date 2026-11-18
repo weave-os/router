@@ -17,27 +17,16 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-// NativeBaseURL is Google's native Generative Language base URL.
 const NativeBaseURL = "https://generativelanguage.googleapis.com"
 
-// NativeClient is the providers.Client adapter for Gemini's native REST surface.
-// The native API preserves thought_signature for multi-turn tool use with Gemini 3.x preview models.
 type NativeClient struct {
-	apiKey  string
-	baseURL string
-	http    *http.Client
-	// sseIdleTimeout, when > 0, overrides httputil.DefaultSSEIdleTimeout for the
-	// byte-idle watchdog. Production uses the default; tests inject a small value
-	// so the output-stall watchdog can be exercised without the byte-idle one
-	// firing first.
+	apiKey         string
+	baseURL        string
+	http           *http.Client
 	sseIdleTimeout time.Duration
-	// outputStall, when > 0, overrides httputil.DefaultOutputStallTimeout for the
-	// output-progress watchdog. Production uses the default; tests inject a small
-	// value to drive the output-stall trip without waiting out the real budget.
-	outputStall time.Duration
+	outputStall    time.Duration
 }
 
-// NewNativeClient returns a NativeClient using NativeBaseURL when baseURL is empty.
 func NewNativeClient(apiKey, baseURL string) *NativeClient {
 	if baseURL == "" {
 		baseURL = NativeBaseURL
@@ -49,10 +38,6 @@ func NewNativeClient(apiKey, baseURL string) *NativeClient {
 	}
 }
 
-// NewNativeClientWithStallTimeouts is NewNativeClient with injected byte-idle
-// and output-stall watchdog budgets. Exists so a test can drive the
-// output-progress watchdog with a small budget while keeping the byte-idle
-// watchdog large enough that it isn't what fires.
 func NewNativeClientWithStallTimeouts(apiKey, baseURL string, sseIdleTimeout, outputStall time.Duration) *NativeClient {
 	c := NewNativeClient(apiKey, baseURL)
 	c.sseIdleTimeout = sseIdleTimeout
@@ -60,8 +45,6 @@ func NewNativeClientWithStallTimeouts(apiKey, baseURL string, sseIdleTimeout, ou
 	return c
 }
 
-// idleTimeout returns the byte-idle watchdog budget: the injected test override
-// when set, else httputil.DefaultSSEIdleTimeout.
 func (c *NativeClient) idleTimeout() time.Duration {
 	if c.sseIdleTimeout > 0 {
 		return c.sseIdleTimeout
@@ -69,8 +52,6 @@ func (c *NativeClient) idleTimeout() time.Duration {
 	return httputil.DefaultSSEIdleTimeout
 }
 
-// outputStallTimeout returns the output-progress watchdog budget: the injected
-// test override when set, else httputil.DefaultOutputStallTimeout.
 func (c *NativeClient) outputStallTimeout() time.Duration {
 	if c.outputStall > 0 {
 		return c.outputStall
@@ -78,7 +59,6 @@ func (c *NativeClient) outputStallTimeout() time.Duration {
 	return httputil.DefaultOutputStallTimeout
 }
 
-// Proxy posts to :generateContent or :streamGenerateContent?alt=sse depending on the Gemini stream hint header.
 func (c *NativeClient) Proxy(ctx context.Context, decision router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
@@ -120,7 +100,6 @@ func (c *NativeClient) Proxy(ctx context.Context, decision router.Decision, prep
 	providers.ObserveUpstreamHeaders(ctx, resp.Header)
 
 	if resp.StatusCode >= 400 {
-		// Caller decides retry vs render; do not commit the downstream writer.
 		body, totalRead, readErr := httputil.ReadCapped(resp.Body, providers.MaxBufferedErrorBytes)
 		if len(body) > 0 {
 			t.StampUpstreamFirstByte()
@@ -142,16 +121,6 @@ func (c *NativeClient) Proxy(ctx context.Context, decision router.Decision, prep
 	providers.CopyUpstreamHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
 
-	// Output-progress watchdog: StreamBody's byte-idle watchdog resets on ANY
-	// upstream byte, so a stream that stays byte-alive (SSE keepalive comments or
-	// empty/role-only frames) while producing zero output rides to the request
-	// cap. This second watchdog measures time-since-last-OUTPUT; its mark is fed
-	// by the GeminiToOpenAISSETranslator only on output-bearing events (text,
-	// tool-call args, terminal finish). On trip it cancels ctx with
-	// ErrUpstreamOutputStall (retryable; fails over while uncommitted). Only the
-	// translator can tell output from keepalive, so it is wired via
-	// ArmOutputProgress; a non-streaming writer returns armed=false and is
-	// byte-idle-guarded only.
 	if arm, ok := w.(providers.OutputProgressArmer); ok {
 		outMark, outStop := httputil.StartIdleWatchdogCause(ctx, cancel, c.outputStallTimeout(), httputil.ErrUpstreamOutputStall)
 		if arm.ArmOutputProgress(timing.FirstOutputMark(ctx, outMark)) {
@@ -164,7 +133,6 @@ func (c *NativeClient) Proxy(ctx context.Context, decision router.Decision, prep
 	return httputil.StreamBody(ctx, cancel, c.idleTimeout(), resp.Body, resp.StatusCode, w, t)
 }
 
-// Passthrough rewrites inbound /v1/ paths to /v1beta/ for the native API surface.
 func (c *NativeClient) Passthrough(ctx context.Context, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
 	suffix := r.URL.Path
 	if rest, ok := strings.CutPrefix(suffix, "/v1/"); ok {
@@ -208,7 +176,6 @@ func (c *NativeClient) Passthrough(ctx context.Context, prep providers.PreparedR
 	return err
 }
 
-// applyAPIKey sets x-goog-api-key, preferring BYOK credentials over the deployment-level key.
 func (c *NativeClient) applyAPIKey(ctx context.Context, req *http.Request) {
 	if creds := requestcontext.CredentialsFromContext(ctx); creds != nil && len(creds.APIKey) > 0 {
 		req.Header.Set("x-goog-api-key", string(creds.APIKey))

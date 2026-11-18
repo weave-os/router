@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"time"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -20,52 +19,28 @@ import (
 	"github.com/google/uuid"
 )
 
-// ForceModelHeader pins the session to a specific model, mirroring the
-// /force-model chat command. Needed for headless clients (eval harness, CI
-// smoke runs): Claude Code eats "/force-model …" as a client-side slash
-// command before it reaches the router. The header rides on every request,
-// so the pin is (re)written and served on the same turn. Values that name no
-// catalog model fail the request; so do excluded ones.
 const ForceModelHeader = "x-weave-force-model"
 
-// ErrForcedModelUnknown is returned when a caller forces a model name that
-// resolves to no catalog entry. Failing is the point: routing on regardless
-// serves a model the caller never asked for while looking like the force took.
 var ErrForcedModelUnknown = errors.New("forced model is not a known model")
 
-// ForcedModelUnknownError carries the unresolvable value so the dispatch
-// classifier can quote it back.
 type ForcedModelUnknownError struct {
 	Model string
 }
 
-// Error implements error.
 func (e *ForcedModelUnknownError) Error() string {
 	return fmt.Sprintf("%q is not a known model", e.Model)
 }
 
-// Unwrap ties the typed error to ErrForcedModelUnknown for errors.Is.
 func (e *ForcedModelUnknownError) Unwrap() error { return ErrForcedModelUnknown }
 
-// forceModelExamples follows the family aliases so the unknown-model hint
-// never names a retired release.
 var forceModelExamples = fmt.Sprintf("opus, %s, %s, or %s",
 	forceModelAliases["opus"], forceModelAliases["gpt"], forceModelAliases["gemini"])
 
-// resolveForceModel is the legacy two-return surface. New pin-and-effort
-// callers use resolveForceModelWithEffort.
 func resolveForceModel(model string) (canonicalID, provider string, known bool) {
 	canon, prov, kn, _ := resolveForceModelWithEffort(model)
 	return canon, prov, kn
 }
 
-// resolveForceModelWithEffort is like resolveForceModel but also strips a
-// `:level` suffix. `known` is true only for catalog matches; known=false +
-// effort!="" lets callers surface "model not found" without losing the effort.
-//
-// Matching is exact up to separator spelling (see foldModelSpelling): no
-// prefix, substring, or nearest-match fallback. Approximate matching silently
-// served the wrong model; an unrecognized name must fail loudly instead.
 func resolveForceModelWithEffort(model string) (canonicalID, provider string, known bool, effort string) {
 	effortLevel, stripped := stripEffortSuffix(model)
 	model = stripped
@@ -123,9 +98,6 @@ func servableForceModel(id, requiredProvider string) (catalog.Model, bool) {
 	return m, true
 }
 
-// lookupForceModelName resolves an exact alias, bare catalog name, or catalog
-// ID, then the same names with separators folded. Folding never guesses: it
-// only reaches keys that differ from a real name in separator spelling.
 func lookupForceModelName(name string) (string, bool) {
 	if alias, ok := forceModelAliases[name]; ok {
 		return alias, true
@@ -140,18 +112,12 @@ func lookupForceModelName(name string) (string, bool) {
 	return id, ok
 }
 
-// foldModelSpelling treats every run of '.', '_', ' ' and '-' as one '-', so
-// "claude-opus-5.5", "opus 5.5" and "opus_5_5" spell the same name. Edge
-// separators are kept, so a truncated "gpt-" never folds onto "gpt".
 var modelSpellingSeparators = regexp.MustCompile(`[._ -]+`)
 
 func foldModelSpelling(name string) string {
 	return modelSpellingSeparators.ReplaceAllString(name, "-")
 }
 
-// forceModelNames lists every exact name /force-model accepts, keyed to its
-// catalog ID: servable catalog IDs, Claude IDs without "claude-", aliases,
-// and bare catalog names.
 func forceModelNames() map[string]string {
 	names := make(map[string]string, len(catalog.Models)*2+len(forceModelAliases))
 	for _, m := range catalog.Models {
@@ -175,13 +141,8 @@ func forceModelNames() map[string]string {
 	return names
 }
 
-// gptVariantID matches a GPT release whose version has a minor component
-// ("gpt-6.1-sol"). A bare major ("sol-6") can name a generation rather than one
-// release, so it gets no variant-first spelling.
 var gptVariantID = regexp.MustCompile(`^gpt-([0-9]+\.[0-9]+)-([a-z]+)$`)
 
-// variantFirstGPTName spells a GPT release variant first, as users say it:
-// "gpt-6.1-sol" is also "sol-6.1" (and, folded, "sol 6.1" or "sol-6-1").
 func variantFirstGPTName(id string) (string, bool) {
 	match := gptVariantID.FindStringSubmatch(id)
 	if match == nil {
@@ -190,9 +151,6 @@ func variantFirstGPTName(id string) (string, bool) {
 	return match[2] + "-" + match[1], true
 }
 
-// foldedForceModelNames indexes forceModelNames by folded spelling. A folded
-// key that two names share for different models is dropped rather than
-// guessed; TestFoldedForceModelNames_Unambiguous asserts the invariant.
 var foldedForceModelNames = func() map[string]string {
 	out := make(map[string]string)
 	ambiguous := make(map[string]bool)
@@ -211,8 +169,6 @@ var foldedForceModelNames = func() map[string]string {
 
 type forceModelSuggestion struct{ name, id string }
 
-// preferredOver orders display names: shortest, then the catalog ID's own
-// spelling, then lexical, so the choice is deterministic.
 func (c forceModelSuggestion) preferredOver(o forceModelSuggestion) bool {
 	if len(c.name) != len(o.name) {
 		return len(c.name) < len(o.name)
@@ -223,8 +179,6 @@ func (c forceModelSuggestion) preferredOver(o forceModelSuggestion) bool {
 	return c.name < o.name
 }
 
-// forceModelSuggestions holds one display name per unambiguous folded key:
-// the shortest accepted name, so "opsu" suggests "opus", not a full ID.
 var forceModelSuggestions = func() map[string]forceModelSuggestion {
 	out := make(map[string]forceModelSuggestion, len(foldedForceModelNames))
 	for name := range forceModelNames() {
@@ -242,11 +196,6 @@ var forceModelSuggestions = func() map[string]forceModelSuggestion {
 	return out
 }()
 
-// suggestForceModel names the accepted spelling nearest an unrecognized input
-// for a "did you mean" hint. It is display-only and never feeds resolution.
-// Candidates must keep the input's digits: a near-miss version ("gpt-6-1" vs
-// "gpt-4.1") is a different model, not a typo. It returns "" when nothing is
-// within a small edit distance or the nearest names belong to different models.
 func suggestForceModel(input string) string {
 	effort, model := stripEffortSuffix(input)
 	model, _ = translate.CanonicalModel(strings.ToLower(strings.TrimSpace(model)))
@@ -293,8 +242,6 @@ func digitsOf(s string) string {
 	}, s)
 }
 
-// editDistance is the optimal-string-alignment distance: insertions,
-// deletions, substitutions, and adjacent transpositions ("astar" -> "astra").
 func editDistance(a, b string) int {
 	ra, rb := []rune(a), []rune(b)
 	prev2 := make([]int, len(rb)+1)
@@ -320,10 +267,6 @@ func editDistance(a, b string) int {
 	return prev[len(rb)]
 }
 
-// bareCatalogNames maps a slash-form model's bare tail to its canonical
-// ID ("qwen3-coder" -> "qwen/qwen3-coder") for vendor-prefix-optional lookup.
-// Tails that are ambiguous, match a full catalog ID, or duplicate an alias
-// are excluded; TestBareCatalogNames_Unambiguous asserts the invariant.
 var bareCatalogNames = func() map[string]string {
 	owners := make(map[string][]string)
 	for _, m := range catalog.Models {
@@ -347,34 +290,10 @@ var bareCatalogNames = func() map[string]string {
 	return out
 }()
 
-// stripEffortSuffix splits a `:level` suffix off model, canonicalizes it via
-// CanonicalizeEffort, and returns ("", model) when no recognized suffix found.
-func stripEffortSuffix(model string) (effort string, modelOut string) {
-	const sep = ":"
-	idx := strings.LastIndex(model, sep)
-	if idx < 0 || idx == len(model)-1 {
-		return "", model
-	}
-	tail := strings.TrimSpace(model[idx+1:])
-	if !looksLikeEffortAlias(tail) {
-		return "", model
-	}
-	return router.CanonicalizeEffort(tail), model[:idx]
-}
-
 const (
-	forceModelSessionRole       = "force_model"
-	forceModelHistoryRoleSuffix = "_force_hist"
-	forceModelHistoryReason     = "force_model_history"
-	userUnforcedReason          = "user_unforced"
+	forceModelSessionRole = "force_model"
+	userUnforcedReason    = "user_unforced"
 )
-
-func forceModelHistoryRole(role string) string {
-	if role == "" {
-		role = sessionpin.DefaultRole
-	}
-	return role + forceModelHistoryRoleSuffix
-}
 
 func (s *Service) preserveForceModelControlHistory(
 	ctx context.Context,
@@ -390,7 +309,7 @@ func (s *Service) preserveForceModelControlHistory(
 	}
 	return s.pinStore.UpdateUsage(context.WithoutCancel(ctx), sessionKey, forceModelSessionRole, sessionpin.Usage{
 		Strategy:            existing.Strategy,
-		EndedAt:             time.Now(),
+		EndedAt:             s.clock.Now(),
 		ServedModel:         existing.Model,
 		ServedProvider:      existing.Provider,
 		PriorServedModel:    existing.LastServedModel,
@@ -398,8 +317,6 @@ func (s *Service) preserveForceModelControlHistory(
 	})
 }
 
-// setForceModelSessionPin writes the session-wide control row. Ordinary turns
-// never refresh this row; only another force or an explicit clear changes it.
 func (s *Service) setForceModelSessionPin(
 	ctx context.Context,
 	sessionKey [sessionpin.SessionKeyLen]byte,
@@ -443,12 +360,10 @@ func (s *Service) loadForceModelSessionPin(
 	if found && pin.Reason == userUnforcedReason {
 		return pin, false, true
 	}
-	if !found || !pin.PinnedUntil.After(time.Now()) || !isUserForcedReason(pin.Reason) || pin.Model == "" || pin.Provider == "" {
+	if !found || !pin.PinnedUntil.After(s.clock.Now()) || !isUserForcedReason(pin.Reason) || pin.Model == "" || pin.Provider == "" {
 		return sessionpin.Pin{}, false, false
 	}
 	if pin.ForcedThreadKey != "" && (isSubagent || pin.ForcedThreadKey != sessionKeyHex(threadSessionKey)) {
-		// Suppress pre-session-scope force rows on children as an explicit clear
-		// does, so switching from force-model cannot revive an inherited pin.
 		return pin, false, true
 	}
 	return pin, true, false
@@ -467,33 +382,10 @@ func (s *Service) loadForceModelHistory(
 		observability.FromContext(ctx).Error("force-model history lookup failed", "err", err)
 		return sessionpin.Pin{}
 	}
-	if !found || !pin.PinnedUntil.After(time.Now()) {
+	if !found || !pin.PinnedUntil.After(s.clock.Now()) {
 		return sessionpin.Pin{}
 	}
 	return pin
-}
-
-func (s *Service) anchorForceModelHistory(
-	ctx context.Context,
-	installationID uuid.UUID,
-	sessionKey [sessionpin.SessionKeyLen]byte,
-	role string,
-	forcedPin sessionpin.Pin,
-) {
-	if s.pinStore == nil || installationID == uuid.Nil {
-		return
-	}
-	s.upsertPin(ctx, sessionpin.Pin{
-		SessionKey:     sessionKey,
-		Role:           forceModelHistoryRole(role),
-		InstallationID: installationID,
-		Provider:       forcedPin.Provider,
-		Model:          forcedPin.Model,
-		Reason:         forceModelHistoryReason,
-		Strategy:       router.StrategyFromContext(ctx),
-		TurnCount:      1,
-		PinnedUntil:    pinNeverExpires,
-	})
 }
 
 func forceModelClearRoles() []string {
@@ -539,8 +431,6 @@ func (s *Service) clearForceModelSessionPin(
 	if err := s.preserveForceModelControlHistory(ctx, sessionKey, ""); err != nil {
 		return fmt.Errorf("preserve force-model control history before clear: %w", err)
 	}
-	// Keep a durable tombstone so a pre-session-scope user_forced row on any
-	// child thread cannot revive after /unforce-model.
 	cleared := sessionpin.Pin{
 		SessionKey:     sessionKey,
 		Role:           forceModelSessionRole,
@@ -552,17 +442,6 @@ func (s *Service) clearForceModelSessionPin(
 	return s.pinStore.Upsert(context.WithoutCancel(ctx), cleared)
 }
 
-// applyForceModelHeader honors the x-weave-force-model request header,
-// writing the same session pin the /force-model command writes. It's
-// (re)written on every request carrying the header. A model that names no
-// catalog entry, or one the exclusion policy forbids, fails the request —
-// silently routing elsewhere would serve a model the caller never asked for.
-//
-// A `:level` suffix is stashed on the returned context (and on *r) as
-// router.Overrides.ForceEffort. The returned model spec also keeps the suffix
-// so plan-owned callers that omit routing knobs carry effort into same-turn
-// req.ForceModel; callers must continue with the returned context for
-// routingKnobsForRequest to see it.
 func (s *Service) applyForceModelHeader(
 	ctx context.Context,
 	r *http.Request,
@@ -576,7 +455,6 @@ func (s *Service) applyForceModelHeader(
 	log := observability.FromContext(ctx)
 	canonicalModel, provider, known, effortLevel := resolveForceModelWithEffort(raw)
 	if effortLevel != "" {
-		// Merge with any existing knobs so ForceEffort doesn't drop Alpha/QualityBias.
 		merged := router.Overrides{ForceEffort: effortLevel}
 		if existing := router.RoutingKnobsFromContext(r.Context()); existing != nil {
 			merged.Alpha = existing.Alpha
@@ -609,9 +487,6 @@ func (s *Service) applyForceModelHeader(
 	provider = binding
 	forcedModel := canonicalModel
 	if effortLevel != "" {
-		// The caller feeds this value into req.ForceModel for the same turn.
-		// Keep the effort suffix there because plan-owned routing deliberately
-		// omits routing knobs from the request passed to the scorer.
 		forcedModel += ":" + effortLevel
 	}
 	if err := s.setForceModelSessionPin(ctx, forceModelSessionKey, installationID, canonicalModel, provider, effortLevel, ""); err != nil {
@@ -629,9 +504,6 @@ func (s *Service) applyForceModelHeader(
 	return ctx, forcedModel, nil
 }
 
-// handleForceModelCommand processes a user-issued directive and writes a
-// synthetic acknowledgment without dispatching upstream. inputTokens is the
-// request's RoutingFeatures.Tokens so counts reflect actual turn input.
 func (s *Service) handleForceModelCommand(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -648,10 +520,6 @@ func (s *Service) handleForceModelCommand(
 	return writeCommandAcknowledgment(ctx, w, env, ack, inputTokens)
 }
 
-// applyForceModelCommand updates the session pin without deciding whether the
-// caller should receive a synthetic response. It returns the canonical model
-// (with its `:level` suffix when one was given, so a same-turn dispatch via
-// req.ForceModel resolves the same effort) when a force was applied.
 func (s *Service) applyForceModelCommand(
 	ctx context.Context,
 	cmd translate.ForceModelResult,
@@ -742,9 +610,6 @@ func (s *Service) applyForceModelCommand(
 	return shownModel, ack, nil
 }
 
-// writeSyntheticAnthropicResponse writes a minimal Anthropic Messages API
-// response without hitting an upstream, handling both streaming and
-// non-streaming shapes.
 func writeSyntheticAnthropicResponse(w http.ResponseWriter, env *translate.RequestEnvelope, text string, inputTokens int) error {
 	return translate.WriteSyntheticAnthropicResponse(w, env, text, inputTokens)
 }

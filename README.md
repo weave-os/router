@@ -83,7 +83,8 @@ URL from its own servers, not from your machine, so a `localhost` router is
 unreachable: use the hosted router or a publicly reachable self-hosted URL. In
 Cursor, open Settings → Models, turn on *OpenAI API Key* with your `rk_...`
 router key, set *Override OpenAI Base URL* to `<base-url>/v1`, and add a custom
-model named `weave-auto` (the router rejects other `weave-` names). Tab
+model named `Weave Auto` (the router also accepts `weave-auto` and rejects other
+`weave-` names). Tab
 completion and Apply stay on Cursor's own models, and BYOK needs a paid Cursor
 seat.
 

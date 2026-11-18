@@ -57,8 +57,6 @@ func (t *trafficCaptureRoundTripper) RoundTrip(request *http.Request) (*http.Res
 		}
 	}
 	finishResponse := func(responseComplete bool, responseErr error) {
-		// RoundTrip may return while the transport is still consuming/closing
-		// the request. Retain both spools until both bodies have finished.
 		requestBody.whenFinished(func(requestComplete bool, requestBodyErr error) {
 			exchangeRequest.BodyComplete = requestComplete && requestBody.spoolError() == nil
 			if responseBodySpool != nil && responseBodySpool.Err() != nil {

@@ -48,6 +48,7 @@ type bypassFakeProvider struct {
 	dispatches   int
 	capturedW    http.ResponseWriter
 	capturedBody []byte
+	capturedHdr  http.Header
 	capturedR    *http.Request
 	capturedCtx  context.Context
 	capturedDec  router.Decision
@@ -62,6 +63,7 @@ func (f *bypassFakeProvider) Proxy(ctx context.Context, decision router.Decision
 	f.capturedW = w
 	f.capturedR = r
 	f.capturedBody = append([]byte(nil), prep.Body...)
+	f.capturedHdr = prep.Headers.Clone()
 	if f.respBody != "" {
 		_, _ = io.WriteString(w, f.respBody)
 	}
@@ -260,10 +262,7 @@ func TestUsageBypass_PreservesSwitchHistory(t *testing.T) {
 	assert.Equal(t, "claude-haiku-4-5", res.PriorServedModel)
 	assert.True(t, res.SessionEverSwitched)
 	assert.True(t, res.modelSwitched(), "bypass must retain switch history for Anthropic thinking-block stripping")
-	bucketKey, ok := noProgressBucketKey(res.SessionKey, uuid.Nil, res.PinRole)
-	require.True(t, ok)
-	_, tracked := svc.compaction.cache.Get(bucketKey)
-	assert.True(t, tracked, "bypass must retain compaction-trim tracking")
+	assert.True(t, svc.compaction.Tracks(res.SessionKey, uuid.Nil, res.PinRole), "bypass must retain compaction-trim tracking")
 }
 
 // TestUsageBypass_EngagesUnderAuthoritativePolicy verifies that an authoritative
