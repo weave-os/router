@@ -1097,7 +1097,7 @@ func main() {
 		flags.KeyCyberRefusalRetry:                    boolDefault(cyberRefusalRetry),
 		flags.KeyCyberRefusalFallback:                 cyberRefusalFallbackModel,
 		flags.KeyAnthropicServerFallback:              boolDefault(anthropicServerSideFallback),
-	}, hmmSameTierPin, hardPinExplore, ccOrchToolsCrossVendor, escapeNormalize, plannerCfg))
+	}, hmmSameTierPin, config.GetOr("ROUTER_HMM_PHASE_CHANGE_GATE", "false") == "true", hardPinExplore, ccOrchToolsCrossVendor, escapeNormalize, plannerCfg))
 
 	var sessionStrategyStore sessionstrategy.Store = postgres.NewSessionStrategyRepo(pool)
 
