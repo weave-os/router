@@ -15,6 +15,8 @@ import (
 
 	"cloud.google.com/go/storage"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/policyregistry"
@@ -40,8 +42,9 @@ type loadedTaskDomain struct {
 }
 
 type taskDomainRuntime struct {
-	store    *postgres.TaskDomainRepo
-	bindings map[string]loadedTaskDomain
+	store                *postgres.TaskDomainRepo
+	bindings             map[string]loadedTaskDomain
+	invalidEvidenceDrops metric.Int64Counter
 }
 
 type taskDomainMetadataKind string
@@ -82,7 +85,19 @@ func loadTaskDomainRuntime(pool *pgxpool.Pool) (*taskDomainRuntime, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &taskDomainRuntime{store: postgres.NewTaskDomainRepo(pool), bindings: bindings}, nil
+	return &taskDomainRuntime{
+		store:                postgres.NewTaskDomainRepo(pool),
+		bindings:             bindings,
+		invalidEvidenceDrops: newTaskDomainEvidenceDropCounter(otel.GetMeterProvider()),
+	}, nil
+}
+
+func newTaskDomainEvidenceDropCounter(provider metric.MeterProvider) metric.Int64Counter {
+	counter, _ := provider.Meter("weave-os/router/task-domain").Int64Counter(
+		"router.task_domain.evidence_drops",
+		metric.WithDescription("Invalid task-domain evidence discarded when binding a serving policy."),
+	)
+	return counter
 }
 
 func loadTaskDomainBindings(ctx context.Context, reader *taskDomainMetadataReader, configPath, expectedBindingsDigest string) (map[string]loadedTaskDomain, error) {
@@ -181,10 +196,10 @@ func taskDomainGCSReference(path, expectedDigest string, kind taskDomainMetadata
 	return name, generation, nil
 }
 
-func (r *taskDomainRuntime) bind(candidate policyregistry.Candidate) (taskdomain.Resolver, *selection.DomainEvidence, string, error) {
+func (r *taskDomainRuntime) bind(ctx context.Context, candidate policyregistry.Candidate) (taskdomain.Resolver, *selection.DomainEvidence, string) {
 	ref, selected := candidate.AuxiliaryModels[taskdomain.AuxiliaryModel]
 	if !selected {
-		return nil, nil, "", nil
+		return nil, nil, ""
 	}
 	baseline := &proxy.TaskDomainResolver{ReleaseSHA256: ref.SHA256}
 	var loaded loadedTaskDomain
@@ -193,17 +208,18 @@ func (r *taskDomainRuntime) bind(candidate policyregistry.Candidate) (taskdomain
 		loaded, exists = r.bindings[ref.SHA256]
 	}
 	if !exists {
-		return baseline, nil, "", nil
+		return baseline, nil, ""
 	}
 	evidenceSHA := loaded.release.Evidence[candidate.Policy.SHA256()]
 	if evidenceSHA == "" {
-		return baseline, nil, "", nil
+		return baseline, nil, ""
 	}
 	evidence, err := selection.ParseDomainEvidence(loaded.evidence[evidenceSHA], candidate.Policy.Roster())
 	if err != nil {
-		return nil, nil, "", err
+		r.invalidEvidenceDrops.Add(ctx, 1)
+		return baseline, nil, ""
 	}
-	return &proxy.TaskDomainResolver{Store: r.store, Classifier: loaded.classifier, ReleaseSHA256: ref.SHA256, EvidenceSHA256: evidenceSHA}, evidence, evidenceSHA, nil
+	return &proxy.TaskDomainResolver{Store: r.store, Classifier: loaded.classifier, ReleaseSHA256: ref.SHA256, EvidenceSHA256: evidenceSHA}, evidence, evidenceSHA
 }
 
 func (r *taskDomainRuntime) sweep(ctx context.Context) {

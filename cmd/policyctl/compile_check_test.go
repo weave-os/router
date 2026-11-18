@@ -16,14 +16,14 @@ import (
 
 const syntheticPolicySourcePath = "../../internal/router/hmm/selection/testdata/golden/policy_v1_synthetic.json"
 
-func runCompileCheckSummary(t *testing.T, sourcePath string) (string, error) {
+func runCompileCheckSummary(t *testing.T, sourcePath string, args ...string) (string, error) {
 	t.Helper()
 	summaryPath := filepath.Join(t.TempDir(), "summary.json")
 	summaryFile, err := os.Create(summaryPath)
 	require.NoError(t, err)
 	stdout := os.Stdout
 	os.Stdout = summaryFile
-	compileErr := runCompile([]string{"--source", sourcePath, "--check"})
+	compileErr := runCompile(append([]string{"--source", sourcePath, "--check"}, args...))
 	os.Stdout = stdout
 	require.NoError(t, summaryFile.Close())
 	if compileErr != nil {

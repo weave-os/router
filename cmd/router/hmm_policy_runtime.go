@@ -31,10 +31,7 @@ func hmmPolicySnapshotBuilder(
 		if len(taskRuntimes) > 0 {
 			taskRuntime = taskRuntimes[0]
 		}
-		taskResolver, domainEvidence, evidenceSHA, err := taskRuntime.bind(candidate)
-		if err != nil {
-			return nil, fmt.Errorf("bind task classifier: %w", err)
-		}
+		taskResolver, domainEvidence, evidenceSHA := taskRuntime.bind(ctx, candidate)
 		if candidate.ClassifierReleaseV5 != nil {
 			return buildHMMPolicyRoutersV5(ctx, candidate, availableProviders, strategies, authMode, timeout, attemptTimeout, taskResolver, domainEvidence, evidenceSHA)
 		}
