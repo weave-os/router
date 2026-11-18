@@ -1,0 +1,35 @@
+{
+  "schema_version": "atomization_ratchet_v1",
+  "ratchets": {
+    "hmm_pin_field_references": {
+      "internal/postgres": 6,
+      "internal/proxy": 7,
+      "internal/routingpolicy": 7
+    },
+    "proxy_hmm_metadata_references": {
+      "internal/proxy": 54
+    },
+    "proxy_reason_string_comparisons": {
+      "internal/proxy": 24
+    },
+    "serving_strategy_internal_imports": {
+      "internal/api/admin -> internal/router/hmm": 1,
+      "internal/api/admin -> internal/router/hmm/rosterdata": 1,
+      "internal/api/admin -> internal/router/hmm/selection": 1,
+      "internal/policyregistry -> internal/router/hmm/armid": 1,
+      "internal/policyregistry -> internal/router/hmm/rosterdata": 1,
+      "internal/proxy -> internal/router/decisionmodel": 1,
+      "internal/proxy -> internal/router/hmm": 1,
+      "internal/proxy -> internal/router/hmm/armid": 1,
+      "internal/proxy -> internal/router/rl": 1
+    },
+    "strategy_from_context_callers": {
+      "internal/api/anthropic": 1,
+      "internal/policyregistry": 5,
+      "internal/proxy": 33,
+      "internal/routingpolicy": 5,
+      "internal/server/middleware": 1
+    },
+    "strategy_serving_adapter_imports": {}
+  }
+}
