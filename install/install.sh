@@ -3661,7 +3661,7 @@ shared_key_login_hint() {
     "$HOSTED_BASE_URL"|"$LEGACY_HOSTED_BASE_URL")
       printf '  Connect your own Claude or ChatGPT seat while signed in to Weave: %s\n' "$SUBSCRIPTIONS_DASHBOARD_URL" >&2 ;;
     *)
-      printf '  Ask your Router admin for a personal key, then run this command again.\n' >&2 ;;
+      printf '  This router connects subscription seats only through a personal key tied to one person.\n' >&2 ;;
   esac
 }
 

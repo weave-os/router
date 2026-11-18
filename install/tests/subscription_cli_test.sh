@@ -156,7 +156,7 @@ for provider in claude codex; do
     exit 1
   fi
   grep -Fq 'shared team key' <<<"$shared_output"
-  grep -Fq 'Ask your Router admin for a personal key' <<<"$shared_output"
+  grep -Fq 'only through a personal key' <<<"$shared_output"
   if grep -Eq 'oauth|deviceauth|subscriptions/accounts' "$FAKE_CURL_LOG"; then
     echo "$provider login started authorization on a shared team key" >&2
     exit 1
