@@ -633,15 +633,15 @@
       "routing_decisions": [
         {
           "requested_model": "auto",
-          "model": "gpt-5.6-luna",
+          "model": "gpt-5.6-sol",
           "provider": "openai",
-          "reason": "hmm_policy:tool_execution"
+          "reason": "hmm_policy"
         }
       ],
       "dispatch_attempts": [
         {
           "provider": "openai",
-          "wire_model": "gpt-5.6-luna",
+          "wire_model": "gpt-5.6-sol",
           "endpoint": "responses",
           "credential_source": "codex_subscription",
           "outbound_body": {
@@ -684,7 +684,7 @@
                 "type": "function_call_output"
               }
             ],
-            "model": "gpt-5.6-luna",
+            "model": "gpt-5.6-sol",
             "stream": true,
             "tools": [
               {
@@ -714,9 +714,9 @@
             "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
           },
           "Target": {
-            "CatalogID": "gpt-5.6-luna",
+            "CatalogID": "gpt-5.6-sol",
             "Provider": "openai",
-            "UpstreamID": "gpt-5.6-luna"
+            "UpstreamID": "gpt-5.6-sol"
           }
         }
       ],
@@ -729,8 +729,8 @@
           "X-Router-Context-Output-Reserve-Tokens": "8000",
           "X-Router-Context-Version": "1",
           "X-Router-Context-Window": "1050000",
-          "X-Router-Decision": "hmm_policy:tool_execution",
-          "X-Router-Model": "gpt-5.6-luna",
+          "X-Router-Decision": "hmm_policy",
+          "X-Router-Model": "gpt-5.6-sol",
           "X-Router-Provider": "openai"
         },
         "events": [
@@ -739,7 +739,7 @@
             "data": {
               "response": {
                 "id": "resp_\u003cid\u003e",
-                "model": "gpt-5.6-luna",
+                "model": "gpt-5.6-sol",
                 "object": "response",
                 "status": "in_progress"
               },
@@ -781,7 +781,7 @@
             "event": "response.output_text.delta",
             "data": {
               "content_index": 0,
-              "delta": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-luna · funded by Codex subscription\n\n",
+              "delta": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn · funded by Codex subscription\n\n",
               "item_id": "msg_\u003cid\u003e",
               "output_index": 0,
               "sequence_number": 3,
@@ -795,7 +795,7 @@
               "item_id": "msg_\u003cid\u003e",
               "output_index": 0,
               "sequence_number": 4,
-              "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-luna · funded by Codex subscription\n\n",
+              "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn · funded by Codex subscription\n\n",
               "type": "response.output_text.done"
             }
           },
@@ -807,7 +807,7 @@
               "output_index": 0,
               "part": {
                 "annotations": [],
-                "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-luna · funded by Codex subscription\n\n",
+                "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn · funded by Codex subscription\n\n",
                 "type": "output_text"
               },
               "sequence_number": 5,
@@ -821,7 +821,7 @@
                 "content": [
                   {
                     "annotations": [],
-                    "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-luna · funded by Codex subscription\n\n",
+                    "text": "⁣⁠⁣⁠✦ **Weave Router** → gpt-5.6-sol · best pick for this turn · funded by Codex subscription\n\n",
                     "type": "output_text"
                   }
                 ],
@@ -883,7 +883,7 @@
             "LastOutputTokens": 7,
             "LastServedModel": "gpt-5.6-sol",
             "Provider": "openai",
-            "Reason": "hmm_policy:tool_execution",
+            "Reason": "hmm_policy",
             "Role": "default_hmm_history",
             "Strategy": "hmm_embedding",
             "TurnCount": 1
@@ -896,7 +896,7 @@
             "InputTokens": 12,
             "OutputTokens": 7,
             "PriorServedModel": "gpt-5.6-sol",
-            "ServedModel": "gpt-5.6-luna",
+            "ServedModel": "gpt-5.6-sol",
             "ServedProvider": "openai",
             "Strategy": "hmm_embedding"
           }
@@ -907,18 +907,18 @@
           "APIKeyID": "golden-key",
           "EntryType": "inference",
           "FeeEntryType": "byok_fee",
-          "NotionalCostMicros": 11,
+          "NotionalCostMicros": 188,
           "OrganizationID": "golden-org",
-          "RouterModel": "gpt-5.6-luna"
+          "RouterModel": "gpt-5.6-sol"
         }
       ],
       "telemetry": [
         {
           "APIKeyID": "golden-key",
-          "ActualInputCostUSD": 0.0000024000000000000003,
-          "ActualOutputCostUSD": 0.0000084,
+          "ActualInputCostUSD": 0.000048,
+          "ActualOutputCostUSD": 0.00014,
           "CaptureMode": "off",
-          "ChosenScore": 0.4399999976158142,
+          "ChosenScore": 0.8999999761581421,
           "ClientApp": "codex",
           "ContextSnapshot": {
             "context_window": 1050000,
@@ -927,32 +927,28 @@
             "output_reserve_tokens": 8000,
             "request_id": "\u003cuuid\u003e",
             "requested_model": "auto",
-            "served_model": "gpt-5.6-luna",
+            "served_model": "gpt-5.6-sol",
             "version": 1
           },
           "CredentialKeyPrefix": "eyJhbGci",
           "CredentialKeySuffix": "ture",
           "CredentialSource": "codex_subscription",
-          "DecisionModel": "gpt-5.6-luna",
+          "DecisionModel": "gpt-5.6-sol",
           "DecisionProvider": "openai",
-          "DecisionReason": "hmm_policy:tool_execution",
+          "DecisionReason": "hmm_policy",
           "EmbedInput": "only_user_message",
           "EstimatedInputTokens": 1717,
-          "FinalModelFamily": "gpt-luna",
-          "FreshDecisionModel": "gpt-5.6-luna",
+          "FinalModelFamily": "gpt-sol",
+          "FreshDecisionModel": "gpt-5.6-sol",
           "InputTokens": 12,
           "InstallationID": "00000000-0000-4000-8000-000000000001",
-          "IntendedModelFamily": "gpt-luna",
+          "IntendedModelFamily": "gpt-sol",
           "OutputTokens": 7,
-          "PinTier": "hmm_ev_switch_hmm_phase_change",
-          "PlannerEvictionCostUSD": 0.00030906000000000005,
-          "PlannerExpectedSavingsUSD": 0.00195738,
-          "PlannerOutcome": "switch",
+          "PinTier": "hmm_ev_same_same_model",
+          "PlannerOutcome": "stay",
           "PlannerPinModel": "gpt-5.6-sol",
           "PlannerPinProvider": "openai",
-          "PlannerReason": "hmm_phase_change",
-          "PlannerShadowExpectedSavingsUSD": 0.019573800000000002,
-          "PlannerShadowOutcome": "switch",
+          "PlannerReason": "same_model",
           "RequestedModel": "auto",
           "Role": "default",
           "SelectionTrace": {
@@ -962,7 +958,7 @@
           "SpanType": "router.upstream",
           "StopReason": "stop",
           "Strategy": "hmm_embedding",
-          "TurnType": "main_loop",
+          "TurnType": "tool_result",
           "UpstreamFinishReason": "stop",
           "UpstreamStatusCode": 200
         }

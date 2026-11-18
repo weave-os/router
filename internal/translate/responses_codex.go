@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"regexp"
 	"strconv"
 	"strings"
@@ -37,13 +36,14 @@ type responsesToolIdentity struct {
 }
 
 type portableCodexResponsesConverter struct {
-	result          ResponsesConversion
-	toolAliases     map[responsesToolIdentity]string
-	declaredAliases map[string]struct{}
-	tools           []map[string]any
-	agentPath       string
-	routingRoles    map[int]EscalationRole
-	hostedWebSearch bool
+	result                  ResponsesConversion
+	toolAliases             map[responsesToolIdentity]string
+	declaredAliases         map[string]struct{}
+	tools                   []map[string]any
+	agentPath               string
+	routingRoles            map[int]EscalationRole
+	toolImageRoutingCallIDs map[int]string
+	hostedWebSearch         bool
 }
 
 func codexFeedbackSkillInvocation(input gjson.Result) bool {
@@ -182,10 +182,11 @@ func convertPortableCodexResponses(body []byte) (ResponsesConversion, error) {
 			},
 			ToolMappings: make(map[string]ResponsesToolMapping),
 		},
-		toolAliases:     make(map[responsesToolIdentity]string),
-		declaredAliases: make(map[string]struct{}),
-		agentPath:       codexCurrentAgentPath(root.Get("input")),
-		routingRoles:    make(map[int]EscalationRole),
+		toolAliases:             make(map[responsesToolIdentity]string),
+		declaredAliases:         make(map[string]struct{}),
+		agentPath:               codexCurrentAgentPath(root.Get("input")),
+		routingRoles:            make(map[int]EscalationRole),
+		toolImageRoutingCallIDs: make(map[int]string),
 	}
 	converter.result.TitleGeneration = requestRootRequestsCodexTitle(root)
 	converter.result.Requirements.Images = root.Get("input").Exists() && containsAnyKey(body, "image_url", "input_image")
@@ -234,18 +235,8 @@ func convertPortableCodexResponses(body []byte) (ResponsesConversion, error) {
 		return ResponsesConversion{}, fmt.Errorf("marshal portable Codex chat completions: %w", err)
 	}
 	converter.result.Body = bodyOut
-	if len(converter.routingRoles) > 0 {
-		routingMessages := append([]map[string]any(nil), messages...)
-		for index, role := range converter.routingRoles {
-			index += len(systemMessages)
-			routingMessages[index] = maps.Clone(messages[index])
-			routingMessages[index]["role"] = role
-		}
-		out["messages"] = routingMessages
-		converter.result.RoutingBody, err = json.Marshal(out)
-		if err != nil {
-			return ResponsesConversion{}, fmt.Errorf("marshal Codex routing history: %w", err)
-		}
+	if converter.result.RoutingBody, err = converter.routingBody(out, messages, len(systemMessages)); err != nil {
+		return ResponsesConversion{}, err
 	}
 	if len(converter.result.ToolMappings) == 0 {
 		converter.result.ToolMappings = nil
@@ -406,6 +397,7 @@ func (c *portableCodexResponsesConverter) convertInput(input gjson.Result) []map
 			content = append(content, toolImages[callID]...)
 		}
 		messages = append(messages, map[string]any{"role": "user", "content": content})
+		c.toolImageRoutingCallIDs[len(messages)-1] = toolImageCalls[len(toolImageCalls)-1]
 		toolImageCalls = nil
 		clear(toolImages)
 	}

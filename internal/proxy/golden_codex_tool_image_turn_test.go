@@ -2,7 +2,11 @@ package proxy_test
 
 import (
 	"context"
+	"net/http"
 	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
@@ -78,4 +82,29 @@ func goldenCodexToolImageTurnScenarios() []goldenScenario {
 			})
 		},
 	}}
+}
+
+func TestCodexToolOutputImageKeepsSessionModel(t *testing.T) {
+	t.Parallel()
+	sc := goldenCodexToolImageTurnScenarios()[0]
+	h := newGoldenHarness(t, sc)
+	var turnTypes []string
+	for i, req := range sc.requests {
+		served := h.serve(t, sc.ingress, req)
+		require.Equal(t, http.StatusOK, served.Response.Status, "turn %d response: %+v", i, served.Response.Body)
+		require.NotEmpty(t, served.Attempts, "turn %d", i)
+		last := served.Attempts[len(served.Attempts)-1]
+		require.Equal(t, goldenCodexModel, last.Model, "turn %d left the session's model", i)
+		turnTypes = append(turnTypes, goldenTelemetryTurnType(t, served))
+	}
+	require.Equal(t, []string{"main_loop", "tool_result", "tool_result"}, turnTypes)
+}
+
+func goldenTelemetryTurnType(t *testing.T, served goldenRequestTrace) string {
+	t.Helper()
+	require.Len(t, served.Telemetry, 1)
+	row, ok := served.Telemetry[0].(map[string]any)
+	require.True(t, ok, "telemetry row %T", served.Telemetry[0])
+	turnType, _ := row["TurnType"].(string)
+	return turnType
 }
