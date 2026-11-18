@@ -38,6 +38,21 @@ func hmmCostGatedResult(ctx context.Context, s *Service, input routingpolicy.HMM
 	return input.Fresh, result
 }
 
+type hmmPhaseVotes struct{ Upgrade, Downgrade int }
+
+func applyHMMGateResult(res *turnLoopResult, decision router.Decision, result routingpolicy.HMMCostGateResult) (planner.Decision, bool, string) {
+	res.Decision = decision
+	res.PlannerDecision = result.Plan
+	res.HMMPhaseVotes = hmmPhaseVotes{Upgrade: result.UpgradeVotes, Downgrade: result.DowngradeVotes}
+	return result.Plan, result.Sticky, result.Stay.Model
+}
+
+func withHMMPhaseVotes(pin sessionpin.Pin, votes hmmPhaseVotes) sessionpin.Pin {
+	pin.ConsecutiveUpgradeVotes = votes.Upgrade
+	pin.ConsecutiveDowngradeVotes = votes.Downgrade
+	return pin
+}
+
 func hmmStayPin(s *Service, req router.Request, activePin sessionpin.Pin, hmmHistory sessionpin.Pin) (sessionpin.Pin, bool) {
 	return hmmCostGateFor(s).StayPin(req, activePin, hmmHistory, s.clock.Now())
 }

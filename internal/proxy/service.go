@@ -3739,7 +3739,7 @@ func (s *Service) recordHMMTurnHistory(ctx context.Context, res turnLoopResult, 
 		}
 	}
 	role := hmmHistoryRole(res.PinRole)
-	sessionPins.Upsert(strategyCtx, sessionpin.Pin{
+	sessionPins.Upsert(strategyCtx, withHMMPhaseVotes(sessionpin.Pin{
 		SessionKey:     res.SessionKey,
 		Role:           role,
 		InstallationID: res.InstallationID,
@@ -3748,10 +3748,7 @@ func (s *Service) recordHMMTurnHistory(ctx context.Context, res turnLoopResult, 
 		Strategy:       router.StrategyFromContext(strategyCtx),
 		TurnCount:      1,
 		PinnedUntil:    pinExpiry(hmmHistoryReason, s.clock.Now()),
-
-		ConsecutiveUpgradeVotes:   res.HMMPhaseUpgradeVotes,
-		ConsecutiveDowngradeVotes: res.HMMPhaseDowngradeVotes,
-	})
+	}, res.HMMPhaseVotes))
 	if !hasUsage {
 		return
 	}
