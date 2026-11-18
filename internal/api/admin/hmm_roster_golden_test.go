@@ -12,7 +12,6 @@ import (
 	"weave-os/router/internal/api/admin"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/hmm/selectionpolicy"
 	"weave-os/router/internal/router/policy"
@@ -42,10 +41,10 @@ func (unusedPolicyLoader) ReadPolicy(context.Context, policyregistry.ObjectRef) 
 	return nil, policyregistry.ErrNoActivePolicy
 }
 
-type deployedRosterIDs struct{ arms []string }
+type admittedDeployedModels struct{ admitted *selectionpolicy.Policy }
 
-func (d deployedRosterIDs) HMMDeployedModels(context.Context) ([]router.DeployedEntry, error) {
-	return hmm.DeployedModelsForRosterIDs(d.arms), nil
+func (d admittedDeployedModels) HMMDeployedModels(context.Context) ([]router.DeployedEntry, error) {
+	return d.admitted.DeployedModels(), nil
 }
 
 func loadSharedSyntheticPolicy(t *testing.T) *selectionpolicy.Policy {
@@ -103,7 +102,7 @@ func TestDeployedModelsHandlerGolden(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	roster := loadSharedSyntheticPolicy(t)
 	engine := gin.New()
-	engine.GET("/v1/router/models", admin.CatalogModelsHandler(deployedRosterIDs{arms: roster.Roster().AllArms()}))
+	engine.GET("/v1/router/models", admin.CatalogModelsHandler(admittedDeployedModels{admitted: roster}))
 
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/router/models", nil))

@@ -966,7 +966,7 @@ func main() {
 			router.StrategyHMM:          stableManager,
 			router.StrategyHMMEmbedding: stableManager,
 		}
-		hmmRosterModels = newHMMRosterSource(stableManager, hmmTimeout)
+		hmmRosterModels = stableManager
 		routingDistribution = stableManager
 		escalationObserver = stableDynamicRouter
 

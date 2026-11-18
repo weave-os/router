@@ -221,44 +221,20 @@ func (m *Manager) ClusterRoster(ctx context.Context) (policy.RosterSnapshot, err
 
 func snapshotRoster(snapshot *Snapshot, strategy router.Strategy) policy.RosterSnapshot {
 	admitted, reference := snapshot.policyForStrategy(strategy)
-	roster := admitted.Roster()
-	clusters := make(map[string][]string, len(roster.Clusters))
-	for label, cluster := range roster.Clusters {
-		clusters[label] = append([]string(nil), cluster.Arms...)
-	}
-	harnesses := make(map[string]map[string][]string)
-	for label, cluster := range roster.Clusters {
-		for harness, arms := range cluster.ArmsByHarness {
-			if harnesses[string(harness)] == nil {
-				harnesses[string(harness)] = make(map[string][]string, len(roster.Clusters))
-			}
-			harnesses[string(harness)][label] = append([]string(nil), arms...)
-		}
-	}
-	for harness, harnessClusters := range harnesses {
-		for label, cluster := range roster.Clusters {
-			if len(harnessClusters[label]) == 0 {
-				harnessClusters[label] = append([]string(nil), cluster.Arms...)
-			}
-		}
-		harnesses[harness] = harnessClusters
-	}
 	return policy.RosterSnapshot{
-		SchemaVersion: string(roster.SchemaVersion), ReleaseID: snapshot.HeadSnapshot.Head.ReleaseSHA256,
+		SchemaVersion: string(admitted.Roster().SchemaVersion), ReleaseID: snapshot.HeadSnapshot.Head.ReleaseSHA256,
 		PolicySHA256: reference.SHA256, RosterSHA256: reference.SHA256,
-		HeadGeneration: snapshot.HeadSnapshot.Generation, Clusters: clusters, Harnesses: harnesses,
+		HeadGeneration: snapshot.HeadSnapshot.Generation, Clusters: admitted.ClusterArms(), Harnesses: admitted.HarnessClusterArms(),
 	}
 }
 
-func (m *Manager) AllRosterArms() ([]string, error) {
+func (m *Manager) HMMDeployedModels(context.Context) ([]router.DeployedEntry, error) {
 	snapshot := m.active.Load()
 	if snapshot == nil {
 		return nil, ErrNoActivePolicy
 	}
-	return snapshot.Policy.Roster().AllArms(), nil
+	return snapshot.Policy.DeployedModels(), nil
 }
-
-func (m *Manager) Roster(context.Context) ([]string, error) { return m.AllRosterArms() }
 
 func (m *Manager) DistributionPolicy(ctx context.Context) (*selectionpolicy.Policy, error) {
 	snapshot := m.Active()

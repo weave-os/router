@@ -246,11 +246,6 @@ func TestRosterIDForMapsBareMuseSparkToMetaRosterSlug(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "meta/muse-spark-1.3", armid.ForModel(muse))
 	assert.Equal(t, "muse-spark-1.3", armid.CatalogIDForRoster("meta/muse-spark-1.3"))
-
-	got := DeployedModelsForRosterIDs([]string{"meta/muse-spark-1.3", "meta/muse-spark-1.3:xhigh"})
-	require.Len(t, got, 1)
-	assert.Equal(t, "muse-spark-1.3", got[0].Model)
-	assert.Equal(t, providers.ProviderMeta, got[0].Provider)
 }
 
 func TestRouterOffersAndSelectsTerraWithoutLegacyDeployedSet(t *testing.T) {
