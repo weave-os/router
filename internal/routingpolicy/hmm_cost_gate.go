@@ -25,7 +25,6 @@ type HMMCostGateInput struct {
 	EstimatedInputTokens int
 	PrefixBroken         bool
 	Planner              planner.EVConfig
-	SameTierPin          bool
 	Now                  time.Time
 }
 
@@ -70,14 +69,6 @@ func (g HMMCostGate) Decide(input HMMCostGateInput) (sessionpin.Pin, planner.Dec
 		} else if plan.Outcome != planner.OutcomeSwitch {
 			plan.Outcome = planner.OutcomeStay
 			plan.Reason = HMMReasonUpgradeConfidenceLow
-		}
-	}
-
-	if input.SameTierPin && plan.Outcome == planner.OutcomeSwitch && plan.Reason == planner.ReasonEVPositive {
-		pinTier, freshTier := catalog.TierFor(stayPin.Model), catalog.TierFor(input.Fresh.Model)
-		if pinTier != catalog.TierUnknown && pinTier == freshTier {
-			plan.Outcome = planner.OutcomeStay
-			plan.Reason = planner.ReasonSameTierPinned
 		}
 	}
 

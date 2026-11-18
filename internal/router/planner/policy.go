@@ -33,7 +33,6 @@ type EVConfig struct {
 	ThresholdUSD           float64
 	ExpectedRemainingTurns int
 	TierUpgradeEnabled     bool
-	ColdPinFollowFresh     bool
 	CorrectedEconomics     bool
 }
 
@@ -57,8 +56,6 @@ const (
 	ReasonEVPositive      = "ev_positive"
 	ReasonEVNegative      = "ev_negative"
 	ReasonTierUpgrade     = "tier_upgrade"
-	ReasonColdPinFresh    = "cold_pin_follow_fresh"
-	ReasonSameTierPinned  = "same_tier_pinned"
 )
 
 func Decide(in Inputs, cfg EVConfig) Decision {
@@ -120,9 +117,6 @@ func Decide(in Inputs, cfg EVConfig) Decision {
 	case cfg.TierUpgradeEnabled && tierUpgrade(in.Pin.Model, in.Fresh.Model):
 		d.Outcome = OutcomeSwitch
 		d.Reason = ReasonTierUpgrade
-	case cfg.ColdPinFollowFresh && in.PinCacheCold:
-		d.Outcome = OutcomeSwitch
-		d.Reason = ReasonColdPinFresh
 	default:
 		d.Outcome = OutcomeStay
 		d.Reason = ReasonEVNegative

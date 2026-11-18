@@ -27,13 +27,14 @@ import (
 )
 
 type scriptedSubscriptionLeaser struct {
-	leases      []subscriptions.Lease
-	next        int
-	repeatLast  bool
-	providers   []subscriptions.Provider
-	owners      []auth.SubscriptionOwner
-	cooldownIDs []string
-	disabledIDs []string
+	leases        []subscriptions.Lease
+	next          int
+	repeatLast    bool
+	providers     []subscriptions.Provider
+	owners        []auth.SubscriptionOwner
+	cooldownIDs   []string
+	cooldownUntil []time.Time
+	disabledIDs   []string
 }
 
 type healthSubscriptionLeaser struct {
@@ -60,8 +61,9 @@ func (s *scriptedSubscriptionLeaser) Lease(_ context.Context, owner auth.Subscri
 	return lease, true, nil
 }
 
-func (s *scriptedSubscriptionLeaser) Cooldown(_ context.Context, _ auth.SubscriptionOwner, _ subscriptions.Provider, accountID string, _ time.Time) error {
+func (s *scriptedSubscriptionLeaser) Cooldown(_ context.Context, _ auth.SubscriptionOwner, _ subscriptions.Provider, accountID string, until time.Time) error {
 	s.cooldownIDs = append(s.cooldownIDs, accountID)
+	s.cooldownUntil = append(s.cooldownUntil, until)
 	return nil
 }
 
@@ -809,9 +811,13 @@ func TestManagedClaudeSeatOutOfExtraUsageRotates(t *testing.T) {
 		Rejection: providers.UpstreamRejection{Kind: providers.UpstreamRejectionCredential},
 	}
 
+	now := time.Now()
+	service.clock = func() time.Time { return now }
+
 	rotated := service.recordManagedSubscriptionFailure(managedSubscriptionTestContext(), providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String(), subscriptions.Lease{AccountID: "seat-1"}, err)
 
 	require.True(t, rotated)
 	require.Equal(t, []string{"seat-1"}, leaser.cooldownIDs)
+	require.Equal(t, []time.Time{now.Add(managedUsageRefusalCooldown)}, leaser.cooldownUntil, "a seat out of usage stays out of rotation instead of being retried every minute")
 	require.Empty(t, leaser.exhaustedIDs)
 }

@@ -1,6 +1,6 @@
 package flags
 
-const RegistryVersion = 34
+const RegistryVersion = 36
 
 var Registry = []Definition{
 	{Key: KeyEscalationActiveClassifier, Kind: KindString, Description: "Active escalation classifier: none, xgb, switchyard_llm_v1, or llm_escalation. Absent preserves legacy XGB flags.", OrgOverridable: true},
@@ -115,14 +115,7 @@ var Registry = []Definition{
 		Key:            KeyAuthoritativeUpgradePolicy,
 		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_POLICY",
 		Kind:           KindString,
-		Description:    "Authoritative upgrade policy: score (default 0.85 floor), evidence (composite interim policy), or off (verbatim fresh policy).",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyAuthoritativeUpgradeHoldoutPct,
-		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_HOLDOUT_PCT",
-		Kind:           KindInt,
-		Description:    "Percent of sessions that stay on the score gate while evidence mode is on. Session-sticky. 0-100.",
+		Description:    "Authoritative upgrade policy: score (default 0.85 floor) or off (verbatim fresh policy).",
 		OrgOverridable: true,
 	},
 	{
@@ -158,6 +151,12 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_HMM_DOWNGRADE_HYSTERESIS_SHADOW_TURNS",
 		Kind:           KindInt,
 		Description:    "Hysteresis threshold the served-downgrade shadow counts against: every applied authoritative-per-turn downgrade logs whether this many consecutive votes would have held it. Telemetry only, never changes routing. 0 disables the shadow; 2 by default.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeySwitchDecideShadow,
+		Kind:           KindBool,
+		Description:    "Experiment, expires 2026-12-02. Log what the unified switch rule (routingpolicy.DecideSwitch) would serve on HMM cost-gate turns. Observation only; never changes what is served.",
 		OrgOverridable: true,
 	},
 	{
@@ -332,13 +331,6 @@ var Registry = []Definition{
 		OrgOverridable: true,
 	},
 	{
-		Key:            KeyHMMSameTierPin,
-		EnvVar:         "ROUTER_HMM_SAME_TIER_PIN",
-		Kind:           KindBool,
-		Description:    "Keep an HMM session on its pinned model when the fresh pick is in the same tier, even when switching is EV-positive. Off by default.",
-		OrgOverridable: true,
-	},
-	{
 		Key:            KeyHardPinExplore,
 		EnvVar:         "ROUTER_HARD_PIN_EXPLORE",
 		Kind:           KindBool,
@@ -382,13 +374,6 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_SWITCH_TIER_UPGRADE_ENABLED",
 		Kind:           KindBool,
 		Description:    "Let the switch planner leave a pin when the fresh pick is a higher tier. On by default.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyPlannerColdPinFollowFresh,
-		EnvVar:         "ROUTER_SWITCH_COLD_PIN_FOLLOW_FRESH",
-		Kind:           KindBool,
-		Description:    "Let the switch planner follow the fresh pick when the pinned model's prompt cache is cold. Off by default.",
 		OrgOverridable: true,
 	},
 	{
