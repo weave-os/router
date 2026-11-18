@@ -13,8 +13,13 @@ import (
 	"weave-os/router/internal/subscriptions"
 )
 
+const managedUsageRefusalCooldown = 15 * time.Minute
+
 func cooldownRefusedManagedSeat(ctx context.Context, leaser subscriptions.Leaser, now time.Time, owner auth.SubscriptionOwner, poolProvider subscriptions.Provider, lease subscriptions.Lease, attemptErr error) bool {
-	cooldownUntil := managedSubscriptionResetAt(attemptErr, now)
+	cooldownUntil := now.Add(managedUsageRefusalCooldown)
+	if resetAt := managedSubscriptionResetAt(attemptErr, now); resetAt.After(cooldownUntil) {
+		cooldownUntil = resetAt
+	}
 	if err := leaser.Cooldown(ctx, owner, poolProvider, lease.AccountID, cooldownUntil); err != nil {
 		observability.FromContext(ctx).Error("Failed to persist refused subscription account cooldown",
 			"provider", poolProvider, "account_id", lease.AccountID, "err", err)
