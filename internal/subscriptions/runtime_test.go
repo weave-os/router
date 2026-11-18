@@ -58,14 +58,15 @@ type runtimeStore struct {
 }
 
 // ListSubscriptionCandidates mirrors the candidate SQL: every subscriber-assigned
-// account is admitted and tiered against the requester for attribution.
+// account is admitted in enrollment order and tiered against the requester
+// for attribution only.
 func (s *runtimeStore) ListSubscriptionCandidates(_ context.Context, owner auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var personal, shared []*auth.SubscriptionAccount
 	if owner.SubscriberID == "" {
 		return nil, nil
 	}
+	candidates := make([]*auth.SubscriptionAccount, 0, len(s.accounts))
 	for _, account := range s.accounts {
 		if account.SubscriberID == "" {
 			continue
@@ -74,15 +75,13 @@ func (s *runtimeStore) ListSubscriptionCandidates(_ context.Context, owner auth.
 		copied.TokenRefreshVersion = s.tokenRefreshVersions[account.ID]
 		_, hasAccessToken := s.accessTokens[account.ID]
 		copied.AccessTokenMissing = !hasAccessToken
+		copied.Tier = auth.SubscriptionTierShared
 		if account.SubscriberID == owner.SubscriberID {
 			copied.Tier = auth.SubscriptionTierPersonal
-			personal = append(personal, &copied)
-		} else {
-			copied.Tier = auth.SubscriptionTierShared
-			shared = append(shared, &copied)
 		}
+		candidates = append(candidates, &copied)
 	}
-	return append(personal, shared...), nil
+	return candidates, nil
 }
 
 // ListSubscriptionAccounts mirrors the storage ownership predicate: a
@@ -1073,12 +1072,12 @@ func TestRuntimeActivateDuringCooldownPreservesCooldown(t *testing.T) {
 }
 
 // Shared capacity follows personal capacity and is attributed to its owner.
-func TestRuntimeLeasesAnotherMembersSharedAccountAfterPersonal(t *testing.T) {
+func TestRuntimeLeasesAnotherMembersSharedAccountWhenPersonalExcluded(t *testing.T) {
 	store := newRuntimeStore(
-		&auth.SubscriptionAccount{ID: "shared-account", SubscriberID: "subscriber-2", EnrolledByAPIKeyID: "key-2",
-			Provider: auth.SubscriptionProviderClaude, ExternalAccountID: "claude-shared", Enabled: true},
 		&auth.SubscriptionAccount{ID: "personal-account", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1",
 			Provider: auth.SubscriptionProviderClaude, ExternalAccountID: "claude-personal", Enabled: true},
+		&auth.SubscriptionAccount{ID: "shared-account", SubscriberID: "subscriber-2", EnrolledByAPIKeyID: "key-2",
+			Provider: auth.SubscriptionProviderClaude, ExternalAccountID: "claude-shared", Enabled: true},
 	)
 	store.refreshTokens["shared-account"] = []byte("refresh-shared")
 	store.refreshTokens["personal-account"] = []byte("refresh-personal")
