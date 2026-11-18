@@ -34,7 +34,7 @@ func RoutingDistribution(roster *rosterdata.Roster, gridN int, excludedModels, e
 			clusterRoster := roster.Clusters[label]
 			candidates := make(map[string]struct{}, len(clusterRoster.Arms))
 			for _, arm := range clusterRoster.Arms {
-				baseRosterID, _ := armid.SplitEffort(arm)
+				baseRosterID := armid.Parse(arm).Base
 				catalogID := armid.CatalogIDForRoster(baseRosterID)
 				model, ok := catalog.ByID(catalogID)
 				if !ok {

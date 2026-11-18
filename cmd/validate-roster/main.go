@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-
-	"weave-os/router/internal/router/hmm/armid"
+	"weave-os/router/internal/router/policy"
 )
 
 func main() {
@@ -33,7 +32,7 @@ func run(path string, out io.Writer) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("parse %s: %w", path, err)
 	}
-	diagnostics := armid.ValidateRosterIDs(arms)
+	diagnostics := policy.ValidateRosterIDs(arms)
 	for _, d := range diagnostics {
 		if _, err := fmt.Fprintf(out, "invalid roster arm %q: %s\n", d.RosterID, d.Reason); err != nil {
 			return false, err

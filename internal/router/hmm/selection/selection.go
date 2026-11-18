@@ -28,7 +28,7 @@ func ArmOrder(cluster rosterdata.Cluster, harness string) (order []string, harne
 	if arms := cluster.ArmsByHarness[exactHarness]; len(arms) > 0 {
 		return arms, true
 	}
-	normalizedHarness := rosterdata.Harness(strings.ReplaceAll(harness, "-", "_"))
+	normalizedHarness := rosterdata.SelectionHarness(harness)
 	if arms := cluster.ArmsByHarness[normalizedHarness]; len(arms) > 0 {
 		return arms, true
 	}
@@ -58,7 +58,7 @@ func SelectGroupsWithSubscriptions(
 }
 
 func SubscriptionLadderProvider(harness string, subscriptionProviders []string) string {
-	if native, ok := harnessSubscriptionProvider[rosterdata.Harness(strings.ReplaceAll(harness, "-", "_"))]; ok {
+	if native, ok := harnessSubscriptionProvider[rosterdata.SelectionHarness(harness)]; ok {
 		if slices.Contains(subscriptionProviders, native) {
 			return native
 		}
@@ -113,7 +113,7 @@ func selectGroups(
 		_, harnessSpecific := ArmOrder(cluster, harness)
 		order := ordersByGroup[group.Label]
 		for _, arm := range order {
-			baseID, _ := armid.SplitEffort(arm)
+			baseID := armid.Parse(arm).Base
 			if _, eligible := candidates[baseID]; !eligible {
 				continue
 			}
@@ -226,7 +226,7 @@ func scoresWithDomainPreferences(
 	preferredRanks := preferenceRanks(preferredModels)
 	componentsByArm := make(map[string]router.SelectionScoreComponents, len(scores))
 	for arm, score := range scores {
-		baseID, _ := armid.SplitEffort(arm)
+		baseID := armid.Parse(arm).Base
 		catalogID := armid.CatalogIDForRoster(baseID)
 		components := router.SelectionScoreComponents{BaseScore: score - corrections[arm], TaskDomainCorrection: corrections[arm]}
 		if rank, preferred := preferredRanks[catalogID]; preferred {
@@ -267,7 +267,7 @@ func harnessList(values map[rosterdata.Harness][]string, harness string) []strin
 	if exact := values[rosterdata.Harness(harness)]; len(exact) > 0 {
 		return exact
 	}
-	return values[rosterdata.Harness(strings.ReplaceAll(harness, "-", "_"))]
+	return values[rosterdata.SelectionHarness(harness)]
 }
 
 func vendorRank(arm string, preferred []string) int {

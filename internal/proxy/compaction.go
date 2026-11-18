@@ -128,7 +128,8 @@ func (c compactionSession) decision(ctx context.Context, sessionKey [sessionpin.
 	if model == "" {
 		model = served.Model
 	}
-	model, effort := armid.SplitEffort(model)
+	parsed := armid.Parse(model)
+	model, effort := parsed.Base, parsed.Effort
 	if model == "" {
 		return router.Decision{}, strikes, false
 	}

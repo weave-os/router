@@ -517,8 +517,8 @@ func (s *Service) subscriptionAlternativeDecisions(ctx context.Context, req rout
 	var alternatives []router.Decision
 	seen := map[string]bool{selected.Model: true}
 	for _, arm := range ordered {
-		model, effort := armid.SplitEffort(arm)
-		model = armid.CatalogIDForRoster(model)
+		parsed := armid.Parse(arm)
+		model, effort := armid.CatalogIDForRoster(parsed.Base), parsed.Effort
 		eligible := false
 		for _, candidate := range selected.Metadata.CandidateModels {
 			if candidate == model {
@@ -527,7 +527,7 @@ func (s *Service) subscriptionAlternativeDecisions(ctx context.Context, req rout
 		}
 		if trace := selected.Metadata.SelectionTrace; trace != nil {
 			for _, candidate := range trace.CandidateRosterIDs {
-				base, _ := armid.SplitEffort(candidate)
+				base := armid.Parse(candidate).Base
 				if armid.CatalogIDForRoster(base) == model {
 					eligible = true
 				}

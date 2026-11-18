@@ -542,7 +542,7 @@ func TestBindingForSelectionResolvesEffortQualifiedArmID(t *testing.T) {
 	}
 }
 
-// splitEffort drops only recognized effort suffixes, so a non-effort ":"
+// armid.Parse drops only recognized effort suffixes, so a non-effort ":"
 // suffix misses the base-keyed maps rather than misrouting to the base.
 func TestBindingForSelectionDoesNotResolveNonEffortColonSuffix(t *testing.T) {
 	resolved := policy.ResolvedCandidates{
