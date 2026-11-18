@@ -205,7 +205,7 @@ var Registry = []Definition{
 		Key:            KeyCyberRefusalRetry,
 		EnvVar:         "ROUTER_CYBER_REFUSAL_RETRY",
 		Kind:           KindBool,
-		Description:    "Re-dispatch a turn OpenAI declined on cyber policy to a non-OpenAI fallback before any output reaches the client.",
+		Description:    "Re-dispatch a safety-refused turn before any output reaches the client: an OpenAI cyber refusal to a non-OpenAI fallback, or an unrescued Anthropic refusal of a non-streaming classifier turn to the safety-refusal fallback model.",
 		OrgOverridable: true,
 	},
 	{
