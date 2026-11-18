@@ -28,7 +28,7 @@ func prepareVerbatimReviewer(t *testing.T, model, body string) []byte {
 	return prep.Body
 }
 
-func withJSON(t *testing.T, body string, sets map[string]string) string {
+func withRawFields(t *testing.T, body string, sets map[string]string) string {
 	t.Helper()
 	for path, raw := range sets {
 		var err error
@@ -59,7 +59,7 @@ func TestPrepareAnthropicVerbatim_DisabledThinkingUsesTheModelsOffSwitch(t *test
 		t.Run(tc.model, func(t *testing.T) {
 			want, err := sjson.Set(verbatimReviewerBody, "model", tc.model)
 			require.NoError(t, err)
-			want = withJSON(t, want, tc.sets)
+			want = withRawFields(t, want, tc.sets)
 
 			assert.Equal(t, want, string(prepareVerbatimReviewer(t, tc.model, verbatimReviewerBody)))
 		})
@@ -67,20 +67,20 @@ func TestPrepareAnthropicVerbatim_DisabledThinkingUsesTheModelsOffSwitch(t *test
 }
 
 func TestPrepareAnthropicVerbatim_OffSwitchKeepsTheClientsEffort(t *testing.T) {
-	body := withJSON(t, verbatimReviewerBody, map[string]string{"output_config": `{"effort":"medium"}`})
-	want := withJSON(t, body, map[string]string{"model": `"claude-fable-5"`, "thinking": `{"type":"adaptive"}`})
+	body := withRawFields(t, verbatimReviewerBody, map[string]string{"output_config": `{"effort":"medium"}`})
+	want := withRawFields(t, body, map[string]string{"model": `"claude-fable-5"`, "thinking": `{"type":"adaptive"}`})
 
 	assert.Equal(t, want, string(prepareVerbatimReviewer(t, "claude-fable-5", body)))
 }
 
 func TestPrepareAnthropicVerbatim_ThinkingTheModelAcceptsIsUntouched(t *testing.T) {
 	for _, thinking := range []string{`{"type":"adaptive"}`, `{"type":"between_tools"}`} {
-		body := withJSON(t, verbatimReviewerBody, map[string]string{"model": `"claude-sonnet-5-5"`, "thinking": thinking})
+		body := withRawFields(t, verbatimReviewerBody, map[string]string{"model": `"claude-sonnet-5-5"`, "thinking": thinking})
 
 		assert.Equal(t, body, string(prepareVerbatimReviewer(t, "claude-sonnet-5-5", body)))
 	}
 	noThinking, err := sjson.Delete(verbatimReviewerBody, "thinking")
 	require.NoError(t, err)
-	noThinking = withJSON(t, noThinking, map[string]string{"model": `"claude-sonnet-5-5"`})
+	noThinking = withRawFields(t, noThinking, map[string]string{"model": `"claude-sonnet-5-5"`})
 	assert.Equal(t, noThinking, string(prepareVerbatimReviewer(t, "claude-sonnet-5-5", noThinking)))
 }
