@@ -136,7 +136,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 	if !s.supportsSubscriptionTransport(provider) {
 		return ctx, subscriptions.Lease{}, false, nil
 	}
-	if current := CredentialsFromContext(ctx); current != nil && current.OAuth && pickedModelOnOwnPlan(ctx) {
+	if callerLoginServesFirst(ctx, provider, model, s.usageObserver, &s.subscriptionModels, s.clock.Now()) {
 		return ctx, subscriptions.Lease{}, false, nil
 	}
 

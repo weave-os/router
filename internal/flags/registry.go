@@ -1,6 +1,6 @@
 package flags
 
-const RegistryVersion = 33
+const RegistryVersion = 34
 
 var Registry = []Definition{
 	{Key: KeyEscalationActiveClassifier, Kind: KindString, Description: "Active escalation classifier: none, xgb, switchyard_llm_v1, or llm_escalation. Absent preserves legacy XGB flags.", OrgOverridable: true},
@@ -185,6 +185,18 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_INSTALLATION_POOL_ALLOWANCE",
 		Kind:           KindBool,
 		Description:    "Release (owner steventohme, expires 2027-01-31): admit ownerless-key traffic against the installation pool subject's allowance.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyOwnSeatFirst,
+		Kind:           KindBool,
+		Description:    "Release (owner steventohme, expires 2027-03-31): serve routed turns on the caller's own Claude or Codex login before the installation's managed pool, until that login is exhausted.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyOwnOverageBeforePool,
+		Kind:           KindBool,
+		Description:    "Setting (owner steventohme): with own_seat_first, keep serving on the caller's own login while it bills overage instead of moving to the managed pool first.",
 		OrgOverridable: true,
 	},
 	{
