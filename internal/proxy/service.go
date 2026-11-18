@@ -17,6 +17,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/feedback"
@@ -99,8 +100,8 @@ type Service struct {
 	llmEscalationActiveEnabled           bool
 	sessionStrategyStore                 sessionstrategy.Store
 	classifierSessions                   *classifierSessions
-	noProgress                           *noProgressTracker
-	compaction                           *compactionTracker
+	noProgress                           *conversation.NoProgressTracker
+	compaction                           *conversation.CompactionTracker
 	prefixTrimFreeSwitch                 bool
 	escapeNormalize                      bool
 	hardPinExplore                       bool
@@ -164,16 +165,16 @@ type Service struct {
 	bandSwap                       *bandswap.Classifier
 	loopEscalationEnabled          bool
 	loopEscalationHoldoutPct       int
-	loopEscalationStore            LoopEscalationStore
+	loopEscalationStore            conversation.LoopEscalationStore
 	spiralShadowEnabled            bool
 
 	turnSignalCaptureEnabled     bool
 	textRepetitionBreakEnabled   bool
-	spiralTracker                *spiralTracker
+	spiralTracker                *conversation.SpiralTracker
 	struggleShadowEnabled        bool
-	struggleTracker              *struggleTracker
-	struggleShadowStore          StruggleShadowStore
-	spiralShadowStore            SpiralShadowStore
+	struggleTracker              *conversation.StruggleTracker
+	struggleShadowStore          conversation.StruggleShadowStore
+	spiralShadowStore            conversation.SpiralShadowStore
 	feedbackStore                RouterFeedbackStore
 	summarizer                   handover.Summarizer
 	webSearch                    websearch.Executor
@@ -1066,15 +1067,15 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		emitter:                      emitter,
 		ingress:                      ingress.New(0),
 		pinStore:                     pinStore,
-		noProgress:                   newNoProgressTracker(),
+		noProgress:                   conversation.NewNoProgressTracker(),
 		searchUse:                    newSearchUseTracker(),
 		searchRequirementDecayTurns:  DefaultSearchRequirementDecayTurns,
-		compaction:                   newCompactionTracker(),
+		compaction:                   conversation.NewCompactionTracker(),
 		prefixTrimFreeSwitch:         true,
-		spiralTracker:                newSpiralTracker(),
+		spiralTracker:                conversation.NewSpiralTracker(),
 		spiralShadowEnabled:          true,
 		turnSignalCaptureEnabled:     true,
-		struggleTracker:              newStruggleTracker(),
+		struggleTracker:              conversation.NewStruggleTracker(),
 		struggleShadowEnabled:        true,
 		textRepetitionBreakEnabled:   true,
 		ccOrchToolsCrossVendor:       true,
@@ -1445,50 +1446,8 @@ func (s *Service) WithBandSwap(enabled bool) *Service {
 	return s
 }
 
-func (s *Service) WithLoopEscalationConfig(enabled bool, holdoutPct int) *Service {
-	s.loopEscalationEnabled = enabled
-	if holdoutPct < 0 {
-		holdoutPct = 0
-	}
-	if holdoutPct > 100 {
-		holdoutPct = 100
-	}
-	s.loopEscalationHoldoutPct = holdoutPct
-	return s
-}
-
-func (s *Service) WithLoopEscalationStore(store LoopEscalationStore) *Service {
-	s.loopEscalationStore = store
-	return s
-}
-
-func (s *Service) WithSpiralShadowConfig(enabled bool) *Service {
-	s.spiralShadowEnabled = enabled
-	return s
-}
-
 func (s *Service) WithTurnSignalCapture(enabled bool) *Service {
 	s.turnSignalCaptureEnabled = enabled
-	return s
-}
-
-func (s *Service) WithTextRepetitionBreak(enabled bool) *Service {
-	s.textRepetitionBreakEnabled = enabled
-	return s
-}
-
-func (s *Service) WithSpiralShadowStore(store SpiralShadowStore) *Service {
-	s.spiralShadowStore = store
-	return s
-}
-
-func (s *Service) WithStruggleShadowConfig(enabled bool) *Service {
-	s.struggleShadowEnabled = enabled
-	return s
-}
-
-func (s *Service) WithStruggleShadowStore(store StruggleShadowStore) *Service {
-	s.struggleShadowStore = store
 	return s
 }
 
@@ -2531,19 +2490,19 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 
 	if !agentShadowMode && !callerModelPassthroughActive(ctx) && handoffFromContext(ctx) == nil {
-		if cyc, csig, ccount, cratio, cwin := detectCyclicToolCallLoop(env); cyc {
+		if cyc, csig, ccount, cratio, cwin := conversation.DetectCyclicToolCallLoop(env); cyc {
 			loopRole := roleForTier(catalog.TierFor(feats.Model))
 			s.handleLoopEscalation(ctx, csig, ccount, cratio, cwin, facts.InstallationID, sessionKey, loopRole, feats.Model, turntype.IsSubAgent(env, subAgentHintForRequest(ctx, r.Header.Get("x-weave-subagent-type")), openCodeCaller(ClientIdentityFrom(ctx))), forceModelSessionKey)
 		}
 	}
 
-	var inboundSpiralSignals spiralSignals
-	var inboundSpiralReasons []spiralReason
+	var inboundSpiralSignals conversation.SpiralSignals
+	var inboundSpiralReasons []conversation.SpiralReason
 	inboundSpiralComputed := s.ResolveSpiralShadowEnabled(ctx) ||
 		s.ResolveTurnSignalCaptureEnabled(ctx)
 	if inboundSpiralComputed {
-		inboundSpiralSignals = computeSpiralSignals(env, feats.MessageCount)
-		inboundSpiralReasons = spiralReasons(inboundSpiralSignals)
+		inboundSpiralSignals = conversation.ComputeSpiralSignals(env, feats.MessageCount)
+		inboundSpiralReasons = conversation.SpiralReasons(inboundSpiralSignals)
 	}
 
 	if s.effectiveCaptureMode(ctx) != CaptureOff {
@@ -2738,15 +2697,15 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	toolBearingTurn := inboundToolCallCount > 0 || inboundLastUser.HasToolResult
 	if !agentShadowMode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && toolBearingTurn && s.noProgress != nil {
-		fp := computeNoProgressFingerprint(decision, promptText, feats.MessageCount, toolProgressMarker(env))
+		fp := conversation.ComputeNoProgressFingerprint(decision, promptText, feats.MessageCount, conversation.ToolProgressMarker(env))
 		role := roleForTier(catalog.TierFor(feats.Model))
-		if looped, count := s.noProgress.recordAndDetect(routeRes.SessionKey, facts.InstallationID, role, fp, s.clock.Now()); looped {
+		if looped, count := s.noProgress.RecordAndDetect(routeRes.SessionKey, facts.InstallationID, role, fp, s.clock.Now()); looped {
 			return s.handleNoProgressBreak(ctx, w, env, count, facts.InstallationID, routeRes.SessionKey, role, decision.Model, decision.Provider, feats.Tokens, routeRes.Decision.Reason)
 		}
 	}
 
 	if !agentShadowMode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && s.ResolveTextRepetitionBreakEnabled(ctx) && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
-		if looped, count, sampleHash := detectTextRepetition(env); looped {
+		if looped, count, sampleHash := conversation.DetectTextRepetition(env); looped {
 			role := roleForTier(catalog.TierFor(feats.Model))
 			return s.handleTextRepetitionBreak(ctx, w, env, count, sampleHash, facts.InstallationID, routeRes.SessionKey, role, decision.Model, decision.Provider, feats.Tokens)
 		}
@@ -2766,7 +2725,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if !routeRes.PinFirstPinnedAt.IsZero() {
 			wall = s.clock.Now().Sub(routeRes.PinFirstPinnedAt)
 		}
-		if reasons := struggleReasons(routeRes.PinTurnCount, wall); len(reasons) > 0 {
+		if reasons := conversation.StruggleReasons(routeRes.PinTurnCount, wall); len(reasons) > 0 {
 			role := roleForTier(catalog.TierFor(feats.Model))
 			s.handleStruggleShadow(ctx, reasons[0], facts.InstallationID, sessionKey, role,
 				decision.Model, string(tt), routeRes.PinTurnCount, wall,
@@ -4681,7 +4640,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 
 	if !callerModelPassthroughActive(ctx) {
-		if cyc, csig, ccount, cratio, cwin := detectCyclicToolCallLoop(env); cyc {
+		if cyc, csig, ccount, cratio, cwin := conversation.DetectCyclicToolCallLoop(env); cyc {
 			loopRole := roleForTier(catalog.TierFor(feats.Model))
 			s.handleLoopEscalation(ctx, csig, ccount, cratio, cwin, facts.InstallationID, sessionKey, loopRole, feats.Model, turntype.IsSubAgent(env, subAgentHintForRequest(ctx, r.Header.Get("x-weave-subagent-type")), openCodeCaller(ClientIdentityFrom(ctx))), forceModelSessionKey)
 		}
@@ -4808,7 +4767,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	s.logPlannerOutcome(ctx, routeRes)
 
 	if facts.Client.ClientApp == ClientAppOpencode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && s.ResolveTextRepetitionBreakEnabled(ctx) && (tt == turntype.MainLoop || tt == turntype.ToolResult) {
-		if looped, count, sampleHash := detectTextRepetition(env); looped {
+		if looped, count, sampleHash := conversation.DetectTextRepetition(env); looped {
 			role := roleForTier(catalog.TierFor(feats.Model))
 			return s.handleTextRepetitionBreak(ctx, w, env, count, sampleHash, facts.InstallationID, sessionKey, role, decision.Model, decision.Provider, feats.Tokens)
 		}

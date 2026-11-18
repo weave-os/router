@@ -521,42 +521,6 @@ func applyAuthorityShadowTelemetry(p *InsertTelemetryParams, res turnLoopResult)
 	p.AuthorityShadowCorrectedSavingsUSD = &corrected
 }
 
-func turnSignalCaptureAllowed(trainingAllowed bool, capture ContentCaptureMode) bool {
-	return trainingAllowed && (capture == CaptureHashed || capture == CaptureFull)
-}
-
-func applyTurnSignalTelemetry(
-	p *InsertTelemetryParams,
-	sig spiralSignals,
-	reasons []spiralReason,
-	computed bool,
-	enabled bool,
-	trainingAllowed bool,
-	capture ContentCaptureMode,
-) {
-	if p == nil || !computed || !enabled || !turnSignalCaptureAllowed(trainingAllowed, capture) {
-		return
-	}
-	p.SpiralErrStreak = int32Ptr(int32(sig.errStats.TrailingErrStreak))
-	p.SpiralErroredResults = int32Ptr(int32(sig.errStats.Errored))
-	p.SpiralToolResults = int32Ptr(int32(sig.errStats.Total))
-	p.SpiralMaxSameFileEdits = int32Ptr(int32(sig.maxSameFileEdits))
-	p.SpiralSameFilePathHash = sig.sameFilePathHash
-	repeatFrac := sig.repeatFrac
-	p.SpiralRepeatFrac = &repeatFrac
-	p.SpiralMonologueLen = int32Ptr(int32(sig.monologueLen))
-	p.SpiralToolCallCount = int32Ptr(int32(sig.toolCallCount))
-	p.SpiralMessageCount = int32Ptr(int32(sig.messageCount))
-	p.SpiralPingPongLen = int32Ptr(int32(sig.pingPongLen))
-	p.SpiralStepsSinceProgress = int32Ptr(int32(sig.stepsSinceProgress))
-	editAttempted := sig.editAttempted
-	p.SpiralEditAttempted = &editAttempted
-	if reasons == nil {
-		reasons = []spiralReason{}
-	}
-	p.SpiralReasons = spiralReasonStrings(reasons)
-}
-
 func int32Ptr(v int32) *int32 {
 	return &v
 }
