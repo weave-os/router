@@ -25,7 +25,7 @@ func TestPreDispatchFundingRefusalIsClassifiedAndOwned(t *testing.T) {
 	require.True(t, managed)
 	require.ErrorIs(t, disabledSeatErr, ErrSubscriptionPoolExhausted)
 
-	fundingRefused := TurnErrorClass("funding_refused")
+	fundingRefused := TurnErrorFundingRefused
 	for _, scenario := range []struct {
 		name  string
 		err   error

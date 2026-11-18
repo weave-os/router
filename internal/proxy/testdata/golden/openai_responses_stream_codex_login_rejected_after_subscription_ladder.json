@@ -374,7 +374,7 @@
         },
         {
           "Diagnosis": {
-            "ErrorClass": "other",
+            "ErrorClass": "funding_refused",
             "FailureOwner": "router"
           },
           "FailureReason": "transport",
@@ -1127,7 +1127,7 @@
       "attempt_events": [
         {
           "Diagnosis": {
-            "ErrorClass": "other",
+            "ErrorClass": "funding_refused",
             "FailureOwner": "router"
           },
           "FailureReason": "transport",
