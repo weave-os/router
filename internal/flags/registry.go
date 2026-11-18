@@ -155,7 +155,6 @@ var Registry = []Definition{
 	},
 	{
 		Key:            KeySwitchDecideShadow,
-		EnvVar:         "ROUTER_SWITCH_DECIDE_SHADOW",
 		Kind:           KindBool,
 		Description:    "Experiment, expires 2026-12-02. Log what the unified switch rule (routingpolicy.DecideSwitch) would serve on HMM cost-gate turns. Observation only; never changes what is served.",
 		OrgOverridable: true,

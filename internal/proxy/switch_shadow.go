@@ -2,37 +2,26 @@ package proxy
 
 import (
 	"context"
+	"time"
 
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/routingpolicy"
 )
 
-type switchShadowTurn struct {
-	Request      router.Request
-	ActivePin    sessionpin.Pin
-	HMMHistory   sessionpin.Pin
-	Fresh        router.Decision
-	InputTokens  int
-	PrefixBroken bool
-}
+const switchDecideShadowDefault = true
 
-func (s *Service) logSwitchShadow(ctx context.Context, turn switchShadowTurn, res turnLoopResult) {
-	req, activePin, hmmHistory, fresh := turn.Request, turn.ActivePin, turn.HMMHistory, turn.Fresh
-	inputTokens, prefixBroken := turn.InputTokens, turn.PrefixBroken
-	if !flags.BoolOr(ctx, flags.KeySwitchDecideShadow, s.switchDecideShadow) {
+func logSwitchShadow(ctx context.Context, stayPin sessionpin.Pin, gate routingpolicy.HMMCostGateInput, now time.Time, res turnLoopResult) {
+	if !flags.BoolOr(ctx, flags.KeySwitchDecideShadow, switchDecideShadowDefault) {
 		return
 	}
 	input := routingpolicy.SwitchInput{
-		Fresh:                fresh.Model,
-		EstimatedInputTokens: inputTokens,
-		PrefixBroken:         prefixBroken,
-	}
-	if stayPin, found := hmmStayPin(s, req, activePin, hmmHistory); found {
-		input.Current = stayPin.Model
-		input.CacheCold = pinCacheCold(stayPin, prefixBroken, s.clock.Now())
+		Current:              stayPin.Model,
+		Fresh:                gate.Fresh.Model,
+		EstimatedInputTokens: gate.EstimatedInputTokens,
+		CacheCold:            stayPin.Model != "" && pinCacheCold(stayPin, gate.PrefixBroken, now),
+		PrefixBroken:         gate.PrefixBroken,
 	}
 	verdict := routingpolicy.DecideSwitch(input)
 	observability.FromContext(ctx).Info("router.switch_shadow",
@@ -40,10 +29,10 @@ func (s *Service) logSwitchShadow(ctx context.Context, turn switchShadowTurn, re
 		"role", res.PinRole,
 		"turn_type", res.TurnType,
 		"current_model", input.Current,
-		"fresh_model", fresh.Model,
+		"fresh_model", input.Fresh,
 		"cache_cold", input.CacheCold,
-		"prefix_broken", prefixBroken,
-		"estimated_input_tokens", inputTokens,
+		"prefix_broken", input.PrefixBroken,
+		"estimated_input_tokens", input.EstimatedInputTokens,
 		"served_model", res.Decision.Model,
 		"pin_tier", res.PinTier,
 		"would_serve", verdict.Serve,

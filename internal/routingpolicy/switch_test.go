@@ -51,7 +51,7 @@ func TestDecideSwitch(t *testing.T) {
 func TestDecideSwitchNeverHoldsBelowAlternatingPicks(t *testing.T) {
 	current := switchTestLow
 	var picks []string
-	below := 0
+	heldPricierPicks := 0
 	for turn := range 20 {
 		fresh := switchTestLow
 		if turn%2 == 0 {
@@ -59,10 +59,10 @@ func TestDecideSwitchNeverHoldsBelowAlternatingPicks(t *testing.T) {
 		}
 		verdict := routingpolicy.DecideSwitch(routingpolicy.SwitchInput{Current: current, Fresh: fresh, PriorPicks: picks, EstimatedInputTokens: 10_000})
 		if verdict.Serve == switchTestLow && fresh == switchTestHigh {
-			below++
+			heldPricierPicks++
 		}
 		current = verdict.Serve
 		picks = append(picks, fresh)
 	}
-	assert.Equal(t, 1, below, "only the first pricier pick is held")
+	assert.Equal(t, 1, heldPricierPicks, "only the first pricier pick is held")
 }
