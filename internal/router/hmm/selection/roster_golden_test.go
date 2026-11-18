@@ -60,6 +60,7 @@ type selectionGolden struct {
 	SelectedRosterArmID string                 `json:"selected_roster_arm_id,omitempty"`
 	PolicyPinHonoured   bool                   `json:"policy_pin_honoured,omitempty"`
 	RescueModels        []string               `json:"rescue_models,omitempty"`
+	SidecarRescuePool   []string               `json:"sidecar_rescue_pool,omitempty"`
 	Escalation          *escalation.Decision   `json:"escalation,omitempty"`
 	SelectionTrace      *router.SelectionTrace `json:"selection_trace,omitempty"`
 }
@@ -98,6 +99,7 @@ func selectionScenarios() []selectionScenario {
 		{name: "escalation_promote", request: router.Request{ClientApp: "cursor", Escalation: &escalation.Constraint{Escalate: true}}},
 		{name: "escalation_floor", request: router.Request{ClientApp: "cursor", Escalation: &escalation.Constraint{Floor: escalation.High}}},
 		{name: "rescue_order_after_group_exhausted", request: router.Request{ClientApp: "cursor", ExcludedModels: map[string]struct{}{"gpt-5.5-mini": {}, "gemini-3.5-flash": {}, "claude-haiku-4-5": {}}}},
+		{name: "rescue_cooling_pool_harness_order", request: router.Request{ClientApp: "codex", AutomaticExcludedModels: map[string]struct{}{"claude-haiku-4-5": {}, "claude-sonnet-4-6": {}}}},
 		{name: "task_domain_evidence", request: router.Request{ClientApp: "cursor"}, taskDomain: readyInfraTaskDomain(syntheticDomainEvidenceSHA256)},
 		{name: "task_domain_evidence_digest_mismatch", request: router.Request{ClientApp: "cursor"}, taskDomain: readyInfraTaskDomain(unboundEvidenceSHA256)},
 		{name: "policy_pin_loaded_roster", request: router.Request{ClientApp: "cursor"}, pin: &router.PolicyPin{ArtifactSHA256: syntheticClassifierSHA256, RosterSHA256: syntheticPolicySHA256}},
@@ -143,6 +145,7 @@ func routeScenario(t *testing.T, admitted *selectionpolicy.Policy, evidence *sel
 		golden.SelectedRosterArmID = metadata.SelectedRosterArmID
 		golden.PolicyPinHonoured = metadata.PolicyPinHonoured
 		golden.RescueModels = metadata.RescueModels
+		golden.SidecarRescuePool = metadata.SidecarRescuePool
 		golden.Escalation = metadata.Escalation
 		golden.SelectionTrace = rosterScopedTrace(metadata.SelectionTrace, admitted)
 	}
