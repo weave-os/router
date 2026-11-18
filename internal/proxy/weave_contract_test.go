@@ -115,8 +115,34 @@ func goldenTelemetryVocabularies(t *testing.T) (map[string][]string, map[string]
 	}
 	valuesByColumn := map[string]map[string]struct{}{}
 	classification := map[string]string{}
+	for _, row := range goldenTelemetryRows(t) {
+		for field, column := range fields {
+			value, ok := row[field]
+			if !ok {
+				continue
+			}
+			text := vocabularyValue(value)
+			if valuesByColumn[column] == nil {
+				valuesByColumn[column] = map[string]struct{}{}
+			}
+			valuesByColumn[column][text] = struct{}{}
+			if field == "DecisionReason" {
+				classification[text] = forcedClassification(text)
+			}
+		}
+	}
+	vocabularies := make(map[string][]string, len(valuesByColumn))
+	for column, set := range valuesByColumn {
+		vocabularies[column] = sortedSet(set)
+	}
+	return vocabularies, classification
+}
+
+func goldenTelemetryRows(t *testing.T) []map[string]any {
+	t.Helper()
 	paths, err := filepath.Glob(filepath.Join("testdata", "golden", "*.json"))
 	require.NoError(t, err)
+	var rows []map[string]any
 	for _, path := range paths {
 		payload, err := os.ReadFile(path)
 		require.NoError(t, err)
@@ -127,29 +153,10 @@ func goldenTelemetryVocabularies(t *testing.T) (map[string][]string, map[string]
 		}
 		require.NoError(t, json.Unmarshal(payload, &fixture), path)
 		for _, request := range fixture.Requests {
-			for _, row := range request.Telemetry {
-				for field, column := range fields {
-					value, ok := row[field]
-					if !ok {
-						continue
-					}
-					text := vocabularyValue(value)
-					if valuesByColumn[column] == nil {
-						valuesByColumn[column] = map[string]struct{}{}
-					}
-					valuesByColumn[column][text] = struct{}{}
-					if field == "DecisionReason" {
-						classification[text] = forcedClassification(text)
-					}
-				}
-			}
+			rows = append(rows, request.Telemetry...)
 		}
 	}
-	vocabularies := make(map[string][]string, len(valuesByColumn))
-	for column, set := range valuesByColumn {
-		vocabularies[column] = sortedSet(set)
-	}
-	return vocabularies, classification
+	return rows
 }
 
 func vocabularyValue(value any) string {
