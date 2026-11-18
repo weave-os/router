@@ -187,6 +187,12 @@ if listing_output="$(env "${common_env[@]}" FAKE_ENROLLMENT_STATUS=403 FAKE_ENRO
   exit 1
 fi
 grep -Fq 'shared team key' <<<"$listing_output"
+if hosted_listing_output="$(env "${common_env[@]}" FAKE_ENROLLMENT_STATUS=403 FAKE_ENROLLMENT_ERROR=personal_identity_required \
+    bash "$installer" accounts list --base-url https://router.weaveos.com --non-interactive --quiet 2>&1)"; then
+  echo 'hosted accounts list exited zero after the router refused a shared key' >&2
+  exit 1
+fi
+grep -Fq 'https://app.weaveos.com/home/router/settings/subscriptions' <<<"$hosted_listing_output"
 
 env "${common_env[@]}" bash "$installer" login codex --base-url https://router.example.test --non-interactive --quiet \
   | grep -Fq 'Codex subscription enrolled.'

@@ -3657,7 +3657,11 @@ models_api_error() {
 # names no person, so the seat has no owner. The signed-in web flow does.
 shared_key_login_hint() {
   err "This Router key is a shared team key, so it can't tell whose subscription to connect."
-  printf '  This router connects subscription seats only through a personal key tied to one person.\n' >&2
+  if hosted_router; then
+    printf '  Manage your Claude or ChatGPT seats while signed in to Weave: %s\n' "$SUBSCRIPTIONS_DASHBOARD_URL" >&2
+  else
+    printf '  This router connects subscription seats only through a personal key tied to one person.\n' >&2
+  fi
 }
 
 # hosted_router reports whether $base_url is Weave's hosted router, where seats
