@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 	"time"
+	"weave-os/router/internal/inference"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
@@ -51,14 +52,14 @@ func poolRefusalPins() map[string]poolRefusalPin {
 		},
 		"funding with unknown enrollment": {
 			err: func(ctx context.Context) error {
-				return svc.authorizeSubscriptionAPI(enrollmentUnknown(ctx), subscriptions.ProviderClaude, "", "", clientAppRefusalFunding{})
+				return svc.authorizeSubscriptionAPI(enrollmentUnknown(ctx), subscriptions.ProviderClaude, inference.Target{}, "", "", clientAppRefusalFunding{})
 			},
 			sentinel: ErrSubscriptionPoolUnavailable, kind: refusal.SubscriptionPoolUnavailable,
 			text: "subscription account pool unavailable: subscription enrollment could not be verified",
 		},
 		"funding with every blocking seat throttled": {
 			err: func(ctx context.Context) error {
-				return svc.authorizeSubscriptionAPI(WithManagedSubscriptionCandidates(WithManagedSubscriptionUsage(ctx), []*auth.SubscriptionAccount{throttledSeat}), subscriptions.ProviderClaude, "", "", clientAppRefusalFunding{})
+				return svc.authorizeSubscriptionAPI(WithManagedSubscriptionCandidates(WithManagedSubscriptionUsage(ctx), []*auth.SubscriptionAccount{throttledSeat}), subscriptions.ProviderClaude, inference.Target{}, "", "", clientAppRefusalFunding{})
 			},
 			sentinel: ErrSubscriptionPoolThrottled, kind: refusal.SubscriptionPoolThrottled,
 			text: "subscription account pool unavailable: every blocking account is rate-limited",
