@@ -9,7 +9,7 @@ import (
 
 type Policy struct {
 	admittedPayload []byte
-	sha256          string
+	admittedRoster  *rosterdata.Roster
 }
 
 func Admit(payload []byte) (*Policy, error) {
@@ -23,7 +23,8 @@ func Admit(payload []byte) (*Policy, error) {
 	if roster.SchemaVersion != rosterdata.SchemaVersionPolicyV1 {
 		return nil, fmt.Errorf("selectionpolicy: admit requires schema %q, got %q", rosterdata.SchemaVersionPolicyV1, roster.SchemaVersion)
 	}
-	return &Policy{admittedPayload: bytes.Clone(payload), sha256: rosterdata.SHA256Hex(payload)}, nil
+	roster.SHA256 = rosterdata.SHA256Hex(payload)
+	return &Policy{admittedPayload: bytes.Clone(payload), admittedRoster: roster}, nil
 }
 
 func (p *Policy) Roster() *rosterdata.Roster {
@@ -31,8 +32,8 @@ func (p *Policy) Roster() *rosterdata.Roster {
 	if err != nil {
 		panic("selectionpolicy: admitted payload no longer decodes: " + err.Error())
 	}
-	roster.SHA256 = p.sha256
+	roster.SHA256 = p.admittedRoster.SHA256
 	return roster
 }
 
-func (p *Policy) SHA256() string { return p.sha256 }
+func (p *Policy) SHA256() string { return p.admittedRoster.SHA256 }
