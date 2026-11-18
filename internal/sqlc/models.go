@@ -517,6 +517,7 @@ type RouterModelRouterInstallation struct {
 	ModelsExcludedWhenSubscriptionInactive []string
 	PickedModelCreditFallbackEnabled       bool
 	WeaveCreditInferenceEnabled            bool
+	PoolSubjectID                          pgtype.UUID
 }
 
 type RouterModelRouterRequestTelemetry struct {

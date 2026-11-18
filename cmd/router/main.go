@@ -66,7 +66,6 @@ import (
 	"weave-os/router/internal/server"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions"
-	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/websearch"
 	"weave-os/router/internal/wif"
 
@@ -524,6 +523,7 @@ func main() {
 		WithFlagOverridesDisabled(flagOverridesDisabled).
 		WithSessionSpendCaps(billingSvc != nil)
 	subscriptionPoolsEnabled := config.GetOr("ROUTER_SUBSCRIPTION_POOLS_ENABLED", "false") == "true"
+	installationPoolAllowance := config.GetOr("ROUTER_INSTALLATION_POOL_ALLOWANCE", "false") == "true"
 	subscriptionRuntime, subscriptionLogins := buildSubscriptionRuntime(subscriptionPoolsEnabled, authSvc, repo.SubscriptionAccounts, logger)
 
 	subCtx, subCancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1078,6 +1078,7 @@ func main() {
 		flags.KeyAuthorityCacheShadow:                 boolDefault(authorityCacheShadow),
 		flags.KeyAgreementShadowEpoch:                 "0",
 		flags.KeySiblingFailover:                      boolDefault(siblingFailover),
+		flags.KeyInstallationPoolAllowance:            boolDefault(installationPoolAllowance),
 		flags.KeyOpenAIResponsesBroad:                 boolDefault(openAIResponsesBroad),
 		flags.KeyAllowedModelsHeader:                  boolDefault(allowedModelsHeader),
 		flags.KeyCCTaskToolsCrossVendor:               boolDefault(ccTaskToolsCrossVendor),
@@ -1354,16 +1355,7 @@ func main() {
 	if policyPinEnabled {
 		logger.Info("Policy pin header enabled", "header", middleware.PolicyPinOverrideHeader)
 	}
-	var subscriberAllowanceSvc *entitlement.Service
-	if billingSvc != nil && strings.EqualFold(config.GetOr("ROUTER_SUBSCRIBER_ALLOWANCE_ENABLED", "false"), "true") {
-		subscriberAllowanceSvc = entitlement.NewService(
-			postgres.NewSubscriberEntitlementRepo(pool),
-			postgres.NewSubscriberAllowanceRepo(pool),
-		)
-		billingSvc = billingSvc.
-			WithSubscriberAllowance(subscriberAllowanceSvc)
-		logger.Info("Individual subscriber allowance enforcement enabled")
-	}
+	subscriberAllowanceSvc, billingSvc := newSubscriberAllowance(logger, pool, billingSvc)
 	var testPlans *policyregistry.TestPlanTools
 	if testPlansEnabled {
 		if servingAdmission == nil || billingSvc == nil {
@@ -1384,16 +1376,17 @@ func main() {
 	egressProbe.prepare(processCtx, logger, providerMap, envKeyedProviders, initializedOrigins)
 	logger.Info("Router startup initialization complete")
 	serverFeatures := server.Features{
-		SubscriptionLogins:       subscriptionLogins,
-		SubscriptionRefresh:      subscriptionRuntime,
-		StartupDatabasePing:      pool.Ping,
-		TestPlans:                testPlans,
-		PolicyPinEnabled:         policyPinEnabled,
-		ServingAdmission:         servingAdmission,
-		SubscriberAllowance:      subscriberAllowanceSvc,
-		SubscriptionPoolsEnabled: subscriptionPoolsEnabled,
-		PolicyStatus:             policyStatus,
-		RoutingDistribution:      routingDistribution,
+		SubscriptionLogins:        subscriptionLogins,
+		SubscriptionRefresh:       subscriptionRuntime,
+		StartupDatabasePing:       pool.Ping,
+		TestPlans:                 testPlans,
+		PolicyPinEnabled:          policyPinEnabled,
+		ServingAdmission:          servingAdmission,
+		SubscriberAllowance:       subscriberAllowanceSvc,
+		InstallationPoolAllowance: installationPoolAllowance,
+		SubscriptionPoolsEnabled:  subscriptionPoolsEnabled,
+		PolicyStatus:              policyStatus,
+		RoutingDistribution:       routingDistribution,
 	}
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture
@@ -1728,41 +1721,6 @@ func safeGo(logger *slog.Logger, name string, fn func()) {
 	}()
 }
 
-func runSessionPinSweep(ctx context.Context, store sessionpin.Store) {
-	logger := observability.Get()
-	ticker := time.NewTicker(1 * time.Hour)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			sweepCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-			if err := store.SweepExpired(sweepCtx); err != nil {
-				logger.Error("Session pin sweep failed", "err", err)
-			}
-			cancel()
-		}
-	}
-}
-
-func runSessionTurnClockSweep(ctx context.Context, store *postgres.SessionTurnClockRepo) {
-	ticker := time.NewTicker(time.Hour)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			sweepCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			if err := store.SweepExpired(sweepCtx); err != nil {
-				observability.FromContext(ctx).Error("Session turn clock sweep failed", "err", err)
-			}
-			cancel()
-		}
-	}
-}
-
 func cortexWebSearch(logger *slog.Logger) websearch.Executor {
 	if config.GetOr("ROUTER_CORTEX_WEB_SEARCH", "true") != "true" {
 		logger.Info("Cortex Agents web-search executor disabled (ROUTER_CORTEX_WEB_SEARCH)")
@@ -1870,23 +1828,6 @@ func upstreamIDsForProvider(provider string) map[string]string {
 
 type escalationStateSweeper interface {
 	SweepExpired(context.Context) error
-}
-
-func runEscalationSweep(ctx context.Context, store escalationStateSweeper) {
-	ticker := time.NewTicker(time.Hour)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			sweepCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			if err := store.SweepExpired(sweepCtx); err != nil {
-				observability.FromContext(ctx).Error("Escalation state sweep failed", "err", err)
-			}
-			cancel()
-		}
-	}
 }
 
 func buildAnthropicFederationTokenSource(deploymentMode server.DeploymentMode) auth.AnthropicFederationTokenSource {

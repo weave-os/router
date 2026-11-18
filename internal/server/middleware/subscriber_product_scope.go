@@ -7,17 +7,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func WithSubscriberProductScope(svc *entitlement.Service) gin.HandlerFunc {
+func WithSubscriberProductScope(svc *entitlement.Service, poolAllowanceDefault bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		owner := SubscriptionOwnerFrom(c)
-		if owner.SubscriberID == "" {
+		subscriberID := allowanceSubscriber(c, poolAllowanceDefault)
+		if subscriberID == "" {
 			c.Next()
 			return
 		}
 
-		plan, err := svc.ProductScope(c.Request.Context(), entitlement.SubscriberID(owner.SubscriberID))
+		plan, err := svc.ProductScope(c.Request.Context(), subscriberID)
 		if err != nil {
-			observability.FromGin(c).Error("Subscriber product scope check failed; refusing request", "err", err, "subscriber_id", owner.SubscriberID)
+			observability.FromGin(c).Error("Subscriber product scope check failed; refusing request", "err", err, "subscriber_id", subscriberID)
 			abortBillingUnavailable(c)
 			return
 		}
