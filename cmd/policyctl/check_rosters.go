@@ -83,7 +83,7 @@ func checkRosterDir(dir string, options policycompiler.Options) (rosterCheckRepo
 			report.Failed = append(report.Failed, failedRosterEntry{File: file, Error: schemaErr.Error()})
 			continue
 		}
-		if !policycompiler.CompilableSource(schema) {
+		if !schema.IsGoSelectionSchema() {
 			report.Skipped = append(report.Skipped, skippedRosterEntry{
 				File: file, SchemaVersion: schema, Reason: "schema predates Go selection; not a compilable policy source",
 			})

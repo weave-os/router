@@ -54,9 +54,9 @@ func SelectorWithDomainEvidence(roster *rosterdata.Roster, evidence *DomainEvide
 		} else if index := slices.Index(rankedGroups, input.LeadGroup); input.LeadGroup != "" && index > 0 {
 			rankedGroups = append([]string{input.LeadGroup}, append(rankedGroups[:index], rankedGroups[index+1:]...)...)
 		}
-		groups := make([]Group, 0, len(rankedGroups))
+		groups := make([]rosterdata.Group, 0, len(rankedGroups))
 		for _, group := range rankedGroups {
-			groups = append(groups, Group{Label: group})
+			groups = append(groups, rosterdata.Group(group))
 		}
 		candidates := make(map[string]struct{}, len(input.CandidateRosterIDs))
 		for _, rosterID := range input.CandidateRosterIDs {
@@ -92,7 +92,7 @@ func SelectorWithDomainEvidence(roster *rosterdata.Roster, evidence *DomainEvide
 		if input.QualityBias != nil {
 			logFields = append(logFields,
 				"quality_bias", *input.QualityBias,
-				"effective_alpha", EffectiveAlpha(roster, pick.Group, *input.QualityBias),
+				"effective_alpha", EffectiveAlpha(roster, string(pick.Group), *input.QualityBias),
 			)
 		}
 		log.Debug("HMM preference-aware arm selected", logFields...)
@@ -108,7 +108,7 @@ func SelectorWithDomainEvidence(roster *rosterdata.Roster, evidence *DomainEvide
 			fallback = append(fallback, policy.PreviewGroup{Group: label, Probability: input.ClassProbabilities[label], RosterArms: append([]string(nil), cluster.Arms...), EligibleArms: eligible})
 		}
 		return policy.SelectionPick{
-			Group: pick.Group, Arm: pick.Arm, ArmScoresByGroup: scoresByGroup, RankedFallback: fallback, RosterSHA256: roster.SHA256,
+			Group: string(pick.Group), Arm: pick.Arm, ArmScoresByGroup: scoresByGroup, RankedFallback: fallback, RosterSHA256: roster.SHA256,
 			Trace: policy.SelectionTrace{
 				TaskDomain:             input.TaskDomain,
 				ClassifierRanking:      append([]string(nil), rankedGroups...),
@@ -121,7 +121,7 @@ func SelectorWithDomainEvidence(roster *rosterdata.Roster, evidence *DomainEvide
 				EffectiveOrders:        ordersByGroup,
 				ScoresByGroup:          scoresByGroup,
 				ScoreComponentsByGroup: scoreComponentsByGroup,
-				SelectedGroup:          pick.Group,
+				SelectedGroup:          string(pick.Group),
 				SelectedArm:            pick.Arm,
 				FallbackDepth:          pick.FallbackDepth,
 			},

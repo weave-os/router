@@ -93,7 +93,7 @@ func TestCheckRosterDirCompilesV7SourceAndSkipsPreGoSchemas(t *testing.T) {
 	assert.Empty(t, report.Failed)
 }
 
-func TestCheckRosterDirFailsCompilableSourceWithUnknownArm(t *testing.T) {
+func TestCheckRosterDirFailsGoSelectionSchemaWithUnknownArm(t *testing.T) {
 	dir := t.TempDir()
 	writeRoster(t, dir, "roster_unknown_arm.json", v7RosterSource("nobody/no-such-model", `{}`))
 

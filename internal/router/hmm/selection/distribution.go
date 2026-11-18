@@ -13,7 +13,7 @@ import (
 const defaultDistributionGrid = 21
 
 func RoutingDistribution(roster *rosterdata.Roster, gridN int, excludedModels, excludedProviders map[string]struct{}) ([]router.DistributionPoint, error) {
-	if roster == nil || !isDynamicRoster(roster) {
+	if roster == nil || !roster.SchemaVersion.IsGoSelectionSchema() {
 		return nil, fmt.Errorf("HMM routing distribution requires a dynamic roster or compiled serving policy")
 	}
 	if gridN < 2 {
@@ -52,7 +52,7 @@ func RoutingDistribution(roster *rosterdata.Roster, gridN int, excludedModels, e
 					prices[catalogID] = model.Providers[0].Price.InputUSDPer1M / 1000
 				}
 			}
-			pick, _, _, _, ok := selectGroups(roster, []Group{{Label: label}}, "", "", candidates, &qualityBias, nil, nil, nil)
+			pick, _, _, _, ok := selectGroups(roster, []rosterdata.Group{rosterdata.Group(label)}, "", Ladder{}, candidates, &qualityBias, nil, nil, nil)
 			if !ok {
 				continue
 			}

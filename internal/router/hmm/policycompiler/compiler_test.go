@@ -152,7 +152,7 @@ func TestCompileCarriesSubscriptionLadders(t *testing.T) {
 
 	_, policy, err := policycompiler.Compile(source, policycompiler.Options{ClassOrder: []string{"low"}})
 	require.NoError(t, err)
-	assert.Equal(t, map[string]map[string]string{"openai": {"low": "openai/gpt-6-luna"}}, policy.SubscriptionLadders)
+	assert.Equal(t, map[string]map[rosterdata.Group]string{"openai": {"low": "openai/gpt-6-luna"}}, policy.SubscriptionLadders)
 	assert.Contains(t, policy.AllArms(), "openai/gpt-6-luna")
 }
 
@@ -187,14 +187,6 @@ func TestCompileRejectsSubscriptionLadderForUnknownGroup(t *testing.T) {
 
 	_, _, err := policycompiler.Compile(source, policycompiler.Options{ClassOrder: []string{"low"}})
 	require.ErrorContains(t, err, `subscription ladder "openai" references unknown group "medium"`)
-}
-
-func TestCompilableSourceRequiresWIIAndWPIProvenance(t *testing.T) {
-	assert.False(t, policycompiler.CompilableSource(rosterdata.SchemaVersion("hmm_router_cluster_roster_v6")))
-	assert.False(t, policycompiler.CompilableSource(rosterdata.SchemaVersion("hmm_router_cluster_roster_v5")))
-	assert.True(t, policycompiler.CompilableSource(rosterdata.SchemaVersionV7))
-	assert.True(t, policycompiler.CompilableSource(rosterdata.SchemaVersionV75C))
-	assert.True(t, policycompiler.CompilableSource(rosterdata.SchemaVersionPolicyV1))
 }
 
 func TestCompileEvidenceIsProvenanceOnly(t *testing.T) {

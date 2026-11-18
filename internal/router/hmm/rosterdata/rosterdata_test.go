@@ -294,3 +294,19 @@ func TestSelectionHarnessReplacesHyphensOnly(t *testing.T) {
 		assert.Equal(t, want, rosterdata.SelectionHarness(clientHarness), clientHarness)
 	}
 }
+
+func TestGoSelectionSchemasAreTheCompilableSchemas(t *testing.T) {
+	assert.False(t, rosterdata.SchemaVersion("hmm_router_cluster_roster_v6").IsGoSelectionSchema())
+	assert.False(t, rosterdata.SchemaVersion("hmm_router_cluster_roster_v5").IsGoSelectionSchema())
+	assert.False(t, rosterdata.SchemaVersion("").IsGoSelectionSchema())
+	assert.True(t, rosterdata.SchemaVersionV7.IsGoSelectionSchema())
+	assert.True(t, rosterdata.SchemaVersionV75C.IsGoSelectionSchema())
+	assert.True(t, rosterdata.SchemaVersionPolicyV1.IsGoSelectionSchema())
+}
+
+func TestGroupIsAnyNonBlankLabel(t *testing.T) {
+	assert.True(t, rosterdata.Group("low").Valid())
+	assert.True(t, rosterdata.Group("a-new-group").Valid())
+	assert.False(t, rosterdata.Group("").Valid())
+	assert.False(t, rosterdata.Group(" ").Valid())
+}
