@@ -6,6 +6,7 @@ import (
 
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/policy"
 )
 
@@ -38,7 +39,7 @@ func NewForStrategy(strategy router.Strategy, decider Decider, availableProvider
 }
 
 func newWithRoutingTargets(strategy router.Strategy, decider Decider, routingTargets, availableProviders map[string]struct{}) *Router {
-	resolver := policy.NewResolver(routingTargets, availableProviders, rosterIDFor, policy.ManagedProviderPolicy())
+	resolver := policy.NewResolver(routingTargets, availableProviders, armid.ForModel, policy.ManagedProviderPolicy())
 	return &Router{
 		SidecarRouter: policy.NewSidecarRouter(policy.SidecarRouterConfig{
 			Strategy:    strategy,

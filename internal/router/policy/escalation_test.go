@@ -60,7 +60,7 @@ func TestEscalationUsesNormalSelectorWithoutLosingFloor(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			roster := &rosterdata.Roster{
-				SchemaVersion: rosterdata.SchemaVersionV6,
+				SchemaVersion: rosterdata.SchemaVersionPolicyV1,
 				Clusters: map[string]rosterdata.Cluster{
 					string(escalation.Low):     {Arms: []string{escalationSonnetArm}},
 					string(escalation.Medium):  {Arms: []string{escalationOpusArm}},
@@ -114,7 +114,7 @@ func TestEscalationUsesNormalSelectorWithoutLosingFloor(t *testing.T) {
 func TestEscalationYieldsToExplicitClusterForce(t *testing.T) {
 	classification := classifierOnlyResult()
 	roster := &rosterdata.Roster{
-		SchemaVersion: rosterdata.SchemaVersionV6,
+		SchemaVersion: rosterdata.SchemaVersionPolicyV1,
 		Clusters: map[string]rosterdata.Cluster{
 			string(escalation.Low):     {Arms: []string{escalationSonnetArm}},
 			string(escalation.Maximum): {Arms: []string{escalationOpusArm}},

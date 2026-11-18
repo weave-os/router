@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/hmm/rosterdata"
 )
 
@@ -56,7 +56,7 @@ func PreviewDomainRanking(roster *rosterdata.Roster, evidence *DomainEvidence, l
 	}
 	candidates := make(map[string]struct{}, len(baselineOrder))
 	for _, arm := range baselineOrder {
-		baseID, _ := hmm.SplitEffort(arm)
+		baseID, _ := armid.SplitEffort(arm)
 		candidates[baseID] = struct{}{}
 	}
 	groups := []Group{{Label: label}}

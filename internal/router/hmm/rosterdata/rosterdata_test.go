@@ -16,7 +16,7 @@ func TestLoadValidRoster(t *testing.T) {
 	roster, err := rosterdata.Load(filepath.Join("testdata", "roster_valid.json"))
 	require.NoError(t, err)
 
-	assert.Equal(t, rosterdata.SchemaVersionV6, roster.SchemaVersion)
+	assert.Equal(t, rosterdata.SchemaVersionV7, roster.SchemaVersion)
 	require.Len(t, roster.Clusters, 2)
 
 	low := roster.Clusters["low"]
@@ -62,7 +62,7 @@ func TestAllArmsUnionsClusterHarnessAndMembership(t *testing.T) {
 
 func TestParseUnknownFieldsRejected(t *testing.T) {
 	_, parseErr := rosterdata.Parse([]byte(`{
-  "schema_version":"hmm_router_cluster_roster_v6",
+  "schema_version":"hmm_router_cluster_roster_v7",
   "ranking":{},
   "clusters":{},
   "python_selection_order":["model-a"]
@@ -98,14 +98,14 @@ func TestParseSchemaErrors(t *testing.T) {
 		},
 		{
 			name:    "missing schema_version",
-			mutate:  replaceJSON(`"schema_version": "hmm_router_cluster_roster_v6"`, `"schema_version": ""`),
+			mutate:  replaceJSON(`"schema_version": "hmm_router_cluster_roster_v7"`, `"schema_version": ""`),
 			wantErr: "missing schema_version",
 		},
 		{
 			name: "no clusters",
 			mutate: func(t *testing.T, doc []byte) []byte {
 				t.Helper()
-				return []byte(`{"schema_version":"hmm_router_cluster_roster_v6","clusters":{}}`)
+				return []byte(`{"schema_version":"hmm_router_cluster_roster_v7","clusters":{}}`)
 			},
 			wantErr: "no clusters",
 		},

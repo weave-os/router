@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/policy"
 )
 
@@ -223,28 +224,28 @@ func TestCatalogRoutingTargetsResolveCurrentHMMRosterArmsToProviders(t *testing.
 func TestRosterIDForMapsBareGrokIDsToXAIRosterSlugs(t *testing.T) {
 	grok46, ok := catalog.ByID("grok-4.6")
 	require.True(t, ok)
-	assert.Equal(t, "x-ai/grok-4.6", rosterIDFor(grok46))
+	assert.Equal(t, "x-ai/grok-4.6", armid.ForModel(grok46))
 
 	grok45, ok := catalog.ByID("grok-4.5")
 	require.True(t, ok)
-	assert.Equal(t, "x-ai/grok-4.5", rosterIDFor(grok45))
+	assert.Equal(t, "x-ai/grok-4.5", armid.ForModel(grok45))
 
 	// The reverse mapping must land on the bare catalog ID the dispatch path
 	// consumes, not echo the prefixed roster slug back.
-	assert.Equal(t, "grok-4.6", CatalogIDForRoster("x-ai/grok-4.6"))
-	assert.Equal(t, "grok-4.5", CatalogIDForRoster("x-ai/grok-4.5"))
+	assert.Equal(t, "grok-4.6", armid.CatalogIDForRoster("x-ai/grok-4.6"))
+	assert.Equal(t, "grok-4.5", armid.CatalogIDForRoster("x-ai/grok-4.5"))
 
 	grok47, ok := catalog.ByID("grok-4.7")
 	require.True(t, ok)
-	assert.Equal(t, "x-ai/grok-4.7", rosterIDFor(grok47))
-	assert.Equal(t, "grok-4.7", CatalogIDForRoster("x-ai/grok-4.7"))
+	assert.Equal(t, "x-ai/grok-4.7", armid.ForModel(grok47))
+	assert.Equal(t, "grok-4.7", armid.CatalogIDForRoster("x-ai/grok-4.7"))
 }
 
 func TestRosterIDForMapsBareMuseSparkToMetaRosterSlug(t *testing.T) {
 	muse, ok := catalog.ByID("muse-spark-1.3")
 	require.True(t, ok)
-	assert.Equal(t, "meta/muse-spark-1.3", rosterIDFor(muse))
-	assert.Equal(t, "muse-spark-1.3", CatalogIDForRoster("meta/muse-spark-1.3"))
+	assert.Equal(t, "meta/muse-spark-1.3", armid.ForModel(muse))
+	assert.Equal(t, "muse-spark-1.3", armid.CatalogIDForRoster("meta/muse-spark-1.3"))
 
 	got := DeployedModelsForRosterIDs([]string{"meta/muse-spark-1.3", "meta/muse-spark-1.3:xhigh"})
 	require.Len(t, got, 1)
@@ -304,7 +305,7 @@ func candidateRosterIDs(candidates []Candidate) []string {
 }
 
 func TestRosterIDForSkipsAmbiguousBareProviderIDs(t *testing.T) {
-	got := rosterIDFor(catalog.Model{
+	got := armid.ForModel(catalog.Model{
 		ID: "bare-provider-model",
 		Providers: []catalog.ProviderBinding{{
 			Provider: providers.ProviderFireworks,

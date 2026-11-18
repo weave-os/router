@@ -19,7 +19,6 @@ import (
 type SchemaVersion string
 
 const (
-	SchemaVersionV6       SchemaVersion = "hmm_router_cluster_roster_v6"
 	SchemaVersionV7       SchemaVersion = "hmm_router_cluster_roster_v7"
 	SchemaVersionV75C     SchemaVersion = "hmm_router_cluster_roster_v7_5c"
 	SchemaVersionPolicyV1 SchemaVersion = "hmm_go_selection_policy_v1"
@@ -42,7 +41,6 @@ type Roster struct {
 	Ranking               Ranking                           `json:"ranking"`
 	HarnessVendorPriority map[Harness]HarnessVendorPriority `json:"harness_vendor_priority,omitempty"`
 	ManualPins            map[string]map[string][]string    `json:"manual_pins,omitempty"`
-	ModePolicies          map[string]ModePolicy             `json:"mode_policies,omitempty"`
 	Preferences           PreferencePolicy                  `json:"preferences,omitempty"`
 	SubscriptionLadders   map[string]map[string]string      `json:"subscription_ladders,omitempty"`
 	Provenance            Provenance                        `json:"provenance,omitempty"`
@@ -53,10 +51,6 @@ type Roster struct {
 type HarnessVendorPriority struct {
 	Vendors  []string `json:"vendors"`
 	Clusters []string `json:"clusters"`
-}
-
-type ModePolicy struct {
-	AllowedGroups []string `json:"allowed_groups"`
 }
 
 type PreferencePolicy struct {
@@ -225,7 +219,7 @@ func Load(path string) (*Roster, error) {
 
 func validateSchema(r *Roster) error {
 	switch r.SchemaVersion {
-	case SchemaVersionV6, SchemaVersionV7, SchemaVersionV75C, SchemaVersionPolicyV1:
+	case SchemaVersionV7, SchemaVersionV75C, SchemaVersionPolicyV1:
 	case "":
 		return fmt.Errorf("missing schema_version")
 	default:
@@ -288,12 +282,6 @@ func validateGoPolicy(r *Roster) error {
 	}
 	if !finiteUpTo(r.Preferences.PreferredModelBonus, 1) || !finiteUpTo(r.Preferences.SubscriptionBonus, 1) {
 		return fmt.Errorf("preference bonuses must be finite values in [0,1]")
-	}
-	for mode, modePolicy := range r.ModePolicies {
-		if strings.TrimSpace(mode) == "" || len(modePolicy.AllowedGroups) == 0 {
-			return fmt.Errorf("mode policy %q must allow at least one group", mode)
-		}
-		return fmt.Errorf("mode policy %q is not supported by Go selection", mode)
 	}
 	for provider, armsByGroup := range r.SubscriptionLadders {
 		if strings.TrimSpace(provider) == "" || len(armsByGroup) == 0 {

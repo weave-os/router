@@ -15,7 +15,7 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/subscriptionlane"
 	"weave-os/router/internal/subscriptions"
 )
@@ -517,8 +517,8 @@ func (s *Service) subscriptionAlternativeDecisions(ctx context.Context, req rout
 	var alternatives []router.Decision
 	seen := map[string]bool{selected.Model: true}
 	for _, arm := range ordered {
-		model, effort := hmm.SplitEffort(arm)
-		model = hmm.CatalogIDForRoster(model)
+		model, effort := armid.SplitEffort(arm)
+		model = armid.CatalogIDForRoster(model)
 		eligible := false
 		for _, candidate := range selected.Metadata.CandidateModels {
 			if candidate == model {
@@ -527,8 +527,8 @@ func (s *Service) subscriptionAlternativeDecisions(ctx context.Context, req rout
 		}
 		if trace := selected.Metadata.SelectionTrace; trace != nil {
 			for _, candidate := range trace.CandidateRosterIDs {
-				base, _ := hmm.SplitEffort(candidate)
-				if hmm.CatalogIDForRoster(base) == model {
+				base, _ := armid.SplitEffort(candidate)
+				if armid.CatalogIDForRoster(base) == model {
 					eligible = true
 				}
 			}

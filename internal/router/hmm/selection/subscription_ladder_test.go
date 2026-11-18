@@ -13,7 +13,7 @@ import (
 
 func ladderRoster() *rosterdata.Roster {
 	return &rosterdata.Roster{
-		SchemaVersion: rosterdata.SchemaVersionV6,
+		SchemaVersion: rosterdata.SchemaVersionPolicyV1,
 		SubscriptionLadders: map[string]map[string]string{
 			providers.ProviderAnthropic:    {"medium": "anthropic/sonnet"},
 			providers.ProviderOpenAI:       {"medium": "openai/terra"},
@@ -77,7 +77,7 @@ func TestNoSubscriptionLadderServesEachGroupWithinTheHarness(t *testing.T) {
 	haiku, luna, mimo := "anthropic/claude-haiku-5.5", "openai/gpt-6-luna", "xiaomi/mimo-v2.6-pro"
 	solHigh, sol, opus, opusMedium := "openai/gpt-6.1-sol:high", "openai/gpt-6.1-sol", "anthropic/claude-opus-5.5", "anthropic/claude-opus-5.5:medium"
 	roster := &rosterdata.Roster{
-		SchemaVersion: rosterdata.SchemaVersionV6,
+		SchemaVersion: rosterdata.SchemaVersionPolicyV1,
 		SubscriptionLadders: map[string]map[string]string{
 			selection.NoSubscriptionLadder: {"medium": mimo, "high": solHigh},
 		},
