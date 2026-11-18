@@ -1,6 +1,6 @@
 package flags
 
-const RegistryVersion = 32
+const RegistryVersion = 33
 
 var Registry = []Definition{
 	{Key: KeyEscalationActiveClassifier, Kind: KindString, Description: "Active escalation classifier: none, xgb, switchyard_llm_v1, or llm_escalation. Absent preserves legacy XGB flags.", OrgOverridable: true},
@@ -331,6 +331,24 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_HARD_PIN_EXPLORE",
 		Kind:           KindBool,
 		Description:    "Pin non-HMM Claude Code Task-tool sub-agent turns to the hard-pin model. On by default.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyTaskArmExperimentTreatmentPct,
+		Kind:           KindInt,
+		Description:    "Experiment (expires 2027-01-15): percent of eligible tasks whose router-decided turns are capped at task_arm_experiment_treatment_cluster; the rest are the control arm and route as usual. A task is eligible when the agent's previous turn label names a step in task_arm_experiment_steps. 0-100; 0 (default) turns the experiment off.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyTaskArmExperimentSteps,
+		Kind:           KindString,
+		Description:    "Experiment (expires 2027-01-15): comma-separated turn-label steps that make a task eligible for the task-arm experiment. Empty (default) makes no task eligible.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyTaskArmExperimentTreatmentCluster,
+		Kind:           KindString,
+		Description:    "Experiment (expires 2027-01-15): highest policy cluster (low, medium, high or maximum) the task-arm experiment's treatment arm may be routed to; turns ordinary routing puts at or below it are untouched. Empty (default) turns the experiment off.",
 		OrgOverridable: true,
 	},
 	{

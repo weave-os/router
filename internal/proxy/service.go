@@ -2472,7 +2472,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 
 	forceModel := agentForceModel
-	forceCluster := ""
+	forceCluster, taskArm := "", taskArmTurn{}
 	if !agentShadowMode {
 		var headerForceModel string
 		var forceErr error
@@ -2483,7 +2483,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if headerForceModel != "" {
 			forceModel = headerForceModel
 		}
-		forceCluster, forceErr = applyForceClusterHeader(ctx, r)
+		forceCluster, taskArm, forceErr = forceClusterForTurn(ctx, r, env, feats, facts.InstallationID, forceModel)
 		if forceErr != nil {
 			return forceErr
 		}
@@ -2593,7 +2593,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	} else if agentShadowMode {
 		routeRes, routeErr = s.runAgentShadowEvaluationRoute(routeCtx, env, feats, facts.InstallationID, req, agentShadowEval)
 	} else {
-		routeRes, routeErr = s.runTurnLoop(routeCtx, env, feats, facts.APIKeyID, facts.InstallationID, "", r.Header, req)
+		routeRes, routeErr = taskArm.route(routeCtx, s.runTurnLoop)(env, feats, facts.APIKeyID, facts.InstallationID, "", r.Header, req)
 	}
 	defer routeRes.releaseCooldownProbes()
 	var escalationCapture *captureWriter
@@ -2802,7 +2802,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	applyPlannerAttrs(decisionBuilder, routeRes)
 	applyRoutingStateAttrs(decisionBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	applyCallerRoutingAttrs(ctx, decisionBuilder)
-	applyBlindExperimentOutcomeAttrs(ctx, decisionBuilder, &routeRes, feats.Model, routeRes.Decision.Model)
+	applyExperimentAttrs(ctx, decisionBuilder, &routeRes, taskArm, feats.Model, routeRes.Decision.Model)
 	telemetry.Record(ctx, telemetry.Span{
 		Name:  "router.decision",
 		Start: requestStart,
@@ -3319,7 +3319,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	applyPlannerAttrs(upstreamBuilder, routeRes)
 	applyRoutingStateAttrs(upstreamBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	applyCallerRoutingAttrs(ctx, upstreamBuilder)
-	applyBlindExperimentOutcomeAttrs(ctx, upstreamBuilder, &routeRes, feats.Model, decision.Model)
+	applyExperimentAttrs(ctx, upstreamBuilder, &routeRes, taskArm, feats.Model, decision.Model)
 	applyEffortAttrs(upstreamBuilder, effortServed)
 	s.applySubscriptionSpanTelemetry(ctx, upstreamBuilder, feats.Model, decision.Model)
 	addTimingAttrs(ctx, upstreamBuilder)
@@ -4634,7 +4634,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if forceModel == "" {
 		forceModel = codexSelectedModel(ctx)
 	}
-	forceCluster, forceErr := applyForceClusterHeader(ctx, r)
+	forceCluster, taskArm, forceErr := forceClusterForTurn(ctx, r, env, feats, facts.InstallationID, forceModel)
 	if forceErr != nil {
 		return forceErr
 	}
@@ -4721,7 +4721,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	routeStart := s.clock.Now()
 	routeCtx, routeSpan := startRoutingSpan(ctx, routeRequest)
-	routeRes, err := s.runTurnLoop(routeCtx, env, feats, facts.APIKeyID, facts.InstallationID, subAgentHint, r.Header, routeRequest)
+	routeRes, err := taskArm.route(routeCtx, s.runTurnLoop)(env, feats, facts.APIKeyID, facts.InstallationID, subAgentHint, r.Header, routeRequest)
 	defer routeRes.releaseCooldownProbes()
 	var escalationCapture *captureWriter
 	defer func() {
@@ -4822,7 +4822,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	applyPlannerAttrs(openaiDecisionBuilder, routeRes)
 	applyRoutingStateAttrs(openaiDecisionBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	applyCallerRoutingAttrs(ctx, openaiDecisionBuilder)
-	applyBlindExperimentOutcomeAttrs(ctx, openaiDecisionBuilder, &routeRes, feats.Model, routeRes.Decision.Model)
+	applyExperimentAttrs(ctx, openaiDecisionBuilder, &routeRes, taskArm, feats.Model, routeRes.Decision.Model)
 	telemetry.Record(ctx, telemetry.Span{
 		Name:  "router.decision",
 		Start: requestStart,
@@ -5510,7 +5510,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	applyPlannerAttrs(openaiUpstreamBuilder, routeRes)
 	applyRoutingStateAttrs(openaiUpstreamBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	applyCallerRoutingAttrs(ctx, openaiUpstreamBuilder)
-	applyBlindExperimentOutcomeAttrs(ctx, openaiUpstreamBuilder, &routeRes, feats.Model, decision.Model)
+	applyExperimentAttrs(ctx, openaiUpstreamBuilder, &routeRes, taskArm, feats.Model, decision.Model)
 	applyEffortAttrs(openaiUpstreamBuilder, effortServed)
 	s.applySubscriptionSpanTelemetry(ctx, openaiUpstreamBuilder, feats.Model, decision.Model)
 	addTimingAttrs(ctx, openaiUpstreamBuilder)

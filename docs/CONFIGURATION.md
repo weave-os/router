@@ -18,6 +18,7 @@ This page is the exhaustive reference; the [README](../README.md) has the
 - [Routing](#routing)
   - [Kill switches and staged behaviors](#kill-switches-and-staged-behaviors)
 - [Per-organization flag overrides](#per-organization-flag-overrides)
+  - [Task-arm experiment](#task-arm-experiment)
 - [Plan-aware subscription routing](#plan-aware-subscription-routing)
 - [Provider and model exclusions](#provider-and-model-exclusions)
 - [Policy sidecars](#policy-sidecars)
@@ -805,6 +806,83 @@ override, then organization override, then deployment default.
 - Routing code reads a flag through the `Resolve*` helpers in
   `internal/proxy/flag_resolution.go`. Reading the deployment default off
   `proxy.Service` directly silently ignores any organization override.
+
+### Task-arm experiment
+
+An opt-in randomized experiment, off at its defaults, that compares ordinary
+routing against routing capped at one policy cluster on tasks at chosen steps of an agent's work.
+It only reads the turn label some agent setups write as the last line of the
+message that ends a turn: `@cycle <goal> <task> <step> <status> | <reason>`, or
+`@cycle =` when nothing changed since the label before.
+
+| Flag | Default | Effect |
+| ---- | ------- | ------ |
+| `task_arm_experiment_treatment_pct` | `0` | Percent of eligible tasks in the treatment arm (0-100). `0` turns the experiment off. |
+| `task_arm_experiment_steps` | empty | Comma-separated label steps that make a task eligible. Empty makes no task eligible. |
+| `task_arm_experiment_treatment_cluster` | empty | Highest cluster the treatment arm may be routed to: `low`, `medium`, `high` or `maximum`. Empty or any other value turns the experiment off. |
+
+- **Where the step comes from.** The router has no label for the turn it is
+  routing, only the conversation history in the request, read through the same
+  projection the policy classifier gets. It takes the message that closed the
+  turn before the latest user prompt and reads its last line. A user prompt
+  with no text, such as an image on its own, is not visible in that history,
+  so a labelled message after the latest visible prompt is taken as the closing
+  message instead. A repeated label resolves to the label of the turn before
+  it. A previous turn that ended without a valid label makes the turn
+  ineligible rather than falling back to an older label; the one exception is
+  an unlabelled turn that both follows and precedes a text-less prompt, which
+  cannot be told apart from the current turn. History rewritten by compaction,
+  and sub-agent requests, which carry their own history, are ineligible.
+- **Assignment.** The arm is a hash of the installation, the router user,
+  the goal and the task, not of the session, so a task resumed in another
+  session keeps its arm, and every eligible request of a task draws the same
+  arm while the percentage is unchanged. A task the agent renames is a new
+  task. Changing the percentage mid-run reassigns tasks; start a new run
+  instead.
+- **Scope.** Only main-loop and tool-result turns the router decides on an HMM
+  strategy are assigned. A forced model, a forced cluster, caller-model
+  passthrough, a plan with its own serving policy, a handoff and agent shadow
+  evaluation all leave the turn outside the experiment, as do sub-agent,
+  compaction, title and other utility turns. The Gemini surface is not wired.
+- **Ceiling.** Every assigned turn is first routed exactly as without the
+  experiment, session pin included; that is the control decision, recorded in
+  both arms. **Control** turns are served with it. A **treatment** turn is
+  served with it too unless its cluster ranks above the treatment cluster
+  (`low` < `medium` < `high` < `maximum`). Only then is the turn routed a
+  second time inside the treatment cluster, so a turn at or below the ceiling
+  is never moved, up or down. When the treatment cluster cannot serve the
+  request, the control decision serves it; the experiment never fails a
+  request ordinary routing would serve.
+- **Session pin.** The second, capped route neither reads nor writes the
+  session pin, and it excludes the models the session has demoted. The pin a
+  treatment task leaves behind is therefore the one the control decision
+  wrote, and the routing history keeps the cluster control routing chose, so a
+  later control task in the same session starts from the model control
+  routing would have had. What was actually served is still recorded
+  truthfully: the turn's usage, the model that served it (so the next turn
+  sees a model switch and handles thinking blocks accordingly), failure
+  strikes against the capped model, and the outcome of an escalation
+  checkpoint. A refusal on a capped turn can still move the pin, as it would
+  on any turn.
+- **Telemetry.** Assigned turns carry these attributes on the `router.decision`
+  and upstream spans; unassigned turns carry none of them.
+
+  | Attribute | Meaning |
+  | --------- | ------- |
+  | `routing.task_arm_experiment_arm` | `control` or `treatment`. |
+  | `routing.task_arm_experiment_propensity` | Probability the task had of drawing that arm. |
+  | `routing.task_arm_experiment_task_key` | Opaque hash identifying the task; goal and task names are never recorded. |
+  | `routing.task_arm_experiment_step` | The label step that made the turn eligible. |
+  | `routing.task_arm_experiment_control_model` | Model ordinary routing chose for the turn, in both arms. |
+  | `routing.task_arm_experiment_control_cluster` | Cluster of that decision, in both arms. Empty when the decision carries none. |
+  | `routing.task_arm_experiment_ceiling_binds` | Whether the control cluster ranks above the treatment cluster, in both arms. This is what selects the turns the two arms can differ on. |
+  | `routing.task_arm_experiment_treatment_applied` | Whether the turn was routed inside the treatment cluster and the final attempt went to the model that route chose, whether or not that attempt succeeded (the span's status shows the outcome). Always `false` on control turns and on turns the ceiling does not bind. On the upstream span it is `false` when a failover served the turn with another model; the decision span describes the routing decision before dispatch. |
+
+Analyse by assigned arm, not by `treatment_applied`: the fallback and the
+ineligible turns of a task are part of what the treatment does. Select the
+tasks the arms can differ on with `ceiling_binds`, which is measured the same
+way in both arms.
+`treatment_applied` measures how much of the treatment arm was treated.
 
 ## Plan-aware subscription routing
 
