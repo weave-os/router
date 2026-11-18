@@ -64,9 +64,11 @@ func (e *RequestEnvelope) PrepareAnthropicVerbatim(in http.Header, opts EmitOpti
 		h.Set("anthropic-version", "2023-06-01")
 	}
 	beta := in.Get("anthropic-beta")
-	body := e.body
+	body, err := withModelThinkingOff(e.body, opts.Capabilities.Reasoning().ThinkingOff)
+	if err != nil {
+		return providers.PreparedRequest{}, err
+	}
 	if verbatimServerSideFallback(body, opts) {
-		var err error
 		if body, err = sjson.SetBytes(body, "fallbacks", "default"); err != nil {
 			return providers.PreparedRequest{}, fmt.Errorf("set fallbacks: %w", err)
 		}
@@ -76,6 +78,31 @@ func (e *RequestEnvelope) PrepareAnthropicVerbatim(in http.Header, opts EmitOpti
 		h.Set("anthropic-beta", beta)
 	}
 	return providers.PreparedRequest{Body: body, Headers: h}, nil
+}
+
+func withModelThinkingOff(body []byte, off router.ThinkingOff) ([]byte, error) {
+	if off == router.ThinkingOffDisabled || gjson.GetBytes(body, "thinking.type").String() != "disabled" {
+		return body, nil
+	}
+	if off == router.ThinkingOffBetweenTools {
+		return setThinkingType(body, "between_tools")
+	}
+	body, err := setThinkingType(body, "adaptive")
+	if err != nil || gjson.GetBytes(body, "output_config.effort").Exists() {
+		return body, err
+	}
+	if body, err = sjson.SetBytes(body, "output_config.effort", effortLow); err != nil {
+		return nil, fmt.Errorf("set output_config.effort: %w", err)
+	}
+	return body, nil
+}
+
+func setThinkingType(body []byte, thinkingType string) ([]byte, error) {
+	out, err := sjson.SetRawBytes(body, "thinking", []byte(`{"type":"`+thinkingType+`"}`))
+	if err != nil {
+		return nil, fmt.Errorf("set thinking: %w", err)
+	}
+	return out, nil
 }
 
 func ExtendedContextBeta(beta string, opts EmitOptions) string {
