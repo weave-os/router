@@ -808,6 +808,8 @@ type RouterModelRouterUser struct {
 	DisplayName *string
 	// Authenticated owner of the personal API key that carried a request with no client-asserted identity. Set only on rows created for such requests (email and claude_account_uuid NULL).
 	CredentialSubjectID pgtype.UUID
+	// Ownerless (team) API key that carried a request with no client-asserted identity. One synthetic user per key, so per-user spend caps still apply to that traffic.
+	UnidentifiedAPIKeyID pgtype.UUID
 }
 
 type RouterModelRouterUserClusterModelList struct {

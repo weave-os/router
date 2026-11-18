@@ -103,6 +103,9 @@ func resolveUserFromContext(ctx context.Context, authSvc *auth.Service, installa
 		if apiKey != nil && apiKey.CredentialSubjectID != "" {
 			return authSvc.ResolveAndStashKeyOwner(ctx, installation.ID, apiKey.CredentialSubjectID, id.DisplayName)
 		}
+		if apiKey != nil && apiKey.ID != "" {
+			return authSvc.ResolveAndStashUnidentifiedKeyUser(ctx, installation.ID, apiKey.ID, id.DisplayName)
+		}
 		log.Info("ResolveUserFromContext bailout",
 			"reason", "no_identity_signal",
 			"installation_id", installation.ID,
