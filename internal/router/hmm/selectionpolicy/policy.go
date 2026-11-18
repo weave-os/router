@@ -69,10 +69,7 @@ func (p *Policy) DeployedModels() []router.DeployedEntry {
 	deployed := make([]router.DeployedEntry, 0, len(arms))
 	listed := make(map[string]struct{}, len(arms))
 	for _, arm := range arms {
-		model, inCatalog := catalog.ByID(p.CatalogID(arm))
-		if !inCatalog {
-			continue
-		}
+		model, _ := catalog.ByID(p.CatalogID(arm))
 		if _, duplicate := listed[model.ID]; duplicate {
 			continue
 		}
