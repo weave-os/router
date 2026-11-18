@@ -176,6 +176,7 @@ type Service struct {
 	feedbackStore                RouterFeedbackStore
 	summarizer                   handover.Summarizer
 	webSearch                    websearch.Executor
+	fallbackWebSearch            websearch.Executor
 	compactionHandoverSummarizer handover.Summarizer
 	availableModels              map[string]struct{}
 	defaultBaselineModel         string
@@ -1473,6 +1474,11 @@ func (s *Service) WithCompactionHandoverSummarizer(sz handover.Summarizer) *Serv
 
 func (s *Service) WithWebSearchExecutor(ex websearch.Executor) *Service {
 	s.webSearch = ex
+	return s
+}
+
+func (s *Service) WithFallbackWebSearchExecutor(ex websearch.Executor) *Service {
+	s.fallbackWebSearch = ex
 	return s
 }
 
