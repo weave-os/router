@@ -125,6 +125,9 @@ const (
 	retiredKeySubscriberPaidFallback    Key = "subscriber_paid_fallback_enabled"
 	retiredKeySubscriptionPoolQuota     Key = "subscription_pool_quota_aware_selection_enabled"
 	retiredKeyEmbedOnlyUserMessage      Key = "embed_only_user_message"
+	retiredKeyUpgradeHoldoutPct         Key = "authoritative_upgrade_holdout_pct"
+	retiredKeyHMMSameTierPin            Key = "hmm_same_tier_pin"
+	retiredKeyColdPinFollowFresh        Key = "planner_cold_pin_follow_fresh"
 )
 
 var retiredOverrideKeys = map[Key]struct{}{
@@ -134,6 +137,9 @@ var retiredOverrideKeys = map[Key]struct{}{
 	retiredKeySubscriberPaidFallback:    {},
 	retiredKeySubscriptionPoolQuota:     {},
 	retiredKeyEmbedOnlyUserMessage:      {},
+	retiredKeyUpgradeHoldoutPct:         {},
+	retiredKeyHMMSameTierPin:            {},
+	retiredKeyColdPinFollowFresh:        {},
 }
 
 type Definition struct {
