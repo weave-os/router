@@ -1,4 +1,4 @@
-package selection_test
+package selection
 
 import (
 	"encoding/json"
@@ -8,16 +8,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/hmm/rosterdata"
-	"weave-os/router/internal/router/hmm/selection"
 )
 
-func domainArmsForTest() map[string]selection.DomainArmEvidence {
-	return map[string]selection.DomainArmEvidence{
-		"vendor-a/quality": {GlobalWII: 90, WPI: 10, Benchmarks: map[selection.Benchmark]float64{
-			selection.BenchmarkTerminalBench4: 0, selection.BenchmarkITBench: 0, selection.BenchmarkLongContextReasoning: 90,
+func domainArmsForTest() map[string]DomainArmEvidence {
+	return map[string]DomainArmEvidence{
+		"vendor-a/quality": {GlobalWII: 90, WPI: 10, Benchmarks: map[Benchmark]float64{
+			BenchmarkTerminalBench4: 0, BenchmarkITBench: 0, BenchmarkLongContextReasoning: 90,
 		}},
-		"vendor-b/cheap": {GlobalWII: 55, WPI: 0, Benchmarks: map[selection.Benchmark]float64{selection.BenchmarkTerminalBench4: 100}},
+		"vendor-b/cheap": {GlobalWII: 55, WPI: 0, Benchmarks: map[Benchmark]float64{BenchmarkTerminalBench4: 100}},
 	}
 }
 
@@ -66,24 +66,24 @@ func domainEvidencePayloadForTest(t *testing.T, roster *rosterdata.Roster, fixtu
 	return payload
 }
 
-func domainEvidenceForTest(t *testing.T, roster *rosterdata.Roster) *selection.DomainEvidence {
+func domainEvidenceForTest(t *testing.T, roster *rosterdata.Roster) *DomainEvidence {
 	t.Helper()
 	bindDomainRosterForTest(roster)
-	evidence, err := selection.ParseDomainEvidence(domainEvidencePayloadForTest(t, roster, validDomainEvidenceFixture()), roster)
+	evidence, err := ParseDomainEvidence(domainEvidencePayloadForTest(t, roster, validDomainEvidenceFixture()), roster)
 	require.NoError(t, err)
 	return evidence
 }
 
 // expectedTaskDelta restates the recipe independently of the selection package.
-func expectedTaskDelta(profile selection.DomainProfile, arm selection.DomainArmEvidence) float64 {
+func expectedTaskDelta(profile DomainProfile, arm DomainArmEvidence) float64 {
 	total, active := 0.0, 0
 	for domain, weights := range domainRecipesForTest() {
-		if !profile[selection.Domain(domain)] {
+		if !profile[Domain(domain)] {
 			continue
 		}
 		active++
 		for benchmark, weight := range weights {
-			if quality, measured := arm.Benchmarks[selection.Benchmark(benchmark)]; measured {
+			if quality, measured := arm.Benchmarks[Benchmark(benchmark)]; measured {
 				total += weight * (quality - arm.GlobalWII)
 			}
 		}
@@ -100,11 +100,11 @@ func TestDomainScoresFollowWeightedRecipeForAllMasks(t *testing.T) {
 	groups := []rosterdata.Group{"low"}
 	candidates := candidateSet("vendor-a/quality", "vendor-b/cheap")
 	for mask := 0; mask < 32; mask++ {
-		profile := selection.DomainProfile{}
-		for bit, domain := range []selection.Domain{selection.DomainUI, selection.DomainLogic, selection.DomainData, selection.DomainInfra, selection.DomainDocs} {
+		profile := DomainProfile{}
+		for bit, domain := range []Domain{DomainUI, DomainLogic, DomainData, DomainInfra, DomainDocs} {
 			profile[domain] = mask&(1<<bit) != 0
 		}
-		pick, scores, components, order, ok := selection.SelectGroupsWithSubscriptions(roster, groups, "", nil, candidates, nil, nil, evidence, profile)
+		pick, scores, components, order, ok := selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: groups, LadderKey: SubscriptionLadder("", nil), Candidates: candidates, Evidence: evidence, Profile: profile}).tuple()
 		require.True(t, ok)
 		assert.ElementsMatch(t, roster.Clusters["low"].Arms, order["low"])
 		for arm, base := range map[string]float64{"vendor-a/quality": 30, "vendor-b/cheap": 25} {
@@ -112,8 +112,8 @@ func TestDomainScoresFollowWeightedRecipeForAllMasks(t *testing.T) {
 			assert.InDelta(t, base+correction, scores["low"][arm], 1e-5, "mask %d arm %s", mask, arm)
 			assert.InDelta(t, correction, components["low"][arm].TaskDomainCorrection, 1e-5)
 		}
-		if len(selection.ScoredDomains(profile)) == 0 {
-			assert.Equal(t, "vendor-a/quality", pick.Arm)
+		if len(ScoredDomains(profile)) == 0 {
+			assert.Equal(t, "vendor-a/quality", pick.Arm.String())
 			assert.Equal(t, roster.Clusters["low"].Arms, order["low"])
 		}
 	}
@@ -123,48 +123,38 @@ func TestDocsNeitherCorrectsNorDilutes(t *testing.T) {
 	roster := dynamicRoster()
 	evidence := domainEvidenceForTest(t, roster)
 	arm := evidence.Arms["vendor-a/quality"]
-	logicOnly := fullProfile(selection.DomainLogic)
-	logicAndDocs := fullProfile(selection.DomainLogic)
-	logicAndDocs[selection.DomainDocs] = true
-	assert.Equal(t, []selection.Domain{selection.DomainLogic}, selection.ScoredDomains(logicAndDocs))
-	assert.InDelta(t, selection.TaskQualityDelta(selection.ScoredDomains(logicOnly), arm), selection.TaskQualityDelta(selection.ScoredDomains(logicAndDocs), arm), 1e-9)
-	assert.Empty(t, selection.ScoredDomains(fullProfile(selection.DomainDocs)))
-	assert.Empty(t, selection.ScoredDomains(nil))
-	assert.Empty(t, selection.ScoredDomains(selection.DomainProfile{selection.DomainInfra: true}))
-	assert.Empty(t, selection.ScoredDomains(selection.DomainProfile{
-		selection.DomainUI: false, selection.DomainLogic: false, selection.DomainData: false,
-		selection.DomainInfra: true, selection.Domain("unexpected"): false,
+	logicOnly := fullProfile(DomainLogic)
+	logicAndDocs := fullProfile(DomainLogic)
+	logicAndDocs[DomainDocs] = true
+	assert.Equal(t, []Domain{DomainLogic}, ScoredDomains(logicAndDocs))
+	assert.InDelta(t, TaskQualityDelta(ScoredDomains(logicOnly), arm), TaskQualityDelta(ScoredDomains(logicAndDocs), arm), 1e-9)
+	assert.Empty(t, ScoredDomains(fullProfile(DomainDocs)))
+	assert.Empty(t, ScoredDomains(nil))
+	assert.Empty(t, ScoredDomains(DomainProfile{DomainInfra: true}))
+	assert.Empty(t, ScoredDomains(DomainProfile{
+		DomainUI: false, DomainLogic: false, DomainData: false,
+		DomainInfra: true, Domain("unexpected"): false,
 	}))
 }
 
 func TestDomainMultipleActionsAverageRecipes(t *testing.T) {
-	arm := selection.DomainArmEvidence{GlobalWII: 50, Benchmarks: map[selection.Benchmark]float64{
-		selection.BenchmarkTerminalBench4: 70, selection.BenchmarkAnalystAgent: 20, selection.BenchmarkITBench: 80,
+	arm := DomainArmEvidence{GlobalWII: 50, Benchmarks: map[Benchmark]float64{
+		BenchmarkTerminalBench4: 70, BenchmarkAnalystAgent: 20, BenchmarkITBench: 80,
 	}}
 	data := 0.4*20 + 0.3*-30
 	infra := 0.6*20 + 0.3*30
-	assert.InDelta(t, data, selection.TaskQualityDelta([]selection.Domain{selection.DomainData}, arm), 1e-12)
-	assert.InDelta(t, infra, selection.TaskQualityDelta([]selection.Domain{selection.DomainInfra}, arm), 1e-12)
-	assert.InDelta(t, (data+infra)/2, selection.TaskQualityDelta([]selection.Domain{selection.DomainData, selection.DomainInfra}, arm), 1e-12)
+	assert.InDelta(t, data, TaskQualityDelta([]Domain{DomainData}, arm), 1e-12)
+	assert.InDelta(t, infra, TaskQualityDelta([]Domain{DomainInfra}, arm), 1e-12)
+	assert.InDelta(t, (data+infra)/2, TaskQualityDelta([]Domain{DomainData, DomainInfra}, arm), 1e-12)
 }
 
 func TestDomainArmWithoutRelevantScoresKeepsItsScore(t *testing.T) {
 	roster := dynamicRoster()
 	evidence := domainEvidenceForTest(t, roster)
 	cell := evidence.Arms["vendor-b/cheap"]
-	cell.Benchmarks = map[selection.Benchmark]float64{selection.BenchmarkAnalystAgent: 100}
+	cell.Benchmarks = map[Benchmark]float64{BenchmarkAnalystAgent: 100}
 	evidence.Arms["vendor-b/cheap"] = cell
-	_, scores, components, _, ok := selection.SelectGroupsWithSubscriptions(
-		roster,
-		[]rosterdata.Group{"low"},
-		"",
-		nil,
-		candidateSet("vendor-a/quality", "vendor-b/cheap"),
-		nil,
-		nil,
-		evidence,
-		fullProfile(selection.DomainLogic),
-	)
+	_, scores, components, _, ok := selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: []rosterdata.Group{"low"}, LadderKey: SubscriptionLadder("", nil), Candidates: candidateSet("vendor-a/quality", "vendor-b/cheap"), Evidence: evidence, Profile: fullProfile(DomainLogic)}).tuple()
 	require.True(t, ok)
 	assert.InDelta(t, float32(25), scores["low"]["vendor-b/cheap"], 1e-9)
 	assert.Zero(t, components["low"]["vendor-b/cheap"].TaskDomainCorrection)
@@ -176,29 +166,9 @@ func TestDomainWithoutEvidencePreservesExistingSelection(t *testing.T) {
 	groups := []rosterdata.Group{"low"}
 	candidates := candidateSet("vendor-a/quality", "vendor-b/cheap")
 	qualityBias := 0.8
-	baselinePick, baselineScores, baselineComponents, baselineOrder, baselineOK := selection.SelectGroupsWithSubscriptions(
-		roster,
-		groups,
-		"",
-		nil,
-		candidates,
-		&qualityBias,
-		[]string{"vendor-b/cheap"},
-		nil,
-		nil,
-	)
-	for _, profile := range []selection.DomainProfile{nil, fullProfile(selection.DomainInfra)} {
-		pick, scores, components, order, ok := selection.SelectGroupsWithSubscriptions(
-			roster,
-			groups,
-			"",
-			nil,
-			candidates,
-			&qualityBias,
-			[]string{"vendor-b/cheap"},
-			nil,
-			profile,
-		)
+	baselinePick, baselineScores, baselineComponents, baselineOrder, baselineOK := selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: groups, LadderKey: SubscriptionLadder("", nil), Candidates: candidates, QualityBias: &qualityBias, PreferredModels: []string{"vendor-b/cheap"}}).tuple()
+	for _, profile := range []DomainProfile{nil, fullProfile(DomainInfra)} {
+		pick, scores, components, order, ok := selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: groups, LadderKey: SubscriptionLadder("", nil), Candidates: candidates, QualityBias: &qualityBias, PreferredModels: []string{"vendor-b/cheap"}, Profile: profile}).tuple()
 		assert.Equal(t, baselineOK, ok)
 		assert.Equal(t, baselinePick, pick)
 		assert.Equal(t, baselineScores, scores)
@@ -214,21 +184,21 @@ func TestDomainRetainsPinVendorAndEligibility(t *testing.T) {
 	cluster.ManualPinsByHarness = map[rosterdata.Harness][]string{rosterdata.HarnessPI: {"vendor-a/quality"}}
 	cluster.PreferredVendorsByHarness = map[rosterdata.Harness][]string{rosterdata.HarnessCodex: {"vendor-a"}}
 	roster.Clusters["low"] = cluster
-	profile := fullProfile(selection.DomainInfra)
+	profile := fullProfile(DomainInfra)
 	groups := []rosterdata.Group{"low"}
 	candidates := candidateSet("vendor-a/quality", "vendor-b/cheap")
-	pick, _, _, _, ok := selection.SelectGroupsWithSubscriptions(roster, groups, "", nil, candidates, nil, nil, evidence, profile)
+	pick, _, _, _, ok := selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: groups, LadderKey: SubscriptionLadder("", nil), Candidates: candidates, Evidence: evidence, Profile: profile}).tuple()
 	require.True(t, ok)
-	assert.Equal(t, "vendor-b/cheap", pick.Arm)
-	pick, _, _, _, ok = selection.SelectGroupsWithSubscriptions(roster, groups, "pi", nil, candidates, nil, nil, evidence, profile)
+	assert.Equal(t, "vendor-b/cheap", pick.Arm.String())
+	pick, _, _, _, ok = selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: groups, Harness: "pi", LadderKey: SubscriptionLadder("pi", nil), Candidates: candidates, Evidence: evidence, Profile: profile}).tuple()
 	require.True(t, ok)
-	assert.Equal(t, "vendor-a/quality", pick.Arm)
-	pick, _, _, _, ok = selection.SelectGroupsWithSubscriptions(roster, groups, "codex", nil, candidates, nil, nil, evidence, profile)
+	assert.Equal(t, "vendor-a/quality", pick.Arm.String())
+	pick, _, _, _, ok = selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: groups, Harness: "codex", LadderKey: SubscriptionLadder("codex", nil), Candidates: candidates, Evidence: evidence, Profile: profile}).tuple()
 	require.True(t, ok)
-	assert.Equal(t, "vendor-a/quality", pick.Arm)
-	pick, _, _, _, ok = selection.SelectGroupsWithSubscriptions(roster, groups, "", nil, candidateSet("vendor-a/quality"), nil, nil, evidence, profile)
+	assert.Equal(t, "vendor-a/quality", pick.Arm.String())
+	pick, _, _, _, ok = selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: groups, LadderKey: SubscriptionLadder("", nil), Candidates: candidateSet("vendor-a/quality"), Evidence: evidence, Profile: profile}).tuple()
 	require.True(t, ok)
-	assert.Equal(t, "vendor-a/quality", pick.Arm)
+	assert.Equal(t, "vendor-a/quality", pick.Arm.String())
 }
 
 func TestDomainZeroCorrectionKeepsNeutralOrder(t *testing.T) {
@@ -243,19 +213,9 @@ func TestDomainZeroCorrectionKeepsNeutralOrder(t *testing.T) {
 		}
 		evidence.Arms[arm] = cell
 	}
-	pick, scores, _, orders, ok := selection.SelectGroupsWithSubscriptions(
-		roster,
-		[]rosterdata.Group{"low"},
-		"pi",
-		nil,
-		candidateSet("vendor-a/quality", "vendor-b/cheap"),
-		nil,
-		nil,
-		evidence,
-		fullProfile(selection.DomainInfra),
-	)
+	pick, scores, _, orders, ok := selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: []rosterdata.Group{"low"}, Harness: "pi", LadderKey: SubscriptionLadder("pi", nil), Candidates: candidateSet("vendor-a/quality", "vendor-b/cheap"), Evidence: evidence, Profile: fullProfile(DomainInfra)}).tuple()
 	require.True(t, ok)
-	assert.Equal(t, "vendor-a/quality", pick.Arm)
+	assert.Equal(t, "vendor-a/quality", pick.Arm.String())
 	assert.Equal(t, cluster.Arms, orders["low"])
 	assert.InDelta(t, float32(30), scores["low"]["vendor-a/quality"], 1e-9)
 }
@@ -263,19 +223,9 @@ func TestDomainZeroCorrectionKeepsNeutralOrder(t *testing.T) {
 func TestDomainKeepsUserQualityPreference(t *testing.T) {
 	roster := dynamicRoster()
 	evidence := domainEvidenceForTest(t, roster)
-	profile := fullProfile(selection.DomainLogic)
+	profile := fullProfile(DomainLogic)
 	priceHeavy := 0.0
-	_, scores, _, _, ok := selection.SelectGroupsWithSubscriptions(
-		roster,
-		[]rosterdata.Group{"low"},
-		"",
-		nil,
-		candidateSet("vendor-a/quality", "vendor-b/cheap"),
-		&priceHeavy,
-		nil,
-		evidence,
-		profile,
-	)
+	_, scores, _, _, ok := selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: []rosterdata.Group{"low"}, LadderKey: SubscriptionLadder("", nil), Candidates: candidateSet("vendor-a/quality", "vendor-b/cheap"), QualityBias: &priceHeavy, Evidence: evidence, Profile: profile}).tuple()
 	require.True(t, ok)
 	alpha := roster.Ranking.AlphaMin["low"]
 	assert.InDelta(t, alpha*90-(1-alpha)*10+alpha*0.15*(0.7*(0-90)), scores["low"]["vendor-a/quality"], 1e-5)
@@ -303,7 +253,7 @@ func TestDomainEvidenceRejectsRecipeDriftAndInvalidArms(t *testing.T) {
 			fixture.additionalFields = map[string]any{"recipes": domainRecipesForTest()}
 			return fixture
 		}(), false},
-		{"missing effort arm", withArms(map[string]selection.DomainArmEvidence{"vendor-a/quality": domainArmsForTest()["vendor-a/quality"]}), false},
+		{"missing effort arm", withArms(map[string]DomainArmEvidence{"vendor-a/quality": domainArmsForTest()["vendor-a/quality"]}), false},
 		{"unknown benchmark", withArms(map[string]any{"vendor-a/quality": domainArmsForTest()["vendor-a/quality"], "vendor-b/cheap": map[string]any{"global_wii": 55, "wpi": 0, "benchmarks": map[string]float64{"terminalbench_v2_1": 50}}}), false},
 		{"null quality", withArms(map[string]any{"vendor-a/quality": domainArmsForTest()["vendor-a/quality"], "vendor-b/cheap": map[string]any{"global_wii": 55, "wpi": 0, "benchmarks": map[string]any{"terminalbench_v4_0": nil}}}), false},
 		{"null arm", withArms(map[string]any{"vendor-a/quality": domainArmsForTest()["vendor-a/quality"], "vendor-b/cheap": nil}), false},
@@ -317,7 +267,7 @@ func TestDomainEvidenceRejectsRecipeDriftAndInvalidArms(t *testing.T) {
 		}(), false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := selection.ParseDomainEvidence(domainEvidencePayloadForTest(t, roster, test.fixture), roster)
+			_, err := ParseDomainEvidence(domainEvidencePayloadForTest(t, roster, test.fixture), roster)
 			if test.valid {
 				require.NoError(t, err)
 			} else {
@@ -331,14 +281,14 @@ func TestDomainInvalidEvidencePreservesBaseline(t *testing.T) {
 	roster := dynamicRoster()
 	groups := []rosterdata.Group{"low"}
 	candidates := candidateSet("vendor-a/quality", "vendor-b/cheap")
-	profile := fullProfile(selection.DomainInfra)
+	profile := fullProfile(DomainInfra)
 	for _, test := range []struct {
 		name   string
-		mutate func(*selection.DomainEvidence)
+		mutate func(*DomainEvidence)
 	}{
-		{"missing exact arm", func(evidence *selection.DomainEvidence) { delete(evidence.Arms, "vendor-a/quality") }},
-		{"stale roster", func(evidence *selection.DomainEvidence) { evidence.RosterSHA256 = strings.Repeat("f", 64) }},
-		{"stale indices", func(evidence *selection.DomainEvidence) {
+		{"missing exact arm", func(evidence *DomainEvidence) { delete(evidence.Arms, "vendor-a/quality") }},
+		{"stale roster", func(evidence *DomainEvidence) { evidence.RosterSHA256 = strings.Repeat("f", 64) }},
+		{"stale indices", func(evidence *DomainEvidence) {
 			cell := evidence.Arms["vendor-a/quality"]
 			cell.GlobalWII = 0
 			evidence.Arms["vendor-a/quality"] = cell
@@ -347,9 +297,9 @@ func TestDomainInvalidEvidencePreservesBaseline(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			evidence := domainEvidenceForTest(t, roster)
 			test.mutate(evidence)
-			pick, scores, _, order, ok := selection.SelectGroupsWithSubscriptions(roster, groups, "", nil, candidates, nil, nil, evidence, profile)
+			pick, scores, _, order, ok := selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: groups, LadderKey: SubscriptionLadder("", nil), Candidates: candidates, Evidence: evidence, Profile: profile}).tuple()
 			require.True(t, ok)
-			assert.Equal(t, "vendor-a/quality", pick.Arm)
+			assert.Equal(t, "vendor-a/quality", pick.Arm.String())
 			assert.InDelta(t, float32(30), scores["low"]["vendor-a/quality"], 1e-9)
 			assert.Equal(t, roster.Clusters["low"].Arms, order["low"])
 		})
@@ -374,30 +324,20 @@ func TestDomainUnlistedScoredArmPreservesBaseline(t *testing.T) {
 			cluster := roster.Clusters["low"]
 			test.addToMap(&cluster)
 			roster.Clusters["low"] = cluster
-			pick, scores, _, _, ok := selection.SelectGroupsWithSubscriptions(
-				roster,
-				[]rosterdata.Group{"low"},
-				"",
-				nil,
-				candidateSet("vendor-a/quality", "vendor-b/cheap"),
-				test.bias,
-				nil,
-				evidence,
-				fullProfile(selection.DomainInfra),
-			)
+			pick, scores, _, _, ok := selectGroups(roster, armid.CatalogIDForRoster, Request{Groups: []rosterdata.Group{"low"}, LadderKey: SubscriptionLadder("", nil), Candidates: candidateSet("vendor-a/quality", "vendor-b/cheap"), QualityBias: test.bias, Evidence: evidence, Profile: fullProfile(DomainInfra)}).tuple()
 			require.True(t, ok)
-			assert.Equal(t, "vendor-a/quality", pick.Arm)
-			assert.InDelta(t, selection.Scores(roster, "low", cluster, test.bias)["vendor-a/quality"], scores["low"]["vendor-a/quality"], 1e-9)
+			assert.Equal(t, "vendor-a/quality", pick.Arm.String())
+			assert.InDelta(t, Scores(roster, "low", cluster, test.bias)["vendor-a/quality"], scores["low"]["vendor-a/quality"], 1e-9)
 		})
 	}
 }
 
-func fullProfile(active selection.Domain) selection.DomainProfile {
-	return selection.DomainProfile{
-		selection.DomainUI:    active == selection.DomainUI,
-		selection.DomainLogic: active == selection.DomainLogic,
-		selection.DomainData:  active == selection.DomainData,
-		selection.DomainInfra: active == selection.DomainInfra,
-		selection.DomainDocs:  active == selection.DomainDocs,
+func fullProfile(active Domain) DomainProfile {
+	return DomainProfile{
+		DomainUI:    active == DomainUI,
+		DomainLogic: active == DomainLogic,
+		DomainData:  active == DomainData,
+		DomainInfra: active == DomainInfra,
+		DomainDocs:  active == DomainDocs,
 	}
 }

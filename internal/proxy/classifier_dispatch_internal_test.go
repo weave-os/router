@@ -20,6 +20,7 @@ import (
 	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/hmm/selection"
+	"weave-os/router/internal/router/hmm/selectionpolicy/selectionpolicytest"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
@@ -85,7 +86,7 @@ func TestClassifierDispatchAcrossProtocols(t *testing.T) {
 			svc := NewService(baseline, map[string]providers.Client{test.provider: upstream}, nil, nil, false, test.provider, test.model, nil)
 			require.NoError(t, svc.WithClassifierSessions(fixtureService.classifierSessions.config, store, fixtureService.classifierSessions.classifier))
 			escalationClasses := []string{string(escalation.Low), string(escalation.Medium), string(escalation.High), string(escalation.Maximum)}
-			roster := &rosterdata.Roster{SchemaVersion: rosterdata.SchemaVersionPolicyV1, SHA256: strings.Repeat("b", 64), ClassOrder: escalationClasses, Clusters: map[string]rosterdata.Cluster{}}
+			roster := rosterdata.Roster{ClassOrder: escalationClasses, Clusters: map[string]rosterdata.Cluster{}}
 			model, found := catalog.ByID(test.model)
 			require.True(t, found)
 			arm := armid.ForModel(model)
@@ -94,7 +95,7 @@ func TestClassifierDispatchAcrossProtocols(t *testing.T) {
 			}
 			resolver := policy.NewResolver(map[string]struct{}{test.model: {}}, map[string]struct{}{test.provider: {}}, armid.ForModel, policy.ManagedProviderPolicy())
 			capabilities := policy.Capabilities{SchemaVersion: policy.SchemaVersionV4, AuthoritativePerTurnSelection: true}
-			routing := policy.NewSidecarRouter(policy.SidecarRouterConfig{Strategy: router.StrategyLLMClassifier, Unavailable: router.ErrClassifierUnavailable, ClassifierArtifactID: "llm-classifier-v1.0.0", ClassifierArtifactSHA256: strings.Repeat("a", 64), SelectionPolicyReleaseID: "llm-classifier-v1.0.0", SelectionPolicySHA256: roster.SHA256}, policy.AtomicClassifierFacts{Release: "llm-classifier-v1.0.0", ReleaseSHA256: strings.Repeat("a", 64)}, resolver).WithCapabilities(capabilities).WithArmSelector(selection.Selector(roster))
+			routing := policy.NewSidecarRouter(policy.SidecarRouterConfig{Strategy: router.StrategyLLMClassifier, Unavailable: router.ErrClassifierUnavailable, ClassifierArtifactID: "llm-classifier-v1.0.0", ClassifierArtifactSHA256: strings.Repeat("a", 64), SelectionPolicyReleaseID: "llm-classifier-v1.0.0", SelectionPolicySHA256: strings.Repeat("b", 64)}, policy.AtomicClassifierFacts{Release: "llm-classifier-v1.0.0", ReleaseSHA256: strings.Repeat("a", 64)}, resolver).WithCapabilities(capabilities).WithArmSelector(selection.Selector(selectionpolicytest.Admit(t, roster), nil, ""))
 			svc.WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyLLMClassifier, Router: routing, Capabilities: capabilities, Unavailable: router.ErrClassifierUnavailable})
 			ctx := classifierAdmit(t, svc, principal)
 			for _, body := range []string{test.firstBody, test.firstBody, test.nextBody} {
@@ -177,13 +178,13 @@ func TestClassifierDispatchUsesConfiguredSubscriptionState(t *testing.T) {
 	require.True(t, found)
 	arm := armid.ForModel(modelRecord)
 	classes := []string{string(escalation.Low), string(escalation.Medium), string(escalation.High), string(escalation.Maximum)}
-	roster := &rosterdata.Roster{SchemaVersion: rosterdata.SchemaVersionPolicyV1, SHA256: strings.Repeat("b", 64), ClassOrder: classes, Clusters: map[string]rosterdata.Cluster{}}
+	roster := rosterdata.Roster{ClassOrder: classes, Clusters: map[string]rosterdata.Cluster{}}
 	for _, class := range classes {
 		roster.Clusters[class] = rosterdata.Cluster{Arms: []string{arm}, ArmScores: map[string]float64{arm: 1}}
 	}
 	resolver := policy.NewResolver(map[string]struct{}{model: {}}, map[string]struct{}{providers.ProviderAnthropic: {}}, armid.ForModel, policy.ManagedProviderPolicy())
 	capabilities := policy.Capabilities{SchemaVersion: policy.SchemaVersionV4, AuthoritativePerTurnSelection: true}
-	routing := policy.NewSidecarRouter(policy.SidecarRouterConfig{Strategy: router.StrategyLLMClassifier, Unavailable: router.ErrClassifierUnavailable, ClassifierArtifactID: "llm-classifier-v1.0.0", ClassifierArtifactSHA256: strings.Repeat("a", 64), SelectionPolicyReleaseID: "llm-classifier-v1.0.0", SelectionPolicySHA256: roster.SHA256}, policy.AtomicClassifierFacts{Release: "llm-classifier-v1.0.0", ReleaseSHA256: strings.Repeat("a", 64)}, resolver).WithCapabilities(capabilities).WithArmSelector(selection.Selector(roster))
+	routing := policy.NewSidecarRouter(policy.SidecarRouterConfig{Strategy: router.StrategyLLMClassifier, Unavailable: router.ErrClassifierUnavailable, ClassifierArtifactID: "llm-classifier-v1.0.0", ClassifierArtifactSHA256: strings.Repeat("a", 64), SelectionPolicyReleaseID: "llm-classifier-v1.0.0", SelectionPolicySHA256: strings.Repeat("b", 64)}, policy.AtomicClassifierFacts{Release: "llm-classifier-v1.0.0", ReleaseSHA256: strings.Repeat("a", 64)}, resolver).WithCapabilities(capabilities).WithArmSelector(selection.Selector(selectionpolicytest.Admit(t, roster), nil, ""))
 	svc.WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyLLMClassifier, Router: routing, Capabilities: capabilities, Unavailable: router.ErrClassifierUnavailable})
 	recorder := httptest.NewRecorder()
 	err := svc.ProxyMessages(ctx, []byte(`{"model":"claude-sonnet-4-6","max_tokens":1024,"messages":[{"role":"user","content":"first"}]}`), recorder, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
@@ -199,7 +200,7 @@ func TestClassifierRecapServesWithoutAnchoringPin(t *testing.T) {
 	svc := NewService(&betaTestRouter{}, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, pins, false, providers.ProviderAnthropic, model, nil)
 	require.NoError(t, svc.WithClassifierSessions(fixtureService.classifierSessions.config, store, fixtureService.classifierSessions.classifier))
 	escalationClasses := []string{string(escalation.Low), string(escalation.Medium), string(escalation.High), string(escalation.Maximum)}
-	roster := &rosterdata.Roster{SchemaVersion: rosterdata.SchemaVersionPolicyV1, SHA256: strings.Repeat("b", 64), ClassOrder: escalationClasses, Clusters: map[string]rosterdata.Cluster{}}
+	roster := rosterdata.Roster{ClassOrder: escalationClasses, Clusters: map[string]rosterdata.Cluster{}}
 	catalogModel, found := catalog.ByID(model)
 	require.True(t, found)
 	arm := armid.ForModel(catalogModel)
@@ -208,7 +209,7 @@ func TestClassifierRecapServesWithoutAnchoringPin(t *testing.T) {
 	}
 	resolver := policy.NewResolver(map[string]struct{}{model: {}}, map[string]struct{}{providers.ProviderAnthropic: {}}, armid.ForModel, policy.ManagedProviderPolicy())
 	capabilities := policy.Capabilities{SchemaVersion: policy.SchemaVersionV4, AuthoritativePerTurnSelection: true}
-	routing := policy.NewSidecarRouter(policy.SidecarRouterConfig{Strategy: router.StrategyLLMClassifier, Unavailable: router.ErrClassifierUnavailable, ClassifierArtifactID: "llm-classifier-v1.0.0", ClassifierArtifactSHA256: strings.Repeat("a", 64), SelectionPolicyReleaseID: "llm-classifier-v1.0.0", SelectionPolicySHA256: roster.SHA256}, policy.AtomicClassifierFacts{Release: "llm-classifier-v1.0.0", ReleaseSHA256: strings.Repeat("a", 64)}, resolver).WithCapabilities(capabilities).WithArmSelector(selection.Selector(roster))
+	routing := policy.NewSidecarRouter(policy.SidecarRouterConfig{Strategy: router.StrategyLLMClassifier, Unavailable: router.ErrClassifierUnavailable, ClassifierArtifactID: "llm-classifier-v1.0.0", ClassifierArtifactSHA256: strings.Repeat("a", 64), SelectionPolicyReleaseID: "llm-classifier-v1.0.0", SelectionPolicySHA256: strings.Repeat("b", 64)}, policy.AtomicClassifierFacts{Release: "llm-classifier-v1.0.0", ReleaseSHA256: strings.Repeat("a", 64)}, resolver).WithCapabilities(capabilities).WithArmSelector(selection.Selector(selectionpolicytest.Admit(t, roster), nil, ""))
 	svc.WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyLLMClassifier, Router: routing, Capabilities: capabilities, Unavailable: router.ErrClassifierUnavailable})
 
 	send := func(body string) {

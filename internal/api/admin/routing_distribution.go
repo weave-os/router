@@ -9,14 +9,14 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm/rosterdata"
 	hmmselection "weave-os/router/internal/router/hmm/selection"
+	"weave-os/router/internal/router/hmm/selectionpolicy"
 
 	"github.com/gin-gonic/gin"
 )
 
-type DistributionRosterSource interface {
-	DistributionRoster(context.Context) (*rosterdata.Roster, error)
+type DistributionPolicySource interface {
+	DistributionPolicy(context.Context) (*selectionpolicy.Policy, error)
 }
 
 const maxDistributionGrid = 101
@@ -25,7 +25,7 @@ type routingDistributionResponse struct {
 	Points []router.DistributionPoint `json:"points"`
 }
 
-func RoutingDistributionHandler(source DistributionRosterSource) gin.HandlerFunc {
+func RoutingDistributionHandler(source DistributionPolicySource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		gridN := 0
 		if raw := c.Query("grid"); raw != "" {
@@ -47,13 +47,13 @@ func RoutingDistributionHandler(source DistributionRosterSource) gin.HandlerFunc
 		if strategy != "" {
 			ctx = router.WithStrategy(ctx, strategy)
 		}
-		roster, err := source.DistributionRoster(ctx)
+		admitted, err := source.DistributionPolicy(ctx)
 		if err != nil {
 			observability.FromGin(c).Error("Routing distribution roster unavailable", "strategy", strategy, "grid", gridN, "err", err)
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "routing distribution unavailable"})
 			return
 		}
-		points, err := hmmselection.RoutingDistribution(roster, gridN, excludedModels, excludedProviders)
+		points, err := hmmselection.RoutingDistribution(admitted, gridN, excludedModels, excludedProviders)
 		if err != nil {
 			if errors.Is(err, router.ErrNoEligibleProvider) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "exclusions leave no eligible models"})

@@ -95,10 +95,10 @@ func ValidateWorkerSelection(ctx context.Context, store ServingStore, cache *Ser
 }
 
 func snapshotCatalogArms(snapshot *Snapshot) []string {
-	arms := snapshot.Policy.AllArms()
+	arms := snapshot.Policy.Roster().AllArms()
 	strategies := slices.Sorted(maps.Keys(snapshot.StrategyPolicies))
 	for _, strategy := range strategies {
-		for _, arm := range snapshot.StrategyPolicies[strategy].Roster.AllArms() {
+		for _, arm := range snapshot.StrategyPolicies[strategy].Policy.Roster().AllArms() {
 			if !slices.Contains(arms, arm) {
 				arms = append(arms, arm)
 			}

@@ -87,7 +87,7 @@ func hmmPolicySnapshotBuilder(
 		capabilities.HonorsPreferredModels = true
 		capabilities.SupportsRoutingDistribution = true
 
-		armSelector := selection.SelectorWithDomainEvidence(candidate.Policy, domainEvidence, evidenceSHA)
+		armSelector := selection.Selector(candidate.Policy, domainEvidence, evidenceSHA)
 		routers := make(map[router.Strategy]router.Router, len(strategies))
 		for _, strategy := range strategies {
 			artifactID, artifactSHA := expectedClassifier.ArtifactID, expectedClassifier.PackageSHA256
@@ -105,7 +105,7 @@ func hmmPolicySnapshotBuilder(
 			strategyArmSelector := armSelector
 			if strategyPolicy, found := candidate.StrategyPolicies[strategy]; found {
 				strategyPolicySHA = strategyPolicy.Reference.SHA256
-				strategyArmSelector = selection.SelectorWithDomainEvidence(strategyPolicy.Roster, domainEvidence, evidenceSHA)
+				strategyArmSelector = selection.Selector(strategyPolicy.Policy, domainEvidence, evidenceSHA)
 			}
 			strategyCapabilities := capabilities
 			if strategy == router.StrategyHMMQwen {
@@ -199,7 +199,7 @@ func buildHMMPolicyRoutersV5(
 		SupportsPreview:             capabilities.SupportsPreview,
 		SupportsRoutingDistribution: true,
 	}
-	armSelector := selection.SelectorWithDomainEvidence(candidate.Policy, domainEvidence, evidenceSHA)
+	armSelector := selection.Selector(candidate.Policy, domainEvidence, evidenceSHA)
 	routers := make(map[router.Strategy]router.Router, len(strategies))
 	for _, strategy := range strategies {
 		variantID, supportedStrategy := classifierVariantForStrategy(strategy)
@@ -215,7 +215,7 @@ func buildHMMPolicyRoutersV5(
 		strategyArmSelector := armSelector
 		if strategyPolicy, found := candidate.StrategyPolicies[strategy]; found {
 			strategyPolicySHA = strategyPolicy.Reference.SHA256
-			strategyArmSelector = selection.SelectorWithDomainEvidence(strategyPolicy.Roster, domainEvidence, evidenceSHA)
+			strategyArmSelector = selection.Selector(strategyPolicy.Policy, domainEvidence, evidenceSHA)
 		}
 		strategyCapabilities := goCapabilities
 		if strategy == router.StrategyHMMQwen {

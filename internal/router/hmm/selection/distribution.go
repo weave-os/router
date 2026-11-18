@@ -8,11 +8,16 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm/selectionpolicy"
 )
 
 const defaultDistributionGrid = 21
 
-func RoutingDistribution(roster *rosterdata.Roster, gridN int, excludedModels, excludedProviders map[string]struct{}) ([]router.DistributionPoint, error) {
+func RoutingDistribution(admitted *selectionpolicy.Policy, gridN int, excludedModels, excludedProviders map[string]struct{}) ([]router.DistributionPoint, error) {
+	return routingDistribution(admitted.Roster(), admitted.CatalogID, gridN, excludedModels, excludedProviders)
+}
+
+func routingDistribution(roster *rosterdata.Roster, catalogIDForArm func(string) string, gridN int, excludedModels, excludedProviders map[string]struct{}) ([]router.DistributionPoint, error) {
 	if roster == nil || !roster.SchemaVersion.IsGoSelectionSchema() {
 		return nil, fmt.Errorf("HMM routing distribution requires a dynamic roster or compiled serving policy")
 	}
@@ -31,33 +36,13 @@ func RoutingDistribution(roster *rosterdata.Roster, gridN int, excludedModels, e
 		prices := make(map[string]float64)
 		selectedGroups := 0
 		for _, label := range labels {
-			clusterRoster := roster.Clusters[label]
-			candidates := make(map[string]struct{}, len(clusterRoster.Arms))
-			for _, arm := range clusterRoster.Arms {
-				baseRosterID := armid.Parse(arm).Base
-				catalogID := armid.CatalogIDForRoster(baseRosterID)
-				model, ok := catalog.ByID(catalogID)
-				if !ok {
-					continue
-				}
-				provider := model.PrimaryProvider()
-				if _, excluded := excludedModels[catalogID]; excluded {
-					continue
-				}
-				if _, excluded := excludedProviders[provider]; excluded {
-					continue
-				}
-				candidates[baseRosterID] = struct{}{}
-				if len(model.Providers) > 0 {
-					prices[catalogID] = model.Providers[0].Price.InputUSDPer1M / 1000
-				}
-			}
-			pick, _, _, _, ok := selectGroups(roster, []rosterdata.Group{rosterdata.Group(label)}, "", "", candidates, &qualityBias, nil, nil, nil)
-			if !ok {
+			candidates := distributionCandidates(roster.Clusters[label], catalogIDForArm, excludedModels, excludedProviders, prices)
+			selected := selectGroups(roster, catalogIDForArm, Request{Groups: []rosterdata.Group{rosterdata.Group(label)}, Candidates: candidates, QualityBias: &qualityBias})
+			if !selected.Found {
 				continue
 			}
 			selectedGroups++
-			counts[armid.CatalogIDForRoster(pick.Arm)]++
+			counts[catalogIDForArm(selected.Pick.Arm.String())]++
 		}
 		if len(counts) == 0 {
 			return nil, fmt.Errorf("exclusions leave no eligible candidates: %w", router.ErrNoEligibleProvider)
@@ -82,4 +67,27 @@ func RoutingDistribution(roster *rosterdata.Roster, gridN int, excludedModels, e
 		})
 	}
 	return points, nil
+}
+
+func distributionCandidates(cluster rosterdata.Cluster, catalogIDForArm func(string) string, excludedModels, excludedProviders map[string]struct{}, prices map[string]float64) map[string]struct{} {
+	candidates := make(map[string]struct{}, len(cluster.Arms))
+	for _, arm := range cluster.Arms {
+		baseRosterID := armid.Parse(arm).Base
+		catalogID := catalogIDForArm(baseRosterID)
+		model, ok := catalog.ByID(catalogID)
+		if !ok {
+			continue
+		}
+		if _, excluded := excludedModels[catalogID]; excluded {
+			continue
+		}
+		if _, excluded := excludedProviders[model.PrimaryProvider()]; excluded {
+			continue
+		}
+		candidates[baseRosterID] = struct{}{}
+		if len(model.Providers) > 0 {
+			prices[catalogID] = model.Providers[0].Price.InputUSDPer1M / 1000
+		}
+	}
+	return candidates
 }

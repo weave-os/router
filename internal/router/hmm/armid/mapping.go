@@ -72,3 +72,10 @@ func CatalogIDForRoster(rosterID string) string {
 	}
 	return rosterID
 }
+
+func (a ArmID) String() string {
+	if a.Effort == "" {
+		return a.Base
+	}
+	return a.Base + ":" + a.Effort
+}

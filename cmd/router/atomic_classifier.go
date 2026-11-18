@@ -81,7 +81,7 @@ func configureAtomicClassifier(service *proxy.Service, pool *pgxpool.Pool, provi
 		ClassifierArtifactID: config.Release, ClassifierArtifactSHA256: config.ReleaseSHA256,
 		SelectionPolicyReleaseID: config.Release, SelectionPolicySHA256: config.SelectionPolicySHA256},
 		policy.AtomicClassifierFacts{Release: config.Release, ReleaseSHA256: config.ReleaseSHA256}, resolver).
-		WithCapabilities(capabilities).WithArmSelector(selection.Selector(roster))
+		WithCapabilities(capabilities).WithArmSelector(selection.Selector(admitted, nil, ""))
 	service.WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyLLMClassifier, Router: classifierRouter, Unavailable: router.ErrClassifierUnavailable, Capabilities: capabilities})
 	return nil
 }

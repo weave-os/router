@@ -195,11 +195,11 @@ func (r *taskDomainRuntime) bind(candidate policyregistry.Candidate) (taskdomain
 	if !exists {
 		return baseline, nil, "", nil
 	}
-	evidenceSHA := loaded.release.Evidence[candidate.Policy.SHA256]
+	evidenceSHA := loaded.release.Evidence[candidate.Policy.SHA256()]
 	if evidenceSHA == "" {
 		return baseline, nil, "", nil
 	}
-	evidence, err := selection.ParseDomainEvidence(loaded.evidence[evidenceSHA], candidate.Policy)
+	evidence, err := selection.ParseDomainEvidence(loaded.evidence[evidenceSHA], candidate.Policy.Roster())
 	if err != nil {
 		return nil, nil, "", err
 	}

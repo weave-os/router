@@ -135,7 +135,7 @@ func admissionMiddlewareFixture(t *testing.T) (*ServingAdmissionConfig, policyre
 	cache, err := policyregistry.NewServingRuntimeCache(store, func(_ context.Context, candidate policyregistry.Candidate) (map[router.Strategy]router.Router, error) {
 		*builds++
 		require.Equal(t, releaseRef.SHA256, candidate.HeadSnapshot.Head.ReleaseSHA256)
-		require.Equal(t, policy, candidate.Policy)
+		require.Equal(t, policy, candidate.Policy.Roster())
 		return map[router.Strategy]router.Router{router.StrategyHMM: admittedModelRouter{}}, nil
 	})
 	require.NoError(t, err)

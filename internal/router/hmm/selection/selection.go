@@ -8,13 +8,33 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm/selectionpolicy"
 )
 
 type Pick struct {
 	Group         rosterdata.Group
-	Arm           string
+	Arm           armid.ArmID
 	FallbackDepth int
 	HarnessOrder  bool
+}
+
+type Request struct {
+	Groups          []rosterdata.Group
+	Harness         string
+	LadderKey       string
+	Candidates      map[string]struct{}
+	QualityBias     *float64
+	PreferredModels []string
+	Evidence        *DomainEvidence
+	Profile         DomainProfile
+}
+
+type Selection struct {
+	Pick              Pick
+	Found             bool
+	ScoresByGroup     map[string]map[string]float32
+	ComponentsByGroup map[string]map[string]router.SelectionScoreComponents
+	OrdersByGroup     map[string][]string
 }
 
 func ArmOrder(cluster rosterdata.Cluster, harness string) (order []string, harnessSpecific bool) {
@@ -29,67 +49,51 @@ func ArmOrder(cluster rosterdata.Cluster, harness string) (order []string, harne
 	return cluster.Arms, false
 }
 
-func SelectGroupsWithSubscriptions(
-	roster *rosterdata.Roster,
-	groups []rosterdata.Group,
-	harness string,
-	subscriptionProviders []string,
-	candidates map[string]struct{},
-	qualityBias *float64,
-	preferredModels []string,
-	evidence *DomainEvidence,
-	profile DomainProfile,
-) (Pick, map[string]map[string]float32, map[string]map[string]router.SelectionScoreComponents, map[string][]string, bool) {
-	return selectGroups(roster, groups, harness, SubscriptionLadder(harness, subscriptionProviders), candidates, qualityBias, preferredModels, evidence, profile)
+func Select(policy *selectionpolicy.Policy, request Request) Selection {
+	return selectGroups(policy.Roster(), policy.CatalogID, request)
 }
 
-func selectGroups(
-	roster *rosterdata.Roster,
-	groups []rosterdata.Group,
-	harness string,
-	ladderKey string,
-	candidates map[string]struct{},
-	qualityBias *float64,
-	preferredModels []string,
-	evidence *DomainEvidence,
-	profile DomainProfile,
-) (Pick, map[string]map[string]float32, map[string]map[string]router.SelectionScoreComponents, map[string][]string, bool) {
-	if evidence != nil && len(ScoredDomains(profile)) > 0 && validateDomainEvidence(evidence, roster) != nil {
-		evidence = nil
+func selectGroups(roster *rosterdata.Roster, catalogID func(string) string, request Request) Selection {
+	if request.Evidence != nil && len(ScoredDomains(request.Profile)) > 0 && validateDomainEvidence(request.Evidence, roster) != nil {
+		request.Evidence = nil
 	}
-	scoresByGroup := make(map[string]map[string]float32, len(groups))
-	componentsByGroup := make(map[string]map[string]router.SelectionScoreComponents, len(groups))
-	ordersByGroup := make(map[string][]string, len(groups))
-	hasPreferenceInputs := len(preferredModels) > 0
-	for _, group := range groups {
+	selected := Selection{
+		ScoresByGroup:     make(map[string]map[string]float32, len(request.Groups)),
+		ComponentsByGroup: make(map[string]map[string]router.SelectionScoreComponents, len(request.Groups)),
+		OrdersByGroup:     make(map[string][]string, len(request.Groups)),
+	}
+	hasPreferenceInputs := len(request.PreferredModels) > 0
+	for _, group := range request.Groups {
 		label := string(group)
 		if cluster, ok := roster.Clusters[label]; ok {
-			scores, components, domainActive := scoresWithDomainPreferences(roster, label, cluster, qualityBias, preferredModels, evidence, profile)
-			scoresByGroup[label] = scores
-			componentsByGroup[label] = components
-			order, _ := ArmOrder(cluster, harness)
-			order = preferenceOrder(roster, cluster, harness, order, qualityBias, hasPreferenceInputs || domainActive, scores)
-			ordersByGroup[label] = leadWith(order, roster.SubscriptionLadders[ladderKey][group])
+			scores, components, domainActive := scoresWithDomainPreferences(roster, catalogID, label, cluster, request)
+			selected.ScoresByGroup[label] = scores
+			selected.ComponentsByGroup[label] = components
+			order, _ := ArmOrder(cluster, request.Harness)
+			order = preferenceOrder(roster, cluster, request.Harness, order, request.QualityBias, hasPreferenceInputs || domainActive, scores)
+			selected.OrdersByGroup[label] = leadWith(order, roster.SubscriptionLadders[request.LadderKey][group])
 		}
 	}
 	depth := 0
-	for _, group := range groups {
+	for _, group := range request.Groups {
 		cluster, ok := roster.Clusters[string(group)]
 		if !ok {
 			depth++
 			continue
 		}
-		_, harnessSpecific := ArmOrder(cluster, harness)
-		order := ordersByGroup[string(group)]
-		for _, arm := range order {
-			if _, eligible := candidates[armid.Parse(arm).Base]; !eligible {
+		_, harnessSpecific := ArmOrder(cluster, request.Harness)
+		for _, arm := range selected.OrdersByGroup[string(group)] {
+			parsed := armid.Parse(arm)
+			if _, eligible := request.Candidates[parsed.Base]; !eligible {
 				continue
 			}
-			return Pick{Group: group, Arm: arm, FallbackDepth: depth, HarnessOrder: harnessSpecific}, scoresByGroup, componentsByGroup, ordersByGroup, true
+			selected.Pick = Pick{Group: group, Arm: parsed, FallbackDepth: depth, HarnessOrder: harnessSpecific}
+			selected.Found = true
+			return selected
 		}
 		depth++
 	}
-	return Pick{}, scoresByGroup, componentsByGroup, ordersByGroup, false
+	return selected
 }
 
 func Scores(roster *rosterdata.Roster, label string, cluster rosterdata.Cluster, qualityBias *float64) map[string]float32 {
@@ -165,13 +169,12 @@ func preferenceOrder(roster *rosterdata.Roster, cluster rosterdata.Cluster, harn
 
 func scoresWithDomainPreferences(
 	roster *rosterdata.Roster,
+	catalogID func(string) string,
 	label string,
 	cluster rosterdata.Cluster,
-	qualityBias *float64,
-	preferredModels []string,
-	evidence *DomainEvidence,
-	profile DomainProfile,
+	request Request,
 ) (map[string]float32, map[string]router.SelectionScoreComponents, bool) {
+	qualityBias, preferredModels, evidence, profile := request.QualityBias, request.PreferredModels, request.Evidence, request.Profile
 	scores := Scores(roster, label, cluster, qualityBias)
 	corrections := make(map[string]float32)
 	domainActive := false
@@ -194,9 +197,8 @@ func scoresWithDomainPreferences(
 	preferredRanks := preferenceRanks(preferredModels)
 	componentsByArm := make(map[string]router.SelectionScoreComponents, len(scores))
 	for arm, score := range scores {
-		catalogID := armid.CatalogIDForRoster(armid.Parse(arm).Base)
 		components := router.SelectionScoreComponents{BaseScore: score - corrections[arm], TaskDomainCorrection: corrections[arm]}
-		if rank, preferred := preferredRanks[catalogID]; preferred {
+		if rank, preferred := preferredRanks[catalogID(arm)]; preferred {
 			components.PreferredModelBonus = float32(preferredModelBonus / float64(rank+1))
 		}
 		components.TotalScore = score + components.PreferredModelBonus

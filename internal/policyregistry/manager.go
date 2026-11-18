@@ -14,7 +14,6 @@ import (
 
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/escalation"
-	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/hmm/selectionpolicy"
 	"weave-os/router/internal/router/policy"
 )
@@ -41,7 +40,7 @@ type Candidate struct {
 	ClassifierWorkerAudience  string
 	ClassifierEnabledVariants []policy.ClassifierVariantID
 	SupportedAPIMajors        []policy.ClassifierAPIMajor
-	Policy                    *rosterdata.Roster
+	Policy                    *selectionpolicy.Policy
 	StrategyPolicies          map[router.Strategy]StrategyPolicy
 	ClassifierAudience        string
 }
@@ -137,7 +136,7 @@ func (m *Manager) Refresh(ctx context.Context) error {
 		m.recordRejection(headSnapshot.Generation, err)
 		return err
 	}
-	candidate := Candidate{HeadSnapshot: headSnapshot, Release: release, Policy: selectionPolicy}
+	candidate := Candidate{HeadSnapshot: headSnapshot, Release: release, Policy: admitted}
 	routers, err := m.builder(ctx, candidate)
 	if err != nil {
 		m.recordRejection(headSnapshot.Generation, err)
@@ -221,7 +220,8 @@ func (m *Manager) ClusterRoster(ctx context.Context) (policy.RosterSnapshot, err
 }
 
 func snapshotRoster(snapshot *Snapshot, strategy router.Strategy) policy.RosterSnapshot {
-	roster, reference := snapshot.policyForStrategy(strategy)
+	admitted, reference := snapshot.policyForStrategy(strategy)
+	roster := admitted.Roster()
 	clusters := make(map[string][]string, len(roster.Clusters))
 	for label, cluster := range roster.Clusters {
 		clusters[label] = append([]string(nil), cluster.Arms...)
@@ -255,18 +255,18 @@ func (m *Manager) AllRosterArms() ([]string, error) {
 	if snapshot == nil {
 		return nil, ErrNoActivePolicy
 	}
-	return snapshot.Policy.AllArms(), nil
+	return snapshot.Policy.Roster().AllArms(), nil
 }
 
 func (m *Manager) Roster(context.Context) ([]string, error) { return m.AllRosterArms() }
 
-func (m *Manager) DistributionRoster(ctx context.Context) (*rosterdata.Roster, error) {
+func (m *Manager) DistributionPolicy(ctx context.Context) (*selectionpolicy.Policy, error) {
 	snapshot := m.Active()
 	if snapshot == nil || snapshot.Policy == nil {
 		return nil, ErrNoActivePolicy
 	}
-	roster, _ := snapshot.policyForStrategy(router.StrategyFromContext(ctx))
-	return roster, nil
+	admitted, _ := snapshot.policyForStrategy(router.StrategyFromContext(ctx))
+	return admitted, nil
 }
 
 type DynamicRouter struct {

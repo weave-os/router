@@ -8,6 +8,7 @@ import (
 
 	"weave-os/router/internal/router/hmm/policycompiler"
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm/selectionpolicy"
 
 	"github.com/stretchr/testify/require"
 )
@@ -50,10 +51,10 @@ func TestSyntheticPolicyCanonicalBytesArePinned(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, string(want), string(compiled))
 
-	reparsed, err := admitRoster(want)
+	reparsed, err := selectionpolicy.Admit(want)
 	require.NoError(t, err)
-	require.Equal(t, syntheticCanonicalPolicySHA256, reparsed.SHA256)
-	recanonical, err := rosterdata.CanonicalBytes(reparsed)
+	require.Equal(t, syntheticCanonicalPolicySHA256, reparsed.SHA256())
+	recanonical, err := rosterdata.CanonicalBytes(reparsed.Roster())
 	require.NoError(t, err)
 	require.Equal(t, string(want), string(recanonical))
 }

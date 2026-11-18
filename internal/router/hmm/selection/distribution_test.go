@@ -1,4 +1,4 @@
-package selection_test
+package selection
 
 import (
 	"testing"
@@ -6,8 +6,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/hmm/rosterdata"
-	"weave-os/router/internal/router/hmm/selection"
 )
 
 func TestRoutingDistributionUsesLivePreferenceScorer(t *testing.T) {
@@ -34,7 +34,7 @@ func TestRoutingDistributionUsesLivePreferenceScorer(t *testing.T) {
 		},
 	}
 
-	points, err := selection.RoutingDistribution(roster, 3, nil, nil)
+	points, err := routingDistribution(roster, armid.CatalogIDForRoster, 3, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, points, 3)
 	require.Len(t, points[0].Models, 1)
@@ -43,7 +43,7 @@ func TestRoutingDistributionUsesLivePreferenceScorer(t *testing.T) {
 	assert.InDelta(t, 1.0, points[0].Models[0].Share, 1e-9)
 	assert.Positive(t, points[0].ProjectedCostPer1KInputUSD)
 	roster.SchemaVersion = rosterdata.SchemaVersionPolicyV1
-	compiledPoints, err := selection.RoutingDistribution(roster, 3, nil, nil)
+	compiledPoints, err := routingDistribution(roster, armid.CatalogIDForRoster, 3, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, points, compiledPoints)
 }
@@ -60,12 +60,7 @@ func TestRoutingDistributionHonorsExclusions(t *testing.T) {
 	}
 	roster.Clusters["low"] = cluster
 
-	points, err := selection.RoutingDistribution(
-		roster,
-		2,
-		map[string]struct{}{"gpt-5.6-luna": {}},
-		nil,
-	)
+	points, err := routingDistribution(roster, armid.CatalogIDForRoster, 2, map[string]struct{}{"gpt-5.6-luna": {}}, nil)
 	require.NoError(t, err)
 	for _, point := range points {
 		require.Len(t, point.Models, 1)

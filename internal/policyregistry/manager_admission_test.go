@@ -45,7 +45,7 @@ func TestManagerColdBootActivatesAdmittedPayloadWithItsDigest(t *testing.T) {
 	require.NoError(t, manager.Refresh(context.Background()))
 	active := manager.Active()
 	require.NotNil(t, active)
-	assert.Equal(t, policyregistry.Digest([]byte(directoryPolicyJSON)), active.Policy.SHA256)
+	assert.Equal(t, policyregistry.Digest([]byte(directoryPolicyJSON)), active.Policy.SHA256())
 	assert.Equal(t, int64(1), manager.Status().ActiveHeadGeneration)
 }
 

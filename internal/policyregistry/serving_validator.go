@@ -284,7 +284,7 @@ func (v DestinationValidator) ValidatePreparedSelection(ctx context.Context, pre
 		}
 	}
 	for strategy, strategyPolicy := range prepared.StrategyPolicies {
-		for _, arm := range strategyPolicy.Roster.AllArms() {
+		for _, arm := range strategyPolicy.Policy.Roster().AllArms() {
 			if !slices.Contains(worker.CatalogArms, arm) {
 				return fmt.Errorf("%s strategy policy arm %q is absent from the destination worker catalog", strategy, arm)
 			}
