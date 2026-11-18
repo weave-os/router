@@ -8,7 +8,6 @@ import (
 
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/policy"
 
 	"github.com/google/uuid"
 	lru "github.com/hashicorp/golang-lru/v2"
@@ -113,9 +112,6 @@ func (c *ServingRuntimeCache) Snapshot(ctx context.Context, admission SessionRel
 	prepared, err := ReadPreparedSelection(ctx, c.store, admission.Target, admission.ProfileKey, admission.Selection)
 	if err != nil {
 		return nil, err
-	}
-	if diagnostics := policy.ValidateRosterIDs(prepared.Policy.AllArms()); len(diagnostics) != 0 {
-		return nil, errors.New("admitted policy contains arms absent from the worker catalog")
 	}
 	candidate := Candidate{
 		AuxiliaryModels: maps.Clone(prepared.Candidate.Classifier.AuxiliaryModels),

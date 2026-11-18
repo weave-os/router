@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm/selectionpolicy"
 	"weave-os/router/internal/router/policy"
 )
 
@@ -26,7 +27,7 @@ type Loader interface {
 	RootURI() string
 	ReadHead(context.Context, Environment, Lane) (HeadSnapshot, error)
 	ReadRelease(context.Context, ObjectRef) (Release, error)
-	ReadPolicy(context.Context, ObjectRef) (*rosterdata.Roster, error)
+	ReadPolicy(context.Context, ObjectRef) (*selectionpolicy.Policy, error)
 }
 
 type Candidate struct {
@@ -125,11 +126,12 @@ func (m *Manager) Refresh(ctx context.Context) error {
 		return fmt.Errorf("read policy release: %w", err)
 	}
 	policyRef := ObjectRef{URI: release.Policy.URI, SHA256: release.Policy.SHA256, Generation: release.Policy.Generation}
-	selectionPolicy, err := m.loader.ReadPolicy(ctx, policyRef)
+	admitted, err := m.loader.ReadPolicy(ctx, policyRef)
 	if err != nil {
 		m.recordRejection(headSnapshot.Generation, err)
 		return fmt.Errorf("read selection policy: %w", err)
 	}
+	selectionPolicy := admitted.Roster()
 	if !slices.Equal(selectionPolicy.ClassOrder, release.Classifier.ClassOrder) {
 		err = errors.New("classifier class order does not match Go selection policy")
 		m.recordRejection(headSnapshot.Generation, err)

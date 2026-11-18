@@ -19,7 +19,7 @@ func publishChangedPolicy(t *testing.T, store *servingMemoryStore, base *rosterd
 	t.Helper()
 	payload, err := rosterdata.CanonicalBytes(base)
 	require.NoError(t, err)
-	changed, err := rosterdata.ParseValidated(payload)
+	changed, err := admitRoster(payload)
 	require.NoError(t, err)
 	changed.Preferences.PreferredModelBonus = bonus
 	payload, err = rosterdata.CanonicalBytes(changed)

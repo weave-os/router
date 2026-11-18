@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"slices"
@@ -18,8 +19,8 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/hmm/armid"
-	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/hmm/selection"
+	"weave-os/router/internal/router/hmm/selectionpolicy"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/server"
 )
@@ -54,12 +55,17 @@ func configureAtomicClassifier(service *proxy.Service, pool *pgxpool.Pool, provi
 	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
 		return errors.New("classifier configuration contains trailing JSON")
 	}
-	roster, err := rosterdata.Load(config.SelectionPolicyFile)
+	policyPayload, err := os.ReadFile(config.SelectionPolicyFile)
+	if err != nil {
+		return fmt.Errorf("read classifier selection policy: %w", err)
+	}
+	admitted, err := selectionpolicy.Admit(policyPayload)
 	if err != nil {
 		return err
 	}
+	roster := admitted.Roster()
 	escalationClasses := []string{string(escalation.Low), string(escalation.Medium), string(escalation.High), string(escalation.Maximum)}
-	if roster.SHA256 != config.SelectionPolicySHA256 || roster.SchemaVersion != rosterdata.SchemaVersionPolicyV1 || !slices.Equal(roster.ClassOrder, escalationClasses) {
+	if admitted.SHA256() != config.SelectionPolicySHA256 || !slices.Equal(roster.ClassOrder, escalationClasses) {
 		return errors.New("classifier selection policy digest, schema or taxonomy mismatch")
 	}
 	client, err := policyclient.NewAtomicClassifier(config.Endpoint, os.Getenv("ROUTER_LLM_CLASSIFIER_BEARER"), config.Release, config.ReleaseSHA256, nil)

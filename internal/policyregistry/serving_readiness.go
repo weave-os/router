@@ -32,9 +32,6 @@ func (c *ServingRuntimeCache) PrepareWorker(ctx context.Context, identity Worker
 		if err := identity.ValidateBinding(prepared.Target, prepared.Binding); err != nil {
 			return nil, err
 		}
-		if diagnostics := policy.ValidateRosterIDs(prepared.Policy.AllArms()); len(diagnostics) != 0 {
-			return nil, errors.New("prepared policy contains arms absent from the worker catalog")
-		}
 		if profileKey == "" {
 			baseline = &Snapshot{Candidate: Candidate{Policy: prepared.Policy, StrategyPolicies: prepared.StrategyPolicies}}
 		}

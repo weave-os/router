@@ -14,6 +14,7 @@ import (
 	"google.golang.org/api/googleapi"
 
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm/selectionpolicy"
 )
 
 const maxPolicyObjectBytes = 8 << 20
@@ -65,12 +66,8 @@ func (r *Registry) Close() error { return r.client.Close() }
 
 func (r *Registry) RootURI() string { return r.rootURI }
 
-func (r *Registry) PublishPolicy(ctx context.Context, payload []byte) (ObjectRef, error) {
-	roster, err := rosterdata.ParseValidated(payload)
-	if err != nil {
-		return ObjectRef{}, err
-	}
-	canonical, err := rosterdata.CanonicalBytes(roster)
+func (r *Registry) PublishPolicy(ctx context.Context, admitted *selectionpolicy.Policy) (ObjectRef, error) {
+	canonical, err := rosterdata.CanonicalBytes(admitted.Roster())
 	if err != nil {
 		return ObjectRef{}, err
 	}
@@ -139,28 +136,12 @@ func (r *Registry) ExportHead(ctx context.Context, environment Environment, lane
 	return head, WriteDirectoryRelease(dir, head.Head, releasePayload, policyPayload)
 }
 
-func (r *Registry) ReadPolicy(ctx context.Context, ref ObjectRef) (*rosterdata.Roster, error) {
-	roster, err := r.ReadServingPolicy(ctx, ref)
+func (r *Registry) ReadPolicy(ctx context.Context, ref ObjectRef) (*selectionpolicy.Policy, error) {
+	payload, err := r.readExact(ctx, ref, policyObjectPrefix)
 	if err != nil {
 		return nil, err
 	}
-	if err := rosterdata.ValidateCatalog(roster); err != nil {
-		return nil, err
-	}
-	return roster, nil
-}
-
-func (r *Registry) ReadServingPolicy(ctx context.Context, ref ObjectRef) (*rosterdata.Roster, error) {
-	payload, err := r.readExact(ctx, ref, "router_policy/v1/policies/sha256/")
-	if err != nil {
-		return nil, err
-	}
-	roster, err := rosterdata.Parse(payload)
-	if err != nil {
-		return nil, err
-	}
-	roster.SHA256 = rosterdata.SHA256Hex(payload)
-	return roster, nil
+	return selectionpolicy.Admit(payload)
 }
 
 func (r *Registry) ReleaseRef(ctx context.Context, digest string) (ObjectRef, error) {
@@ -210,7 +191,7 @@ func (r *Registry) Promote(ctx context.Context, head LaneHead, expectedGeneratio
 	if err != nil {
 		return HeadSnapshot{}, fmt.Errorf("validate promoted selection policy: %w", err)
 	}
-	if !slices.Equal(selectionPolicy.ClassOrder, release.Classifier.ClassOrder) {
+	if !slices.Equal(selectionPolicy.Roster().ClassOrder, release.Classifier.ClassOrder) {
 		return HeadSnapshot{}, errors.New("promoted classifier class order does not match selection policy")
 	}
 	payload, err := CanonicalBytes(head)

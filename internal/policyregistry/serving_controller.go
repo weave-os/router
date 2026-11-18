@@ -15,20 +15,6 @@ import (
 	"weave-os/router/internal/subscriptions/entitlement"
 )
 
-type ServingStore interface {
-	RootURI() string
-	ReadServingObject(context.Context, ServingKind, ObjectRef) (ServingManifest, []byte, error)
-	ReadServingPolicy(context.Context, ObjectRef) (*rosterdata.Roster, error)
-	ReadServingState(context.Context, ServingTarget) (ServingStateSnapshot, error)
-	CompareAndSwapServingState(context.Context, ServingControlState, int64) (ServingStateSnapshot, error)
-	ReadClassifierRuntimeBinding(context.Context, Environment, string) (ResolvedClassifierRuntimeBinding, error)
-}
-
-type ServingValidationStore interface {
-	ServingStore
-	VerifyServingArtifact(context.Context, ObjectRef) error
-}
-
 type PreparedSelection struct {
 	Selection                ServingSelection
 	ProfileKey               string
@@ -948,10 +934,11 @@ func ReadPreparedSelection(ctx context.Context, store ServingStore, target Servi
 	if policyReference == (PolicyObject{}) {
 		policyReference = candidate.Policy
 	}
-	policy, err := store.ReadServingPolicy(ctx, ObjectRef{URI: policyReference.URI, SHA256: policyReference.SHA256, Generation: policyReference.Generation})
+	admitted, err := store.ReadPolicy(ctx, ObjectRef{URI: policyReference.URI, SHA256: policyReference.SHA256, Generation: policyReference.Generation})
 	if err != nil {
 		return PreparedSelection{}, fmt.Errorf("read policy %s for target %s profile %q: %w", policyReference.SHA256, target, profileKey, err)
 	}
+	policy := admitted.Roster()
 	if policy.SchemaVersion != candidate.Requirements.PolicySchema || !slices.Equal(policy.ClassOrder, candidate.Classifier.Identity.ClassOrder) {
 		return PreparedSelection{}, errors.New("compiled policy does not match classifier schema/taxonomy")
 	}

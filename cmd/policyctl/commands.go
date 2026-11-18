@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router/hmm/policycompiler"
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm/selectionpolicy"
 )
 
 type commandName string
@@ -94,13 +95,14 @@ func runCompile(args []string) error {
 	if err != nil {
 		return fmt.Errorf("read policy source: %w", err)
 	}
-	canonical, policy, err := policycompiler.Compile(source, policycompiler.Options{
+	canonical, admitted, err := policycompiler.Compile(source, policycompiler.Options{
 		ClassOrder: parseList(*classOrderRaw), SourceRevision: *sourceRevision,
 		EvidenceURI: *evidenceURI, EvidenceSHA256: *evidenceSHA,
 	})
 	if err != nil {
 		return err
 	}
+	policy := admitted.Roster()
 	if !*checkOnly {
 		if err := os.WriteFile(*outputPath, canonical, 0o600); err != nil {
 			return fmt.Errorf("write compiled policy: %w", err)
@@ -128,13 +130,11 @@ func runValidate(args []string) error {
 	if err != nil {
 		return fmt.Errorf("read policy: %w", err)
 	}
-	policy, err := rosterdata.ParseValidated(payload)
+	admitted, err := selectionpolicy.Admit(payload)
 	if err != nil {
 		return err
 	}
-	if policy.SchemaVersion != rosterdata.SchemaVersionPolicyV1 {
-		return fmt.Errorf("policy uses legacy schema %q", policy.SchemaVersion)
-	}
+	policy := admitted.Roster()
 	canonical, err := rosterdata.CanonicalBytes(policy)
 	if err != nil {
 		return err
@@ -170,19 +170,17 @@ func runPublish(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("read policy: %w", err)
 	}
-	policy, err := rosterdata.ParseValidated(payload)
+	admitted, err := selectionpolicy.Admit(payload)
 	if err != nil {
 		return err
 	}
-	if policy.SchemaVersion != rosterdata.SchemaVersionPolicyV1 {
-		return fmt.Errorf("publish requires schema %q", rosterdata.SchemaVersionPolicyV1)
-	}
+	policy := admitted.Roster()
 	registry, err := policyregistry.NewGCSRegistry(ctx, *registryURI)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = registry.Close() }()
-	policyRef, err := registry.PublishPolicy(ctx, payload)
+	policyRef, err := registry.PublishPolicy(ctx, admitted)
 	if err != nil {
 		return err
 	}

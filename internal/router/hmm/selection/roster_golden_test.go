@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/hmm/selection"
+	"weave-os/router/internal/router/hmm/selectionpolicy"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/taskdomain"
 
@@ -109,7 +110,7 @@ func loadSyntheticPolicy(t *testing.T) (*rosterdata.Roster, *selection.DomainEvi
 	t.Helper()
 	policyBytes, err := os.ReadFile(syntheticPolicyPath)
 	require.NoError(t, err)
-	roster, err := rosterdata.ParseValidated(policyBytes)
+	roster, err := admitRoster(policyBytes)
 	require.NoError(t, err)
 	require.Equal(t, syntheticPolicySHA256, roster.SHA256)
 	evidenceBytes, err := os.ReadFile(syntheticDomainEvidencePath)
@@ -195,4 +196,12 @@ func TestSelectionGoldens(t *testing.T) {
 			require.Equal(t, strings.TrimSpace(string(want)), strings.TrimSpace(string(got)))
 		})
 	}
+}
+
+func admitRoster(payload []byte) (*rosterdata.Roster, error) {
+	admitted, err := selectionpolicy.Admit(payload)
+	if err != nil {
+		return nil, err
+	}
+	return admitted.Roster(), nil
 }

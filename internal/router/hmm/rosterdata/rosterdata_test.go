@@ -12,9 +12,9 @@ import (
 	"weave-os/router/internal/router/hmm/rosterdata"
 )
 
-func TestLoadValidRoster(t *testing.T) {
-	roster, err := rosterdata.Load(filepath.Join("testdata", "roster_valid.json"))
-	require.NoError(t, err)
+func TestParseValidRoster(t *testing.T) {
+	roster := parseTestdataRoster(t, "roster_valid.json")
+	require.NoError(t, rosterdata.ValidateCatalog(roster))
 
 	assert.Equal(t, rosterdata.SchemaVersionV7, roster.SchemaVersion)
 	require.Len(t, roster.Clusters, 2)
@@ -34,22 +34,17 @@ func TestLoadValidRoster(t *testing.T) {
 	assert.InDelta(t, 0.95, roster.Ranking.Alpha["maximum"], 1e-9)
 }
 
-func TestLoadUnknownArmFails(t *testing.T) {
-	_, err := rosterdata.Load(filepath.Join("testdata", "roster_unknown_arm.json"))
+func TestValidateCatalogRejectsUnknownArm(t *testing.T) {
+	roster := parseTestdataRoster(t, "roster_unknown_arm.json")
+	err := rosterdata.ValidateCatalog(roster)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "madeup/not-a-model")
 	assert.Contains(t, err.Error(), "invalid arms")
 }
 
-func TestLoadMissingFile(t *testing.T) {
-	_, err := rosterdata.Load(filepath.Join("testdata", "does_not_exist.json"))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "read roster")
-}
-
 func TestAllArmsUnionsClusterHarnessAndMembership(t *testing.T) {
-	roster, err := rosterdata.Load(filepath.Join("testdata", "roster_valid.json"))
-	require.NoError(t, err)
+	roster := parseTestdataRoster(t, "roster_valid.json")
+	require.NoError(t, rosterdata.ValidateCatalog(roster))
 
 	assert.Equal(t, []string{
 		"anthropic/claude-haiku-4.5",
@@ -302,4 +297,13 @@ func TestGoSelectionSchemasAreTheCompilableSchemas(t *testing.T) {
 	assert.True(t, rosterdata.SchemaVersionV7.IsGoSelectionSchema())
 	assert.True(t, rosterdata.SchemaVersionV75C.IsGoSelectionSchema())
 	assert.True(t, rosterdata.SchemaVersionPolicyV1.IsGoSelectionSchema())
+}
+
+func parseTestdataRoster(t *testing.T, name string) *rosterdata.Roster {
+	t.Helper()
+	payload, err := os.ReadFile(filepath.Join("testdata", name))
+	require.NoError(t, err)
+	roster, err := rosterdata.Parse(payload)
+	require.NoError(t, err)
+	return roster
 }
