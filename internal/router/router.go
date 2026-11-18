@@ -71,6 +71,7 @@ type Request struct {
 	ClientBudget                 ClientBudget
 	ForceModel                   string
 	ForceCluster                 string
+	SkipSessionPin               bool
 	EstimatedInputTokens         int
 	OrganizationID               string
 	InstallationID               string

@@ -19,5 +19,8 @@ func withRoutingSwitchDefaults(defaults map[flags.Key]string, hmmSameTierPin, hm
 	} {
 		defaults[key] = boolDefault(on)
 	}
+	defaults[flags.KeyTaskArmExperimentTreatmentPct] = "0"
+	defaults[flags.KeyTaskArmExperimentSteps] = ""
+	defaults[flags.KeyTaskArmExperimentTreatmentCluster] = ""
 	return defaults
 }

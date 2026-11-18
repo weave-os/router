@@ -408,6 +408,38 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexRepeatedCallI
 	assert.Equal(t, "data:image/png;base64,Qg==", content[2].Get("image_url.url").Str)
 }
 
+// The provider body carries tool-output images as a user message; routing
+// keeps that message a tool result so the turn is not scored as a new prompt.
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexToolImagesRouteAsToolResult(t *testing.T) {
+	body := []byte(`{
+		"model":"gpt-6.1-sol",
+		"input":[
+			{"type":"message","role":"user","content":[{"type":"input_text","text":"check the layout"}]},
+			{"type":"function_call","call_id":"call_1","name":"view_image","arguments":"{}"},
+			{"type":"function_call_output","call_id":"call_1","output":[{"type":"input_image","image_url":"data:image/png;base64,QQ=="}]}
+		]
+	}`)
+
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+
+	assert.JSONEq(t, `["user","assistant","tool","user"]`, gjson.GetBytes(converted.Body, "messages.#.role").Raw)
+	assert.JSONEq(t, `["user","assistant","tool","tool"]`, gjson.GetBytes(converted.RoutingBody, "messages.#.role").Raw)
+	assert.Equal(t, "call_1", gjson.GetBytes(converted.RoutingBody, "messages.3.tool_call_id").Str)
+	assert.Equal(t, gjson.GetBytes(converted.Body, "messages.3.content").Raw, gjson.GetBytes(converted.RoutingBody, "messages.3.content").Raw)
+
+	provider, err := translate.ParseOpenAI(converted.Body)
+	require.NoError(t, err)
+	assert.Equal(t, "user_prompt", provider.RoutingFeatures().LastKind)
+	routing, err := translate.ParseOpenAI(converted.RoutingBody)
+	require.NoError(t, err)
+	features := routing.RoutingFeatures()
+	assert.Equal(t, "tool_result", features.LastKind)
+	assert.Equal(t, "check the layout", features.OnlyUserMessageText)
+	assert.Equal(t, 1, features.ImageCount)
+	assert.Zero(t, routing.SanitizeOrphanedToolCalls(), "the routed image message answers a real tool call")
+}
+
 // A pasted screenshot must not pin the whole session to OpenAI: that dropped
 // a /force-model pin to an Anthropic model with provider_not_enabled.
 func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexUserImageProjected(t *testing.T) {

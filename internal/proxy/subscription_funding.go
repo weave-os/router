@@ -105,7 +105,7 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 			return subscriptionPoolUnavailableBecause(callCtx, "picked model runs on the caller's own plan")
 		}
 		refusal := clientAppRefusalFunding{counts: clientAppRefusalPaidFallback(callCtx), poolRefused: claudePoolRefusesClientApp(callCtx), clientApp: ClientIdentityFrom(callCtx).ClientApp}
-		if err := s.authorizeSubscriptionAPI(admissionCtx, pool, codexToken, claudeToken, refusal); err != nil {
+		if err := s.authorizeSubscriptionAPI(admissionCtx, pool, target, codexToken, claudeToken, refusal); err != nil {
 			observability.FromContext(callCtx).Warn("Blocked API inference without subscription quota-exhaustion evidence", "model", target.CatalogID, "provider", target.Provider, "subscription_provider", pool, "err", err)
 			return err
 		}
@@ -124,7 +124,7 @@ type clientAppRefusalFunding struct {
 	clientApp   string
 }
 
-func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptions.Provider, codexToken, claudeToken string, refusal clientAppRefusalFunding) error {
+func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptions.Provider, target inference.Target, codexToken, claudeToken string, refusal clientAppRefusalFunding) error {
 	if managedSubscriptionEnrollmentUnavailable(ctx) {
 		return subscriptionPoolUnavailableBecause(ctx, "subscription enrollment could not be verified")
 	}
@@ -139,6 +139,9 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 			continue
 		}
 		if s.managedAccountQuotaExhausted(ctx, candidate, now) || managedAccountCredentialCooling(candidate, now) {
+			continue
+		}
+		if s.subscriptionModels.managedDenied("account:"+candidate.accountID, candidate.accountID, target.Provider, target.CatalogID, now) {
 			continue
 		}
 		if refusal.counts && pool == subscriptions.ProviderClaude && (refusal.poolRefused || s.subscriptionModels.managedClientAppDenied(candidate.accountID, providers.ProviderAnthropic, refusal.clientApp, now)) {

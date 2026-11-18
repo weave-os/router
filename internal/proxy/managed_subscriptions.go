@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -349,6 +348,9 @@ func (s *Service) recordManagedSubscriptionFailure(ctx context.Context, provider
 			"provider", poolProvider, "account_id", lease.AccountID, "model", model)
 		return true
 	}
+	if provider == providers.ProviderAnthropic && providers.IsUpstreamCredentialRefusal(attemptErr) {
+		return cooldownRefusedManagedSeat(ctx, s.managedSubscriptions, s.clock.Now(), owner, poolProvider, lease, attemptErr)
+	}
 	switch status {
 	case http.StatusTooManyRequests, http.StatusUnauthorized, http.StatusForbidden:
 		return recordManagedSubscriptionStatus(ctx, s, owner, poolProvider, lease, attemptErr)
@@ -406,24 +408,6 @@ const managedOverloadCooldown = 30 * time.Second
 
 func managedOverloadOwner(accountID string) string { return "overload:" + accountID }
 
-func recordManagedQuotaProof(ctx context.Context, accountID string, resetAt time.Time) {
-	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
-		if state.QuotaExhaustedAccounts == nil {
-			state.QuotaExhaustedAccounts = make(map[string]time.Time)
-		}
-		state.QuotaExhaustedAccounts[accountID] = resetAt
-	}
-}
-
-func recordManagedThrottle(ctx context.Context, accountID string, cooldownUntil time.Time) {
-	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
-		if state.ThrottledAccounts == nil {
-			state.ThrottledAccounts = make(map[string]time.Time)
-		}
-		state.ThrottledAccounts[accountID] = cooldownUntil
-	}
-}
-
 func (s *Service) subscriptionQuotaExhaustion(pool subscriptions.Provider, lease subscriptions.Lease, attemptErr error) (time.Time, bool) {
 	now := s.clock.Now()
 	if pool == subscriptions.ProviderCodex {
@@ -463,22 +447,6 @@ func (s *Service) recordManagedSubscriptionSuccess(ctx context.Context, provider
 		return
 	}
 	activateManagedSubscription(ctx, s.managedSubscriptions, subscriptionOwnerFromContext(ctx), poolProvider, lease)
-}
-
-func managedSubscriptionResetAt(err error, now time.Time) time.Time {
-	var upstream *providers.UpstreamErrorResponse
-	if !errors.As(err, &upstream) {
-		return now.Add(time.Minute)
-	}
-	if retryAfter := upstream.Headers.Get("Retry-After"); retryAfter != "" {
-		if seconds, parseErr := strconv.Atoi(retryAfter); parseErr == nil && seconds > 0 {
-			return now.Add(time.Duration(seconds) * time.Second)
-		}
-		if resetAt, parseErr := http.ParseTime(retryAfter); parseErr == nil && resetAt.After(now) {
-			return resetAt
-		}
-	}
-	return now.Add(time.Minute)
 }
 
 func (s *Service) supportsSubscriptionTransport(provider string) bool {

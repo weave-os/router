@@ -299,17 +299,14 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 		return lastIdx, nil
 	}
 	var abort dispatchAbort
-	if errors.As(runErr, &abort) {
-		if in.flushErr != nil && !in.deferFlushOnExhaustion && !committed(in.buf) {
-			in.flushErr(in.w, abort.err)
-		}
-		return lastIdx, abort.err
-	}
-	switch result.Summary.FallbackReason {
-	case dispatch.FailureReasonProviderNotConfigured, dispatch.FailureReasonPrepare:
+	switch reason := result.Summary.FallbackReason; {
+	case errors.As(runErr, &abort):
+		runErr = attributeCodexUsageLimitAbort(attemptTraceFromContext(ctx), abort.err)
+	case reason == dispatch.FailureReasonProviderNotConfigured, reason == dispatch.FailureReasonPrepare:
 		return lastIdx, runErr
+	default:
+		runErr = attributeTerminalError(attemptTraceFromContext(ctx), runErr)
 	}
-	runErr = attributeTerminalError(attemptTraceFromContext(ctx), runErr)
 	if in.flushErr != nil && !in.deferFlushOnExhaustion && !committed(in.buf) {
 		in.flushErr(in.w, runErr)
 	}

@@ -1,13 +1,17 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
 
@@ -35,6 +39,11 @@ const classifierClientBeta = "claude-code-20250219,context-management-2025-06-27
 
 func runClassifierBypass(t *testing.T, body, respBody string) (*bypassFakeProvider, *bypassCaptureTelemetry) {
 	t.Helper()
+	return runClassifierBypassWithContext(t, context.Background(), body, respBody)
+}
+
+func runClassifierBypassWithContext(t *testing.T, parent context.Context, body, respBody string) (*bypassFakeProvider, *bypassCaptureTelemetry) {
+	t.Helper()
 	upstream := &bypassFakeProvider{respBody: respBody}
 	svc := newBypassService(upstream)
 	svc.anthropicServerSideFallback = true
@@ -48,7 +57,7 @@ func runClassifierBypass(t *testing.T, body, respBody string) (*bypassFakeProvid
 	req.Header.Set("Authorization", "Bearer "+classifierTestSubToken)
 	req.Header.Set("anthropic-version", "2023-06-01")
 	req.Header.Set("anthropic-beta", classifierClientBeta)
-	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, uuid.New().String())
+	ctx := context.WithValue(parent, InstallationIDContextKey{}, uuid.New().String())
 
 	require.NoError(t, svc.bypassToAnthropic(ctx, env, env.RoutingFeatures(), false, time.Now(), "req-cls-s2", "ext-cls-s2", turntype.Classifier, reasonClassifierPassthrough, req, rec))
 	return upstream, sink
@@ -93,4 +102,26 @@ func TestBypass_ClassifierTurn_RecordsStopReason(t *testing.T) {
 			assert.Equal(t, tc.wantClass, string(row.ErrorClass))
 		})
 	}
+}
+
+// Anthropic re-serves some refusal categories on a fallback model and not
+// others, so the bypass completion log names the category of a refusal.
+func TestBypass_ClassifierTurn_LogsRefusalCategory(t *testing.T) {
+	var output bytes.Buffer
+	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&output, nil)))
+	resp := `{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-5-5","content":[],"stop_reason":"refusal","stop_details":{"type":"refusal","category":"reasoning_extraction"},"usage":{"input_tokens":10,"output_tokens":0}}`
+
+	runClassifierBypassWithContext(t, ctx, classifierStage2Body(""), resp)
+
+	var complete map[string]any
+	for _, line := range bytes.Split(output.Bytes(), []byte("\n")) {
+		var entry map[string]any
+		if json.Unmarshal(line, &entry) == nil && entry["msg"] == "ProxyMessages usage-bypass complete" {
+			complete = entry
+		}
+	}
+	require.NotNil(t, complete, "missing bypass completion log")
+	assert.Equal(t, "refusal", complete["resp_stop_reason"])
+	assert.Equal(t, true, complete["resp_refusal"])
+	assert.Equal(t, "reasoning_extraction", complete["resp_refusal_category"])
 }

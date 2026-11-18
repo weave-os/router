@@ -97,6 +97,9 @@ const (
 	KeyHMMSameTierPin                       Key = "hmm_same_tier_pin"
 	KeyHMMPhaseChangeGate                   Key = "hmm_phase_change_gate"
 	KeyHardPinExplore                       Key = "hard_pin_explore"
+	KeyTaskArmExperimentTreatmentPct        Key = "task_arm_experiment_treatment_pct"
+	KeyTaskArmExperimentSteps               Key = "task_arm_experiment_steps"
+	KeyTaskArmExperimentTreatmentCluster    Key = "task_arm_experiment_treatment_cluster"
 	KeyCCOrchToolsCrossVendor               Key = "cc_orch_tools_crossvendor"
 	KeyEscapeNormalize                      Key = "deepseek_escape_normalize"
 	KeyPlannerTierUpgrade                   Key = "planner_tier_upgrade_enabled"
@@ -215,7 +218,7 @@ func ValidateOverrides(o Overrides) error {
 		if err := check(key, KindInt); err != nil {
 			return err
 		}
-		if key == KeyLoopEscalationHoldoutPct || key == KeyAuthoritativeUpgradeHoldoutPct {
+		if key == KeyLoopEscalationHoldoutPct || key == KeyAuthoritativeUpgradeHoldoutPct || key == KeyTaskArmExperimentTreatmentPct {
 			if value < 0 || value > 100 {
 				return fmt.Errorf("%w: %q must be between 0 and 100, got %d", ErrInvalidValue, key, value)
 			}
