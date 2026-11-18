@@ -6,26 +6,22 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestServedRosterVersionPrecedence(t *testing.T) {
+func TestServedRosterVersionIsTheAdmittedPolicyDigest(t *testing.T) {
 	const (
-		sidecar    = "sidecar-roster"
-		pinned     = "pinned-served-roster"
-		configured = "configured-selection-policy"
+		admitted = "admitted-policy-digest"
+		sidecar  = "sidecar-roster"
 	)
 	tests := []struct {
 		name              string
-		configured        string
-		pinned            bool
+		admitted          string
 		wantRosterVersion string
 	}{
-		{name: "sidecar version when no selection policy is configured", wantRosterVersion: sidecar},
-		{name: "configured selection policy replaces the sidecar version", configured: configured, wantRosterVersion: configured},
-		{name: "a pinned turn reports the roster it was served from", configured: configured, pinned: true, wantRosterVersion: pinned},
-		{name: "a pinned turn without configured policy still reports the served roster", pinned: true, wantRosterVersion: pinned},
+		{name: "Go selection reports the digest of the admitted policy that picked the arm", admitted: admitted, wantRosterVersion: admitted},
+		{name: "sidecar selection reports the sidecar roster", wantRosterVersion: sidecar},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			assert.Equal(t, test.wantRosterVersion, servedRosterVersion(sidecar, pinned, test.configured, test.pinned))
+			assert.Equal(t, test.wantRosterVersion, servedRosterVersion(test.admitted, sidecar))
 		})
 	}
 }
