@@ -78,7 +78,7 @@ func TestAssignTaskArm(t *testing.T) {
 
 			assert.Equal(t, tc.assigned, turn.assigned)
 			attrs := telemetry.NewAttrBuilder(8)
-			applyTaskArmAttrs(attrs, turn)
+			applyTaskArmAttrs(attrs, turn, "")
 			if tc.assigned {
 				assert.Len(t, attrs.Build(), 8)
 			} else {
@@ -204,7 +204,7 @@ func TestTaskArmTurnLeavesTheExperimentWhenASavedForcedModelServes(t *testing.T)
 	assert.False(t, capped)
 	assert.False(t, turn.assigned)
 	attrs := telemetry.NewAttrBuilder(8)
-	applyTaskArmAttrs(attrs, turn)
+	applyTaskArmAttrs(attrs, turn, "")
 	assert.Empty(t, attrs.Build())
 }
 
@@ -292,4 +292,26 @@ func TestACappedTreatmentTurnLeavesTheSessionPinAsControlWouldHaveLeftIt(t *test
 		assert.Equal(t, controlStore.upserts[i].Model, pin.Model, "the stored pin is the control decision in both arms")
 	}
 	assert.NotEmpty(t, controlStore.upserts)
+}
+
+func TestTreatmentAppliedFollowsTheModelThatServedTheTurn(t *testing.T) {
+	turn := taskArmTurn{assignment: taskarm.Assignment{Arm: taskarm.ArmTreatment}, assigned: true, cluster: "medium", ceilingBinds: true, capped: true, cappedModel: "capped"}
+	cases := []struct {
+		name        string
+		servedModel string
+		want        bool
+	}{
+		{"the capped model served the turn", "capped", true},
+		{"a failover served the turn with another model", "rescue", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			attrs := telemetry.NewAttrBuilder(8)
+
+			applyTaskArmAttrs(attrs, turn, tc.servedModel)
+
+			want := telemetry.NewAttrBuilder(1).Bool("routing.task_arm_experiment_treatment_applied", tc.want).Build()[0]
+			assert.Contains(t, attrs.Build(), want)
+		})
+	}
 }

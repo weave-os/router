@@ -26,6 +26,7 @@ type taskArmTurn struct {
 	controlCluster string
 	ceilingBinds   bool
 	capped         bool
+	cappedModel    string
 }
 
 func assignTaskArm(ctx context.Context, env *translate.RequestEnvelope, installationID uuid.UUID, forceModel, forceCluster string) taskArmTurn {
@@ -73,18 +74,14 @@ func (turn *taskArmTurn) route(ctx context.Context, route turnRoute) taskArmRout
 				"cluster", turn.cluster, "task_key", turn.assignment.TaskKey, "err", err)
 			return control, nil
 		}
-		turn.capped = true
-		return cappedTurn(control, cappedRes), nil
+		turn.capped, turn.cappedModel = true, cappedRes.Decision.Model
+		control.Decision = cappedRes.Decision
+		control.StickyHit = false
+		control.PinTier = ""
+		control.OverloadProbe = cappedRes.OverloadProbe
+		control.CooldownProbeReleases = append(control.CooldownProbeReleases, cappedRes.CooldownProbeReleases...)
+		return control, nil
 	}
-}
-
-func cappedTurn(control, cappedRes turnLoopResult) turnLoopResult {
-	control.Decision = cappedRes.Decision
-	control.StickyHit = false
-	control.PinTier = ""
-	control.OverloadProbe = cappedRes.OverloadProbe
-	control.CooldownProbeReleases = append(control.CooldownProbeReleases, cappedRes.CooldownProbeReleases...)
-	return control
 }
 
 func (turn *taskArmTurn) observeControl(control turnLoopResult) bool {
@@ -113,7 +110,7 @@ func servedPolicyGroup(res turnLoopResult) string {
 	return res.PinPolicyGroup
 }
 
-func applyTaskArmAttrs(b *telemetry.AttrBuilder, turn taskArmTurn) {
+func applyTaskArmAttrs(b *telemetry.AttrBuilder, turn taskArmTurn, servedModel string) {
 	if !turn.assigned {
 		return
 	}
@@ -124,7 +121,7 @@ func applyTaskArmAttrs(b *telemetry.AttrBuilder, turn taskArmTurn) {
 		String("routing.task_arm_experiment_control_model", turn.controlModel).
 		String("routing.task_arm_experiment_control_cluster", turn.controlCluster).
 		Bool("routing.task_arm_experiment_ceiling_binds", turn.ceilingBinds).
-		Bool("routing.task_arm_experiment_treatment_applied", turn.capped)
+		Bool("routing.task_arm_experiment_treatment_applied", turn.capped && servedModel == turn.cappedModel)
 }
 
 func forceClusterForTurn(ctx context.Context, r *http.Request, env *translate.RequestEnvelope, feats translate.RoutingFeatures, installationID uuid.UUID, forceModel string) (string, taskArmTurn, error) {
@@ -142,7 +139,7 @@ func forceClusterForTurn(ctx context.Context, r *http.Request, env *translate.Re
 
 func applyExperimentAttrs(ctx context.Context, b *telemetry.AttrBuilder, routed *turnLoopResult, turn taskArmTurn, requestedModel, servedModel string) {
 	applyBlindExperimentOutcomeAttrs(ctx, b, routed, requestedModel, servedModel)
-	applyTaskArmAttrs(b, turn)
+	applyTaskArmAttrs(b, turn, servedModel)
 }
 
 func routesWithoutSessionPin(store sessionpin.Store, req router.Request) bool {

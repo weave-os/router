@@ -876,7 +876,7 @@ message that ends a turn: `@cycle <goal> <task> <step> <status> | <reason>`, or
   | `routing.task_arm_experiment_control_model` | Model ordinary routing chose for the turn, in both arms. |
   | `routing.task_arm_experiment_control_cluster` | Cluster of that decision, in both arms. Empty when the decision carries none. |
   | `routing.task_arm_experiment_ceiling_binds` | Whether the control cluster ranks above the treatment cluster, in both arms. This is what selects the turns the two arms can differ on. |
-  | `routing.task_arm_experiment_treatment_applied` | Whether the turn was routed inside the treatment cluster. Always `false` on control turns and on turns the ceiling does not bind. It describes the routing decision: a failover after dispatch can still serve another model, which the upstream span's decision fields show. |
+  | `routing.task_arm_experiment_treatment_applied` | Whether the turn was routed inside the treatment cluster and served by the model that route chose. Always `false` on control turns and on turns the ceiling does not bind. On the upstream span it is `false` when a failover served the turn with another model; the decision span describes the routing decision before dispatch. |
 
 Analyse by assigned arm, not by `treatment_applied`: the fallback and the
 ineligible turns of a task are part of what the treatment does. Select the
