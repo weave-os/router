@@ -1,8 +1,8 @@
 package policy
 
-func servedRosterVersion(admittedPolicyDigest, sidecarRosterVersion string) string {
-	if admittedPolicyDigest != "" {
-		return admittedPolicyDigest
+func servedRosterVersion(admittedRosterSHA256, sidecarRosterVersion string) string {
+	if admittedRosterSHA256 != "" {
+		return admittedRosterSHA256
 	}
 	return sidecarRosterVersion
 }

@@ -454,7 +454,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	if pinned && res.PolicyArtifactSHA256 != pin.ArtifactSHA256 {
 		return router.Decision{}, fmt.Errorf("%s: sidecar served artifact %q, pin requires %q: %w", strategy, res.PolicyArtifactSHA256, pin.ArtifactSHA256, router.ErrPolicyPinUnavailable)
 	}
-	var admittedPolicyDigest string
+	var admittedRosterSHA256 string
 	if err := r.validateClassifierReleaseIdentity(res.ClassifierReleaseID, res.ClassifierSelectionID, res.ClassifierVariantID, res.ClassifierTaxonomySHA256, res.PolicyArtifactID, res.PolicyArtifactSHA256); err != nil {
 		return router.Decision{}, fmt.Errorf("%s: invalid classifier release identity: %v: %w", strategy, err, router.ErrPolicyPinUnavailable)
 	}
@@ -511,7 +511,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		if pinned && pick.RosterSHA256 != pin.RosterSHA256 {
 			return router.Decision{}, fmt.Errorf("%s: selection used roster %q, pin requires %q: %w", strategy, pick.RosterSHA256, pin.RosterSHA256, router.ErrPolicyPinUnavailable)
 		}
-		admittedPolicyDigest = pick.RosterSHA256
+		admittedRosterSHA256 = pick.RosterSHA256
 	}
 
 	switch {
@@ -626,7 +626,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	if selectionPolicySHA256 == "" {
 		selectionPolicySHA256 = res.PolicyArtifactSHA256
 	}
-	rosterVersion := servedRosterVersion(admittedPolicyDigest, res.RosterVersion)
+	rosterVersion := servedRosterVersion(admittedRosterSHA256, res.RosterVersion)
 	if pinned {
 		selectionPolicySHA256 = pin.ArtifactSHA256
 	}
