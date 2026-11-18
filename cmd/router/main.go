@@ -1731,41 +1731,6 @@ func safeGo(logger *slog.Logger, name string, fn func()) {
 	}()
 }
 
-func runSessionPinSweep(ctx context.Context, store sessionpin.Store) {
-	logger := observability.Get()
-	ticker := time.NewTicker(1 * time.Hour)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			sweepCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-			if err := store.SweepExpired(sweepCtx); err != nil {
-				logger.Error("Session pin sweep failed", "err", err)
-			}
-			cancel()
-		}
-	}
-}
-
-func runSessionTurnClockSweep(ctx context.Context, store *postgres.SessionTurnClockRepo) {
-	ticker := time.NewTicker(time.Hour)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			sweepCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			if err := store.SweepExpired(sweepCtx); err != nil {
-				observability.FromContext(ctx).Error("Session turn clock sweep failed", "err", err)
-			}
-			cancel()
-		}
-	}
-}
-
 func cortexWebSearch(logger *slog.Logger) websearch.Executor {
 	if config.GetOr("ROUTER_CORTEX_WEB_SEARCH", "true") != "true" {
 		logger.Info("Cortex Agents web-search executor disabled (ROUTER_CORTEX_WEB_SEARCH)")
@@ -1873,23 +1838,6 @@ func upstreamIDsForProvider(provider string) map[string]string {
 
 type escalationStateSweeper interface {
 	SweepExpired(context.Context) error
-}
-
-func runEscalationSweep(ctx context.Context, store escalationStateSweeper) {
-	ticker := time.NewTicker(time.Hour)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			sweepCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			if err := store.SweepExpired(sweepCtx); err != nil {
-				observability.FromContext(ctx).Error("Escalation state sweep failed", "err", err)
-			}
-			cancel()
-		}
-	}
 }
 
 func buildAnthropicFederationTokenSource(deploymentMode server.DeploymentMode) auth.AnthropicFederationTokenSource {
