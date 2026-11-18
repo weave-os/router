@@ -6,8 +6,9 @@ client identity headers cannot grant management rights. Unassigned historical
 accounts remain visible for administrator assignment but never enter serving.
 
 Each request reads candidates from the primary database: the requester's personal
-accounts first, then accounts registered to the installation whose owners remain
-active members. Organization sharing defaults on; disabling sharing retains
+accounts plus accounts registered to the installation whose owners remain
+active members. The key owner's seats get no priority: one pool is ranked
+together, so a key shared by several people does not drain its owner's seat first. Organization sharing defaults on; disabling sharing retains
 personal capacity. A personal key borrows shared capacity only while its owner
 is still an active member; a live installation-shared key (no credential
 subject) borrows it whenever sharing is on. Enrollment keys are attribution only and do not partition
@@ -23,7 +24,7 @@ An admitted attempt finishes under provider timeouts and the caller deadline.
 Linked account/model pairs are attempted once per request, within its admission snapshot.
 Budget expiry refuses further admission; it never grants permission to buy API.
 
-Within each personal/shared tier, selection prefers observed included headroom,
+Across the pool, selection prefers observed included headroom,
 then unknown quota, then spent or billable quota. Among equally healthy seats,
 less in-flight work takes priority, followed by the earliest active quota reset
 and lower peak utilization across active windows. Unknown seats rotate ahead of
@@ -34,7 +35,7 @@ expire before a more utilized weekly window.
 One lower-ranked unknown or idle seat may receive an ordinary inference attempt
 after nine other selections, at most once every 30 seconds per requester,
 installation and provider. A seat must have been idle for five minutes, or never
-selected on this replica. Exploration stays within the winning ownership tier
+selected on this replica. Exploration may pick any pooled seat
 and never promotes known spent, billable, disabled, cooling or excluded seats.
 It adds no network probe; Codex's existing preflight publishes validated
 account-wide utilization and actual reset times to the quota observer.

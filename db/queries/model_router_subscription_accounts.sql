@@ -424,7 +424,7 @@ WHERE (account.provider <> 'codex' OR account.provider_user_id IS NOT NULL)
        AND EXISTS (
         SELECT 1 FROM router.model_router_subscription_account_installations AS registration
         WHERE registration.installation_id = installation.id AND registration.subscription_account_id = account.id)))
-ORDER BY (account.subscriber_id = sqlc.narg(subscriber_id)::uuid) DESC NULLS LAST, account.created_at, account.id
+ORDER BY account.created_at, account.id
 FOR SHARE OF account;
 
 -- Counts one provider credential rejection inside a rolling window. Strikes
