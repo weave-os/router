@@ -86,6 +86,9 @@ func failureWordingFor(a dispatch.TracedAttempt) failureWording {
 	if providers.IsUpstreamCyberPolicyRefusal(a.Err) {
 		return failureWording{"declined the request", "declined the request"}
 	}
+	if limit, ok := codexUsageLimitOf(a); ok {
+		return limit.wording()
+	}
 	if errors.Is(a.Err, ErrSubscriptionPoolExhausted) && (status == http.StatusUnauthorized || status == http.StatusForbidden) {
 		return failureWording{"rejected the subscription login", "subscription login rejected"}
 	}
@@ -141,7 +144,7 @@ func rescueDetailLine(a dispatch.TracedAttempt) string {
 	if owner == "" || owner == FailureOwnerUnknown {
 		return ""
 	}
-	if isUpstreamContextOverflow(a.Err) {
+	if _, limited := codexUsageLimitOf(a); limited || isUpstreamContextOverflow(a.Err) {
 		return translate.RescueDetailPrefix + attemptProviderName(a) + " " + failureWordingFor(a).badge + "\n\n"
 	}
 	return translate.RescueDetailPrefix + attemptProviderName(a) + " " + failureWordingFor(a).badge + " (" + string(owner) + " issue)\n\n"
@@ -211,11 +214,14 @@ func attributeAttempt(a dispatch.TracedAttempt, retries int, err error) error {
 }
 
 func attributionPrefix(a dispatch.TracedAttempt, retries int) string {
-	if attemptOwner(a) == FailureOwnerRouter {
+	limit, limited := codexUsageLimitOf(a)
+	if attemptOwner(a) == FailureOwnerRouter && !limited {
 		return ""
 	}
 	var outcome string
 	switch status := upstreamStatus(a.Err); {
+	case limited:
+		outcome = limit.badge()
 	case status == http.StatusTooManyRequests:
 		outcome = "returned 429 (rate limited)"
 	case status == providerOverloadedStatus:
@@ -251,6 +257,12 @@ func terminalMessageFor(a dispatch.TracedAttempt) string {
 }
 
 func attributedTerminalMessage(a dispatch.TracedAttempt, prefix string) string {
+	if limit, ok := codexUsageLimitOf(a); ok && prefix != "" {
+		if msg := upstreamErrorText(limit.upstream); msg != "" {
+			return prefix + ": " + msg
+		}
+		return prefix + "."
+	}
 	wording := failureWordingFor(a).terminal
 	provider := attemptProviderName(a)
 	switch attemptOwner(a) {

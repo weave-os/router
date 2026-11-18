@@ -29,6 +29,7 @@ type TracedAttempt struct {
 	BaseURL   string
 	Err       error
 	Diagnosis inference.AttemptDiagnosis
+	At        time.Time
 }
 
 func NewAttemptTrace(inbound []byte, hideRouterDetails bool) *AttemptTrace {
@@ -88,7 +89,7 @@ func (t *AttemptTrace) Record(attempt Attempt, err error, diagnose func(inbound,
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	diagnosis := diagnose(t.inbound, t.sent, t.customerCredential)
-	t.attempts = append(t.attempts, TracedAttempt{Target: attempt.Target, BaseURL: t.baseURL, Err: err, Diagnosis: diagnosis})
+	t.attempts = append(t.attempts, TracedAttempt{Target: attempt.Target, BaseURL: t.baseURL, Err: err, Diagnosis: diagnosis, At: t.attemptAt})
 	return diagnosis
 }
 
