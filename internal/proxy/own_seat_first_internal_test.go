@@ -24,6 +24,7 @@ func TestOwnSeatFirstOrdersCallerLoginAgainstManagedPool(t *testing.T) {
 	const poolSeat = "synthetic-pool-seat"
 	for _, scenario := range []struct {
 		name                 string
+		personalPlan         bool
 		ownSeatFirst         bool
 		ownOverageBeforePool bool
 		observed             *usage.Snapshot
@@ -33,7 +34,9 @@ func TestOwnSeatFirstOrdersCallerLoginAgainstManagedPool(t *testing.T) {
 		{name: "off leases the pool", wantAuthorization: poolSeat, wantPoolLeases: 1},
 		{name: "on serves the caller login", ownSeatFirst: true, wantAuthorization: parityAnthropicToken},
 		{name: "caller login in overage moves to the pool", ownSeatFirst: true, observed: &usage.Snapshot{OverageInUse: true}, wantAuthorization: poolSeat, wantPoolLeases: 1},
-		{name: "own overage before pool keeps the caller login", ownSeatFirst: true, ownOverageBeforePool: true, observed: &usage.Snapshot{OverageInUse: true}, wantAuthorization: parityAnthropicToken},
+		{name: "own overage before pool keeps the caller login", ownSeatFirst: true, ownOverageBeforePool: true, observed: &usage.Snapshot{OverageInUse: true, Primary: usage.Window{UsedPercent: 1, WindowMinutes: 300}}, wantAuthorization: parityAnthropicToken},
+		{name: "personal plan overage before pool keeps the caller login", personalPlan: true, ownSeatFirst: true, ownOverageBeforePool: true, observed: &usage.Snapshot{OverageInUse: true, Primary: usage.Window{UsedPercent: 1, WindowMinutes: 300}}, wantAuthorization: parityAnthropicToken},
+		{name: "personal plan overage moves to the pool", personalPlan: true, ownSeatFirst: true, observed: &usage.Snapshot{OverageInUse: true, Primary: usage.Window{UsedPercent: 1, WindowMinutes: 300}}, wantAuthorization: poolSeat, wantPoolLeases: 1},
 		{name: "exhausted caller login moves to the pool", ownSeatFirst: true, ownOverageBeforePool: true, observed: &usage.Snapshot{Primary: usage.Window{UsedPercent: 1, WindowMinutes: 300}}, wantAuthorization: poolSeat, wantPoolLeases: 1},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
@@ -59,7 +62,11 @@ func TestOwnSeatFirstOrdersCallerLoginAgainstManagedPool(t *testing.T) {
 				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
 				WithUsageObserver(observer)
 			service.retrySleep = noopSleep
-			ctx := withOwnSeatFlags(enterpriseOnlyContext(managedSubscriptionTestContext()), scenario.ownSeatFirst, scenario.ownOverageBeforePool)
+			ctx := managedSubscriptionTestContext()
+			if !scenario.personalPlan {
+				ctx = enterpriseOnlyContext(ctx)
+			}
+			ctx = withOwnSeatFlags(ctx, scenario.ownSeatFirst, scenario.ownOverageBeforePool)
 			ctx = context.WithValue(ctx, InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 			body := `{"model":"auto","max_tokens":1024,"messages":[{"role":"user","content":"inspect synthetic input"}]}`
 			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(body))

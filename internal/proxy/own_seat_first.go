@@ -38,13 +38,12 @@ func ownSeatFirstToken(ctx context.Context, observer *usage.Observer) string {
 		return ""
 	}
 	snap, observed := observer.Snapshot(key)
-	switch {
-	case !observed:
-		return inbound
-	case flags.BoolOr(ctx, flags.KeyOwnOverageBeforePool, false) && snap.Exhausted():
-		return ""
-	case !flags.BoolOr(ctx, flags.KeyOwnOverageBeforePool, false) && snap.BillableOrExhausted():
+	if observed && snap.BillableOrExhausted() && !ownOverageServesFirst(ctx, snap) {
 		return ""
 	}
 	return inbound
+}
+
+func ownOverageServesFirst(ctx context.Context, snap usage.Snapshot) bool {
+	return snap.OverageInUse && flags.BoolOr(ctx, flags.KeyOwnSeatFirst, false) && flags.BoolOr(ctx, flags.KeyOwnOverageBeforePool, false)
 }

@@ -63,7 +63,7 @@ func (s *Service) codexSubscriptionExhausted(ctx context.Context, headers http.H
 		return false
 	}
 	snap, ok := s.usageObserver.Snapshot(key)
-	return ok && snap.BillableOrExhausted()
+	return ok && snap.BillableOrExhausted() && !ownOverageServesFirst(ctx, snap)
 }
 
 func codexSubscriptionModelRejected(err error) bool {
