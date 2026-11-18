@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"net/http"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/websearch"
 )
 
@@ -22,7 +24,7 @@ func (s *Service) serveNativeWebSearch(
 	headers http.Header,
 	w http.ResponseWriter,
 ) bool {
-	if s.webSearch == nil {
+	if s.webSearch == nil && s.fallbackWebSearch == nil {
 		return false
 	}
 	tool, hasTool := websearch.FindServerTool(body)
@@ -37,10 +39,19 @@ func (s *Service) serveNativeWebSearch(
 		return false
 	}
 
+	if s.webSearch == nil {
+		return fallbackWebSearchTurn{
+			executor: s.fallbackWebSearch, clock: s.clock, body: body, model: model, stream: stream,
+			inputTokens: inputTokens, enabled: enabled, headers: headers, tool: tool, query: query,
+		}.serve(ctx, w)
+	}
 	credCtx := resolveAndInjectCredentials(ctx, providers.ProviderAnthropicGateway, model, headers)
 	if CredentialsFromContext(credCtx) == nil {
 		log.Info("Native web-search executor skipped: no gateway credential for this request")
-		return false
+		return fallbackWebSearchTurn{
+			executor: s.fallbackWebSearch, clock: s.clock, body: body, model: model, stream: stream,
+			inputTokens: inputTokens, enabled: enabled, headers: headers, tool: tool, query: query,
+		}.serve(ctx, w)
 	}
 
 	start := s.clock.Now()
@@ -65,6 +76,74 @@ func (s *Service) serveNativeWebSearch(
 		"latency_ms", s.clock.Now().Sub(start).Milliseconds(),
 	)
 	return true
+}
+
+type fallbackWebSearchTurn struct {
+	executor    websearch.Executor
+	clock       auth.Clock
+	body        []byte
+	model       string
+	stream      bool
+	inputTokens int
+	enabled     map[string]struct{}
+	headers     http.Header
+	tool        websearch.ServerTool
+	query       websearch.Query
+}
+
+func (t fallbackWebSearchTurn) serve(ctx context.Context, w http.ResponseWriter) bool {
+	if t.executor == nil {
+		return false
+	}
+	log := observability.FromContext(ctx)
+	if websearch.HasDomainFilter(t.body) {
+		log.Info("Fallback web-search executor skipped: domain-filtered search left on normal routing",
+			"tool_type", t.tool.Type)
+		return false
+	}
+	if codexWebSearchMayServe(ctx, t.body, t.enabled, t.headers) {
+		log.Info("Fallback web-search executor skipped: turn left for the Codex web-search bridge",
+			"tool_type", t.tool.Type)
+		return false
+	}
+
+	start := t.clock.Now()
+	result, err := t.executor.Search(ctx, t.query)
+	if err != nil {
+		log.Warn("Fallback web-search execution failed; falling back to normal routing",
+			"err", err, "latency_ms", t.clock.Now().Sub(start).Milliseconds())
+		return false
+	}
+
+	msg := websearch.SynthesizeMessage(
+		"msg_router_websearch_"+fmt.Sprintf("%x", t.clock.Now().UnixNano()),
+		t.model, t.tool.Name, t.query, result, t.inputTokens,
+	)
+	if err := writeWebSearchMessage(w, msg, t.stream); err != nil {
+		log.Warn("Failed writing synthesized fallback web-search response", "err", err)
+		return true
+	}
+	log.Info("Served web-search turn on the fallback search executor",
+		"tool_type", t.tool.Type,
+		"results", len(result.Results),
+		"latency_ms", t.clock.Now().Sub(start).Milliseconds(),
+	)
+	return true
+}
+
+func codexWebSearchMayServe(ctx context.Context, body []byte, enabled map[string]struct{}, headers http.Header) bool {
+	if !websearch.IsClaudeCodeWebSearchHelper(body) || subscriptionAPIOnly(ctx) ||
+		subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) {
+		return false
+	}
+	if _, ok := enabled[providers.ProviderOpenAI]; !ok {
+		return false
+	}
+	if managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) || codexSubscriptionFromContext(ctx) != nil {
+		return true
+	}
+	creds := ExtractClientCredentials(providers.ProviderOpenAI, headers)
+	return creds != nil && creds.OAuth
 }
 
 func anyNativeServerToolProvider(enabled map[string]struct{}) bool {
