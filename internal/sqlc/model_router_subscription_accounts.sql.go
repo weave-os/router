@@ -310,49 +310,62 @@ func (q *Queries) GetModelRouterSubscriptionCredentialRecord(ctx context.Context
 	return i, err
 }
 
-const getSubscriberEnrollmentKey = `-- name: GetSubscriberEnrollmentKey :one
-SELECT k.id AS api_key_id, k.installation_id
-FROM router.model_router_api_keys AS k
-JOIN router.credential_subjects AS subject ON subject.id = k.credential_subject_id
-JOIN router.credential_subject_installations AS access
-  ON access.subject_id = subject.id AND access.installation_id = k.installation_id
-JOIN router.model_router_installations AS installation ON installation.id = k.installation_id
-WHERE k.credential_subject_id = $1::uuid
-  AND k.deleted_at IS NULL
+const getSubscriberEnrollmentOwner = `-- name: GetSubscriberEnrollmentOwner :one
+SELECT access.installation_id, COALESCE(enrollment_key.id::text, '')::text AS api_key_id
+FROM router.credential_subjects AS subject
+JOIN router.credential_subject_installations AS access ON access.subject_id = subject.id
+JOIN router.model_router_installations AS installation ON installation.id = access.installation_id
+LEFT JOIN LATERAL (
+  SELECT k.id
+  FROM router.model_router_api_keys AS k
+  WHERE k.credential_subject_id = subject.id
+    AND k.installation_id = access.installation_id
+    AND k.deleted_at IS NULL
+  ORDER BY k.created_at DESC, k.id
+  LIMIT 1
+) AS enrollment_key ON TRUE
+WHERE subject.id = $1::uuid
   AND installation.deleted_at IS NULL
   AND subject.projection_complete
   AND subject.revoked_at IS NULL
   AND access.access_enabled
-ORDER BY k.created_at DESC, k.id
+ORDER BY (enrollment_key.id IS NULL), access.installation_id
 LIMIT 1
 `
 
-type GetSubscriberEnrollmentKeyRow struct {
-	APIKeyID       uuid.UUID
+type GetSubscriberEnrollmentOwnerRow struct {
 	InstallationID uuid.UUID
+	APIKeyID       string
 }
 
-// Browser reconnect has no request key, so it enrolls through the subscriber's
-// newest active personal routing key whose installation access is enabled.
+// Browser enrollment has no request key. Active installation membership alone
+// authorizes it; the subscriber's newest live key there, if any, is kept as
+// attribution.
 //
-//	SELECT k.id AS api_key_id, k.installation_id
-//	FROM router.model_router_api_keys AS k
-//	JOIN router.credential_subjects AS subject ON subject.id = k.credential_subject_id
-//	JOIN router.credential_subject_installations AS access
-//	  ON access.subject_id = subject.id AND access.installation_id = k.installation_id
-//	JOIN router.model_router_installations AS installation ON installation.id = k.installation_id
-//	WHERE k.credential_subject_id = $1::uuid
-//	  AND k.deleted_at IS NULL
+//	SELECT access.installation_id, COALESCE(enrollment_key.id::text, '')::text AS api_key_id
+//	FROM router.credential_subjects AS subject
+//	JOIN router.credential_subject_installations AS access ON access.subject_id = subject.id
+//	JOIN router.model_router_installations AS installation ON installation.id = access.installation_id
+//	LEFT JOIN LATERAL (
+//	  SELECT k.id
+//	  FROM router.model_router_api_keys AS k
+//	  WHERE k.credential_subject_id = subject.id
+//	    AND k.installation_id = access.installation_id
+//	    AND k.deleted_at IS NULL
+//	  ORDER BY k.created_at DESC, k.id
+//	  LIMIT 1
+//	) AS enrollment_key ON TRUE
+//	WHERE subject.id = $1::uuid
 //	  AND installation.deleted_at IS NULL
 //	  AND subject.projection_complete
 //	  AND subject.revoked_at IS NULL
 //	  AND access.access_enabled
-//	ORDER BY k.created_at DESC, k.id
+//	ORDER BY (enrollment_key.id IS NULL), access.installation_id
 //	LIMIT 1
-func (q *Queries) GetSubscriberEnrollmentKey(ctx context.Context, subscriberID uuid.UUID) (GetSubscriberEnrollmentKeyRow, error) {
-	row := q.db.QueryRow(ctx, getSubscriberEnrollmentKey, subscriberID)
-	var i GetSubscriberEnrollmentKeyRow
-	err := row.Scan(&i.APIKeyID, &i.InstallationID)
+func (q *Queries) GetSubscriberEnrollmentOwner(ctx context.Context, subscriberID uuid.UUID) (GetSubscriberEnrollmentOwnerRow, error) {
+	row := q.db.QueryRow(ctx, getSubscriberEnrollmentOwner, subscriberID)
+	var i GetSubscriberEnrollmentOwnerRow
+	err := row.Scan(&i.InstallationID, &i.APIKeyID)
 	return i, err
 }
 
@@ -1477,7 +1490,7 @@ type UpsertModelRouterSubscriptionAccountForSubscriberParams struct {
 	ProviderUserID         string
 	RefreshTokenCiphertext []byte
 	DisplayName            *string
-	APIKeyID               uuid.UUID
+	APIKeyID               pgtype.UUID
 }
 
 type UpsertModelRouterSubscriptionAccountForSubscriberRow struct {

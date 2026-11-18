@@ -131,7 +131,7 @@ type SubscriptionEnrollmentOwnerResolver interface {
 	SubscriberEnrollmentOwner(ctx context.Context, subscriberID string) (SubscriptionOwner, error)
 }
 
-var ErrSubscriptionEnrollmentKeyNotFound = errors.New("subscriber has no active routing key")
+var ErrSubscriptionEnrollmentMembershipNotFound = errors.New("subscriber is not an active installation member")
 
 func (s *Service) SubscriberEnrollmentOwner(ctx context.Context, subscriberID string) (SubscriptionOwner, error) {
 	resolver, ok := s.subscriptionAccounts.(SubscriptionEnrollmentOwnerResolver)

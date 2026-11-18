@@ -91,9 +91,9 @@ func InternalCompleteSubscriptionLoginHandler(authSvc *auth.Service, flow Subscr
 		}
 		log = log.With("provider", pending.Provider)
 		enrollmentOwner, err := authSvc.SubscriberEnrollmentOwner(c.Request.Context(), owner.SubscriberID)
-		if errors.Is(err, auth.ErrSubscriptionEnrollmentKeyNotFound) {
-			log.Warn("Subscription login has no routing key to enroll through")
-			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "routing_key_required"})
+		if errors.Is(err, auth.ErrSubscriptionEnrollmentMembershipNotFound) {
+			log.Warn("Subscription login subscriber is not an active installation member")
+			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "installation_membership_required"})
 			return
 		}
 		if err != nil {
