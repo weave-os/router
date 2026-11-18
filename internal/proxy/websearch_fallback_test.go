@@ -18,14 +18,14 @@ import (
 
 const fallbackSearchModel = "claude-sonnet-5"
 
-func claudeCodeSearchHelperBody(stream bool, toolExtra string) []byte {
+func claudeCodeSearchHelperBody(stream bool, extraToolFieldsJSON string) []byte {
 	streamValue := "false"
 	if stream {
 		streamValue = "true"
 	}
 	return []byte(`{"model":"` + fallbackSearchModel + `","stream":` + streamValue + `,"max_tokens":1024,` +
 		`"system":"You are an assistant for performing a web search tool use",` +
-		`"tools":[{"type":"web_search_20250305","name":"web_search"` + toolExtra + `}],` +
+		`"tools":[{"type":"web_search_20250305","name":"web_search"` + extraToolFieldsJSON + `}],` +
 		`"messages":[{"role":"user","content":"Perform a web search for the query: router release notes"}]}`)
 }
 
@@ -56,9 +56,9 @@ func TestServeNativeWebSearchFallbackServesNonAnthropicDeployment(t *testing.T) 
 			assert.Equal(t, "router release notes", fallback.got.Text)
 			if stream {
 				assert.Equal(t, "text/event-stream", rec.Header().Get("Content-Type"))
-				out := rec.Body.String()
+				sseBody := rec.Body.String()
 				for _, want := range []string{"event: message_start", `"type":"web_search_tool_result"`, "https://docs.example/releases", "event: message_stop"} {
-					assert.Contains(t, out, want)
+					assert.Contains(t, sseBody, want)
 				}
 				return
 			}
@@ -164,11 +164,11 @@ func TestProxyMessagesClaudeCodeWebSearchFallback(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 1, fallback.runs)
 		assert.Equal(t, "router release notes", fallback.got.Text)
-		out := gjson.ParseBytes(rec.Body.Bytes())
-		assert.Equal(t, "message", out.Get("type").String())
-		assert.Equal(t, "server_tool_use", out.Get("content.0.type").String())
-		assert.Equal(t, "web_search_tool_result", out.Get("content.1.type").String())
-		assert.Equal(t, "https://docs.example/releases", out.Get("content.1.content.0.url").String())
+		body := gjson.ParseBytes(rec.Body.Bytes())
+		assert.Equal(t, "message", body.Get("type").String())
+		assert.Equal(t, "server_tool_use", body.Get("content.0.type").String())
+		assert.Equal(t, "web_search_tool_result", body.Get("content.1.type").String())
+		assert.Equal(t, "https://docs.example/releases", body.Get("content.1.content.0.url").String())
 		for name, p := range upstreams {
 			assert.Zero(t, p.dispatches, "%s must not be dispatched when the fallback serves the turn", name)
 		}

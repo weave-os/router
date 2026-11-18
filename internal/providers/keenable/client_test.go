@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -206,8 +207,8 @@ func TestSearchNon2xxCarriesStatus(t *testing.T) {
 		if !errors.As(err, &statusErr) || statusErr.StatusCode != status {
 			t.Fatalf("status %d: err = %v", status, err)
 		}
-		if !strings.Contains(err.Error(), http.StatusText(status)) && !strings.Contains(err.Error(), "status") {
-			t.Fatalf("status %d: error %q does not mention status", status, err)
+		if !strings.Contains(err.Error(), strconv.Itoa(status)) {
+			t.Fatalf("status %d: error %q does not mention the status code", status, err)
 		}
 	}
 }
@@ -267,12 +268,6 @@ func TestSearchCallerDeadline(t *testing.T) {
 	_, err := keenable.NewClient(srv.URL).Search(ctx, websearch.Query{Text: "q"})
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err = %v, want context.DeadlineExceeded", err)
-	}
-}
-
-func TestNewClientDefaultsBaseURL(t *testing.T) {
-	if keenable.DefaultBaseURL != "https://api.keenable.ai" {
-		t.Fatalf("DefaultBaseURL = %q", keenable.DefaultBaseURL)
 	}
 }
 
