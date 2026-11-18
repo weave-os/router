@@ -3,6 +3,7 @@ package rosterdata_test
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"strings"
 	"testing"
 
 	"weave-os/router/internal/router/hmm/rosterdata"
@@ -27,14 +28,14 @@ func TestPolicyV1WireShapeIsPinned(t *testing.T) {
 }
 
 func TestPolicyV1WireRejectsUnknownAndModeFields(t *testing.T) {
-	for name, payload := range map[string]string{
-		"unknown_top_level_field": `{"schema_version":"hmm_go_selection_policy_v1","unknown":true}`,
-		"mode_policies":           `{"schema_version":"hmm_go_selection_policy_v1","class_order":["low"],"ranking":{"alpha":{"low":0.4},"alpha_min":{"low":0.1},"alpha_max":{"low":0.8},"quality_bias_neutral":0.7,"wii_score_version":"wii-v1","wii_normalization_sha256":"wii","wpi_score_version":"wpi-v1","wpi_normalization_sha256":"wpi"},"mode_policies":{"plan":{"allowed_groups":["low"]}},"clusters":{"low":{"complexity_label":"low","arms":["openai/gpt-5.6-sol"],"cost_ref_usd":1,"latency_ref_ms":1,"arm_scores":{"openai/gpt-5.6-sol":1},"arm_indices":{"openai/gpt-5.6-sol":{"wii_v1":80,"wpi_v1":40}}}}}`,
-		"trailing_value":          `{"schema_version":"hmm_go_selection_policy_v1"} {}`,
+	for name, rejection := range map[string]struct{ payload, reason string }{
+		"unknown_top_level_field": {strings.Replace(policyV1EveryFieldWire, `{"schema_version"`, `{"unknown":true,"schema_version"`, 1), `unknown field "unknown"`},
+		"mode_policies":           {strings.Replace(policyV1EveryFieldWire, `"preferences":`, `"mode_policies":{"plan":{"allowed_groups":["low"]}},"preferences":`, 1), `mode policy "plan" is not supported by Go selection`},
+		"trailing_value":          {policyV1EveryFieldWire + ` {}`, "multiple JSON values"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := rosterdata.ParseValidated([]byte(payload))
-			require.Error(t, err)
+			_, err := rosterdata.ParseValidated([]byte(rejection.payload))
+			require.ErrorContains(t, err, rejection.reason)
 		})
 	}
 }

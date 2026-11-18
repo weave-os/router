@@ -31,6 +31,7 @@ const (
 	syntheticClassifierSHA256     = "5555555555555555555555555555555555555555555555555555555555555555"
 	syntheticTaskReleaseSHA256    = "6666666666666666666666666666666666666666666666666666666666666666"
 	unloadedRosterSHA256          = "7777777777777777777777777777777777777777777777777777777777777777"
+	unboundEvidenceSHA256         = "9999999999999999999999999999999999999999999999999999999999999999"
 )
 
 type syntheticClassifier struct {
@@ -98,7 +99,7 @@ func selectionScenarios() []selectionScenario {
 		{name: "escalation_floor", request: router.Request{ClientApp: "cursor", Escalation: &escalation.Constraint{Floor: escalation.High}}},
 		{name: "rescue_order_after_group_exhausted", request: router.Request{ClientApp: "cursor", ExcludedModels: map[string]struct{}{"gpt-5.5-mini": {}, "gemini-3.5-flash": {}, "claude-haiku-4-5": {}}}},
 		{name: "task_domain_evidence", request: router.Request{ClientApp: "cursor"}, taskDomain: readyInfraTaskDomain(syntheticDomainEvidenceSHA256)},
-		{name: "task_domain_evidence_digest_mismatch", request: router.Request{ClientApp: "cursor"}, taskDomain: readyInfraTaskDomain(unloadedRosterSHA256)},
+		{name: "task_domain_evidence_digest_mismatch", request: router.Request{ClientApp: "cursor"}, taskDomain: readyInfraTaskDomain(unboundEvidenceSHA256)},
 		{name: "policy_pin_loaded_roster", request: router.Request{ClientApp: "cursor"}, pin: &router.PolicyPin{ArtifactSHA256: syntheticClassifierSHA256, RosterSHA256: syntheticPolicySHA256}},
 		{name: "policy_pin_roster_sha_mismatch", request: router.Request{ClientApp: "cursor"}, pin: &router.PolicyPin{ArtifactSHA256: syntheticClassifierSHA256, RosterSHA256: unloadedRosterSHA256}},
 	}
@@ -143,9 +144,39 @@ func routeScenario(t *testing.T, roster *rosterdata.Roster, evidence *selection.
 		golden.PolicyPinHonoured = metadata.PolicyPinHonoured
 		golden.RescueModels = metadata.RescueModels
 		golden.Escalation = metadata.Escalation
-		golden.SelectionTrace = metadata.SelectionTrace
+		golden.SelectionTrace = rosterScopedTrace(metadata.SelectionTrace, roster)
 	}
 	return golden
+}
+
+func rosterScopedTrace(trace *router.SelectionTrace, roster *rosterdata.Roster) *router.SelectionTrace {
+	if trace == nil {
+		return nil
+	}
+	rosterArms := make(map[string]struct{})
+	for _, arm := range roster.AllArms() {
+		rosterArms[arm] = struct{}{}
+	}
+	rosterModels := make(map[string]struct{})
+	for _, deployed := range hmm.DeployedModelsForRosterIDs(roster.AllArms()) {
+		rosterModels[deployed.Model] = struct{}{}
+	}
+	scoped := *trace
+	scoped.CandidateRosterIDs = []string{}
+	for _, rosterID := range trace.CandidateRosterIDs {
+		if _, ok := rosterArms[rosterID]; ok {
+			scoped.CandidateRosterIDs = append(scoped.CandidateRosterIDs, rosterID)
+		}
+	}
+	scoped.ResolverExclusions = nil
+	for _, exclusion := range trace.ResolverExclusions {
+		_, rosterArm := rosterArms[exclusion.RosterID]
+		_, rosterModel := rosterModels[exclusion.CatalogID]
+		if rosterArm || rosterModel {
+			scoped.ResolverExclusions = append(scoped.ResolverExclusions, exclusion)
+		}
+	}
+	return &scoped
 }
 
 func TestSelectionGoldens(t *testing.T) {
