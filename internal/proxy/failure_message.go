@@ -185,6 +185,21 @@ func attributeTerminalError(trace *dispatch.AttemptTrace, err error) error {
 	return attributeAttempt(last, trace.RetriesOf(last), err)
 }
 
+func attributeCodexUsageLimitAbort(trace *dispatch.AttemptTrace, err error) error {
+	if err == nil || trace == nil || trace.HideDetails() {
+		return err
+	}
+	last, ok := trace.LastFailure()
+	if !ok {
+		return err
+	}
+	last.Err = err
+	if _, limited := codexUsageLimitOf(last); !limited {
+		return err
+	}
+	return attributeAttempt(last, trace.RetriesOf(last), err)
+}
+
 func attributeStreamError(ctx context.Context, provider string, err error) error {
 	trace := attemptTraceFromContext(ctx)
 	if err == nil || trace.HideDetails() {
