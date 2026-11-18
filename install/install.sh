@@ -3610,6 +3610,7 @@ toggle_copilot() {
 # router cannot resolve without an admitted request.
 MODELS_CATALOG_PATH="/v1/router/models?scope=catalog"
 MODELS_DASHBOARD_URL="https://app.weaveos.com/organization/settings/weave-router/models"
+SUBSCRIPTIONS_DASHBOARD_URL="https://app.weaveos.com/home/router/settings/subscriptions"
 
 # Set by models_api on every call.
 models_http_status=""
@@ -3652,6 +3653,37 @@ models_api_error() {
   printf '%s' "$models_http_body" | jq -r '.error // empty' 2>/dev/null || true
 }
 
+# shared_key_login_hint explains why a shared team key cannot enroll a seat: it
+# names no person, so the seat has no owner. The signed-in web flow does.
+shared_key_login_hint() {
+  err "This Router key is a shared team key, so it can't tell whose subscription to connect."
+  if hosted_router; then
+    printf '  Manage your Claude or ChatGPT seats while signed in to Weave: %s\n' "$SUBSCRIPTIONS_DASHBOARD_URL" >&2
+  else
+    printf '  This router connects subscription seats only through a personal key tied to one person.\n' >&2
+  fi
+}
+
+# hosted_router reports whether $base_url is Weave's hosted router, where seats
+# are connected by the person signed in to Weave rather than by a router key.
+hosted_router() {
+  case "$base_url" in
+    "$HOSTED_BASE_URL"|"$LEGACY_HOSTED_BASE_URL") return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# run_login_in_browser hands seat enrollment to the Weave subscriptions page,
+# which connects the seat to whoever is signed in. Router keys are org keys,
+# so the terminal never decides whose seat it is.
+run_login_in_browser() {
+  local provider="$1" url
+  url="$SUBSCRIPTIONS_DASHBOARD_URL?reconnect=$provider"
+  info "Connect your subscription in the browser while signed in to Weave."
+  printf '  If the browser does not open, visit:\n  %s\n' "$url"
+  open_url_in_browser "$url" || true
+}
+
 # models_fail turns the status left by models_api into a message that says what
 # to do next, then exits. $1 names the attempted operation.
 models_fail() {
@@ -3660,13 +3692,16 @@ models_fail() {
   case "$detail" in
     subscription_owner_unavailable|subscription_accounts_unavailable|subscription_account_update_failed|subscription_account_delete_failed)
       err "The router couldn't finish ${what} just now. Nothing changed; try again in a minute."
-      return ;;
+      exit 1 ;;
     subscription_account_not_found)
       err "No enrolled account has that id. Run 'npx $npm_package_name accounts list' to see the ids."
-      return ;;
+      exit 1 ;;
     subscription_account_rejected)
       err "The router didn't accept that sign-in. Run 'npx $npm_package_name login claude' or 'login codex' again."
-      return ;;
+      exit 1 ;;
+    personal_identity_required)
+      shared_key_login_hint
+      exit 1 ;;
   esac
   case "$models_http_status" in
     ""|000)
@@ -4211,6 +4246,14 @@ run_login() {
     claude|codex) models_api GET "/validate" || models_fail "checking Router setup" ;;
     *) err "Unknown subscription provider: $provider."; exit 2 ;;
   esac
+  if hosted_router; then
+    run_login_in_browser "$provider"
+    return 0
+  fi
+  if [ "$(printf '%s' "$models_http_body" | jq -r '.shared // false' 2>/dev/null)" = "true" ]; then
+    shared_key_login_hint
+    exit 1
+  fi
   require_cmd openssl "Install OpenSSL to enroll a subscription account."
   case "$provider" in
     claude) run_login_claude ;;

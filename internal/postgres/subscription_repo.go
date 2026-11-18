@@ -36,9 +36,13 @@ func subscriptionOwnerPredicate(owner auth.SubscriptionOwner) (subscriberID, api
 }
 
 func (r *subscriptionAccountRepo) UpsertSubscriptionAccount(ctx context.Context, params auth.CreateSubscriptionAccountParams) (*auth.SubscriptionAccount, auth.SubscriptionUpsertKind, error) {
-	apiKeyID, err := uuid.Parse(params.Owner.APIKeyID)
-	if err != nil {
-		return nil, auth.SubscriptionUpsertUpdated, err
+	var apiKeyID pgtype.UUID
+	if params.Owner.APIKeyID != "" {
+		parsed, err := uuid.Parse(params.Owner.APIKeyID)
+		if err != nil {
+			return nil, auth.SubscriptionUpsertUpdated, err
+		}
+		apiKeyID = pgtype.UUID{Bytes: parsed, Valid: true}
 	}
 	if params.Owner.SubscriberID == "" {
 		return nil, auth.SubscriptionUpsertUpdated, auth.ErrSubscriptionAccountNotFound
@@ -398,14 +402,14 @@ func (r *subscriptionAccountRepo) SubscriberEnrollmentOwner(ctx context.Context,
 	if err != nil {
 		return auth.SubscriptionOwner{}, err
 	}
-	row, err := dbbudget.Queries(r.tx).GetSubscriberEnrollmentKey(ctx, subscriber)
+	row, err := dbbudget.Queries(r.tx).GetSubscriberEnrollmentOwner(ctx, subscriber)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return auth.SubscriptionOwner{}, auth.ErrSubscriptionEnrollmentKeyNotFound
+		return auth.SubscriptionOwner{}, auth.ErrSubscriptionEnrollmentMembershipNotFound
 	}
 	if err != nil {
 		return auth.SubscriptionOwner{}, err
 	}
-	return auth.SubscriptionOwner{SubscriberID: subscriberID, APIKeyID: row.APIKeyID.String(), InstallationID: row.InstallationID.String()}, nil
+	return auth.SubscriptionOwner{SubscriberID: subscriberID, APIKeyID: row.APIKeyID, InstallationID: row.InstallationID.String()}, nil
 }
 
 func (r *subscriptionAccountRepo) ListSubscriptionAccountsDueForKeepWarm(ctx context.Context, refreshedBefore time.Time, limit int32) ([]*auth.SubscriptionAccount, error) {

@@ -1,6 +1,6 @@
 package flags
 
-const RegistryVersion = 32
+const RegistryVersion = 33
 
 var Registry = []Definition{
 	{Key: KeyEscalationActiveClassifier, Kind: KindString, Description: "Active escalation classifier: none, xgb, switchyard_llm_v1, or llm_escalation. Absent preserves legacy XGB flags.", OrgOverridable: true},
@@ -178,6 +178,13 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_SIBLING_FAILOVER",
 		Kind:           KindBool,
 		Description:    "Degrade to a same-cluster candidate when every binding for the routed model is exhausted.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyInstallationPoolAllowance,
+		EnvVar:         "ROUTER_INSTALLATION_POOL_ALLOWANCE",
+		Kind:           KindBool,
+		Description:    "Release (owner steventohme, expires 2027-01-31): admit ownerless-key traffic against the installation pool subject's allowance.",
 		OrgOverridable: true,
 	},
 	{

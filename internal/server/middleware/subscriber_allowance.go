@@ -2,8 +2,10 @@ package middleware
 
 import (
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptionlane"
 	"weave-os/router/internal/subscriptions/entitlement"
 
@@ -14,16 +16,14 @@ type SubscriptionErrorCode string
 
 const SubscriptionPlanConflict SubscriptionErrorCode = "subscription_plan_conflict"
 
-func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
+func WithSubscriberAllowance(svc *entitlement.Service, poolAllowanceDefault bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
-		owner := SubscriptionOwnerFrom(c)
-		if owner.SubscriberID == "" {
+		subscriberID := allowanceSubscriber(c, poolAllowanceDefault)
+		if subscriberID == "" {
 			c.Next()
 			return
 		}
-
-		subscriberID := entitlement.SubscriberID(owner.SubscriberID)
 
 		admission, err := svc.Admit(c.Request.Context(), subscriberID)
 		if err != nil {
@@ -73,4 +73,19 @@ func subscriberAllowanceCovers(c *gin.Context) bool {
 		return true
 	}
 	return false
+}
+
+func allowanceSubscriber(c *gin.Context, poolAllowanceDefault bool) entitlement.SubscriberID {
+	if owner := SubscriptionOwnerFrom(c); owner.SubscriberID != "" {
+		return entitlement.SubscriberID(owner.SubscriberID)
+	}
+	ctx := c.Request.Context()
+	if _, internalTest := requestcontext.InternalTestIdentityFrom(ctx); internalTest {
+		return ""
+	}
+	installation := InstallationFrom(c)
+	if installation == nil || !flags.BoolOr(ctx, flags.KeyInstallationPoolAllowance, poolAllowanceDefault) {
+		return ""
+	}
+	return entitlement.SubscriberID(installation.PoolSubjectID)
 }
