@@ -35,7 +35,6 @@ Index of Markdown documentation in the `router/` repo.
 | [LLM_CLASSIFIER_CONTEXT.md](LLM_CLASSIFIER_CONTEXT.md) | Staged atomic-response classifier input contract and unresolved admission/recovery requirements; not serving-enabled. |
 | [SERVING_CONTROL.md](SERVING_CONTROL.md) | Immutable managed releases, gateway admission, activation, rollback, and deployment prerequisites. |
 | [HMM_GO_SELECTION.md](HMM_GO_SELECTION.md) | Architecture, `policy_router_v3` split, and rollback story for Go-owned HMM roster ownership and deterministic arm selection. |
-| [ROUTER_ATOMIZATION.md](ROUTER_ATOMIZATION.md) | Target serving and strategy boundaries, migration phases, and behavior-preserving checks. |
 | [FAILOVER.md](FAILOVER.md) | Proxy rescue chain, strikes and cooldowns, overload circuit, context overflow and dispatch error classification. |
 | [REQUEST_ENVELOPE.md](REQUEST_ENVELOPE.md) | Request envelope, emit overrides, model id normalization, in-band commands and history repair in `internal/translate`. |
 | [TRANSLATION_COMPATIBILITY.md](TRANSLATION_COMPATIBILITY.md) | Cross-format translation requirements and rollout modes. |
@@ -45,6 +44,7 @@ Index of Markdown documentation in the `router/` repo.
 | [SMOKE.md](SMOKE.md) | Pre-merge record/replay smoke-suite scenarios, cassettes, and local workflow. |
 | [CI.md](CI.md) | CI timing baseline, completed improvements, and the remaining optimization backlog. |
 | [PROXY_TURN_LOOP.md](PROXY_TURN_LOOP.md) | Turn-loop precedence, session-key derivation, force-model resolution and the handover credential boundary. |
+| [ROUTER_ATOMIZATION.md](ROUTER_ATOMIZATION.md) | Target serving and strategy boundaries, migration phases, and behavior-preserving checks. |
 
 For engineering conventions (layer model, package layout, recipes), see the
 root [`CLAUDE.md`](../CLAUDE.md) (and its mirror [`AGENTS.md`](../AGENTS.md)).

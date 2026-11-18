@@ -1,3 +1,6 @@
+Created: 2026-11-18
+Last edited: 2026-11-18
+
 # Router atomization plan
 
 Status: approved migration plan (revision 2).
@@ -198,12 +201,12 @@ func (s *Strategy) Route(ctx context.Context, req router.Request) (router.Decisi
     if s.escalation != nil {
         candidates = escalation.AtLeast(candidates, s.escalation.Floor(ctx, req))
     }
-    fresh, err := s.classify(ctx, req, candidates)
+    classification, err := s.classify(ctx, req, candidates)
     if err != nil {
         return router.Decision{}, err
     }
-    state := s.pins.Load(req.Session)
-    return s.costGate(planner.Decide(s.planner, req.Session, fresh), fresh, state), nil
+    pin := s.pins.Load(req.Session)
+    return s.costGate(planner.Decide(s.planner, req.Session, classification), classification, pin), nil
 }
 ```
 
