@@ -1525,9 +1525,10 @@ func (s *Service) runTurnLoop(
 			if pinFound {
 				activePin = pin
 			}
+			hmmInputTokens := s.plannerTokensFor(ctx, env, feats)
 			hmmDecision, hmmPlannerDecision, hmmSticky, hmmStayModel := hmmCostGatedDecision(ctx, s, routingpolicy.HMMCostGateInput{
 				Request: req, ActivePin: activePin, HMMHistory: hmmHistory, Fresh: fresh,
-				EstimatedInputTokens: s.plannerTokensFor(ctx, env, feats), PrefixBroken: prefixBroken,
+				EstimatedInputTokens: hmmInputTokens, PrefixBroken: prefixBroken,
 			})
 			res.Decision = hmmDecision
 			res.PlannerDecision = hmmPlannerDecision
@@ -1558,6 +1559,7 @@ func (s *Service) runTurnLoop(
 					res.PinTier = "hmm_ev_switch_" + hmmPlannerDecision.Reason
 				}
 			}
+			s.logSwitchShadow(ctx, switchShadowTurn{Request: req, ActivePin: activePin, HMMHistory: hmmHistory, Fresh: fresh, InputTokens: hmmInputTokens, PrefixBroken: prefixBroken}, res)
 			return res, nil
 		}
 

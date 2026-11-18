@@ -132,6 +132,7 @@ type Service struct {
 	hmmDowngradeHysteresisTurns          int
 	hmmDowngradeHysteresisShadowTurns    int
 	authorityCacheShadow                 bool
+	switchDecideShadow                   bool
 	policyDeadlineFallback               bool
 	policyDeadlineDefaultModel           string
 	plannerEnabled                       bool
@@ -1090,6 +1091,7 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		authoritativeUpgradePolicy:     flags.AuthoritativeUpgradePolicyScore,
 		authoritativeUpgradeVotes:      3,
 		authorityCacheShadow:           true,
+		switchDecideShadow:             true,
 		plannerEnabled:                 true,
 		scoreToolResultTurns:           true,
 		loopEscalationEnabled:          true,
@@ -1352,6 +1354,11 @@ func (s *Service) WithHMMDowngradeHysteresisShadowTurns(turns int) *Service {
 		return s
 	}
 	s.hmmDowngradeHysteresisShadowTurns = turns
+	return s
+}
+
+func (s *Service) WithSwitchDecideShadow(enabled bool) *Service {
+	s.switchDecideShadow = enabled
 	return s
 }
 

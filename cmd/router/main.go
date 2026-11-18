@@ -700,6 +700,7 @@ func main() {
 	hmmDowngradeHysteresisTurns := parseEnvNonNegativeInt("ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS", proxy.DefaultHMMDowngradeHysteresisTurns)
 	hmmDowngradeHysteresisShadowTurns := parseEnvNonNegativeInt("ROUTER_HMM_DOWNGRADE_HYSTERESIS_SHADOW_TURNS", 2)
 	authorityCacheShadow := config.GetOr("ROUTER_AUTHORITY_CACHE_SHADOW", "true") == "true"
+	switchDecideShadow := config.GetOr("ROUTER_SWITCH_DECIDE_SHADOW", "true") == "true"
 	policyDeadlineFallback := config.GetOr("ROUTER_POLICY_DEADLINE_FALLBACK", "false") == "true"
 	policyDeadlineDefaultModel := config.GetOr("ROUTER_POLICY_DEADLINE_DEFAULT_MODEL", "")
 	handoverProviderName := config.GetOr("ROUTER_HANDOVER_PROVIDER", providers.ProviderAnthropic)
@@ -1068,6 +1069,7 @@ func main() {
 		flags.KeyHMMDowngradeHysteresisTurns:          strconv.Itoa(hmmDowngradeHysteresisTurns),
 		flags.KeyHMMDowngradeHysteresisShadowTurns:    strconv.Itoa(hmmDowngradeHysteresisShadowTurns),
 		flags.KeyAuthorityCacheShadow:                 boolDefault(authorityCacheShadow),
+		flags.KeySwitchDecideShadow:                   boolDefault(switchDecideShadow),
 		flags.KeyAgreementShadowEpoch:                 "0",
 		flags.KeySiblingFailover:                      boolDefault(siblingFailover),
 		flags.KeyInstallationPoolAllowance:            boolDefault(installationPoolAllowance),
@@ -1193,6 +1195,7 @@ func main() {
 		WithHMMDowngradeHysteresisTurns(hmmDowngradeHysteresisTurns).
 		WithHMMDowngradeHysteresisShadowTurns(hmmDowngradeHysteresisShadowTurns).
 		WithAuthorityCacheShadow(authorityCacheShadow).
+		WithSwitchDecideShadow(switchDecideShadow).
 		WithPolicyDeadlineFallback(policyDeadlineFallback).
 		WithPolicyDeadlineDefaultModel(policyDeadlineDefaultModel).
 		WithEscapeNormalize(escapeNormalize).

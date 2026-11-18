@@ -1,6 +1,6 @@
 package flags
 
-const RegistryVersion = 34
+const RegistryVersion = 35
 
 var Registry = []Definition{
 	{Key: KeyEscalationActiveClassifier, Kind: KindString, Description: "Active escalation classifier: none, xgb, switchyard_llm_v1, or llm_escalation. Absent preserves legacy XGB flags.", OrgOverridable: true},
@@ -151,6 +151,13 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_HMM_DOWNGRADE_HYSTERESIS_SHADOW_TURNS",
 		Kind:           KindInt,
 		Description:    "Hysteresis threshold the served-downgrade shadow counts against: every applied authoritative-per-turn downgrade logs whether this many consecutive votes would have held it. Telemetry only, never changes routing. 0 disables the shadow; 2 by default.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeySwitchDecideShadow,
+		EnvVar:         "ROUTER_SWITCH_DECIDE_SHADOW",
+		Kind:           KindBool,
+		Description:    "Experiment, expires 2026-12-02. Log what the unified switch rule (routingpolicy.DecideSwitch) would serve on HMM cost-gate turns. Observation only; never changes what is served.",
 		OrgOverridable: true,
 	},
 	{

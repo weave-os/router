@@ -297,14 +297,14 @@ func TestAuthoritativeDowngradeControlsAreOrgOverridable(t *testing.T) {
 }
 
 func TestRegistryVersionTracksRegistryMembership(t *testing.T) {
-	const membershipAtVersion33 = "b0d4e43aa12107ff5ffd34747e2fac613d3a13ea3af5cfa75eb62bc7cc8e113f"
+	const membershipAtVersion33 = "f1d7c73273acaed4579400cbf7cda65328f511ad4abad788b4aaa3d308f489bc"
 	keys := make([]string, 0, len(flags.Registry))
 	for _, def := range flags.Registry {
 		keys = append(keys, string(def.Key))
 	}
 	sort.Strings(keys)
 	digest := sha256.Sum256([]byte(strings.Join(keys, "\n")))
-	require.Equal(t, 34, flags.RegistryVersion, "re-pin the membership digest for the new RegistryVersion")
+	require.Equal(t, 35, flags.RegistryVersion, "re-pin the membership digest for the new RegistryVersion")
 	assert.Equal(t, membershipAtVersion33, hex.EncodeToString(digest[:]),
 		"Registry membership changed: bump flags.RegistryVersion (currently %d) and re-pin this digest", flags.RegistryVersion)
 }
