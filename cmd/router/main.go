@@ -1068,6 +1068,7 @@ func main() {
 		flags.KeyHMMDowngradeHysteresisTurns:          strconv.Itoa(hmmDowngradeHysteresisTurns),
 		flags.KeyHMMDowngradeHysteresisShadowTurns:    strconv.Itoa(hmmDowngradeHysteresisShadowTurns),
 		flags.KeyAuthorityCacheShadow:                 boolDefault(authorityCacheShadow),
+		flags.KeySwitchDecideShadow:                   boolDefault(true),
 		flags.KeyAgreementShadowEpoch:                 "0",
 		flags.KeySiblingFailover:                      boolDefault(siblingFailover),
 		flags.KeyInstallationPoolAllowance:            boolDefault(installationPoolAllowance),
