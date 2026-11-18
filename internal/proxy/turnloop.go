@@ -163,6 +163,8 @@ type turnLoopResult struct {
 	StickyRole                  string
 	Fresh                       router.Decision
 	PlannerDecision             planner.Decision
+	HMMPhaseUpgradeVotes        int
+	HMMPhaseDowngradeVotes      int
 	PinModel                    string
 	PinPolicyGroup              string
 	PriorServedModel            string
@@ -1547,10 +1549,12 @@ func (s *Service) runTurnLoop(
 			if pinFound {
 				activePin = pin
 			}
-			hmmDecision, hmmPlannerDecision, hmmSticky, hmmStayModel := hmmCostGatedDecision(ctx, s, routingpolicy.HMMCostGateInput{
+			hmmDecision, hmmResult := hmmCostGatedResult(ctx, s, routingpolicy.HMMCostGateInput{
 				Request: req, ActivePin: activePin, HMMHistory: hmmHistory, Fresh: fresh,
 				EstimatedInputTokens: s.plannerTokensFor(ctx, env, feats), PrefixBroken: prefixBroken,
 			})
+			hmmPlannerDecision, hmmSticky, hmmStayModel := hmmResult.Plan, hmmResult.Sticky, hmmResult.Stay.Model
+			res.HMMPhaseUpgradeVotes, res.HMMPhaseDowngradeVotes = hmmResult.UpgradeVotes, hmmResult.DowngradeVotes
 			res.Decision = hmmDecision
 			res.PlannerDecision = hmmPlannerDecision
 			if heldEffort := effortHysteresisHold(fresh, res.PriorServedModel, hmmDecision.Model, hmmDecision.Effort); heldEffort != "" {

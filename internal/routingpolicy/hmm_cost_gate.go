@@ -26,8 +26,19 @@ type HMMCostGateInput struct {
 	PrefixBroken         bool
 	Planner              planner.EVConfig
 	SameTierPin          bool
+	PhaseChangeGate      bool
 	Now                  time.Time
 }
+
+type HMMCostGateResult struct {
+	Stay           sessionpin.Pin
+	Plan           planner.Decision
+	Sticky         bool
+	UpgradeVotes   int
+	DowngradeVotes int
+}
+
+const HMMPhaseChangeDwellTurns = 2
 
 const HMMHistoryReason = "hmm_history"
 
@@ -35,9 +46,52 @@ const (
 	HMMReasonConfidentUpgrade     = "hmm_confident_upgrade"
 	HMMReasonUpgradeConfidenceLow = "hmm_upgrade_confidence_low"
 	HMMReasonPhaseChange          = "hmm_phase_change"
+
+	HMMReasonPhaseChangeConfidenceLow = "hmm_phase_change_confidence_low"
+	HMMReasonPhaseChangeDwell         = "hmm_phase_change_dwell"
 )
 
 func (g HMMCostGate) Decide(input HMMCostGateInput) (sessionpin.Pin, planner.Decision, bool) {
+	result := g.DecideWithVotes(input)
+	return result.Stay, result.Plan, result.Sticky
+}
+
+func (g HMMCostGate) DecideWithVotes(input HMMCostGateInput) HMMCostGateResult {
+	stayPin, plan, sticky := g.decide(input)
+	result := HMMCostGateResult{Stay: stayPin, Plan: plan, Sticky: sticky}
+	if !input.PhaseChangeGate || plan.Outcome != planner.OutcomeSwitch || plan.Reason == planner.ReasonNoPin || stayPin.Model == input.Fresh.Model {
+		return result
+	}
+	pending := stayPin.ConsecutiveUpgradeVotes > 0 || stayPin.ConsecutiveDowngradeVotes > 0
+	if !pending && !HMMToolExecutionPhaseChanged(stayPin.Reason, input.Fresh.Reason) {
+		return result
+	}
+	if confidence, scored := HMMDecisionConfidence(input.Fresh); scored && confidence < g.UpgradeConfidenceThreshold {
+		return result.hold(HMMReasonPhaseChangeConfidenceLow)
+	}
+	result.Plan.Reason = HMMReasonPhaseChange
+	if HMMFreshIsMoreExpensive(stayPin.Model, input.Fresh.Model, input.EstimatedInputTokens) {
+		if votes := stayPin.ConsecutiveUpgradeVotes + 1; votes < HMMPhaseChangeDwellTurns {
+			result.UpgradeVotes = votes
+			return result.hold(HMMReasonPhaseChangeDwell)
+		}
+		return result
+	}
+	if votes := stayPin.ConsecutiveDowngradeVotes + 1; votes < HMMPhaseChangeDwellTurns {
+		result.DowngradeVotes = votes
+		return result.hold(HMMReasonPhaseChangeDwell)
+	}
+	return result
+}
+
+func (r HMMCostGateResult) hold(reason string) HMMCostGateResult {
+	r.Plan.Outcome = planner.OutcomeStay
+	r.Plan.Reason = reason
+	r.Sticky = true
+	return r
+}
+
+func (g HMMCostGate) decide(input HMMCostGateInput) (sessionpin.Pin, planner.Decision, bool) {
 	stayPin, ok := g.StayPin(input.Request, input.ActivePin, input.HMMHistory, input.Now)
 	if !ok {
 		return stayPin, planner.Decision{Outcome: planner.OutcomeSwitch, Reason: planner.ReasonNoPin}, false

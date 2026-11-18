@@ -95,6 +95,7 @@ const (
 	KeyOpenAIResponsesBroad                 Key = "openai_responses_broad"
 	KeySessionPinEnabled                    Key = "session_pin_enabled"
 	KeyHMMSameTierPin                       Key = "hmm_same_tier_pin"
+	KeyHMMPhaseChangeGate                   Key = "hmm_phase_change_gate"
 	KeyHardPinExplore                       Key = "hard_pin_explore"
 	KeyCCOrchToolsCrossVendor               Key = "cc_orch_tools_crossvendor"
 	KeyEscapeNormalize                      Key = "deepseek_escape_normalize"

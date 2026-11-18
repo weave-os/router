@@ -3748,6 +3748,9 @@ func (s *Service) recordHMMTurnHistory(ctx context.Context, res turnLoopResult, 
 		Strategy:       router.StrategyFromContext(strategyCtx),
 		TurnCount:      1,
 		PinnedUntil:    pinExpiry(hmmHistoryReason, s.clock.Now()),
+
+		ConsecutiveUpgradeVotes:   res.HMMPhaseUpgradeVotes,
+		ConsecutiveDowngradeVotes: res.HMMPhaseDowngradeVotes,
 	})
 	if !hasUsage {
 		return

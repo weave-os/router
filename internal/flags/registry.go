@@ -1,6 +1,6 @@
 package flags
 
-const RegistryVersion = 32
+const RegistryVersion = 33
 
 var Registry = []Definition{
 	{Key: KeyEscalationActiveClassifier, Kind: KindString, Description: "Active escalation classifier: none, xgb, switchyard_llm_v1, or llm_escalation. Absent preserves legacy XGB flags.", OrgOverridable: true},
@@ -324,6 +324,13 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_HMM_SAME_TIER_PIN",
 		Kind:           KindBool,
 		Description:    "Keep an HMM session on its pinned model when the fresh pick is in the same tier, even when switching is EV-positive. Off by default.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyHMMPhaseChangeGate,
+		EnvVar:         "ROUTER_HMM_PHASE_CHANGE_GATE",
+		Kind:           KindBool,
+		Description:    "Release flag (owner: routing, remove once fully on). Hold an HMM session on its served model across a tool-execution phase change until the fresh pick clears ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD and repeats for two consecutive turns, in both directions. Off by default.",
 		OrgOverridable: true,
 	},
 	{

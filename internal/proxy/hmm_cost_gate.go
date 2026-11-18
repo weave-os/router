@@ -22,14 +22,20 @@ func hmmCostGateFor(s *Service) routingpolicy.HMMCostGate {
 }
 
 func hmmCostGatedDecision(ctx context.Context, s *Service, input routingpolicy.HMMCostGateInput) (router.Decision, planner.Decision, bool, string) {
+	decision, result := hmmCostGatedResult(ctx, s, input)
+	return decision, result.Plan, result.Sticky, result.Stay.Model
+}
+
+func hmmCostGatedResult(ctx context.Context, s *Service, input routingpolicy.HMMCostGateInput) (router.Decision, routingpolicy.HMMCostGateResult) {
 	input.Planner = plannerConfigFor(ctx, s.planner)
 	input.SameTierPin = flags.BoolOr(ctx, flags.KeyHMMSameTierPin, s.hmmSameTierPin)
+	input.PhaseChangeGate = flags.BoolOr(ctx, flags.KeyHMMPhaseChangeGate, false)
 	input.Now = s.clock.Now()
-	stayPin, plan, sticky := hmmCostGateFor(s).Decide(input)
-	if sticky {
-		return pinDecision(stayPin), plan, true, stayPin.Model
+	result := hmmCostGateFor(s).DecideWithVotes(input)
+	if result.Sticky {
+		return pinDecision(result.Stay), result
 	}
-	return input.Fresh, plan, false, stayPin.Model
+	return input.Fresh, result
 }
 
 func hmmStayPin(s *Service, req router.Request, activePin sessionpin.Pin, hmmHistory sessionpin.Pin) (sessionpin.Pin, bool) {
