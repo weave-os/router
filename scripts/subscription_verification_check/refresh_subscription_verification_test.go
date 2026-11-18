@@ -297,12 +297,12 @@ func verifySQLTierLocalAffinity(t *testing.T, service *auth.Service, runtime *su
 	personal, err := service.AddSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{Owner: requester, Provider: auth.SubscriptionProviderCodex, ExternalAccountID: "synthetic-affinity-personal-" + uuid.NewString(), RefreshToken: []byte("synthetic-refresh-original")})
 	require.NoError(t, err)
 	defer func() { require.NoError(t, service.DeleteSubscriptionAccount(ctx, requester, personal.ID)) }()
-	kept, _, err := runtime.Lease(ctx, requester, subscriptions.ProviderCodex, "synthetic-affinity-session")
+	sessionLease, _, err := runtime.Lease(ctx, requester, subscriptions.ProviderCodex, "synthetic-affinity-session")
 	require.NoError(t, err)
-	require.Equal(t, second.ID, kept.AccountID, "a new requester seat gets no priority over the session's remembered pooled seat")
-	require.Equal(t, secondOwner.String(), kept.OwnerID)
-	require.Equal(t, auth.SubscriptionTierShared, kept.Tier)
-	kept.Release()
+	require.Equal(t, second.ID, sessionLease.AccountID, "a new requester seat gets no priority over the session's remembered pooled seat")
+	require.Equal(t, secondOwner.String(), sessionLease.OwnerID)
+	require.Equal(t, auth.SubscriptionTierShared, sessionLease.Tier)
+	sessionLease.Release()
 }
 
 // steppedClock drives runtime cooldown decisions without wall-clock sleeps.
