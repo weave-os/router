@@ -94,8 +94,8 @@ func anthropicAssistantToolCallEntries(body []byte) []assistantToolCallEntry {
 	return entries
 }
 
-func openAIAssistantToolCallEntries(body []byte) []assistantToolCallEntry {
-	msgs := gjson.GetBytes(body, "messages")
+func openAIAssistantToolCallEntriesFromView(body []byte) []assistantToolCallEntry {
+	msgs := viewJSONPath(body, "messages")
 	if !msgs.IsArray() {
 		return nil
 	}

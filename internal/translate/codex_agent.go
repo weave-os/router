@@ -8,8 +8,8 @@ import (
 
 const codexRootAgentPath = "/root"
 
-func CodexSubagentPath(body []byte) string {
-	recipient := codexCurrentAgentPath(gjson.GetBytes(body, "input"))
+func codexSubagentPathFromView(body []byte) string {
+	recipient := codexCurrentAgentPath(viewJSONPath(body, "input"))
 	if recipient == codexRootAgentPath {
 		return ""
 	}

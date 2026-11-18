@@ -167,12 +167,12 @@ func routerFeedbackCommandFound(text string) bool {
 	return found
 }
 
-func convertPortableCodexResponses(body []byte) (ResponsesConversion, error) {
+func convertPortableCodexResponsesFromView(body []byte) (ResponsesConversion, error) {
 	if err := validateResponsesRequest(body); err != nil {
 		return ResponsesConversion{}, err
 	}
 
-	root := gjson.ParseBytes(body)
+	root := viewJSON(body)
 	converter := portableCodexResponsesConverter{
 		result: ResponsesConversion{
 			OriginalBody: body,

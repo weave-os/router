@@ -46,7 +46,7 @@ func (e *RequestEnvelope) StripRouterFeedbackArtifacts() int {
 	default:
 		return 0
 	}
-	msgs := gjson.GetBytes(e.body, "messages")
+	msgs := viewJSONPath(e.body, "messages")
 	if !msgs.IsArray() {
 		return 0
 	}

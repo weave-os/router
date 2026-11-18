@@ -10,7 +10,7 @@ import (
 )
 
 func placeAnthropicSystemMessagesBytes(body []byte) ([]byte, error) {
-	msgs := gjson.GetBytes(body, "messages")
+	msgs := viewJSONPath(body, "messages")
 	if !msgs.IsArray() {
 		return body, nil
 	}

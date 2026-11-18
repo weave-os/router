@@ -184,7 +184,7 @@ func openAIParamsNeedChatCompletions(body []byte) bool {
 
 func openAIContentNeedsChatCompletions(body []byte) bool {
 	unsupported := false
-	gjson.GetBytes(body, "messages").ForEach(func(_, msg gjson.Result) bool {
+	viewJSONPath(body, "messages").ForEach(func(_, msg gjson.Result) bool {
 		content := msg.Get("content")
 		if content.IsArray() {
 			content.ForEach(func(_, part gjson.Result) bool {

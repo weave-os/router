@@ -94,7 +94,7 @@ func (e *RequestEnvelope) extractLeadingCommandWithSource(parse func(text string
 	default:
 		return false, false
 	}
-	msgs := gjson.GetBytes(e.body, "messages")
+	msgs := viewJSONPath(e.body, "messages")
 	if !msgs.IsArray() {
 		return false, false
 	}
@@ -165,10 +165,10 @@ func (e *RequestEnvelope) extractLeadingCommandWithSource(parse func(text string
 	}
 
 	for _, candidate := range candidates {
-		found, stripped := parse(candidate.text, candidate.fromToolResult)
+		found, stripped := parse(strings.Clone(candidate.text), candidate.fromToolResult)
 		if !found && !candidate.fromToolResult {
 			if before, query, after, ok := typedMessageInWrapper(candidate.text); ok {
-				if found, stripped = parse(query, candidate.fromToolResult); found {
+				if found, stripped = parse(strings.Clone(query), candidate.fromToolResult); found {
 					stripped = before + stripped + after
 				}
 			}

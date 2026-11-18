@@ -255,7 +255,7 @@ func (e *RequestEnvelope) buildAnthropicFromOpenAI(opts EmitOptions) []byte {
 }
 
 func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) {
-	messages := gjson.GetBytes(body, "messages")
+	messages := viewJSONPath(body, "messages")
 	if !messages.Exists() {
 		return
 	}
@@ -841,7 +841,7 @@ func containsAnthropicSystemOnlyContentBlock(content gjson.Result) bool {
 }
 
 func containsAnthropicSystemOnlyContentBlocks(body []byte) bool {
-	for _, msg := range gjson.GetBytes(body, "messages").Array() {
+	for _, msg := range viewJSONPath(body, "messages").Array() {
 		if containsAnthropicSystemOnlyContentBlock(msg.Get("content")) {
 			return true
 		}

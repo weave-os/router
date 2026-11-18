@@ -41,7 +41,7 @@ func StripCommandOutcomesFromResponsesInput(body []byte) ([]byte, error) {
 }
 
 func stripCommandOutcomes(body []byte, collection string) ([]byte, error) {
-	items := gjson.GetBytes(body, collection)
+	items := viewJSONPath(body, collection)
 	if !items.IsArray() {
 		return body, nil
 	}

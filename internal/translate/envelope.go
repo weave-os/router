@@ -105,7 +105,7 @@ func validateJSONObject(body []byte) error {
 	if !gjson.ValidBytes(body) {
 		return fmt.Errorf("%w: invalid JSON", ErrNotJSONObject)
 	}
-	if !gjson.ParseBytes(body).IsObject() {
+	if !viewJSON(body).IsObject() {
 		return fmt.Errorf("%w: body is not a JSON object", ErrNotJSONObject)
 	}
 	return nil
@@ -187,11 +187,11 @@ func (e *RequestEnvelope) LastUserMessage() LastUserMessageInfo {
 	}
 }
 
-func (e *RequestEnvelope) FirstUserMessageText() string {
+func (e *RequestEnvelope) firstUserMessageTextFromView() string {
 	if e.format == FormatGemini {
 		return geminiFirstUserMessageText(e.body)
 	}
-	first := gjson.GetBytes(e.body, "messages.0")
+	first := viewJSONPath(e.body, "messages.0")
 	if !first.Exists() {
 		return ""
 	}
@@ -651,7 +651,7 @@ func rewriteMessageBlocks(
 	needsRewrite func(block gjson.Result) bool,
 	rewrite func(blockRaw string) (string, error),
 ) ([]byte, error) {
-	messages := gjson.GetBytes(body, "messages")
+	messages := viewJSONPath(body, "messages")
 	if !messages.Exists() || !messages.IsArray() {
 		return body, nil
 	}
@@ -847,7 +847,7 @@ func StripFeedbackFooterFromMessages(body []byte) ([]byte, error) {
 }
 
 func stripPatternFromMessages(body []byte, pattern *regexp.Regexp) ([]byte, error) {
-	messages := gjson.GetBytes(body, "messages")
+	messages := viewJSONPath(body, "messages")
 	if !messages.Exists() || !messages.IsArray() {
 		return body, nil
 	}

@@ -170,8 +170,8 @@ func (e *RequestEnvelope) anthropicRoutingFeatures() RoutingFeatures {
 	return feats
 }
 
-func (e *RequestEnvelope) openAIRoutingFeatures() RoutingFeatures {
-	msgs := gjson.GetBytes(e.body, "messages")
+func (e *RequestEnvelope) openAIRoutingFeaturesFromView() RoutingFeatures {
+	msgs := viewJSONPath(e.body, "messages")
 
 	var b strings.Builder
 	var (
@@ -302,8 +302,8 @@ func anthropicLastUserMessage(body []byte) LastUserMessageInfo {
 	return info
 }
 
-func openAILastUserMessage(body []byte) LastUserMessageInfo {
-	msgs := gjson.GetBytes(body, "messages")
+func openAILastUserMessageFromView(body []byte) LastUserMessageInfo {
+	msgs := viewJSONPath(body, "messages")
 	if !msgs.IsArray() {
 		return LastUserMessageInfo{}
 	}
@@ -332,8 +332,8 @@ func openAILastUserMessage(body []byte) LastUserMessageInfo {
 	return info
 }
 
-func openAISystemText(body []byte) string {
-	msgs := gjson.GetBytes(body, "messages")
+func openAISystemTextFromView(body []byte) string {
+	msgs := viewJSONPath(body, "messages")
 	if !msgs.IsArray() {
 		return ""
 	}
@@ -579,7 +579,7 @@ func anthropicImageCount(body []byte) int {
 
 func openAIImageCount(body []byte) int {
 	count := 0
-	gjson.GetBytes(body, "messages").ForEach(func(_, msg gjson.Result) bool {
+	viewJSONPath(body, "messages").ForEach(func(_, msg gjson.Result) bool {
 		content := msg.Get("content")
 		if !content.IsArray() {
 			return true
