@@ -366,7 +366,8 @@ func (r *Runtime) handleRefreshError(ctx context.Context, owner auth.Subscriptio
 	} else {
 		log.Warn("Subscription credential refresh failed", "err", refreshErr)
 	}
-	refreshErr = r.recordRefreshFailure(ctx, owner, account.ID, account.Provider, leaseID, credentials.TokenRefreshVersion, refreshErr)
+	refreshErr = r.recordRefreshFailure(ctx, owner, account.ID, account.Provider, leaseID, credentials.TokenRefreshVersion,
+		credentials.State == auth.SubscriptionAccountStateExhausted, refreshErr)
 	return Account{}, r.releaseRefreshLease(ctx, owner, account.ID, leaseID, refreshErr)
 }
 
@@ -423,7 +424,7 @@ func waitForRefresh(ctx context.Context, delay time.Duration) error {
 	}
 }
 
-func (r *Runtime) recordRefreshFailure(ctx context.Context, owner auth.SubscriptionOwner, accountID string, provider Provider, leaseID string, expectedVersion int64, refreshErr error) error {
+func (r *Runtime) recordRefreshFailure(ctx context.Context, owner auth.SubscriptionOwner, accountID string, provider Provider, leaseID string, expectedVersion int64, quotaExhausted bool, refreshErr error) error {
 	if errors.Is(refreshErr, context.Canceled) || errors.Is(refreshErr, context.DeadlineExceeded) {
 		return refreshErr
 	}
@@ -453,6 +454,11 @@ func (r *Runtime) recordRefreshFailure(ctx context.Context, owner auth.Subscript
 				observability.FromContext(ctx).Error("Failed to record subscription credential rejection",
 					"provider", provider, "account_id", accountID, "err", err)
 				return errors.Join(refreshErr, fmt.Errorf("record subscription credential rejection: %w", err))
+			}
+			if !reconnectWarranted(rejection, reason, now) && quotaExhausted {
+				observability.FromContext(ctx).Warn("Subscription credential refresh rejected; keeping quota reset",
+					"provider", provider, "account_id", accountID, "reason", reason, "strikes", rejection.Count, "first_rejected_at", rejection.FirstRejectedAt)
+				return refreshErr
 			}
 			if !reconnectWarranted(rejection, reason, now) {
 				cooldownUntil := now.Add(credentialRejectionCooldown(rejection.Count))

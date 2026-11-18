@@ -114,6 +114,27 @@ func TestRuntimeRepeatedInvalidGrantRequiresReconnect(t *testing.T) {
 	require.False(t, store.enabledUpdates["account-1"])
 }
 
+func TestRuntimeRepeatedRevokedCodexRefreshTokenRequiresReconnect(t *testing.T) {
+	store := newRejectionStore(auth.SubscriptionProviderCodex)
+	store.accessTokens["account-1"] = []byte("access-live")
+	clock := &steppedClock{now: time.Now()}
+	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
+		return subscriptions.RefreshedToken{}, &subscriptions.OAuthRefreshError{Provider: subscriptions.ProviderCodex, Status: http.StatusUnauthorized, Code: "refresh_token_invalidated"}
+	}), clock.Now)
+
+	reconnect, err := runtime.RejectCredential(context.Background(), testOwner, subscriptions.ProviderCodex, "account-1", http.StatusUnauthorized)
+	require.NoError(t, err)
+	require.False(t, reconnect)
+	for refresh := 1; refresh <= 2; refresh++ {
+		clock.Advance(6 * time.Minute)
+		expireStoreCooldown(store)
+		_, _, err = runtime.Lease(context.Background(), testOwner, subscriptions.ProviderCodex, "")
+		require.ErrorIs(t, err, subscriptions.ErrNoAvailableAccount)
+	}
+	require.False(t, store.accounts[0].Enabled, "two back-to-back revoked-token refreshes require reconnect without waiting out the strike span")
+	require.Equal(t, 3, store.rejections["account-1"].Count)
+}
+
 func TestRuntimeRejectedCredentialNeedsSustainedStrikesBeforeReconnect(t *testing.T) {
 	store := newRejectionStore(auth.SubscriptionProviderCodex)
 	store.accessTokens["account-1"] = []byte("access-live")

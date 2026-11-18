@@ -16,6 +16,7 @@ const (
 	credentialRejectionMinSpan     = 6 * time.Hour
 	credentialRejectionStrikeLimit = 3
 	oauthErrorInvalidGrant         = "invalid_grant"
+	oauthErrorRefreshRevoked       = "refresh_token_invalidated"
 )
 
 var credentialRejectionBackoff = []time.Duration{time.Minute, 5 * time.Minute, 30 * time.Minute, 2 * time.Hour}
@@ -25,10 +26,14 @@ type credentialRejectionStore interface {
 }
 
 func reconnectWarranted(rejection auth.SubscriptionCredentialRejection, reason string, now time.Time) bool {
-	if rejection.Count >= 2 && reason == oauthErrorInvalidGrant && rejection.PreviousReason == oauthErrorInvalidGrant {
+	if rejection.Count >= 2 && refreshTokenRevoked(reason) && rejection.PreviousReason == reason {
 		return true
 	}
 	return rejection.Count >= credentialRejectionStrikeLimit && now.Sub(rejection.FirstRejectedAt) >= credentialRejectionMinSpan
+}
+
+func refreshTokenRevoked(reason string) bool {
+	return reason == oauthErrorInvalidGrant || reason == oauthErrorRefreshRevoked
 }
 
 func credentialRejectionCooldown(strikes int) time.Duration {
