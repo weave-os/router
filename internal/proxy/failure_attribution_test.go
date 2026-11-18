@@ -277,3 +277,23 @@ func TestCanceledCommittedStreamIsClientOwned(t *testing.T) {
 		t.Fatalf("owner = %q, want client", got)
 	}
 }
+
+func TestDispatchPlanned_CredentialRefusalIsNotBlamedOnTranslation(t *testing.T) {
+	inbound := []byte(`{"model":"claude","messages":[{"role":"user","content":"hi"}]}`)
+	translated := []byte(`{"model":"` + plannedTestModel + `","contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+	refusal := &providers.UpstreamErrorResponse{Status: 400, Rejection: providers.UpstreamRejection{Kind: providers.UpstreamRejectionCredential}}
+	primary := &fakeClient{name: providers.ProviderGoogle, outcomes: []fakeOutcome{{err: refusal}}}
+	fallback := &fakeClient{name: providers.ProviderOpenRouter, outcomes: []fakeOutcome{{writeBytes: []byte("ok")}}}
+	sink := &recordingAttemptSink{}
+	s := attributionService(t, sink, map[string]providers.Client{providers.ProviderGoogle: primary, providers.ProviderOpenRouter: fallback})
+
+	ctx := withAttemptTrace(context.Background(), inbound, http.Header{})
+	rec := httptest.NewRecorder()
+	plannedIn := plannedInputs(t.Context(), rec, newPreludeBuffer(rec), []catalog.ProviderBinding{{Provider: providers.ProviderGoogle}, {Provider: providers.ProviderOpenRouter}}, translated)
+	plannedIn.deferFlushOnExhaustion = true
+	_, err := s.dispatchWithFallback(ctx, plannedIn)
+	require.Error(t, err)
+
+	assert.Equal(t, string(FailureOwnerRouter), sink.events[0].Diagnosis.FailureOwner)
+	assert.Equal(t, "Router error: Gemini refused our account credential (400).", TerminalErrorMessage(err))
+}

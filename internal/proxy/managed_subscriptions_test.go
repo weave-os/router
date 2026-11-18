@@ -797,3 +797,21 @@ func TestDispatchWithFallbackRotatesManagedTransientErrorOnSameBinding(t *testin
 	require.Equal(t, "served", recorder.Body.String())
 	require.True(t, servedOnSubscription(ctx))
 }
+
+// An Anthropic seat out of extra usage answers 400, not 429. Rotating keeps the
+// turn on another seat instead of returning the refusal to the client.
+func TestManagedClaudeSeatOutOfExtraUsageRotates(t *testing.T) {
+	leaser := &healthSubscriptionLeaser{scriptedSubscriptionLeaser: &scriptedSubscriptionLeaser{}}
+	service := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
+	err := &providers.UpstreamErrorResponse{
+		Status:    http.StatusBadRequest,
+		Body:      []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"You're out of extra usage."}}`),
+		Rejection: providers.UpstreamRejection{Kind: providers.UpstreamRejectionCredential},
+	}
+
+	rotated := service.recordManagedSubscriptionFailure(managedSubscriptionTestContext(), providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String(), subscriptions.Lease{AccountID: "seat-1"}, err)
+
+	require.True(t, rotated)
+	require.Equal(t, []string{"seat-1"}, leaser.cooldownIDs)
+	require.Empty(t, leaser.exhaustedIDs)
+}
