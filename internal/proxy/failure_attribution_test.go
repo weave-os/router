@@ -289,9 +289,9 @@ func TestDispatchPlanned_CredentialRefusalIsNotBlamedOnTranslation(t *testing.T)
 
 	ctx := withAttemptTrace(context.Background(), inbound, http.Header{})
 	rec := httptest.NewRecorder()
-	in := plannedInputs(t.Context(), rec, newPreludeBuffer(rec), []catalog.ProviderBinding{{Provider: providers.ProviderGoogle}, {Provider: providers.ProviderOpenRouter}}, translated)
-	in.deferFlushOnExhaustion = true
-	_, err := s.dispatchWithFallback(ctx, in)
+	plannedIn := plannedInputs(t.Context(), rec, newPreludeBuffer(rec), []catalog.ProviderBinding{{Provider: providers.ProviderGoogle}, {Provider: providers.ProviderOpenRouter}}, translated)
+	plannedIn.deferFlushOnExhaustion = true
+	_, err := s.dispatchWithFallback(ctx, plannedIn)
 	require.Error(t, err)
 
 	assert.Equal(t, string(FailureOwnerRouter), sink.events[0].Diagnosis.FailureOwner)
