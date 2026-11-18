@@ -366,8 +366,7 @@ func (r *Runtime) handleRefreshError(ctx context.Context, owner auth.Subscriptio
 	} else {
 		log.Warn("Subscription credential refresh failed", "err", refreshErr)
 	}
-	refreshErr = r.recordRefreshFailure(ctx, owner, account.ID, account.Provider, leaseID, credentials.TokenRefreshVersion,
-		credentials.State == auth.SubscriptionAccountStateExhausted, refreshErr)
+	refreshErr = r.recordRefreshFailure(ctx, owner, account, holder, credentials, refreshErr)
 	return Account{}, r.releaseRefreshLease(ctx, owner, account.ID, leaseID, refreshErr)
 }
 
@@ -424,7 +423,8 @@ func waitForRefresh(ctx context.Context, delay time.Duration) error {
 	}
 }
 
-func (r *Runtime) recordRefreshFailure(ctx context.Context, owner auth.SubscriptionOwner, accountID string, provider Provider, leaseID string, expectedVersion int64, quotaExhausted bool, refreshErr error) error {
+func (r *Runtime) recordRefreshFailure(ctx context.Context, owner auth.SubscriptionOwner, account Account, holder refreshHolder, credentials auth.SubscriptionCredentials, refreshErr error) error {
+	accountID, provider, leaseID, expectedVersion := account.ID, account.Provider, holder.leaseID, credentials.TokenRefreshVersion
 	if errors.Is(refreshErr, context.Canceled) || errors.Is(refreshErr, context.DeadlineExceeded) {
 		return refreshErr
 	}
@@ -455,25 +455,8 @@ func (r *Runtime) recordRefreshFailure(ctx context.Context, owner auth.Subscript
 					"provider", provider, "account_id", accountID, "err", err)
 				return errors.Join(refreshErr, fmt.Errorf("record subscription credential rejection: %w", err))
 			}
-			if !reconnectWarranted(rejection, reason, now) && quotaExhausted {
-				observability.FromContext(ctx).Warn("Subscription credential refresh rejected; keeping quota reset",
-					"provider", provider, "account_id", accountID, "reason", reason, "strikes", rejection.Count, "first_rejected_at", rejection.FirstRejectedAt)
-				return refreshErr
-			}
 			if !reconnectWarranted(rejection, reason, now) {
-				cooldownUntil := now.Add(credentialRejectionCooldown(rejection.Count))
-				observability.FromContext(ctx).Warn("Subscription credential refresh rejected; cooling down",
-					"provider", provider, "account_id", accountID, "reason", reason, "strikes", rejection.Count,
-					"first_rejected_at", rejection.FirstRejectedAt, "cooldown_until", cooldownUntil)
-				if err := r.store.CooldownSubscriptionAccountIfRefreshHolder(ctx, owner, accountID, leaseID, expectedVersion, cooldownUntil); err != nil {
-					if errors.Is(err, auth.ErrSubscriptionRefreshConflict) {
-						return errRefreshLeaseLost
-					}
-					observability.FromContext(ctx).Error("Failed to persist subscription account cooldown after token rejection",
-						"provider", provider, "account_id", accountID, "err", err)
-					return errors.Join(refreshErr, fmt.Errorf("persist subscription account cooldown: %w", err))
-				}
-				return &credentialRejectionCooldownError{err: refreshErr, until: cooldownUntil}
+				return r.coolDownRejectedRefresh(ctx, owner, account, holder, credentials, rejection, refreshErr)
 			}
 			disconnectLog = disconnectLog.With("reason", reason, "provider_error_code", reason, "strikes", rejection.Count,
 				"first_rejected_at", rejection.FirstRejectedAt, "repeated_disconnect", rejection.RepeatedDisconnect,
@@ -503,6 +486,27 @@ func (r *Runtime) recordRefreshFailure(ctx context.Context, owner auth.Subscript
 }
 
 type providerAccountMismatchError struct{}
+
+func (r *Runtime) coolDownRejectedRefresh(ctx context.Context, owner auth.SubscriptionOwner, account Account, holder refreshHolder,
+	credentials auth.SubscriptionCredentials, rejection auth.SubscriptionCredentialRejection, refreshErr error) error {
+	log := observability.FromContext(ctx).With("provider", account.Provider, "account_id", account.ID, "reason", refreshRejectionReason(refreshErr),
+		"strikes", rejection.Count, "first_rejected_at", rejection.FirstRejectedAt)
+	if credentials.State == auth.SubscriptionAccountStateExhausted {
+		log.Warn("Subscription credential refresh rejected; keeping quota reset")
+		return refreshErr
+	}
+	cooldownUntil := r.clock().Add(credentialRejectionCooldown(rejection.Count))
+	log.Warn("Subscription credential refresh rejected; cooling down", "cooldown_until", cooldownUntil)
+	err := r.store.CooldownSubscriptionAccountIfRefreshHolder(ctx, owner, account.ID, holder.leaseID, credentials.TokenRefreshVersion, cooldownUntil)
+	if errors.Is(err, auth.ErrSubscriptionRefreshConflict) {
+		return errRefreshLeaseLost
+	}
+	if err != nil {
+		log.Error("Failed to persist subscription account cooldown after token rejection", "err", err)
+		return errors.Join(refreshErr, fmt.Errorf("persist subscription account cooldown: %w", err))
+	}
+	return &credentialRejectionCooldownError{err: refreshErr, until: cooldownUntil}
+}
 
 func (*providerAccountMismatchError) Error() string {
 	return "refreshed subscription account identity changed"
