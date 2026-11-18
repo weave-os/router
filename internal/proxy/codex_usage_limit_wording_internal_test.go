@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -21,10 +22,11 @@ func codexUsageLimitAttempt(owner FailureOwner) dispatch.TracedAttempt {
 		`{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","resets_at":` +
 			strconv.FormatInt(at.Add(89*time.Minute+30*time.Second).Unix(), 10) + `}}`)}
 	return dispatch.TracedAttempt{
-		Target:    inference.Target{Provider: providers.ProviderOpenAI},
-		Err:       errors.Join(codexSubscriptionModelUnavailable("gpt-test"), quota),
-		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(TurnErrorModelNotFound), FailureOwner: string(owner)},
-		At:        at,
+		Target:       inference.Target{Provider: providers.ProviderOpenAI},
+		Err:          errors.Join(codexSubscriptionModelUnavailable("gpt-test"), quota),
+		Diagnosis:    inference.AttemptDiagnosis{ErrorClass: string(TurnErrorModelNotFound), FailureOwner: string(owner)},
+		At:           at,
+		Subscription: true,
 	}
 }
 
@@ -46,8 +48,17 @@ func TestCodexUsageLimitWordingWithoutReset(t *testing.T) {
 		Err:       &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"error":{"type":"insufficient_quota"}}`)},
 		Diagnosis: inference.AttemptDiagnosis{FailureOwner: string(FailureOwnerProvider)},
 	}
+	a.Subscription = true
 	assert.Equal(t, "hit the Codex usage limit", failureWordingFor(a).badge)
 	assert.Equal(t, "OpenAI hit the Codex usage limit.", terminalMessageFor(a))
+}
+
+func TestAPIKeyQuotaIsNotCodexUsageLimit(t *testing.T) {
+	t.Parallel()
+	a := codexUsageLimitAttempt(FailureOwnerProvider)
+	a.Subscription = false
+	assert.NotContains(t, failureWordingFor(a).badge, "Codex")
+	assert.NotContains(t, terminalMessageFor(a), "Codex")
 }
 
 func TestShortDuration(t *testing.T) {
@@ -60,4 +71,35 @@ func TestShortDuration(t *testing.T) {
 	} {
 		assert.Equal(t, want, shortDuration(d), d)
 	}
+}
+
+func tracedCodexQuotaThenLeaseFailure(t *testing.T, creds *Credentials) (*dispatch.AttemptTrace, error) {
+	t.Helper()
+	a := codexUsageLimitAttempt(FailureOwnerProvider)
+	quota := a.Err
+	target := inference.Target{Provider: providers.ProviderOpenAI, CatalogID: "gpt-test"}
+	routerOwned := func([]byte, []byte, bool) inference.AttemptDiagnosis {
+		return inference.AttemptDiagnosis{FailureOwner: string(FailureOwnerRouter)}
+	}
+	trace := dispatch.NewAttemptTrace(nil, false)
+	trace.BeginAttempt(target, "", a.At)
+	trace.ObserveSent(context.WithValue(context.Background(), CredentialsContextKey{}, creds), []byte(`{}`), false)
+	trace.Record(dispatch.Attempt{Target: target}, quota, routerOwned)
+	trace.BeginAttempt(target, "", a.At)
+	leaseFailure := errors.Join(errors.New("no subscription account available"), quota)
+	trace.Record(dispatch.Attempt{Target: target}, leaseFailure, routerOwned)
+	return trace, leaseFailure
+}
+
+func TestTerminalLeaseFailureNamesCodexUsageLimit(t *testing.T) {
+	t.Parallel()
+	trace, leaseFailure := tracedCodexQuotaThenLeaseFailure(t, &Credentials{OAuth: true, Source: credSourceCodexSubscription})
+	got := TerminalErrorMessage(attributeCodexUsageLimitAbort(trace, leaseFailure))
+	assert.Equal(t, "OpenAI hit the Codex usage limit (resets in 1h 29m) after 1 router retry: The usage limit has been reached", got)
+}
+
+func TestTerminalLeaseFailureAfterAPIKeyQuotaKeepsError(t *testing.T) {
+	t.Parallel()
+	trace, leaseFailure := tracedCodexQuotaThenLeaseFailure(t, &Credentials{APIKey: []byte("k"), Source: credSourceClient})
+	assert.Equal(t, leaseFailure, attributeCodexUsageLimitAbort(trace, leaseFailure))
 }

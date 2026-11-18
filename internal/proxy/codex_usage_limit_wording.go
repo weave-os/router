@@ -17,6 +17,9 @@ type codexUsageLimit struct {
 }
 
 func codexUsageLimitOf(a dispatch.TracedAttempt) (codexUsageLimit, bool) {
+	if !a.Subscription || a.Target.Provider != providers.ProviderOpenAI {
+		return codexUsageLimit{}, false
+	}
 	upstream := findUpstreamError(a.Err, func(candidate *providers.UpstreamErrorResponse) bool {
 		_, exhausted := codexQuotaExhaustion(candidate)
 		return exhausted
