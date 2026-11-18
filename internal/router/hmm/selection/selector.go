@@ -86,7 +86,7 @@ func selector(roster *rosterdata.Roster, catalogID func(string) string, evidence
 		log.Debug("HMM preference-aware arm selected", logFields...)
 		return policy.SelectionPick{
 			Group: string(pick.Group), Arm: pick.Arm.String(), ArmScoresByGroup: selected.ScoresByGroup,
-			RankedFallback: rankedFallback(roster, rankedGroups, selected.OrdersByGroup, candidates, input.ClassProbabilities), RosterSHA256: roster.SHA256,
+			RankedFallback: rankedFallback(roster, rankedGroups, input.Harness, selected.OrdersByGroup, candidates, input.ClassProbabilities), RosterSHA256: roster.SHA256,
 			Trace: policy.SelectionTrace{
 				TaskDomain:             input.TaskDomain,
 				ClassifierRanking:      append([]string(nil), rankedGroups...),
@@ -130,7 +130,7 @@ func rankedGroupsFor(roster *rosterdata.Roster, input policy.SelectionInput) ([]
 	return rankedGroups, nil
 }
 
-func rankedFallback(roster *rosterdata.Roster, rankedGroups []string, ordersByGroup map[string][]string, candidates map[string]struct{}, probabilities map[string]float64) []policy.PreviewGroup {
+func rankedFallback(roster *rosterdata.Roster, rankedGroups []string, harness string, ordersByGroup map[string][]string, candidates map[string]struct{}, probabilities map[string]float64) []policy.PreviewGroup {
 	fallback := make([]policy.PreviewGroup, 0, len(rankedGroups))
 	for _, label := range rankedGroups {
 		cluster, exists := roster.Clusters[label]
@@ -138,7 +138,8 @@ func rankedFallback(roster *rosterdata.Roster, rankedGroups []string, ordersByGr
 			fallback = append(fallback, policy.PreviewGroup{Group: label, Probability: probabilities[label]})
 			continue
 		}
-		fallback = append(fallback, policy.PreviewGroup{Group: label, Probability: probabilities[label], RosterArms: append([]string(nil), cluster.Arms...), EligibleArms: eligibleOrder(ordersByGroup[label], candidates)})
+		harnessOrder, _ := ArmOrder(cluster, harness)
+		fallback = append(fallback, policy.PreviewGroup{Group: label, Probability: probabilities[label], RosterArms: append([]string(nil), harnessOrder...), EligibleArms: eligibleOrder(ordersByGroup[label], candidates)})
 	}
 	return fallback
 }
