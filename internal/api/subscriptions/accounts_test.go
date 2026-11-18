@@ -276,3 +276,22 @@ func TestCreateAccountOnSharedKeyRequiresPersonalIdentity(t *testing.T) {
 	require.JSONEq(t, `{"error":"personal_identity_required"}`, response.Body.String())
 	require.Equal(t, auth.SubscriptionOwner{}, accounts.owner)
 }
+
+// A personal key whose identity was disabled is not a shared key; it keeps the
+// generic owner failure instead of the shared-key hint.
+func TestListAccountsOnDisabledPersonalKeyIsNotReportedAsShared(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	personalKey := &auth.APIKey{ID: "personal", CredentialSubjectID: "subject-disabled", ExternalID: "kid-personal", InstallationID: "installation", Scope: auth.ScopeRouting}
+	svc := auth.NewService(installationRepo{}, keyRepo{apiKey: personalKey}, nil, nil, auth.NoOpAPIKeyCache{}, nil, time.Now).
+		WithSubscriptionAccounts(&ownerRecordingRepo{}).WithCredentialSubjectLookup(verifiedSubject{})
+	engine := gin.New()
+	group := engine.Group("/v1", middleware.WithAuth(svc, false))
+	subscriptionsapi.Register(group, svc)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/subscriptions/accounts", nil)
+	request.Header.Set("Authorization", "Bearer rk_test")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	require.Equal(t, http.StatusServiceUnavailable, response.Code, response.Body.String())
+	require.JSONEq(t, `{"error":"subscription_owner_unavailable"}`, response.Body.String())
+}

@@ -3657,7 +3657,12 @@ models_api_error() {
 # names no person, so the seat has no owner. The signed-in web flow does.
 shared_key_login_hint() {
   err "This Router key is a shared team key, so it can't tell whose subscription to connect."
-  printf '  Connect your own Claude or ChatGPT seat while signed in to Weave: %s\n' "$SUBSCRIPTIONS_DASHBOARD_URL" >&2
+  case "$base_url" in
+    "$HOSTED_BASE_URL"|"$LEGACY_HOSTED_BASE_URL")
+      printf '  Connect your own Claude or ChatGPT seat while signed in to Weave: %s\n' "$SUBSCRIPTIONS_DASHBOARD_URL" >&2 ;;
+    *)
+      printf '  Ask your Router admin for a personal key, then run this command again.\n' >&2 ;;
+  esac
 }
 
 # models_fail turns the status left by models_api into a message that says what
@@ -3668,16 +3673,16 @@ models_fail() {
   case "$detail" in
     subscription_owner_unavailable|subscription_accounts_unavailable|subscription_account_update_failed|subscription_account_delete_failed)
       err "The router couldn't finish ${what} just now. Nothing changed; try again in a minute."
-      return ;;
+      exit 1 ;;
     subscription_account_not_found)
       err "No enrolled account has that id. Run 'npx $npm_package_name accounts list' to see the ids."
-      return ;;
+      exit 1 ;;
     subscription_account_rejected)
       err "The router didn't accept that sign-in. Run 'npx $npm_package_name login claude' or 'login codex' again."
-      return ;;
+      exit 1 ;;
     personal_identity_required)
       shared_key_login_hint
-      return ;;
+      exit 1 ;;
   esac
   case "$models_http_status" in
     ""|000)

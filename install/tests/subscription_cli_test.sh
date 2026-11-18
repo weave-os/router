@@ -56,7 +56,7 @@ case "$url" in
     ;;
   */v1/subscriptions/accounts)
     if [ -n "${FAKE_ENROLLMENT_STATUS:-}" ]; then
-      printf '%s' '{"error":"invalid_key"}' >"$out"
+      printf '{"error":"%s"}' "${FAKE_ENROLLMENT_ERROR:-invalid_key}" >"$out"
       [ "$want_status" = "true" ] && printf '%s' "$FAKE_ENROLLMENT_STATUS"
       exit 0
     fi
@@ -156,12 +156,26 @@ for provider in claude codex; do
     exit 1
   fi
   grep -Fq 'shared team key' <<<"$shared_output"
-  grep -Fq 'https://app.weaveos.com/home/router/settings/subscriptions' <<<"$shared_output"
+  grep -Fq 'Ask your Router admin for a personal key' <<<"$shared_output"
   if grep -Eq 'oauth|deviceauth|subscriptions/accounts' "$FAKE_CURL_LOG"; then
     echo "$provider login started authorization on a shared team key" >&2
     exit 1
   fi
 done
+
+if hosted_shared_output="$(env "${common_env[@]}" FAKE_VALIDATION_BODY='{"valid":true,"shared":true}' \
+    bash "$installer" login claude --base-url https://router.weaveos.com --non-interactive --quiet 2>&1)"; then
+  echo 'hosted login continued on a shared team key' >&2
+  exit 1
+fi
+grep -Fq 'https://app.weaveos.com/home/router/settings/subscriptions' <<<"$hosted_shared_output"
+
+if listing_output="$(env "${common_env[@]}" FAKE_ENROLLMENT_STATUS=403 FAKE_ENROLLMENT_ERROR=personal_identity_required \
+    bash "$installer" accounts list --base-url https://router.example.test --non-interactive --quiet 2>&1)"; then
+  echo 'accounts list exited zero after the router refused a shared key' >&2
+  exit 1
+fi
+grep -Fq 'shared team key' <<<"$listing_output"
 
 env "${common_env[@]}" bash "$installer" login codex --base-url https://router.example.test --non-interactive --quiet \
   | grep -Fq 'Codex subscription enrolled.'
