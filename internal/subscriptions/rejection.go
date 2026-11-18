@@ -26,14 +26,10 @@ type credentialRejectionStore interface {
 }
 
 func reconnectWarranted(rejection auth.SubscriptionCredentialRejection, reason string, now time.Time) bool {
-	if rejection.Count >= 2 && refreshTokenRevoked(reason) && rejection.PreviousReason == reason {
+	if rejection.Count >= 2 && (reason == oauthErrorInvalidGrant || reason == oauthErrorRefreshRevoked) && rejection.PreviousReason == reason {
 		return true
 	}
 	return rejection.Count >= credentialRejectionStrikeLimit && now.Sub(rejection.FirstRejectedAt) >= credentialRejectionMinSpan
-}
-
-func refreshTokenRevoked(reason string) bool {
-	return reason == oauthErrorInvalidGrant || reason == oauthErrorRefreshRevoked
 }
 
 func credentialRejectionCooldown(strikes int) time.Duration {
