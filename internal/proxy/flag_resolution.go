@@ -61,10 +61,6 @@ func (s *Service) ResolveAuthoritativeUpgradePolicy(ctx context.Context) flags.A
 	return flags.AuthoritativeUpgradePolicy(flags.StringOr(ctx, flags.KeyAuthoritativeUpgradePolicy, string(defaultPolicy)))
 }
 
-func (s *Service) ResolveAuthoritativeUpgradeHoldoutPct(ctx context.Context) int {
-	return flags.IntOr(ctx, flags.KeyAuthoritativeUpgradeHoldoutPct, s.authoritativeUpgradeHoldoutPct)
-}
-
 func (s *Service) ResolveAuthoritativeUpgradeVotes(ctx context.Context) int {
 	return flags.IntOr(ctx, flags.KeyAuthoritativeUpgradeVotes, s.authoritativeUpgradeVotes)
 }
@@ -175,7 +171,6 @@ func (s *Service) ResolveAnthropicServerSideFallback(ctx context.Context) bool {
 
 func plannerConfigFor(ctx context.Context, cfg planner.EVConfig) planner.EVConfig {
 	cfg.TierUpgradeEnabled = flags.BoolOr(ctx, flags.KeyPlannerTierUpgrade, cfg.TierUpgradeEnabled)
-	cfg.ColdPinFollowFresh = flags.BoolOr(ctx, flags.KeyPlannerColdPinFollowFresh, cfg.ColdPinFollowFresh)
 	cfg.CorrectedEconomics = flags.BoolOr(ctx, flags.KeyPlannerCorrectedEconomics, cfg.CorrectedEconomics)
 	return cfg
 }

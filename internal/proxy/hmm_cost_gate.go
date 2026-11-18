@@ -28,7 +28,6 @@ func hmmCostGatedDecision(ctx context.Context, s *Service, input routingpolicy.H
 
 func hmmCostGatedResult(ctx context.Context, s *Service, input routingpolicy.HMMCostGateInput) (router.Decision, routingpolicy.HMMCostGateResult) {
 	input.Planner = plannerConfigFor(ctx, s.planner)
-	input.SameTierPin = flags.BoolOr(ctx, flags.KeyHMMSameTierPin, s.hmmSameTierPin)
 	input.PhaseChangeGate = flags.BoolOr(ctx, flags.KeyHMMPhaseChangeGate, false)
 	input.Now = s.clock.Now()
 	result := hmmCostGateFor(s).DecideWithVotes(input)

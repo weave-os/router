@@ -125,9 +125,7 @@ type Service struct {
 	hmmUpgradeConfidenceThreshold        float64
 	authoritativeUpgradeConfig           AuthoritativeUpgradeConfig
 	authoritativeUpgradePolicy           flags.AuthoritativeUpgradePolicy
-	authoritativeUpgradeHoldoutPct       int
 	authoritativeUpgradeVotes            int
-	hmmSameTierPin                       bool
 	authoritativeUpgradeGate             bool
 	authoritativeDowngradeGate           bool
 	authoritativeUpgradeSlidingThreshold bool
@@ -554,7 +552,7 @@ func humanReasonFromPlanner(code string) string {
 	switch code {
 	case planner.ReasonEVPositive:
 		return markerReasonSwitched
-	case planner.ReasonEVNegative, planner.ReasonNoPriorUsage, planner.ReasonSameTierPinned:
+	case planner.ReasonEVNegative, planner.ReasonNoPriorUsage:
 		return markerReasonStayed
 	case planner.ReasonTierUpgrade:
 		return markerReasonTierUpgrade
@@ -1056,8 +1054,6 @@ const DefaultPlannerExpectedRemainingTurns = 3
 
 const DefaultPlannerTierUpgradeEnabled = true
 
-const DefaultPlannerColdPinFollowFresh = false
-
 const DefaultPlannerCorrectedEconomics = false
 
 func NewService(r router.Router, providerMap map[string]providers.Client, emitter TelemetryEmitter, pinStore sessionpin.Store, hardPinExplore bool, hardPinProvider, hardPinModel string, telemetry TelemetryRepository) *Service {
@@ -1135,7 +1131,6 @@ func (s *Service) WithPlanner(cfg planner.EVConfig) *Service {
 		s.planner.ExpectedRemainingTurns = cfg.ExpectedRemainingTurns
 	}
 	s.planner.TierUpgradeEnabled = cfg.TierUpgradeEnabled
-	s.planner.ColdPinFollowFresh = cfg.ColdPinFollowFresh
 	s.planner.CorrectedEconomics = cfg.CorrectedEconomics
 	return s
 }
@@ -1316,11 +1311,6 @@ func (s *Service) WithHMMUpgradeConfidenceThreshold(v float64) *Service {
 	return s
 }
 
-func (s *Service) WithHMMSameTierPin(enabled bool) *Service {
-	s.hmmSameTierPin = enabled
-	return s
-}
-
 func (s *Service) WithAuthoritativeUpgradeGate(enabled bool) *Service {
 	s.authoritativeUpgradeGate = enabled
 	return s
@@ -1328,17 +1318,6 @@ func (s *Service) WithAuthoritativeUpgradeGate(enabled bool) *Service {
 
 func (s *Service) WithAuthoritativeUpgradePolicy(mode flags.AuthoritativeUpgradePolicy) *Service {
 	s.authoritativeUpgradePolicy = mode
-	return s
-}
-
-func (s *Service) WithAuthoritativeUpgradeHoldoutPct(pct int) *Service {
-	if pct < 0 {
-		pct = 0
-	}
-	if pct > 100 {
-		pct = 100
-	}
-	s.authoritativeUpgradeHoldoutPct = pct
 	return s
 }
 
@@ -3812,8 +3791,7 @@ func isAuthoritativePinHoldMismatch(res turnLoopResult, served router.Decision) 
 		return false
 	}
 	switch pinTier(res.PinTier) {
-	case pinTierAuthoritativeUpgradeEvidence,
-		pinTierAuthoritativeExcludedPin,
+	case pinTierAuthoritativeExcludedPin,
 		pinTierAuthoritativeUpgradeConfidenceLow,
 		pinTierAuthoritativeDowngradeConfidenceLow,
 		pinTierAuthoritativeDowngradeHysteresis:
