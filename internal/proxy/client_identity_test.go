@@ -21,7 +21,7 @@ type captureUserRepo struct {
 	emailUpserts        []auth.UpsertUserParams
 	accountUpserts      []auth.UpsertUserByAccountUUIDParams
 	subjectUpserts      []auth.UpsertUserByCredentialSubjectParams
-	unidentifiedUpserts []auth.UpsertUserByUnidentifiedAPIKeyParams
+	unidentifiedUpserts []auth.UpsertUserByUnidentifiedKeyParams
 }
 
 type assignedRoutingPolicyRepo struct{ assignmentReads int }
@@ -48,7 +48,7 @@ func (r *captureUserRepo) UpsertByCredentialSubject(ctx context.Context, p auth.
 	return &auth.User{ID: "user-from-key-owner"}, nil
 }
 
-func (r *captureUserRepo) UpsertByUnidentifiedAPIKey(ctx context.Context, p auth.UpsertUserByUnidentifiedAPIKeyParams) (*auth.User, error) {
+func (r *captureUserRepo) UpsertByUnidentifiedKey(ctx context.Context, p auth.UpsertUserByUnidentifiedKeyParams) (*auth.User, error) {
 	r.unidentifiedUpserts = append(r.unidentifiedUpserts, p)
 	return &auth.User{ID: "user-from-unidentified-key"}, nil
 }
@@ -398,7 +398,7 @@ func TestResolveUserFromContext_NoClientIdentityOnSharedKeyAttributesToPerKeyUse
 	assert.Empty(t, repo.subjectUpserts)
 	require.Len(t, repo.unidentifiedUpserts, 1)
 	assert.Equal(t, "inst-1", repo.unidentifiedUpserts[0].InstallationID)
-	assert.Equal(t, "61f77e74-0000-4000-8000-0000000000aa", repo.unidentifiedUpserts[0].UnidentifiedAPIKeyID)
+	assert.Equal(t, "61f77e74-0000-4000-8000-0000000000aa", repo.unidentifiedUpserts[0].SharedKeyID)
 	assert.Equal(t, "user-from-unidentified-key", auth.UserIDFrom(ctx))
 }
 

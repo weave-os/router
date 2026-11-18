@@ -376,7 +376,7 @@ func (q *Queries) UpsertModelRouterUserByEmail(ctx context.Context, arg UpsertMo
 	return i, err
 }
 
-const upsertModelRouterUserByUnidentifiedAPIKey = `-- name: UpsertModelRouterUserByUnidentifiedAPIKey :one
+const upsertModelRouterUserByUnidentifiedKey = `-- name: UpsertModelRouterUserByUnidentifiedKey :one
 INSERT INTO router.model_router_users (
     installation_id,
     unidentified_api_key_id,
@@ -394,13 +394,13 @@ DO UPDATE SET
 RETURNING id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name, credential_subject_id, unidentified_api_key_id
 `
 
-type UpsertModelRouterUserByUnidentifiedAPIKeyParams struct {
-	InstallationID       uuid.UUID
-	UnidentifiedAPIKeyID uuid.UUID
-	DisplayName          *string
+type UpsertModelRouterUserByUnidentifiedKeyParams struct {
+	InstallationID uuid.UUID
+	SharedKeyID    uuid.UUID
+	DisplayName    *string
 }
 
-// UpsertModelRouterUserByUnidentifiedAPIKey
+// UpsertModelRouterUserByUnidentifiedKey
 //
 //	INSERT INTO router.model_router_users (
 //	    installation_id,
@@ -417,8 +417,8 @@ type UpsertModelRouterUserByUnidentifiedAPIKeyParams struct {
 //	DO UPDATE SET
 //	    last_seen_at = CURRENT_TIMESTAMP
 //	RETURNING id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name, credential_subject_id, unidentified_api_key_id
-func (q *Queries) UpsertModelRouterUserByUnidentifiedAPIKey(ctx context.Context, arg UpsertModelRouterUserByUnidentifiedAPIKeyParams) (RouterModelRouterUser, error) {
-	row := q.db.QueryRow(ctx, upsertModelRouterUserByUnidentifiedAPIKey, arg.InstallationID, arg.UnidentifiedAPIKeyID, arg.DisplayName)
+func (q *Queries) UpsertModelRouterUserByUnidentifiedKey(ctx context.Context, arg UpsertModelRouterUserByUnidentifiedKeyParams) (RouterModelRouterUser, error) {
+	row := q.db.QueryRow(ctx, upsertModelRouterUserByUnidentifiedKey, arg.InstallationID, arg.SharedKeyID, arg.DisplayName)
 	var i RouterModelRouterUser
 	err := row.Scan(
 		&i.ID,

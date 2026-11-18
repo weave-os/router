@@ -18,7 +18,7 @@ type fakeUserRepo struct {
 	upserts             []auth.UpsertUserParams
 	accountUpserts      []auth.UpsertUserByAccountUUIDParams
 	subjectUpserts      []auth.UpsertUserByCredentialSubjectParams
-	unidentifiedUpserts []auth.UpsertUserByUnidentifiedAPIKeyParams
+	unidentifiedUpserts []auth.UpsertUserByUnidentifiedKeyParams
 	user                *auth.User
 	err                 error
 }
@@ -53,7 +53,7 @@ func (f *fakeUserRepo) UpsertByCredentialSubject(ctx context.Context, params aut
 	return f.user, nil
 }
 
-func (f *fakeUserRepo) UpsertByUnidentifiedAPIKey(ctx context.Context, params auth.UpsertUserByUnidentifiedAPIKeyParams) (*auth.User, error) {
+func (f *fakeUserRepo) UpsertByUnidentifiedKey(ctx context.Context, params auth.UpsertUserByUnidentifiedKeyParams) (*auth.User, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.unidentifiedUpserts = append(f.unidentifiedUpserts, params)

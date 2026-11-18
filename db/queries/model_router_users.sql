@@ -115,7 +115,7 @@ DO UPDATE SET
     display_name = COALESCE(EXCLUDED.display_name, router.model_router_users.display_name)
 RETURNING *;
 
--- name: UpsertModelRouterUserByUnidentifiedAPIKey :one
+-- name: UpsertModelRouterUserByUnidentifiedKey :one
 INSERT INTO router.model_router_users (
     installation_id,
     unidentified_api_key_id,
@@ -123,7 +123,7 @@ INSERT INTO router.model_router_users (
 )
 VALUES (
     @installation_id::uuid,
-    @unidentified_api_key_id::uuid,
+    @shared_key_id::uuid,
     sqlc.narg('display_name')::text
 )
 ON CONFLICT (installation_id, unidentified_api_key_id)

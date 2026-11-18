@@ -6,12 +6,12 @@ import (
 	"weave-os/router/internal/observability"
 )
 
-func (s *Service) ResolveAndStashUnidentifiedKeyUser(ctx context.Context, installationID, apiKeyID, displayName string) context.Context {
+func (s *Service) ResolveAndStashUnidentifiedKeyUser(ctx context.Context, installationID, sharedKeyID, displayName string) context.Context {
 	log := observability.FromContext(ctx)
 	if s.users == nil || installationID == "" {
 		return ctx
 	}
-	identityKey := "unidentified-key:" + apiKeyID
+	identityKey := "unidentified-key:" + sharedKeyID
 	if cached, ok := s.userCache.Get(installationID, identityKey); ok {
 		return s.withUserSettings(ctx, installationID, cached)
 	}
@@ -19,10 +19,10 @@ func (s *Service) ResolveAndStashUnidentifiedKeyUser(ctx context.Context, instal
 	if displayName != "" {
 		optionalName = &displayName
 	}
-	user, err := s.users.UpsertByUnidentifiedAPIKey(ctx, UpsertUserByUnidentifiedAPIKeyParams{
-		InstallationID:       installationID,
-		UnidentifiedAPIKeyID: apiKeyID,
-		DisplayName:          optionalName,
+	user, err := s.users.UpsertByUnidentifiedKey(ctx, UpsertUserByUnidentifiedKeyParams{
+		InstallationID: installationID,
+		SharedKeyID:    sharedKeyID,
+		DisplayName:    optionalName,
 	})
 	if err != nil {
 		log.Warn("Failed to resolve router user for unidentified API key traffic", "installation_id", installationID, "err", err)

@@ -78,19 +78,19 @@ func (r *userRepo) UpsertByCredentialSubject(ctx context.Context, params auth.Up
 	return toAuthUser(row), nil
 }
 
-func (r *userRepo) UpsertByUnidentifiedAPIKey(ctx context.Context, params auth.UpsertUserByUnidentifiedAPIKeyParams) (*auth.User, error) {
+func (r *userRepo) UpsertByUnidentifiedKey(ctx context.Context, params auth.UpsertUserByUnidentifiedKeyParams) (*auth.User, error) {
 	installationID, err := uuid.Parse(params.InstallationID)
 	if err != nil {
 		return nil, err
 	}
-	unidentifiedAPIKeyID, err := uuid.Parse(params.UnidentifiedAPIKeyID)
+	sharedKeyID, err := uuid.Parse(params.SharedKeyID)
 	if err != nil {
 		return nil, err
 	}
-	row, err := dbbudget.Queries(r.tx).UpsertModelRouterUserByUnidentifiedAPIKey(ctx, sqlc.UpsertModelRouterUserByUnidentifiedAPIKeyParams{
-		InstallationID:       installationID,
-		UnidentifiedAPIKeyID: unidentifiedAPIKeyID,
-		DisplayName:          nullableTextArg(params.DisplayName),
+	row, err := dbbudget.Queries(r.tx).UpsertModelRouterUserByUnidentifiedKey(ctx, sqlc.UpsertModelRouterUserByUnidentifiedKeyParams{
+		InstallationID: installationID,
+		SharedKeyID:    sharedKeyID,
+		DisplayName:    nullableTextArg(params.DisplayName),
 	})
 	if err != nil {
 		return nil, err
