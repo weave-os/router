@@ -242,3 +242,21 @@ func TestBypass_ClassifierRefusal_NotReservedWhenDisabledOrStreaming(t *testing.
 		})
 	}
 }
+
+// A check that turned thinking off is re-served with the reviewer model's own
+// off switch, not the one rewritten for the refusing model.
+func TestBypass_ClassifierRefusal_ReviewerGetsItsOwnThinkingOff(t *testing.T) {
+	p := &modelScriptedProvider{replies: map[string]string{
+		rescueRefusingModel: rescueRefusal(rescueRefusingModel),
+		rescueReviewerModel: rescueVerdict(),
+	}}
+
+	rec, _ := runRescueBypassBody(t, p, true, false, classifierStage2Body(`{"type":"disabled"}`))
+
+	assert.Equal(t, []string{rescueRefusingModel, rescueReviewerModel}, p.models)
+	assert.JSONEq(t, rescueVerdict(), rec.Body.String())
+	require.Len(t, p.bodies, 2)
+	assert.Equal(t, "between_tools", gjson.GetBytes(p.bodies[0], "thinking.type").String())
+	assert.JSONEq(t, `{"type":"disabled"}`, gjson.GetBytes(p.bodies[1], "thinking").Raw)
+	assert.False(t, gjson.GetBytes(p.bodies[1], "output_config").Exists())
+}
