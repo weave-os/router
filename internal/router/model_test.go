@@ -82,3 +82,24 @@ func TestLookup_GPT62RequiresReasoning(t *testing.T) {
 		assert.True(t, spec.Reasoning().AlwaysOn, id)
 	}
 }
+
+func TestLookup_ThinkingOffSwitch(t *testing.T) {
+	for model, want := range map[string]router.ThinkingOff{
+		"claude-sonnet-5-5": router.ThinkingOffBetweenTools,
+		"claude-opus-5-5":   router.ThinkingOffAdaptiveLowEffort,
+		"claude-fable-5":    router.ThinkingOffAdaptiveLowEffort,
+		"claude-fable-5-1":  router.ThinkingOffAdaptiveLowEffort,
+		"claude-fable-5-2":  router.ThinkingOffAdaptiveLowEffort,
+		"claude-mythos-5-2": router.ThinkingOffAdaptiveLowEffort,
+		"claude-opus-5":     router.ThinkingOffDisabled,
+		"claude-opus-4-8":   router.ThinkingOffDisabled,
+		"claude-opus-4-7":   router.ThinkingOffDisabled,
+		"claude-sonnet-5":   router.ThinkingOffDisabled,
+		"claude-sonnet-4-6": router.ThinkingOffDisabled,
+		"claude-opus-4-6":   router.ThinkingOffDisabled,
+		"claude-haiku-5-5":  router.ThinkingOffDisabled,
+		"claude-haiku-4-5":  router.ThinkingOffDisabled,
+	} {
+		assert.Equal(t, want, router.Lookup(model).Reasoning().ThinkingOff, model)
+	}
+}
