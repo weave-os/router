@@ -4684,8 +4684,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	})
 	logPrefilter(log, env, feats.ImageCount, outputReserveOAI, prefiltered)
 	excludedOAI, overflowEstimateOAI := prefiltered.Excluded, prefiltered.OverflowEstimate
-
-	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText)
+	feats, routingPromptText, routingMessages := routingTurnInputForRequest(ctx, env, feats, promptText)
 	routeRequest := router.Request{
 		RequestedModel:                feats.Model,
 		ForceModel:                    forceModel,
