@@ -113,7 +113,7 @@ func goldenTelemetryVocabularies(t *testing.T) (map[string][]string, map[string]
 		"Strategy": "strategy", "DecisionReason": "decision_reason", "PlannerOutcome": "planner_outcome",
 		"PinTier": "pin_tier", "StickyHit": "sticky_hit",
 	}
-	values := map[string]map[string]struct{}{}
+	valuesByColumn := map[string]map[string]struct{}{}
 	classification := map[string]string{}
 	paths, err := filepath.Glob(filepath.Join("testdata", "golden", "*.json"))
 	require.NoError(t, err)
@@ -134,10 +134,10 @@ func goldenTelemetryVocabularies(t *testing.T) (map[string][]string, map[string]
 						continue
 					}
 					text := vocabularyValue(value)
-					if values[column] == nil {
-						values[column] = map[string]struct{}{}
+					if valuesByColumn[column] == nil {
+						valuesByColumn[column] = map[string]struct{}{}
 					}
-					values[column][text] = struct{}{}
+					valuesByColumn[column][text] = struct{}{}
 					if field == "DecisionReason" {
 						classification[text] = forcedClassification(text)
 					}
@@ -145,8 +145,8 @@ func goldenTelemetryVocabularies(t *testing.T) (map[string][]string, map[string]
 			}
 		}
 	}
-	vocabularies := make(map[string][]string, len(values))
-	for column, set := range values {
+	vocabularies := make(map[string][]string, len(valuesByColumn))
+	for column, set := range valuesByColumn {
 		vocabularies[column] = sortedSet(set)
 	}
 	return vocabularies, classification
