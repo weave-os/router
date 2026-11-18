@@ -135,6 +135,29 @@ write conversation model pins or their usage history. A successful search tool a
 terminal response are required before results are returned. No extra search
 provider key, MCP server or client configuration is needed.
 
+**Keyless search API fallback.** A deployment whose enabled providers cannot
+run Anthropic server tools (OpenAI, Gemini or OpenRouter keys only, say) and
+has neither a Cortex gateway credential nor a Codex subscription fails Claude
+Code's WebSearch helper with `no compatible provider is available for
+translation requirements: target family "anthropic"`. Setting
+`ROUTER_KEENABLE_WEB_SEARCH=true` opts in a fallback executor on the Keenable
+search API that answers those turns with the same `server_tool_use` /
+`web_search_tool_result` blocks.
+
+Executors run in a fixed order: Cortex gateway, then the Codex bridge, then
+the Keenable fallback. The fallback runs only when no gateway credential
+resolves for the turn and the `web_search` tool has no `allowed_domains` or
+`blocked_domains`; a filtered search stays on normal routing instead of being
+widened. Only the query text (and a result cap) is sent to the search API,
+never the conversation, domain filters or credentials. If the search fails,
+the turn falls through and the original dispatch error is returned.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ROUTER_KEENABLE_WEB_SEARCH` | `false` | Opts in the Keenable web-search fallback. Any value other than `true` leaves it off. |
+| `KEENABLE_API_KEY` | *(none)* | Optional. Sent as `Authorization: Bearer <key>` when set; unset means keyless calls. The key itself is never logged. |
+| `KEENABLE_BASE_URL` | `https://api.keenable.ai` | Override for the search API base URL, e.g. a local stub in tests. |
+
 **OpenAI-compatible gateway.** `openai_gateway` is the same arrangement one
 wire family over: a customer endpoint speaking OpenAI Chat Completions, bearer
 auth, no default endpoint. Use it for gateways that serve models the Anthropic
