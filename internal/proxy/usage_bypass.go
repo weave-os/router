@@ -333,10 +333,7 @@ func (s *Service) bypassToAnthropic(
 		return claudeEnterpriseRefusal(ctx)
 	}
 
-	outputReserve := contextWindowOutputReserve
-	if feats.MaxTokens > outputReserve {
-		outputReserve = feats.MaxTokens
-	}
+	outputReserve := max(contextWindowOutputReserve, feats.MaxTokens)
 	opts := translate.EmitOptions{
 		TargetModel:              decision.Model,
 		TargetProvider:           decision.Provider,
@@ -392,7 +389,9 @@ func (s *Service) bypassToAnthropic(
 	ctx, inferenceSpan := startInferenceSpan(ctx, decision, clientSessionIDForRequest(ctx, env))
 	passiveRefusal := newPassiveRefusalObserver(respW)
 	toolNames := translate.NewAnthropicToolNameWriter(passiveRefusal, prep.ResponseToolNames)
-	proxyErr := p.Proxy(ctx, decision, prep, toolNames, r)
+	decision, proxyErr := proxyClassifierWithRefusalRescue(ctx, func(d router.Decision, prep providers.PreparedRequest, out http.ResponseWriter) error {
+		return p.Proxy(ctx, d, prep, out, r)
+	}, decision, prep, newClassifierRefusalRescue(ctx, classifierRescuePolicy{s.ResolveCyberRefusalRetry(ctx), s.ResolveCyberRefusalFallbackModel(ctx)}, turnType, env.Stream(), decision, r.Header, opts), toolNames)
 	proxyErr = finalizeAfterProxy(proxyErr, toolNames.Finalize)
 	if proxyErr == nil && terminal != nil {
 		proxyErr = terminal.streamErr()
