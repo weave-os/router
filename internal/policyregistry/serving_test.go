@@ -634,12 +634,10 @@ func TestSubscriberPlanProfileMustMatchServerOwnedMapping(t *testing.T) {
 }
 
 type servingMemoryStore struct {
-	mu         sync.Mutex
-	objects    map[policyregistry.ObjectRef][]byte
-	policies   map[policyregistry.ObjectRef]*rosterdata.Roster
-	admittedMu sync.Mutex
-	admitted   map[policyregistry.ObjectRef]admittedFixture
-	states     map[policyregistry.ServingTarget]policyregistry.ServingStateSnapshot
+	mu       sync.Mutex
+	objects  map[policyregistry.ObjectRef][]byte
+	policies map[policyregistry.ObjectRef]*rosterdata.Roster
+	states   map[policyregistry.ServingTarget]policyregistry.ServingStateSnapshot
 	// legacyStates models runtime_state/... objects: read only when no state/ object exists, never written.
 	legacyStates map[policyregistry.ServingTarget]policyregistry.ServingStateSnapshot
 	readErr      error
@@ -734,25 +732,7 @@ func (s *servingMemoryStore) ReadPolicy(_ context.Context, ref policyregistry.Ob
 	if err != nil {
 		return nil, err
 	}
-	s.admittedMu.Lock()
-	defer s.admittedMu.Unlock()
-	if cached, exists := s.admitted[ref]; exists && cached.source == policy {
-		return cached.policy, nil
-	}
-	admitted, err := admitFixture(policy)
-	if err != nil {
-		return nil, err
-	}
-	if s.admitted == nil {
-		s.admitted = make(map[policyregistry.ObjectRef]admittedFixture)
-	}
-	s.admitted[ref] = admittedFixture{source: policy, policy: admitted}
-	return admitted, nil
-}
-
-type admittedFixture struct {
-	source *rosterdata.Roster
-	policy *selectionpolicy.Policy
+	return admitFixture(policy)
 }
 
 func (s *servingMemoryStore) ReadServingPolicy(_ context.Context, ref policyregistry.ObjectRef) (*rosterdata.Roster, error) {
