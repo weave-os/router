@@ -427,6 +427,7 @@ func (s *Service) bypassToAnthropic(
 	outputCost := catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, decision.Provider), out, pricing, usageMods)
 
 	clientID := ClientIdentityFrom(ctx)
+	stopReason := passiveRefusal.stopReason(extractor)
 	outcomeErr := proxyErr
 	if upstreamErr != nil {
 		outcomeErr = upstreamErr
@@ -441,6 +442,7 @@ func (s *Service) bypassToAnthropic(
 		String("decision.model", decision.Model).
 		String("decision.provider", decision.Provider).
 		String("decision.reason", decision.Reason).
+		String("upstream.stop_reason", stopReason).Bool("upstream.refusal", passiveRefusal.scan.refused).String("upstream.refusal_category", passiveRefusal.scan.category).
 		Bool("cost.subscription_served", proxyErr == nil && upstreamErr == nil && s.costNeutralSubscriptionServed(ctx)).
 		Int64("usage.input_tokens", int64(in)).
 		Int64("usage.output_tokens", int64(out)).
@@ -464,13 +466,8 @@ func (s *Service) bypassToAnthropic(
 
 	if installationID := installationIDFromContext(ctx); installationID != uuid.Nil {
 		userPrompt := env.EndsWithUserPrompt()
-		outcomeErr := proxyErr
-		if upstreamErr != nil {
-			outcomeErr = upstreamErr
-		}
 		credentialKeyPrefix, credentialKeySuffix, credSource := s.credentialKeyParts(ctx)
 		s.markServedExternalKeyUsed(ctx, outcomeErr)
-		stopReason := passiveRefusal.stopReason(extractor)
 		sessionKey := deriveSessionKeyForRequest(ctx, env, apiKeyIDFromContext(ctx))
 		telemetryParams := InsertTelemetryParams{
 			InstallationID:         installationID.String(),
@@ -536,6 +533,7 @@ func (s *Service) bypassToAnthropic(
 		"proxy_ms", s.clock.Now().Sub(proxyStart).Milliseconds(),
 		"total_ms", s.clock.Now().Sub(requestStart).Milliseconds(),
 		"proxy_err", proxyErr,
+		"resp_stop_reason", stopReason, "resp_refusal", passiveRefusal.scan.refused, "resp_refusal_category", passiveRefusal.scan.category,
 		"credential_source", servedCredentialSource,
 		"subscription_tier", servedSubscriptionTier,
 	)
