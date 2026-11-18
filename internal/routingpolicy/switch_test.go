@@ -24,7 +24,6 @@ func TestDecideSwitch(t *testing.T) {
 	}{
 		{"first turn serves the pick", routingpolicy.SwitchInput{Fresh: switchTestHigh}, switchTestHigh, routingpolicy.SwitchReasonFirstTurn},
 		{"same model stays", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestMid}, switchTestMid, routingpolicy.SwitchReasonSameModel},
-		{"unavailable current model serves the pick", routingpolicy.SwitchInput{Current: switchTestLow, CurrentUnavailable: true, Fresh: switchTestHigh}, switchTestHigh, routingpolicy.SwitchReasonCurrentUnavailable},
 		{"unpriced current model serves the pick", routingpolicy.SwitchInput{Current: switchTestUnknown, Fresh: switchTestHigh}, switchTestHigh, routingpolicy.SwitchReasonCurrentUnavailable},
 		{"unpriced pick stays", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestUnknown}, switchTestMid, routingpolicy.SwitchReasonPricingMissing},
 		{"cheaper pick is served at once on a warm cache", routingpolicy.SwitchInput{Current: switchTestHigh, Fresh: switchTestLow}, switchTestLow, routingpolicy.SwitchReasonDowngrade},

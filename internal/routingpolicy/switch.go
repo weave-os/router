@@ -20,7 +20,6 @@ const (
 
 type SwitchInput struct {
 	Current              string
-	CurrentUnavailable   bool
 	Fresh                string
 	PriorPicks           []string
 	EstimatedInputTokens int
@@ -48,7 +47,7 @@ func DecideSwitch(input SwitchInput) SwitchVerdict {
 		return stay(SwitchReasonSameModel)
 	}
 	currentPrice, currentPriced := HMMEffectiveInputUSDPer1M(input.Current, input.EstimatedInputTokens)
-	if input.CurrentUnavailable || !currentPriced {
+	if !currentPriced {
 		return move(SwitchReasonCurrentUnavailable)
 	}
 	freshPrice, freshPriced := HMMEffectiveInputUSDPer1M(input.Fresh, input.EstimatedInputTokens)
