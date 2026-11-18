@@ -80,6 +80,21 @@ func (e *RequestEnvelope) PrepareAnthropicVerbatim(in http.Header, opts EmitOpti
 	return providers.PreparedRequest{Body: body, Headers: h}, nil
 }
 
+func (e *RequestEnvelope) WithClientThinking(body []byte) ([]byte, error) {
+	for _, key := range []string{"thinking", "output_config"} {
+		var err error
+		if v := gjson.GetBytes(e.body, key); v.Exists() {
+			body, err = sjson.SetRawBytes(body, key, []byte(v.Raw))
+		} else {
+			body, err = sjson.DeleteBytes(body, key)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("restore %s: %w", key, err)
+		}
+	}
+	return body, nil
+}
+
 func withModelThinkingOff(body []byte, off router.ThinkingOff) ([]byte, error) {
 	if off == router.ThinkingOffDisabled || gjson.GetBytes(body, "thinking.type").String() != "disabled" {
 		return body, nil

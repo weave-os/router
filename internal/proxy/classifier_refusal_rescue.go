@@ -26,11 +26,12 @@ type classifierRefusalRescue struct {
 	decision  router.Decision
 	inHeaders http.Header
 	opts      translate.EmitOptions
+	client    *translate.RequestEnvelope
 }
 
-func newClassifierRefusalRescue(ctx context.Context, policy classifierRescuePolicy, turnType turntype.TurnType, stream bool, served router.Decision, in http.Header, opts translate.EmitOptions) classifierRefusalRescue {
+func newClassifierRefusalRescue(ctx context.Context, policy classifierRescuePolicy, turnType turntype.TurnType, served router.Decision, client *translate.RequestEnvelope, in http.Header, opts translate.EmitOptions) classifierRefusalRescue {
 	fallbackModel := policy.fallbackModel
-	if !policy.enabled || turnType != turntype.Classifier || stream ||
+	if !policy.enabled || turnType != turntype.Classifier || client.Stream() ||
 		fallbackModel == "" || fallbackModel == served.Model ||
 		!modelPermittedByAllowlist(ctx, fallbackModel) || !modelInRequestSubset(ctx, fallbackModel) {
 		return classifierRefusalRescue{}
@@ -40,12 +41,15 @@ func newClassifierRefusalRescue(ctx context.Context, policy classifierRescuePoli
 	opts.TargetModel = fallbackModel
 	opts.Capabilities = router.Lookup(fallbackModel)
 	opts.FastMode = false
-	return classifierRefusalRescue{armed: true, decision: target, inHeaders: in, opts: opts}
+	return classifierRefusalRescue{armed: true, decision: target, inHeaders: in, opts: opts, client: client}
 }
 
 func (c classifierRefusalRescue) prepare(served providers.PreparedRequest) (providers.PreparedRequest, bool) {
 	body, err := sjson.SetBytes(served.Body, "model", c.decision.Model)
 	if err != nil {
+		return providers.PreparedRequest{}, false
+	}
+	if body, err = c.client.WithClientThinking(body); err != nil {
 		return providers.PreparedRequest{}, false
 	}
 	if !c.opts.Capabilities.Supports(router.CapServerSideFallback) {
