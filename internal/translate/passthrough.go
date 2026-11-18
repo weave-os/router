@@ -78,6 +78,13 @@ func (e *RequestEnvelope) PrepareAnthropicVerbatim(in http.Header, opts EmitOpti
 	return providers.PreparedRequest{Body: body, Headers: h}, nil
 }
 
+func ExtendedContextBeta(beta string, opts EmitOptions) string {
+	if opts.EnableExtendedContext && opts.Capabilities.Supports(router.CapExtendedContext) {
+		return ensureBetaToken(beta, context1MBeta)
+	}
+	return beta
+}
+
 func verbatimServerSideFallback(body []byte, opts EmitOptions) bool {
 	return opts.EnableServerSideFallback &&
 		opts.TargetProvider == providers.ProviderAnthropic &&

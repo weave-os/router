@@ -60,6 +60,9 @@ func (c classifierRefusalRescue) prepare(served providers.PreparedRequest) (prov
 	if err != nil {
 		return providers.PreparedRequest{}, false
 	}
+	if beta := translate.ExtendedContextBeta(prep.Headers.Get("anthropic-beta"), c.opts); beta != "" {
+		prep.Headers.Set("anthropic-beta", beta)
+	}
 	prep.ResponseToolNames = served.ResponseToolNames
 	return prep, true
 }

@@ -61,6 +61,11 @@ func (*modelScriptedProvider) Passthrough(context.Context, providers.PreparedReq
 
 func runRescueBypass(t *testing.T, p *modelScriptedProvider, retry bool, stream bool) (*httptest.ResponseRecorder, *bypassCaptureTelemetry) {
 	t.Helper()
+	return runRescueBypassBody(t, p, retry, stream, classifierStage2Body(""))
+}
+
+func runRescueBypassBody(t *testing.T, p *modelScriptedProvider, retry bool, stream bool, body string) (*httptest.ResponseRecorder, *bypassCaptureTelemetry) {
+	t.Helper()
 	svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: p})}
 	svc.anthropicServerSideFallback = true
 	svc.cyberRefusalRetry = retry
@@ -68,7 +73,6 @@ func runRescueBypass(t *testing.T, p *modelScriptedProvider, retry bool, stream 
 	sink := newBypassCaptureTelemetry()
 	svc.telemetry = sink
 
-	body := classifierStage2Body("")
 	if stream {
 		body = strings.Replace(body, `"max_tokens":10240,`, `"max_tokens":10240,"stream":true,`, 1)
 	}
@@ -128,6 +132,22 @@ func TestBypass_ClassifierRefusal_ReservedOnReviewerModel(t *testing.T) {
 	assert.Equal(t, rescueReviewerModel, row.DecisionModel)
 	require.NotNil(t, row.StopReason)
 	assert.Equal(t, "end_turn", *row.StopReason)
+}
+
+// A check too large for the reviewer model's base window is re-served with
+// the extended-context beta that model needs.
+func TestBypass_ClassifierRefusal_LargeCheckCarriesExtendedContextBeta(t *testing.T) {
+	p := &modelScriptedProvider{replies: map[string]string{
+		rescueRefusingModel: rescueRefusal(rescueRefusingModel),
+		rescueReviewerModel: rescueVerdict(rescueReviewerModel),
+	}}
+	body := strings.Replace(classifierStage2Body(""), `run node a.js`, strings.Repeat("x", 4_000_000), 1)
+
+	rec, _ := runRescueBypassBody(t, p, true, false, body)
+
+	assert.Equal(t, []string{rescueRefusingModel, rescueReviewerModel}, p.models)
+	assert.JSONEq(t, rescueVerdict(rescueReviewerModel), rec.Body.String())
+	assert.Contains(t, p.betas[1], "context-1m")
 }
 
 // If the reviewer model refuses too, the client gets the original refusal.
