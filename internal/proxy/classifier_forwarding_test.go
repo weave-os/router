@@ -19,6 +19,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 const (
@@ -186,4 +188,53 @@ func TestAutoModeReviewer_SubscriptionErrorReturnedUntouched(t *testing.T) {
 	assert.JSONEq(t, reviewerModelNotFound(reviewerDefaultModel).body, rec.Body.String())
 	assert.Equal(t, []string{reviewerDefaultModel}, p.models)
 	assert.Equal(t, []bool{true}, p.oauth)
+}
+
+// Models with a safety classifier (Sonnet 5.5) can answer the reviewer with a
+// `refusal` and no verdict, which Claude Code turns into a block. The router
+// asks Anthropic to re-serve such a turn on its fallback model, the same
+// opt-in every other first-party turn carries; the rest of the request stays
+// byte-identical.
+func TestAutoModeReviewer_KeepsServerSideRefusalFallback(t *testing.T) {
+	const refusingModel = "claude-sonnet-5-5"
+	body := strings.Replace(autoModeReviewerBody(), reviewerDefaultModel, refusingModel, 1)
+	for name, tc := range map[string]struct {
+		ctx       func() context.Context
+		deployKey bool
+	}{
+		"subscription": {ctx: classifierSubscriptionCtx},
+		"api_billed":   {ctx: func() context.Context { return authedCtx("inst-reviewer") }, deployKey: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := &reviewerProvider{}
+			svc := reviewerService(p, nil)
+			if tc.deployKey {
+				svc = svc.WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
+			}
+			rec, req := reviewerRequest(t.Context())
+
+			require.NoError(t, svc.ProxyMessages(tc.ctx(), []byte(body), rec, req))
+
+			require.Len(t, p.bodies, 1)
+			assert.Equal(t, []string{refusingModel}, p.models)
+			assert.Equal(t, `"default"`, gjson.GetBytes(p.bodies[0], "fallbacks").Raw)
+			withoutFallbacks, err := sjson.DeleteBytes(p.bodies[0], "fallbacks")
+			require.NoError(t, err)
+			assert.Equal(t, body, string(withoutFallbacks))
+			assert.Equal(t, reviewerClientBeta+",server-side-fallback-2026-07-01", p.betas[0])
+		})
+	}
+}
+
+func TestAutoModeReviewer_ServerSideRefusalFallbackDisabledForwardsUntouched(t *testing.T) {
+	body := strings.Replace(autoModeReviewerBody(), reviewerDefaultModel, "claude-sonnet-5-5", 1)
+	p := &reviewerProvider{}
+	svc := reviewerService(p, nil).WithAnthropicServerSideFallback(false)
+	rec, req := reviewerRequest(t.Context())
+
+	require.NoError(t, svc.ProxyMessages(classifierSubscriptionCtx(), []byte(body), rec, req))
+
+	require.Len(t, p.bodies, 1)
+	assert.Equal(t, body, string(p.bodies[0]))
+	assert.Equal(t, reviewerClientBeta, p.betas[0])
 }

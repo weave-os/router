@@ -24,7 +24,7 @@ How `internal/translate` reads an inbound request (`translate.RequestEnvelope`),
 | `ForceReasoningEffort` | Escalate-on-failure effort for gpt-5.x (Responses) and gemini-3.x (`thinkingConfig`): gpt-5.x starts low and goes high after a failed or no-progress turn; gemini stays low. |
 | `ForceEffort` | User-requested effort (`x-weave-effort` header or `:level` suffix). Wins over `ForceReasoningEffort`; per-model caps come from `ResolveForceEffort`. |
 | `EnableExtendedContext` | Targets with the extended-context capability get the 1M window instead of 200K, avoiding 400 "prompt is too long". No-op below 200K input. |
-| `EnableServerSideFallback` | Lets first-party Anthropic re-serve a safety-refused turn on a fallback model; ignored for other targets. |
+| `EnableServerSideFallback` | Lets first-party Anthropic re-serve a safety-refused turn on a fallback model, including classifier turns that are otherwise forwarded verbatim; ignored for other targets. |
 | `KeepCrossVendorOrchestrationTools`, `KeepCrossVendorTaskTools` | Set from `ROUTER_CC_ORCH_TOOLS_CROSSVENDOR` and `ROUTER_CC_TASK_TOOLS_CROSSVENDOR`; see [Claude Code tools on other vendors](#claude-code-tools-on-other-vendors). |
 | `AppendAutonomySystem` | Appends `AutonomySystemText` as the last, uncached system element after any client cache_control block; cross-format emitters carry it into the OpenAI system message, Responses instructions or Gemini `systemInstruction`. The proxy decides eligibility. |
 | `AppendWorkspaceSystem` | Same, for `WorkspaceSystemText`, on cross-format emitters only. |
