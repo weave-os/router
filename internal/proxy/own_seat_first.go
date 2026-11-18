@@ -5,11 +5,10 @@ import (
 	"time"
 
 	"weave-os/router/internal/flags"
-	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 )
 
-func callerLoginServesFirst(ctx context.Context, provider, model string, observer *usage.Observer, models *subscriptionModelAccess, now time.Time) bool {
+func callerLoginServesFirst(ctx context.Context, model string, observer *usage.Observer, models *subscriptionModelAccess, now time.Time) bool {
 	current := CredentialsFromContext(ctx)
 	if current == nil || !current.OAuth {
 		return false
@@ -17,16 +16,12 @@ func callerLoginServesFirst(ctx context.Context, provider, model string, observe
 	if pickedModelOnOwnPlan(ctx) {
 		return true
 	}
-	token := ownSeatFirstToken(ctx, observer)
-	return token != "" && (provider != providers.ProviderAnthropic || !models.denied([]byte(token), model, now))
+	token := ownSeatFirstToken(ctx, current, observer)
+	return token != "" && !models.denied([]byte(token), model, now)
 }
 
-func ownSeatFirstToken(ctx context.Context, observer *usage.Observer) string {
+func ownSeatFirstToken(ctx context.Context, current *Credentials, observer *usage.Observer) string {
 	if !flags.BoolOr(ctx, flags.KeyOwnSeatFirst, false) {
-		return ""
-	}
-	current := CredentialsFromContext(ctx)
-	if current == nil || !current.OAuth {
 		return ""
 	}
 	inbound := string(current.APIKey)
@@ -37,13 +32,13 @@ func ownSeatFirstToken(ctx context.Context, observer *usage.Observer) string {
 	if observer.Rejected(key) {
 		return ""
 	}
-	snap, observed := observer.Snapshot(key)
-	if observed && snap.BillableOrExhausted() && !ownOverageServesFirst(ctx, snap) {
+	snapshot, observed := observer.Snapshot(key)
+	if observed && snapshot.BillableOrExhausted() && !ownOverageServesFirst(ctx, snapshot) {
 		return ""
 	}
 	return inbound
 }
 
-func ownOverageServesFirst(ctx context.Context, snap usage.Snapshot) bool {
-	return snap.OverageInUse && flags.BoolOr(ctx, flags.KeyOwnSeatFirst, false) && flags.BoolOr(ctx, flags.KeyOwnOverageBeforePool, false)
+func ownOverageServesFirst(ctx context.Context, snapshot usage.Snapshot) bool {
+	return snapshot.OverageInUse && flags.BoolOr(ctx, flags.KeyOwnSeatFirst, false) && flags.BoolOr(ctx, flags.KeyOwnOverageBeforePool, false)
 }
