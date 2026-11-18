@@ -45,6 +45,7 @@ import (
 	"weave-os/router/internal/providers/cortexagents"
 	googleProvider "weave-os/router/internal/providers/google"
 	providerHTTP "weave-os/router/internal/providers/httputil"
+	"weave-os/router/internal/providers/keenable"
 	openaiProvider "weave-os/router/internal/providers/openai"
 	openaiCompatProvider "weave-os/router/internal/providers/openaicompat"
 	"weave-os/router/internal/proxy"
@@ -1218,6 +1219,7 @@ func main() {
 		WithSummarizer(summarizer).
 		WithCompactionHandoverSummarizer(compactionHandoverSz).
 		WithWebSearchExecutor(cortexWebSearch(logger)).
+		WithFallbackWebSearchExecutor(keenableWebSearch(logger)).
 		WithAvailableModels(servedModels).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
 		WithBillingService(billingSvc), rlRouter)
@@ -1728,6 +1730,16 @@ func cortexWebSearch(logger *slog.Logger) websearch.Executor {
 		opts = append(opts, cortexagents.WithHostSuffix(hostSuffix))
 	}
 	return cortexagents.NewClient(config.GetOr("ANTHROPIC_GATEWAY_BASE_URL", ""), opts...)
+}
+
+func keenableWebSearch(logger *slog.Logger) websearch.Executor {
+	if config.GetOr("ROUTER_KEENABLE_WEB_SEARCH", "false") != "true" {
+		return nil
+	}
+	client := keenable.NewClient(config.GetOr("KEENABLE_BASE_URL", keenable.DefaultBaseURL),
+		keenable.WithAPIKey(config.GetOr("KEENABLE_API_KEY", "")))
+	logger.Info("Keenable web-search fallback enabled", "key_configured", !client.Keyless())
+	return client
 }
 
 func resolveDefaultBaselineModel() string {
