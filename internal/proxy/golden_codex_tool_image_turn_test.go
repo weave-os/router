@@ -93,8 +93,7 @@ func TestCodexToolOutputImageKeepsSessionModel(t *testing.T) {
 		served := h.serve(t, sc.ingress, req)
 		require.Equal(t, http.StatusOK, served.Response.Status, "turn %d response: %+v", i, served.Response.Body)
 		require.NotEmpty(t, served.Attempts, "turn %d", i)
-		last := served.Attempts[len(served.Attempts)-1]
-		require.Equal(t, goldenCodexModel, last.Model, "turn %d left the session's model", i)
+		require.Equal(t, goldenCodexModel, served.Attempts[len(served.Attempts)-1].Model, "turn %d left the session's model", i)
 		turnTypes = append(turnTypes, goldenTelemetryTurnType(t, served))
 	}
 	require.Equal(t, []string{"main_loop", "tool_result", "tool_result"}, turnTypes)
