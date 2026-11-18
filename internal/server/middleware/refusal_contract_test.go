@@ -50,14 +50,14 @@ func runTestBudgetCheck(t *testing.T, book stubTestBudgetBook) *httptest.Respons
 	return rr
 }
 
-func runSubscriberGate(t *testing.T, gate func(*entitlement.Service) gin.HandlerFunc, entitlements *stubEntitlements, allowances *stubAllowances) *httptest.ResponseRecorder {
+func runSubscriberGate(t *testing.T, gate func(*entitlement.Service, bool) gin.HandlerFunc, entitlements *stubEntitlements, allowances *stubAllowances) *httptest.ResponseRecorder {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	svc := entitlement.NewService(entitlements, allowances).WithClock(func() time.Time { return allowanceNow })
 	engine := gin.New()
 	engine.POST("/v1/messages", func(c *gin.Context) {
 		c.Set("router_api_key", subscriberAPIKey())
-		gate(svc)(c)
+		gate(svc, false)(c)
 		if !c.IsAborted() {
 			c.Status(http.StatusOK)
 		}

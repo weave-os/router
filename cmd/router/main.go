@@ -524,6 +524,7 @@ func main() {
 		WithFlagOverridesDisabled(flagOverridesDisabled).
 		WithSessionSpendCaps(billingSvc != nil)
 	subscriptionPoolsEnabled := config.GetOr("ROUTER_SUBSCRIPTION_POOLS_ENABLED", "false") == "true"
+	installationPoolAllowance := config.GetOr("ROUTER_INSTALLATION_POOL_ALLOWANCE", "false") == "true"
 	subscriptionRuntime, subscriptionLogins := buildSubscriptionRuntime(subscriptionPoolsEnabled, authSvc, repo.SubscriptionAccounts, logger)
 
 	subCtx, subCancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1078,6 +1079,7 @@ func main() {
 		flags.KeyAuthorityCacheShadow:                 boolDefault(authorityCacheShadow),
 		flags.KeyAgreementShadowEpoch:                 "0",
 		flags.KeySiblingFailover:                      boolDefault(siblingFailover),
+		flags.KeyInstallationPoolAllowance:            boolDefault(installationPoolAllowance),
 		flags.KeyOpenAIResponsesBroad:                 boolDefault(openAIResponsesBroad),
 		flags.KeyAllowedModelsHeader:                  boolDefault(allowedModelsHeader),
 		flags.KeyCCTaskToolsCrossVendor:               boolDefault(ccTaskToolsCrossVendor),
@@ -1384,16 +1386,17 @@ func main() {
 	egressProbe.prepare(processCtx, logger, providerMap, envKeyedProviders, initializedOrigins)
 	logger.Info("Router startup initialization complete")
 	serverFeatures := server.Features{
-		SubscriptionLogins:       subscriptionLogins,
-		SubscriptionRefresh:      subscriptionRuntime,
-		StartupDatabasePing:      pool.Ping,
-		TestPlans:                testPlans,
-		PolicyPinEnabled:         policyPinEnabled,
-		ServingAdmission:         servingAdmission,
-		SubscriberAllowance:      subscriberAllowanceSvc,
-		SubscriptionPoolsEnabled: subscriptionPoolsEnabled,
-		PolicyStatus:             policyStatus,
-		RoutingDistribution:      routingDistribution,
+		SubscriptionLogins:        subscriptionLogins,
+		SubscriptionRefresh:       subscriptionRuntime,
+		StartupDatabasePing:       pool.Ping,
+		TestPlans:                 testPlans,
+		PolicyPinEnabled:          policyPinEnabled,
+		ServingAdmission:          servingAdmission,
+		SubscriberAllowance:       subscriberAllowanceSvc,
+		InstallationPoolAllowance: installationPoolAllowance,
+		SubscriptionPoolsEnabled:  subscriptionPoolsEnabled,
+		PolicyStatus:              policyStatus,
+		RoutingDistribution:       routingDistribution,
 	}
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture
