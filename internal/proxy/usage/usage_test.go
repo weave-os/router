@@ -118,6 +118,18 @@ func TestParseAnthropicUnified_OverageWithoutQuotaWindows(t *testing.T) {
 	assert.False(t, snap.Exhausted(), "overage is billable, but the token can still serve")
 }
 
+func TestParseAnthropicUnified_OverageCapRejectedIsNotInUse(t *testing.T) {
+	h := http.Header{}
+	h.Set("anthropic-ratelimit-unified-representative-claim", "overage")
+	h.Set("anthropic-ratelimit-unified-overage-in-use", "true")
+	h.Set("anthropic-ratelimit-unified-status", "rejected")
+	h.Set("anthropic-ratelimit-unified-overage-status", "rejected")
+	h.Set("anthropic-ratelimit-unified-reset", "1790812800")
+	snap, ok := usage.ParseAnthropicUnifiedHeaders(h)
+	require.True(t, ok)
+	assert.False(t, snap.OverageInUse, "a capped overage no longer serves")
+}
+
 func TestParseAnthropicUnified_OverageIncludedIsNotPaid(t *testing.T) {
 	h := http.Header{}
 	h.Set("anthropic-ratelimit-unified-representative-claim", "seven_day_overage_included")
