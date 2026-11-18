@@ -58,7 +58,7 @@ type runtimeStore struct {
 }
 
 // ListSubscriptionCandidates mirrors the candidate SQL: every subscriber-assigned
-// account is admitted, the requester's personal accounts first.
+// account is admitted and tiered against the requester for attribution.
 func (s *runtimeStore) ListSubscriptionCandidates(_ context.Context, owner auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1104,7 +1104,7 @@ func TestRuntimeLeasesAnotherMembersSharedAccountAfterPersonal(t *testing.T) {
 	shared.Release()
 }
 
-func TestRuntimeQuotaAwareSelectionPrefersSoonerResetWithinPersonalTier(t *testing.T) {
+func TestRuntimeQuotaAwareSelectionRanksRequesterSeatsWithThePool(t *testing.T) {
 	now := time.Date(2026, time.November, 9, 12, 0, 0, 0, time.UTC)
 	store := newRuntimeStore(
 		&auth.SubscriptionAccount{ID: "personal-later", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true},
@@ -1130,7 +1130,7 @@ func TestRuntimeQuotaAwareSelectionPrefersSoonerResetWithinPersonalTier(t *testi
 	lease, present, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "")
 	require.NoError(t, err)
 	require.True(t, present)
-	require.Equal(t, "personal-sooner", lease.AccountID, "personal capacity remains ahead of shared capacity")
+	require.Equal(t, "shared-sooner", lease.AccountID, "the requester's seats get no priority over pooled seats")
 	lease.Release()
 }
 
