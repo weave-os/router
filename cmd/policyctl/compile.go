@@ -63,11 +63,11 @@ func runCompile(args []string) error {
 }
 
 func checkTaskDomainEvidence(path string, roster *rosterdata.Roster) error {
-	payload, err := os.ReadFile(path)
+	evidenceJSON, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read task-domain evidence: %w", err)
 	}
-	if _, err := selection.ParseDomainEvidence(payload, roster); err != nil {
+	if _, err := selection.ParseDomainEvidence(evidenceJSON, roster); err != nil {
 		return fmt.Errorf("validate task-domain evidence: %w", err)
 	}
 	return nil
