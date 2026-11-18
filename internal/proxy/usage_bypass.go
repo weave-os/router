@@ -437,7 +437,7 @@ func (s *Service) bypassToAnthropic(
 		String("router_user_id", auth.UserIDFrom(ctx)).
 		String("client.app", clientID.TelemetryClientApp()).
 		String("client.session_id", clientID.SessionID).
-		String("requested.model", decision.Model).
+		String("requested.model", feats.Model).
 		String("decision.model", decision.Model).
 		String("decision.provider", decision.Provider).
 		String("decision.reason", decision.Reason).

@@ -66,10 +66,15 @@ func runRescueBypass(t *testing.T, p *modelScriptedProvider, retry bool, stream 
 
 func runRescueBypassBody(t *testing.T, p *modelScriptedProvider, retry bool, stream bool, body string) (*httptest.ResponseRecorder, *bypassCaptureTelemetry) {
 	t.Helper()
+	return runRescueBypassOn(t, p, retry, stream, body, rescueReviewerModel)
+}
+
+func runRescueBypassOn(t *testing.T, p *modelScriptedProvider, retry bool, stream bool, body, fallbackModel string) (*httptest.ResponseRecorder, *bypassCaptureTelemetry) {
+	t.Helper()
 	svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: p})}
 	svc.anthropicServerSideFallback = true
 	svc.cyberRefusalRetry = retry
-	svc.cyberRefusalFallbackModel = rescueReviewerModel
+	svc.cyberRefusalFallbackModel = fallbackModel
 	sink := newBypassCaptureTelemetry()
 	svc.telemetry = sink
 
@@ -148,6 +153,37 @@ func TestBypass_ClassifierRefusal_LargeCheckCarriesExtendedContextBeta(t *testin
 	assert.Equal(t, []string{rescueRefusingModel, rescueReviewerModel}, p.models)
 	assert.JSONEq(t, rescueVerdict(), rec.Body.String())
 	assert.Contains(t, p.betas[1], "context-1m")
+}
+
+// An effort level the reviewer model can't take is clamped to its highest one.
+func TestBypass_ClassifierRefusal_ClampsUnsupportedEffort(t *testing.T) {
+	p := &modelScriptedProvider{replies: map[string]string{
+		rescueRefusingModel: rescueRefusal(rescueRefusingModel),
+		rescueReviewerModel: rescueVerdict(),
+	}}
+	body := strings.Replace(classifierStage2Body(""), `"max_tokens":10240,`, `"max_tokens":10240,"output_config":{"effort":"xhigh"},`, 1)
+
+	runRescueBypassBody(t, p, true, false, body)
+
+	require.Len(t, p.bodies, 2)
+	assert.Equal(t, "xhigh", gjson.GetBytes(p.bodies[0], "output_config.effort").String())
+	assert.Equal(t, "max", gjson.GetBytes(p.bodies[1], "output_config.effort").String())
+}
+
+// A fallback model that accepts Anthropic's server-side fallback gets both the
+// field and its beta, never the field alone.
+func TestBypass_ClassifierRefusal_FallbackCapableModelGetsFallbackBeta(t *testing.T) {
+	const capableFallback = "claude-opus-5"
+	p := &modelScriptedProvider{replies: map[string]string{
+		rescueRefusingModel: rescueRefusal(rescueRefusingModel),
+		capableFallback:     rescueVerdict(),
+	}}
+
+	runRescueBypassOn(t, p, true, false, classifierStage2Body(""), capableFallback)
+
+	require.Len(t, p.bodies, 2)
+	assert.Equal(t, "default", gjson.GetBytes(p.bodies[1], "fallbacks").String())
+	assert.Contains(t, p.betas[1], "server-side-fallback")
 }
 
 // If the reviewer model refuses too, the client gets the original refusal.

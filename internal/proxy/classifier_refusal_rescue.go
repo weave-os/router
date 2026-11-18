@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 
 	"weave-os/router/internal/observability"
@@ -29,7 +30,7 @@ type classifierRefusalRescue struct {
 
 func newClassifierRefusalRescue(ctx context.Context, policy classifierRescuePolicy, turnType turntype.TurnType, stream bool, served router.Decision, in http.Header, opts translate.EmitOptions) classifierRefusalRescue {
 	fallbackModel := policy.fallbackModel
-	if !policy.enabled || turnType != turntype.Classifier || stream || served.Provider != providers.ProviderAnthropic ||
+	if !policy.enabled || turnType != turntype.Classifier || stream ||
 		fallbackModel == "" || fallbackModel == served.Model ||
 		!modelPermittedByAllowlist(ctx, fallbackModel) || !modelInRequestSubset(ctx, fallbackModel) {
 		return classifierRefusalRescue{}
@@ -47,8 +48,11 @@ func (c classifierRefusalRescue) prepare(served providers.PreparedRequest) (prov
 	if err != nil {
 		return providers.PreparedRequest{}, false
 	}
-	if !c.opts.Capabilities.Supports(router.CapServerSideFallback) {
-		if body, err = sjson.DeleteBytes(body, "fallbacks"); err != nil {
+	if body, err = sjson.DeleteBytes(body, "fallbacks"); err != nil {
+		return providers.PreparedRequest{}, false
+	}
+	if effort := gjson.GetBytes(body, "output_config.effort").String(); effort != "" {
+		if body, err = sjson.SetBytes(body, "output_config.effort", translate.ResolveForceEffort(c.opts.Capabilities, effort)); err != nil {
 			return providers.PreparedRequest{}, false
 		}
 	}
@@ -71,26 +75,26 @@ func proxyClassifierWithRefusalRescue(ctx context.Context, proxy classifierProxy
 	if !rescue.armed {
 		return served, proxy(served, prep, w)
 	}
-	first := &bufferedResponse{header: make(http.Header)}
-	err := proxy(served, prep, first)
-	if err != nil || !detectRefusalSignal(first.body.Bytes()) {
-		return served, first.replay(w, err)
+	servedResp := &bufferedResponse{header: make(http.Header)}
+	err := proxy(served, prep, servedResp)
+	if err != nil || !detectRefusalSignal(servedResp.body.Bytes()) {
+		return served, servedResp.replay(w, err)
 	}
 	fallbackPrep, ok := rescue.prepare(prep)
 	if !ok {
-		return served, first.replay(w, nil)
+		return served, servedResp.replay(w, nil)
 	}
-	second := &bufferedResponse{header: make(http.Header)}
-	secondErr := proxy(rescue.decision, fallbackPrep, second)
+	fallbackResp := &bufferedResponse{header: make(http.Header)}
+	fallbackErr := proxy(rescue.decision, fallbackPrep, fallbackResp)
 	log := observability.FromContext(ctx)
-	category := refusalCategory(first.body.Bytes())
-	if secondErr != nil || second.status != http.StatusOK || detectRefusalSignal(second.body.Bytes()) {
+	category := refusalCategory(servedResp.body.Bytes())
+	if fallbackErr != nil || fallbackResp.status != http.StatusOK || detectRefusalSignal(fallbackResp.body.Bytes()) {
 		log.Info("classifier refusal not rescued on fallback model",
-			"from_model", served.Model, "to_model", rescue.decision.Model, "refusal_category", category, "fallback_err", secondErr)
-		return served, first.replay(w, nil)
+			"from_model", served.Model, "to_model", rescue.decision.Model, "refusal_category", category, "fallback_err", fallbackErr)
+		return served, servedResp.replay(w, nil)
 	}
 	log.Info("classifier refusal re-served on fallback model",
 		"from_model", served.Model, "to_model", rescue.decision.Model, "refusal_category", category)
 	w.Header().Set(HeaderRouterModel, rescue.decision.Model)
-	return rescue.decision, second.replay(w, nil)
+	return rescue.decision, fallbackResp.replay(w, nil)
 }
