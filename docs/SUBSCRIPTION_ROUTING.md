@@ -173,12 +173,14 @@ both.
   overrides, model lists, routing policy, experiments). It never establishes
   subscription ownership, seat management or billing ownership. On a shared key
   anyone can report any email, so treat those controls as advisory.
-- **Connecting a seat.** `login claude|codex` refuses a shared key before
-  provider sign-in: `/validate` reports `"shared": true` and subscription
-  management returns `personal_identity_required`. People connect their own
-  seat from the Weave subscriptions page while signed in. Any active
-  installation member may enroll without a personal key; the newest personal
-  key, when one exists, is kept only as enrollment attribution.
+- **Connecting a seat.** A seat belongs to the person signed in to Weave, not
+  to a key. On the hosted router, `login claude|codex` opens the Weave
+  subscriptions page, which connects the seat to whoever is signed in. A
+  self-hosted router refuses `login` on a shared key before provider sign-in.
+  `/validate` reports `"shared": true`, and subscription management on a shared
+  key returns `personal_identity_required`. Any active installation member may
+  enroll without a personal key; the newest personal key, when one exists, is
+  kept only as enrollment attribution.
 
 ## Subscription pass-through lanes
 
