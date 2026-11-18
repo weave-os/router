@@ -532,19 +532,6 @@ func (s *Service) bypassToAnthropic(
 	}
 
 	servedCredentialSource, servedSubscriptionTier := s.servedCredentialLogValues(ctx)
-	log.Info("ProxyMessages usage-bypass complete",
-		"request_id", requestID,
-		"external_id", externalID,
-		"requested_model", feats.Model,
-		"decision_model", decision.Model,
-		"proxy_ms", s.clock.Now().Sub(proxyStart).Milliseconds(),
-		"total_ms", s.clock.Now().Sub(requestStart).Milliseconds(),
-		"proxy_err", proxyErr,
-		"resp_stop_reason", stopReason,
-		"resp_refusal", passiveRefusal.scan.refused,
-		"resp_refusal_category", passiveRefusal.scan.category,
-		"credential_source", servedCredentialSource,
-		"subscription_tier", servedSubscriptionTier,
-	)
+	bypassCompletionLog{externalID: externalID, requestedModel: feats.Model, decisionModel: decision.Model, proxyMs: s.clock.Now().Sub(proxyStart).Milliseconds(), totalMs: s.clock.Now().Sub(requestStart).Milliseconds(), proxyErr: proxyErr, stopReason: stopReason, refusal: &passiveRefusal.scan, credentialSource: servedCredentialSource, subscriptionTier: servedSubscriptionTier}.emit(log)
 	return proxyErr
 }
