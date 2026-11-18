@@ -3657,12 +3657,27 @@ models_api_error() {
 # names no person, so the seat has no owner. The signed-in web flow does.
 shared_key_login_hint() {
   err "This Router key is a shared team key, so it can't tell whose subscription to connect."
+  printf '  This router connects subscription seats only through a personal key tied to one person.\n' >&2
+}
+
+# hosted_router reports whether $base_url is Weave's hosted router, where seats
+# are connected by the person signed in to Weave rather than by a router key.
+hosted_router() {
   case "$base_url" in
-    "$HOSTED_BASE_URL"|"$LEGACY_HOSTED_BASE_URL")
-      printf '  Connect your own Claude or ChatGPT seat while signed in to Weave: %s\n' "$SUBSCRIPTIONS_DASHBOARD_URL" >&2 ;;
-    *)
-      printf '  This router connects subscription seats only through a personal key tied to one person.\n' >&2 ;;
+    "$HOSTED_BASE_URL"|"$LEGACY_HOSTED_BASE_URL") return 0 ;;
+    *) return 1 ;;
   esac
+}
+
+# run_login_in_browser hands seat enrollment to the Weave subscriptions page,
+# which connects the seat to whoever is signed in. Router keys are org keys,
+# so the terminal never decides whose seat it is.
+run_login_in_browser() {
+  local provider="$1" url
+  url="$SUBSCRIPTIONS_DASHBOARD_URL?reconnect=$provider"
+  info "Connect your subscription in the browser while signed in to Weave."
+  printf '  If the browser does not open, visit:\n  %s\n' "$url"
+  open_url_in_browser "$url" || true
 }
 
 # models_fail turns the status left by models_api into a message that says what
@@ -4227,6 +4242,10 @@ run_login() {
     claude|codex) models_api GET "/validate" || models_fail "checking Router setup" ;;
     *) err "Unknown subscription provider: $provider."; exit 2 ;;
   esac
+  if hosted_router; then
+    run_login_in_browser "$provider"
+    return 0
+  fi
   if [ "$(printf '%s' "$models_http_body" | jq -r '.shared // false' 2>/dev/null)" = "true" ]; then
     shared_key_login_hint
     exit 1

@@ -74,8 +74,10 @@ case "$url" in
 esac
 FAKE_CURL
 chmod +x "$work/bin/curl"
-printf '#!/usr/bin/env bash\nexit 0\n' >"$work/bin/open"
+export FAKE_BROWSER_LOG="$work/browser.log"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$1" >>"$FAKE_BROWSER_LOG"\n' >"$work/bin/open"
 chmod +x "$work/bin/open"
+cp "$work/bin/open" "$work/bin/xdg-open"
 
 common_env=(HOME="$work/home" XDG_CACHE_HOME="$work/home/.cache" PATH="$work/bin:$PATH" WEAVE_ROUTER_KEY="rk_test_secret" NO_COLOR=1)
 
@@ -163,12 +165,21 @@ for provider in claude codex; do
   fi
 done
 
-if hosted_shared_output="$(env "${common_env[@]}" FAKE_VALIDATION_BODY='{"valid":true,"shared":true}' \
-    bash "$installer" login claude --base-url https://router.weaveos.com --non-interactive --quiet 2>&1)"; then
-  echo 'hosted login continued on a shared team key' >&2
-  exit 1
-fi
-grep -Fq 'https://app.weaveos.com/home/router/settings/subscriptions' <<<"$hosted_shared_output"
+for provider in claude codex; do
+  : >"$FAKE_CURL_LOG"
+  : >"$FAKE_BROWSER_LOG"
+  hosted_output="$(env "${common_env[@]}" FAKE_VALIDATION_BODY='{"valid":true,"shared":true}' \
+    bash "$installer" login "$provider" --base-url https://router.weaveos.com --non-interactive --quiet 2>&1)" || {
+    echo "hosted $provider login did not hand off to the browser" >&2
+    exit 1
+  }
+  grep -Fq "https://app.weaveos.com/home/router/settings/subscriptions?reconnect=$provider" <<<"$hosted_output"
+  grep -Fxq "https://app.weaveos.com/home/router/settings/subscriptions?reconnect=$provider" "$FAKE_BROWSER_LOG"
+  if grep -Eq 'oauth|deviceauth|subscriptions/accounts' "$FAKE_CURL_LOG"; then
+    echo "hosted $provider login enrolled through the router key" >&2
+    exit 1
+  fi
+done
 
 if listing_output="$(env "${common_env[@]}" FAKE_ENROLLMENT_STATUS=403 FAKE_ENROLLMENT_ERROR=personal_identity_required \
     bash "$installer" accounts list --base-url https://router.example.test --non-interactive --quiet 2>&1)"; then
