@@ -144,6 +144,19 @@ func (r *Registry) ReadPolicy(ctx context.Context, ref ObjectRef) (*selectionpol
 	return selectionpolicy.Admit(payload)
 }
 
+func (r *Registry) ReadServingPolicy(ctx context.Context, ref ObjectRef) (*rosterdata.Roster, error) {
+	payload, err := r.readExact(ctx, ref, policyObjectPrefix)
+	if err != nil {
+		return nil, err
+	}
+	roster, err := rosterdata.Parse(payload)
+	if err != nil {
+		return nil, err
+	}
+	roster.SHA256 = rosterdata.SHA256Hex(payload)
+	return roster, nil
+}
+
 func (r *Registry) ReleaseRef(ctx context.Context, digest string) (ObjectRef, error) {
 	if !validDigest(digest) {
 		return ObjectRef{}, fmt.Errorf("invalid release digest %q", digest)

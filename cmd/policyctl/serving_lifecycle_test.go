@@ -70,6 +70,9 @@ func (r *cliServingRegistry) readServingObject(kind policyregistry.ServingKind, 
 func (r *cliServingRegistry) ReadClassifierRuntimeBinding(context.Context, policyregistry.Environment, string) (policyregistry.ResolvedClassifierRuntimeBinding, error) {
 	return policyregistry.ResolvedClassifierRuntimeBinding{}, policyregistry.ErrNotFound
 }
+func (r *cliServingRegistry) ReadServingPolicy(context.Context, policyregistry.ObjectRef) (*rosterdata.Roster, error) {
+	return r.policy, nil
+}
 func (r *cliServingRegistry) ReadPolicy(context.Context, policyregistry.ObjectRef) (*selectionpolicy.Policy, error) {
 	return admitFixture(r.policy)
 }

@@ -63,6 +63,13 @@ func (s *admissionManifestStore) ReadServingObject(_ context.Context, kind polic
 	return manifest, payload, nil
 }
 
+func (s *admissionManifestStore) ReadServingPolicy(_ context.Context, ref policyregistry.ObjectRef) (*rosterdata.Roster, error) {
+	if ref != s.policyRef {
+		return nil, policyregistry.ErrNotFound
+	}
+	return s.policy.Roster(), nil
+}
+
 func (s *admissionManifestStore) ReadPolicy(_ context.Context, ref policyregistry.ObjectRef) (*selectionpolicy.Policy, error) {
 	s.policyReads++
 	if ref != s.policyRef {

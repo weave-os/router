@@ -755,6 +755,9 @@ type admittedFixture struct {
 	policy *selectionpolicy.Policy
 }
 
+func (s *servingMemoryStore) ReadServingPolicy(_ context.Context, ref policyregistry.ObjectRef) (*rosterdata.Roster, error) {
+	return s.storedPolicy(ref)
+}
 func (s *servingMemoryStore) storedPolicy(ref policyregistry.ObjectRef) (*rosterdata.Roster, error) {
 	policy, exists := s.policies[ref]
 	if !exists {

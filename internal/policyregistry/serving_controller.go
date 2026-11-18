@@ -934,11 +934,10 @@ func ReadPreparedSelection(ctx context.Context, store ServingStore, target Servi
 	if policyReference == (PolicyObject{}) {
 		policyReference = candidate.Policy
 	}
-	admitted, err := store.ReadPolicy(ctx, ObjectRef{URI: policyReference.URI, SHA256: policyReference.SHA256, Generation: policyReference.Generation})
+	policy, err := store.ReadServingPolicy(ctx, ObjectRef{URI: policyReference.URI, SHA256: policyReference.SHA256, Generation: policyReference.Generation})
 	if err != nil {
 		return PreparedSelection{}, fmt.Errorf("read policy %s for target %s profile %q: %w", policyReference.SHA256, target, profileKey, err)
 	}
-	policy := admitted.Roster()
 	if policy.SchemaVersion != candidate.Requirements.PolicySchema || !slices.Equal(policy.ClassOrder, candidate.Classifier.Identity.ClassOrder) {
 		return PreparedSelection{}, errors.New("compiled policy does not match classifier schema/taxonomy")
 	}
