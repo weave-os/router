@@ -48,8 +48,10 @@ func (c classifierRefusalRescue) prepare(served providers.PreparedRequest) (prov
 	if err != nil {
 		return providers.PreparedRequest{}, false
 	}
-	if body, err = sjson.DeleteBytes(body, "fallbacks"); err != nil {
-		return providers.PreparedRequest{}, false
+	if !c.opts.Capabilities.Supports(router.CapServerSideFallback) {
+		if body, err = sjson.DeleteBytes(body, "fallbacks"); err != nil {
+			return providers.PreparedRequest{}, false
+		}
 	}
 	if effort := gjson.GetBytes(body, "output_config.effort").String(); effort != "" {
 		if body, err = sjson.SetBytes(body, "output_config.effort", translate.ResolveForceEffort(c.opts.Capabilities, effort)); err != nil {
@@ -64,7 +66,7 @@ func (c classifierRefusalRescue) prepare(served providers.PreparedRequest) (prov
 	if err != nil {
 		return providers.PreparedRequest{}, false
 	}
-	if beta := translate.ExtendedContextBeta(prep.Headers.Get("anthropic-beta"), c.opts); beta != "" {
+	if beta := translate.ServerSideFallbackBeta(translate.ExtendedContextBeta(prep.Headers.Get("anthropic-beta"), c.opts), prep.Body); beta != "" {
 		prep.Headers.Set("anthropic-beta", beta)
 	}
 	prep.ResponseToolNames = served.ResponseToolNames

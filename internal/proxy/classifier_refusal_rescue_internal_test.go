@@ -186,6 +186,23 @@ func TestBypass_ClassifierRefusal_FallbackCapableModelGetsFallbackBeta(t *testin
 	assert.Contains(t, p.betas[1], "server-side-fallback")
 }
 
+// A client's own fallbacks choice survives the re-serve on a model that
+// accepts the field.
+func TestBypass_ClassifierRefusal_KeepsClientFallbackChoice(t *testing.T) {
+	const capableFallback = "claude-opus-5"
+	p := &modelScriptedProvider{replies: map[string]string{
+		rescueRefusingModel: rescueRefusal(rescueRefusingModel),
+		capableFallback:     rescueVerdict(),
+	}}
+	body := strings.Replace(classifierStage2Body(""), `"max_tokens":10240,`, `"max_tokens":10240,"fallbacks":"none",`, 1)
+
+	runRescueBypassOn(t, p, true, false, body, capableFallback)
+
+	require.Len(t, p.bodies, 2)
+	assert.Equal(t, "none", gjson.GetBytes(p.bodies[1], "fallbacks").String())
+	assert.Contains(t, p.betas[1], "server-side-fallback")
+}
+
 // If the reviewer model refuses too, the client gets the original refusal.
 func TestBypass_ClassifierRefusal_FallbackAlsoRefusesReturnsOriginal(t *testing.T) {
 	p := &modelScriptedProvider{replies: map[string]string{

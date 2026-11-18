@@ -85,6 +85,13 @@ func ExtendedContextBeta(beta string, opts EmitOptions) string {
 	return beta
 }
 
+func ServerSideFallbackBeta(beta string, body []byte) string {
+	if gjson.GetBytes(body, "fallbacks").Exists() {
+		return ensureBetaToken(beta, serverSideFallbackBeta)
+	}
+	return beta
+}
+
 func verbatimServerSideFallback(body []byte, opts EmitOptions) bool {
 	return opts.EnableServerSideFallback &&
 		opts.TargetProvider == providers.ProviderAnthropic &&
