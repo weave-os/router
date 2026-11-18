@@ -65,6 +65,9 @@ func TestParseOverridesIgnoresRetiredFlags(t *testing.T) {
 		"struggle_evidence_arming": false,
 		"subscriber_paid_fallback_enabled": false,
 		"subscription_pool_quota_aware_selection_enabled": true,
+		"authoritative_upgrade_holdout_pct": 10,
+		"hmm_same_tier_pin": true,
+		"planner_cold_pin_follow_fresh": true,
 		"planner_enabled": false,
 		"loop_escalation_holdout_pct": 25
 	}`))
@@ -74,6 +77,7 @@ func TestParseOverridesIgnoresRetiredFlags(t *testing.T) {
 	assert.NotContains(t, o.Keys(), flags.Key("struggle_escalation_enabled"))
 	assert.NotContains(t, o.Keys(), flags.Key("subscriber_paid_fallback_enabled"))
 	assert.NotContains(t, o.Keys(), flags.Key("subscription_pool_quota_aware_selection_enabled"))
+	assert.NotContains(t, o.Keys(), flags.Key("hmm_same_tier_pin"))
 }
 
 func TestParseOverridesRejectsBadPayloads(t *testing.T) {
@@ -293,14 +297,14 @@ func TestAuthoritativeDowngradeControlsAreOrgOverridable(t *testing.T) {
 }
 
 func TestRegistryVersionTracksRegistryMembership(t *testing.T) {
-	const membershipAtVersion33 = "701c20b6ef41b5515d49c69804bc4481d9a39f6355ce22298ed7ce0bb158394c"
+	const membershipAtVersion33 = "b0d4e43aa12107ff5ffd34747e2fac613d3a13ea3af5cfa75eb62bc7cc8e113f"
 	keys := make([]string, 0, len(flags.Registry))
 	for _, def := range flags.Registry {
 		keys = append(keys, string(def.Key))
 	}
 	sort.Strings(keys)
 	digest := sha256.Sum256([]byte(strings.Join(keys, "\n")))
-	require.Equal(t, 33, flags.RegistryVersion, "re-pin the membership digest for the new RegistryVersion")
+	require.Equal(t, 34, flags.RegistryVersion, "re-pin the membership digest for the new RegistryVersion")
 	assert.Equal(t, membershipAtVersion33, hex.EncodeToString(digest[:]),
 		"Registry membership changed: bump flags.RegistryVersion (currently %d) and re-pin this digest", flags.RegistryVersion)
 }

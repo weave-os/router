@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"weave-os/router/internal/flags"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
@@ -23,7 +22,6 @@ func hmmCostGateFor(s *Service) routingpolicy.HMMCostGate {
 
 func hmmCostGatedDecision(ctx context.Context, s *Service, input routingpolicy.HMMCostGateInput) (router.Decision, planner.Decision, bool, string) {
 	input.Planner = plannerConfigFor(ctx, s.planner)
-	input.SameTierPin = flags.BoolOr(ctx, flags.KeyHMMSameTierPin, s.hmmSameTierPin)
 	input.Now = s.clock.Now()
 	stayPin, plan, sticky := hmmCostGateFor(s).Decide(input)
 	if sticky {
