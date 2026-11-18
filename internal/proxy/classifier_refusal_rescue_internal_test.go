@@ -31,8 +31,8 @@ func rescueRefusal(model string) string {
 	return `{"id":"msg_r","type":"message","role":"assistant","model":"` + model + `","content":[],"stop_reason":"refusal","stop_details":{"type":"refusal","category":"reasoning_extraction"},"usage":{"input_tokens":10,"output_tokens":0}}`
 }
 
-func rescueVerdict(model string) string {
-	return `{"id":"msg_v","type":"message","role":"assistant","model":"` + model + `","content":[{"type":"text","text":"<block>no</block>"}],"stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":4}}`
+func rescueVerdict() string {
+	return `{"id":"msg_v","type":"message","role":"assistant","model":"` + rescueReviewerModel + `","content":[{"type":"text","text":"<block>no</block>"}],"stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":4}}`
 }
 
 type modelScriptedProvider struct {
@@ -110,13 +110,13 @@ func rescueTelemetryRow(t *testing.T, sink *bypassCaptureTelemetry) InsertTeleme
 func TestBypass_ClassifierRefusal_ReservedOnReviewerModel(t *testing.T) {
 	p := &modelScriptedProvider{replies: map[string]string{
 		rescueRefusingModel: rescueRefusal(rescueRefusingModel),
-		rescueReviewerModel: rescueVerdict(rescueReviewerModel),
+		rescueReviewerModel: rescueVerdict(),
 	}}
 
 	rec, sink := runRescueBypass(t, p, true, false)
 
 	assert.Equal(t, []string{rescueRefusingModel, rescueReviewerModel}, p.models)
-	assert.JSONEq(t, rescueVerdict(rescueReviewerModel), rec.Body.String())
+	assert.JSONEq(t, rescueVerdict(), rec.Body.String())
 	assert.Equal(t, rescueReviewerModel, rec.Header().Get(HeaderRouterModel))
 
 	require.Len(t, p.bodies, 2)
@@ -139,14 +139,14 @@ func TestBypass_ClassifierRefusal_ReservedOnReviewerModel(t *testing.T) {
 func TestBypass_ClassifierRefusal_LargeCheckCarriesExtendedContextBeta(t *testing.T) {
 	p := &modelScriptedProvider{replies: map[string]string{
 		rescueRefusingModel: rescueRefusal(rescueRefusingModel),
-		rescueReviewerModel: rescueVerdict(rescueReviewerModel),
+		rescueReviewerModel: rescueVerdict(),
 	}}
 	body := strings.Replace(classifierStage2Body(""), `run node a.js`, strings.Repeat("x", 4_000_000), 1)
 
 	rec, _ := runRescueBypassBody(t, p, true, false, body)
 
 	assert.Equal(t, []string{rescueRefusingModel, rescueReviewerModel}, p.models)
-	assert.JSONEq(t, rescueVerdict(rescueReviewerModel), rec.Body.String())
+	assert.JSONEq(t, rescueVerdict(), rec.Body.String())
 	assert.Contains(t, p.betas[1], "context-1m")
 }
 
@@ -177,7 +177,7 @@ func TestBypass_ClassifierRefusal_NotReservedWhenDisabledOrStreaming(t *testing.
 		t.Run(name, func(t *testing.T) {
 			p := &modelScriptedProvider{replies: map[string]string{
 				rescueRefusingModel: rescueRefusal(rescueRefusingModel),
-				rescueReviewerModel: rescueVerdict(rescueReviewerModel),
+				rescueReviewerModel: rescueVerdict(),
 			}}
 
 			rec, _ := runRescueBypass(t, p, tc.retry, tc.stream)
