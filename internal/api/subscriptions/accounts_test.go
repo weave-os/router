@@ -250,3 +250,29 @@ type enrollmentVerifier struct{}
 func (enrollmentVerifier) VerifyCodexEnrollment(_ context.Context, _ string, refreshToken []byte) (auth.VerifiedCodexEnrollment, error) {
 	return auth.VerifiedCodexEnrollment{ProviderUserID: "provider-user-1", RefreshToken: refreshToken}, nil
 }
+
+// A shared key names no person, so enrollment is refused with a typed error
+// the installer can turn into directions rather than "try again".
+func TestCreateAccountOnSharedKeyRequiresPersonalIdentity(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	accounts := &ownerRecordingRepo{}
+	sharedKey := &auth.APIKey{ID: "shared", ExternalID: "kid-shared", InstallationID: "installation", Scope: auth.ScopeRouting}
+	svc := auth.NewService(installationRepo{}, keyRepo{apiKey: sharedKey}, nil, nil, auth.NoOpAPIKeyCache{}, nil, time.Now).
+		WithSubscriptionAccounts(accounts).WithCodexEnrollmentVerifier(enrollmentVerifier{}).WithCredentialSubjectLookup(verifiedSubject{})
+	engine := gin.New()
+	group := engine.Group("/v1", middleware.WithAuth(svc, false))
+	subscriptionsapi.Register(group, svc)
+	body, err := json.Marshal(gin.H{
+		"provider": auth.SubscriptionProviderCodex, "external_account_id": "external-account", "refresh_token": "refresh",
+	})
+	require.NoError(t, err)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/subscriptions/accounts", bytes.NewReader(body))
+	request.Header.Set("Authorization", "Bearer rk_test")
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	require.Equal(t, http.StatusForbidden, response.Code, response.Body.String())
+	require.JSONEq(t, `{"error":"personal_identity_required"}`, response.Body.String())
+	require.Equal(t, auth.SubscriptionOwner{}, accounts.owner)
+}

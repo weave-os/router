@@ -148,6 +148,21 @@ for validation_status in 403 503; do
   fi
 done
 
+for provider in claude codex; do
+  : >"$FAKE_CURL_LOG"
+  if shared_output="$(env "${common_env[@]}" FAKE_VALIDATION_BODY='{"valid":true,"shared":true}' \
+      bash "$installer" login "$provider" --base-url https://router.example.test --non-interactive --quiet 2>&1)"; then
+    echo "$provider login continued on a shared team key" >&2
+    exit 1
+  fi
+  grep -Fq 'shared team key' <<<"$shared_output"
+  grep -Fq 'https://app.weaveos.com/home/router/settings/subscriptions' <<<"$shared_output"
+  if grep -Eq 'oauth|deviceauth|subscriptions/accounts' "$FAKE_CURL_LOG"; then
+    echo "$provider login started authorization on a shared team key" >&2
+    exit 1
+  fi
+done
+
 env "${common_env[@]}" bash "$installer" login codex --base-url https://router.example.test --non-interactive --quiet \
   | grep -Fq 'Codex subscription enrolled.'
 
