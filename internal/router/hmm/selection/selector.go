@@ -153,8 +153,7 @@ func unscorableGroups(roster *rosterdata.Roster, input policy.SelectionInput) ([
 	if input.PreferredRosterID != "" {
 		for index, group := range eligible {
 			for _, arm := range roster.Clusters[group].Arms {
-				baseID := armid.Parse(arm).Base
-				if baseID == input.PreferredRosterID {
+				if armid.Parse(arm).Base == input.PreferredRosterID {
 					return append([]string{group}, append(eligible[:index], eligible[index+1:]...)...), nil
 				}
 			}
@@ -197,8 +196,7 @@ func classifierGroups(input policy.SelectionInput) ([]string, error) {
 func eligibleOrder(order []string, candidates map[string]struct{}) []string {
 	eligible := make([]string, 0, len(order))
 	for _, arm := range order {
-		baseID := armid.Parse(arm).Base
-		if _, exists := candidates[baseID]; exists {
+		if _, exists := candidates[armid.Parse(arm).Base]; exists {
 			eligible = append(eligible, arm)
 		}
 	}

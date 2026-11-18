@@ -82,8 +82,7 @@ func RescueCoolingPool(overrides map[string][]string, groups []PreviewGroup, res
 			continue
 		}
 		for _, arm := range group.RosterArms {
-			rosterID := armid.Parse(arm).Base
-			model, eligible := softExcluded[rosterID]
+			model, eligible := softExcluded[armid.Parse(arm).Base]
 			if !eligible {
 				continue
 			}

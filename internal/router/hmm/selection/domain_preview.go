@@ -56,8 +56,7 @@ func PreviewDomainRanking(roster *rosterdata.Roster, evidence *DomainEvidence, l
 	}
 	candidates := make(map[string]struct{}, len(baselineOrder))
 	for _, arm := range baselineOrder {
-		baseID := armid.Parse(arm).Base
-		candidates[baseID] = struct{}{}
+		candidates[armid.Parse(arm).Base] = struct{}{}
 	}
 	groups := []Group{{Label: label}}
 	_, _, components, orders, _ := SelectGroupsWithSubscriptions(roster, groups, harness, subscriptionProviders, candidates, nil, nil, evidence, profile)

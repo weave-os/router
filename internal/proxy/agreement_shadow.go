@@ -67,8 +67,7 @@ func applyAgreementShadowTelemetry(ctx context.Context, p *InsertTelemetryParams
 	if trace.ForcedGroup != "" || trace.ClusterOverridesPresent || (trace.OverrideReason != router.SelectionOverrideNone && trace.OverrideReason != router.SelectionOverrideSlidingThreshold) {
 		return
 	}
-	selectedBase := armid.Parse(trace.SelectedArm).Base
-	selectedModel := armid.CatalogIDForRoster(selectedBase)
+	selectedModel := armid.CatalogIDForRoster(armid.Parse(trace.SelectedArm).Base)
 	if selectedModel != res.Fresh.Model || md.CandidateProviders[selectedModel] != res.Fresh.Provider {
 		shadow.Observation.Gap = switchpolicy.ShadowGapMissing
 		return

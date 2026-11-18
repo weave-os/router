@@ -113,8 +113,7 @@ func selectGroups(
 		_, harnessSpecific := ArmOrder(cluster, harness)
 		order := ordersByGroup[group.Label]
 		for _, arm := range order {
-			baseID := armid.Parse(arm).Base
-			if _, eligible := candidates[baseID]; !eligible {
+			if _, eligible := candidates[armid.Parse(arm).Base]; !eligible {
 				continue
 			}
 			return Pick{Group: group.Label, Arm: arm, FallbackDepth: depth, HarnessOrder: harnessSpecific}, scoresByGroup, componentsByGroup, ordersByGroup, true
@@ -226,8 +225,7 @@ func scoresWithDomainPreferences(
 	preferredRanks := preferenceRanks(preferredModels)
 	componentsByArm := make(map[string]router.SelectionScoreComponents, len(scores))
 	for arm, score := range scores {
-		baseID := armid.Parse(arm).Base
-		catalogID := armid.CatalogIDForRoster(baseID)
+		catalogID := armid.CatalogIDForRoster(armid.Parse(arm).Base)
 		components := router.SelectionScoreComponents{BaseScore: score - corrections[arm], TaskDomainCorrection: corrections[arm]}
 		if rank, preferred := preferredRanks[catalogID]; preferred {
 			components.PreferredModelBonus = float32(preferredModelBonus / float64(rank+1))
