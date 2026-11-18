@@ -2,11 +2,14 @@ package translate
 
 import (
 	"fmt"
-	"github.com/tidwall/gjson"
 	"net/http"
 	"strings"
 
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
+
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
 )
 
 func (e *RequestEnvelope) PrepareAnthropicPassthrough(in http.Header) (providers.PreparedRequest, error) {
@@ -54,16 +57,32 @@ func stripThinkingBetas(beta string) string {
 	})
 }
 
-func (e *RequestEnvelope) PrepareAnthropicVerbatim(in http.Header) providers.PreparedRequest {
+func (e *RequestEnvelope) PrepareAnthropicVerbatim(in http.Header, opts EmitOptions) (providers.PreparedRequest, error) {
 	h := make(http.Header)
 	h.Set("anthropic-version", in.Get("anthropic-version"))
 	if h.Get("anthropic-version") == "" {
 		h.Set("anthropic-version", "2023-06-01")
 	}
-	if beta := in.Get("anthropic-beta"); beta != "" {
+	beta := in.Get("anthropic-beta")
+	body := e.body
+	if verbatimServerSideFallback(body, opts) {
+		var err error
+		if body, err = sjson.SetBytes(body, "fallbacks", "default"); err != nil {
+			return providers.PreparedRequest{}, fmt.Errorf("set fallbacks: %w", err)
+		}
+		beta = ensureBetaToken(beta, serverSideFallbackBeta)
+	}
+	if beta != "" {
 		h.Set("anthropic-beta", beta)
 	}
-	return providers.PreparedRequest{Body: e.body, Headers: h}
+	return providers.PreparedRequest{Body: body, Headers: h}, nil
+}
+
+func verbatimServerSideFallback(body []byte, opts EmitOptions) bool {
+	return opts.EnableServerSideFallback &&
+		opts.TargetProvider == providers.ProviderAnthropic &&
+		opts.Capabilities.Supports(router.CapServerSideFallback) &&
+		!gjson.GetBytes(body, "fallbacks").Exists()
 }
 
 func (e *RequestEnvelope) PrepareOpenAIVerbatim(opts EmitOptions) (providers.PreparedRequest, bool) {
