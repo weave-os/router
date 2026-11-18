@@ -75,7 +75,10 @@ esac
 FAKE_CURL
 chmod +x "$work/bin/curl"
 export FAKE_BROWSER_LOG="$work/browser.log"
-printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$1" >>"$FAKE_BROWSER_LOG"\n' >"$work/bin/open"
+cat >"$work/bin/open" <<'FAKE_OPEN'
+#!/usr/bin/env bash
+printf '%s\n' "$1" >>"$FAKE_BROWSER_LOG"
+FAKE_OPEN
 chmod +x "$work/bin/open"
 cp "$work/bin/open" "$work/bin/xdg-open"
 
