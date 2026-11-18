@@ -88,7 +88,7 @@ func TestVerificationSQLSharingOwnershipAndIsolation(t *testing.T) {
 		for i, account := range accounts {
 			ids[i] = account.ID
 		}
-		require.Equal(t, expected, ids)
+		require.ElementsMatch(t, expected, ids)
 	}
 	assertCandidates([]string{personalAccount.String(), sharedAccount.String()})
 	accounts, err := repo.ListSubscriptionAccounts(ctx, owner)

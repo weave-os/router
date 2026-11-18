@@ -1071,7 +1071,7 @@ func TestRuntimeActivateDuringCooldownPreservesCooldown(t *testing.T) {
 	require.Equal(t, cooldownUntil, store.cooldowns["account-1"])
 }
 
-// Shared capacity follows personal capacity and is attributed to its owner.
+// A pooled seat serves when the requester's own is excluded and is attributed to its owner.
 func TestRuntimeLeasesAnotherMembersSharedAccountWhenPersonalExcluded(t *testing.T) {
 	store := newRuntimeStore(
 		&auth.SubscriptionAccount{ID: "personal-account", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1",

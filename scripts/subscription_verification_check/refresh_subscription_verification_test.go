@@ -292,17 +292,17 @@ func verifySQLTierLocalAffinity(t *testing.T, service *auth.Service, runtime *su
 	clock.Advance(2 * time.Minute)
 	retained, _, err := runtime.Lease(ctx, requester, subscriptions.ProviderCodex, "synthetic-affinity-session")
 	require.NoError(t, err)
-	require.Equal(t, second.ID, retained.AccountID, "quota-reset earlier shared account cannot break session affinity within same tier")
+	require.Equal(t, second.ID, retained.AccountID, "quota-reset earlier pooled account cannot break session affinity")
 	retained.Release()
 	personal, err := service.AddSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{Owner: requester, Provider: auth.SubscriptionProviderCodex, ExternalAccountID: "synthetic-affinity-personal-" + uuid.NewString(), RefreshToken: []byte("synthetic-refresh-original")})
 	require.NoError(t, err)
 	defer func() { require.NoError(t, service.DeleteSubscriptionAccount(ctx, requester, personal.ID)) }()
-	promoted, _, err := runtime.Lease(ctx, requester, subscriptions.ProviderCodex, "synthetic-affinity-session")
+	kept, _, err := runtime.Lease(ctx, requester, subscriptions.ProviderCodex, "synthetic-affinity-session")
 	require.NoError(t, err)
-	require.Equal(t, personal.ID, promoted.AccountID, "personal capacity always precedes remembered shared capacity")
-	require.Equal(t, requester.SubscriberID, promoted.OwnerID)
-	require.Equal(t, auth.SubscriptionTierPersonal, promoted.Tier)
-	promoted.Release()
+	require.Equal(t, second.ID, kept.AccountID, "a new requester seat gets no priority over the session's remembered pooled seat")
+	require.Equal(t, secondOwner.String(), kept.OwnerID)
+	require.Equal(t, auth.SubscriptionTierShared, kept.Tier)
+	kept.Release()
 }
 
 // steppedClock drives runtime cooldown decisions without wall-clock sleeps.
