@@ -19,7 +19,7 @@ import (
 const ModelPassthroughHeader = "X-Weave-Model-Passthrough"
 
 func applyRoutingModel(c *gin.Context, body []byte, available StrategyAvailability) bool {
-	model := router.RoutingModel(requestedModel(c, body))
+	model := router.CanonicalRoutingModel(requestedModel(c, body))
 	if !router.IsRoutingModel(string(model)) {
 		if strings.HasPrefix(string(model), "weave-") {
 			observability.FromGin(c).Debug("Unknown routing model rejected")

@@ -12,6 +12,8 @@ const (
 	ModelDecision  RoutingModel = "weave-decision-model-20261019-0001v1"
 )
 
+const ModelAutomaticDisplayName = "Weave Auto"
+
 const PrimaryRoutingStrategy = StrategyHMM
 
 type RoutingModelPolicy struct {
@@ -32,11 +34,19 @@ func RoutingModelPolicyFor(model RoutingModel) (RoutingModelPolicy, bool) {
 	return selection, found
 }
 
+func CanonicalRoutingModel(model string) RoutingModel {
+	if model == ModelAutomaticDisplayName {
+		return ModelAutomatic
+	}
+	return RoutingModel(model)
+}
+
 func IsRoutingModel(model string) bool {
-	if RoutingModel(model) == ModelAutomatic {
+	canonical := CanonicalRoutingModel(model)
+	if canonical == ModelAutomatic {
 		return true
 	}
-	_, found := routingModelPolicies[RoutingModel(model)]
+	_, found := routingModelPolicies[canonical]
 	return found
 }
 

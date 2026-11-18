@@ -15,3 +15,14 @@ func TestRoutingModelIDsUseVersionedSnapshotNames(t *testing.T) {
 	require.NotEqual(t, ModelHMM, RoutingModel("weave-hmm"))
 	require.NotEqual(t, ModelQwen, RoutingModel("weave-qwen"))
 }
+
+func TestAutomaticRoutingModelAcceptsDisplayName(t *testing.T) {
+	require.True(t, IsRoutingModel("weave-auto"))
+	require.True(t, IsRoutingModel("Weave Auto"))
+	require.Equal(t, ModelAutomatic, CanonicalRoutingModel("Weave Auto"))
+	require.Equal(t, ModelAutomatic, CanonicalRoutingModel("weave-auto"))
+	for _, near := range []string{"weave auto", "WEAVE AUTO", "Weave  Auto", " Weave Auto", "Weave Auto ", "Weave-Auto", "Weave Router"} {
+		require.False(t, IsRoutingModel(near), near)
+		require.Equal(t, RoutingModel(near), CanonicalRoutingModel(near), near)
+	}
+}
