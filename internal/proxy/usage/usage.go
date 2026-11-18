@@ -287,7 +287,7 @@ func ParseAnthropicUnifiedHeaders(h http.Header) (Snapshot, bool) {
 	resetAt, _ := ParseResetTime(h.Get("anthropic-ratelimit-unified-reset"))
 	return Snapshot{
 		Primary: primary, Secondary: secondary, RepresentativeClaim: claim,
-		OverageInUse:   PaidAnthropicOverage(claim, h.Get("anthropic-ratelimit-unified-overage-in-use")) && !AnthropicOverageCapRejected(h),
+		OverageInUse:   PaidAnthropicOverage(claim, h.Get("anthropic-ratelimit-unified-overage-in-use")),
 		UnifiedResetAt: resetAt,
 	}, true
 }
