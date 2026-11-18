@@ -275,3 +275,70 @@ func TestNewClientDefaultsBaseURL(t *testing.T) {
 		t.Fatalf("DefaultBaseURL = %q", keenable.DefaultBaseURL)
 	}
 }
+
+func TestSearchClientTimeoutIsTimeoutError(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	defer srv.Close()
+	defer close(release)
+
+	_, err := keenable.NewClient(srv.URL, keenable.WithTimeout(50*time.Millisecond)).Search(context.Background(), websearch.Query{Text: "q"})
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	var netErr interface{ Timeout() bool }
+	if !errors.Is(err, context.DeadlineExceeded) && (!errors.As(err, &netErr) || !netErr.Timeout()) {
+		t.Fatalf("err = %v, want a timeout error", err)
+	}
+	var statusErr *keenable.StatusError
+	if errors.As(err, &statusErr) {
+		t.Fatalf("timeout surfaced as status error: %v", err)
+	}
+}
+
+func TestSearchTruncatesLongSnippets(t *testing.T) {
+	long := strings.Repeat("a", 1000)
+	srv, _ := newServer(t, http.StatusOK, `{"results":[{"title":"Long","url":"https://example.com/long","snippet":"`+long+`"}]}`)
+
+	resp, err := keenable.NewClient(srv.URL).Search(context.Background(), websearch.Query{Text: "q"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(resp.Results) != 1 {
+		t.Fatalf("results = %+v", resp.Results)
+	}
+	snippet := resp.Results[0].Snippet
+	if !strings.HasSuffix(snippet, "…") || len([]rune(snippet)) > 401 {
+		t.Fatalf("snippet length = %d, want truncated with ellipsis", len([]rune(snippet)))
+	}
+}
+
+func TestSearchEmptyResults(t *testing.T) {
+	for _, body := range []string{`{}`, `{"results":[]}`, `{"results":null}`} {
+		srv, _ := newServer(t, http.StatusOK, body)
+		resp, err := keenable.NewClient(srv.URL).Search(context.Background(), websearch.Query{Text: "q"})
+		if err != nil {
+			t.Fatalf("body %s: Search: %v", body, err)
+		}
+		if len(resp.Results) != 0 || resp.Summary != "" {
+			t.Fatalf("body %s: resp = %+v", body, resp)
+		}
+	}
+}
+
+func TestSearchNon2xxIgnoresResultsBody(t *testing.T) {
+	srv, _ := newServer(t, http.StatusInternalServerError, searchResponse)
+	resp, err := keenable.NewClient(srv.URL).Search(context.Background(), websearch.Query{Text: "q"})
+	var statusErr *keenable.StatusError
+	if !errors.As(err, &statusErr) || statusErr.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("err = %v", err)
+	}
+	if len(resp.Results) != 0 {
+		t.Fatalf("results returned alongside status error: %+v", resp.Results)
+	}
+}
