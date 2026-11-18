@@ -227,7 +227,7 @@ type classifierResponseV5 struct {
 	HMMStatePath             []int                      `json:"hmm_state_path"`
 	HMMStateProbabilities    []float64                  `json:"hmm_state_probabilities"`
 	Error                    string                     `json:"error"`
-	Detail                   string                     `json:"detail"`
+	Detail                   json.RawMessage            `json:"detail"`
 }
 
 func (c *Client) ReadClassifierHealth(ctx context.Context) (ClassifierHealth, error) {
@@ -728,8 +728,8 @@ func (c *Client) classifyV5(ctx context.Context, path string, query policy.Query
 		if wire.Error != "" {
 			return classifierResponseV5{}, fmt.Errorf("v5 classifier %s status %d: %s", path, status, wire.Error)
 		}
-		if wire.Detail != "" {
-			return classifierResponseV5{}, fmt.Errorf("v5 classifier %s status %d: %s", path, status, wire.Detail)
+		if detail := classifierErrorDetail(wire.Detail); detail != "" {
+			return classifierResponseV5{}, fmt.Errorf("v5 classifier %s status %d: %s", path, status, detail)
 		}
 		return classifierResponseV5{}, fmt.Errorf("v5 classifier %s status %d", path, status)
 	}
@@ -1747,11 +1747,11 @@ func routeTools(tools []router.ToolDescriptor) []routeTool {
 	seen := make(map[routeTool]struct{}, len(tools))
 	for _, tool := range tools {
 		wireTool := routeTool{
-			Name:           clipRouteText(tool.Name, maxRouteToolCallInputChars),
+			Name:           clipRouteText(firstNonEmpty(tool.Name, tool.Type), maxRouteToolCallInputChars),
 			Type:           clipRouteText(tool.Type, maxRouteToolCallInputChars),
 			ServerExecuted: tool.ServerExecuted,
 		}
-		if wireTool.Name == "" && wireTool.Type == "" {
+		if wireTool.Name == "" {
 			continue
 		}
 		if _, ok := seen[wireTool]; ok {
