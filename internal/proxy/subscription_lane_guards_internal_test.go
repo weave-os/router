@@ -77,7 +77,7 @@ func TestUnleasableSeatsDoNotHoldPaidFallbackEvenWhileEnabled(t *testing.T) {
 	disabled := activeCodexAccount("seat-disabled")
 	disabled.State = auth.SubscriptionAccountStateDisabled
 
-	assert.NoError(t, svc.authorizeSubscriptionAPI(throttleTestContext(reconnect, disabled), subscriptions.ProviderCodex, "", "", clientAppRefusalFunding{}),
+	assert.NoError(t, svc.authorizeSubscriptionAPI(throttleTestContext(reconnect, disabled), subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{}),
 		"a seat that can never be leased can never prove exhaustion either")
 }
 
