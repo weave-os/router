@@ -1202,7 +1202,7 @@ func (s *Service) runTurnLoop(
 	}
 
 	routeRemaining := func() (turnLoopResult, error) {
-		req.Session.Pin = sessionPinView(pin, pinFound)
+		req.Session.Pin = router.SessionPin{Found: pinFound, Provider: pin.Provider, Model: pin.Model, LastTurnEndedAt: pin.LastTurnEndedAt, LastOutputTokens: pin.LastOutputTokens}
 		holdToolResult := res.AuthoritativePerTurn && req.Escalation == nil &&
 			res.TurnType == turntype.ToolResult && s.ResolveHMMToolResultHold(ctx)
 		if holdToolResult {
@@ -1223,7 +1223,7 @@ func (s *Service) runTurnLoop(
 				return res, nil
 			}
 		}
-		turn := continuity.Turn{ToolResult: res.TurnType == turntype.ToolResult, Escalated: req.Escalation != nil, AuthoritativePerTurn: res.AuthoritativePerTurn}
+		turn := continuity.Turn{IsToolResult: res.TurnType == turntype.ToolResult, Escalated: req.Escalation != nil, AuthoritativePerTurn: res.AuthoritativePerTurn}
 		continuityCfg := continuity.Config{PlannerEnabled: s.ResolvePlannerEnabled(ctx), ScoreToolResultTurns: s.ResolveScoreToolResultTurns(ctx), HoldToolResult: holdToolResult}
 		if continuity.ToolResultSticky(req.Session, turn, continuityCfg) {
 			decision := pinDecision(pin)
@@ -1234,7 +1234,7 @@ func (s *Service) runTurnLoop(
 			return res, nil
 		}
 
-		if continuity.Reuse(req.Session, turn, continuityCfg) {
+		if continuity.CanReusePin(req.Session, turn, continuityCfg) {
 			decision := pinDecision(pin)
 			res.Decision = decision
 			res.StickyHit = true

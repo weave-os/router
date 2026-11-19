@@ -7,7 +7,7 @@ import (
 )
 
 type Turn struct {
-	ToolResult           bool
+	IsToolResult         bool
 	Escalated            bool
 	AuthoritativePerTurn bool
 }
@@ -21,10 +21,10 @@ type Config struct {
 func ToolResultSticky(session router.SessionView, turn Turn, cfg Config) bool {
 	return !turn.Escalated && !turn.AuthoritativePerTurn &&
 		(!cfg.ScoreToolResultTurns || cfg.HoldToolResult) &&
-		turn.ToolResult && session.Pin.Found
+		turn.IsToolResult && session.Pin.Found
 }
 
-func Reuse(session router.SessionView, turn Turn, cfg Config) bool {
+func CanReusePin(session router.SessionView, turn Turn, cfg Config) bool {
 	return !turn.Escalated && !turn.AuthoritativePerTurn && !cfg.PlannerEnabled && session.Pin.Found
 }
 

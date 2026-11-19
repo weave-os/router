@@ -160,7 +160,7 @@ that the serving layer applies to non-HMM strategy decisions (`rl`,
 facts and flag values, and never perform I/O:
 
 - `ToolResultSticky`: keep the eligible pin on a tool-result turn.
-- `Reuse`: keep the eligible pin when the planner is disabled.
+- `CanReusePin`: keep the eligible pin when the planner is disabled.
 - `Plan`: run the pure `planner.Decide` against the pin view; the EV planner
   still governs both switch directions.
 

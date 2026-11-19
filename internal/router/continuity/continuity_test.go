@@ -16,22 +16,22 @@ func pinned() router.SessionView {
 }
 
 func TestToolResultStickyRequiresEligiblePinAndToolResult(t *testing.T) {
-	turn := continuity.Turn{ToolResult: true}
+	turn := continuity.Turn{IsToolResult: true}
 	assert.True(t, continuity.ToolResultSticky(pinned(), turn, continuity.Config{}))
 	assert.True(t, continuity.ToolResultSticky(pinned(), turn, continuity.Config{ScoreToolResultTurns: true, HoldToolResult: true}))
 	assert.False(t, continuity.ToolResultSticky(pinned(), turn, continuity.Config{ScoreToolResultTurns: true}))
 	assert.False(t, continuity.ToolResultSticky(router.SessionView{}, turn, continuity.Config{}))
 	assert.False(t, continuity.ToolResultSticky(pinned(), continuity.Turn{}, continuity.Config{}))
-	assert.False(t, continuity.ToolResultSticky(pinned(), continuity.Turn{ToolResult: true, Escalated: true}, continuity.Config{}))
-	assert.False(t, continuity.ToolResultSticky(pinned(), continuity.Turn{ToolResult: true, AuthoritativePerTurn: true}, continuity.Config{}))
+	assert.False(t, continuity.ToolResultSticky(pinned(), continuity.Turn{IsToolResult: true, Escalated: true}, continuity.Config{}))
+	assert.False(t, continuity.ToolResultSticky(pinned(), continuity.Turn{IsToolResult: true, AuthoritativePerTurn: true}, continuity.Config{}))
 }
 
-func TestReuseOnlyWhenPlannerDisabled(t *testing.T) {
-	assert.True(t, continuity.Reuse(pinned(), continuity.Turn{}, continuity.Config{}))
-	assert.False(t, continuity.Reuse(pinned(), continuity.Turn{}, continuity.Config{PlannerEnabled: true}))
-	assert.False(t, continuity.Reuse(router.SessionView{}, continuity.Turn{}, continuity.Config{}))
-	assert.False(t, continuity.Reuse(pinned(), continuity.Turn{Escalated: true}, continuity.Config{}))
-	assert.False(t, continuity.Reuse(pinned(), continuity.Turn{AuthoritativePerTurn: true}, continuity.Config{}))
+func TestCanReusePinOnlyWhenPlannerDisabled(t *testing.T) {
+	assert.True(t, continuity.CanReusePin(pinned(), continuity.Turn{}, continuity.Config{}))
+	assert.False(t, continuity.CanReusePin(pinned(), continuity.Turn{}, continuity.Config{PlannerEnabled: true}))
+	assert.False(t, continuity.CanReusePin(router.SessionView{}, continuity.Turn{}, continuity.Config{}))
+	assert.False(t, continuity.CanReusePin(pinned(), continuity.Turn{Escalated: true}, continuity.Config{}))
+	assert.False(t, continuity.CanReusePin(pinned(), continuity.Turn{AuthoritativePerTurn: true}, continuity.Config{}))
 }
 
 func TestPlanIgnoresUnfoundPin(t *testing.T) {
