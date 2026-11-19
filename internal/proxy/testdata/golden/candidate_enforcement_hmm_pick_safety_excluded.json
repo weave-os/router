@@ -219,7 +219,7 @@
       "dispatch_attempts": [
         {
           "provider": "anthropic",
-          "wire_model": "claude-sonnet-4-5",
+          "wire_model": "claude-haiku-4-5",
           "outbound_body": {
             "max_tokens": 4096,
             "messages": [
@@ -244,7 +244,7 @@
                 "role": "user"
               }
             ],
-            "model": "claude-sonnet-4-5"
+            "model": "claude-haiku-4-5"
           },
           "outcome": "ok"
         }
@@ -262,9 +262,9 @@
             "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
           },
           "Target": {
-            "CatalogID": "claude-sonnet-4-5",
+            "CatalogID": "claude-haiku-4-5",
             "Provider": "anthropic",
-            "UpstreamID": "claude-sonnet-4-5"
+            "UpstreamID": "claude-haiku-4-5"
           }
         }
       ],
@@ -279,11 +279,11 @@
           "X-Router-Context-Output-Reserve-Tokens": "8000",
           "X-Router-Context-Version": "1",
           "X-Router-Context-Window": "200000",
-          "X-Router-Cost-Input-Usd": "0.000036",
-          "X-Router-Cost-Output-Usd": "0.000105",
-          "X-Router-Cost-Usd": "0.000141",
-          "X-Router-Decision": "golden_route",
-          "X-Router-Model": "claude-sonnet-4-5",
+          "X-Router-Cost-Input-Usd": "0.000012",
+          "X-Router-Cost-Output-Usd": "0.000035",
+          "X-Router-Cost-Usd": "0.000047",
+          "X-Router-Decision": "candidate_fallback",
+          "X-Router-Model": "claude-haiku-4-5",
           "X-Router-Provider": "anthropic"
         },
         "body": {
@@ -328,7 +328,7 @@
               1
             ],
             "Provider": "anthropic",
-            "Reason": "golden_route",
+            "Reason": "candidate_fallback",
             "Role": "default_mid_hmm_history",
             "Strategy": "hmm_embedding",
             "TurnCount": 1
@@ -341,7 +341,7 @@
             "InputTokens": 12,
             "OutputTokens": 7,
             "PriorServedModel": "claude-sonnet-4-5",
-            "ServedModel": "claude-sonnet-4-5",
+            "ServedModel": "claude-haiku-4-5",
             "ServedProvider": "anthropic",
             "Strategy": "hmm_embedding"
           }
@@ -350,19 +350,19 @@
       "billing": [
         {
           "APIKeyID": "golden-key",
-          "DeltaUsdMicros": -141,
+          "DeltaUsdMicros": -47,
           "EntryType": "inference",
           "FeeEntryType": "byok_fee",
-          "NotionalCostMicros": 141,
+          "NotionalCostMicros": 47,
           "OrganizationID": "golden-org",
-          "RouterModel": "claude-sonnet-4-5"
+          "RouterModel": "claude-haiku-4-5"
         }
       ],
       "telemetry": [
         {
           "APIKeyID": "golden-key",
-          "ActualInputCostUSD": 0.000036,
-          "ActualOutputCostUSD": 0.000105,
+          "ActualInputCostUSD": 0.000012,
+          "ActualOutputCostUSD": 0.000035,
           "CandidateModels": [
             "claude-sonnet-4-5",
             "claude-haiku-4-5"
@@ -375,19 +375,19 @@
             "output_reserve_tokens": 8000,
             "request_id": "\u003cuuid\u003e",
             "requested_model": "claude-sonnet-4-5",
-            "served_model": "claude-sonnet-4-5",
+            "served_model": "claude-haiku-4-5",
             "version": 1
           },
-          "DecisionModel": "claude-sonnet-4-5",
+          "DecisionModel": "claude-haiku-4-5",
           "DecisionProvider": "anthropic",
-          "DecisionReason": "golden_route",
+          "DecisionReason": "candidate_fallback",
           "EmbedInput": "only_user_message",
           "EstimatedInputTokens": 4,
-          "FinalModelFamily": "claude-sonnet",
-          "FreshDecisionModel": "claude-sonnet-4-5",
+          "FinalModelFamily": "claude-haiku",
+          "FreshDecisionModel": "claude-haiku-4-5",
           "InputTokens": 12,
           "InstallationID": "00000000-0000-4000-8000-000000000001",
-          "IntendedModelFamily": "claude-sonnet",
+          "IntendedModelFamily": "claude-haiku",
           "LatestToolCallCounts": {},
           "OutputTokens": 7,
           "PinTier": "hmm_fresh_unpinned",

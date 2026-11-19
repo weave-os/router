@@ -105,7 +105,7 @@ func goldenCandidateEnforcementScenarios() []goldenScenario {
 			requests:  []goldenRequest{first, next}},
 		{name: "candidate_enforcement_hmm_pick_safety_excluded_without_eligible_fallback", ingress: ingressAnthropic, upstreams: maxedOutThenOK,
 			configure: candidateBlindSetup(hmm, nil, nil, servedMid, candidateBlindPick(hmm, providers.ProviderAnthropic, routingPolicyMid)),
-			requests:  []goldenRequest{first, next}},
+			requests:  []goldenRequest{first, {body: next.body, noTelemetry: true}}},
 		{name: "candidate_enforcement_rl_pick_safety_excluded", ingress: ingressAnthropic, upstreams: maxedOutThenOK,
 			configure: candidateBlindSetup(rl, nil, nil, servedMid, candidateBlindPick(rl, providers.ProviderAnthropic, routingPolicyMid, routingPolicyLow)),
 			requests:  []goldenRequest{rlFirst, rlNext}},

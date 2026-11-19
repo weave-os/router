@@ -11,21 +11,40 @@ type Candidates struct {
 	AutomaticExcludedModels       map[string]struct{}
 }
 
-func (c Candidates) HardFilterViolation(model string) (string, bool) {
+type CandidateViolation string
+
+const (
+	ViolationAllowedModels                 CandidateViolation = "allowed_models"
+	ViolationExcludedModels                CandidateViolation = "excluded_models"
+	ViolationSafetyExcludedModels          CandidateViolation = "safety_excluded_models"
+	ViolationContextWindowExcludedModels   CandidateViolation = "context_window_excluded_models"
+	ViolationImageLimitExcludedModels      CandidateViolation = "image_limit_excluded_models"
+	ViolationUnsignedHistoryExcludedModels CandidateViolation = "unsigned_history_excluded_models"
+	ViolationAutomaticExcludedModels       CandidateViolation = "automatic_excluded_models"
+)
+
+func (c Candidates) HardFilterViolation(model string) (CandidateViolation, bool) {
 	if _, allowed := c.AllowedModels[model]; len(c.AllowedModels) > 0 && !allowed {
-		return "allowed_models", true
+		return ViolationAllowedModels, true
 	}
 	for _, filter := range []struct {
-		name   string
-		models map[string]struct{}
+		violation CandidateViolation
+		models    map[string]struct{}
 	}{
-		{"excluded_models", c.ExcludedModels},
-		{"context_window_excluded_models", c.ContextWindowExcludedModels},
-		{"unsigned_history_excluded_models", c.UnsignedHistoryExcludedModels},
+		{ViolationExcludedModels, c.ExcludedModels},
+		{ViolationSafetyExcludedModels, c.SafetyExcludedModels},
+		{ViolationContextWindowExcludedModels, c.ContextWindowExcludedModels},
+		{ViolationImageLimitExcludedModels, c.ImageLimitExcludedModels},
+		{ViolationUnsignedHistoryExcludedModels, c.UnsignedHistoryExcludedModels},
 	} {
 		if _, found := filter.models[model]; found {
-			return filter.name, true
+			return filter.violation, true
 		}
 	}
 	return "", false
+}
+
+func (c Candidates) AutomaticallyExcludes(model string) bool {
+	_, excluded := c.AutomaticExcludedModels[model]
+	return excluded
 }

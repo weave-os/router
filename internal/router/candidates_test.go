@@ -8,7 +8,7 @@ import (
 	"weave-os/router/internal/router"
 )
 
-func TestCandidatesHardFilterViolationNamesOnlySetsEveryStrategyEnforces(t *testing.T) {
+func TestCandidatesHardFilterViolationNamesEveryHardExclusionSet(t *testing.T) {
 	set := func(models ...string) map[string]struct{} {
 		out := make(map[string]struct{}, len(models))
 		for _, model := range models {
@@ -32,14 +32,16 @@ func TestCandidatesHardFilterViolationNamesOnlySetsEveryStrategyEnforces(t *test
 		"context":         "context_window_excluded_models",
 		"unsigned":        "unsigned_history_excluded_models",
 		"not-allowlisted": "allowed_models",
-		"safety":          "",
-		"image":           "",
+		"safety":          "safety_excluded_models",
+		"image":           "image_limit_excluded_models",
 		"automatic":       "",
 	} {
 		violated, hasViolation := candidates.HardFilterViolation(model)
-		assert.Equal(t, want, violated, model)
+		assert.Equal(t, router.CandidateViolation(want), violated, model)
 		assert.Equal(t, want != "", hasViolation, model)
 	}
+	assert.True(t, candidates.AutomaticallyExcludes("automatic"))
+	assert.False(t, candidates.AutomaticallyExcludes("safety"))
 	_, hasViolation := router.Candidates{}.HardFilterViolation("any-model")
 	assert.False(t, hasViolation, "an empty candidate set constrains nothing")
 }
