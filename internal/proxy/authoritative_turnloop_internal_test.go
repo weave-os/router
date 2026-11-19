@@ -259,7 +259,7 @@ func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
 }
 
 func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
-	strategy := router.Strategy("authoritative-test")
+	strategy := router.StrategyHMMEmbedding
 	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"fix the failing test"}]}`)
 
 	tests := []struct {

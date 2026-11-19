@@ -81,7 +81,7 @@ func (*heldPinGatewayClient) Passthrough(context.Context, providers.PreparedRequ
 }
 
 func heldPinRescueFixture() (*Service, context.Context, *heldPinGatewayClient) {
-	strategy := router.Strategy("held-pin-rescue-test")
+	strategy := router.StrategyHMMEmbedding
 	store := newStubPinStore()
 	store.getFound = true
 	store.getPin = sessionpin.Pin{

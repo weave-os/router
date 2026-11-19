@@ -18,7 +18,7 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-const authoritativeDowngradeStrategy = router.Strategy("authoritative-downgrade-test")
+const authoritativeDowngradeStrategy = router.StrategyHMMEmbedding
 
 var authoritativeDowngradeBody = []byte(
 	`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"fix the failing test"}]}`,

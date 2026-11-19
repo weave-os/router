@@ -724,9 +724,9 @@ and keeps the default.
 | `ROUTER_STRUGGLE_SHADOW_ENABLED` | `true` | Log-only session struggle detector; the switch sheds its per-turn check. |
 | `ROUTER_TURN_SIGNAL_CAPTURE_ENABLED` | `true` | Per-turn signal snapshot on telemetry rows. Always skipped for opted-out installations. |
 | `ROUTER_TEXT_REPETITION_BREAK_ENABLED` | `true` | Enforcing text-repetition break; turn off if it false-positives on legitimately repeated narration. |
-| `ROUTER_HMM_DOWNGRADE_GATE` | `false` | Confidence floor for authoritative-per-turn picks that are cheaper than the pin (mirror of the upgrade gate). |
-| `ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS` | `hmm.DefaultDowngradeHysteresisTurns`, 0 allowed | Consecutive cheaper-than-pin authoritative votes required before a downgrade is served; `0` switches on the first vote. |
-| `ROUTER_HMM_DOWNGRADE_HYSTERESIS_SHADOW_TURNS` | `2`, 0 allowed | Threshold every served authoritative downgrade is shadow-scored against; telemetry only, `0` silences it. |
+| `ROUTER_HMM_DOWNGRADE_GATE` | `false` | Confidence floor for authoritative HMM picks that are cheaper than the pin (mirror of the upgrade gate). |
+| `ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS` | `hmm.DefaultDowngradeHysteresisTurns`, 0 allowed | Consecutive cheaper-than-pin authoritative HMM votes required before a downgrade is served. Set to `0` to switch on the first vote. |
+| `ROUTER_HMM_DOWNGRADE_HYSTERESIS_SHADOW_TURNS` | `2`, 0 allowed | Telemetry threshold for served authoritative HMM downgrades. Set to `0` to disable this shadow. |
 | `ROUTER_HMM_AUTHORITY_CACHE_SHADOW` | `true` | Records the HMM cache gate's counterfactual verdict on authoritative-per-turn turns, which return before that gate runs. |
 | `ROUTER_POLICY_DEADLINE_FALLBACK` | `false` | Serves the session pin, or `ROUTER_POLICY_DEADLINE_DEFAULT_MODEL`, when a policy sidecar misses its deadline or fails in transport. |
 | `ROUTER_POLICY_DEADLINE_DEFAULT_MODEL` | *(none)* | Static fallback for a deadline miss with no pin; empty keeps the 503. |
@@ -778,9 +778,9 @@ LLM escalation judge skips a checkpoint (`served_escalation_target`) when the
 turn was already served by one of these models.
 
 `hmm_tool_result_hold` is an organization-overridable boolean flag, stored in
-the installation's flag overrides (no environment variable), default `false`. When on, authoritative per-turn selection
-scores only the first call after a user message; that turn's tool-result calls
-reuse the session pin unless escalation constrains the request.
+the installation's flag overrides (no environment variable), default `false`.
+When enabled, authoritative HMM selection reuses the session pin for tool-result
+calls unless escalation constrains the request.
 
 ## Per-organization flag overrides
 
