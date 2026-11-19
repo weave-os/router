@@ -36,10 +36,11 @@ func rescueVerdict() string {
 }
 
 type modelScriptedProvider struct {
-	replies map[string]string
-	models  []string
-	bodies  [][]byte
-	betas   []string
+	replies     map[string]string
+	unavailable map[string]bool
+	models      []string
+	bodies      [][]byte
+	betas       []string
 }
 
 func (*modelScriptedProvider) SupportsSubscriptions() bool { return true }
@@ -49,6 +50,9 @@ func (p *modelScriptedProvider) Proxy(_ context.Context, _ router.Decision, prep
 	p.models = append(p.models, model)
 	p.bodies = append(p.bodies, append([]byte(nil), prep.Body...))
 	p.betas = append(p.betas, prep.Headers.Get("anthropic-beta"))
+	if p.unavailable[model] {
+		return &providers.UpstreamErrorResponse{Status: http.StatusNotFound, Body: []byte(`{"type":"error","error":{"type":"not_found_error","message":"model: ` + model + `"}}`)}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.WriteString(w, p.replies[model])
@@ -71,16 +75,25 @@ func runRescueBypassBody(t *testing.T, p *modelScriptedProvider, retry bool, str
 
 func runRescueBypassOn(t *testing.T, p *modelScriptedProvider, retry bool, stream bool, body, fallbackModel string) (*httptest.ResponseRecorder, *bypassCaptureTelemetry) {
 	t.Helper()
+	svc, sink := rescueService(p, retry, fallbackModel)
+	if stream {
+		body = strings.Replace(body, `"max_tokens":10240,`, `"max_tokens":10240,"stream":true,`, 1)
+	}
+	return runRescueWith(t, svc, body), sink
+}
+
+func rescueService(p *modelScriptedProvider, retry bool, fallbackModel string) (*Service, *bypassCaptureTelemetry) {
 	svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: p})}
 	svc.anthropicServerSideFallback = true
 	svc.cyberRefusalRetry = retry
 	svc.cyberRefusalFallbackModel = fallbackModel
 	sink := newBypassCaptureTelemetry()
 	svc.telemetry = sink
+	return svc, sink
+}
 
-	if stream {
-		body = strings.Replace(body, `"max_tokens":10240,`, `"max_tokens":10240,"stream":true,`, 1)
-	}
+func runRescueWith(t *testing.T, svc *Service, body string) *httptest.ResponseRecorder {
+	t.Helper()
 	env, err := translate.ParseAnthropic([]byte(body))
 	require.NoError(t, err)
 	rec := httptest.NewRecorder()
@@ -91,7 +104,44 @@ func runRescueBypassOn(t *testing.T, p *modelScriptedProvider, retry bool, strea
 	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, uuid.New().String())
 
 	require.NoError(t, svc.bypassToAnthropic(ctx, env, env.RoutingFeatures(), false, time.Now(), "req-rescue", "ext-rescue", turntype.Classifier, reasonClassifierPassthrough, req, rec))
-	return rec, sink
+	return rec
+}
+
+// Some Claude subscriptions don't serve the reviewer model (Anthropic answers
+// 404 not_found_error "model: claude-sonnet-5"). The re-serve then moves on to
+// the next candidate the subscription can serve instead of returning the
+// refusal.
+func TestBypass_ClassifierRefusal_TriesNextModelWhenSubscriptionLacksReviewer(t *testing.T) {
+	const nextModel = "claude-opus-5-5"
+	p := &modelScriptedProvider{
+		replies:     map[string]string{rescueRefusingModel: rescueRefusal(rescueRefusingModel), nextModel: rescueVerdict()},
+		unavailable: map[string]bool{rescueReviewerModel: true},
+	}
+	svc, sink := rescueService(p, true, rescueReviewerModel)
+
+	rec := runRescueWith(t, svc, classifierStage2Body(""))
+
+	assert.Equal(t, []string{rescueRefusingModel, rescueReviewerModel, nextModel}, p.models)
+	assert.JSONEq(t, rescueVerdict(), rec.Body.String())
+	assert.Equal(t, nextModel, rec.Header().Get(HeaderRouterModel))
+	assert.Equal(t, nextModel, rescueTelemetryRow(t, sink).DecisionModel)
+}
+
+// Once a subscription has rejected a candidate, later re-serves skip it.
+func TestBypass_ClassifierRefusal_SkipsModelSubscriptionRejected(t *testing.T) {
+	const nextModel = "claude-opus-5-5"
+	p := &modelScriptedProvider{
+		replies:     map[string]string{rescueRefusingModel: rescueRefusal(rescueRefusingModel), nextModel: rescueVerdict()},
+		unavailable: map[string]bool{rescueReviewerModel: true},
+	}
+	svc, _ := rescueService(p, true, rescueReviewerModel)
+	runRescueWith(t, svc, classifierStage2Body(""))
+	p.models = nil
+
+	rec := runRescueWith(t, svc, classifierStage2Body(""))
+
+	assert.Equal(t, []string{rescueRefusingModel, nextModel}, p.models)
+	assert.JSONEq(t, rescueVerdict(), rec.Body.String())
 }
 
 func rescueTelemetryRow(t *testing.T, sink *bypassCaptureTelemetry) InsertTelemetryParams {

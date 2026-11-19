@@ -391,7 +391,7 @@ func (s *Service) bypassToAnthropic(
 	toolNames := translate.NewAnthropicToolNameWriter(passiveRefusal, prep.ResponseToolNames)
 	decision, proxyErr := proxyClassifierWithRefusalRescue(ctx, func(d router.Decision, prep providers.PreparedRequest, out http.ResponseWriter) error {
 		return p.Proxy(ctx, d, prep, out, r)
-	}, decision, prep, newClassifierRefusalRescue(ctx, classifierRescuePolicy{s.ResolveCyberRefusalRetry(ctx), s.ResolveCyberRefusalFallbackModel(ctx)}, turnType, decision, env, r.Header, opts), toolNames)
+	}, decision, prep, newClassifierRefusalRescue(ctx, newClassifierRescuePolicy(ctx, s), turnType, decision, env, r.Header, opts), toolNames)
 	proxyErr = finalizeAfterProxy(proxyErr, toolNames.Finalize)
 	if proxyErr == nil && terminal != nil {
 		proxyErr = terminal.streamErr()

@@ -58,6 +58,11 @@ func (a *subscriptionModelAccess) denied(token []byte, model string, now time.Ti
 	return a.deniedForProvider(token, "", model, now)
 }
 
+func (a *subscriptionModelAccess) deniedForCaller(ctx context.Context, model string, now time.Time) bool {
+	creds := CredentialsFromContext(ctx)
+	return creds != nil && creds.OAuth && a.denied(creds.APIKey, model, now)
+}
+
 func (a *subscriptionModelAccess) deniedForProvider(token []byte, provider, model string, now time.Time) bool {
 	until, ok := a.cache().Get(a.keyForProvider(token, provider, model))
 	return ok && now.Before(until)
