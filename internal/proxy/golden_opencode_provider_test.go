@@ -76,12 +76,12 @@ func goldenOpenCodeProviderScenarios() []goldenScenario {
 	claudeBYOK.requests[0].decorateContext = chainCtx(goldenOpenCodeSpendCap,
 		withBYOK(byokKey(providers.ProviderAnthropic, goldenBYOKAnthropic, auth.FundingPriorityKeyFirst)))
 	claudeBYOK.credentials = map[string]string{goldenBYOKAnthropic: "claude-key"}
-	only := func(model string) func(context.Context) context.Context {
+	subscriptionModelsOnly := func(model string) func(context.Context) context.Context {
 		return chainCtx(bothSeatsAtCap, func(ctx context.Context) context.Context {
 			return proxy.WithSubscriptionStateModels(ctx, []string{model}, []string{model})
 		})
 	}
-	force := func(model string) map[string]string {
+	forceModelHeaders := func(model string) map[string]string {
 		return map[string]string{"User-Agent": goldenOpenCodeHeadersAgent, "X-OpenCode-Session": "ses_golden", proxy.ForceModelHeader: model}
 	}
 	return []goldenScenario{
@@ -98,8 +98,8 @@ func goldenOpenCodeProviderScenarios() []goldenScenario {
 				providers.ProviderAnthropic: {goldenStrictClaude(true)},
 			},
 			requests: []goldenRequest{
-				{body: goldenOpenCodeOpening, headers: force(goldenCodexModel), decorateContext: only(goldenCodexModel)},
-				{body: goldenOpenCodeResponses, headers: force(goldenAnthropicModel), decorateContext: only(goldenAnthropicModel)},
+				{body: goldenOpenCodeOpening, headers: forceModelHeaders(goldenCodexModel), decorateContext: subscriptionModelsOnly(goldenCodexModel)},
+				{body: goldenOpenCodeResponses, headers: forceModelHeaders(goldenAnthropicModel), decorateContext: subscriptionModelsOnly(goldenAnthropicModel)},
 			},
 			configure:   withCodexAndClaudeSeats,
 			credentials: map[string]string{"golden-seat-codex-seat": "codex-seat", "golden-seat-claude-seat": "claude-seat"},
