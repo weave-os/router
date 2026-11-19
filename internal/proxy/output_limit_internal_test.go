@@ -13,6 +13,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/routingpolicy"
@@ -141,7 +142,7 @@ func TestProxyMessages_OutputLimitEightActionSequence(t *testing.T) {
 					}
 					svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, store, false,
 						providers.ProviderAnthropic, outputLimitFirstModel, nil).
-						WithHMMDowngradeHysteresisTurns(0).
+						EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).
 						WithNativeAnthropicResponseSignals(false).
 						WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: routes,
 							Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: true}})

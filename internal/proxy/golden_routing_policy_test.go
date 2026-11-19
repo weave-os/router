@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/bandswap"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -384,14 +385,18 @@ func routingPolicySelectionGateScenarios() []goldenScenario {
 		routingPolicyScenario("authoritative_confident_upgrade_served", routingPolicySetup{turns: routingPolicyTurns(routingPolicyHMM(routingPolicyLow, 0.9), routingPolicyHMM(routingPolicyHigh, 0.9)), caps: authoritative},
 			first, next),
 		routingPolicyScenario("authoritative_upgrade_gate_off_serves_low_confidence", routingPolicySetup{turns: routingPolicyTurns(routingPolicyHMM(routingPolicyLow, 0.9), routingPolicyHMM(routingPolicyHigh, 0.3)), caps: authoritative,
-			options: []func(*proxy.Service) *proxy.Service{func(s *proxy.Service) *proxy.Service { return s.WithAuthoritativeUpgradeGate(false) }}},
+			options: []func(*proxy.Service) *proxy.Service{func(s *proxy.Service) *proxy.Service {
+				return s.EditHMMConfig(func(c *hmm.Config) { c.UpgradeGate = false })
+			}}},
 			first, next),
 		routingPolicyScenario("authoritative_downgrade_vote_held_by_hysteresis", routingPolicySetup{turns: routingPolicyTurns(routingPolicyHMM(routingPolicyHigh, 0.9), routingPolicyHMM(routingPolicyLow, 0.9)), caps: authoritative},
 			first, next),
 		routingPolicyScenario("authoritative_downgrade_served_on_second_vote", routingPolicySetup{turns: routingPolicyTurns(routingPolicyHMM(routingPolicyHigh, 0.9), routingPolicyHMM(routingPolicyLow, 0.9)), caps: authoritative},
 			first, next, goldenRequest{body: routingPolicyFollowUp("And once more")}),
 		routingPolicyScenario("authoritative_low_confidence_downgrade_gated", routingPolicySetup{turns: routingPolicyTurns(routingPolicyHMM(routingPolicyHigh, 0.9), routingPolicyHMM(routingPolicyLow, 0.2)), caps: authoritative,
-			options: []func(*proxy.Service) *proxy.Service{func(s *proxy.Service) *proxy.Service { return s.WithAuthoritativeDowngradeGate(true) }}},
+			options: []func(*proxy.Service) *proxy.Service{func(s *proxy.Service) *proxy.Service {
+				return s.EditHMMConfig(func(c *hmm.Config) { c.DowngradeGate = true })
+			}}},
 			first, next),
 	}
 }

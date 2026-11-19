@@ -9,6 +9,7 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 )
@@ -43,7 +44,9 @@ func atomOptions(opts ...func(*proxy.Service) *proxy.Service) []func(*proxy.Serv
 
 func atomUpgradeConfig(threshold *float64, staleAfter time.Duration) func(*proxy.Service) *proxy.Service {
 	return func(s *proxy.Service) *proxy.Service {
-		return s.WithAuthoritativeUpgradeConfig(proxy.AuthoritativeUpgradeConfig{MarginThreshold: threshold, StalePinAfter: staleAfter})
+		return s.EditHMMConfig(func(c *hmm.Config) {
+			c.UpgradeShadow = hmm.UpgradeShadowConfig{MarginThreshold: threshold, StalePinAfter: staleAfter}
+		})
 	}
 }
 
@@ -82,7 +85,9 @@ func atomAuthoritativeUpgradeScenarios() []goldenScenario {
 	repeatedSameGroupVotes := atomScenario("authoritative_upgrade_repeated_same_group_votes", routingPolicySetup{
 		turns: routingPolicyTurns(atomHMM(routingPolicyLow, "high", 0.9, nil), atomHMM(routingPolicyHigh, "high", 0.3, atomFloat(0.1))),
 		caps:  authoritative, session: voteSession,
-		options: atomOptions(calibrated, func(s *proxy.Service) *proxy.Service { return s.WithAuthoritativeUpgradeVotes(2) }),
+		options: atomOptions(calibrated, func(s *proxy.Service) *proxy.Service {
+			return s.EditHMMConfig(func(c *hmm.Config) { c.UpgradeVotes = 2 })
+		}),
 	}, first, routingPolicyRequest(routingPolicyFollowUp("Now say bye"), voteSession.editPins("default_mid", func(p *sessionpin.Pin) {
 		atomWarmPin(p)
 		p.ConsecutiveUpgradeVotes = 1
@@ -104,7 +109,10 @@ func atomAuthoritativeUpgradeScenarios() []goldenScenario {
 			first, goldenRequest{body: routingPolicyFollowUp("Now say bye"), headers: map[string]string{proxy.ForceClusterHeader: "high"}}),
 		upgrade("score_policy_with_gate_off", atomHMM(routingPolicyHigh, "high", 0.3, atomFloat(0.1)), "low",
 			atomOptions(calibrated, func(s *proxy.Service) *proxy.Service {
-				return s.WithAuthoritativeUpgradePolicy(flags.AuthoritativeUpgradePolicyScore).WithAuthoritativeUpgradeGate(false)
+				return s.EditHMMConfig(func(c *hmm.Config) {
+					c.UpgradePolicy = flags.AuthoritativeUpgradePolicyScore
+					c.UpgradeGate = false
+				})
 			}), first, next),
 	}
 }
@@ -120,7 +128,7 @@ func atomSlidingThresholdScenarios() []goldenScenario {
 	authoritative := policy.Capabilities{AuthoritativePerTurnSelection: true}
 	first, next := goldenRequest{body: routingPolicyFirstTurn}, goldenRequest{body: routingPolicyFollowUp("Now say bye")}
 	sliding := atomOptions(atomUpgradeConfig(atomFloat(0.5), 0), func(s *proxy.Service) *proxy.Service {
-		return s.WithAuthoritativeUpgradeSlidingThreshold(true)
+		return s.EditHMMConfig(func(c *hmm.Config) { c.UpgradeSlidingThreshold = true })
 	})
 	scenario := func(name, pinGroup string, fresh router.Decision) goldenScenario {
 		return atomScenario("sliding_threshold_"+name, routingPolicySetup{

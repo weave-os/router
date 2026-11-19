@@ -679,25 +679,11 @@ func main() {
 		CorrectedEconomics:     config.GetOr("ROUTER_SWITCH_CORRECTED_ECONOMICS", boolDefault(proxy.DefaultPlannerCorrectedEconomics)) == "true",
 	}
 	prefixTrimFreeSwitch := config.GetOr("ROUTER_PREFIX_TRIM_FREE_SWITCH", "true") == "true"
-	hmmUpgradeConfidence := parseEnvFloat("ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD", hmm.DefaultUpgradeConfidenceThreshold)
-	upgradeConfig, err := authoritativeUpgradeConfigFromEnv()
+	hmmConfig, err := hmmConfigFromEnv()
 	if err != nil {
-		logger.Error("Invalid authoritative upgrade shadow configuration; refusing to boot", "err", err)
+		logger.Error("Invalid HMM configuration; refusing to boot", "err", err)
 		panic(err)
 	}
-	authoritativeUpgradeGate := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_GATE", "true") == "true"
-	authoritativeUpgradePolicy := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_POLICY", string(flags.AuthoritativeUpgradePolicyScore))
-	parsedUpgradePolicy, err := flags.ParseAuthoritativeUpgradePolicy(authoritativeUpgradePolicy)
-	if err != nil {
-		logger.Error("Invalid ROUTER_AUTHORITATIVE_UPGRADE_POLICY; refusing to boot", "err", err)
-		panic(err)
-	}
-	authoritativeUpgradeVotes := parseEnvNonNegativeInt("ROUTER_AUTHORITATIVE_UPGRADE_VOTES", 3)
-	authoritativeDowngradeGate := config.GetOr("ROUTER_AUTHORITATIVE_DOWNGRADE_GATE", "false") == "true"
-	authoritativeUpgradeSlidingThreshold := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_SLIDING_THRESHOLD", "false") == "true"
-	hmmDowngradeHysteresisTurns := parseEnvNonNegativeInt("ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS", hmm.DefaultDowngradeHysteresisTurns)
-	hmmDowngradeHysteresisShadowTurns := parseEnvNonNegativeInt("ROUTER_HMM_DOWNGRADE_HYSTERESIS_SHADOW_TURNS", 2)
-	authorityCacheShadow := config.GetOr("ROUTER_AUTHORITY_CACHE_SHADOW", "true") == "true"
 	policyDeadlineFallback := config.GetOr("ROUTER_POLICY_DEADLINE_FALLBACK", "false") == "true"
 	policyDeadlineDefaultModel := config.GetOr("ROUTER_POLICY_DEADLINE_DEFAULT_MODEL", "")
 	handoverProviderName := config.GetOr("ROUTER_HANDOVER_PROVIDER", providers.ProviderAnthropic)
@@ -1058,14 +1044,14 @@ func main() {
 		flags.KeyScoreToolResultTurns:                 boolDefault(scoreToolResultTurns),
 		flags.KeyHMMToolResultHold:                    boolDefault(false),
 		flags.KeyPrefixTrimFreeSwitch:                 boolDefault(prefixTrimFreeSwitch),
-		flags.KeyAuthoritativeUpgradeGate:             boolDefault(authoritativeUpgradeGate),
-		flags.KeyAuthoritativeUpgradePolicy:           string(parsedUpgradePolicy),
-		flags.KeyAuthoritativeUpgradeVotes:            strconv.Itoa(authoritativeUpgradeVotes),
-		flags.KeyAuthoritativeDowngradeGate:           boolDefault(authoritativeDowngradeGate),
-		flags.KeyAuthoritativeUpgradeSlidingThreshold: boolDefault(authoritativeUpgradeSlidingThreshold),
-		flags.KeyHMMDowngradeHysteresisTurns:          strconv.Itoa(hmmDowngradeHysteresisTurns),
-		flags.KeyHMMDowngradeHysteresisShadowTurns:    strconv.Itoa(hmmDowngradeHysteresisShadowTurns),
-		flags.KeyAuthorityCacheShadow:                 boolDefault(authorityCacheShadow),
+		flags.KeyAuthoritativeUpgradeGate:             boolDefault(hmmConfig.UpgradeGate),
+		flags.KeyAuthoritativeUpgradePolicy:           string(hmmConfig.UpgradePolicy),
+		flags.KeyAuthoritativeUpgradeVotes:            strconv.Itoa(hmmConfig.UpgradeVotes),
+		flags.KeyAuthoritativeDowngradeGate:           boolDefault(hmmConfig.DowngradeGate),
+		flags.KeyAuthoritativeUpgradeSlidingThreshold: boolDefault(hmmConfig.UpgradeSlidingThreshold),
+		flags.KeyHMMDowngradeHysteresisTurns:          strconv.Itoa(hmmConfig.DowngradeHysteresisTurns),
+		flags.KeyHMMDowngradeHysteresisShadowTurns:    strconv.Itoa(hmmConfig.DowngradeHysteresisShadowTurns),
+		flags.KeyAuthorityCacheShadow:                 boolDefault(hmmConfig.AuthorityCacheShadow),
 		flags.KeySwitchDecideShadow:                   boolDefault(true),
 		flags.KeyAgreementShadowEpoch:                 "0",
 		flags.KeySiblingFailover:                      boolDefault(siblingFailover),
@@ -1181,16 +1167,7 @@ func main() {
 		WithNativeOpenAIResponseSignals(nativeOpenAIResponseSignals).
 		WithIngress(ingress.New(sseKeepaliveInterval())).
 		WithPrefixTrimFreeSwitch(prefixTrimFreeSwitch).
-		WithHMMUpgradeConfidenceThreshold(hmmUpgradeConfidence).
-		WithAuthoritativeUpgradeConfig(upgradeConfig).
-		WithAuthoritativeUpgradeGate(authoritativeUpgradeGate).
-		WithAuthoritativeUpgradePolicy(parsedUpgradePolicy).
-		WithAuthoritativeUpgradeVotes(authoritativeUpgradeVotes).
-		WithAuthoritativeDowngradeGate(authoritativeDowngradeGate).
-		WithAuthoritativeUpgradeSlidingThreshold(authoritativeUpgradeSlidingThreshold).
-		WithHMMDowngradeHysteresisTurns(hmmDowngradeHysteresisTurns).
-		WithHMMDowngradeHysteresisShadowTurns(hmmDowngradeHysteresisShadowTurns).
-		WithAuthorityCacheShadow(authorityCacheShadow).
+		WithHMMConfig(hmmConfig).
 		WithPolicyDeadlineFallback(policyDeadlineFallback).
 		WithPolicyDeadlineDefaultModel(policyDeadlineDefaultModel).
 		WithEscapeNormalize(escapeNormalize).

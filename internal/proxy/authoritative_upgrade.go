@@ -2,10 +2,7 @@ package proxy
 
 import (
 	"context"
-	"fmt"
-	"math"
 	"slices"
-	"time"
 
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
@@ -19,26 +16,6 @@ import (
 
 	"github.com/google/uuid"
 )
-
-type AuthoritativeUpgradeConfig struct {
-	MarginThreshold *float64
-	StalePinAfter   time.Duration
-}
-
-func (c AuthoritativeUpgradeConfig) Validate() error {
-	if c.MarginThreshold != nil && (math.IsNaN(*c.MarginThreshold) || math.IsInf(*c.MarginThreshold, 0) || *c.MarginThreshold < 0 || *c.MarginThreshold > 1) {
-		return fmt.Errorf("upgrade evidence margin threshold must be finite and within [0, 1]")
-	}
-	if c.StalePinAfter < 0 {
-		return fmt.Errorf("upgrade evidence stale-pin age must be nonnegative")
-	}
-	return nil
-}
-
-func (s *Service) WithAuthoritativeUpgradeConfig(calibration AuthoritativeUpgradeConfig) *Service {
-	s.authoritativeUpgradeConfig = calibration
-	return s
-}
 
 type authoritativeUpgradeDecision struct {
 	Mode             flags.AuthoritativeUpgradePolicy
@@ -73,7 +50,7 @@ func (s *Service) authoritativeUpgradeFor(ctx context.Context, req router.Reques
 		PinProvider:     pin.Provider,
 		PinTier:         catalog.TierFor(pin.Model),
 		RequestedTier:   res.RequestedTier,
-		MarginThreshold: s.authoritativeUpgradeConfig.MarginThreshold,
+		MarginThreshold: s.hmmConfig.UpgradeShadow.MarginThreshold,
 	}
 	decision.Evidence = hmm.UpgradeEvidence{
 		HasPin:         pin.Model != "",
@@ -108,11 +85,11 @@ func (s *Service) authoritativeUpgradeFor(ctx context.Context, req router.Reques
 		if !pin.FirstPinnedAt.IsZero() {
 			age := pinAge(pin, s.clock.Now())
 			decision.PinAgeSec = &age
-			decision.Evidence.StalePin = s.authoritativeUpgradeConfig.StalePinAfter > 0 && s.clock.Now().Sub(pin.FirstPinnedAt) >= s.authoritativeUpgradeConfig.StalePinAfter
+			decision.Evidence.StalePin = s.hmmConfig.UpgradeShadow.StalePinAfter > 0 && s.clock.Now().Sub(pin.FirstPinnedAt) >= s.hmmConfig.UpgradeShadow.StalePinAfter
 		}
 	}
-	if s.authoritativeUpgradeConfig.StalePinAfter > 0 {
-		seconds := int64(s.authoritativeUpgradeConfig.StalePinAfter.Seconds())
+	if s.hmmConfig.UpgradeShadow.StalePinAfter > 0 {
+		seconds := int64(s.hmmConfig.UpgradeShadow.StalePinAfter.Seconds())
 		decision.StalePinAfterSec = &seconds
 	}
 	votes := 0
@@ -147,7 +124,7 @@ func logAuthoritativeUpgrade(ctx context.Context, res turnLoopResult) {
 
 func authoritativeGuardsFor(ctx context.Context, s *Service, slidingServed bool) hmm.AuthoritativeGuards {
 	return hmm.AuthoritativeGuards{
-		ConfidenceThreshold:   s.hmmUpgradeConfidenceThreshold,
+		ConfidenceThreshold:   s.hmmConfig.UpgradeConfidenceThreshold,
 		UpgradeGate:           s.ResolveAuthoritativeUpgradeGate(ctx) && s.resolveUpgradePolicyMode(ctx) != flags.AuthoritativeUpgradePolicyOff && !slidingServed,
 		DowngradeGate:         s.ResolveAuthoritativeDowngradeGate(ctx),
 		HysteresisTurns:       s.ResolveHMMDowngradeHysteresisTurns(ctx),

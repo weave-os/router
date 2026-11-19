@@ -12,6 +12,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -81,12 +82,12 @@ func runAuthorityShadowTurnWithPin(
 	svc := NewService(
 		nil, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithAuthorityCacheShadow(enabled).
+	).EditHMMConfig(func(c *hmm.Config) { c.AuthorityCacheShadow = enabled }).
 		WithPlanner(planner.EVConfig{
 			ThresholdUSD:           0.001,
 			ExpectedRemainingTurns: 3,
 		}).
-		WithHMMDowngradeHysteresisTurns(0).
+		EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: strategy,
 			Router:   &authorityShadowTestRouter{decision: fresh},

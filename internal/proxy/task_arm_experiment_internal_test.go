@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/breaker"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/taskarm"
@@ -258,7 +259,7 @@ func TestACappedTreatmentTurnLeavesTheSessionPinAsControlWouldHaveLeftIt(t *test
 			TurnCount: 3, PinnedUntil: time.Now().Add(time.Hour), LastTurnEndedAt: time.Now().Add(-time.Minute), LastOutputTokens: 9,
 		}
 		svc := NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
-			WithHMMDowngradeHysteresisTurns(0).
+			EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).
 			WithPolicyStrategy(policy.StrategySpec{
 				Strategy:     strategy,
 				Router:       taskArmCeilingRouter{},
