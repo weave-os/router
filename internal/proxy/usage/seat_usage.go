@@ -55,7 +55,7 @@ func (o *Observer) RecordSeat(ctx context.Context, routerUserID, provider string
 	seats.recorded.Add(key, snapshot.ObservedAt)
 	seats.mu.Unlock()
 	log := observability.FromContext(ctx)
-	observability.SafeGo(log, seatUsageRecordTimeout, "record_caller_seat_usage", func(writeCtx context.Context) {
+	observability.SafeGoContext(context.WithoutCancel(ctx), log, seatUsageRecordTimeout, "record_caller_seat_usage", func(writeCtx context.Context) {
 		if err := seats.recorder.RecordSeatUsage(writeCtx, routerUserID, provider, snapshot); err != nil {
 			log.Warn("Failed to record caller seat usage", "provider", provider, "err", err)
 		}

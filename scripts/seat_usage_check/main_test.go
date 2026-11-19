@@ -63,15 +63,15 @@ func TestSeatUsageKeepsTheNewestObservationPerUserAndProvider(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 	require.Equal(t, "claude", got[0].Provider)
-	require.Equal(t, 42.0, got[0].Snapshot.Primary.UsedPercent)
+	require.InDelta(t, 42.0, got[0].Snapshot.Primary.UsedPercent, 1e-9)
 	require.True(t, resetAt.Equal(got[0].Snapshot.Primary.ResetAt))
 	require.True(t, got[0].Snapshot.Secondary.ResetAt.IsZero())
 	require.True(t, observedAt.Equal(got[0].Snapshot.ObservedAt))
 	require.Equal(t, "codex", got[1].Provider)
-	require.Equal(t, 7.0, got[1].Snapshot.Primary.UsedPercent)
+	require.InDelta(t, 7.0, got[1].Snapshot.Primary.UsedPercent, 1e-9)
 
 	require.NoError(t, seats.RecordSeatUsage(ctx, userA, "claude", snapshot(55, observedAt.Add(time.Minute))))
 	got, err = seats.ListSeatUsage(ctx, userA)
 	require.NoError(t, err)
-	require.Equal(t, 55.0, got[0].Snapshot.Primary.UsedPercent)
+	require.InDelta(t, 55.0, got[0].Snapshot.Primary.UsedPercent, 1e-9)
 }
