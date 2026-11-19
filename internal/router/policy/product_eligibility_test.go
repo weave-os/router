@@ -54,8 +54,10 @@ func TestMaxBoundaryIsHardEvenWhenItEmptiesThePool(t *testing.T) {
 
 	resolved := resolver.Resolve(router.Request{
 		ProductEligibility: eligibility.MaxOpenSourceOnly,
-		AllowedModels:      set("claude-opus-4-8"),
-		PreferredModels:    []string{"claude-opus-4-8"},
+		Candidates: router.Candidates{
+			AllowedModels: set("claude-opus-4-8"),
+		},
+		PreferredModels: []string{"claude-opus-4-8"},
 	})
 
 	assert.Empty(t, resolved.Candidates)
@@ -67,7 +69,9 @@ func TestMaxBoundaryIsHardEvenWhenItEmptiesThePool(t *testing.T) {
 func TestProductRefusalOutranksTheDesugaredExclusion(t *testing.T) {
 	resolved := maxResolver().Resolve(router.Request{
 		ProductEligibility: eligibility.MaxOpenSourceOnly,
-		ExcludedModels:     set("claude-opus-4-8", "muse-spark-1.3"),
+		Candidates: router.Candidates{
+			ExcludedModels: set("claude-opus-4-8", "muse-spark-1.3"),
+		},
 	})
 
 	require.Equal(t, []string{"deepseek/deepseek-v4-pro"}, catalogIDs(resolved.Candidates))
@@ -83,7 +87,9 @@ func TestProductRefusalOutranksTheDesugaredExclusion(t *testing.T) {
 func TestEligibleModelStillReportsRequestedExclusion(t *testing.T) {
 	resolved := maxResolver().Resolve(router.Request{
 		ProductEligibility: eligibility.MaxOpenSourceOnly,
-		ExcludedModels:     set("deepseek/deepseek-v4-pro"),
+		Candidates: router.Candidates{
+			ExcludedModels: set("deepseek/deepseek-v4-pro"),
+		},
 	})
 
 	assert.Empty(t, resolved.Candidates)

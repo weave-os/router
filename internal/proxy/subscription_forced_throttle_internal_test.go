@@ -30,7 +30,7 @@ func TestSubscriptionStateForcedModelThrottledPoolKeeps429(t *testing.T) {
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel})
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{stateCodexModel})
 	ctx = withTurnFailures(ctx)
-	req := router.Request{AllowedModels: allowedModelsForRequest(ctx), EnabledProviders: modelSet([]string{providers.ProviderOpenAI})}
+	req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: modelSet([]string{providers.ProviderOpenAI})}
 	rec := httptest.NewRecorder()
 	buffer := newPreludeBuffer(rec)
 	inputs := failoverInputs{

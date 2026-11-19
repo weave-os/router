@@ -172,7 +172,7 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 			assert.False(t, result.Handover.Invoked)
 			assert.Equal(t, 0, summarizer.calls)
 			require.Len(t, policyRouter.requests, 1)
-			turnContext := policyRouter.requests[0].PolicyTurnContext
+			turnContext := policyRouter.requests[0].Session.PolicyTurnContext
 			require.NotNil(t, turnContext)
 			assert.Equal(t, test.historyTruncated, turnContext.HistoryTruncated)
 			if test.pinFound {

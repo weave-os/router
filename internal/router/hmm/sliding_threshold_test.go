@@ -19,7 +19,7 @@ func TestSlidingThresholdServesWithoutPinGroupHolds(t *testing.T) {
 
 func TestSlidingThresholdServesUnscoredLabelHolds(t *testing.T) {
 	fresh := router.Decision{Model: "fresh", Metadata: &router.RoutingMetadata{PolicyGroup: "g2", ClassifierPredictedLabel: "g2"}}
-	req := router.Request{SlidingThresholdPinGroup: escalation.Group("g1")}
+	req := router.Request{Session: router.SessionView{SlidingThresholdPinGroup: escalation.Group("g1")}}
 	got := hmm.SlidingThresholdServes(req, sessionpin.Pin{Model: "pinned"}, fresh)
 	assert.False(t, got.Served)
 	assert.Empty(t, got.FreshGroup)
@@ -30,7 +30,7 @@ func TestSlidingThresholdServesMatchingBandReportsGroups(t *testing.T) {
 		PolicyGroup: string(escalation.Medium), ClassifierPredictedLabel: string(escalation.High),
 		ClassifierProbabilities: map[string]float64{string(escalation.High): 0.35},
 	}}
-	req := router.Request{SlidingThresholdPinGroup: escalation.Low}
+	req := router.Request{Session: router.SessionView{SlidingThresholdPinGroup: escalation.Low}}
 	got := hmm.SlidingThresholdServes(req, sessionpin.Pin{Model: "pinned"}, fresh)
 	assert.Equal(t, hmm.SlidingThreshold{Served: true, Probability: 0.35, FreshGroup: "medium", ClassifiedGroup: "high"}, got)
 }

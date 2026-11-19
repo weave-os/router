@@ -42,11 +42,11 @@ func TestBoostCodexLunaSubscriptionCoverage(t *testing.T) {
 
 			require.NoError(t, service.ProxyOpenAIChatCompletion(ctx, []byte(body), recorder, request))
 			require.NotNil(t, selection.capturedReq, "the request must reach automatic selection")
-			assert.NotContains(t, selection.capturedReq.ExcludedModels, codexLunaCoverageModel)
+			assert.NotContains(t, selection.capturedReq.Candidates.ExcludedModels, codexLunaCoverageModel)
 			if reason == billing.SubscriptionOnlyCreditsDepleted {
-				assert.Contains(t, selection.capturedReq.ExcludedModels, "gpt-5.4-nano")
+				assert.Contains(t, selection.capturedReq.Candidates.ExcludedModels, "gpt-5.4-nano")
 			} else {
-				assert.NotContains(t, selection.capturedReq.ExcludedModels, "gpt-5.4-nano")
+				assert.NotContains(t, selection.capturedReq.Candidates.ExcludedModels, "gpt-5.4-nano")
 			}
 			require.Len(t, upstream.proxyCreds, 1)
 			require.NotNil(t, upstream.proxyCreds[0])

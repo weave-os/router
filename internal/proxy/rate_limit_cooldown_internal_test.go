@@ -463,7 +463,7 @@ func TestTurnLoopExcludesCoolingArmBeforeExpiry(t *testing.T) {
 	assert.Equal(t, freshTurnModel, res.Decision.Model)
 	assert.False(t, res.StickyHit, "a cooling pin must not be reused")
 	require.Len(t, scorer.requests, 1)
-	assert.Contains(t, scorer.requests[0].AutomaticExcludedModels, demotedPinModel)
+	assert.Contains(t, scorer.requests[0].Candidates.AutomaticExcludedModels, demotedPinModel)
 	assert.Equal(t, []string{demotedPinModel}, res.SessionDemotedModels)
 	assert.Equal(t, map[string]time.Time{demotedPinModel: until}, res.SessionCooldownModels)
 }
@@ -481,7 +481,7 @@ func TestTurnLoopReadmitsArmAfterCooldownExpiry(t *testing.T) {
 	assert.Equal(t, demotedPinModel, res.Decision.Model, "the cooled arm is served again")
 	assert.True(t, res.StickyHit)
 	for _, req := range scorer.requests {
-		assert.NotContains(t, req.AutomaticExcludedModels, demotedPinModel)
+		assert.NotContains(t, req.Candidates.AutomaticExcludedModels, demotedPinModel)
 	}
 	assert.Empty(t, res.SessionDemotedModels)
 	assert.Empty(t, res.SessionCooldownModels)
@@ -500,7 +500,7 @@ func TestTurnLoopHonoursCooldownRecordedOnHMMHistory(t *testing.T) {
 
 	assert.Equal(t, freshTurnModel, res.Decision.Model)
 	require.Len(t, scorer.requests, 1)
-	assert.Contains(t, scorer.requests[0].AutomaticExcludedModels, demotedPinModel)
+	assert.Contains(t, scorer.requests[0].Candidates.AutomaticExcludedModels, demotedPinModel)
 	assert.Equal(t, map[string]time.Time{demotedPinModel: until}, res.SessionCooldownModels)
 }
 
@@ -518,7 +518,7 @@ func TestTurnLoopPermanentStrikeOutranksLeftoverCooldown(t *testing.T) {
 
 	assert.Equal(t, freshTurnModel, res.Decision.Model)
 	require.Len(t, scorer.requests, 1)
-	assert.Contains(t, scorer.requests[0].AutomaticExcludedModels, demotedPinModel)
+	assert.Contains(t, scorer.requests[0].Candidates.AutomaticExcludedModels, demotedPinModel)
 	assert.Equal(t, []string{demotedPinModel}, res.SessionDemotedModels)
 	assert.Nil(t, res.SessionCooldownModels, "a lifetime strike is never readmitted as a cooldown")
 	assert.Equal(t, []string{demotedPinModel}, res.SessionStrikeReadmitModels, "only as the struck-out last resort")
@@ -537,7 +537,7 @@ func TestTurnLoopIgnoresCooldownsWhenFlagOff(t *testing.T) {
 	assert.Equal(t, demotedPinModel, res.Decision.Model)
 	assert.True(t, res.StickyHit)
 	for _, req := range scorer.requests {
-		assert.NotContains(t, req.AutomaticExcludedModels, demotedPinModel)
+		assert.NotContains(t, req.Candidates.AutomaticExcludedModels, demotedPinModel)
 	}
 	assert.Empty(t, res.SessionDemotedModels)
 	assert.Nil(t, res.SessionCooldownModels)

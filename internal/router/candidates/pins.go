@@ -56,7 +56,7 @@ func PinEligible(pin sessionpin.Pin, req router.Request) bool {
 	if pin.Model == "" || pin.Provider == "" {
 		return false
 	}
-	if _, excluded := req.ExcludedModels[pin.Model]; excluded {
+	if _, excluded := req.Candidates.ExcludedModels[pin.Model]; excluded {
 		return false
 	}
 	if !PinServesImages(pin, req) {
@@ -106,25 +106,25 @@ func MergeExcludedModels(hard, automatic map[string]struct{}) map[string]struct{
 }
 
 func ReadmitForcedImageLimit(req router.Request, model string) router.Request {
-	if _, imageLimitExcluded := req.ImageLimitExcludedModels[model]; !imageLimitExcluded {
+	if _, imageLimitExcluded := req.Candidates.ImageLimitExcludedModels[model]; !imageLimitExcluded {
 		return req
 	}
-	req.ExcludedModels = WithoutModels(req.ExcludedModels, []string{model})
+	req.Candidates.ExcludedModels = WithoutModels(req.Candidates.ExcludedModels, []string{model})
 	req.ImageCount = 0
 	return req
 }
 
 func ReadmitForcedContextEstimate(req router.Request, model string) router.Request {
-	if _, estimateOnly := req.ContextWindowExcludedModels[model]; !estimateOnly {
+	if _, estimateOnly := req.Candidates.ContextWindowExcludedModels[model]; !estimateOnly {
 		return req
 	}
-	req.ExcludedModels = WithoutModels(req.ExcludedModels, []string{model})
-	req.SafetyExcludedModels = WithoutModels(req.SafetyExcludedModels, []string{model})
+	req.Candidates.ExcludedModels = WithoutModels(req.Candidates.ExcludedModels, []string{model})
+	req.Candidates.SafetyExcludedModels = WithoutModels(req.Candidates.SafetyExcludedModels, []string{model})
 	return req
 }
 
 func AutomaticallyDisabled(req router.Request, model string) bool {
-	_, disabled := req.AutomaticExcludedModels[model]
+	_, disabled := req.Candidates.AutomaticExcludedModels[model]
 	return disabled
 }
 

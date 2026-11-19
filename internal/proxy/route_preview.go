@@ -124,8 +124,7 @@ func (s *Service) anthropicRoutingRequest(
 		EnabledProviders:             enabledProviders,
 		CustomBindings:               s.customBindingsForRequest(ctx),
 		GatewayProviders:             s.gatewayProvidersForRequest(ctx),
-		ExcludedModels:               excluded,
-		AllowedModels:                allowedModelsForRequest(ctx),
+		Candidates:                   router.Candidates{ExcludedModels: excluded, AllowedModels: allowedModelsForRequest(ctx)},
 		PreferredModels:              s.preferredModelsForRequest(ctx),
 		RoutingKnobs:                 routingKnobsForRequest(ctx),
 	}, nil

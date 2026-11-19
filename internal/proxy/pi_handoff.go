@@ -207,7 +207,7 @@ func (s *Service) resumeHandoff(ctx context.Context, env *translate.RequestEnvel
 	if err != nil {
 		return turnLoopResult{}, err
 	}
-	req.AutomaticExcludedModels = s.globalAutomaticExcludedModels(ctx)
+	req.Candidates.AutomaticExcludedModels = s.globalAutomaticExcludedModels(ctx)
 	selected := claims.Route.Decision
 	pin := sessionpin.Pin{Model: selected.Model, Provider: selected.Provider}
 	if !candidates.AutomaticPinEligible(pin, req) {

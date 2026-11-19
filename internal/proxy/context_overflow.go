@@ -112,10 +112,12 @@ func (s *Service) overflowRescueDecisions(ctx context.Context, failed router.Dec
 		return nil
 	}
 	req := router.Request{
-		CustomBindings:          s.customBindingsForRequest(ctx),
-		GatewayProviders:        gateways,
-		ExcludedModels:          s.excludedModelsForRequest(ctx),
-		AutomaticExcludedModels: s.rescueExcludedModels(ctx),
+		CustomBindings:   s.customBindingsForRequest(ctx),
+		GatewayProviders: gateways,
+		Candidates: router.Candidates{
+			ExcludedModels:          s.excludedModelsForRequest(ctx),
+			AutomaticExcludedModels: s.rescueExcludedModels(ctx),
+		},
 	}
 	rescuers := s.crossGatewayRescuers(ctx, compactionSummarizer{provider: failed.Provider, model: failed.Model}, req)
 	models := make([]string, 0, len(rescuers))

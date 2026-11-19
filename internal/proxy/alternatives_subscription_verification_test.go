@@ -71,7 +71,7 @@ func TestVerificationAutomaticAlternativeHTTP(t *testing.T) {
 			client.SetCodexBaseURL(server.URL)
 			resolverRequest := router.Request{HasTools: true}
 			if scenario.excluded {
-				resolverRequest.ExcludedModels = map[string]struct{}{alternative: {}}
+				resolverRequest.Candidates.ExcludedModels = map[string]struct{}{alternative: {}}
 			}
 			if scenario.contextLimited {
 				resolverRequest.EstimatedInputTokens = catalog.ContextWindowFor(alternative) + 1
@@ -138,8 +138,10 @@ func TestVerificationAlternativesHonorHardRequestExclusions(t *testing.T) {
 	ctx := managedSubscriptionContext(auth.SubscriptionProviderCodex)
 	selected := router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Metadata: &router.RoutingMetadata{CandidateModels: []string{codexCoveredModel, "gpt-6-sol", "gpt-6.1-sol"}}}
 	request := router.Request{
-		SafetyExcludedModels:          map[string]struct{}{"gpt-6-sol": {}},
-		UnsignedHistoryExcludedModels: map[string]struct{}{"gpt-6.1-sol": {}},
+		Candidates: router.Candidates{
+			SafetyExcludedModels:          map[string]struct{}{"gpt-6-sol": {}},
+			UnsignedHistoryExcludedModels: map[string]struct{}{"gpt-6.1-sol": {}},
+		},
 	}
 	require.Empty(t, svc.subscriptionAlternativeDecisions(ctx, request, selected))
 	request = router.Request{}

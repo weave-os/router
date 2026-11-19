@@ -49,6 +49,6 @@ func TestService_SessionPin_CustomToolTurnKeepsUnsupportedPinExcluded(t *testing
 	require.NoError(t, svc.ProxyOpenAIResponses(authedCtx(uuid.New().String()), []byte(body), rec, httpReq))
 
 	require.NotNil(t, fr.capturedReq, "scorer must run once the unsupported pin is dropped")
-	assert.Contains(t, fr.capturedReq.ExcludedModels, catalog.ModelMiMoV26Pro)
+	assert.Contains(t, fr.capturedReq.Candidates.ExcludedModels, catalog.ModelMiMoV26Pro)
 	assert.Equal(t, fresh, rec.Header().Get(proxy.HeaderRouterModel))
 }

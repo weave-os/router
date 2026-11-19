@@ -83,8 +83,8 @@ func TestWithPolicyRequestContext_CarriesAutomaticExclusionsSeparately(t *testin
 
 	req := svc.withPolicyRequestContext(context.Background(), router.Request{})
 
-	assert.Equal(t, map[string]struct{}{"claude-opus-5": {}}, req.AutomaticExcludedModels)
-	assert.Empty(t, req.ExcludedModels)
+	assert.Equal(t, map[string]struct{}{"claude-opus-5": {}}, req.Candidates.AutomaticExcludedModels)
+	assert.Empty(t, req.Candidates.ExcludedModels)
 }
 
 // A session already pinned to a model must move off it once the model is
@@ -108,9 +108,11 @@ func TestTurnLoop_DropsAutomaticPinOnDisabledModel(t *testing.T) {
 	feats := env.RoutingFeatures()
 	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil,
 		router.Request{
-			RequestedModel:          feats.Model,
-			EnabledProviders:        keyed(providers.ProviderAnthropic),
-			AutomaticExcludedModels: map[string]struct{}{"claude-opus-5": {}},
+			RequestedModel:   feats.Model,
+			EnabledProviders: keyed(providers.ProviderAnthropic),
+			Candidates: router.Candidates{
+				AutomaticExcludedModels: map[string]struct{}{"claude-opus-5": {}},
+			},
 		})
 
 	require.NoError(t, err)
@@ -138,9 +140,11 @@ func TestTurnLoop_KeepsForcedPinOnDisabledModel(t *testing.T) {
 	feats := env.RoutingFeatures()
 	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil,
 		router.Request{
-			RequestedModel:          feats.Model,
-			EnabledProviders:        keyed(providers.ProviderAnthropic),
-			AutomaticExcludedModels: map[string]struct{}{"claude-opus-5": {}},
+			RequestedModel:   feats.Model,
+			EnabledProviders: keyed(providers.ProviderAnthropic),
+			Candidates: router.Candidates{
+				AutomaticExcludedModels: map[string]struct{}{"claude-opus-5": {}},
+			},
 		})
 
 	require.NoError(t, err)
@@ -169,9 +173,11 @@ func TestTurnLoop_DropsEscalationPinOnDisabledModel(t *testing.T) {
 	feats := env.RoutingFeatures()
 	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil,
 		router.Request{
-			RequestedModel:          feats.Model,
-			EnabledProviders:        keyed(providers.ProviderAnthropic),
-			AutomaticExcludedModels: map[string]struct{}{"claude-opus-5": {}},
+			RequestedModel:   feats.Model,
+			EnabledProviders: keyed(providers.ProviderAnthropic),
+			Candidates: router.Candidates{
+				AutomaticExcludedModels: map[string]struct{}{"claude-opus-5": {}},
+			},
 		})
 
 	require.NoError(t, err)

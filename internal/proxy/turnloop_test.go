@@ -382,7 +382,7 @@ func TestTurnLoop_HMMHistoryMaxedOutExcludesServedModelBeforeRouting(t *testing.
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	require.NotNil(t, fr.capturedReq)
-	assert.Contains(t, fr.capturedReq.ExcludedModels, "claude-sonnet-5",
+	assert.Contains(t, fr.capturedReq.Candidates.ExcludedModels, "claude-sonnet-5",
 		"HMM history saturation must exclude the prior served model before sidecar routing")
 	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel))
 	store.mu.Lock()
@@ -421,7 +421,7 @@ func TestTurnLoop_HMMExpiredHistoryMaxedOutStillExcludesServedModel(t *testing.T
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	require.NotNil(t, fr.capturedReq)
-	assert.Contains(t, fr.capturedReq.ExcludedModels, "claude-sonnet-5",
+	assert.Contains(t, fr.capturedReq.Candidates.ExcludedModels, "claude-sonnet-5",
 		"a maxed-out model must stay excluded even after the history row's TTL lapses")
 	store.mu.Lock()
 	assertOnlyHMMHistoryUpserts(t, store)
@@ -1036,7 +1036,7 @@ func TestTurnLoop_MaxedOutPinExcludedFromCandidates(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	require.NotNil(t, fr.capturedReq, "scorer must run after a maxed-out pin is dropped")
-	assert.Contains(t, fr.capturedReq.ExcludedModels, "moonshotai/kimi-k2.6",
+	assert.Contains(t, fr.capturedReq.Candidates.ExcludedModels, "moonshotai/kimi-k2.6",
 		"pinned model must be excluded from candidates after a maxed-out turn")
 	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel),
 		"router must serve the fresh decision, not the broken pin")
@@ -1068,9 +1068,9 @@ func TestTurnLoop_MaxedOutExcludesLastServedModelNotAnchor(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	require.NotNil(t, fr.capturedReq, "scorer must run after a maxed-out pin is dropped")
-	assert.Contains(t, fr.capturedReq.ExcludedModels, "moonshotai/kimi-k2.6",
+	assert.Contains(t, fr.capturedReq.Candidates.ExcludedModels, "moonshotai/kimi-k2.6",
 		"the model that actually maxed out (LastServedModel) must be excluded")
-	assert.NotContains(t, fr.capturedReq.ExcludedModels, "claude-haiku-4-5",
+	assert.NotContains(t, fr.capturedReq.Candidates.ExcludedModels, "claude-haiku-4-5",
 		"the healthy anchor must not be excluded when the paired model maxed out")
 }
 
@@ -1095,7 +1095,7 @@ func TestTurnLoop_UnconfirmedHighOutputKeepsPin(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	require.NotNil(t, fr.capturedReq)
-	assert.NotContains(t, fr.capturedReq.ExcludedModels, "claude-haiku-4-5",
+	assert.NotContains(t, fr.capturedReq.Candidates.ExcludedModels, "claude-haiku-4-5",
 		"healthy pin must not be excluded from candidates")
 	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel))
 }

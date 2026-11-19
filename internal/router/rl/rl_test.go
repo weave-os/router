@@ -100,7 +100,9 @@ func TestRouteExcludesRequestedExclusions(t *testing.T) {
 	_, err := r.Route(context.Background(), router.Request{
 		PromptText:       "hi",
 		EnabledProviders: enabled(providers.ProviderAnthropic, providers.ProviderMakora),
-		ExcludedModels:   map[string]struct{}{"claude-opus-4-8": {}},
+		Candidates: router.Candidates{
+			ExcludedModels: map[string]struct{}{"claude-opus-4-8": {}},
+		},
 	})
 	require.NoError(t, err)
 	for _, c := range dec.got.Candidates {

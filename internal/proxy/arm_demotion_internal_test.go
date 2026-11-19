@@ -623,7 +623,7 @@ func TestUnrescuedResponseHeaderTimeoutExcludesPrimaryOnNextTurn(t *testing.T) {
 	turnResult := runDemotionTurnLoop(t, nextTurnService, turnContext)
 	assert.Equal(t, freshTurnModel, turnResult.Decision.Model)
 	require.Len(t, scorer.requests, 1)
-	assert.Contains(t, scorer.requests[0].AutomaticExcludedModels, demotedPinModel)
+	assert.Contains(t, scorer.requests[0].Candidates.AutomaticExcludedModels, demotedPinModel)
 }
 
 // The two demotion hooks are independent: a turn whose primary was rescued

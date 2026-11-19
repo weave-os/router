@@ -131,8 +131,8 @@ func TestService_PreviewAnthropicRouteBuildsServingCandidateContextWithoutDispat
 	assert.Equal(t, []string{"Read"}, previewer.previewReq.AvailableTools)
 	assert.Contains(t, previewer.previewReq.EnabledProviders, providers.ProviderAnthropic)
 	assert.Contains(t, previewer.previewReq.EnabledProviders, providers.ProviderOpenAI)
-	assert.Contains(t, previewer.previewReq.ExcludedModels, "gpt-5.5-mini")
-	assert.NotContains(t, previewer.previewReq.ExcludedModels, "gpt-5.4-nano",
+	assert.Contains(t, previewer.previewReq.Candidates.ExcludedModels, "gpt-5.5-mini")
+	assert.NotContains(t, previewer.previewReq.Candidates.ExcludedModels, "gpt-5.4-nano",
 		"a normal non-Codex preview must retain infrastructure OpenAI candidates")
 	assert.Equal(t, []string{"claude-opus-4-8"}, previewer.previewReq.PreferredModels)
 	assert.False(t, previewer.previewReq.TrainingAllowed)
@@ -160,9 +160,9 @@ func TestService_PreviewAnthropicRouteExcludesInfrastructureModelsForOAuthOnlyCo
 	require.NoError(t, err)
 	require.NotNil(t, previewer.previewReq)
 	assert.Contains(t, previewer.previewReq.EnabledProviders, providers.ProviderOpenAI)
-	assert.Contains(t, previewer.previewReq.ExcludedModels, "gpt-5.4-nano",
+	assert.Contains(t, previewer.previewReq.Candidates.ExcludedModels, "gpt-5.4-nano",
 		"route and HMM previews must not advertise models that Codex OAuth cannot serve")
-	assert.NotContains(t, previewer.previewReq.ExcludedModels, "gpt-5.6-sol")
+	assert.NotContains(t, previewer.previewReq.Candidates.ExcludedModels, "gpt-5.6-sol")
 }
 
 func TestService_AgentShadowEvaluationForcesEphemerallyWithoutServingRouter(t *testing.T) {
@@ -1503,7 +1503,7 @@ func TestService_ExcludedModelsThroughRequest(t *testing.T) {
 		require.NoError(t, svc.ProxyMessages(context.Background(), body, rec, httpReq))
 
 		require.NotNil(t, fr.capturedReq)
-		assert.Nil(t, fr.capturedReq.ExcludedModels)
+		assert.Nil(t, fr.capturedReq.Candidates.ExcludedModels)
 	})
 
 	t.Run("installation list populates request", func(t *testing.T) {
@@ -1516,8 +1516,8 @@ func TestService_ExcludedModelsThroughRequest(t *testing.T) {
 		require.NoError(t, svc.ProxyMessages(ctx, body, rec, httpReq))
 
 		require.NotNil(t, fr.capturedReq)
-		assert.Contains(t, fr.capturedReq.ExcludedModels, "claude-opus-4-7")
-		assert.Contains(t, fr.capturedReq.ExcludedModels, "gpt-5")
+		assert.Contains(t, fr.capturedReq.Candidates.ExcludedModels, "claude-opus-4-7")
+		assert.Contains(t, fr.capturedReq.Candidates.ExcludedModels, "gpt-5")
 	})
 
 	t.Run("env override replaces installation list", func(t *testing.T) {
@@ -1532,8 +1532,8 @@ func TestService_ExcludedModelsThroughRequest(t *testing.T) {
 		require.NoError(t, svc.ProxyMessages(ctx, body, rec, httpReq))
 
 		require.NotNil(t, fr.capturedReq)
-		assert.Contains(t, fr.capturedReq.ExcludedModels, "gpt-4o")
-		assert.NotContains(t, fr.capturedReq.ExcludedModels, "claude-opus-4-7")
+		assert.Contains(t, fr.capturedReq.Candidates.ExcludedModels, "gpt-4o")
+		assert.NotContains(t, fr.capturedReq.Candidates.ExcludedModels, "claude-opus-4-7")
 		assert.True(t, svc.HasExcludedModelsOverride())
 		assert.Equal(t, []string{"gpt-4o"}, svc.ExcludedModelsOverride())
 	})

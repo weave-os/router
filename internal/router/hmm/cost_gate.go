@@ -123,7 +123,7 @@ func (g CostGate) NormalizeStayPin(req router.Request, p sessionpin.Pin, now tim
 	if candidates.MaxedOutServedModel(p) != "" {
 		return sessionpin.Pin{}, false
 	}
-	if _, excluded := req.ExcludedModels[model]; excluded {
+	if _, excluded := req.Candidates.ExcludedModels[model]; excluded {
 		return sessionpin.Pin{}, false
 	}
 	if candidates.AutomaticallyDisabled(req, model) {

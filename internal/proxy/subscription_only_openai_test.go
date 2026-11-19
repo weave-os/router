@@ -106,7 +106,7 @@ func TestSubscriptionOnly_OpenAI_InfrastructureModelRefusesWithoutDispatch(t *te
 	require.Error(t, err)
 	require.ErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable)
 	require.NotNil(t, fr.capturedReq)
-	assert.Contains(t, fr.capturedReq.ExcludedModels, "gpt-5.4-nano",
+	assert.Contains(t, fr.capturedReq.Candidates.ExcludedModels, "gpt-5.4-nano",
 		"subscription-only candidate selection must exclude OpenAI models outside the native Codex family")
 	assert.Empty(t, p.proxyBodies, "the infrastructure model must never dispatch against depleted credits")
 }

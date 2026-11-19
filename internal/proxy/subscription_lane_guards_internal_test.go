@@ -102,7 +102,7 @@ func heldCodexOnlyService(t *testing.T) (*fakeClient, func() router.Decision) {
 
 	serve := func() router.Decision {
 		ctx := turnCtx()
-		req := router.Request{AllowedModels: allowedModelsForRequest(ctx), EnabledProviders: modelSet([]string{providers.ProviderOpenAI})}
+		req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: modelSet([]string{providers.ProviderOpenAI})}
 		rec := httptest.NewRecorder()
 		buffer := newPreludeBuffer(rec)
 		var winner router.Decision
@@ -146,7 +146,7 @@ func TestMemberPickNoSubscriptionServesSkipsTheIncludedLane(t *testing.T) {
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel})
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
 	ctx = withTurnFailures(ctx)
-	req := router.Request{AllowedModels: allowedModelsForRequest(ctx), EnabledProviders: modelSet([]string{providers.ProviderOpenAI, providers.ProviderOpenRouter})}
+	req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: modelSet([]string{providers.ProviderOpenAI, providers.ProviderOpenRouter})}
 	rec := httptest.NewRecorder()
 	buffer := newPreludeBuffer(rec)
 	var winner router.Decision

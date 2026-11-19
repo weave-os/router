@@ -67,7 +67,7 @@ func TestRunTurnLoop_ForcedTextOnlyModel_DropsPinForImageTurn(t *testing.T) {
 	assert.False(t, res.StickyHit, "the pin was dropped, so this is not a sticky hit")
 
 	require.Len(t, fr.captured, 1, "exactly one scorer call after the pin is dropped")
-	_, textOnlyExcluded := fr.captured[0].ExcludedModels[textOnlyForcedModel]
+	_, textOnlyExcluded := fr.captured[0].Candidates.ExcludedModels[textOnlyForcedModel]
 	assert.True(t, textOnlyExcluded,
 		"the dropped text-only model must be excluded from the scorer pool, not left available to re-pick")
 }
@@ -126,14 +126,16 @@ func TestRunTurnLoop_ForcedImageCapModel_ReachesProvider(t *testing.T) {
 
 	excludedModels := map[string]struct{}{model: {}}
 	req := router.Request{
-		RequestedModel:           feats.Model,
-		ForceModel:               model,
-		HasImages:                true,
-		ImageCount:               imageCount,
-		EnabledProviders:         map[string]struct{}{providers.ProviderDeepInfra: {}},
-		ExcludedModels:           excludedModels,
-		ImageLimitExcludedModels: excludedModels,
-		SafetyExcludedModels:     excludedModels,
+		RequestedModel:   feats.Model,
+		ForceModel:       model,
+		HasImages:        true,
+		ImageCount:       imageCount,
+		EnabledProviders: map[string]struct{}{providers.ProviderDeepInfra: {}},
+		Candidates: router.Candidates{
+			ExcludedModels:           excludedModels,
+			ImageLimitExcludedModels: excludedModels,
+			SafetyExcludedModels:     excludedModels,
+		},
 	}
 	pin := sessionpin.Pin{Provider: providers.ProviderDeepInfra, Model: model}
 	assert.True(t, candidates.ForcedPinEligible(pin, req), "the explicit force must survive an image-count-only exclusion")

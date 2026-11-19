@@ -20,7 +20,7 @@ const (
 )
 
 func automaticallyDisabledRequest(model string) router.Request {
-	return router.Request{AutomaticExcludedModels: map[string]struct{}{model: {}}}
+	return router.Request{Candidates: router.Candidates{AutomaticExcludedModels: map[string]struct{}{model: {}}}}
 }
 
 func TestAutomaticPinEligible_RejectsDisabledModelButForcedPinSurvives(t *testing.T) {
@@ -36,17 +36,19 @@ func TestReadmitForcedImageLimitCopiesExcludedModels(t *testing.T) {
 	const model = "xiaomi/mimo-v2.6-pro"
 	excluded := map[string]struct{}{model: {}, "other-model": {}}
 	req := router.Request{
-		ImageCount:               17,
-		ExcludedModels:           excluded,
-		ImageLimitExcludedModels: map[string]struct{}{model: {}},
+		ImageCount: 17,
+		Candidates: router.Candidates{
+			ExcludedModels:           excluded,
+			ImageLimitExcludedModels: map[string]struct{}{model: {}},
+		},
 	}
 
 	readmitted := candidates.ReadmitForcedImageLimit(req, model)
 
 	assert.Zero(t, readmitted.ImageCount)
-	assert.NotContains(t, readmitted.ExcludedModels, model)
-	assert.Contains(t, readmitted.ExcludedModels, "other-model")
-	assert.Contains(t, req.ExcludedModels, model, "readmission must not mutate the caller's exclusion set")
+	assert.NotContains(t, readmitted.Candidates.ExcludedModels, model)
+	assert.Contains(t, readmitted.Candidates.ExcludedModels, "other-model")
+	assert.Contains(t, req.Candidates.ExcludedModels, model, "readmission must not mutate the caller's exclusion set")
 	assert.Equal(t, 17, req.ImageCount, "readmission must not mutate the caller's request")
 }
 

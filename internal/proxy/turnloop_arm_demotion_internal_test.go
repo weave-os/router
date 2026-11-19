@@ -43,8 +43,10 @@ func runDemotionTurnLoop(t *testing.T, svc *Service, ctx context.Context) turnLo
 		"",
 		http.Header{},
 		router.Request{
-			RequestedModel:       features.Model,
-			ExcludedModels:       svc.excludedModelsForRequest(ctx),
+			RequestedModel: features.Model,
+			Candidates: router.Candidates{
+				ExcludedModels: svc.excludedModelsForRequest(ctx),
+			},
 			EstimatedInputTokens: features.Tokens,
 			HasTools:             features.HasTools,
 			ConversationMessages: conversationMessagesForRouting(env),
@@ -94,7 +96,7 @@ func TestTurnLoopExcludesDemotedModelUnderAuthoritativePolicy(t *testing.T) {
 
 	assert.Equal(t, freshTurnModel, res.Decision.Model)
 	require.Len(t, policyRouter.requests, 1)
-	assert.Contains(t, policyRouter.requests[0].AutomaticExcludedModels, demotedPinModel,
+	assert.Contains(t, policyRouter.requests[0].Candidates.AutomaticExcludedModels, demotedPinModel,
 		"the demoted arm must be withdrawn from the authoritative pick")
 }
 
@@ -117,7 +119,7 @@ func TestTurnLoopDropsDemotedPinOnScorerPath(t *testing.T) {
 	assert.Equal(t, freshTurnModel, res.Decision.Model)
 	assert.False(t, res.StickyHit, "a demoted pin must not be reused")
 	require.Len(t, scorer.requests, 1)
-	assert.Contains(t, scorer.requests[0].AutomaticExcludedModels, demotedPinModel)
+	assert.Contains(t, scorer.requests[0].Candidates.AutomaticExcludedModels, demotedPinModel)
 }
 
 // HMM stickiness is recorded on the _hmm_history row, so a demotion written
@@ -139,7 +141,7 @@ func TestTurnLoopHonoursDemotionRecordedOnHMMHistory(t *testing.T) {
 
 	assert.Equal(t, freshTurnModel, res.Decision.Model)
 	require.Len(t, scorer.requests, 1)
-	assert.Contains(t, scorer.requests[0].AutomaticExcludedModels, demotedPinModel)
+	assert.Contains(t, scorer.requests[0].Candidates.AutomaticExcludedModels, demotedPinModel)
 }
 
 // /force-model is the escape hatch: an automatic strike-out must not silently

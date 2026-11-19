@@ -85,7 +85,7 @@ func TestUpgradeShadowUsesCacheRulesAndExplicitIntent(t *testing.T) {
 	shadow = svc.authoritativeUpgradeFor(context.Background(), req, pin, fresh, res, 1000)
 	assert.Equal(t, hmm.UpgradeDemotedModel, shadow.Verdict.Reason)
 	res.SessionDemotedModels = nil
-	req.AutomaticExcludedModels = map[string]struct{}{upgradeTestFreshModel: {}}
+	req.Candidates.AutomaticExcludedModels = map[string]struct{}{upgradeTestFreshModel: {}}
 	shadow = svc.authoritativeUpgradeFor(context.Background(), req, pin, fresh, res, 1000)
 	assert.Equal(t, hmm.UpgradeIneligibleModel, shadow.Verdict.Reason)
 }

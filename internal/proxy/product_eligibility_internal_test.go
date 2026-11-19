@@ -37,10 +37,10 @@ func TestMaxRequestCarriesTheBoundaryAndHardExclusions(t *testing.T) {
 	// Desugared into the HARD set, not AutomaticExcludedModels: a router may
 	// drop the soft set to keep a pool non-empty, which would serve exactly
 	// the models Max does not sell.
-	assert.Contains(t, req.ExcludedModels, "claude-opus-4-8")
-	assert.Contains(t, req.ExcludedModels, "muse-spark-1.3")
-	assert.NotContains(t, req.ExcludedModels, "deepseek/deepseek-v4-pro")
-	assert.NotContains(t, req.AutomaticExcludedModels, "claude-opus-4-8")
+	assert.Contains(t, req.Candidates.ExcludedModels, "claude-opus-4-8")
+	assert.Contains(t, req.Candidates.ExcludedModels, "muse-spark-1.3")
+	assert.NotContains(t, req.Candidates.ExcludedModels, "deepseek/deepseek-v4-pro")
+	assert.NotContains(t, req.Candidates.AutomaticExcludedModels, "claude-opus-4-8")
 }
 
 func TestUnsubscribedRequestKeepsUnrestrictedRouting(t *testing.T) {
@@ -49,7 +49,7 @@ func TestUnsubscribedRequestKeepsUnrestrictedRouting(t *testing.T) {
 	req := svc.withPolicyRequestContext(context.Background(), router.Request{})
 
 	assert.False(t, req.ProductEligibility.Restricts())
-	assert.Empty(t, req.ExcludedModels)
+	assert.Empty(t, req.Candidates.ExcludedModels)
 }
 
 // A router that reaches a closed-source model anyway — from a pin, a fallback
@@ -102,7 +102,7 @@ func TestFundingCannotWidenMaxEligibility(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			req := svc.withPolicyRequestContext(ctx, router.Request{})
-			assert.Contains(t, req.ExcludedModels, "claude-opus-4-8")
+			assert.Contains(t, req.Candidates.ExcludedModels, "claude-opus-4-8")
 
 			_, err := svc.Route(ctx, router.Request{})
 			require.ErrorIs(t, err, eligibility.ErrModelIneligible)

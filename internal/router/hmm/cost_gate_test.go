@@ -76,8 +76,8 @@ func TestHMMCostGateNormalizeStayPinRejectsIneligibleModels(t *testing.T) {
 		gate hmm.CostGate
 		req  router.Request
 	}{
-		"excluded":             {hmmGate(), router.Request{ExcludedModels: map[string]struct{}{stayModel: {}}}},
-		"auto-disabled":        {hmmGate(), router.Request{AutomaticExcludedModels: map[string]struct{}{stayModel: {}}}},
+		"excluded":             {hmmGate(), router.Request{Candidates: router.Candidates{ExcludedModels: map[string]struct{}{stayModel: {}}}}},
+		"auto-disabled":        {hmmGate(), router.Request{Candidates: router.Candidates{AutomaticExcludedModels: map[string]struct{}{stayModel: {}}}}},
 		"unavailable":          {unavailable, router.Request{}},
 		"provider not enabled": {hmmGate(), router.Request{EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}}}},
 	}
