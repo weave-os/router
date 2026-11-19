@@ -116,6 +116,7 @@ type ModelID string
 
 const (
 	ModelIDGemini4Argon       ModelID = router.ModelGemini4Argon
+	ModelIDGemini4Neon        ModelID = router.ModelGemini4Neon
 	ModelIDClaudeHaiku45      ModelID = "claude-haiku-4-5"
 	ModelIDClaudeHaiku55      ModelID = "claude-haiku-5-5"
 	ModelIDGPT41Nano          ModelID = "gpt-4.1-nano"
@@ -441,6 +442,9 @@ var Models = append([]Model{
 	}},
 	{ID: ModelIDGemini4Argon.String(), Source: SourceClosedSource, RequiresSignedToolHistory: true, HMMTarget: true, ContextWindow: 1_048_576, Providers: []ProviderBinding{
 		{Provider: providers.ProviderGoogle, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 10.00, CacheReadMultiplier: 0.10}},
+	}},
+	{ID: ModelIDGemini4Neon.String(), Source: SourceClosedSource, RequiresSignedToolHistory: true, HMMTarget: true, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderGoogle, Price: Pricing{InputUSDPer1M: 3.00, OutputUSDPer1M: 15.00, CacheReadMultiplier: 0.05}},
 	}},
 	{ID: "google/gemma-4-26b-a4b-it", Source: SourceOpenSource, Tier: TierLow, ContextWindow: 262_144, Providers: []ProviderBinding{
 		{Provider: providers.ProviderGoogle, UpstreamID: "gemma-4-26b-a4b-it", Price: Pricing{InputUSDPer1M: 0.15, OutputUSDPer1M: 0.60, CacheReadMultiplier: 0.10}},

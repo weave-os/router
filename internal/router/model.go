@@ -19,7 +19,10 @@ const (
 	CapAssistantPrefill          ModelCapability = "assistant_prefill"
 )
 
-const ModelGemini4Argon = "gemini-4-argon"
+const (
+	ModelGemini4Argon = "gemini-4-argon"
+	ModelGemini4Neon  = "gemini-4-neon"
+)
 
 type ModelSpec struct {
 	capabilities map[ModelCapability]struct{}
@@ -181,6 +184,7 @@ var registry = map[string]ModelSpec{
 	"gpt-6.2-astra":   openaiAstra,
 	"gpt-6-luna":      openai6,
 	ModelGemini4Argon: google3Base,
+	ModelGemini4Neon:  google3Base,
 
 	"gpt-5.6-sol":      openai56,
 	"gpt-5.6-sol-pro":  openai56,

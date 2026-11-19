@@ -11,10 +11,19 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-func TestArgonUsesNativeGeminiThinkingAndValidatedTools(t *testing.T) {
+func TestGemini4UsesNativeGeminiThinkingAndValidatedTools(t *testing.T) {
+	for _, model := range gemini4Models {
+		t.Run(model, func(t *testing.T) { assertNativeGeminiThinkingAndValidatedTools(t, model) })
+	}
+}
+
+var gemini4Models = []string{router.ModelGemini4Argon, router.ModelGemini4Neon}
+
+func assertNativeGeminiThinkingAndValidatedTools(t *testing.T, model string) {
+	t.Helper()
 	envelope, err := translate.ParseOpenAI([]byte(`{"model":"Weave","messages":[{"role":"user","content":"Echo ready."}],"reasoning_effort":"low","tools":[{"type":"function","function":{"name":"synthetic_echo","description":"Echo a synthetic message.","parameters":{"type":"object","properties":{"message":{"type":"string"}},"required":["message"]}}}]}`))
 	require.NoError(t, err)
-	prepared, err := envelope.PrepareGemini(http.Header{}, translate.EmitOptions{TargetModel: router.ModelGemini4Argon})
+	prepared, err := envelope.PrepareGemini(http.Header{}, translate.EmitOptions{TargetModel: model})
 	require.NoError(t, err)
 	var emitted struct {
 		GenerationConfig struct {
@@ -36,15 +45,22 @@ func TestArgonUsesNativeGeminiThinkingAndValidatedTools(t *testing.T) {
 
 	unsigned, err := translate.ParseOpenAI(openAIToolConversation)
 	require.NoError(t, err)
-	_, err = unsigned.PrepareGemini(http.Header{}, translate.EmitOptions{TargetModel: router.ModelGemini4Argon})
+	_, err = unsigned.PrepareGemini(http.Header{}, translate.EmitOptions{TargetModel: model})
 	require.ErrorIs(t, err, translate.ErrGeminiUnsignedToolHistory)
 }
 
-func TestArgonPreservesOutputBudgetsWithinItsNativeLimit(t *testing.T) {
+func TestGemini4PreservesOutputBudgetsWithinItsNativeLimit(t *testing.T) {
+	for _, model := range gemini4Models {
+		t.Run(model, func(t *testing.T) { assertOutputBudgetsWithinNativeLimit(t, model) })
+	}
+}
+
+func assertOutputBudgetsWithinNativeLimit(t *testing.T, model string) {
+	t.Helper()
 	for _, budget := range []struct{ requested, expected int }{{20000, 20000}, {64000, 32768}} {
 		envelope, err := translate.ParseOpenAI([]byte(fmt.Sprintf(`{"model":"Weave","messages":[{"role":"user","content":"Synthetic output-budget check."}],"max_tokens":%d}`, budget.requested)))
 		require.NoError(t, err)
-		prepared, err := envelope.PrepareGemini(http.Header{}, translate.EmitOptions{TargetModel: router.ModelGemini4Argon})
+		prepared, err := envelope.PrepareGemini(http.Header{}, translate.EmitOptions{TargetModel: model})
 		require.NoError(t, err)
 		var emitted struct {
 			GenerationConfig struct {

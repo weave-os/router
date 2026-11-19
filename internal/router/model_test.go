@@ -53,10 +53,12 @@ func TestLookup_GPT6AstraReasoning(t *testing.T) {
 	assert.True(t, spec.Reasoning().AlwaysOn)
 }
 
-func TestLookup_Gemini4ArgonReasoning(t *testing.T) {
-	spec := router.Lookup(router.ModelGemini4Argon)
-	assert.Equal(t, []string{"low", "medium", "high"}, spec.Reasoning().Levels)
-	assert.True(t, spec.Reasoning().AlwaysOn)
+func TestLookup_Gemini4Reasoning(t *testing.T) {
+	for _, model := range []string{router.ModelGemini4Argon, router.ModelGemini4Neon} {
+		spec := router.Lookup(model)
+		assert.Equal(t, []string{"low", "medium", "high"}, spec.Reasoning().Levels, model)
+		assert.True(t, spec.Reasoning().AlwaysOn, model)
+	}
 }
 
 func TestLookup_Haiku55AcceptsDisabledThinkingAndForcedTools(t *testing.T) {

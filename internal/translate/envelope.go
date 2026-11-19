@@ -1277,6 +1277,7 @@ var modelMaxOutputTokens = map[string]int{
 	"gemini-3.5-flash-lite":         65536, "gemini-3.6-flash": 65536,
 	"gemini-3.7-flash": 65536, "gemini-3.8-flash": 65536,
 	router.ModelGemini4Argon: 32768,
+	router.ModelGemini4Neon:  32768,
 	"gemini-2.5-pro":         65536, "gemini-2.5-flash": 65536,
 	"gemini-2.5-flash-lite": 65536,
 	"gemini-2.0-flash":      8192, "gemini-2.0-flash-lite": 8192,

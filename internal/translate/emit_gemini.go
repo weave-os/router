@@ -685,7 +685,7 @@ func geminiFunctionResponsePart(name, result string) string {
 }
 
 func usesGemini3Contract(model string) bool {
-	return strings.HasPrefix(model, "gemini-3") || model == router.ModelGemini4Argon
+	return strings.HasPrefix(model, "gemini-3") || model == router.ModelGemini4Argon || model == router.ModelGemini4Neon
 }
 
 func geminiToolMode(downgradeValidated bool) string {

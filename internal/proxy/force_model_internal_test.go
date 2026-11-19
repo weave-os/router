@@ -149,6 +149,13 @@ func TestResolveForceModel(t *testing.T) {
 			wantKnown:    true,
 		},
 		{
+			name:         "alias neon",
+			input:        "neon",
+			wantID:       "gemini-4-neon",
+			wantProvider: providers.ProviderGoogle,
+			wantKnown:    true,
+		},
+		{
 			name:         "alias gemini flash",
 			input:        "gemini-flash",
 			wantID:       "gemini-3.8-flash",
