@@ -117,6 +117,7 @@ func InternalCompleteSubscriptionLoginHandler(authSvc *auth.Service, flow Subscr
 			ExternalAccountID: completed.ExternalAccountID,
 			DisplayName:       completed.DisplayName,
 			RefreshToken:      []byte(completed.RefreshToken),
+			VerifiedSignIn:    true,
 		})
 		if err != nil {
 			log.Warn("Subscription login enrollment rejected", "err", err)

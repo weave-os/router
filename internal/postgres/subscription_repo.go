@@ -60,10 +60,11 @@ func (r *subscriptionAccountRepo) UpsertSubscriptionAccount(ctx context.Context,
 		row, err := dbbudget.Queries(r.tx).UpsertModelRouterSubscriptionAccountForSubscriber(ctx, sqlc.UpsertModelRouterSubscriptionAccountForSubscriberParams{
 			InstallationID: installationID, SubscriberID: subscriberID, APIKeyID: apiKeyID, Provider: string(params.Provider),
 			ExternalAccountID: params.ExternalAccountID, ProviderUserID: params.ProviderUserID, DisplayName: optionalSubscriptionAccountDisplayName(params.DisplayName), RefreshTokenCiphertext: params.RefreshToken,
+			AllowReassignment: params.VerifiedSignIn,
 		})
 		if err == nil {
 			return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.ProviderUserID,
-				row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt), subscriptionUpsertKind(row.Inserted, row.Adopted), nil
+				row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt), subscriptionUpsertKind(row.Inserted, row.Adopted, row.PreviousSubscriberID != uuid.Nil && row.PreviousSubscriberID != subscriberID), nil
 		}
 		if attempt == subscriberEnrollmentMaxAttempts-1 || !isSubscriberAccountConflict(err) {
 			return nil, auth.SubscriptionUpsertUpdated, err
@@ -379,10 +380,12 @@ func (r *subscriptionAccountRepo) RecordSubscriptionCredentialRejection(ctx cont
 	return rejection, nil
 }
 
-func subscriptionUpsertKind(inserted, adopted bool) auth.SubscriptionUpsertKind {
+func subscriptionUpsertKind(inserted, adopted, reassigned bool) auth.SubscriptionUpsertKind {
 	switch {
 	case inserted:
 		return auth.SubscriptionUpsertInserted
+	case reassigned:
+		return auth.SubscriptionUpsertReassigned
 	case adopted:
 		return auth.SubscriptionUpsertAdopted
 	default:
