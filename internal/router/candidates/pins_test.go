@@ -50,7 +50,7 @@ func TestReadmitForcedImageLimitCopiesExcludedModels(t *testing.T) {
 	assert.Equal(t, 17, req.ImageCount, "readmission must not mutate the caller's request")
 }
 
-// forcedPinEligible is the gate for the hard-pinned-turn fast path, which is a
+// ForcedPinEligible is the gate for the hard-pinned-turn fast path, which is a
 // separate branch from the one above and needs the same guard.
 func TestForcedPinEligible_RejectsTextOnlyModelOnImageTurn(t *testing.T) {
 	pin := sessionpin.Pin{Provider: providers.ProviderFireworks, Model: textOnlyForcedModel}
