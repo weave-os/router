@@ -1218,8 +1218,7 @@ func main() {
 		WithPlanner(plannerCfg).
 		WithSummarizer(summarizer).
 		WithCompactionHandoverSummarizer(compactionHandoverSz).
-		WithWebSearchExecutor(cortexWebSearch(logger)).
-		WithFallbackWebSearchExecutor(keenableWebSearch(logger)).
+		WithWebSearchExecutors(cortexWebSearch(logger), keenable.FromEnv(config.GetOr, logger)).
 		WithAvailableModels(servedModels).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
 		WithBillingService(billingSvc), rlRouter)
@@ -1723,23 +1722,12 @@ func cortexWebSearch(logger *slog.Logger) websearch.Executor {
 	hostSuffix := config.GetOr("SNOWFLAKE_AGENT_HOST_SUFFIX", "")
 	timeout := parseEnvDurationMs("SNOWFLAKE_AGENT_TIMEOUT_MS", 0)
 	logger.Info("Cortex Agents web-search executor enabled",
-		"snowflake_role", role, "host_suffix_override", hostSuffix,
-		"timeout_ms", timeout.Milliseconds())
+		"snowflake_role", role, "host_suffix_override", hostSuffix, "timeout_ms", timeout.Milliseconds())
 	opts := []cortexagents.Option{cortexagents.WithRole(role), cortexagents.WithTimeout(timeout)}
 	if hostSuffix != "" {
 		opts = append(opts, cortexagents.WithHostSuffix(hostSuffix))
 	}
 	return cortexagents.NewClient(config.GetOr("ANTHROPIC_GATEWAY_BASE_URL", ""), opts...)
-}
-
-func keenableWebSearch(logger *slog.Logger) websearch.Executor {
-	if config.GetOr("ROUTER_KEENABLE_WEB_SEARCH", "false") != "true" {
-		return nil
-	}
-	client := keenable.NewClient(config.GetOr("KEENABLE_BASE_URL", keenable.DefaultBaseURL),
-		keenable.WithAPIKey(config.GetOr("KEENABLE_API_KEY", "")))
-	logger.Info("Keenable web-search fallback enabled", "key_configured", !client.Keyless())
-	return client
 }
 
 func resolveDefaultBaselineModel() string {

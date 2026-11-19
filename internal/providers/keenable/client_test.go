@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -335,5 +336,35 @@ func TestSearchNon2xxIgnoresResultsBody(t *testing.T) {
 	}
 	if len(resp.Results) != 0 {
 		t.Fatalf("results returned alongside status error: %+v", resp.Results)
+	}
+}
+
+func TestFromEnv(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	env := func(values map[string]string) func(string, string) string {
+		return func(key, defaultValue string) string {
+			if v, ok := values[key]; ok {
+				return v
+			}
+			return defaultValue
+		}
+	}
+	if ex := keenable.FromEnv(env(nil), logger); ex != nil {
+		t.Fatalf("FromEnv without ROUTER_KEENABLE_WEB_SEARCH = %v, want nil", ex)
+	}
+	if ex := keenable.FromEnv(env(map[string]string{"ROUTER_KEENABLE_WEB_SEARCH": "1"}), logger); ex != nil {
+		t.Fatalf("FromEnv with a non-true value = %v, want nil", ex)
+	}
+
+	srv, got := newServer(t, http.StatusOK, searchResponse)
+	ex := keenable.FromEnv(env(map[string]string{"ROUTER_KEENABLE_WEB_SEARCH": "true", "KEENABLE_BASE_URL": srv.URL}), logger)
+	if ex == nil {
+		t.Fatal("FromEnv with ROUTER_KEENABLE_WEB_SEARCH=true returned nil")
+	}
+	if _, err := ex.Search(context.Background(), websearch.Query{Text: "q"}); err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if got.body == nil {
+		t.Fatal("search did not reach KEENABLE_BASE_URL")
 	}
 }

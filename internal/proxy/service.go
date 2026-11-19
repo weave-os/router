@@ -175,8 +175,7 @@ type Service struct {
 	spiralShadowStore            conversation.SpiralShadowStore
 	feedbackStore                RouterFeedbackStore
 	summarizer                   handover.Summarizer
-	webSearch                    websearch.Executor
-	fallbackWebSearch            websearch.Executor
+	webSearch                    webSearchExecutors
 	compactionHandoverSummarizer handover.Summarizer
 	availableModels              map[string]struct{}
 	defaultBaselineModel         string
@@ -1472,13 +1471,8 @@ func (s *Service) WithCompactionHandoverSummarizer(sz handover.Summarizer) *Serv
 	return s
 }
 
-func (s *Service) WithWebSearchExecutor(ex websearch.Executor) *Service {
-	s.webSearch = ex
-	return s
-}
-
-func (s *Service) WithFallbackWebSearchExecutor(ex websearch.Executor) *Service {
-	s.fallbackWebSearch = ex
+func (s *Service) WithWebSearchExecutors(gateway, fallback websearch.Executor) *Service {
+	s.webSearch = webSearchExecutors{gateway: gateway, fallback: fallback}
 	return s
 }
 

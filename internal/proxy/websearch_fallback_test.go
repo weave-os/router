@@ -46,7 +46,7 @@ func TestServeNativeWebSearchFallbackServesNonAnthropicDeployment(t *testing.T) 
 	for _, stream := range []bool{false, true} {
 		t.Run(map[bool]string{false: "json", true: "sse"}[stream], func(t *testing.T) {
 			fallback := &fakeSearch{resp: fallbackSearchResult()}
-			s := &Service{fallbackWebSearch: fallback}
+			s := &Service{webSearch: webSearchExecutors{fallback: fallback}}
 			rec := httptest.NewRecorder()
 
 			served := s.serveNativeWebSearch(context.Background(), claudeCodeSearchHelperBody(stream, ""), fallbackSearchModel, stream, 12, nonAnthropicProviders(), http.Header{}, rec)
@@ -79,7 +79,7 @@ func TestServeNativeWebSearch_AllowedDomainsBypassesFallback(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			fallback := &fakeSearch{resp: fallbackSearchResult()}
-			s := &Service{fallbackWebSearch: fallback}
+			s := &Service{webSearch: webSearchExecutors{fallback: fallback}}
 			rec := httptest.NewRecorder()
 
 			served := s.serveNativeWebSearch(context.Background(), claudeCodeSearchHelperBody(false, extra), fallbackSearchModel, false, 0, nonAnthropicProviders(), http.Header{}, rec)
@@ -94,7 +94,7 @@ func TestServeNativeWebSearch_AllowedDomainsBypassesFallback(t *testing.T) {
 func TestServeNativeWebSearchGatewayCredentialUsesCortexOnly(t *testing.T) {
 	cortex := &fakeSearch{resp: websearch.Response{Results: []websearch.Result{{Title: "Cortex", URL: "https://docs.example/cortex"}}}}
 	fallback := &fakeSearch{resp: fallbackSearchResult()}
-	s := &Service{webSearch: cortex, fallbackWebSearch: fallback}
+	s := &Service{webSearch: webSearchExecutors{gateway: cortex, fallback: fallback}}
 	rec := httptest.NewRecorder()
 
 	require.True(t, s.serveNativeWebSearch(gatewayCtx(), []byte(searchTurnBody), fallbackSearchModel, false, 0, gatewayOnly(), http.Header{}, rec))
@@ -107,7 +107,7 @@ func TestServeNativeWebSearchGatewayCredentialUsesCortexOnly(t *testing.T) {
 func TestServeNativeWebSearchNoGatewayCredentialUsesFallback(t *testing.T) {
 	cortex := &fakeSearch{resp: websearch.Response{Results: []websearch.Result{{Title: "Cortex", URL: "https://docs.example/cortex"}}}}
 	fallback := &fakeSearch{resp: fallbackSearchResult()}
-	s := &Service{webSearch: cortex, fallbackWebSearch: fallback}
+	s := &Service{webSearch: webSearchExecutors{gateway: cortex, fallback: fallback}}
 	rec := httptest.NewRecorder()
 
 	require.True(t, s.serveNativeWebSearch(context.Background(), claudeCodeSearchHelperBody(false, ""), fallbackSearchModel, false, 0, nonAnthropicProviders(), http.Header{}, rec))
@@ -119,7 +119,7 @@ func TestServeNativeWebSearchNoGatewayCredentialUsesFallback(t *testing.T) {
 
 func TestServeNativeWebSearchFallbackFailureFallsThrough(t *testing.T) {
 	fallback := &fakeSearch{err: context.DeadlineExceeded}
-	s := &Service{fallbackWebSearch: fallback}
+	s := &Service{webSearch: webSearchExecutors{fallback: fallback}}
 	rec := httptest.NewRecorder()
 
 	assert.False(t, s.serveNativeWebSearch(context.Background(), claudeCodeSearchHelperBody(false, ""), fallbackSearchModel, false, 0, nonAnthropicProviders(), http.Header{}, rec))
@@ -157,7 +157,7 @@ func TestProxyMessagesClaudeCodeWebSearchFallback(t *testing.T) {
 	t.Run("with fallback executor", func(t *testing.T) {
 		svc, upstreams := newService()
 		fallback := &fakeSearch{resp: fallbackSearchResult()}
-		svc.WithFallbackWebSearchExecutor(fallback)
+		svc.WithWebSearchExecutors(nil, fallback)
 		rec := httptest.NewRecorder()
 		err := svc.ProxyMessages(context.Background(), body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathMessages, strings.NewReader(string(body))))
 
