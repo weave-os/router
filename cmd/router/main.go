@@ -842,7 +842,7 @@ func main() {
 	var policyStatus admin.PolicyStatusSource
 	var hmmRosterSources map[router.Strategy]policy.RosterSource
 	var hmmRosterModels admin.HMMRosterSource
-	var routingDistribution admin.DistributionRosterSource
+	var routingDistribution admin.DistributionPolicySource
 	var hmmBetaCapabilities policy.Capabilities
 	var servingAdmission *middleware.ServingAdmissionConfig
 	testPlansEnabled := strings.EqualFold(config.GetOr("ROUTER_TEST_PLANS_ENABLED", "false"), "true")

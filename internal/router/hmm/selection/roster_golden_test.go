@@ -106,25 +106,25 @@ func selectionScenarios() []selectionScenario {
 	}
 }
 
-func loadSyntheticPolicy(t *testing.T) (*rosterdata.Roster, *selection.DomainEvidence) {
+func loadSyntheticPolicy(t *testing.T) (*selectionpolicy.Policy, *selection.DomainEvidence) {
 	t.Helper()
 	policyBytes, err := os.ReadFile(syntheticPolicyPath)
 	require.NoError(t, err)
-	roster, err := admitRoster(policyBytes)
+	admitted, err := selectionpolicy.Admit(policyBytes)
 	require.NoError(t, err)
-	require.Equal(t, syntheticPolicySHA256, roster.SHA256)
+	require.Equal(t, syntheticPolicySHA256, admitted.SHA256())
 	evidenceBytes, err := os.ReadFile(syntheticDomainEvidencePath)
 	require.NoError(t, err)
-	evidence, err := selection.ParseDomainEvidence(evidenceBytes, roster)
+	evidence, err := selection.ParseDomainEvidence(evidenceBytes, admitted.Roster())
 	require.NoError(t, err)
-	return roster, evidence
+	return admitted, evidence
 }
 
-func routeScenario(t *testing.T, roster *rosterdata.Roster, evidence *selection.DomainEvidence, scenario selectionScenario) selectionGolden {
+func routeScenario(t *testing.T, admitted *selectionpolicy.Policy, evidence *selection.DomainEvidence, scenario selectionScenario) selectionGolden {
 	t.Helper()
 	availableProviders := map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenAI: {}, providers.ProviderGoogle: {}}
 	routed := hmm.NewForStrategy(router.StrategyHMM, syntheticClassifier{taskDomain: scenario.taskDomain}, availableProviders)
-	routed.WithArmSelector(selection.SelectorWithDomainEvidence(roster, evidence, syntheticDomainEvidenceSHA256))
+	routed.WithArmSelector(selection.Selector(admitted, evidence, syntheticDomainEvidenceSHA256))
 	ctx := context.Background()
 	if scenario.pin != nil {
 		ctx = router.WithPolicyPinRequest(ctx, router.PolicyPinRequest{Pin: *scenario.pin, Authorized: true})
@@ -145,7 +145,7 @@ func routeScenario(t *testing.T, roster *rosterdata.Roster, evidence *selection.
 		golden.PolicyPinHonoured = metadata.PolicyPinHonoured
 		golden.RescueModels = metadata.RescueModels
 		golden.Escalation = metadata.Escalation
-		golden.SelectionTrace = rosterScopedTrace(metadata.SelectionTrace, roster)
+		golden.SelectionTrace = rosterScopedTrace(metadata.SelectionTrace, admitted.Roster())
 	}
 	return golden
 }
@@ -181,10 +181,10 @@ func rosterScopedTrace(trace *router.SelectionTrace, roster *rosterdata.Roster) 
 }
 
 func TestSelectionGoldens(t *testing.T) {
-	roster, evidence := loadSyntheticPolicy(t)
+	admitted, evidence := loadSyntheticPolicy(t)
 	for _, scenario := range selectionScenarios() {
 		t.Run(scenario.name, func(t *testing.T) {
-			got, err := json.MarshalIndent(routeScenario(t, roster, evidence, scenario), "", "  ")
+			got, err := json.MarshalIndent(routeScenario(t, admitted, evidence, scenario), "", "  ")
 			require.NoError(t, err)
 			got = append(got, '\n')
 			path := filepath.Join("testdata", "golden", "selection", scenario.name+".json")
@@ -196,12 +196,4 @@ func TestSelectionGoldens(t *testing.T) {
 			require.Equal(t, strings.TrimSpace(string(want)), strings.TrimSpace(string(got)))
 		})
 	}
-}
-
-func admitRoster(payload []byte) (*rosterdata.Roster, error) {
-	admitted, err := selectionpolicy.Admit(payload)
-	if err != nil {
-		return nil, err
-	}
-	return admitted.Roster(), nil
 }

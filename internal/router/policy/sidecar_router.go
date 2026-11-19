@@ -628,13 +628,9 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	if selectionPolicySHA256 == "" {
 		selectionPolicySHA256 = res.PolicyArtifactSHA256
 	}
-	rosterVersion := res.RosterVersion
-	if r.config.SelectionPolicySHA256 != "" {
-		rosterVersion = r.config.SelectionPolicySHA256
-	}
+	rosterVersion := servedRosterVersion(res.RosterVersion, servedRosterSHA256, r.config.SelectionPolicySHA256, pinned)
 	if pinned {
 		selectionPolicySHA256 = pin.ArtifactSHA256
-		rosterVersion = servedRosterSHA256
 	}
 	var replayTrace *router.SelectionTrace
 	if selectionTrace.SelectedArm != "" {

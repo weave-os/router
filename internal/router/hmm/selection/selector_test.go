@@ -1,4 +1,4 @@
-package selection_test
+package selection
 
 import (
 	"context"
@@ -8,13 +8,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/router/escalation"
+	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/hmm/rosterdata"
-	"weave-os/router/internal/router/hmm/selection"
 	"weave-os/router/internal/router/policy"
 )
 
 func TestSelectorReturnsDeterministicPick(t *testing.T) {
-	selector := selection.Selector(testRoster())
+	selector := selector(testRoster(), armid.CatalogIDForRoster, nil, "")
 
 	pick, err := selector(context.Background(), policy.SelectionInput{
 		Harness:            "claude-code",
@@ -29,18 +29,18 @@ func TestSelectorReturnsDeterministicPick(t *testing.T) {
 }
 
 func TestSelectorFailsClosedWithoutClassification(t *testing.T) {
-	selector := selection.Selector(testRoster())
+	selector := selector(testRoster(), armid.CatalogIDForRoster, nil, "")
 
 	_, err := selector(context.Background(), policy.SelectionInput{Harness: "claude-code"})
 
-	require.ErrorIs(t, err, selection.ErrInvalidClassifierOutput)
-	assert.NotErrorIs(t, err, selection.ErrNoEligibleArm, "a broken classifier is an outage, not an eligibility result")
+	require.ErrorIs(t, err, ErrInvalidClassifierOutput)
+	assert.NotErrorIs(t, err, ErrNoEligibleArm, "a broken classifier is an outage, not an eligibility result")
 }
 
 func TestSelectorUnscorableUsesRosterAndDoesNotDowngradeEscalation(t *testing.T) {
 	roster := testRoster()
 	roster.ClassOrder = []string{"low", "high"}
-	selector := selection.Selector(roster)
+	selector := selector(roster, armid.CatalogIDForRoster, nil, "")
 	input := policy.SelectionInput{
 		Unscorable:         true,
 		PreferredRosterID:  "vendor-a/top",
@@ -53,11 +53,11 @@ func TestSelectorUnscorableUsesRosterAndDoesNotDowngradeEscalation(t *testing.T)
 	input.MinimumGroup = escalation.High
 	input.CandidateRosterIDs = []string{"vendor-a/cheap"}
 	_, err = selector(context.Background(), input)
-	require.ErrorIs(t, err, selection.ErrNoEligibleArm)
+	require.ErrorIs(t, err, ErrNoEligibleArm)
 }
 
 func TestSelectorFailsClosedWhenNoRankedGroupHoldsAnEligibleArm(t *testing.T) {
-	selector := selection.Selector(testRoster())
+	selector := selector(testRoster(), armid.CatalogIDForRoster, nil, "")
 
 	_, err := selector(context.Background(), policy.SelectionInput{
 		Harness:            "codex",
@@ -66,13 +66,13 @@ func TestSelectorFailsClosedWhenNoRankedGroupHoldsAnEligibleArm(t *testing.T) {
 		CandidateRosterIDs: []string{"vendor-a/cheap"},
 	})
 
-	assert.ErrorIs(t, err, selection.ErrNoEligibleArm)
+	assert.ErrorIs(t, err, ErrNoEligibleArm)
 }
 
 func TestSelectorRejectsMismatchedClassOrder(t *testing.T) {
 	roster := testRoster()
 	roster.ClassOrder = []string{"low", "balanced", "high", "effort", "efforts"}
-	selector := selection.Selector(roster)
+	selector := selector(roster, armid.CatalogIDForRoster, nil, "")
 	input := policy.SelectionInput{
 		ClassOrder:         []string{"high", "balanced", "low", "effort", "efforts"},
 		ClassProbabilities: map[string]float64{"low": 1, "balanced": 0, "high": 0, "effort": 0, "efforts": 0},
@@ -80,8 +80,8 @@ func TestSelectorRejectsMismatchedClassOrder(t *testing.T) {
 	}
 
 	_, err := selector(context.Background(), input)
-	require.ErrorIs(t, err, selection.ErrClassifierTaxonomyMismatch)
-	require.NotErrorIs(t, err, selection.ErrNoEligibleArm)
+	require.ErrorIs(t, err, ErrClassifierTaxonomyMismatch)
+	require.NotErrorIs(t, err, ErrNoEligibleArm)
 
 	input.ClassOrder = append([]string(nil), roster.ClassOrder...)
 	pick, err := selector(context.Background(), input)
@@ -110,7 +110,7 @@ func TestSelectorKeepsCrossProviderCandidatesAndAppliesBoundedPreferences(t *tes
 			},
 		},
 	}
-	selector := selection.Selector(roster)
+	selector := selector(roster, armid.CatalogIDForRoster, nil, "")
 	input := policy.SelectionInput{
 		ClassOrder:         []string{"high"},
 		ClassProbabilities: map[string]float64{"high": 1},

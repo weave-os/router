@@ -18,6 +18,7 @@ import (
 	"google.golang.org/api/option"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm/selectionpolicy/selectionpolicytest"
 	"weave-os/router/internal/router/taskdomain"
 )
 
@@ -29,7 +30,7 @@ func TestTaskBindingRequiresAdmittedAndLoadedRelease(t *testing.T) {
 	assert.Nil(t, evidence)
 	assert.Empty(t, digest)
 	releaseSHA := strings.Repeat("a", 64)
-	candidate := policyregistry.Candidate{AuxiliaryModels: map[string]policyregistry.ObjectRef{taskdomain.AuxiliaryModel: {SHA256: releaseSHA}}, Policy: &rosterdata.Roster{SHA256: strings.Repeat("b", 64)}}
+	candidate := policyregistry.Candidate{AuxiliaryModels: map[string]policyregistry.ObjectRef{taskdomain.AuxiliaryModel: {SHA256: releaseSHA}}, Policy: selectionpolicytest.Admit(t, rosterdata.Roster{Clusters: map[string]rosterdata.Cluster{"low": {Arms: []string{"openai/gpt-5.6-luna"}}}})}
 	assertBaselineTaskBinding(t, runtime, candidate, releaseSHA)
 	runtime = &taskDomainRuntime{bindings: map[string]loadedTaskDomain{strings.Repeat("c", 64): {}}}
 	assertBaselineTaskBinding(t, runtime, candidate, releaseSHA)
@@ -43,7 +44,7 @@ func TestTaskBindingRequiresAdmittedAndLoadedRelease(t *testing.T) {
 	assert.Equal(t, taskdomain.EvidenceUnavailable, outcome.Status)
 	assert.Equal(t, releaseSHA, outcome.ReleaseSHA256)
 	loaded := runtime.bindings[releaseSHA]
-	loaded.release.Evidence[candidate.Policy.SHA256] = strings.Repeat("f", 64)
+	loaded.release.Evidence[candidate.Policy.SHA256()] = strings.Repeat("f", 64)
 	loaded.evidence = map[string][]byte{strings.Repeat("f", 64): []byte(`{"invalid":"evidence"}`)}
 	runtime.bindings[releaseSHA] = loaded
 	_, _, _, err = runtime.bind(candidate)

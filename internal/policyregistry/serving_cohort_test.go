@@ -98,7 +98,7 @@ func TestCohortCustomersShareCodeWithIsolatedConcurrentRosters(t *testing.T) {
 	require.Greater(t, builds.Load(), beforeReload)
 	require.NotSame(t, second, refreshed)
 	require.Equal(t, second.Candidate, refreshed.Candidate)
-	require.Equal(t, []string{alternateRosterArm}, refreshed.Policy.AllArms())
+	require.Equal(t, []string{alternateRosterArm}, refreshed.Policy.Roster().AllArms())
 }
 
 func TestCohortPromotionAndRosterRollbackRetainConversationAssignments(t *testing.T) {
@@ -182,7 +182,7 @@ func TestCohortTargetsAndAuthenticatedWorkerScopesStayIsolated(t *testing.T) {
 		binding := policyregistry.SessionReleaseBinding{Target: set.Target, ProfileKey: profileKeyOne, Selection: set.View(check.ref).Profiles[profileKeyOne]}
 		snapshot, err := cache.Snapshot(context.Background(), binding)
 		require.NoError(t, err)
-		require.Equal(t, []string{check.arm}, snapshot.Policy.AllArms())
+		require.Equal(t, []string{check.arm}, snapshot.Policy.Roster().AllArms())
 		worker := policyregistry.WorkerIdentity{Target: set.Target, Project: set.Code.Project, Region: set.Code.Region, Revision: set.Code.Router.Name, ImageDigest: set.Code.Router.ImageDigest, Configuration: set.Code.Router.Configuration}
 		assertion := policyregistry.ServingAssertion{APIKeyID: "synthetic-key", Scope: policyregistry.AdmissionScope{InstallationID: "synthetic-installation", CredentialIdentity: "synthetic-key", Persistent: true}, Admission: binding}
 		_, err = policyregistry.ValidateWorkerAdmission(context.Background(), store, worker, assertion, "synthetic-installation", "synthetic-key")

@@ -11,6 +11,8 @@ import (
 	"weave-os/router/internal/api/admin"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm/selectionpolicy"
+	"weave-os/router/internal/router/hmm/selectionpolicy/selectionpolicytest"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -18,19 +20,19 @@ import (
 )
 
 type fakeDistributionRoster struct {
-	roster     *rosterdata.Roster
+	policy     *selectionpolicy.Policy
 	err        error
 	strategies []router.Strategy
 }
 
-func (f *fakeDistributionRoster) DistributionRoster(ctx context.Context) (*rosterdata.Roster, error) {
+func (f *fakeDistributionRoster) DistributionPolicy(ctx context.Context) (*selectionpolicy.Policy, error) {
 	f.strategies = append(f.strategies, router.StrategyFromContext(ctx))
-	return f.roster, f.err
+	return f.policy, f.err
 }
 
-func twoArmDistributionRoster() *rosterdata.Roster {
-	return &rosterdata.Roster{
-		SchemaVersion: rosterdata.SchemaVersionV7,
+func twoArmDistributionPolicy(t *testing.T) *selectionpolicy.Policy {
+	t.Helper()
+	return selectionpolicytest.Admit(t, rosterdata.Roster{
 		Ranking: rosterdata.Ranking{
 			Alpha: map[string]float64{"low": 0.4}, AlphaMin: map[string]float64{"low": 0.05},
 			AlphaMax: map[string]float64{"low": 0.8}, QualityBiasNeutral: 0.7,
@@ -45,10 +47,10 @@ func twoArmDistributionRoster() *rosterdata.Roster {
 				},
 			},
 		},
-	}
+	})
 }
 
-func newDistributionEngine(src admin.DistributionRosterSource) *gin.Engine {
+func newDistributionEngine(src admin.DistributionPolicySource) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	engine.GET("/v1/router/routing-distribution", admin.RoutingDistributionHandler(src))
@@ -82,7 +84,7 @@ func distributionModels(t *testing.T, rec *httptest.ResponseRecorder) []string {
 }
 
 func TestRoutingDistributionHandler_ProjectsHMMRosterGrid(t *testing.T) {
-	src := &fakeDistributionRoster{roster: twoArmDistributionRoster()}
+	src := &fakeDistributionRoster{policy: twoArmDistributionPolicy(t)}
 	engine := newDistributionEngine(src)
 
 	for _, strategy := range []string{"", "hmm", "hmm_embedding"} {
@@ -99,7 +101,7 @@ func TestRoutingDistributionHandler_ProjectsHMMRosterGrid(t *testing.T) {
 }
 
 func TestRoutingDistributionHandler_ExclusionsNarrowThePool(t *testing.T) {
-	engine := newDistributionEngine(&fakeDistributionRoster{roster: twoArmDistributionRoster()})
+	engine := newDistributionEngine(&fakeDistributionRoster{policy: twoArmDistributionPolicy(t)})
 
 	rec := getDistribution(t.Context(), engine, "?grid=2&excluded_models=%20gpt-5.6-luna%20,")
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
@@ -114,7 +116,7 @@ func TestRoutingDistributionHandler_ExclusionsNarrowThePool(t *testing.T) {
 }
 
 func TestRoutingDistributionHandler_RejectsBadGrid(t *testing.T) {
-	src := &fakeDistributionRoster{roster: twoArmDistributionRoster()}
+	src := &fakeDistributionRoster{policy: twoArmDistributionPolicy(t)}
 	engine := newDistributionEngine(src)
 	for _, bad := range []string{"1", "0", "-5", "abc", "1000"} {
 		rec := getDistribution(t.Context(), engine, "?grid="+bad)
@@ -124,7 +126,7 @@ func TestRoutingDistributionHandler_RejectsBadGrid(t *testing.T) {
 }
 
 func TestRoutingDistributionHandler_RejectsNonHMMStrategy(t *testing.T) {
-	src := &fakeDistributionRoster{roster: twoArmDistributionRoster()}
+	src := &fakeDistributionRoster{policy: twoArmDistributionPolicy(t)}
 	engine := newDistributionEngine(src)
 	for _, strategy := range []router.Strategy{router.Strategy("cluster"), router.StrategyRL, router.StrategyHMMBeta, "unknown"} {
 		rec := getDistribution(t.Context(), engine, "?strategy="+string(strategy))

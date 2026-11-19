@@ -15,6 +15,8 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm/selectionpolicy"
+	"weave-os/router/internal/router/hmm/selectionpolicy/selectionpolicytest"
 	"weave-os/router/internal/router/policy"
 
 	"github.com/stretchr/testify/assert"
@@ -63,9 +65,9 @@ func TestThreeHMMClassifiersSelectPinnedRostersThroughTheSharedSidecar(t *testin
 		}
 	}))
 	t.Cleanup(sidecar.Close)
-	roster := func(arm string) *rosterdata.Roster {
-		return &rosterdata.Roster{SchemaVersion: rosterdata.SchemaVersionPolicyV1, ClassOrder: identity.ClassOrder,
-			Clusters: map[string]rosterdata.Cluster{"high": {Arms: []string{arm}}}}
+	roster := func(arm string) *selectionpolicy.Policy {
+		return selectionpolicytest.Admit(t, rosterdata.Roster{ClassOrder: identity.ClassOrder,
+			Clusters: map[string]rosterdata.Cluster{"high": {Arms: []string{arm}}}})
 	}
 	defaultPolicySHA, qwenPolicySHA := strings.Repeat("e", 64), strings.Repeat("f", 64)
 	candidate := policyregistry.Candidate{
@@ -73,7 +75,7 @@ func TestThreeHMMClassifiersSelectPinnedRostersThroughTheSharedSidecar(t *testin
 		Release:      policyregistry.Release{Classifier: identity, Policy: policyregistry.PolicyObject{SHA256: defaultPolicySHA}},
 		Policy:       roster("openai/" + catalog.ModelGPT6Luna),
 		StrategyPolicies: map[router.Strategy]policyregistry.StrategyPolicy{
-			router.StrategyHMMQwen: {Reference: policyregistry.PolicyObject{SHA256: qwenPolicySHA}, Roster: roster(providers.ProviderGoogle + "/" + router.ModelGemini4Argon)},
+			router.StrategyHMMQwen: {Reference: policyregistry.PolicyObject{SHA256: qwenPolicySHA}, Policy: roster(providers.ProviderGoogle + "/" + router.ModelGemini4Argon)},
 		},
 	}
 	build := hmmPolicySnapshotBuilder(map[string]struct{}{providers.ProviderOpenAI: {}, providers.ProviderGoogle: {}},

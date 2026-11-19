@@ -1,11 +1,11 @@
-package selection_test
+package selection
 
 import (
 	"context"
 	"strings"
 	"testing"
 
-	"weave-os/router/internal/router/hmm/selection"
+	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/taskdomain"
 
@@ -24,12 +24,12 @@ func TestLiveSelectorTaskCorrectionPreservesComplexityAndEligibility(t *testing.
 	}
 	evidence := domainEvidenceForTest(t, roster)
 	digest := strings.Repeat("e", 64)
-	selector := selection.SelectorWithDomainEvidence(roster, evidence, digest)
+	selector := selector(roster, armid.CatalogIDForRoster, evidence, digest)
 	input := policy.SelectionInput{ClassOrder: roster.ClassOrder, ClassProbabilities: map[string]float64{"low": .7, "balanced": .1, "high": .15, "maximum": .05}, CandidateRosterIDs: []string{"vendor-a/quality", "vendor-b/cheap"}}
 	baseline, err := selector(context.Background(), input)
 	require.NoError(t, err)
 	require.Equal(t, "vendor-a/quality", baseline.Arm)
-	input.TaskDomain = &taskdomain.Outcome{Status: taskdomain.Ready, EvidenceSHA256: digest, Profile: fullProfile(selection.DomainInfra)}
+	input.TaskDomain = &taskdomain.Outcome{Status: taskdomain.Ready, EvidenceSHA256: digest, Profile: fullProfile(DomainInfra)}
 	adjusted, err := selector(context.Background(), input)
 	require.NoError(t, err)
 	assert.Equal(t, "vendor-b/cheap", adjusted.Arm)

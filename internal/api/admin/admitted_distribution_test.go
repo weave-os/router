@@ -14,16 +14,17 @@ import (
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm/selectionpolicy/selectionpolicytest"
 )
 
-func profileDistributionSnapshot(arm string) *policyregistry.Snapshot {
-	return &policyregistry.Snapshot{Candidate: policyregistry.Candidate{Policy: &rosterdata.Roster{
-		SchemaVersion: rosterdata.SchemaVersionPolicyV1,
-		Ranking:       rosterdata.Ranking{Alpha: map[string]float64{"low": 0.4}, AlphaMin: map[string]float64{"low": 0.05}, AlphaMax: map[string]float64{"low": 0.8}, QualityBiasNeutral: 0.7},
+func profileDistributionSnapshot(t *testing.T, arm string) *policyregistry.Snapshot {
+	t.Helper()
+	return &policyregistry.Snapshot{Candidate: policyregistry.Candidate{Policy: selectionpolicytest.Admit(t, rosterdata.Roster{
+		Ranking: rosterdata.Ranking{Alpha: map[string]float64{"low": 0.4}, AlphaMin: map[string]float64{"low": 0.05}, AlphaMax: map[string]float64{"low": 0.8}, QualityBiasNeutral: 0.7},
 		Clusters: map[string]rosterdata.Cluster{"low": {
 			Arms: []string{arm}, ArmScores: map[string]float64{arm: 20}, ArmIndices: map[string]rosterdata.ArmIndices{arm: {WII: 50, WPI: 0}},
 		}},
-	}}}
+	})}}
 }
 
 func TestAdmittedRoutingDistributionUsesEachRequestsPolicy(t *testing.T) {
@@ -37,7 +38,7 @@ func TestAdmittedRoutingDistributionUsesEachRequestsPolicy(t *testing.T) {
 	} {
 		for _, strategy := range []router.Strategy{"", router.StrategyHMM, router.StrategyHMMEmbedding} {
 			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/router/routing-distribution?grid=2&strategy="+string(strategy), nil)
-			request = request.WithContext(policyregistry.WithServingSnapshot(request.Context(), profileDistributionSnapshot(profile.arm)))
+			request = request.WithContext(policyregistry.WithServingSnapshot(request.Context(), profileDistributionSnapshot(t, profile.arm)))
 			recorder := httptest.NewRecorder()
 			engine.ServeHTTP(recorder, request)
 			require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
@@ -72,7 +73,7 @@ func TestAdmittedRoutingDistributionRejectsNonHMMAndAppliesExclusions(t *testing
 	engine.GET("/v1/router/routing-distribution", admin.RoutingDistributionHandler(policyregistry.AdmittedRosterSource{}))
 	for _, query := range []string{"strategy=cluster", "strategy=" + string(router.StrategyRL), "strategy=" + string(router.StrategyHMMBeta), "strategy=unknown", "excluded_models=gpt-5.6-luna", "grid=102"} {
 		request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/router/routing-distribution?"+query, nil)
-		request = request.WithContext(policyregistry.WithServingSnapshot(request.Context(), profileDistributionSnapshot("openai/gpt-5.6-luna")))
+		request = request.WithContext(policyregistry.WithServingSnapshot(request.Context(), profileDistributionSnapshot(t, "openai/gpt-5.6-luna")))
 		recorder := httptest.NewRecorder()
 		engine.ServeHTTP(recorder, request)
 		assert.Equal(t, http.StatusBadRequest, recorder.Code, query)

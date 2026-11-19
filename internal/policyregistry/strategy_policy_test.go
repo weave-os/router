@@ -58,23 +58,23 @@ func TestServingCandidatePinsAnIndependentQwenRoster(t *testing.T) {
 	qwenPolicy, exists := received.StrategyPolicies[router.StrategyHMMQwen]
 	require.True(t, exists)
 	require.Equal(t, strategyPolicy.SHA256, qwenPolicy.Reference.SHA256)
-	require.Equal(t, []string{alternateRosterArm}, qwenPolicy.Roster.AllArms())
-	require.Equal(t, []string{alternateRosterArm}, snapshot.StrategyPolicies[router.StrategyHMMQwen].Roster.AllArms())
+	require.Equal(t, []string{alternateRosterArm}, qwenPolicy.Policy.Roster().AllArms())
+	require.Equal(t, []string{alternateRosterArm}, snapshot.StrategyPolicies[router.StrategyHMMQwen].Policy.Roster().AllArms())
 
 	source := policyregistry.AdmittedRosterSource{}
 	for _, strategy := range []router.Strategy{router.StrategyHMM, router.StrategyHMMBeta, router.StrategyHMMQwen} {
 		t.Run(string(strategy), func(t *testing.T) {
 			ctx := router.WithStrategy(policyregistry.WithServingSnapshot(context.Background(), snapshot), strategy)
-			expectedRoster, expectedReference := snapshot.Policy, baseCandidate.Policy
+			expectedPolicy, expectedReference := snapshot.Policy, baseCandidate.Policy
 			if strategy == router.StrategyHMMQwen {
-				expectedRoster, expectedReference = qwenPolicy.Roster, strategyPolicy
+				expectedPolicy, expectedReference = qwenPolicy.Policy, strategyPolicy
 			}
 			arms, err := source.Roster(ctx)
 			require.NoError(t, err)
-			require.Equal(t, expectedRoster.AllArms(), arms)
-			distribution, err := source.DistributionRoster(ctx)
+			require.Equal(t, expectedPolicy.Roster().AllArms(), arms)
+			distribution, err := source.DistributionPolicy(ctx)
 			require.NoError(t, err)
-			require.Same(t, expectedRoster, distribution)
+			require.Same(t, expectedPolicy, distribution)
 			clusters, err := source.ClusterRoster(ctx)
 			require.NoError(t, err)
 			require.Equal(t, expectedReference.SHA256, clusters.PolicySHA256)
@@ -93,7 +93,7 @@ func TestServingCandidatePinsAnIndependentQwenRoster(t *testing.T) {
 		require.False(t, candidate.Equal(changed))
 	})
 	t.Run("incompatible strategy taxonomy fails closed", func(t *testing.T) {
-		incompatible := *qwenPolicy.Roster
+		incompatible := *qwenPolicy.Policy.Roster()
 		renameRosterClass(&incompatible, incompatible.ClassOrder[0], "unknown-class")
 		reference := policyregistry.ObjectRef{URI: strategyPolicy.URI, SHA256: strategyPolicy.SHA256, Generation: strategyPolicy.Generation}
 		store.policies[reference] = &incompatible

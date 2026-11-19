@@ -144,7 +144,7 @@ func TestCohortWorkerColdStartAndDestinationValidationUseEveryAssignedPolicy(t *
 	cache := cohortCache(t, store)
 	baseline, err := cache.PrepareWorker(context.Background(), identity, ref)
 	require.NoError(t, err)
-	require.Equal(t, []string{alternateRosterArm}, baseline.Policy.AllArms())
+	require.Equal(t, []string{alternateRosterArm}, baseline.Policy.Roster().AllArms())
 	for key, selection := range set.View(ref).Profiles {
 		attestation, err := policyregistry.ValidateWorkerSelection(context.Background(), store, cache, identity, policyregistry.WorkerValidationRequest{Target: set.Target, ProfileKey: key, Selection: selection})
 		require.NoError(t, err)

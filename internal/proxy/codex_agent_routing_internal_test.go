@@ -20,6 +20,7 @@ import (
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/hmm/selection"
+	"weave-os/router/internal/router/hmm/selectionpolicy/selectionpolicytest"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -101,7 +102,7 @@ func (c *codexRoutingClassification) Decide(context.Context, policy.Query) (poli
 
 func TestCodexAgentRoutingIsolation(t *testing.T) {
 	classOrder := []string{string(escalation.Low), string(escalation.Medium), string(escalation.High), string(escalation.Maximum)}
-	roster := &rosterdata.Roster{ClassOrder: classOrder, Clusters: make(map[string]rosterdata.Cluster)}
+	roster := rosterdata.Roster{ClassOrder: classOrder, Clusters: make(map[string]rosterdata.Cluster)}
 	for group, model := range map[escalation.Group]catalog.ModelID{
 		escalation.Low: codexRoutingLuna, escalation.Medium: codexRoutingTerra,
 		escalation.High: codexRoutingSol, escalation.Maximum: codexRoutingSol,
@@ -112,7 +113,7 @@ func TestCodexAgentRoutingIsolation(t *testing.T) {
 	classification := &codexRoutingClassification{}
 	capabilities := policy.Capabilities{SchemaVersion: policy.SchemaVersionV4, AuthoritativePerTurnSelection: true}
 	routing := hmm.New(classification, map[string]struct{}{providers.ProviderOpenAI: {}})
-	routing.WithCapabilities(capabilities).WithArmSelector(selection.Selector(roster))
+	routing.WithCapabilities(capabilities).WithArmSelector(selection.Selector(selectionpolicytest.Admit(t, roster), nil, ""))
 	store := &codexRoutingPinStore{stubPinStore: newStubPinStore(), pins: make(map[codexRoutingPinKey]sessionpin.Pin)}
 	upstream := &codexTitleProvider{}
 	svc := NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, store, false, providers.ProviderOpenAI, codexRoutingLuna.String(), nil).

@@ -6,17 +6,17 @@ import (
 	"slices"
 
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm/selectionpolicy"
 )
 
 type StrategyPolicy struct {
 	Reference PolicyObject
-	Roster    *rosterdata.Roster
+	Policy    *selectionpolicy.Policy
 }
 
-func (s *Snapshot) policyForStrategy(strategy router.Strategy) (*rosterdata.Roster, PolicyObject) {
+func (s *Snapshot) policyForStrategy(strategy router.Strategy) (*selectionpolicy.Policy, PolicyObject) {
 	if strategyPolicy, found := s.StrategyPolicies[strategy]; found {
-		return strategyPolicy.Roster, strategyPolicy.Reference
+		return strategyPolicy.Policy, strategyPolicy.Reference
 	}
 	return s.Policy, s.Release.Policy
 }
@@ -35,7 +35,7 @@ func loadStrategyPolicies(ctx context.Context, store ServingStore, composition C
 		if roster.SchemaVersion != composition.Requirements.PolicySchema || !slices.Equal(roster.ClassOrder, composition.Classifier.Identity.ClassOrder) {
 			return nil, fmt.Errorf("%s strategy policy does not match classifier schema and taxonomy", strategy)
 		}
-		loaded[strategy] = StrategyPolicy{Reference: reference, Roster: roster}
+		loaded[strategy] = StrategyPolicy{Reference: reference, Policy: admitted}
 	}
 	return loaded, nil
 }

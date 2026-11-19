@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm/selectionpolicy"
 	"weave-os/router/internal/router/policy"
 )
 
@@ -32,11 +32,12 @@ func (c *ServingRuntimeCache) PrepareWorker(ctx context.Context, identity Worker
 		if err := identity.ValidateBinding(prepared.Target, prepared.Binding); err != nil {
 			return nil, err
 		}
-		if diagnostics := policy.ValidateRosterIDs(prepared.Policy.AllArms()); len(diagnostics) != 0 {
+		admitted, err := selectionpolicy.AdmitDecoded(prepared.Policy)
+		if err != nil {
 			return nil, errors.New("prepared policy contains arms absent from the worker catalog")
 		}
 		if profileKey == "" {
-			baseline = &Snapshot{Candidate: Candidate{Policy: prepared.Policy, StrategyPolicies: prepared.StrategyPolicies}}
+			baseline = &Snapshot{Candidate: Candidate{Policy: admitted, StrategyPolicies: prepared.StrategyPolicies}}
 		}
 	}
 	return baseline, nil
@@ -44,13 +45,13 @@ func (c *ServingRuntimeCache) PrepareWorker(ctx context.Context, identity Worker
 
 type AdmittedRosterSource struct{}
 
-func (AdmittedRosterSource) DistributionRoster(ctx context.Context) (*rosterdata.Roster, error) {
+func (AdmittedRosterSource) DistributionPolicy(ctx context.Context) (*selectionpolicy.Policy, error) {
 	snapshot := ServingSnapshotFromContext(ctx)
 	if snapshot == nil || snapshot.Policy == nil {
 		return nil, ErrNoActivePolicy
 	}
-	roster, _ := snapshot.policyForStrategy(router.StrategyFromContext(ctx))
-	return roster, nil
+	admitted, _ := snapshot.policyForStrategy(router.StrategyFromContext(ctx))
+	return admitted, nil
 }
 
 func (AdmittedRosterSource) ClusterRoster(ctx context.Context) (policy.RosterSnapshot, error) {
@@ -66,6 +67,6 @@ func (AdmittedRosterSource) Roster(ctx context.Context) ([]string, error) {
 	if snapshot == nil {
 		return nil, ErrNoActivePolicy
 	}
-	roster, _ := snapshot.policyForStrategy(router.StrategyFromContext(ctx))
-	return roster.AllArms(), nil
+	admitted, _ := snapshot.policyForStrategy(router.StrategyFromContext(ctx))
+	return admitted.Roster().AllArms(), nil
 }

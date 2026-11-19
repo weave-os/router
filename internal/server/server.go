@@ -93,7 +93,7 @@ type Features struct {
 	SubscriptionLogins        admin.SubscriptionLoginFlow
 	SubscriptionRefresh       subscriptions.AccountRefresher
 	PolicyStatus              admin.PolicyStatusSource
-	RoutingDistribution       admin.DistributionRosterSource
+	RoutingDistribution       admin.DistributionPolicySource
 }
 
 func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, hmmModels admin.HMMRosterSource, mode DeploymentMode, billingSvc *billing.Service, readinessChecker admin.HealthChecker, hmmRosterSources map[router.Strategy]policy.RosterSource, analyticsSvc *analytics.Service, features Features) {

@@ -48,21 +48,21 @@ func (d deployedRosterIDs) HMMDeployedModels(context.Context) ([]router.Deployed
 	return hmm.DeployedModelsForRosterIDs(d.arms), nil
 }
 
-func loadSharedSyntheticPolicy(t *testing.T) *rosterdata.Roster {
+func loadSharedSyntheticPolicy(t *testing.T) *selectionpolicy.Policy {
 	t.Helper()
 	payload, err := os.ReadFile(sharedSyntheticPolicyPath)
 	require.NoError(t, err)
-	roster, err := admitRoster(payload)
+	admitted, err := selectionpolicy.Admit(payload)
 	require.NoError(t, err)
-	require.Equal(t, sharedSyntheticPolicySHA256, roster.SHA256)
-	return roster
+	require.Equal(t, sharedSyntheticPolicySHA256, admitted.SHA256())
+	return admitted
 }
 
-func syntheticServingSnapshot(roster *rosterdata.Roster) *policyregistry.Snapshot {
+func syntheticServingSnapshot(admitted *selectionpolicy.Policy) *policyregistry.Snapshot {
 	return &policyregistry.Snapshot{Candidate: policyregistry.Candidate{
 		HeadSnapshot: policyregistry.HeadSnapshot{Generation: 3, Head: policyregistry.LaneHead{ReleaseSHA256: syntheticReleaseSHA256}},
-		Release:      policyregistry.Release{Policy: policyregistry.PolicyObject{SHA256: roster.SHA256, SchemaVersion: rosterdata.SchemaVersionPolicyV1}},
-		Policy:       roster,
+		Release:      policyregistry.Release{Policy: policyregistry.PolicyObject{SHA256: admitted.SHA256(), SchemaVersion: rosterdata.SchemaVersionPolicyV1}},
+		Policy:       admitted,
 	}}
 }
 
@@ -103,18 +103,10 @@ func TestDeployedModelsHandlerGolden(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	roster := loadSharedSyntheticPolicy(t)
 	engine := gin.New()
-	engine.GET("/v1/router/models", admin.CatalogModelsHandler(deployedRosterIDs{arms: roster.AllArms()}))
+	engine.GET("/v1/router/models", admin.CatalogModelsHandler(deployedRosterIDs{arms: roster.Roster().AllArms()}))
 
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/router/models", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 	requireAdminGolden(t, "deployed_models.json", rec.Body.Bytes())
-}
-
-func admitRoster(payload []byte) (*rosterdata.Roster, error) {
-	admitted, err := selectionpolicy.Admit(payload)
-	if err != nil {
-		return nil, err
-	}
-	return admitted.Roster(), nil
 }

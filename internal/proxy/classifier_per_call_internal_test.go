@@ -20,6 +20,7 @@ import (
 	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/hmm/selection"
+	"weave-os/router/internal/router/hmm/selectionpolicy/selectionpolicytest"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/translate"
 )
@@ -104,7 +105,7 @@ func TestClassifierResponsesToolLoopSwitchesDispatchedModel(t *testing.T) {
 	baseline := &betaTestRouter{}
 	svc := NewService(baseline, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, nil, false, providers.ProviderOpenAI, smallModel.String(), nil)
 	require.NoError(t, svc.WithClassifierSessions(config, store, classifier))
-	roster := &rosterdata.Roster{SchemaVersion: rosterdata.SchemaVersionPolicyV1, SHA256: config.SelectionPolicySHA256,
+	roster := rosterdata.Roster{
 		ClassOrder: []string{string(escalation.Low), string(escalation.Medium), string(escalation.High), string(escalation.Maximum)}, Clusters: map[string]rosterdata.Cluster{}}
 	for index, class := range roster.ClassOrder {
 		modelID := smallModel
@@ -120,7 +121,7 @@ func TestClassifierResponsesToolLoopSwitchesDispatchedModel(t *testing.T) {
 	capabilities := policy.Capabilities{SchemaVersion: policy.SchemaVersionV4, AuthoritativePerTurnSelection: true}
 	routing := policy.NewSidecarRouter(policy.SidecarRouterConfig{Strategy: router.StrategyLLMClassifier, Unavailable: router.ErrClassifierUnavailable,
 		ClassifierArtifactID: config.Release, ClassifierArtifactSHA256: config.ReleaseSHA256, SelectionPolicyReleaseID: config.Release, SelectionPolicySHA256: config.SelectionPolicySHA256},
-		policy.AtomicClassifierFacts{Release: config.Release, ReleaseSHA256: config.ReleaseSHA256}, resolver).WithCapabilities(capabilities).WithArmSelector(selection.Selector(roster))
+		policy.AtomicClassifierFacts{Release: config.Release, ReleaseSHA256: config.ReleaseSHA256}, resolver).WithCapabilities(capabilities).WithArmSelector(selection.Selector(selectionpolicytest.Admit(t, roster), nil, ""))
 	svc.WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyLLMClassifier, Router: routing, Capabilities: capabilities, Unavailable: router.ErrClassifierUnavailable})
 	ctx := classifierAdmit(t, svc, principal)
 	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})

@@ -2,15 +2,19 @@ package policy_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/escalation"
+	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/hmm/selection"
+	"weave-os/router/internal/router/hmm/selectionpolicy/selectionpolicytest"
 	"weave-os/router/internal/router/policy"
 )
 
@@ -18,8 +22,16 @@ const (
 	escalationSonnet    = "claude-sonnet-5"
 	escalationOpus      = "claude-opus-4-8"
 	escalationSonnetArm = "anthropic/" + escalationSonnet
-	escalationOpusArm   = "anthropic/" + escalationOpus
+	escalationOpusArm   = "anthropic/claude-opus-4.8"
+	unservableArm       = "anthropic/claude-haiku-4.5"
 )
+
+var escalationClassOrder = []string{string(escalation.Low), string(escalation.Medium), string(escalation.High), string(escalation.Maximum)}
+
+func newEscalationAdapter(result policy.Result) *policy.SidecarRouter {
+	resolver := policy.NewResolver(set(escalationOpus, escalationSonnet), set(providers.ProviderAnthropic), armid.ForModel, policy.ManagedProviderPolicy())
+	return policy.NewSidecarRouter(policy.SidecarRouterConfig{Strategy: router.StrategyHMM, Unavailable: errors.New("selection unavailable")}, &recordingPolicy{result: result}, resolver)
+}
 
 func TestEscalationUsesNormalSelectorWithoutLosingFloor(t *testing.T) {
 	tests := []struct {
@@ -59,8 +71,8 @@ func TestEscalationUsesNormalSelectorWithoutLosingFloor(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			roster := &rosterdata.Roster{
-				SchemaVersion: rosterdata.SchemaVersionPolicyV1,
+			roster := rosterdata.Roster{
+				ClassOrder: escalationClassOrder,
 				Clusters: map[string]rosterdata.Cluster{
 					string(escalation.Low):     {Arms: []string{escalationSonnetArm}},
 					string(escalation.Medium):  {Arms: []string{escalationOpusArm}},
@@ -82,14 +94,14 @@ func TestEscalationUsesNormalSelectorWithoutLosingFloor(t *testing.T) {
 				ClassProbabilities: make(map[string]float64, len(groups)),
 			}
 			weightTotal := float64(len(groups)*(len(groups)+1)) / 2
+			classification.ClassOrder = escalationClassOrder
 			for index, group := range groups {
-				classification.ClassOrder = append(classification.ClassOrder, string(group))
 				classification.ClassProbabilities[string(group)] = float64(len(groups)-index) / weightTotal
 			}
 			for _, group := range append(test.emptyReported, test.emptyRuntime...) {
-				delete(roster.Clusters, string(group))
+				roster.Clusters[string(group)] = rosterdata.Cluster{Arms: []string{unservableArm}}
 			}
-			adapter := newSelectorAdapter(classification).WithArmSelector(selection.Selector(roster))
+			adapter := newEscalationAdapter(classification).WithArmSelector(selection.Selector(selectionpolicytest.Admit(t, roster), nil, ""))
 			decision, err := adapter.Route(context.Background(), router.Request{
 				Escalation:          &escalation.Constraint{Floor: test.floor, Escalate: test.positive},
 				ClusterArmOverrides: test.overrides,
@@ -113,14 +125,14 @@ func TestEscalationUsesNormalSelectorWithoutLosingFloor(t *testing.T) {
 
 func TestEscalationYieldsToExplicitClusterForce(t *testing.T) {
 	classification := classifierOnlyResult()
-	roster := &rosterdata.Roster{
-		SchemaVersion: rosterdata.SchemaVersionPolicyV1,
+	roster := rosterdata.Roster{
+		ClassOrder: classification.ClassOrder,
 		Clusters: map[string]rosterdata.Cluster{
 			string(escalation.Low):     {Arms: []string{escalationSonnetArm}},
 			string(escalation.Maximum): {Arms: []string{escalationOpusArm}},
 		},
 	}
-	adapter := newSelectorAdapter(classification).WithArmSelector(selection.Selector(roster))
+	adapter := newEscalationAdapter(classification).WithArmSelector(selection.Selector(selectionpolicytest.Admit(t, roster), nil, ""))
 	decision, err := adapter.Route(context.Background(), router.Request{
 		ForceCluster: string(escalation.Low),
 		Escalation:   &escalation.Constraint{Floor: escalation.High, Escalate: true},

@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm/selectionpolicy"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/taskdomain"
 )
@@ -23,11 +24,11 @@ var ErrClassifierTaxonomyMismatch = errors.New("classifier taxonomy does not mat
 
 var ErrInvalidClassifierOutput = errors.New("classifier returned an invalid class contract")
 
-func Selector(roster *rosterdata.Roster) policy.ArmSelector {
-	return SelectorWithDomainEvidence(roster, nil, "")
+func Selector(admitted *selectionpolicy.Policy, evidence *DomainEvidence, evidenceSHA256 string) policy.ArmSelector {
+	return selector(admitted.Roster(), admitted.CatalogID, evidence, evidenceSHA256)
 }
 
-func SelectorWithDomainEvidence(roster *rosterdata.Roster, evidence *DomainEvidence, evidenceSHA256 string) policy.ArmSelector {
+func selector(roster *rosterdata.Roster, catalogID func(string) string, evidence *DomainEvidence, evidenceSHA256 string) policy.ArmSelector {
 	return func(ctx context.Context, input policy.SelectionInput) (policy.SelectionPick, error) {
 		log := observability.FromContext(ctx)
 		if input.RosterSHA256 != "" && input.RosterSHA256 != roster.SHA256 {
@@ -36,23 +37,9 @@ func SelectorWithDomainEvidence(roster *rosterdata.Roster, evidence *DomainEvide
 		if !input.Unscorable && len(roster.ClassOrder) > 0 && !slices.Equal(input.ClassOrder, roster.ClassOrder) {
 			return policy.SelectionPick{}, fmt.Errorf("classifier class order does not match the promoted roster: %w", ErrClassifierTaxonomyMismatch)
 		}
-		var rankedGroups []string
-		var err error
-		if input.Unscorable {
-			rankedGroups, err = unscorableGroups(roster, input)
-		} else {
-			rankedGroups, err = classifierGroups(input)
-		}
+		rankedGroups, err := rankedGroupsFor(roster, input)
 		if err != nil {
 			return policy.SelectionPick{}, err
-		}
-		if input.ForcedGroup != "" {
-			if _, exists := roster.Clusters[input.ForcedGroup]; !exists {
-				return policy.SelectionPick{}, fmt.Errorf("forced group %q is absent from policy: %w", input.ForcedGroup, ErrNoEligibleArm)
-			}
-			rankedGroups = []string{input.ForcedGroup}
-		} else if index := slices.Index(rankedGroups, input.LeadGroup); input.LeadGroup != "" && index > 0 {
-			rankedGroups = append([]string{input.LeadGroup}, append(rankedGroups[:index], rankedGroups[index+1:]...)...)
 		}
 		groups := make([]rosterdata.Group, 0, len(rankedGroups))
 		for _, group := range rankedGroups {
@@ -66,17 +53,18 @@ func SelectorWithDomainEvidence(roster *rosterdata.Roster, evidence *DomainEvide
 		if input.TaskDomain != nil && input.TaskDomain.Status == taskdomain.Ready && input.TaskDomain.EvidenceSHA256 == evidenceSHA256 {
 			profile = input.TaskDomain.Profile
 		}
-		pick, scoresByGroup, scoreComponentsByGroup, ordersByGroup, ok := SelectGroupsWithSubscriptions(
-			roster,
-			groups,
-			input.Harness,
-			input.SubscriptionProviders,
-			candidates,
-			input.QualityBias,
-			input.PreferredModels,
-			evidence, profile,
-		)
-		if !ok {
+		selected := selectGroups(roster, catalogID, Request{
+			Groups:          groups,
+			Harness:         input.Harness,
+			LadderKey:       SubscriptionLadder(input.Harness, input.SubscriptionProviders),
+			Candidates:      candidates,
+			QualityBias:     input.QualityBias,
+			PreferredModels: input.PreferredModels,
+			Evidence:        evidence,
+			Profile:         profile,
+		})
+		pick := selected.Pick
+		if !selected.Found {
 			log.Warn("HMM selection found no eligible arm in any ranked group",
 				"strategy", input.Strategy,
 				"execution_mode", input.ExecutionMode,
@@ -88,7 +76,7 @@ func SelectorWithDomainEvidence(roster *rosterdata.Roster, evidence *DomainEvide
 			)
 			return policy.SelectionPick{}, ErrNoEligibleArm
 		}
-		logFields := []any{"strategy", input.Strategy, "group", pick.Group, "arm", pick.Arm}
+		logFields := []any{"strategy", input.Strategy, "group", pick.Group, "arm", pick.Arm.String()}
 		if input.QualityBias != nil {
 			logFields = append(logFields,
 				"quality_bias", *input.QualityBias,
@@ -96,19 +84,9 @@ func SelectorWithDomainEvidence(roster *rosterdata.Roster, evidence *DomainEvide
 			)
 		}
 		log.Debug("HMM preference-aware arm selected", logFields...)
-		fallback := make([]policy.PreviewGroup, 0, len(rankedGroups))
-		for _, label := range rankedGroups {
-			cluster, exists := roster.Clusters[label]
-			if !exists {
-				fallback = append(fallback, policy.PreviewGroup{Group: label, Probability: input.ClassProbabilities[label]})
-				continue
-			}
-			order := ordersByGroup[label]
-			eligible := eligibleOrder(order, candidates)
-			fallback = append(fallback, policy.PreviewGroup{Group: label, Probability: input.ClassProbabilities[label], RosterArms: append([]string(nil), cluster.Arms...), EligibleArms: eligible})
-		}
 		return policy.SelectionPick{
-			Group: string(pick.Group), Arm: pick.Arm, ArmScoresByGroup: scoresByGroup, RankedFallback: fallback, RosterSHA256: roster.SHA256,
+			Group: string(pick.Group), Arm: pick.Arm.String(), ArmScoresByGroup: selected.ScoresByGroup,
+			RankedFallback: rankedFallback(roster, rankedGroups, selected.OrdersByGroup, candidates, input.ClassProbabilities), RosterSHA256: roster.SHA256,
 			Trace: policy.SelectionTrace{
 				TaskDomain:             input.TaskDomain,
 				ClassifierRanking:      append([]string(nil), rankedGroups...),
@@ -118,15 +96,51 @@ func SelectorWithDomainEvidence(roster *rosterdata.Roster, evidence *DomainEvide
 				QualityBias:            input.QualityBias,
 				PreferredModels:        append([]string(nil), input.PreferredModels...),
 				SubscriptionProviders:  append([]string(nil), input.SubscriptionProviders...),
-				EffectiveOrders:        ordersByGroup,
-				ScoresByGroup:          scoresByGroup,
-				ScoreComponentsByGroup: scoreComponentsByGroup,
+				EffectiveOrders:        selected.OrdersByGroup,
+				ScoresByGroup:          selected.ScoresByGroup,
+				ScoreComponentsByGroup: selected.ComponentsByGroup,
 				SelectedGroup:          string(pick.Group),
-				SelectedArm:            pick.Arm,
+				SelectedArm:            pick.Arm.String(),
 				FallbackDepth:          pick.FallbackDepth,
 			},
 		}, nil
 	}
+}
+
+func rankedGroupsFor(roster *rosterdata.Roster, input policy.SelectionInput) ([]string, error) {
+	var rankedGroups []string
+	var err error
+	if input.Unscorable {
+		rankedGroups, err = unscorableGroups(roster, input)
+	} else {
+		rankedGroups, err = classifierGroups(input)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if input.ForcedGroup != "" {
+		if _, exists := roster.Clusters[input.ForcedGroup]; !exists {
+			return nil, fmt.Errorf("forced group %q is absent from policy: %w", input.ForcedGroup, ErrNoEligibleArm)
+		}
+		return []string{input.ForcedGroup}, nil
+	}
+	if index := slices.Index(rankedGroups, input.LeadGroup); input.LeadGroup != "" && index > 0 {
+		rankedGroups = append([]string{input.LeadGroup}, append(rankedGroups[:index], rankedGroups[index+1:]...)...)
+	}
+	return rankedGroups, nil
+}
+
+func rankedFallback(roster *rosterdata.Roster, rankedGroups []string, ordersByGroup map[string][]string, candidates map[string]struct{}, probabilities map[string]float64) []policy.PreviewGroup {
+	fallback := make([]policy.PreviewGroup, 0, len(rankedGroups))
+	for _, label := range rankedGroups {
+		cluster, exists := roster.Clusters[label]
+		if !exists {
+			fallback = append(fallback, policy.PreviewGroup{Group: label, Probability: probabilities[label]})
+			continue
+		}
+		fallback = append(fallback, policy.PreviewGroup{Group: label, Probability: probabilities[label], RosterArms: append([]string(nil), cluster.Arms...), EligibleArms: eligibleOrder(ordersByGroup[label], candidates)})
+	}
+	return fallback
 }
 
 func unscorableGroups(roster *rosterdata.Roster, input policy.SelectionInput) ([]string, error) {

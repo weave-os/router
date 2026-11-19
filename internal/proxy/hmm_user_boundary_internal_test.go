@@ -18,6 +18,7 @@ import (
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/hmm/selection"
+	"weave-os/router/internal/router/hmm/selectionpolicy/selectionpolicytest"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -29,9 +30,10 @@ func (d unavailableHMMDecider) Decide(context.Context, policy.Query) (policy.Res
 	return policy.Result{}, d.err
 }
 
-func unscorableHMMService(store sessionpin.Store, sidecarFailure error) *Service {
-	roster := &rosterdata.Roster{
-		ClassOrder: []string{"low", "medium", "high", "maximum"},
+func unscorableHMMService(t *testing.T, store sessionpin.Store, sidecarFailure error) *Service {
+	t.Helper()
+	roster := rosterdata.Roster{
+		ClassOrder: []string{"low", "medium", "maximum"},
 		Clusters: map[string]rosterdata.Cluster{
 			"low":     {Arms: []string{"anthropic/claude-haiku-4.5"}},
 			"medium":  {Arms: []string{"anthropic/claude-sonnet-4.6"}},
@@ -40,7 +42,7 @@ func unscorableHMMService(store sessionpin.Store, sidecarFailure error) *Service
 	}
 	policyRouter := hmm.NewForStrategy(router.StrategyHMMEmbedding, unavailableHMMDecider{sidecarFailure},
 		map[string]struct{}{providers.ProviderAnthropic: {}})
-	policyRouter.WithArmSelector(selection.Selector(roster))
+	policyRouter.WithArmSelector(selection.Selector(selectionpolicytest.Admit(t, roster), nil, ""))
 	return NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: policyRouter})
 }
@@ -53,7 +55,7 @@ func TestHMMCommandOnlyTurnUsesEligibleRosterFallback(t *testing.T) {
 	require.False(t, hasTextUserBoundary(conversationMessagesForRouting(env)))
 
 	sidecarFailure := errors.New("policy sidecar must not receive a command-only request")
-	svc := unscorableHMMService(nil, sidecarFailure)
+	svc := unscorableHMMService(t, nil, sidecarFailure)
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
 	requestForRouting := router.Request{
 		RequestedModel:       features.Model,
@@ -81,7 +83,7 @@ func TestHMMCommandOnlyTurnUsesAdmittedRuntimeFallback(t *testing.T) {
 	features := env.RoutingFeatures()
 	require.False(t, hasTextUserBoundary(conversationMessagesForRouting(env)))
 
-	innerService := unscorableHMMService(nil, errors.New("policy sidecar must not receive a command-only request"))
+	innerService := unscorableHMMService(t, nil, errors.New("policy sidecar must not receive a command-only request"))
 	innerRouter := innerService.strategies[router.StrategyHMMEmbedding].router
 	snapshot := &policyregistry.Snapshot{Routers: map[router.Strategy]router.Router{
 		router.StrategyHMMEmbedding: innerRouter,
@@ -106,7 +108,7 @@ func TestHMMCommandOnlyTurnUsesAdmittedRuntimeFallback(t *testing.T) {
 }
 
 func TestHMMCommandOnlyTurnHonorsEligibilityAndPolicyPin(t *testing.T) {
-	svc := unscorableHMMService(nil, errors.New("sidecar unavailable"))
+	svc := unscorableHMMService(t, nil, errors.New("sidecar unavailable"))
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
 	request := router.Request{RequestedModel: "claude-opus-5-5", ConversationMessages: []router.ConversationMessage{}}
 
@@ -128,7 +130,7 @@ func TestHMMCommandOnlyTurnHonorsEligibilityAndPolicyPin(t *testing.T) {
 }
 
 func TestHMMCommandOnlyTurnUsesPromotedRosterAndAutomaticExclusions(t *testing.T) {
-	svc := unscorableHMMService(nil, errors.New("must not call sidecar"))
+	svc := unscorableHMMService(t, nil, errors.New("must not call sidecar"))
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
 	req := router.Request{RequestedModel: "claude-opus-4-8", ConversationMessages: []router.ConversationMessage{}}
 	decision, err := svc.routeWithStrategy(ctx, router.StrategyHMMEmbedding, req)
@@ -143,7 +145,7 @@ func TestHMMCommandOnlyTurnUsesPromotedRosterAndAutomaticExclusions(t *testing.T
 }
 
 func TestHMMCommandOnlyEscalationRespectsSessionFloor(t *testing.T) {
-	svc := unscorableHMMService(nil, errors.New("must not call sidecar"))
+	svc := unscorableHMMService(t, nil, errors.New("must not call sidecar"))
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
 	req := router.Request{
 		RequestedModel:       "claude-haiku-4-5",
@@ -173,7 +175,7 @@ func TestHMMCommandOnlyEscalationRespectsSessionFloor(t *testing.T) {
 }
 
 func TestHMMCommandOnlyTurnHonorsForcedClusterAndKeyList(t *testing.T) {
-	svc := unscorableHMMService(nil, errors.New("must not call sidecar"))
+	svc := unscorableHMMService(t, nil, errors.New("must not call sidecar"))
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
 	req := router.Request{
 		RequestedModel:       "claude-haiku-4-5",
@@ -225,7 +227,7 @@ func TestHMMCommandOnlyTurnKeepsEligibleSessionPin(t *testing.T) {
 		Reason:      "hmm_policy",
 		PinnedUntil: time.Now().Add(time.Hour),
 	}
-	svc := unscorableHMMService(store, errors.New("must not call sidecar"))
+	svc := unscorableHMMService(t, store, errors.New("must not call sidecar"))
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
 	request := router.Request{RequestedModel: features.Model, ConversationMessages: conversationMessagesForRouting(env)}
 	turn, err := svc.runTurnLoop(ctx, env, features, "api-key", uuid.New(), "", http.Header{}, request)

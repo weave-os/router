@@ -10,14 +10,14 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
-	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm/selectionpolicy"
 	"weave-os/router/internal/server"
 	"weave-os/router/internal/server/middleware"
 )
 
 type unavailableDistributionRoster struct{}
 
-func (unavailableDistributionRoster) DistributionRoster(context.Context) (*rosterdata.Roster, error) {
+func (unavailableDistributionRoster) DistributionPolicy(context.Context) (*selectionpolicy.Policy, error) {
 	return nil, errors.New("no active policy")
 }
 
