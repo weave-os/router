@@ -1375,24 +1375,24 @@ func (s *Service) runTurnLoop(
 				sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, rerouted)
 				return res, nil
 			}
-			slidingServed, slidingProbability := slidingThresholdServes(req, pin, fresh)
-			if slidingServed {
+			sliding := hmm.SlidingThresholdServes(req, pin, fresh)
+			if sliding.Served {
 				log.Info("authoritative sliding threshold serving fresh model",
 					"pin_model", pin.Model,
 					"pin_group", req.SlidingThresholdPinGroup,
 					"fresh_model", fresh.Model,
-					"fresh_group", fresh.Metadata.PolicyGroup,
-					"classified_group", fresh.Metadata.ClassifierPredictedLabel,
-					"probability", slidingProbability,
+					"fresh_group", sliding.FreshGroup,
+					"classified_group", sliding.ClassifiedGroup,
+					"probability", sliding.Probability,
 				)
 			}
-			verdict := authoritativeGuardsFor(ctx, s, slidingServed).Judge(pin, pinFound, fresh, plannerTokens)
+			verdict := authoritativeGuardsFor(ctx, s, sliding.Served).Judge(pin, pinFound, fresh, plannerTokens)
 			if holdAuthoritativePin(ctx, sessionPins, installationID, &res, pin, fresh, verdict) {
 				return res, nil
 			}
 			res.Decision = fresh
 			res.PinTier = "authoritative_per_turn"
-			if slidingServed {
+			if sliding.Served {
 				res.PinTier = string(pinTierAuthoritativeSlidingThresholdUpgrade)
 			}
 			sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, fresh)
@@ -1410,9 +1410,9 @@ func (s *Service) runTurnLoop(
 			hmmDecision, hmmPlannerDecision, hmmSticky, hmmStayModel := hmmCostGatedDecision(ctx, s, hmmGateInput)
 			res.Decision = hmmDecision
 			res.PlannerDecision = hmmPlannerDecision
-			if heldEffort := effortHysteresisHold(fresh, res.PriorServedModel, hmmDecision.Model, hmmDecision.Effort); heldEffort != "" {
+			if heldEffort := hmm.EffortHysteresisHold(fresh, res.PriorServedModel, hmmDecision.Model, hmmDecision.Effort); heldEffort != "" {
 				res.Decision.Effort = heldEffort
-				res.PlannerDecision.Reason = appendEffortHysteresisReason(res.PlannerDecision.Reason)
+				res.PlannerDecision.Reason = hmm.AppendEffortHysteresisReason(res.PlannerDecision.Reason)
 				log.Info("HMM effort hysteresis held incumbent",
 					"incumbent", res.PriorServedModel,
 					"challenger_effort", hmmDecision.Effort,

@@ -1,25 +1,26 @@
-package proxy
+package hmm
 
 import (
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/routingpolicy"
 )
 
 const effortHysteresisThreshold = 1.0
 
-const effortHysteresisReason = "effort_hysteresis"
+const EffortHysteresisReason = "effort_hysteresis"
 
-func effortHysteresisHold(fresh router.Decision, prevServedModel, chosenModel, chosenEffort string) string {
+func EffortHysteresisHold(fresh router.Decision, prevServedModel, chosenModel, chosenEffort string) string {
 	if fresh.Metadata == nil || len(fresh.Metadata.ArmScores) == 0 {
 		return ""
 	}
-	incumbentEffort, incumbentModel := stripEffortSuffix(prevServedModel)
+	incumbentEffort, incumbentModel := routingpolicy.StripEffortSuffix(prevServedModel)
 	if incumbentEffort == "" || chosenEffort == "" || incumbentEffort == chosenEffort {
 		return ""
 	}
 	if chosenModel != incumbentModel || fresh.Model != incumbentModel {
 		return ""
 	}
-	_, armBase := stripEffortSuffix(fresh.Metadata.SelectedRosterArmID)
+	_, armBase := routingpolicy.StripEffortSuffix(fresh.Metadata.SelectedRosterArmID)
 	if armBase == "" {
 		return ""
 	}
@@ -37,9 +38,9 @@ func effortHysteresisHold(fresh router.Decision, prevServedModel, chosenModel, c
 	return incumbentEffort
 }
 
-func appendEffortHysteresisReason(reason string) string {
+func AppendEffortHysteresisReason(reason string) string {
 	if reason == "" {
-		return effortHysteresisReason
+		return EffortHysteresisReason
 	}
-	return reason + "+" + effortHysteresisReason
+	return reason + "+" + EffortHysteresisReason
 }

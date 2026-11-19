@@ -7,7 +7,7 @@
       "internal/routingpolicy": 5
     },
     "proxy_hmm_metadata_references": {
-      "internal/proxy": 54
+      "internal/proxy": 46
     },
     "proxy_reason_string_comparisons": {
       "internal/proxy": 24

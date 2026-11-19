@@ -13,6 +13,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -103,7 +104,7 @@ func TestTurnLoopHoldsPinnedEffortOnLowGapEscalation(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, pinnedModel, result.Decision.Model)
 			assert.Equal(t, test.wantEffort, result.Decision.Effort)
-			assert.Equal(t, test.wantHeld, strings.Contains(result.PlannerDecision.Reason, effortHysteresisReason),
+			assert.Equal(t, test.wantHeld, strings.Contains(result.PlannerDecision.Reason, hmm.EffortHysteresisReason),
 				"a hold must stay legible in the planner reason")
 		})
 	}
