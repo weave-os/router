@@ -1,4 +1,4 @@
-package routingpolicy_test
+package hmm_test
 
 import (
 	"testing"
@@ -9,11 +9,10 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
-	"weave-os/router/internal/routingpolicy"
 )
 
 var (
@@ -21,8 +20,8 @@ var (
 	otherModel = string(catalog.ModelIDClaudeSonnet46)
 )
 
-func hmmGate() routingpolicy.HMMCostGate {
-	return routingpolicy.HMMCostGate{
+func hmmGate() hmm.CostGate {
+	return hmm.CostGate{
 		RegisteredProviders: func() map[string]struct{} {
 			return map[string]struct{}{providers.ProviderAnthropic: {}}
 		},
@@ -42,7 +41,7 @@ func hmmPin(reason string, endedAgo time.Duration) sessionpin.Pin {
 }
 
 func TestHMMCostGateDecideWithoutStayPinSwitches(t *testing.T) {
-	stay, plan, sticky := hmmGate().Decide(routingpolicy.HMMCostGateInput{
+	stay, plan, sticky := hmmGate().Decide(hmm.CostGateInput{
 		Fresh: router.Decision{Provider: providers.ProviderAnthropic, Model: otherModel}, EstimatedInputTokens: 1000, Now: gateNow,
 	})
 	assert.False(t, sticky)
@@ -62,7 +61,7 @@ func TestHMMCostGateStayPinIgnoresNonHMMActivePin(t *testing.T) {
 
 func TestHMMCostGateStayPinPrefersMostRecentTurn(t *testing.T) {
 	older := hmmPin("hmm_policy", time.Hour)
-	newer := hmmPin(routingpolicy.HMMHistoryReason, time.Minute)
+	newer := hmmPin(hmm.HistoryReason, time.Minute)
 	newer.Model = otherModel
 	got, ok := hmmGate().StayPin(router.Request{}, older, newer, gateNow)
 	require.True(t, ok)
@@ -74,7 +73,7 @@ func TestHMMCostGateNormalizeStayPinRejectsIneligibleModels(t *testing.T) {
 	unavailable := hmmGate()
 	unavailable.AvailableModels = map[string]struct{}{otherModel: {}}
 	cases := map[string]struct {
-		gate routingpolicy.HMMCostGate
+		gate hmm.CostGate
 		req  router.Request
 	}{
 		"excluded":             {hmmGate(), router.Request{ExcludedModels: map[string]struct{}{stayModel: {}}}},
@@ -107,12 +106,6 @@ func TestHMMCostGateNormalizeStayPinRejectsStalePins(t *testing.T) {
 	}
 }
 
-func TestBaseModelOfStripsEffort(t *testing.T) {
-	gpt := string(catalog.ModelIDGPT55)
-	assert.Equal(t, gpt, candidates.BaseModelOf(gpt+":high"))
-	assert.Equal(t, stayModel, candidates.BaseModelOf(stayModel))
-}
-
 func TestHMMCostGateNormalizeStayPinSplitsServedEffort(t *testing.T) {
 	pin := hmmPin("hmm_policy", time.Minute)
 	pin.LastServedModel = stayModel + ":high"
@@ -123,7 +116,7 @@ func TestHMMCostGateNormalizeStayPinSplitsServedEffort(t *testing.T) {
 }
 
 func TestHMMCostGateDecideSwitchesOnPricierPhaseChange(t *testing.T) {
-	stay, plan, sticky := hmmGate().Decide(routingpolicy.HMMCostGateInput{
+	stay, plan, sticky := hmmGate().Decide(hmm.CostGateInput{
 		ActivePin:            hmmPin("hmm_policy", time.Minute),
 		Fresh:                router.Decision{Provider: providers.ProviderAnthropic, Model: otherModel, Reason: "hmm_policy:tool_execution"},
 		EstimatedInputTokens: 1000,
@@ -132,5 +125,5 @@ func TestHMMCostGateDecideSwitchesOnPricierPhaseChange(t *testing.T) {
 	assert.False(t, sticky)
 	assert.Equal(t, stayModel, stay.Model)
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
-	assert.Equal(t, routingpolicy.HMMReasonPhaseChange, plan.Reason)
+	assert.Equal(t, hmm.ReasonPhaseChange, plan.Reason)
 }

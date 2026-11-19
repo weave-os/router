@@ -1,4 +1,4 @@
-package routingpolicy
+package hmm
 
 import (
 	"weave-os/router/internal/router"
@@ -39,10 +39,10 @@ func (g AuthoritativeGuards) Judge(pin sessionpin.Pin, pinFound bool, fresh rout
 	if !pinFound || pin.Model == "" || pin.Model == fresh.Model {
 		return verdict
 	}
-	confidence, scored := HMMDecisionConfidence(fresh)
+	confidence, scored := DecisionConfidence(fresh)
 	verdict.Confidence = confidence
 	unconfident := scored && confidence < g.ConfidenceThreshold
-	if HMMFreshIsMoreExpensive(pin.Model, fresh.Model, inputTokens) {
+	if FreshIsMoreExpensive(pin.Model, fresh.Model, inputTokens) {
 		if g.UpgradeGate && unconfident {
 			verdict.Hold = AuthoritativeHoldUpgradeConfidenceLow
 		}

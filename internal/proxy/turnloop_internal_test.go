@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/routingpolicy"
@@ -640,7 +641,7 @@ func TestHMMCostGate_StaysOnWarmCacheWhenCheaperFreshDoesNotClearEV(t *testing.T
 		},
 	}
 
-	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, hmm.CostGateInput{
 		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: fresh,
 		EstimatedInputTokens: 100, PrefixBroken: false,
 	})
@@ -679,7 +680,7 @@ func TestHMMCostGate_SwitchesCheaperFreshWhenEVPositive(t *testing.T) {
 		},
 	}
 
-	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, hmm.CostGateInput{
 		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: fresh,
 		EstimatedInputTokens: 10_000, PrefixBroken: false,
 	})
@@ -720,7 +721,7 @@ func TestHMMCostGate_PhaseChangeFollowsFreshDecisionWhenEVPositive(t *testing.T)
 		},
 	}
 
-	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, hmm.CostGateInput{
 		Request: router.Request{}, ActivePin: activePin, HMMHistory: sessionpin.Pin{}, Fresh: fresh,
 		EstimatedInputTokens: 10_000, PrefixBroken: false,
 	})
@@ -729,7 +730,7 @@ func TestHMMCostGate_PhaseChangeFollowsFreshDecisionWhenEVPositive(t *testing.T)
 	assert.Equal(t, "deepseek/deepseek-v4.1-flash", decision.Model)
 	assert.Equal(t, "claude-sonnet-5", stayModel)
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
-	assert.Equal(t, routingpolicy.HMMReasonPhaseChange, plan.Reason)
+	assert.Equal(t, hmm.ReasonPhaseChange, plan.Reason)
 }
 
 func TestHMMCostGate_HistoryPhaseChangeFollowsFreshDecisionWhenEVPositive(t *testing.T) {
@@ -760,7 +761,7 @@ func TestHMMCostGate_HistoryPhaseChangeFollowsFreshDecisionWhenEVPositive(t *tes
 		},
 	}
 
-	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, hmm.CostGateInput{
 		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: fresh,
 		EstimatedInputTokens: 10_000, PrefixBroken: false,
 	})
@@ -769,7 +770,7 @@ func TestHMMCostGate_HistoryPhaseChangeFollowsFreshDecisionWhenEVPositive(t *tes
 	assert.Equal(t, "deepseek/deepseek-v4.1-flash", decision.Model)
 	assert.Equal(t, "claude-sonnet-5", stayModel)
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
-	assert.Equal(t, routingpolicy.HMMReasonPhaseChange, plan.Reason)
+	assert.Equal(t, hmm.ReasonPhaseChange, plan.Reason)
 }
 
 func TestHMMCostGate_ExpensiveUpgradeRequiresHighConfidence(t *testing.T) {
@@ -798,7 +799,7 @@ func TestHMMCostGate_ExpensiveUpgradeRequiresHighConfidence(t *testing.T) {
 		},
 	}
 
-	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, hmm.CostGateInput{
 		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: fresh,
 		EstimatedInputTokens: 10_000, PrefixBroken: false,
 	})
@@ -807,10 +808,10 @@ func TestHMMCostGate_ExpensiveUpgradeRequiresHighConfidence(t *testing.T) {
 	assert.Equal(t, "moonshotai/kimi-k2.7", decision.Model)
 	assert.Equal(t, "moonshotai/kimi-k2.7", stayModel)
 	assert.Equal(t, planner.OutcomeStay, plan.Outcome)
-	assert.Equal(t, routingpolicy.HMMReasonUpgradeConfidenceLow, plan.Reason)
+	assert.Equal(t, hmm.ReasonUpgradeConfidenceLow, plan.Reason)
 
 	fresh.Metadata.ChosenScore = 0.50
-	decision, plan, sticky, stayModel = hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+	decision, plan, sticky, stayModel = hmmCostGatedDecision(t.Context(), svc, hmm.CostGateInput{
 		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: fresh,
 		EstimatedInputTokens: 10_000, PrefixBroken: false,
 	})
@@ -819,7 +820,7 @@ func TestHMMCostGate_ExpensiveUpgradeRequiresHighConfidence(t *testing.T) {
 	assert.Equal(t, "claude-sonnet-5", decision.Model)
 	assert.Equal(t, "moonshotai/kimi-k2.7", stayModel)
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
-	assert.Equal(t, routingpolicy.HMMReasonConfidentUpgrade, plan.Reason)
+	assert.Equal(t, hmm.ReasonConfidentUpgrade, plan.Reason)
 }
 
 func TestHMMCostGate_IgnoresExpiredActivePin(t *testing.T) {
@@ -850,7 +851,7 @@ func TestHMMCostGate_IgnoresExpiredActivePin(t *testing.T) {
 		},
 	}
 
-	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, hmm.CostGateInput{
 		Request: router.Request{}, ActivePin: expired, HMMHistory: sessionpin.Pin{}, Fresh: fresh,
 		EstimatedInputTokens: 100, PrefixBroken: false,
 	})
@@ -893,7 +894,7 @@ func TestHMMCostGate_IgnoresNonHMMActivePin(t *testing.T) {
 		},
 	}
 
-	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, hmm.CostGateInput{
 		Request: router.Request{}, ActivePin: clusterPin, HMMHistory: sessionpin.Pin{}, Fresh: fresh,
 		EstimatedInputTokens: 100, PrefixBroken: false,
 	})
@@ -936,7 +937,7 @@ func TestHMMCostGate_HonorsHMMReasonedActivePin(t *testing.T) {
 		},
 	}
 
-	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, hmm.CostGateInput{
 		Request: router.Request{}, ActivePin: hmmPin, HMMHistory: sessionpin.Pin{}, Fresh: fresh,
 		EstimatedInputTokens: 100, PrefixBroken: false,
 	})
@@ -978,7 +979,7 @@ func TestHMMCostGate_IgnoresMaxedHistory(t *testing.T) {
 		},
 	}
 
-	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, hmm.CostGateInput{
 		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: fresh,
 		EstimatedInputTokens: 100, PrefixBroken: false,
 	})
@@ -1193,7 +1194,7 @@ func TestService_NewService_HMMUpgradeConfidenceDefaults(t *testing.T) {
 		"anthropic", "claude-haiku-4-5",
 		nil,
 	)
-	assert.InDelta(t, DefaultHMMUpgradeConfidenceThreshold, svc.hmmUpgradeConfidenceThreshold, 1e-9)
+	assert.InDelta(t, hmm.DefaultUpgradeConfidenceThreshold, svc.hmmUpgradeConfidenceThreshold, 1e-9)
 }
 
 func TestService_WithHMMUpgradeConfidenceThreshold(t *testing.T) {
@@ -1248,7 +1249,7 @@ func TestHMMCostGate_UpgradeThresholdConfigurable(t *testing.T) {
 		},
 	}
 
-	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, routingpolicy.HMMCostGateInput{
+	decision, plan, sticky, stayModel := hmmCostGatedDecision(t.Context(), svc, hmm.CostGateInput{
 		Request: router.Request{}, ActivePin: sessionpin.Pin{}, HMMHistory: history, Fresh: fresh,
 		EstimatedInputTokens: 10_000, PrefixBroken: false,
 	})
@@ -1256,6 +1257,6 @@ func TestHMMCostGate_UpgradeThresholdConfigurable(t *testing.T) {
 	assert.False(t, sticky)
 	assert.Equal(t, "claude-sonnet-5", decision.Model)
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
-	assert.Equal(t, routingpolicy.HMMReasonConfidentUpgrade, plan.Reason)
+	assert.Equal(t, hmm.ReasonConfidentUpgrade, plan.Reason)
 	assert.Equal(t, "moonshotai/kimi-k2.7", stayModel)
 }

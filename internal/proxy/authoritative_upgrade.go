@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/escalation"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/routingpolicy"
 
@@ -208,7 +209,7 @@ func (s *Service) authoritativeUpgradeFor(ctx context.Context, req router.Reques
 		_, pinPriced := hmmEffectiveInputUSDPer1M(pin.Model, inputTokens)
 		_, freshPriced := hmmEffectiveInputUSDPer1M(fresh.Model, inputTokens)
 		decision.Evidence.PricingKnown = pinPriced && freshPriced
-		decision.Evidence.MoreExpensive = hmmFreshIsMoreExpensive(pin.Model, fresh.Model, inputTokens)
+		decision.Evidence.MoreExpensive = hmm.FreshIsMoreExpensive(pin.Model, fresh.Model, inputTokens)
 		if !pin.FirstPinnedAt.IsZero() {
 			age := pinAge(pin, s.clock.Now())
 			decision.PinAgeSec = &age
@@ -249,8 +250,8 @@ func logAuthoritativeUpgrade(ctx context.Context, res turnLoopResult) {
 	observability.FromContext(ctx).Info("authoritative upgrade evidence", "installation_id", res.InstallationID.String(), "role", res.PinRole, "mode", decision.Mode, "applied", decision.Applied, "turn_type", res.TurnType, "fresh_model", res.Fresh.Model, "fresh_provider", res.Fresh.Provider, "fresh_score", decision.FreshScore, "pin_model", decision.PinModel, "pin_provider", decision.PinProvider, "fresh_group", decision.Evidence.FreshGroup, "pin_group", decision.Evidence.PinGroup, "margin", decision.Evidence.Margin, "margin_threshold", decision.MarginThreshold, "requested_tier", decision.RequestedTier.String(), "pin_tier", decision.PinTier.String(), "explicit_requested_group", decision.Evidence.RequestedGroup, "cache_cold", decision.Evidence.CacheCold, "prefix_broken", decision.Evidence.PrefixBroken, "pin_age_sec", decision.PinAgeSec, "stale_pin_after_sec", decision.StalePinAfterSec, "vote_count", decision.Evidence.VoteCount, "required_votes", decision.Evidence.RequiredVotes, "demoted", decision.Evidence.Demoted, "fresh_eligible", decision.Evidence.FreshEligible, "outcome", decision.Verdict.Outcome, "reason", decision.Verdict.Reason, "served_model", res.Decision.Model, "pin_tier_path", res.PinTier, "would_diverge", wouldDiverge)
 }
 
-func authoritativeGuardsFor(ctx context.Context, s *Service, slidingServed bool) routingpolicy.AuthoritativeGuards {
-	return routingpolicy.AuthoritativeGuards{
+func authoritativeGuardsFor(ctx context.Context, s *Service, slidingServed bool) hmm.AuthoritativeGuards {
+	return hmm.AuthoritativeGuards{
 		ConfidenceThreshold:   s.hmmUpgradeConfidenceThreshold,
 		UpgradeGate:           s.ResolveAuthoritativeUpgradeGate(ctx) && s.resolveUpgradePolicyMode(ctx) != flags.AuthoritativeUpgradePolicyOff && !slidingServed,
 		DowngradeGate:         s.ResolveAuthoritativeDowngradeGate(ctx),
@@ -266,7 +267,7 @@ func holdAuthoritativePin(
 	res *turnLoopResult,
 	pin sessionpin.Pin,
 	fresh router.Decision,
-	verdict routingpolicy.AuthoritativeVerdict,
+	verdict hmm.AuthoritativeVerdict,
 ) bool {
 	log := observability.FromContext(ctx)
 	fields := []any{
@@ -280,7 +281,7 @@ func holdAuthoritativePin(
 	if verdict.Downgrade {
 		fields = append(fields, "downgrade_votes", verdict.DowngradeVotes, "hysteresis_turns", verdict.HysteresisTurns)
 	}
-	if verdict.Hold == routingpolicy.AuthoritativeServe {
+	if verdict.Hold == hmm.AuthoritativeServe {
 		if verdict.Downgrade {
 			res.DowngradeShadow = downgradeGuardShadow{
 				Served:              true,
@@ -297,11 +298,11 @@ func holdAuthoritativePin(
 	res.Decision = decision
 	res.StickyHit = true
 	switch verdict.Hold {
-	case routingpolicy.AuthoritativeHoldUpgradeConfidenceLow:
+	case hmm.AuthoritativeHoldUpgradeConfidenceLow:
 		res.PinTier = string(pinTierAuthoritativeUpgradeConfidenceLow)
 		log.Info("turnloop suppressed low-confidence authoritative upgrade; keeping session pin", fields...)
 		sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
-	case routingpolicy.AuthoritativeHoldDowngradeConfidenceLow:
+	case hmm.AuthoritativeHoldDowngradeConfidenceLow:
 		res.PinTier = string(pinTierAuthoritativeDowngradeConfidenceLow)
 		log.Info("turnloop suppressed low-confidence authoritative downgrade; keeping session pin", fields...)
 		sessionPins.RefreshDowngradeVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, verdict.DowngradeVotes)

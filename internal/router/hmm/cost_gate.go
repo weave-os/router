@@ -1,24 +1,24 @@
-package routingpolicy
+package hmm
 
 import (
 	"strings"
 	"time"
 
-	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 )
 
-type HMMCostGate struct {
+type CostGate struct {
 	AvailableModels            map[string]struct{}
 	RegisteredProviders        func() map[string]struct{}
 	UpgradeConfidenceThreshold float64
 }
 
-type HMMCostGateInput struct {
+type CostGateInput struct {
 	Request              router.Request
 	ActivePin            sessionpin.Pin
 	HMMHistory           sessionpin.Pin
@@ -29,24 +29,28 @@ type HMMCostGateInput struct {
 	Now                  time.Time
 }
 
-const HMMHistoryReason = "hmm_history"
+const HistoryReason = "hmm_history"
+
+const DefaultUpgradeConfidenceThreshold = 0.50
+
+const DefaultDowngradeHysteresisTurns = 2
 
 const (
-	HMMReasonConfidentUpgrade     = "hmm_confident_upgrade"
-	HMMReasonUpgradeConfidenceLow = "hmm_upgrade_confidence_low"
-	HMMReasonPhaseChange          = "hmm_phase_change"
+	ReasonConfidentUpgrade     = "hmm_confident_upgrade"
+	ReasonUpgradeConfidenceLow = "hmm_upgrade_confidence_low"
+	ReasonPhaseChange          = "hmm_phase_change"
 )
 
-func (g HMMCostGate) Decide(input HMMCostGateInput) (sessionpin.Pin, planner.Decision, bool) {
+func (g CostGate) Decide(input CostGateInput) (sessionpin.Pin, planner.Decision, bool) {
 	stayPin, ok := g.StayPin(input.Request, input.ActivePin, input.HMMHistory, input.Now)
 	if !ok {
 		return stayPin, planner.Decision{Outcome: planner.OutcomeSwitch, Reason: planner.ReasonNoPin}, false
 	}
-	phaseChanged := HMMToolExecutionPhaseChanged(stayPin.Reason, input.Fresh.Reason)
+	phaseChanged := IsToolExecutionReason(stayPin.Reason) != IsToolExecutionReason(input.Fresh.Reason)
 
 	cfg := input.Planner
 	cfg.TierUpgradeEnabled = false
-	stayPrefix, stayPrefixKnown := CacheablePrefixTokens(stayPin, input.EstimatedInputTokens, input.PrefixBroken)
+	stayPrefix, stayPrefixKnown := routingpolicy.CacheablePrefixTokens(stayPin, input.EstimatedInputTokens, input.PrefixBroken)
 	plan := planner.Decide(planner.Inputs{
 		Pin:                   stayPin,
 		Fresh:                 input.Fresh,
@@ -55,37 +59,37 @@ func (g HMMCostGate) Decide(input HMMCostGateInput) (sessionpin.Pin, planner.Dec
 		CachePrefixKnown:      stayPrefixKnown,
 		PriorOutputTokens:     stayPin.LastOutputTokens,
 		AvailableModels:       g.AvailableModels,
-		PinCacheCold:          PinCacheCold(stayPin, input.PrefixBroken, input.Now),
+		PinCacheCold:          routingpolicy.PinCacheCold(stayPin, input.PrefixBroken, input.Now),
 	}, cfg)
 
-	freshIsMoreExpensive := HMMFreshIsMoreExpensive(stayPin.Model, input.Fresh.Model, input.EstimatedInputTokens)
+	freshIsMoreExpensive := FreshIsMoreExpensive(stayPin.Model, input.Fresh.Model, input.EstimatedInputTokens)
 	if phaseChanged && freshIsMoreExpensive {
 		plan.Outcome = planner.OutcomeSwitch
-		plan.Reason = HMMReasonPhaseChange
+		plan.Reason = ReasonPhaseChange
 	} else if freshIsMoreExpensive {
-		confidence, ok := HMMDecisionConfidence(input.Fresh)
+		confidence, ok := DecisionConfidence(input.Fresh)
 		if ok && confidence >= g.UpgradeConfidenceThreshold {
 			plan.Outcome = planner.OutcomeSwitch
-			plan.Reason = HMMReasonConfidentUpgrade
+			plan.Reason = ReasonConfidentUpgrade
 		} else if plan.Outcome != planner.OutcomeSwitch {
 			plan.Outcome = planner.OutcomeStay
-			plan.Reason = HMMReasonUpgradeConfidenceLow
+			plan.Reason = ReasonUpgradeConfidenceLow
 		}
 	}
 
 	if phaseChanged && plan.Outcome == planner.OutcomeSwitch && plan.Reason == planner.ReasonEVPositive {
-		plan.Reason = HMMReasonPhaseChange
+		plan.Reason = ReasonPhaseChange
 	}
 
 	return stayPin, plan, plan.Outcome == planner.OutcomeStay && stayPin.Model != input.Fresh.Model
 }
 
-func (g HMMCostGate) StayPin(req router.Request, activePin sessionpin.Pin, hmmHistory sessionpin.Pin, now time.Time) (sessionpin.Pin, bool) {
+func (g CostGate) StayPin(req router.Request, activePin sessionpin.Pin, hmmHistory sessionpin.Pin, now time.Time) (sessionpin.Pin, bool) {
 	var (
 		best sessionpin.Pin
 		ok   bool
 	)
-	if !IsHMMPinReason(activePin.Reason) {
+	if !IsPinReason(activePin.Reason) {
 		activePin = sessionpin.Pin{}
 	}
 	for _, candidate := range []sessionpin.Pin{activePin, hmmHistory} {
@@ -101,12 +105,12 @@ func (g HMMCostGate) StayPin(req router.Request, activePin sessionpin.Pin, hmmHi
 	return best, ok
 }
 
-func (g HMMCostGate) NormalizeStayPin(req router.Request, p sessionpin.Pin, now time.Time) (sessionpin.Pin, bool) {
+func (g CostGate) NormalizeStayPin(req router.Request, p sessionpin.Pin, now time.Time) (sessionpin.Pin, bool) {
 	served := p.LastServedModel
 	if served == "" {
 		served = p.Model
 	}
-	effort, model := StripEffortSuffix(served)
+	effort, model := routingpolicy.StripEffortSuffix(served)
 	if model == "" {
 		return sessionpin.Pin{}, false
 	}
@@ -158,20 +162,16 @@ func (g HMMCostGate) NormalizeStayPin(req router.Request, p sessionpin.Pin, now 
 	return p, true
 }
 
-func IsHMMPinReason(reason string) bool {
-	return reason == HMMHistoryReason ||
+func IsPinReason(reason string) bool {
+	return reason == HistoryReason ||
 		strings.HasPrefix(strings.TrimSpace(reason), "hmm_policy")
 }
 
-func IsHMMToolExecutionReason(reason string) bool {
+func IsToolExecutionReason(reason string) bool {
 	return strings.HasPrefix(strings.TrimSpace(reason), "hmm_policy:tool_execution")
 }
 
-func HMMToolExecutionPhaseChanged(stayReason, freshReason string) bool {
-	return IsHMMToolExecutionReason(stayReason) != IsHMMToolExecutionReason(freshReason)
-}
-
-func HMMDecisionConfidence(dec router.Decision) (float64, bool) {
+func DecisionConfidence(dec router.Decision) (float64, bool) {
 	if dec.Metadata == nil {
 		return 0, false
 	}
@@ -182,71 +182,8 @@ func HMMDecisionConfidence(dec router.Decision) (float64, bool) {
 	return confidence, true
 }
 
-func HMMFreshIsMoreExpensive(stayModel, freshModel string, inputTokens int) bool {
-	stay, okStay := HMMEffectiveInputUSDPer1M(stayModel, inputTokens)
-	fresh, okFresh := HMMEffectiveInputUSDPer1M(freshModel, inputTokens)
+func FreshIsMoreExpensive(stayModel, freshModel string, inputTokens int) bool {
+	stay, okStay := routingpolicy.HMMEffectiveInputUSDPer1M(stayModel, inputTokens)
+	fresh, okFresh := routingpolicy.HMMEffectiveInputUSDPer1M(freshModel, inputTokens)
 	return okStay && okFresh && fresh > stay
-}
-
-func HMMEffectiveInputUSDPer1M(model string, inputTokens int) (float64, bool) {
-	price, ok := catalog.PrimaryPriceFor(model)
-	if !ok {
-		return 0, false
-	}
-	price = price.ForInputTokens(inputTokens)
-	return price.InputUSDPer1M, true
-}
-
-func CacheablePrefixTokens(pin sessionpin.Pin, total int, prefixBroken bool) (int, bool) {
-	if prefixBroken {
-		return 0, true
-	}
-	cached := pin.LastCachedReadTokens + pin.LastCachedWriteTokens
-	prior := PriorPromptTokens(pin)
-	if prior <= 0 {
-		return 0, false
-	}
-	share := min(1.0, float64(cached)/float64(prior))
-	return int(share * float64(total)), true
-}
-
-func PriorPromptTokens(pin sessionpin.Pin) int {
-	if providers.FamilyFor(pin.Provider) == providers.FamilyAnthropic {
-		return pin.LastInputTokens + pin.LastCachedReadTokens + pin.LastCachedWriteTokens
-	}
-	return pin.LastInputTokens
-}
-
-func CacheWarm(pin sessionpin.Pin, now time.Time) bool {
-	if pin.LastTurnEndedAt.IsZero() {
-		return false
-	}
-	return now.Sub(pin.LastTurnEndedAt) < providers.CacheTTLFor(pin.Provider)
-}
-
-func PinCacheCold(pin sessionpin.Pin, prefixBroken bool, now time.Time) bool {
-	return !CacheWarm(pin, now) || prefixBroken
-}
-
-func StripEffortSuffix(model string) (effort string, modelOut string) {
-	const sep = ":"
-	idx := strings.LastIndex(model, sep)
-	if idx < 0 || idx == len(model)-1 {
-		return "", model
-	}
-	tail := strings.TrimSpace(model[idx+1:])
-	if !LooksLikeEffortAlias(tail) {
-		return "", model
-	}
-	return router.CanonicalizeEffort(tail), model[:idx]
-}
-
-func LooksLikeEffortAlias(tail string) bool {
-	switch strings.ToLower(strings.TrimSpace(tail)) {
-	case "fast", "low", "medium", "med", "high", "max", "xhigh",
-		"ultra", "minimal", "min":
-		return true
-	default:
-		return false
-	}
 }

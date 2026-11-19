@@ -6,22 +6,23 @@ import (
 
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/candidates"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/routingpolicy"
 )
 
-const hmmHistoryReason = routingpolicy.HMMHistoryReason
+const hmmHistoryReason = hmm.HistoryReason
 
-func hmmCostGateFor(s *Service) routingpolicy.HMMCostGate {
-	return routingpolicy.HMMCostGate{
+func hmmCostGateFor(s *Service) hmm.CostGate {
+	return hmm.CostGate{
 		AvailableModels:            s.availableModels,
 		RegisteredProviders:        func() map[string]struct{} { return s.clients.NameSet() },
 		UpgradeConfidenceThreshold: s.hmmUpgradeConfidenceThreshold,
 	}
 }
 
-func hmmCostGatedDecision(ctx context.Context, s *Service, input routingpolicy.HMMCostGateInput) (router.Decision, planner.Decision, bool, string) {
+func hmmCostGatedDecision(ctx context.Context, s *Service, input hmm.CostGateInput) (router.Decision, planner.Decision, bool, string) {
 	input.Planner = plannerConfigFor(ctx, s.planner)
 	input.Now = s.clock.Now()
 	stayPin, plan, sticky := hmmCostGateFor(s).Decide(input)
@@ -33,10 +34,6 @@ func hmmCostGatedDecision(ctx context.Context, s *Service, input routingpolicy.H
 
 func hmmStayPin(s *Service, req router.Request, activePin sessionpin.Pin, hmmHistory sessionpin.Pin) (sessionpin.Pin, bool) {
 	return hmmCostGateFor(s).StayPin(req, activePin, hmmHistory, s.clock.Now())
-}
-
-func hmmFreshIsMoreExpensive(stayModel, freshModel string, inputTokens int) bool {
-	return routingpolicy.HMMFreshIsMoreExpensive(stayModel, freshModel, inputTokens)
 }
 
 func hmmEffectiveInputUSDPer1M(model string, inputTokens int) (float64, bool) {
