@@ -10,6 +10,13 @@ import (
 	"weave-os/router/internal/router/policy"
 )
 
+func eligibleStrategyDecision(ctx context.Context, strategy router.Strategy, req router.Request, decision router.Decision) (router.Decision, error) {
+	if err := productEligibilityRefusal(ctx, req.ProductEligibility, decision.Model); err != nil {
+		return router.Decision{}, fmt.Errorf("strategy %q: %w", strategy, err)
+	}
+	return enforceCandidateMembership(ctx, strategy, req, decision)
+}
+
 func enforceCandidateMembership(ctx context.Context, strategy router.Strategy, req router.Request, decision router.Decision) (router.Decision, error) {
 	violated, hasHardViolation := req.Candidates.HardFilterViolation(decision.Model)
 	if !hasHardViolation {
