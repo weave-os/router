@@ -1,17 +1,22 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/url"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
+	"weave-os/router/internal/config"
+	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
@@ -36,79 +41,101 @@ func isReservedPolicyStrategy(strategy router.Strategy) bool {
 	return reserved || router.IsRetiredStrategy(strategy)
 }
 
+type policySidecarEndpoint struct {
+	Origin          string `json:"origin"`
+	PolicySHA256    string `json:"policy_sha256"`
+	AllowHTTPBearer bool   `json:"allow_http_bearer"`
+}
+
+func (endpoint *policySidecarEndpoint) UnmarshalJSON(data []byte) error {
+	if data[0] == '"' {
+		return json.Unmarshal(data, &endpoint.Origin)
+	}
+	type endpointFields policySidecarEndpoint
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode((*endpointFields)(endpoint)); err != nil {
+		return err
+	}
+	if endpoint.PolicySHA256 == "" {
+		return fmt.Errorf("endpoint object requires policy_sha256")
+	}
+	return nil
+}
+
+type policySidecarSettings struct {
+	endpoints    string
+	authModes    string
+	bearerTokens string
+	timeout      time.Duration
+}
+
+func configuredPolicySidecarsFromEnv(deployed, availableProviders map[string]struct{}, logger *slog.Logger) ([]policy.StrategySpec, error) {
+	return buildConfiguredPolicySidecars(
+		context.Background(),
+		policySidecarSettings{
+			endpoints:    config.GetOr("ROUTER_POLICY_SIDECARS", ""),
+			authModes:    config.GetOr("ROUTER_POLICY_SIDECAR_AUTH", ""),
+			bearerTokens: config.GetOr("ROUTER_POLICY_SIDECAR_BEARER_TOKENS", ""),
+			timeout:      parseEnvDurationMs("ROUTER_POLICY_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout),
+		},
+		deployed,
+		availableProviders,
+		nil,
+		logger,
+	)
+}
+
 func buildConfiguredPolicySidecars(
 	ctx context.Context,
-	raw, rawAuth string,
-	timeout time.Duration,
+	settings policySidecarSettings,
 	deployed, availableProviders map[string]struct{},
 	httpClient *http.Client,
 	logger *slog.Logger,
 ) ([]policy.StrategySpec, error) {
-	if strings.TrimSpace(raw) == "" {
-		if strings.TrimSpace(rawAuth) != "" {
+	endpoints, err := parsePolicySidecarEndpoints(settings.endpoints)
+	if err != nil {
+		return nil, err
+	}
+	if len(endpoints) == 0 {
+		switch {
+		case strings.TrimSpace(settings.authModes) != "":
 			return nil, fmt.Errorf("ROUTER_POLICY_SIDECAR_AUTH requires ROUTER_POLICY_SIDECARS")
+		case strings.TrimSpace(settings.bearerTokens) != "":
+			return nil, fmt.Errorf("ROUTER_POLICY_SIDECAR_BEARER_TOKENS requires ROUTER_POLICY_SIDECARS")
+		default:
+			return nil, nil
 		}
-		return nil, nil
 	}
-	var configured map[string]string
-	if err := json.Unmarshal([]byte(raw), &configured); err != nil {
-		return nil, fmt.Errorf("parse ROUTER_POLICY_SIDECARS: %w", err)
+	knownStrategies := make(map[router.Strategy]struct{}, len(endpoints))
+	for strategy := range endpoints {
+		knownStrategies[strategy] = struct{}{}
 	}
-	if len(configured) > maxConfiguredPolicySidecars {
-		return nil, fmt.Errorf("ROUTER_POLICY_SIDECARS has %d entries; maximum is %d", len(configured), maxConfiguredPolicySidecars)
+	authModes, err := parseConfiguredPolicySidecarSettings(settings.authModes, "ROUTER_POLICY_SIDECAR_AUTH", knownStrategies)
+	if err != nil {
+		return nil, err
 	}
-
-	strategies := make([]string, 0, len(configured))
-	for name := range configured {
-		strategies = append(strategies, name)
-	}
-	sort.Strings(strategies)
-	seen := make(map[router.Strategy]struct{}, len(strategies))
-	normalized := make(map[string]router.Strategy, len(strategies))
-	for _, configuredName := range strategies {
-		strategy := router.Strategy(strings.ToLower(strings.TrimSpace(configuredName)))
-		if strategy == "" {
-			return nil, fmt.Errorf("ROUTER_POLICY_SIDECARS contains an empty strategy")
-		}
-		if !configuredPolicyStrategyPattern.MatchString(string(strategy)) {
-			return nil, fmt.Errorf("ROUTER_POLICY_SIDECARS strategy %q must match %s", strategy, configuredPolicyStrategyPattern)
-		}
-		if isReservedPolicyStrategy(strategy) {
-			return nil, fmt.Errorf("ROUTER_POLICY_SIDECARS strategy %q is reserved", strategy)
-		}
-		if _, duplicate := seen[strategy]; duplicate {
-			return nil, fmt.Errorf("ROUTER_POLICY_SIDECARS strategy %q is duplicated after normalization", strategy)
-		}
-		seen[strategy] = struct{}{}
-		normalized[configuredName] = strategy
-	}
-	authModes, err := parseConfiguredPolicySidecarAuth(rawAuth, seen)
+	tokens, err := configuredPolicyTokens(settings.bearerTokens, endpoints, knownStrategies, authModes)
 	if err != nil {
 		return nil, err
 	}
 
-	registrations := make([]policy.StrategySpec, 0, len(strategies))
-	for _, configuredName := range strategies {
-		strategy := normalized[configuredName]
-		sidecarURL := strings.TrimSpace(configured[configuredName])
-		parsed, err := url.Parse(sidecarURL)
-		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-			return nil, fmt.Errorf("ROUTER_POLICY_SIDECARS strategy %q has invalid URL %q", strategy, sidecarURL)
+	registrations := make([]policy.StrategySpec, 0, len(endpoints))
+	for _, strategy := range slices.Sorted(maps.Keys(endpoints)) {
+		endpoint := endpoints[strategy]
+		pin := policyclient.WithExpectedPolicySHA256(endpoint.PolicySHA256)
+		var client *policyclient.Client
+		if token := tokens[strategy]; token != "" {
+			client = policyclient.NewBearer(endpoint.Origin, token, httpClient, settings.timeout, pin)
+		} else {
+			client, err = buildConfiguredPolicyClient(endpoint.Origin, authModes[strategy], settings.timeout, httpClient, pin)
+			if err != nil {
+				return nil, fmt.Errorf("build %s policy sidecar client: %w", strategy, err)
+			}
 		}
-
-		client, err := buildConfiguredPolicyClient(sidecarURL, authModes[strategy], timeout, httpClient)
+		capabilities, err := discoverPolicySidecarCapabilities(ctx, strategy, endpoint, client, settings.timeout, logger)
 		if err != nil {
-			return nil, fmt.Errorf("build %s policy sidecar client: %w", strategy, err)
-		}
-		capabilityCtx, cancel := context.WithTimeout(ctx, timeout)
-		capabilities, capabilityErr := client.Capabilities(capabilityCtx)
-		cancel()
-		if capabilityErr != nil {
-			logger.Warn("Policy sidecar capabilities unavailable at boot",
-				"strategy", strategy,
-				"sidecar_url", sidecarURL,
-				"err", capabilityErr,
-			)
+			return nil, err
 		}
 		resolver := policy.NewResolver(
 			deployed,
@@ -131,8 +158,79 @@ func buildConfiguredPolicySidecars(
 	return registrations, nil
 }
 
-func parseConfiguredPolicySidecarAuth(
-	raw string,
+func parsePolicySidecarEndpoints(raw string) (map[router.Strategy]policySidecarEndpoint, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var configured map[string]policySidecarEndpoint
+	if err := json.Unmarshal([]byte(raw), &configured); err != nil {
+		return nil, fmt.Errorf("parse ROUTER_POLICY_SIDECARS: %w", err)
+	}
+	if len(configured) > maxConfiguredPolicySidecars {
+		return nil, fmt.Errorf("ROUTER_POLICY_SIDECARS has %d entries; maximum is %d", len(configured), maxConfiguredPolicySidecars)
+	}
+	endpoints := make(map[router.Strategy]policySidecarEndpoint, len(configured))
+	for _, configuredName := range slices.Sorted(maps.Keys(configured)) {
+		strategy := router.Strategy(strings.ToLower(strings.TrimSpace(configuredName)))
+		if !configuredPolicyStrategyPattern.MatchString(string(strategy)) {
+			return nil, fmt.Errorf("ROUTER_POLICY_SIDECARS strategy %q must match %s", strategy, configuredPolicyStrategyPattern)
+		}
+		if isReservedPolicyStrategy(strategy) {
+			return nil, fmt.Errorf("ROUTER_POLICY_SIDECARS strategy %q is reserved", strategy)
+		}
+		if _, duplicate := endpoints[strategy]; duplicate {
+			return nil, fmt.Errorf("ROUTER_POLICY_SIDECARS strategy %q is duplicated after normalization", strategy)
+		}
+		endpoint := configured[configuredName]
+		endpoint.Origin = strings.TrimSpace(endpoint.Origin)
+		if err := endpoint.validate(); err != nil {
+			return nil, fmt.Errorf("ROUTER_POLICY_SIDECARS strategy %q: %w", strategy, err)
+		}
+		endpoints[strategy] = endpoint
+	}
+	return endpoints, nil
+}
+
+func (endpoint policySidecarEndpoint) validate() error {
+	parsed, err := url.Parse(endpoint.Origin)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return fmt.Errorf("requires an HTTP or HTTPS URL")
+	}
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return fmt.Errorf("requires a credential-free URL without query or fragment")
+	}
+	if digest := endpoint.PolicySHA256; digest != "" {
+		if _, err := hex.DecodeString(digest); err != nil || len(digest) != 64 || strings.ToLower(digest) != digest {
+			return fmt.Errorf("invalid policy_sha256")
+		}
+	}
+	return nil
+}
+
+func discoverPolicySidecarCapabilities(
+	ctx context.Context, strategy router.Strategy, endpoint policySidecarEndpoint,
+	client *policyclient.Client, timeout time.Duration, logger *slog.Logger,
+) (policy.Capabilities, error) {
+	capabilityCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	capabilities, err := client.Capabilities(capabilityCtx)
+	if endpoint.PolicySHA256 != "" {
+		if err != nil {
+			return policy.Capabilities{}, fmt.Errorf("discover %s policy capabilities: %w", strategy, err)
+		}
+		if capabilities.SchemaVersion != policy.SchemaVersionV1 || !capabilities.AuthoritativePerTurnSelection {
+			return policy.Capabilities{}, fmt.Errorf("%s pinned policy sidecar must advertise authoritative policy_router_v1 selection", strategy)
+		}
+	}
+	if err != nil {
+		logger.Warn("Policy sidecar capabilities unavailable at boot",
+			"strategy", strategy, "sidecar_url", endpoint.Origin, "err", err)
+	}
+	return capabilities, nil
+}
+
+func parseConfiguredPolicySidecarSettings(
+	raw, setting string,
 	configured map[router.Strategy]struct{},
 ) (map[router.Strategy]string, error) {
 	if strings.TrimSpace(raw) == "" {
@@ -140,16 +238,16 @@ func parseConfiguredPolicySidecarAuth(
 	}
 	var values map[string]string
 	if err := json.Unmarshal([]byte(raw), &values); err != nil {
-		return nil, fmt.Errorf("parse ROUTER_POLICY_SIDECAR_AUTH: %w", err)
+		return nil, fmt.Errorf("parse %s: expected an object mapping strategies to strings", setting)
 	}
 	authModes := make(map[router.Strategy]string, len(values))
 	for configuredName, authMode := range values {
 		strategy := router.Strategy(strings.ToLower(strings.TrimSpace(configuredName)))
 		if _, ok := configured[strategy]; !ok {
-			return nil, fmt.Errorf("ROUTER_POLICY_SIDECAR_AUTH strategy %q is not configured", strategy)
+			return nil, fmt.Errorf("%s contains a strategy that is not configured", setting)
 		}
 		if _, duplicate := authModes[strategy]; duplicate {
-			return nil, fmt.Errorf("ROUTER_POLICY_SIDECAR_AUTH strategy %q is duplicated after normalization", strategy)
+			return nil, fmt.Errorf("%s contains a duplicated strategy after normalization", setting)
 		}
 		authModes[strategy] = authMode
 	}
