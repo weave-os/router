@@ -79,7 +79,7 @@ func atomAuthoritativeUpgradeScenarios() []goldenScenario {
 		p.DemotedModels = []string{routingPolicyHigh}
 	})))
 	voteSession := &routingPolicySession{}
-	votes := atomScenario("authoritative_upgrade_repeated_same_group_votes", routingPolicySetup{
+	repeatedSameGroupVotes := atomScenario("authoritative_upgrade_repeated_same_group_votes", routingPolicySetup{
 		turns: routingPolicyTurns(atomHMM(routingPolicyLow, "high", 0.9, nil), atomHMM(routingPolicyHigh, "high", 0.3, atomFloat(0.1))),
 		caps:  authoritative, session: voteSession,
 		options: atomOptions(calibrated, func(s *proxy.Service) *proxy.Service { return s.WithAuthoritativeUpgradeVotes(2) }),
@@ -96,7 +96,7 @@ func atomAuthoritativeUpgradeScenarios() []goldenScenario {
 		upgrade("margin_above_threshold_same_group", atomHMM(routingPolicyHigh, "high", 0.3, atomFloat(0.6)), "high", atomOptions(calibrated), first, next),
 		upgrade("margin_below_threshold", atomHMM(routingPolicyHigh, "high", 0.9, atomFloat(0.1)), "low", atomOptions(calibrated), first, next),
 		upgrade("warm_pin_same_group_low_margin", atomHMM(routingPolicyHigh, "high", 0.9, atomFloat(0.1)), "high", atomOptions(calibrated), first, next),
-		votes,
+		repeatedSameGroupVotes,
 		cold("cold_pin_without_prior_turn_end", atomHMM(routingPolicyHigh, "high", 0.3, atomFloat(0.1)), atomOptions(calibrated)),
 		upgrade("pin_older_than_stale_age", atomHMM(routingPolicyHigh, "high", 0.3, atomFloat(0.1)), "low", atomOptions(atomUpgradeConfig(atomFloat(0.5), time.Minute)),
 			first, goldenRequest{body: routingPolicyFollowUp("Now say bye"), advance: 2 * time.Minute}),
