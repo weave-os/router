@@ -15,6 +15,8 @@ import (
 	"cloud.google.com/go/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"google.golang.org/api/option"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router/hmm/rosterdata"
@@ -24,19 +26,23 @@ import (
 
 func TestTaskBindingRequiresAdmittedAndLoadedRelease(t *testing.T) {
 	var runtime *taskDomainRuntime
-	resolver, evidence, digest, err := runtime.bind(policyregistry.Candidate{})
-	require.NoError(t, err)
+	resolver, evidence, digest := runtime.bind(t.Context(), policyregistry.Candidate{})
 	assert.Nil(t, resolver)
 	assert.Nil(t, evidence)
 	assert.Empty(t, digest)
 	releaseSHA := strings.Repeat("a", 64)
 	candidate := policyregistry.Candidate{AuxiliaryModels: map[string]policyregistry.ObjectRef{taskdomain.AuxiliaryModel: {SHA256: releaseSHA}}, Policy: selectionpolicytest.Admit(t, rosterdata.Roster{Clusters: map[string]rosterdata.Cluster{"low": {Arms: []string{"openai/gpt-5.6-luna"}}}})}
 	assertBaselineTaskBinding(t, runtime, candidate, releaseSHA)
-	runtime = &taskDomainRuntime{bindings: map[string]loadedTaskDomain{strings.Repeat("c", 64): {}}}
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.Background())) })
+	runtime = &taskDomainRuntime{
+		bindings:             map[string]loadedTaskDomain{strings.Repeat("c", 64): {}},
+		invalidEvidenceDrops: newTaskDomainEvidenceDropCounter(provider),
+	}
 	assertBaselineTaskBinding(t, runtime, candidate, releaseSHA)
 	runtime.bindings[releaseSHA] = loadedTaskDomain{release: taskdomain.Release{Evidence: map[string]string{strings.Repeat("d", 64): strings.Repeat("e", 64)}}}
-	resolver, evidence, digest, err = runtime.bind(candidate)
-	require.NoError(t, err)
+	resolver, evidence, digest = runtime.bind(t.Context(), candidate)
 	require.NotNil(t, resolver)
 	assert.Nil(t, evidence)
 	assert.Empty(t, digest)
@@ -47,15 +53,24 @@ func TestTaskBindingRequiresAdmittedAndLoadedRelease(t *testing.T) {
 	loaded.release.Evidence[candidate.Policy.SHA256()] = strings.Repeat("f", 64)
 	loaded.evidence = map[string][]byte{strings.Repeat("f", 64): []byte(`{"invalid":"evidence"}`)}
 	runtime.bindings[releaseSHA] = loaded
-	_, _, _, err = runtime.bind(candidate)
-	require.Error(t, err, "invalid admitted evidence cannot become a different release")
+	assertBaselineTaskBinding(t, runtime, candidate, releaseSHA)
+
+	var metrics metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(t.Context(), &metrics))
+	require.Len(t, metrics.ScopeMetrics, 1)
+	require.Len(t, metrics.ScopeMetrics[0].Metrics, 1)
+	drops := metrics.ScopeMetrics[0].Metrics[0]
+	assert.Equal(t, "router.task_domain.evidence_drops", drops.Name)
+	sum, ok := drops.Data.(metricdata.Sum[int64])
+	require.True(t, ok)
+	require.Len(t, sum.DataPoints, 1)
+	assert.EqualValues(t, 1, sum.DataPoints[0].Value)
 }
 
 // A retired or unloaded task classifier must not make an admitted candidate unservable.
 func assertBaselineTaskBinding(t *testing.T, runtime *taskDomainRuntime, candidate policyregistry.Candidate, releaseSHA string) {
 	t.Helper()
-	resolver, evidence, digest, err := runtime.bind(candidate)
-	require.NoError(t, err)
+	resolver, evidence, digest := runtime.bind(t.Context(), candidate)
 	require.NotNil(t, resolver)
 	assert.Nil(t, evidence)
 	assert.Empty(t, digest)

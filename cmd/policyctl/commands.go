@@ -14,7 +14,6 @@ import (
 
 	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/policyregistry"
-	"weave-os/router/internal/router/hmm/policycompiler"
 	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/hmm/selectionpolicy"
 )
@@ -76,47 +75,6 @@ func run(ctx context.Context, args []string) error {
 	}
 }
 
-func runCompile(args []string) error {
-	flags := flag.NewFlagSet(string(commandCompile), flag.ContinueOnError)
-	sourcePath := flags.String("source", "", "reviewed roster source JSON")
-	outputPath := flags.String("output", "", "canonical policy output JSON")
-	classOrderRaw := flags.String("class-order", "", "comma-separated classifier class order")
-	sourceRevision := flags.String("source-revision", "", "reviewed source revision")
-	evidenceURI := flags.String("evidence-uri", "", "optional offline-evidence URI")
-	evidenceSHA := flags.String("evidence-sha256", "", "optional offline-evidence digest")
-	checkOnly := flags.Bool("check", false, "validate and print identity without writing")
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	if *sourcePath == "" || (!*checkOnly && *outputPath == "") {
-		return errors.New("compile requires --source and either --output or --check")
-	}
-	source, err := os.ReadFile(*sourcePath)
-	if err != nil {
-		return fmt.Errorf("read policy source: %w", err)
-	}
-	canonical, admitted, err := policycompiler.Compile(source, policycompiler.Options{
-		ClassOrder: parseList(*classOrderRaw), SourceRevision: *sourceRevision,
-		EvidenceURI: *evidenceURI, EvidenceSHA256: *evidenceSHA,
-	})
-	if err != nil {
-		return err
-	}
-	policy := admitted.Roster()
-	if !*checkOnly {
-		if err := os.WriteFile(*outputPath, canonical, 0o600); err != nil {
-			return fmt.Errorf("write compiled policy: %w", err)
-		}
-	}
-	return writeJSON(map[string]any{
-		"schema_version": policy.SchemaVersion,
-		"policy_sha256":  policyregistry.Digest(canonical),
-		"class_order":    policy.ClassOrder,
-		"arms":           len(policy.AllArms()),
-		"output":         *outputPath,
-	})
-}
-
 func runValidate(args []string) error {
 	flags := flag.NewFlagSet(string(commandValidate), flag.ContinueOnError)
 	policyPath := flags.String("policy", "", "compiled policy JSON")
@@ -160,6 +118,7 @@ func runPublish(ctx context.Context, args []string) error {
 	createdBy := flags.String("actor", defaultActor(), "publishing actor")
 	evidenceURI := flags.String("evidence-uri", "", "optional evidence URI")
 	evidenceSHA := flags.String("evidence-sha256", "", "optional evidence digest")
+	taskEvidencePath := flags.String("task-domain-evidence", "", "task-domain evidence JSON to validate before publishing")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -175,6 +134,17 @@ func runPublish(ctx context.Context, args []string) error {
 		return err
 	}
 	policy := admitted.Roster()
+	if *taskEvidencePath != "" {
+		canonical, err := rosterdata.CanonicalBytes(policy)
+		if err != nil {
+			return err
+		}
+		publishedRoster := *policy
+		publishedRoster.SHA256 = policyregistry.Digest(canonical)
+		if err := checkTaskDomainEvidence(*taskEvidencePath, &publishedRoster); err != nil {
+			return err
+		}
+	}
 	registry, err := policyregistry.NewGCSRegistry(ctx, *registryURI)
 	if err != nil {
 		return err

@@ -112,6 +112,12 @@ customer-specific revision.
    admitted policy (`Policy.ClusterArms`, `Policy.HarnessClusterArms`,
    `Policy.DeployedModels`), so they show exactly the arms Admit accepted.
 
+When checking or publishing a policy with task-domain evidence, pass the local
+evidence JSON as `--task-domain-evidence <path>` to `policyctl compile --check`
+or `policyctl publish`. Both commands validate it against the canonical policy
+digest. If the serving router encounters invalid evidence for the selected
+policy, it uses baseline ranking and increments `router.task_domain.evidence_drops`.
+
 ## Offline model-agreement candidate
 
 `internal/router/switchpolicy` is an experimental replacement for the competing
