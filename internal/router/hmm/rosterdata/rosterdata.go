@@ -12,8 +12,7 @@ import (
 	"os"
 	"sort"
 	"strings"
-
-	"weave-os/router/internal/router/hmm/armid"
+	"weave-os/router/internal/router/policy"
 )
 
 type SchemaVersion string
@@ -33,6 +32,10 @@ const (
 	HarnessPI         Harness = "pi"
 	HarnessOpenCode   Harness = "opencode"
 )
+
+func SelectionHarness(clientHarness string) Harness {
+	return Harness(strings.ReplaceAll(clientHarness, "-", "_"))
+}
 
 type Roster struct {
 	SchemaVersion         SchemaVersion                     `json:"schema_version"`
@@ -177,7 +180,7 @@ func ValidateCatalog(roster *Roster) error {
 	if roster == nil {
 		return errors.New("rosterdata: nil roster")
 	}
-	if diagnostics := armid.ValidateRosterIDs(roster.AllArms()); len(diagnostics) > 0 {
+	if diagnostics := policy.ValidateRosterIDs(roster.AllArms()); len(diagnostics) > 0 {
 		lines := make([]string, 0, len(diagnostics))
 		for _, diagnostic := range diagnostics {
 			lines = append(lines, fmt.Sprintf("%s: %s", diagnostic.RosterID, diagnostic.Reason))

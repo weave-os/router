@@ -14,7 +14,7 @@ import (
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
-	"weave-os/router/internal/router/hmm/armid"
+	"weave-os/router/internal/router/policy"
 )
 
 const hmmRosterTTL = 5 * time.Minute
@@ -128,7 +128,7 @@ func (s *hmmRosterSource) refresh(ctx context.Context) ([]router.DeployedEntry, 
 }
 
 func (s *hmmRosterSource) warnRosterDiagnostics(ctx context.Context, rosterIDs []string) {
-	diagnostics := armid.ValidateRosterIDs(rosterIDs)
+	diagnostics := policy.ValidateRosterIDs(rosterIDs)
 	key := ""
 	if len(diagnostics) > 0 {
 		key = strings.Join(rosterIDs, ",")

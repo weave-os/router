@@ -279,3 +279,18 @@ func replaceJSON(old, new string) func(t *testing.T, doc []byte) []byte {
 		return []byte(strings.Replace(s, old, new, 1))
 	}
 }
+
+func TestSelectionHarnessReplacesHyphensOnly(t *testing.T) {
+	cases := map[string]rosterdata.Harness{
+		"claude_code": rosterdata.HarnessClaudeCode,
+		"claude-code": rosterdata.HarnessClaudeCode,
+		"opencode":    rosterdata.HarnessOpenCode,
+		"pi-subagent": "pi_subagent",
+		"cli":         "cli",
+		"Codex":       "Codex",
+		"":            "",
+	}
+	for clientHarness, want := range cases {
+		assert.Equal(t, want, rosterdata.SelectionHarness(clientHarness), clientHarness)
+	}
+}
