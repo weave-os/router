@@ -38,6 +38,10 @@ func (t *llmTurn) constraint() *escalation.Constraint {
 	if !t.active {
 		return nil
 	}
+	return t.verdict()
+}
+
+func (t *llmTurn) verdict() *escalation.Constraint {
 	positive := t.session.Pending != nil && t.session.Pending.Judgment != nil && t.session.Pending.Judgment.Escalate
 	if !positive && t.session.Floor == "" {
 		return nil
