@@ -8,7 +8,7 @@ import (
 	"weave-os/router/internal/router"
 )
 
-func TestCandidatesAdmitsOnlyModelsEveryStrategyTreatsAsEligible(t *testing.T) {
+func TestCandidatesHardFilterViolationNamesOnlySetsEveryStrategyEnforces(t *testing.T) {
 	set := func(models ...string) map[string]struct{} {
 		out := make(map[string]struct{}, len(models))
 		for _, model := range models {
@@ -26,17 +26,20 @@ func TestCandidatesAdmitsOnlyModelsEveryStrategyTreatsAsEligible(t *testing.T) {
 		AutomaticExcludedModels:       set("automatic"),
 	}
 
-	for model, admitted := range map[string]bool{
-		"allowed":         true,
-		"excluded":        false,
-		"context":         false,
-		"unsigned":        false,
-		"not-allowlisted": false,
-		"safety":          true,
-		"image":           true,
-		"automatic":       true,
+	for model, want := range map[string]string{
+		"allowed":         "",
+		"excluded":        "excluded_models",
+		"context":         "context_window_excluded_models",
+		"unsigned":        "unsigned_history_excluded_models",
+		"not-allowlisted": "allowed_models",
+		"safety":          "",
+		"image":           "",
+		"automatic":       "",
 	} {
-		assert.Equal(t, admitted, candidates.PassesHardFilters(model), model)
+		violated, found := candidates.HardFilterViolation(model)
+		assert.Equal(t, want, violated, model)
+		assert.Equal(t, want != "", found, model)
 	}
-	assert.True(t, router.Candidates{}.PassesHardFilters("any-model"), "an empty candidate set constrains nothing")
+	_, found := router.Candidates{}.HardFilterViolation("any-model")
+	assert.False(t, found, "an empty candidate set constrains nothing")
 }

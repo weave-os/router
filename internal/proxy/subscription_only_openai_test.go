@@ -12,7 +12,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/policy"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -105,7 +104,7 @@ func TestSubscriptionOnly_OpenAI_InfrastructureModelRefusesWithoutDispatch(t *te
 
 	err := svc.ProxyOpenAIChatCompletion(billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlyCreditsDepleted), []byte(body), rec, req)
 	require.Error(t, err)
-	require.ErrorIs(t, err, policy.ErrNoEligibleArm, "the serving layer must refuse a decision outside the filtered candidates")
+	require.ErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable)
 	require.NotNil(t, fr.capturedReq)
 	assert.Contains(t, fr.capturedReq.Candidates.ExcludedModels, "gpt-5.4-nano",
 		"subscription-only candidate selection must exclude OpenAI models outside the native Codex family")

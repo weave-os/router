@@ -11,14 +11,21 @@ type Candidates struct {
 	AutomaticExcludedModels       map[string]struct{}
 }
 
-func (c Candidates) PassesHardFilters(model string) bool {
+func (c Candidates) HardFilterViolation(model string) (string, bool) {
 	if _, allowed := c.AllowedModels[model]; len(c.AllowedModels) > 0 && !allowed {
-		return false
+		return "allowed_models", true
 	}
-	for _, excluded := range []map[string]struct{}{c.ExcludedModels, c.ContextWindowExcludedModels, c.UnsignedHistoryExcludedModels} {
-		if _, found := excluded[model]; found {
-			return false
+	for _, filter := range []struct {
+		name   string
+		models map[string]struct{}
+	}{
+		{"excluded_models", c.ExcludedModels},
+		{"context_window_excluded_models", c.ContextWindowExcludedModels},
+		{"unsigned_history_excluded_models", c.UnsignedHistoryExcludedModels},
+	} {
+		if _, found := filter.models[model]; found {
+			return filter.name, true
 		}
 	}
-	return true
+	return "", false
 }
