@@ -94,6 +94,7 @@ type CreateSubscriptionAccountParams struct {
 	DisplayName            string
 	RefreshToken           []byte
 	InstallationExternalID string
+	VerifiedSignIn         bool
 }
 
 type VerifiedCodexEnrollment struct {
@@ -187,6 +188,7 @@ func (s *Service) AddSubscriptionAccount(ctx context.Context, params CreateSubsc
 		ProviderUserID:    params.ProviderUserID,
 		DisplayName:       normalizeSubscriptionAccountDisplayName(params.DisplayName),
 		RefreshToken:      ciphertext,
+		VerifiedSignIn:    params.VerifiedSignIn,
 	})
 	if err != nil {
 		return nil, err

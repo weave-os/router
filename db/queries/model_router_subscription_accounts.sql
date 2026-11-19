@@ -1,6 +1,7 @@
--- Enrollment updates the same verified owner. A fresh verified enrollment also
--- reassigns another owner's seat when the seat serves only this installation, so
--- a seat stored under the wrong member moves to the member who signs in with it.
+-- Enrollment updates the same verified owner. A server-side provider sign-in
+-- (@allow_reassignment) also reassigns another owner's seat when the seat serves
+-- only this installation, so a seat stored under the wrong member moves to the
+-- member who signs in with it. Client-supplied tokens never move a seat.
 -- Codex seats are provider users within a workspace; fresh verified enrollment
 -- may repair an owned workspace-only legacy row but never adopts an unassigned row.
 -- name: UpsertModelRouterSubscriptionAccountForSubscriber :one
@@ -15,7 +16,8 @@ WITH owned AS (
                 WHERE subject.id = @subscriber_id::uuid AND subject.projection_complete AND subject.revoked_at IS NULL
                   AND access.installation_id = @installation_id::uuid AND access.access_enabled AND installation.deleted_at IS NULL)
     AND (subscriber_id = @subscriber_id::uuid
-         OR (subscriber_id IS NOT NULL
+         OR (@allow_reassignment::boolean
+             AND subscriber_id IS NOT NULL
              AND (@provider::varchar <> 'codex' OR provider_user_id = @provider_user_id::text)
              AND EXISTS (SELECT 1 FROM router.model_router_subscription_account_installations AS seat
                          WHERE seat.subscription_account_id = model_router_subscription_accounts.id
