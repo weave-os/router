@@ -399,7 +399,7 @@ func (s *Service) bypassToAnthropic(
 	finishInferenceSpan(inferenceSpan, decision, decision.Provider, 0, proxyErr)
 	ctx = restoreParentSpan(ctx, inferenceParentCtx)
 	var upstreamErr *providers.UpstreamErrorResponse
-	s.recordSubscriptionModelRejection(ctx, decision.Provider, decision.Model, proxyErr)
+	recordSubscriptionModelOutcome(s, ctx, decision.Provider, decision.Model, proxyErr)
 	if proxyErr != nil {
 		preludeBuf.Discard()
 	}
