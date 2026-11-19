@@ -7106,20 +7106,26 @@ export PATH="$PATH:$HOME/.weave/bin"
 weave_router_status_seats() {
   command -v curl >/dev/null 2>&1 || return 0
   local url="${ANTHROPIC_BASE_URL%/}" root header_file body header
+  local forwarded='^X-Weave-(Router-Key|User-Email|User-Name):[[:space:]]*[^"\[:cntrl:]]+$'
   case "$url" in file://*) ;; *) url="$url/v1/display-settings" ;; esac
   root="${XDG_CACHE_HOME:-$HOME/.cache}/weave-router"
   mkdir -p "$root" && chmod 700 "$root" || return 0
   header_file="$(mktemp "$root/.status-headers.XXXXXX")" || return 0
   chmod 600 "$header_file"
   while IFS= read -r header; do
-    [[ "$header" =~ ^X-Weave-(Router-Key|User-Email|User-Name):[[:space:]]*[A-Za-z0-9@._+\ -]+$ ]] \
+    [[ "$header" =~ $forwarded ]] \
       && printf 'header = "%s"\n' "$header" >>"$header_file"
   done <<<"${ANTHROPIC_CUSTOM_HEADERS:-}"
   body="$(curl -fsS --max-time 3 -K "$header_file" "$url" 2>/dev/null)"
   rm -f "$header_file"
   [ -n "$body" ] || return 0
-  jq -r '.own_seats[]? | select(.provider == "claude" or .provider == "codex")
-    | "Your \(if .provider == "claude" then "Claude" else "Codex" end) seat: 5h \(.primary_used_percent | floor)% · week \(.secondary_used_percent | floor)% (as of \(.observed_at[11:16]) UTC)"' <<<"$body" 2>/dev/null
+  jq -r '
+    def span: if . == 10080 then "week" elif . % 1440 == 0 then "\(. / 1440)d" elif . % 60 == 0 then "\(. / 60)h" else "\(.)m" end;
+    def window($minutes; $used): if ($minutes // 0) > 0 then "\($minutes | span) \($used // 0 | floor)%" else empty end;
+    .own_seats[]? | select(.provider == "claude" or .provider == "codex")
+    | [window(.primary_window_minutes; .primary_used_percent), window(.secondary_window_minutes; .secondary_used_percent)] as $windows
+    | select($windows | length > 0)
+    | "Your \(if .provider == "claude" then "Claude" else "Codex" end) seat: \($windows | join(" · ")) (as of \(.observed_at[11:16]) UTC)"' <<<"$body" 2>/dev/null
 }
 
 weave_router_status_hook() {
