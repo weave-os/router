@@ -104,9 +104,9 @@ func ownSeats(ctx context.Context, seats SeatUsageReader) []ownSeatResponse {
 	for _, seat := range observed {
 		response = append(response, ownSeatResponse{
 			Provider:               seat.Provider,
-			PrimaryUsedPercent:     seat.Snapshot.Primary.UsedPercent,
+			PrimaryUsedPercent:     seat.Snapshot.Primary.UsedPercent * 100,
 			PrimaryWindowMinutes:   seat.Snapshot.Primary.WindowMinutes,
-			SecondaryUsedPercent:   seat.Snapshot.Secondary.UsedPercent,
+			SecondaryUsedPercent:   seat.Snapshot.Secondary.UsedPercent * 100,
 			SecondaryWindowMinutes: seat.Snapshot.Secondary.WindowMinutes,
 			OverageInUse:           seat.Snapshot.OverageInUse,
 			ObservedAt:             seat.Snapshot.ObservedAt,

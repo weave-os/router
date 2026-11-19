@@ -192,8 +192,8 @@ func TestDisplaySettingsHandlerReportsOwnSeats(t *testing.T) {
 	observedAt := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
 	reader := fakeSeatUsageReader{seats: map[string][]usage.SeatUsage{
 		"user-a": {{Provider: "claude", Snapshot: usage.Snapshot{
-			Primary:    usage.Window{UsedPercent: 42, WindowMinutes: 300},
-			Secondary:  usage.Window{UsedPercent: 18, WindowMinutes: 10080},
+			Primary:    usage.Window{UsedPercent: 0.42, WindowMinutes: 300},
+			Secondary:  usage.Window{UsedPercent: 0.18, WindowMinutes: 10080},
 			ObservedAt: observedAt,
 		}}},
 	}}
@@ -230,8 +230,8 @@ func TestDisplaySettingsHandlerReportsOwnSeats(t *testing.T) {
 			require.Len(t, body.OwnSeats, tc.wantSeats)
 			if tc.wantSeats == 1 {
 				require.Equal(t, "claude", body.OwnSeats[0].Provider)
-				require.Equal(t, 42.0, body.OwnSeats[0].PrimaryUsedPercent)
-				require.Equal(t, 18.0, body.OwnSeats[0].SecondaryUsedPercent)
+				require.InDelta(t, 42.0, body.OwnSeats[0].PrimaryUsedPercent, 1e-9)
+				require.InDelta(t, 18.0, body.OwnSeats[0].SecondaryUsedPercent, 1e-9)
 				require.True(t, observedAt.Equal(body.OwnSeats[0].ObservedAt))
 			}
 		})
