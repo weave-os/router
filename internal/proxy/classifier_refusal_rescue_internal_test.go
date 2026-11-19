@@ -118,7 +118,7 @@ func TestBypass_ClassifierRefusal_TriesNextModelWhenSubscriptionLacksReviewer(t 
 		unavailable: map[string]bool{rescueReviewerModel: true},
 	}
 	svc, sink := rescueService(p, true, rescueReviewerModel)
-	rescueServeOn(t, svc, p, nextModel)
+	rescueServeOn(t, svc, sink, p, nextModel)
 
 	rec := runRescueWith(t, svc, classifierStage2Body(""))
 
@@ -135,8 +135,8 @@ func TestBypass_ClassifierRefusal_SkipsModelSubscriptionRejected(t *testing.T) {
 		replies:     map[string]string{rescueRefusingModel: rescueRefusal(rescueRefusingModel), nextModel: rescueVerdict()},
 		unavailable: map[string]bool{rescueReviewerModel: true},
 	}
-	svc, _ := rescueService(p, true, rescueReviewerModel)
-	rescueServeOn(t, svc, p, nextModel)
+	svc, sink := rescueService(p, true, rescueReviewerModel)
+	rescueServeOn(t, svc, sink, p, nextModel)
 	runRescueWith(t, svc, classifierStage2Body(""))
 	p.models = nil
 
@@ -148,11 +148,15 @@ func TestBypass_ClassifierRefusal_SkipsModelSubscriptionRejected(t *testing.T) {
 
 // rescueServeOn serves one classifier check on model for the test
 // subscription, as an earlier turn in the session would.
-func rescueServeOn(t *testing.T, svc *Service, p *modelScriptedProvider, model string) {
+func rescueServeOn(t *testing.T, svc *Service, sink *bypassCaptureTelemetry, p *modelScriptedProvider, model string) {
 	t.Helper()
 	body, err := sjson.Set(classifierStage2Body(""), "model", model)
 	require.NoError(t, err)
 	runRescueWith(t, svc, body)
+	rescueTelemetryRow(t, sink)
+	sink.mu.Lock()
+	sink.rows = nil
+	sink.mu.Unlock()
 	p.models = nil
 }
 
@@ -169,9 +173,9 @@ func TestBypass_ClassifierRefusal_RescuesOnStrongestModelSubscriptionServed(t *t
 		},
 		unavailable: map[string]bool{rescueReviewerModel: true, "claude-opus-5-5": true},
 	}
-	svc, _ := rescueService(p, true, rescueReviewerModel)
-	rescueServeOn(t, svc, p, lowModel)
-	rescueServeOn(t, svc, p, servedModel)
+	svc, sink := rescueService(p, true, rescueReviewerModel)
+	rescueServeOn(t, svc, sink, p, lowModel)
+	rescueServeOn(t, svc, sink, p, servedModel)
 
 	rec := runRescueWith(t, svc, classifierStage2Body(""))
 
