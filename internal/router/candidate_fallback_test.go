@@ -33,6 +33,8 @@ func TestEligibleRankedFallbackDropsTheRejectedArmsSelection(t *testing.T) {
 		PolicyGroup:         "high",
 		SelectedArmID:       "arm-picked",
 		SelectedRosterArmID: "roster-picked",
+		SelectedUpstreamID:  "upstream-picked",
+		BindingIndex:        2,
 		SelectionTrace:      &router.SelectionTrace{SelectedGroup: "high"},
 	}}
 	req := router.Request{Candidates: router.Candidates{SafetyExcludedModels: map[string]struct{}{"picked": {}}}}
@@ -46,5 +48,6 @@ func TestEligibleRankedFallbackDropsTheRejectedArmsSelection(t *testing.T) {
 	assert.Empty(t, fallback.Metadata.SelectedArmID)
 	assert.Empty(t, fallback.Metadata.SelectedRosterArmID)
 	assert.Nil(t, fallback.Metadata.SelectionTrace)
+	assert.Empty(t, fallback.Metadata.SelectedUpstreamID)
 	assert.Equal(t, "high", decision.Metadata.PolicyGroup)
 }

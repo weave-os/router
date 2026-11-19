@@ -51,8 +51,7 @@ func candidateEnforcementTraceOf(c router.Candidates) candidateEnforcementTrace 
 	}
 }
 
-// candidateBlindPick is a strategy decision for model whose ranked fallback is
-// fallback, each served by the provider named alongside it.
+// candidateBlindPick returns a decision for model served by provider, with fallback ranked after it; every fallback is served by Anthropic.
 func candidateBlindPick(strategy router.Strategy, provider, model string, fallback ...string) router.Decision {
 	providersByModel := map[string]string{model: provider}
 	for _, m := range fallback {

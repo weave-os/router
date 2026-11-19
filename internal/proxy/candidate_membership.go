@@ -11,8 +11,8 @@ import (
 )
 
 func enforceCandidateMembership(ctx context.Context, strategy router.Strategy, req router.Request, decision router.Decision) (router.Decision, error) {
-	violated, hard := req.Candidates.HardFilterViolation(decision.Model)
-	if !hard {
+	violated, hasHardViolation := req.Candidates.HardFilterViolation(decision.Model)
+	if !hasHardViolation {
 		if !req.Candidates.AutomaticallyExcludes(decision.Model) {
 			return decision, nil
 		}
@@ -22,7 +22,7 @@ func enforceCandidateMembership(ctx context.Context, strategy router.Strategy, r
 		return catalog.PermittedBy(req.ProductEligibility, model)
 	})
 	log := observability.FromContext(ctx)
-	if !found && !hard {
+	if !found && !hasHardViolation {
 		return decision, nil
 	}
 	if !found {
