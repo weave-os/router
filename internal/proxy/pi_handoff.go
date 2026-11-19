@@ -156,7 +156,8 @@ func (s *Service) finishHandoffPreparation(ctx context.Context, w http.ResponseW
 	if prepared.Complexity == "" && route.Decision.Model == route.PinModel {
 		prepared.Complexity = route.PinPolicyGroup
 	}
-	previousModel, previousEffort := armid.SplitEffort(route.PriorServedModel)
+	previous := armid.Parse(route.PriorServedModel)
+	previousModel, previousEffort := previous.Base, previous.Effort
 	previousProvider := ""
 	if route.PinModel == previousModel {
 		previousProvider = route.PinProvider

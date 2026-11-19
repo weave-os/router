@@ -1,6 +1,9 @@
 package policy
 
-import "weave-os/router/internal/router/escalation"
+import (
+	"weave-os/router/internal/router/escalation"
+	"weave-os/router/internal/router/hmm/armid"
+)
 
 func EscalatingRescueGroups(selectedGroup, forcedGroup string, rankedFallback []PreviewGroup) []PreviewGroup {
 	if forcedGroup != "" {
@@ -79,8 +82,7 @@ func RescueCoolingPool(overrides map[string][]string, groups []PreviewGroup, res
 			continue
 		}
 		for _, arm := range group.RosterArms {
-			rosterID, _ := splitEffort(arm)
-			model, eligible := softExcluded[rosterID]
+			model, eligible := softExcluded[armid.Parse(arm).Base]
 			if !eligible {
 				continue
 			}

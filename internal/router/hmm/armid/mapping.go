@@ -46,28 +46,25 @@ func ForModel(m catalog.Model) string {
 	return ""
 }
 
-func SplitEffort(armID string) (baseID string, effort string) {
-	if idx := strings.LastIndex(armID, ":"); idx > 0 {
-		suffix := armID[idx+1:]
-		if router.CanonicalizeEffort(suffix) != suffix {
-			return armID, ""
-		}
-		if router.IsValidEffort(suffix) {
-			return armID[:idx], suffix
-		}
-	}
-	return armID, ""
+type ArmID struct {
+	Base   string
+	Effort string
 }
 
-func EffortArm(baseID, effort string) string {
-	if effort == "" {
-		return baseID
+func Parse(rosterArm string) ArmID {
+	idx := strings.LastIndex(rosterArm, ":")
+	if idx <= 0 {
+		return ArmID{Base: rosterArm}
 	}
-	return baseID + ":" + effort
+	suffix := rosterArm[idx+1:]
+	if router.CanonicalizeEffort(suffix) != suffix || !router.IsValidEffort(suffix) {
+		return ArmID{Base: rosterArm}
+	}
+	return ArmID{Base: rosterArm[:idx], Effort: suffix}
 }
 
 func CatalogIDForRoster(rosterID string) string {
-	baseID, _ := SplitEffort(rosterID)
+	baseID := Parse(rosterID).Base
 	for _, m := range catalog.Models {
 		if ForModel(m) == baseID {
 			return m.ID

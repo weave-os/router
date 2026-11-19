@@ -6,11 +6,12 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/google/uuid"
-	lru "github.com/hashicorp/golang-lru/v2"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm/armid"
+	"weave-os/router/internal/router/policy"
+
+	"github.com/google/uuid"
+	lru "github.com/hashicorp/golang-lru/v2"
 )
 
 type servingSnapshotContextKey struct{}
@@ -113,7 +114,7 @@ func (c *ServingRuntimeCache) Snapshot(ctx context.Context, admission SessionRel
 	if err != nil {
 		return nil, err
 	}
-	if diagnostics := armid.ValidateRosterIDs(prepared.Policy.AllArms()); len(diagnostics) != 0 {
+	if diagnostics := policy.ValidateRosterIDs(prepared.Policy.AllArms()); len(diagnostics) != 0 {
 		return nil, errors.New("admitted policy contains arms absent from the worker catalog")
 	}
 	candidate := Candidate{

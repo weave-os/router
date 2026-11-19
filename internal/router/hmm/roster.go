@@ -25,8 +25,7 @@ func DeployedModelsForRosterIDs(rosterIDs []string) []router.DeployedEntry {
 	out := make([]router.DeployedEntry, 0, len(rosterIDs))
 	seen := make(map[string]struct{}, len(rosterIDs))
 	for _, rosterID := range rosterIDs {
-		baseID, _ := armid.SplitEffort(rosterID)
-		m, ok := inverse[baseID]
+		m, ok := inverse[armid.Parse(rosterID).Base]
 		if !ok {
 			continue
 		}

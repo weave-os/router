@@ -6,6 +6,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm/armid"
 )
 
 type RosterMapper func(catalog.Model) string
@@ -411,31 +412,18 @@ func imageEligibleBindings(bindings []catalog.IndexedBinding, imageCount int) []
 
 func (r ResolvedCandidates) BindingForSelection(armID, rosterID string) (Binding, bool) {
 	if armID != "" {
-		lookup, effort := splitEffort(armID)
-		if binding, ok := r.ByArmID[lookup]; ok {
-			binding.Effort = effort
+		arm := armid.Parse(armID)
+		if binding, ok := r.ByArmID[arm.Base]; ok {
+			binding.Effort = arm.Effort
 			return binding, ok
 		}
 	}
-	lookup, effort := splitEffort(rosterID)
-	binding, ok := r.ByRosterID[lookup]
+	rosterArm := armid.Parse(rosterID)
+	binding, ok := r.ByRosterID[rosterArm.Base]
 	if ok {
-		binding.Effort = effort
+		binding.Effort = rosterArm.Effort
 	}
 	return binding, ok
-}
-
-func splitEffort(armID string) (string, string) {
-	for i := len(armID) - 1; i > 0; i-- {
-		if armID[i] == ':' {
-			suffix := armID[i+1:]
-			if router.CanonicalizeEffort(suffix) == suffix && router.IsValidEffort(suffix) {
-				return armID[:i], suffix
-			}
-			return armID, ""
-		}
-	}
-	return armID, ""
 }
 
 func estimatedCostUSD(req router.Request, pricing catalog.Pricing) float64 {
