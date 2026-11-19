@@ -3,6 +3,7 @@ package proxy_test
 import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 )
 
@@ -13,9 +14,11 @@ func goldenSlidingThresholdUpgradeScenarios() []goldenScenario {
 	marginThreshold := 0.5
 	options := []func(*proxy.Service) *proxy.Service{
 		func(s *proxy.Service) *proxy.Service {
-			return s.WithAuthoritativeUpgradeConfig(proxy.AuthoritativeUpgradeConfig{MarginThreshold: &marginThreshold})
+			return s.EditHMMConfig(func(c *hmm.Config) {
+				c.UpgradeShadow.MarginThreshold = &marginThreshold
+				c.UpgradeSlidingThreshold = true
+			})
 		},
-		func(s *proxy.Service) *proxy.Service { return s.WithAuthoritativeUpgradeSlidingThreshold(true) },
 	}
 	scenario := func(name, pinGroup string, fresh router.Decision) goldenScenario {
 		pinned := slidingUpgradeHMM(routingPolicyLow, pinGroup)
