@@ -209,7 +209,7 @@ func (s *Service) authoritativeUpgradeFor(ctx context.Context, req router.Reques
 		_, pinPriced := hmmEffectiveInputUSDPer1M(pin.Model, inputTokens)
 		_, freshPriced := hmmEffectiveInputUSDPer1M(fresh.Model, inputTokens)
 		decision.Evidence.PricingKnown = pinPriced && freshPriced
-		decision.Evidence.MoreExpensive = hmmFreshIsMoreExpensive(pin.Model, fresh.Model, inputTokens)
+		decision.Evidence.MoreExpensive = hmm.FreshIsMoreExpensive(pin.Model, fresh.Model, inputTokens)
 		if !pin.FirstPinnedAt.IsZero() {
 			age := pinAge(pin, s.clock.Now())
 			decision.PinAgeSec = &age
