@@ -10,7 +10,7 @@ import (
 func ClassifierRescueOrder(ids []string) []string {
 	var models []Model
 	for _, id := range ids {
-		if m, ok := ByID(id); ok && slices.ContainsFunc(m.Providers, func(b ProviderBinding) bool { return b.Provider == providers.ProviderAnthropic }) {
+		if m, ok := ByID(id); ok && !m.ForceModelOnly && m.Tier != TierUnknown && slices.ContainsFunc(m.Providers, func(b ProviderBinding) bool { return b.Provider == providers.ProviderAnthropic }) {
 			models = append(models, m)
 		}
 	}
