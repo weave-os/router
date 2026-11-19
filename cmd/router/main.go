@@ -42,8 +42,10 @@ import (
 	servingpostgres "weave-os/router/internal/postgres/serving"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
+	"weave-os/router/internal/providers/cortexagents"
 	googleProvider "weave-os/router/internal/providers/google"
 	providerHTTP "weave-os/router/internal/providers/httputil"
+	"weave-os/router/internal/providers/keenable"
 	openaiProvider "weave-os/router/internal/providers/openai"
 	openaiCompatProvider "weave-os/router/internal/providers/openaicompat"
 	"weave-os/router/internal/proxy"
@@ -65,6 +67,7 @@ import (
 	"weave-os/router/internal/server"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions"
+	"weave-os/router/internal/websearch"
 	"weave-os/router/internal/wif"
 
 	_ "time/tzdata"
@@ -1215,7 +1218,7 @@ func main() {
 		WithPlanner(plannerCfg).
 		WithSummarizer(summarizer).
 		WithCompactionHandoverSummarizer(compactionHandoverSz).
-		WithWebSearchExecutors(cortexWebSearch(logger), keenableWebSearch(logger)).
+		WithWebSearchExecutors(cortexWebSearch(logger), keenable.FromEnv(config.GetOr, logger)).
 		WithAvailableModels(servedModels).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
 		WithBillingService(billingSvc), rlRouter)
@@ -1708,6 +1711,23 @@ func safeGo(logger *slog.Logger, name string, fn func()) {
 		}()
 		fn()
 	}()
+}
+
+func cortexWebSearch(logger *slog.Logger) websearch.Executor {
+	if config.GetOr("ROUTER_CORTEX_WEB_SEARCH", "true") != "true" {
+		logger.Info("Cortex Agents web-search executor disabled (ROUTER_CORTEX_WEB_SEARCH)")
+		return nil
+	}
+	role := config.GetOr("SNOWFLAKE_AGENT_ROLE", "")
+	hostSuffix := config.GetOr("SNOWFLAKE_AGENT_HOST_SUFFIX", "")
+	timeout := parseEnvDurationMs("SNOWFLAKE_AGENT_TIMEOUT_MS", 0)
+	logger.Info("Cortex Agents web-search executor enabled",
+		"snowflake_role", role, "host_suffix_override", hostSuffix, "timeout_ms", timeout.Milliseconds())
+	opts := []cortexagents.Option{cortexagents.WithRole(role), cortexagents.WithTimeout(timeout)}
+	if hostSuffix != "" {
+		opts = append(opts, cortexagents.WithHostSuffix(hostSuffix))
+	}
+	return cortexagents.NewClient(config.GetOr("ANTHROPIC_GATEWAY_BASE_URL", ""), opts...)
 }
 
 func resolveDefaultBaselineModel() string {
