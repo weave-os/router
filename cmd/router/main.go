@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -523,7 +522,6 @@ func main() {
 		WithFlagOverridesDisabled(flagOverridesDisabled).
 		WithSessionSpendCaps(billingSvc != nil)
 	subscriptionPoolsEnabled := config.GetOr("ROUTER_SUBSCRIPTION_POOLS_ENABLED", "false") == "true"
-	installationPoolAllowance := config.GetOr("ROUTER_INSTALLATION_POOL_ALLOWANCE", "false") == "true"
 	subscriptionRuntime, subscriptionLogins := buildSubscriptionRuntime(subscriptionPoolsEnabled, authSvc, repo.SubscriptionAccounts, logger)
 
 	subCtx, subCancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1071,7 +1069,6 @@ func main() {
 		flags.KeySwitchDecideShadow:                   boolDefault(true),
 		flags.KeyAgreementShadowEpoch:                 "0",
 		flags.KeySiblingFailover:                      boolDefault(siblingFailover),
-		flags.KeyInstallationPoolAllowance:            boolDefault(installationPoolAllowance),
 		flags.KeyOpenAIResponsesBroad:                 boolDefault(openAIResponsesBroad),
 		flags.KeyAllowedModelsHeader:                  boolDefault(allowedModelsHeader),
 		flags.KeyCCTaskToolsCrossVendor:               boolDefault(ccTaskToolsCrossVendor),
@@ -1278,16 +1275,8 @@ func main() {
 		logger.Info("Provider exclusion override active", "excluded_providers", cleaned)
 	}
 
-	subscriptionTTL := 10 * time.Minute
-	if v, err := time.ParseDuration(config.GetOr("ROUTER_SUBSCRIPTION_OBSERVATION_TTL", "10m")); err == nil {
-		subscriptionTTL = v
-	}
-	observerSalt := make([]byte, 16)
-	if _, err := rand.Read(observerSalt); err != nil {
-		logger.Error("Failed to seed subscription usage observer salt", "err", err)
-		panic(err)
-	}
-	usageObserver := usage.NewObserver(observerSalt, subscriptionTTL, time.Now)
+	seatUsage := postgres.NewSeatUsageRepo(pool)
+	usageObserver := newUsageObserver(logger, seatUsage)
 	if subscriptionRuntime != nil {
 		subscriptionRuntime.WithCandidateSignal(func(accountID string, _ subscriptions.Provider, now time.Time) subscriptions.CandidateSignal {
 			snapshot, observed := usageObserver.Snapshot(usageObserver.Key([]byte("subscription-account:" + accountID)))
@@ -1297,16 +1286,7 @@ func main() {
 			return subscriptionCandidateSignal(snapshot, now)
 		})
 	}
-	go func() {
-		t := time.NewTicker(time.Minute)
-		defer t.Stop()
-		for range t.C {
-			usageObserver.Sweep()
-		}
-	}()
 	proxySvc = proxySvc.WithUsageObserver(usageObserver)
-
-	logger.Info("Subscription quota observer configured", "observation_ttl", subscriptionTTL)
 
 	trafficCapture, err := newTrafficCaptureFromEnvironment()
 	if err != nil {
@@ -1367,17 +1347,17 @@ func main() {
 	egressProbe.prepare(processCtx, logger, providerMap, envKeyedProviders, initializedOrigins)
 	logger.Info("Router startup initialization complete")
 	serverFeatures := server.Features{
-		SubscriptionLogins:        subscriptionLogins,
-		SubscriptionRefresh:       subscriptionRuntime,
-		StartupDatabasePing:       pool.Ping,
-		TestPlans:                 testPlans,
-		PolicyPinEnabled:          policyPinEnabled,
-		ServingAdmission:          servingAdmission,
-		SubscriberAllowance:       subscriberAllowanceSvc,
-		InstallationPoolAllowance: installationPoolAllowance,
-		SubscriptionPoolsEnabled:  subscriptionPoolsEnabled,
-		PolicyStatus:              policyStatus,
-		RoutingDistribution:       routingDistribution,
+		SeatUsage:                seatUsage,
+		SubscriptionLogins:       subscriptionLogins,
+		SubscriptionRefresh:      subscriptionRuntime,
+		StartupDatabasePing:      pool.Ping,
+		TestPlans:                testPlans,
+		PolicyPinEnabled:         policyPinEnabled,
+		ServingAdmission:         servingAdmission,
+		SubscriberAllowance:      subscriberAllowanceSvc,
+		SubscriptionPoolsEnabled: subscriptionPoolsEnabled,
+		PolicyStatus:             policyStatus,
+		RoutingDistribution:      routingDistribution,
 	}
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture
