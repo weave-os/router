@@ -13,8 +13,8 @@ import (
 
 const usageBypassGoldenToken = "sk-ant-oat01-golden-usage-bypass"
 
-// usageBypassGoldenObserver installs a usage observer; utilization < 0
-// leaves it cold, otherwise it records that primary-window utilization.
+// A negative utilization leaves the observer without a snapshot, the cold
+// start in which usage bypass still engages.
 func usageBypassGoldenObserver(utilization float64) func(*proxy.Service, *goldenHarness) *proxy.Service {
 	return func(svc *proxy.Service, h *goldenHarness) *proxy.Service {
 		observer := usage.NewObserver([]byte("golden-salt"), 10*time.Minute, h.clock.Now)
