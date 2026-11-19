@@ -119,10 +119,13 @@ new_statusline_case() { # new_statusline_case <case_dir>
   chmod +x "$1/home/.weave/cc-statusline.sh"
 }
 
-# Waits until the background refresh has read the release (or would have).
-settle() { # settle <case_dir> <url_fragment>
+# Each background refresh works in its own .release.* dir and removes it on
+# exit, after any swap. Waiting for the request and then for those dirs to go
+# means a refusal is checked only once the refresh has finished.
+refresh_done() { ! ls -d "$1"/cache/weave-router/.release.* >/dev/null 2>&1; }
+wait_for_refresh() { # wait_for_refresh <case_dir> <url_fragment>
   wait_for 10 logged "$1/curl.log" "$2"
-  sleep 1
+  wait_for 20 refresh_done "$1"
 }
 
 echo "release_channel"
@@ -146,7 +149,7 @@ for mode in tamper offsite; do
   publish "$release" "$mode"
   c="$work/s-$mode"; new_statusline_case "$c"
   statusline_turn "$c"
-  settle "$c" "@weave-os/router/latest"
+  wait_for_refresh "$c" "@weave-os/router/latest"
   if same_file "$c/home/.weave/cc-statusline.sh" "$install_dir/cc-statusline.sh"; then
     ok "statusline refuses an $mode release"
   else
@@ -164,7 +167,7 @@ without_fetcher "$install_dir/codex-status.sh" >"$old_release/package/codex-stat
 publish "$old_release"
 c="$work/s-old"; new_statusline_case "$c"
 statusline_turn "$c"
-settle "$c" "router-9.9.9.tgz"
+wait_for_refresh "$c" "router-9.9.9.tgz"
 if same_file "$c/home/.weave/cc-statusline.sh" "$install_dir/cc-statusline.sh"; then
   ok "statusline refuses a release without the release fetcher"
 else
@@ -196,7 +199,7 @@ baseline="$c/cache/weave-router/commands$(printf '%s' "$(cd "$cmd_dir" && pwd -P
 mkdir -p "$baseline"
 cp "$install_dir/commands/fm.md" "$baseline/fm.md"
 statusline_turn "$c"
-settle "$c" "@weave-os/router/latest"
+wait_for_refresh "$c" "@weave-os/router/latest"
 if same_file "$cmd_dir/fm.md" "$install_dir/commands/fm.md"; then
   ok "wrappers refuse a tampered release"
 else
@@ -231,7 +234,7 @@ if [ -e "$canary" ]; then no "codex helper never runs a branch push" "no canary"
 publish "$old_release"
 c="$work/c-old"; new_codex_case "$c"
 codex_turn "$c"
-settle "$c" "router-9.9.9.tgz"
+wait_for_refresh "$c" "router-9.9.9.tgz"
 if same_file "$c/home/.codex/weave-status.sh" "$install_dir/codex-status.sh"; then
   ok "codex helper refuses a release without the release fetcher"
 else
@@ -241,7 +244,7 @@ fi
 publish "$release" tamper
 c="$work/c2"; new_codex_case "$c"
 codex_turn "$c"
-settle "$c" "@weave-os/router/latest"
+wait_for_refresh "$c" "@weave-os/router/latest"
 if same_file "$c/home/.codex/weave-status.sh" "$install_dir/codex-status.sh"; then
   ok "codex helper refuses a tampered release"
 else
@@ -275,12 +278,12 @@ fi
 
 # ---------- one fetcher ----------
 
-fetcher() { awk '/^weave_release_fetch\(\) \{$/,/^\}$/' "$1"; }
-reference="$(fetcher "$install_dir/cc-statusline.sh")"
+fetcher_source() { awk '/^weave_release_fetch\(\) \{$/,/^\}$/' "$1"; }
+reference="$(fetcher_source "$install_dir/cc-statusline.sh")"
 if [ -z "$reference" ]; then
   no "updaters share one release fetcher" "weave_release_fetch in cc-statusline.sh" "missing"
-elif [ "$(fetcher "$install_dir/codex-status.sh")" = "$reference" ] \
-  && [ "$(fetcher "$install_dir/install.sh" | awk '/^weave_release_fetch\(\) \{$/ { n++ } n == 1')" = "$reference" ]; then
+elif [ "$(fetcher_source "$install_dir/codex-status.sh")" = "$reference" ] \
+  && [ "$(fetcher_source "$install_dir/install.sh" | awk '/^weave_release_fetch\(\) \{$/ { n++ } n == 1')" = "$reference" ]; then
   ok "updaters share one release fetcher"
 else
   no "updaters share one release fetcher" "identical copies" "drift between cc-statusline.sh, codex-status.sh and install.sh"
