@@ -63,7 +63,7 @@ func TestBuildObservationContext_CapturesFreshOnStay(t *testing.T) {
 		},
 	}
 
-	obs := buildObservationContext(context.Background(), served, fresh, CaptureOff)
+	obs := buildObservationContext(context.Background(), router.StrategyFromContext(context.Background()), served, fresh, CaptureOff)
 
 	// Final-decision columns stay NULL on a STAY (served pin has no metadata).
 	assert.Nil(t, obs.CandidateScores, "final CandidateScores must be NULL on a STAY")
@@ -84,7 +84,7 @@ func TestBuildObservationContext_CapturesFreshOnStay(t *testing.T) {
 func TestBuildObservationContext_NoScorerLeavesFreshNull(t *testing.T) {
 	served := router.Decision{Provider: "anthropic", Model: "claude-opus-4-8", Reason: "tool_result_sc"}
 
-	obs := buildObservationContext(context.Background(), served, router.Decision{}, CaptureOff)
+	obs := buildObservationContext(context.Background(), router.StrategyFromContext(context.Background()), served, router.Decision{}, CaptureOff)
 
 	assert.Empty(t, obs.FreshDecisionModel)
 	assert.Nil(t, obs.FreshCandidateScores)
@@ -115,7 +115,7 @@ func TestBuildObservationContext_CapturesHMMStrategy(t *testing.T) {
 	ctx := context.WithValue(context.Background(), PolicyTrainingAllowedContextKey{}, true)
 	ctx = context.WithValue(ctx, PolicyDebugEnabledContextKey{}, true)
 	ctx = context.WithValue(ctx, PolicyRolloutIDContextKey{}, "rollout-1")
-	obs := buildObservationContext(ctx, served, router.Decision{}, CaptureHashed)
+	obs := buildObservationContext(ctx, router.StrategyFromContext(ctx), served, router.Decision{}, CaptureHashed)
 
 	assert.Equal(t, "hmm", obs.Strategy)
 	assert.Equal(t, "route-abc-123", obs.RouteID)
@@ -158,7 +158,7 @@ func TestBuildObservationContext_CapturesHMMStrategy(t *testing.T) {
 func TestBuildObservationContext_SuppressesDebugRefWithoutDebugMode(t *testing.T) {
 	served := router.Decision{Metadata: &router.RoutingMetadata{DebugRef: "private-debug-ref"}}
 
-	obs := buildObservationContext(context.Background(), served, router.Decision{}, CaptureOff)
+	obs := buildObservationContext(context.Background(), router.StrategyFromContext(context.Background()), served, router.Decision{}, CaptureOff)
 
 	assert.Empty(t, obs.DebugRef)
 	assert.False(t, obs.TrainingAllowed)
@@ -178,7 +178,7 @@ func TestBuildObservationContext_DefaultsStrategyToActive(t *testing.T) {
 		},
 	}
 
-	obs := buildObservationContext(context.Background(), served, router.Decision{}, CaptureOff)
+	obs := buildObservationContext(context.Background(), router.StrategyFromContext(context.Background()), served, router.Decision{}, CaptureOff)
 
 	assert.Equal(t, string(router.StrategyHMMEmbedding), obs.Strategy)
 	assert.Empty(t, obs.RouteID)
@@ -201,7 +201,7 @@ func TestBuildObservationContext_StickyHMMRouteIDFromFresh(t *testing.T) {
 	}
 
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMM)
-	obs := buildObservationContext(ctx, served, fresh, CaptureOff)
+	obs := buildObservationContext(ctx, router.StrategyFromContext(ctx), served, fresh, CaptureOff)
 
 	assert.Equal(t, "route-sticky-1", obs.RouteID, "route_id must fall back to fresh on a sticky HMM turn")
 	assert.Equal(t, "hmm", obs.Strategy, "active strategy labels the sticky turn even with a metadata-less pin")
@@ -214,7 +214,7 @@ func TestBuildObservationContext_HardPinLeavesStrategyNull(t *testing.T) {
 
 	// Request opted into HMM, but this turn was hard-pinned and never scored.
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMM)
-	obs := buildObservationContext(ctx, served, router.Decision{}, CaptureOff)
+	obs := buildObservationContext(ctx, router.StrategyFromContext(ctx), served, router.Decision{}, CaptureOff)
 
 	assert.Empty(t, obs.Strategy, "hard-pin turn must not claim the active strategy produced it")
 	assert.Empty(t, obs.RouteID)

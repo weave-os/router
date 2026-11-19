@@ -16,7 +16,7 @@ import (
 )
 
 type DistributionRosterSource interface {
-	DistributionRoster(context.Context) (*rosterdata.Roster, error)
+	DistributionRoster(context.Context, router.Strategy) (*rosterdata.Roster, error)
 }
 
 const maxDistributionGrid = 101
@@ -47,7 +47,7 @@ func RoutingDistributionHandler(source DistributionRosterSource) gin.HandlerFunc
 		if strategy != "" {
 			ctx = router.WithStrategy(ctx, strategy)
 		}
-		roster, err := source.DistributionRoster(ctx)
+		roster, err := source.DistributionRoster(ctx, router.StrategyFromContext(ctx))
 		if err != nil {
 			observability.FromGin(c).Error("Routing distribution roster unavailable", "strategy", strategy, "grid", gridN, "err", err)
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "routing distribution unavailable"})

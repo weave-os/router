@@ -25,7 +25,7 @@ func forceClusterRequest(t *testing.T, value string) *http.Request {
 }
 
 func TestApplyForceClusterHeader_AbsentIsNoOp(t *testing.T) {
-	label, err := applyForceClusterHeader(context.Background(), forceClusterRequest(t, ""))
+	label, err := applyForceClusterHeader(context.Background(), router.StrategyFromContext(context.Background()), forceClusterRequest(t, ""))
 
 	require.NoError(t, err)
 	assert.Empty(t, label)
@@ -34,7 +34,7 @@ func TestApplyForceClusterHeader_AbsentIsNoOp(t *testing.T) {
 func TestApplyForceClusterHeader_PlanOwnedRequestIgnoresHeader(t *testing.T) {
 	ctx := router.WithStrategy(planOwnedContext(), router.StrategyHMM)
 
-	label, err := applyForceClusterHeader(ctx, forceClusterRequest(t, "maximum"))
+	label, err := applyForceClusterHeader(ctx, router.StrategyFromContext(ctx), forceClusterRequest(t, "maximum"))
 
 	require.NoError(t, err)
 	assert.Empty(t, label)
@@ -45,7 +45,7 @@ func TestApplyForceClusterHeader_ThreadsLabelOnHMMStrategy(t *testing.T) {
 		t.Run(string(strategy), func(t *testing.T) {
 			ctx := router.WithStrategy(context.Background(), strategy)
 
-			label, err := applyForceClusterHeader(ctx, forceClusterRequest(t, "  Maximum  "))
+			label, err := applyForceClusterHeader(ctx, router.StrategyFromContext(ctx), forceClusterRequest(t, "  Maximum  "))
 
 			require.NoError(t, err, "eligibility is only knowable after the sidecar answers")
 			assert.Equal(t, "maximum", label, "the label is trimmed and lowercased, not validated here")
@@ -58,7 +58,7 @@ func TestApplyForceClusterHeader_ThreadsLabelOnHMMStrategy(t *testing.T) {
 func TestApplyForceClusterHeader_RejectsNonSidecarStrategy(t *testing.T) {
 	ctx := router.WithStrategy(context.Background(), router.StrategyRL)
 
-	label, err := applyForceClusterHeader(ctx, forceClusterRequest(t, "maximum"))
+	label, err := applyForceClusterHeader(ctx, router.StrategyFromContext(ctx), forceClusterRequest(t, "maximum"))
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrForcedClusterUnsupportedStrategy)

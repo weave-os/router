@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+	"weave-os/router/internal/router"
 
 	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/router/sessionpin"
@@ -38,9 +39,10 @@ func TestHandleNoProgressBreak_PreservesUserForcedPin(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	err = svc.handleNoProgressBreak(
-		context.Background(), rec, env, conversation.NoProgressMatchThreshold, uuid.New(), key,
-		"default_high", "claude-opus-4-8", "anthropic", 10,
-	)
+		context.Background(), rec, env, conversation.NoProgressMatchThreshold, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: key},
+
+		"default_high", "claude-opus-4-8", "anthropic", 10)
+
 	require.NoError(t, err)
 
 	assert.Equal(t, translate.ReasonUserForceModel, store.pin.Reason,
@@ -65,9 +67,10 @@ func TestHandleNoProgressBreak_ZeroSessionKeyWritesNoPin(t *testing.T) {
 	require.NoError(t, err)
 
 	err = svc.handleNoProgressBreak(
-		context.Background(), httptest.NewRecorder(), env, conversation.NoProgressMatchThreshold, uuid.New(),
-		[sessionpin.SessionKeyLen]byte{}, "default_high", "claude-opus-4-8", "anthropic", 10,
-	)
+		context.Background(), httptest.NewRecorder(), env, conversation.NoProgressMatchThreshold, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{}},
+
+		"default_high", "claude-opus-4-8", "anthropic", 10)
+
 	require.NoError(t, err)
 	assert.False(t, store.found, "a zero-keyed pin row would be shared by every zero-keyed session")
 }
@@ -79,9 +82,10 @@ func TestHandleNoProgressBreak_ExpiresNonZeroSessionPin(t *testing.T) {
 	require.NoError(t, err)
 
 	err = svc.handleNoProgressBreak(
-		context.Background(), httptest.NewRecorder(), env, conversation.NoProgressMatchThreshold, uuid.New(),
-		sessionKeyFromString("stuck-session"), "default_high", "claude-opus-4-8", "anthropic", 10,
-	)
+		context.Background(), httptest.NewRecorder(), env, conversation.NoProgressMatchThreshold, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: sessionKeyFromString("stuck-session")},
+
+		"default_high", "claude-opus-4-8", "anthropic", 10)
+
 	require.NoError(t, err)
 	assert.True(t, store.found)
 }

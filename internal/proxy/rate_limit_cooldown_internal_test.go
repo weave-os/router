@@ -65,11 +65,10 @@ func strikeRescuedPrimary(svc *Service, ctx context.Context, err error) (string,
 		true,
 		false,
 		err,
-		rescuedPrimaryDecision("hmm:authoritative model=claude-opus-4-7"),
-		uuid.New(),
-		nonZeroSessionKey(),
-		sessionpin.DefaultRole, sessionpin.DefaultRole,
-	)
+		rescuedPrimaryDecision("hmm:authoritative model=claude-opus-4-7"), sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+
+		sessionpin.DefaultRole, sessionpin.DefaultRole)
+
 }
 
 // A rescued 429 under the flag is a cooldown on both rows the next turn

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"weave-os/router/internal/router"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
@@ -38,10 +39,10 @@ func TestLoopBreaksDoNotNameModelForBlindExperimentSubjects(t *testing.T) {
 		require.NoError(t, err)
 		for name, run := range map[string]func(context.Context, http.ResponseWriter) error{
 			"no_progress": func(ctx context.Context, w http.ResponseWriter) error {
-				return (&Service{}).handleNoProgressBreak(ctx, w, env, 3, uuid.New(), [sessionpin.SessionKeyLen]byte{1}, "maximum", "synthetic-served-model", providers.ProviderOpenAI, 1)
+				return (&Service{}).handleNoProgressBreak(ctx, w, env, 3, sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-served-model", providers.ProviderOpenAI, 1)
 			},
 			"text_repetition": func(ctx context.Context, w http.ResponseWriter) error {
-				return (&Service{}).handleTextRepetitionBreak(ctx, w, env, 3, "synthetic", uuid.New(), [sessionpin.SessionKeyLen]byte{1}, "maximum", "synthetic-served-model", providers.ProviderOpenAI, 1)
+				return (&Service{}).handleTextRepetitionBreak(ctx, w, env, 3, "synthetic", sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-served-model", providers.ProviderOpenAI, 1)
 			},
 		} {
 			rec := httptest.NewRecorder()

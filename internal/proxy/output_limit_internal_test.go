@@ -55,13 +55,13 @@ func TestPostCommandContinuation_UsesTerminalEvidence(t *testing.T) {
 			store.pins[forceModelMapKey(key, pin.Role)] = pin
 			svc := NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, outputLimitFirstModel, nil)
 			ctx := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
-			svc.grantPostCommandContinuation(ctx, uuid.New(), key, pin.Role)
-			got, found := svc.consumePostCommandContinuation(ctx, key, pin.Role)
+			svc.grantPostCommandContinuation(ctx, router.StrategyFromContext(ctx), uuid.New(), key, pin.Role)
+			got, found := svc.consumePostCommandContinuation(ctx, router.StrategyFromContext(ctx), key, pin.Role)
 			assert.Equal(t, !capped, found)
 			if found {
 				assert.Equal(t, outputLimitFirstModel, got.Model)
 			}
-			_, found = svc.consumePostCommandContinuation(ctx, key, pin.Role)
+			_, found = svc.consumePostCommandContinuation(ctx, router.StrategyFromContext(ctx), key, pin.Role)
 			assert.False(t, found, "a continuation remains one-shot")
 		})
 	}
@@ -73,7 +73,7 @@ func TestRefreshPin_PreservesOutputLimitEvidence(t *testing.T) {
 	ended := time.Now().Add(-time.Second)
 	pin := sessionpin.Pin{Provider: providers.ProviderAnthropic, Model: outputLimitSecondModel, LastServedModel: outputLimitFirstModel,
 		LastTurnEndedAt: ended, LastOutputLimitAt: ended, LastOutputTokens: 128}
-	routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now).Refresh(context.Background(), uuid.New(), [sessionpin.SessionKeyLen]byte{1}, pin, sessionpin.DefaultRole,
+	routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now, router.StrategyFromContext(context.Background())).Refresh(context.Background(), uuid.New(), [sessionpin.SessionKeyLen]byte{1}, pin, sessionpin.DefaultRole,
 		router.Decision{Provider: providers.ProviderAnthropic, Model: outputLimitSecondModel})
 	require.Len(t, store.upserts, 1)
 	assert.Equal(t, outputLimitFirstModel, maxedOutServedModel(store.upserts[0]), "refreshing the anchor cannot lose the prior served outcome")

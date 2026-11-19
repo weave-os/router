@@ -27,8 +27,10 @@ func TestRecoveryAcceptanceRescued502HasBoundedWithdrawal(t *testing.T) {
 	svc := newRateLimitTestService(store, true, 45)
 	primary := router.Decision{Provider: providers.ProviderOpenAIGateway, Model: catalog.ModelGPT6Luna}
 	model, _ := svc.maybeStrikeArmAfterRescuedFailure(context.Background(), true, false,
-		&providers.UpstreamErrorResponse{Status: http.StatusBadGateway}, primary,
-		uuid.New(), nonZeroSessionKey(), sessionpin.DefaultRole, sessionpin.DefaultRole)
+		&providers.UpstreamErrorResponse{Status: http.StatusBadGateway}, primary, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+
+		sessionpin.DefaultRole, sessionpin.DefaultRole)
+
 	require.Equal(t, catalog.ModelGPT6Luna, model)
 	assert.Empty(t, store.demotions, "a single transient 502 must not create session-lifetime withdrawal")
 	require.Len(t, store.cooldowns, 2, "temporary withdrawal must cover base and history roles")

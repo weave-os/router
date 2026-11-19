@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http/httptest"
 	"testing"
+	"weave-os/router/internal/router"
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/sessionpin"
@@ -29,7 +30,7 @@ func TestHandleTextRepetitionBreak_ZeroSessionKeyWritesNoPin(t *testing.T) {
 			env, err := translate.ParseAnthropic([]byte(`{"model":"synthetic-model","messages":[{"role":"user","content":"continue"}]}`))
 			require.NoError(t, err)
 
-			err = svc.handleTextRepetitionBreak(context.Background(), httptest.NewRecorder(), env, 3, "synthetic", uuid.New(), tt.key, "maximum", "synthetic-model", providers.ProviderAnthropic, 1)
+			err = svc.handleTextRepetitionBreak(context.Background(), httptest.NewRecorder(), env, 3, "synthetic", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: tt.key}, "maximum", "synthetic-model", providers.ProviderAnthropic, 1)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantWrite, store.found)
 		})

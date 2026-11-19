@@ -1903,11 +1903,11 @@ func (s *Service) PolicyCapabilitiesForRequest(ctx context.Context, strategy rou
 	return s.PolicyCapabilities(strategy)
 }
 
-func (s *Service) authoritativePerTurnSelection(ctx context.Context) bool {
+func (s *Service) authoritativePerTurnSelection(ctx context.Context, strategy router.Strategy) bool {
 	if s == nil {
 		return false
 	}
-	capabilities, ok := s.PolicyCapabilitiesForRequest(ctx, router.StrategyFromContext(ctx))
+	capabilities, ok := s.PolicyCapabilitiesForRequest(ctx, strategy)
 	return ok && capabilities.AuthoritativePerTurnSelection
 }
 
@@ -1960,7 +1960,7 @@ func (s *Service) WithHMMRouter(r router.Router) *Service {
 	})
 }
 
-func (s *Service) routeFor(ctx context.Context, req router.Request) (router.Decision, error) {
+func (s *Service) routeFor(ctx context.Context, strategy router.Strategy, req router.Request) (router.Decision, error) {
 	var err error
 	if denied, _ := ctx.Value(SessionCooldownProbeDeniedModelsContextKey{}).([]string); len(denied) > 0 {
 		for _, model := range denied {
@@ -1976,7 +1976,6 @@ func (s *Service) routeFor(ctx context.Context, req router.Request) (router.Deci
 		return decision, err
 	}
 	req = s.withPolicyRequestContext(ctx, req)
-	strategy := router.StrategyFromContext(ctx)
 	return s.routeWithStrategy(ctx, strategy, req)
 }
 
@@ -2049,8 +2048,9 @@ func defaultStrategyUnavailable(strategy router.Strategy) error {
 }
 
 func (s *Service) Route(ctx context.Context, req router.Request) (router.Decision, error) {
-	routeCtx, span := startRoutingSpan(ctx, req)
-	decision, err := s.routeFor(routeCtx, req)
+	strategy := router.StrategyFromContext(ctx)
+	routeCtx, span := startRoutingSpan(ctx, strategy, req)
+	decision, err := s.routeFor(routeCtx, strategy, req)
 	finishRoutingSpan(span, decision, err)
 	return decision, err
 }
@@ -2177,14 +2177,14 @@ func (s *Service) anthropicNativeAttempt(
 	}
 }
 
-func (s *Service) maybeRepinOnRefusal(ctx context.Context, obs *refusalObserver, sessionKey [sessionpin.SessionKeyLen]byte, role string, served router.Decision) {
+func (s *Service) maybeRepinOnRefusal(ctx context.Context, strategy router.Strategy, obs *refusalObserver, sessionKey [sessionpin.SessionKeyLen]byte, role string, served router.Decision) {
 	if obs == nil || !obs.refused {
 		return
 	}
-	s.repinOffRefusingModel(ctx, sessionKey, role, served, obs.category, "")
+	s.repinOffRefusingModel(ctx, strategy, sessionKey, role, served, obs.category, "")
 }
 
-func (s *Service) repinOffRefusingModel(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, served router.Decision, category, avoidProvider string) {
+func (s *Service) repinOffRefusingModel(ctx context.Context, strategy router.Strategy, sessionKey [sessionpin.SessionKeyLen]byte, role string, served router.Decision, category, avoidProvider string) {
 	if s.pinStore == nil {
 		return
 	}
@@ -2202,7 +2202,7 @@ func (s *Service) repinOffRefusingModel(ctx context.Context, sessionKey [session
 		return
 	}
 	log := observability.FromContext(ctx)
-	fbModel, fbProvider, ok := s.cyberRefusalFallback(ctx, sessionKey, role, served, avoidProvider)
+	fbModel, fbProvider, ok := s.cyberRefusalFallback(ctx, strategy, sessionKey, role, served, avoidProvider)
 	if !ok {
 		log.Warn("safety refusal observed but no distinct fallback model available; not re-pinning",
 			"from_model", served.Model, "fallback_model", fbModel, "refusal_category", category)
@@ -2215,7 +2215,7 @@ func (s *Service) repinOffRefusingModel(ctx context.Context, sessionKey [session
 		Provider:       fbProvider,
 		Model:          fbModel,
 		Reason:         reasonCyberRefusalRepin,
-		Strategy:       router.StrategyFromContext(ctx),
+		Strategy:       strategy,
 		TurnCount:      1,
 		PinnedUntil:    pinExpiry(reasonCyberRefusalRepin, s.clock.Now()),
 	}
@@ -2358,8 +2358,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 		*r = *r.WithContext(ctx)
 	}
-	forceModelSessionKey := deriveForceModelSessionKeyForRequest(ctx, env, facts.APIKeyID, sessionKey)
-	if preparingHandoff(ctx) && !s.authoritativePerTurnSelection(ctx) {
+	strategy, forceModelSessionKey := router.StrategyFromContext(ctx), deriveForceModelSessionKeyForRequest(ctx, env, facts.APIKeyID, sessionKey)
+	if preparingHandoff(ctx) && !s.authoritativePerTurnSelection(ctx, strategy) {
 		return writePreparedHandoff(w, preparedHandoff{Bypass: true})
 	}
 
@@ -2370,16 +2370,16 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			log.Info("ProxyMessages force-model command", "force_model_cmd", cmd)
 			if cmd.FromToolResult {
 				var err error
-				agentForceModel, _, err = s.applyForceModelCommand(ctx, cmd, facts.InstallationID, sessionKey, forceModelSessionKey)
+				agentForceModel, _, err = s.applyForceModelCommand(ctx, strategy, cmd, facts.InstallationID, sessionKey, forceModelSessionKey)
 				if err != nil {
 					return err
 				}
 				requestBodyChanged = true
 			} else {
-				if err := s.handleForceModelCommand(ctx, w, env, cmd, facts.InstallationID, sessionKey, forceModelSessionKey, feats.Tokens); err != nil {
+				if err := s.handleForceModelCommand(ctx, w, env, cmd, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, forceModelSessionKey, feats.Tokens); err != nil {
 					return err
 				}
-				s.grantPostCommandContinuation(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+				s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 				return nil
 			}
 		}
@@ -2387,11 +2387,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if !agentShadowMode {
 		if cmd, hasCmd := env.ExtractRouterFeedbackCommand(); hasCmd {
 			log.Info("ProxyMessages router-feedback command")
-			if err := s.handleRouterFeedbackCommand(ctx, w, env, cmd, facts.InstallationID, sessionKey, feats.Tokens, !cmd.FromToolResult); err != nil {
+			if err := s.handleRouterFeedbackCommand(ctx, w, env, cmd, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, feats.Tokens, !cmd.FromToolResult); err != nil {
 				return err
 			}
 			if !cmd.FromToolResult {
-				s.grantPostCommandContinuation(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+				s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 				return nil
 			}
 			requestBodyChanged = true
@@ -2402,7 +2402,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if err := s.handleRouterSessionCommand(ctx, w, env, feats.Tokens); err != nil {
 			return err
 		}
-		s.grantPostCommandContinuation(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+		s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 		return nil
 	}
 	if !agentShadowMode && env.ExtractRouterModelsCommand() {
@@ -2410,7 +2410,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if err := s.handleRouterModelsCommand(ctx, w, env, feats.Tokens); err != nil {
 			return err
 		}
-		s.grantPostCommandContinuation(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+		s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 		return nil
 	}
 	if !agentShadowMode && env.ExtractListModelsCommand() {
@@ -2418,7 +2418,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if err := s.handleListModelsCommand(ctx, w, env, feats.Tokens); err != nil {
 			return err
 		}
-		s.grantPostCommandContinuation(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+		s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 		return nil
 	}
 
@@ -2453,7 +2453,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if headerForceModel != "" {
 			forceModel = headerForceModel
 		}
-		forceCluster, taskArm, forceErr = forceClusterForTurn(ctx, r, env, feats, facts.InstallationID, forceModel)
+		forceCluster, taskArm, forceErr = forceClusterForTurn(ctx, strategy, r, env, feats, facts.InstallationID, forceModel)
 		if forceErr != nil {
 			return forceErr
 		}
@@ -2462,7 +2462,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if !agentShadowMode && !callerModelPassthroughActive(ctx) && handoffFromContext(ctx) == nil {
 		if cyc, csig, ccount, cratio, cwin := conversation.DetectCyclicToolCallLoop(env); cyc {
 			loopRole := roleForTier(catalog.TierFor(feats.Model))
-			s.handleLoopEscalation(ctx, csig, ccount, cratio, cwin, facts.InstallationID, sessionKey, loopRole, feats.Model, turntype.IsSubAgent(env, subAgentHintForRequest(ctx, r.Header.Get("x-weave-subagent-type")), openCodeCaller(ClientIdentityFrom(ctx))), forceModelSessionKey)
+			s.handleLoopEscalation(ctx, csig, ccount, cratio, cwin, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, loopRole, feats.Model, turntype.IsSubAgent(env, subAgentHintForRequest(ctx, r.Header.Get("x-weave-subagent-type")), openCodeCaller(ClientIdentityFrom(ctx))), forceModelSessionKey)
 		}
 	}
 
@@ -2551,9 +2551,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	var routeRes turnLoopResult
 	var routeErr error
-	routeCtx, routeSpan := startRoutingSpan(ctx, req)
+	routeCtx, routeSpan := startRoutingSpan(ctx, strategy, req)
 	if handoffFromContext(ctx) != nil {
-		routeRes, routeErr = s.resumeHandoff(routeCtx, env, req, turntype.IsSubAgent(env, subAgentHintForRequest(routeCtx, r.Header.Get("x-weave-subagent-type")), openCodeCaller(ClientIdentityFrom(routeCtx))))
+		routeRes, routeErr = s.resumeHandoff(routeCtx, strategy, env, req, turntype.IsSubAgent(env, subAgentHintForRequest(routeCtx, r.Header.Get("x-weave-subagent-type")), openCodeCaller(ClientIdentityFrom(routeCtx))))
 	} else if agentShadowMode {
 		routeRes, routeErr = s.runAgentShadowEvaluationRoute(routeCtx, env, feats, facts.InstallationID, req, agentShadowEval)
 	} else {
@@ -2576,7 +2576,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	ctx = withPickedModelFunding(ctx, routeRes.CallerModelPassthrough, routeRes.Decision.Provider)
 	ctx = s.withTurnOverloadProbe(ctx, routeRes)
 	if preparingHandoff(ctx) {
-		return s.finishHandoffPreparation(ctx, w, env, req, routeRes)
+		return s.finishHandoffPreparation(ctx, strategy, w, env, req, routeRes)
 	}
 	if len(routeRes.SessionDisabledProviders) > 0 {
 		ctx = context.WithValue(ctx, SessionDisabledProvidersContextKey{}, routeRes.SessionDisabledProviders)
@@ -2601,7 +2601,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		err := s.bypassToAnthropic(ctx, env, feats, routeRes.modelSwitched(), requestStart, facts.RequestID, facts.ExternalID, routeRes.TurnType, routeRes.Decision.Reason, r, w)
 		if !errors.Is(err, errBypassRetryable) {
 			if !agentShadowMode {
-				s.firePolicyShadowForServingDecision(ctx, routeRes.Decision, req)
+				s.firePolicyShadowForServingDecision(ctx, strategy, routeRes.Decision, req)
 			}
 			return err
 		}
@@ -2626,8 +2626,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if s.pinStore != nil && !isUnpinnedScoredTurn(routeRes.TurnType) {
 			sessionKey := deriveSessionKeyForRequest(ctx, env, facts.APIKeyID)
 			role := roleForTier(catalog.TierFor(feats.Model))
-			pin, _ := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now).Load(ctx, sessionKey, role)
-			hmmHistory := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now).LoadHMMHistory(ctx, sessionKey, role)
+			pin, _ := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy).Load(ctx, sessionKey, role)
+			hmmHistory := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy).LoadHMMHistory(ctx, sessionKey, role)
 			forceHistory := s.loadForceModelHistory(ctx, sessionKey, role)
 			routeRes.SessionKey = sessionKey
 			routeRes.applySwitchHistory(pin, hmmHistory, forceHistory)
@@ -2635,8 +2635,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 		routeRes.UsageBypass = false
 		if !linkedSubscriptionRetry {
-			rerouteCtx, rerouteSpan := startRoutingSpan(ctx, req)
-			decision, rerouteErr := s.routeFor(rerouteCtx, req)
+			rerouteCtx, rerouteSpan := startRoutingSpan(ctx, strategy, req)
+			decision, rerouteErr := s.routeFor(rerouteCtx, strategy, req)
 			finishRoutingSpan(rerouteSpan, decision, rerouteErr)
 			if rerouteErr != nil {
 				log.Error("Reroute after usage-bypass failure failed", "err", rerouteErr)
@@ -2650,7 +2650,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	routeRes.SuggestionMode = r.Header.Get("x-weave-suggestion-mode") == "true"
 	decision := routeRes.Decision
 	if !agentShadowMode {
-		s.firePolicyShadowForServingDecision(ctx, decision, req)
+		s.firePolicyShadowForServingDecision(ctx, strategy, decision, req)
 	}
 	tt := routeRes.TurnType
 	stickyHit := routeRes.StickyHit
@@ -2664,14 +2664,14 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		fp := conversation.ComputeNoProgressFingerprint(decision, promptText, feats.MessageCount, conversation.ToolProgressMarker(env))
 		role := roleForTier(catalog.TierFor(feats.Model))
 		if looped, count := s.noProgress.RecordAndDetect(routeRes.SessionKey, facts.InstallationID, role, fp, s.clock.Now()); looped {
-			return s.handleNoProgressBreak(ctx, w, env, count, facts.InstallationID, routeRes.SessionKey, role, decision.Model, decision.Provider, feats.Tokens, routeRes.Decision.Reason)
+			return s.handleNoProgressBreak(ctx, w, env, count, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: routeRes.SessionKey}, role, decision.Model, decision.Provider, feats.Tokens, routeRes.Decision.Reason)
 		}
 	}
 
 	if !agentShadowMode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && s.ResolveTextRepetitionBreakEnabled(ctx) && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
 		if looped, count, sampleHash := conversation.DetectTextRepetition(env); looped {
 			role := roleForTier(catalog.TierFor(feats.Model))
-			return s.handleTextRepetitionBreak(ctx, w, env, count, sampleHash, facts.InstallationID, routeRes.SessionKey, role, decision.Model, decision.Provider, feats.Tokens)
+			return s.handleTextRepetitionBreak(ctx, w, env, count, sampleHash, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: routeRes.SessionKey}, role, decision.Model, decision.Provider, feats.Tokens)
 		}
 	}
 
@@ -3288,7 +3288,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	s.applySubscriptionSpanTelemetry(ctx, upstreamBuilder, feats.Model, decision.Model)
 	addTimingAttrs(ctx, upstreamBuilder)
 
-	obs := buildObservationContext(ctx, decision, routeRes.Fresh, s.effectiveCaptureMode(ctx))
+	obs := buildObservationContext(ctx, strategy, decision, routeRes.Fresh, s.effectiveCaptureMode(ctx))
 	obs.applySpanAttrs(upstreamBuilder)
 
 	telemetry.Record(ctx, telemetry.Span{
@@ -3323,7 +3323,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				"upstream_finish_reason", respSummary.UpstreamFinishReason,
 				"would_failover", true,
 			)
-			s.evictPinAfterDegenerateResponse(ctx, stickyHit, decision.Reason, facts.InstallationID, routeRes.SessionKey, stickyStateRole(routeRes))
+			s.evictPinAfterDegenerateResponse(ctx, strategy, stickyHit, decision.Reason, facts.InstallationID, routeRes.SessionKey, stickyStateRole(routeRes))
 		}
 		tel := InsertTelemetryParams{
 			InstallationID:           facts.InstallationID.String(),
@@ -3456,36 +3456,36 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	rescuedArmDemoted := ""
 	var rescuedArmDemotionReason sessionpin.DemotionReason
 	if !agentShadowMode && !routeRes.CallerModelPassthrough {
-		s.maybeEvictPinAfterUpstreamErr(ctx, stickyHit, proxyErr, decision.Reason, facts.InstallationID, routeRes.SessionKey, stickyStateRole(routeRes))
+		s.maybeEvictPinAfterUpstreamErr(ctx, stickyHit, proxyErr, decision.Reason, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: routeRes.SessionKey}, stickyStateRole(routeRes))
 
-		armDemoted = s.maybeDemoteArmAfterCommittedStreamFailure(ctx, preludeBuf.Committed(), routeRes.HardPinned, proxyErr, decision.Model, decision.Reason, facts.InstallationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+		armDemoted = s.maybeDemoteArmAfterCommittedStreamFailure(ctx, preludeBuf.Committed(), routeRes.HardPinned, proxyErr, decision.Model, decision.Reason, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: routeRes.SessionKey}, stickyStateRole(routeRes), routeRes.PinRole)
 		if armDemoted != "" {
 			armDemotionReasonValue = sessionpin.DemotionReasonCommittedStreamFailure
 		}
 
 		primaryModelRescueRan := rescue.siblingRescueRan || decision.Model != rescue.primaryModel
 		if providers.IsResponseHeaderTimeout(rescue.primaryFailureErr) && (primaryModelRescueRan || proxyErr != nil) {
-			rescuedArmDemoted, rescuedArmDemotionReason = s.maybeStrikeArmAfterRescuedFailure(ctx, primaryModelRescueRan, routeRes.HardPinned, rescue.primaryFailureErr, rescue.primaryDecision, facts.InstallationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+			rescuedArmDemoted, rescuedArmDemotionReason = s.maybeStrikeArmAfterRescuedFailure(ctx, primaryModelRescueRan, routeRes.HardPinned, rescue.primaryFailureErr, rescue.primaryDecision, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: routeRes.SessionKey}, stickyStateRole(routeRes), routeRes.PinRole)
 		} else {
-			rescuedArmDemoted, rescuedArmDemotionReason = s.maybeStrikeArmAfterRescuedFailure(ctx, rescue.siblingRescueRan, routeRes.HardPinned, rescue.rescuedPrimaryErr, rescue.rescuedPrimary, facts.InstallationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+			rescuedArmDemoted, rescuedArmDemotionReason = s.maybeStrikeArmAfterRescuedFailure(ctx, rescue.siblingRescueRan, routeRes.HardPinned, rescue.rescuedPrimaryErr, rescue.rescuedPrimary, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: routeRes.SessionKey}, stickyStateRole(routeRes), routeRes.PinRole)
 		}
 		s.strikeRescuedModelsForTurn(ctx, proxyErr, decision, routeRes.HardPinned, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
 		if proxyErr != nil {
-			unrescuedStallDemoted := s.maybeDemoteArmAfterUnrescuedStall(ctx, rescue.siblingRescueRan, preludeBuf.Committed(), routeRes.HardPinned, rescue.primarySubscriptionArmFailure, rescue.primaryDecision, facts.InstallationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+			unrescuedStallDemoted := s.maybeDemoteArmAfterUnrescuedStall(ctx, rescue.siblingRescueRan, preludeBuf.Committed(), routeRes.HardPinned, rescue.primarySubscriptionArmFailure, rescue.primaryDecision, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: routeRes.SessionKey}, stickyStateRole(routeRes), routeRes.PinRole)
 			if armDemoted == "" && unrescuedStallDemoted != "" {
 				armDemoted = unrescuedStallDemoted
 				armDemotionReasonValue = sessionpin.DemotionReasonUnrescuedStall
 			}
 		}
 
-		s.maybeExpireDeadArmPin(ctx, rescue.deadArmRejected, decision.Reason, facts.InstallationID, routeRes.SessionKey, stickyStateRole(routeRes))
-		s.maybeExpireSubscriptionArmPin(ctx, rescue.primarySubscriptionArmFailure, decision.Reason, facts.InstallationID, routeRes.SessionKey, stickyStateRole(routeRes))
+		s.maybeExpireDeadArmPin(ctx, strategy, rescue.deadArmRejected, decision.Reason, facts.InstallationID, routeRes.SessionKey, stickyStateRole(routeRes))
+		s.maybeExpireSubscriptionArmPin(ctx, strategy, rescue.primarySubscriptionArmFailure, decision.Reason, facts.InstallationID, routeRes.SessionKey, stickyStateRole(routeRes))
 
 		if !rescue.baselineAttempted {
-			s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, facts.InstallationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+			s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: routeRes.SessionKey}, stickyStateRole(routeRes), routeRes.PinRole)
 		}
 
-		s.maybeRepinOnRefusal(ctx, refusalObs, routeRes.SessionKey, stickyStateRole(routeRes), decision)
+		s.maybeRepinOnRefusal(ctx, strategy, refusalObs, routeRes.SessionKey, stickyStateRole(routeRes), decision)
 	}
 
 	for _, iss := range respSummary.ToolCallIssues {
@@ -3686,7 +3686,7 @@ func isHMMTurn(res turnLoopResult) bool {
 }
 
 func (s *Service) recordHMMTurnHistory(ctx context.Context, res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int, outputLimitReached bool) {
-	sessionPins := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now)
+	sessionPins := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategyForTurnLoopResult(res))
 	if servedModel == "" || res.InstallationID == uuid.Nil {
 		return
 	}
@@ -3709,7 +3709,7 @@ func (s *Service) recordHMMTurnHistory(ctx context.Context, res turnLoopResult, 
 		InstallationID: res.InstallationID,
 		Provider:       historyProvider,
 		Reason:         hmmHistoryStoredReason(res),
-		Strategy:       router.StrategyFromContext(strategyCtx),
+		Strategy:       strategyForTurnLoopResult(res),
 		TurnCount:      1,
 		PinnedUntil:    pinExpiry(hmmHistoryReason, s.clock.Now()),
 	})
@@ -3718,7 +3718,7 @@ func (s *Service) recordHMMTurnHistory(ctx context.Context, res turnLoopResult, 
 	}
 	now := s.clock.Now()
 	if err := s.pinStore.UpdateUsage(strategyCtx, res.SessionKey, role, sessionpin.Usage{
-		Strategy:            router.StrategyFromContext(strategyCtx),
+		Strategy:            strategyForTurnLoopResult(res),
 		InputTokens:         in,
 		CachedReadTokens:    cacheRead,
 		CachedWriteTokens:   cacheCreation,
@@ -4493,7 +4493,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		return err
 	}
 	*r = *r.WithContext(ctx)
-	forceModelSessionKey := deriveForceModelSessionKeyForRequest(ctx, env, facts.APIKeyID, sessionKey)
+	strategy, forceModelSessionKey := router.StrategyFromContext(ctx), deriveForceModelSessionKeyForRequest(ctx, env, facts.APIKeyID, sessionKey)
 
 	agentForceModel := ""
 	requestBodyChanged := false
@@ -4505,16 +4505,16 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			log.Info("ProxyOpenAIChatCompletion force-model command", "force_model_cmd", cmd)
 			if agentForceModelContinuesTurn(ctx, cmd) {
 				var err error
-				agentForceModel, _, err = s.applyForceModelCommand(ctx, cmd, facts.InstallationID, sessionKey, forceModelSessionKey)
+				agentForceModel, _, err = s.applyForceModelCommand(ctx, strategy, cmd, facts.InstallationID, sessionKey, forceModelSessionKey)
 				if err != nil {
 					return err
 				}
 				requestBodyChanged = true
 			} else {
-				if err := s.handleForceModelCommand(ctx, w, env, cmd, facts.InstallationID, sessionKey, forceModelSessionKey, feats.Tokens); err != nil {
+				if err := s.handleForceModelCommand(ctx, w, env, cmd, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, forceModelSessionKey, feats.Tokens); err != nil {
 					return err
 				}
-				s.grantPostCommandContinuation(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+				s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 				return nil
 			}
 		}
@@ -4526,11 +4526,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		log.Info("ProxyOpenAIChatCompletion router-feedback command")
 		skillFeedback := codexSkillTurnFrom(ctx) == translate.CodexSkillTurnFeedback
 		synthetic := !cmd.FromToolResult || skillFeedback
-		if err := s.handleRouterFeedbackCommand(ctx, w, env, cmd, facts.InstallationID, sessionKey, feats.Tokens, synthetic); err != nil {
+		if err := s.handleRouterFeedbackCommand(ctx, w, env, cmd, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, feats.Tokens, synthetic); err != nil {
 			return err
 		}
 		if synthetic {
-			s.grantPostCommandContinuation(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+			s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 			return nil
 		}
 		requestBodyChanged = true
@@ -4540,7 +4540,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		if err := s.handleRouterSessionCommand(ctx, w, env, feats.Tokens); err != nil {
 			return err
 		}
-		s.grantPostCommandContinuation(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+		s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 		return nil
 	}
 	if env.ExtractRouterModelsCommand() {
@@ -4548,7 +4548,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		if err := s.handleRouterModelsCommand(ctx, w, env, feats.Tokens); err != nil {
 			return err
 		}
-		s.grantPostCommandContinuation(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+		s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 		return nil
 	}
 	if env.ExtractListModelsCommand() {
@@ -4556,7 +4556,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		if err := s.handleListModelsCommand(ctx, w, env, feats.Tokens); err != nil {
 			return err
 		}
-		s.grantPostCommandContinuation(ctx, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+		s.grantPostCommandContinuation(ctx, strategy, facts.InstallationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 		return nil
 	}
 
@@ -4597,7 +4597,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if forceModel == "" {
 		forceModel = codexSelectedModel(ctx)
 	}
-	forceCluster, taskArm, forceErr := forceClusterForTurn(ctx, r, env, feats, facts.InstallationID, forceModel)
+	forceCluster, taskArm, forceErr := forceClusterForTurn(ctx, strategy, r, env, feats, facts.InstallationID, forceModel)
 	if forceErr != nil {
 		return forceErr
 	}
@@ -4605,7 +4605,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if !callerModelPassthroughActive(ctx) {
 		if cyc, csig, ccount, cratio, cwin := conversation.DetectCyclicToolCallLoop(env); cyc {
 			loopRole := roleForTier(catalog.TierFor(feats.Model))
-			s.handleLoopEscalation(ctx, csig, ccount, cratio, cwin, facts.InstallationID, sessionKey, loopRole, feats.Model, turntype.IsSubAgent(env, subAgentHintForRequest(ctx, r.Header.Get("x-weave-subagent-type")), openCodeCaller(ClientIdentityFrom(ctx))), forceModelSessionKey)
+			s.handleLoopEscalation(ctx, csig, ccount, cratio, cwin, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, loopRole, feats.Model, turntype.IsSubAgent(env, subAgentHintForRequest(ctx, r.Header.Get("x-weave-subagent-type")), openCodeCaller(ClientIdentityFrom(ctx))), forceModelSessionKey)
 		}
 	}
 
@@ -4677,7 +4677,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		ProductEligibility:           entitlement.ModelBoundaryFromContext(ctx),
 	}
 	routeStart := s.clock.Now()
-	routeCtx, routeSpan := startRoutingSpan(ctx, routeRequest)
+	routeCtx, routeSpan := startRoutingSpan(ctx, strategy, routeRequest)
 	routeRes, err := taskArm.route(routeCtx, s.runTurnLoop)(env, feats, facts.APIKeyID, facts.InstallationID, subAgentHint, r.Header, routeRequest)
 	defer routeRes.releaseCooldownProbes()
 	var escalationCapture *captureWriter
@@ -4715,7 +4715,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	routeRes.SuggestionMode = r.Header.Get("x-weave-suggestion-mode") == "true"
 	decision := routeRes.Decision
-	s.firePolicyShadowForServingDecision(ctx, decision, routeRequest)
+	s.firePolicyShadowForServingDecision(ctx, strategy, decision, routeRequest)
 	tt := routeRes.TurnType
 	stickyHit := routeRes.StickyHit
 	pinTier := routeRes.PinTier
@@ -4725,7 +4725,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if facts.Client.ClientApp == ClientAppOpencode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && s.ResolveTextRepetitionBreakEnabled(ctx) && (tt == turntype.MainLoop || tt == turntype.ToolResult) {
 		if looped, count, sampleHash := conversation.DetectTextRepetition(env); looped {
 			role := roleForTier(catalog.TierFor(feats.Model))
-			return s.handleTextRepetitionBreak(ctx, w, env, count, sampleHash, facts.InstallationID, sessionKey, role, decision.Model, decision.Provider, feats.Tokens)
+			return s.handleTextRepetitionBreak(ctx, w, env, count, sampleHash, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, role, decision.Model, decision.Provider, feats.Tokens)
 		}
 	}
 
@@ -5364,7 +5364,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		preOutputRescueArmed: &preOutputRescueArmed,
 	}
 	rescue.flushErr = rescue.flushErrAsOpenAI
-	rescue.armCyberRetry(ctx)
+	rescue.armCyberRetry(ctx, strategy)
 	rescue.armSubscriptionRetries(ctx)
 	ctx = rescue.armRescues(ctx)
 	rescue.holdPrimary()
@@ -5472,7 +5472,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	s.applySubscriptionSpanTelemetry(ctx, openaiUpstreamBuilder, feats.Model, decision.Model)
 	addTimingAttrs(ctx, openaiUpstreamBuilder)
 
-	openaiObs := buildObservationContext(ctx, decision, routeRes.Fresh, s.effectiveCaptureMode(ctx))
+	openaiObs := buildObservationContext(ctx, strategy, decision, routeRes.Fresh, s.effectiveCaptureMode(ctx))
 	openaiObs.applySpanAttrs(openaiUpstreamBuilder)
 
 	telemetry.Record(ctx, telemetry.Span{
@@ -5510,27 +5510,27 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	rescuedArmDemotedOAI := ""
 	var rescuedArmDemotionReasonOAI sessionpin.DemotionReason
 	if !routeRes.CallerModelPassthrough {
-		s.maybeEvictPinAfterUpstreamErr(ctx, stickyHit, proxyErr, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes))
-		armDemotedOAI = s.maybeDemoteArmAfterCommittedStreamFailure(ctx, committed(preludeBuf) || committed(responsesPreludeBuf), routeRes.HardPinned, proxyErr, decision.Model, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+		s.maybeEvictPinAfterUpstreamErr(ctx, stickyHit, proxyErr, decision.Reason, sessionTarget{strategy: strategy, installationID: installationIDFromContext(ctx), sessionKey: routeRes.SessionKey}, stickyStateRole(routeRes))
+		armDemotedOAI = s.maybeDemoteArmAfterCommittedStreamFailure(ctx, committed(preludeBuf) || committed(responsesPreludeBuf), routeRes.HardPinned, proxyErr, decision.Model, decision.Reason, sessionTarget{strategy: strategy, installationID: installationIDFromContext(ctx), sessionKey: routeRes.SessionKey}, stickyStateRole(routeRes), routeRes.PinRole)
 		if armDemotedOAI != "" {
 			armDemotionReasonOAI = sessionpin.DemotionReasonCommittedStreamFailure
 		}
 		primaryModelRescueRan := rescue.siblingRescueRan || decision.Model != rescue.primaryModel
 		if providers.IsResponseHeaderTimeout(rescue.primaryFailureErr) && (primaryModelRescueRan || proxyErr != nil) {
-			rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI = s.maybeStrikeArmAfterRescuedFailure(ctx, primaryModelRescueRan, routeRes.HardPinned, rescue.primaryFailureErr, rescue.primaryDecision, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+			rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI = s.maybeStrikeArmAfterRescuedFailure(ctx, primaryModelRescueRan, routeRes.HardPinned, rescue.primaryFailureErr, rescue.primaryDecision, sessionTarget{strategy: strategy, installationID: installationIDFromContext(ctx), sessionKey: routeRes.SessionKey}, stickyStateRole(routeRes), routeRes.PinRole)
 		} else {
-			rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI = s.maybeStrikeArmAfterRescuedFailure(ctx, rescue.siblingRescueRan, routeRes.HardPinned, rescue.rescuedPrimaryErr, rescue.rescuedPrimary, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+			rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI = s.maybeStrikeArmAfterRescuedFailure(ctx, rescue.siblingRescueRan, routeRes.HardPinned, rescue.rescuedPrimaryErr, rescue.rescuedPrimary, sessionTarget{strategy: strategy, installationID: installationIDFromContext(ctx), sessionKey: routeRes.SessionKey}, stickyStateRole(routeRes), routeRes.PinRole)
 		}
 		s.strikeRescuedModelsForTurn(ctx, proxyErr, decision, routeRes.HardPinned, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
 		if proxyErr != nil {
-			unrescuedStallDemoted := s.maybeDemoteArmAfterUnrescuedStall(ctx, rescue.siblingRescueRan, committed(preludeBuf) || committed(responsesPreludeBuf), routeRes.HardPinned, rescue.primarySubscriptionArmFailure, rescue.primaryDecision, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+			unrescuedStallDemoted := s.maybeDemoteArmAfterUnrescuedStall(ctx, rescue.siblingRescueRan, committed(preludeBuf) || committed(responsesPreludeBuf), routeRes.HardPinned, rescue.primarySubscriptionArmFailure, rescue.primaryDecision, sessionTarget{strategy: strategy, installationID: installationIDFromContext(ctx), sessionKey: routeRes.SessionKey}, stickyStateRole(routeRes), routeRes.PinRole)
 			if armDemotedOAI == "" && unrescuedStallDemoted != "" {
 				armDemotedOAI = unrescuedStallDemoted
 				armDemotionReasonOAI = sessionpin.DemotionReasonUnrescuedStall
 			}
 		}
-		s.maybeExpireSubscriptionArmPin(ctx, rescue.primarySubscriptionArmFailure, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes))
-		s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+		s.maybeExpireSubscriptionArmPin(ctx, strategy, rescue.primarySubscriptionArmFailure, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes))
+		s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, sessionTarget{strategy: strategy, installationID: installationIDFromContext(ctx), sessionKey: routeRes.SessionKey}, stickyStateRole(routeRes), routeRes.PinRole)
 	}
 
 	installationIDOAI, _ := ctx.Value(InstallationIDContextKey{}).(string)
@@ -5639,7 +5639,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 
 	if cyberRefusalSeen && !routeRes.CallerModelPassthrough {
-		s.repinOffRefusingModel(ctx, routeRes.SessionKey, stickyStateRole(routeRes), rescue.primaryDecision, providers.CyberPolicyErrorCode, rescue.primaryDecision.Provider)
+		s.repinOffRefusingModel(ctx, strategy, routeRes.SessionKey, stickyStateRole(routeRes), rescue.primaryDecision, providers.CyberPolicyErrorCode, rescue.primaryDecision.Provider)
 	}
 
 	for _, iss := range respSummary.ToolCallIssues {

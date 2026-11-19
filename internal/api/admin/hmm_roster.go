@@ -49,7 +49,7 @@ func HMMRosterHandler(sources map[router.Strategy]policy.RosterSource) gin.Handl
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "hmm_policy_lane_unavailable"})
 			return
 		}
-		snapshot, err := source.ClusterRoster(c.Request.Context())
+		snapshot, err := source.ClusterRoster(c.Request.Context(), router.StrategyFromContext(c.Request.Context()))
 		if err != nil {
 			observability.FromGin(c).Warn("HMM roster fetch failed", "err", err)
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "hmm_roster_unavailable"})

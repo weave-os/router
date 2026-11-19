@@ -28,8 +28,9 @@ func TestForceModelCommand_PersistsEffortOnPin(t *testing.T) {
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.handleForceModelCommand(context.Background(), rec, env,
-		translate.ForceModelResult{Model: "opus:xhigh"},
-		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
+		translate.ForceModelResult{Model: "opus:xhigh"}, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
+
+		DeriveSessionKey(env, "key-1"), 10))
 
 	require.Len(t, store.upserts, 1)
 	assert.Equal(t, "claude-opus-5-5", store.upserts[0].Model)
@@ -45,7 +46,7 @@ func TestApplyForceModelCommand_ReturnsEffortQualifiedSpec(t *testing.T) {
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 	env := forceCommandEnv(t)
-	spec, _, err := svc.applyForceModelCommand(context.Background(),
+	spec, _, err := svc.applyForceModelCommand(context.Background(), router.StrategyFromContext(context.Background()),
 		translate.ForceModelResult{Model: "opus:xhigh", FromToolResult: true},
 		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"))
 	require.NoError(t, err)
@@ -148,7 +149,7 @@ func TestRefreshPin_CarriesEffortForward(t *testing.T) {
 		Effort:   "xhigh",
 		Reason:   translate.ReasonUserForceModel,
 	}
-	sessionPins := routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now)
+	sessionPins := routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now, router.StrategyHMMEmbedding)
 	sessionPins.Refresh(context.Background(), uuid.New(), [sessionpin.SessionKeyLen]byte{},
 		existing, "default", router.Decision{
 			Provider: existing.Provider, Model: existing.Model, Reason: existing.Reason,

@@ -202,7 +202,7 @@ func (m *Manager) CheckHealth(context.Context) error {
 	return nil
 }
 
-func (m *Manager) ClusterRoster(ctx context.Context) (policy.RosterSnapshot, error) {
+func (m *Manager) ClusterRoster(ctx context.Context, strategy router.Strategy) (policy.RosterSnapshot, error) {
 	snapshot := ServingSnapshotFromContext(ctx)
 	if snapshot == nil {
 		snapshot = m.active.Load()
@@ -210,7 +210,7 @@ func (m *Manager) ClusterRoster(ctx context.Context) (policy.RosterSnapshot, err
 	if snapshot == nil {
 		return policy.RosterSnapshot{}, ErrNoActivePolicy
 	}
-	roster := snapshotRoster(snapshot, router.StrategyFromContext(ctx))
+	roster := snapshotRoster(snapshot, strategy)
 	status := m.Status()
 	roster.Environment, roster.Lane = string(m.environment), string(m.lane)
 	roster.LatestObservedGeneration, roster.RejectedGeneration = status.LatestObservedGeneration, status.RejectedGeneration
@@ -258,12 +258,12 @@ func (m *Manager) AllRosterArms() ([]string, error) {
 
 func (m *Manager) Roster(context.Context) ([]string, error) { return m.AllRosterArms() }
 
-func (m *Manager) DistributionRoster(ctx context.Context) (*rosterdata.Roster, error) {
+func (m *Manager) DistributionRoster(_ context.Context, strategy router.Strategy) (*rosterdata.Roster, error) {
 	snapshot := m.Active()
 	if snapshot == nil || snapshot.Policy == nil {
 		return nil, ErrNoActivePolicy
 	}
-	roster, _ := snapshot.policyForStrategy(router.StrategyFromContext(ctx))
+	roster, _ := snapshot.policyForStrategy(strategy)
 	return roster, nil
 }
 

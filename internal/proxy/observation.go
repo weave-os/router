@@ -62,7 +62,7 @@ type observationContext struct {
 	FreshCandidateScores     []byte
 }
 
-func buildObservationContext(ctx context.Context, decision, fresh router.Decision, captureMode ContentCaptureMode) observationContext {
+func buildObservationContext(ctx context.Context, strategy router.Strategy, decision, fresh router.Decision, captureMode ContentCaptureMode) observationContext {
 	debugEnabled, _ := ctx.Value(PolicyDebugEnabledContextKey{}).(bool)
 	obs := observationContext{
 		TrainingAllowed: policyTrainingAllowedForRequest(ctx),
@@ -73,7 +73,7 @@ func buildObservationContext(ctx context.Context, decision, fresh router.Decisio
 		obs.RolloutID = rolloutID
 	}
 	if decision.Metadata != nil || fresh.Model != "" {
-		obs.Strategy = string(router.StrategyFromContext(ctx))
+		obs.Strategy = string(strategy)
 	}
 	if fresh.Model != "" {
 		obs.FreshDecisionModel = fresh.Model

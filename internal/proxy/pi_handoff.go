@@ -132,7 +132,7 @@ func (s *Service) mintHandoff(claims handoffClaims) (string, error) {
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(s.piHandoffSecret)
 }
 
-func (s *Service) finishHandoffPreparation(ctx context.Context, w http.ResponseWriter, env *translate.RequestEnvelope, req router.Request, route turnLoopResult) error {
+func (s *Service) finishHandoffPreparation(ctx context.Context, strategy router.Strategy, w http.ResponseWriter, env *translate.RequestEnvelope, req router.Request, route turnLoopResult) error {
 	if route.UsageBypass || route.HardPinned || isUserForcedReason(route.Decision.Reason) {
 		return writePreparedHandoff(w, preparedHandoff{Bypass: true})
 	}
@@ -163,7 +163,7 @@ func (s *Service) finishHandoffPreparation(ctx context.Context, w http.ResponseW
 		previousProvider = route.PinProvider
 	}
 	if previousModel != "" && s.pinStore != nil && (hmm.Owns(route.Strategy) || isHMMTurn(route)) {
-		history := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now).LoadHMMHistory(ctx, route.SessionKey, route.PinRole)
+		history := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy).LoadHMMHistory(ctx, route.SessionKey, route.PinRole)
 		if history.LastServedModel == route.PriorServedModel {
 			previousProvider = history.Provider
 		}
@@ -186,9 +186,9 @@ func (s *Service) finishHandoffPreparation(ctx context.Context, w http.ResponseW
 	return writePreparedHandoff(w, prepared)
 }
 
-func (s *Service) resumeHandoff(ctx context.Context, env *translate.RequestEnvelope, req router.Request, isSubagent bool) (turnLoopResult, error) {
+func (s *Service) resumeHandoff(ctx context.Context, strategy router.Strategy, env *translate.RequestEnvelope, req router.Request, isSubagent bool) (turnLoopResult, error) {
 	claims := handoffFromContext(ctx)
-	if claims.Route.Strategy != router.StrategyFromContext(ctx) ||
+	if claims.Route.Strategy != strategy ||
 		claims.SessionID != clientSessionIDForRequest(ctx, env) ||
 		claims.RequestedModel != req.RequestedModel {
 		return turnLoopResult{}, ErrHandoffInvalid

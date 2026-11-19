@@ -171,7 +171,7 @@ func TestBoostServingKeepsLegacyForceModelPinActive(t *testing.T) {
 	}
 	svc := &Service{pinStore: store}
 
-	pin, active, noStoredState := routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now).LoadWithStoreState(boostDefaultRoutingContext(), sessionKey, role)
+	pin, active, noStoredState := routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now, router.StrategyFromContext(boostDefaultRoutingContext())).LoadWithStoreState(boostDefaultRoutingContext(), sessionKey, role)
 
 	assert.Equal(t, "claude-opus-5", pin.Model)
 	assert.True(t, active)
@@ -186,7 +186,7 @@ func TestBoostServingAppliesForceModelCommand(t *testing.T) {
 	forceKey := [sessionpin.SessionKeyLen]byte{3}
 
 	forcedModel, message, err := svc.applyForceModelCommand(
-		boostDefaultRoutingContext(), translate.ForceModelResult{Model: "sol"}, uuid.New(), threadKey, forceKey,
+		boostDefaultRoutingContext(), router.StrategyFromContext(boostDefaultRoutingContext()), translate.ForceModelResult{Model: "sol"}, uuid.New(), threadKey, forceKey,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "gpt-6.2-sol", forcedModel)
@@ -218,7 +218,7 @@ func TestMaxServingStillRejectsClosedSourceForceModel(t *testing.T) {
 	svc := &Service{pinStore: store}
 	env := forceCommandEnv(t)
 	_, message, err := svc.applyForceModelCommand(
-		planOwnedContext(), translate.ForceModelResult{Model: "opus"}, uuid.New(),
+		planOwnedContext(), router.StrategyFromContext(planOwnedContext()), translate.ForceModelResult{Model: "opus"}, uuid.New(),
 		[sessionpin.SessionKeyLen]byte{4}, [sessionpin.SessionKeyLen]byte{5},
 	)
 	require.NoError(t, err)

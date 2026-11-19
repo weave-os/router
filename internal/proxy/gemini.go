@@ -91,9 +91,9 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		logInboundRequestDiagnostics(log, env)
 	}
 
-	subAgentHint := r.Header.Get("x-weave-subagent-type")
+	subAgentHint, strategy := r.Header.Get("x-weave-subagent-type"), router.StrategyFromContext(ctx)
 
-	forceCluster, forceErr := applyForceClusterHeader(ctx, r)
+	forceCluster, forceErr := applyForceClusterHeader(ctx, strategy, r)
 	if forceErr != nil {
 		return forceErr
 	}
@@ -142,7 +142,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		ProductEligibility:           entitlement.ModelBoundaryFromContext(ctx),
 	}
 	routeStart := s.clock.Now()
-	routeCtx, routeSpan := startRoutingSpan(ctx, routeRequest)
+	routeCtx, routeSpan := startRoutingSpan(ctx, strategy, routeRequest)
 	routeRes, err := s.runTurnLoop(routeCtx, env, feats, facts.APIKeyID, facts.InstallationID, subAgentHint, r.Header, routeRequest)
 	defer routeRes.releaseCooldownProbes()
 	var escalationCapture *captureWriter
@@ -177,7 +177,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	}
 	routeRes.SuggestionMode = r.Header.Get("x-weave-suggestion-mode") == "true"
 	decision := routeRes.Decision
-	s.firePolicyShadowForServingDecision(ctx, decision, routeRequest)
+	s.firePolicyShadowForServingDecision(ctx, strategy, decision, routeRequest)
 	tt := routeRes.TurnType
 	stickyHit := routeRes.StickyHit
 	pinTier := routeRes.PinTier
@@ -370,7 +370,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	applyEffortAttrs(geminiUpstreamBuilder, effortServed)
 	s.applySubscriptionSpanTelemetry(ctx, geminiUpstreamBuilder, feats.Model, decision.Model)
 	addTimingAttrs(ctx, geminiUpstreamBuilder)
-	geminiObs := buildObservationContext(ctx, decision, routeRes.Fresh, s.effectiveCaptureMode(ctx))
+	geminiObs := buildObservationContext(ctx, strategy, decision, routeRes.Fresh, s.effectiveCaptureMode(ctx))
 	geminiObs.applySpanAttrs(geminiUpstreamBuilder)
 	telemetry.Record(ctx, telemetry.Span{
 		Name:  "router.upstream",
@@ -488,16 +488,16 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	primaryFailureDemoted := ""
 	var primaryFailureDemotionReason sessionpin.DemotionReason
 	if !routeRes.CallerModelPassthrough {
-		s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, facts.InstallationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
-		armDemoted = s.maybeDemoteArmAfterCommittedStreamFailure(ctx, committed(preludeBuf), routeRes.HardPinned, proxyErr, decision.Model, decision.Reason, facts.InstallationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+		s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: routeRes.SessionKey}, stickyStateRole(routeRes), routeRes.PinRole)
+		armDemoted = s.maybeDemoteArmAfterCommittedStreamFailure(ctx, committed(preludeBuf), routeRes.HardPinned, proxyErr, decision.Model, decision.Reason, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: routeRes.SessionKey}, stickyStateRole(routeRes), routeRes.PinRole)
 		if armDemoted != "" {
 			armDemotionReason = sessionpin.DemotionReasonCommittedStreamFailure
 		}
 		if providers.IsResponseHeaderTimeout(primaryFailureErr) && (proxyErr != nil || decision.Model != primaryDecision.Model) {
-			primaryFailureDemoted, primaryFailureDemotionReason = s.maybeStrikeArmAfterRescuedFailure(ctx, false, routeRes.HardPinned, primaryFailureErr, primaryDecision, facts.InstallationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+			primaryFailureDemoted, primaryFailureDemotionReason = s.maybeStrikeArmAfterRescuedFailure(ctx, false, routeRes.HardPinned, primaryFailureErr, primaryDecision, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: routeRes.SessionKey}, stickyStateRole(routeRes), routeRes.PinRole)
 		}
 		if proxyErr != nil {
-			unrescuedStallDemoted := s.maybeDemoteArmAfterUnrescuedStall(ctx, false, committed(preludeBuf), routeRes.HardPinned, primaryFailureErr, primaryDecision, facts.InstallationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+			unrescuedStallDemoted := s.maybeDemoteArmAfterUnrescuedStall(ctx, false, committed(preludeBuf), routeRes.HardPinned, primaryFailureErr, primaryDecision, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: routeRes.SessionKey}, stickyStateRole(routeRes), routeRes.PinRole)
 			if unrescuedStallDemoted != "" {
 				armDemoted = unrescuedStallDemoted
 				armDemotionReason = sessionpin.DemotionReasonUnrescuedStall

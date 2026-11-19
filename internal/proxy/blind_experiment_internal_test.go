@@ -403,7 +403,7 @@ func TestApplyBlindExperimentTelemetry(t *testing.T) {
 	assert.False(t, telemetry.TrainingAllowed)
 
 	observation := buildObservationContext(
-		context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough), PolicyTrainingAllowedContextKey{}, true),
+		context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough), PolicyTrainingAllowedContextKey{}, true), router.StrategyFromContext(context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough), PolicyTrainingAllowedContextKey{}, true)),
 		router.Decision{},
 		router.Decision{},
 		CaptureOff,

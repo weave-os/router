@@ -29,7 +29,7 @@ func (e *ForcedClusterUnsupportedStrategyError) Unwrap() error {
 	return ErrForcedClusterUnsupportedStrategy
 }
 
-func applyForceClusterHeader(ctx context.Context, r *http.Request) (string, error) {
+func applyForceClusterHeader(ctx context.Context, strategy router.Strategy, r *http.Request) (string, error) {
 	if planHasDedicatedServingPolicy(ctx) {
 		return "", nil
 	}
@@ -37,7 +37,6 @@ func applyForceClusterHeader(ctx context.Context, r *http.Request) (string, erro
 	if label == "" {
 		return "", nil
 	}
-	strategy := router.StrategyFromContext(ctx)
 	if !hmm.Owns(strategy) {
 		observability.FromContext(ctx).Warn("x-weave-force-cluster: rejected on a strategy with no policy sidecar",
 			"cluster", label,

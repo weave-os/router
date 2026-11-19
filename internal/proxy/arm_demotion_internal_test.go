@@ -140,7 +140,8 @@ func TestMaybeDemoteArmAfterUnrescuedStall(t *testing.T) {
 			}
 
 			demoted := svc.maybeDemoteArmAfterUnrescuedStall(ctx, tc.rescueRan, tc.committed, tc.hardPinned, tc.err,
-				decision, uuid.New(), nonZeroSessionKey(), sessionpin.DefaultRole, sessionpin.DefaultRole)
+				decision, sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+				sessionpin.DefaultRole, sessionpin.DefaultRole)
 
 			if tc.wantStrike {
 				assert.Equal(t, demotedArm, demoted)
@@ -194,11 +195,9 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_Classification(t *testing.T) 
 				false,
 				tc.err,
 				demotedArm,
-				"cluster:v0.57 model=claude-opus-4-7 provider=anthropic",
-				installationID,
-				nonZeroSessionKey(),
-				sessionpin.DefaultRole, sessionpin.DefaultRole,
-			)
+				"cluster:v0.57 model=claude-opus-4-7 provider=anthropic", sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: installationID, sessionKey: nonZeroSessionKey()},
+
+				sessionpin.DefaultRole, sessionpin.DefaultRole)
 
 			if !tc.want {
 				assert.Empty(t, demoted)
@@ -238,11 +237,9 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_FiresWithoutStickyPin(t *test
 		false,
 		&providers.UpstreamStatusError{Status: http.StatusBadGateway},
 		demotedArm,
-		"hmm:authoritative model=claude-opus-4-7",
-		uuid.New(),
-		nonZeroSessionKey(),
-		sessionpin.DefaultRole, sessionpin.DefaultRole,
-	)
+		"hmm:authoritative model=claude-opus-4-7", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+
+		sessionpin.DefaultRole, sessionpin.DefaultRole)
 
 	assert.Equal(t, demotedArm, demoted)
 	assert.Len(t, store.demotions, 2)
@@ -261,11 +258,9 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_HardPinnedSkipped(t *testing.
 		true,
 		&providers.UpstreamStatusError{Status: http.StatusBadGateway},
 		demotedArm,
-		nativeWebSearchPassthroughReason,
-		uuid.New(),
-		nonZeroSessionKey(),
-		sessionpin.DefaultRole, sessionpin.DefaultRole,
-	)
+		nativeWebSearchPassthroughReason, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+
+		sessionpin.DefaultRole, sessionpin.DefaultRole)
 
 	assert.Empty(t, demoted)
 	assert.Empty(t, store.demotions)
@@ -307,11 +302,9 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_ClusterAllowlistPinSkipped(t 
 				false,
 				&providers.UpstreamStatusError{Status: http.StatusBadGateway},
 				demotedArm,
-				"hmm:authoritative model=claude-opus-4-7",
-				uuid.New(),
-				nonZeroSessionKey(),
-				sessionpin.DefaultRole, sessionpin.DefaultRole,
-			)
+				"hmm:authoritative model=claude-opus-4-7", sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+
+				sessionpin.DefaultRole, sessionpin.DefaultRole)
 
 			if !tc.wantDemoted {
 				assert.Empty(t, demoted)
@@ -356,11 +349,9 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_UserForcedSkipped(t *testing.
 			false,
 			&providers.UpstreamStatusError{Status: http.StatusBadGateway},
 			demotedArm,
-			reason,
-			uuid.New(),
-			nonZeroSessionKey(),
-			sessionpin.DefaultRole, sessionpin.DefaultRole,
-		)
+			reason, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+
+			sessionpin.DefaultRole, sessionpin.DefaultRole)
 
 		assert.Empty(t, demoted, "user-forced pins (%q) must not be demoted", reason)
 		assert.Empty(t, store.demotions)
@@ -389,11 +380,9 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_UnaddressableSkipped(t *testi
 				false,
 				&providers.UpstreamStatusError{Status: http.StatusBadGateway},
 				demotedArm,
-				"cluster:v0.57 model=claude-opus-4-7 provider=anthropic",
-				tc.installationID,
-				tc.sessionKey,
-				sessionpin.DefaultRole, sessionpin.DefaultRole,
-			)
+				"cluster:v0.57 model=claude-opus-4-7 provider=anthropic", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: tc.installationID, sessionKey: tc.sessionKey},
+
+				sessionpin.DefaultRole, sessionpin.DefaultRole)
 
 			assert.Empty(t, demoted)
 			assert.Empty(t, store.demotions)
@@ -473,11 +462,9 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_PersistsWithoutExistingRow(t 
 				false,
 				&providers.UpstreamStatusError{Status: http.StatusBadGateway},
 				demotedArm,
-				"hmm:authoritative model=claude-opus-4-7",
-				uuid.New(),
-				nonZeroSessionKey(),
-				tc.role, sessionpin.DefaultRole,
-			)
+				"hmm:authoritative model=claude-opus-4-7", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+
+				tc.role, sessionpin.DefaultRole)
 
 			assert.Equal(t, demotedArm, demoted)
 			for _, role := range []string{sessionpin.DefaultRole, hmmHistoryRole(sessionpin.DefaultRole)} {
@@ -548,10 +535,7 @@ func TestMaybeDemoteArmAfterRescuedFailure_Classification(t *testing.T) {
 				tc.rescueRan,
 				false,
 				tc.err,
-				rescuedPrimaryDecision("hmm:authoritative model=claude-opus-4-7"),
-				installationID,
-				nonZeroSessionKey(),
-			)
+				rescuedPrimaryDecision("hmm:authoritative model=claude-opus-4-7"), sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: installationID, sessionKey: nonZeroSessionKey()})
 
 			if !tc.want {
 				assert.Empty(t, demoted)
@@ -592,12 +576,10 @@ func TestUnrescuedResponseHeaderTimeoutExcludesPrimaryOnNextTurn(t *testing.T) {
 		false,
 		false,
 		responseHeaderTimeoutErr(t),
-		primary,
-		installationID,
-		sessionKey,
+		primary, sessionTarget{strategy: router.StrategyFromContext(turnContext), installationID: installationID, sessionKey: sessionKey},
+
 		sessionpin.DefaultRole,
-		sessionpin.DefaultRole,
-	)
+		sessionpin.DefaultRole)
 
 	assert.Equal(t, demotedPinModel, demoted)
 	assert.Equal(t, sessionpin.DemotionReasonResponseHeaderTimeout, demotionReason)
@@ -653,15 +635,14 @@ func TestRescuedAndCommittedDemotionsAreIndependentlyFlagged(t *testing.T) {
 			committed := svc.maybeDemoteArmAfterCommittedStreamFailure(
 				context.Background(), true, false,
 				&providers.UpstreamStatusError{Status: http.StatusBadGateway},
-				rescuer, "hmm:authoritative model=claude-opus-4-7",
-				installationID, key, sessionpin.DefaultRole, sessionpin.DefaultRole,
-			)
+				rescuer, "hmm:authoritative model=claude-opus-4-7", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: installationID, sessionKey: key},
+
+				sessionpin.DefaultRole, sessionpin.DefaultRole)
+
 			rescued := svc.maybeDemoteArmAfterRescuedFailure(
 				context.Background(), true, false,
 				&providers.UpstreamErrorResponse{Status: http.StatusBadGateway},
-				rescuedPrimaryDecision("hmm:authoritative model=claude-opus-4-7"),
-				installationID, key,
-			)
+				rescuedPrimaryDecision("hmm:authoritative model=claude-opus-4-7"), sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: installationID, sessionKey: key})
 
 			assert.Equal(t, tc.wantCommited, committed)
 			assert.Equal(t, tc.wantRescued, rescued)
@@ -705,10 +686,7 @@ func TestMaybeDemoteArmAfterRescuedFailure_PinnedPrimarySkipped(t *testing.T) {
 				true,
 				tc.hardPinned,
 				&providers.UpstreamErrorResponse{Status: http.StatusBadGateway},
-				rescuedPrimaryDecision(tc.reason),
-				uuid.New(),
-				nonZeroSessionKey(),
-			)
+				rescuedPrimaryDecision(tc.reason), sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()})
 
 			assert.Empty(t, demoted)
 			assert.Empty(t, store.demotions)
@@ -744,10 +722,7 @@ func TestMaybeDemoteArmAfterRescuedFailure_ClusterAllowlistPinSkipped(t *testing
 				true,
 				false,
 				&providers.UpstreamErrorResponse{Status: http.StatusBadGateway},
-				rescuedPrimaryDecision("hmm:authoritative model=claude-opus-4-7"),
-				uuid.New(),
-				nonZeroSessionKey(),
-			)
+				rescuedPrimaryDecision("hmm:authoritative model=claude-opus-4-7"), sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.New(), sessionKey: nonZeroSessionKey()})
 
 			if !tc.wantDemoted {
 				assert.Empty(t, demoted)
@@ -772,10 +747,7 @@ func TestMaybeDemoteArmAfterRescuedFailure_PersistsWithoutExistingRow(t *testing
 		true,
 		false,
 		&providers.UpstreamErrorResponse{Status: http.StatusBadGateway},
-		rescuedPrimaryDecision("hmm:authoritative model=claude-opus-4-7"),
-		uuid.New(),
-		nonZeroSessionKey(),
-	)
+		rescuedPrimaryDecision("hmm:authoritative model=claude-opus-4-7"), sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()})
 
 	assert.Equal(t, demotedArm, demoted)
 	for _, role := range []string{sessionpin.DefaultRole, hmmHistoryRole(sessionpin.DefaultRole)} {
@@ -823,11 +795,9 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_LateFailureLeavesReplacementS
 		false,
 		&providers.UpstreamStatusError{Status: http.StatusBadGateway},
 		demotedArm,
-		"hmm:authoritative model=claude-opus-4-7",
-		installationID,
-		key,
-		sessionpin.DefaultRole, sessionpin.DefaultRole,
-	)
+		"hmm:authoritative model=claude-opus-4-7", sessionTarget{strategy: router.StrategyFromContext(ctxA), installationID: installationID, sessionKey: key},
+
+		sessionpin.DefaultRole, sessionpin.DefaultRole)
 
 	assert.Equal(t, demotedArm, demoted, "the turn still reports its own demotion attempt")
 	assert.Empty(t, store.upserts, "no plain upsert may run ahead of the guarded write")

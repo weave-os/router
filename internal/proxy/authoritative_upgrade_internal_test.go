@@ -200,7 +200,7 @@ func TestUpgradeShadowCapturesMarginOnStayButNotReplay(t *testing.T) {
 	zero := 0.0
 	fresh.Metadata.ClassifierMargin = &zero
 	served := pinDecision(upgradeTestPin())
-	obs := buildObservationContext(context.Background(), served, fresh, CaptureOff)
+	obs := buildObservationContext(context.Background(), router.StrategyFromContext(context.Background()), served, fresh, CaptureOff)
 	assert.Equal(t, &zero, obs.FreshClassifierMargin)
 	assert.Equal(t, string(escalation.High), obs.FreshPolicyGroup)
 	builder := telemetry.NewAttrBuilder(4)
@@ -213,7 +213,7 @@ func TestUpgradeShadowCapturesMarginOnStayButNotReplay(t *testing.T) {
 		}
 	}
 	assert.True(t, found)
-	replay := buildObservationContext(context.Background(), served, router.Decision{}, CaptureOff)
+	replay := buildObservationContext(context.Background(), router.StrategyFromContext(context.Background()), served, router.Decision{}, CaptureOff)
 	assert.Nil(t, replay.FreshClassifierMargin)
 	assert.Empty(t, replay.FreshPolicyGroup)
 }

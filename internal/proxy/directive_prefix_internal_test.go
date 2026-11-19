@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http/httptest"
 	"testing"
+	"weave-os/router/internal/router"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -32,8 +33,9 @@ func TestForceModelCommand_CodexAckNamesTheDollarForm(t *testing.T) {
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.handleForceModelCommand(codexCtx("sess-1"), rec, env,
-		translate.ForceModelResult{Model: "opus"},
-		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
+		translate.ForceModelResult{Model: "opus"}, sessionTarget{strategy: router.StrategyFromContext(codexCtx("sess-1")), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
+
+		DeriveSessionKey(env, "key-1"), 10))
 
 	body := rec.Body.String()
 	require.Contains(t, body, "force-model applied")
@@ -53,8 +55,9 @@ func TestForceModelCommand_ClaudeCodeAckKeepsTheSlashForm(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{},
 		ClientIdentity{ClientApp: ClientAppClaudeCode})
 	require.NoError(t, svc.handleForceModelCommand(ctx, rec, env,
-		translate.ForceModelResult{Model: "opus"},
-		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
+		translate.ForceModelResult{Model: "opus"}, sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
+
+		DeriveSessionKey(env, "key-1"), 10))
 
 	assert.Contains(t, rec.Body.String(), "/unforce-model")
 }

@@ -24,7 +24,7 @@ func TestRoutingModelDoesNotReadLegacyBetaPreference(t *testing.T) {
 	installation := uuid.New()
 	_, err := svc.applySessionStrategy(ctx, installation, key)
 	require.Error(t, err)
-	ctx = router.WithRoutingModel(ctx, router.ModelAutomatic)
+	ctx = router.WithStrategySelection(ctx, router.StrategySelection{Strategy: router.StrategyHMMEmbedding, RoutingModel: router.ModelAutomatic})
 	selected, err := svc.applySessionStrategy(ctx, installation, key)
 	require.NoError(t, err)
 	require.Equal(t, router.StrategyHMMEmbedding, router.StrategyFromContext(selected))
@@ -36,7 +36,7 @@ func TestRoutingModelRedirectsLegacyBetaCommandsWithoutChangingPreferences(t *te
 			t.Run(string(model)+commandText, func(t *testing.T) {
 				store := &betaTestPreferenceStore{}
 				svc := (&Service{}).WithSessionStrategyStore(store)
-				ctx := router.WithRoutingModel(context.Background(), model)
+				ctx := router.WithStrategySelection(context.Background(), router.StrategySelection{RoutingModel: model})
 				envelope := betaTestEnvelope(t, commandText, true)
 				command, found := envelope.ExtractBetaCommand()
 				require.True(t, found)
@@ -88,7 +88,7 @@ func TestRoutingModelDispatchesConcreteModelAcrossClientProtocols(t *testing.T) 
 				provider := &routingModelCaptureProvider{}
 				svc := NewService(defaultRouter, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, nil, false, providers.ProviderAnthropic, completionModel, nil).
 					WithPolicyStrategy(policy.StrategySpec{Strategy: choice.strategy, Router: hmmRouter})
-				ctx := router.WithRoutingModel(router.WithStrategy(context.Background(), choice.strategy), choice.model)
+				ctx := router.WithStrategySelection(context.Background(), router.StrategySelection{Strategy: choice.strategy, RoutingModel: choice.model})
 				request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, tc.path, nil)
 				response := httptest.NewRecorder()
 				require.NoError(t, tc.call(svc, ctx, []byte(tc.body), response, request))

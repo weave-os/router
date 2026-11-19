@@ -46,7 +46,7 @@ func (o *chatRescue) dispatchPrimary(ctx context.Context) {
 	*o.cyberRefusalSeen = *o.cyberRefusalSeen || providers.IsUpstreamCyberPolicyRefusal(o.proxyErr)
 }
 
-func (o *chatRescue) armCyberRetry(ctx context.Context) {
+func (o *chatRescue) armCyberRetry(ctx context.Context, strategy router.Strategy) {
 	s := o.svc
 	routeRes := o.routeRes
 	_, o.explicitRequestedModel = catalog.ByID(o.req.RequestedModel)
@@ -54,10 +54,10 @@ func (o *chatRescue) armCyberRetry(ctx context.Context) {
 		!routeRes.CallerModelPassthrough &&
 		o.decision.Provider == providers.ProviderOpenAI &&
 		!strings.HasPrefix(o.decision.Reason, translate.ReasonUserForceModel) &&
-		!s.isHardPinnedTurn(ctx, routeRes.TurnType) &&
+		!s.isHardPinnedTurn(ctx, strategy, routeRes.TurnType) &&
 		!billing.SubscriptionOnlyFromContext(ctx)
 	if cyberRetryEligible {
-		target, found := s.cyberRefusalRetryTarget(ctx, o.decision, routeRes.SessionKey, stickyStateRole(routeRes),
+		target, found := s.cyberRefusalRetryTarget(ctx, o.decision, sessionTarget{strategy: strategy, installationID: routeRes.InstallationID, sessionKey: routeRes.SessionKey}, stickyStateRole(routeRes),
 			o.overflowEstimate, o.env.SignatureTokenSavings(), o.outputReserve)
 		o.cyberRetryViable = found && (s.shouldFailover(ctx) || s.gatewaySiblingAllowed(ctx, target)) &&
 			(!subscriptionStateModelsEnabled(ctx) || !paidFallbackForbiddenForModel(ctx, target.Model))

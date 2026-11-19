@@ -298,7 +298,7 @@ func (r turnLoopResult) rescueOrigin() policy.OverrideSource {
 	return ""
 }
 
-func (s *Service) isHardPinnedTurn(ctx context.Context, tt turntype.TurnType) bool {
+func (s *Service) isHardPinnedTurn(ctx context.Context, strategy router.Strategy, tt turntype.TurnType) bool {
 	switch tt {
 	case turntype.Probe:
 		return true
@@ -308,7 +308,7 @@ func (s *Service) isHardPinnedTurn(ctx context.Context, tt turntype.TurnType) bo
 		if s.hasSubAgentOverride() {
 			return true
 		}
-		return flags.BoolOr(ctx, flags.KeyHardPinExplore, s.hardPinExplore) && !hmm.Owns(router.StrategyFromContext(ctx))
+		return flags.BoolOr(ctx, flags.KeyHardPinExplore, s.hardPinExplore) && !hmm.Owns(strategy)
 	default:
 		return false
 	}
@@ -319,7 +319,7 @@ func isUnpinnedScoredTurn(tt turntype.TurnType) bool {
 }
 
 func (s *Service) routeWithoutPin(
-	ctx context.Context,
+	ctx context.Context, strategy router.Strategy,
 	req router.Request,
 	res turnLoopResult,
 	reqHeaders http.Header,
@@ -345,7 +345,7 @@ func (s *Service) routeWithoutPin(
 		res.Origin = policy.OverrideSourceDeployment
 		return res, nil
 	}
-	decision, err := s.routeFor(ctx, req)
+	decision, err := s.routeFor(ctx, strategy, req)
 	if err != nil {
 		return res, err
 	}
@@ -396,8 +396,9 @@ func (s *Service) runTurnLoop(
 	reqHeaders http.Header,
 	req router.Request,
 ) (res turnLoopResult, routeErr error) {
+	strategy := router.StrategyFromContext(ctx)
 	subAgentHint = subAgentHintForRequest(ctx, subAgentHint)
-	shadowStartedAt, sessionPins := s.clock.Now(), routingpolicy.NewSessionPins(s.pinStore, s.clock.Now)
+	shadowStartedAt, sessionPins := s.clock.Now(), routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy)
 	defer func() {
 		if routeErr == nil {
 			routeErr = policyPinServed(ctx, res)
@@ -469,14 +470,14 @@ func (s *Service) runTurnLoop(
 		ContextEstimate:             env.ContextOverflowTokenEstimate(),
 		TranslationEnabledProviders: req.EnabledProviders,
 		InstallationID:              installationID,
-		Strategy:                    router.StrategyFromContext(ctx),
+		Strategy:                    strategy,
 		TurnType:                    turntype.Detect(env, feats, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx))),
 		PinTier:                     "miss",
 		RequestedTier:               catalog.TierFor(feats.Model),
 		StripThinkingBlocks:         stripsThinkingHistory(ctx),
 	}
 	res.AuthoritativePerTurn = authoritativePolicyTurn(res.TurnType) &&
-		s.authoritativePerTurnSelection(ctx)
+		s.authoritativePerTurnSelection(ctx, strategy)
 	if !isolatedSearch {
 		req.TaskDomain = taskDomainInput(ctx, env, apiKeyID, res.TurnType)
 	}
@@ -491,7 +492,7 @@ func (s *Service) runTurnLoop(
 			res.CallerModelPassthrough = true
 			return res, err
 		}
-		return s.routeWithoutPin(ctx, req, res, reqHeaders, false, sessionpin.Pin{})
+		return s.routeWithoutPin(ctx, strategy, req, res, reqHeaders, false, sessionpin.Pin{})
 	}
 	forceModelSessionKey := deriveForceModelSessionKeyForRequest(ctx, env, apiKeyID, threadSessionKey)
 	forceModelPin := sessionpin.Pin{}
@@ -548,7 +549,7 @@ func (s *Service) runTurnLoop(
 		}
 	}
 	if res.Strategy == router.StrategyLLMClassifier {
-		return s.runClassifierTurn(ctx, req, res, threadSessionKey)
+		return s.runClassifierTurn(ctx, strategy, req, res, threadSessionKey)
 	}
 	log.Info("turnloop classified",
 		"turn_type", string(res.TurnType),
@@ -559,13 +560,13 @@ func (s *Service) runTurnLoop(
 
 	automaticProbe := res.TurnType == turntype.Probe && !s.explicitUtilityHardPin &&
 		(req.RequestedModel == "" || req.RequestedModel == automaticProbeModel || router.IsRoutingModel(req.RequestedModel))
-	if _, pinned := router.HonouredPolicyPin(ctx); pinned && (!s.isHardPinnedTurn(ctx, res.TurnType) || automaticProbe) {
+	if _, pinned := router.HonouredPolicyPin(ctx); pinned && (!s.isHardPinnedTurn(ctx, strategy, res.TurnType) || automaticProbe) {
 		if s.pinStore != nil && !isUnpinnedScoredTurn(res.TurnType) && !automaticProbe {
 			res.SessionKey = threadSessionKey
 			_, _, res.SessionFirstTurn = sessionPins.LoadWithStoreState(ctx, res.SessionKey, res.PinRole)
 		}
 		req.Session.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{}, s.clock.Now())
-		decision, err := s.routeFor(ctx, req)
+		decision, err := s.routeFor(ctx, strategy, req)
 		if err != nil {
 			return res, err
 		}
@@ -578,7 +579,7 @@ func (s *Service) runTurnLoop(
 
 	sessionForceControlFound := forceModelFound
 
-	hardPinnedTurn := s.isHardPinnedTurn(ctx, res.TurnType)
+	hardPinnedTurn := s.isHardPinnedTurn(ctx, strategy, res.TurnType)
 	if s.pinStore != nil && hardPinnedTurn && !forceModelFound && !forceModelCleared {
 		legacyPin, found := sessionPins.Load(ctx, threadSessionKey, res.PinRole)
 		if found && isUserForcedReason(legacyPin.Reason) {
@@ -658,7 +659,7 @@ func (s *Service) runTurnLoop(
 					res.SessionKey = [sessionpin.SessionKeyLen]byte{}
 					if automaticProbe {
 						var err error
-						res, err = s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
+						res, err = s.routeWithoutPin(ctx, strategy, req, res, reqHeaders, forceModelFound, forceModelPin)
 						return true, err
 					}
 					decision, err := s.callerModelPassthroughDecision(ctx, req)
@@ -733,10 +734,10 @@ func (s *Service) runTurnLoop(
 	}
 
 	if isUnpinnedScoredTurn(res.TurnType) {
-		return s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
+		return s.routeWithoutPin(ctx, strategy, req, res, reqHeaders, forceModelFound, forceModelPin)
 	}
 	if res.TurnType == turntype.Compaction {
-		return s.routeCompaction(ctx, req, res, reqHeaders, threadSessionKey, installationID, forceModelFound, forceModelPin)
+		return s.routeCompaction(ctx, req, res, reqHeaders, sessionTarget{strategy: strategy, installationID: installationID, sessionKey: threadSessionKey}, forceModelFound, forceModelPin)
 	}
 
 	sessionKey := threadSessionKey
@@ -755,7 +756,7 @@ func (s *Service) runTurnLoop(
 	}
 
 	if routesWithoutSessionPin(s.pinStore, req) {
-		return s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
+		return s.routeWithoutPin(ctx, strategy, req, res, reqHeaders, forceModelFound, forceModelPin)
 	}
 
 	res.SessionKey = sessionKey
@@ -787,7 +788,7 @@ func (s *Service) runTurnLoop(
 	commandContinuation := sessionpin.Pin{}
 	commandContinuationFound := false
 	if res.TurnType == turntype.MainLoop {
-		commandContinuation, commandContinuationFound = s.consumePostCommandContinuation(ctx, res.SessionKey, res.PinRole)
+		commandContinuation, commandContinuationFound = s.consumePostCommandContinuation(ctx, strategy, res.SessionKey, res.PinRole)
 	}
 	if pinFound && isUserForcedReason(pin.Reason) {
 		binding, reason := s.forcedModelBinding(ctx, pin.Model, pin.Provider)
@@ -995,7 +996,7 @@ func (s *Service) runTurnLoop(
 			if autoDisabled {
 				evictReason = "escalation_pin_automatic_routing_disabled"
 			}
-			if err := s.expireSessionPin(ctx, installationID, res.SessionKey, res.PinRole, evictReason); err != nil {
+			if err := s.expireSessionPin(ctx, strategy, installationID, res.SessionKey, res.PinRole, evictReason); err != nil {
 				log.Error("ineligible escalation pin eviction failed", "err", err, "pin_model", pin.Model, "role", res.PinRole, "evict_reason", evictReason)
 			}
 		}
@@ -1209,7 +1210,7 @@ func (s *Service) runTurnLoop(
 			res.AuthoritativePerTurn = false
 		}
 		if req.Escalation == nil && pinFound && candidates.AutomaticPinEligible(pin, req) && req.ConversationMessages != nil &&
-			hmm.Owns(router.StrategyFromContext(ctx)) &&
+			hmm.Owns(strategy) &&
 			!hasTextUserBoundary(req.ConversationMessages) {
 			if _, honoured := router.HonouredPolicyPin(ctx); !honoured {
 				decision := pinDecision(pin)
@@ -1249,7 +1250,7 @@ func (s *Service) runTurnLoop(
 			if constrained, ok := s.restrictToTier(req.Candidates.ExcludedModels, forcedTierFloor); ok {
 				tierReq := req
 				tierReq.Candidates.ExcludedModels = constrained
-				if dec, derr := s.routeFor(ctx, tierReq); derr == nil {
+				if dec, derr := s.routeFor(ctx, strategy, tierReq); derr == nil {
 					fresh, routed = dec, true
 					log.Info("user-forced model evicted; rerouted to next-best in same tier",
 						"forced_tier", forcedTierFloor.String(),
@@ -1265,7 +1266,7 @@ func (s *Service) runTurnLoop(
 			}
 		}
 		if !routed {
-			dec, err := s.routeFor(ctx, req)
+			dec, err := s.routeFor(ctx, strategy, req)
 			if err != nil {
 				if s.policyDeadlineFallback && isPolicyDeadlineErr(err) {
 					if pinFound && pin.Model != "" {
@@ -1350,7 +1351,7 @@ func (s *Service) runTurnLoop(
 				}
 
 				rerouteReq := req
-				rerouted, rerouteErr := s.routeFor(ctx, rerouteReq)
+				rerouted, rerouteErr := s.routeFor(ctx, strategy, rerouteReq)
 				if rerouteErr != nil {
 					return res, rerouteErr
 				}

@@ -13,12 +13,12 @@ import (
 )
 
 func (s *Service) grantPostCommandContinuation(
-	ctx context.Context,
+	ctx context.Context, strategy router.Strategy,
 	installationID uuid.UUID,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
 ) {
-	sessionPins := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now)
+	sessionPins := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy)
 	if s.pinStore == nil || installationID == uuid.Nil {
 		return
 	}
@@ -38,7 +38,7 @@ func (s *Service) grantPostCommandContinuation(
 	}
 	pin.Role = conversation.CommandContinuationRole(role)
 	pin.InstallationID = installationID
-	pin.Strategy = router.StrategyFromContext(ctx)
+	pin.Strategy = strategy
 	pin.TurnCount = 1
 	pin.PinnedUntil = pinExpiry(pin.Reason, s.clock.Now())
 	sessionPins.Upsert(ctx, pin)
@@ -46,33 +46,33 @@ func (s *Service) grantPostCommandContinuation(
 }
 
 func (s *Service) consumePostCommandContinuation(
-	ctx context.Context,
+	ctx context.Context, strategy router.Strategy,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
 ) (sessionpin.Pin, bool) {
 	if s.pinStore == nil {
 		return sessionpin.Pin{}, false
 	}
-	pin, found, err := s.pinStore.Consume(ctx, sessionKey, conversation.CommandContinuationRole(role), router.StrategyFromContext(ctx))
+	pin, found, err := s.pinStore.Consume(ctx, sessionKey, conversation.CommandContinuationRole(role), strategy)
 	if err != nil {
 		observability.FromContext(ctx).Error("post-command continuation consume failed", "err", err)
 		return sessionpin.Pin{}, false
 	}
-	if found && !pinMatchesEffectiveStrategy(ctx, pin) {
+	if found && !pinMatchesEffectiveStrategy(strategy, pin) {
 		return sessionpin.Pin{}, false
 	}
 	return pin, found
 }
 
 func (s *Service) invalidatePostCommandContinuation(
-	ctx context.Context,
+	ctx context.Context, strategy router.Strategy,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
 ) error {
 	if s.pinStore == nil {
 		return nil
 	}
-	_, _, err := s.pinStore.Consume(context.WithoutCancel(ctx), sessionKey, conversation.CommandContinuationRole(role), router.StrategyFromContext(ctx))
+	_, _, err := s.pinStore.Consume(context.WithoutCancel(ctx), sessionKey, conversation.CommandContinuationRole(role), strategy)
 	if err != nil {
 		observability.FromContext(ctx).Error(
 			"post-command continuation invalidation failed",
