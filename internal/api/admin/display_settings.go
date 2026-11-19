@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"math"
 	"net/http"
 	"slices"
 	"time"
@@ -104,13 +105,17 @@ func ownSeats(ctx context.Context, seats SeatUsageReader) []ownSeatResponse {
 	for _, seat := range observed {
 		response = append(response, ownSeatResponse{
 			Provider:               seat.Provider,
-			PrimaryUsedPercent:     seat.Snapshot.Primary.UsedPercent * 100,
+			PrimaryUsedPercent:     usedPercent(seat.Snapshot.Primary.UsedPercent),
 			PrimaryWindowMinutes:   seat.Snapshot.Primary.WindowMinutes,
-			SecondaryUsedPercent:   seat.Snapshot.Secondary.UsedPercent * 100,
+			SecondaryUsedPercent:   usedPercent(seat.Snapshot.Secondary.UsedPercent),
 			SecondaryWindowMinutes: seat.Snapshot.Secondary.WindowMinutes,
 			OverageInUse:           seat.Snapshot.OverageInUse,
 			ObservedAt:             seat.Snapshot.ObservedAt,
 		})
 	}
 	return response
+}
+
+func usedPercent(fraction float64) float64 {
+	return math.Round(fraction*1000) / 10
 }
