@@ -12,6 +12,7 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
@@ -41,7 +42,7 @@ func (s *Service) routeCompaction(
 		return s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
 	}
 	res.SessionKey = sessionKey
-	if forceModelFound && forcedPinEligible(forceModelPin, req) {
+	if forceModelFound && candidates.ForcedPinEligible(forceModelPin, req) {
 		return s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
 	}
 	session := compactionSession{
@@ -100,7 +101,7 @@ func (st sessionStrikes) apply(req router.Request) router.Request {
 		for _, model := range st.demotedModels {
 			demoted[model] = struct{}{}
 		}
-		req.AutomaticExcludedModels = mergeExcludedModels(req.AutomaticExcludedModels, demoted)
+		req.AutomaticExcludedModels = candidates.MergeExcludedModels(req.AutomaticExcludedModels, demoted)
 	}
 	return req
 }
@@ -117,8 +118,8 @@ func (c compactionSession) decision(ctx context.Context, sessionKey [sessionpin.
 		if !found {
 			continue
 		}
-		strikes.disabledProviders = mergeSessionStrikes(strikes.disabledProviders, pin.DisabledProviders)
-		strikes.demotedModels = mergeSessionStrikes(strikes.demotedModels, pin.DemotedModels)
+		strikes.disabledProviders = candidates.MergeSessionStrikes(strikes.disabledProviders, pin.DisabledProviders)
+		strikes.demotedModels = candidates.MergeSessionStrikes(strikes.demotedModels, pin.DemotedModels)
 		if pinRole == role && !pin.PinnedUntil.After(c.now) {
 			continue
 		}
@@ -152,7 +153,7 @@ func (c compactionSession) decision(ctx context.Context, sessionKey [sessionpin.
 	fits := req.EstimatedInputTokens <= 0 ||
 		req.EstimatedInputTokens+contextWindowOutputReserve <= gatewayContextWindow(c.cortexGateways, model, binding.Provider)
 	struck := slices.Contains(strikes.disabledProviders, binding.Provider) || slices.Contains(strikes.demotedModels, model)
-	if !fits || struck || !automaticPinEligible(pin, req) {
+	if !fits || struck || !candidates.AutomaticPinEligible(pin, req) {
 		return router.Decision{}, strikes, false
 	}
 	return pinDecision(pin), strikes, true

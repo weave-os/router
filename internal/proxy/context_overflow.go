@@ -46,15 +46,6 @@ func isUpstreamContextOverflow(err error) bool {
 	return strings.Contains(body, "input token count") && strings.Contains(body, "exceeds the maximum")
 }
 
-func readmitForcedContextEstimate(req router.Request, model string) router.Request {
-	if _, estimateOnly := req.ContextWindowExcludedModels[model]; !estimateOnly {
-		return req
-	}
-	req.ExcludedModels = withoutModels(req.ExcludedModels, []string{model})
-	req.SafetyExcludedModels = withoutModels(req.SafetyExcludedModels, []string{model})
-	return req
-}
-
 func isContextOverflow(err error) bool {
 	return errors.Is(err, policy.ErrContextWindowExceeded) || isUpstreamContextOverflow(err)
 }

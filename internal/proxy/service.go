@@ -31,6 +31,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/bandswap"
 	"weave-os/router/internal/router/breaker"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/escalationdashboard"
@@ -708,7 +709,7 @@ func (s *Service) policyExcludedModels(ctx context.Context) map[string]struct{} 
 func (s *Service) excludedModelsFor(ctx context.Context, allowed map[string]struct{}) map[string]struct{} {
 	ineligible := s.productIneligibleModels(ctx)
 	if override := s.routing.ExcludedModelsOverride(); override != nil {
-		return mergeExcludedModels(override, ineligible)
+		return candidates.MergeExcludedModels(override, ineligible)
 	}
 	excluded := installationExcludedModelsFromContext(ctx)
 	out := make(map[string]struct{}, len(excluded))
@@ -1963,7 +1964,7 @@ func (s *Service) routeFor(ctx context.Context, req router.Request) (router.Deci
 	var err error
 	if denied, _ := ctx.Value(SessionCooldownProbeDeniedModelsContextKey{}).([]string); len(denied) > 0 {
 		for _, model := range denied {
-			req.ExcludedModels = excludingModel(req.ExcludedModels, model)
+			req.ExcludedModels = candidates.ExcludingModel(req.ExcludedModels, model)
 		}
 	}
 	req, err = s.applyTranslationPlan(ctx, req)
@@ -2018,9 +2019,9 @@ func hasTextUserBoundary(messages []router.ConversationMessage) bool {
 }
 
 func (s *Service) withPolicyRequestContext(ctx context.Context, req router.Request) router.Request {
-	req.AutomaticExcludedModels = mergeExcludedModels(req.AutomaticExcludedModels, s.globalAutomaticExcludedModels(ctx))
+	req.AutomaticExcludedModels = candidates.MergeExcludedModels(req.AutomaticExcludedModels, s.globalAutomaticExcludedModels(ctx))
 	req.ProductEligibility = entitlement.ModelBoundaryFromContext(ctx)
-	req.ExcludedModels = mergeExcludedModels(req.ExcludedModels, s.productIneligibleModels(ctx))
+	req.ExcludedModels = candidates.MergeExcludedModels(req.ExcludedModels, s.productIneligibleModels(ctx))
 	req.OrganizationID, _ = ctx.Value(ExternalIDContextKey{}).(string)
 	req.InstallationID = ""
 	if installationID := installationIDFromContext(ctx); installationID != uuid.Nil {
@@ -2513,7 +2514,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	inboundUserPrompt := routingEndsWithUserPrompt(ctx, env)
 	inboundLatestToolCalls := latestToolCallCountsJSON(env)
 
-	prefiltered := routingpolicy.Prefilter(routingpolicy.PrefilterRequest{
+	prefiltered := candidates.Prefilter(candidates.PrefilterRequest{
 		Envelope: env, ImageCount: feats.ImageCount, OutputReserve: outputReserve, Eligibility: eligibility,
 		Excluded: baseExcluded, Available: s.availableModels,
 		AdvisorExclusions: advisorExclusions(env, s.routableUniverse()), ExcludeAdvisorOutranking: true,
@@ -4132,7 +4133,7 @@ func (s *Service) excludeCodexOAuthOnlyModels(
 				}
 			}
 			if binding.Provider == providers.ProviderOpenAI {
-				excluded = excludingModel(excluded, model.ID)
+				excluded = candidates.ExcludingModel(excluded, model.ID)
 			}
 			break
 		}
@@ -4653,7 +4654,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	inboundLastUser := env.LastUserMessage()
 	inboundUserPromptOpenAI := routingEndsWithUserPrompt(ctx, env)
 
-	prefiltered := routingpolicy.Prefilter(routingpolicy.PrefilterRequest{
+	prefiltered := candidates.Prefilter(candidates.PrefilterRequest{
 		Envelope: env, ImageCount: feats.ImageCount, OutputReserve: outputReserveOAI, Eligibility: eligibility,
 		Excluded: baseExcludedOAI, Available: s.availableModels,
 		AdvisorExclusions: advisorExclusions(env, s.routableUniverse()),
@@ -5810,13 +5811,13 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 }
 
 func contextWindowForRequest(modelID string, provider ...string) int {
-	return routingpolicy.ContextWindow(modelID, provider...)
+	return candidates.ContextWindow(modelID, provider...)
 }
 
 func modelStripsAnthropicSignatures(model string) bool {
-	return routingpolicy.StripsAnthropicSignatures(model)
+	return candidates.StripsAnthropicSignatures(model)
 }
 
 func withoutModels(set map[string]struct{}, models []string) map[string]struct{} {
-	return routingpolicy.WithoutModels(set, models)
+	return candidates.WithoutModels(set, models)
 }

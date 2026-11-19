@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/routingpolicy"
@@ -55,12 +56,12 @@ func pinCacheCold(pin sessionpin.Pin, prefixBroken bool, now time.Time) bool {
 }
 
 func automaticallyDisabled(req router.Request, model string) bool {
-	return routingpolicy.AutomaticallyDisabled(req, model)
+	return candidates.AutomaticallyDisabled(req, model)
 }
 
-func maxedOutServedModel(pin sessionpin.Pin) string { return routingpolicy.MaxedOutServedModel(pin) }
+func maxedOutServedModel(pin sessionpin.Pin) string { return candidates.MaxedOutServedModel(pin) }
 
-func baseModelOf(servedIdentity string) string { return routingpolicy.BaseModelOf(servedIdentity) }
+func baseModelOf(servedIdentity string) string { return candidates.BaseModelOf(servedIdentity) }
 
 func stripEffortSuffix(model string) (effort string, modelOut string) {
 	return routingpolicy.StripEffortSuffix(model)

@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/taskarm"
@@ -65,7 +66,7 @@ func (turn *taskArmTurn) route(ctx context.Context, route turnRoute) taskArmRout
 		req.ForceCluster = turn.cluster
 		req.SkipSessionPin = true
 		for _, model := range control.SessionDemotedModels {
-			req.ExcludedModels = excludingModel(req.ExcludedModels, model)
+			req.ExcludedModels = candidates.ExcludingModel(req.ExcludedModels, model)
 		}
 		cappedRes, err := route(ctx, env, feats, apiKeyID, installationID, subAgentHint, reqHeaders, req)
 		if err != nil {

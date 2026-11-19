@@ -8,6 +8,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 
@@ -95,8 +96,8 @@ func TestAutomaticPinEligible_RejectsDisabledModelButForcedPinSurvives(t *testin
 	pin := sessionpin.Pin{Model: "claude-opus-5", Provider: providers.ProviderAnthropic}
 	req := automaticallyDisabledRequest("claude-opus-5")
 
-	assert.False(t, automaticPinEligible(pin, req))
-	assert.True(t, forcedPinEligible(pin, req),
+	assert.False(t, candidates.AutomaticPinEligible(pin, req))
+	assert.True(t, candidates.ForcedPinEligible(pin, req),
 		"a user-forced pin is the escape hatch that keeps a disabled model reachable")
 }
 

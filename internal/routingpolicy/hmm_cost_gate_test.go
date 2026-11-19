@@ -9,6 +9,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
@@ -108,8 +109,8 @@ func TestHMMCostGateNormalizeStayPinRejectsStalePins(t *testing.T) {
 
 func TestBaseModelOfStripsEffort(t *testing.T) {
 	gpt := string(catalog.ModelIDGPT55)
-	assert.Equal(t, gpt, routingpolicy.BaseModelOf(gpt+":high"))
-	assert.Equal(t, stayModel, routingpolicy.BaseModelOf(stayModel))
+	assert.Equal(t, gpt, candidates.BaseModelOf(gpt+":high"))
+	assert.Equal(t, stayModel, candidates.BaseModelOf(stayModel))
 }
 
 func TestHMMCostGateNormalizeStayPinSplitsServedEffort(t *testing.T) {

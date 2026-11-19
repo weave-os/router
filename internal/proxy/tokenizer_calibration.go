@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	candidatefilter "weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
@@ -121,7 +122,7 @@ func (s *Service) excludeObservedOverflowModels(ctx context.Context, req router.
 		"excluded_models", strings.Join(overWindow, ","),
 	)
 	for _, model := range overWindow {
-		req.ExcludedModels = excludingModel(req.ExcludedModels, model)
+		req.ExcludedModels = candidatefilter.ExcludingModel(req.ExcludedModels, model)
 		req.ContextWindowExcludedModels = addToSet(req.ContextWindowExcludedModels, model)
 		req.SafetyExcludedModels = addToSet(req.SafetyExcludedModels, model)
 	}

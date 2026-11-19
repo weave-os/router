@@ -8,6 +8,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -135,7 +136,7 @@ func TestRunTurnLoop_ForcedImageCapModel_ReachesProvider(t *testing.T) {
 		SafetyExcludedModels:     excludedModels,
 	}
 	pin := sessionpin.Pin{Provider: providers.ProviderDeepInfra, Model: model}
-	assert.True(t, forcedPinEligible(pin, req), "the explicit force must survive an image-count-only exclusion")
+	assert.True(t, candidates.ForcedPinEligible(pin, req), "the explicit force must survive an image-count-only exclusion")
 
 	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, req)
 	require.NoError(t, err)
@@ -159,7 +160,7 @@ func TestReadmitForcedImageLimitCopiesExcludedModels(t *testing.T) {
 		ImageLimitExcludedModels: map[string]struct{}{model: {}},
 	}
 
-	readmitted := readmitForcedImageLimit(req, model)
+	readmitted := candidates.ReadmitForcedImageLimit(req, model)
 
 	assert.Zero(t, readmitted.ImageCount)
 	assert.NotContains(t, readmitted.ExcludedModels, model)
@@ -173,11 +174,11 @@ func TestReadmitForcedImageLimitCopiesExcludedModels(t *testing.T) {
 func TestForcedPinEligible_RejectsTextOnlyModelOnImageTurn(t *testing.T) {
 	pin := sessionpin.Pin{Provider: providers.ProviderFireworks, Model: textOnlyForcedModel}
 
-	assert.False(t, forcedPinEligible(pin, router.Request{HasImages: true}),
+	assert.False(t, candidates.ForcedPinEligible(pin, router.Request{HasImages: true}),
 		"text-only forced pin must be ineligible for an image-bearing turn")
-	assert.True(t, forcedPinEligible(pin, router.Request{HasImages: false}),
+	assert.True(t, candidates.ForcedPinEligible(pin, router.Request{HasImages: false}),
 		"same pin stays eligible without images")
-	assert.True(t, forcedPinEligible(
+	assert.True(t, candidates.ForcedPinEligible(
 		sessionpin.Pin{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6"},
 		router.Request{HasImages: true}),
 		"an image-capable forced pin stays eligible on an image turn")
