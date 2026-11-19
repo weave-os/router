@@ -1,45 +1,107 @@
 {
-  "schema_version": "hmm_router_cluster_roster_v6",
+  "schema_version": "hmm_router_cluster_roster_v7",
   "ranking": {
     "alpha": {
       "low": 0.5,
       "balanced": 0.5,
       "high": 0.5
-    }
+    },
+    "alpha_min": {
+      "low": 0.05,
+      "balanced": 0.05,
+      "high": 0.05
+    },
+    "alpha_max": {
+      "low": 1.0,
+      "balanced": 1.0,
+      "high": 1.0
+    },
+    "quality_bias_neutral": 0.7,
+    "wii_score_version": "wii-v1",
+    "wii_normalization_sha256": "wii-sha",
+    "wpi_score_version": "wpi-v1",
+    "wpi_normalization_sha256": "wpi-sha"
   },
   "clusters": {
     "low": {
       "complexity_label": "low",
-      "arms": ["vendor-a/cheap", "vendor-b/cheap"],
+      "arms": [
+        "vendor-a/cheap",
+        "vendor-b/cheap"
+      ],
       "arms_by_harness": {
-        "claude-code": ["vendor-b/cheap", "vendor-a/cheap"]
+        "claude_code": [
+          "vendor-b/cheap",
+          "vendor-a/cheap"
+        ]
       },
       "cost_ref_usd": 0.01,
       "latency_ref_ms": 500,
       "arm_scores": {
         "vendor-a/cheap": 0.9,
         "vendor-b/cheap": 0.8
+      },
+      "arm_indices": {
+        "vendor-a/cheap": {
+          "wii_v1": 90.0,
+          "wpi_v1": 10
+        },
+        "vendor-b/cheap": {
+          "wii_v1": 80.0,
+          "wpi_v1": 10
+        }
       }
     },
     "balanced": {
       "complexity_label": "balanced",
-      "arms": ["vendor-a/mid", "vendor-b/mid", "vendor-a/cheap"],
+      "arms": [
+        "vendor-a/mid",
+        "vendor-b/mid",
+        "vendor-a/cheap"
+      ],
       "cost_ref_usd": 0.05,
       "latency_ref_ms": 900,
       "arm_scores": {
         "vendor-a/mid": 0.9,
         "vendor-b/mid": 0.85,
         "vendor-a/cheap": 0.6
+      },
+      "arm_indices": {
+        "vendor-a/mid": {
+          "wii_v1": 90.0,
+          "wpi_v1": 10
+        },
+        "vendor-b/mid": {
+          "wii_v1": 85.0,
+          "wpi_v1": 10
+        },
+        "vendor-a/cheap": {
+          "wii_v1": 60.0,
+          "wpi_v1": 10
+        }
       }
     },
     "high": {
       "complexity_label": "high",
-      "arms": ["vendor-a/top", "vendor-b/top"],
+      "arms": [
+        "vendor-a/top",
+        "vendor-b/top"
+      ],
       "cost_ref_usd": 0.2,
       "latency_ref_ms": 2000,
       "arm_scores": {
         "vendor-a/top": 0.95,
         "vendor-b/top": 0.9
+      },
+      "arm_indices": {
+        "vendor-a/top": {
+          "wii_v1": 95.0,
+          "wpi_v1": 10
+        },
+        "vendor-b/top": {
+          "wii_v1": 90.0,
+          "wpi_v1": 10
+        }
       }
     }
   }

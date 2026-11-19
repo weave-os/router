@@ -23,7 +23,7 @@ func candidateSet(ids ...string) map[string]struct{} {
 
 func testRoster() *rosterdata.Roster {
 	return &rosterdata.Roster{
-		SchemaVersion: rosterdata.SchemaVersionV6,
+		SchemaVersion: rosterdata.SchemaVersionPolicyV1,
 		Clusters: map[string]rosterdata.Cluster{
 			"low": {
 				Arms: []string{"vendor-a/cheap", "vendor-b/cheap"},
@@ -79,18 +79,18 @@ func TestSelectGroupsWithPreferenceReweightsWithinClassifierBand(t *testing.T) {
 	groups := []selection.Group{{Label: "low"}}
 
 	neutral := 0.7
-	pick, scores, ok := selection.SelectGroupsWithPreference(roster, groups, "", candidates, &neutral)
+	pick, scores, _, _, ok := selection.SelectGroupsWithSubscriptions(roster, groups, "", nil, candidates, &neutral, nil, nil, nil)
 	require.True(t, ok)
 	assert.Equal(t, "vendor-a/quality", pick.Arm)
 	assert.InDelta(t, float32(30), scores["low"]["vendor-a/quality"], 1e-9)
 
 	priceHeavy := 0.0
-	pick, _, ok = selection.SelectGroupsWithPreference(roster, groups, "", candidates, &priceHeavy)
+	pick, _, _, _, ok = selection.SelectGroupsWithSubscriptions(roster, groups, "", nil, candidates, &priceHeavy, nil, nil, nil)
 	require.True(t, ok)
 	assert.Equal(t, "vendor-b/cheap", pick.Arm)
 
 	qualityHeavy := 1.0
-	pick, _, ok = selection.SelectGroupsWithPreference(roster, groups, "", candidates, &qualityHeavy)
+	pick, _, _, _, ok = selection.SelectGroupsWithSubscriptions(roster, groups, "", nil, candidates, &qualityHeavy, nil, nil, nil)
 	require.True(t, ok)
 	assert.Equal(t, "vendor-a/quality", pick.Arm)
 }
@@ -104,11 +104,11 @@ func TestSelectGroupsWithPreferencePreservesPolicyTiers(t *testing.T) {
 	qualityHeavy := 1.0
 	candidates := candidateSet("vendor-a/quality", "vendor-b/cheap")
 
-	pick, _, ok := selection.SelectGroupsWithPreference(roster, []selection.Group{{Label: "low"}}, "pi", candidates, &qualityHeavy)
+	pick, _, _, _, ok := selection.SelectGroupsWithSubscriptions(roster, []selection.Group{{Label: "low"}}, "pi", nil, candidates, &qualityHeavy, nil, nil, nil)
 	require.True(t, ok)
 	assert.Equal(t, "vendor-b/cheap", pick.Arm, "manual pin must outrank the dynamic score")
 
-	pick, _, ok = selection.SelectGroupsWithPreference(roster, []selection.Group{{Label: "low"}}, "codex", candidates, &qualityHeavy)
+	pick, _, _, _, ok = selection.SelectGroupsWithSubscriptions(roster, []selection.Group{{Label: "low"}}, "codex", nil, candidates, &qualityHeavy, nil, nil, nil)
 	require.True(t, ok)
 	assert.Equal(t, "vendor-b/cheap", pick.Arm, "vendor affinity must outrank the dynamic score")
 }
@@ -125,12 +125,16 @@ func TestSelectGroupsWithPreferenceKeepsFallbackOrder(t *testing.T) {
 	roster.Ranking.AlphaMax["high"] = 0.98
 	qualityHeavy := 1.0
 
-	pick, _, ok := selection.SelectGroupsWithPreference(
+	pick, _, _, _, ok := selection.SelectGroupsWithSubscriptions(
 		roster,
 		[]selection.Group{{Label: "low"}, {Label: "high"}},
 		"",
+		nil,
 		candidateSet("vendor-a/quality", "vendor-c/high"),
 		&qualityHeavy,
+		nil,
+		nil,
+		nil,
 	)
 	require.True(t, ok)
 	assert.Equal(t, "low", pick.Group)
@@ -175,7 +179,7 @@ func TestArmOrderOpenCodeHarness(t *testing.T) {
 	assert.True(t, harnessSpecific)
 	assert.Equal(t, []string{"vendor-b/cheap", "vendor-a/cheap"}, order)
 
-	pick, ok := selection.Select(roster, []string{"low"}, policy.HarnessOpenCode, candidateSet("vendor-a/cheap", "vendor-b/cheap"))
+	pick, _, _, _, ok := selection.SelectGroupsWithSubscriptions(roster, rankedGroups([]string{"low"}), policy.HarnessOpenCode, nil, candidateSet("vendor-a/cheap", "vendor-b/cheap"), nil, nil, nil, nil)
 	require.True(t, ok)
 	assert.Equal(t, selection.Pick{Group: "low", Arm: "vendor-b/cheap", HarnessOrder: true}, pick)
 }
@@ -273,7 +277,7 @@ func TestSelect(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			pick, ok := selection.Select(roster, tc.rankedGroups, tc.harness, tc.candidates)
+			pick, _, _, _, ok := selection.SelectGroupsWithSubscriptions(roster, rankedGroups(tc.rankedGroups), tc.harness, nil, tc.candidates, nil, nil, nil, nil)
 			require.Equal(t, tc.wantOK, ok)
 			if tc.wantOK {
 				assert.Equal(t, tc.want, pick)
@@ -285,10 +289,10 @@ func TestSelect(t *testing.T) {
 func TestSelectIsDeterministic(t *testing.T) {
 	roster := testRoster()
 	candidates := candidateSet("vendor-a/mid", "vendor-b/mid", "vendor-a/cheap", "vendor-b/cheap")
-	first, ok := selection.Select(roster, []string{"balanced", "low"}, "", candidates)
+	first, _, _, _, ok := selection.SelectGroupsWithSubscriptions(roster, rankedGroups([]string{"balanced", "low"}), "", nil, candidates, nil, nil, nil, nil)
 	require.True(t, ok)
 	for range 100 {
-		pick, ok := selection.Select(roster, []string{"balanced", "low"}, "", candidates)
+		pick, _, _, _, ok := selection.SelectGroupsWithSubscriptions(roster, rankedGroups([]string{"balanced", "low"}), "", nil, candidates, nil, nil, nil, nil)
 		require.True(t, ok)
 		require.Equal(t, first, pick)
 	}
@@ -334,7 +338,7 @@ func TestSelectParityFixture(t *testing.T) {
 		{
 			name:         "harness order overrides the pooled order",
 			rankedGroups: []string{"low", "balanced", "high"},
-			harness:      "claude-code",
+			harness:      "claude_code",
 			candidates:   []string{"vendor-a/cheap", "vendor-b/cheap"},
 			wantGroup:    "low",
 			wantArm:      "vendor-b/cheap",
@@ -343,10 +347,18 @@ func TestSelectParityFixture(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			pick, ok := selection.Select(roster, tc.rankedGroups, tc.harness, candidateSet(tc.candidates...))
+			pick, _, _, _, ok := selection.SelectGroupsWithSubscriptions(roster, rankedGroups(tc.rankedGroups), tc.harness, nil, candidateSet(tc.candidates...), nil, nil, nil, nil)
 			require.True(t, ok)
 			assert.Equal(t, tc.wantGroup, pick.Group)
 			assert.Equal(t, tc.wantArm, pick.Arm)
 		})
 	}
+}
+
+func rankedGroups(labels []string) []selection.Group {
+	groups := make([]selection.Group, 0, len(labels))
+	for _, label := range labels {
+		groups = append(groups, selection.Group{Label: label})
+	}
+	return groups
 }

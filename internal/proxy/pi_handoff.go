@@ -16,7 +16,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
@@ -156,7 +156,7 @@ func (s *Service) finishHandoffPreparation(ctx context.Context, w http.ResponseW
 	if prepared.Complexity == "" && route.Decision.Model == route.PinModel {
 		prepared.Complexity = route.PinPolicyGroup
 	}
-	previousModel, previousEffort := hmm.SplitEffort(route.PriorServedModel)
+	previousModel, previousEffort := armid.SplitEffort(route.PriorServedModel)
 	previousProvider := ""
 	if route.PinModel == previousModel {
 		previousProvider = route.PinProvider

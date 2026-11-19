@@ -3,6 +3,7 @@ package hmm
 import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm/armid"
 )
 
 // Deprecated: silent-drop let inert roster arms skew production routing; replaced
@@ -12,7 +13,7 @@ import (
 func DeployedModelsForRosterIDs(rosterIDs []string) []router.DeployedEntry {
 	inverse := make(map[string]catalog.Model, len(catalog.Models))
 	for _, m := range catalog.Models {
-		rosterID := rosterIDFor(m)
+		rosterID := armid.ForModel(m)
 		if rosterID == "" {
 			continue
 		}
@@ -24,7 +25,7 @@ func DeployedModelsForRosterIDs(rosterIDs []string) []router.DeployedEntry {
 	out := make([]router.DeployedEntry, 0, len(rosterIDs))
 	seen := make(map[string]struct{}, len(rosterIDs))
 	for _, rosterID := range rosterIDs {
-		baseID, _ := SplitEffort(rosterID)
+		baseID, _ := armid.SplitEffort(rosterID)
 		m, ok := inverse[baseID]
 		if !ok {
 			continue

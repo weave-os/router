@@ -11,7 +11,7 @@ arm at all.
 
 ## Why
 
-The roster↔catalog binding (`internal/router/hmm/mapping.go`,
+The roster↔catalog binding (`internal/router/hmm/armid/mapping.go`,
 `internal/router/hmm/roster.go`) historically dropped unknown roster IDs
 silently. One inert roster arm caused a production incident: 19.8% of
 balanced-cluster turns fell through to maximum-tier arms ($821 of $1,022
@@ -24,7 +24,7 @@ class and shrinks the sidecar's authority to what only it can do: ML inference.
 | Concern | Owner |
 |---|---|
 | Roster contents (`hmm_router_cluster_roster_v7` JSON) | Declarative data, loaded and fail-loud validated by Go at boot (`internal/router/hmm/rosterdata`) |
-| Roster↔catalog validation | Go: `hmm.ValidateRosterIDs` (`internal/router/hmm/validate.go`) plus the `validate-roster` CLI for CI |
+| Roster↔catalog validation | Go: `armid.ValidateRosterIDs` (`internal/router/hmm/armid/validate.go`) plus the `validate-roster` CLI for CI |
 | Within-cluster deterministic arm selection (harness policy, preference-adjusted WII/WPI ranking, ranked cluster-fallback walk) | Go: `internal/router/hmm/selection` |
 | Complexity classification (ML) | Python sidecar (`policy_router_v3` contract) |
 | Ranked cluster fallback (per-group probability, roster arms, eligible arms) | Python sidecar — the only selection input the router accepts |

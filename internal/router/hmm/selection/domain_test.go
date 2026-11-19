@@ -104,7 +104,7 @@ func TestDomainScoresFollowWeightedRecipeForAllMasks(t *testing.T) {
 		for bit, domain := range []selection.Domain{selection.DomainUI, selection.DomainLogic, selection.DomainData, selection.DomainInfra, selection.DomainDocs} {
 			profile[domain] = mask&(1<<bit) != 0
 		}
-		pick, scores, components, order, ok := selection.SelectGroupsWithDomainPreferences(roster, groups, "", candidates, nil, nil, evidence, profile)
+		pick, scores, components, order, ok := selection.SelectGroupsWithSubscriptions(roster, groups, "", nil, candidates, nil, nil, evidence, profile)
 		require.True(t, ok)
 		assert.ElementsMatch(t, roster.Clusters["low"].Arms, order["low"])
 		for arm, base := range map[string]float64{"vendor-a/quality": 30, "vendor-b/cheap": 25} {
@@ -154,9 +154,16 @@ func TestDomainArmWithoutRelevantScoresKeepsItsScore(t *testing.T) {
 	cell := evidence.Arms["vendor-b/cheap"]
 	cell.Benchmarks = map[selection.Benchmark]float64{selection.BenchmarkAnalystAgent: 100}
 	evidence.Arms["vendor-b/cheap"] = cell
-	_, scores, components, _, ok := selection.SelectGroupsWithDomainPreferences(
-		roster, []selection.Group{{Label: "low"}}, "", candidateSet("vendor-a/quality", "vendor-b/cheap"),
-		nil, nil, evidence, fullProfile(selection.DomainLogic),
+	_, scores, components, _, ok := selection.SelectGroupsWithSubscriptions(
+		roster,
+		[]selection.Group{{Label: "low"}},
+		"",
+		nil,
+		candidateSet("vendor-a/quality", "vendor-b/cheap"),
+		nil,
+		nil,
+		evidence,
+		fullProfile(selection.DomainLogic),
 	)
 	require.True(t, ok)
 	assert.InDelta(t, float32(25), scores["low"]["vendor-b/cheap"], 1e-9)
@@ -169,12 +176,28 @@ func TestDomainWithoutEvidencePreservesExistingSelection(t *testing.T) {
 	groups := []selection.Group{{Label: "low"}}
 	candidates := candidateSet("vendor-a/quality", "vendor-b/cheap")
 	qualityBias := 0.8
-	baselinePick, baselineScores, baselineComponents, baselineOrder, baselineOK := selection.SelectGroupsWithPreferences(
-		roster, groups, "", candidates, &qualityBias, []string{"vendor-b/cheap"},
+	baselinePick, baselineScores, baselineComponents, baselineOrder, baselineOK := selection.SelectGroupsWithSubscriptions(
+		roster,
+		groups,
+		"",
+		nil,
+		candidates,
+		&qualityBias,
+		[]string{"vendor-b/cheap"},
+		nil,
+		nil,
 	)
 	for _, profile := range []selection.DomainProfile{nil, fullProfile(selection.DomainInfra)} {
-		pick, scores, components, order, ok := selection.SelectGroupsWithDomainPreferences(
-			roster, groups, "", candidates, &qualityBias, []string{"vendor-b/cheap"}, nil, profile,
+		pick, scores, components, order, ok := selection.SelectGroupsWithSubscriptions(
+			roster,
+			groups,
+			"",
+			nil,
+			candidates,
+			&qualityBias,
+			[]string{"vendor-b/cheap"},
+			nil,
+			profile,
 		)
 		assert.Equal(t, baselineOK, ok)
 		assert.Equal(t, baselinePick, pick)
@@ -194,16 +217,16 @@ func TestDomainRetainsPinVendorAndEligibility(t *testing.T) {
 	profile := fullProfile(selection.DomainInfra)
 	groups := []selection.Group{{Label: "low"}}
 	candidates := candidateSet("vendor-a/quality", "vendor-b/cheap")
-	pick, _, _, _, ok := selection.SelectGroupsWithDomainPreferences(roster, groups, "", candidates, nil, nil, evidence, profile)
+	pick, _, _, _, ok := selection.SelectGroupsWithSubscriptions(roster, groups, "", nil, candidates, nil, nil, evidence, profile)
 	require.True(t, ok)
 	assert.Equal(t, "vendor-b/cheap", pick.Arm)
-	pick, _, _, _, ok = selection.SelectGroupsWithDomainPreferences(roster, groups, "pi", candidates, nil, nil, evidence, profile)
+	pick, _, _, _, ok = selection.SelectGroupsWithSubscriptions(roster, groups, "pi", nil, candidates, nil, nil, evidence, profile)
 	require.True(t, ok)
 	assert.Equal(t, "vendor-a/quality", pick.Arm)
-	pick, _, _, _, ok = selection.SelectGroupsWithDomainPreferences(roster, groups, "codex", candidates, nil, nil, evidence, profile)
+	pick, _, _, _, ok = selection.SelectGroupsWithSubscriptions(roster, groups, "codex", nil, candidates, nil, nil, evidence, profile)
 	require.True(t, ok)
 	assert.Equal(t, "vendor-a/quality", pick.Arm)
-	pick, _, _, _, ok = selection.SelectGroupsWithDomainPreferences(roster, groups, "", candidateSet("vendor-a/quality"), nil, nil, evidence, profile)
+	pick, _, _, _, ok = selection.SelectGroupsWithSubscriptions(roster, groups, "", nil, candidateSet("vendor-a/quality"), nil, nil, evidence, profile)
 	require.True(t, ok)
 	assert.Equal(t, "vendor-a/quality", pick.Arm)
 }
@@ -220,9 +243,16 @@ func TestDomainZeroCorrectionKeepsNeutralOrder(t *testing.T) {
 		}
 		evidence.Arms[arm] = cell
 	}
-	pick, scores, _, orders, ok := selection.SelectGroupsWithDomainPreferences(
-		roster, []selection.Group{{Label: "low"}}, "pi", candidateSet("vendor-a/quality", "vendor-b/cheap"),
-		nil, nil, evidence, fullProfile(selection.DomainInfra),
+	pick, scores, _, orders, ok := selection.SelectGroupsWithSubscriptions(
+		roster,
+		[]selection.Group{{Label: "low"}},
+		"pi",
+		nil,
+		candidateSet("vendor-a/quality", "vendor-b/cheap"),
+		nil,
+		nil,
+		evidence,
+		fullProfile(selection.DomainInfra),
 	)
 	require.True(t, ok)
 	assert.Equal(t, "vendor-a/quality", pick.Arm)
@@ -235,9 +265,16 @@ func TestDomainKeepsUserQualityPreference(t *testing.T) {
 	evidence := domainEvidenceForTest(t, roster)
 	profile := fullProfile(selection.DomainLogic)
 	priceHeavy := 0.0
-	_, scores, _, _, ok := selection.SelectGroupsWithDomainPreferences(
-		roster, []selection.Group{{Label: "low"}}, "", candidateSet("vendor-a/quality", "vendor-b/cheap"),
-		&priceHeavy, nil, evidence, profile,
+	_, scores, _, _, ok := selection.SelectGroupsWithSubscriptions(
+		roster,
+		[]selection.Group{{Label: "low"}},
+		"",
+		nil,
+		candidateSet("vendor-a/quality", "vendor-b/cheap"),
+		&priceHeavy,
+		nil,
+		evidence,
+		profile,
 	)
 	require.True(t, ok)
 	alpha := roster.Ranking.AlphaMin["low"]
@@ -310,7 +347,7 @@ func TestDomainInvalidEvidencePreservesBaseline(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			evidence := domainEvidenceForTest(t, roster)
 			test.mutate(evidence)
-			pick, scores, _, order, ok := selection.SelectGroupsWithDomainPreferences(roster, groups, "", candidates, nil, nil, evidence, profile)
+			pick, scores, _, order, ok := selection.SelectGroupsWithSubscriptions(roster, groups, "", nil, candidates, nil, nil, evidence, profile)
 			require.True(t, ok)
 			assert.Equal(t, "vendor-a/quality", pick.Arm)
 			assert.InDelta(t, float32(30), scores["low"]["vendor-a/quality"], 1e-9)
@@ -337,9 +374,16 @@ func TestDomainUnlistedScoredArmPreservesBaseline(t *testing.T) {
 			cluster := roster.Clusters["low"]
 			test.addToMap(&cluster)
 			roster.Clusters["low"] = cluster
-			pick, scores, _, _, ok := selection.SelectGroupsWithDomainPreferences(
-				roster, []selection.Group{{Label: "low"}}, "", candidateSet("vendor-a/quality", "vendor-b/cheap"),
-				test.bias, nil, evidence, fullProfile(selection.DomainInfra),
+			pick, scores, _, _, ok := selection.SelectGroupsWithSubscriptions(
+				roster,
+				[]selection.Group{{Label: "low"}},
+				"",
+				nil,
+				candidateSet("vendor-a/quality", "vendor-b/cheap"),
+				test.bias,
+				nil,
+				evidence,
+				fullProfile(selection.DomainInfra),
 			)
 			require.True(t, ok)
 			assert.Equal(t, "vendor-a/quality", pick.Arm)
