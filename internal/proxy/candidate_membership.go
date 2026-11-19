@@ -8,8 +8,8 @@ import (
 )
 
 func logCandidateViolation(ctx context.Context, strategy router.Strategy, req router.Request, decision router.Decision) {
-	violated, found := req.Candidates.HardFilterViolation(decision.Model)
-	if !found {
+	violated, hasViolation := req.Candidates.HardFilterViolation(decision.Model)
+	if !hasViolation {
 		return
 	}
 	observability.FromContext(ctx).Warn("Strategy returned a model outside the filtered candidate set",

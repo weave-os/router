@@ -36,10 +36,10 @@ func TestCandidatesHardFilterViolationNamesOnlySetsEveryStrategyEnforces(t *test
 		"image":           "",
 		"automatic":       "",
 	} {
-		violated, found := candidates.HardFilterViolation(model)
+		violated, hasViolation := candidates.HardFilterViolation(model)
 		assert.Equal(t, want, violated, model)
-		assert.Equal(t, want != "", found, model)
+		assert.Equal(t, want != "", hasViolation, model)
 	}
-	_, found := router.Candidates{}.HardFilterViolation("any-model")
-	assert.False(t, found, "an empty candidate set constrains nothing")
+	_, hasViolation := router.Candidates{}.HardFilterViolation("any-model")
+	assert.False(t, hasViolation, "an empty candidate set constrains nothing")
 }
