@@ -23,41 +23,34 @@ func newFlagTestService() *proxy.Service {
 
 func TestResolversFallBackToDeploymentDefault(t *testing.T) {
 	svc := newFlagTestService().
-		WithStruggleShadowConfig(true).
-		WithSpiralShadowConfig(false).
-		WithLoopEscalationConfig(true, 10).
+		WithTurnSignalCapture(true).
+		WithTextRepetitionBreak(false).
 		WithSiblingFailover(false)
 
 	ctx := context.Background()
-	assert.True(t, svc.ResolveStruggleShadowEnabled(ctx))
-	assert.False(t, svc.ResolveSpiralShadowEnabled(ctx))
-	assert.True(t, svc.ResolveLoopEscalationEnabled(ctx))
-	assert.Equal(t, 10, svc.ResolveLoopEscalationHoldoutPct(ctx))
+	assert.True(t, svc.ResolveTurnSignalCaptureEnabled(ctx))
+	assert.False(t, svc.ResolveTextRepetitionBreakEnabled(ctx))
 	assert.False(t, svc.ResolveSiblingFailover(ctx))
 }
 
 func TestPerOrgOverrideBeatsDeploymentDefault(t *testing.T) {
-	// The motivating case: the deployment ships the struggle detector on, and one
-	// organization turns it off (and vice versa for a default-off flag).
 	svc := newFlagTestService().
-		WithStruggleShadowConfig(true).
+		WithTurnSignalCapture(true).
 		WithSiblingFailover(false).
-		WithLoopEscalationConfig(true, 10)
+		WithTextRepetitionBreak(true)
 
 	ctx := flags.WithOverrides(context.Background(), flags.Overrides{
 		Bools: map[flags.Key]bool{
-			flags.KeyStruggleShadowEnabled: false,
-			flags.KeySiblingFailover:       true,
+			flags.KeyTurnSignalCapture: false,
+			flags.KeySiblingFailover:   true,
 		},
-		Ints: map[flags.Key]int{flags.KeyLoopEscalationHoldoutPct: 100},
 	})
 
-	assert.False(t, svc.ResolveStruggleShadowEnabled(ctx), "org override should turn a default-on flag off")
+	assert.False(t, svc.ResolveTurnSignalCaptureEnabled(ctx), "org override should turn a default-on flag off")
 	assert.True(t, svc.ResolveSiblingFailover(ctx), "org override should turn a default-off flag on")
-	assert.Equal(t, 100, svc.ResolveLoopEscalationHoldoutPct(ctx))
 
 	// An unoverridden flag on the same context keeps its deployment default.
-	assert.True(t, svc.ResolveLoopEscalationEnabled(ctx))
+	assert.True(t, svc.ResolveTextRepetitionBreakEnabled(ctx))
 }
 
 func TestCCTaskToolsCrossVendorResolution(t *testing.T) {

@@ -9,7 +9,6 @@ import (
 	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/translate"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -134,45 +133,6 @@ func TestApplyTurnSignalTelemetry_NilParamsIsNoOp(t *testing.T) {
 	})
 }
 
-type recordingSpiralStore struct {
-	events []conversation.SpiralShadowEvent
-}
-
-func (s *recordingSpiralStore) InsertSpiralShadowEvent(_ context.Context, event conversation.SpiralShadowEvent) error {
-	s.events = append(s.events, event)
-	return nil
-}
-
-func (s *recordingSpiralStore) CountSpiralShadowEvents(_ context.Context, _ []byte, _, _ string) (int64, error) {
-	return 0, nil
-}
-
-func TestHandleSpiralShadow_RespectsPrivacySettings(t *testing.T) {
-	tests := []struct {
-		name            string
-		trainingAllowed bool
-		capture         ContentCaptureMode
-		wantEvents      int
-	}{
-		{"allowed", true, CaptureFull, 1},
-		{"AI training opted out", false, CaptureFull, 0},
-		{"zero retention", true, CaptureOff, 0},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			store := &recordingSpiralStore{}
-			service := &Service{spiralTracker: conversation.NewSpiralTracker(), spiralShadowStore: store}
-			var sessionKey [16]byte
-			service.handleSpiralShadow(context.Background(), sampleSignals(),
-				[]conversation.SpiralReason{conversation.SpiralReasonErrStreak}, uuid.New(), sessionKey,
-				"default", "test-model", "tool_result", tc.trainingAllowed, tc.capture)
-			assert.Len(t, store.events, tc.wantEvents)
-		})
-	}
-}
-
-// memorySessionTurnClock keeps the latest finish per session, like the
-// Postgres upsert, and returns the finish it replaced.
 type memorySessionTurnClock struct {
 	finishes map[string]SessionTurnClockReading
 }

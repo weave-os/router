@@ -1488,29 +1488,6 @@ func buildCyclicLoopBody(t *testing.T, nFiles, total int) []byte {
 
 // A user's explicit /force-model choice outranks auto-escalation: a cyclic
 // loop must not replace the user_forced pin with opus.
-func TestService_LoopEscalation_DoesNotOverwriteUserForcedPin(t *testing.T) {
-	store := newFakePinStore()
-	store.hasPin = true
-	store.pin = sessionpin.Pin{
-		Provider:    providers.ProviderAnthropic,
-		Model:       "claude-haiku-4-5",
-		Reason:      translate.ReasonUserForceModel,
-		PinnedUntil: time.Now().Add(30 * time.Minute),
-	}
-	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster:v0.65"}}
-	svc := newPinSvc(fr, store)
-
-	ctx := authedCtx(uuid.New().String())
-	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
-	require.NoError(t, svc.ProxyMessages(ctx, buildCyclicLoopBody(t, 5, 26), rec, httpReq))
-
-	for _, p := range store.upserts {
-		assert.NotEqual(t, translate.ReasonLoopEscalation, p.Reason, "escalation must not overwrite a user_forced pin")
-	}
-	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel), "session stays on the user's forced model, not opus")
-}
-
 // A forced pin whose provider isn't in EnabledProviders must not be served —
 // otherwise the router dispatches to a provider the request has no creds for.
 func TestService_UserForcedPin_IneligibleProviderFallsThrough(t *testing.T) {

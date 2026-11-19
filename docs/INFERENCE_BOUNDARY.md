@@ -79,7 +79,7 @@ The checker flags raw `net/http` calls outside provider adapters when their comp
 
 ## Feature-Owned Target Baseline
 
-The reviewed exception manifest records the current utility hard pin, handover model, compaction default and large-window candidate, loop-escalation target, direct `router.Decision` constructions in proxy, and all direct provider calls. Each entry has an owner, rationale, operation class, and removal phase. These are migration debt, not precedent; baseline additions require an owned manifest diff.
+The reviewed exception manifest records the current utility hard pin, handover model, compaction default and large-window candidate, direct `router.Decision` constructions in proxy, and all direct provider calls. Each entry has an owner, rationale, operation class, and removal phase. These are migration debt, not precedent; baseline additions require an owned manifest diff.
 
 ## Existing Behavior Tests
 

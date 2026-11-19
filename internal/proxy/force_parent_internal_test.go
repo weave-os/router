@@ -111,37 +111,3 @@ func TestForceParentDoesNotOverrideChildCompaction(t *testing.T) {
 	assert.Equal(t, baseline.Decision.Model, child.Decision.Model, "a parent force must not change the child's compaction model")
 	assert.NotEqual(t, translate.ReasonUserForceModel, child.Decision.Reason)
 }
-
-func TestForceParentPreservesChildLoopRescue(t *testing.T) {
-	for _, test := range []struct {
-		name       string
-		parentOnly bool
-		child      bool
-		wantAction string
-	}{
-		{"parent-only child", true, true, loopActionEscalated},
-		{"parent-only parent", true, false, loopActionUserForced},
-		{"conversation-wide child", false, true, loopActionUserForced},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			ctx := context.Background()
-			installationID := uuid.New()
-			threadKey, controlKey := loopTestKey(50), loopTestKey(51)
-			store := newForceModelMapStore()
-			events := &recordingLoopStore{}
-			svc := NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil).WithLoopEscalationStore(events)
-			_, _, err := svc.applyForceModelCommand(ctx, router.StrategyFromContext(ctx), translate.ForceModelResult{Model: catalog.ModelIDClaudeSonnet46.String(), ParentOnly: test.parentOnly}, installationID, threadKey, controlKey)
-			require.NoError(t, err)
-			svc.handleLoopEscalation(ctx, loopTestSig, 24, 0.2, 30, sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: installationID, sessionKey: threadKey}, sessionpin.DefaultRole, catalog.ModelIDClaudeHaiku45.String(), test.child, controlKey)
-			require.Len(t, events.events, 1)
-			assert.Equal(t, test.wantAction, events.events[0].Action)
-			if test.wantAction == loopActionEscalated {
-				assert.Equal(t, catalog.ModelIDClaudeHaiku45.String(), events.events[0].LoopingModel)
-				pin, found, err := store.Get(ctx, threadKey, sessionpin.DefaultRole)
-				require.NoError(t, err)
-				require.True(t, found)
-				assert.Equal(t, escalateModel, pin.Model)
-			}
-		})
-	}
-}

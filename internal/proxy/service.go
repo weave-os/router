@@ -144,18 +144,9 @@ type Service struct {
 	earlyStopRedo                  flags.EarlyStopRedoMode
 	ccWorkspaceSystemAppend        bool
 	bandSwap                       *bandswap.Classifier
-	loopEscalationEnabled          bool
-	loopEscalationHoldoutPct       int
-	loopEscalationStore            conversation.LoopEscalationStore
-	spiralShadowEnabled            bool
 
 	turnSignalCaptureEnabled     bool
 	textRepetitionBreakEnabled   bool
-	spiralTracker                *conversation.SpiralTracker
-	struggleShadowEnabled        bool
-	struggleTracker              *conversation.StruggleTracker
-	struggleShadowStore          conversation.StruggleShadowStore
-	spiralShadowStore            conversation.SpiralShadowStore
 	feedbackStore                RouterFeedbackStore
 	summarizer                   handover.Summarizer
 	webSearch                    websearch.Executor
@@ -1041,11 +1032,7 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		searchRequirementDecayTurns:    DefaultSearchRequirementDecayTurns,
 		compaction:                     conversation.NewCompactionTracker(),
 		prefixTrimFreeSwitch:           true,
-		spiralTracker:                  conversation.NewSpiralTracker(),
-		spiralShadowEnabled:            true,
 		turnSignalCaptureEnabled:       true,
-		struggleTracker:                conversation.NewStruggleTracker(),
-		struggleShadowEnabled:          true,
 		textRepetitionBreakEnabled:     true,
 		ccOrchToolsCrossVendor:         true,
 		hardPinExplore:                 hardPinExplore,
@@ -1054,7 +1041,6 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		telemetry:                      telemetry,
 		continuityConfig:               continuity.DefaultConfig(),
 		hmmConfig:                      hmm.DefaultConfig(),
-		loopEscalationEnabled:          true,
 		cyberRefusalRepin:              true,
 		cyberRefusalRetry:              true,
 		anthropicServerSideFallback:    true,
@@ -2355,17 +2341,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 	}
 
-	if !agentShadowMode && !callerModelPassthroughActive(ctx) && handoffFromContext(ctx) == nil {
-		if cyc, csig, ccount, cratio, cwin := conversation.DetectCyclicToolCallLoop(env); cyc {
-			loopRole := roleForTier(catalog.TierFor(feats.Model))
-			s.handleLoopEscalation(ctx, csig, ccount, cratio, cwin, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, loopRole, feats.Model, turntype.IsSubAgent(env, subAgentHintForRequest(ctx, r.Header.Get("x-weave-subagent-type")), openCodeCaller(ClientIdentityFrom(ctx))), forceModelSessionKey)
-		}
-	}
-
 	var inboundSpiralSignals conversation.SpiralSignals
 	var inboundSpiralReasons []conversation.SpiralReason
-	inboundSpiralComputed := s.ResolveSpiralShadowEnabled(ctx) ||
-		s.ResolveTurnSignalCaptureEnabled(ctx)
+	inboundSpiralComputed := s.ResolveTurnSignalCaptureEnabled(ctx)
 	if inboundSpiralComputed {
 		inboundSpiralSignals = conversation.ComputeSpiralSignals(env, feats.MessageCount)
 		inboundSpiralReasons = conversation.SpiralReasons(inboundSpiralSignals)
@@ -2568,28 +2546,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if looped, count, sampleHash := conversation.DetectTextRepetition(env); looped {
 			role := roleForTier(catalog.TierFor(feats.Model))
 			return s.handleTextRepetitionBreak(ctx, w, env, count, sampleHash, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: routeRes.SessionKey}, role, decision.Model, decision.Provider, feats.Tokens)
-		}
-	}
-
-	if !agentShadowMode && s.ResolveSpiralShadowEnabled(ctx) && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
-		if len(inboundSpiralReasons) > 0 {
-			role := roleForTier(catalog.TierFor(feats.Model))
-			s.handleSpiralShadow(ctx, inboundSpiralSignals, inboundSpiralReasons,
-				facts.InstallationID, sessionKey, role, decision.Model, string(tt),
-				policyTrainingAllowedForRequest(ctx), s.effectiveCaptureMode(ctx))
-		}
-	}
-
-	if !agentShadowMode && s.ResolveStruggleShadowEnabled(ctx) && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
-		var wall time.Duration
-		if !routeRes.PinFirstPinnedAt.IsZero() {
-			wall = s.clock.Now().Sub(routeRes.PinFirstPinnedAt)
-		}
-		if reasons := conversation.StruggleReasons(routeRes.PinTurnCount, wall); len(reasons) > 0 {
-			role := roleForTier(catalog.TierFor(feats.Model))
-			s.handleStruggleShadow(ctx, reasons[0], facts.InstallationID, sessionKey, role,
-				decision.Model, string(tt), routeRes.PinTurnCount, wall,
-				routeRes.SessionEverSwitched, feats.Tokens)
 		}
 	}
 
@@ -4496,13 +4452,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	forceCluster, taskArm, forceErr := forceClusterForTurn(ctx, strategy, r, env, feats, facts.InstallationID, forceModel)
 	if forceErr != nil {
 		return forceErr
-	}
-
-	if !callerModelPassthroughActive(ctx) {
-		if cyc, csig, ccount, cratio, cwin := conversation.DetectCyclicToolCallLoop(env); cyc {
-			loopRole := roleForTier(catalog.TierFor(feats.Model))
-			s.handleLoopEscalation(ctx, csig, ccount, cratio, cwin, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, loopRole, feats.Model, turntype.IsSubAgent(env, subAgentHintForRequest(ctx, r.Header.Get("x-weave-subagent-type")), openCodeCaller(ClientIdentityFrom(ctx))), forceModelSessionKey)
-		}
 	}
 
 	if s.effectiveCaptureMode(ctx) != CaptureOff {

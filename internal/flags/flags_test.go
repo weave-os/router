@@ -17,14 +17,14 @@ import (
 
 func TestParseOverridesValid(t *testing.T) {
 	o, err := flags.ParseOverrides([]byte(`{
-		"struggle_shadow_enabled": false,
-		"loop_escalation_holdout_pct": 25,
+		"turn_signal_capture_enabled": false,
+		"task_arm_experiment_treatment_pct": 25,
 		"cyber_refusal_fallback_model": "claude-opus-5"
 	}`))
 	require.NoError(t, err)
 
-	assert.False(t, o.Bools[flags.KeyStruggleShadowEnabled])
-	assert.Equal(t, 25, o.Ints[flags.KeyLoopEscalationHoldoutPct])
+	assert.False(t, o.Bools[flags.KeyTurnSignalCapture])
+	assert.Equal(t, 25, o.Ints[flags.KeyTaskArmExperimentTreatmentPct])
 	assert.Equal(t, "claude-opus-5", o.Strings[flags.KeyCyberRefusalFallback])
 	assert.False(t, o.IsEmpty())
 }
@@ -69,11 +69,13 @@ func TestParseOverridesIgnoresRetiredFlags(t *testing.T) {
 		"hmm_same_tier_pin": true,
 		"planner_cold_pin_follow_fresh": true,
 		"planner_enabled": false,
-		"loop_escalation_holdout_pct": 25
+		"loop_escalation_holdout_pct": 25,
+		"task_arm_experiment_treatment_pct": 25
 	}`))
 	require.NoError(t, err)
 	assert.False(t, o.Bools[flags.KeyPlannerEnabled])
-	assert.Equal(t, 25, o.Ints[flags.KeyLoopEscalationHoldoutPct])
+	assert.Equal(t, 25, o.Ints[flags.KeyTaskArmExperimentTreatmentPct])
+	assert.NotContains(t, o.Keys(), flags.Key("loop_escalation_holdout_pct"))
 	assert.NotContains(t, o.Keys(), flags.Key("struggle_escalation_enabled"))
 	assert.NotContains(t, o.Keys(), flags.Key("subscriber_paid_fallback_enabled"))
 	assert.NotContains(t, o.Keys(), flags.Key("subscription_pool_quota_aware_selection_enabled"))
@@ -84,14 +86,14 @@ func TestParseOverridesRejectsBadPayloads(t *testing.T) {
 	for name, raw := range map[string]string{
 		// A typo'd key must not be silently dropped: a dropped override reads at
 		// the call site as "the default applied".
-		"unknown key":         `{"struggle_shadow_nabled": true}`,
-		"bool given a string": `{"struggle_shadow_enabled": "true"}`,
-		"bool given a number": `{"struggle_shadow_enabled": 1}`,
-		"int given a string":  `{"loop_escalation_holdout_pct": "25"}`,
-		"int given a float":   `{"loop_escalation_holdout_pct": 2.5}`,
+		"unknown key":         `{"turn_signal_capture_enabld": true}`,
+		"bool given a string": `{"turn_signal_capture_enabled": "true"}`,
+		"bool given a number": `{"turn_signal_capture_enabled": 1}`,
+		"int given a string":  `{"authoritative_upgrade_votes": "25"}`,
+		"int given a float":   `{"authoritative_upgrade_votes": 2.5}`,
 		"string given a bool": `{"cyber_refusal_fallback_model": true}`,
 		"not an object":       `[1, 2, 3]`,
-		"malformed json":      `{"struggle_shadow_enabled":`,
+		"malformed json":      `{"turn_signal_capture_enabled":`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := flags.ParseOverrides([]byte(raw))
@@ -125,10 +127,10 @@ func TestValidateOverridesRejectsWrongKindAndSemanticValues(t *testing.T) {
 			Ints: map[flags.Key]int{flags.KeyPlannerEnabled: 1},
 		},
 		"holdout above 100": {
-			Ints: map[flags.Key]int{flags.KeyLoopEscalationHoldoutPct: 101},
+			Ints: map[flags.Key]int{flags.KeyTaskArmExperimentTreatmentPct: 101},
 		},
 		"holdout below 0": {
-			Ints: map[flags.Key]int{flags.KeyLoopEscalationHoldoutPct: -1},
+			Ints: map[flags.Key]int{flags.KeyTaskArmExperimentTreatmentPct: -1},
 		},
 		"duplicate key across maps": {
 			Bools: map[flags.Key]bool{flags.KeyPlannerEnabled: true},
@@ -146,8 +148,8 @@ func TestValidateOverridesRejectsWrongKindAndSemanticValues(t *testing.T) {
 
 func TestValidateOverridesAcceptsTypedValues(t *testing.T) {
 	o := flags.Overrides{
-		Bools:   map[flags.Key]bool{flags.KeyLoopEscalationEnabled: true},
-		Ints:    map[flags.Key]int{flags.KeyLoopEscalationHoldoutPct: 50},
+		Bools:   map[flags.Key]bool{flags.KeyTurnSignalCapture: true},
+		Ints:    map[flags.Key]int{flags.KeyTaskArmExperimentTreatmentPct: 50},
 		Strings: map[flags.Key]string{flags.KeyCyberRefusalFallback: "claude-opus-5"},
 	}
 	require.NoError(t, flags.ValidateOverrides(o))
@@ -157,7 +159,7 @@ func TestAccessorsFallBackToDeploymentDefault(t *testing.T) {
 	// A bare context carries no overrides at all.
 	assert.True(t, flags.BoolOr(context.Background(), flags.KeyPlannerEnabled, true))
 	assert.False(t, flags.BoolOr(context.Background(), flags.KeyPlannerEnabled, false))
-	assert.Equal(t, 10, flags.IntOr(context.Background(), flags.KeyLoopEscalationHoldoutPct, 10))
+	assert.Equal(t, 10, flags.IntOr(context.Background(), flags.KeyAuthoritativeUpgradeVotes, 10))
 	assert.Equal(t, "a", flags.StringOr(context.Background(), flags.KeyCyberRefusalFallback, "a"))
 
 	// A context carrying *some* overrides still falls back for the others.
@@ -166,7 +168,7 @@ func TestAccessorsFallBackToDeploymentDefault(t *testing.T) {
 	})
 	assert.False(t, flags.BoolOr(ctx, flags.KeyPlannerEnabled, true), "override should win")
 	assert.True(t, flags.BoolOr(ctx, flags.KeySiblingFailover, true), "unset flag keeps its default")
-	assert.Equal(t, 10, flags.IntOr(ctx, flags.KeyLoopEscalationHoldoutPct, 10))
+	assert.Equal(t, 10, flags.IntOr(ctx, flags.KeyAuthoritativeUpgradeVotes, 10))
 }
 
 func TestOverrideWinsOverDeploymentDefaultInBothDirections(t *testing.T) {
@@ -253,12 +255,12 @@ func TestKeysIsSortedAcrossKinds(t *testing.T) {
 	o, err := flags.ParseOverrides([]byte(`{
 		"planner_enabled": true,
 		"cyber_refusal_fallback_model": "x",
-		"loop_escalation_holdout_pct": 1
+		"authoritative_upgrade_votes": 1
 	}`))
 	require.NoError(t, err)
 	assert.Equal(t, []flags.Key{
+		flags.KeyAuthoritativeUpgradeVotes,
 		flags.KeyCyberRefusalFallback,
-		flags.KeyLoopEscalationHoldoutPct,
 		flags.KeyPlannerEnabled,
 	}, o.Keys())
 }
@@ -297,22 +299,22 @@ func TestAuthoritativeDowngradeControlsAreOrgOverridable(t *testing.T) {
 }
 
 func TestRegistryVersionTracksRegistryMembership(t *testing.T) {
-	const membershipAtVersion37 = "4ea87916f0315b36c72629270ac48126f620cfd6a3085ad58643ed14f42bf7cd"
+	const membershipAtVersion38 = "90016d764ae3d013e8e242dfffd09f0cc3833d8557b1f46bd4b1352f860f595f"
 	keys := make([]string, 0, len(flags.Registry))
 	for _, def := range flags.Registry {
 		keys = append(keys, string(def.Key))
 	}
 	sort.Strings(keys)
 	digest := sha256.Sum256([]byte(strings.Join(keys, "\n")))
-	require.Equal(t, 37, flags.RegistryVersion, "re-pin the membership digest for the new RegistryVersion")
-	assert.Equal(t, membershipAtVersion37, hex.EncodeToString(digest[:]),
+	require.Equal(t, 38, flags.RegistryVersion, "re-pin the membership digest for the new RegistryVersion")
+	assert.Equal(t, membershipAtVersion38, hex.EncodeToString(digest[:]),
 		"Registry membership changed: bump flags.RegistryVersion (currently %d) and re-pin this digest", flags.RegistryVersion)
 }
 
 func TestOverridesOverlayReplacesOnlyLayeredKeys(t *testing.T) {
 	stored := flags.Overrides{
 		Bools: map[flags.Key]bool{flags.KeyPlannerEnabled: true, flags.KeySiblingFailover: true},
-		Ints:  map[flags.Key]int{flags.KeyLoopEscalationHoldoutPct: 10},
+		Ints:  map[flags.Key]int{flags.KeyAuthoritativeUpgradeVotes: 10},
 	}
 	layered := stored.Overlay(flags.Overrides{
 		Bools:   map[flags.Key]bool{flags.KeyPlannerEnabled: false},
@@ -320,7 +322,7 @@ func TestOverridesOverlayReplacesOnlyLayeredKeys(t *testing.T) {
 	})
 
 	assert.Equal(t, map[flags.Key]bool{flags.KeyPlannerEnabled: false, flags.KeySiblingFailover: true}, layered.Bools)
-	assert.Equal(t, map[flags.Key]int{flags.KeyLoopEscalationHoldoutPct: 10}, layered.Ints)
+	assert.Equal(t, map[flags.Key]int{flags.KeyAuthoritativeUpgradeVotes: 10}, layered.Ints)
 	assert.Equal(t, map[flags.Key]string{flags.KeyEscalationActiveClassifier: "none"}, layered.Strings)
 	assert.Nil(t, layered.Floats)
 	assert.True(t, stored.Bools[flags.KeyPlannerEnabled], "overlay must not mutate the stored overrides")
