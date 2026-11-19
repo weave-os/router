@@ -136,7 +136,7 @@ type recoveryObservedRouter struct {
 
 func (r *recoveryObservedRouter) Route(_ context.Context, req router.Request) (router.Decision, error) {
 	r.requests <- req
-	if _, excluded := req.AutomaticExcludedModels[catalog.ModelGPT6Luna]; excluded {
+	if _, excluded := req.Candidates.AutomaticExcludedModels[catalog.ModelGPT6Luna]; excluded {
 		return router.Decision{Provider: providers.ProviderAnthropicGateway, Model: recoveryOpusModel}, nil
 	}
 	return router.Decision{Provider: providers.ProviderOpenAIGateway, Model: catalog.ModelGPT6Luna}, nil
@@ -160,7 +160,7 @@ func TestRecoveryAcceptanceCooldownExpiryAdmitsOneConcurrentProbe(t *testing.T) 
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/messages", nil)))
 	require.Equal(t, recoveryOpusModel, rec.Header().Get(HeaderRouterModel))
-	require.Contains(t, (<-scorer.requests).AutomaticExcludedModels, catalog.ModelGPT6Luna, "before expiry the real turn loop must load the history cooldown")
+	require.Contains(t, (<-scorer.requests).Candidates.AutomaticExcludedModels, catalog.ModelGPT6Luna, "before expiry the real turn loop must load the history cooldown")
 	require.Empty(t, provider.entered)
 	now = rateLimitTestNow
 	var callersDone sync.WaitGroup
@@ -178,7 +178,7 @@ func TestRecoveryAcceptanceCooldownExpiryAdmitsOneConcurrentProbe(t *testing.T) 
 	for range callers {
 		select {
 		case req := <-scorer.requests:
-			if _, excluded := req.AutomaticExcludedModels[catalog.ModelGPT6Luna]; !excluded {
+			if _, excluded := req.Candidates.AutomaticExcludedModels[catalog.ModelGPT6Luna]; !excluded {
 				probeEligible++
 			}
 		case <-ctx.Done():
