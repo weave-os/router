@@ -18,6 +18,7 @@ const (
 
 func configuredPolicyTokens(
 	raw string,
+	endpoints map[router.Strategy]policySidecarEndpoint,
 	configured map[router.Strategy]struct{},
 	modes map[router.Strategy]string,
 ) (map[router.Strategy]string, error) {
@@ -25,23 +26,17 @@ func configuredPolicyTokens(
 	if err != nil {
 		return nil, err
 	}
-	for strategy := range configured {
+	for strategy, endpoint := range endpoints {
 		useBearer := strings.EqualFold(strings.TrimSpace(modes[strategy]), policySidecarAuthBearer)
 		token, exists := tokens[strategy]
 		if useBearer != exists || (exists && strings.TrimSpace(token) == "") {
 			return nil, fmt.Errorf("%s policy sidecar requires exactly one nonempty token when auth mode is bearer", strategy)
 		}
+		if useBearer && !strings.HasPrefix(strings.ToLower(endpoint.Origin), "https:") && !endpoint.AllowHTTPBearer {
+			return nil, fmt.Errorf("%s policy sidecar requires HTTPS for bearer auth unless allow_http_bearer is enabled", strategy)
+		}
 	}
 	return tokens, nil
-}
-
-func configuredPolicyClient(origin, mode, token string, timeout time.Duration, client *http.Client,
-	opts ...policyclient.Option,
-) (*policyclient.Client, error) {
-	if token != "" {
-		return policyclient.NewBearer(origin, token, client, timeout, opts...), nil
-	}
-	return buildConfiguredPolicyClient(origin, mode, timeout, client, opts...)
 }
 
 type googleIDTokenClientFactory func(string, time.Duration, ...policyclient.Option) (*policyclient.Client, error)

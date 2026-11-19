@@ -587,6 +587,7 @@ type previewResponse struct {
 	RouteID               string                `json:"route_id"`
 	PolicyArtifactID      string                `json:"policy_artifact_id"`
 	PolicyArtifactSHA256  string                `json:"policy_artifact_sha256"`
+	PolicySHA256          string                `json:"policy_sha256"`
 	RosterSHA256          string                `json:"roster_sha256"`
 	HMMStateID            int                   `json:"hmm_state_id"`
 	HMMStatePath          []int                 `json:"hmm_state_path"`
@@ -603,7 +604,7 @@ func (c *Client) Decide(ctx context.Context, query policy.Query) (policy.Result,
 	if c.taskDomain != nil && query.ExecutionMode == policy.ExecutionModeServing && query.TaskDomain != nil {
 		return c.decideWithTaskDomain(ctx, query)
 	}
-	if query.ClassifierReleaseID != "" || query.ClassifierSelectionID != "" {
+	if c.expectedPolicySHA256 == "" && (query.ClassifierReleaseID != "" || query.ClassifierSelectionID != "") {
 		return c.decideV5(ctx, query)
 	}
 	if query.SchemaVersion == policy.SchemaVersionV5 {
@@ -760,7 +761,7 @@ func (c *Client) Preview(ctx context.Context, query policy.Query) (policy.Previe
 	if query.ExecutionMode != policy.ExecutionModePreview {
 		return policy.PreviewResult{}, fmt.Errorf("policy preview requires preview execution mode")
 	}
-	if query.ClassifierReleaseID != "" || query.ClassifierSelectionID != "" {
+	if c.expectedPolicySHA256 == "" && (query.ClassifierReleaseID != "" || query.ClassifierSelectionID != "") {
 		return c.previewV5(ctx, query)
 	}
 	if query.SchemaVersion == policy.SchemaVersionV5 {
@@ -776,6 +777,10 @@ func (c *Client) Preview(ctx context.Context, query policy.Query) (policy.Previe
 	if err != nil {
 		return policy.PreviewResult{}, err
 	}
+	return decodePreviewResponse(query, status, payload, c.expectedPolicySHA256)
+}
+
+func decodePreviewResponse(query policy.Query, status int, payload []byte, expectedPolicySHA256 string) (policy.PreviewResult, error) {
 	var parsed previewResponse
 	if err := json.Unmarshal(payload, &parsed); err != nil {
 		return policy.PreviewResult{}, fmt.Errorf("decode policy preview response (status %d): %w", status, err)
@@ -788,6 +793,10 @@ func (c *Client) Preview(ctx context.Context, query policy.Query) (policy.Previe
 			return policy.PreviewResult{}, fmt.Errorf("policy preview status %d: %s", status, parsed.Error)
 		}
 		return policy.PreviewResult{}, fmt.Errorf("policy preview status %d", status)
+	}
+	policySHA256 := firstNonEmpty(parsed.PolicyArtifactSHA256, parsed.PolicySHA256)
+	if err := checkPolicyResponsePin(expectedPolicySHA256, policySHA256, parsed.SchemaVersion, parsed.RouteID, query.RouteID); err != nil {
+		return policy.PreviewResult{}, err
 	}
 	if parsed.SchemaVersion == policy.SchemaVersionV4 {
 		classifier, decodeErr := decodeClassifierResponseV4(payload)
@@ -808,7 +817,7 @@ func (c *Client) Preview(ctx context.Context, query policy.Query) (policy.Previe
 		SchemaVersion:         parsed.SchemaVersion,
 		RouteID:               parsed.RouteID,
 		PolicyArtifactID:      parsed.PolicyArtifactID,
-		PolicyArtifactSHA256:  parsed.PolicyArtifactSHA256,
+		PolicyArtifactSHA256:  policySHA256,
 		RosterSHA256:          parsed.RosterSHA256,
 		HMMStateID:            parsed.HMMStateID,
 		HMMStatePath:          parsed.HMMStatePath,

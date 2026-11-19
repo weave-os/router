@@ -1006,14 +1006,7 @@ func main() {
 		logger.Info("HMM policy routers disabled (ROUTER_POLICY_ENVIRONMENT and ROUTER_POLICY_RELEASE_DIR unset); HMM strategies will return 503")
 	}
 
-	configuredPolicySpecs, err := buildConfiguredPolicySidecars(
-		context.Background(),
-		policySidecarSettingsFromEnv(),
-		routingTargets,
-		availableProviders,
-		nil,
-		logger,
-	)
+	configuredPolicySpecs, err := configuredPolicySidecarsFromEnv(routingTargets, availableProviders, logger)
 	if err != nil {
 		logger.Error("Generic policy sidecar configuration is invalid", "err", err)
 		panic(err)

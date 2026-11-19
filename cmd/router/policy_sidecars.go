@@ -42,8 +42,9 @@ func isReservedPolicyStrategy(strategy router.Strategy) bool {
 }
 
 type policySidecarEndpoint struct {
-	Origin       string `json:"origin"`
-	PolicySHA256 string `json:"policy_sha256"`
+	Origin          string `json:"origin"`
+	PolicySHA256    string `json:"policy_sha256"`
+	AllowHTTPBearer bool   `json:"allow_http_bearer"`
 }
 
 func (endpoint *policySidecarEndpoint) UnmarshalJSON(data []byte) error {
@@ -69,13 +70,20 @@ type policySidecarSettings struct {
 	timeout      time.Duration
 }
 
-func policySidecarSettingsFromEnv() policySidecarSettings {
-	return policySidecarSettings{
-		endpoints:    config.GetOr("ROUTER_POLICY_SIDECARS", ""),
-		authModes:    config.GetOr("ROUTER_POLICY_SIDECAR_AUTH", ""),
-		bearerTokens: config.GetOr("ROUTER_POLICY_SIDECAR_BEARER_TOKENS", ""),
-		timeout:      parseEnvDurationMs("ROUTER_POLICY_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout),
-	}
+func configuredPolicySidecarsFromEnv(deployed, availableProviders map[string]struct{}, logger *slog.Logger) ([]policy.StrategySpec, error) {
+	return buildConfiguredPolicySidecars(
+		context.Background(),
+		policySidecarSettings{
+			endpoints:    config.GetOr("ROUTER_POLICY_SIDECARS", ""),
+			authModes:    config.GetOr("ROUTER_POLICY_SIDECAR_AUTH", ""),
+			bearerTokens: config.GetOr("ROUTER_POLICY_SIDECAR_BEARER_TOKENS", ""),
+			timeout:      parseEnvDurationMs("ROUTER_POLICY_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout),
+		},
+		deployed,
+		availableProviders,
+		nil,
+		logger,
+	)
 }
 
 func buildConfiguredPolicySidecars(
@@ -103,11 +111,11 @@ func buildConfiguredPolicySidecars(
 	for strategy := range endpoints {
 		knownStrategies[strategy] = struct{}{}
 	}
-	authModes, err := parseConfiguredPolicySidecarAuth(settings.authModes, knownStrategies)
+	authModes, err := parseConfiguredPolicySidecarSettings(settings.authModes, "ROUTER_POLICY_SIDECAR_AUTH", knownStrategies)
 	if err != nil {
 		return nil, err
 	}
-	tokens, err := configuredPolicyTokens(settings.bearerTokens, knownStrategies, authModes)
+	tokens, err := configuredPolicyTokens(settings.bearerTokens, endpoints, knownStrategies, authModes)
 	if err != nil {
 		return nil, err
 	}
@@ -115,10 +123,15 @@ func buildConfiguredPolicySidecars(
 	registrations := make([]policy.StrategySpec, 0, len(endpoints))
 	for _, strategy := range slices.Sorted(maps.Keys(endpoints)) {
 		endpoint := endpoints[strategy]
-		client, err := configuredPolicyClient(endpoint.Origin, authModes[strategy], tokens[strategy], settings.timeout,
-			httpClient, policyclient.WithExpectedPolicySHA256(endpoint.PolicySHA256))
-		if err != nil {
-			return nil, fmt.Errorf("build %s policy sidecar client: %w", strategy, err)
+		pin := policyclient.WithExpectedPolicySHA256(endpoint.PolicySHA256)
+		var client *policyclient.Client
+		if token := tokens[strategy]; token != "" {
+			client = policyclient.NewBearer(endpoint.Origin, token, httpClient, settings.timeout, pin)
+		} else {
+			client, err = buildConfiguredPolicyClient(endpoint.Origin, authModes[strategy], settings.timeout, httpClient, pin)
+			if err != nil {
+				return nil, fmt.Errorf("build %s policy sidecar client: %w", strategy, err)
+			}
 		}
 		capabilities, err := discoverPolicySidecarCapabilities(ctx, strategy, endpoint, client, settings.timeout, logger)
 		if err != nil {
@@ -214,13 +227,6 @@ func discoverPolicySidecarCapabilities(
 			"strategy", strategy, "sidecar_url", endpoint.Origin, "err", err)
 	}
 	return capabilities, nil
-}
-
-func parseConfiguredPolicySidecarAuth(
-	raw string,
-	configured map[router.Strategy]struct{},
-) (map[router.Strategy]string, error) {
-	return parseConfiguredPolicySidecarSettings(raw, "ROUTER_POLICY_SIDECAR_AUTH", configured)
 }
 
 func parseConfiguredPolicySidecarSettings(

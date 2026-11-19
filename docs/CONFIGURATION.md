@@ -1095,7 +1095,7 @@ for Go-owned deterministic selection are documented in
 | ---------------------------------- | ------- | ------- |
 | `ROUTER_POLICY_SIDECARS`           | *(none)* | JSON object mapping a strategy ID to its sidecar origin or an object with `origin` and `policy_sha256`. Pinning a digest requires an authoritative `policy_router_v1` sidecar. IDs must match `[a-z][a-z0-9_-]{0,63}`. At most 16 entries are allowed. Built-in IDs are reserved. |
 | `ROUTER_POLICY_SIDECAR_AUTH`       | *(none)* | JSON object mapping configured generic strategy IDs to `none`, `google-id-token`, or `bearer`. Google ID-token mode uses the exact sidecar origin as the token audience and fails startup when application default credentials cannot build the client. |
-| `ROUTER_POLICY_SIDECAR_BEARER_TOKENS` | *(none)* | Secret JSON object mapping each strategy using `bearer` auth to its token. Use HTTPS for remote sidecars. |
+| `ROUTER_POLICY_SIDECAR_BEARER_TOKENS` | *(none)* | Secret JSON object mapping each strategy using `bearer` auth to its token. Bearer auth requires HTTPS by default. Set `allow_http_bearer: true` in the endpoint object only for sidecars on a private network, such as the benchmark Docker network. |
 | `ROUTER_POLICY_SIDECAR_TIMEOUT_MS` | `3000`  | Total timeout for each generic policy decision, including transient retries. Also bounds startup capability discovery. |
 | `ROUTER_HMM_SIDECAR_URL`           | *(none)* | Legacy built-in HMM registration. Prefer the generic map for new strategies. |
 | `ROUTER_HMM_SIDECAR_TIMEOUT_MS`    | `3000`  | Total HMM decision timeout. |

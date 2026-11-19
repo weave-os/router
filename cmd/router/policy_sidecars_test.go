@@ -92,8 +92,9 @@ func TestBuildConfiguredPolicySidecarsRejectsReservedAndInvalidConfiguration(t *
 }
 
 func TestParseConfiguredPolicySidecarAuthNormalizesStrategies(t *testing.T) {
-	authModes, err := parseConfiguredPolicySidecarAuth(
+	authModes, err := parseConfiguredPolicySidecarSettings(
 		`{" Future-Policy ":"google-id-token"}`,
+		"ROUTER_POLICY_SIDECAR_AUTH",
 		map[router.Strategy]struct{}{"future-policy": {}},
 	)
 
@@ -102,8 +103,9 @@ func TestParseConfiguredPolicySidecarAuthNormalizesStrategies(t *testing.T) {
 }
 
 func TestParseConfiguredPolicySidecarAuthRejectsUnknownStrategy(t *testing.T) {
-	_, err := parseConfiguredPolicySidecarAuth(
+	_, err := parseConfiguredPolicySidecarSettings(
 		`{"unknown":"google-id-token"}`,
+		"ROUTER_POLICY_SIDECAR_AUTH",
 		map[router.Strategy]struct{}{"future-policy": {}},
 	)
 
@@ -123,6 +125,40 @@ func TestBuildConfiguredPolicySidecarsRejectsAuthWithoutSidecars(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "requires ROUTER_POLICY_SIDECARS")
+}
+
+func TestConfiguredPolicyRejectsHTTPBearerWithoutOptIn(t *testing.T) {
+	_, err := buildConfiguredPolicySidecars(
+		context.Background(), policySidecarSettings{
+			endpoints:    `{"future-policy":"http://sidecar.internal"}`,
+			authModes:    `{"future-policy":"bearer"}`,
+			bearerTokens: `{"future-policy":"fixture-sidecar-token"}`,
+			timeout:      time.Second,
+		}, nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	require.ErrorContains(t, err, "requires HTTPS for bearer auth")
+}
+
+func TestConfiguredPolicyValidatesBearerTokenBindings(t *testing.T) {
+	for _, tc := range []struct {
+		name, mode, tokens string
+	}{
+		{"missing", "bearer", ""},
+		{"blank", "bearer", `{"future-policy":"  "}`},
+		{"unexpected", "none", `{"future-policy":"fixture-sidecar-token"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := buildConfiguredPolicySidecars(
+				context.Background(), policySidecarSettings{
+					endpoints:    `{"future-policy":"https://sidecar.internal"}`,
+					authModes:    `{"future-policy":"` + tc.mode + `"}`,
+					bearerTokens: tc.tokens,
+					timeout:      time.Second,
+				}, nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)),
+			)
+			require.ErrorContains(t, err, "requires exactly one nonempty token")
+		})
+	}
 }
 
 func TestConfiguredBenchmarkPolicy(t *testing.T) {
@@ -160,7 +196,7 @@ func TestConfiguredBenchmarkPolicy(t *testing.T) {
 
 			registrations, err := buildConfiguredPolicySidecars(context.Background(),
 				policySidecarSettings{
-					endpoints:    `{"benchmark-step-down":{"origin":"` + server.URL + `","policy_sha256":"` + digest + `"}}`,
+					endpoints:    `{"benchmark-step-down":{"origin":"` + server.URL + `","policy_sha256":"` + digest + `","allow_http_bearer":true}}`,
 					authModes:    `{"benchmark-step-down":"bearer"}`,
 					bearerTokens: `{"benchmark-step-down":"` + token + `"}`,
 					timeout:      time.Second,

@@ -55,6 +55,13 @@ func WithExpectedPolicySHA256(digest string) Option {
 	return func(c *Client) { c.expectedPolicySHA256 = digest }
 }
 
+func checkPolicyResponsePin(expected, digest, schema, routeID, expectedRouteID string) error {
+	if expected != "" && (schema != policy.SchemaVersionV1 || routeID != expectedRouteID || digest != expected) {
+		return fmt.Errorf("policy response does not match the pinned artifact and route: %w", router.ErrPolicyPinUnavailable)
+	}
+	return nil
+}
+
 func decodeRouteResponse(query policy.Query, status int, payload []byte, expectedPolicySHA256 string) (policy.Result, error) {
 	var parsed routeResponse
 	if err := json.Unmarshal(payload, &parsed); err != nil {
@@ -70,9 +77,8 @@ func decodeRouteResponse(query policy.Query, status int, payload []byte, expecte
 		return policy.Result{}, fmt.Errorf("policy sidecar status %d", status)
 	}
 	policySHA256 := firstNonEmpty(parsed.PolicyArtifactSHA256, parsed.PolicySHA256)
-	if expectedPolicySHA256 != "" &&
-		(parsed.SchemaVersion != policy.SchemaVersionV1 || parsed.RouteID != query.RouteID || policySHA256 != expectedPolicySHA256) {
-		return policy.Result{}, fmt.Errorf("policy response does not match the pinned artifact and route: %w", router.ErrPolicyPinUnavailable)
+	if err := checkPolicyResponsePin(expectedPolicySHA256, policySHA256, parsed.SchemaVersion, parsed.RouteID, query.RouteID); err != nil {
+		return policy.Result{}, err
 	}
 	if parsed.SchemaVersion == policy.SchemaVersionV4 {
 		classifier, decodeErr := decodeClassifierResponseV4(payload)
