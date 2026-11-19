@@ -205,6 +205,7 @@
       "authoritative_hmm_downgrade_hysteresis",
       "authoritative_hmm_upgrade_confidence_low",
       "authoritative_per_turn",
+      "authoritative_sliding_threshold_upgrade",
       "hmm_ev_same_same_model",
       "hmm_ev_stay_ev_negative",
       "hmm_ev_stay_hmm_upgrade_confidence_low",
