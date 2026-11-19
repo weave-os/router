@@ -38,7 +38,7 @@ func billingGatedAllowanceChain(
 		c.Set("router_api_key", subscriberAPIKey())
 		withInstallation(c, "org_precedence")
 	})
-	engine.Use(middleware.WithSubscriberAllowance(allowanceSvc, false))
+	engine.Use(middleware.WithSubscriberAllowance(allowanceSvc))
 	engine.Use(middleware.WithBalanceCheck(billing.NewService(repo), billing.MinBalanceMicros))
 	engine.POST("/v1/messages", serve)
 	return engine

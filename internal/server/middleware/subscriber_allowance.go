@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"weave-os/router/internal/billing"
-	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -16,10 +15,10 @@ type SubscriptionErrorCode string
 
 const SubscriptionPlanConflict SubscriptionErrorCode = "subscription_plan_conflict"
 
-func WithSubscriberAllowance(svc *entitlement.Service, poolAllowanceDefault bool) gin.HandlerFunc {
+func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
-		subscriberID := allowanceSubscriber(c, poolAllowanceDefault)
+		subscriberID := allowanceSubscriber(c)
 		if subscriberID == "" {
 			c.Next()
 			return
@@ -75,7 +74,7 @@ func subscriberAllowanceCovers(c *gin.Context) bool {
 	return false
 }
 
-func allowanceSubscriber(c *gin.Context, poolAllowanceDefault bool) entitlement.SubscriberID {
+func allowanceSubscriber(c *gin.Context) entitlement.SubscriberID {
 	if owner := SubscriptionOwnerFrom(c); owner.SubscriberID != "" {
 		return entitlement.SubscriberID(owner.SubscriberID)
 	}
@@ -84,7 +83,7 @@ func allowanceSubscriber(c *gin.Context, poolAllowanceDefault bool) entitlement.
 		return ""
 	}
 	installation := InstallationFrom(c)
-	if installation == nil || !flags.BoolOr(ctx, flags.KeyInstallationPoolAllowance, poolAllowanceDefault) {
+	if installation == nil {
 		return ""
 	}
 	return entitlement.SubscriberID(installation.PoolSubjectID)

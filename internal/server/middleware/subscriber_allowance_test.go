@@ -11,7 +11,6 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
-	"weave-os/router/internal/flags"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -155,7 +154,7 @@ func runAllowanceMiddlewareWithAuth(
 		if apiKey != nil {
 			c.Set("router_api_key", apiKey)
 		}
-		middleware.WithSubscriberAllowance(svc, false)(c)
+		middleware.WithSubscriberAllowance(svc)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -199,7 +198,7 @@ func TestWithSubscriberAllowance_ClaudeOAuthDoesNotRestrictNonSubscriber(t *test
 	engine := gin.New()
 	engine.POST("/v1/messages", func(c *gin.Context) {
 		c.Set("router_api_key", subscriberAPIKey())
-		middleware.WithSubscriberAllowance(svc, false)(c)
+		middleware.WithSubscriberAllowance(svc)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -296,7 +295,7 @@ func runSubscriberOrganizationBillingChain(
 		c.Set("router_api_key", subscriberAPIKey())
 		c.Next()
 	})
-	engine.Use(middleware.WithSubscriberAllowance(allowanceService, false))
+	engine.Use(middleware.WithSubscriberAllowance(allowanceService))
 	engine.Use(middleware.WithBalanceCheck(billingService, billing.MinBalanceMicros))
 	engine.Use(middleware.WithAPIKeySpendCap(billingService))
 	engine.Use(middleware.WithOrgMonthlySpendCap(billingService))
@@ -387,7 +386,7 @@ func TestWithSubscriberAllowance_ExhaustedServesOnOrganizationCredits(t *testing
 	engine := gin.New()
 	engine.POST("/v1/messages", func(c *gin.Context) {
 		c.Set("router_api_key", subscriberAPIKey())
-		middleware.WithSubscriberAllowance(svc, false)(c)
+		middleware.WithSubscriberAllowance(svc)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -502,7 +501,7 @@ func TestWithSubscriberAllowance_ChargesTheResolvedCaller(t *testing.T) {
 			APIKeyID:     subscriberAPIKey().ID,
 		})
 		entitlements.observe = func(id entitlement.SubscriberID) { metered = id }
-		middleware.WithSubscriberAllowance(svc, false)(c)
+		middleware.WithSubscriberAllowance(svc)(c)
 		c.Status(http.StatusOK)
 	})
 
@@ -528,7 +527,7 @@ func TestWithSubscriberAllowance_StampsSpentWindow(t *testing.T) {
 			engine := gin.New()
 			engine.POST("/v1/messages", func(c *gin.Context) {
 				c.Set("router_api_key", subscriberAPIKey())
-				middleware.WithSubscriberAllowance(svc, false)(c)
+				middleware.WithSubscriberAllowance(svc)(c)
 				window, spent = entitlement.SpentWindowFromContext(c.Request.Context())
 				c.Status(http.StatusOK)
 			})
@@ -546,7 +545,7 @@ func TestWithSubscriberAllowance_StampsSpentWindow(t *testing.T) {
 	}
 }
 
-func runPoolAllowanceMiddleware(t *testing.T, entitlements *stubEntitlements, deploymentDefault bool, prepare func(context.Context) context.Context) (bool, entitlement.Coverage) {
+func runPoolAllowanceMiddleware(t *testing.T, entitlements *stubEntitlements, prepare func(context.Context) context.Context) (bool, entitlement.Coverage) {
 	t.Helper()
 	svc := entitlement.NewService(entitlements, &stubAllowances{}).WithClock(func() time.Time { return allowanceNow })
 	reached := false
@@ -556,7 +555,7 @@ func runPoolAllowanceMiddleware(t *testing.T, entitlements *stubEntitlements, de
 		c.Set("router_api_key", &auth.APIKey{ID: "33333333-3333-3333-3333-333333333333"})
 		c.Set("router_installation", &auth.Installation{ID: "installation", PoolSubjectID: allowanceSubscriberID})
 		c.Request = c.Request.WithContext(prepare(c.Request.Context()))
-		middleware.WithSubscriberAllowance(svc, deploymentDefault)(c)
+		middleware.WithSubscriberAllowance(svc)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -568,38 +567,18 @@ func runPoolAllowanceMiddleware(t *testing.T, entitlements *stubEntitlements, de
 	return reached, observed
 }
 
-func TestWithSubscriberAllowance_OwnerlessKeyUsesInstallationPoolWhenEnabled(t *testing.T) {
+func TestWithSubscriberAllowance_OwnerlessKeyUsesInstallationPool(t *testing.T) {
 	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
-	reached, coverage := runPoolAllowanceMiddleware(t, entitlements, false, poolOverride(true))
-	require.True(t, reached)
-	assert.Equal(t, entitlement.SubscriberID(allowanceSubscriberID), coverage.SubscriberID)
-}
-
-func TestWithSubscriberAllowance_OwnerlessKeyUsesInstallationPoolByDeploymentDefault(t *testing.T) {
-	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
-	reached, coverage := runPoolAllowanceMiddleware(t, entitlements, true, func(ctx context.Context) context.Context { return ctx })
+	reached, coverage := runPoolAllowanceMiddleware(t, entitlements, func(ctx context.Context) context.Context { return ctx })
 	require.True(t, reached)
 	assert.Equal(t, entitlement.SubscriberID(allowanceSubscriberID), coverage.SubscriberID)
 }
 
 func TestWithSubscriberAllowance_InternalTestIgnoresInstallationPool(t *testing.T) {
 	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
-	reached, coverage := runPoolAllowanceMiddleware(t, entitlements, true, func(ctx context.Context) context.Context {
+	reached, coverage := runPoolAllowanceMiddleware(t, entitlements, func(ctx context.Context) context.Context {
 		return requestcontext.WithInternalTestIdentity(ctx, requestcontext.InternalTestIdentity{SubjectID: "subject", SessionID: "session"})
 	})
-	require.True(t, reached)
-	assert.Empty(t, coverage.SubscriberID)
-}
-
-func poolOverride(enabled bool) func(context.Context) context.Context {
-	return func(ctx context.Context) context.Context {
-		return flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyInstallationPoolAllowance: enabled}})
-	}
-}
-
-func TestWithSubscriberAllowance_OwnerlessKeyIgnoresPoolWhenDisabled(t *testing.T) {
-	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
-	reached, coverage := runPoolAllowanceMiddleware(t, entitlements, false, poolOverride(false))
 	require.True(t, reached)
 	assert.Empty(t, coverage.SubscriberID)
 }
