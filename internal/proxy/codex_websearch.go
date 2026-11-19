@@ -29,22 +29,18 @@ const (
 	nativeSearchTimeout       = 90 * time.Second
 )
 
-func codexWebSearchBridgeEligible(ctx context.Context, body []byte, model string, enabled map[string]struct{}, headers http.Header) bool {
+func (s *Service) serveCodexWebSearch(ctx context.Context, body []byte, model string, stream bool, enabled map[string]struct{}, r *http.Request, w http.ResponseWriter) (bool, error) {
 	if !websearch.IsClaudeCodeWebSearchHelper(body) || subscriptionAPIOnly(ctx) || subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) {
-		return false
+		return false, nil
 	}
 	if anyNativeServerToolProvider(enabled) && !requestcontext.CodexSubscriptionCanAttemptModel(model) {
-		return false
+		return false, nil
 	}
 	if _, ok := enabled[providers.ProviderOpenAI]; !ok {
-		return false
+		return false, nil
 	}
-	creds := ExtractClientCredentials(providers.ProviderOpenAI, headers)
-	return managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) || codexSubscriptionFromContext(ctx) != nil || (creds != nil && creds.OAuth)
-}
-
-func (s *Service) serveCodexWebSearch(ctx context.Context, body []byte, model string, stream bool, enabled map[string]struct{}, r *http.Request, w http.ResponseWriter) (bool, error) {
-	if !codexWebSearchBridgeEligible(ctx, body, model, enabled, r.Header) {
+	creds := ExtractClientCredentials(providers.ProviderOpenAI, r.Header)
+	if !managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) && codexSubscriptionFromContext(ctx) == nil && (creds == nil || !creds.OAuth) {
 		return false, nil
 	}
 	selected := model

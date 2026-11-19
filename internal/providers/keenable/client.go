@@ -113,7 +113,7 @@ func (c *Client) Search(ctx context.Context, q websearch.Query) (websearch.Respo
 
 	raw, _, readErr := httputil.ReadCapped(resp.Body, maxResponseBytes)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return websearch.Response{}, &StatusError{StatusCode: resp.StatusCode, Preview: httputil.PreviewBytes(raw)}
+		return websearch.Response{}, &StatusError{StatusCode: resp.StatusCode}
 	}
 	if readErr != nil {
 		return websearch.Response{}, fmt.Errorf("keenable: read response: %w", readErr)
@@ -126,11 +126,10 @@ func (c *Client) Search(ctx context.Context, q websearch.Query) (websearch.Respo
 
 type StatusError struct {
 	StatusCode int
-	Preview    string
 }
 
 func (e *StatusError) Error() string {
-	return fmt.Sprintf("keenable: search status %d: %s", e.StatusCode, e.Preview)
+	return fmt.Sprintf("keenable: search status %d", e.StatusCode)
 }
 
 type searchRequest struct {

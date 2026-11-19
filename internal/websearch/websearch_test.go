@@ -41,6 +41,7 @@ func TestHasDomainFilter(t *testing.T) {
 		{name: "allowed domains", body: `{"tools":[{"type":"web_search_20250305","name":"web_search","allowed_domains":["docs.example"]}]}`, want: true},
 		{name: "blocked domains", body: `{"tools":[{"type":"web_search_20250305","name":"web_search","blocked_domains":["blocked.example"]}]}`, want: true},
 		{name: "empty filters", body: `{"tools":[{"type":"web_search_20250305","name":"web_search","allowed_domains":[],"blocked_domains":[]}]}`},
+		{name: "web search after a client tool", body: `{"tools":[{"name":"Read"},{"type":"web_search_20250305","name":"web_search","allowed_domains":["docs.example"]}]}`, want: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

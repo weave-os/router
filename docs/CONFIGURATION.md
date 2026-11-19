@@ -144,13 +144,14 @@ translation requirements: target family "anthropic"`. Setting
 search API that answers those turns with the same `server_tool_use` /
 `web_search_tool_result` blocks.
 
-Executors run in a fixed order: Cortex gateway, then the Codex bridge, then
-the Keenable fallback. The fallback runs only when no gateway credential
-resolves for the turn and the `web_search` tool has no `allowed_domains` or
-`blocked_domains`; a filtered search stays on normal routing instead of being
-widened. Only the query text (and a result cap) is sent to the search API,
-never the conversation, domain filters or credentials. If the search fails,
-the turn falls through and the original dispatch error is returned.
+The Cortex gateway executor gets the first chance, followed by the Codex
+bridge and then Keenable. Keenable runs only for isolated Claude Code search
+helpers when no enabled provider supports Anthropic server tools, the Cortex
+executor is disabled or found no gateway credential, and the Codex bridge
+declined the turn.
+Non-empty `allowed_domains` or `blocked_domains` keep the turn off Keenable.
+The request body sent to the search API contains the query text and a result
+cap. If the search fails, the request continues through normal routing.
 
 | Variable | Default | Purpose |
 |---|---|---|

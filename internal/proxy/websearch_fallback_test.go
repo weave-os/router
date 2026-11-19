@@ -42,6 +42,15 @@ func fallbackSearchResult() websearch.Response {
 	}
 }
 
+func serveTestMessagesWebSearch(t *testing.T, ctx context.Context, s *Service, body []byte, stream bool, enabled map[string]struct{}, w http.ResponseWriter) bool {
+	t.Helper()
+	turn := messagesWebSearchTurn{body: body, model: fallbackSearchModel, stream: stream, inputTokens: 12, enabled: enabled}
+	req := httptest.NewRequestWithContext(ctx, http.MethodPost, routePathMessages, nil)
+	served, err := turn.serve(ctx, s, req, w)
+	require.NoError(t, err)
+	return served
+}
+
 func TestServeNativeWebSearchFallbackServesNonAnthropicDeployment(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		t.Run(map[bool]string{false: "json", true: "sse"}[stream], func(t *testing.T) {
@@ -49,7 +58,7 @@ func TestServeNativeWebSearchFallbackServesNonAnthropicDeployment(t *testing.T) 
 			s := &Service{webSearch: webSearchExecutors{fallback: fallback}}
 			rec := httptest.NewRecorder()
 
-			served := s.serveNativeWebSearch(context.Background(), claudeCodeSearchHelperBody(stream, ""), fallbackSearchModel, stream, 12, nonAnthropicProviders(), http.Header{}, rec)
+			served := serveTestMessagesWebSearch(t, t.Context(), s, claudeCodeSearchHelperBody(stream, ""), stream, nonAnthropicProviders(), rec)
 
 			require.True(t, served, "the fallback executor must answer the search turn")
 			assert.Equal(t, 1, fallback.runs)
@@ -82,7 +91,7 @@ func TestServeNativeWebSearch_AllowedDomainsBypassesFallback(t *testing.T) {
 			s := &Service{webSearch: webSearchExecutors{fallback: fallback}}
 			rec := httptest.NewRecorder()
 
-			served := s.serveNativeWebSearch(context.Background(), claudeCodeSearchHelperBody(false, extra), fallbackSearchModel, false, 0, nonAnthropicProviders(), http.Header{}, rec)
+			served := serveTestMessagesWebSearch(t, t.Context(), s, claudeCodeSearchHelperBody(false, extra), false, nonAnthropicProviders(), rec)
 
 			assert.False(t, served, "a domain-filtered search must stay on normal routing")
 			assert.Zero(t, fallback.runs, "the fallback must not widen a domain-filtered search")
@@ -97,11 +106,23 @@ func TestServeNativeWebSearchGatewayCredentialUsesCortexOnly(t *testing.T) {
 	s := &Service{webSearch: webSearchExecutors{gateway: cortex, fallback: fallback}}
 	rec := httptest.NewRecorder()
 
-	require.True(t, s.serveNativeWebSearch(gatewayCtx(), []byte(searchTurnBody), fallbackSearchModel, false, 0, gatewayOnly(), http.Header{}, rec))
+	require.True(t, serveTestMessagesWebSearch(t, gatewayCtx(), s, claudeCodeSearchHelperBody(false, ""), false, gatewayOnly(), rec))
 
 	assert.Equal(t, 1, cortex.runs)
 	assert.Zero(t, fallback.runs, "a resolved gateway credential keeps the turn on the Cortex executor")
 	assert.Equal(t, "https://docs.example/cortex", gjson.GetBytes(rec.Body.Bytes(), "content.1.content.0.url").String())
+}
+
+func TestServeNativeWebSearchGatewayFailureDoesNotUseFallback(t *testing.T) {
+	cortex := &fakeSearch{err: context.DeadlineExceeded}
+	fallback := &fakeSearch{resp: fallbackSearchResult()}
+	s := &Service{webSearch: webSearchExecutors{gateway: cortex, fallback: fallback}}
+	rec := httptest.NewRecorder()
+
+	assert.False(t, serveTestMessagesWebSearch(t, gatewayCtx(), s, claudeCodeSearchHelperBody(false, ""), false, gatewayOnly(), rec))
+	assert.Equal(t, 1, cortex.runs)
+	assert.Zero(t, fallback.runs)
+	assert.Zero(t, rec.Body.Len())
 }
 
 func TestServeNativeWebSearchNoGatewayCredentialUsesFallback(t *testing.T) {
@@ -110,7 +131,7 @@ func TestServeNativeWebSearchNoGatewayCredentialUsesFallback(t *testing.T) {
 	s := &Service{webSearch: webSearchExecutors{gateway: cortex, fallback: fallback}}
 	rec := httptest.NewRecorder()
 
-	require.True(t, s.serveNativeWebSearch(context.Background(), claudeCodeSearchHelperBody(false, ""), fallbackSearchModel, false, 0, nonAnthropicProviders(), http.Header{}, rec))
+	require.True(t, serveTestMessagesWebSearch(t, t.Context(), s, claudeCodeSearchHelperBody(false, ""), false, nonAnthropicProviders(), rec))
 
 	assert.Zero(t, cortex.runs, "the Cortex executor needs a gateway credential")
 	assert.Equal(t, 1, fallback.runs)
@@ -122,7 +143,7 @@ func TestServeNativeWebSearchFallbackFailureFallsThrough(t *testing.T) {
 	s := &Service{webSearch: webSearchExecutors{fallback: fallback}}
 	rec := httptest.NewRecorder()
 
-	assert.False(t, s.serveNativeWebSearch(context.Background(), claudeCodeSearchHelperBody(false, ""), fallbackSearchModel, false, 0, nonAnthropicProviders(), http.Header{}, rec))
+	assert.False(t, serveTestMessagesWebSearch(t, t.Context(), s, claudeCodeSearchHelperBody(false, ""), false, nonAnthropicProviders(), rec))
 	assert.Equal(t, 1, fallback.runs)
 	assert.Zero(t, rec.Body.Len(), "nothing may be written before falling through")
 }
@@ -173,4 +194,23 @@ func TestProxyMessagesClaudeCodeWebSearchFallback(t *testing.T) {
 			assert.Zero(t, p.dispatches, "%s must not be dispatched when the fallback serves the turn", name)
 		}
 	})
+
+	for name, extra := range map[string]string{
+		"mixed tools":                    "",
+		"mixed tools with domain filter": `,"allowed_domains":["docs.example"]`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			svc, _ := newService()
+			fallback := &fakeSearch{resp: fallbackSearchResult()}
+			svc.WithWebSearchExecutors(nil, fallback)
+			body := strings.Replace(string(claudeCodeSearchHelperBody(false, extra)), `"tools":[`, `"tools":[{"name":"Read","input_schema":{"type":"object"}},`, 1)
+			rec := httptest.NewRecorder()
+
+			err := svc.ProxyMessages(t.Context(), []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathMessages, strings.NewReader(body)))
+
+			require.ErrorIs(t, err, ErrTranslationCompatibleProviderUnavailable)
+			assert.Zero(t, fallback.runs)
+			assert.NotContains(t, rec.Body.String(), "web_search_tool_result")
+		})
+	}
 }

@@ -54,7 +54,7 @@ func TestServeNativeWebSearchAnswersGatewayOnlyTenant(t *testing.T) {
 	s := &Service{webSearch: webSearchExecutors{gateway: ex}}
 	rec := httptest.NewRecorder()
 
-	if !s.serveNativeWebSearch(gatewayCtx(), []byte(searchTurnBody), "claude-sonnet-5", false, 42, gatewayOnly(), http.Header{}, rec) {
+	if served, _ := s.serveNativeWebSearch(gatewayCtx(), []byte(searchTurnBody), "claude-sonnet-5", false, 42, gatewayOnly(), http.Header{}, rec); !served {
 		t.Fatal("search turn was not served")
 	}
 	if ex.got.Text != "cortex agents" {
@@ -83,7 +83,7 @@ func TestServeNativeWebSearchStreams(t *testing.T) {
 	s := &Service{webSearch: webSearchExecutors{gateway: ex}}
 	rec := httptest.NewRecorder()
 
-	if !s.serveNativeWebSearch(gatewayCtx(), []byte(searchTurnBody), "claude-sonnet-5", true, 10, gatewayOnly(), http.Header{}, rec) {
+	if served, _ := s.serveNativeWebSearch(gatewayCtx(), []byte(searchTurnBody), "claude-sonnet-5", true, 10, gatewayOnly(), http.Header{}, rec); !served {
 		t.Fatal("search turn was not served")
 	}
 	out := rec.Body.String()
@@ -108,7 +108,7 @@ func TestServeNativeWebSearchDefersToNativelyCapableProvider(t *testing.T) {
 	s := &Service{webSearch: webSearchExecutors{gateway: ex}}
 	enabled := map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderAnthropicGateway: {}}
 
-	if s.serveNativeWebSearch(gatewayCtx(), []byte(searchTurnBody), "claude-sonnet-5", false, 0, enabled, http.Header{}, httptest.NewRecorder()) {
+	if served, _ := s.serveNativeWebSearch(gatewayCtx(), []byte(searchTurnBody), "claude-sonnet-5", false, 0, enabled, http.Header{}, httptest.NewRecorder()); served {
 		t.Fatal("vendor Anthropic runs the tool itself; the turn must stay on normal routing")
 	}
 	if ex.runs != 0 {
@@ -121,7 +121,7 @@ func TestServeNativeWebSearchFallsThroughOnExecutorFailure(t *testing.T) {
 	s := &Service{webSearch: webSearchExecutors{gateway: ex}}
 	rec := httptest.NewRecorder()
 
-	if s.serveNativeWebSearch(gatewayCtx(), []byte(searchTurnBody), "claude-sonnet-5", false, 0, gatewayOnly(), http.Header{}, rec) {
+	if served, _ := s.serveNativeWebSearch(gatewayCtx(), []byte(searchTurnBody), "claude-sonnet-5", false, 0, gatewayOnly(), http.Header{}, rec); served {
 		t.Fatal("a failed search must not claim the turn")
 	}
 	if rec.Body.Len() != 0 {
@@ -134,7 +134,7 @@ func TestServeNativeWebSearchIgnoresTurnsWithoutTheTool(t *testing.T) {
 	s := &Service{webSearch: webSearchExecutors{gateway: ex}}
 	body := []byte(`{"model":"claude-sonnet-5","messages":[{"role":"user","content":"Perform a web search for the query: x"}]}`)
 
-	if s.serveNativeWebSearch(gatewayCtx(), body, "claude-sonnet-5", false, 0, gatewayOnly(), http.Header{}, httptest.NewRecorder()) {
+	if served, _ := s.serveNativeWebSearch(gatewayCtx(), body, "claude-sonnet-5", false, 0, gatewayOnly(), http.Header{}, httptest.NewRecorder()); served {
 		t.Fatal("no native tool declared; nothing to serve")
 	}
 	if ex.runs != 0 {
@@ -144,7 +144,7 @@ func TestServeNativeWebSearchIgnoresTurnsWithoutTheTool(t *testing.T) {
 
 func TestServeNativeWebSearchDisabled(t *testing.T) {
 	s := &Service{}
-	if s.serveNativeWebSearch(gatewayCtx(), []byte(searchTurnBody), "claude-sonnet-5", false, 0, gatewayOnly(), http.Header{}, httptest.NewRecorder()) {
+	if served, _ := s.serveNativeWebSearch(gatewayCtx(), []byte(searchTurnBody), "claude-sonnet-5", false, 0, gatewayOnly(), http.Header{}, httptest.NewRecorder()); served {
 		t.Fatal("no executor wired; the turn must stay on normal routing")
 	}
 }
