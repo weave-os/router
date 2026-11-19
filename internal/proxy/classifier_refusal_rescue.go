@@ -23,12 +23,11 @@ type classifierRescuePolicy struct {
 }
 
 func newClassifierRescuePolicy(ctx context.Context, s *Service) classifierRescuePolicy {
-	creds := CredentialsFromContext(ctx)
 	return classifierRescuePolicy{
 		enabled: s.ResolveCyberRefusalRetry(ctx),
 		models:  append([]string{s.ResolveCyberRefusalFallbackModel(ctx)}, catalog.ClassifierRefusalRescueModels()...),
 		unavailable: func(model string) bool {
-			return creds != nil && creds.OAuth && s.subscriptionModels.denied(creds.APIKey, model, s.clock.Now())
+			return s.subscriptionModels.deniedForCaller(ctx, model, s.clock.Now())
 		},
 		rejected: func(model string, err error) {
 			s.recordSubscriptionModelRejection(ctx, providers.ProviderAnthropic, model, err)
