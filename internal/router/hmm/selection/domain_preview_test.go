@@ -94,7 +94,7 @@ func TestDomainPreviewRejectsUnboundEvidence(t *testing.T) {
 
 func TestDomainPreviewFollowsSubscriptionLadder(t *testing.T) {
 	roster := dynamicRoster()
-	roster.SubscriptionLadders = map[string]map[string]string{"openai": {"low": "vendor-b/cheap"}}
+	roster.SubscriptionLadders = map[string]map[rosterdata.Group]string{"openai": {"low": "vendor-b/cheap"}}
 	evidence := domainEvidenceForTest(t, roster)
 
 	preview, err := selection.PreviewDomainRanking(roster, evidence, "low", "codex", []string{"openai"}, fullProfile(selection.DomainInfra))

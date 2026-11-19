@@ -76,7 +76,7 @@ func dynamicRoster() *rosterdata.Roster {
 func TestSelectGroupsWithPreferenceReweightsWithinClassifierBand(t *testing.T) {
 	roster := dynamicRoster()
 	candidates := candidateSet("vendor-a/quality", "vendor-b/cheap")
-	groups := []selection.Group{{Label: "low"}}
+	groups := []rosterdata.Group{"low"}
 
 	neutral := 0.7
 	pick, scores, _, _, ok := selection.SelectGroupsWithSubscriptions(roster, groups, "", nil, candidates, &neutral, nil, nil, nil)
@@ -104,11 +104,11 @@ func TestSelectGroupsWithPreferencePreservesPolicyTiers(t *testing.T) {
 	qualityHeavy := 1.0
 	candidates := candidateSet("vendor-a/quality", "vendor-b/cheap")
 
-	pick, _, _, _, ok := selection.SelectGroupsWithSubscriptions(roster, []selection.Group{{Label: "low"}}, "pi", nil, candidates, &qualityHeavy, nil, nil, nil)
+	pick, _, _, _, ok := selection.SelectGroupsWithSubscriptions(roster, []rosterdata.Group{"low"}, "pi", nil, candidates, &qualityHeavy, nil, nil, nil)
 	require.True(t, ok)
 	assert.Equal(t, "vendor-b/cheap", pick.Arm, "manual pin must outrank the dynamic score")
 
-	pick, _, _, _, ok = selection.SelectGroupsWithSubscriptions(roster, []selection.Group{{Label: "low"}}, "codex", nil, candidates, &qualityHeavy, nil, nil, nil)
+	pick, _, _, _, ok = selection.SelectGroupsWithSubscriptions(roster, []rosterdata.Group{"low"}, "codex", nil, candidates, &qualityHeavy, nil, nil, nil)
 	require.True(t, ok)
 	assert.Equal(t, "vendor-b/cheap", pick.Arm, "vendor affinity must outrank the dynamic score")
 }
@@ -127,7 +127,7 @@ func TestSelectGroupsWithPreferenceKeepsFallbackOrder(t *testing.T) {
 
 	pick, _, _, _, ok := selection.SelectGroupsWithSubscriptions(
 		roster,
-		[]selection.Group{{Label: "low"}, {Label: "high"}},
+		[]rosterdata.Group{"low", "high"},
 		"",
 		nil,
 		candidateSet("vendor-a/quality", "vendor-c/high"),
@@ -137,7 +137,7 @@ func TestSelectGroupsWithPreferenceKeepsFallbackOrder(t *testing.T) {
 		nil,
 	)
 	require.True(t, ok)
-	assert.Equal(t, "low", pick.Group)
+	assert.Equal(t, rosterdata.Group("low"), pick.Group)
 }
 
 func TestArmOrder(t *testing.T) {
@@ -349,16 +349,16 @@ func TestSelectParityFixture(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			pick, _, _, _, ok := selection.SelectGroupsWithSubscriptions(roster, rankedGroups(tc.rankedGroups), tc.harness, nil, candidateSet(tc.candidates...), nil, nil, nil, nil)
 			require.True(t, ok)
-			assert.Equal(t, tc.wantGroup, pick.Group)
+			assert.Equal(t, rosterdata.Group(tc.wantGroup), pick.Group)
 			assert.Equal(t, tc.wantArm, pick.Arm)
 		})
 	}
 }
 
-func rankedGroups(labels []string) []selection.Group {
-	groups := make([]selection.Group, 0, len(labels))
+func rankedGroups(labels []string) []rosterdata.Group {
+	groups := make([]rosterdata.Group, 0, len(labels))
 	for _, label := range labels {
-		groups = append(groups, selection.Group{Label: label})
+		groups = append(groups, rosterdata.Group(label))
 	}
 	return groups
 }

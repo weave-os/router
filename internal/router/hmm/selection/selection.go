@@ -2,25 +2,19 @@ package selection
 
 import (
 	"math"
-	"slices"
 	"sort"
 	"strings"
 
-	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/hmm/rosterdata"
 )
 
 type Pick struct {
-	Group         string
+	Group         rosterdata.Group
 	Arm           string
 	FallbackDepth int
 	HarnessOrder  bool
-}
-
-type Group struct {
-	Label string
 }
 
 func ArmOrder(cluster rosterdata.Cluster, harness string) (order []string, harnessSpecific bool) {
@@ -35,11 +29,9 @@ func ArmOrder(cluster rosterdata.Cluster, harness string) (order []string, harne
 	return cluster.Arms, false
 }
 
-const NoSubscriptionLadder = "none"
-
 func SelectGroupsWithSubscriptions(
 	roster *rosterdata.Roster,
-	groups []Group,
+	groups []rosterdata.Group,
 	harness string,
 	subscriptionProviders []string,
 	candidates map[string]struct{},
@@ -48,38 +40,14 @@ func SelectGroupsWithSubscriptions(
 	evidence *DomainEvidence,
 	profile DomainProfile,
 ) (Pick, map[string]map[string]float32, map[string]map[string]router.SelectionScoreComponents, map[string][]string, bool) {
-	if len(roster.SubscriptionLadders) == 0 {
-		return selectGroups(roster, groups, harness, "", candidates, qualityBias, preferredModels, evidence, profile)
-	}
-	if len(subscriptionProviders) == 0 {
-		return selectGroups(roster, groups, harness, NoSubscriptionLadder, candidates, qualityBias, preferredModels, evidence, profile)
-	}
-	return selectGroups(roster, groups, harness, SubscriptionLadderProvider(harness, subscriptionProviders), candidates, qualityBias, preferredModels, evidence, profile)
-}
-
-func SubscriptionLadderProvider(harness string, subscriptionProviders []string) string {
-	if native, ok := harnessSubscriptionProvider[rosterdata.SelectionHarness(harness)]; ok {
-		if slices.Contains(subscriptionProviders, native) {
-			return native
-		}
-		return ""
-	}
-	if len(subscriptionProviders) == 1 {
-		return subscriptionProviders[0]
-	}
-	return ""
-}
-
-var harnessSubscriptionProvider = map[rosterdata.Harness]string{
-	rosterdata.HarnessClaudeCode: providers.ProviderAnthropic,
-	rosterdata.HarnessCodex:      providers.ProviderOpenAI,
+	return selectGroups(roster, groups, harness, SubscriptionLadder(harness, subscriptionProviders), candidates, qualityBias, preferredModels, evidence, profile)
 }
 
 func selectGroups(
 	roster *rosterdata.Roster,
-	groups []Group,
+	groups []rosterdata.Group,
 	harness string,
-	ladderProvider string,
+	ladderKey string,
 	candidates map[string]struct{},
 	qualityBias *float64,
 	preferredModels []string,
@@ -94,29 +62,30 @@ func selectGroups(
 	ordersByGroup := make(map[string][]string, len(groups))
 	hasPreferenceInputs := len(preferredModels) > 0
 	for _, group := range groups {
-		if cluster, ok := roster.Clusters[group.Label]; ok {
-			scores, components, domainActive := scoresWithDomainPreferences(roster, group.Label, cluster, qualityBias, preferredModels, evidence, profile)
-			scoresByGroup[group.Label] = scores
-			componentsByGroup[group.Label] = components
+		label := string(group)
+		if cluster, ok := roster.Clusters[label]; ok {
+			scores, components, domainActive := scoresWithDomainPreferences(roster, label, cluster, qualityBias, preferredModels, evidence, profile)
+			scoresByGroup[label] = scores
+			componentsByGroup[label] = components
 			order, _ := ArmOrder(cluster, harness)
 			order = preferenceOrder(roster, cluster, harness, order, qualityBias, hasPreferenceInputs || domainActive, scores)
-			ordersByGroup[group.Label] = leadWith(order, roster.SubscriptionLadders[ladderProvider][group.Label])
+			ordersByGroup[label] = leadWith(order, roster.SubscriptionLadders[ladderKey][group])
 		}
 	}
 	depth := 0
 	for _, group := range groups {
-		cluster, ok := roster.Clusters[group.Label]
+		cluster, ok := roster.Clusters[string(group)]
 		if !ok {
 			depth++
 			continue
 		}
 		_, harnessSpecific := ArmOrder(cluster, harness)
-		order := ordersByGroup[group.Label]
+		order := ordersByGroup[string(group)]
 		for _, arm := range order {
 			if _, eligible := candidates[armid.Parse(arm).Base]; !eligible {
 				continue
 			}
-			return Pick{Group: group.Label, Arm: arm, FallbackDepth: depth, HarnessOrder: harnessSpecific}, scoresByGroup, componentsByGroup, ordersByGroup, true
+			return Pick{Group: group, Arm: arm, FallbackDepth: depth, HarnessOrder: harnessSpecific}, scoresByGroup, componentsByGroup, ordersByGroup, true
 		}
 		depth++
 	}
@@ -125,7 +94,7 @@ func selectGroups(
 
 func Scores(roster *rosterdata.Roster, label string, cluster rosterdata.Cluster, qualityBias *float64) map[string]float32 {
 	neutral := roster.Ranking.QualityBiasNeutral
-	if qualityBias == nil || *qualityBias == neutral || !isDynamicRoster(roster) {
+	if qualityBias == nil || *qualityBias == neutral || !roster.SchemaVersion.IsGoSelectionSchema() {
 		scores := make(map[string]float32, len(cluster.ArmScores))
 		for arm, score := range cluster.ArmScores {
 			scores[arm] = float32(score)
@@ -151,7 +120,7 @@ func EffectiveAlpha(roster *rosterdata.Roster, label string, qualityBias float64
 }
 
 func preferenceOrder(roster *rosterdata.Roster, cluster rosterdata.Cluster, harness string, order []string, qualityBias *float64, hasPreferenceInputs bool, scores map[string]float32) []string {
-	if (qualityBias == nil || *qualityBias == roster.Ranking.QualityBiasNeutral || !isDynamicRoster(roster)) && !hasPreferenceInputs {
+	if (qualityBias == nil || *qualityBias == roster.Ranking.QualityBiasNeutral || !roster.SchemaVersion.IsGoSelectionSchema()) && !hasPreferenceInputs {
 		return order
 	}
 	pins := append([]string(nil), cluster.ManualPinsByHarness[rosterdata.HarnessAll]...)
@@ -237,20 +206,6 @@ func scoresWithDomainPreferences(
 	return scores, componentsByArm, domainActive
 }
 
-func leadWith(order []string, arm string) []string {
-	if arm == "" {
-		return order
-	}
-	led := make([]string, 0, len(order)+1)
-	led = append(led, arm)
-	for _, member := range order {
-		if member != arm {
-			led = append(led, member)
-		}
-	}
-	return led
-}
-
 func preferenceRanks(models []string) map[string]int {
 	ranks := make(map[string]int, len(models))
 	for rank, model := range models {
@@ -276,8 +231,4 @@ func vendorRank(arm string, preferred []string) int {
 		}
 	}
 	return len(preferred)
-}
-
-func isDynamicRoster(roster *rosterdata.Roster) bool {
-	return roster.SchemaVersion == rosterdata.SchemaVersionV7 || roster.SchemaVersion == rosterdata.SchemaVersionV75C || roster.SchemaVersion == rosterdata.SchemaVersionPolicyV1
 }

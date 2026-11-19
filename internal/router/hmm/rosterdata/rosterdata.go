@@ -23,6 +23,18 @@ const (
 	SchemaVersionPolicyV1 SchemaVersion = "hmm_go_selection_policy_v1"
 )
 
+func (s SchemaVersion) IsGoSelectionSchema() bool {
+	switch s {
+	case SchemaVersionV7, SchemaVersionV75C, SchemaVersionPolicyV1:
+		return true
+	}
+	return false
+}
+
+type Group string
+
+const NoSubscriptionLadderKey = "none"
+
 type Harness string
 
 const (
@@ -45,7 +57,7 @@ type Roster struct {
 	HarnessVendorPriority map[Harness]HarnessVendorPriority `json:"harness_vendor_priority,omitempty"`
 	ManualPins            map[string]map[string][]string    `json:"manual_pins,omitempty"`
 	Preferences           PreferencePolicy                  `json:"preferences,omitempty"`
-	SubscriptionLadders   map[string]map[string]string      `json:"subscription_ladders,omitempty"`
+	SubscriptionLadders   map[string]map[Group]string       `json:"subscription_ladders,omitempty"`
 	Provenance            Provenance                        `json:"provenance,omitempty"`
 	Clusters              map[string]Cluster                `json:"clusters"`
 	SHA256                string                            `json:"-"`
@@ -221,11 +233,10 @@ func Load(path string) (*Roster, error) {
 }
 
 func validateSchema(r *Roster) error {
-	switch r.SchemaVersion {
-	case SchemaVersionV7, SchemaVersionV75C, SchemaVersionPolicyV1:
-	case "":
+	if r.SchemaVersion == "" {
 		return fmt.Errorf("missing schema_version")
-	default:
+	}
+	if !r.SchemaVersion.IsGoSelectionSchema() {
 		return fmt.Errorf("unsupported schema_version %q", r.SchemaVersion)
 	}
 	if len(r.Clusters) == 0 {
@@ -260,10 +271,8 @@ func validateSchema(r *Roster) error {
 		if _, ok := r.Ranking.Alpha[label]; !ok {
 			return fmt.Errorf("cluster %q has no ranking.alpha entry", label)
 		}
-		if r.SchemaVersion == SchemaVersionV7 || r.SchemaVersion == SchemaVersionV75C || r.SchemaVersion == SchemaVersionPolicyV1 {
-			if err := validateDynamicCluster(r, label, cluster); err != nil {
-				return err
-			}
+		if err := validateDynamicCluster(r, label, cluster); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -291,7 +300,7 @@ func validateGoPolicy(r *Roster) error {
 			return fmt.Errorf("subscription ladder %q must name at least one group", provider)
 		}
 		for label, arm := range armsByGroup {
-			if _, exists := r.Clusters[label]; !exists {
+			if _, exists := r.Clusters[string(label)]; !exists {
 				return fmt.Errorf("subscription ladder %q references unknown group %q", provider, label)
 			}
 			if strings.TrimSpace(arm) == "" {
