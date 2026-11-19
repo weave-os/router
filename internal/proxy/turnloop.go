@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"net/http"
 	"slices"
 	"sort"
@@ -27,6 +26,7 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/routingpolicy"
+	"weave-os/router/internal/routingpolicy/overrides"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 
@@ -699,126 +699,92 @@ func (s *Service) runTurnLoop(
 		}
 		res.Purpose = purpose
 	}
-	if forceModelFound && hardPinnedTurn {
-		if forcedPinEligible(forceModelPin, req) {
-			res.Purpose = utilityPurposes[res.TurnType]
-			threadPin, hmmHistory, forceHistory := sessionpin.Pin{}, sessionpin.Pin{}, sessionpin.Pin{}
-			if s.pinStore != nil {
-				threadPin, _ = sessionPins.Load(ctx, threadSessionKey, res.PinRole)
-				hmmHistory = sessionPins.LoadHMMHistory(ctx, threadSessionKey, res.PinRole)
-				forceHistory = s.loadForceModelHistory(ctx, threadSessionKey, res.PinRole)
-			}
-			res.SessionKey = threadSessionKey
-			res.PinModel = forceModelPin.Model
-			res.PinAgeSec = pinAge(forceModelPin, s.clock.Now())
-			res.applySwitchHistory(threadPin, hmmHistory, forceHistory)
-			res.EscalateEffort = !forceHistory.LastTurnEndedAt.IsZero() &&
-				(forceHistory.LastOutputTokens == 0 || forceHistory.ConsecutiveUpstreamErrors > 0)
-			res.Decision = pinDecision(forceModelPin)
-			res.Decision.Reason = translate.ReasonUserForceModel
-			res.StickyHit = true
-			res.PinTier = translate.ReasonUserForceModel
-			sessionPins.AnchorForceModelHistory(ctx, installationID, threadSessionKey, res.PinRole, forceModelPin)
-			return res, nil
-		}
-		res.SessionKey = threadSessionKey
-		res.ForcedPinDropped = true
-		res.ForcedPinModel = forceModelPin.Model
-		res.ForcedPinDropReason = forcedPinIneligibilityReason(forceModelPin, req)
-		log.Info("Forced session pin dropped for hard-pinned turn",
-			"pin_model", forceModelPin.Model,
-			"pin_provider", forceModelPin.Provider,
-			"drop_reason", res.ForcedPinDropReason,
-			"enabled_providers", sortedEnabledKeys(req.EnabledProviders),
-			"role", res.PinRole,
-		)
-	}
-
-	if res.TurnType == turntype.Probe && !s.explicitUtilityHardPin {
-		res.SessionKey = [sessionpin.SessionKeyLen]byte{}
-		if automaticProbe {
-			return s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
-		}
-		decision, err := s.callerModelPassthroughDecision(ctx, req)
-		if err != nil {
-			return res, err
-		}
-		res.Decision = decision
-		res.CallerModelPassthrough = true
-		res.Origin = policy.OverrideSourceRequest
-		return res, nil
-	}
-
 	if hardPinnedTurn {
-		provider, model := s.hardPinProvider, s.hardPinModel
-		useSubAgentOverride := res.TurnType == turntype.SubAgentDispatch && s.hasSubAgentOverride()
-		if useSubAgentOverride {
-			provider, model = s.subAgentProvider, s.subAgentModel
-		}
-		hardPinReq := HardPinRequest{
-			EnabledProviders: req.EnabledProviders,
-			ExcludedModels:   req.ExcludedModels,
-			CustomBindings:   req.CustomBindings,
-			GatewayProviders: req.GatewayProviders,
-		}
-		switch {
-		case s.hardPinResolver != nil && !useSubAgentOverride:
-			p, m, ok := s.hardPinResolver(withAutomaticExclusions(hardPinReq, req.AutomaticExcludedModels))
-			if !ok {
-				p, m, ok = s.hardPinResolver(hardPinReq)
-				if ok {
-					log.Warn("Hard-pin: automatic-routing exclusions left no candidate; ignoring them for this turn",
-						"turn_type", string(res.TurnType),
-						"hard_pin_model", m,
-						"hard_pin_provider", p,
+		spec, _ := s.InferencePolicyRegistry().Spec(utilityPurposes[res.TurnType])
+		_, err := overrides.Resolve(spec.OverridePrecedence, map[policy.OverrideSource][]overrides.Resolver{
+			policy.OverrideSourceRequest: {
+				func() (bool, error) {
+					if !forceModelFound {
+						return false, nil
+					}
+					if forcedPinEligible(forceModelPin, req) {
+						res.Purpose = utilityPurposes[res.TurnType]
+						threadPin, hmmHistory, forceHistory := sessionpin.Pin{}, sessionpin.Pin{}, sessionpin.Pin{}
+						if s.pinStore != nil {
+							threadPin, _ = sessionPins.Load(ctx, threadSessionKey, res.PinRole)
+							hmmHistory = sessionPins.LoadHMMHistory(ctx, threadSessionKey, res.PinRole)
+							forceHistory = s.loadForceModelHistory(ctx, threadSessionKey, res.PinRole)
+						}
+						res.SessionKey = threadSessionKey
+						res.PinModel = forceModelPin.Model
+						res.PinAgeSec = pinAge(forceModelPin, s.clock.Now())
+						res.applySwitchHistory(threadPin, hmmHistory, forceHistory)
+						res.EscalateEffort = !forceHistory.LastTurnEndedAt.IsZero() &&
+							(forceHistory.LastOutputTokens == 0 || forceHistory.ConsecutiveUpstreamErrors > 0)
+						res.Decision = pinDecision(forceModelPin)
+						res.Decision.Reason = translate.ReasonUserForceModel
+						res.StickyHit = true
+						res.PinTier = translate.ReasonUserForceModel
+						sessionPins.AnchorForceModelHistory(ctx, installationID, threadSessionKey, res.PinRole, forceModelPin)
+						return true, nil
+					}
+					res.SessionKey = threadSessionKey
+					res.ForcedPinDropped = true
+					res.ForcedPinModel = forceModelPin.Model
+					res.ForcedPinDropReason = forcedPinIneligibilityReason(forceModelPin, req)
+					log.Info("Forced session pin dropped for hard-pinned turn",
+						"pin_model", forceModelPin.Model,
+						"pin_provider", forceModelPin.Provider,
+						"drop_reason", res.ForcedPinDropReason,
+						"enabled_providers", sortedEnabledKeys(req.EnabledProviders),
+						"role", res.PinRole,
 					)
-				}
-			}
-			if !ok {
-				hardPinErr := router.ErrNoEligibleProvider
-				switch {
-				case s.hardPinBlockedByContextWindow(hardPinReq, req):
-					hardPinErr = policy.ErrContextWindowExceeded
-				case len(req.GatewayProviders) > 0:
-					hardPinErr = policy.ErrGatewayServesNoDeployedModel
-				}
-				log.Warn(
-					"Hard-pin: no eligible provider for request",
-					"turn_type", string(res.TurnType),
-					"enabled_providers", sortedEnabledKeys(req.EnabledProviders),
-					"err", hardPinErr,
-				)
-				return res, fmt.Errorf("hard-pin: no eligible provider for %s: %w", res.TurnType, hardPinErr)
-			}
-			provider, model = p, m
-		default:
-			if req.EnabledProviders != nil {
-				if _, enabled := req.EnabledProviders[provider]; !enabled {
-					return res, fmt.Errorf("hard-pin provider %q is ineligible for %s: %w", provider, res.TurnType, router.ErrNoEligibleProvider)
-				}
-			}
-			if _, excluded := req.ExcludedModels[model]; excluded {
-				return res, fmt.Errorf("hard-pin model %q is ineligible for %s: %w", model, res.TurnType, router.ErrNoEligibleProvider)
-			}
-			if automaticallyDisabled(req, model) {
-				log.Warn("Hard-pin model is disabled for automatic routing; serving it anyway",
-					"turn_type", string(res.TurnType),
-					"hard_pin_model", model,
-					"hard_pin_provider", provider,
-				)
-			}
-		}
-		hardDecision := router.Decision{
-			Provider: provider,
-			Model:    model,
-			Reason:   string(res.TurnType) + "_hard_pin",
-		}
-		res.Decision = hardDecision
-		res.StickyHit = true
-		res.HardPinned = true
-		res.Origin = policy.OverrideSourceDeployment
-		res.PinTier = string(res.TurnType) + "_hard_pin"
-		return res, nil
+					return false, nil
+				},
+				func() (bool, error) {
+					if res.TurnType != turntype.Probe || s.explicitUtilityHardPin {
+						return false, nil
+					}
+					res.SessionKey = [sessionpin.SessionKeyLen]byte{}
+					if automaticProbe {
+						var err error
+						res, err = s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
+						return true, err
+					}
+					decision, err := s.callerModelPassthroughDecision(ctx, req)
+					if err != nil {
+						return true, err
+					}
+					res.Decision = decision
+					res.CallerModelPassthrough = true
+					res.Origin = policy.OverrideSourceRequest
+					return true, nil
+				},
+			},
+			policy.OverrideSourceDeployment: {
+				func() (bool, error) {
+					resolver, provider, model := s.hardPinResolver, s.hardPinProvider, s.hardPinModel
+					if res.TurnType == turntype.SubAgentDispatch && s.hasSubAgentOverride() {
+						resolver, provider, model = nil, s.subAgentProvider, s.subAgentModel
+					}
+					provider, model, err := utilityHardPinTarget(ctx, req, res.TurnType, resolver, provider, model)
+					if err != nil {
+						return true, err
+					}
+					res.Decision = router.Decision{
+						Provider: provider,
+						Model:    model,
+						Reason:   string(res.TurnType) + "_hard_pin",
+					}
+					res.StickyHit = true
+					res.HardPinned = true
+					res.Origin = policy.OverrideSourceDeployment
+					res.PinTier = string(res.TurnType) + "_hard_pin"
+					return true, nil
+				},
+			},
+		})
+		return res, err
 	}
 
 	if !forceModelFound && env.IsNativeWebSearchSubTurn() {
@@ -2007,20 +1973,6 @@ func sortedEnabledKeys(m map[string]struct{}) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-func (s *Service) hardPinBlockedByContextWindow(hardPinReq HardPinRequest, req router.Request) bool {
-	if len(req.ContextWindowExcludedModels) == 0 {
-		return false
-	}
-	nonSizeExcluded := maps.Clone(req.ExcludedModels)
-	maps.DeleteFunc(nonSizeExcluded, func(model string, _ struct{}) bool {
-		_, sized := req.ContextWindowExcludedModels[model]
-		return sized
-	})
-	hardPinReq.ExcludedModels = nonSizeExcluded
-	_, _, ok := s.hardPinResolver(hardPinReq)
-	return ok
 }
 
 func forcePinBindsNonClassifierTurn(found bool, tt turntype.TurnType) bool {
