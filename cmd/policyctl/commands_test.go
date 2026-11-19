@@ -72,7 +72,7 @@ func TestRunCompileWritesCanonicalBytes(t *testing.T) {
 		PolicySHA256 string `json:"policy_sha256"`
 	}
 	require.NoError(t, json.Unmarshal(summaryPayload, &summary))
-	policy, err := rosterdata.ParseValidated(payload)
+	policy, err := admitRoster(payload)
 	require.NoError(t, err)
 	canonical, err := rosterdata.CanonicalBytes(policy)
 	require.NoError(t, err)

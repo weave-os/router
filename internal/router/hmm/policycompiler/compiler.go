@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm/selectionpolicy"
 )
 
 var defaultClassOrder = []string{"low", "medium", "high", "maximum"}
@@ -27,7 +28,7 @@ type Options struct {
 	EvidenceSHA256      string
 }
 
-func Compile(source []byte, options Options) ([]byte, *rosterdata.Roster, error) {
+func Compile(source []byte, options Options) ([]byte, *selectionpolicy.Policy, error) {
 	roster, err := rosterdata.Parse(source)
 	if err != nil {
 		return nil, nil, err
@@ -102,14 +103,15 @@ func Compile(source []byte, options Options) ([]byte, *rosterdata.Roster, error)
 		EvidenceURI:    options.EvidenceURI,
 		EvidenceSHA256: options.EvidenceSHA256,
 	}
-	if err := rosterdata.ValidateCatalog(roster); err != nil {
-		return nil, nil, err
-	}
 	canonical, err := rosterdata.CanonicalBytes(roster)
 	if err != nil {
 		return nil, nil, fmt.Errorf("policycompiler: canonical policy: %w", err)
 	}
-	return canonical, roster, nil
+	admitted, err := selectionpolicy.Admit(canonical)
+	if err != nil {
+		return nil, nil, err
+	}
+	return canonical, admitted, nil
 }
 
 func hasDefaultTaxonomy(roster *rosterdata.Roster) bool {

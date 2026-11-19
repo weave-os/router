@@ -21,6 +21,7 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm/selectionpolicy"
 	"weave-os/router/internal/subscriptions/entitlement"
 )
 
@@ -726,7 +727,18 @@ func (s *servingMemoryStore) readServingObject(kind policyregistry.ServingKind, 
 	}
 	return manifest, payload, nil
 }
+func (s *servingMemoryStore) ReadPolicy(_ context.Context, ref policyregistry.ObjectRef) (*selectionpolicy.Policy, error) {
+	policy, err := s.storedPolicy(ref)
+	if err != nil {
+		return nil, err
+	}
+	return admitFixture(policy)
+}
+
 func (s *servingMemoryStore) ReadServingPolicy(_ context.Context, ref policyregistry.ObjectRef) (*rosterdata.Roster, error) {
+	return s.storedPolicy(ref)
+}
+func (s *servingMemoryStore) storedPolicy(ref policyregistry.ObjectRef) (*rosterdata.Roster, error) {
 	policy, exists := s.policies[ref]
 	if !exists {
 		return nil, policyregistry.ErrNotFound
@@ -980,7 +992,7 @@ func TestProfileVersionAdvancePreservesOtherCustomerAndDefault(t *testing.T) {
 	policyRef := policyregistry.ObjectRef{URI: base.Policy.URI, SHA256: base.Policy.SHA256, Generation: base.Policy.Generation}
 	policyBytes, err := rosterdata.CanonicalBytes(store.policies[policyRef])
 	require.NoError(t, err)
-	changedPolicy, err := rosterdata.ParseValidated(policyBytes)
+	changedPolicy, err := admitRoster(policyBytes)
 	require.NoError(t, err)
 	changedPolicy.Preferences.PreferredModelBonus = 0.6
 	changedBytes, err := rosterdata.CanonicalBytes(changedPolicy)

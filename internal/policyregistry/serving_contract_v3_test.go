@@ -27,7 +27,7 @@ func publishRosterArm(t *testing.T, store *servingMemoryStore, base policyregist
 	payload, err := rosterdata.CanonicalBytes(roster)
 	require.NoError(t, err)
 	payload = bytes.ReplaceAll(payload, []byte(roster.AllArms()[0]), []byte(alternateRosterArm))
-	changed, err := rosterdata.ParseValidated(payload)
+	changed, err := admitRoster(payload)
 	require.NoError(t, err)
 	digest := policyregistry.Digest(payload)
 	ref := policyregistry.ObjectRef{URI: testRegistryRoot + "/router_policy/v1/policies/sha256/" + digest + ".json", SHA256: digest, Generation: 1}

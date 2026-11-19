@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
-
-	"weave-os/router/internal/router/hmm/rosterdata"
 )
 
 type ServingExport struct {
@@ -49,11 +47,7 @@ func ExportServingTarget(ctx context.Context, store ServingExportStore, target S
 		return ServingExport{}, err
 	}
 	policyRef := ObjectRef{URI: candidate.Policy.URI, SHA256: candidate.Policy.SHA256, Generation: candidate.Policy.Generation}
-	roster, err := store.ReadServingPolicy(ctx, policyRef)
-	if err != nil {
-		return ServingExport{}, err
-	}
-	if err := rosterdata.ValidateCatalog(roster); err != nil {
+	if _, err := store.ReadPolicy(ctx, policyRef); err != nil {
 		return ServingExport{}, err
 	}
 	policyPayload, err := store.ReadPolicyPayload(ctx, policyRef)

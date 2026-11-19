@@ -16,6 +16,7 @@ import (
 
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm/selectionpolicy"
 )
 
 type cliServingRegistry struct {
@@ -71,6 +72,9 @@ func (r *cliServingRegistry) ReadClassifierRuntimeBinding(context.Context, polic
 }
 func (r *cliServingRegistry) ReadServingPolicy(context.Context, policyregistry.ObjectRef) (*rosterdata.Roster, error) {
 	return r.policy, nil
+}
+func (r *cliServingRegistry) ReadPolicy(context.Context, policyregistry.ObjectRef) (*selectionpolicy.Policy, error) {
+	return admitFixture(r.policy)
 }
 func (r *cliServingRegistry) ReadServingState(context.Context, policyregistry.ServingTarget) (policyregistry.ServingStateSnapshot, error) {
 	if r.state.Generation == 0 {
@@ -163,7 +167,7 @@ func cliProposalFile(t *testing.T, ref policyregistry.ObjectRef) string {
 
 func cliServingFixture(t *testing.T) (*cliServingRegistry, *cliDestinationEndpoints, policyregistry.DeploymentProposal) {
 	t.Helper()
-	policy, err := rosterdata.ParseValidated([]byte(`{"schema_version":"hmm_go_selection_policy_v1","class_order":["low"],"ranking":{"alpha":{"low":0.4},"alpha_min":{"low":0.1},"alpha_max":{"low":0.8},"quality_bias_neutral":0.7,"wii_score_version":"wii-v1","wii_normalization_sha256":"wii","wpi_score_version":"wpi-v1","wpi_normalization_sha256":"wpi"},"preferences":{"preferred_model_bonus":0.5,"subscription_bonus":0.35},"clusters":{"low":{"complexity_label":"low","arms":["openai/gpt-5.6-sol"],"cost_ref_usd":1,"latency_ref_ms":1,"arm_scores":{"openai/gpt-5.6-sol":1},"arm_indices":{"openai/gpt-5.6-sol":{"wii_v1":80,"wpi_v1":40}}}}}`))
+	policy, err := admitRoster([]byte(`{"schema_version":"hmm_go_selection_policy_v1","class_order":["low"],"ranking":{"alpha":{"low":0.4},"alpha_min":{"low":0.1},"alpha_max":{"low":0.8},"quality_bias_neutral":0.7,"wii_score_version":"wii-v1","wii_normalization_sha256":"wii","wpi_score_version":"wpi-v1","wpi_normalization_sha256":"wpi"},"preferences":{"preferred_model_bonus":0.5,"subscription_bonus":0.35},"clusters":{"low":{"complexity_label":"low","arms":["openai/gpt-5.6-sol"],"cost_ref_usd":1,"latency_ref_ms":1,"arm_scores":{"openai/gpt-5.6-sol":1},"arm_indices":{"openai/gpt-5.6-sol":{"wii_v1":80,"wpi_v1":40}}}}}`))
 	require.NoError(t, err)
 	registry := &cliServingRegistry{objects: make(map[policyregistry.ObjectRef][]byte), policy: policy}
 	artifact := policyregistry.ObjectRef{URI: defaultRegistryURI + "/fixture/artifact", SHA256: policyregistry.Digest([]byte("artifact")), Generation: 1}
@@ -494,4 +498,20 @@ func TestServingCLIRemovedVerbsPointToTheirReplacement(t *testing.T) {
 	require.Zero(t, opened)
 	require.ErrorContains(t, runServingWith(context.Background(), []string{"promote"}, dependencies), `unsupported serving command "promote"`)
 	require.ErrorContains(t, runServingWith(context.Background(), nil, dependencies), "usage: policyctl serving <publish|publish-release|apply|status>")
+}
+
+func admitRoster(payload []byte) (*rosterdata.Roster, error) {
+	admitted, err := selectionpolicy.Admit(payload)
+	if err != nil {
+		return nil, err
+	}
+	return admitted.Roster(), nil
+}
+
+func admitFixture(roster *rosterdata.Roster) (*selectionpolicy.Policy, error) {
+	payload, err := rosterdata.CanonicalBytes(roster)
+	if err != nil {
+		return nil, err
+	}
+	return selectionpolicy.Admit(payload)
 }

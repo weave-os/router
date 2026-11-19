@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"os"
 	"sort"
 	"strings"
 	"weave-os/router/internal/router/policy"
@@ -171,18 +170,6 @@ func Parse(data []byte) (*Roster, error) {
 	return &roster, nil
 }
 
-func ParseValidated(data []byte) (*Roster, error) {
-	roster, err := Parse(data)
-	if err != nil {
-		return nil, err
-	}
-	roster.SHA256 = SHA256Hex(data)
-	if err := ValidateCatalog(roster); err != nil {
-		return nil, err
-	}
-	return roster, nil
-}
-
 func SHA256Hex(data []byte) string {
 	digest := sha256.Sum256(data)
 	return hex.EncodeToString(digest[:])
@@ -214,22 +201,6 @@ func CanonicalBytes(roster *Roster) ([]byte, error) {
 		return nil, fmt.Errorf("rosterdata: marshal canonical roster: %w", err)
 	}
 	return payload, nil
-}
-
-func Load(path string) (*Roster, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("rosterdata: read roster %q: %w", path, err)
-	}
-	roster, err := Parse(data)
-	if err != nil {
-		return nil, err
-	}
-	roster.SHA256 = SHA256Hex(data)
-	if err := ValidateCatalog(roster); err != nil {
-		return nil, fmt.Errorf("rosterdata: roster %q: %w", path, err)
-	}
-	return roster, nil
 }
 
 func validateSchema(r *Roster) error {

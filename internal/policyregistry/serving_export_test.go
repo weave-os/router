@@ -11,7 +11,7 @@ import (
 )
 
 func (s *servingMemoryStore) ReadPolicyPayload(ctx context.Context, ref policyregistry.ObjectRef) ([]byte, error) {
-	policy, err := s.ReadServingPolicy(ctx, ref)
+	policy, err := s.storedPolicy(ref)
 	if err != nil {
 		return nil, err
 	}

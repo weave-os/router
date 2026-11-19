@@ -107,9 +107,6 @@ func compilePublishable(source []byte, options policycompiler.Options) ([]byte, 
 	if err != nil {
 		return nil, err
 	}
-	if _, err := rosterdata.ParseValidated(canonical); err != nil {
-		return nil, err
-	}
 	return canonical, nil
 }
 
