@@ -90,13 +90,13 @@ func (s *Service) WithEscalationConfiguration(store llmescalation.ConfigurationS
 }
 
 func (s *Service) ListLLMEscalationSessions(ctx context.Context, installationID string, limit, offset int32) (LLMEscalationSnapshot, error) {
-	if s.escalation.LLMStore() == nil {
+	if s.escalationHelper().LLMStore() == nil {
 		return LLMEscalationSnapshot{}, ErrEscalationJudgeUnavailable
 	}
 	if offset < 0 || limit < 1 || limit > 200 {
 		return LLMEscalationSnapshot{}, errors.New("invalid escalation page")
 	}
-	sessions, err := s.escalation.LLMStore().ListSessions(ctx, installationID, limit+1, offset)
+	sessions, err := s.escalationHelper().LLMStore().ListSessions(ctx, installationID, limit+1, offset)
 	if err != nil {
 		return LLMEscalationSnapshot{}, err
 	}
@@ -104,7 +104,7 @@ func (s *Service) ListLLMEscalationSessions(ctx context.Context, installationID 
 	if hasMore {
 		sessions = sessions[:int(limit)]
 	}
-	summary, err := s.escalation.LLMStore().Summary(ctx, installationID)
+	summary, err := s.escalationHelper().LLMStore().Summary(ctx, installationID)
 	if err != nil {
 		return LLMEscalationSnapshot{}, err
 	}
@@ -112,7 +112,7 @@ func (s *Service) ListLLMEscalationSessions(ctx context.Context, installationID 
 }
 
 func (s *Service) GetLLMEscalationSession(ctx context.Context, installationID, encodedScope string) (LLMEscalationDetail, bool, error) {
-	if s.escalation.LLMStore() == nil {
+	if s.escalationHelper().LLMStore() == nil {
 		return LLMEscalationDetail{}, false, ErrEscalationJudgeUnavailable
 	}
 	decoded, err := hex.DecodeString(encodedScope)
@@ -121,7 +121,7 @@ func (s *Service) GetLLMEscalationSession(ctx context.Context, installationID, e
 	}
 	var scope [32]byte
 	copy(scope[:], decoded)
-	session, jobs, found, err := s.escalation.LLMStore().GetSession(ctx, installationID, scope)
+	session, jobs, found, err := s.escalationHelper().LLMStore().GetSession(ctx, installationID, scope)
 	return LLMEscalationDetail{Session: session, Checkpoints: jobs}, found, err
 }
 
@@ -141,14 +141,14 @@ func (s *Service) UpdateEscalationSelection(ctx context.Context, installationID 
 		return llmescalation.Selection{}, ErrEscalationJudgeUnavailable
 	}
 	usesJudge := update.Active == flags.EscalationClassifierSwitchyard || update.Shadow == flags.EscalationClassifierSwitchyard
-	if usesJudge && !s.escalation.SwitchyardJudgeReady() {
+	if usesJudge && !s.escalationHelper().SwitchyardJudgeReady() {
 		return llmescalation.Selection{}, fmt.Errorf("%w: deployment capability is disabled", ErrEscalationJudgeUnavailable)
 	}
 	usesQwen := update.Active == flags.EscalationClassifierLLM || update.Shadow == flags.EscalationClassifierLLM
-	if usesQwen && !s.escalation.QwenJudgeReady() {
+	if usesQwen && !s.escalationHelper().QwenJudgeReady() {
 		return llmescalation.Selection{}, fmt.Errorf("%w: Qwen deployment capability is disabled", ErrEscalationJudgeUnavailable)
 	}
-	if update.Active == flags.EscalationClassifierSwitchyard && !s.escalation.SwitchyardActiveEnabled() {
+	if update.Active == flags.EscalationClassifierSwitchyard && !s.escalationHelper().SwitchyardActiveEnabled() {
 		return llmescalation.Selection{}, fmt.Errorf("%w: active rollout is disabled", ErrEscalationJudgeUnavailable)
 	}
 	selection, err := s.llmEscalationConfiguration.SetSelection(ctx, installationID, update)
@@ -164,14 +164,14 @@ func (s *Service) UpdateEscalationSelection(ctx context.Context, installationID 
 func (s *Service) withEscalationReadiness(selection llmescalation.Selection) llmescalation.Selection {
 	selection.Ready = true
 	if selection.Active == flags.EscalationClassifierSwitchyard || selection.Shadow == flags.EscalationClassifierSwitchyard {
-		selection.Ready = s.escalation.SwitchyardJudgeReady()
+		selection.Ready = s.escalationHelper().SwitchyardJudgeReady()
 	}
 	if selection.Active == flags.EscalationClassifierLLM || selection.Shadow == flags.EscalationClassifierLLM {
-		selection.Ready = selection.Ready && s.escalation.QwenJudgeReady()
+		selection.Ready = selection.Ready && s.escalationHelper().QwenJudgeReady()
 	}
 	if !selection.Ready {
 		selection.UnavailableReason = "deployment capability is disabled"
-	} else if selection.Active == flags.EscalationClassifierSwitchyard && !s.escalation.SwitchyardActiveEnabled() {
+	} else if selection.Active == flags.EscalationClassifierSwitchyard && !s.escalationHelper().SwitchyardActiveEnabled() {
 		selection.Ready = false
 		selection.UnavailableReason = "active rollout is disabled"
 	}

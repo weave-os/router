@@ -1187,7 +1187,7 @@ func (s *Service) runTurnLoop(
 	}
 	baselineRequest := req
 	baselineTurn := res
-	escalationTurn := s.escalation.Begin(ctx, s.escalationFacts(ctx, env, res, apiKeyID), req)
+	escalationTurn := s.escalationHelper().Begin(ctx, s.escalationFacts(ctx, env, res, apiKeyID), req)
 	escalationTurn.Apply(&req)
 	res.escalation = escalationTurn
 	if pinFound {
@@ -1559,7 +1559,7 @@ func (s *Service) runTurnLoop(
 	}
 	res, routeErr = routeRemaining()
 	if escalationTurn.HasXGB() {
-		committed, err := s.escalation.Finish(ctx, escalationTurn, res.Decision, decisionPolicyGroup(res.Decision), routeErr)
+		committed, err := s.escalationHelper().Finish(ctx, escalationTurn, res.Decision, decisionPolicyGroup(res.Decision), routeErr)
 		if err != nil {
 			log.Warn("Escalation state commit failed; routing without intervention", "err", err, "ordinal", escalationTurn.Ordinal())
 			if floor.RoutingApplied(res.Decision) {
@@ -1573,7 +1573,7 @@ func (s *Service) runTurnLoop(
 	}
 	res.escalation = escalationTurn
 	if escalationTurn.HasLLM() && routeErr == nil {
-		if err := s.escalation.ApplyLLM(ctx, escalationTurn, res.Decision); err != nil {
+		if err := s.escalationHelper().ApplyLLM(ctx, escalationTurn, res.Decision); err != nil {
 			log.Warn("LLM escalation application failed", "err", err)
 			if escalationTurn.LLMActive() && floor.RoutingApplied(res.Decision) {
 				req = baselineRequest

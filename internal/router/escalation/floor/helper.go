@@ -72,17 +72,14 @@ func (h *Helper) WithSwitchyardActive(enabled bool) {
 }
 
 func (h *Helper) LLMStore() llmescalation.Store {
-	if h == nil {
-		return nil
-	}
 	return h.llmStore
 }
 
-func (h *Helper) SwitchyardJudgeReady() bool { return h != nil && h.llmJudge != nil }
+func (h *Helper) SwitchyardJudgeReady() bool { return h.llmJudge != nil }
 
-func (h *Helper) QwenJudgeReady() bool { return h != nil && h.qwenJudge != nil }
+func (h *Helper) QwenJudgeReady() bool { return h.qwenJudge != nil }
 
-func (h *Helper) SwitchyardActiveEnabled() bool { return h != nil && h.switchyardActiveEnabled }
+func (h *Helper) SwitchyardActiveEnabled() bool { return h.switchyardActiveEnabled }
 
 func (h *Helper) selection(ctx context.Context) flags.EscalationConfig {
 	return flags.EscalationWithDeploymentShadow(ctx, h.shadowDefault)
@@ -109,9 +106,6 @@ type Turn struct {
 }
 
 func (h *Helper) Begin(ctx context.Context, facts Facts, req router.Request) *Turn {
-	if h == nil {
-		return nil
-	}
 	xgb := h.beginXGB(ctx, facts, req)
 	llm := h.beginLLM(ctx, facts, req)
 	if xgb == nil && llm == nil {
@@ -182,9 +176,6 @@ type Completion struct {
 }
 
 func (h *Helper) Complete(ctx context.Context, completion Completion) {
-	if h == nil {
-		return
-	}
 	h.recordXGBOutcome(ctx, completion)
 	h.completeLLM(ctx, completion)
 }

@@ -79,11 +79,11 @@ func (s *Service) completeEscalation(ctx context.Context, res turnLoopResult, pr
 	}
 	if deferred := deferredCallLogFrom(ctx); deferred != nil {
 		deferred.escalation = func(finalErr error) {
-			s.escalation.Complete(ctx, s.escalationCompletion(ctx, res, finalErr, capture, translate.EscalationResponseResponses))
+			s.escalationHelper().Complete(ctx, s.escalationCompletion(ctx, res, finalErr, capture, translate.EscalationResponseResponses))
 		}
 		return
 	}
-	s.escalation.Complete(ctx, s.escalationCompletion(ctx, res, proxyErr, capture, format))
+	s.escalationHelper().Complete(ctx, s.escalationCompletion(ctx, res, proxyErr, capture, format))
 }
 
 func (s *Service) escalationCompletion(ctx context.Context, res turnLoopResult, proxyErr error, capture *captureWriter, format translate.EscalationResponseFormat) floor.Completion {
