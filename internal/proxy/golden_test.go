@@ -553,6 +553,7 @@ func TestGolden(t *testing.T) {
 	scenarios = append(scenarios, goldenCredentialScenarios()...)
 	scenarios = append(scenarios, goldenRouterAtomScenarios()...)
 	scenarios = append(scenarios, goldenRoutingPolicyScenarios()...)
+	scenarios = append(scenarios, goldenSlidingThresholdUpgradeScenarios()...)
 	scenarios = append(scenarios, goldenConversationScenarios()...)
 	scenarios = append(scenarios, goldenSubscriptionExhaustionScenarios()...)
 	scenarios = append(scenarios, goldenCodexLoginRejectedScenarios()...)
