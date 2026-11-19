@@ -1558,7 +1558,7 @@ func (s *Service) runTurnLoop(
 		return res, nil
 	}
 	res, routeErr = routeRemaining()
-	if escalationTurn.HasXGB() {
+	if escalationTurn != nil {
 		committed, err := s.escalationHelper().Finish(ctx, escalationTurn, res.Decision, decisionPolicyGroup(res.Decision), routeErr)
 		if err != nil {
 			log.Warn("Escalation state commit failed; routing without intervention", "err", err, "ordinal", escalationTurn.Ordinal())

@@ -70,18 +70,18 @@ func logShadowTierFloor(ctx context.Context, t *Turn, decision router.Decision) 
 	if tier == catalog.TierUnknown && !escalate {
 		return
 	}
-	var candidates []string
-	if decision.Metadata != nil {
-		candidates = decision.Metadata.CandidateModels
-	}
 	servedTier := catalog.TierFor(decision.Model)
-	observability.FromContext(ctx).Info("Escalation tier floor shadow",
+	attrs := []any{
 		"floor_tier", tier.String(),
 		"escalate", escalate,
 		"served_model", decision.Model,
 		"served_tier", servedTier.String(),
 		"served_meets_floor", servedTier >= tier,
-		"candidates", len(candidates),
-		"candidates_at_floor", len(AtLeast(candidates, tier)),
-	)
+		"candidates_known", decision.Metadata != nil,
+	}
+	if decision.Metadata != nil {
+		candidates := decision.Metadata.CandidateModels
+		attrs = append(attrs, "candidates", len(candidates), "candidates_at_floor", len(AtLeast(candidates, tier)))
+	}
+	observability.FromContext(ctx).Info("Escalation tier floor shadow", attrs...)
 }
