@@ -8,7 +8,13 @@
 #
 # Publish auth: npm OIDC trusted publishing (no secret in the repo). Configure
 # both packages on npmjs.com → Settings → Trusted Publishers → GitHub Actions
-# with org=workweave, repo=router, workflow=publish_npm.yml.
+# with org=workweave, repo=router, workflow=publish_npm.yml, environment=npm-release.
+#
+# Every installed statusline, Codex helper, slash-command wrapper and curl-piped
+# uninstall updates from the package this job publishes, so publishing is
+# code execution on every user's machine. The job runs in the `npm-release`
+# environment, whose required reviewers must approve each run; with npm bound
+# to that environment, a repository push or tag alone cannot publish.
 name: Publish npm
 
 on:
@@ -20,6 +26,7 @@ jobs:
   publish:
     name: Publish @weave-os/router and @workweave/router
     runs-on: ubuntu-latest
+    environment: npm-release
     permissions:
       contents: read
       id-token: write # required for npm OIDC + provenance

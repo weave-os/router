@@ -520,7 +520,7 @@ sleep 0.5
 # ---------- background self-refresh ----------
 #
 # Codex only reruns the installer when a user remembers to, so the lifecycle
-# hook doubles as the update check. A `file://` source keeps this offline.
+# hook doubles as the update check. A `file://` registry keeps this offline.
 
 refresh_home="$work/refresh-home"
 mkdir -p "$refresh_home"
@@ -539,10 +539,20 @@ newer_helper="$work/newer-codex-status.sh"
   printf '%s\n' 'exit 0'
 } >"$newer_helper"
 
+# The helper updates only from the published npm release; publish the newer
+# copy to a file:// fake registry.
+codex_registry="file://$work/registry"
+mkdir -p "$work/release/package" "$work/registry/@weave-os/router/-"
+cp "$newer_helper" "$work/release/package/codex-status.sh"
+tar -czf "$work/registry/@weave-os/router/-/router-0.0.0.tgz" -C "$work/release" package
+printf '{"dist":{"integrity":"sha512-%s","tarball":"%s"}}\n' \
+  "$(openssl dgst -sha512 -binary "$work/registry/@weave-os/router/-/router-0.0.0.tgz" | openssl base64 -A)" \
+  "$codex_registry/@weave-os/router/-/router-0.0.0.tgz" >"$work/registry/@weave-os/router/latest"
+
 run_refresh_turn() {
   printf '%s\n' '{"session_id":"session-refresh","model":"gpt-5.6-terra","last_assistant_message":"✦ **Weave Router** → claude-sonnet-5 · best pick"}' \
     | HOME="$refresh_home" XDG_CACHE_HOME="$work/cache-refresh" \
-      WEAVE_CODEX_STATUS_UPDATE=1 WEAVE_CODEX_STATUS_URL="file://$newer_helper" \
+      WEAVE_CODEX_STATUS_UPDATE=1 WEAVE_RELEASE_REGISTRY="$codex_registry" \
       WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$refresh_helper" >/dev/null
 }
 
@@ -579,7 +589,7 @@ chmod 700 "$optout_helper"
 optout_before="$(cat "$optout_helper")"
 printf '%s\n' '{"session_id":"session-refresh-off","model":"gpt-5.6-terra","last_assistant_message":"✦ **Weave Router** → claude-sonnet-5 · best pick"}' \
   | HOME="$refresh_home" XDG_CACHE_HOME="$work/cache-refresh-optout" \
-    WEAVE_CODEX_STATUS_URL="file://$newer_helper" WEAVE_CODEX_STATUS_UPDATE=0 \
+    WEAVE_RELEASE_REGISTRY="$codex_registry" WEAVE_CODEX_STATUS_UPDATE=0 \
     WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$optout_helper" >/dev/null
 sleep 0.5
 [ "$(cat "$optout_helper")" = "$optout_before" ] || {
