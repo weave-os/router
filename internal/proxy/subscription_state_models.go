@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/translate"
@@ -27,7 +28,7 @@ func subscriptionStateModelsEnabled(ctx context.Context) bool {
 }
 
 func (s *Service) subscriptionStateRequest(ctx context.Context, req router.Request, models []string) (context.Context, router.Request) {
-	req = readmitForcedContextEstimate(req, req.ForceModel)
+	req = candidates.ReadmitForcedContextEstimate(req, req.ForceModel)
 	allowed := make(map[string]struct{})
 	for _, model := range models {
 		if _, excluded := req.ExcludedModels[model]; excluded {
@@ -51,7 +52,7 @@ func (s *Service) subscriptionStateRequest(ctx context.Context, req router.Reque
 	}
 	ctx = context.WithValue(ctx, subscriptionStateAllowedModelsKey{}, allowed)
 	req.AllowedModels = allowed
-	req.ExcludedModels = mergeExcludedModels(req.ExcludedModels, s.excludedModelsForRequest(ctx))
+	req.ExcludedModels = candidates.MergeExcludedModels(req.ExcludedModels, s.excludedModelsForRequest(ctx))
 	return ctx, req
 }
 
@@ -139,7 +140,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 			sessionUnavailableModels[model] = struct{}{}
 		}
 	}
-	request.AutomaticExcludedModels = mergeExcludedModels(request.AutomaticExcludedModels, sessionUnavailableModels)
+	request.AutomaticExcludedModels = candidates.MergeExcludedModels(request.AutomaticExcludedModels, sessionUnavailableModels)
 	if in.initialDecision.Reason == translate.ReasonUserForceModel {
 		request.ForceModel = in.initialDecision.Model
 	}
@@ -246,7 +247,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 			return -1, attributeCodexLoginRejection(cmp.Or(includedFailure, refusal))
 		}
 		if _, permitted := paidReq.AllowedModels[target.Model]; permitted {
-			request.ExcludedModels = mergeExcludedModels(request.ExcludedModels, map[string]struct{}{target.Model: {}})
+			request.ExcludedModels = candidates.MergeExcludedModels(request.ExcludedModels, map[string]struct{}{target.Model: {}})
 			paidCtx, paidReq = s.subscriptionStateRequest(paidCtx, request, paidModels)
 		}
 		if len(paidReq.AllowedModels) == 0 {

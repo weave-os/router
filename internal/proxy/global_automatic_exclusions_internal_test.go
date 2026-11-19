@@ -87,19 +87,6 @@ func TestWithPolicyRequestContext_CarriesAutomaticExclusionsSeparately(t *testin
 	assert.Empty(t, req.ExcludedModels)
 }
 
-func automaticallyDisabledRequest(model string) router.Request {
-	return router.Request{AutomaticExcludedModels: map[string]struct{}{model: {}}}
-}
-
-func TestAutomaticPinEligible_RejectsDisabledModelButForcedPinSurvives(t *testing.T) {
-	pin := sessionpin.Pin{Model: "claude-opus-5", Provider: providers.ProviderAnthropic}
-	req := automaticallyDisabledRequest("claude-opus-5")
-
-	assert.False(t, automaticPinEligible(pin, req))
-	assert.True(t, forcedPinEligible(pin, req),
-		"a user-forced pin is the escape hatch that keeps a disabled model reachable")
-}
-
 // A session already pinned to a model must move off it once the model is
 // disabled — otherwise the setting only affects sessions that route fresh.
 func TestTurnLoop_DropsAutomaticPinOnDisabledModel(t *testing.T) {

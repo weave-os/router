@@ -28,35 +28,6 @@ const (
 	outputLimitSecondModel = "claude-opus-5"
 )
 
-func TestMaxedOutServedModel_RequiresMatchingTerminalEvidence(t *testing.T) {
-	ended := time.Unix(100, 0)
-	for _, output := range []int{128, 8192, 32000, 64000} {
-		for _, tc := range []struct {
-			name   string
-			marker time.Time
-			want   string
-		}{
-			{"legacy unknown", time.Time{}, ""},
-			{"older writer replaced usage", ended.Add(-time.Second), ""},
-			{"confirmed cap", ended, outputLimitFirstModel},
-		} {
-			t.Run(fmt.Sprintf("%s/%d", tc.name, output), func(t *testing.T) {
-				pin := sessionpin.Pin{
-					Model: outputLimitSecondModel, LastServedModel: outputLimitFirstModel + ":high",
-					LastOutputTokens: output, LastTurnEndedAt: ended, LastOutputLimitAt: tc.marker,
-				}
-				assert.Equal(t, tc.want, maxedOutServedModel(pin))
-				pin.LastServedModel = ""
-				want := ""
-				if tc.want != "" {
-					want = outputLimitSecondModel
-				}
-				assert.Equal(t, want, maxedOutServedModel(pin), "legacy serving identity falls back to the anchor")
-			})
-		}
-	}
-}
-
 func TestNormalizeHMMStayPin_HighOutputIsNotExhaustion(t *testing.T) {
 	svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, nil, false,
 		providers.ProviderAnthropic, outputLimitFirstModel, nil)

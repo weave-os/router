@@ -6,6 +6,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
@@ -115,13 +116,13 @@ func (g HMMCostGate) NormalizeStayPin(req router.Request, p sessionpin.Pin, now 
 	if !p.PinnedUntil.IsZero() && !p.PinnedUntil.After(now) {
 		return sessionpin.Pin{}, false
 	}
-	if MaxedOutServedModel(p) != "" {
+	if candidates.MaxedOutServedModel(p) != "" {
 		return sessionpin.Pin{}, false
 	}
 	if _, excluded := req.ExcludedModels[model]; excluded {
 		return sessionpin.Pin{}, false
 	}
-	if AutomaticallyDisabled(req, model) {
+	if candidates.AutomaticallyDisabled(req, model) {
 		return sessionpin.Pin{}, false
 	}
 	if g.AvailableModels != nil {
@@ -225,29 +226,6 @@ func CacheWarm(pin sessionpin.Pin, now time.Time) bool {
 
 func PinCacheCold(pin sessionpin.Pin, prefixBroken bool, now time.Time) bool {
 	return !CacheWarm(pin, now) || prefixBroken
-}
-
-func AutomaticallyDisabled(req router.Request, model string) bool {
-	_, disabled := req.AutomaticExcludedModels[model]
-	return disabled
-}
-
-func MaxedOutServedModel(pin sessionpin.Pin) string {
-	if pin.LastOutputLimitAt.IsZero() || !pin.LastOutputLimitAt.Equal(pin.LastTurnEndedAt) {
-		return ""
-	}
-	model := pin.LastServedModel
-	if model == "" {
-		model = pin.Model
-	}
-	return BaseModelOf(model)
-}
-
-func BaseModelOf(servedIdentity string) string {
-	if idx := strings.LastIndex(servedIdentity, ":"); idx > 0 {
-		return servedIdentity[:idx]
-	}
-	return servedIdentity
 }
 
 func StripEffortSuffix(model string) (effort string, modelOut string) {

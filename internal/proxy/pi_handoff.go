@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -209,7 +210,7 @@ func (s *Service) resumeHandoff(ctx context.Context, env *translate.RequestEnvel
 	req.AutomaticExcludedModels = s.globalAutomaticExcludedModels(ctx)
 	selected := claims.Route.Decision
 	pin := sessionpin.Pin{Model: selected.Model, Provider: selected.Provider}
-	if !automaticPinEligible(pin, req) {
+	if !candidates.AutomaticPinEligible(pin, req) {
 		return turnLoopResult{}, ErrHandoffInvalid
 	}
 	return claims.Route, nil

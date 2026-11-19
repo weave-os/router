@@ -11,9 +11,9 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
-	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
@@ -87,7 +87,7 @@ func (s *Service) anthropicRoutingRequest(
 		outputReserve = features.MaxTokens
 	}
 	excluded := s.excludeCodexOAuthOnlyModels(ctx, headers, enabledProviders, s.excludedModelsForRequest(ctx))
-	excluded, _ = routingpolicy.ExcludeContextOverflowModels(
+	excluded, _ = candidates.ExcludeContextOverflowModels(
 		env.ContextOverflowTokenEstimate(),
 		env.SignatureTokenSavings(),
 		outputReserve,
@@ -95,7 +95,7 @@ func (s *Service) anthropicRoutingRequest(
 		excluded,
 		s.availableModels,
 	)
-	excluded, _ = routingpolicy.ExcludeGemini3xOnUnsignedHistory(env, excluded, s.availableModels)
+	excluded, _ = candidates.ExcludeGemini3xOnUnsignedHistory(env, excluded, s.availableModels)
 	excluded, _ = excludeAdvisorOutrankingModels(env, excluded, s.routableUniverse())
 
 	organizationID, _ := ctx.Value(ExternalIDContextKey{}).(string)

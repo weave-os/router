@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"weave-os/router/internal/routingpolicy"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/translate"
 )
 
@@ -14,7 +14,7 @@ func advisorExclusions(env *translate.RequestEnvelope, routable map[string]struc
 	}
 }
 
-func logPrefilter(log *slog.Logger, env *translate.RequestEnvelope, imageCount, outputReserve int, prefiltered routingpolicy.Prefiltered) {
+func logPrefilter(log *slog.Logger, env *translate.RequestEnvelope, imageCount, outputReserve int, prefiltered candidates.Prefiltered) {
 	if len(prefiltered.UnsignedHistory) > 0 {
 		log.Info("gemini pre-filter: excluded gemini-3.x for unsigned tool-call history",
 			"excluded_models", strings.Join(prefiltered.UnsignedHistory, ","),

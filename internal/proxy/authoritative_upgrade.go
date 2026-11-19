@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/sessionpin"
@@ -181,7 +182,7 @@ func (s *Service) authoritativeUpgradeFor(ctx context.Context, req router.Reques
 	decision.Evidence = upgradeEvidence{
 		HasPin:         pin.Model != "",
 		SameModel:      pin.Model == fresh.Model,
-		FreshEligible:  automaticPinEligible(sessionpin.Pin{Model: fresh.Model, Provider: fresh.Provider}, req),
+		FreshEligible:  candidates.AutomaticPinEligible(sessionpin.Pin{Model: fresh.Model, Provider: fresh.Provider}, req),
 		Demoted:        slices.Contains(res.SessionDemotedModels, fresh.Model),
 		FreshGroup:     escalation.Group(decisionPolicyGroup(fresh)),
 		PinGroup:       escalation.Group(pin.PolicyGroup),
