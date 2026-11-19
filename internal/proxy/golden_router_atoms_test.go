@@ -30,6 +30,13 @@ func atomHMM(model, group string, confidence float32, margin *float64) router.De
 	return d
 }
 
+// atomWarmPin marks the pin's prompt cache warm and its first pin at the
+// harness epoch, which the fake store leaves zero.
+func atomWarmPin(p *sessionpin.Pin) {
+	p.LastTurnEndedAt = goldenEpoch
+	p.FirstPinnedAt = goldenEpoch
+}
+
 func atomOptions(opts ...func(*proxy.Service) *proxy.Service) []func(*proxy.Service) *proxy.Service {
 	return opts
 }
@@ -54,7 +61,17 @@ func atomAuthoritativeUpgradeScenarios() []goldenScenario {
 		if len(requests) > 2 {
 			turns = routingPolicyTurns(atomHMM(routingPolicyLow, pinGroup, 0.9, nil), fresh, fresh)
 		}
-		return atomScenario("authoritative_upgrade_"+name, routingPolicySetup{turns: turns, caps: authoritative, options: options}, requests...)
+		session := &routingPolicySession{}
+		warmed := append([]goldenRequest{}, requests...)
+		for i := 1; i < len(warmed); i++ {
+			warmed[i].decorateContext = routingPolicyCtx(session.editPins("default_mid", atomWarmPin))
+		}
+		return atomScenario("authoritative_upgrade_"+name, routingPolicySetup{turns: turns, caps: authoritative, session: session, options: options}, warmed...)
+	}
+	cold := func(name string, fresh router.Decision, options []func(*proxy.Service) *proxy.Service) goldenScenario {
+		return atomScenario("authoritative_upgrade_"+name, routingPolicySetup{
+			turns: routingPolicyTurns(atomHMM(routingPolicyLow, "low", 0.9, nil), fresh), caps: authoritative, options: options,
+		}, first, next)
 	}
 	calibrated := atomUpgradeConfig(atomFloat(0.5), 0)
 	session := &routingPolicySession{}
@@ -76,8 +93,7 @@ func atomAuthoritativeUpgradeScenarios() []goldenScenario {
 		upgrade("repeated_same_group_votes", atomHMM(routingPolicyHigh, "high", 0.9, atomFloat(0.1)), "high",
 			atomOptions(calibrated, func(s *proxy.Service) *proxy.Service { return s.WithAuthoritativeUpgradeVotes(2) }),
 			first, next, goldenRequest{body: routingPolicyFollowUp("And once more")}),
-		upgrade("cold_pin_after_cache_ttl", atomHMM(routingPolicyHigh, "high", 0.3, atomFloat(0.1)), "low", atomOptions(calibrated),
-			first, goldenRequest{body: routingPolicyFollowUp("Now say bye"), advance: 6 * time.Minute}),
+		cold("cold_pin_without_prior_turn_end", atomHMM(routingPolicyHigh, "high", 0.3, atomFloat(0.1)), atomOptions(calibrated)),
 		upgrade("pin_older_than_stale_age", atomHMM(routingPolicyHigh, "high", 0.3, atomFloat(0.1)), "low", atomOptions(atomUpgradeConfig(atomFloat(0.5), time.Minute)),
 			first, goldenRequest{body: routingPolicyFollowUp("Now say bye"), advance: 2 * time.Minute}),
 		upgrade("force_cluster_high_on_low_pin", atomHMM(routingPolicyHigh, "high", 0.3, atomFloat(0.1)), "low", atomOptions(calibrated),

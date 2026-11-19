@@ -469,5 +469,5 @@
       ]
     }
   ],
-  "scenario": "router_atom_authoritative_upgrade_cold_pin_after_cache_ttl"
+  "scenario": "router_atom_authoritative_upgrade_cold_pin_without_prior_turn_end"
 }
