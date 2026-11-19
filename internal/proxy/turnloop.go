@@ -162,6 +162,7 @@ type turnLoopResult struct {
 	StickyRole                  string
 	Fresh                       router.Decision
 	PlannerDecision             planner.Decision
+	HMMPhaseVotes               hmmPhaseVotes
 	PinModel                    string
 	PinPolicyGroup              string
 	PriorServedModel            string
@@ -1529,9 +1530,8 @@ func (s *Service) runTurnLoop(
 				Request: req, ActivePin: activePin, HMMHistory: hmmHistory, Fresh: fresh,
 				EstimatedInputTokens: s.plannerTokensFor(ctx, env, feats), PrefixBroken: prefixBroken,
 			}
-			hmmDecision, hmmPlannerDecision, hmmSticky, hmmStayModel := hmmCostGatedDecision(ctx, s, hmmGateInput)
-			res.Decision = hmmDecision
-			res.PlannerDecision = hmmPlannerDecision
+			hmmDecision, hmmResult := hmmCostGatedResult(ctx, s, hmmGateInput)
+			hmmPlannerDecision, hmmSticky, hmmStayModel := applyHMMGateResult(&res, hmmDecision, hmmResult)
 			if heldEffort := effortHysteresisHold(fresh, res.PriorServedModel, hmmDecision.Model, hmmDecision.Effort); heldEffort != "" {
 				res.Decision.Effort = heldEffort
 				res.PlannerDecision.Reason = appendEffortHysteresisReason(res.PlannerDecision.Reason)

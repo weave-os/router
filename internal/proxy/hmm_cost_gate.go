@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"weave-os/router/internal/flags"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
@@ -21,13 +22,34 @@ func hmmCostGateFor(s *Service) routingpolicy.HMMCostGate {
 }
 
 func hmmCostGatedDecision(ctx context.Context, s *Service, input routingpolicy.HMMCostGateInput) (router.Decision, planner.Decision, bool, string) {
+	decision, result := hmmCostGatedResult(ctx, s, input)
+	return decision, result.Plan, result.Sticky, result.Stay.Model
+}
+
+func hmmCostGatedResult(ctx context.Context, s *Service, input routingpolicy.HMMCostGateInput) (router.Decision, routingpolicy.HMMCostGateResult) {
 	input.Planner = plannerConfigFor(ctx, s.planner)
+	input.PhaseChangeGate = flags.BoolOr(ctx, flags.KeyHMMPhaseChangeGate, false)
 	input.Now = s.clock.Now()
-	stayPin, plan, sticky := hmmCostGateFor(s).Decide(input)
-	if sticky {
-		return pinDecision(stayPin), plan, true, stayPin.Model
+	result := hmmCostGateFor(s).DecideWithVotes(input)
+	if result.Sticky {
+		return pinDecision(result.Stay), result
 	}
-	return input.Fresh, plan, false, stayPin.Model
+	return input.Fresh, result
+}
+
+type hmmPhaseVotes struct{ Upgrade, Downgrade int }
+
+func applyHMMGateResult(res *turnLoopResult, decision router.Decision, result routingpolicy.HMMCostGateResult) (planner.Decision, bool, string) {
+	res.Decision = decision
+	res.PlannerDecision = result.Plan
+	res.HMMPhaseVotes = hmmPhaseVotes{Upgrade: result.UpgradeVotes, Downgrade: result.DowngradeVotes}
+	return result.Plan, result.Sticky, result.Stay.Model
+}
+
+func withHMMPhaseVotes(pin sessionpin.Pin, votes hmmPhaseVotes) sessionpin.Pin {
+	pin.ConsecutiveUpgradeVotes = votes.Upgrade
+	pin.ConsecutiveDowngradeVotes = votes.Downgrade
+	return pin
 }
 
 func hmmStayPin(s *Service, req router.Request, activePin sessionpin.Pin, hmmHistory sessionpin.Pin) (sessionpin.Pin, bool) {

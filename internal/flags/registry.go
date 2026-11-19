@@ -1,6 +1,6 @@
 package flags
 
-const RegistryVersion = 37
+const RegistryVersion = 38
 
 var Registry = []Definition{
 	{Key: KeyEscalationActiveClassifier, Kind: KindString, Description: "Active escalation classifier: none, xgb, switchyard_llm_v1, or llm_escalation. Absent preserves legacy XGB flags.", OrgOverridable: true},
@@ -321,6 +321,13 @@ var Registry = []Definition{
 		Key:            KeySessionPinEnabled,
 		Kind:           KindBool,
 		Description:    "Read and write session pins. Off routes every turn as if the session had no pin history. Has no effect when ROUTER_SESSION_PIN_ENABLED=false, which disables the pin store for the deployment.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyHMMPhaseChangeGate,
+		EnvVar:         "ROUTER_HMM_PHASE_CHANGE_GATE",
+		Kind:           KindBool,
+		Description:    "Release flag (owner: routing, remove once fully on). Hold an HMM session on its served model across a tool-execution phase change until the fresh pick clears ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD and repeats for two consecutive turns, in both directions. Off by default.",
 		OrgOverridable: true,
 	},
 	{

@@ -133,3 +133,85 @@ func TestHMMCostGateDecideSwitchesOnPricierPhaseChange(t *testing.T) {
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
 	assert.Equal(t, routingpolicy.HMMReasonPhaseChange, plan.Reason)
 }
+
+func phaseGate() routingpolicy.HMMCostGate {
+	gate := hmmGate()
+	gate.UpgradeConfidenceThreshold = 0.5
+	return gate
+}
+
+func phaseGateInput(pin sessionpin.Pin, freshModel, freshReason string, confidence float32) routingpolicy.HMMCostGateInput {
+	return routingpolicy.HMMCostGateInput{
+		ActivePin: pin,
+		Fresh: router.Decision{
+			Provider: providers.ProviderAnthropic, Model: freshModel, Reason: freshReason,
+			Metadata: &router.RoutingMetadata{ChosenScore: confidence},
+		},
+		EstimatedInputTokens: 1000,
+		Planner:              planner.EVConfig{ExpectedRemainingTurns: 3},
+		PhaseChangeGate:      true,
+		Now:                  gateNow,
+	}
+}
+
+func TestHMMCostGatePhaseChangeGateHoldsLowConfidenceUpgrade(t *testing.T) {
+	result := phaseGate().DecideWithVotes(phaseGateInput(hmmPin("hmm_policy:tool_execution", time.Minute), otherModel, "hmm_policy", 0.4))
+	assert.True(t, result.Sticky)
+	assert.Equal(t, planner.OutcomeStay, result.Plan.Outcome)
+	assert.Equal(t, routingpolicy.HMMReasonPhaseChangeConfidenceLow, result.Plan.Reason)
+	assert.Zero(t, result.UpgradeVotes)
+}
+
+func TestHMMCostGatePhaseChangeGateHoldsFirstConfidentUpgradeVote(t *testing.T) {
+	result := phaseGate().DecideWithVotes(phaseGateInput(hmmPin("hmm_policy:tool_execution", time.Minute), otherModel, "hmm_policy", 0.7))
+	assert.True(t, result.Sticky)
+	assert.Equal(t, planner.OutcomeStay, result.Plan.Outcome)
+	assert.Equal(t, routingpolicy.HMMReasonPhaseChangeDwell, result.Plan.Reason)
+	assert.Equal(t, 1, result.UpgradeVotes)
+}
+
+func TestHMMCostGatePhaseChangeGateSwitchesOnSecondUpgradeVote(t *testing.T) {
+	pin := hmmPin("hmm_policy", time.Minute)
+	pin.ConsecutiveUpgradeVotes = 1
+	result := phaseGate().DecideWithVotes(phaseGateInput(pin, otherModel, "hmm_policy", 0.7))
+	assert.False(t, result.Sticky)
+	assert.Equal(t, planner.OutcomeSwitch, result.Plan.Outcome)
+	assert.Equal(t, routingpolicy.HMMReasonPhaseChange, result.Plan.Reason)
+	assert.Zero(t, result.UpgradeVotes)
+}
+
+func TestHMMCostGatePhaseChangeGateHoldsDowngradeUntilSecondVote(t *testing.T) {
+	pin := hmmPin("hmm_policy", 2*time.Hour)
+	pin.Model = otherModel
+	pin.LastInputTokens, pin.LastOutputTokens = 1000, 4000
+
+	baseline := phaseGateInput(pin, stayModel, "hmm_policy:tool_execution", 0.7)
+	baseline.PhaseChangeGate = false
+	want := phaseGate().DecideWithVotes(baseline)
+	require.Equal(t, planner.OutcomeSwitch, want.Plan.Outcome)
+
+	lowConfidence := phaseGate().DecideWithVotes(phaseGateInput(pin, stayModel, "hmm_policy:tool_execution", 0.4))
+	assert.True(t, lowConfidence.Sticky)
+	assert.Equal(t, routingpolicy.HMMReasonPhaseChangeConfidenceLow, lowConfidence.Plan.Reason)
+	assert.Zero(t, lowConfidence.DowngradeVotes)
+
+	first := phaseGate().DecideWithVotes(phaseGateInput(pin, stayModel, "hmm_policy:tool_execution", 0.7))
+	assert.True(t, first.Sticky)
+	assert.Equal(t, routingpolicy.HMMReasonPhaseChangeDwell, first.Plan.Reason)
+	assert.Equal(t, 1, first.DowngradeVotes)
+
+	pin.ConsecutiveDowngradeVotes = 1
+	pin.Reason = "hmm_policy:tool_execution"
+	second := phaseGate().DecideWithVotes(phaseGateInput(pin, stayModel, "hmm_policy:tool_execution", 0.7))
+	assert.False(t, second.Sticky)
+	assert.Equal(t, planner.OutcomeSwitch, second.Plan.Outcome)
+	assert.Zero(t, second.DowngradeVotes)
+}
+
+func TestHMMCostGatePhaseChangeGateOffKeepsForcedUpgrade(t *testing.T) {
+	input := phaseGateInput(hmmPin("hmm_policy:tool_execution", time.Minute), otherModel, "hmm_policy", 0.4)
+	input.PhaseChangeGate = false
+	result := phaseGate().DecideWithVotes(input)
+	assert.False(t, result.Sticky)
+	assert.Equal(t, routingpolicy.HMMReasonPhaseChange, result.Plan.Reason)
+}

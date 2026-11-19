@@ -94,6 +94,7 @@ const (
 	KeyAnthropicServerFallback              Key = "anthropic_server_side_fallback"
 	KeyOpenAIResponsesBroad                 Key = "openai_responses_broad"
 	KeySessionPinEnabled                    Key = "session_pin_enabled"
+	KeyHMMPhaseChangeGate                   Key = "hmm_phase_change_gate"
 	KeyHardPinExplore                       Key = "hard_pin_explore"
 	KeyTaskArmExperimentTreatmentPct        Key = "task_arm_experiment_treatment_pct"
 	KeyTaskArmExperimentSteps               Key = "task_arm_experiment_steps"

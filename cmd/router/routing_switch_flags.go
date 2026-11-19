@@ -5,9 +5,10 @@ import (
 	"weave-os/router/internal/router/planner"
 )
 
-func withRoutingSwitchDefaults(defaults map[flags.Key]string, hardPinExplore, ccOrchToolsCrossVendor, escapeNormalize bool, plannerCfg planner.EVConfig) map[flags.Key]string {
+func withRoutingSwitchDefaults(defaults map[flags.Key]string, hmmPhaseChangeGate, hardPinExplore, ccOrchToolsCrossVendor, escapeNormalize bool, plannerCfg planner.EVConfig) map[flags.Key]string {
 	for key, on := range map[flags.Key]bool{
 		flags.KeySessionPinEnabled:         true,
+		flags.KeyHMMPhaseChangeGate:        hmmPhaseChangeGate,
 		flags.KeyHardPinExplore:            hardPinExplore,
 		flags.KeyCCOrchToolsCrossVendor:    ccOrchToolsCrossVendor,
 		flags.KeyEscapeNormalize:           escapeNormalize,
