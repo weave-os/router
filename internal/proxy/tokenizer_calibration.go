@@ -126,6 +126,6 @@ func (s *Service) excludeObservedOverflowModels(ctx context.Context, req router.
 		req.ContextWindowExcludedModels = addToSet(req.ContextWindowExcludedModels, model)
 		req.SafetyExcludedModels = addToSet(req.SafetyExcludedModels, model)
 	}
-	req.OverflowAdmittedModels = withoutModels(req.OverflowAdmittedModels, overWindow)
+	req.OverflowAdmittedModels = candidatefilter.WithoutModels(req.OverflowAdmittedModels, overWindow)
 	return req, overWindow
 }
