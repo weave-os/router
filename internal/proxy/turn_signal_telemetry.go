@@ -13,11 +13,10 @@ func applyTurnSignalTelemetry(
 	sig conversation.SpiralSignals,
 	reasons []conversation.SpiralReason,
 	computed bool,
-	enabled bool,
 	trainingAllowed bool,
 	capture ContentCaptureMode,
 ) {
-	if p == nil || !computed || !enabled || !turnSignalCaptureAllowed(trainingAllowed, capture) {
+	if p == nil || !computed || !turnSignalCaptureAllowed(trainingAllowed, capture) {
 		return
 	}
 	p.SpiralErrStreak = int32Ptr(int32(sig.ErrStats.TrailingErrStreak))

@@ -60,7 +60,7 @@ func sampleSignals() conversation.SpiralSignals {
 func TestApplyTurnSignalTelemetry_CopiesFullSnapshot(t *testing.T) {
 	var telemetry InsertTelemetryParams
 	reasons := []conversation.SpiralReason{conversation.SpiralReasonErrStreak, conversation.SpiralReasonPingPong}
-	applyTurnSignalTelemetry(&telemetry, sampleSignals(), reasons, true, true, true, CaptureFull)
+	applyTurnSignalTelemetry(&telemetry, sampleSignals(), reasons, true, true, CaptureFull)
 
 	assertInt32Ptr := func(field string, got *int32, want int32) {
 		t.Helper()
@@ -86,7 +86,7 @@ func TestApplyTurnSignalTelemetry_CopiesFullSnapshot(t *testing.T) {
 
 func TestApplyTurnSignalTelemetry_QuietTurnRecordsZeros(t *testing.T) {
 	var telemetry InsertTelemetryParams
-	applyTurnSignalTelemetry(&telemetry, conversation.SpiralSignals{}, nil, true, true, true, CaptureFull)
+	applyTurnSignalTelemetry(&telemetry, conversation.SpiralSignals{}, nil, true, true, CaptureFull)
 
 	require.NotNil(t, telemetry.SpiralErrStreak)
 	assert.Zero(t, *telemetry.SpiralErrStreak)
@@ -102,20 +102,18 @@ func TestApplyTurnSignalTelemetry_SkipsIneligibleTurns(t *testing.T) {
 	tests := []struct {
 		name            string
 		computed        bool
-		enabled         bool
 		trainingAllowed bool
 		capture         ContentCaptureMode
 	}{
-		{"AI training opted out", true, true, false, CaptureFull},
-		{"zero retention", true, true, true, CaptureOff},
-		{"capture disabled", true, false, true, CaptureFull},
-		{"snapshot not computed", false, true, true, CaptureFull},
+		{"AI training opted out", true, false, CaptureFull},
+		{"zero retention", true, true, CaptureOff},
+		{"snapshot not computed", false, true, CaptureFull},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			var telemetry InsertTelemetryParams
 			applyTurnSignalTelemetry(&telemetry, sampleSignals(), []conversation.SpiralReason{conversation.SpiralReasonErrStreak},
-				tc.computed, tc.enabled, tc.trainingAllowed, tc.capture)
+				tc.computed, tc.trainingAllowed, tc.capture)
 
 			assert.Nil(t, telemetry.SpiralErrStreak)
 			assert.Nil(t, telemetry.SpiralToolCallCount)
@@ -129,7 +127,7 @@ func TestApplyTurnSignalTelemetry_SkipsIneligibleTurns(t *testing.T) {
 
 func TestApplyTurnSignalTelemetry_NilParamsIsNoOp(t *testing.T) {
 	assert.NotPanics(t, func() {
-		applyTurnSignalTelemetry(nil, sampleSignals(), nil, true, true, true, CaptureFull)
+		applyTurnSignalTelemetry(nil, sampleSignals(), nil, true, true, CaptureFull)
 	})
 }
 

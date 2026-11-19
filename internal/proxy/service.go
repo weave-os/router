@@ -3280,7 +3280,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		signalTurn := tt == turntype.MainLoop || tt == turntype.ToolResult
 		applyTurnSignalTelemetry(&tel, inboundSpiralSignals, inboundSpiralReasons,
 			inboundSpiralComputed && signalTurn,
-			s.ResolveTurnSignalCaptureEnabled(ctx),
 			obs.TrainingAllowed,
 			s.effectiveCaptureMode(ctx))
 		applyClientGitContextTelemetry(ctx, &tel, routeRes.SessionFirstTurn, env.SystemBlocks())
