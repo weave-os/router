@@ -60,38 +60,38 @@ func plannedSession(outputTokens int) router.SessionView {
 }
 
 var (
-	haikuFresh   = router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5"}
-	plannedModel = map[string]struct{}{"claude-opus-4-7": {}, "claude-haiku-4-5": {}}
+	haikuFresh      = router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5"}
+	availableModels = map[string]struct{}{"claude-opus-4-7": {}, "claude-haiku-4-5": {}}
 )
 
 func TestPlanPricesThePinAtItsNamedProvider(t *testing.T) {
-	got := continuity.Plan(plannedSession(0), haikuFresh, continuity.PlanInputs{AvailableModels: plannedModel}, planner.EVConfig{ExpectedRemainingTurns: 1})
+	got := continuity.Plan(plannedSession(0), haikuFresh, continuity.PlanInputs{AvailableModels: availableModels}, planner.EVConfig{ExpectedRemainingTurns: 1})
 	require.True(t, got.ShadowComputed)
 	assert.False(t, got.PinPriceFallback)
 }
 
 func TestPlanForwardsTheInputTokenEstimate(t *testing.T) {
-	in := continuity.PlanInputs{EstimatedInputTokens: 100_000, PinCacheCold: true, AvailableModels: plannedModel}
+	in := continuity.PlanInputs{EstimatedInputTokens: 100_000, PinCacheCold: true, AvailableModels: availableModels}
 	got := continuity.Plan(plannedSession(0), haikuFresh, in, planner.EVConfig{ExpectedRemainingTurns: 1})
 	assert.InDelta(t, 0.4, got.ExpectedSavingsUSD, 1e-9)
 }
 
 func TestPlanCountsThePinsPriorOutputTokens(t *testing.T) {
 	cfg := planner.EVConfig{ExpectedRemainingTurns: 1, CorrectedEconomics: true}
-	in := continuity.PlanInputs{CachePrefixKnown: true, AvailableModels: plannedModel}
+	in := continuity.PlanInputs{CachePrefixKnown: true, AvailableModels: availableModels}
 	assert.InDelta(t, 20.0, continuity.Plan(plannedSession(1_000_000), haikuFresh, in, cfg).ExpectedSavingsUSD, 1e-9)
 	assert.InDelta(t, 0.0, continuity.Plan(plannedSession(0), haikuFresh, in, cfg).ExpectedSavingsUSD, 1e-9)
 }
 
 func TestPlanForwardsTheCacheablePrefix(t *testing.T) {
 	cfg := planner.EVConfig{ExpectedRemainingTurns: 1, CorrectedEconomics: true}
-	in := continuity.PlanInputs{EstimatedInputTokens: 100_000, CacheablePrefixTokens: 50_000, CachePrefixKnown: true, AvailableModels: plannedModel}
+	in := continuity.PlanInputs{EstimatedInputTokens: 100_000, CacheablePrefixTokens: 50_000, CachePrefixKnown: true, AvailableModels: availableModels}
 	assert.InDelta(t, 0.22, continuity.Plan(plannedSession(0), haikuFresh, in, cfg).ExpectedSavingsUSD, 1e-9)
 }
 
 func TestPlanPassesTheColdPinFlagForAFoundPin(t *testing.T) {
 	cfg := planner.EVConfig{ExpectedRemainingTurns: 1}
-	in := continuity.PlanInputs{EstimatedInputTokens: 100_000, AvailableModels: plannedModel}
+	in := continuity.PlanInputs{EstimatedInputTokens: 100_000, AvailableModels: availableModels}
 	warm := continuity.Plan(plannedSession(0), haikuFresh, in, cfg)
 	in.PinCacheCold = true
 	cold := continuity.Plan(plannedSession(0), haikuFresh, in, cfg)
