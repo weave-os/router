@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -1278,16 +1277,8 @@ func main() {
 		logger.Info("Provider exclusion override active", "excluded_providers", cleaned)
 	}
 
-	subscriptionTTL := 10 * time.Minute
-	if v, err := time.ParseDuration(config.GetOr("ROUTER_SUBSCRIPTION_OBSERVATION_TTL", "10m")); err == nil {
-		subscriptionTTL = v
-	}
-	observerSalt := make([]byte, 16)
-	if _, err := rand.Read(observerSalt); err != nil {
-		logger.Error("Failed to seed subscription usage observer salt", "err", err)
-		panic(err)
-	}
-	usageObserver := usage.NewObserver(observerSalt, subscriptionTTL, time.Now)
+	seatUsage := postgres.NewSeatUsageRepo(pool)
+	usageObserver := newUsageObserver(logger, seatUsage)
 	if subscriptionRuntime != nil {
 		subscriptionRuntime.WithCandidateSignal(func(accountID string, _ subscriptions.Provider, now time.Time) subscriptions.CandidateSignal {
 			snapshot, observed := usageObserver.Snapshot(usageObserver.Key([]byte("subscription-account:" + accountID)))
@@ -1297,16 +1288,7 @@ func main() {
 			return subscriptionCandidateSignal(snapshot, now)
 		})
 	}
-	go func() {
-		t := time.NewTicker(time.Minute)
-		defer t.Stop()
-		for range t.C {
-			usageObserver.Sweep()
-		}
-	}()
 	proxySvc = proxySvc.WithUsageObserver(usageObserver)
-
-	logger.Info("Subscription quota observer configured", "observation_ttl", subscriptionTTL)
 
 	trafficCapture, err := newTrafficCaptureFromEnvironment()
 	if err != nil {
@@ -1367,6 +1349,7 @@ func main() {
 	egressProbe.prepare(processCtx, logger, providerMap, envKeyedProviders, initializedOrigins)
 	logger.Info("Router startup initialization complete")
 	serverFeatures := server.Features{
+		SeatUsage:                 seatUsage,
 		SubscriptionLogins:        subscriptionLogins,
 		SubscriptionRefresh:       subscriptionRuntime,
 		StartupDatabasePing:       pool.Ping,

@@ -26,9 +26,36 @@ export PATH="$PATH:$HOME/.weave/bin"
 # stopped before it reaches a model, so checking the router never spends a
 # turn. The settings env (router URL and key header) is inherited by hooks, and
 # the session's last statusline render is cached by the statusline below.
+# The router keeps the last usage it observed on this user's own Claude/Codex
+# login; the client never sends its provider token to ask for it.
+weave_router_status_seats() {
+  command -v curl >/dev/null 2>&1 || return 0
+  local url="${ANTHROPIC_BASE_URL%/}" root header_file body header
+  local forwarded='^X-Weave-(Router-Key|User-Email|User-Name):[[:space:]]*[^"\[:cntrl:]]+$'
+  case "$url" in file://*) ;; *) url="$url/v1/display-settings" ;; esac
+  root="${XDG_CACHE_HOME:-$HOME/.cache}/weave-router"
+  mkdir -p "$root" && chmod 700 "$root" || return 0
+  header_file="$(mktemp "$root/.status-headers.XXXXXX")" || return 0
+  chmod 600 "$header_file"
+  while IFS= read -r header; do
+    [[ "$header" =~ $forwarded ]] \
+      && printf 'header = "%s"\n' "$header" >>"$header_file"
+  done <<<"${ANTHROPIC_CUSTOM_HEADERS:-}"
+  body="$(curl -fsS --max-time 3 -K "$header_file" "$url" 2>/dev/null)"
+  rm -f "$header_file"
+  [ -n "$body" ] || return 0
+  jq -r '
+    def span: if . == 10080 then "week" elif . % 1440 == 0 then "\(. / 1440)d" elif . % 60 == 0 then "\(. / 60)h" else "\(.)m" end;
+    def window($minutes; $used): if ($minutes // 0) > 0 then "\($minutes | span) \($used // 0 | floor)%" else empty end;
+    .own_seats[]? | select(.provider == "claude" or .provider == "codex")
+    | [window(.primary_window_minutes; .primary_used_percent), window(.secondary_window_minutes; .secondary_used_percent)] as $windows
+    | select($windows | length > 0)
+    | "Your \(if .provider == "claude" then "Claude" else "Codex" end) seat: \($windows | join(" · ")) (as of \(.observed_at[11:16]) UTC)"' <<<"$body" 2>/dev/null
+}
+
 weave_router_status_hook() {
   command -v jq >/dev/null 2>&1 || return 0
-  local payload prompt session line="" root report scope_suffix=""
+  local payload prompt session line="" root report scope_suffix="" seats=""
   [ "$#" -eq 0 ] || scope_suffix="$(printf ' %q' "$@")"
   payload="$(cat)"
   prompt="$(jq -r '.prompt // empty' <<<"$payload" 2>/dev/null)" || return 0
@@ -47,6 +74,10 @@ weave_router_status_hook() {
   if [[ "$session" =~ ^[A-Za-z0-9._-]{1,128}$ && -f "$root/$session.line" ]]; then
     line="$(head -c 512 "$root/$session.line" | head -n 1)"
   fi
+  if [[ -n "${ANTHROPIC_BASE_URL:-}" && "${ANTHROPIC_CUSTOM_HEADERS:-}" == *"X-Weave-Router-Key:"* ]]; then
+    seats="$(weave_router_status_seats)"
+  fi
+  [ -z "$seats" ] || report="$report"$'\n'"$seats"
   if [[ -n "$line" ]]; then
     report="$report"$'\n'"This session: $line"
   else
