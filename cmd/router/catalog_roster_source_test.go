@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/server"
 	"weave-os/router/internal/server/middleware"
@@ -45,6 +46,6 @@ func TestDeployedModelsSource_ManagedAdmissionListsCatalogUnauthed(t *testing.T)
 }
 
 func TestDeployedModelsSource_KeepsConfiguredRoster(t *testing.T) {
-	configured := newHMMRosterSource(&stubRosterFetcher{}, 0)
+	configured := new(policyregistry.Manager)
 	assert.Same(t, configured, deployedModelsSource(configured))
 }

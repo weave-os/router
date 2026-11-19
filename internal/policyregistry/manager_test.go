@@ -60,6 +60,22 @@ func TestManagerRetainsLastKnownGoodSnapshotAfterInvalidUpdate(t *testing.T) {
 	assert.Equal(t, int64(2), manager.Status().RejectedGeneration)
 }
 
+func TestManagerDeployedModelsProjectActivePolicy(t *testing.T) {
+	manager, err := policyregistry.NewManager(validLoader(t), policyregistry.EnvironmentStaging, policyregistry.LaneStable,
+		func(context.Context, policyregistry.Candidate) (map[router.Strategy]router.Router, error) {
+			return map[router.Strategy]router.Router{router.StrategyHMM: fixedRouter{model: "ready"}}, nil
+		}, slog.Default())
+	require.NoError(t, err)
+	_, err = manager.HMMDeployedModels(context.Background())
+	require.ErrorIs(t, err, policyregistry.ErrNoActivePolicy)
+
+	require.NoError(t, manager.Refresh(context.Background()))
+	deployed, err := manager.HMMDeployedModels(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, manager.Active().Policy.DeployedModels(), deployed)
+	assert.Equal(t, []router.DeployedEntry{{Model: "gpt-5.6-sol", Provider: "openai"}}, deployed)
+}
+
 func TestDynamicRouterFailsClosedWithoutSnapshot(t *testing.T) {
 	loader := validLoader(t)
 	manager, err := policyregistry.NewManager(loader, policyregistry.EnvironmentStaging, policyregistry.LaneStable,

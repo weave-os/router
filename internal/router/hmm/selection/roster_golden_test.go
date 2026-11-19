@@ -13,7 +13,6 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/hmm"
-	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/hmm/selection"
 	"weave-os/router/internal/router/hmm/selectionpolicy"
 	"weave-os/router/internal/router/policy"
@@ -145,21 +144,21 @@ func routeScenario(t *testing.T, admitted *selectionpolicy.Policy, evidence *sel
 		golden.PolicyPinHonoured = metadata.PolicyPinHonoured
 		golden.RescueModels = metadata.RescueModels
 		golden.Escalation = metadata.Escalation
-		golden.SelectionTrace = rosterScopedTrace(metadata.SelectionTrace, admitted.Roster())
+		golden.SelectionTrace = rosterScopedTrace(metadata.SelectionTrace, admitted)
 	}
 	return golden
 }
 
-func rosterScopedTrace(trace *router.SelectionTrace, roster *rosterdata.Roster) *router.SelectionTrace {
+func rosterScopedTrace(trace *router.SelectionTrace, admitted *selectionpolicy.Policy) *router.SelectionTrace {
 	if trace == nil {
 		return nil
 	}
 	rosterArms := make(map[string]struct{})
-	for _, arm := range roster.AllArms() {
+	for _, arm := range admitted.Roster().AllArms() {
 		rosterArms[arm] = struct{}{}
 	}
 	rosterModels := make(map[string]struct{})
-	for _, deployed := range hmm.DeployedModelsForRosterIDs(roster.AllArms()) {
+	for _, deployed := range admitted.DeployedModels() {
 		rosterModels[deployed.Model] = struct{}{}
 	}
 	scoped := *trace

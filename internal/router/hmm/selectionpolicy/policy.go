@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/hmm/rosterdata"
 )
@@ -60,6 +62,47 @@ func (p *Policy) CatalogID(arm string) string {
 		return catalogID
 	}
 	return armid.CatalogIDForRoster(arm)
+}
+
+func (p *Policy) DeployedModels() []router.DeployedEntry {
+	arms := p.admittedRoster.AllArms()
+	deployed := make([]router.DeployedEntry, 0, len(arms))
+	listed := make(map[string]struct{}, len(arms))
+	for _, arm := range arms {
+		model, _ := catalog.ByID(p.CatalogID(arm))
+		if _, duplicate := listed[model.ID]; duplicate {
+			continue
+		}
+		listed[model.ID] = struct{}{}
+		deployed = append(deployed, router.DeployedEntry{Model: model.ID, Provider: model.PrimaryProvider()})
+	}
+	return deployed
+}
+
+func (p *Policy) ClusterArms() map[string][]string {
+	clusters := make(map[string][]string, len(p.admittedRoster.Clusters))
+	for label, cluster := range p.admittedRoster.Clusters {
+		clusters[label] = append([]string(nil), cluster.Arms...)
+	}
+	return clusters
+}
+
+func (p *Policy) HarnessClusterArms() map[string]map[string][]string {
+	harnesses := make(map[string]map[string][]string)
+	for _, cluster := range p.admittedRoster.Clusters {
+		for harness := range cluster.ArmsByHarness {
+			clusters := make(map[string][]string, len(p.admittedRoster.Clusters))
+			for label, harnessCluster := range p.admittedRoster.Clusters {
+				arms := harnessCluster.ArmsByHarness[harness]
+				if len(arms) == 0 {
+					arms = harnessCluster.Arms
+				}
+				clusters[label] = append([]string(nil), arms...)
+			}
+			harnesses[string(harness)] = clusters
+		}
+	}
+	return harnesses
 }
 
 func catalogIDsByArm(roster *rosterdata.Roster) map[string]string {

@@ -11,9 +11,8 @@ arm at all.
 
 ## Why
 
-The roster↔catalog binding (`internal/router/hmm/armid/mapping.go`,
-`internal/router/hmm/roster.go`) historically dropped unknown roster IDs
-silently. One inert roster arm caused a production incident: 19.8% of
+The roster↔catalog binding (`internal/router/hmm/armid/mapping.go`)
+historically dropped unknown roster IDs silently. One inert roster arm caused a production incident: 19.8% of
 balanced-cluster turns fell through to maximum-tier arms ($821 of $1,022
 cluster spend). Moving the roster to declarative data that Go validates
 fail-loud, and the deterministic selection walk into Go, removes that failure
@@ -87,10 +86,31 @@ serving instead promotes the prior immutable policy reference on the current cod
 binding, preserving existing conversations without rebuilding or creating a
 customer-specific revision.
 
-## Still to remove
+## How routing works
 
-- The silent-drop mapping contract of `hmm.DeployedModelsForRosterIDs`, once the
-  admin roster view reads the declarative roster instead.
+1. A roster source in weave is compiled by `policyctl compile` into canonical
+   `hmm_go_selection_policy_v1` bytes. Their SHA-256 is the policy identity.
+2. `policyctl publish`, `policyctl compile --check` and the router's registry
+   load all call `selectionpolicy.Admit`. It decodes strictly, requires
+   policy_v1 and checks every arm against the model catalog. It adds no other
+   rule.
+3. If Admit rejects at publish, nothing is published. If it rejects at load,
+   the router keeps serving its previous policy.
+4. For a request, the classifier picks a group (cluster). The router takes that
+   group's arm order for the caller's harness, or the group's default order
+   when the harness has none.
+5. Manual pins and preferred vendors reorder arms only when the quality slider
+   is off neutral or preference inputs exist: then pins come first, preferred
+   vendors next, then scores. At neutral with no preferences the order is
+   served exactly as written, so pins have no effect.
+6. If the caller has a subscription ladder, its arm for that group goes first,
+   even when that arm is not a member of the group.
+7. The router serves the first eligible arm in that order and falls back down
+   the same list.
+8. Admin endpoints and telemetry report the policy SHA that was published.
+   `/v1/router/hmm-roster` and the deployed-model list are projections of the
+   admitted policy (`Policy.ClusterArms`, `Policy.HarnessClusterArms`,
+   `Policy.DeployedModels`), so they show exactly the arms Admit accepted.
 
 ## Offline model-agreement candidate
 
