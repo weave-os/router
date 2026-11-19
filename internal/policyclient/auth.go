@@ -170,7 +170,10 @@ func (t bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func NewBearer(baseURL, token string, client *http.Client, timeout time.Duration, opts ...Option) *Client {
-	var authenticated http.Client
+	if timeout <= 0 {
+		timeout = DefaultTimeout
+	}
+	authenticated := http.Client{Timeout: timeout}
 	if client != nil {
 		authenticated = *client
 	}

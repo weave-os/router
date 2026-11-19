@@ -597,6 +597,14 @@ func TestClientPreviewPostsNonLearningRequestAndReturnsEveryArm(t *testing.T) {
 	assert.Equal(t, "sha256:roster", result.RosterSHA256)
 }
 
+func TestBearerUsesPolicyTimeoutForDefaultHTTPClient(t *testing.T) {
+	configured := NewBearer("https://sidecar.example.test", "fixture-token", nil, 3*time.Second)
+	assert.Equal(t, 3*time.Second, configured.client.Timeout)
+
+	defaults := NewBearer("https://sidecar.example.test", "fixture-token", nil, 0)
+	assert.Equal(t, DefaultTimeout, defaults.client.Timeout)
+}
+
 func TestPinnedPreviewRejectsWrongResponseIdentity(t *testing.T) {
 	const digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	for _, tc := range []struct {
