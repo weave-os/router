@@ -6,16 +6,14 @@ import (
 )
 
 type PinState struct {
-	PolicyGroup    string
-	DowngradeVotes int
-	UpgradeVotes   int
+	PolicyGroup  string
+	UpgradeVotes int
 }
 
 func PinStateOf(pin sessionpin.Pin) PinState {
 	return PinState{
-		PolicyGroup:    pin.PolicyGroup,
-		DowngradeVotes: pin.ConsecutiveDowngradeVotes,
-		UpgradeVotes:   pin.ConsecutiveUpgradeVotes,
+		PolicyGroup:  pin.PolicyGroup,
+		UpgradeVotes: pin.ConsecutiveUpgradeVotes,
 	}
 }
 

@@ -12,7 +12,7 @@ import (
 
 func TestPinStateOfReadsHMMColumns(t *testing.T) {
 	pin := sessionpin.Pin{PolicyGroup: "g2", ConsecutiveDowngradeVotes: 1, ConsecutiveUpgradeVotes: 2}
-	assert.Equal(t, hmm.PinState{PolicyGroup: "g2", DowngradeVotes: 1, UpgradeVotes: 2}, hmm.PinStateOf(pin))
+	assert.Equal(t, hmm.PinState{PolicyGroup: "g2", UpgradeVotes: 2}, hmm.PinStateOf(pin))
 }
 
 func TestClassifierMarginWithoutMetadataIsNil(t *testing.T) {
