@@ -152,7 +152,7 @@ func claudeSnapshotUnservable(ctx context.Context, snap usage.Snapshot) bool {
 	if claudeEnterpriseOnly(ctx) {
 		return false
 	}
-	if pickedModelOnOwnPlan(ctx) {
+	if pickedModelOnOwnPlan(ctx) || ownOverageServesFirst(ctx, snap) {
 		return false
 	}
 	if reason, ok := billing.SubscriptionOnlyReasonFromContext(ctx); ok && reason != billing.SubscriptionOnlyLinkedFirst && claudeSubscriptionPlan(ctx) == providers.SubscriptionPlanEnterprise {

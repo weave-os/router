@@ -86,6 +86,8 @@ const (
 	KeyAgreementShadowEpoch                 Key = "agreement_shadow_epoch"
 	KeySiblingFailover                      Key = "sibling_failover"
 	KeyInstallationPoolAllowance            Key = "installation_pool_allowance"
+	KeyOwnSeatFirst                         Key = "own_seat_first"
+	KeyOwnOverageBeforePool                 Key = "own_overage_before_pool"
 	KeyEffortEscalation                     Key = "effort_escalation"
 	KeyCyberRefusalRepin                    Key = "cyber_refusal_repin"
 	KeyCyberRefusalRetry                    Key = "cyber_refusal_retry"
