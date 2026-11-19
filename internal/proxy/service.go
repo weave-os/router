@@ -395,7 +395,7 @@ const (
 
 func modelSelectionReason(res turnLoopResult, failoverReason string) string {
 	if res.Decision.Metadata != nil {
-		for _, label := range []string{res.Decision.Metadata.ClassifierPredictedLabel, res.Decision.Metadata.PolicyGroup} {
+		for _, label := range []string{hmm.ClassifierTelemetryOf(res.Decision.Metadata).PredictedLabel, hmm.ClassifierTelemetryOf(res.Decision.Metadata).PolicyGroup} {
 			classification := modelSelectionComplexity(strings.ToLower(strings.TrimSpace(label)))
 			switch classification {
 			case selectionComplexityMid:
@@ -2003,7 +2003,7 @@ func (s *Service) routeWithStrategyUnchecked(ctx context.Context, strategy route
 		}
 		return router.Decision{}, fmt.Errorf("strategy %q requested but no router configured: %w", strategy, unavailable)
 	}
-	if router.IsHMMStrategy(strategy) && req.ConversationMessages != nil && !hasTextUserBoundary(req.ConversationMessages) {
+	if hmm.Owns(strategy) && req.ConversationMessages != nil && !hasTextUserBoundary(req.ConversationMessages) {
 		req.Unscorable = true
 	}
 	return registered.router.Route(ctx, req)
@@ -3858,8 +3858,8 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 		"policy_artifact_id":               routeMetadata.PolicyArtifactID,
 		"policy_artifact_sha256":           routeMetadata.PolicyArtifactSHA256,
 		"roster_version":                   routeMetadata.RosterVersion,
-		"classifier_artifact_id":           routeMetadata.ClassifierArtifactID,
-		"classifier_artifact_sha256":       routeMetadata.ClassifierArtifactSHA256,
+		"classifier_artifact_id":           hmm.ClassifierTelemetryOf(routeMetadata).ArtifactID,
+		"classifier_artifact_sha256":       hmm.ClassifierTelemetryOf(routeMetadata).ArtifactSHA256,
 		"selection_policy_release_id":      routeMetadata.SelectionPolicyReleaseID,
 		"selection_policy_sha256":          routeMetadata.SelectionPolicySHA256,
 		"selection_head_generation":        routeMetadata.SelectionHeadGeneration,

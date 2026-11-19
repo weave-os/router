@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/escalation"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/taskarm"
 	"weave-os/router/internal/router/turntype"
@@ -38,7 +39,7 @@ func assignTaskArm(ctx context.Context, env *translate.RequestEnvelope, installa
 		return taskArmTurn{}
 	}
 	routerDecides := forceModel == "" && forceCluster == "" &&
-		router.IsHMMStrategy(router.StrategyFromContext(ctx)) &&
+		hmm.Owns(router.StrategyFromContext(ctx)) &&
 		!callerModelPassthroughActive(ctx) && !planHasDedicatedServingPolicy(ctx) && !policyPinHonoured(ctx)
 	if !routerDecides || installationID == uuid.Nil {
 		return taskArmTurn{}

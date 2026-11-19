@@ -162,7 +162,7 @@ func (s *Service) finishHandoffPreparation(ctx context.Context, w http.ResponseW
 	if route.PinModel == previousModel {
 		previousProvider = route.PinProvider
 	}
-	if previousModel != "" && s.pinStore != nil && (router.IsHMMStrategy(route.Strategy) || isHMMTurn(route)) {
+	if previousModel != "" && s.pinStore != nil && (hmm.Owns(route.Strategy) || isHMMTurn(route)) {
 		history := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now).LoadHMMHistory(ctx, route.SessionKey, route.PinRole)
 		if history.LastServedModel == route.PriorServedModel {
 			previousProvider = history.Provider

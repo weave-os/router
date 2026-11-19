@@ -469,7 +469,7 @@ func (s *Service) subscriptionAlternativeDecisions(ctx context.Context, req rout
 		return nil
 	}
 	var ordered []string
-	if trace := selected.Metadata.SelectionTrace; trace != nil && trace.SelectedGroup != "" {
+	if trace := hmm.ClassifierTelemetryOf(selected.Metadata).SelectionTrace; trace != nil && trace.SelectedGroup != "" {
 		ordered = trace.EffectiveOrders[trace.SelectedGroup]
 	}
 	if len(ordered) == 0 {
@@ -493,7 +493,7 @@ func (s *Service) subscriptionAlternativeDecisions(ctx context.Context, req rout
 				eligible = true
 			}
 		}
-		if trace := selected.Metadata.SelectionTrace; trace != nil {
+		if trace := hmm.ClassifierTelemetryOf(selected.Metadata).SelectionTrace; trace != nil {
 			for _, candidate := range trace.CandidateRosterIDs {
 				base, _ := hmm.SplitEffort(candidate)
 				if hmm.CatalogIDForRoster(base) == model {

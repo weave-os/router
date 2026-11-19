@@ -5,6 +5,7 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/translate"
 
 	"github.com/tidwall/sjson"
@@ -25,8 +26,8 @@ func applyServedGroupTelemetry(ctx context.Context, params *InsertTelemetryParam
 	group := ""
 	if served.Model == routed.Decision.Model && !isUserForcedReason(routed.Decision.Reason) {
 		group = decisionPolicyGroup(routed.Decision)
-		if group == "" && routed.Decision.Metadata != nil && routed.Decision.Metadata.SelectionTrace != nil {
-			group = routed.Decision.Metadata.SelectionTrace.SelectedGroup
+		if group == "" && routed.Decision.Metadata != nil && hmm.ClassifierTelemetryOf(routed.Decision.Metadata).SelectionTrace != nil {
+			group = hmm.ClassifierTelemetryOf(routed.Decision.Metadata).SelectionTrace.SelectedGroup
 		}
 		if group == "" && routed.StickyHit && served.Model == routed.PinModel {
 			group = routed.PinPolicyGroup
