@@ -197,6 +197,7 @@
       "probe_hard_pin",
       "rl_policy",
       "sibling_failover",
+      "usage_bypass",
       "user_forced"
     ],
     "pin_tier": [
@@ -250,6 +251,7 @@
     "probe_hard_pin": "utility",
     "rl_policy": "router_decision",
     "sibling_failover": "router_decision",
+    "usage_bypass": "router_decision",
     "user_forced": "forced"
   },
   "analytics_schema_version": "3",
