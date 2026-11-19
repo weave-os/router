@@ -5,11 +5,9 @@
       "internal/postgres": 6,
       "internal/routingpolicy": 5
     },
-    "proxy_hmm_metadata_references": {
-      "internal/proxy": 45
-    },
+    "proxy_hmm_metadata_references": {},
     "proxy_reason_string_comparisons": {
-      "internal/proxy": 24
+      "internal/proxy": 23
     },
     "serving_strategy_internal_imports": {
       "internal/api/admin -> internal/router/hmm": 1,
