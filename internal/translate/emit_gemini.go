@@ -1106,46 +1106,6 @@ func geminiThinkingConfigRaw(intent ReasoningIntent, model string) (string, erro
 	return thinkingConfigRaw(intent.Level, model), nil
 }
 
-func thinkingConfigRaw(effort, model string) string {
-	if usesGemini3Contract(model) {
-		var level string
-		switch effort {
-		case "low", "medium", "high":
-			level = effort
-		case "max", "xhigh":
-			level = "high"
-		default:
-			return ""
-		}
-		fw := newJSONWriter()
-		fw.Obj()
-		fw.Key("thinkingLevel")
-		fw.Str(level)
-		fw.EndObj()
-		return string(fw.Bytes())
-	}
-
-	var budget int64
-	switch effort {
-	case "none":
-		budget = 0
-	case "low":
-		budget = 1024
-	case "medium":
-		budget = 8192
-	case "high", "max", "xhigh":
-		budget = 24576
-	default:
-		return ""
-	}
-	fw := newJSONWriter()
-	fw.Obj()
-	fw.Key("thinkingBudget")
-	fw.Int(budget)
-	fw.EndObj()
-	return string(fw.Bytes())
-}
-
 var geminiSchemaAllowedKeys = map[string]struct{}{
 	"type":             {},
 	"nullable":         {},

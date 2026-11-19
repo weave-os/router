@@ -54,10 +54,18 @@ func TestLookup_GPT6AstraReasoning(t *testing.T) {
 }
 
 func TestLookup_Gemini4Reasoning(t *testing.T) {
-	for _, model := range []string{router.ModelGemini4Argon, router.ModelGemini4Neon} {
-		spec := router.Lookup(model)
-		assert.Equal(t, []string{"low", "medium", "high"}, spec.Reasoning().Levels, model)
-		assert.True(t, spec.Reasoning().AlwaysOn, model)
+	for _, tc := range []struct {
+		model  string
+		levels []string
+		xhigh  bool
+	}{
+		{router.ModelGemini4Argon, []string{"low", "medium", "high"}, false},
+		{router.ModelGemini4Neon, []string{"low", "medium", "high", "xhigh"}, true},
+	} {
+		spec := router.Lookup(tc.model)
+		assert.Equal(t, tc.levels, spec.Reasoning().Levels, tc.model)
+		assert.True(t, spec.Reasoning().AlwaysOn, tc.model)
+		assert.Equal(t, tc.xhigh, spec.Supports(router.CapXhighEffort), tc.model)
 	}
 }
 

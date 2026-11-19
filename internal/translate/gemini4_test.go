@@ -50,24 +50,43 @@ func assertNativeGeminiThinkingAndValidatedTools(t *testing.T, model string) {
 }
 
 func TestGemini4PreservesOutputBudgetsWithinItsNativeLimit(t *testing.T) {
-	for _, model := range gemini4Models {
-		t.Run(model, func(t *testing.T) { assertOutputBudgetsWithinNativeLimit(t, model) })
+	for model, limit := range map[string]int{router.ModelGemini4Argon: 32768, router.ModelGemini4Neon: 65536} {
+		t.Run(model, func(t *testing.T) {
+			for _, budget := range []struct{ requested, expected int }{{20000, 20000}, {100000, limit}} {
+				body := fmt.Sprintf(`{"model":"Weave","messages":[{"role":"user","content":"Synthetic output-budget check."}],"max_tokens":%d}`, budget.requested)
+				var emitted struct {
+					GenerationConfig struct {
+						MaxOutputTokens int `json:"maxOutputTokens"`
+					} `json:"generationConfig"`
+				}
+				prepareGemini4(t, body, model, &emitted)
+				require.Equal(t, budget.expected, emitted.GenerationConfig.MaxOutputTokens)
+			}
+		})
 	}
 }
 
-func assertOutputBudgetsWithinNativeLimit(t *testing.T, model string) {
-	t.Helper()
-	for _, budget := range []struct{ requested, expected int }{{20000, 20000}, {64000, 32768}} {
-		envelope, err := translate.ParseOpenAI([]byte(fmt.Sprintf(`{"model":"Weave","messages":[{"role":"user","content":"Synthetic output-budget check."}],"max_tokens":%d}`, budget.requested)))
-		require.NoError(t, err)
-		prepared, err := envelope.PrepareGemini(http.Header{}, translate.EmitOptions{TargetModel: model})
-		require.NoError(t, err)
-		var emitted struct {
-			GenerationConfig struct {
-				MaxOutputTokens int `json:"maxOutputTokens"`
-			} `json:"generationConfig"`
-		}
-		require.NoError(t, json.Unmarshal(prepared.Body, &emitted))
-		require.Equal(t, budget.expected, emitted.GenerationConfig.MaxOutputTokens)
+func TestGemini4XhighEffortOnlyReachesModelsThatAcceptIt(t *testing.T) {
+	for model, level := range map[string]string{router.ModelGemini4Argon: "high", router.ModelGemini4Neon: "xhigh"} {
+		t.Run(model, func(t *testing.T) {
+			var emitted struct {
+				GenerationConfig struct {
+					ThinkingConfig struct {
+						ThinkingLevel string `json:"thinkingLevel"`
+					} `json:"thinkingConfig"`
+				} `json:"generationConfig"`
+			}
+			prepareGemini4(t, `{"model":"Weave","messages":[{"role":"user","content":"Synthetic effort check."}],"reasoning_effort":"xhigh"}`, model, &emitted)
+			require.Equal(t, level, emitted.GenerationConfig.ThinkingConfig.ThinkingLevel)
+		})
 	}
+}
+
+func prepareGemini4(t *testing.T, body, model string, emitted any) {
+	t.Helper()
+	envelope, err := translate.ParseOpenAI([]byte(body))
+	require.NoError(t, err)
+	prepared, err := envelope.PrepareGemini(http.Header{}, translate.EmitOptions{TargetModel: model})
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(prepared.Body, emitted))
 }
