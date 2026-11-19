@@ -37,7 +37,7 @@ func (s *Service) resolveUpgradePolicyMode(ctx context.Context) flags.Authoritat
 }
 
 func (s *Service) authoritativeUpgradeFor(ctx context.Context, req router.Request, pin sessionpin.Pin, fresh router.Decision, res turnLoopResult, inputTokens int) *authoritativeUpgradeDecision {
-	if !isHMMDecision(fresh) {
+	if !hmm.Owns(res.Strategy) || !isHMMDecision(fresh) {
 		return nil
 	}
 	mode := s.resolveUpgradePolicyMode(ctx)
@@ -141,6 +141,9 @@ func holdAuthoritativePin(
 	fresh router.Decision,
 	verdict hmm.AuthoritativeVerdict,
 ) bool {
+	if !hmm.Owns(res.Strategy) {
+		return false
+	}
 	log := observability.FromContext(ctx)
 	fields := []any{
 		"pin_model", pin.Model,

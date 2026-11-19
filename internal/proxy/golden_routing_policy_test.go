@@ -181,19 +181,23 @@ func (s *routingPolicySession) evictPins(role string) func(context.Context) cont
 func routingPolicyExpire(p *sessionpin.Pin) { p.PinnedUntil = goldenEpoch.Add(-time.Minute) }
 
 type routingPolicySetup struct {
-	turns   [][]router.Decision
-	caps    policy.Capabilities
-	trace   bool
-	session *routingPolicySession
-	options []func(*proxy.Service) *proxy.Service
+	strategy router.Strategy
+	turns    [][]router.Decision
+	caps     policy.Capabilities
+	trace    bool
+	session  *routingPolicySession
+	options  []func(*proxy.Service) *proxy.Service
 }
 
 func (p routingPolicySetup) configure(svc *proxy.Service, h *goldenHarness) *proxy.Service {
 	if p.session != nil {
 		p.session.h = h
 	}
+	if p.strategy == "" {
+		p.strategy = router.StrategyHMMEmbedding
+	}
 	svc = svc.WithPolicyStrategy(policy.StrategySpec{
-		Strategy:     router.StrategyHMMEmbedding,
+		Strategy:     p.strategy,
 		Router:       &scriptedPolicyRouter{rec: h.rec, turns: p.turns, traceRequest: p.trace},
 		Capabilities: p.caps,
 	})
@@ -371,6 +375,7 @@ func routingPolicySelectionGateScenarios() []goldenScenario {
 	first, next := goldenRequest{body: routingPolicyFirstTurn}, goldenRequest{body: routingPolicyFollowUp("Now say bye")}
 	authoritative := policy.Capabilities{AuthoritativePerTurnSelection: true}
 	excluded := routingPolicyRequest(next.body, routingPolicyExcludeModels(routingPolicyLow))
+	decisionModel := routingPolicyStrategy(router.StrategyDecisionModel)
 	return []goldenScenario{
 		routingPolicyScenario("hmm_first_turn_routes_unpinned", routingPolicySetup{turns: routingPolicyTurns(routingPolicyHMM(routingPolicyLow, 0.9))}, first),
 		routingPolicyScenario("hmm_low_confidence_upgrade_stays", routingPolicySetup{turns: routingPolicyTurns(routingPolicyHMM(routingPolicyLow, 0.9), routingPolicyHMM(routingPolicyHigh, 0.3))}, first, next),
@@ -391,6 +396,10 @@ func routingPolicySelectionGateScenarios() []goldenScenario {
 			first, next),
 		routingPolicyScenario("authoritative_downgrade_vote_held_by_hysteresis", routingPolicySetup{turns: routingPolicyTurns(routingPolicyHMM(routingPolicyHigh, 0.9), routingPolicyHMM(routingPolicyLow, 0.9)), caps: authoritative},
 			first, next),
+		routingPolicyScenario("authoritative_non_hmm_step_down_serves_same_turn", routingPolicySetup{
+			strategy: router.StrategyDecisionModel, caps: authoritative,
+			turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyHigh), routingPolicyAnthropic(routingPolicyLow)),
+		}, routingPolicyRequest(first.body, decisionModel), routingPolicyRequest(next.body, decisionModel)),
 		routingPolicyScenario("authoritative_downgrade_served_on_second_vote", routingPolicySetup{turns: routingPolicyTurns(routingPolicyHMM(routingPolicyHigh, 0.9), routingPolicyHMM(routingPolicyLow, 0.9)), caps: authoritative},
 			first, next, goldenRequest{body: routingPolicyFollowUp("And once more")}),
 		routingPolicyScenario("authoritative_low_confidence_downgrade_gated", routingPolicySetup{turns: routingPolicyTurns(routingPolicyHMM(routingPolicyHigh, 0.9), routingPolicyHMM(routingPolicyLow, 0.2)), caps: authoritative,

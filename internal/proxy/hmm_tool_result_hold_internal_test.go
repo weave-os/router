@@ -36,19 +36,20 @@ func TestHMMToolResultHoldKeepsUserTurnPick(t *testing.T) {
 	userTurnBody := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"fix the failing test"}]}`)
 	tests := []struct {
 		name              string
+		strategy          router.Strategy
 		body              []byte
 		hold              bool
 		wantModel         string
 		wantAuthoritative bool
 		wantRouteCalls    int
 	}{
-		{name: "tool result holds the session pin", body: toolResultBody, hold: true, wantModel: pinnedModel, wantRouteCalls: 0},
-		{name: "tool result rescored without hold", body: toolResultBody, wantModel: freshModel, wantAuthoritative: true, wantRouteCalls: 1},
-		{name: "user turn rescored with hold", body: userTurnBody, hold: true, wantModel: freshModel, wantAuthoritative: true, wantRouteCalls: 1},
+		{name: "HMM tool result holds the session pin", strategy: router.StrategyHMMEmbedding, body: toolResultBody, hold: true, wantModel: pinnedModel, wantRouteCalls: 0},
+		{name: "HMM tool result rescored without hold", strategy: router.StrategyHMMEmbedding, body: toolResultBody, wantModel: freshModel, wantAuthoritative: true, wantRouteCalls: 1},
+		{name: "HMM user turn rescored with hold", strategy: router.StrategyHMMEmbedding, body: userTurnBody, hold: true, wantModel: freshModel, wantAuthoritative: true, wantRouteCalls: 1},
+		{name: "non-HMM tool result rescored with hold", strategy: "hold-test", body: toolResultBody, hold: true, wantModel: freshModel, wantAuthoritative: true, wantRouteCalls: 1},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			strategy := router.Strategy("hold-test")
 			store := newStubPinStore()
 			store.getFound = true
 			store.getPin = sessionpin.Pin{
@@ -69,7 +70,7 @@ func TestHMMToolResultHoldKeepsUserTurnPick(t *testing.T) {
 				WithScoreToolResultTurns(true).
 				EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).
 				WithPolicyStrategy(policy.StrategySpec{
-					Strategy: strategy,
+					Strategy: test.strategy,
 					Router:   policyRouter,
 					Capabilities: policy.Capabilities{
 						SchemaVersion:                 policy.SchemaVersionV1,
@@ -79,7 +80,7 @@ func TestHMMToolResultHoldKeepsUserTurnPick(t *testing.T) {
 			env, err := translate.ParseAnthropic(test.body)
 			require.NoError(t, err)
 			features := env.RoutingFeatures()
-			ctx := router.WithStrategy(context.Background(), strategy)
+			ctx := router.WithStrategy(context.Background(), test.strategy)
 			ctx = flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyHMMToolResultHold: test.hold}})
 			req := router.Request{
 				RequestedModel:       features.Model,

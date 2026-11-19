@@ -1182,7 +1182,7 @@ func (s *Service) runTurnLoop(
 		return res, nil
 	}
 
-	if pinFound && res.AuthoritativePerTurn && req.ForceCluster == "" &&
+	if hmm.Owns(strategy) && pinFound && res.AuthoritativePerTurn && req.ForceCluster == "" &&
 		escalation.Rank(escalation.Group(hmm.PinStateOf(pin).PolicyGroup)) >= 0 && s.ResolveAuthoritativeUpgradeSlidingThreshold(ctx) {
 		req.Session.SlidingThresholdPinGroup = escalation.Group(hmm.PinStateOf(pin).PolicyGroup)
 	}
@@ -1204,7 +1204,7 @@ func (s *Service) runTurnLoop(
 	routeRemaining := func() (turnLoopResult, error) {
 		req.Session.Pin = router.SessionPin{Found: pinFound, Provider: pin.Provider, Model: pin.Model, LastTurnEndedAt: pin.LastTurnEndedAt, LastOutputTokens: pin.LastOutputTokens}
 		holdToolResult := res.AuthoritativePerTurn && req.Escalation == nil &&
-			res.TurnType == turntype.ToolResult && s.ResolveHMMToolResultHold(ctx)
+			res.TurnType == turntype.ToolResult && s.ResolveHMMToolResultHold(ctx, strategy)
 		if holdToolResult {
 			res.AuthoritativePerTurn = false
 		}
