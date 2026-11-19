@@ -352,19 +352,19 @@ func TestFromEnv(t *testing.T) {
 			return defaultValue
 		}
 	}
-	if ex := keenable.FromEnv(env(nil), logger); ex != nil {
-		t.Fatalf("FromEnv without ROUTER_KEENABLE_WEB_SEARCH = %v, want nil", ex)
+	if executor := keenable.FromEnv(env(nil), logger); executor != nil {
+		t.Fatalf("FromEnv without ROUTER_KEENABLE_WEB_SEARCH = %v, want nil", executor)
 	}
-	if ex := keenable.FromEnv(env(map[string]string{"ROUTER_KEENABLE_WEB_SEARCH": "1"}), logger); ex != nil {
-		t.Fatalf("FromEnv with a non-true value = %v, want nil", ex)
+	if executor := keenable.FromEnv(env(map[string]string{"ROUTER_KEENABLE_WEB_SEARCH": "1"}), logger); executor != nil {
+		t.Fatalf("FromEnv with a non-true value = %v, want nil", executor)
 	}
 
 	srv, got := newServer(t, http.StatusOK, searchResponse)
-	ex := keenable.FromEnv(env(map[string]string{"ROUTER_KEENABLE_WEB_SEARCH": "true", "KEENABLE_BASE_URL": srv.URL}), logger)
-	if ex == nil {
+	executor := keenable.FromEnv(env(map[string]string{"ROUTER_KEENABLE_WEB_SEARCH": "true", "KEENABLE_BASE_URL": srv.URL}), logger)
+	if executor == nil {
 		t.Fatal("FromEnv with ROUTER_KEENABLE_WEB_SEARCH=true returned nil")
 	}
-	if _, err := ex.Search(context.Background(), websearch.Query{Text: "q"}); err != nil {
+	if _, err := executor.Search(context.Background(), websearch.Query{Text: "q"}); err != nil {
 		t.Fatalf("Search: %v", err)
 	}
 	if got.body == nil {
