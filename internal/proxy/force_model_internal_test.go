@@ -149,13 +149,6 @@ func TestResolveForceModel(t *testing.T) {
 			wantKnown:    true,
 		},
 		{
-			name:         "alias neon",
-			input:        "neon",
-			wantID:       "gemini-4-neon",
-			wantProvider: providers.ProviderGoogle,
-			wantKnown:    true,
-		},
-		{
 			name:         "alias gemini flash",
 			input:        "gemini-flash",
 			wantID:       "gemini-3.8-flash",
@@ -651,4 +644,11 @@ func TestUnversionedAliasesFollowNewestFamilyRelease(t *testing.T) {
 	}
 	assert.Equal(t, "gpt-6.1-sol", forceModelAliases["gpt-6-1-sol"], "versioned aliases stay exact")
 	assert.Equal(t, "gpt-6-astra", forceModelAliases["gpt-6"], "versioned aliases stay exact")
+}
+
+func TestResolveForceModel_NeonAlias(t *testing.T) {
+	gotID, gotProvider, gotKnown := resolveForceModel("neon")
+	assert.Equal(t, "gemini-4-neon", gotID)
+	assert.Equal(t, providers.ProviderGoogle, gotProvider)
+	assert.True(t, gotKnown)
 }

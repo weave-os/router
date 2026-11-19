@@ -440,12 +440,6 @@ var Models = append([]Model{
 	{ID: "gemini-3.8-flash", Source: SourceClosedSource, RequiresSignedToolHistory: true, Tier: TierMid, ContextWindow: 1_048_576, Providers: []ProviderBinding{
 		{Provider: providers.ProviderGoogle, Price: Pricing{InputUSDPer1M: 1.50, OutputUSDPer1M: 7.50, CacheReadMultiplier: 0.10}},
 	}},
-	{ID: ModelIDGemini4Argon.String(), Source: SourceClosedSource, RequiresSignedToolHistory: true, HMMTarget: true, ContextWindow: 1_048_576, Providers: []ProviderBinding{
-		{Provider: providers.ProviderGoogle, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 10.00, CacheReadMultiplier: 0.10}},
-	}},
-	{ID: ModelIDGemini4Neon.String(), Source: SourceClosedSource, RequiresSignedToolHistory: true, HMMTarget: true, ContextWindow: 1_048_576, Providers: []ProviderBinding{
-		{Provider: providers.ProviderGoogle, Price: Pricing{InputUSDPer1M: 3.00, OutputUSDPer1M: 15.00, CacheReadMultiplier: 0.05}},
-	}},
 	{ID: "google/gemma-4-26b-a4b-it", Source: SourceOpenSource, Tier: TierLow, ContextWindow: 262_144, Providers: []ProviderBinding{
 		{Provider: providers.ProviderGoogle, UpstreamID: "gemma-4-26b-a4b-it", Price: Pricing{InputUSDPer1M: 0.15, OutputUSDPer1M: 0.60, CacheReadMultiplier: 0.10}},
 	}},
@@ -627,4 +621,4 @@ var Models = append([]Model{
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/qwen3p8-max",
 			Price: Pricing{InputUSDPer1M: 2.000, OutputUSDPer1M: 6.000, CacheReadMultiplier: 0.125}},
 	}},
-}, openAIGPT6Models...)
+}, append(openAIGPT6Models, googleGemini4Models...)...)
