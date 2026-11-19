@@ -23,7 +23,7 @@ func hmmCostGateFor(s *Service) hmm.CostGate {
 }
 
 func hmmCostGatedDecision(ctx context.Context, s *Service, input hmm.CostGateInput) (router.Decision, planner.Decision, bool, string) {
-	input.Planner = plannerConfigFor(ctx, s.planner)
+	input.Planner = plannerConfigFor(ctx, s.continuityConfig.Planner)
 	input.Now = s.clock.Now()
 	stayPin, plan, sticky := hmmCostGateFor(s).Decide(input)
 	if sticky {

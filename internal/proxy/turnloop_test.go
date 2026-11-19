@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
@@ -172,7 +173,7 @@ func TestTurnLoop_ToolResultScoringDisabledSkipsScorer(t *testing.T) {
 	// fakeRouter.err makes any Route() call fail; the test passes only
 	// if the orchestrator never touches the scorer.
 	fr := &fakeRouter{err: errors.New("scorer must not be called when tool-result scoring is disabled")}
-	svc := newPinSvc(fr, store).WithScoreToolResultTurns(false)
+	svc := newPinSvc(fr, store).EditContinuityConfig(func(c *continuity.Config) { c.ScoreToolResultTurns = false })
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
@@ -815,7 +816,7 @@ func TestTurnLoop_PlannerDisabledPreservesFirstDecisionWins(t *testing.T) {
 		PinnedUntil: time.Now().Add(time.Hour),
 	}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-7", Reason: "fresh"}}
-	svc := newPinSvc(fr, store).WithPlannerEnabled(false)
+	svc := newPinSvc(fr, store).EditContinuityConfig(func(c *continuity.Config) { c.PlannerEnabled = false })
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
@@ -901,9 +902,8 @@ func TestTurnLoop_PrefixTrimPricesPinColdAndSkipsSummarizer(t *testing.T) {
 	store.pin = warmOpusPin()
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster:v0.2"}}
 	sz := &fakeSummarizer{summary: "Prior conversation summary."}
-	svc := newPinSvc(fr, store).WithSummarizer(sz).WithPlanner(planner.EVConfig{
-		ThresholdUSD:           0.00002,
-		ExpectedRemainingTurns: 3,
+	svc := newPinSvc(fr, store).WithSummarizer(sz).EditContinuityConfig(func(c *continuity.Config) {
+		c.Planner = planner.EVConfig{ThresholdUSD: 0.00002, ExpectedRemainingTurns: 3}
 	})
 	ctx := authedCtx(uuid.New().String())
 
@@ -932,9 +932,8 @@ func TestTurnLoop_PrefixTrimKillSwitchPreservesWarmStay(t *testing.T) {
 	store.pin = warmOpusPin()
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster:v0.2"}}
 	sz := &fakeSummarizer{summary: "Prior conversation summary."}
-	svc := newPinSvc(fr, store).WithSummarizer(sz).WithPrefixTrimFreeSwitch(false).WithPlanner(planner.EVConfig{
-		ThresholdUSD:           0.001,
-		ExpectedRemainingTurns: 3,
+	svc := newPinSvc(fr, store).WithSummarizer(sz).WithPrefixTrimFreeSwitch(false).EditContinuityConfig(func(c *continuity.Config) {
+		c.Planner = planner.EVConfig{ThresholdUSD: 0.001, ExpectedRemainingTurns: 3}
 	})
 	ctx := authedCtx(uuid.New().String())
 

@@ -16,6 +16,7 @@ type Config struct {
 	PlannerEnabled       bool
 	ScoreToolResultTurns bool
 	HoldToolResult       bool
+	Planner              planner.EVConfig
 }
 
 func ToolResultSticky(session router.SessionView, turn Turn, cfg Config) bool {

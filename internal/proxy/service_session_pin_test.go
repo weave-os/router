@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -1255,7 +1256,7 @@ func TestService_SessionPin_OpenAI_ToolResultShortCircuit(t *testing.T) {
 		PinnedUntil: time.Now().Add(30 * time.Minute),
 	}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-4o", Reason: "fresh"}}
-	svc := newOpenAIPinSvc(fr, store).WithScoreToolResultTurns(false)
+	svc := newOpenAIPinSvc(fr, store).EditContinuityConfig(func(c *continuity.Config) { c.ScoreToolResultTurns = false })
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()

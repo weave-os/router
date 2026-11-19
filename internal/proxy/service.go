@@ -33,6 +33,7 @@ import (
 	"weave-os/router/internal/router/breaker"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/escalationdashboard"
 	"weave-os/router/internal/router/handover"
@@ -122,12 +123,10 @@ type Service struct {
 	routing                      *routingpolicy.Policy
 	globalAutomaticExclusions    *globalAutomaticExclusionCache
 	credentials                  credentials.Brokerage
-	planner                      planner.EVConfig
+	continuityConfig             continuity.Config
 	hmmConfig                    hmm.Config
 	policyDeadlineFallback       bool
 	policyDeadlineDefaultModel   string
-	plannerEnabled               bool
-	scoreToolResultTurns         bool
 	cyberRefusalRepin            bool
 	cyberRefusalRetry            bool
 	anthropicServerSideFallback  bool
@@ -1038,45 +1037,31 @@ func codexResponsesRequest(ctx context.Context, headers http.Header) bool {
 	return false
 }
 
-const DefaultPlannerThresholdUSD = 0.001
-
-const DefaultPlannerExpectedRemainingTurns = 3
-
-const DefaultPlannerTierUpgradeEnabled = true
-
-const DefaultPlannerCorrectedEconomics = false
-
 func NewService(r router.Router, providerMap map[string]providers.Client, emitter TelemetryEmitter, pinStore sessionpin.Store, hardPinExplore bool, hardPinProvider, hardPinModel string, telemetry TelemetryRepository) *Service {
 	s := &Service{
-		clients:                      dispatch.NewClients(providerMap),
-		translationCompatibilityMode: TranslationCompatibilityShadow,
-		emitter:                      emitter,
-		ingress:                      ingress.New(0),
-		pinStore:                     pinStore,
-		noProgress:                   conversation.NewNoProgressTracker(),
-		searchUse:                    newSearchUseTracker(),
-		searchRequirementDecayTurns:  DefaultSearchRequirementDecayTurns,
-		compaction:                   conversation.NewCompactionTracker(),
-		prefixTrimFreeSwitch:         true,
-		spiralTracker:                conversation.NewSpiralTracker(),
-		spiralShadowEnabled:          true,
-		turnSignalCaptureEnabled:     true,
-		struggleTracker:              conversation.NewStruggleTracker(),
-		struggleShadowEnabled:        true,
-		textRepetitionBreakEnabled:   true,
-		ccOrchToolsCrossVendor:       true,
-		hardPinExplore:               hardPinExplore,
-		hardPinProvider:              hardPinProvider,
-		hardPinModel:                 hardPinModel,
-		telemetry:                    telemetry,
-		planner: planner.EVConfig{
-			ThresholdUSD:           DefaultPlannerThresholdUSD,
-			ExpectedRemainingTurns: DefaultPlannerExpectedRemainingTurns,
-			TierUpgradeEnabled:     DefaultPlannerTierUpgradeEnabled,
-		},
+		clients:                        dispatch.NewClients(providerMap),
+		translationCompatibilityMode:   TranslationCompatibilityShadow,
+		emitter:                        emitter,
+		ingress:                        ingress.New(0),
+		pinStore:                       pinStore,
+		noProgress:                     conversation.NewNoProgressTracker(),
+		searchUse:                      newSearchUseTracker(),
+		searchRequirementDecayTurns:    DefaultSearchRequirementDecayTurns,
+		compaction:                     conversation.NewCompactionTracker(),
+		prefixTrimFreeSwitch:           true,
+		spiralTracker:                  conversation.NewSpiralTracker(),
+		spiralShadowEnabled:            true,
+		turnSignalCaptureEnabled:       true,
+		struggleTracker:                conversation.NewStruggleTracker(),
+		struggleShadowEnabled:          true,
+		textRepetitionBreakEnabled:     true,
+		ccOrchToolsCrossVendor:         true,
+		hardPinExplore:                 hardPinExplore,
+		hardPinProvider:                hardPinProvider,
+		hardPinModel:                   hardPinModel,
+		telemetry:                      telemetry,
+		continuityConfig:               continuity.DefaultConfig(),
 		hmmConfig:                      hmm.DefaultConfig(),
-		plannerEnabled:                 true,
-		scoreToolResultTurns:           true,
 		loopEscalationEnabled:          true,
 		cyberRefusalRepin:              true,
 		cyberRefusalRetry:              true,
@@ -1110,23 +1095,8 @@ func (s *Service) WithScopedSearchRequirement(enabled bool, decayTurns int) *Ser
 	return s
 }
 
-func (s *Service) WithPlanner(cfg planner.EVConfig) *Service {
-	s.planner.ThresholdUSD = cfg.ThresholdUSD
-	if cfg.ExpectedRemainingTurns > 0 {
-		s.planner.ExpectedRemainingTurns = cfg.ExpectedRemainingTurns
-	}
-	s.planner.TierUpgradeEnabled = cfg.TierUpgradeEnabled
-	s.planner.CorrectedEconomics = cfg.CorrectedEconomics
-	return s
-}
-
-func (s *Service) WithPlannerEnabled(enabled bool) *Service {
-	s.plannerEnabled = enabled
-	return s
-}
-
-func (s *Service) WithScoreToolResultTurns(enabled bool) *Service {
-	s.scoreToolResultTurns = enabled
+func (s *Service) WithContinuityConfig(cfg continuity.Config) *Service {
+	s.continuityConfig = cfg
 	return s
 }
 

@@ -9,6 +9,7 @@ import (
 	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 
@@ -232,7 +233,7 @@ func TestRunTurnLoop_PinTurnCountsCurrentTurnInclusively(t *testing.T) {
 	svc := NewService(fr, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithAvailableModels(fr.available).
-		WithPlannerEnabled(false)
+		EditContinuityConfig(func(c *continuity.Config) { c.PlannerEnabled = false })
 
 	env, err := translate.ParseAnthropic(
 		[]byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"continue"}]}`),

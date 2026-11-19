@@ -6,6 +6,7 @@ import (
 
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
@@ -36,11 +37,17 @@ func (s *Service) ResolveTextRepetitionBreakEnabled(ctx context.Context) bool {
 }
 
 func (s *Service) ResolvePlannerEnabled(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyPlannerEnabled, s.plannerEnabled)
+	return flags.BoolOr(ctx, flags.KeyPlannerEnabled, s.continuityConfig.PlannerEnabled)
 }
 
 func (s *Service) ResolveScoreToolResultTurns(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyScoreToolResultTurns, s.scoreToolResultTurns)
+	return flags.BoolOr(ctx, flags.KeyScoreToolResultTurns, s.continuityConfig.ScoreToolResultTurns)
+}
+
+func (s *Service) resolveContinuityConfig(ctx context.Context, holdToolResult bool) continuity.Config {
+	cfg := s.continuityConfig
+	cfg.PlannerEnabled, cfg.ScoreToolResultTurns, cfg.HoldToolResult = s.ResolvePlannerEnabled(ctx), s.ResolveScoreToolResultTurns(ctx), holdToolResult
+	return cfg
 }
 
 func (s *Service) ResolveHMMToolResultHold(ctx context.Context, strategy router.Strategy) bool {

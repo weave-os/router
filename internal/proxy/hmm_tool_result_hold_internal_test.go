@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -67,7 +68,7 @@ func TestHMMToolResultHoldKeepsUserTurnPick(t *testing.T) {
 				Reason:   "hold-test_policy",
 			}}
 			svc := NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
-				WithScoreToolResultTurns(true).
+				EditContinuityConfig(func(c *continuity.Config) { c.ScoreToolResultTurns = true }).
 				EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).
 				WithPolicyStrategy(policy.StrategySpec{
 					Strategy: test.strategy,

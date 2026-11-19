@@ -18,6 +18,7 @@ import (
 	"weave-os/router/internal/providers/openaicompat"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/sessionpin"
 
 	"github.com/google/uuid"
@@ -474,7 +475,7 @@ func TestProxyMessages_TwoConsecutiveOverloadExhaustionsDisableProvider(t *testi
 		map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("test-key", upstream.URL)},
 		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
-		WithPlannerEnabled(false).
+		EditContinuityConfig(func(c *continuity.Config) { c.PlannerEnabled = false }).
 		WithRetrySleep(noRetrySleep) // first-decision-wins: a pin hit serves straight through without scorer-vs-planner EV noise.
 
 	ctx := authedCtx(uuid.New().String())
@@ -547,7 +548,7 @@ func TestProxyMessages_BaselineOverloadExhaustionDoesNotDisableAnthropic(t *test
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		providers.ProviderFireworks: {},
 		providers.ProviderAnthropic: {},
-	}).WithPlannerEnabled(false).
+	}).EditContinuityConfig(func(c *continuity.Config) { c.PlannerEnabled = false }).
 		WithRetrySleep(noRetrySleep)
 
 	ctx := authedCtx(uuid.New().String())
