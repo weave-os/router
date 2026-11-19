@@ -1991,6 +1991,7 @@ func (s *Service) routeWithStrategy(ctx context.Context, strategy router.Strateg
 	if pin, pinned := router.HonouredPolicyPin(ctx); pinned && (decision.Metadata == nil || !decision.Metadata.PolicyPinHonoured) {
 		return router.Decision{}, fmt.Errorf("strategy %q cannot serve policy pin %s: %w", strategy, pin, router.ErrPolicyPinUnavailable)
 	}
+	logCandidateViolation(ctx, strategy, req, decision)
 	return decision, nil
 }
 
@@ -2007,15 +2008,6 @@ func (s *Service) routeWithStrategyUnchecked(ctx context.Context, strategy route
 		req.Unscorable = true
 	}
 	return registered.router.Route(ctx, req)
-}
-
-func hasTextUserBoundary(messages []router.ConversationMessage) bool {
-	for _, message := range messages {
-		if strings.EqualFold(message.Role, "user") && strings.TrimSpace(message.Text) != "" {
-			return true
-		}
-	}
-	return false
 }
 
 func (s *Service) withPolicyRequestContext(ctx context.Context, req router.Request) router.Request {
