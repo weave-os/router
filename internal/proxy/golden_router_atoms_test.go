@@ -58,9 +58,6 @@ func atomAuthoritativeUpgradeScenarios() []goldenScenario {
 	first, next := goldenRequest{body: routingPolicyFirstTurn}, goldenRequest{body: routingPolicyFollowUp("Now say bye")}
 	upgrade := func(name string, fresh router.Decision, pinGroup string, options []func(*proxy.Service) *proxy.Service, requests ...goldenRequest) goldenScenario {
 		turns := routingPolicyTurns(atomHMM(routingPolicyLow, pinGroup, 0.9, nil), fresh)
-		if len(requests) > 2 {
-			turns = routingPolicyTurns(atomHMM(routingPolicyLow, pinGroup, 0.9, nil), fresh, fresh)
-		}
 		session := &routingPolicySession{}
 		warmed := append([]goldenRequest{}, requests...)
 		for i := 1; i < len(warmed); i++ {
@@ -81,6 +78,15 @@ func atomAuthoritativeUpgradeScenarios() []goldenScenario {
 	}, first, routingPolicyRequest(routingPolicyFollowUp("Now say bye"), session.editPins("default_mid", func(p *sessionpin.Pin) {
 		p.DemotedModels = []string{routingPolicyHigh}
 	})))
+	voteSession := &routingPolicySession{}
+	votes := atomScenario("authoritative_upgrade_repeated_same_group_votes", routingPolicySetup{
+		turns: routingPolicyTurns(atomHMM(routingPolicyLow, "high", 0.9, nil), atomHMM(routingPolicyHigh, "high", 0.3, atomFloat(0.1))),
+		caps:  authoritative, session: voteSession,
+		options: atomOptions(calibrated, func(s *proxy.Service) *proxy.Service { return s.WithAuthoritativeUpgradeVotes(2) }),
+	}, first, routingPolicyRequest(routingPolicyFollowUp("Now say bye"), voteSession.editPins("default_mid", func(p *sessionpin.Pin) {
+		atomWarmPin(p)
+		p.ConsecutiveUpgradeVotes = 1
+	})))
 	return []goldenScenario{
 		demoted,
 		upgrade("margin_missing", atomHMM(routingPolicyHigh, "high", 0.9, nil), "low", nil, first, next),
@@ -90,9 +96,7 @@ func atomAuthoritativeUpgradeScenarios() []goldenScenario {
 		upgrade("margin_above_threshold_same_group", atomHMM(routingPolicyHigh, "high", 0.3, atomFloat(0.6)), "high", atomOptions(calibrated), first, next),
 		upgrade("margin_below_threshold", atomHMM(routingPolicyHigh, "high", 0.9, atomFloat(0.1)), "low", atomOptions(calibrated), first, next),
 		upgrade("warm_pin_same_group_low_margin", atomHMM(routingPolicyHigh, "high", 0.9, atomFloat(0.1)), "high", atomOptions(calibrated), first, next),
-		upgrade("repeated_same_group_votes", atomHMM(routingPolicyHigh, "high", 0.9, atomFloat(0.1)), "high",
-			atomOptions(calibrated, func(s *proxy.Service) *proxy.Service { return s.WithAuthoritativeUpgradeVotes(2) }),
-			first, next, goldenRequest{body: routingPolicyFollowUp("And once more")}),
+		votes,
 		cold("cold_pin_without_prior_turn_end", atomHMM(routingPolicyHigh, "high", 0.3, atomFloat(0.1)), atomOptions(calibrated)),
 		upgrade("pin_older_than_stale_age", atomHMM(routingPolicyHigh, "high", 0.3, atomFloat(0.1)), "low", atomOptions(atomUpgradeConfig(atomFloat(0.5), time.Minute)),
 			first, goldenRequest{body: routingPolicyFollowUp("Now say bye"), advance: 2 * time.Minute}),
@@ -153,7 +157,7 @@ func atomEffortHysteresisScenarios() []goldenScenario {
 	}
 	return []goldenScenario{
 		scenario("challenger_score_slightly_above_incumbent", atomEffort(routingPolicyHigh, "low", "golden-arm:low", scores(0.5, 0.51))),
-		scenario("challenger_score_far_above_incumbent", atomEffort(routingPolicyHigh, "low", "golden-arm:low", scores(0.2, 0.9))),
+		scenario("challenger_score_far_above_incumbent", atomEffort(routingPolicyHigh, "low", "golden-arm:low", scores(0, 1.5))),
 		scenario("missing_incumbent_score", atomEffort(routingPolicyHigh, "low", "golden-arm:low", map[string]float32{"golden-arm:low": 0.5})),
 		scenario("fresh_model_differs_from_incumbent", atomEffort(routingPolicyMid, "low", "golden-arm:low", scores(0.5, 0.51))),
 	}
@@ -181,7 +185,8 @@ func atomUsageBypassCoverageScenarios() []goldenScenario {
 		scenario("uncatalogued_requested_model", `{"model":"golden-unknown-model","max_tokens":64,"messages":[{"role":"user","content":"Say hi"}]}`),
 		scenario("non_anthropic_requested_model", `{"model":"`+routingPolicyTextOnly+`","max_tokens":64,"messages":[{"role":"user","content":"Say hi"}]}`),
 		scenario("requested_model_outside_allowed_list", routingPolicyFirstTurn, routingPolicyAllowModels(routingPolicyLow)),
-		scenario("other_model_excluded", routingPolicyFirstTurn, routingPolicyExcludeModels(routingPolicyMid)),
+		scenario("requested_model_excluded", routingPolicyFirstTurn, routingPolicyExcludeModels(routingPolicyMid)),
+		scenario("other_model_excluded", routingPolicyFirstTurn, routingPolicyExcludeModels(routingPolicyHigh)),
 		scenario("anthropic_byok_key_present", routingPolicyFirstTurn, routingPolicyExternalKeys(byokKey(providers.ProviderAnthropic, "sk-ant-golden-atom", ""))),
 	}
 }

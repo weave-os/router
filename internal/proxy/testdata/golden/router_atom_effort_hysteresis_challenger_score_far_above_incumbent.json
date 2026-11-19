@@ -246,7 +246,7 @@
             ],
             "model": "claude-opus-4-7",
             "output_config": {
-              "effort": "high"
+              "effort": "low"
             },
             "thinking": {
               "type": "adaptive"
@@ -269,7 +269,7 @@
           },
           "Target": {
             "CatalogID": "claude-opus-4-7",
-            "Effort": "high",
+            "Effort": "low",
             "Provider": "anthropic",
             "UpstreamID": "claude-opus-4-7"
           }
@@ -351,7 +351,7 @@
             "InputTokens": 12,
             "OutputTokens": 7,
             "PriorServedModel": "claude-opus-4-7:high",
-            "ServedModel": "claude-opus-4-7:high",
+            "ServedModel": "claude-opus-4-7:low",
             "ServedProvider": "anthropic",
             "Strategy": "hmm_embedding"
           }
@@ -388,9 +388,9 @@
           "DecisionModel": "claude-opus-4-7",
           "DecisionProvider": "anthropic",
           "DecisionReason": "hmm_policy",
-          "EffortArm": "high",
-          "EffortSelected": "high",
-          "EffortSent": "high",
+          "EffortArm": "low",
+          "EffortSelected": "low",
+          "EffortSent": "low",
           "EffortSource": "arm",
           "EmbedInput": "only_user_message",
           "EstimatedInputTokens": 5,
@@ -405,7 +405,7 @@
           "PlannerOutcome": "stay",
           "PlannerPinModel": "claude-opus-4-7",
           "PlannerPinProvider": "anthropic",
-          "PlannerReason": "same_model+effort_hysteresis",
+          "PlannerReason": "same_model",
           "RequestedInputCostUSD": 0.000036,
           "RequestedModel": "claude-sonnet-4-5",
           "RequestedOutputCostUSD": 0.000105,
