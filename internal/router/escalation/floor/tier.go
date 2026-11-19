@@ -63,7 +63,7 @@ func AtLeast(candidates []string, tier catalog.Tier) []string {
 }
 
 func logShadowTierFloor(ctx context.Context, t *Turn, decision router.Decision) {
-	if t == nil || t.anyActive() {
+	if t.anyActive() {
 		return
 	}
 	tier, escalate := t.Floor(), t.Escalate()
