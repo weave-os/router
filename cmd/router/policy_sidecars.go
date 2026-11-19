@@ -48,7 +48,7 @@ type policySidecarEndpoint struct {
 }
 
 func (endpoint *policySidecarEndpoint) UnmarshalJSON(data []byte) error {
-	if len(data) > 0 && data[0] == '"' {
+	if data[0] == '"' {
 		return json.Unmarshal(data, &endpoint.Origin)
 	}
 	type endpointFields policySidecarEndpoint
