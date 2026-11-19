@@ -42,9 +42,9 @@ func TestCompileLegacyRosterPreservesWIIDescription(t *testing.T) {
 		ClassOrder: []string{"low"},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, rosterdata.SchemaVersionPolicyV1, policy.SchemaVersion)
-	assert.Equal(t, "six-benchmark absolute WII with frozen normalization", policy.Ranking.WIIDescription)
-	assert.Equal(t, []string{"openai/gpt-5.6-sol"}, policy.Clusters["low"].ManualPinsByHarness[rosterdata.HarnessPI])
+	assert.Equal(t, rosterdata.SchemaVersionPolicyV1, policy.Roster().SchemaVersion)
+	assert.Equal(t, "six-benchmark absolute WII with frozen normalization", policy.Roster().Ranking.WIIDescription)
+	assert.Equal(t, []string{"openai/gpt-5.6-sol"}, policy.Roster().Clusters["low"].ManualPinsByHarness[rosterdata.HarnessPI])
 	assert.Contains(t, string(canonical), `"wii_v1":"six-benchmark absolute WII with frozen normalization"`)
 }
 
@@ -79,7 +79,7 @@ func TestCompileMapsPooledPinsToAllHarness(t *testing.T) {
 		ClassOrder: []string{"low"},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"x-ai/grok-4.6"}, policy.Clusters["low"].ManualPinsByHarness[rosterdata.HarnessAll])
+	assert.Equal(t, []string{"x-ai/grok-4.6"}, policy.Roster().Clusters["low"].ManualPinsByHarness[rosterdata.HarnessAll])
 	assert.NotContains(t, string(canonical), "pooled")
 }
 
@@ -115,7 +115,7 @@ func TestCompileKeepsOpenCodeHarnessPolicy(t *testing.T) {
 		ClassOrder: []string{"low"},
 	})
 	require.NoError(t, err)
-	low := policy.Clusters["low"]
+	low := policy.Roster().Clusters["low"]
 	assert.Equal(t, []string{"x-ai/grok-4.6", "openai/gpt-5.6-sol"}, low.ArmsByHarness[rosterdata.HarnessOpenCode])
 	assert.Equal(t, []string{"x-ai/grok-4.6"}, low.ManualPinsByHarness[rosterdata.HarnessOpenCode])
 	assert.Equal(t, []string{"openai"}, low.PreferredVendorsByHarness[rosterdata.HarnessOpenCode])
@@ -152,8 +152,8 @@ func TestCompileCarriesSubscriptionLadders(t *testing.T) {
 
 	_, policy, err := policycompiler.Compile(source, policycompiler.Options{ClassOrder: []string{"low"}})
 	require.NoError(t, err)
-	assert.Equal(t, map[string]map[rosterdata.Group]string{"openai": {"low": "openai/gpt-6-luna"}}, policy.SubscriptionLadders)
-	assert.Contains(t, policy.AllArms(), "openai/gpt-6-luna")
+	assert.Equal(t, map[string]map[rosterdata.Group]string{"openai": {"low": "openai/gpt-6-luna"}}, policy.Roster().SubscriptionLadders)
+	assert.Contains(t, policy.Roster().AllArms(), "openai/gpt-6-luna")
 }
 
 func TestCompileRejectsSubscriptionLadderForUnknownGroup(t *testing.T) {
@@ -222,6 +222,6 @@ func TestCompileEvidenceIsProvenanceOnly(t *testing.T) {
 		EvidenceSHA256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, withoutEvidence.Clusters, withEvidence.Clusters)
-	assert.Equal(t, withoutEvidence.Ranking, withEvidence.Ranking)
+	assert.Equal(t, withoutEvidence.Roster().Clusters, withEvidence.Roster().Clusters)
+	assert.Equal(t, withoutEvidence.Roster().Ranking, withEvidence.Roster().Ranking)
 }

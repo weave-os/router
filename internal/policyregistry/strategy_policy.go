@@ -7,7 +7,6 @@ import (
 
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm/rosterdata"
-	"weave-os/router/internal/router/policy"
 )
 
 type StrategyPolicy struct {
@@ -28,15 +27,13 @@ func loadStrategyPolicies(ctx context.Context, store ServingStore, composition C
 	}
 	loaded := make(map[router.Strategy]StrategyPolicy, len(composition.StrategyPolicies))
 	for strategy, reference := range composition.StrategyPolicies {
-		roster, err := store.ReadServingPolicy(ctx, ObjectRef{URI: reference.URI, SHA256: reference.SHA256, Generation: reference.Generation})
+		admitted, err := store.ReadPolicy(ctx, ObjectRef{URI: reference.URI, SHA256: reference.SHA256, Generation: reference.Generation})
 		if err != nil {
 			return nil, fmt.Errorf("read %s strategy policy %s: %w", strategy, reference.SHA256, err)
 		}
+		roster := admitted.Roster()
 		if roster.SchemaVersion != composition.Requirements.PolicySchema || !slices.Equal(roster.ClassOrder, composition.Classifier.Identity.ClassOrder) {
 			return nil, fmt.Errorf("%s strategy policy does not match classifier schema and taxonomy", strategy)
-		}
-		if diagnostics := policy.ValidateRosterIDs(roster.AllArms()); len(diagnostics) != 0 {
-			return nil, fmt.Errorf("%s strategy policy is incompatible with the router catalog: %v", strategy, diagnostics)
 		}
 		loaded[strategy] = StrategyPolicy{Reference: reference, Roster: roster}
 	}

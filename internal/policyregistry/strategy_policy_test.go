@@ -2,8 +2,10 @@ package policyregistry_test
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
+	"weave-os/router/internal/router/hmm/rosterdata"
 
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router"
@@ -92,10 +94,37 @@ func TestServingCandidatePinsAnIndependentQwenRoster(t *testing.T) {
 	})
 	t.Run("incompatible strategy taxonomy fails closed", func(t *testing.T) {
 		incompatible := *qwenPolicy.Roster
-		incompatible.ClassOrder = []string{"unknown-class"}
+		renameRosterClass(&incompatible, incompatible.ClassOrder[0], "unknown-class")
 		reference := policyregistry.ObjectRef{URI: strategyPolicy.URI, SHA256: strategyPolicy.SHA256, Generation: strategyPolicy.Generation}
 		store.policies[reference] = &incompatible
 		_, err := policyregistry.ReadPreparedSelection(context.Background(), store, set.Target, "", selection)
 		require.ErrorContains(t, err, "does not match classifier schema and taxonomy")
 	})
+}
+
+func renameRosterClass(roster *rosterdata.Roster, from, to string) {
+	roster.ClassOrder = slices.Clone(roster.ClassOrder)
+	for index, class := range roster.ClassOrder {
+		if class == from {
+			roster.ClassOrder[index] = to
+		}
+	}
+	roster.Ranking.Alpha = renameKey(roster.Ranking.Alpha, from, to)
+	roster.Ranking.AlphaMin = renameKey(roster.Ranking.AlphaMin, from, to)
+	roster.Ranking.AlphaMax = renameKey(roster.Ranking.AlphaMax, from, to)
+	roster.Clusters = renameKey(roster.Clusters, from, to)
+	cluster := roster.Clusters[to]
+	cluster.ComplexityLabel = to
+	roster.Clusters[to] = cluster
+}
+
+func renameKey[V any](values map[string]V, from, to string) map[string]V {
+	renamed := make(map[string]V, len(values))
+	for key, value := range values {
+		if key == from {
+			key = to
+		}
+		renamed[key] = value
+	}
+	return renamed
 }

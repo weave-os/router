@@ -50,7 +50,7 @@ func TestSyntheticPolicyCanonicalBytesArePinned(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, string(want), string(compiled))
 
-	reparsed, err := rosterdata.ParseValidated(want)
+	reparsed, err := admitRoster(want)
 	require.NoError(t, err)
 	require.Equal(t, syntheticCanonicalPolicySHA256, reparsed.SHA256)
 	recanonical, err := rosterdata.CanonicalBytes(reparsed)

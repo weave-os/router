@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm/selectionpolicy"
 
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +20,7 @@ func TestPolicyV1WireShapeIsPinned(t *testing.T) {
 	digest := sha256.Sum256([]byte(policyV1EveryFieldWire))
 	require.Equal(t, policyV1EveryFieldSHA256, hex.EncodeToString(digest[:]))
 
-	roster, err := rosterdata.ParseValidated([]byte(policyV1EveryFieldWire))
+	roster, err := admitRoster([]byte(policyV1EveryFieldWire))
 	require.NoError(t, err)
 	require.Equal(t, policyV1EveryFieldSHA256, roster.SHA256)
 	canonical, err := rosterdata.CanonicalBytes(roster)
@@ -34,8 +35,16 @@ func TestPolicyV1WireRejectsUnknownAndModeFields(t *testing.T) {
 		"trailing_value":          {policyV1EveryFieldWire + ` {}`, "multiple JSON values"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := rosterdata.ParseValidated([]byte(rejection.payload))
+			_, err := admitRoster([]byte(rejection.payload))
 			require.ErrorContains(t, err, rejection.reason)
 		})
 	}
+}
+
+func admitRoster(payload []byte) (*rosterdata.Roster, error) {
+	admitted, err := selectionpolicy.Admit(payload)
+	if err != nil {
+		return nil, err
+	}
+	return admitted.Roster(), nil
 }

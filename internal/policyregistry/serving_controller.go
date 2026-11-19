@@ -15,20 +15,6 @@ import (
 	"weave-os/router/internal/subscriptions/entitlement"
 )
 
-type ServingStore interface {
-	RootURI() string
-	ReadServingObject(context.Context, ServingKind, ObjectRef) (ServingManifest, []byte, error)
-	ReadServingPolicy(context.Context, ObjectRef) (*rosterdata.Roster, error)
-	ReadServingState(context.Context, ServingTarget) (ServingStateSnapshot, error)
-	CompareAndSwapServingState(context.Context, ServingControlState, int64) (ServingStateSnapshot, error)
-	ReadClassifierRuntimeBinding(context.Context, Environment, string) (ResolvedClassifierRuntimeBinding, error)
-}
-
-type ServingValidationStore interface {
-	ServingStore
-	VerifyServingArtifact(context.Context, ObjectRef) error
-}
-
 type PreparedSelection struct {
 	Selection                ServingSelection
 	ProfileKey               string

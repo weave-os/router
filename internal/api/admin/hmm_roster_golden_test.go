@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm/selectionpolicy"
 	"weave-os/router/internal/router/policy"
 
 	"github.com/gin-gonic/gin"
@@ -37,7 +38,7 @@ func (unusedPolicyLoader) ReadHead(context.Context, policyregistry.Environment, 
 func (unusedPolicyLoader) ReadRelease(context.Context, policyregistry.ObjectRef) (policyregistry.Release, error) {
 	return policyregistry.Release{}, policyregistry.ErrNoActivePolicy
 }
-func (unusedPolicyLoader) ReadPolicy(context.Context, policyregistry.ObjectRef) (*rosterdata.Roster, error) {
+func (unusedPolicyLoader) ReadPolicy(context.Context, policyregistry.ObjectRef) (*selectionpolicy.Policy, error) {
 	return nil, policyregistry.ErrNoActivePolicy
 }
 
@@ -51,7 +52,7 @@ func loadSharedSyntheticPolicy(t *testing.T) *rosterdata.Roster {
 	t.Helper()
 	payload, err := os.ReadFile(sharedSyntheticPolicyPath)
 	require.NoError(t, err)
-	roster, err := rosterdata.ParseValidated(payload)
+	roster, err := admitRoster(payload)
 	require.NoError(t, err)
 	require.Equal(t, sharedSyntheticPolicySHA256, roster.SHA256)
 	return roster
@@ -108,4 +109,12 @@ func TestDeployedModelsHandlerGolden(t *testing.T) {
 	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/router/models", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 	requireAdminGolden(t, "deployed_models.json", rec.Body.Bytes())
+}
+
+func admitRoster(payload []byte) (*rosterdata.Roster, error) {
+	admitted, err := selectionpolicy.Admit(payload)
+	if err != nil {
+		return nil, err
+	}
+	return admitted.Roster(), nil
 }

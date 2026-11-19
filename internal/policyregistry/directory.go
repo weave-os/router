@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm/selectionpolicy"
 )
 
 const (
@@ -75,20 +75,12 @@ func (r *DirectoryRegistry) ReadRelease(_ context.Context, ref ObjectRef) (Relea
 	return DecodeRelease(payload, r.rootURI)
 }
 
-func (r *DirectoryRegistry) ReadPolicy(_ context.Context, ref ObjectRef) (*rosterdata.Roster, error) {
+func (r *DirectoryRegistry) ReadPolicy(_ context.Context, ref ObjectRef) (*selectionpolicy.Policy, error) {
 	payload, err := r.readExact(ref, policyObjectPrefix)
 	if err != nil {
 		return nil, err
 	}
-	roster, err := rosterdata.Parse(payload)
-	if err != nil {
-		return nil, err
-	}
-	roster.SHA256 = rosterdata.SHA256Hex(payload)
-	if err := rosterdata.ValidateCatalog(roster); err != nil {
-		return nil, err
-	}
-	return roster, nil
+	return selectionpolicy.Admit(payload)
 }
 
 func (r *DirectoryRegistry) readExact(ref ObjectRef, requiredPathPrefix string) ([]byte, error) {

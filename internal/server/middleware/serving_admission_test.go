@@ -21,6 +21,7 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm/selectionpolicy"
 )
 
 const (
@@ -41,7 +42,7 @@ func (f admissionAttributionFunc) RecordServingRequest(ctx context.Context, requ
 type admissionManifestStore struct {
 	policyregistry.ServingStore // Unexpected mutable-head reads fail the test instead of supplying a fallback.
 	objects                     map[policyregistry.ObjectRef][]byte
-	policy                      *rosterdata.Roster
+	policy                      *selectionpolicy.Policy
 	policyRef                   policyregistry.ObjectRef
 	objectReads                 []policyregistry.ServingKind
 	policyReads                 int
@@ -63,6 +64,13 @@ func (s *admissionManifestStore) ReadServingObject(_ context.Context, kind polic
 }
 
 func (s *admissionManifestStore) ReadServingPolicy(_ context.Context, ref policyregistry.ObjectRef) (*rosterdata.Roster, error) {
+	if ref != s.policyRef {
+		return nil, policyregistry.ErrNotFound
+	}
+	return s.policy.Roster(), nil
+}
+
+func (s *admissionManifestStore) ReadPolicy(_ context.Context, ref policyregistry.ObjectRef) (*selectionpolicy.Policy, error) {
 	s.policyReads++
 	if ref != s.policyRef {
 		return nil, policyregistry.ErrNotFound
@@ -94,11 +102,12 @@ func admissionMiddlewareFixture(t *testing.T) (*ServingAdmissionConfig, policyre
 		Ranking:  rosterdata.Ranking{Alpha: map[string]float64{admissionTestClass: .4}, AlphaMin: map[string]float64{admissionTestClass: .1}, AlphaMax: map[string]float64{admissionTestClass: .8}, QualityBiasNeutral: .7, WIIScoreVersion: "wii-v1", WIINormalizationSHA256: "wii", WPIScoreVersion: "wpi-v1", WPINormalizationSHA256: "wpi"},
 		Clusters: map[string]rosterdata.Cluster{admissionTestClass: {ComplexityLabel: admissionTestClass, Arms: []string{admissionTestArm}, CostRefUSD: 1, LatencyRefMS: 1, ArmScores: map[string]float64{admissionTestArm: 1}, ArmIndices: map[string]rosterdata.ArmIndices{admissionTestArm: {WII: 80, WPI: 40}}}},
 	}
-	policyBytes, err := rosterdata.CanonicalBytes(policy)
+	admitted, err := admitFixture(policy)
 	require.NoError(t, err)
-	policySHA := policyregistry.Digest(policyBytes)
+	policy = admitted.Roster()
+	policySHA := admitted.SHA256()
 	policyRef := policyregistry.ObjectRef{URI: admissionTestRoot + "/router_policy/v1/policies/sha256/" + policySHA + ".json", SHA256: policySHA, Generation: 1}
-	store := &admissionManifestStore{objects: make(map[policyregistry.ObjectRef][]byte), policy: policy, policyRef: policyRef}
+	store := &admissionManifestStore{objects: make(map[policyregistry.ObjectRef][]byte), policy: admitted, policyRef: policyRef}
 	artifact := func(name string) policyregistry.ObjectRef {
 		return policyregistry.ObjectRef{URI: admissionTestRoot + "/artifacts/" + name, SHA256: policyregistry.Digest([]byte(name)), Generation: 1}
 	}
@@ -126,7 +135,7 @@ func admissionMiddlewareFixture(t *testing.T) (*ServingAdmissionConfig, policyre
 	cache, err := policyregistry.NewServingRuntimeCache(store, func(_ context.Context, candidate policyregistry.Candidate) (map[router.Strategy]router.Router, error) {
 		*builds++
 		require.Equal(t, releaseRef.SHA256, candidate.HeadSnapshot.Head.ReleaseSHA256)
-		require.Same(t, policy, candidate.Policy)
+		require.Equal(t, policy, candidate.Policy)
 		return map[router.Strategy]router.Router{router.StrategyHMM: admittedModelRouter{}}, nil
 	})
 	require.NoError(t, err)
@@ -400,4 +409,12 @@ func TestDirectConversationIDFallsBackToConversationFingerprint(t *testing.T) {
 	explicit := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	explicit.Header.Set("Session-Id", "client-session")
 	assert.Equal(t, "client-session", directConversationID(explicit, firstTurn))
+}
+
+func admitFixture(roster *rosterdata.Roster) (*selectionpolicy.Policy, error) {
+	payload, err := rosterdata.CanonicalBytes(roster)
+	if err != nil {
+		return nil, err
+	}
+	return selectionpolicy.Admit(payload)
 }

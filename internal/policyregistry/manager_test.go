@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm/selectionpolicy"
 )
 
 type fakeLoader struct {
@@ -29,8 +30,8 @@ func (f *fakeLoader) ReadHead(context.Context, policyregistry.Environment, polic
 func (f *fakeLoader) ReadRelease(context.Context, policyregistry.ObjectRef) (policyregistry.Release, error) {
 	return f.release, f.releaseErr
 }
-func (f *fakeLoader) ReadPolicy(context.Context, policyregistry.ObjectRef) (*rosterdata.Roster, error) {
-	return f.policy, nil
+func (f *fakeLoader) ReadPolicy(context.Context, policyregistry.ObjectRef) (*selectionpolicy.Policy, error) {
+	return admitFixture(f.policy)
 }
 
 type fixedRouter struct{ model string }
@@ -94,7 +95,7 @@ func validLoader(t *testing.T) *fakeLoader {
   "preferences":{"preferred_model_bonus":0.5,"subscription_bonus":0.35},
   "clusters":{"low":{"complexity_label":"low","arms":["openai/gpt-5.6-sol"],"cost_ref_usd":1,"latency_ref_ms":1,"arm_scores":{"openai/gpt-5.6-sol":1},"arm_indices":{"openai/gpt-5.6-sol":{"wii_v1":80,"wpi_v1":40}}}}
 }`)
-	policy, err := rosterdata.ParseValidated(policyJSON)
+	policy, err := admitRoster(policyJSON)
 	require.NoError(t, err)
 	release := validRelease()
 	release.Classifier.ClassOrder = []string{"low"}
@@ -113,4 +114,20 @@ func validLoader(t *testing.T) *fakeLoader {
 		release: release,
 		policy:  policy,
 	}
+}
+
+func admitRoster(payload []byte) (*rosterdata.Roster, error) {
+	admitted, err := selectionpolicy.Admit(payload)
+	if err != nil {
+		return nil, err
+	}
+	return admitted.Roster(), nil
+}
+
+func admitFixture(roster *rosterdata.Roster) (*selectionpolicy.Policy, error) {
+	payload, err := rosterdata.CanonicalBytes(roster)
+	if err != nil {
+		return nil, err
+	}
+	return selectionpolicy.Admit(payload)
 }
