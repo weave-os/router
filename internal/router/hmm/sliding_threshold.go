@@ -14,30 +14,17 @@ type SlidingThreshold struct {
 }
 
 func SlidingThresholdServes(req router.Request, pin sessionpin.Pin, fresh router.Decision) SlidingThreshold {
-	served, probability := slidingThresholdServes(req, pin, fresh)
-	if !served {
-		return SlidingThreshold{Probability: probability}
-	}
-	return SlidingThreshold{
-		Served:          true,
-		Probability:     probability,
-		FreshGroup:      fresh.Metadata.PolicyGroup,
-		ClassifiedGroup: fresh.Metadata.ClassifierPredictedLabel,
-	}
-}
-
-func slidingThresholdServes(req router.Request, pin sessionpin.Pin, fresh router.Decision) (served bool, probability float64) {
 	if req.SlidingThresholdPinGroup == "" || pin.Model == "" || pin.Model == fresh.Model || fresh.Metadata == nil {
-		return false, 0
+		return SlidingThreshold{}
 	}
 	label := fresh.Metadata.ClassifierPredictedLabel
 	probability, scored := fresh.Metadata.ClassifierProbabilities[label]
 	if !scored {
-		return false, 0
+		return SlidingThreshold{}
 	}
 	target, covered := escalation.SlidingThresholdTarget(req.SlidingThresholdPinGroup, escalation.Group(label), probability)
-	if !covered || target == "" {
-		return false, probability
+	if !covered || target == "" || escalation.Group(fresh.Metadata.PolicyGroup) != target {
+		return SlidingThreshold{Probability: probability}
 	}
-	return escalation.Group(fresh.Metadata.PolicyGroup) == target, probability
+	return SlidingThreshold{Served: true, Probability: probability, FreshGroup: fresh.Metadata.PolicyGroup, ClassifiedGroup: label}
 }
