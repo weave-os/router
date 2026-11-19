@@ -126,3 +126,20 @@ func TestSubscriptionModelAccessOnlyLearnsModelRejection(t *testing.T) {
 	svc.recordSubscriptionModelRejection(in.resolved(in.byokCtx(context.Background())), in.provider, in.model, modelAccessError())
 	assert.True(t, servedOnSubscription(svc.resolveCredentials(in.subCtx(), in.provider, in.model, nil)))
 }
+
+func TestSubscriptionModelAccessLearnsServedModelsPerSubscription(t *testing.T) {
+	in := parityAnthropicIngress()
+	for _, stream := range []bool{false, true} {
+		t.Run(boolLit(stream), func(t *testing.T) {
+			svc := in.parityService(&parityUpstream{okBody: in.upstreamOK(stream)})
+			rec, req, body := in.request(t, stream)
+			require.NoError(t, in.call(svc, in.subCtx(), body, rec, req))
+
+			now := time.Now()
+			assert.Equal(t, []string{in.model}, svc.subscriptionModels.servedForCaller(in.resolved(in.subCtx()), now))
+			other := context.WithValue(in.subCtx(), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-other")
+			assert.Empty(t, svc.subscriptionModels.servedForCaller(in.resolved(other), now), "served models are per subscription")
+			assert.Empty(t, svc.subscriptionModels.servedForCaller(in.resolved(in.subCtx()), now.Add(subscriptionModelServedTTL+time.Minute)), "served models expire")
+		})
+	}
+}

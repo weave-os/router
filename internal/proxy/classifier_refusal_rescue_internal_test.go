@@ -118,6 +118,7 @@ func TestBypass_ClassifierRefusal_TriesNextModelWhenSubscriptionLacksReviewer(t 
 		unavailable: map[string]bool{rescueReviewerModel: true},
 	}
 	svc, sink := rescueService(p, true, rescueReviewerModel)
+	rescueServeOn(t, svc, p, nextModel)
 
 	rec := runRescueWith(t, svc, classifierStage2Body(""))
 
@@ -135,6 +136,7 @@ func TestBypass_ClassifierRefusal_SkipsModelSubscriptionRejected(t *testing.T) {
 		unavailable: map[string]bool{rescueReviewerModel: true},
 	}
 	svc, _ := rescueService(p, true, rescueReviewerModel)
+	rescueServeOn(t, svc, p, nextModel)
 	runRescueWith(t, svc, classifierStage2Body(""))
 	p.models = nil
 
@@ -142,6 +144,54 @@ func TestBypass_ClassifierRefusal_SkipsModelSubscriptionRejected(t *testing.T) {
 
 	assert.Equal(t, []string{rescueRefusingModel, nextModel}, p.models)
 	assert.JSONEq(t, rescueVerdict(), rec.Body.String())
+}
+
+// rescueServeOn serves one classifier check on model for the test
+// subscription, as an earlier turn in the session would.
+func rescueServeOn(t *testing.T, svc *Service, p *modelScriptedProvider, model string) {
+	t.Helper()
+	body, err := sjson.Set(classifierStage2Body(""), "model", model)
+	require.NoError(t, err)
+	runRescueWith(t, svc, body)
+	p.models = nil
+}
+
+// Rescue candidates come from what this subscription has actually served, so
+// a plan that lacks both default reviewers is still rescued on a model it can
+// run, strongest first.
+func TestBypass_ClassifierRefusal_RescuesOnStrongestModelSubscriptionServed(t *testing.T) {
+	const lowModel, servedModel = "claude-haiku-5-5", "claude-opus-5"
+	p := &modelScriptedProvider{
+		replies: map[string]string{
+			rescueRefusingModel: rescueRefusal(rescueRefusingModel),
+			lowModel:            rescueVerdict(),
+			servedModel:         rescueVerdict(),
+		},
+		unavailable: map[string]bool{rescueReviewerModel: true, "claude-opus-5-5": true},
+	}
+	svc, _ := rescueService(p, true, rescueReviewerModel)
+	rescueServeOn(t, svc, p, lowModel)
+	rescueServeOn(t, svc, p, servedModel)
+
+	rec := runRescueWith(t, svc, classifierStage2Body(""))
+
+	assert.Equal(t, []string{rescueRefusingModel, rescueReviewerModel, servedModel}, p.models)
+	assert.JSONEq(t, rescueVerdict(), rec.Body.String())
+	assert.Equal(t, servedModel, rec.Header().Get(HeaderRouterModel))
+}
+
+// Models this subscription has never served aren't guessed at.
+func TestBypass_ClassifierRefusal_DoesNotTryModelsSubscriptionNeverServed(t *testing.T) {
+	p := &modelScriptedProvider{
+		replies:     map[string]string{rescueRefusingModel: rescueRefusal(rescueRefusingModel), "claude-opus-5-5": rescueVerdict()},
+		unavailable: map[string]bool{rescueReviewerModel: true},
+	}
+	svc, _ := rescueService(p, true, rescueReviewerModel)
+
+	rec := runRescueWith(t, svc, classifierStage2Body(""))
+
+	assert.Equal(t, []string{rescueRefusingModel, rescueReviewerModel}, p.models)
+	assert.JSONEq(t, rescueRefusal(rescueRefusingModel), rec.Body.String())
 }
 
 func rescueTelemetryRow(t *testing.T, sink *bypassCaptureTelemetry) InsertTelemetryParams {
