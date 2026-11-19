@@ -27,6 +27,9 @@ func EligibleRankedFallback(req Request, decision Decision, permitted func(model
 		fallbackMetadata.ChosenScore = md.CandidateScores[model]
 		fallbackMetadata.PairedModel, fallbackMetadata.PairedProvider = "", ""
 		fallbackMetadata.PolicyPinHonoured = false
+		fallbackMetadata.PolicyGroup = ""
+		fallbackMetadata.SelectedArmID, fallbackMetadata.SelectedRosterArmID = "", ""
+		fallbackMetadata.SelectionTrace = nil
 		return Decision{Provider: provider, Model: model, Reason: CandidateFallbackReason, Metadata: &fallbackMetadata}, true
 	}
 	return Decision{}, false
@@ -38,7 +41,10 @@ func candidateEligible(req Request, model string, permitted func(model string) b
 }
 
 func rankedFallbackModels(md *RoutingMetadata) []string {
+	if md.RosterFailover || len(md.RescueModels) > 0 {
+		return md.RescueModels
+	}
 	scored := slices.Clone(md.CandidateModels)
 	slices.SortStableFunc(scored, func(a, b string) int { return cmp.Compare(md.CandidateScores[b], md.CandidateScores[a]) })
-	return append(slices.Clone(md.RescueModels), scored...)
+	return scored
 }
