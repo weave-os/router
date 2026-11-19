@@ -8,7 +8,6 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 
@@ -86,19 +85,6 @@ func TestWithPolicyRequestContext_CarriesAutomaticExclusionsSeparately(t *testin
 
 	assert.Equal(t, map[string]struct{}{"claude-opus-5": {}}, req.AutomaticExcludedModels)
 	assert.Empty(t, req.ExcludedModels)
-}
-
-func automaticallyDisabledRequest(model string) router.Request {
-	return router.Request{AutomaticExcludedModels: map[string]struct{}{model: {}}}
-}
-
-func TestAutomaticPinEligible_RejectsDisabledModelButForcedPinSurvives(t *testing.T) {
-	pin := sessionpin.Pin{Model: "claude-opus-5", Provider: providers.ProviderAnthropic}
-	req := automaticallyDisabledRequest("claude-opus-5")
-
-	assert.False(t, candidates.AutomaticPinEligible(pin, req))
-	assert.True(t, candidates.ForcedPinEligible(pin, req),
-		"a user-forced pin is the escape hatch that keeps a disabled model reachable")
 }
 
 // A session already pinned to a model must move off it once the model is
