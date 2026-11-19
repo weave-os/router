@@ -105,8 +105,8 @@ func atomAuthoritativeUpgradeScenarios() []goldenScenario {
 	}
 }
 
-func atomClassified(model, group, label string, probability float64) router.Decision {
-	d := atomHMM(model, group, 0.9, atomFloat(0.1))
+func atomClassified(group, label string, probability float64) router.Decision {
+	d := atomHMM(routingPolicyHigh, group, 0.9, atomFloat(0.1))
 	d.Metadata.ClassifierPredictedLabel = label
 	d.Metadata.ClassifierProbabilities = map[string]float64{label: probability}
 	return d
@@ -123,12 +123,12 @@ func atomSlidingThresholdScenarios() []goldenScenario {
 			turns: routingPolicyTurns(atomHMM(routingPolicyLow, pinGroup, 0.9, nil), fresh), caps: authoritative, options: sliding,
 		}, first, next)
 	}
-	unscored := atomClassified(routingPolicyHigh, "high", "high", 0.9)
+	unscored := atomClassified("high", "high", 0.9)
 	unscored.Metadata.ClassifierProbabilities = map[string]float64{"low": 0.9}
 	return []goldenScenario{
-		scenario("below_step_band_high_label_on_low_pin", "low", atomClassified(routingPolicyHigh, "high", "high", 0.2)),
-		scenario("fresh_group_differs_from_target", "low", atomClassified(routingPolicyHigh, "maximum", "high", 0.6)),
-		scenario("uncovered_label_pair", "high", atomClassified(routingPolicyHigh, "high", "low", 0.9)),
+		scenario("below_step_band_high_label_on_low_pin", "low", atomClassified("high", "high", 0.2)),
+		scenario("fresh_group_differs_from_target", "low", atomClassified("maximum", "high", 0.6)),
+		scenario("uncovered_label_pair", "high", atomClassified("high", "low", 0.9)),
 		scenario("unscored_label", "low", unscored),
 	}
 }
