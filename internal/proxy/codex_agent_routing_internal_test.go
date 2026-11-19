@@ -118,9 +118,11 @@ func TestCodexAgentRoutingIsolation(t *testing.T) {
 	svc := NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, store, false, providers.ProviderOpenAI, codexRoutingLuna.String(), nil).
 		WithOpenAIResponsesBroad(true).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: routing, Capabilities: capabilities}).
-		EditHMMConfig(func(c *hmm.Config) { c.UpgradeSlidingThreshold = true }).
-		EditHMMConfig(func(c *hmm.Config) { c.DowngradeGate = true }).
-		EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 2 })
+		EditHMMConfig(func(c *hmm.Config) {
+			c.UpgradeSlidingThreshold = true
+			c.DowngradeGate = true
+			c.DowngradeHysteresisTurns = 2
+		})
 	installationID := uuid.New()
 	rootCtx, root := codexRoutingEnvelope(t, "/root", true)
 	childCtx, child := codexRoutingEnvelope(t, "/root/reviewer", true)

@@ -51,8 +51,11 @@ func upgradeTestFresh() router.Decision {
 
 func TestUpgradeShadowUsesCacheRulesAndExplicitIntent(t *testing.T) {
 	margin := 0.2
-	svc := (&Service{}).EditHMMConfig(func(c *hmm.Config) { c.AuthorityCacheShadow = true }).EditHMMConfig(func(c *hmm.Config) { c.UpgradeGate = true }).
-		EditHMMConfig(func(c *hmm.Config) { c.UpgradeShadow = hmm.UpgradeShadowConfig{MarginThreshold: &margin} })
+	svc := (&Service{}).EditHMMConfig(func(c *hmm.Config) {
+		c.AuthorityCacheShadow = true
+		c.UpgradeGate = true
+		c.UpgradeShadow = hmm.UpgradeShadowConfig{MarginThreshold: &margin}
+	})
 	pin, fresh := upgradeTestPin(), upgradeTestFresh()
 	req := router.Request{RequestedModel: upgradeTestFreshModel, RoutingIntent: string(escalation.Maximum)}
 	res := turnLoopResult{RequestedTier: catalog.TierHigh}
@@ -91,8 +94,10 @@ func TestUpgradeShadowUsesCacheRulesAndExplicitIntent(t *testing.T) {
 }
 
 func TestUpgradeShadowAgeAndAbsentPin(t *testing.T) {
-	svc := (&Service{}).EditHMMConfig(func(c *hmm.Config) { c.AuthorityCacheShadow = true }).
-		EditHMMConfig(func(c *hmm.Config) { c.UpgradeShadow = hmm.UpgradeShadowConfig{StalePinAfter: time.Hour} })
+	svc := (&Service{}).EditHMMConfig(func(c *hmm.Config) {
+		c.AuthorityCacheShadow = true
+		c.UpgradeShadow = hmm.UpgradeShadowConfig{StalePinAfter: time.Hour}
+	})
 	pin, fresh := upgradeTestPin(), upgradeTestFresh()
 	shadow := svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, turnLoopResult{}, 1000)
 	assert.Equal(t, hmm.UpgradeStalePin, shadow.Verdict.Reason)
@@ -142,8 +147,11 @@ func TestUpgradeShadowPreservesServingAndPinWrites(t *testing.T) {
 				margin := 0.1
 				strategy := router.Strategy("upgrade-shadow-test")
 				svc := NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, upgradeTestPinModel, nil).
-					EditHMMConfig(func(c *hmm.Config) { c.AuthorityCacheShadow = enabled }).EditHMMConfig(func(c *hmm.Config) { c.UpgradeGate = tc.gate }).
-					EditHMMConfig(func(c *hmm.Config) { c.UpgradeShadow = hmm.UpgradeShadowConfig{MarginThreshold: &margin} }).
+					EditHMMConfig(func(c *hmm.Config) {
+						c.AuthorityCacheShadow = enabled
+						c.UpgradeGate = tc.gate
+						c.UpgradeShadow = hmm.UpgradeShadowConfig{MarginThreshold: &margin}
+					}).
 					WithPolicyStrategy(policy.StrategySpec{Strategy: strategy, Router: &authorityShadowTestRouter{decision: fresh}, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}})
 				env, err := translate.ParseAnthropic([]byte(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"continue"}]}`, catalog.ModelIDClaudeOpus48.String())))
 				require.NoError(t, err)
@@ -179,7 +187,10 @@ func TestUpgradeShadowLogsNullableEvidence(t *testing.T) {
 	var output bytes.Buffer
 	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&output, nil)))
 	fresh, pin := upgradeTestFresh(), upgradeTestPin()
-	svc := (&Service{}).EditHMMConfig(func(c *hmm.Config) { c.AuthorityCacheShadow = true }).EditHMMConfig(func(c *hmm.Config) { c.UpgradeGate = true })
+	svc := (&Service{}).EditHMMConfig(func(c *hmm.Config) {
+		c.AuthorityCacheShadow = true
+		c.UpgradeGate = true
+	})
 	res := turnLoopResult{Fresh: fresh, Decision: pinDecision(pin), StickyHit: true}
 	res.UpgradeShadow = svc.authoritativeUpgradeFor(ctx, router.Request{}, pin, fresh, res, 1000)
 	logAuthoritativeUpgrade(ctx, res)

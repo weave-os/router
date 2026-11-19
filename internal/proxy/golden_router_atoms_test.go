@@ -109,7 +109,10 @@ func atomAuthoritativeUpgradeScenarios() []goldenScenario {
 			first, goldenRequest{body: routingPolicyFollowUp("Now say bye"), headers: map[string]string{proxy.ForceClusterHeader: "high"}}),
 		upgrade("score_policy_with_gate_off", atomHMM(routingPolicyHigh, "high", 0.3, atomFloat(0.1)), "low",
 			atomOptions(calibrated, func(s *proxy.Service) *proxy.Service {
-				return s.EditHMMConfig(func(c *hmm.Config) { c.UpgradePolicy = flags.AuthoritativeUpgradePolicyScore }).EditHMMConfig(func(c *hmm.Config) { c.UpgradeGate = false })
+				return s.EditHMMConfig(func(c *hmm.Config) {
+					c.UpgradePolicy = flags.AuthoritativeUpgradePolicyScore
+					c.UpgradeGate = false
+				})
 			}), first, next),
 	}
 }

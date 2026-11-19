@@ -205,9 +205,11 @@ func TestAuthoritativeDowngradeGuards(t *testing.T) {
 			store.getFound = true
 			store.getPin = authoritativeDowngradePin(test.pinModel, test.priorVotes)
 			svc := authoritativeDowngradeService(store, test.fresh).
-				EditHMMConfig(func(c *hmm.Config) { c.DowngradeGate = test.downgradeGate }).
-				EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = test.hysteresisTurns }).
-				EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisShadowTurns = 2 })
+				EditHMMConfig(func(c *hmm.Config) {
+					c.DowngradeGate = test.downgradeGate
+					c.DowngradeHysteresisTurns = test.hysteresisTurns
+					c.DowngradeHysteresisShadowTurns = 2
+				})
 
 			result := runAuthoritativeDowngradeTurn(t, svc)
 
@@ -311,8 +313,10 @@ func TestAuthoritativeDowngradeShadow(t *testing.T) {
 			store.getFound = true
 			store.getPin = authoritativeDowngradePin(test.pinModel, 0)
 			svc := authoritativeDowngradeService(store, test.fresh).
-				EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).
-				EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisShadowTurns = test.shadowTurns })
+				EditHMMConfig(func(c *hmm.Config) {
+					c.DowngradeHysteresisTurns = 0
+					c.DowngradeHysteresisShadowTurns = test.shadowTurns
+				})
 
 			result := runAuthoritativeDowngradeTurn(t, svc)
 
