@@ -4,7 +4,7 @@
     "hmm_pin_field_references": {
       "internal/postgres": 6,
       "internal/proxy": 7,
-      "internal/routingpolicy": 7
+      "internal/routingpolicy": 5
     },
     "proxy_hmm_metadata_references": {
       "internal/proxy": 54
