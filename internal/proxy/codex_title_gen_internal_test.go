@@ -22,8 +22,8 @@ type codexTitleRouter struct {
 
 func (r *codexTitleRouter) Route(_ context.Context, req router.Request) (router.Decision, error) {
 	r.routeCalls++
-	if req.PolicyTurnContext != nil {
-		r.turnTypes = append(r.turnTypes, req.PolicyTurnContext.TurnType)
+	if req.Session.PolicyTurnContext != nil {
+		r.turnTypes = append(r.turnTypes, req.Session.PolicyTurnContext.TurnType)
 	}
 	return router.Decision{Provider: providers.ProviderOpenAI, Model: catalog.ModelIDGPT55.String(), Reason: "scored"}, nil
 }

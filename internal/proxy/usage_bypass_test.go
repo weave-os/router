@@ -282,7 +282,7 @@ func TestUsageBypass_MaxedOutModel_EngagesRouting(t *testing.T) {
 
 	assert.Equal(t, 1, fr.routeCalls, "a maxed-out model must fall through to the scorer, not re-bypass and reopen the loop")
 	require.NotNil(t, fr.capturedReq)
-	assert.Contains(t, fr.capturedReq.SafetyExcludedModels, bypassRequestedMdl,
+	assert.Contains(t, fr.capturedReq.Candidates.SafetyExcludedModels, bypassRequestedMdl,
 		"the maxed-out model must be in the safety-exclusion set so the bypass gate refuses it")
 	assert.Equal(t, bypassScorerPickMdl, rec.Header().Get("x-router-model"), "scorer's pick replaces the saturated model")
 }
@@ -361,7 +361,7 @@ func TestUsageBypass_SessionDemotedModel_EngagesRouting(t *testing.T) {
 	assert.NotEqual(t, "usage_bypass", rec.Header().Get("x-router-decision"))
 	assert.Equal(t, bypassScorerPickMdl, rec.Header().Get("x-router-model"), "the struck arm must not be served straight through on the subscription")
 	require.NotNil(t, fr.capturedReq)
-	_, excluded := fr.capturedReq.AutomaticExcludedModels[bypassRequestedMdl]
+	_, excluded := fr.capturedReq.Candidates.AutomaticExcludedModels[bypassRequestedMdl]
 	assert.True(t, excluded, "the strike must still reach the scorer as an automatic exclusion")
 }
 

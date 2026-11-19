@@ -157,8 +157,10 @@ func TestUsageBypassDecision_SessionDemotionBlocks_GlobalAutomaticExclusionDoesN
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			decision, ok := svc.usageBypassDecision(ctx, http.Header{}, router.Request{
-				RequestedModel:          model,
-				AutomaticExcludedModels: tc.automaticExcl,
+				RequestedModel: model,
+				Candidates: router.Candidates{
+					AutomaticExcludedModels: tc.automaticExcl,
+				},
 			}, tc.sessionDemoted, turntype.MainLoop)
 			assert.Equal(t, tc.wantEngaged, ok)
 			if tc.wantEngaged {
@@ -199,7 +201,9 @@ func TestUsageBypassEngaged_SafetyExclusionBlocks_PolicyExclusionDoesNot(t *test
 		provider, ok := svc.usageBypassEngaged(baseCtx(), http.Header{}, router.Request{
 			RequestedModel:   model,
 			EnabledProviders: enabled,
-			ExcludedModels:   map[string]struct{}{model: {}},
+			Candidates: router.Candidates{
+				ExcludedModels: map[string]struct{}{model: {}},
+			},
 		})
 		assert.True(t, ok, "an installation-excluded model must still bypass under threshold")
 		assert.Equal(t, providers.ProviderAnthropic, provider)
@@ -208,9 +212,11 @@ func TestUsageBypassEngaged_SafetyExclusionBlocks_PolicyExclusionDoesNot(t *test
 	t.Run("safety exclusion blocks bypass", func(t *testing.T) {
 		svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: newObs()}
 		_, ok := svc.usageBypassEngaged(baseCtx(), http.Header{}, router.Request{
-			RequestedModel:       model,
-			EnabledProviders:     enabled,
-			SafetyExcludedModels: map[string]struct{}{model: {}},
+			RequestedModel:   model,
+			EnabledProviders: enabled,
+			Candidates: router.Candidates{
+				SafetyExcludedModels: map[string]struct{}{model: {}},
+			},
 		})
 		assert.False(t, ok, "a safety-excluded model (context overflow / gemini-unsigned) must block bypass")
 	})
@@ -218,10 +224,12 @@ func TestUsageBypassEngaged_SafetyExclusionBlocks_PolicyExclusionDoesNot(t *test
 	t.Run("both excluded: safety exclusion still blocks", func(t *testing.T) {
 		svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: newObs()}
 		_, ok := svc.usageBypassEngaged(baseCtx(), http.Header{}, router.Request{
-			RequestedModel:       model,
-			EnabledProviders:     enabled,
-			ExcludedModels:       map[string]struct{}{model: {}},
-			SafetyExcludedModels: map[string]struct{}{model: {}},
+			RequestedModel:   model,
+			EnabledProviders: enabled,
+			Candidates: router.Candidates{
+				ExcludedModels:       map[string]struct{}{model: {}},
+				SafetyExcludedModels: map[string]struct{}{model: {}},
+			},
 		})
 		assert.False(t, ok, "a model that is both policy- and safety-excluded must stay blocked — it would 400 on the subscription too")
 	})

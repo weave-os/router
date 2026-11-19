@@ -67,7 +67,7 @@ func (turn *taskArmTurn) route(ctx context.Context, route turnRoute) taskArmRout
 		req.ForceCluster = turn.cluster
 		req.SkipSessionPin = true
 		for _, model := range control.SessionDemotedModels {
-			req.ExcludedModels = candidates.ExcludingModel(req.ExcludedModels, model)
+			req.Candidates.ExcludedModels = candidates.ExcludingModel(req.Candidates.ExcludedModels, model)
 		}
 		cappedRes, err := route(ctx, env, feats, apiKeyID, installationID, subAgentHint, reqHeaders, req)
 		if err != nil {

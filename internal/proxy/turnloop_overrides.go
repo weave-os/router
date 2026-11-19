@@ -15,13 +15,13 @@ func utilityHardPinTarget(ctx context.Context, req router.Request, turnType turn
 	log := observability.FromContext(ctx)
 	hardPinReq := HardPinRequest{
 		EnabledProviders: req.EnabledProviders,
-		ExcludedModels:   req.ExcludedModels,
+		ExcludedModels:   req.Candidates.ExcludedModels,
 		CustomBindings:   req.CustomBindings,
 		GatewayProviders: req.GatewayProviders,
 	}
 	switch {
 	case resolver != nil:
-		p, m, ok := resolver(withAutomaticExclusions(hardPinReq, req.AutomaticExcludedModels))
+		p, m, ok := resolver(withAutomaticExclusions(hardPinReq, req.Candidates.AutomaticExcludedModels))
 		if !ok {
 			p, m, ok = resolver(hardPinReq)
 			if ok {
@@ -55,7 +55,7 @@ func utilityHardPinTarget(ctx context.Context, req router.Request, turnType turn
 				return "", "", fmt.Errorf("hard-pin provider %q is ineligible for %s: %w", provider, turnType, router.ErrNoEligibleProvider)
 			}
 		}
-		if _, excluded := req.ExcludedModels[model]; excluded {
+		if _, excluded := req.Candidates.ExcludedModels[model]; excluded {
 			return "", "", fmt.Errorf("hard-pin model %q is ineligible for %s: %w", model, turnType, router.ErrNoEligibleProvider)
 		}
 		if automaticallyDisabled(req, model) {
@@ -70,12 +70,12 @@ func utilityHardPinTarget(ctx context.Context, req router.Request, turnType turn
 }
 
 func hardPinBlockedByContextWindow(resolver HardPinResolver, hardPinReq HardPinRequest, req router.Request) bool {
-	if len(req.ContextWindowExcludedModels) == 0 {
+	if len(req.Candidates.ContextWindowExcludedModels) == 0 {
 		return false
 	}
-	nonSizeExcluded := maps.Clone(req.ExcludedModels)
+	nonSizeExcluded := maps.Clone(req.Candidates.ExcludedModels)
 	maps.DeleteFunc(nonSizeExcluded, func(model string, _ struct{}) bool {
-		_, sized := req.ContextWindowExcludedModels[model]
+		_, sized := req.Candidates.ContextWindowExcludedModels[model]
 		return sized
 	})
 	hardPinReq.ExcludedModels = nonSizeExcluded

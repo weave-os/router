@@ -31,11 +31,11 @@ func SubscriptionCoveredTarget(req router.Request, codexToken, anthropicToken st
 			return "", "", false
 		}
 	}
-	if _, excluded := req.SafetyExcludedModels[model]; excluded {
+	if _, excluded := req.Candidates.SafetyExcludedModels[model]; excluded {
 		return "", "", false
 	}
-	if req.AllowedModels != nil {
-		if _, allowed := req.AllowedModels[model]; !allowed {
+	if req.Candidates.AllowedModels != nil {
+		if _, allowed := req.Candidates.AllowedModels[model]; !allowed {
 			return "", "", false
 		}
 	}

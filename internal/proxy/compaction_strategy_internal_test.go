@@ -65,7 +65,9 @@ func TestCodexCompactionAfterAutoReview(t *testing.T) {
 	turn, err := svc.runTurnLoop(ctx, env, features, "test-key", installationID, "", nil, router.Request{
 		RequestedModel:   string(router.ModelHMM),
 		EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}},
-		ExcludedModels:   legacyExcluded,
+		Candidates: router.Candidates{
+			ExcludedModels: legacyExcluded,
+		},
 		TranslationRequirements: router.TranslationRequirements{
 			SourceFormat: router.WireFormatOpenAI, Endpoint: router.EndpointOpenAIResponses, NativeOnly: true,
 		},
@@ -120,8 +122,8 @@ func TestCompactionCrossStrategyHistoryHonorsEligibility(t *testing.T) {
 		available map[string]struct{}
 	}{
 		{name: "provider disabled", req: router.Request{EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}},
-		{name: "model excluded", req: router.Request{ExcludedModels: map[string]struct{}{compactionStrategyModel: {}}}},
-		{name: "model automatically disabled", req: router.Request{AutomaticExcludedModels: map[string]struct{}{compactionStrategyModel: {}}}},
+		{name: "model excluded", req: router.Request{Candidates: router.Candidates{ExcludedModels: map[string]struct{}{compactionStrategyModel: {}}}}},
+		{name: "model automatically disabled", req: router.Request{Candidates: router.Candidates{AutomaticExcludedModels: map[string]struct{}{compactionStrategyModel: {}}}}},
 		{name: "model unavailable", available: map[string]struct{}{policy.PrecompactionDefaultModel: {}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {

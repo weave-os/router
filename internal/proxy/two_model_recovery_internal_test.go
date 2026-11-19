@@ -178,7 +178,7 @@ func TestRecoveryProbeLeaseDeniedModelsAreHardExcluded(t *testing.T) {
 	assert.ElementsMatch(t, []string{catalog.ModelGPT6Luna, recoveryOpusModel}, result.CooldownProbeDeniedModels)
 	require.Len(t, scorer.requests, 1)
 	for _, model := range []string{catalog.ModelGPT6Luna, recoveryOpusModel} {
-		assert.Contains(t, scorer.requests[0].ExcludedModels, model, "lease-denied models must not be restored by soft automatic-exclusion fallback")
+		assert.Contains(t, scorer.requests[0].Candidates.ExcludedModels, model, "lease-denied models must not be restored by soft automatic-exclusion fallback")
 	}
 	ctx := context.WithValue(context.Background(), SessionCooldownProbeDeniedModelsContextKey{}, result.CooldownProbeDeniedModels)
 	assert.Contains(t, svc.rescueExcludedModels(ctx), catalog.ModelGPT6Luna, "rescue must not readmit a model whose probe is leased elsewhere")
@@ -319,7 +319,7 @@ func TestTwoModelRecoveryHMMRefreshDoesNotRewriteCooldown(t *testing.T) {
 			assert.Contains(t, turn.SessionDemotedModels, demotedPinModel)
 		} else {
 			assert.NotContains(t, turn.SessionDemotedModels, demotedPinModel)
-			assert.NotContains(t, scorer.requests[len(scorer.requests)-1].AutomaticExcludedModels, demotedPinModel)
+			assert.NotContains(t, scorer.requests[len(scorer.requests)-1].Candidates.AutomaticExcludedModels, demotedPinModel)
 		}
 	}
 	store.mu.Lock()

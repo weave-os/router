@@ -182,12 +182,12 @@ type goldenRouter struct {
 }
 
 func (g *goldenRouter) Route(_ context.Context, req router.Request) (router.Decision, error) {
-	excluded := make([]string, 0, len(req.ExcludedModels))
-	for m := range req.ExcludedModels {
+	excluded := make([]string, 0, len(req.Candidates.ExcludedModels))
+	for m := range req.Candidates.ExcludedModels {
 		excluded = append(excluded, m)
 	}
-	automaticExcluded := make([]string, 0, len(req.AutomaticExcludedModels))
-	for m := range req.AutomaticExcludedModels {
+	automaticExcluded := make([]string, 0, len(req.Candidates.AutomaticExcludedModels))
+	for m := range req.Candidates.AutomaticExcludedModels {
 		automaticExcluded = append(automaticExcluded, m)
 	}
 	sort.Strings(excluded)
@@ -210,8 +210,8 @@ func (g *goldenRouter) Route(_ context.Context, req router.Request) (router.Deci
 			providerIneligible = true
 			continue
 		}
-		_, excludedByCaller := req.ExcludedModels[candidate.Model]
-		_, excludedAutomatically := req.AutomaticExcludedModels[candidate.Model]
+		_, excludedByCaller := req.Candidates.ExcludedModels[candidate.Model]
+		_, excludedAutomatically := req.Candidates.AutomaticExcludedModels[candidate.Model]
 		if !excludedByCaller && !excludedAutomatically {
 			d = candidate
 			break

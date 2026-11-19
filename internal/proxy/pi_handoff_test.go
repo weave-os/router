@@ -122,7 +122,7 @@ func TestPiHandoffRevalidatesSessionConfigurationAndEligibility(t *testing.T) {
 		{"tools", func(r *router.Request) { r.ToolConfigurationSHA256 = "changed" }},
 		{"reasoning", func(r *router.Request) { r.ReasoningConfigurationSHA256 = "changed" }},
 		{"model", func(r *router.Request) { r.RequestedModel = "claude-haiku-4-5" }},
-		{"excluded", func(r *router.Request) { r.ExcludedModels = map[string]struct{}{prepared.Model: {}} }},
+		{"excluded", func(r *router.Request) { r.Candidates.ExcludedModels = map[string]struct{}{prepared.Model: {}} }},
 		{"provider", func(r *router.Request) { r.EnabledProviders = map[string]struct{}{} }},
 	} {
 		t.Run(mutation.name, func(t *testing.T) {

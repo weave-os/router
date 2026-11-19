@@ -56,7 +56,7 @@ func (s *Service) routeCompaction(
 	req = strikes.apply(req)
 	if ok {
 		scoreReq := req
-		scoreReq.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{}, s.clock.Now())
+		scoreReq.Session.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{}, s.clock.Now())
 		if fresh, err := s.routeFor(ctx, scoreReq); err == nil {
 			res.Fresh = fresh
 		}
@@ -101,7 +101,7 @@ func (st sessionStrikes) apply(req router.Request) router.Request {
 		for _, model := range st.demotedModels {
 			demoted[model] = struct{}{}
 		}
-		req.AutomaticExcludedModels = candidates.MergeExcludedModels(req.AutomaticExcludedModels, demoted)
+		req.Candidates.AutomaticExcludedModels = candidates.MergeExcludedModels(req.Candidates.AutomaticExcludedModels, demoted)
 	}
 	return req
 }
@@ -167,7 +167,7 @@ func (s *Service) crossGatewayRescuers(ctx context.Context, primary compactionSu
 		if !held || provider == primary.provider || catalog.TierFor(model) < catalog.TierMid {
 			continue
 		}
-		if _, excluded := req.ExcludedModels[model]; excluded || automaticallyDisabled(req, model) {
+		if _, excluded := req.Candidates.ExcludedModels[model]; excluded || automaticallyDisabled(req, model) {
 			continue
 		}
 		if s.availableModels != nil {

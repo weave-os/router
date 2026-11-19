@@ -83,7 +83,7 @@ func TestTurnLoopKeepsTurnStrikeOutUntilUserPrompt(t *testing.T) {
 
 	require.NotEmpty(t, scorer.requests)
 	for _, req := range scorer.requests {
-		assert.Contains(t, req.AutomaticExcludedModels, demotedPinModel)
+		assert.Contains(t, req.Candidates.AutomaticExcludedModels, demotedPinModel)
 	}
 	assert.Contains(t, res.SessionDemotedModels, demotedPinModel)
 	assert.Empty(t, store.cleared)
@@ -100,7 +100,7 @@ func TestTurnLoopUserPromptClearsTurnStrikes(t *testing.T) {
 	res := runDemotionTurnLoop(t, svc, context.Background())
 
 	for _, req := range scorer.requests {
-		assert.NotContains(t, req.AutomaticExcludedModels, demotedPinModel)
+		assert.NotContains(t, req.Candidates.AutomaticExcludedModels, demotedPinModel)
 	}
 	assert.NotContains(t, res.SessionDemotedModels, demotedPinModel)
 	assert.ElementsMatch(t, []string{sessionpin.DefaultRole, hmmHistoryRole(sessionpin.DefaultRole)}, store.cleared)

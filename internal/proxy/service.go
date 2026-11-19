@@ -1964,7 +1964,7 @@ func (s *Service) routeFor(ctx context.Context, req router.Request) (router.Deci
 	var err error
 	if denied, _ := ctx.Value(SessionCooldownProbeDeniedModelsContextKey{}).([]string); len(denied) > 0 {
 		for _, model := range denied {
-			req.ExcludedModels = candidates.ExcludingModel(req.ExcludedModels, model)
+			req.Candidates.ExcludedModels = candidates.ExcludingModel(req.Candidates.ExcludedModels, model)
 		}
 	}
 	req, err = s.applyTranslationPlan(ctx, req)
@@ -2019,9 +2019,9 @@ func hasTextUserBoundary(messages []router.ConversationMessage) bool {
 }
 
 func (s *Service) withPolicyRequestContext(ctx context.Context, req router.Request) router.Request {
-	req.AutomaticExcludedModels = candidates.MergeExcludedModels(req.AutomaticExcludedModels, s.globalAutomaticExcludedModels(ctx))
+	req.Candidates.AutomaticExcludedModels = candidates.MergeExcludedModels(req.Candidates.AutomaticExcludedModels, s.globalAutomaticExcludedModels(ctx))
 	req.ProductEligibility = entitlement.ModelBoundaryFromContext(ctx)
-	req.ExcludedModels = candidates.MergeExcludedModels(req.ExcludedModels, s.productIneligibleModels(ctx))
+	req.Candidates.ExcludedModels = candidates.MergeExcludedModels(req.Candidates.ExcludedModels, s.productIneligibleModels(ctx))
 	req.OrganizationID, _ = ctx.Value(ExternalIDContextKey{}).(string)
 	req.InstallationID = ""
 	if installationID := installationIDFromContext(ctx); installationID != uuid.Nil {
@@ -2525,40 +2525,34 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	routeStart := s.clock.Now()
 	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText)
 	req := router.Request{
-		RequestedModel:                feats.Model,
-		ClientBudget:                  clientBudget,
-		ForceModel:                    forceModel,
-		ForceCluster:                  forceCluster,
-		EstimatedInputTokens:          feats.Tokens,
-		HasTools:                      feats.HasTools,
-		HasImages:                     feats.HasImages,
-		ImageCount:                    feats.ImageCount,
-		TranslationRequirements:       env.TranslationRequirements(router.EndpointAnthropicMessages),
-		ReasoningConfigurationSHA256:  env.ReasoningConfigurationSHA256(),
-		ToolConfigurationSHA256:       env.ToolConfigurationSHA256(),
-		PromptText:                    routingPromptText,
-		ConversationMessages:          routingMessages,
-		AvailableTools:                availableToolsForRouting(env),
-		Tools:                         toolsForRouting(env),
-		OrganizationID:                facts.ExternalID,
-		FeedbackKey:                   hex.EncodeToString(sessionKey[:]),
-		FeedbackRole:                  roleForTier(catalog.TierFor(feats.Model)),
-		ClientSessionID:               clientSessionIDForRequest(ctx, env),
-		EnabledProviders:              enabledProviders,
-		CustomBindings:                eligibility.CustomBindings,
-		GatewayProviders:              eligibility.GatewayProviders,
-		SubscriptionProviders:         s.selectableSubscriptionProviders(ctx, r.Header),
-		ExcludedModels:                excluded,
-		AllowedModels:                 allowedModelsForRequest(ctx),
-		SafetyExcludedModels:          prefiltered.Safety,
-		ContextWindowExcludedModels:   prefiltered.ContextWindowOnly,
-		ImageLimitExcludedModels:      modelSet(prefiltered.ImageLimited),
-		UnsignedHistoryExcludedModels: modelSet(prefiltered.UnsignedHistory),
-		OverflowAdmittedModels:        modelSet(prefiltered.OverflowAdmitted),
-		PreferredModels:               s.preferredModelsForRequest(ctx),
-		RoutingKnobs:                  routingKnobsForRequest(ctx),
-		ClusterArmOverrides:           clusterArmOverridesForRequest(ctx),
-		ProductEligibility:            entitlement.ModelBoundaryFromContext(ctx),
+		RequestedModel:               feats.Model,
+		ClientBudget:                 clientBudget,
+		ForceModel:                   forceModel,
+		ForceCluster:                 forceCluster,
+		EstimatedInputTokens:         feats.Tokens,
+		HasTools:                     feats.HasTools,
+		HasImages:                    feats.HasImages,
+		ImageCount:                   feats.ImageCount,
+		TranslationRequirements:      env.TranslationRequirements(router.EndpointAnthropicMessages),
+		ReasoningConfigurationSHA256: env.ReasoningConfigurationSHA256(),
+		ToolConfigurationSHA256:      env.ToolConfigurationSHA256(),
+		PromptText:                   routingPromptText,
+		ConversationMessages:         routingMessages,
+		AvailableTools:               availableToolsForRouting(env),
+		Tools:                        toolsForRouting(env),
+		OrganizationID:               facts.ExternalID,
+		FeedbackKey:                  hex.EncodeToString(sessionKey[:]),
+		FeedbackRole:                 roleForTier(catalog.TierFor(feats.Model)),
+		ClientSessionID:              clientSessionIDForRequest(ctx, env),
+		EnabledProviders:             enabledProviders,
+		CustomBindings:               eligibility.CustomBindings,
+		GatewayProviders:             eligibility.GatewayProviders,
+		SubscriptionProviders:        s.selectableSubscriptionProviders(ctx, r.Header),
+		Candidates:                   prefilteredCandidates(ctx, excluded, prefiltered),
+		PreferredModels:              s.preferredModelsForRequest(ctx),
+		RoutingKnobs:                 routingKnobsForRequest(ctx),
+		ClusterArmOverrides:          clusterArmOverridesForRequest(ctx),
+		ProductEligibility:           entitlement.ModelBoundaryFromContext(ctx),
 	}
 	if facts.InstallationID != uuid.Nil {
 		req.InstallationID = facts.InstallationID.String()
@@ -3937,10 +3931,10 @@ func (s *Service) policyDeadlineDefaultDecision(req router.Request) (router.Deci
 	if s.policyDeadlineDefaultModel == "" {
 		return router.Decision{}, false
 	}
-	if _, excluded := req.ExcludedModels[s.policyDeadlineDefaultModel]; excluded {
+	if _, excluded := req.Candidates.ExcludedModels[s.policyDeadlineDefaultModel]; excluded {
 		return router.Decision{}, false
 	}
-	if _, excluded := req.SafetyExcludedModels[s.policyDeadlineDefaultModel]; excluded {
+	if _, excluded := req.Candidates.SafetyExcludedModels[s.policyDeadlineDefaultModel]; excluded {
 		return router.Decision{}, false
 	}
 
@@ -4663,38 +4657,32 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	excludedOAI, overflowEstimateOAI := prefiltered.Excluded, prefiltered.OverflowEstimate
 	feats, routingPromptText, routingMessages := routingTurnInputForRequest(ctx, env, feats, promptText)
 	routeRequest := router.Request{
-		RequestedModel:                feats.Model,
-		ForceModel:                    forceModel,
-		ForceCluster:                  forceCluster,
-		EstimatedInputTokens:          feats.Tokens,
-		HasTools:                      feats.HasTools,
-		HasImages:                     feats.HasImages,
-		ImageCount:                    feats.ImageCount,
-		TranslationRequirements:       env.TranslationRequirements(router.EndpointOpenAIChat),
-		ReasoningConfigurationSHA256:  reasoningConfigurationHash,
-		ToolConfigurationSHA256:       toolConfigurationHash,
-		PromptText:                    routingPromptText,
-		ConversationMessages:          routingMessages,
-		AvailableTools:                availableToolsForRouting(env),
-		Tools:                         toolsForRouting(env),
-		FeedbackKey:                   hex.EncodeToString(sessionKey[:]),
-		FeedbackRole:                  roleForTier(catalog.TierFor(feats.Model)),
-		ClientSessionID:               clientSessionIDForRequest(ctx, env),
-		EnabledProviders:              enabledProviders,
-		CustomBindings:                eligibility.CustomBindings,
-		GatewayProviders:              s.gatewayProvidersForRequest(ctx),
-		SubscriptionProviders:         s.selectableSubscriptionProviders(ctx, r.Header),
-		ExcludedModels:                excludedOAI,
-		AllowedModels:                 allowedModelsForRequest(ctx),
-		SafetyExcludedModels:          prefiltered.Safety,
-		ContextWindowExcludedModels:   prefiltered.ContextWindowOnly,
-		ImageLimitExcludedModels:      modelSet(prefiltered.ImageLimited),
-		UnsignedHistoryExcludedModels: modelSet(prefiltered.UnsignedHistory),
-		OverflowAdmittedModels:        modelSet(prefiltered.OverflowAdmitted),
-		PreferredModels:               s.preferredModelsForRequest(ctx),
-		RoutingKnobs:                  routingKnobsForRequest(ctx),
-		ClusterArmOverrides:           clusterArmOverridesForRequest(ctx),
-		ProductEligibility:            entitlement.ModelBoundaryFromContext(ctx),
+		RequestedModel:               feats.Model,
+		ForceModel:                   forceModel,
+		ForceCluster:                 forceCluster,
+		EstimatedInputTokens:         feats.Tokens,
+		HasTools:                     feats.HasTools,
+		HasImages:                    feats.HasImages,
+		ImageCount:                   feats.ImageCount,
+		TranslationRequirements:      env.TranslationRequirements(router.EndpointOpenAIChat),
+		ReasoningConfigurationSHA256: reasoningConfigurationHash,
+		ToolConfigurationSHA256:      toolConfigurationHash,
+		PromptText:                   routingPromptText,
+		ConversationMessages:         routingMessages,
+		AvailableTools:               availableToolsForRouting(env),
+		Tools:                        toolsForRouting(env),
+		FeedbackKey:                  hex.EncodeToString(sessionKey[:]),
+		FeedbackRole:                 roleForTier(catalog.TierFor(feats.Model)),
+		ClientSessionID:              clientSessionIDForRequest(ctx, env),
+		EnabledProviders:             enabledProviders,
+		CustomBindings:               eligibility.CustomBindings,
+		GatewayProviders:             s.gatewayProvidersForRequest(ctx),
+		SubscriptionProviders:        s.selectableSubscriptionProviders(ctx, r.Header),
+		Candidates:                   prefilteredCandidates(ctx, excludedOAI, prefiltered),
+		PreferredModels:              s.preferredModelsForRequest(ctx),
+		RoutingKnobs:                 routingKnobsForRequest(ctx),
+		ClusterArmOverrides:          clusterArmOverridesForRequest(ctx),
+		ProductEligibility:           entitlement.ModelBoundaryFromContext(ctx),
 	}
 	routeStart := s.clock.Now()
 	routeCtx, routeSpan := startRoutingSpan(ctx, routeRequest)

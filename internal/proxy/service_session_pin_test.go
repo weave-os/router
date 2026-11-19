@@ -450,7 +450,7 @@ func TestService_SessionPin_ImageTurnEvictsTextOnlyPin(t *testing.T) {
 
 	require.NotNil(t, fr.capturedReq, "scorer must run after the text-only pin is dropped")
 	assert.True(t, fr.capturedReq.HasImages, "routing request must carry the image signal")
-	_, excluded := fr.capturedReq.ExcludedModels["z-ai/glm-5.1"]
+	_, excluded := fr.capturedReq.Candidates.ExcludedModels["z-ai/glm-5.1"]
 	assert.False(t, excluded, "pin must be dropped, not hard-excluded; the scorer's image filter drops it softly")
 	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel),
 		"served model must be the image-capable fresh decision, not the text-only pin")

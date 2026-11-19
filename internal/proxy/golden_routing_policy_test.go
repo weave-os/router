@@ -127,14 +127,14 @@ type routingPolicyRequestTrace struct {
 func routingPolicyRequestTraceOf(req router.Request) routingPolicyRequestTrace {
 	return routingPolicyRequestTrace{
 		EnabledProviders:     routingPolicySorted(req.EnabledProviders),
-		AllowedModels:        routingPolicySorted(req.AllowedModels),
+		AllowedModels:        routingPolicySorted(req.Candidates.AllowedModels),
 		PreferredModels:      req.PreferredModels,
 		CustomBindings:       req.CustomBindings,
 		GatewayProviders:     routingPolicySorted(req.GatewayProviders),
-		SafetyExcludedModels: routingPolicySorted(req.SafetyExcludedModels),
-		PreviousPolicyGroup:  string(req.PreviousPolicyGroup),
+		SafetyExcludedModels: routingPolicySorted(req.Candidates.SafetyExcludedModels),
+		PreviousPolicyGroup:  string(req.Session.PreviousPolicyGroup),
 		ForceCluster:         req.ForceCluster,
-		PolicyTurnContext:    req.PolicyTurnContext,
+		PolicyTurnContext:    req.Session.PolicyTurnContext,
 	}
 }
 

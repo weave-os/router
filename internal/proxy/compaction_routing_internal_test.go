@@ -97,7 +97,9 @@ func TestCompactionWithoutSessionPinUsesScorer(t *testing.T) {
 
 	turn, err := f.run(t, ctx, env, router.Request{
 		EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}},
-		ExcludedModels:   openAICatalogModels(),
+		Candidates: router.Candidates{
+			ExcludedModels: openAICatalogModels(),
+		},
 	})
 
 	require.NoError(t, err)
@@ -173,7 +175,9 @@ func TestCompactionIneligibleSessionPinUsesScorer(t *testing.T) {
 
 	turn, err := f.run(t, ctx, env, router.Request{
 		EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}},
-		ExcludedModels:   map[string]struct{}{catalog.ModelGPT6Luna: {}},
+		Candidates: router.Candidates{
+			ExcludedModels: map[string]struct{}{catalog.ModelGPT6Luna: {}},
+		},
 	})
 
 	require.NoError(t, err)

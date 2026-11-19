@@ -88,7 +88,7 @@ func TestClassifierPassthroughEngaged(t *testing.T) {
 		{
 			name: "safety-excluded requested model",
 			svc:  &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}})}, ctx: subCtx, headers: http.Header{},
-			req:      router.Request{RequestedModel: claude, EnabledProviders: anthropicOnly, SafetyExcludedModels: map[string]struct{}{claude: {}}},
+			req:      router.Request{RequestedModel: claude, EnabledProviders: anthropicOnly, Candidates: router.Candidates{SafetyExcludedModels: map[string]struct{}{claude: {}}}},
 			turnType: turntype.Classifier, want: false,
 		},
 		{

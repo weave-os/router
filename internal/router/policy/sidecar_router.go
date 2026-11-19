@@ -188,7 +188,7 @@ func (r *SidecarRouter) PreviewRoute(ctx context.Context, req router.Request) (P
 		FeedbackKey:              req.FeedbackKey,
 		FeedbackRole:             req.FeedbackRole,
 		ClientSessionID:          req.ClientSessionID,
-		TurnContext:              req.PolicyTurnContext,
+		TurnContext:              req.Session.PolicyTurnContext,
 		EstimatedInputTokens:     req.EstimatedInputTokens,
 		HasTools:                 req.HasTools,
 		HasImages:                req.HasImages,
@@ -429,7 +429,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		FeedbackKey:              req.FeedbackKey,
 		FeedbackRole:             req.FeedbackRole,
 		ClientSessionID:          req.ClientSessionID,
-		TurnContext:              req.PolicyTurnContext,
+		TurnContext:              req.Session.PolicyTurnContext,
 		EstimatedInputTokens:     req.EstimatedInputTokens,
 		HasTools:                 req.HasTools,
 		HasImages:                req.HasImages,
@@ -719,13 +719,13 @@ func (r *SidecarRouter) RouteWithoutUserText(ctx context.Context, req router.Req
 	if r.armSelector == nil {
 		return router.Decision{}, fmt.Errorf("%s: no promoted roster for unscorable turn: %w", r.config.Strategy, r.config.Unavailable)
 	}
-	if len(req.SafetyExcludedModels) > 0 {
-		req.ExcludedModels = maps.Clone(req.ExcludedModels)
-		if req.ExcludedModels == nil {
-			req.ExcludedModels = make(map[string]struct{}, len(req.SafetyExcludedModels))
+	if len(req.Candidates.SafetyExcludedModels) > 0 {
+		req.Candidates.ExcludedModels = maps.Clone(req.Candidates.ExcludedModels)
+		if req.Candidates.ExcludedModels == nil {
+			req.Candidates.ExcludedModels = make(map[string]struct{}, len(req.Candidates.SafetyExcludedModels))
 		}
-		for model := range req.SafetyExcludedModels {
-			req.ExcludedModels[model] = struct{}{}
+		for model := range req.Candidates.SafetyExcludedModels {
+			req.Candidates.ExcludedModels[model] = struct{}{}
 		}
 	}
 	resolved := r.resolver.Resolve(req)
@@ -735,7 +735,7 @@ func (r *SidecarRouter) RouteWithoutUserText(ctx context.Context, req router.Req
 	input := selectionInputFor(r.config.Strategy, ExecutionModeServing, req, Result{}, resolved)
 	input.Unscorable = true
 	if req.Escalation != nil && req.ForceCluster == "" {
-		input.MinimumGroup = escalation.Higher(req.PreviousPolicyGroup, req.Escalation.Floor)
+		input.MinimumGroup = escalation.Higher(req.Session.PreviousPolicyGroup, req.Escalation.Floor)
 		if req.Escalation.Escalate {
 			input.MinimumGroup = escalation.Maximum
 		}

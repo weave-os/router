@@ -61,11 +61,12 @@ type Overrides struct {
 }
 
 type Request struct {
-	TaskDomain               *taskdomain.Input
-	ClassifierPrediction     *ClassifierPrediction `json:"-"`
-	Escalation               *escalation.Constraint
-	PreviousPolicyGroup      escalation.Group
-	SlidingThresholdPinGroup escalation.Group
+	Candidates Candidates
+	Session    SessionView
+
+	TaskDomain           *taskdomain.Input
+	ClassifierPrediction *ClassifierPrediction `json:"-"`
+	Escalation           *escalation.Constraint
 
 	RequestedModel               string
 	ClientBudget                 ClientBudget
@@ -87,34 +88,31 @@ type Request struct {
 	ConversationMessages         []ConversationMessage
 	Unscorable                   bool
 	// Deprecated: use Tools for structural capability decisions.
-	AvailableTools                []string
-	Tools                         []ToolDescriptor
-	PolicyTurnContext             *PolicyTurnContext
-	HistoryTruncated              bool
-	FeedbackKey                   string
-	FeedbackRole                  string
-	ClientSessionID               string
-	EnabledProviders              map[string]struct{}
-	CustomBindings                map[string][]string
-	GatewayProviders              map[string]struct{}
-	SubscriptionProviders         map[string]struct{}
-	ExcludedModels                map[string]struct{}
-	AllowedModels                 map[string]struct{}
-	SafetyExcludedModels          map[string]struct{}
-	ContextWindowExcludedModels   map[string]struct{}
-	ImageLimitExcludedModels      map[string]struct{}
-	UnsignedHistoryExcludedModels map[string]struct{}
-	OverflowAdmittedModels        map[string]struct{}
-	AutomaticExcludedModels       map[string]struct{}
-	ProductEligibility            eligibility.Boundary
-	PreferredModels               []string
-	RoutingIntent                 string
-	RoutingKnobs                  *Overrides
-	TrainingAllowed               bool
-	CaptureMode                   string
-	DebugEnabled                  bool
-	ShadowMode                    bool
-	ClusterArmOverrides           map[string][]string
+	AvailableTools        []string
+	Tools                 []ToolDescriptor
+	HistoryTruncated      bool
+	FeedbackKey           string
+	FeedbackRole          string
+	ClientSessionID       string
+	EnabledProviders      map[string]struct{}
+	CustomBindings        map[string][]string
+	GatewayProviders      map[string]struct{}
+	SubscriptionProviders map[string]struct{}
+	ProductEligibility    eligibility.Boundary
+	PreferredModels       []string
+	RoutingIntent         string
+	RoutingKnobs          *Overrides
+	TrainingAllowed       bool
+	CaptureMode           string
+	DebugEnabled          bool
+	ShadowMode            bool
+	ClusterArmOverrides   map[string][]string
+}
+
+type SessionView struct {
+	PreviousPolicyGroup      escalation.Group
+	SlidingThresholdPinGroup escalation.Group
+	PolicyTurnContext        *PolicyTurnContext
 }
 
 type ToolDescriptor struct {

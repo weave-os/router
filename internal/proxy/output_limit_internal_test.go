@@ -87,7 +87,7 @@ type outputLimitSequenceRouter struct {
 func (r *outputLimitSequenceRouter) Route(_ context.Context, req router.Request) (router.Decision, error) {
 	r.requests = append(r.requests, req)
 	for _, model := range r.choices {
-		if _, excluded := req.ExcludedModels[model]; excluded {
+		if _, excluded := req.Candidates.ExcludedModels[model]; excluded {
 			continue
 		}
 		return router.Decision{Provider: providers.ProviderAnthropic, Model: model, Reason: "hmm_policy(label=maximum)",
@@ -158,10 +158,10 @@ func TestProxyMessages_OutputLimitEightActionSequence(t *testing.T) {
 					assert.Equal(t, want, rec.Header().Get(HeaderRouterModel), "action %d", action)
 					require.Len(t, routes.requests, action+1)
 					if trueCap && action == 4 {
-						assert.Contains(t, routes.requests[action].SafetyExcludedModels, outputLimitFirstModel)
+						assert.Contains(t, routes.requests[action].Candidates.SafetyExcludedModels, outputLimitFirstModel)
 					} else {
-						assert.NotContains(t, routes.requests[action].SafetyExcludedModels, outputLimitFirstModel)
-						assert.NotContains(t, routes.requests[action].ExcludedModels, outputLimitFirstModel)
+						assert.NotContains(t, routes.requests[action].Candidates.SafetyExcludedModels, outputLimitFirstModel)
+						assert.NotContains(t, routes.requests[action].Candidates.ExcludedModels, outputLimitFirstModel)
 					}
 					messages = append(messages,
 						map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "tool_use", "id": fmt.Sprintf("call_%d", action), "name": "Read", "input": map[string]any{}}}},

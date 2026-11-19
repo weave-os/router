@@ -369,7 +369,9 @@ func TestClientSelectedModelRoutesWhenNotServableAsIs(t *testing.T) {
 		{name: "excluded", request: router.Request{
 			RequestedModel:   catalog.ModelIDClaudeSonnet46.String(),
 			EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
-			ExcludedModels:   map[string]struct{}{catalog.ModelIDClaudeSonnet46.String(): {}},
+			Candidates: router.Candidates{
+				ExcludedModels: map[string]struct{}{catalog.ModelIDClaudeSonnet46.String(): {}},
+			},
 		}},
 		{name: "no gateway alias", request: router.Request{
 			RequestedModel:   catalog.ModelIDClaudeSonnet46.String(),
@@ -404,7 +406,9 @@ func TestClientSelectedModelKeepsPolicyPassthroughStrict(t *testing.T) {
 	_, err = service.routeFor(auth.WithClientModelPassthrough(ctx), router.Request{
 		RequestedModel:   catalog.ModelIDClaudeSonnet46.String(),
 		EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
-		ExcludedModels:   map[string]struct{}{catalog.ModelIDClaudeSonnet46.String(): {}},
+		Candidates: router.Candidates{
+			ExcludedModels: map[string]struct{}{catalog.ModelIDClaudeSonnet46.String(): {}},
+		},
 	})
 
 	require.ErrorIs(t, err, router.ErrNoEligibleProvider)

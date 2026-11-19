@@ -111,7 +111,7 @@ func TestTaskArmTurnRoute(t *testing.T) {
 	control := taskArmTurn{assignment: taskarm.Assignment{Arm: taskarm.ArmControl}, assigned: true, cluster: "medium"}
 	sidecarDown := errors.New("sidecar down")
 	unservable := &policy.ForcedClusterUnservableError{Cluster: "medium", Reason: "no model"}
-	cappedRequest := router.Request{ForceCluster: "medium", SkipSessionPin: true, ExcludedModels: map[string]struct{}{"struck": {}}}
+	cappedRequest := router.Request{ForceCluster: "medium", SkipSessionPin: true, Candidates: router.Candidates{ExcludedModels: map[string]struct{}{"struck": {}}}}
 	cases := []struct {
 		name         string
 		turn         taskArmTurn

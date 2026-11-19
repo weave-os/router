@@ -514,16 +514,16 @@ func (s *Service) subscriptionAlternativeDecisions(ctx context.Context, req rout
 			continue
 		}
 		seen[model] = true
-		if _, blocked := req.ExcludedModels[model]; blocked {
+		if _, blocked := req.Candidates.ExcludedModels[model]; blocked {
 			continue
 		}
-		if _, blocked := req.AutomaticExcludedModels[model]; blocked {
+		if _, blocked := req.Candidates.AutomaticExcludedModels[model]; blocked {
 			continue
 		}
-		if _, blocked := req.SafetyExcludedModels[model]; blocked {
+		if _, blocked := req.Candidates.SafetyExcludedModels[model]; blocked {
 			continue
 		}
-		if _, blocked := req.UnsignedHistoryExcludedModels[model]; blocked {
+		if _, blocked := req.Candidates.UnsignedHistoryExcludedModels[model]; blocked {
 			continue
 		}
 		entry, known := catalog.ByID(model)
@@ -533,7 +533,7 @@ func (s *Service) subscriptionAlternativeDecisions(ctx context.Context, req rout
 			continue
 		}
 		if entry.ContextWindow > 0 && req.EstimatedInputTokens > entry.ContextWindow {
-			if _, admitted := req.OverflowAdmittedModels[model]; !admitted {
+			if _, admitted := req.Candidates.OverflowAdmittedModels[model]; !admitted {
 				continue
 			}
 		}
