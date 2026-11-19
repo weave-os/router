@@ -1,7 +1,5 @@
 package router
 
-import "context"
-
 type RoutingModel string
 
 const (
@@ -48,15 +46,4 @@ func IsRoutingModel(model string) bool {
 	}
 	_, found := routingModelPolicies[canonical]
 	return found
-}
-
-type routingModelContextKey struct{}
-
-func WithRoutingModel(ctx context.Context, model RoutingModel) context.Context {
-	return context.WithValue(ctx, routingModelContextKey{}, model)
-}
-
-func RoutingModelFromContext(ctx context.Context) (RoutingModel, bool) {
-	model, ok := ctx.Value(routingModelContextKey{}).(RoutingModel)
-	return model, ok
 }

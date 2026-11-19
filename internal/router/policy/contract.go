@@ -210,7 +210,7 @@ type RosterSnapshot struct {
 }
 
 type RosterSource interface {
-	ClusterRoster(ctx context.Context) (RosterSnapshot, error)
+	ClusterRoster(ctx context.Context, strategy router.Strategy) (RosterSnapshot, error)
 }
 
 type Decider interface {

@@ -8,8 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/candidates"
@@ -33,17 +31,16 @@ func (s *Service) routeCompaction(
 	req router.Request,
 	res turnLoopResult,
 	reqHeaders http.Header,
-	sessionKey [sessionpin.SessionKeyLen]byte,
-	installationID uuid.UUID,
+	target sessionTarget,
 	forceModelFound bool,
 	forceModelPin sessionpin.Pin,
 ) (turnLoopResult, error) {
 	if s.pinStore == nil {
-		return s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
+		return s.routeWithoutPin(ctx, target.strategy, req, res, reqHeaders, forceModelFound, forceModelPin)
 	}
-	res.SessionKey = sessionKey
+	res.SessionKey = target.sessionKey
 	if forceModelFound && candidates.ForcedPinEligible(forceModelPin, req) {
-		return s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
+		return s.routeWithoutPin(ctx, target.strategy, req, res, reqHeaders, forceModelFound, forceModelPin)
 	}
 	session := compactionSession{
 		pins:           s.pinStore,
@@ -52,12 +49,12 @@ func (s *Service) routeCompaction(
 		cortexGateways: cortexGatewayProvidersForRequest(ctx),
 		now:            s.clock.Now(),
 	}
-	decision, strikes, ok := session.decision(ctx, sessionKey, res.PinRole, req)
+	decision, strikes, ok := session.decision(ctx, target.sessionKey, res.PinRole, req)
 	req = strikes.apply(req)
 	if ok {
 		scoreReq := req
 		scoreReq.Session.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{}, s.clock.Now())
-		if fresh, err := s.routeFor(ctx, scoreReq); err == nil {
+		if fresh, err := s.routeFor(ctx, target.strategy, scoreReq); err == nil {
 			res.Fresh = fresh
 		}
 		res.Decision = decision
@@ -67,11 +64,11 @@ func (s *Service) routeCompaction(
 		res.Origin = policy.OverrideSourceSession
 		return res, nil
 	}
-	res, err := s.routeWithoutPin(ctx, req, res, reqHeaders, false, sessionpin.Pin{})
+	res, err := s.routeWithoutPin(ctx, target.strategy, req, res, reqHeaders, false, sessionpin.Pin{})
 	if err != nil || res.UsageBypass || res.CallerModelPassthrough {
 		return res, err
 	}
-	routingpolicy.NewSessionPins(s.pinStore, s.clock.Now).WriteNew(ctx, installationID, sessionKey, res.PinRole, res.Decision)
+	routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, target.strategy).WriteNew(ctx, target.installationID, target.sessionKey, res.PinRole, res.Decision)
 	return res, nil
 }
 

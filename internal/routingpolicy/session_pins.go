@@ -15,12 +15,13 @@ import (
 )
 
 type SessionPins struct {
-	store sessionpin.Store
-	now   func() time.Time
+	store    sessionpin.Store
+	now      func() time.Time
+	strategy router.Strategy
 }
 
-func NewSessionPins(store sessionpin.Store, now func() time.Time) SessionPins {
-	return SessionPins{store: store, now: now}
+func NewSessionPins(store sessionpin.Store, now func() time.Time, strategy router.Strategy) SessionPins {
+	return SessionPins{store: store, now: now, strategy: strategy}
 }
 
 const PinSessionTTL = time.Hour
@@ -34,11 +35,10 @@ func PinExpiry(reason string, now time.Time) time.Time {
 	return now.Add(PinSessionTTL)
 }
 
-func PinMatchesEffectiveStrategy(ctx context.Context, pin sessionpin.Pin) bool {
+func PinMatchesEffectiveStrategy(expected router.Strategy, pin sessionpin.Pin) bool {
 	if IsUserForcedReason(pin.Reason) {
 		return true
 	}
-	expected := router.StrategyFromContext(ctx)
 	if pin.Strategy == expected {
 		return true
 	}
@@ -79,7 +79,7 @@ func (sp SessionPins) LoadWithStoreState(ctx context.Context, sessionKey [sessio
 	if !found {
 		return sessionpin.Pin{}, false, true
 	}
-	if !PinMatchesEffectiveStrategy(ctx, pin) {
+	if !PinMatchesEffectiveStrategy(sp.strategy, pin) {
 		return sessionpin.Pin{}, false, false
 	}
 	if !pin.PinnedUntil.After(sp.now()) {
@@ -98,7 +98,7 @@ func (sp SessionPins) LoadHMMHistory(ctx context.Context, sessionKey [sessionpin
 	if !found {
 		return sessionpin.Pin{}
 	}
-	if !PinMatchesEffectiveStrategy(ctx, pin) {
+	if !PinMatchesEffectiveStrategy(sp.strategy, pin) {
 		return sessionpin.Pin{}
 	}
 	return pin
@@ -130,7 +130,7 @@ func (sp SessionPins) RefreshVotes(ctx context.Context, installationID uuid.UUID
 		PairedProvider:        existing.PairedProvider,
 		PairedModel:           existing.PairedModel,
 		Reason:                chosen.Reason,
-		Strategy:              router.StrategyFromContext(ctx),
+		Strategy:              sp.strategy,
 		PolicyGroup:           existing.PolicyGroup,
 		TurnCount:             1,
 		PinnedUntil:           PinExpiry(chosen.Reason, sp.now()),
@@ -170,7 +170,7 @@ func (sp SessionPins) WriteNew(ctx context.Context, installationID uuid.UUID, se
 		PairedProvider: pairedProvider,
 		PairedModel:    pairedModel,
 		Reason:         chosen.Reason,
-		Strategy:       router.StrategyFromContext(ctx),
+		Strategy:       sp.strategy,
 		PolicyGroup:    DecisionPolicyGroup(chosen),
 		TurnCount:      1,
 		PinnedUntil:    PinExpiry(chosen.Reason, sp.now()),
@@ -181,7 +181,7 @@ func (sp SessionPins) WriteNew(ctx context.Context, installationID uuid.UUID, se
 func (sp SessionPins) Upsert(ctx context.Context, p sessionpin.Pin) {
 	log := observability.FromContext(ctx)
 	if p.Strategy == "" {
-		p.Strategy = router.StrategyFromContext(ctx)
+		p.Strategy = sp.strategy
 	}
 	if err := sp.store.Upsert(context.WithoutCancel(ctx), p); err != nil {
 		log.Error("session pin upsert failed", "err", err)
@@ -219,7 +219,7 @@ func (sp SessionPins) AnchorForceModelHistory(
 		Provider:       forcedPin.Provider,
 		Model:          forcedPin.Model,
 		Reason:         forceModelHistoryReason,
-		Strategy:       router.StrategyFromContext(ctx),
+		Strategy:       sp.strategy,
 		TurnCount:      1,
 		PinnedUntil:    PinNeverExpires,
 	})

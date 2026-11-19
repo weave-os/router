@@ -77,7 +77,7 @@ func (s *Service) applySessionStrategy(
 	installationID uuid.UUID,
 	preferenceKey [sessionpin.SessionKeyLen]byte,
 ) (context.Context, error) {
-	if _, selected := router.RoutingModelFromContext(ctx); selected {
+	if router.StrategySelectionFromContext(ctx).RoutingModelSelected() {
 		return ctx, nil
 	}
 	if router.StrategyFromContext(ctx) == router.StrategyLLMClassifier {
@@ -115,7 +115,7 @@ func (s *Service) handleBetaCommand(
 	preferenceKey [sessionpin.SessionKeyLen]byte,
 	inputTokens int,
 ) error {
-	if _, selected := router.RoutingModelFromContext(ctx); selected {
+	if router.StrategySelectionFromContext(ctx).RoutingModelSelected() {
 		return writeBetaCommandResponse(w, env, fmt.Sprintf("Select a router with `wv router set-model %s`, `wv router set-model %s`, `wv router set-model %s`, `wv router set-model %s`, or `wv router set-model %s`, then start a new session.", router.ModelHMM, router.ModelHMMBeta, router.ModelQwen, router.ModelDecision, router.ModelAutomatic), inputTokens)
 	}
 	strategy := cmd.Strategy
@@ -135,7 +135,8 @@ func (s *Service) handleBetaCommand(
 	if s.sessionStrategyStore == nil || installationID == uuid.Nil || preferenceKey == ([sessionpin.SessionKeyLen]byte{}) || clientSessionIDForRequest(ctx, env) == "" {
 		return writeBetaCommandResponse(w, env, unavailableMessage, inputTokens)
 	}
-	previousStrategy := router.StrategyFromContext(ctx)
+	currentStrategy := router.StrategyFromContext(ctx)
+	previousStrategy := currentStrategy
 	previous, found, err := s.sessionStrategyStore.Get(ctx, installationID, preferenceKey)
 	if err != nil {
 		return fmt.Errorf("read session routing strategy before beta toggle: %w", err)
@@ -143,7 +144,7 @@ func (s *Service) handleBetaCommand(
 	if found {
 		previousStrategy = previous.Strategy
 	}
-	if router.StrategyFromContext(ctx) == strategy {
+	if currentStrategy == strategy {
 		return writeBetaCommandResponse(w, env, betaPinnedMessage, inputTokens)
 	}
 

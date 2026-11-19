@@ -43,7 +43,7 @@ func TestCodexCompactionAfterAutoReview(t *testing.T) {
 		turnCtx := router.WithStrategy(ctx, strategy)
 		decision := router.Decision{Provider: providers.ProviderOpenAI, Model: compactionStrategyModel,
 			Metadata: &router.RoutingMetadata{Strategy: string(strategy)}}
-		routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now).WriteNew(turnCtx, installationID, sessionKey, sessionpin.DefaultRole, decision)
+		routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now, router.StrategyFromContext(turnCtx)).WriteNew(turnCtx, installationID, sessionKey, sessionpin.DefaultRole, decision)
 		svc.recordTurnUsage(turnCtx, turnLoopResult{
 			InstallationID: installationID, SessionKey: sessionKey, PinRole: sessionpin.DefaultRole,
 			Strategy: strategy, Decision: decision,
@@ -84,7 +84,7 @@ func TestCodexCompactionAfterAutoReview(t *testing.T) {
 	assert.Equal(t, compactionStrategyModel, turn.Decision.Model)
 	assert.Equal(t, policy.OverrideSourceSession, turn.Origin)
 
-	sessionPins := routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now)
+	sessionPins := routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now, router.StrategyFromContext(ctx))
 	_, active := sessionPins.Load(ctx, sessionKey, sessionpin.DefaultRole)
 	assert.False(t, active, "ordinary routing must still reject another strategy's pin")
 	assert.Empty(t, sessionPins.LoadHMMHistory(ctx, sessionKey, sessionpin.DefaultRole).LastServedModel)

@@ -96,10 +96,10 @@ func TestAgreementShadowForceUnforceBeforeToolResultBreaksVotes(t *testing.T) {
 		t.Fatalf("fixture did not establish the pre-command vote: %+v", before)
 	}
 	for _, command := range []translate.ForceModelResult{{Model: agreementSol}, {Clear: true}} {
-		if err := svc.handleForceModelCommand(ctx, httptest.NewRecorder(), typedCommandEnv(t, "/fm sol"), command, installationID, threadKey, controlKey, 1); err != nil {
+		if err := svc.handleForceModelCommand(ctx, httptest.NewRecorder(), typedCommandEnv(t, "/fm sol"), command, sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: installationID, sessionKey: threadKey}, controlKey, 1); err != nil {
 			t.Fatal(err)
 		}
-		svc.grantPostCommandContinuation(ctx, installationID, threadKey, sessionpin.DefaultRole)
+		svc.grantPostCommandContinuation(ctx, router.StrategyFromContext(ctx), installationID, threadKey, sessionpin.DefaultRole)
 		boundary, _, err := store.GetAgreementShadow(ctx, key)
 		if err != nil || boundary.SegmentID != "" || boundary.OneUp.Current.Target != (switchpolicy.Target{}) || boundary.TwoUp.Current.Target != (switchpolicy.Target{}) {
 			t.Fatalf("successful command left simulated histories connected: %+v %v", boundary, err)
@@ -142,7 +142,7 @@ func TestAgreementShadowRejectedAndFailedCommandsKeepHistory(t *testing.T) {
 			if failed {
 				model = agreementSol
 			}
-			err := svc.handleForceModelCommand(ctx, httptest.NewRecorder(), typedCommandEnv(t, "/fm sol"), translate.ForceModelResult{Model: model}, uuid.MustParse(p.InstallationID), threadKey, [sessionpin.SessionKeyLen]byte{2}, 1)
+			err := svc.handleForceModelCommand(ctx, httptest.NewRecorder(), typedCommandEnv(t, "/fm sol"), translate.ForceModelResult{Model: model}, sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.MustParse(p.InstallationID), sessionKey: threadKey}, [sessionpin.SessionKeyLen]byte{2}, 1)
 			if (err != nil) != failed {
 				t.Fatalf("unexpected command result: %v", err)
 			}

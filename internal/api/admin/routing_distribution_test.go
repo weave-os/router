@@ -23,8 +23,8 @@ type fakeDistributionRoster struct {
 	strategies []router.Strategy
 }
 
-func (f *fakeDistributionRoster) DistributionRoster(ctx context.Context) (*rosterdata.Roster, error) {
-	f.strategies = append(f.strategies, router.StrategyFromContext(ctx))
+func (f *fakeDistributionRoster) DistributionRoster(_ context.Context, strategy router.Strategy) (*rosterdata.Roster, error) {
+	f.strategies = append(f.strategies, strategy)
 	return f.roster, f.err
 }
 

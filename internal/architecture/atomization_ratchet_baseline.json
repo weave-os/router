@@ -21,10 +21,9 @@
       "internal/proxy -> internal/router/rl": 1
     },
     "strategy_from_context_callers": {
+      "internal/api/admin": 2,
       "internal/api/anthropic": 1,
-      "internal/policyregistry": 5,
-      "internal/proxy": 33,
-      "internal/routingpolicy": 5,
+      "internal/proxy": 11,
       "internal/server/middleware": 1
     },
     "strategy_serving_adapter_imports": {}

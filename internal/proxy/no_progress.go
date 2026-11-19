@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"github.com/google/uuid"
 	"net/http"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/conversation"
@@ -11,8 +12,6 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
-
-	"github.com/google/uuid"
 )
 
 func shortSessionKey(sessionKey [sessionpin.SessionKeyLen]byte) string {
@@ -27,8 +26,7 @@ func (s *Service) handleNoProgressBreak(
 	w http.ResponseWriter,
 	env *translate.RequestEnvelope,
 	count int,
-	installationID uuid.UUID,
-	sessionKey [sessionpin.SessionKeyLen]byte,
+	target sessionTarget,
 	role string,
 	decisionModel string,
 	decisionProvider string,
@@ -37,8 +35,8 @@ func (s *Service) handleNoProgressBreak(
 ) error {
 	log := observability.FromContext(ctx)
 	preserveForcedPin := len(decisionReason) > 0 && isUserForcedReason(decisionReason[0])
-	if !preserveForcedPin && s.pinStore != nil && installationID != uuid.Nil && sessionKey != ([sessionpin.SessionKeyLen]byte{}) {
-		pin, found := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now).Load(ctx, sessionKey, role)
+	if !preserveForcedPin && s.pinStore != nil && target.installationID != uuid.Nil && target.sessionKey != ([sessionpin.SessionKeyLen]byte{}) {
+		pin, found := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, target.strategy).Load(ctx, target.sessionKey, role)
 		preserveForcedPin = found && isUserForcedReason(pin.Reason)
 	}
 	pinAction := "clearing the session pin so the next message re-routes"
@@ -67,12 +65,12 @@ func (s *Service) handleNoProgressBreak(
 		"time_window", conversation.NoProgressTimeWindow.String(),
 		"decision_model", decisionModel,
 		"decision_provider", decisionProvider,
-		"session_key_prefix", shortSessionKey(sessionKey),
+		"session_key_prefix", shortSessionKey(target.sessionKey),
 		"role", role,
 	)
 
-	if s.pinStore != nil && installationID != uuid.Nil && sessionKey != ([sessionpin.SessionKeyLen]byte{}) && !preserveForcedPin {
-		if err := s.expireSessionPinAndHMMHistory(ctx, installationID, sessionKey, role, "no_progress_loop_break"); err != nil {
+	if s.pinStore != nil && target.installationID != uuid.Nil && target.sessionKey != ([sessionpin.SessionKeyLen]byte{}) && !preserveForcedPin {
+		if err := s.expireSessionPinAndHMMHistory(ctx, target.strategy, target.installationID, target.sessionKey, role, "no_progress_loop_break"); err != nil {
 			log.Error("no-progress-break: pin store upsert failed", "err", err)
 		}
 	}

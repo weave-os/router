@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"weave-os/router/internal/router"
 
 	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/router/sessionpin"
@@ -64,7 +65,7 @@ func TestHandleLoopEscalation_RecordsEventAndPins(t *testing.T) {
 	events := &recordingLoopStore{}
 	svc := newLoopEscalationSvc(pins, events)
 
-	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.New(), loopTestKey(1), "default", "claude-haiku-4-5", false)
+	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: loopTestKey(1)}, "default", "claude-haiku-4-5", false)
 
 	require.Len(t, events.events, 1, "detection must leave a durable event row")
 	ev := events.events[0]
@@ -84,7 +85,7 @@ func TestHandleLoopEscalation_KillSwitchRecordsButDoesNotPin(t *testing.T) {
 	events := &recordingLoopStore{}
 	svc := newLoopEscalationSvc(pins, events).WithLoopEscalationConfig(false, 0)
 
-	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.New(), loopTestKey(2), "default", "claude-haiku-4-5", false)
+	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: loopTestKey(2)}, "default", "claude-haiku-4-5", false)
 
 	require.Len(t, events.events, 1, "kill switch must not silence detection telemetry")
 	assert.Equal(t, loopActionDisabled, events.events[0].Action)
@@ -96,7 +97,7 @@ func TestHandleLoopEscalation_HoldoutRecordsButDoesNotPin(t *testing.T) {
 	events := &recordingLoopStore{}
 	svc := newLoopEscalationSvc(pins, events).WithLoopEscalationConfig(true, 100)
 
-	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.New(), loopTestKey(3), "default", "claude-haiku-4-5", false)
+	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: loopTestKey(3)}, "default", "claude-haiku-4-5", false)
 
 	require.Len(t, events.events, 1)
 	assert.Equal(t, loopActionHoldout, events.events[0].Action)
@@ -109,7 +110,7 @@ func TestHandleLoopEscalation_HoldoutWithoutStoreStillEscalates(t *testing.T) {
 	pins := newStubPinStore()
 	svc := newLoopEscalationSvc(pins, nil).WithLoopEscalationConfig(true, 100)
 
-	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.New(), loopTestKey(4), "default", "claude-haiku-4-5", false)
+	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: loopTestKey(4)}, "default", "claude-haiku-4-5", false)
 
 	require.Len(t, pins.upserts, 1, "no store wired -> holdout disabled -> escalate")
 	assert.Equal(t, translate.ReasonLoopEscalation, pins.upserts[0].Reason)
@@ -120,7 +121,7 @@ func TestHandleLoopEscalation_BudgetSuppressesRepeatFire(t *testing.T) {
 	events := &recordingLoopStore{count: 1}
 	svc := newLoopEscalationSvc(pins, events)
 
-	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.New(), loopTestKey(5), "default", "claude-haiku-4-5", false)
+	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: loopTestKey(5)}, "default", "claude-haiku-4-5", false)
 
 	assert.Empty(t, events.events, "a session that already fired must not emit a second event")
 	assert.Empty(t, pins.upserts, "a session that already fired must not re-pin")
@@ -131,7 +132,7 @@ func TestHandleLoopEscalation_AlreadyStrongRecordsOnly(t *testing.T) {
 	events := &recordingLoopStore{}
 	svc := newLoopEscalationSvc(pins, events)
 
-	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.New(), loopTestKey(6), "default", escalateModel, false)
+	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: loopTestKey(6)}, "default", escalateModel, false)
 
 	require.Len(t, events.events, 1, "an opus loop is a training signal, record it")
 	assert.Equal(t, loopActionAlreadyStrong, events.events[0].Action)
@@ -145,7 +146,7 @@ func TestHandleLoopEscalation_UserForcedRecordsOnly(t *testing.T) {
 	events := &recordingLoopStore{}
 	svc := newLoopEscalationSvc(pins, events)
 
-	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.New(), loopTestKey(7), "default", "claude-haiku-4-5", false)
+	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: loopTestKey(7)}, "default", "claude-haiku-4-5", false)
 
 	require.Len(t, events.events, 1)
 	assert.Equal(t, loopActionUserForced, events.events[0].Action)
@@ -159,7 +160,7 @@ func TestHandleLoopEscalation_ExistingEscalationPinIsSilent(t *testing.T) {
 	events := &recordingLoopStore{}
 	svc := newLoopEscalationSvc(pins, events)
 
-	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.New(), loopTestKey(8), "default", "claude-haiku-4-5", false)
+	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: loopTestKey(8)}, "default", "claude-haiku-4-5", false)
 
 	assert.Empty(t, events.events, "an already-rescued session must not double-log")
 	assert.Empty(t, pins.upserts)
@@ -200,7 +201,7 @@ func TestHandleLoopEscalation_PinFailureLeavesNoEventRow(t *testing.T) {
 	events := &recordingLoopStore{}
 	svc := newLoopEscalationSvc(pins, events)
 
-	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.New(), loopTestKey(10), "default", "claude-haiku-4-5", false)
+	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: loopTestKey(10)}, "default", "claude-haiku-4-5", false)
 
 	assert.Empty(t, events.events, "a failed rescue must not consume the session's escalation budget")
 	assert.Empty(t, pins.upserts)
@@ -214,7 +215,7 @@ func TestHandleLoopEscalation_NilInstallationSkipsHoldout(t *testing.T) {
 	events := &recordingLoopStore{}
 	svc := newLoopEscalationSvc(pins, events).WithLoopEscalationConfig(true, 100)
 
-	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.Nil, loopTestKey(11), "default", "claude-haiku-4-5", false)
+	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.Nil, sessionKey: loopTestKey(11)}, "default", "claude-haiku-4-5", false)
 
 	assert.Empty(t, events.events, "nil installation cannot record an event row")
 	assert.Empty(t, pins.upserts, "nil installation cannot pin either — but it must not be counted as holdout")

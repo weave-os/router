@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"testing"
+	"weave-os/router/internal/router"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -50,8 +51,8 @@ func TestForceModelCommand_TypedForms(t *testing.T) {
 			require.True(t, found, "command parsed")
 
 			rec := httptest.NewRecorder()
-			require.NoError(t, svc.handleForceModelCommand(context.Background(), rec, env, cmd,
-				uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
+			require.NoError(t, svc.handleForceModelCommand(context.Background(), rec, env, cmd, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
+				DeriveSessionKey(env, "key-1"), 10))
 
 			require.Len(t, store.upserts, 1, "pin written")
 			assert.Equal(t, tt.wantModel, store.upserts[0].Model)
@@ -74,8 +75,8 @@ func TestForceModelCommand_TypedUnknownKeepsRouting(t *testing.T) {
 			require.True(t, found, "command parsed")
 
 			rec := httptest.NewRecorder()
-			require.NoError(t, svc.handleForceModelCommand(context.Background(), rec, env, cmd,
-				uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
+			require.NoError(t, svc.handleForceModelCommand(context.Background(), rec, env, cmd, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
+				DeriveSessionKey(env, "key-1"), 10))
 
 			assert.Empty(t, store.upserts, "no pin")
 			assert.Contains(t, rec.Body.String(), "isn't a recognized model")
@@ -92,8 +93,8 @@ func TestForceModelCommand_TypoSuggestsWithoutPinning(t *testing.T) {
 	require.True(t, found, "command parsed")
 
 	rec := httptest.NewRecorder()
-	require.NoError(t, svc.handleForceModelCommand(context.Background(), rec, env, cmd,
-		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
+	require.NoError(t, svc.handleForceModelCommand(context.Background(), rec, env, cmd, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
+		DeriveSessionKey(env, "key-1"), 10))
 
 	assert.Empty(t, store.upserts, "a suggestion never pins")
 	assert.Contains(t, rec.Body.String(), "isn't a recognized model")

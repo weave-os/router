@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"context"
 	"time"
 
 	"weave-os/router/internal/router"
@@ -13,8 +12,8 @@ var pinNeverExpires = routingpolicy.PinNeverExpires
 
 func pinExpiry(reason string, now time.Time) time.Time { return routingpolicy.PinExpiry(reason, now) }
 
-func pinMatchesEffectiveStrategy(ctx context.Context, pin sessionpin.Pin) bool {
-	return routingpolicy.PinMatchesEffectiveStrategy(ctx, pin)
+func pinMatchesEffectiveStrategy(strategy router.Strategy, pin sessionpin.Pin) bool {
+	return routingpolicy.PinMatchesEffectiveStrategy(strategy, pin)
 }
 
 func decisionPolicyGroup(dec router.Decision) string { return routingpolicy.DecisionPolicyGroup(dec) }

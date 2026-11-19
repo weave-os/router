@@ -403,7 +403,7 @@ func TestClientSelectedModelKeepsPolicyPassthroughStrict(t *testing.T) {
 	ctx, err := authService.WithRoutingPolicy(context.Background(), "installation")
 	require.NoError(t, err)
 
-	_, err = service.routeFor(auth.WithClientModelPassthrough(ctx), router.Request{
+	_, err = service.routeFor(auth.WithClientModelPassthrough(ctx), router.StrategyFromContext(ctx), router.Request{
 		RequestedModel:   catalog.ModelIDClaudeSonnet46.String(),
 		EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
 		Candidates: router.Candidates{

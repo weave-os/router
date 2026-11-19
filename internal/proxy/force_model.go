@@ -398,7 +398,7 @@ func forceModelClearRoles() []string {
 }
 
 func (s *Service) clearLegacyForceModelPins(
-	ctx context.Context,
+	ctx context.Context, strategy router.Strategy,
 	installationID uuid.UUID,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 ) error {
@@ -413,7 +413,7 @@ func (s *Service) clearLegacyForceModelPins(
 		if !found || !isUserForcedReason(pin.Reason) {
 			continue
 		}
-		if err := s.expireSessionPin(ctx, installationID, sessionKey, role, userUnforcedReason); err != nil {
+		if err := s.expireSessionPin(ctx, strategy, installationID, sessionKey, role, userUnforcedReason); err != nil {
 			return err
 		}
 	}
@@ -509,11 +509,11 @@ func (s *Service) handleForceModelCommand(
 	w http.ResponseWriter,
 	env *translate.RequestEnvelope,
 	cmd translate.ForceModelResult,
-	installationID uuid.UUID,
-	threadSessionKey, forceModelSessionKey [sessionpin.SessionKeyLen]byte,
+	target sessionTarget,
+	forceModelSessionKey [sessionpin.SessionKeyLen]byte,
 	inputTokens int,
 ) error {
-	_, ack, err := s.applyForceModelCommand(ctx, cmd, installationID, threadSessionKey, forceModelSessionKey)
+	_, ack, err := s.applyForceModelCommand(ctx, target.strategy, cmd, target.installationID, target.sessionKey, forceModelSessionKey)
 	if err != nil {
 		return err
 	}
@@ -521,7 +521,7 @@ func (s *Service) handleForceModelCommand(
 }
 
 func (s *Service) applyForceModelCommand(
-	ctx context.Context,
+	ctx context.Context, strategy router.Strategy,
 	cmd translate.ForceModelResult,
 	installationID uuid.UUID,
 	threadSessionKey, forceModelSessionKey [sessionpin.SessionKeyLen]byte,
@@ -530,7 +530,7 @@ func (s *Service) applyForceModelCommand(
 
 	ack := newCommandAcknowledgment(translate.CommandForceModel)
 	if cmd.Clear {
-		if err := s.clearLegacyForceModelPins(ctx, installationID, threadSessionKey); err != nil {
+		if err := s.clearLegacyForceModelPins(ctx, strategy, installationID, threadSessionKey); err != nil {
 			log.Error("/unforce-model: legacy pin cleanup failed", "err", err)
 			return "", commandAcknowledgment{}, err
 		}
@@ -576,7 +576,7 @@ func (s *Service) applyForceModelCommand(
 		return "", ack, nil
 	}
 
-	if err := s.clearLegacyForceModelPins(ctx, installationID, threadSessionKey); err != nil {
+	if err := s.clearLegacyForceModelPins(ctx, strategy, installationID, threadSessionKey); err != nil {
 		log.Error("/force-model: legacy pin cleanup failed", "err", err)
 		return "", commandAcknowledgment{}, err
 	}

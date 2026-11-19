@@ -96,7 +96,7 @@ func TestMaybeRepinOnRefusal_WritesAfterRequestCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(repinCtx())
 	cancel()
 
-	s.maybeRepinOnRefusal(ctx, &refusalObserver{refused: true}, [sessionpin.SessionKeyLen]byte{7, 8, 9}, "main_loop",
+	s.maybeRepinOnRefusal(ctx, router.StrategyFromContext(ctx), &refusalObserver{refused: true}, [sessionpin.SessionKeyLen]byte{7, 8, 9}, "main_loop",
 		router.Decision{Provider: "anthropic", Model: "claude-opus-4-8"})
 
 	if len(store.ctxErrs) != 1 {

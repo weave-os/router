@@ -74,7 +74,7 @@ func TestAssignTaskArm(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			turn := assignTaskArm(tc.ctx, taskArmEnvelope(t, tc.body), tc.installation, tc.forceModel, tc.forceCluster)
+			turn := assignTaskArm(tc.ctx, router.StrategyFromContext(tc.ctx), taskArmEnvelope(t, tc.body), tc.installation, tc.forceModel, tc.forceCluster)
 
 			assert.Equal(t, tc.assigned, turn.assigned)
 			attrs := telemetry.NewAttrBuilder(8)
@@ -92,9 +92,9 @@ func TestAssignTaskArmFollowsTheTaskAcrossSessions(t *testing.T) {
 	installation := uuid.MustParse("11111111-1111-1111-1111-111111111111")
 	resumedElsewhere := strings.Replace(taskArmLabelledHistory, "write the exporter", "pick the exporter back up", 1)
 
-	first := assignTaskArm(taskArmContext(), taskArmEnvelope(t, taskArmLabelledHistory), installation, "", "")
-	resumed := assignTaskArm(taskArmContext(), taskArmEnvelope(t, resumedElsewhere), installation, "", "")
-	otherUser := assignTaskArm(context.WithValue(taskArmContext(), auth.UserIDContextKey{}, "user-b"), taskArmEnvelope(t, taskArmLabelledHistory), installation, "", "")
+	first := assignTaskArm(taskArmContext(), router.StrategyFromContext(taskArmContext()), taskArmEnvelope(t, taskArmLabelledHistory), installation, "", "")
+	resumed := assignTaskArm(taskArmContext(), router.StrategyFromContext(taskArmContext()), taskArmEnvelope(t, resumedElsewhere), installation, "", "")
+	otherUser := assignTaskArm(context.WithValue(taskArmContext(), auth.UserIDContextKey{}, "user-b"), router.StrategyFromContext(context.WithValue(taskArmContext(), auth.UserIDContextKey{}, "user-b")), taskArmEnvelope(t, taskArmLabelledHistory), installation, "", "")
 
 	require.True(t, first.assigned)
 	assert.Equal(t, first.assignment, resumed.assignment)
@@ -230,7 +230,7 @@ func TestForceClusterForTurn(t *testing.T) {
 			}
 			env := taskArmEnvelope(t, taskArmLabelledHistory)
 
-			cluster, turn, err := forceClusterForTurn(ctx, r, env, env.RoutingFeatures(), installation, "")
+			cluster, turn, err := forceClusterForTurn(ctx, router.StrategyFromContext(ctx), r, env, env.RoutingFeatures(), installation, "")
 
 			require.NoError(t, err)
 			assert.Equal(t, tc.assigned, turn.assigned)

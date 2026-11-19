@@ -585,7 +585,7 @@ func TestPersistedBetaPreferenceFailsClosedWhenBetaRouterUnavailable(t *testing.
 	require.NoError(t, err)
 	assert.Equal(t, router.StrategyHMMBeta, router.StrategyFromContext(ctx))
 
-	_, err = svc.routeFor(ctx, router.Request{})
+	_, err = svc.routeFor(ctx, router.StrategyFromContext(ctx), router.Request{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "beta unavailable")
 }
@@ -653,7 +653,7 @@ func TestBetaToggleSelectsBetaThenRestoresStableRouter(t *testing.T) {
 	))
 	betaCtx, err := svc.applySessionStrategy(baseCtx, installationID, sessionKey)
 	require.NoError(t, err)
-	_, err = svc.routeFor(betaCtx, router.Request{})
+	_, err = svc.routeFor(betaCtx, router.StrategyFromContext(betaCtx), router.Request{})
 	require.NoError(t, err)
 	assert.Equal(t, 1, betaRouter.calls)
 	assert.Zero(t, stableRouter.calls)
@@ -666,7 +666,7 @@ func TestBetaToggleSelectsBetaThenRestoresStableRouter(t *testing.T) {
 	))
 	stableCtx, err := svc.applySessionStrategy(baseCtx, installationID, sessionKey)
 	require.NoError(t, err)
-	_, err = svc.routeFor(stableCtx, router.Request{})
+	_, err = svc.routeFor(stableCtx, router.StrategyFromContext(stableCtx), router.Request{})
 	require.NoError(t, err)
 	assert.Equal(t, 1, betaRouter.calls)
 	assert.Equal(t, 1, stableRouter.calls)

@@ -31,7 +31,7 @@ type taskArmTurn struct {
 	cappedModel    string
 }
 
-func assignTaskArm(ctx context.Context, env *translate.RequestEnvelope, installationID uuid.UUID, forceModel, forceCluster string) taskArmTurn {
+func assignTaskArm(ctx context.Context, strategy router.Strategy, env *translate.RequestEnvelope, installationID uuid.UUID, forceModel, forceCluster string) taskArmTurn {
 	treatmentPct := flags.IntOr(ctx, flags.KeyTaskArmExperimentTreatmentPct, 0)
 	cluster := flags.StringOr(ctx, flags.KeyTaskArmExperimentTreatmentCluster, "")
 	steps := taskarm.Steps(flags.StringOr(ctx, flags.KeyTaskArmExperimentSteps, ""))
@@ -39,7 +39,7 @@ func assignTaskArm(ctx context.Context, env *translate.RequestEnvelope, installa
 		return taskArmTurn{}
 	}
 	routerDecides := forceModel == "" && forceCluster == "" &&
-		hmm.Owns(router.StrategyFromContext(ctx)) &&
+		hmm.Owns(strategy) &&
 		!callerModelPassthroughActive(ctx) && !planHasDedicatedServingPolicy(ctx) && !policyPinHonoured(ctx)
 	if !routerDecides || installationID == uuid.Nil {
 		return taskArmTurn{}
@@ -126,8 +126,8 @@ func applyTaskArmAttrs(b *telemetry.AttrBuilder, turn taskArmTurn, servedModel s
 		Bool("routing.task_arm_experiment_treatment_applied", turn.capped && servedModel == turn.cappedModel)
 }
 
-func forceClusterForTurn(ctx context.Context, r *http.Request, env *translate.RequestEnvelope, feats translate.RoutingFeatures, installationID uuid.UUID, forceModel string) (string, taskArmTurn, error) {
-	forceCluster, err := applyForceClusterHeader(ctx, r)
+func forceClusterForTurn(ctx context.Context, strategy router.Strategy, r *http.Request, env *translate.RequestEnvelope, feats translate.RoutingFeatures, installationID uuid.UUID, forceModel string) (string, taskArmTurn, error) {
+	forceCluster, err := applyForceClusterHeader(ctx, strategy, r)
 	if err != nil || handoffFromContext(ctx) != nil {
 		return forceCluster, taskArmTurn{}, err
 	}
@@ -136,7 +136,7 @@ func forceClusterForTurn(ctx context.Context, r *http.Request, env *translate.Re
 	if turnType != turntype.MainLoop && turnType != turntype.ToolResult {
 		return forceCluster, taskArmTurn{}, nil
 	}
-	return forceCluster, assignTaskArm(ctx, env, installationID, forceModel, forceCluster), nil
+	return forceCluster, assignTaskArm(ctx, strategy, env, installationID, forceModel, forceCluster), nil
 }
 
 func applyExperimentAttrs(ctx context.Context, b *telemetry.AttrBuilder, routed *turnLoopResult, turn taskArmTurn, requestedModel, servedModel string) {

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"weave-os/router/internal/router"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -17,7 +18,7 @@ import (
 
 type unavailableDistributionRoster struct{}
 
-func (unavailableDistributionRoster) DistributionRoster(context.Context) (*rosterdata.Roster, error) {
+func (unavailableDistributionRoster) DistributionRoster(context.Context, router.Strategy) (*rosterdata.Roster, error) {
 	return nil, errors.New("no active policy")
 }
 

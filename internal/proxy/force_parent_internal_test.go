@@ -36,7 +36,7 @@ func TestForceParentRoutesChildrenAndSupportsScopeTransitions(t *testing.T) {
 	svc := NewService(scorer, nil, nil, store, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
 	apply := func(command translate.ForceModelResult) string {
 		t.Helper()
-		_, ack, err := svc.applyForceModelCommand(ctx, command, installationID, parentKey, controlKey)
+		_, ack, err := svc.applyForceModelCommand(ctx, router.StrategyFromContext(ctx), command, installationID, parentKey, controlKey)
 		require.NoError(t, err)
 		return ack.render(parent.SourceFormat())
 	}
@@ -105,7 +105,7 @@ func TestForceParentDoesNotOverrideChildCompaction(t *testing.T) {
 	}
 	baseline := route()
 	controlKey := deriveForceModelSessionKeyForRequest(ctx, parent, apiKeyID, parentKey)
-	_, _, err = svc.applyForceModelCommand(ctx, translate.ForceModelResult{Model: catalog.ModelIDClaudeOpus48.String(), ParentOnly: true}, installationID, parentKey, controlKey)
+	_, _, err = svc.applyForceModelCommand(ctx, router.StrategyFromContext(ctx), translate.ForceModelResult{Model: catalog.ModelIDClaudeOpus48.String(), ParentOnly: true}, installationID, parentKey, controlKey)
 	require.NoError(t, err)
 	child := route()
 	assert.Equal(t, baseline.Decision.Model, child.Decision.Model, "a parent force must not change the child's compaction model")
@@ -130,9 +130,9 @@ func TestForceParentPreservesChildLoopRescue(t *testing.T) {
 			store := newForceModelMapStore()
 			events := &recordingLoopStore{}
 			svc := NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil).WithLoopEscalationStore(events)
-			_, _, err := svc.applyForceModelCommand(ctx, translate.ForceModelResult{Model: catalog.ModelIDClaudeSonnet46.String(), ParentOnly: test.parentOnly}, installationID, threadKey, controlKey)
+			_, _, err := svc.applyForceModelCommand(ctx, router.StrategyFromContext(ctx), translate.ForceModelResult{Model: catalog.ModelIDClaudeSonnet46.String(), ParentOnly: test.parentOnly}, installationID, threadKey, controlKey)
 			require.NoError(t, err)
-			svc.handleLoopEscalation(ctx, loopTestSig, 24, 0.2, 30, installationID, threadKey, sessionpin.DefaultRole, catalog.ModelIDClaudeHaiku45.String(), test.child, controlKey)
+			svc.handleLoopEscalation(ctx, loopTestSig, 24, 0.2, 30, sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: installationID, sessionKey: threadKey}, sessionpin.DefaultRole, catalog.ModelIDClaudeHaiku45.String(), test.child, controlKey)
 			require.Len(t, events.events, 1)
 			assert.Equal(t, test.wantAction, events.events[0].Action)
 			if test.wantAction == loopActionEscalated {

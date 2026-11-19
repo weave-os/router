@@ -2,14 +2,12 @@ package proxy
 
 import (
 	"context"
+	"github.com/google/uuid"
 	"strings"
 
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
-
-	"github.com/google/uuid"
 )
 
 const providerOverloadedStatus = 529
@@ -22,15 +20,14 @@ func (s *Service) maybeDisableProviderAfterOverload(
 	proxyErr error,
 	finalProvider string,
 	decisionReason string,
-	installationID uuid.UUID,
-	sessionKey [sessionpin.SessionKeyLen]byte,
+	target sessionTarget,
 	role string,
 	pinRole string,
 ) {
-	if !stickyHit || s.pinStore == nil || installationID == uuid.Nil {
+	if !stickyHit || s.pinStore == nil || target.installationID == uuid.Nil {
 		return
 	}
-	if sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
+	if target.sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
 		return
 	}
 	if strings.HasPrefix(decisionReason, translate.ReasonUserForceModel) {
@@ -40,7 +37,7 @@ func (s *Service) maybeDisableProviderAfterOverload(
 	log := observability.FromContext(ctx)
 
 	if proxyErr == nil {
-		if err := s.pinStore.ResetOverloadErrors(context.WithoutCancel(ctx), sessionKey, role, router.StrategyFromContext(ctx)); err != nil {
+		if err := s.pinStore.ResetOverloadErrors(context.WithoutCancel(ctx), target.sessionKey, role, target.strategy); err != nil {
 			log.Error("pin overload-counter reset failed", "err", err, "role", role)
 		}
 		return
@@ -50,7 +47,7 @@ func (s *Service) maybeDisableProviderAfterOverload(
 		return
 	}
 
-	count, err := s.pinStore.IncrementOverloadErrors(context.WithoutCancel(ctx), sessionKey, role, router.StrategyFromContext(ctx))
+	count, err := s.pinStore.IncrementOverloadErrors(context.WithoutCancel(ctx), target.sessionKey, role, target.strategy)
 	if err != nil {
 		log.Error("pin overload-counter increment failed", "err", err, "role", role, "provider", finalProvider)
 		return
@@ -65,14 +62,14 @@ func (s *Service) maybeDisableProviderAfterOverload(
 		return
 	}
 
-	if err := s.pinStore.DisableProvider(context.WithoutCancel(ctx), sessionKey, role, finalProvider, router.StrategyFromContext(ctx)); err != nil {
+	if err := s.pinStore.DisableProvider(context.WithoutCancel(ctx), target.sessionKey, role, finalProvider, target.strategy); err != nil {
 		log.Error("pin provider-disable upsert failed", "err", err, "role", role, "provider", finalProvider)
 		return
 	}
 	if pinRole == "" {
 		pinRole = sessionpin.DefaultRole
 	}
-	if err := s.expireSessionPinAndHMMHistory(ctx, installationID, sessionKey, pinRole, "provider_overloaded"); err != nil {
+	if err := s.expireSessionPinAndHMMHistory(ctx, target.strategy, target.installationID, target.sessionKey, pinRole, "provider_overloaded"); err != nil {
 		log.Error("pin eviction after provider overload failed", "err", err, "role", role, "pin_role", pinRole, "provider", finalProvider)
 		return
 	}
