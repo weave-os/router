@@ -28,10 +28,7 @@ func Admit(payload []byte) (*Policy, error) {
 }
 
 func (p *Policy) Roster() *rosterdata.Roster {
-	roster, err := rosterdata.Parse(p.admittedPayload)
-	if err != nil {
-		panic("selectionpolicy: admitted payload no longer decodes: " + err.Error())
-	}
+	roster, _ := rosterdata.Parse(p.admittedPayload)
 	roster.SHA256 = p.admittedRoster.SHA256
 	return roster
 }
