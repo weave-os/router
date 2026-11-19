@@ -12,25 +12,6 @@ const (
 	precedenceRecapText = "The user stepped away and is coming back. Recap in under 40 words what happened."
 )
 
-// precedenceStrategySetup registers the scripted policy router under a
-// non-HMM strategy, so the trace shows what pins and the planner do to its decisions.
-type precedenceStrategySetup struct {
-	strategy router.Strategy
-	turns    [][]router.Decision
-	options  []func(*proxy.Service) *proxy.Service
-}
-
-func (p precedenceStrategySetup) configure(svc *proxy.Service, h *goldenHarness) *proxy.Service {
-	svc = svc.WithPolicyStrategy(policy.StrategySpec{
-		Strategy: p.strategy,
-		Router:   &scriptedPolicyRouter{rec: h.rec, turns: p.turns},
-	})
-	for _, option := range p.options {
-		svc = option(svc)
-	}
-	return svc
-}
-
 func precedenceStrategyScenario(strategy router.Strategy, name string, options []func(*proxy.Service) *proxy.Service, models []string, bodies ...string) goldenScenario {
 	turns := make([]router.Decision, 0, len(models))
 	for _, model := range models {
@@ -41,9 +22,15 @@ func precedenceStrategyScenario(strategy router.Strategy, name string, options [
 	for _, body := range bodies {
 		requests = append(requests, routingPolicyRequest(body, routingPolicyStrategy(strategy)))
 	}
-	setup := precedenceStrategySetup{strategy: strategy, turns: routingPolicyTurns(turns...), options: options}
+	configure := func(svc *proxy.Service, h *goldenHarness) *proxy.Service {
+		svc = svc.WithPolicyStrategy(policy.StrategySpec{Strategy: strategy, Router: &scriptedPolicyRouter{rec: h.rec, turns: routingPolicyTurns(turns...)}})
+		for _, option := range options {
+			svc = option(svc)
+		}
+		return svc
+	}
 	return goldenScenario{name: "routing_policy_" + string(strategy) + "_strategy_" + name, ingress: ingressAnthropic,
-		upstreams: routingPolicyUpstreams(), requests: requests, configure: setup.configure}
+		upstreams: routingPolicyUpstreams(), requests: requests, configure: configure}
 }
 
 // routingPolicyPrecedenceScenarios cover the turn-loop precedence rules the session pin
