@@ -746,6 +746,11 @@ func marshalClassifierRequestV5(query policy.Query) ([]byte, error) {
 	}
 	messageLimits := classifierRouteMessageLimits(query)
 	messages := convertRouteMessages(query.ConversationMessages, messageLimits)
+	for i := range messages {
+		if messages[i].Role == "developer" {
+			messages[i].Role = "system"
+		}
+	}
 	turnIndex := turnIndex(messages)
 	var visibleTurnIndex *int
 	var sessionTurnCount *int

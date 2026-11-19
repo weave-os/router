@@ -23,6 +23,28 @@ const (
 	classifierV5ArtifactSHA = "c333333333333333333333333333333333333333333333333333333333333333"
 )
 
+func TestClassifierV5ProjectsDeveloperInstructionsAsSystemEvidence(t *testing.T) {
+	query := policy.Query{
+		SchemaVersion: policy.SchemaVersionV5, ClassifierSelectionID: classifierV5SelectionID,
+		ClassifierReleaseID: classifierV5ReleaseID, ClassifierVariantID: policy.ClassifierVariantPrimary,
+		ConversationMessages: []router.ConversationMessage{
+			{Role: "developer", Text: "Answer briefly."},
+			{Role: "user", Text: "Say hello."},
+		},
+	}
+
+	body, err := marshalClassifierRequestV5(query)
+	require.NoError(t, err)
+	var request classifierRequestV5
+	require.NoError(t, json.Unmarshal(body, &request))
+	require.Equal(t, []routeMessage{
+		{Role: "system", Text: "Answer briefly."},
+		{Role: "user", Text: "Say hello."},
+	}, request.ConversationMessages)
+	assert.Equal(t, "Say hello.", request.LatestUserText)
+	assert.Equal(t, "developer", query.ConversationMessages[0].Role)
+}
+
 func TestClassifierV5ClientPinsReleaseAndKeepsCallbacksOnIntegrationClient(t *testing.T) {
 	var routeRequests []map[string]any
 	classifierServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
