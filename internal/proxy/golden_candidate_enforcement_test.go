@@ -64,6 +64,14 @@ func candidateBlindPick(strategy router.Strategy, provider, model string, fallba
 	}}
 }
 
+// candidateRosterPick limits decision's ranked fallback to a rescue roster that
+// holds only the pick, leaving its other candidates outside the roster.
+func candidateRosterPick(decision router.Decision) router.Decision {
+	decision.Metadata.RosterFailover = true
+	decision.Metadata.RescueModels = []string{decision.Model}
+	return decision
+}
+
 func candidateBlindSetup(strategy router.Strategy, session *routingPolicySession, available map[string]struct{}, turns ...router.Decision) func(*proxy.Service, *goldenHarness) *proxy.Service {
 	return func(svc *proxy.Service, h *goldenHarness) *proxy.Service {
 		if session != nil {
@@ -104,6 +112,9 @@ func goldenCandidateEnforcementScenarios() []goldenScenario {
 			requests:  []goldenRequest{first, next}},
 		{name: "candidate_enforcement_hmm_pick_safety_excluded_without_eligible_fallback", ingress: ingressAnthropic, upstreams: maxedOutThenOK,
 			configure: candidateBlindSetup(hmm, nil, nil, servedMid, candidateBlindPick(hmm, providers.ProviderAnthropic, routingPolicyMid)),
+			requests:  []goldenRequest{first, {body: next.body, noTelemetry: true}}},
+		{name: "candidate_enforcement_hmm_pick_safety_excluded_refused_inside_rescue_roster", ingress: ingressAnthropic, upstreams: maxedOutThenOK,
+			configure: candidateBlindSetup(hmm, nil, nil, servedMid, candidateRosterPick(candidateBlindPick(hmm, providers.ProviderAnthropic, routingPolicyMid, routingPolicyLow))),
 			requests:  []goldenRequest{first, {body: next.body, noTelemetry: true}}},
 		{name: "candidate_enforcement_rl_pick_safety_excluded", ingress: ingressAnthropic, upstreams: maxedOutThenOK,
 			configure: candidateBlindSetup(rl, nil, nil, servedMid, candidateBlindPick(rl, providers.ProviderAnthropic, routingPolicyMid, routingPolicyLow)),
