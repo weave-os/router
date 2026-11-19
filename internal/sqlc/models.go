@@ -833,10 +833,10 @@ type RouterModelRouterUserSeatUsage struct {
 	RouterUserID           uuid.UUID
 	Provider               string
 	PrimaryUsedPercent     float64
-	PrimaryWindowMinutes   int32
+	PrimaryWindowMinutes   int64
 	PrimaryResetsAt        pgtype.Timestamptz
 	SecondaryUsedPercent   float64
-	SecondaryWindowMinutes int32
+	SecondaryWindowMinutes int64
 	SecondaryResetsAt      pgtype.Timestamptz
 	OverageInUse           bool
 	ObservedAt             pgtype.Timestamptz

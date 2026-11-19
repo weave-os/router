@@ -25,10 +25,10 @@ ORDER BY provider
 type ListRouterUserSeatUsageRow struct {
 	Provider               string
 	PrimaryUsedPercent     float64
-	PrimaryWindowMinutes   int32
+	PrimaryWindowMinutes   int64
 	PrimaryResetsAt        pgtype.Timestamptz
 	SecondaryUsedPercent   float64
-	SecondaryWindowMinutes int32
+	SecondaryWindowMinutes int64
 	SecondaryResetsAt      pgtype.Timestamptz
 	OverageInUse           bool
 	ObservedAt             pgtype.Timestamptz
@@ -81,8 +81,8 @@ INSERT INTO router.model_router_user_seat_usage (
   overage_in_use, observed_at
 ) VALUES (
   $1::uuid, $2::varchar,
-  $3::double precision, $4::integer, $5::timestamptz,
-  $6::double precision, $7::integer, $8::timestamptz,
+  $3::double precision, $4::bigint, $5::timestamptz,
+  $6::double precision, $7::bigint, $8::timestamptz,
   $9::boolean, $10::timestamptz
 )
 ON CONFLICT (router_user_id, provider) DO UPDATE SET
@@ -101,10 +101,10 @@ type UpsertRouterUserSeatUsageParams struct {
 	RouterUserID           uuid.UUID
 	Provider               string
 	PrimaryUsedPercent     float64
-	PrimaryWindowMinutes   int32
+	PrimaryWindowMinutes   int64
 	PrimaryResetsAt        pgtype.Timestamptz
 	SecondaryUsedPercent   float64
-	SecondaryWindowMinutes int32
+	SecondaryWindowMinutes int64
 	SecondaryResetsAt      pgtype.Timestamptz
 	OverageInUse           bool
 	ObservedAt             pgtype.Timestamptz
@@ -119,8 +119,8 @@ type UpsertRouterUserSeatUsageParams struct {
 //	  overage_in_use, observed_at
 //	) VALUES (
 //	  $1::uuid, $2::varchar,
-//	  $3::double precision, $4::integer, $5::timestamptz,
-//	  $6::double precision, $7::integer, $8::timestamptz,
+//	  $3::double precision, $4::bigint, $5::timestamptz,
+//	  $6::double precision, $7::bigint, $8::timestamptz,
 //	  $9::boolean, $10::timestamptz
 //	)
 //	ON CONFLICT (router_user_id, provider) DO UPDATE SET

@@ -7,8 +7,8 @@ INSERT INTO router.model_router_user_seat_usage (
   overage_in_use, observed_at
 ) VALUES (
   @router_user_id::uuid, @provider::varchar,
-  @primary_used_percent::double precision, @primary_window_minutes::integer, sqlc.narg('primary_resets_at')::timestamptz,
-  @secondary_used_percent::double precision, @secondary_window_minutes::integer, sqlc.narg('secondary_resets_at')::timestamptz,
+  @primary_used_percent::double precision, @primary_window_minutes::bigint, sqlc.narg('primary_resets_at')::timestamptz,
+  @secondary_used_percent::double precision, @secondary_window_minutes::bigint, sqlc.narg('secondary_resets_at')::timestamptz,
   @overage_in_use::boolean, @observed_at::timestamptz
 )
 ON CONFLICT (router_user_id, provider) DO UPDATE SET
