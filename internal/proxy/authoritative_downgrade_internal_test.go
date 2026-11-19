@@ -12,6 +12,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -204,9 +205,9 @@ func TestAuthoritativeDowngradeGuards(t *testing.T) {
 			store.getFound = true
 			store.getPin = authoritativeDowngradePin(test.pinModel, test.priorVotes)
 			svc := authoritativeDowngradeService(store, test.fresh).
-				WithAuthoritativeDowngradeGate(test.downgradeGate).
-				WithHMMDowngradeHysteresisTurns(test.hysteresisTurns).
-				WithHMMDowngradeHysteresisShadowTurns(2)
+				EditHMMConfig(func(c *hmm.Config) { c.DowngradeGate = test.downgradeGate }).
+				EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = test.hysteresisTurns }).
+				EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisShadowTurns = 2 })
 
 			result := runAuthoritativeDowngradeTurn(t, svc)
 
@@ -310,8 +311,8 @@ func TestAuthoritativeDowngradeShadow(t *testing.T) {
 			store.getFound = true
 			store.getPin = authoritativeDowngradePin(test.pinModel, 0)
 			svc := authoritativeDowngradeService(store, test.fresh).
-				WithHMMDowngradeHysteresisTurns(0).
-				WithHMMDowngradeHysteresisShadowTurns(test.shadowTurns)
+				EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).
+				EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisShadowTurns = test.shadowTurns })
 
 			result := runAuthoritativeDowngradeTurn(t, svc)
 
@@ -380,7 +381,7 @@ func TestAuthoritativeDowngradeHysteresisAcrossTurns(t *testing.T) {
 		store := newStubPinStore()
 		store.getFound = true
 		store.getPin = pin
-		svc := authoritativeDowngradeService(store, turn.fresh).WithHMMDowngradeHysteresisTurns(3)
+		svc := authoritativeDowngradeService(store, turn.fresh).EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 3 })
 
 		result := runAuthoritativeDowngradeTurn(t, svc)
 

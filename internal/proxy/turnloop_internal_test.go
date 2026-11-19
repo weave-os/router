@@ -1194,31 +1194,7 @@ func TestService_NewService_HMMUpgradeConfidenceDefaults(t *testing.T) {
 		"anthropic", "claude-haiku-4-5",
 		nil,
 	)
-	assert.InDelta(t, hmm.DefaultUpgradeConfidenceThreshold, svc.hmmUpgradeConfidenceThreshold, 1e-9)
-}
-
-func TestService_WithHMMUpgradeConfidenceThreshold(t *testing.T) {
-	svc := NewService(
-		nil,
-		map[string]providers.Client{providers.ProviderAnthropic: nil},
-		nil,
-		nil,
-		false,
-		"anthropic", "claude-haiku-4-5",
-		nil,
-	)
-
-	svc.WithHMMUpgradeConfidenceThreshold(0.50)
-	assert.InDelta(t, 0.50, svc.hmmUpgradeConfidenceThreshold, 1e-9)
-
-	svc.WithHMMUpgradeConfidenceThreshold(-0.10)
-	assert.InDelta(t, 0.50, svc.hmmUpgradeConfidenceThreshold, 1e-9)
-
-	svc.WithHMMUpgradeConfidenceThreshold(1.50)
-	assert.InDelta(t, 0.50, svc.hmmUpgradeConfidenceThreshold, 1e-9)
-
-	svc.WithHMMUpgradeConfidenceThreshold(0.0)
-	assert.InDelta(t, 0.0, svc.hmmUpgradeConfidenceThreshold, 1e-9)
+	assert.InDelta(t, hmm.DefaultUpgradeConfidenceThreshold, svc.hmmConfig.UpgradeConfidenceThreshold, 1e-9)
 }
 
 func TestHMMCostGate_UpgradeThresholdConfigurable(t *testing.T) {
@@ -1231,7 +1207,7 @@ func TestHMMCostGate_UpgradeThresholdConfigurable(t *testing.T) {
 		"anthropic", "claude-haiku-4-5",
 		nil,
 	)
-	svc.WithHMMUpgradeConfidenceThreshold(0.20)
+	svc.EditHMMConfig(func(c *hmm.Config) { c.UpgradeConfidenceThreshold = 0.20 })
 
 	history := sessionpin.Pin{
 		Provider:        providers.ProviderFireworks,

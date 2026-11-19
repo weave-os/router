@@ -70,76 +70,67 @@ type Service struct {
 	recoveryProbeLeases map[string]localRecoveryProbeLease
 	nextRecoveryProbeID uint64
 
-	subscriptionModels                   subscriptionModelAccess
-	claudePlans                          *subscriptions.PlanResolver
-	sessionHolds                         subscriptionSessionHolds
-	strategies                           map[router.Strategy]registeredStrategy
-	clients                              *dispatch.Clients
-	executor                             *dispatch.Executor
-	defaultExecutorOnce                  sync.Once
-	plans                                *policy.PlanResolver
-	defaultPlansOnce                     sync.Once
-	inferenceDeployment                  policy.DeploymentPolicyConfig
-	translationCompatibilityMode         TranslationCompatibilityMode
-	scopedSearchRequirement              bool
-	searchRequirementDecayTurns          int
-	searchUse                            *searchUseTracker
-	emitter                              TelemetryEmitter
-	translationMetrics                   telemetry.TranslationMetrics
-	pinStore                             sessionpin.Store
-	escalationStore                      escalation.Store
-	escalationObserver                   escalation.Observer
-	escalationDashboardStore             escalationdashboard.Store
-	llmEscalationStore                   llmescalation.Store
-	llmEscalationJudge                   llmescalation.Judge
-	qwenEscalationJudge                  llmescalation.Judge
-	llmEscalationSlots                   chan struct{}
-	llmEscalationShadowSlots             chan struct{}
-	escalationShadowDefault              flags.EscalationClassifier
-	llmEscalationConfiguration           llmescalation.ConfigurationStore
-	llmEscalationInvalidate              func(string)
-	llmEscalationActiveEnabled           bool
-	sessionStrategyStore                 sessionstrategy.Store
-	classifierSessions                   *classifierSessions
-	noProgress                           *conversation.NoProgressTracker
-	compaction                           *conversation.CompactionTracker
-	prefixTrimFreeSwitch                 bool
-	escapeNormalize                      bool
-	hardPinExplore                       bool
-	explicitUtilityHardPin               bool
-	hardPinProvider                      string
-	hardPinModel                         string
-	hardPinResolver                      HardPinResolver
-	subAgentProvider                     string
-	subAgentModel                        string
-	telemetry                            TelemetryRepository
-	turnClock                            SessionTurnClock
-	captureMode                          ContentCaptureMode
-	captureMaxBytes                      int
-	redactor                             Redactor
-	gatewayCaps                          dispatch.GatewayCapabilities
-	unservedGatewayModels                sync.Map
-	routing                              *routingpolicy.Policy
-	globalAutomaticExclusions            *globalAutomaticExclusionCache
-	credentials                          credentials.Brokerage
-	planner                              planner.EVConfig
-	hmmUpgradeConfidenceThreshold        float64
-	authoritativeUpgradeConfig           AuthoritativeUpgradeConfig
-	authoritativeUpgradePolicy           flags.AuthoritativeUpgradePolicy
-	authoritativeUpgradeVotes            int
-	authoritativeUpgradeGate             bool
-	authoritativeDowngradeGate           bool
-	authoritativeUpgradeSlidingThreshold bool
-	hmmDowngradeHysteresisTurns          int
-	hmmDowngradeHysteresisShadowTurns    int
-	authorityCacheShadow                 bool
-	policyDeadlineFallback               bool
-	policyDeadlineDefaultModel           string
-	plannerEnabled                       bool
-	scoreToolResultTurns                 bool
-	cyberRefusalRepin                    bool
-	cyberRefusalRetry                    bool
-	anthropicServerSideFallback          bool
+	subscriptionModels           subscriptionModelAccess
+	claudePlans                  *subscriptions.PlanResolver
+	sessionHolds                 subscriptionSessionHolds
+	strategies                   map[router.Strategy]registeredStrategy
+	clients                      *dispatch.Clients
+	executor                     *dispatch.Executor
+	defaultExecutorOnce          sync.Once
+	plans                        *policy.PlanResolver
+	defaultPlansOnce             sync.Once
+	inferenceDeployment          policy.DeploymentPolicyConfig
+	translationCompatibilityMode TranslationCompatibilityMode
+	scopedSearchRequirement      bool
+	searchRequirementDecayTurns  int
+	searchUse                    *searchUseTracker
+	emitter                      TelemetryEmitter
+	translationMetrics           telemetry.TranslationMetrics
+	pinStore                     sessionpin.Store
+	escalationStore              escalation.Store
+	escalationObserver           escalation.Observer
+	escalationDashboardStore     escalationdashboard.Store
+	llmEscalationStore           llmescalation.Store
+	llmEscalationJudge           llmescalation.Judge
+	qwenEscalationJudge          llmescalation.Judge
+	llmEscalationSlots           chan struct{}
+	llmEscalationShadowSlots     chan struct{}
+	escalationShadowDefault      flags.EscalationClassifier
+	llmEscalationConfiguration   llmescalation.ConfigurationStore
+	llmEscalationInvalidate      func(string)
+	llmEscalationActiveEnabled   bool
+	sessionStrategyStore         sessionstrategy.Store
+	classifierSessions           *classifierSessions
+	noProgress                   *conversation.NoProgressTracker
+	compaction                   *conversation.CompactionTracker
+	prefixTrimFreeSwitch         bool
+	escapeNormalize              bool
+	hardPinExplore               bool
+	explicitUtilityHardPin       bool
+	hardPinProvider              string
+	hardPinModel                 string
+	hardPinResolver              HardPinResolver
+	subAgentProvider             string
+	subAgentModel                string
+	telemetry                    TelemetryRepository
+	turnClock                    SessionTurnClock
+	captureMode                  ContentCaptureMode
+	captureMaxBytes              int
+	redactor                     Redactor
+	gatewayCaps                  dispatch.GatewayCapabilities
+	unservedGatewayModels        sync.Map
+	routing                      *routingpolicy.Policy
+	globalAutomaticExclusions    *globalAutomaticExclusionCache
+	credentials                  credentials.Brokerage
+	planner                      planner.EVConfig
+	hmmConfig                    hmm.Config
+	policyDeadlineFallback       bool
+	policyDeadlineDefaultModel   string
+	plannerEnabled               bool
+	scoreToolResultTurns         bool
+	cyberRefusalRepin            bool
+	cyberRefusalRetry            bool
+	anthropicServerSideFallback  bool
 
 	siblingFailover                bool
 	codexExtraCredits              bool
@@ -1083,12 +1074,7 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 			ExpectedRemainingTurns: DefaultPlannerExpectedRemainingTurns,
 			TierUpgradeEnabled:     DefaultPlannerTierUpgradeEnabled,
 		},
-		hmmUpgradeConfidenceThreshold:  hmm.DefaultUpgradeConfidenceThreshold,
-		hmmDowngradeHysteresisTurns:    hmm.DefaultDowngradeHysteresisTurns,
-		authoritativeUpgradeGate:       true,
-		authoritativeUpgradePolicy:     flags.AuthoritativeUpgradePolicyScore,
-		authoritativeUpgradeVotes:      3,
-		authorityCacheShadow:           true,
+		hmmConfig:                      hmm.DefaultConfig(),
 		plannerEnabled:                 true,
 		scoreToolResultTurns:           true,
 		loopEscalationEnabled:          true,
@@ -1302,60 +1288,8 @@ func (s *Service) WithCyberRefusalFallbackModel(model string) *Service {
 	return s
 }
 
-func (s *Service) WithHMMUpgradeConfidenceThreshold(v float64) *Service {
-	if v < 0 || v > 1 {
-		return s
-	}
-	s.hmmUpgradeConfidenceThreshold = v
-	return s
-}
-
-func (s *Service) WithAuthoritativeUpgradeGate(enabled bool) *Service {
-	s.authoritativeUpgradeGate = enabled
-	return s
-}
-
-func (s *Service) WithAuthoritativeUpgradePolicy(mode flags.AuthoritativeUpgradePolicy) *Service {
-	s.authoritativeUpgradePolicy = mode
-	return s
-}
-
-func (s *Service) WithAuthoritativeUpgradeVotes(votes int) *Service {
-	if votes < 0 {
-		votes = 0
-	}
-	s.authoritativeUpgradeVotes = votes
-	return s
-}
-
-func (s *Service) WithAuthoritativeDowngradeGate(enabled bool) *Service {
-	s.authoritativeDowngradeGate = enabled
-	return s
-}
-
-func (s *Service) WithAuthoritativeUpgradeSlidingThreshold(enabled bool) *Service {
-	s.authoritativeUpgradeSlidingThreshold = enabled
-	return s
-}
-
-func (s *Service) WithHMMDowngradeHysteresisTurns(turns int) *Service {
-	if turns < 0 {
-		return s
-	}
-	s.hmmDowngradeHysteresisTurns = turns
-	return s
-}
-
-func (s *Service) WithHMMDowngradeHysteresisShadowTurns(turns int) *Service {
-	if turns < 0 {
-		return s
-	}
-	s.hmmDowngradeHysteresisShadowTurns = turns
-	return s
-}
-
-func (s *Service) WithAuthorityCacheShadow(enabled bool) *Service {
-	s.authorityCacheShadow = enabled
+func (s *Service) WithHMMConfig(cfg hmm.Config) *Service {
+	s.hmmConfig = cfg
 	return s
 }
 

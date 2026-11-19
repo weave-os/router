@@ -18,7 +18,7 @@ func hmmCostGateFor(s *Service) hmm.CostGate {
 	return hmm.CostGate{
 		AvailableModels:            s.availableModels,
 		RegisteredProviders:        func() map[string]struct{} { return s.clients.NameSet() },
-		UpgradeConfidenceThreshold: s.hmmUpgradeConfidenceThreshold,
+		UpgradeConfidenceThreshold: s.hmmConfig.UpgradeConfidenceThreshold,
 	}
 }
 

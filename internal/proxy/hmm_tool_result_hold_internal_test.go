@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -66,7 +67,7 @@ func TestHMMToolResultHoldKeepsUserTurnPick(t *testing.T) {
 			}}
 			svc := NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 				WithScoreToolResultTurns(true).
-				WithHMMDowngradeHysteresisTurns(0).
+				EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).
 				WithPolicyStrategy(policy.StrategySpec{
 					Strategy: strategy,
 					Router:   policyRouter,

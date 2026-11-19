@@ -724,10 +724,10 @@ and keeps the default.
 | `ROUTER_STRUGGLE_SHADOW_ENABLED` | `true` | Log-only session struggle detector; the switch sheds its per-turn check. |
 | `ROUTER_TURN_SIGNAL_CAPTURE_ENABLED` | `true` | Per-turn signal snapshot on telemetry rows. Always skipped for opted-out installations. |
 | `ROUTER_TEXT_REPETITION_BREAK_ENABLED` | `true` | Enforcing text-repetition break; turn off if it false-positives on legitimately repeated narration. |
-| `ROUTER_AUTHORITATIVE_DOWNGRADE_GATE` | `false` | Confidence floor for authoritative-per-turn picks that are cheaper than the pin (mirror of the upgrade gate). |
+| `ROUTER_HMM_DOWNGRADE_GATE` | `false` | Confidence floor for authoritative-per-turn picks that are cheaper than the pin (mirror of the upgrade gate). |
 | `ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS` | `hmm.DefaultDowngradeHysteresisTurns`, 0 allowed | Consecutive cheaper-than-pin authoritative votes required before a downgrade is served; `0` switches on the first vote. |
 | `ROUTER_HMM_DOWNGRADE_HYSTERESIS_SHADOW_TURNS` | `2`, 0 allowed | Threshold every served authoritative downgrade is shadow-scored against; telemetry only, `0` silences it. |
-| `ROUTER_AUTHORITY_CACHE_SHADOW` | `true` | Records the HMM cache gate's counterfactual verdict on authoritative-per-turn turns, which return before that gate runs. |
+| `ROUTER_HMM_AUTHORITY_CACHE_SHADOW` | `true` | Records the HMM cache gate's counterfactual verdict on authoritative-per-turn turns, which return before that gate runs. |
 | `ROUTER_POLICY_DEADLINE_FALLBACK` | `false` | Serves the session pin, or `ROUTER_POLICY_DEADLINE_DEFAULT_MODEL`, when a policy sidecar misses its deadline or fails in transport. |
 | `ROUTER_POLICY_DEADLINE_DEFAULT_MODEL` | *(none)* | Static fallback for a deadline miss with no pin; empty keeps the 503. |
 | `ROUTER_SUBSCRIBER_ALLOWANCE_ENABLED` | `false` | Enforces and meters individual Max/Boost allowances. Only meaningful with billing wired. |
@@ -754,14 +754,14 @@ without that floor.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `ROUTER_AUTHORITATIVE_UPGRADE_POLICY` | `score` | `score` or `off`. Installation override wins. |
-| `ROUTER_AUTHORITATIVE_UPGRADE_VOTES` | `3` | Consecutive same-group expensive votes required before the shadow evidence policy would switch. `0` disables vote hysteresis. |
-| `ROUTER_AUTHORITATIVE_UPGRADE_SHADOW_MARGIN` | unset | Top-1 minus top-2 classifier margin threshold in `[0,1]`. Unset falls back to the score gate for margin-needed cases. |
-| `ROUTER_AUTHORITATIVE_UPGRADE_SHADOW_STALE_AFTER` | unset | Pin-age cutoff as a Go duration. Unset or `0s` disables the stale-pin rule. |
+| `ROUTER_HMM_UPGRADE_POLICY` | `score` | `score` or `off`. Installation override wins. |
+| `ROUTER_HMM_UPGRADE_VOTES` | `3` | Consecutive same-group expensive votes required before the shadow evidence policy would switch. `0` disables vote hysteresis. |
+| `ROUTER_HMM_UPGRADE_SHADOW_MARGIN` | unset | Top-1 minus top-2 classifier margin threshold in `[0,1]`. Unset falls back to the score gate for margin-needed cases. |
+| `ROUTER_HMM_UPGRADE_SHADOW_STALE_AFTER` | unset | Pin-age cutoff as a Go duration. Unset or `0s` disables the stale-pin rule. |
 | (no env var; installation override `switch_decide_shadow`) | `true` | Experiment, expires 2026-12-02. Logs `router.switch_shadow` with what the unified switch rule would serve on HMM cost-gate turns. Observation only. |
 | `ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD` | `0.50` | Minimum top-class classifier probability (four groups, floor 0.25) for an upgrade to a pricier model than the session pin. |
-| `ROUTER_AUTHORITATIVE_UPGRADE_GATE` | `true` | Confidence-floor kill switch, used when policy is `score`. |
-| `ROUTER_AUTHORITATIVE_UPGRADE_SLIDING_THRESHOLD` | `false` | Upgrade by the predicted class's probability, bypassing the confidence floor. From a low/medium pin, maximum at 0.3-0.5 serves high and at >=0.5 maximum; from low, high at 0.3-0.5 serves medium and at >=0.5 high, and medium at >=0.3 serves medium; from medium, high needs >=0.4; from high, maximum needs >=0.5. Below a band, and for other transitions, the gates above decide. Installation override `authoritative_upgrade_sliding_threshold`. |
+| `ROUTER_HMM_UPGRADE_GATE` | `true` | Confidence-floor kill switch, used when policy is `score`. |
+| `ROUTER_HMM_UPGRADE_SLIDING_THRESHOLD` | `false` | Upgrade by the predicted class's probability, bypassing the confidence floor. From a low/medium pin, maximum at 0.3-0.5 serves high and at >=0.5 maximum; from low, high at 0.3-0.5 serves medium and at >=0.5 high, and medium at >=0.3 serves medium; from medium, high needs >=0.4; from high, maximum needs >=0.5. Below a band, and for other transitions, the gates above decide. Installation override `authoritative_upgrade_sliding_threshold`. |
 
 Invalid policy, margin, or duration values fail startup. Force/hard
 pins, utility turns, deadline fallbacks, and active escalation floors still win.

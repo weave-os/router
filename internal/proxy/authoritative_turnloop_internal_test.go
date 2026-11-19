@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/handover"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -131,7 +132,7 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 					ExpectedRemainingTurns: 3,
 				}).
 				WithSummarizer(summarizer).
-				WithHMMDowngradeHysteresisTurns(0).
+				EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).
 				WithPolicyStrategy(policy.StrategySpec{
 					Strategy: strategy,
 					Router:   policyRouter,
@@ -224,7 +225,7 @@ func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
 		nil,
-	).WithHMMDowngradeHysteresisTurns(0).WithPolicyStrategy(policy.StrategySpec{
+	).EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).WithPolicyStrategy(policy.StrategySpec{
 		Strategy: strategy,
 		Router:   policyRouter,
 		Capabilities: policy.Capabilities{
@@ -404,7 +405,7 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 				providers.ProviderAnthropic,
 				"claude-haiku-4-5",
 				nil,
-			).WithHMMDowngradeHysteresisTurns(0).WithPolicyStrategy(policy.StrategySpec{
+			).EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).WithPolicyStrategy(policy.StrategySpec{
 				Strategy: strategy,
 				Router:   policyRouter,
 				Capabilities: policy.Capabilities{
@@ -413,7 +414,7 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 				},
 			})
 			if test.gateOff {
-				svc = svc.WithAuthoritativeUpgradeGate(false)
+				svc = svc.EditHMMConfig(func(c *hmm.Config) { c.UpgradeGate = false })
 			}
 			env, err := translate.ParseAnthropic(body)
 			require.NoError(t, err)
