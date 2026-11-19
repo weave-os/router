@@ -91,22 +91,18 @@ func (p *Policy) HarnessClusterArms() map[string]map[string][]string {
 	harnesses := make(map[string]map[string][]string)
 	for _, cluster := range p.admittedRoster.Clusters {
 		for harness := range cluster.ArmsByHarness {
-			harnesses[string(harness)] = p.clusterArmsFor(harness)
+			clusters := make(map[string][]string, len(p.admittedRoster.Clusters))
+			for label, harnessCluster := range p.admittedRoster.Clusters {
+				arms := harnessCluster.ArmsByHarness[harness]
+				if len(arms) == 0 {
+					arms = harnessCluster.Arms
+				}
+				clusters[label] = append([]string(nil), arms...)
+			}
+			harnesses[string(harness)] = clusters
 		}
 	}
 	return harnesses
-}
-
-func (p *Policy) clusterArmsFor(harness rosterdata.Harness) map[string][]string {
-	clusters := make(map[string][]string, len(p.admittedRoster.Clusters))
-	for label, cluster := range p.admittedRoster.Clusters {
-		arms := cluster.ArmsByHarness[harness]
-		if len(arms) == 0 {
-			arms = cluster.Arms
-		}
-		clusters[label] = append([]string(nil), arms...)
-	}
-	return clusters
 }
 
 func catalogIDsByArm(roster *rosterdata.Roster) map[string]string {
