@@ -725,7 +725,7 @@ and keeps the default.
 | `ROUTER_TURN_SIGNAL_CAPTURE_ENABLED` | `true` | Per-turn signal snapshot on telemetry rows. Always skipped for opted-out installations. |
 | `ROUTER_TEXT_REPETITION_BREAK_ENABLED` | `true` | Enforcing text-repetition break; turn off if it false-positives on legitimately repeated narration. |
 | `ROUTER_AUTHORITATIVE_DOWNGRADE_GATE` | `false` | Confidence floor for authoritative-per-turn picks that are cheaper than the pin (mirror of the upgrade gate). |
-| `ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS` | `proxy.DefaultHMMDowngradeHysteresisTurns`, 0 allowed | Consecutive cheaper-than-pin authoritative votes required before a downgrade is served; `0` switches on the first vote. |
+| `ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS` | `hmm.DefaultDowngradeHysteresisTurns`, 0 allowed | Consecutive cheaper-than-pin authoritative votes required before a downgrade is served; `0` switches on the first vote. |
 | `ROUTER_HMM_DOWNGRADE_HYSTERESIS_SHADOW_TURNS` | `2`, 0 allowed | Threshold every served authoritative downgrade is shadow-scored against; telemetry only, `0` silences it. |
 | `ROUTER_AUTHORITY_CACHE_SHADOW` | `true` | Records the HMM cache gate's counterfactual verdict on authoritative-per-turn turns, which return before that gate runs. |
 | `ROUTER_POLICY_DEADLINE_FALLBACK` | `false` | Serves the session pin, or `ROUTER_POLICY_DEADLINE_DEFAULT_MODEL`, when a policy sidecar misses its deadline or fails in transport. |
