@@ -1,0 +1,195 @@
+package hmm
+
+import (
+	"strings"
+	"time"
+
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/planner"
+	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
+)
+
+type CostGate struct {
+	AvailableModels            map[string]struct{}
+	RegisteredProviders        func() map[string]struct{}
+	UpgradeConfidenceThreshold float64
+}
+
+type CostGateInput struct {
+	Request              router.Request
+	ActivePin            sessionpin.Pin
+	HMMHistory           sessionpin.Pin
+	Fresh                router.Decision
+	EstimatedInputTokens int
+	PrefixBroken         bool
+	Planner              planner.EVConfig
+	Now                  time.Time
+}
+
+const HistoryReason = "hmm_history"
+
+const DefaultUpgradeConfidenceThreshold = 0.50
+
+const DefaultDowngradeHysteresisTurns = 2
+
+const (
+	ReasonConfidentUpgrade       = "hmm_confident_upgrade"
+	ReasonUpgradeConfidenceLow   = "hmm_upgrade_confidence_low"
+	ReasonPhaseChange            = "hmm_phase_change"
+	ReasonDowngradeConfidenceLow = "hmm_downgrade_confidence_low"
+	ReasonDowngradeHysteresis    = "hmm_downgrade_hysteresis"
+)
+
+func (g CostGate) Decide(input CostGateInput) (sessionpin.Pin, planner.Decision, bool) {
+	stayPin, ok := g.StayPin(input.Request, input.ActivePin, input.HMMHistory, input.Now)
+	if !ok {
+		return stayPin, planner.Decision{Outcome: planner.OutcomeSwitch, Reason: planner.ReasonNoPin}, false
+	}
+	phaseChanged := ToolExecutionPhaseChanged(stayPin.Reason, input.Fresh.Reason)
+
+	cfg := input.Planner
+	cfg.TierUpgradeEnabled = false
+	stayPrefix, stayPrefixKnown := routingpolicy.CacheablePrefixTokens(stayPin, input.EstimatedInputTokens, input.PrefixBroken)
+	plan := planner.Decide(planner.Inputs{
+		Pin:                   stayPin,
+		Fresh:                 input.Fresh,
+		EstimatedInputTokens:  input.EstimatedInputTokens,
+		CacheablePrefixTokens: stayPrefix,
+		CachePrefixKnown:      stayPrefixKnown,
+		PriorOutputTokens:     stayPin.LastOutputTokens,
+		AvailableModels:       g.AvailableModels,
+		PinCacheCold:          routingpolicy.PinCacheCold(stayPin, input.PrefixBroken, input.Now),
+	}, cfg)
+
+	freshIsMoreExpensive := FreshIsMoreExpensive(stayPin.Model, input.Fresh.Model, input.EstimatedInputTokens)
+	if phaseChanged && freshIsMoreExpensive {
+		plan.Outcome = planner.OutcomeSwitch
+		plan.Reason = ReasonPhaseChange
+	} else if freshIsMoreExpensive {
+		confidence, ok := DecisionConfidence(input.Fresh)
+		if ok && confidence >= g.UpgradeConfidenceThreshold {
+			plan.Outcome = planner.OutcomeSwitch
+			plan.Reason = ReasonConfidentUpgrade
+		} else if plan.Outcome != planner.OutcomeSwitch {
+			plan.Outcome = planner.OutcomeStay
+			plan.Reason = ReasonUpgradeConfidenceLow
+		}
+	}
+
+	if phaseChanged && plan.Outcome == planner.OutcomeSwitch && plan.Reason == planner.ReasonEVPositive {
+		plan.Reason = ReasonPhaseChange
+	}
+
+	return stayPin, plan, plan.Outcome == planner.OutcomeStay && stayPin.Model != input.Fresh.Model
+}
+
+func (g CostGate) StayPin(req router.Request, activePin sessionpin.Pin, hmmHistory sessionpin.Pin, now time.Time) (sessionpin.Pin, bool) {
+	var (
+		best sessionpin.Pin
+		ok   bool
+	)
+	if !IsPinReason(activePin.Reason) {
+		activePin = sessionpin.Pin{}
+	}
+	for _, candidate := range []sessionpin.Pin{activePin, hmmHistory} {
+		normalized, candidateOK := g.NormalizeStayPin(req, candidate, now)
+		if !candidateOK {
+			continue
+		}
+		if !ok || normalized.LastTurnEndedAt.After(best.LastTurnEndedAt) {
+			best = normalized
+			ok = true
+		}
+	}
+	return best, ok
+}
+
+func (g CostGate) NormalizeStayPin(req router.Request, p sessionpin.Pin, now time.Time) (sessionpin.Pin, bool) {
+	served := p.LastServedModel
+	if served == "" {
+		served = p.Model
+	}
+	effort, model := routingpolicy.StripEffortSuffix(served)
+	if model == "" {
+		return sessionpin.Pin{}, false
+	}
+	if p.LastTurnEndedAt.IsZero() {
+		return sessionpin.Pin{}, false
+	}
+	if !p.PinnedUntil.IsZero() && !p.PinnedUntil.After(now) {
+		return sessionpin.Pin{}, false
+	}
+	if candidates.MaxedOutServedModel(p) != "" {
+		return sessionpin.Pin{}, false
+	}
+	if _, excluded := req.ExcludedModels[model]; excluded {
+		return sessionpin.Pin{}, false
+	}
+	if candidates.AutomaticallyDisabled(req, model) {
+		return sessionpin.Pin{}, false
+	}
+	if g.AvailableModels != nil {
+		if _, available := g.AvailableModels[model]; !available {
+			return sessionpin.Pin{}, false
+		}
+	}
+	if req.HasImages && (!catalog.AcceptsImages(model) ||
+		req.ImageCount > 0 && !catalog.AcceptsImageCount(model, req.ImageCount, req.EnabledProviders)) {
+		return sessionpin.Pin{}, false
+	}
+	p.Model = model
+	if effort != "" {
+		p.Effort = effort
+	}
+	providerSet := req.EnabledProviders
+	if providerSet == nil {
+		providerSet = g.RegisteredProviders()
+	}
+	if p.Provider != "" {
+		if _, enabled := providerSet[p.Provider]; enabled {
+			pinned := map[string]struct{}{p.Provider: {}}
+			if _, valid := catalog.ResolveBindingWithCustom(model, pinned, req.CustomBindings); valid {
+				return p, true
+			}
+		}
+	}
+	binding, ok := catalog.ResolveBindingWithCustom(model, providerSet, req.CustomBindings)
+	if !ok {
+		return sessionpin.Pin{}, false
+	}
+	p.Provider = binding.Provider
+	return p, true
+}
+
+func IsPinReason(reason string) bool {
+	return reason == HistoryReason ||
+		strings.HasPrefix(strings.TrimSpace(reason), "hmm_policy")
+}
+
+func IsToolExecutionReason(reason string) bool {
+	return strings.HasPrefix(strings.TrimSpace(reason), "hmm_policy:tool_execution")
+}
+
+func ToolExecutionPhaseChanged(stayReason, freshReason string) bool {
+	return IsToolExecutionReason(stayReason) != IsToolExecutionReason(freshReason)
+}
+
+func DecisionConfidence(dec router.Decision) (float64, bool) {
+	if dec.Metadata == nil {
+		return 0, false
+	}
+	confidence := float64(dec.Metadata.ChosenScore)
+	if confidence <= 0 {
+		return 0, false
+	}
+	return confidence, true
+}
+
+func FreshIsMoreExpensive(stayModel, freshModel string, inputTokens int) bool {
+	stay, okStay := routingpolicy.HMMEffectiveInputUSDPer1M(stayModel, inputTokens)
+	fresh, okFresh := routingpolicy.HMMEffectiveInputUSDPer1M(freshModel, inputTokens)
+	return okStay && okFresh && fresh > stay
+}

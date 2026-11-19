@@ -241,13 +241,7 @@ func isHMMDecision(dec router.Decision) bool {
 	return strings.HasPrefix(strings.TrimSpace(dec.Reason), "hmm_policy")
 }
 
-const DefaultHMMUpgradeConfidenceThreshold = 0.50
-
-const DefaultHMMDowngradeHysteresisTurns = 2
-
 const (
-	hmmReasonDowngradeConfidenceLow  = "hmm_downgrade_confidence_low"
-	hmmReasonDowngradeHysteresis     = "hmm_downgrade_hysteresis"
 	nativeWebSearchPassthroughReason = "native_web_search_passthrough"
 )
 
@@ -1409,7 +1403,7 @@ func (s *Service) runTurnLoop(
 			if pinFound {
 				activePin = pin
 			}
-			hmmGateInput := routingpolicy.HMMCostGateInput{
+			hmmGateInput := hmm.CostGateInput{
 				Request: req, ActivePin: activePin, HMMHistory: hmmHistory, Fresh: fresh,
 				EstimatedInputTokens: s.plannerTokensFor(ctx, env, feats), PrefixBroken: prefixBroken,
 			}
@@ -1641,7 +1635,7 @@ func (s *Service) authorityCacheShadowFor(
 	if !isHMMDecision(fresh) {
 		return authorityCacheShadow{}
 	}
-	_, plannerDecision, sticky, stayModel := hmmCostGatedDecision(ctx, s, routingpolicy.HMMCostGateInput{
+	_, plannerDecision, sticky, stayModel := hmmCostGatedDecision(ctx, s, hmm.CostGateInput{
 		Request: req, ActivePin: activePin, HMMHistory: hmmHistory, Fresh: fresh,
 		EstimatedInputTokens: estimatedInputTokens, PrefixBroken: prefixBroken,
 	})
