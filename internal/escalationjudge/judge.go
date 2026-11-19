@@ -1,4 +1,4 @@
-package proxy
+package escalationjudge
 
 import (
 	"bytes"
@@ -24,22 +24,20 @@ import (
 const escalationJudgeBaseURL = "https://api.fireworks.ai/inference/v1"
 const escalationJudgeResponseLimit = 128 * 1024
 
-var ErrInvalidEscalationJudgment = errors.New("invalid escalation judgment")
-
-type EscalationJudge struct {
+type Judge struct {
 	plans    *policy.PlanResolver
 	executor *dispatch.Executor
 	apiKey   string
 }
 
-func NewEscalationJudge(plans *policy.PlanResolver, executor *dispatch.Executor, apiKey string) (*EscalationJudge, error) {
+func New(plans *policy.PlanResolver, executor *dispatch.Executor, apiKey string) (*Judge, error) {
 	if plans == nil || executor == nil || strings.TrimSpace(apiKey) == "" {
 		return nil, errors.New("escalation judge requires policy resolver, executor, and platform key")
 	}
-	return &EscalationJudge{plans: plans, executor: executor, apiKey: apiKey}, nil
+	return &Judge{plans: plans, executor: executor, apiKey: apiKey}, nil
 }
 
-func (j *EscalationJudge) Judge(ctx context.Context, request llmescalation.JudgeRequest) (llmescalation.Judgment, error) {
+func (j *Judge) Judge(ctx context.Context, request llmescalation.JudgeRequest) (llmescalation.Judgment, error) {
 	plan, err := j.plans.Resolve(policy.ResolutionRequest{
 		Purpose: policy.PurposeEscalationJudge,
 		RouterRequest: router.Request{
@@ -50,7 +48,7 @@ func (j *EscalationJudge) Judge(ctx context.Context, request llmescalation.Judge
 	if err != nil {
 		return llmescalation.Judgment{}, fmt.Errorf("resolve escalation judge: %w", err)
 	}
-	callCtx, cancel := context.WithTimeout(withoutRequestValues(ctx), llmescalation.JudgeTimeout)
+	callCtx, cancel := context.WithTimeout(requestcontext.WithoutValues(ctx), llmescalation.JudgeTimeout)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
 		return llmescalation.Judgment{}, err
@@ -148,7 +146,7 @@ func parseEscalationJudgment(encoded []byte) (llmescalation.Judgment, error) {
 		}
 	}
 	if len(response.Choices) != 1 || response.Choices[0].FinishReason != escalationJudgeFinishStop {
-		return judgment, fmt.Errorf("%w: response has no complete verdict", ErrInvalidEscalationJudgment)
+		return judgment, fmt.Errorf("%w: response has no complete verdict", llmescalation.ErrInvalidEscalationJudgment)
 	}
 	var verdict struct {
 		Escalate *bool   `json:"escalate"`
@@ -156,24 +154,16 @@ func parseEscalationJudgment(encoded []byte) (llmescalation.Judgment, error) {
 	}
 	var content string
 	if err := json.Unmarshal(response.Choices[0].Message.Content, &content); err != nil {
-		return judgment, fmt.Errorf("%w: verdict content is not text", ErrInvalidEscalationJudgment)
+		return judgment, fmt.Errorf("%w: verdict content is not text", llmescalation.ErrInvalidEscalationJudgment)
 	}
 	decoder := json.NewDecoder(strings.NewReader(content))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&verdict); err != nil {
-		return judgment, fmt.Errorf("%w: verdict schema", ErrInvalidEscalationJudgment)
+		return judgment, fmt.Errorf("%w: verdict schema", llmescalation.ErrInvalidEscalationJudgment)
 	}
 	if decoder.Decode(new(json.RawMessage)) != io.EOF || verdict.Escalate == nil || verdict.Reason == nil || strings.TrimSpace(*verdict.Reason) == "" {
-		return judgment, fmt.Errorf("%w: verdict fields", ErrInvalidEscalationJudgment)
+		return judgment, fmt.Errorf("%w: verdict fields", llmescalation.ErrInvalidEscalationJudgment)
 	}
 	judgment.Escalate, judgment.Reason = *verdict.Escalate, *verdict.Reason
 	return judgment, nil
-}
-
-type requestValuesHidden struct{ context.Context }
-
-func (requestValuesHidden) Value(any) any { return nil }
-
-func withoutRequestValues(ctx context.Context) context.Context {
-	return requestValuesHidden{ctx}
 }

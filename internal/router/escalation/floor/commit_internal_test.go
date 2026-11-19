@@ -1,4 +1,4 @@
-package proxy
+package floor
 
 import (
 	"context"
@@ -70,9 +70,9 @@ func TestEscalationCommitFailureReleasesLeaseAndPreservesOnlyCommittedFeatures(t
 			session.Ordinal = 5
 			session.FeatureTurns = 5
 			session.FeatureState = json.RawMessage(`{"observed_turns":5}`)
-			svc := (&Service{}).WithEscalation(store, nil)
-			turn := &escalationTurn{scope: scope, boundary: boundary, token: token, session: session, checkpoint: escalation.Checkpoint{Ordinal: 5}}
-			err = svc.finishEscalation(ctx, turn, &turnLoopResult{}, nil)
+			svc := newTestService().WithEscalation(store, nil)
+			turn := &xgbTurn{scope: scope, boundary: boundary, token: token, session: session, checkpoint: escalation.Checkpoint{Ordinal: 5}}
+			err = svc.finishEscalation(ctx, turn, &testResult{})
 			require.ErrorContains(t, err, "commit connection lost")
 			next, acquired, err := store.Claim(ctx, scope, installationID, uuid.NewString(), [32]byte{3})
 			require.NoError(t, err)

@@ -85,18 +85,18 @@ type LLMEscalationDetail struct {
 func (s *Service) WithEscalationConfiguration(store llmescalation.ConfigurationStore, invalidate func(string), activeEnabled bool) *Service {
 	s.llmEscalationConfiguration = store
 	s.llmEscalationInvalidate = invalidate
-	s.llmEscalationActiveEnabled = activeEnabled
+	s.escalationHelper().WithSwitchyardActive(activeEnabled)
 	return s
 }
 
 func (s *Service) ListLLMEscalationSessions(ctx context.Context, installationID string, limit, offset int32) (LLMEscalationSnapshot, error) {
-	if s.llmEscalationStore == nil {
+	if s.escalation.LLMStore() == nil {
 		return LLMEscalationSnapshot{}, ErrEscalationJudgeUnavailable
 	}
 	if offset < 0 || limit < 1 || limit > 200 {
 		return LLMEscalationSnapshot{}, errors.New("invalid escalation page")
 	}
-	sessions, err := s.llmEscalationStore.ListSessions(ctx, installationID, limit+1, offset)
+	sessions, err := s.escalation.LLMStore().ListSessions(ctx, installationID, limit+1, offset)
 	if err != nil {
 		return LLMEscalationSnapshot{}, err
 	}
@@ -104,7 +104,7 @@ func (s *Service) ListLLMEscalationSessions(ctx context.Context, installationID 
 	if hasMore {
 		sessions = sessions[:int(limit)]
 	}
-	summary, err := s.llmEscalationStore.Summary(ctx, installationID)
+	summary, err := s.escalation.LLMStore().Summary(ctx, installationID)
 	if err != nil {
 		return LLMEscalationSnapshot{}, err
 	}
@@ -112,7 +112,7 @@ func (s *Service) ListLLMEscalationSessions(ctx context.Context, installationID 
 }
 
 func (s *Service) GetLLMEscalationSession(ctx context.Context, installationID, encodedScope string) (LLMEscalationDetail, bool, error) {
-	if s.llmEscalationStore == nil {
+	if s.escalation.LLMStore() == nil {
 		return LLMEscalationDetail{}, false, ErrEscalationJudgeUnavailable
 	}
 	decoded, err := hex.DecodeString(encodedScope)
@@ -121,7 +121,7 @@ func (s *Service) GetLLMEscalationSession(ctx context.Context, installationID, e
 	}
 	var scope [32]byte
 	copy(scope[:], decoded)
-	session, jobs, found, err := s.llmEscalationStore.GetSession(ctx, installationID, scope)
+	session, jobs, found, err := s.escalation.LLMStore().GetSession(ctx, installationID, scope)
 	return LLMEscalationDetail{Session: session, Checkpoints: jobs}, found, err
 }
 
@@ -141,14 +141,14 @@ func (s *Service) UpdateEscalationSelection(ctx context.Context, installationID 
 		return llmescalation.Selection{}, ErrEscalationJudgeUnavailable
 	}
 	usesJudge := update.Active == flags.EscalationClassifierSwitchyard || update.Shadow == flags.EscalationClassifierSwitchyard
-	if usesJudge && s.llmEscalationJudge == nil {
+	if usesJudge && !s.escalation.SwitchyardJudgeReady() {
 		return llmescalation.Selection{}, fmt.Errorf("%w: deployment capability is disabled", ErrEscalationJudgeUnavailable)
 	}
 	usesQwen := update.Active == flags.EscalationClassifierLLM || update.Shadow == flags.EscalationClassifierLLM
-	if usesQwen && s.qwenEscalationJudge == nil {
+	if usesQwen && !s.escalation.QwenJudgeReady() {
 		return llmescalation.Selection{}, fmt.Errorf("%w: Qwen deployment capability is disabled", ErrEscalationJudgeUnavailable)
 	}
-	if update.Active == flags.EscalationClassifierSwitchyard && !s.llmEscalationActiveEnabled {
+	if update.Active == flags.EscalationClassifierSwitchyard && !s.escalation.SwitchyardActiveEnabled() {
 		return llmescalation.Selection{}, fmt.Errorf("%w: active rollout is disabled", ErrEscalationJudgeUnavailable)
 	}
 	selection, err := s.llmEscalationConfiguration.SetSelection(ctx, installationID, update)
@@ -164,14 +164,14 @@ func (s *Service) UpdateEscalationSelection(ctx context.Context, installationID 
 func (s *Service) withEscalationReadiness(selection llmescalation.Selection) llmescalation.Selection {
 	selection.Ready = true
 	if selection.Active == flags.EscalationClassifierSwitchyard || selection.Shadow == flags.EscalationClassifierSwitchyard {
-		selection.Ready = s.llmEscalationJudge != nil
+		selection.Ready = s.escalation.SwitchyardJudgeReady()
 	}
 	if selection.Active == flags.EscalationClassifierLLM || selection.Shadow == flags.EscalationClassifierLLM {
-		selection.Ready = selection.Ready && s.qwenEscalationJudge != nil
+		selection.Ready = selection.Ready && s.escalation.QwenJudgeReady()
 	}
 	if !selection.Ready {
 		selection.UnavailableReason = "deployment capability is disabled"
-	} else if selection.Active == flags.EscalationClassifierSwitchyard && !s.llmEscalationActiveEnabled {
+	} else if selection.Active == flags.EscalationClassifierSwitchyard && !s.escalation.SwitchyardActiveEnabled() {
 		selection.Ready = false
 		selection.UnavailableReason = "active rollout is disabled"
 	}

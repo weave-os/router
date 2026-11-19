@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 )
 
@@ -72,7 +73,7 @@ func (s *Service) firePolicyShadowDecision(ctx context.Context, servingStrategy 
 		"serving_strategy", servingStrategy,
 		"shadow_strategy", shadowStrategy,
 	)
-	observability.SafeGoContext(withoutRequestValues(ctx), log, policyShadowDecisionTimeout, "policyShadowDecision", func(shadowCtx context.Context) {
+	observability.SafeGoContext(requestcontext.WithoutValues(ctx), log, policyShadowDecisionTimeout, "policyShadowDecision", func(shadowCtx context.Context) {
 		started := s.clock.Now()
 		shadow, err := s.routeWithStrategy(shadowCtx, shadowStrategy, shadowReq)
 		event := base

@@ -20,6 +20,7 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/escalation"
+	"weave-os/router/internal/router/escalation/floor"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/planner"
@@ -109,9 +110,7 @@ type turnLoopResult struct {
 	EscalationShadowMarked bool
 	EscalationScope        [32]byte
 	EscalationOrdinal      int64
-	escalationActivation   [32]byte
-	escalationObservation  translate.EscalationObservation
-	llmEscalation          *llmEscalationTurn
+	escalation             *floor.Turn
 
 	Decision                    router.Decision
 	SessionKey                  [sessionpin.SessionKeyLen]byte
@@ -1188,15 +1187,9 @@ func (s *Service) runTurnLoop(
 	}
 	baselineRequest := req
 	baselineTurn := res
-	escalationTurn := s.beginEscalation(ctx, env, req, &res, apiKeyID)
-	if escalationTurn != nil {
-		req.Escalation = escalationTurn.constraint()
-	}
-	llmTurn := s.beginLLMEscalation(ctx, env, req, &res, apiKeyID)
-	res.llmEscalation = llmTurn
-	if llmTurn != nil && llmTurn.active {
-		req.Escalation = llmTurn.constraint()
-	}
+	escalationTurn := s.escalation.Begin(ctx, s.escalationFacts(ctx, env, res, apiKeyID), req)
+	escalationTurn.Apply(&req)
+	res.escalation = escalationTurn
 	if pinFound {
 		req.Session.PreviousPolicyGroup = escalation.Group(hmm.PinStateOf(pin).PolicyGroup)
 	}
@@ -1312,15 +1305,9 @@ func (s *Service) runTurnLoop(
 			"fresh_reason", fresh.Reason,
 		)
 		res.Fresh = fresh
-		if escalationRoutingApplied(fresh) {
+		if floor.RoutingApplied(fresh) {
 			res.Decision = fresh
-			res.PinTier = "escalation_xgb"
-			if llmTurn != nil && llmTurn.active {
-				res.PinTier = llmEscalationPinTier
-				if llmTurn.session.Config.EffectiveClassifier() == flags.EscalationClassifierLLM {
-					res.PinTier = qwenEscalationPinTier
-				}
-			}
+			res.PinTier = escalationTurn.PinTier()
 			return res, nil
 		}
 		if res.AuthoritativePerTurn {
@@ -1571,25 +1558,28 @@ func (s *Service) runTurnLoop(
 		return res, nil
 	}
 	res, routeErr = routeRemaining()
-	if escalationTurn != nil {
-		if err := s.finishEscalation(ctx, escalationTurn, &res, routeErr); err != nil {
-			log.Warn("Escalation state commit failed; routing without intervention", "err", err, "ordinal", escalationTurn.session.Ordinal)
-			if escalationRoutingApplied(res.Decision) {
+	if escalationTurn.HasXGB() {
+		committed, err := s.escalation.Finish(ctx, escalationTurn, res.Decision, decisionPolicyGroup(res.Decision), routeErr)
+		if err != nil {
+			log.Warn("Escalation state commit failed; routing without intervention", "err", err, "ordinal", escalationTurn.Ordinal())
+			if floor.RoutingApplied(res.Decision) {
 				req = baselineRequest
 				res = baselineTurn
 				res, routeErr = routeRemaining()
 			}
+		} else {
+			res.EscalationShadowMarked, res.EscalationScope, res.EscalationOrdinal = committed.ShadowMarked, committed.Scope, committed.Ordinal
 		}
 	}
-	res.llmEscalation = llmTurn
-	if llmTurn != nil && routeErr == nil {
-		if err := s.applyLLMEscalation(ctx, llmTurn, res.Decision); err != nil {
+	res.escalation = escalationTurn
+	if escalationTurn.HasLLM() && routeErr == nil {
+		if err := s.escalation.ApplyLLM(ctx, escalationTurn, res.Decision); err != nil {
 			log.Warn("LLM escalation application failed", "err", err)
-			if llmTurn.active && escalationRoutingApplied(res.Decision) {
+			if escalationTurn.LLMActive() && floor.RoutingApplied(res.Decision) {
 				req = baselineRequest
 				res = baselineTurn
 				res, routeErr = routeRemaining()
-				res.llmEscalation = llmTurn
+				res.escalation = escalationTurn
 			}
 		}
 	}

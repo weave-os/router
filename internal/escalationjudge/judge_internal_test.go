@@ -1,11 +1,16 @@
-package proxy
+package escalationjudge
 
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -13,11 +18,6 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/llmescalation"
 	"weave-os/router/internal/router/policy"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 func TestEscalationJudgmentKeepsUsageOnInvalidVerdict(t *testing.T) {
@@ -53,8 +53,28 @@ func escalationTestResponse(t *testing.T, verdict string) []byte {
 	return encoded
 }
 
+type judgeResponseProvider struct {
+	respBody    string
+	upstreamErr error
+	calls       int
+}
+
+func (f *judgeResponseProvider) Proxy(_ context.Context, _ router.Decision, _ providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
+	f.calls++
+	if f.upstreamErr != nil {
+		return f.upstreamErr
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.WriteString(w, f.respBody)
+	return nil
+}
+
+func (f *judgeResponseProvider) Passthrough(_ context.Context, _ providers.PreparedRequest, _ http.ResponseWriter, _ *http.Request) error {
+	return nil
+}
+
 type escalationJudgeTestProvider struct {
-	fakeHandoverProvider
+	judgeResponseProvider
 	credentials *requestcontext.Credentials
 	prepared    providers.PreparedRequest
 }
@@ -62,16 +82,16 @@ type escalationJudgeTestProvider struct {
 func (p *escalationJudgeTestProvider) Proxy(ctx context.Context, decision router.Decision, prepared providers.PreparedRequest, writer http.ResponseWriter, request *http.Request) error {
 	p.credentials = requestcontext.CredentialsFromContext(ctx)
 	p.prepared = prepared
-	return p.fakeHandoverProvider.Proxy(ctx, decision, prepared, writer, request)
+	return p.judgeResponseProvider.Proxy(ctx, decision, prepared, writer, request)
 }
 
 func TestEscalationJudgeIsolatesCredentialsAndPreservesPrompt(t *testing.T) {
-	provider := &escalationJudgeTestProvider{fakeHandoverProvider: fakeHandoverProvider{respBody: string(escalationTestResponse(t, `{"escalate":false,"reason":"Progressing."}`))}}
+	provider := &escalationJudgeTestProvider{judgeResponseProvider: judgeResponseProvider{respBody: string(escalationTestResponse(t, `{"escalate":false,"reason":"Progressing."}`))}}
 	plans, err := policy.NewPlanResolver(policy.DefaultRegistry(), policy.NewResolver(map[string]struct{}{policy.EscalationJudgeModel: {}}, map[string]struct{}{providers.ProviderFireworks: {}}, func(model catalog.Model) string { return model.ID }, policy.ProviderPolicy{}))
 	require.NoError(t, err)
 	executor, err := dispatch.NewExecutor(dispatch.NewClients(map[string]providers.Client{providers.ProviderFireworks: provider}))
 	require.NoError(t, err)
-	judge, err := NewEscalationJudge(plans, executor, "dedicated-test-key")
+	judge, err := New(plans, executor, "dedicated-test-key")
 	require.NoError(t, err)
 	ctx := requestcontext.WithCredentials(context.Background(), &requestcontext.Credentials{APIKey: []byte("tenant-test-key"), BaseURL: "https://tenant.invalid", IdentityHeader: "X-Tenant"})
 	judgment, err := judge.Judge(ctx, llmescalation.JudgeRequest{Transcript: "Synthetic conversation", RequestID: "judge-test"})

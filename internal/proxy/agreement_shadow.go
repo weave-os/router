@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/escalation"
+	"weave-os/router/internal/router/escalation/floor"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/sessionpin"
@@ -57,7 +58,7 @@ func applyAgreementShadowTelemetry(ctx context.Context, p *InsertTelemetryParams
 		Observation: switchpolicy.ShadowObservation{RequestID: p.RequestID, StartedAt: p.Timestamp, Gap: switchpolicy.ShadowGapUnsupported},
 	}
 	p.agreementShadow = shadow
-	if !res.AuthoritativePerTurn || !isHMMDecision(res.Fresh) || res.HardPinned || res.ForcedPinDropped || res.PolicyFallback || res.CallerModelPassthrough || res.UsageBypass || escalationRoutingApplied(res.Fresh) {
+	if !res.AuthoritativePerTurn || !isHMMDecision(res.Fresh) || res.HardPinned || res.ForcedPinDropped || res.PolicyFallback || res.CallerModelPassthrough || res.UsageBypass || floor.RoutingApplied(res.Fresh) {
 		return
 	}
 	md, classifier := res.Fresh.Metadata, hmm.ClassifierTelemetryOf(res.Fresh.Metadata)

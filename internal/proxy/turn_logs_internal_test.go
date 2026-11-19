@@ -21,8 +21,6 @@ import (
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/escalation"
-	"weave-os/router/internal/router/llmescalation"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/telemetry"
@@ -546,25 +544,11 @@ func TestApplyRoutingStateAttrs_FirstSelectionIsNotAChange(t *testing.T) {
 	assert.False(t, attrs["routing.model_changed"].GetBoolValue())
 }
 
-func TestApplyRoutingStateAttrs_MarksOnlyTheLLMEscalationApplyingTurn(t *testing.T) {
-	tests := []struct {
-		name string
-		turn *llmEscalationTurn
-		want bool
-	}{
-		{name: "verdict applied this turn", turn: &llmEscalationTurn{active: true, applied: true}, want: true},
-		{name: "floor already in force", turn: &llmEscalationTurn{active: true, session: llmescalation.Session{Floor: escalation.Maximum}}, want: false},
-		{name: "no classifier", turn: nil, want: false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			b := telemetry.NewAttrBuilder(5)
-			applyRoutingStateAttrs(b, turnLoopResult{llmEscalation: tt.turn}, "gpt-5.5", [sessionpin.SessionKeyLen]byte{})
-			attrs := attrsByTelemetryKey(b.Build())
-
-			assert.Equal(t, tt.want, attrs["routing.llm_escalation_applied"].GetBoolValue())
-		})
-	}
+func TestApplyRoutingStateAttrs_OmitsLLMEscalationWithoutClassifier(t *testing.T) {
+	b := telemetry.NewAttrBuilder(5)
+	applyRoutingStateAttrs(b, turnLoopResult{}, "gpt-5.5", [sessionpin.SessionKeyLen]byte{})
+	attrs := attrsByTelemetryKey(b.Build())
+	assert.False(t, attrs["routing.llm_escalation_applied"].GetBoolValue())
 }
 
 func TestApplyRoutingStateAttrs_UsesRequestKeyWhenRoutingKeyIsEmpty(t *testing.T) {

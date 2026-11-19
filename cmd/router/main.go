@@ -26,6 +26,7 @@ import (
 	"weave-os/router/internal/config"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/entra"
+	"weave-os/router/internal/escalationjudge"
 	"weave-os/router/internal/escalationmodal"
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/flags"
@@ -1067,7 +1068,7 @@ func main() {
 	safeGo(logger, "llm-escalation-state-sweep", func() { runEscalationSweep(context.Background(), llmEscalationStore) })
 	var escalationJudge llmescalation.Judge
 	if escalationJudgeEnabled {
-		judge, judgeErr := proxy.NewEscalationJudge(inferencePlans, inferenceExecutor, escalationJudgeKey)
+		judge, judgeErr := escalationjudge.New(inferencePlans, inferenceExecutor, escalationJudgeKey)
 		if judgeErr != nil {
 			panic(judgeErr)
 		}

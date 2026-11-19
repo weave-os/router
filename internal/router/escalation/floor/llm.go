@@ -1,4 +1,4 @@
-package proxy
+package floor
 
 import (
 	"context"
@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/llmescalation"
@@ -22,11 +23,7 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-const llmEscalationBookkeepingTimeout = 100 * time.Millisecond
-const llmEscalationPinTier = "escalation_switchyard_llm_v1"
-const qwenEscalationPinTier = "escalation_llm_escalation"
-
-type llmEscalationTurn struct {
+type llmTurn struct {
 	active       bool
 	activation   [32]byte
 	boundary     [32]byte
@@ -37,33 +34,7 @@ type llmEscalationTurn struct {
 	applied      bool
 }
 
-func (s *Service) WithLLMEscalation(store llmescalation.Store, judge llmescalation.Judge) *Service {
-	s.llmEscalationStore = store
-	s.llmEscalationJudge = judge
-	s.llmEscalationSlots = make(chan struct{}, llmescalation.MaxWorkers)
-	s.llmEscalationShadowSlots = make(chan struct{}, llmescalation.MaxShadowWorkers)
-	return s
-}
-
-func (s *Service) WithQwenEscalation(judge llmescalation.Judge) *Service {
-	s.qwenEscalationJudge = judge
-	if s.llmEscalationSlots == nil {
-		s.llmEscalationSlots = make(chan struct{}, llmescalation.MaxWorkers)
-		s.llmEscalationShadowSlots = make(chan struct{}, llmescalation.MaxShadowWorkers)
-	}
-	return s
-}
-
-func (s *Service) WithEscalationShadowDefault(classifier flags.EscalationClassifier) *Service {
-	s.escalationShadowDefault = classifier
-	return s
-}
-
-func (s *Service) escalationSelection(ctx context.Context) flags.EscalationConfig {
-	return flags.EscalationWithDeploymentShadow(ctx, s.escalationShadowDefault)
-}
-
-func (t *llmEscalationTurn) constraint() *escalation.Constraint {
+func (t *llmTurn) constraint() *escalation.Constraint {
 	if !t.active {
 		return nil
 	}
@@ -74,22 +45,22 @@ func (t *llmEscalationTurn) constraint() *escalation.Constraint {
 	return &escalation.Constraint{Floor: t.session.Floor, Escalate: positive}
 }
 
-func (s *Service) beginLLMEscalation(ctx context.Context, env *translate.RequestEnvelope, req router.Request, res *turnLoopResult, apiKeyID string) *llmEscalationTurn {
-	selection := s.escalationSelection(ctx)
-	active := flags.IsLLMEscalationClassifier(selection.Active) && (selection.Active != flags.EscalationClassifierSwitchyard || s.llmEscalationActiveEnabled)
+func (h *Helper) beginLLM(ctx context.Context, facts Facts, req router.Request) *llmTurn {
+	selection := h.selection(ctx)
+	active := flags.IsLLMEscalationClassifier(selection.Active) && (selection.Active != flags.EscalationClassifierSwitchyard || h.switchyardActiveEnabled)
 	shadow := flags.IsLLMEscalationClassifier(selection.Shadow)
 	classifier := selection.Shadow
 	if active {
 		classifier = selection.Active
 	}
-	judge := s.llmEscalationJudge
+	judge := h.llmJudge
 	if classifier == flags.EscalationClassifierLLM {
-		judge = s.qwenEscalationJudge
+		judge = h.qwenJudge
 	}
-	if (!active && !shadow) || s.llmEscalationStore == nil || judge == nil || (active && res.Strategy != router.StrategyHMMEmbedding) || req.ShadowMode || req.ForceModel != "" || req.ForceCluster != "" || res.InstallationID == uuid.Nil || (res.TurnType != turntype.MainLoop && res.TurnType != turntype.ToolResult) {
+	if (!active && !shadow) || h.llmStore == nil || judge == nil || (active && facts.Strategy != router.StrategyHMMEmbedding) || req.ShadowMode || req.ForceModel != "" || req.ForceCluster != "" || facts.InstallationID == uuid.Nil || (facts.TurnType != turntype.MainLoop && facts.TurnType != turntype.ToolResult) {
 		return nil
 	}
-	if len(req.GatewayProviders) > 0 || (classifier == flags.EscalationClassifierSwitchyard && slices.Contains(installationExcludedProvidersFromContext(ctx), providers.ProviderFireworks)) {
+	if len(req.GatewayProviders) > 0 || (classifier == flags.EscalationClassifierSwitchyard && slices.Contains(facts.ExcludedProviders, providers.ProviderFireworks)) {
 		observability.FromContext(ctx).Info("LLM escalation skipped", "reason", "provider_restricted")
 		return nil
 	}
@@ -108,15 +79,15 @@ func (s *Service) beginLLMEscalation(ctx context.Context, env *translate.Request
 		config.Classifier = classifier
 		config.Digest = fmt.Sprintf("%x", digest)
 	}
-	scope := sha256.Sum256([]byte(fmt.Sprintf("%s/%x/%s/%s/%d/%s", res.InstallationID, res.SessionKey, res.Strategy, mode, selection.Epoch, config.Digest)))
-	activation := escalationActivationID(ctx, res.InstallationID, fmt.Sprintf("%s/%s/%s/%d/%s", sessionCredentialIdentity(ctx, apiKeyID), res.Strategy, mode, selection.Epoch, config.Digest))
-	observation, err := env.EscalationObservation()
-	original, isNativeResponses := ctx.Value(nativeResponsesBodyContextKey{}).([]byte)
-	model := env.Model()
+	scope := sha256.Sum256([]byte(fmt.Sprintf("%s/%x/%s/%s/%d/%s", facts.InstallationID, facts.SessionKey, facts.Strategy, mode, selection.Epoch, config.Digest)))
+	activation := ActivationID(ctx, facts.InstallationID, fmt.Sprintf("%s/%s/%s/%d/%s", facts.CredentialIdentity, facts.Strategy, mode, selection.Epoch, config.Digest))
+	observation, err := facts.Envelope.EscalationObservation()
+	original, isNativeResponses := facts.NativeResponsesBody, facts.NativeResponses
+	model := facts.Envelope.Model()
 	if isNativeResponses {
 		model = gjson.GetBytes(original, "model").String()
 	}
-	if turntype.IsSideRequest(model, env.LastUserMessage().Text) {
+	if turntype.IsSideRequest(model, facts.Envelope.LastUserMessage().Text) {
 		observability.FromContext(ctx).Info("LLM escalation skipped", "reason", "side_request")
 		return nil
 	}
@@ -127,10 +98,10 @@ func (s *Service) beginLLMEscalation(ctx context.Context, env *translate.Request
 		observability.FromContext(ctx).Warn("LLM escalation observation unavailable", "error_type", fmt.Sprintf("%T", err))
 		return nil
 	}
-	bookkeepingCtx, cancel := context.WithTimeout(ctx, llmEscalationBookkeepingTimeout)
+	bookkeepingCtx, cancel := context.WithTimeout(ctx, llmBookkeepingTimeout)
 	defer cancel()
 	if observation.ContinuationID != "" {
-		prior, found, lookupErr := s.llmEscalationStore.Continuation(bookkeepingCtx, activation, observation.ContinuationID)
+		prior, found, lookupErr := h.llmStore.Continuation(bookkeepingCtx, activation, observation.ContinuationID)
 		if lookupErr != nil || !found {
 			observability.FromContext(ctx).Warn("LLM escalation continuation unavailable", "err", lookupErr, "found", found)
 			return nil
@@ -150,18 +121,18 @@ func (s *Service) beginLLMEscalation(ctx context.Context, env *translate.Request
 		return nil
 	}
 	observation.Messages = translate.WithoutEscalationDecorations(observation.Messages)
-	observation.CodexToolResults = isNativeResponses && ClientIdentityFrom(ctx).ClientApp == ClientAppCodex
+	observation.CodexToolResults = isNativeResponses && facts.CodexClient
 	encoded, _ := json.Marshal(observation)
-	if len(encoded) > escalationHistoryMaxBytes {
+	if len(encoded) > HistoryMaxBytes {
 		observability.FromContext(ctx).Info("LLM escalation skipped", "reason", "history_too_large")
 		return nil
 	}
-	session, err := s.llmEscalationStore.Start(bookkeepingCtx, llmescalation.StartRequest{Scope: scope, InstallationID: res.InstallationID.String(), InstructionFingerprint: llmescalation.InstructionFingerprint(observation.Messages), Config: config})
+	session, err := h.llmStore.Start(bookkeepingCtx, llmescalation.StartRequest{Scope: scope, InstallationID: facts.InstallationID.String(), InstructionFingerprint: llmescalation.InstructionFingerprint(observation.Messages), Config: config})
 	if err != nil {
 		observability.FromContext(ctx).Warn("LLM escalation state unavailable", "err", err)
 		return nil
 	}
-	return &llmEscalationTurn{active: active, activation: activation, boundary: sha256.Sum256(encoded), requestID: observability.RequestIDFromContext(ctx), observation: observation, session: session, retainReason: s.effectiveCaptureMode(ctx) == CaptureFull}
+	return &llmTurn{active: active, activation: activation, boundary: sha256.Sum256(encoded), requestID: observability.RequestIDFromContext(ctx), observation: observation, session: session, retainReason: facts.RetainReason}
 }
 
 func mergeLLMEscalationHistory(prior, current []translate.EscalationMessage) []translate.EscalationMessage {
@@ -184,18 +155,22 @@ func llmEscalationInstructionRole(role translate.EscalationRole) bool {
 	return role == translate.EscalationRoleSystem || role == translate.EscalationRoleDeveloper
 }
 
-func (s *Service) applyLLMEscalation(ctx context.Context, turn *llmEscalationTurn, decision router.Decision) error {
+func (h *Helper) ApplyLLM(ctx context.Context, t *Turn, decision router.Decision) error {
+	if !t.HasLLM() {
+		return nil
+	}
+	turn := t.llm
 	if turn.session.Pending == nil || turn.session.Pending.Judgment == nil || !turn.session.Pending.Judgment.Escalate || turn.session.Floor != "" {
 		return nil
 	}
-	if turn.active && !escalationRoutingApplied(decision) {
-		recordCtx, cancel := context.WithTimeout(ctx, llmEscalationBookkeepingTimeout)
+	if turn.active && !RoutingApplied(decision) {
+		recordCtx, cancel := context.WithTimeout(ctx, llmBookkeepingTimeout)
 		defer cancel()
-		return s.llmEscalationStore.RecordNoTarget(recordCtx, llmescalation.ApplyRequest{Session: turn.session, JobID: turn.session.Pending.ID, RequestID: turn.requestID, Turn: turn.session.CompletedTurns + 1})
+		return h.llmStore.RecordNoTarget(recordCtx, llmescalation.ApplyRequest{Session: turn.session, JobID: turn.session.Pending.ID, RequestID: turn.requestID, Turn: turn.session.CompletedTurns + 1})
 	}
-	applyCtx, cancel := context.WithTimeout(ctx, llmEscalationBookkeepingTimeout)
+	applyCtx, cancel := context.WithTimeout(ctx, llmBookkeepingTimeout)
 	defer cancel()
-	applied, err := s.llmEscalationStore.Apply(applyCtx, llmescalation.ApplyRequest{Session: turn.session, JobID: turn.session.Pending.ID, Floor: escalation.Maximum, RequestID: turn.requestID, Turn: turn.session.CompletedTurns + 1})
+	applied, err := h.llmStore.Apply(applyCtx, llmescalation.ApplyRequest{Session: turn.session, JobID: turn.session.Pending.ID, Floor: escalation.Maximum, RequestID: turn.requestID, Turn: turn.session.CompletedTurns + 1})
 	if err != nil {
 		return err
 	}
@@ -206,12 +181,12 @@ func (s *Service) applyLLMEscalation(ctx context.Context, turn *llmEscalationTur
 	return nil
 }
 
-func (s *Service) completeLLMEscalation(ctx context.Context, res turnLoopResult, proxyErr error, capture *captureWriter, format translate.EscalationResponseFormat) {
-	turn := res.llmEscalation
-	if turn == nil || proxyErr != nil {
+func (h *Helper) completeLLM(ctx context.Context, done Completion) {
+	if !done.Turn.HasLLM() || done.ProxyErr != nil {
 		return
 	}
-	body, truncated := capturedResponse(capture)
+	turn, format := done.Turn.llm, done.Format
+	body, truncated := done.Body, done.Truncated
 	if truncated || len(body) == 0 {
 		observability.FromContext(ctx).Info("LLM escalation completion skipped", "reason", "capture_unavailable")
 		return
@@ -226,9 +201,9 @@ func (s *Service) completeLLMEscalation(ctx context.Context, res turnLoopResult,
 	messages = append(messages, translate.WithoutEscalationDecorations(completed.Messages)...)
 	if format == translate.EscalationResponseResponses && completed.ResponseID != "" {
 		history, _ := json.Marshal(messages)
-		if len(history) <= escalationHistoryMaxBytes {
-			continuationCtx, cancelContinuation := context.WithTimeout(context.WithoutCancel(ctx), llmEscalationBookkeepingTimeout)
-			err := s.llmEscalationStore.SaveContinuation(continuationCtx, llmescalation.ContinuationRequest{Session: turn.session, Activation: turn.activation, ResponseID: completed.ResponseID, History: history})
+		if len(history) <= HistoryMaxBytes {
+			continuationCtx, cancelContinuation := context.WithTimeout(context.WithoutCancel(ctx), llmBookkeepingTimeout)
+			err := h.llmStore.SaveContinuation(continuationCtx, llmescalation.ContinuationRequest{Session: turn.session, Activation: turn.activation, ResponseID: completed.ResponseID, History: history})
 			cancelContinuation()
 			if err != nil {
 				observability.FromContext(ctx).Warn("LLM escalation continuation save failed", "err", err)
@@ -239,11 +214,11 @@ func (s *Service) completeLLMEscalation(ctx context.Context, res turnLoopResult,
 		return
 	}
 	transcript := llmescalation.RenderTranscript(messages)
-	judge := s.llmEscalationJudge
+	judge := h.llmJudge
 	ready := true
 	if turn.session.Config.EffectiveClassifier() == flags.EscalationClassifierLLM {
 		transcript, ready = llmescalation.RenderQwenInterval(messages, turn.observation.CodexToolResults)
-		judge = s.qwenEscalationJudge
+		judge = h.qwenJudge
 		if !ready {
 			observability.FromContext(ctx).Info("LLM escalation interval unavailable", "completed_turns", turn.session.CompletedTurns+1)
 		}
@@ -254,13 +229,13 @@ func (s *Service) completeLLMEscalation(ctx context.Context, res turnLoopResult,
 	} else if llmescalation.TurnsSinceUserPrompt(messages) < llmescalation.MinTurnsAfterUserPrompt {
 		ready = false
 		intervalFailure = llmescalation.FailureRecentUserPrompt
-	} else if servedEscalationTarget(ctx, res.Decision.Model) {
+	} else if done.ServedTarget {
 		ready = false
 		intervalFailure = llmescalation.FailureServedTarget
 	}
-	slots := s.llmEscalationShadowSlots
+	slots := h.shadowSlots
 	if turn.active {
-		slots = s.llmEscalationSlots
+		slots = h.slots
 	}
 	capacity := false
 	if ready {
@@ -270,8 +245,8 @@ func (s *Service) completeLLMEscalation(ctx context.Context, res turnLoopResult,
 		default:
 		}
 	}
-	completionCtx, cancelCompletion := context.WithTimeout(context.WithoutCancel(ctx), llmEscalationBookkeepingTimeout)
-	completion, err := s.llmEscalationStore.Complete(completionCtx, llmescalation.CompleteRequest{Session: turn.session, Boundary: turn.boundary, RequestID: turn.requestID, Capacity: capacity, IntervalFailure: intervalFailure})
+	completionCtx, cancelCompletion := context.WithTimeout(context.WithoutCancel(ctx), llmBookkeepingTimeout)
+	completion, err := h.llmStore.Complete(completionCtx, llmescalation.CompleteRequest{Session: turn.session, Boundary: turn.boundary, RequestID: turn.requestID, Capacity: capacity, IntervalFailure: intervalFailure})
 	cancelCompletion()
 	if err != nil || completion.Job == nil {
 		if capacity {
@@ -284,7 +259,7 @@ func (s *Service) completeLLMEscalation(ctx context.Context, res turnLoopResult,
 	}
 	job := *completion.Job
 	log := observability.FromContext(ctx).With("escalation_job_id", job.ID, "escalation_checkpoint", job.Checkpoint, "escalation_mode", turn.session.Config.Mode, "escalation_classifier", job.Version, "installation_id", turn.session.InstallationID)
-	observability.SafeGoContext(withoutRequestValues(ctx), log, llmescalation.JudgeTimeout+time.Second, "escalation-judge", func(background context.Context) {
+	observability.SafeGoContext(requestcontext.WithoutValues(ctx), log, llmescalation.JudgeTimeout+time.Second, "escalation-judge", func(background context.Context) {
 		defer func() { <-slots }()
 		background = observability.WithLogger(background, log)
 		background = observability.WithRequestID(background, turn.requestID)
@@ -299,15 +274,15 @@ func (s *Service) completeLLMEscalation(ctx context.Context, res turnLoopResult,
 		if !turn.retainReason {
 			judgment.Reason = ""
 		} else {
-			judgment.Reason = s.redact([]byte(judgment.Reason), ContentKindResponse)
+			judgment.Reason = h.redactReason(judgment.Reason)
 		}
-		persistCtx, persistCancel := context.WithTimeout(background, llmEscalationBookkeepingTimeout)
+		persistCtx, persistCancel := context.WithTimeout(background, llmBookkeepingTimeout)
 		defer persistCancel()
 		job.RecordServedRelease(judgment.Release)
-		if err := s.llmEscalationStore.FinishJob(persistCtx, job, judgment, failure); err != nil {
+		if err := h.llmStore.FinishJob(persistCtx, job, judgment, failure); err != nil {
 			log.Warn("LLM escalation verdict persistence failed", "err", err)
 		}
-		s.recordEscalationJudgeInference(background, turn.session.InstallationID, turn.requestID, turn.session.Config.Mode, job, judgment, failure)
+		h.recordJudge(background, turn.session.InstallationID, turn.requestID, turn.session.Config.Mode, job, judgment, failure)
 		log.Info("LLM escalation checkpoint finished", "failure", failure, "escalate", judgment.Escalate, "usage_known", judgment.Usage.Known, "input_tokens", judgment.Usage.InputTokens, "output_tokens", judgment.Usage.OutputTokens, "cost_usd", judgment.CostUSD)
 	})
 }
@@ -318,13 +293,9 @@ func llmEscalationFailure(judgeErr, judgeContextErr error) llmescalation.Failure
 		return llmescalation.FailureNone
 	case errors.Is(judgeErr, context.DeadlineExceeded), errors.Is(judgeErr, context.Canceled) && errors.Is(judgeContextErr, context.DeadlineExceeded):
 		return llmescalation.FailureTimeout
-	case errors.Is(judgeErr, ErrInvalidEscalationJudgment), errors.Is(judgeErr, llmescalation.ErrInvalidJudgment):
+	case errors.Is(judgeErr, llmescalation.ErrInvalidEscalationJudgment), errors.Is(judgeErr, llmescalation.ErrInvalidJudgment):
 		return llmescalation.FailureInvalid
 	default:
 		return llmescalation.FailureJudge
 	}
-}
-
-func servedEscalationTarget(ctx context.Context, model string) bool {
-	return slices.Contains(clusterArmOverridesForRequest(ctx)[escalation.TargetClusterLabel], model)
 }
