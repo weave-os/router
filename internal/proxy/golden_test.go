@@ -551,6 +551,7 @@ func TestGolden(t *testing.T) {
 	names := map[string]bool{}
 	scenarios := append(goldenInferenceScenarios(), goldenInferenceExecutionScenarios()...)
 	scenarios = append(scenarios, goldenCredentialScenarios()...)
+	scenarios = append(scenarios, goldenRouterAtomScenarios()...)
 	scenarios = append(scenarios, goldenRoutingPolicyScenarios()...)
 	scenarios = append(scenarios, goldenConversationScenarios()...)
 	scenarios = append(scenarios, goldenSubscriptionExhaustionScenarios()...)
