@@ -184,7 +184,8 @@ func TestBypass_ClassifierRefusal_RescuesOnStrongestModelSubscriptionServed(t *t
 	assert.Equal(t, servedModel, rec.Header().Get(HeaderRouterModel))
 }
 
-// Models this subscription has never served aren't guessed at.
+// An Enterprise admin can restrict which models a seat may use, so a model
+// the seat hasn't served would most likely 404 and waste the retry.
 func TestBypass_ClassifierRefusal_DoesNotTryModelsSubscriptionNeverServed(t *testing.T) {
 	p := &modelScriptedProvider{
 		replies:     map[string]string{rescueRefusingModel: rescueRefusal(rescueRefusingModel), "claude-opus-5-5": rescueVerdict()},
@@ -363,4 +364,17 @@ func TestBypass_ClassifierRefusal_ReviewerGetsItsOwnThinkingOff(t *testing.T) {
 	assert.Equal(t, "between_tools", gjson.GetBytes(p.bodies[0], "thinking.type").String())
 	assert.JSONEq(t, `{"type":"disabled"}`, gjson.GetBytes(p.bodies[1], "thinking").Raw)
 	assert.False(t, gjson.GetBytes(p.bodies[1], "output_config").Exists())
+}
+
+func TestBypass_ClassifierRefusal_DoesNotRetryUndatedIDOfRefusingModel(t *testing.T) {
+	dated := rescueRefusingModel + "-20261101"
+	p := &modelScriptedProvider{replies: map[string]string{dated: rescueRefusal(dated), rescueRefusingModel: rescueVerdict()}}
+	svc, _ := rescueService(p, true, rescueRefusingModel)
+	body, err := sjson.Set(classifierStage2Body(""), "model", dated)
+	require.NoError(t, err)
+
+	rec := runRescueWith(t, svc, body)
+
+	assert.Equal(t, []string{dated}, p.models)
+	assert.JSONEq(t, rescueRefusal(dated), rec.Body.String())
 }

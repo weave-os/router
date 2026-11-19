@@ -54,13 +54,13 @@ func newClassifierRefusalRescue(ctx context.Context, policy classifierRescuePoli
 		return classifierRefusalRescue{}
 	}
 	rescue := classifierRefusalRescue{rejected: policy.rejected, inHeaders: in, client: client}
-	seen := map[string]bool{served.Model: true}
+	seen := map[string]bool{router.StripDateSuffix(served.Model): true}
 	for _, model := range policy.models {
-		if model == "" || seen[model] || !modelPermittedByAllowlist(ctx, model) || !modelInRequestSubset(ctx, model) ||
+		if model == "" || seen[router.StripDateSuffix(model)] || !modelPermittedByAllowlist(ctx, model) || !modelInRequestSubset(ctx, model) ||
 			(policy.unavailable != nil && policy.unavailable(model)) {
 			continue
 		}
-		seen[model] = true
+		seen[router.StripDateSuffix(model)] = true
 		target := classifierRescueTarget{decision: served, opts: opts}
 		target.decision.Model = model
 		target.opts.TargetModel = model
