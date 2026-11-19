@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"time"
 
 	"weave-os/router/internal/router/eligibility"
 	"weave-os/router/internal/router/escalation"
@@ -113,6 +114,15 @@ type SessionView struct {
 	PreviousPolicyGroup      escalation.Group
 	SlidingThresholdPinGroup escalation.Group
 	PolicyTurnContext        *PolicyTurnContext
+	Pin                      SessionPin
+}
+
+type SessionPin struct {
+	Found            bool
+	Provider         string
+	Model            string
+	LastTurnEndedAt  time.Time
+	LastOutputTokens int
 }
 
 type ToolDescriptor struct {

@@ -18,6 +18,7 @@ import (
 	"weave-os/router/internal/router/breaker"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/hmm"
@@ -1201,6 +1202,7 @@ func (s *Service) runTurnLoop(
 	}
 
 	routeRemaining := func() (turnLoopResult, error) {
+		req.Session.Pin = router.SessionPin{Found: pinFound, Provider: pin.Provider, Model: pin.Model, LastTurnEndedAt: pin.LastTurnEndedAt, LastOutputTokens: pin.LastOutputTokens}
 		holdToolResult := res.AuthoritativePerTurn && req.Escalation == nil &&
 			res.TurnType == turntype.ToolResult && s.ResolveHMMToolResultHold(ctx)
 		if holdToolResult {
@@ -1221,10 +1223,9 @@ func (s *Service) runTurnLoop(
 				return res, nil
 			}
 		}
-		if req.Escalation == nil && !res.AuthoritativePerTurn &&
-			(!s.ResolveScoreToolResultTurns(ctx) || holdToolResult) &&
-			res.TurnType == turntype.ToolResult &&
-			pinFound {
+		turn := continuity.Turn{IsToolResult: res.TurnType == turntype.ToolResult, Escalated: req.Escalation != nil, AuthoritativePerTurn: res.AuthoritativePerTurn}
+		continuityCfg := continuity.Config{PlannerEnabled: s.ResolvePlannerEnabled(ctx), ScoreToolResultTurns: s.ResolveScoreToolResultTurns(ctx), HoldToolResult: holdToolResult}
+		if continuity.ToolResultSticky(req.Session, turn, continuityCfg) {
 			decision := pinDecision(pin)
 			res.Decision = decision
 			res.StickyHit = true
@@ -1233,7 +1234,7 @@ func (s *Service) runTurnLoop(
 			return res, nil
 		}
 
-		if req.Escalation == nil && !res.AuthoritativePerTurn && !s.ResolvePlannerEnabled(ctx) && pinFound {
+		if continuity.CanReusePin(req.Session, turn, continuityCfg) {
 			decision := pinDecision(pin)
 			res.Decision = decision
 			res.StickyHit = true
@@ -1481,7 +1482,7 @@ func (s *Service) runTurnLoop(
 			}
 		}
 
-		if !s.ResolvePlannerEnabled(ctx) {
+		if !continuityCfg.PlannerEnabled {
 			res.Decision = fresh
 			sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, fresh)
 			return res, nil
@@ -1489,20 +1490,13 @@ func (s *Service) runTurnLoop(
 
 		plannerTokens := s.plannerTokensFor(ctx, env, feats)
 		prefixTokens, prefixKnown := cacheablePrefixTokens(pin, plannerTokens, prefixBroken)
-		plannerIn := planner.Inputs{
-			Pin:                   pin,
-			Fresh:                 fresh,
+		decision := continuity.Plan(req.Session, fresh, continuity.PlanInputs{
 			EstimatedInputTokens:  plannerTokens,
 			CacheablePrefixTokens: prefixTokens,
 			CachePrefixKnown:      prefixKnown,
-			PriorOutputTokens:     pin.LastOutputTokens,
+			PinCacheCold:          pinCacheCold(pin, prefixBroken, s.clock.Now()),
 			AvailableModels:       s.availableModels,
-			PinCacheCold:          pinFound && pinCacheCold(pin, prefixBroken, s.clock.Now()),
-		}
-		if !pinFound {
-			plannerIn.Pin = sessionpin.Pin{}
-		}
-		decision := planner.Decide(plannerIn, plannerConfigFor(ctx, s.planner))
+		}, plannerConfigFor(ctx, s.planner))
 		res.PlannerDecision = decision
 
 		if decision.Outcome == planner.OutcomeStay && pinFound {
