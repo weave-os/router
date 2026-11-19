@@ -65,6 +65,7 @@ func (m *messagesRescue) armBaseline(ctx context.Context) {
 		s.shouldFailover(ctx) &&
 		!paidFallbackForbiddenForModel(ctx, m.baselineModel) &&
 		!anthropicExcluded &&
+		!weaveCreditsCannotFund(ctx, providers.ProviderAnthropic) &&
 		baselineAllowed &&
 		m.decision.Provider != providers.ProviderAnthropic &&
 		m.baselineModel != m.decision.Model &&
