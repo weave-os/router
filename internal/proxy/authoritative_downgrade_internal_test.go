@@ -201,9 +201,7 @@ func TestAuthoritativeDowngradeGuards(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			store := newStubPinStore()
-			store.getFound = true
-			store.getPin = authoritativeDowngradePin(test.pinModel, test.priorVotes)
+			store := &stubPinStore{getFound: true, getPin: authoritativeDowngradePin(test.pinModel, test.priorVotes)}
 			svc := authoritativeDowngradeService(store, test.fresh).
 				EditHMMConfig(func(c *hmm.Config) {
 					c.DowngradeGate = test.downgradeGate
