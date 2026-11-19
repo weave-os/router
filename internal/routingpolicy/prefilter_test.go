@@ -258,6 +258,7 @@ func TestRequiresSignedToolHistory(t *testing.T) {
 	assert.True(t, catalog.RequiresSignedToolHistory("gemini-3.1-pro-preview"))
 	assert.True(t, catalog.RequiresSignedToolHistory("gemini-3.5-flash"))
 	assert.True(t, catalog.RequiresSignedToolHistory(router.ModelGemini4Argon))
+	assert.True(t, catalog.RequiresSignedToolHistory(router.ModelGemini4Neon))
 	assert.False(t, catalog.RequiresSignedToolHistory("gemini-2.5-flash"))
 	assert.False(t, catalog.RequiresSignedToolHistory("claude-opus-4-8"))
 }
