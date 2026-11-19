@@ -18,14 +18,6 @@ func canonicalHarness(harness string) rosterdata.Harness {
 	return rosterdata.Harness(harness)
 }
 
-func CompilableSource(schema rosterdata.SchemaVersion) bool {
-	switch schema {
-	case rosterdata.SchemaVersionV7, rosterdata.SchemaVersionV75C, rosterdata.SchemaVersionPolicyV1:
-		return true
-	}
-	return false
-}
-
 type Options struct {
 	ClassOrder          []string
 	PreferredModelBonus *float64

@@ -97,7 +97,7 @@ func expectedTaskDelta(profile selection.DomainProfile, arm selection.DomainArmE
 func TestDomainScoresFollowWeightedRecipeForAllMasks(t *testing.T) {
 	roster := dynamicRoster()
 	evidence := domainEvidenceForTest(t, roster)
-	groups := []selection.Group{{Label: "low"}}
+	groups := []rosterdata.Group{"low"}
 	candidates := candidateSet("vendor-a/quality", "vendor-b/cheap")
 	for mask := 0; mask < 32; mask++ {
 		profile := selection.DomainProfile{}
@@ -156,7 +156,7 @@ func TestDomainArmWithoutRelevantScoresKeepsItsScore(t *testing.T) {
 	evidence.Arms["vendor-b/cheap"] = cell
 	_, scores, components, _, ok := selection.SelectGroupsWithSubscriptions(
 		roster,
-		[]selection.Group{{Label: "low"}},
+		[]rosterdata.Group{"low"},
 		"",
 		nil,
 		candidateSet("vendor-a/quality", "vendor-b/cheap"),
@@ -173,7 +173,7 @@ func TestDomainArmWithoutRelevantScoresKeepsItsScore(t *testing.T) {
 
 func TestDomainWithoutEvidencePreservesExistingSelection(t *testing.T) {
 	roster := dynamicRoster()
-	groups := []selection.Group{{Label: "low"}}
+	groups := []rosterdata.Group{"low"}
 	candidates := candidateSet("vendor-a/quality", "vendor-b/cheap")
 	qualityBias := 0.8
 	baselinePick, baselineScores, baselineComponents, baselineOrder, baselineOK := selection.SelectGroupsWithSubscriptions(
@@ -215,7 +215,7 @@ func TestDomainRetainsPinVendorAndEligibility(t *testing.T) {
 	cluster.PreferredVendorsByHarness = map[rosterdata.Harness][]string{rosterdata.HarnessCodex: {"vendor-a"}}
 	roster.Clusters["low"] = cluster
 	profile := fullProfile(selection.DomainInfra)
-	groups := []selection.Group{{Label: "low"}}
+	groups := []rosterdata.Group{"low"}
 	candidates := candidateSet("vendor-a/quality", "vendor-b/cheap")
 	pick, _, _, _, ok := selection.SelectGroupsWithSubscriptions(roster, groups, "", nil, candidates, nil, nil, evidence, profile)
 	require.True(t, ok)
@@ -245,7 +245,7 @@ func TestDomainZeroCorrectionKeepsNeutralOrder(t *testing.T) {
 	}
 	pick, scores, _, orders, ok := selection.SelectGroupsWithSubscriptions(
 		roster,
-		[]selection.Group{{Label: "low"}},
+		[]rosterdata.Group{"low"},
 		"pi",
 		nil,
 		candidateSet("vendor-a/quality", "vendor-b/cheap"),
@@ -267,7 +267,7 @@ func TestDomainKeepsUserQualityPreference(t *testing.T) {
 	priceHeavy := 0.0
 	_, scores, _, _, ok := selection.SelectGroupsWithSubscriptions(
 		roster,
-		[]selection.Group{{Label: "low"}},
+		[]rosterdata.Group{"low"},
 		"",
 		nil,
 		candidateSet("vendor-a/quality", "vendor-b/cheap"),
@@ -329,7 +329,7 @@ func TestDomainEvidenceRejectsRecipeDriftAndInvalidArms(t *testing.T) {
 
 func TestDomainInvalidEvidencePreservesBaseline(t *testing.T) {
 	roster := dynamicRoster()
-	groups := []selection.Group{{Label: "low"}}
+	groups := []rosterdata.Group{"low"}
 	candidates := candidateSet("vendor-a/quality", "vendor-b/cheap")
 	profile := fullProfile(selection.DomainInfra)
 	for _, test := range []struct {
@@ -376,7 +376,7 @@ func TestDomainUnlistedScoredArmPreservesBaseline(t *testing.T) {
 			roster.Clusters["low"] = cluster
 			pick, scores, _, _, ok := selection.SelectGroupsWithSubscriptions(
 				roster,
-				[]selection.Group{{Label: "low"}},
+				[]rosterdata.Group{"low"},
 				"",
 				nil,
 				candidateSet("vendor-a/quality", "vendor-b/cheap"),
