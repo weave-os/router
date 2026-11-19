@@ -82,19 +82,18 @@ func ParseDefaultStrategy(raw string) (router.Strategy, error) {
 }
 
 type Features struct {
-	StartupDatabasePing       func(context.Context) error
-	TrafficCapture            trafficcapture.Recorder
-	PolicyPinEnabled          bool
-	ServingAdmission          *middleware.ServingAdmissionConfig
-	TestPlans                 *policyregistry.TestPlanTools
-	SubscriberAllowance       *entitlement.Service
-	InstallationPoolAllowance bool
-	SubscriptionPoolsEnabled  bool
-	SubscriptionLogins        admin.SubscriptionLoginFlow
-	SubscriptionRefresh       subscriptions.AccountRefresher
-	PolicyStatus              admin.PolicyStatusSource
-	RoutingDistribution       admin.DistributionRosterSource
-	SeatUsage                 admin.SeatUsageReader
+	StartupDatabasePing      func(context.Context) error
+	TrafficCapture           trafficcapture.Recorder
+	PolicyPinEnabled         bool
+	ServingAdmission         *middleware.ServingAdmissionConfig
+	TestPlans                *policyregistry.TestPlanTools
+	SubscriberAllowance      *entitlement.Service
+	SubscriptionPoolsEnabled bool
+	SubscriptionLogins       admin.SubscriptionLoginFlow
+	SubscriptionRefresh      subscriptions.AccountRefresher
+	PolicyStatus             admin.PolicyStatusSource
+	RoutingDistribution      admin.DistributionRosterSource
+	SeatUsage                admin.SeatUsageReader
 }
 
 func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, hmmModels admin.HMMRosterSource, mode DeploymentMode, billingSvc *billing.Service, readinessChecker admin.HealthChecker, hmmRosterSources map[router.Strategy]policy.RosterSource, analyticsSvc *analytics.Service, features Features) {
@@ -126,8 +125,8 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	var subscriberAllowanceMiddleware []gin.HandlerFunc
 	var subscriberProductScopeMiddleware []gin.HandlerFunc
 	if features.SubscriberAllowance != nil {
-		subscriberAllowanceMiddleware = []gin.HandlerFunc{middleware.WithSubscriberAllowance(features.SubscriberAllowance, features.InstallationPoolAllowance)}
-		subscriberProductScopeMiddleware = []gin.HandlerFunc{middleware.WithSubscriberProductScope(features.SubscriberAllowance, features.InstallationPoolAllowance)}
+		subscriberAllowanceMiddleware = []gin.HandlerFunc{middleware.WithSubscriberAllowance(features.SubscriberAllowance)}
+		subscriberProductScopeMiddleware = []gin.HandlerFunc{middleware.WithSubscriberProductScope(features.SubscriberAllowance)}
 	}
 	var servingAdmissionMiddleware []gin.HandlerFunc
 	if features.ServingAdmission != nil {

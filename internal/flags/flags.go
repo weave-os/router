@@ -85,7 +85,6 @@ const (
 	KeyAuthorityCacheShadow                 Key = "authority_cache_shadow"
 	KeyAgreementShadowEpoch                 Key = "agreement_shadow_epoch"
 	KeySiblingFailover                      Key = "sibling_failover"
-	KeyInstallationPoolAllowance            Key = "installation_pool_allowance"
 	KeyOwnSeatFirst                         Key = "own_seat_first"
 	KeyOwnOverageBeforePool                 Key = "own_overage_before_pool"
 	KeyEffortEscalation                     Key = "effort_escalation"
@@ -131,6 +130,7 @@ const (
 	retiredKeyUpgradeHoldoutPct         Key = "authoritative_upgrade_holdout_pct"
 	retiredKeyHMMSameTierPin            Key = "hmm_same_tier_pin"
 	retiredKeyColdPinFollowFresh        Key = "planner_cold_pin_follow_fresh"
+	retiredKeyInstallationPoolAllowance Key = "installation_pool_allowance"
 )
 
 var retiredOverrideKeys = map[Key]struct{}{
@@ -143,6 +143,7 @@ var retiredOverrideKeys = map[Key]struct{}{
 	retiredKeyUpgradeHoldoutPct:         {},
 	retiredKeyHMMSameTierPin:            {},
 	retiredKeyColdPinFollowFresh:        {},
+	retiredKeyInstallationPoolAllowance: {},
 }
 
 type Definition struct {
