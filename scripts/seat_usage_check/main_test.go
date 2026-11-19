@@ -75,27 +75,13 @@ func TestSeatUsageKeepsTheNewestObservationPerUserAndProvider(t *testing.T) {
 	require.NoError(t, err)
 	require.InDelta(t, 55.0, got[0].Snapshot.Primary.UsedPercent, 1e-9)
 
-	primaryOnly := usage.Snapshot{
-		Primary:    usage.Window{UsedPercent: 60, WindowMinutes: 300, ResetAt: resetAt},
-		ObservedAt: observedAt.Add(2 * time.Minute),
-	}
 	secondaryOnly := usage.Snapshot{
 		Secondary:  usage.Window{UsedPercent: 20, WindowMinutes: 10080},
-		ObservedAt: observedAt.Add(3 * time.Minute),
+		ObservedAt: observedAt.Add(2 * time.Minute),
 	}
-	require.NoError(t, seats.RecordSeatUsage(ctx, userA, "claude", primaryOnly))
 	require.NoError(t, seats.RecordSeatUsage(ctx, userA, "claude", secondaryOnly))
 	got, err = seats.ListSeatUsage(ctx, userA)
 	require.NoError(t, err)
-	require.InDelta(t, 60.0, got[0].Snapshot.Primary.UsedPercent, 1e-9, "an omitted window keeps its value until it resets")
+	require.Zero(t, got[0].Snapshot.Primary.WindowMinutes, "a window the provider omitted is reported as unknown, not carried over")
 	require.InDelta(t, 20.0, got[0].Snapshot.Secondary.UsedPercent, 1e-9)
-
-	afterReset := usage.Snapshot{
-		Secondary:  usage.Window{UsedPercent: 21, WindowMinutes: 10080},
-		ObservedAt: resetAt.Add(time.Minute),
-	}
-	require.NoError(t, seats.RecordSeatUsage(ctx, userA, "claude", afterReset))
-	got, err = seats.ListSeatUsage(ctx, userA)
-	require.NoError(t, err)
-	require.Zero(t, got[0].Snapshot.Primary.WindowMinutes, "an omitted window past its reset is dropped")
 }
