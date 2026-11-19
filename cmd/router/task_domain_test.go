@@ -61,10 +61,10 @@ func TestTaskBindingRequiresAdmittedAndLoadedRelease(t *testing.T) {
 	require.Len(t, metrics.ScopeMetrics[0].Metrics, 1)
 	drops := metrics.ScopeMetrics[0].Metrics[0]
 	assert.Equal(t, "router.task_domain.evidence_drops", drops.Name)
-	count, ok := drops.Data.(metricdata.Sum[int64])
+	sum, ok := drops.Data.(metricdata.Sum[int64])
 	require.True(t, ok)
-	require.Len(t, count.DataPoints, 1)
-	assert.EqualValues(t, 1, count.DataPoints[0].Value)
+	require.Len(t, sum.DataPoints, 1)
+	assert.EqualValues(t, 1, sum.DataPoints[0].Value)
 }
 
 // A retired or unloaded task classifier must not make an admitted candidate unservable.
