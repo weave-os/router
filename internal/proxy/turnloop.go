@@ -235,10 +235,7 @@ func (r turnLoopResult) baselineWarmPrefillTokens(requestStart time.Time, cacheC
 }
 
 func isHMMDecision(dec router.Decision) bool {
-	if dec.Metadata != nil && router.IsHMMStrategy(router.Strategy(dec.Metadata.Strategy)) {
-		return true
-	}
-	return strings.HasPrefix(strings.TrimSpace(dec.Reason), "hmm_policy")
+	return hmm.IsDecision(dec)
 }
 
 const (
@@ -310,7 +307,7 @@ func (s *Service) isHardPinnedTurn(ctx context.Context, tt turntype.TurnType) bo
 		if s.hasSubAgentOverride() {
 			return true
 		}
-		return flags.BoolOr(ctx, flags.KeyHardPinExplore, s.hardPinExplore) && !router.IsHMMStrategy(router.StrategyFromContext(ctx))
+		return flags.BoolOr(ctx, flags.KeyHardPinExplore, s.hardPinExplore) && !hmm.Owns(router.StrategyFromContext(ctx))
 	default:
 		return false
 	}
@@ -1210,7 +1207,7 @@ func (s *Service) runTurnLoop(
 			res.AuthoritativePerTurn = false
 		}
 		if req.Escalation == nil && pinFound && candidates.AutomaticPinEligible(pin, req) && req.ConversationMessages != nil &&
-			router.IsHMMStrategy(router.StrategyFromContext(ctx)) &&
+			hmm.Owns(router.StrategyFromContext(ctx)) &&
 			!hasTextUserBoundary(req.ConversationMessages) {
 			if _, honoured := router.HonouredPolicyPin(ctx); !honoured {
 				decision := pinDecision(pin)
@@ -1673,58 +1670,7 @@ func candidateScoreForWithProvider(dec router.Decision, servedIdentity, provider
 }
 
 func candidateScoreForWithArm(dec router.Decision, servedIdentity, provider, rosterArmID string) *float64 {
-	if servedIdentity == "" || dec.Metadata == nil {
-		return nil
-	}
-	if score, ok := dec.Metadata.CandidateScores[baseModelOf(servedIdentity)]; ok {
-		value := float64(score)
-		return &value
-	}
-
-	if rosterArmID != "" {
-		if score, ok := dec.Metadata.ArmScores[rosterArmID]; ok {
-			value := float64(score)
-			return &value
-		}
-	}
-
-	effort, model := stripEffortSuffix(servedIdentity)
-	if model == "" || len(dec.Metadata.ArmScores) == 0 {
-		return nil
-	}
-	armSuffix := ""
-	if effort != "" {
-		armSuffix = ":" + effort
-	}
-	keys := make([]string, 0, 2)
-	if provider != "" {
-		keys = append(keys, provider+"/"+model+armSuffix)
-	}
-	keys = append(keys, model+armSuffix)
-	for _, key := range keys {
-		if score, ok := dec.Metadata.ArmScores[key]; ok {
-			value := float64(score)
-			return &value
-		}
-	}
-
-	var fallback *float64
-	for armID, score := range dec.Metadata.ArmScores {
-		armEffort, armModel := stripEffortSuffix(armID)
-		if armEffort != effort || (armModel != model && !strings.HasSuffix(armModel, "/"+model)) {
-			continue
-		}
-		if armProvider, ok := dec.Metadata.CandidateArmProviders[armID]; ok && provider != "" && armProvider == provider {
-			value := float64(score)
-			return &value
-		}
-		if fallback != nil {
-			return nil
-		}
-		value := float64(score)
-		fallback = &value
-	}
-	return fallback
+	return hmm.CandidateScore(dec, servedIdentity, provider, rosterArmID)
 }
 
 func (s *Service) logAuthorityCacheShadow(ctx context.Context, res turnLoopResult) {

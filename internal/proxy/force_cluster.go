@@ -9,6 +9,7 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 )
 
 const ForceClusterHeader = "x-weave-force-cluster"
@@ -37,7 +38,7 @@ func applyForceClusterHeader(ctx context.Context, r *http.Request) (string, erro
 		return "", nil
 	}
 	strategy := router.StrategyFromContext(ctx)
-	if !router.IsHMMStrategy(strategy) {
+	if !hmm.Owns(strategy) {
 		observability.FromContext(ctx).Warn("x-weave-force-cluster: rejected on a strategy with no policy sidecar",
 			"cluster", label,
 			"strategy", strategy,

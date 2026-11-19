@@ -7,6 +7,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/timing"
 )
@@ -78,8 +79,7 @@ func buildObservationContext(ctx context.Context, decision, fresh router.Decisio
 		obs.FreshDecisionModel = fresh.Model
 	}
 	if fresh.Metadata != nil {
-		obs.FreshClassifierMargin = fresh.Metadata.ClassifierMargin
-		obs.FreshPolicyGroup = fresh.Metadata.PolicyGroup
+		obs.FreshClassifierMargin, obs.FreshPolicyGroup = hmm.ClassifierMarginAndGroup(fresh.Metadata)
 	}
 	if md := fresh.Metadata; md != nil && len(md.CandidateScores) > 0 {
 		if b, err := json.Marshal(md.CandidateScores); err == nil {
@@ -89,6 +89,7 @@ func buildObservationContext(ctx context.Context, decision, fresh router.Decisio
 		}
 	}
 	if md := decision.Metadata; md != nil {
+		classifier := hmm.ClassifierTelemetryOf(md)
 		if len(md.CandidateModels) > 0 {
 			obs.CandidateModels = append([]string(nil), md.CandidateModels...)
 		}
@@ -102,12 +103,11 @@ func buildObservationContext(ctx context.Context, decision, fresh router.Decisio
 		obs.PolicyArtifactID = md.PolicyArtifactID
 		obs.PolicyArtifactSHA256 = md.PolicyArtifactSHA256
 		obs.RosterVersion = md.RosterVersion
-		obs.ClassifierArtifactID = md.ClassifierArtifactID
-		obs.ClassifierArtifactSHA256 = md.ClassifierArtifactSHA256
-		obs.ClassifierPredictedLabel = md.ClassifierPredictedLabel
-		obs.ClassifierClassOrder = append([]string(nil), md.ClassifierClassOrder...)
-		if len(md.ClassifierProbabilities) > 0 {
-			if probabilities, err := json.Marshal(md.ClassifierProbabilities); err == nil {
+		obs.ClassifierArtifactID, obs.ClassifierArtifactSHA256 = classifier.ArtifactID, classifier.ArtifactSHA256
+		obs.ClassifierPredictedLabel = classifier.PredictedLabel
+		obs.ClassifierClassOrder = append([]string(nil), classifier.ClassOrder...)
+		if len(classifier.Probabilities) > 0 {
+			if probabilities, err := json.Marshal(classifier.Probabilities); err == nil {
 				obs.ClassifierProbabilities = probabilities
 			} else {
 				observability.FromContext(ctx).Debug("Failed to marshal classifier probabilities for telemetry", "err", err)
@@ -116,8 +116,8 @@ func buildObservationContext(ctx context.Context, decision, fresh router.Decisio
 		obs.SelectionPolicyReleaseID = md.SelectionPolicyReleaseID
 		obs.SelectionPolicySHA256 = md.SelectionPolicySHA256
 		obs.SelectionHeadGeneration = md.SelectionHeadGeneration
-		if md.SelectionTrace != nil {
-			if selectionTrace, err := json.Marshal(md.SelectionTrace); err == nil {
+		if classifier.SelectionTrace != nil {
+			if selectionTrace, err := json.Marshal(classifier.SelectionTrace); err == nil {
 				obs.SelectionTrace = selectionTrace
 			} else {
 				observability.FromContext(ctx).Debug("Failed to marshal selection trace for telemetry", "err", err)
@@ -140,6 +140,7 @@ func buildObservationContext(ctx context.Context, decision, fresh router.Decisio
 		}
 	}
 	if md := fresh.Metadata; md != nil {
+		classifier := hmm.ClassifierTelemetryOf(md)
 		if obs.RouteID == "" {
 			obs.RouteID = md.RouteID
 		}
@@ -156,19 +157,19 @@ func buildObservationContext(ctx context.Context, decision, fresh router.Decisio
 			obs.RosterVersion = md.RosterVersion
 		}
 		if obs.ClassifierArtifactID == "" {
-			obs.ClassifierArtifactID = md.ClassifierArtifactID
+			obs.ClassifierArtifactID = classifier.ArtifactID
 		}
 		if obs.ClassifierArtifactSHA256 == "" {
-			obs.ClassifierArtifactSHA256 = md.ClassifierArtifactSHA256
+			obs.ClassifierArtifactSHA256 = classifier.ArtifactSHA256
 		}
 		if obs.ClassifierPredictedLabel == "" {
-			obs.ClassifierPredictedLabel = md.ClassifierPredictedLabel
+			obs.ClassifierPredictedLabel = classifier.PredictedLabel
 		}
 		if len(obs.ClassifierClassOrder) == 0 {
-			obs.ClassifierClassOrder = append([]string(nil), md.ClassifierClassOrder...)
+			obs.ClassifierClassOrder = append([]string(nil), classifier.ClassOrder...)
 		}
-		if len(obs.ClassifierProbabilities) == 0 && len(md.ClassifierProbabilities) > 0 {
-			if probabilities, err := json.Marshal(md.ClassifierProbabilities); err == nil {
+		if len(obs.ClassifierProbabilities) == 0 && len(classifier.Probabilities) > 0 {
+			if probabilities, err := json.Marshal(classifier.Probabilities); err == nil {
 				obs.ClassifierProbabilities = probabilities
 			} else {
 				observability.FromContext(ctx).Debug("Failed to marshal fresh classifier probabilities for telemetry", "err", err)
@@ -183,8 +184,8 @@ func buildObservationContext(ctx context.Context, decision, fresh router.Decisio
 		if obs.SelectionHeadGeneration == 0 {
 			obs.SelectionHeadGeneration = md.SelectionHeadGeneration
 		}
-		if len(obs.SelectionTrace) == 0 && md.SelectionTrace != nil {
-			if selectionTrace, err := json.Marshal(md.SelectionTrace); err == nil {
+		if len(obs.SelectionTrace) == 0 && classifier.SelectionTrace != nil {
+			if selectionTrace, err := json.Marshal(classifier.SelectionTrace); err == nil {
 				obs.SelectionTrace = selectionTrace
 			} else {
 				observability.FromContext(ctx).Debug("Failed to marshal fresh selection trace for telemetry", "err", err)
