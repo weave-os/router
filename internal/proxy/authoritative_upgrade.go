@@ -40,115 +40,10 @@ func (s *Service) WithAuthoritativeUpgradeConfig(calibration AuthoritativeUpgrad
 	return s
 }
 
-type upgradeOutcome string
-
-const (
-	upgradeAllow          upgradeOutcome = "allow"
-	upgradeHold           upgradeOutcome = "hold"
-	upgradeExistingPolicy upgradeOutcome = "existing_policy"
-	upgradeNotApplicable  upgradeOutcome = "not_applicable"
-	upgradeExcluded       upgradeOutcome = "excluded"
-)
-
-type upgradeReason string
-
-const (
-	upgradeColdPin              upgradeReason = "cold_pin"
-	upgradePrefixBroken         upgradeReason = "prefix_broken"
-	upgradeExplicitQualityFloor upgradeReason = "explicit_quality_floor"
-	upgradeGroupEscalation      upgradeReason = "group_escalation"
-	upgradeMarginQualified      upgradeReason = "margin_qualified"
-	upgradeRepeatedVote         upgradeReason = "repeated_vote"
-	upgradeWarmPinHold          upgradeReason = "warm_pin_hold"
-	upgradeInsufficientMargin   upgradeReason = "insufficient_margin"
-	upgradeMissingGroup         upgradeReason = "missing_group"
-	upgradeMissingMargin        upgradeReason = "missing_margin"
-	upgradeInvalidMargin        upgradeReason = "invalid_margin"
-	upgradeUncalibratedMargin   upgradeReason = "uncalibrated_margin"
-	upgradeDemotedModel         upgradeReason = "demoted_model"
-	upgradeIneligibleModel      upgradeReason = "ineligible_model"
-	upgradeNoPin                upgradeReason = "no_pin"
-	upgradeSameModel            upgradeReason = "same_model"
-	upgradeNotMoreExpensive     upgradeReason = "not_more_expensive"
-	upgradeMissingPricing       upgradeReason = "missing_pricing"
-	upgradeStalePin             upgradeReason = "stale_pin"
-)
-
-type upgradeVerdict struct {
-	Outcome upgradeOutcome
-	Reason  upgradeReason
-}
-
-type upgradeEvidence struct {
-	HasPin          bool
-	SameModel       bool
-	MoreExpensive   bool
-	PricingKnown    bool
-	FreshEligible   bool
-	Demoted         bool
-	FreshGroup      escalation.Group
-	PinGroup        escalation.Group
-	RequestedGroup  escalation.Group
-	CacheCold       bool
-	PrefixBroken    bool
-	Margin          *float64
-	MarginQualified *bool
-	StalePin        bool
-	VoteCount       *int
-	RequiredVotes   int
-}
-
-func evaluateAuthoritativeUpgrade(evidence upgradeEvidence) upgradeVerdict {
-	switch {
-	case evidence.Demoted:
-		return upgradeVerdict{upgradeExcluded, upgradeDemotedModel}
-	case !evidence.FreshEligible:
-		return upgradeVerdict{upgradeExcluded, upgradeIneligibleModel}
-	case !evidence.HasPin:
-		return upgradeVerdict{upgradeNotApplicable, upgradeNoPin}
-	case evidence.SameModel:
-		return upgradeVerdict{upgradeNotApplicable, upgradeSameModel}
-	case !evidence.PricingKnown:
-		return upgradeVerdict{upgradeExistingPolicy, upgradeMissingPricing}
-	case !evidence.MoreExpensive:
-		return upgradeVerdict{upgradeNotApplicable, upgradeNotMoreExpensive}
-	case escalation.Rank(evidence.FreshGroup) < 0 || escalation.Rank(evidence.PinGroup) < 0:
-		return upgradeVerdict{upgradeExistingPolicy, upgradeMissingGroup}
-	case evidence.PrefixBroken:
-		return upgradeVerdict{upgradeAllow, upgradePrefixBroken}
-	case evidence.CacheCold:
-		return upgradeVerdict{upgradeAllow, upgradeColdPin}
-	case (evidence.RequestedGroup == escalation.High || evidence.RequestedGroup == escalation.Maximum) &&
-		escalation.Rank(evidence.RequestedGroup) > escalation.Rank(evidence.PinGroup) &&
-		escalation.Rank(evidence.FreshGroup) >= escalation.Rank(evidence.RequestedGroup):
-		return upgradeVerdict{upgradeAllow, upgradeExplicitQualityFloor}
-	case evidence.StalePin:
-		return upgradeVerdict{upgradeAllow, upgradeStalePin}
-	case evidence.Margin == nil:
-		return upgradeVerdict{upgradeExistingPolicy, upgradeMissingMargin}
-	case math.IsNaN(*evidence.Margin) || math.IsInf(*evidence.Margin, 0) || *evidence.Margin < 0 || *evidence.Margin > 1:
-		return upgradeVerdict{upgradeExistingPolicy, upgradeInvalidMargin}
-	case evidence.MarginQualified == nil:
-		return upgradeVerdict{upgradeExistingPolicy, upgradeUncalibratedMargin}
-	case *evidence.MarginQualified:
-		if escalation.Rank(evidence.FreshGroup) > escalation.Rank(evidence.PinGroup) {
-			return upgradeVerdict{upgradeAllow, upgradeGroupEscalation}
-		}
-		return upgradeVerdict{upgradeAllow, upgradeMarginQualified}
-	case evidence.FreshGroup == evidence.PinGroup:
-		if evidence.RequiredVotes > 0 && evidence.VoteCount != nil && *evidence.VoteCount >= evidence.RequiredVotes {
-			return upgradeVerdict{upgradeAllow, upgradeRepeatedVote}
-		}
-		return upgradeVerdict{upgradeHold, upgradeWarmPinHold}
-	default:
-		return upgradeVerdict{upgradeHold, upgradeInsufficientMargin}
-	}
-}
-
 type authoritativeUpgradeDecision struct {
 	Mode             flags.AuthoritativeUpgradePolicy
-	Evidence         upgradeEvidence
-	Verdict          upgradeVerdict
+	Evidence         hmm.UpgradeEvidence
+	Verdict          hmm.UpgradeVerdict
 	PinModel         string
 	PinProvider      string
 	PinTier          catalog.Tier
@@ -180,13 +75,13 @@ func (s *Service) authoritativeUpgradeFor(ctx context.Context, req router.Reques
 		RequestedTier:   res.RequestedTier,
 		MarginThreshold: s.authoritativeUpgradeConfig.MarginThreshold,
 	}
-	decision.Evidence = upgradeEvidence{
+	decision.Evidence = hmm.UpgradeEvidence{
 		HasPin:         pin.Model != "",
 		SameModel:      pin.Model == fresh.Model,
 		FreshEligible:  candidates.AutomaticPinEligible(sessionpin.Pin{Model: fresh.Model, Provider: fresh.Provider}, req),
 		Demoted:        slices.Contains(res.SessionDemotedModels, fresh.Model),
 		FreshGroup:     escalation.Group(decisionPolicyGroup(fresh)),
-		PinGroup:       escalation.Group(pin.PolicyGroup),
+		PinGroup:       escalation.Group(hmm.PinStateOf(pin).PolicyGroup),
 		RequestedGroup: escalation.Group(req.ForceCluster),
 		PrefixBroken:   res.PrefixTrimmed || req.HistoryTruncated,
 		RequiredVotes:  s.ResolveAuthoritativeUpgradeVotes(ctx),
@@ -196,7 +91,7 @@ func (s *Service) authoritativeUpgradeFor(ctx context.Context, req router.Reques
 		decision.Evidence.FreshEligible = decision.Evidence.FreshEligible && available
 	}
 	if fresh.Metadata != nil {
-		decision.Evidence.Margin = fresh.Metadata.ClassifierMargin
+		decision.Evidence.Margin = hmm.ClassifierMargin(fresh)
 		score := float64(fresh.Metadata.ChosenScore)
 		decision.FreshScore = &score
 	}
@@ -225,10 +120,10 @@ func (s *Service) authoritativeUpgradeFor(ctx context.Context, req router.Reques
 		decision.Evidence.FreshEligible && !decision.Evidence.Demoted &&
 		decision.Evidence.FreshGroup == decision.Evidence.PinGroup &&
 		!decision.Evidence.PrefixBroken && !decision.Evidence.CacheCold && !decision.Evidence.StalePin {
-		votes = pin.ConsecutiveUpgradeVotes + 1
+		votes = hmm.PinStateOf(pin).UpgradeVotes + 1
 	}
 	decision.Evidence.VoteCount = &votes
-	decision.Verdict = evaluateAuthoritativeUpgrade(decision.Evidence)
+	decision.Verdict = hmm.EvaluateAuthoritativeUpgrade(decision.Evidence)
 	return decision
 }
 
@@ -239,13 +134,13 @@ func logAuthoritativeUpgrade(ctx context.Context, res turnLoopResult) {
 	}
 	var wouldDiverge *bool
 	switch decision.Verdict.Outcome {
-	case upgradeAllow:
+	case hmm.UpgradeAllow:
 		diverges := res.Decision.ServedIdentity() != res.Fresh.ServedIdentity()
 		wouldDiverge = &diverges
-	case upgradeHold:
+	case hmm.UpgradeHold:
 		diverges := !res.StickyHit
 		wouldDiverge = &diverges
-	case upgradeExistingPolicy, upgradeNotApplicable, upgradeExcluded:
+	case hmm.UpgradeExistingPolicy, hmm.UpgradeNotApplicable, hmm.UpgradeExcluded:
 	}
 	observability.FromContext(ctx).Info("authoritative upgrade evidence", "installation_id", res.InstallationID.String(), "role", res.PinRole, "mode", decision.Mode, "applied", decision.Applied, "turn_type", res.TurnType, "fresh_model", res.Fresh.Model, "fresh_provider", res.Fresh.Provider, "fresh_score", decision.FreshScore, "pin_model", decision.PinModel, "pin_provider", decision.PinProvider, "fresh_group", decision.Evidence.FreshGroup, "pin_group", decision.Evidence.PinGroup, "margin", decision.Evidence.Margin, "margin_threshold", decision.MarginThreshold, "requested_tier", decision.RequestedTier.String(), "pin_tier", decision.PinTier.String(), "explicit_requested_group", decision.Evidence.RequestedGroup, "cache_cold", decision.Evidence.CacheCold, "prefix_broken", decision.Evidence.PrefixBroken, "pin_age_sec", decision.PinAgeSec, "stale_pin_after_sec", decision.StalePinAfterSec, "vote_count", decision.Evidence.VoteCount, "required_votes", decision.Evidence.RequiredVotes, "demoted", decision.Evidence.Demoted, "fresh_eligible", decision.Evidence.FreshEligible, "outcome", decision.Verdict.Outcome, "reason", decision.Verdict.Reason, "served_model", res.Decision.Model, "pin_tier_path", res.PinTier, "would_diverge", wouldDiverge)
 }

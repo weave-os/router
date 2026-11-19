@@ -58,7 +58,7 @@ func installationIDFromContext(ctx context.Context) uuid.UUID {
 func applyPinEvidence(res *turnLoopResult, pin sessionpin.Pin, now time.Time) {
 	res.PinModel = pin.Model
 	res.PinProvider = pin.Provider
-	res.PinPolicyGroup = pin.PolicyGroup
+	res.PinPolicyGroup = hmm.PinStateOf(pin).PolicyGroup
 	res.PinAgeSec = pinAge(pin, now)
 	if !pin.LastTurnEndedAt.IsZero() {
 		gapMS := now.Sub(pin.LastTurnEndedAt).Milliseconds()
@@ -1185,8 +1185,8 @@ func (s *Service) runTurnLoop(
 	}
 
 	if pinFound && res.AuthoritativePerTurn && req.ForceCluster == "" &&
-		escalation.Rank(escalation.Group(pin.PolicyGroup)) >= 0 && s.ResolveAuthoritativeUpgradeSlidingThreshold(ctx) {
-		req.SlidingThresholdPinGroup = escalation.Group(pin.PolicyGroup)
+		escalation.Rank(escalation.Group(hmm.PinStateOf(pin).PolicyGroup)) >= 0 && s.ResolveAuthoritativeUpgradeSlidingThreshold(ctx) {
+		req.SlidingThresholdPinGroup = escalation.Group(hmm.PinStateOf(pin).PolicyGroup)
 	}
 	baselineRequest := req
 	baselineTurn := res
@@ -1200,7 +1200,7 @@ func (s *Service) runTurnLoop(
 		req.Escalation = llmTurn.constraint()
 	}
 	if pinFound {
-		req.PreviousPolicyGroup = escalation.Group(pin.PolicyGroup)
+		req.PreviousPolicyGroup = escalation.Group(hmm.PinStateOf(pin).PolicyGroup)
 	}
 
 	routeRemaining := func() (turnLoopResult, error) {
@@ -1281,7 +1281,7 @@ func (s *Service) runTurnLoop(
 							"err", err,
 							"pin_model", pin.Model,
 							"pin_provider", pin.Provider,
-							"pin_policy_group", pin.PolicyGroup,
+							"pin_policy_group", hmm.PinStateOf(pin).PolicyGroup,
 							"requested_model", req.RequestedModel,
 						)
 						refreshed := decision
@@ -1336,7 +1336,7 @@ func (s *Service) runTurnLoop(
 				ctx, req, activePin, hmmHistory, fresh, plannerTokens, prefixBroken,
 			)
 			s.logAuthorityCacheShadow(ctx, res)
-			if res.UpgradeShadow != nil && res.UpgradeShadow.Verdict.Reason == upgradeDemotedModel {
+			if res.UpgradeShadow != nil && res.UpgradeShadow.Verdict.Reason == hmm.UpgradeDemotedModel {
 				if pinFound && candidates.AutomaticPinEligible(pin, req) {
 					decision := pinDecision(pin)
 					res.Decision = decision

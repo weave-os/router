@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"math"
 	"net/http"
 	"testing"
 	"time"
@@ -21,6 +20,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/escalation"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/telemetry"
@@ -31,62 +31,6 @@ var (
 	upgradeTestPinModel   = catalog.ModelIDClaudeHaiku45.String()
 	upgradeTestFreshModel = catalog.ModelIDClaudeOpus48.String()
 )
-
-func TestEvaluateAuthoritativeUpgrade(t *testing.T) {
-	margin, zero, invalid := 0.2, 0.0, math.NaN()
-	qualified, unqualified := true, false
-	votes := 3
-	base := upgradeEvidence{
-		HasPin: true, MoreExpensive: true, PricingKnown: true, FreshEligible: true,
-		FreshGroup: escalation.High, PinGroup: escalation.High,
-		Margin: &margin, MarginQualified: &unqualified,
-	}
-	for _, tc := range []struct {
-		name   string
-		change func(*upgradeEvidence)
-		want   upgradeVerdict
-	}{
-		{"warm same group weak margin", func(e *upgradeEvidence) {}, upgradeVerdict{upgradeHold, upgradeWarmPinHold}},
-		{"same group qualified", func(e *upgradeEvidence) { e.MarginQualified = &qualified }, upgradeVerdict{upgradeAllow, upgradeMarginQualified}},
-		{"higher group qualified", func(e *upgradeEvidence) { e.FreshGroup = escalation.Maximum; e.MarginQualified = &qualified }, upgradeVerdict{upgradeAllow, upgradeGroupEscalation}},
-		{"higher group weak", func(e *upgradeEvidence) { e.FreshGroup = escalation.Maximum }, upgradeVerdict{upgradeHold, upgradeInsufficientMargin}},
-		{"cold pin", func(e *upgradeEvidence) { e.CacheCold = true }, upgradeVerdict{upgradeAllow, upgradeColdPin}},
-		{"prefix broken", func(e *upgradeEvidence) { e.PrefixBroken = true; e.CacheCold = true }, upgradeVerdict{upgradeAllow, upgradePrefixBroken}},
-		{"calibrated stale pin", func(e *upgradeEvidence) { e.StalePin = true }, upgradeVerdict{upgradeAllow, upgradeStalePin}},
-		{"explicit high floor", func(e *upgradeEvidence) { e.RequestedGroup = escalation.High; e.PinGroup = escalation.Medium }, upgradeVerdict{upgradeAllow, upgradeExplicitQualityFloor}},
-		{"explicit maximum floor", func(e *upgradeEvidence) { e.RequestedGroup = escalation.Maximum; e.FreshGroup = escalation.Maximum }, upgradeVerdict{upgradeAllow, upgradeExplicitQualityFloor}},
-		{"fresh does not meet requested floor", func(e *upgradeEvidence) { e.RequestedGroup = escalation.Maximum }, upgradeVerdict{upgradeHold, upgradeWarmPinHold}},
-		{"unknown requested group is not maximum", func(e *upgradeEvidence) { e.RequestedGroup = escalation.Group("future") }, upgradeVerdict{upgradeHold, upgradeWarmPinHold}},
-		{"missing fresh group", func(e *upgradeEvidence) { e.FreshGroup = "" }, upgradeVerdict{upgradeExistingPolicy, upgradeMissingGroup}},
-		{"unknown pin group even when cold", func(e *upgradeEvidence) { e.PinGroup = escalation.Group("future"); e.CacheCold = true }, upgradeVerdict{upgradeExistingPolicy, upgradeMissingGroup}},
-		{"missing margin", func(e *upgradeEvidence) { e.Margin = nil }, upgradeVerdict{upgradeExistingPolicy, upgradeMissingMargin}},
-		{"invalid margin", func(e *upgradeEvidence) { e.Margin = &invalid }, upgradeVerdict{upgradeExistingPolicy, upgradeInvalidMargin}},
-		{"zero margin is evidence", func(e *upgradeEvidence) { e.Margin = &zero }, upgradeVerdict{upgradeHold, upgradeWarmPinHold}},
-		{"uncalibrated margin", func(e *upgradeEvidence) { e.MarginQualified = nil }, upgradeVerdict{upgradeExistingPolicy, upgradeUncalibratedMargin}},
-		{"repeated compatible votes", func(e *upgradeEvidence) { e.VoteCount = &votes; e.RequiredVotes = 3 }, upgradeVerdict{upgradeAllow, upgradeRepeatedVote}},
-		{"votes below threshold", func(e *upgradeEvidence) { e.VoteCount = &votes; e.RequiredVotes = 4 }, upgradeVerdict{upgradeHold, upgradeWarmPinHold}},
-		{"votes unavailable", func(e *upgradeEvidence) { e.RequiredVotes = 3 }, upgradeVerdict{upgradeHold, upgradeWarmPinHold}},
-		{"votes cannot rescue missing evidence", func(e *upgradeEvidence) { e.VoteCount = &votes; e.RequiredVotes = 3; e.Margin = nil }, upgradeVerdict{upgradeExistingPolicy, upgradeMissingMargin}},
-		{"demotion precedes cold floor votes", func(e *upgradeEvidence) {
-			e.Demoted = true
-			e.CacheCold = true
-			e.RequestedGroup = escalation.Maximum
-			e.VoteCount = &votes
-			e.RequiredVotes = 3
-		}, upgradeVerdict{upgradeExcluded, upgradeDemotedModel}},
-		{"unavailable fresh arm", func(e *upgradeEvidence) { e.FreshEligible = false }, upgradeVerdict{upgradeExcluded, upgradeIneligibleModel}},
-		{"no pin", func(e *upgradeEvidence) { e.HasPin = false }, upgradeVerdict{upgradeNotApplicable, upgradeNoPin}},
-		{"same model", func(e *upgradeEvidence) { e.SameModel = true }, upgradeVerdict{upgradeNotApplicable, upgradeSameModel}},
-		{"missing pricing", func(e *upgradeEvidence) { e.PricingKnown = false }, upgradeVerdict{upgradeExistingPolicy, upgradeMissingPricing}},
-		{"cheaper proposal", func(e *upgradeEvidence) { e.MoreExpensive = false }, upgradeVerdict{upgradeNotApplicable, upgradeNotMoreExpensive}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			evidence := base
-			tc.change(&evidence)
-			assert.Equal(t, tc.want, evaluateAuthoritativeUpgrade(evidence))
-		})
-	}
-}
 
 func upgradeTestPin() sessionpin.Pin {
 	return sessionpin.Pin{
@@ -114,7 +58,7 @@ func TestUpgradeShadowUsesCacheRulesAndExplicitIntent(t *testing.T) {
 	res := turnLoopResult{RequestedTier: catalog.TierHigh}
 	shadow := svc.authoritativeUpgradeFor(context.Background(), req, pin, fresh, res, 1000)
 	require.NotNil(t, shadow)
-	assert.Equal(t, upgradeGroupEscalation, shadow.Verdict.Reason)
+	assert.Equal(t, hmm.UpgradeGroupEscalation, shadow.Verdict.Reason)
 	assert.Empty(t, shadow.Evidence.RequestedGroup, "neither a model name nor an installation preset proves explicit intent")
 	require.NotNil(t, shadow.Evidence.VoteCount)
 	assert.Zero(t, *shadow.Evidence.VoteCount)
@@ -126,24 +70,24 @@ func TestUpgradeShadowUsesCacheRulesAndExplicitIntent(t *testing.T) {
 
 	req.ForceCluster = string(escalation.High)
 	shadow = svc.authoritativeUpgradeFor(context.Background(), req, pin, fresh, res, 1000)
-	assert.Equal(t, upgradeExplicitQualityFloor, shadow.Verdict.Reason)
+	assert.Equal(t, hmm.UpgradeExplicitQualityFloor, shadow.Verdict.Reason)
 
 	req.HistoryTruncated = true
 	shadow = svc.authoritativeUpgradeFor(context.Background(), req, pin, fresh, res, 1000)
-	assert.Equal(t, upgradePrefixBroken, shadow.Verdict.Reason)
+	assert.Equal(t, hmm.UpgradePrefixBroken, shadow.Verdict.Reason)
 	assert.True(t, shadow.Evidence.CacheCold)
 	req.HistoryTruncated = false
 	pin.LastTurnEndedAt = time.Now().Add(-providers.CacheTTLFor(pin.Provider) - time.Minute)
 	shadow = svc.authoritativeUpgradeFor(context.Background(), req, pin, fresh, res, 1000)
-	assert.Equal(t, upgradeColdPin, shadow.Verdict.Reason)
+	assert.Equal(t, hmm.UpgradeColdPin, shadow.Verdict.Reason)
 
 	res.SessionDemotedModels = []string{upgradeTestFreshModel}
 	shadow = svc.authoritativeUpgradeFor(context.Background(), req, pin, fresh, res, 1000)
-	assert.Equal(t, upgradeDemotedModel, shadow.Verdict.Reason)
+	assert.Equal(t, hmm.UpgradeDemotedModel, shadow.Verdict.Reason)
 	res.SessionDemotedModels = nil
 	req.AutomaticExcludedModels = map[string]struct{}{upgradeTestFreshModel: {}}
 	shadow = svc.authoritativeUpgradeFor(context.Background(), req, pin, fresh, res, 1000)
-	assert.Equal(t, upgradeIneligibleModel, shadow.Verdict.Reason)
+	assert.Equal(t, hmm.UpgradeIneligibleModel, shadow.Verdict.Reason)
 }
 
 func TestUpgradeShadowAgeAndAbsentPin(t *testing.T) {
@@ -151,13 +95,13 @@ func TestUpgradeShadowAgeAndAbsentPin(t *testing.T) {
 		WithAuthoritativeUpgradeConfig(AuthoritativeUpgradeConfig{StalePinAfter: time.Hour})
 	pin, fresh := upgradeTestPin(), upgradeTestFresh()
 	shadow := svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, turnLoopResult{}, 1000)
-	assert.Equal(t, upgradeStalePin, shadow.Verdict.Reason)
+	assert.Equal(t, hmm.UpgradeStalePin, shadow.Verdict.Reason)
 	assert.Equal(t, flags.AuthoritativeUpgradePolicyOff, shadow.Mode)
 
 	pin.FirstPinnedAt = time.Now().Add(-30 * time.Minute)
 	shadow = svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, turnLoopResult{}, 1000)
 	assert.False(t, shadow.Evidence.StalePin)
-	assert.Equal(t, upgradeUncalibratedMargin, shadow.Verdict.Reason)
+	assert.Equal(t, hmm.UpgradeUncalibratedMargin, shadow.Verdict.Reason)
 
 	pin.FirstPinnedAt = time.Time{}
 	shadow = svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, turnLoopResult{}, 1000)
@@ -165,7 +109,7 @@ func TestUpgradeShadowAgeAndAbsentPin(t *testing.T) {
 	assert.False(t, shadow.Evidence.StalePin)
 
 	shadow = svc.authoritativeUpgradeFor(context.Background(), router.Request{}, sessionpin.Pin{}, fresh, turnLoopResult{}, 1000)
-	assert.Equal(t, upgradeNoPin, shadow.Verdict.Reason)
+	assert.Equal(t, hmm.UpgradeNoPin, shadow.Verdict.Reason)
 	assert.Nil(t, shadow.PinAgeSec)
 }
 
@@ -213,7 +157,7 @@ func TestUpgradeShadowPreservesServingAndPinWrites(t *testing.T) {
 					control, controlPin = res, store.upserts[0]
 					continue
 				}
-				assert.Equal(t, upgradeAllow, res.UpgradeShadow.Verdict.Outcome)
+				assert.Equal(t, hmm.UpgradeAllow, res.UpgradeShadow.Verdict.Outcome)
 				assert.Equal(t, control.Decision, res.Decision)
 				assert.Equal(t, control.StickyHit, res.StickyHit)
 				assert.Equal(t, control.PinTier, res.PinTier)
@@ -241,8 +185,8 @@ func TestUpgradeShadowLogsNullableEvidence(t *testing.T) {
 	logAuthoritativeUpgrade(ctx, res)
 	var record map[string]any
 	require.NoError(t, json.Unmarshal(output.Bytes(), &record))
-	assert.Equal(t, string(upgradeExistingPolicy), record["outcome"])
-	assert.Equal(t, string(upgradeUncalibratedMargin), record["reason"])
+	assert.Equal(t, string(hmm.UpgradeExistingPolicy), record["outcome"])
+	assert.Equal(t, string(hmm.UpgradeUncalibratedMargin), record["reason"])
 	assert.InDelta(t, 0.2, record["margin"], 1e-9)
 	assert.InDelta(t, float64(0), record["vote_count"], 1e-9)
 	assert.Nil(t, record["margin_threshold"])
@@ -334,7 +278,7 @@ func TestEvidenceUpgradeVotesResetWhenProposalLeavesSameGroup(t *testing.T) {
 	fresh.Metadata.ClassifierMargin = &margin
 
 	shadow := svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, turnLoopResult{}, 1000)
-	assert.Equal(t, upgradeHold, shadow.Verdict.Outcome)
+	assert.Equal(t, hmm.UpgradeHold, shadow.Verdict.Outcome)
 	assert.Equal(t, escalation.High, shadow.Evidence.FreshGroup)
 	assert.Equal(t, escalation.Medium, shadow.Evidence.PinGroup)
 	require.NotNil(t, shadow.Evidence.VoteCount)
