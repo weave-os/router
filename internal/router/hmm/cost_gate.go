@@ -36,11 +36,9 @@ const DefaultUpgradeConfidenceThreshold = 0.50
 const DefaultDowngradeHysteresisTurns = 2
 
 const (
-	ReasonConfidentUpgrade       = "hmm_confident_upgrade"
-	ReasonUpgradeConfidenceLow   = "hmm_upgrade_confidence_low"
-	ReasonPhaseChange            = "hmm_phase_change"
-	ReasonDowngradeConfidenceLow = "hmm_downgrade_confidence_low"
-	ReasonDowngradeHysteresis    = "hmm_downgrade_hysteresis"
+	ReasonConfidentUpgrade     = "hmm_confident_upgrade"
+	ReasonUpgradeConfidenceLow = "hmm_upgrade_confidence_low"
+	ReasonPhaseChange          = "hmm_phase_change"
 )
 
 func (g CostGate) Decide(input CostGateInput) (sessionpin.Pin, planner.Decision, bool) {
@@ -48,7 +46,7 @@ func (g CostGate) Decide(input CostGateInput) (sessionpin.Pin, planner.Decision,
 	if !ok {
 		return stayPin, planner.Decision{Outcome: planner.OutcomeSwitch, Reason: planner.ReasonNoPin}, false
 	}
-	phaseChanged := ToolExecutionPhaseChanged(stayPin.Reason, input.Fresh.Reason)
+	phaseChanged := IsToolExecutionReason(stayPin.Reason) != IsToolExecutionReason(input.Fresh.Reason)
 
 	cfg := input.Planner
 	cfg.TierUpgradeEnabled = false
@@ -171,10 +169,6 @@ func IsPinReason(reason string) bool {
 
 func IsToolExecutionReason(reason string) bool {
 	return strings.HasPrefix(strings.TrimSpace(reason), "hmm_policy:tool_execution")
-}
-
-func ToolExecutionPhaseChanged(stayReason, freshReason string) bool {
-	return IsToolExecutionReason(stayReason) != IsToolExecutionReason(freshReason)
 }
 
 func DecisionConfidence(dec router.Decision) (float64, bool) {
