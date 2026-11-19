@@ -290,8 +290,6 @@ type UsageBypassConfig struct {
 	Threshold *float64
 }
 
-const defaultUsageBypassThreshold = 0.95
-
 func usageBypassFromContext(ctx context.Context) (UsageBypassConfig, bool) {
 	cfg, ok := ctx.Value(InstallationUsageBypassContextKey{}).(UsageBypassConfig)
 	if !ok || !cfg.Enabled {
