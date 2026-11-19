@@ -108,13 +108,14 @@ type CodexEnrollmentVerifier interface {
 type SubscriptionUpsertKind string
 
 const (
-	SubscriptionUpsertUpdated  SubscriptionUpsertKind = "updated"
-	SubscriptionUpsertInserted SubscriptionUpsertKind = "inserted"
-	SubscriptionUpsertAdopted  SubscriptionUpsertKind = "adopted"
+	SubscriptionUpsertUpdated    SubscriptionUpsertKind = "updated"
+	SubscriptionUpsertInserted   SubscriptionUpsertKind = "inserted"
+	SubscriptionUpsertAdopted    SubscriptionUpsertKind = "adopted"
+	SubscriptionUpsertReassigned SubscriptionUpsertKind = "reassigned"
 )
 
 func (k SubscriptionUpsertKind) FirstConnected() bool {
-	return k == SubscriptionUpsertInserted || k == SubscriptionUpsertAdopted
+	return k == SubscriptionUpsertInserted || k == SubscriptionUpsertAdopted || k == SubscriptionUpsertReassigned
 }
 
 type SubscriptionAccountRepository interface {

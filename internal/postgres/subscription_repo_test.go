@@ -141,10 +141,8 @@ func TestSubscriptionAccountsFollowSubscriberAcrossKeys(t *testing.T) {
 	assert.ElementsMatch(t, []string{"claude-one", "claude-two"}, byProvider[auth.SubscriptionProviderClaude])
 	assert.Equal(t, []string{"codex-one"}, byProvider[auth.SubscriptionProviderCodex])
 
-	// A physical account cannot be claimed by another subscriber.
+	// Another subscriber's accounts stay separate from this subscriber's pool.
 	otherOwner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberB.String(), APIKeyID: fixture.keyB1.String()}
-	_, _, err = repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{Owner: otherOwner, Provider: auth.SubscriptionProviderClaude, ExternalAccountID: "claude-one", RefreshToken: []byte("forbidden")})
-	require.Error(t, err)
 	otherAccount, _, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
 		Owner: otherOwner, Provider: auth.SubscriptionProviderClaude,
 		ExternalAccountID: "claude-other", RefreshToken: []byte("other-ciphertext"),
@@ -725,4 +723,72 @@ func TestSubscriberEnrollmentOwnerAdmitsMembersWithoutARoutingKey(t *testing.T) 
 	require.NoError(t, err)
 	_, err = resolver.SubscriberEnrollmentOwner(ctx, keyless.String())
 	require.ErrorIs(t, err, auth.ErrSubscriptionEnrollmentMembershipNotFound)
+}
+
+func TestSubscriptionAccountFreshEnrollmentReassignsSeatWithinInstallation(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
+	ctx := context.Background()
+	ownerA := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
+	ownerB := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberB.String(), APIKeyID: fixture.keyB1.String()}
+	enroll := func(owner auth.SubscriptionOwner) (*auth.SubscriptionAccount, auth.SubscriptionUpsertKind, error) {
+		return repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+			Owner: owner, Provider: auth.SubscriptionProviderClaude,
+			ExternalAccountID: "claude-misfiled", RefreshToken: []byte("ciphertext"),
+		})
+	}
+
+	misfiled, _, err := enroll(ownerA)
+	require.NoError(t, err)
+
+	moved, kind, err := enroll(ownerB)
+	require.NoError(t, err)
+	assert.Equal(t, auth.SubscriptionUpsertReassigned, kind)
+	assert.Equal(t, misfiled.ID, moved.ID, "the seat moves instead of being duplicated")
+	assert.Equal(t, fixture.subscriberB.String(), moved.SubscriberID)
+
+	_, kind, err = enroll(ownerB)
+	require.NoError(t, err)
+	assert.Equal(t, auth.SubscriptionUpsertUpdated, kind, "the new owner reconnecting is an ordinary update")
+}
+
+func TestSubscriptionAccountEnrollmentKeepsSeatThatServesAnotherInstallation(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
+	ctx := context.Background()
+	ownerA := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
+	ownerB := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberB.String(), APIKeyID: fixture.keyB1.String()}
+	params := auth.CreateSubscriptionAccountParams{
+		Owner: ownerA, Provider: auth.SubscriptionProviderClaude,
+		ExternalAccountID: "claude-two-installations", RefreshToken: []byte("ciphertext"),
+	}
+	seat, _, err := repo.UpsertSubscriptionAccount(ctx, params)
+	require.NoError(t, err)
+
+	otherInstallationID := uuid.New()
+	_, err = fixture.pool.Exec(ctx,
+		"INSERT INTO router.model_router_installations (id, external_id, name) VALUES ($1, $2, $2)",
+		otherInstallationID, "subscription-ownership-"+otherInstallationID.String()[:8])
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, cleanupErr := fixture.pool.Exec(context.Background(),
+			"DELETE FROM router.model_router_subscription_account_installations WHERE installation_id = $1", otherInstallationID)
+		require.NoError(t, cleanupErr)
+		_, cleanupErr = fixture.pool.Exec(context.Background(),
+			"DELETE FROM router.model_router_installations WHERE id = $1", otherInstallationID)
+		require.NoError(t, cleanupErr)
+	})
+	_, err = fixture.pool.Exec(ctx,
+		"INSERT INTO router.model_router_subscription_account_installations (installation_id, subscription_account_id) VALUES ($1, $2)",
+		otherInstallationID, seat.ID)
+	require.NoError(t, err)
+
+	params.Owner = ownerB
+	_, _, err = repo.UpsertSubscriptionAccount(ctx, params)
+	require.Error(t, err, "a seat serving another installation never changes owner")
+
+	accounts, err := repo.ListSubscriptionAccounts(ctx, ownerA)
+	require.NoError(t, err)
+	require.Len(t, accounts, 1)
+	assert.Equal(t, seat.ID, accounts[0].ID)
 }

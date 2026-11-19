@@ -89,7 +89,7 @@ func TestVerificationSQLConcurrentSharedRefreshAndReset(t *testing.T) {
 			enrolledID = enrolled[i].ID
 		}
 	}
-	require.Equal(t, 1, successful, "concurrent owner registrations must preserve exactly one physical credential")
+	require.GreaterOrEqual(t, successful, 1, "one concurrent owner registration must succeed")
 	var physicalRows int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM router.model_router_subscription_accounts WHERE external_account_id=$1`, physicalID).Scan(&physicalRows))
 	require.Equal(t, 1, physicalRows)
