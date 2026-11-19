@@ -534,6 +534,8 @@ newer_helper="$work/newer-codex-status.sh"
   printf '%s\n' '#!/usr/bin/env bash'
   printf '%s\n' '# <!-- weave-router managed codex status -->'
   printf '%s\n' '# newer upstream copy'
+  # The updater only takes a copy that carries the release fetcher.
+  awk '/^weave_release_fetch\(\) \{$/,/^\}$/' "$helper"
   # The updater rejects anything under 1 KiB, so pad past that floor.
   awk 'BEGIN { while (i++ < 40) print "# padding padding padding padding padding padding" }'
   printf '%s\n' 'exit 0'

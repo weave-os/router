@@ -154,6 +154,23 @@ for mode in tamper offsite; do
   fi
 done
 
+# A release from before the fetcher existed (today's published one) still
+# updates from main; installing it would undo this protection.
+without_fetcher() { awk '/^weave_release_fetch\(\) \{$/ { skip = 1 } !skip { print } skip && /^\}$/ { skip = 0 }' "$1"; }
+old_release="$work/old-release"
+mkdir -p "$old_release/package"
+without_fetcher "$install_dir/cc-statusline.sh" >"$old_release/package/cc-statusline.sh"
+without_fetcher "$install_dir/codex-status.sh" >"$old_release/package/codex-status.sh"
+publish "$old_release"
+c="$work/s-old"; new_statusline_case "$c"
+statusline_turn "$c"
+settle "$c" "router-9.9.9.tgz"
+if same_file "$c/home/.weave/cc-statusline.sh" "$install_dir/cc-statusline.sh"; then
+  ok "statusline refuses a release without the release fetcher"
+else
+  no "statusline refuses a release without the release fetcher" "installed copy unchanged" "downgraded"
+fi
+
 # ---------- slash-command wrappers ----------
 
 publish "$release"
@@ -210,6 +227,16 @@ else
 fi
 codex_turn "$c"
 if [ -e "$canary" ]; then no "codex helper never runs a branch push" "no canary" "payload ran"; else ok "codex helper never runs a branch push"; fi
+
+publish "$old_release"
+c="$work/c-old"; new_codex_case "$c"
+codex_turn "$c"
+settle "$c" "router-9.9.9.tgz"
+if same_file "$c/home/.codex/weave-status.sh" "$install_dir/codex-status.sh"; then
+  ok "codex helper refuses a release without the release fetcher"
+else
+  no "codex helper refuses a release without the release fetcher" "unchanged" "downgraded"
+fi
 
 publish "$release" tamper
 c="$work/c2"; new_codex_case "$c"

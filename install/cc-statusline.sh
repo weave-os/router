@@ -177,8 +177,11 @@ weave_self_refresh() {
     exec </dev/null
     release="$(mktemp -d "$cache_dir/.release.XXXXXX")" || exit 0
     trap 'rm -rf "$release"' EXIT
+    # A release that predates this fetcher would update from a branch again,
+    # so never swap in a copy that cannot verify its own next update.
     if weave_release_fetch "$release" cc-statusline.sh \
        && mv "$release/package/cc-statusline.sh" "$tmp" 2>/dev/null \
+       && grep -q '^weave_release_fetch() {$' "$tmp" \
        && [ -s "$tmp" ] \
        && head -n 1 "$tmp" | grep -q '^#!.*bash' \
        && [ "$(wc -c < "$tmp")" -ge 1024 ]; then
