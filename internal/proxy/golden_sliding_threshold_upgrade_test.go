@@ -9,7 +9,7 @@ import (
 // goldenSlidingThresholdUpgradeScenarios pin the sliding-threshold paths that
 // serve the fresh model with pin_tier=authoritative_sliding_threshold_upgrade.
 func goldenSlidingThresholdUpgradeScenarios() []goldenScenario {
-	first, next := goldenRequest{body: routingPolicyFirstTurn}, goldenRequest{body: routingPolicyFollowUp("Now say bye")}
+	firstTurn, followUp := goldenRequest{body: routingPolicyFirstTurn}, goldenRequest{body: routingPolicyFollowUp("Now say bye")}
 	marginThreshold := 0.5
 	options := []func(*proxy.Service) *proxy.Service{
 		func(s *proxy.Service) *proxy.Service {
@@ -21,7 +21,7 @@ func goldenSlidingThresholdUpgradeScenarios() []goldenScenario {
 		pinned := slidingUpgradeHMM(routingPolicyLow, pinGroup)
 		sc := routingPolicyScenario(name, routingPolicySetup{
 			turns: routingPolicyTurns(pinned, fresh), caps: policy.Capabilities{AuthoritativePerTurnSelection: true}, options: options,
-		}, first, next)
+		}, firstTurn, followUp)
 		sc.name = "router_atom_sliding_threshold_" + name
 		return sc
 	}
