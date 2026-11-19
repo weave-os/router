@@ -22,7 +22,4 @@ func TestClassifierTelemetryOfCopiesClassifierFields(t *testing.T) {
 		ClassOrder: []string{"g1"}, Probabilities: map[string]float64{"g1": 1}, SelectionTrace: &router.SelectionTrace{},
 	}, got)
 	assert.Equal(t, hmm.ClassifierTelemetry{}, hmm.ClassifierTelemetryOf(nil))
-	gotMargin, group := hmm.ClassifierMarginAndGroup(md)
-	assert.Equal(t, &margin, gotMargin)
-	assert.Equal(t, "g2", group)
 }

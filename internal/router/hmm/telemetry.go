@@ -28,8 +28,3 @@ func ClassifierTelemetryOf(md *router.RoutingMetadata) ClassifierTelemetry {
 		SelectionTrace: md.SelectionTrace,
 	}
 }
-
-func ClassifierMarginAndGroup(md *router.RoutingMetadata) (*float64, string) {
-	classifier := ClassifierTelemetryOf(md)
-	return classifier.Margin, classifier.PolicyGroup
-}

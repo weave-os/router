@@ -79,7 +79,7 @@ func buildObservationContext(ctx context.Context, decision, fresh router.Decisio
 		obs.FreshDecisionModel = fresh.Model
 	}
 	if fresh.Metadata != nil {
-		obs.FreshClassifierMargin, obs.FreshPolicyGroup = hmm.ClassifierMarginAndGroup(fresh.Metadata)
+		obs.FreshClassifierMargin, obs.FreshPolicyGroup = hmm.ClassifierTelemetryOf(fresh.Metadata).Margin, hmm.ClassifierTelemetryOf(fresh.Metadata).PolicyGroup
 	}
 	if md := fresh.Metadata; md != nil && len(md.CandidateScores) > 0 {
 		if b, err := json.Marshal(md.CandidateScores); err == nil {
