@@ -39,3 +39,23 @@ func TestAtLeast(t *testing.T) {
 	assert.Equal(t, candidates, AtLeast(candidates, catalog.TierUnknown))
 	assert.Empty(t, AtLeast(nil, catalog.TierLow))
 }
+
+func TestTurnFloor_HigherSourceWinsRegardlessOfOrder(t *testing.T) {
+	for name, tc := range map[string]struct {
+		xgb, llm escalation.Group
+		want     catalog.Tier
+	}{
+		"xgb higher": {xgb: escalation.High, llm: escalation.Low, want: catalog.TierHigh},
+		"llm higher": {xgb: escalation.Low, llm: escalation.High, want: catalog.TierHigh},
+		"equal":      {xgb: escalation.Medium, llm: escalation.Medium, want: catalog.TierMid},
+		"xgb only":   {xgb: escalation.Medium, want: catalog.TierMid},
+	} {
+		t.Run(name, func(t *testing.T) {
+			turn := &Turn{
+				xgb: &xgbTurn{session: escalation.Session{Floor: tc.xgb}},
+				llm: &llmTurn{session: llmescalation.Session{Floor: tc.llm}},
+			}
+			assert.Equal(t, tc.want, turn.Floor())
+		})
+	}
+}
