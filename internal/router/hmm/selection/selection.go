@@ -8,7 +8,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/hmm/rosterdata"
 )
 
@@ -33,48 +33,6 @@ func ArmOrder(cluster rosterdata.Cluster, harness string) (order []string, harne
 		return arms, true
 	}
 	return cluster.Arms, false
-}
-
-func Select(roster *rosterdata.Roster, rankedGroups []string, harness string, candidates map[string]struct{}) (Pick, bool) {
-	groups := make([]Group, 0, len(rankedGroups))
-	for _, label := range rankedGroups {
-		groups = append(groups, Group{Label: label})
-	}
-	return SelectGroups(roster, groups, harness, candidates)
-}
-
-func SelectGroups(roster *rosterdata.Roster, groups []Group, harness string, candidates map[string]struct{}) (Pick, bool) {
-	pick, _, ok := SelectGroupsWithPreference(roster, groups, harness, candidates, nil)
-	return pick, ok
-}
-
-func SelectGroupsWithPreference(roster *rosterdata.Roster, groups []Group, harness string, candidates map[string]struct{}, qualityBias *float64) (Pick, map[string]map[string]float32, bool) {
-	pick, scoresByGroup, _, _, ok := SelectGroupsWithPreferences(roster, groups, harness, candidates, qualityBias, nil)
-	return pick, scoresByGroup, ok
-}
-
-func SelectGroupsWithPreferences(
-	roster *rosterdata.Roster,
-	groups []Group,
-	harness string,
-	candidates map[string]struct{},
-	qualityBias *float64,
-	preferredModels []string,
-) (Pick, map[string]map[string]float32, map[string]map[string]router.SelectionScoreComponents, map[string][]string, bool) {
-	return SelectGroupsWithDomainPreferences(roster, groups, harness, candidates, qualityBias, preferredModels, nil, nil)
-}
-
-func SelectGroupsWithDomainPreferences(
-	roster *rosterdata.Roster,
-	groups []Group,
-	harness string,
-	candidates map[string]struct{},
-	qualityBias *float64,
-	preferredModels []string,
-	evidence *DomainEvidence,
-	profile DomainProfile,
-) (Pick, map[string]map[string]float32, map[string]map[string]router.SelectionScoreComponents, map[string][]string, bool) {
-	return selectGroups(roster, groups, harness, "", candidates, qualityBias, preferredModels, evidence, profile)
 }
 
 const NoSubscriptionLadder = "none"
@@ -155,7 +113,7 @@ func selectGroups(
 		_, harnessSpecific := ArmOrder(cluster, harness)
 		order := ordersByGroup[group.Label]
 		for _, arm := range order {
-			baseID, _ := hmm.SplitEffort(arm)
+			baseID, _ := armid.SplitEffort(arm)
 			if _, eligible := candidates[baseID]; !eligible {
 				continue
 			}
@@ -268,8 +226,8 @@ func scoresWithDomainPreferences(
 	preferredRanks := preferenceRanks(preferredModels)
 	componentsByArm := make(map[string]router.SelectionScoreComponents, len(scores))
 	for arm, score := range scores {
-		baseID, _ := hmm.SplitEffort(arm)
-		catalogID := hmm.CatalogIDForRoster(baseID)
+		baseID, _ := armid.SplitEffort(arm)
+		catalogID := armid.CatalogIDForRoster(baseID)
 		components := router.SelectionScoreComponents{BaseScore: score - corrections[arm], TaskDomainCorrection: corrections[arm]}
 		if rank, preferred := preferredRanks[catalogID]; preferred {
 			components.PreferredModelBonus = float32(preferredModelBonus / float64(rank+1))

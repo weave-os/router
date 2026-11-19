@@ -6,7 +6,7 @@ import (
 
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/hmm/rosterdata"
 )
 
@@ -34,8 +34,8 @@ func RoutingDistribution(roster *rosterdata.Roster, gridN int, excludedModels, e
 			clusterRoster := roster.Clusters[label]
 			candidates := make(map[string]struct{}, len(clusterRoster.Arms))
 			for _, arm := range clusterRoster.Arms {
-				baseRosterID, _ := hmm.SplitEffort(arm)
-				catalogID := hmm.CatalogIDForRoster(baseRosterID)
+				baseRosterID, _ := armid.SplitEffort(arm)
+				catalogID := armid.CatalogIDForRoster(baseRosterID)
 				model, ok := catalog.ByID(catalogID)
 				if !ok {
 					continue
@@ -52,18 +52,12 @@ func RoutingDistribution(roster *rosterdata.Roster, gridN int, excludedModels, e
 					prices[catalogID] = model.Providers[0].Price.InputUSDPer1M / 1000
 				}
 			}
-			pick, _, ok := SelectGroupsWithPreference(
-				roster,
-				[]Group{{Label: label}},
-				"",
-				candidates,
-				&qualityBias,
-			)
+			pick, _, _, _, ok := selectGroups(roster, []Group{{Label: label}}, "", "", candidates, &qualityBias, nil, nil, nil)
 			if !ok {
 				continue
 			}
 			selectedGroups++
-			counts[hmm.CatalogIDForRoster(pick.Arm)]++
+			counts[armid.CatalogIDForRoster(pick.Arm)]++
 		}
 		if len(counts) == 0 {
 			return nil, fmt.Errorf("exclusions leave no eligible candidates: %w", router.ErrNoEligibleProvider)

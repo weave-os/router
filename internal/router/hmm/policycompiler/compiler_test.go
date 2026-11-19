@@ -190,7 +190,7 @@ func TestCompileRejectsSubscriptionLadderForUnknownGroup(t *testing.T) {
 }
 
 func TestCompilableSourceRequiresWIIAndWPIProvenance(t *testing.T) {
-	assert.False(t, policycompiler.CompilableSource(rosterdata.SchemaVersionV6))
+	assert.False(t, policycompiler.CompilableSource(rosterdata.SchemaVersion("hmm_router_cluster_roster_v6")))
 	assert.False(t, policycompiler.CompilableSource(rosterdata.SchemaVersion("hmm_router_cluster_roster_v5")))
 	assert.True(t, policycompiler.CompilableSource(rosterdata.SchemaVersionV7))
 	assert.True(t, policycompiler.CompilableSource(rosterdata.SchemaVersionV75C))

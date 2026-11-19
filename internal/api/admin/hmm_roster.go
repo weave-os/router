@@ -7,7 +7,7 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/policy"
 
 	"github.com/gin-gonic/gin"
@@ -71,7 +71,7 @@ func rosterClusterDTOs(clusters map[string][]string) []hmmClusterDTO {
 	for cluster, arms := range clusters {
 		models := make([]string, 0, len(arms))
 		for _, arm := range arms {
-			models = append(models, hmm.CatalogIDForRoster(arm))
+			models = append(models, armid.CatalogIDForRoster(arm))
 		}
 		projection = append(projection, hmmClusterDTO{Arms: append([]string(nil), arms...), Cluster: cluster, Models: models})
 	}

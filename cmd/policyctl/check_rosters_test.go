@@ -89,7 +89,7 @@ func TestCheckRosterDirCompilesV7SourceAndSkipsPreGoSchemas(t *testing.T) {
 	require.Len(t, report.Skipped, 2)
 	assert.Equal(t, "roster_retired.json", report.Skipped[0].File)
 	assert.Equal(t, "roster_v6.json", report.Skipped[1].File)
-	assert.Equal(t, rosterdata.SchemaVersionV6, report.Skipped[1].SchemaVersion)
+	assert.Equal(t, rosterdata.SchemaVersion("hmm_router_cluster_roster_v6"), report.Skipped[1].SchemaVersion)
 	assert.Empty(t, report.Failed)
 }
 
@@ -143,4 +143,20 @@ func TestRunCheckRostersFailsWhenNothingIsCompilable(t *testing.T) {
 
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "no roster under")
+}
+
+func TestCheckRosterDirFailsSourceCarryingModePolicies(t *testing.T) {
+	dir := t.TempDir()
+	source := strings.Replace(v7RosterSource("openai/gpt-5.6-sol", `{}`), `"clusters":`, `"mode_policies": {"plan": {"allowed_groups": ["low"]}},
+  "clusters":`, 1)
+	writeRoster(t, dir, "roster_mode_policies.json", source)
+
+	report, err := checkRosterDir(dir, policycompiler.Options{})
+
+	require.NoError(t, err)
+	assert.Empty(t, report.Compiled)
+	assert.Empty(t, report.Skipped)
+	require.Len(t, report.Failed, 1)
+	assert.Equal(t, "roster_mode_policies.json", report.Failed[0].File)
+	assert.Contains(t, report.Failed[0].Error, "mode")
 }

@@ -11,7 +11,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/escalation"
-	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/taskdomain"
@@ -153,7 +153,7 @@ func unscorableGroups(roster *rosterdata.Roster, input policy.SelectionInput) ([
 	if input.PreferredRosterID != "" {
 		for index, group := range eligible {
 			for _, arm := range roster.Clusters[group].Arms {
-				baseID, _ := hmm.SplitEffort(arm)
+				baseID, _ := armid.SplitEffort(arm)
 				if baseID == input.PreferredRosterID {
 					return append([]string{group}, append(eligible[:index], eligible[index+1:]...)...), nil
 				}
@@ -197,7 +197,7 @@ func classifierGroups(input policy.SelectionInput) ([]string, error) {
 func eligibleOrder(order []string, candidates map[string]struct{}) []string {
 	eligible := make([]string, 0, len(order))
 	for _, arm := range order {
-		baseID, _ := hmm.SplitEffort(arm)
+		baseID, _ := armid.SplitEffort(arm)
 		if _, exists := candidates[baseID]; exists {
 			eligible = append(eligible, arm)
 		}

@@ -30,7 +30,7 @@ func TestPolicyV1WireShapeIsPinned(t *testing.T) {
 func TestPolicyV1WireRejectsUnknownAndModeFields(t *testing.T) {
 	for name, rejection := range map[string]struct{ payload, reason string }{
 		"unknown_top_level_field": {strings.Replace(policyV1EveryFieldWire, `{"schema_version"`, `{"unknown":true,"schema_version"`, 1), `unknown field "unknown"`},
-		"mode_policies":           {strings.Replace(policyV1EveryFieldWire, `"preferences":`, `"mode_policies":{"plan":{"allowed_groups":["low"]}},"preferences":`, 1), `mode policy "plan" is not supported by Go selection`},
+		"mode_policies":           {strings.Replace(policyV1EveryFieldWire, `"preferences":`, `"mode_policies":{"plan":{"allowed_groups":["low"]}},"preferences":`, 1), `unknown field "mode_policies"`},
 		"trailing_value":          {policyV1EveryFieldWire + ` {}`, "multiple JSON values"},
 	} {
 		t.Run(name, func(t *testing.T) {
