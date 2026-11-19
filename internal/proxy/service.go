@@ -1991,17 +1991,16 @@ func (s *Service) routeWithStrategy(ctx context.Context, strategy router.Strateg
 	if pin, pinned := router.HonouredPolicyPin(ctx); pinned && (decision.Metadata == nil || !decision.Metadata.PolicyPinHonoured) {
 		return router.Decision{}, fmt.Errorf("strategy %q cannot serve policy pin %s: %w", strategy, pin, router.ErrPolicyPinUnavailable)
 	}
+	if err := candidateRefusal(ctx, s.strategies, strategy, req, decision); err != nil {
+		return router.Decision{}, err
+	}
 	return decision, nil
 }
 
 func (s *Service) routeWithStrategyUnchecked(ctx context.Context, strategy router.Strategy, req router.Request) (router.Decision, error) {
 	registered, ok := s.strategies[strategy]
 	if !ok || registered.router == nil {
-		unavailable := defaultStrategyUnavailable(strategy)
-		if ok && registered.unavailable != nil {
-			unavailable = registered.unavailable
-		}
-		return router.Decision{}, fmt.Errorf("strategy %q requested but no router configured: %w", strategy, unavailable)
+		return router.Decision{}, fmt.Errorf("strategy %q requested but no router configured: %w", strategy, strategyUnavailable(s.strategies, strategy))
 	}
 	if hmm.Owns(strategy) && req.ConversationMessages != nil && !hasTextUserBoundary(req.ConversationMessages) {
 		req.Unscorable = true

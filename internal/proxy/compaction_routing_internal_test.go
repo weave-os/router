@@ -72,11 +72,11 @@ func (f compactionRoutingFixture) pinSession(t *testing.T, ctx context.Context, 
 	routingpolicy.NewSessionPins(f.svc.pinStore, f.svc.clock.Now).WriteNew(ctx, f.installationID, deriveSessionKeyForRequest(ctx, env, "test-key"), role, decision)
 }
 
-func openAICatalogModels() map[string]struct{} {
+func openAICatalogModelsExcept(kept string) map[string]struct{} {
 	out := map[string]struct{}{}
 	for _, m := range catalog.Models {
 		for _, b := range m.Providers {
-			if b.Provider == providers.ProviderOpenAI {
+			if b.Provider == providers.ProviderOpenAI && m.ID != kept {
 				out[m.ID] = struct{}{}
 			}
 		}
@@ -85,8 +85,8 @@ func openAICatalogModels() map[string]struct{} {
 }
 
 // A resumed Codex thread whose first request is a compaction has no session
-// pin yet. With every OpenAI catalog model excluded and only OpenAI
-// enabled, compaction used to fail with a retryable "cluster scorer failed"
+// pin yet. With every OpenAI catalog model but the scorer's pick excluded and
+// only OpenAI enabled, compaction used to fail with a retryable "cluster scorer failed"
 // 503 on every retry instead of asking the scorer.
 func TestCompactionWithoutSessionPinUsesScorer(t *testing.T) {
 	scored := router.Decision{Provider: providers.ProviderOpenAI, Model: compactionStrategyModel, Reason: "cluster_scored"}
@@ -98,7 +98,7 @@ func TestCompactionWithoutSessionPinUsesScorer(t *testing.T) {
 	turn, err := f.run(t, ctx, env, router.Request{
 		EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}},
 		Candidates: router.Candidates{
-			ExcludedModels: openAICatalogModels(),
+			ExcludedModels: openAICatalogModelsExcept(compactionStrategyModel),
 		},
 	})
 
