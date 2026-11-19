@@ -139,7 +139,7 @@ var minimaxM31Flash = NewSpecWithReasoning(ReasoningCapabilities{Levels: []strin
 
 var googleBase = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high"}, SupportsBudget: true})
 var google3Base = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high"}, AlwaysOn: true})
-var google4Xhigh = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh"}, AlwaysOn: true}, CapXhighEffort)
+var google4Xhigh = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh", "max"}, AlwaysOn: true}, CapXhighEffort)
 
 var openAICompatBase = NewSpec()
 

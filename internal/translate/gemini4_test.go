@@ -76,8 +76,10 @@ func TestGemini4XhighEffortOnlyReachesModelsThatAcceptIt(t *testing.T) {
 					} `json:"thinkingConfig"`
 				} `json:"generationConfig"`
 			}
-			prepareGemini4(t, `{"model":"Weave","messages":[{"role":"user","content":"Synthetic effort check."}],"reasoning_effort":"xhigh"}`, model, &emitted)
-			require.Equal(t, level, emitted.GenerationConfig.ThinkingConfig.ThinkingLevel)
+			for _, effort := range []string{"xhigh", "max"} {
+				prepareGemini4(t, fmt.Sprintf(`{"model":"Weave","messages":[{"role":"user","content":"Synthetic effort check."}],"reasoning_effort":%q}`, effort), model, &emitted)
+				require.Equal(t, level, emitted.GenerationConfig.ThinkingConfig.ThinkingLevel, effort)
+			}
 		})
 	}
 }

@@ -60,7 +60,7 @@ func TestLookup_Gemini4Reasoning(t *testing.T) {
 		xhigh  bool
 	}{
 		{router.ModelGemini4Argon, []string{"low", "medium", "high"}, false},
-		{router.ModelGemini4Neon, []string{"low", "medium", "high", "xhigh"}, true},
+		{router.ModelGemini4Neon, []string{"low", "medium", "high", "xhigh", "max"}, true},
 	} {
 		spec := router.Lookup(tc.model)
 		assert.Equal(t, tc.levels, spec.Reasoning().Levels, tc.model)
