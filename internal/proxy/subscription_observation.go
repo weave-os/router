@@ -14,6 +14,7 @@ import (
 
 const (
 	routePathMessages        = "/v1/messages"
+	routePathPiHandoff       = "/v1/route/handoff"
 	routePathChatCompletions = "/v1/chat/completions"
 	routePathResponses       = "/v1/responses"
 )
@@ -100,7 +101,7 @@ func RequestPresentsCoveringSubscription(ctx context.Context, headers http.Heade
 	}
 	codex, anthropic := presentSubscriptionTokens(ctx, headers)
 	switch routePath {
-	case routePathMessages:
+	case routePathMessages, routePathPiHandoff:
 		return anthropic != "" || managedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude)
 	case routePathChatCompletions, routePathResponses:
 		return codex != "" || managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex)
