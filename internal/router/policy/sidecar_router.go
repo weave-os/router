@@ -454,7 +454,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	if pinned && res.PolicyArtifactSHA256 != pin.ArtifactSHA256 {
 		return router.Decision{}, fmt.Errorf("%s: sidecar served artifact %q, pin requires %q: %w", strategy, res.PolicyArtifactSHA256, pin.ArtifactSHA256, router.ErrPolicyPinUnavailable)
 	}
-	servedRosterSHA256 := res.RosterVersion
+	var admittedRosterSHA256 string
 	if err := r.validateClassifierReleaseIdentity(res.ClassifierReleaseID, res.ClassifierSelectionID, res.ClassifierVariantID, res.ClassifierTaxonomySHA256, res.PolicyArtifactID, res.PolicyArtifactSHA256); err != nil {
 		return router.Decision{}, fmt.Errorf("%s: invalid classifier release identity: %v: %w", strategy, err, router.ErrPolicyPinUnavailable)
 	}
@@ -508,12 +508,10 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		res.RankedFallback = pick.RankedFallback
 		routerArmScoresByGroup = pick.ArmScoresByGroup
 		selectionTrace = pick.Trace
-		if pinned {
-			if pick.RosterSHA256 != pin.RosterSHA256 {
-				return router.Decision{}, fmt.Errorf("%s: selection used roster %q, pin requires %q: %w", strategy, pick.RosterSHA256, pin.RosterSHA256, router.ErrPolicyPinUnavailable)
-			}
-			servedRosterSHA256 = pick.RosterSHA256
+		if pinned && pick.RosterSHA256 != pin.RosterSHA256 {
+			return router.Decision{}, fmt.Errorf("%s: selection used roster %q, pin requires %q: %w", strategy, pick.RosterSHA256, pin.RosterSHA256, router.ErrPolicyPinUnavailable)
 		}
+		admittedRosterSHA256 = pick.RosterSHA256
 	}
 
 	switch {
@@ -628,7 +626,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	if selectionPolicySHA256 == "" {
 		selectionPolicySHA256 = res.PolicyArtifactSHA256
 	}
-	rosterVersion := servedRosterVersion(res.RosterVersion, servedRosterSHA256, r.config.SelectionPolicySHA256, pinned)
+	rosterVersion := servedRosterVersion(admittedRosterSHA256, res.RosterVersion)
 	if pinned {
 		selectionPolicySHA256 = pin.ArtifactSHA256
 	}
