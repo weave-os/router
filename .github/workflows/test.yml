@@ -256,6 +256,11 @@ jobs:
           ROUTER_TEST_DATABASE_URL: postgres://router:router@localhost:5432/router?sslmode=disable&search_path=router
         run: go test -count=1 ./scripts/subscription_verification_check
 
+      - name: Check own-seat usage persistence on ephemeral Postgres
+        env:
+          ROUTER_TEST_DATABASE_URL: postgres://router:router@localhost:5432/router?sslmode=disable&search_path=router
+        run: go test -count=1 ./scripts/seat_usage_check
+
   # These checks exercise the compatibility boundary against a disposable
   # database. Run them beside the static/database checks so their two worker
   # builds do not extend that job's tail.

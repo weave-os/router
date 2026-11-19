@@ -829,6 +829,19 @@ type RouterModelRouterUserMonthlySpend struct {
 	UpdatedAt      pgtype.Timestamptz
 }
 
+type RouterModelRouterUserSeatUsage struct {
+	RouterUserID           uuid.UUID
+	Provider               string
+	PrimaryUsedPercent     float64
+	PrimaryWindowMinutes   int32
+	PrimaryResetsAt        pgtype.Timestamptz
+	SecondaryUsedPercent   float64
+	SecondaryWindowMinutes int32
+	SecondaryResetsAt      pgtype.Timestamptz
+	OverageInUse           bool
+	ObservedAt             pgtype.Timestamptz
+}
+
 type RouterModelRouterUserSpendLimit struct {
 	RouterUserID          uuid.UUID
 	MonthlyLimitUsdMicros *int64

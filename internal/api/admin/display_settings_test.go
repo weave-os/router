@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+	"weave-os/router/internal/proxy/usage"
 
 	"weave-os/router/internal/api/admin"
 	"weave-os/router/internal/auth"
@@ -35,7 +37,7 @@ func TestDisplaySettingsHandler(t *testing.T) {
 			engine := gin.New()
 			engine.GET("/v1/display-settings", func(c *gin.Context) {
 				c.Set("router_installation", &auth.Installation{ID: "inst-1", HideTerminalSurfaces: hide})
-			}, admin.DisplaySettingsHandler(&fakeAccountLister{}, nil, nil))
+			}, admin.DisplaySettingsHandler(&fakeAccountLister{}, nil, nil, nil))
 
 			rec := httptest.NewRecorder()
 			engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/display-settings", nil))
@@ -60,7 +62,7 @@ func TestDisplaySettingsHandler(t *testing.T) {
 				c.Set("router_installation", &auth.Installation{ID: "inst-1"})
 			}, admin.DisplaySettingsHandler(&fakeAccountLister{}, func(c *gin.Context) context.Context {
 				return context.WithValue(c.Request.Context(), auth.BlindExperimentContextKey{}, state)
-			}, nil))
+			}, nil, nil))
 
 			rec := httptest.NewRecorder()
 			engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/display-settings", nil))
@@ -93,7 +95,7 @@ func TestDisplaySettingsHandler(t *testing.T) {
 					return c.Request.Context()
 				}
 				return context.WithValue(c.Request.Context(), auth.UserIDContextKey{}, tc.userID)
-			}, fakeExperimentChecker{enabled: tc.experimentEnabled}))
+			}, fakeExperimentChecker{enabled: tc.experimentEnabled}, nil))
 
 			rec := httptest.NewRecorder()
 			engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/display-settings", nil))
@@ -109,7 +111,7 @@ func TestDisplaySettingsHandler(t *testing.T) {
 
 	t.Run("unauthenticated without an installation", func(t *testing.T) {
 		engine := gin.New()
-		engine.GET("/v1/display-settings", admin.DisplaySettingsHandler(&fakeAccountLister{}, nil, nil))
+		engine.GET("/v1/display-settings", admin.DisplaySettingsHandler(&fakeAccountLister{}, nil, nil, nil))
 
 		rec := httptest.NewRecorder()
 		engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/display-settings", nil))
@@ -159,7 +161,7 @@ func getDisplaySettings(t *testing.T, lister *fakeAccountLister) struct {
 	engine.GET("/v1/display-settings", func(c *gin.Context) {
 		c.Set("router_installation", &auth.Installation{ID: "inst-1"})
 		c.Set("router_api_key", &auth.APIKey{ID: "key-1", CredentialSubjectID: "subscriber-1"})
-	}, admin.DisplaySettingsHandler(lister, nil, nil))
+	}, admin.DisplaySettingsHandler(lister, nil, nil, nil))
 
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/display-settings", nil))
@@ -176,4 +178,62 @@ type fakeExperimentChecker struct{ enabled bool }
 
 func (f fakeExperimentChecker) InstallationBlindExperimentEnabled(context.Context, string) bool {
 	return f.enabled
+}
+
+type fakeSeatUsageReader struct {
+	seats map[string][]usage.SeatUsage
+}
+
+func (f fakeSeatUsageReader) ListSeatUsage(_ context.Context, routerUserID string) ([]usage.SeatUsage, error) {
+	return f.seats[routerUserID], nil
+}
+
+func TestDisplaySettingsHandlerReportsOwnSeats(t *testing.T) {
+	observedAt := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
+	reader := fakeSeatUsageReader{seats: map[string][]usage.SeatUsage{
+		"user-a": {{Provider: "claude", Snapshot: usage.Snapshot{
+			Primary:    usage.Window{UsedPercent: 42, WindowMinutes: 300},
+			Secondary:  usage.Window{UsedPercent: 18, WindowMinutes: 10080},
+			ObservedAt: observedAt,
+		}}},
+	}}
+	for _, tc := range []struct {
+		name      string
+		userID    string
+		wantSeats int
+	}{
+		{name: "identified caller sees their own seat", userID: "user-a", wantSeats: 1},
+		{name: "another caller sees none", userID: "user-b", wantSeats: 0},
+		{name: "unidentified caller sees none", userID: "", wantSeats: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			engine := gin.New()
+			engine.GET("/v1/display-settings", func(c *gin.Context) {
+				c.Set("router_installation", &auth.Installation{ID: "inst-1"})
+			}, admin.DisplaySettingsHandler(&fakeAccountLister{}, func(c *gin.Context) context.Context {
+				return context.WithValue(c.Request.Context(), auth.UserIDContextKey{}, tc.userID)
+			}, nil, reader))
+
+			rec := httptest.NewRecorder()
+			engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/display-settings", nil))
+
+			require.Equal(t, http.StatusOK, rec.Code)
+			var body struct {
+				OwnSeats []struct {
+					Provider             string    `json:"provider"`
+					PrimaryUsedPercent   float64   `json:"primary_used_percent"`
+					SecondaryUsedPercent float64   `json:"secondary_used_percent"`
+					ObservedAt           time.Time `json:"observed_at"`
+				} `json:"own_seats"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.Len(t, body.OwnSeats, tc.wantSeats)
+			if tc.wantSeats == 1 {
+				require.Equal(t, "claude", body.OwnSeats[0].Provider)
+				require.Equal(t, 42.0, body.OwnSeats[0].PrimaryUsedPercent)
+				require.Equal(t, 18.0, body.OwnSeats[0].SecondaryUsedPercent)
+				require.True(t, observedAt.Equal(body.OwnSeats[0].ObservedAt))
+			}
+		})
+	}
 }

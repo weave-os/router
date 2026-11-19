@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"net/http"
+	"weave-os/router/internal/auth"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -138,6 +139,8 @@ func (s *Service) withUsageObserver(ctx context.Context, headers http.Header) co
 				s.usageObserver.Record(s.subscriptionUsageKey(creds), snap)
 				if creds.SubscriptionAccountID != "" {
 					s.usageObserver.Record(s.usageObserver.Key(creds.APIKey), snap)
+				} else {
+					s.usageObserver.RecordSeat(callCtx, auth.UserIDFrom(callCtx), string(auth.SubscriptionProviderCodex), snap)
 				}
 			}
 		case credSourceSubscription:
@@ -145,6 +148,8 @@ func (s *Service) withUsageObserver(ctx context.Context, headers http.Header) co
 				s.usageObserver.Record(s.subscriptionUsageKey(creds), snap)
 				if creds.SubscriptionAccountID != "" {
 					s.usageObserver.Record(s.usageObserver.Key(creds.APIKey), snap)
+				} else {
+					s.usageObserver.RecordSeat(callCtx, auth.UserIDFrom(callCtx), string(auth.SubscriptionProviderClaude), snap)
 				}
 			}
 		}

@@ -94,6 +94,7 @@ type Features struct {
 	SubscriptionRefresh       subscriptions.AccountRefresher
 	PolicyStatus              admin.PolicyStatusSource
 	RoutingDistribution       admin.DistributionRosterSource
+	SeatUsage                 admin.SeatUsageReader
 }
 
 func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, hmmModels admin.HMMRosterSource, mode DeploymentMode, billingSvc *billing.Service, readinessChecker admin.HealthChecker, hmmRosterSources map[router.Strategy]policy.RosterSource, analyticsSvc *analytics.Service, features Features) {
@@ -337,7 +338,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	chatCompletionWithoutPolicyPinGroup.POST("/v1/responses", openaiapi.ResponsesHandler(proxySvc, authSvc))
 	chatCompletionWithoutPolicyPinGroup.POST("/v1beta/models/:modelAction", geminiapi.GenerateContentHandler(proxySvc, authSvc))
 
-	registerClientPassthroughRoutes(engine, authSvc, proxySvc, byokRequiresOptIn, features.ServingAdmission, servingAdmissionMiddleware)
+	registerClientPassthroughRoutes(engine, authSvc, proxySvc, byokRequiresOptIn, features.ServingAdmission, servingAdmissionMiddleware, features.SeatUsage)
 
 	sessionCostGroup := engine.Group("",
 		middleware.WithTimeout(sessionCostTimeout),

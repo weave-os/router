@@ -1305,6 +1305,8 @@ func main() {
 		}
 	}()
 	proxySvc = proxySvc.WithUsageObserver(usageObserver)
+	seatUsage := postgres.NewSeatUsageRepo(pool)
+	usageObserver.WithSeatUsageRecorder(seatUsage)
 
 	logger.Info("Subscription quota observer configured", "observation_ttl", subscriptionTTL)
 
@@ -1367,6 +1369,7 @@ func main() {
 	egressProbe.prepare(processCtx, logger, providerMap, envKeyedProviders, initializedOrigins)
 	logger.Info("Router startup initialization complete")
 	serverFeatures := server.Features{
+		SeatUsage:                 seatUsage,
 		SubscriptionLogins:        subscriptionLogins,
 		SubscriptionRefresh:       subscriptionRuntime,
 		StartupDatabasePing:       pool.Ping,
