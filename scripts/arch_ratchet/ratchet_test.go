@@ -159,6 +159,12 @@ func TestCompareFuncs(t *testing.T) {
 			want: []violation{{subject: "q.aaa", metric: metricLines, before: 0, after: 150, limit: 100}},
 		},
 		{
+			name: "an exact move between external test packages is claimed before greedy moves",
+			base: []funcMetrics{fnBody("p.p_test.TestX", 160, 1)},
+			head: []funcMetrics{fnBody("q.aaa", 160, 2), fnBody("q.q_test.TestX", 160, 1)},
+			want: []violation{{subject: "q.aaa", metric: metricLines, before: 0, after: 160, limit: 100}},
+		},
+		{
 			name:    "reviewed exception",
 			base:    []funcMetrics{fn("p.F", 150)},
 			head:    []funcMetrics{fn("p.F", 160)},

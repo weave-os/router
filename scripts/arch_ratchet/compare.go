@@ -97,7 +97,7 @@ func (p movePool) claimExact(headFuncs, baseFuncs map[string]funcMetrics) map[st
 		}
 		fn := headFuncs[key]
 		for _, candidate := range sortedKeys(p) {
-			if shortName(candidate) == shortName(key) && p[candidate].body == fn.body && maps.Equal(p[candidate].values, fn.values) {
+			if moveName(candidate) == moveName(key) && p[candidate].body == fn.body && maps.Equal(p[candidate].values, fn.values) {
 				claimed[key] = true
 				delete(p, candidate)
 				break
@@ -132,8 +132,8 @@ func (p movePool) claim(fn funcMetrics) bool {
 }
 
 func betterMove(fn funcMetrics, candidate, current string, p movePool) bool {
-	name := shortName(fn.key)
-	candidateSame, currentSame := shortName(candidate) == name, shortName(current) == name
+	name := moveName(fn.key)
+	candidateSame, currentSame := moveName(candidate) == name, moveName(current) == name
 	if candidateSame != currentSame {
 		return candidateSame
 	}
@@ -145,6 +145,14 @@ func betterMove(fn funcMetrics, candidate, current string, p movePool) bool {
 		currentSize += value
 	}
 	return candidateSize < currentSize
+}
+
+func moveName(key string) string {
+	name := shortName(key)
+	if pkg, rest, ok := strings.Cut(name, "."); ok && strings.HasSuffix(pkg, "_test") {
+		return rest
+	}
+	return name
 }
 
 func shortName(key string) string {
