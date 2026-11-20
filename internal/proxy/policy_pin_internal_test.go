@@ -93,7 +93,7 @@ func TestRecordPolicyPinRouteFailureWritesHonouredFalseRow(t *testing.T) {
 	installationID := uuid.New()
 	ctx := context.WithValue(pinnedContext(true), InstallationIDContextKey{}, installationID.String())
 
-	svc.recordPolicyPinRouteFailure(ctx, router.StrategyFromContext(ctx), "req-pin", time.Now(), "claude-sonnet-5", turntype.TurnType("interactive"), true, router.ErrPolicyPinUnavailable)
+	svc.recordPolicyPinRouteFailure(ctx, "req-pin", time.Now(), "claude-sonnet-5", turntype.TurnType("interactive"), true, router.ErrPolicyPinUnavailable)
 
 	select {
 	case <-sink.notify:
@@ -116,7 +116,7 @@ func TestRecordPolicyPinRouteFailureIsSilentWithoutAPin(t *testing.T) {
 	svc := &Service{telemetry: sink}
 	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, uuid.New().String())
 
-	svc.recordPolicyPinRouteFailure(ctx, router.StrategyFromContext(ctx), "req-plain", time.Now(), "claude-sonnet-5", turntype.TurnType("interactive"), false, errors.New("routing failed"))
+	svc.recordPolicyPinRouteFailure(ctx, "req-plain", time.Now(), "claude-sonnet-5", turntype.TurnType("interactive"), false, errors.New("routing failed"))
 
 	select {
 	case <-sink.notify:

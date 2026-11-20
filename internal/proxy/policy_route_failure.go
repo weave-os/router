@@ -10,7 +10,7 @@ import (
 	"weave-os/router/internal/router/turntype"
 )
 
-func (s *Service) recordPolicyPinRouteFailure(ctx context.Context, strategy router.Strategy, requestID string, requestStart time.Time, requestedModel string, turnType turntype.TurnType, userPrompt bool, routeErr error) {
+func (s *Service) recordPolicyPinRouteFailure(ctx context.Context, requestID string, requestStart time.Time, requestedModel string, turnType turntype.TurnType, userPrompt bool, routeErr error) {
 	if _, honoured := router.HonouredPolicyPin(ctx); !honoured {
 		return
 	}
@@ -30,7 +30,7 @@ func (s *Service) recordPolicyPinRouteFailure(ctx context.Context, strategy rout
 		DecisionReason: DecisionReasonPolicyPinUnservable,
 		ErrorClass:     TurnErrorRoutingRefused,
 		UserPrompt:     &userPrompt,
-		Strategy:       string(strategy),
+		Strategy:       string(router.StrategyFromContext(ctx)),
 		RouterUserID:   auth.UserIDFrom(ctx),
 	}
 	if !errors.Is(routeErr, router.ErrPolicyPinUnavailable) {
