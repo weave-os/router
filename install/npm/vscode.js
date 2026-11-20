@@ -47,9 +47,9 @@ function setupVSCode(args) {
   profileDir ??= defaultProfileDir();
   const modelsFile = path.join(profileDir, "chatLanguageModels.json");
   const settingsFile = path.join(profileDir, "settings.json");
-  const models = readConfig(modelsFile, []);
+  const modelGroups = readConfig(modelsFile, []);
   const settings = readConfig(settingsFile, {});
-  const existing = models.value.filter((group) => group?.name === providerName && group.vendor === vendor);
+  const existing = modelGroups.value.filter((group) => group?.name === providerName && group.vendor === vendor);
   if (existing.length > 1) throw new Error("Multiple Weave Router entries. Keep one in Chat: Manage Language Models and retry.");
 
   const group = existing[0];
@@ -61,7 +61,7 @@ function setupVSCode(args) {
     }
   }
 
-  const modelsEdit = group ? models.text : editConfig(models, [0], {
+  const modelsEdit = group ? modelGroups.text : editConfig(modelGroups, [0], {
     name: providerName,
     vendor,
     apiType: "messages",
@@ -82,7 +82,7 @@ function setupVSCode(args) {
     throw new Error(`Check for duplicate ${byokSetting} entries in ${settingsFile} and retry.`);
   }
 
-  writeConfig(models, modelsEdit);
+  writeConfig(modelGroups, modelsEdit);
   writeConfig(settings, settingsEdit);
   console.log(`Weave Router is configured for the VS Code profile at ${profileDir}.`);
   if (typeof group?.apiKey !== "string" || !group.apiKey.startsWith("${input:")) {
