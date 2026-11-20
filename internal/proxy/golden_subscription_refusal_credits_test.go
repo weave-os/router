@@ -32,8 +32,6 @@ func withClaudeSeat(cooldown time.Time) func(*proxy.Service, *goldenHarness) *pr
 	}
 }
 
-// goldenClaudeSeatCtx enrolls one shared Claude seat for a caller with no
-// personal login, outside the subscription-state model lane.
 func goldenClaudeSeatCtx(clientApp string, cooldown time.Time) func(context.Context) context.Context {
 	return func(ctx context.Context) context.Context {
 		ctx = requestcontext.WithClientIdentity(ctx, proxy.ClientIdentity{ClientApp: clientApp, SessionID: "golden-seat-session"})
@@ -46,7 +44,6 @@ func goldenClaudeSeatCtx(clientApp string, cooldown time.Time) func(context.Cont
 	}
 }
 
-// stateLane routes the scenario through the subscription-state model lane.
 func stateLane(sc goldenScenario) goldenScenario {
 	decorate := sc.requests[0].decorateContext
 	models := []string{goldenAnthropicModel}
@@ -68,9 +65,6 @@ func goldenSeatRefusalScenario(name, clientApp string, cooldown time.Time, seatS
 	}
 }
 
-// TestSeatRefusalsFundCredits states the invariant: when the only shared seat
-// cannot serve the turn right now, and the caller has no personal login, the
-// turn is paid with Weave credits instead of failing.
 func TestSeatRefusalsFundCredits(t *testing.T) {
 	t.Parallel()
 	forced := goldenSeatRefusalScenario("forced_client_app_refused_seat_funds_credits", proxy.ClientAppOpencode, time.Time{},
@@ -96,9 +90,6 @@ func TestSeatRefusalsFundCredits(t *testing.T) {
 	}
 }
 
-// TestOverloadedSeatFundsCreditsOnNextTurn states the invariant: a seat still
-// skipped as overloaded from an earlier turn does not block the next turn's
-// credit fallback.
 func TestOverloadedSeatFundsCreditsOnNextTurn(t *testing.T) {
 	t.Parallel()
 	base := goldenSeatRefusalScenario("overloaded_seat_next_turn_funds_credits", proxy.ClientAppClaudeCode, time.Time{},
