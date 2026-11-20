@@ -2,7 +2,7 @@
   "name": "weave-router",
   "displayName": "Weave Router",
   "description": "Use Weave Router from the GitHub Copilot model picker.",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "publisher": "weave-os",
   "license": "Apache-2.0",
   "repository": {

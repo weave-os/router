@@ -5,7 +5,7 @@ Use your personal Weave Router account from the GitHub Copilot Chat model picker
 ## Connect
 
 1. Install the extension and run **Weave Router: Connect** from the Command Palette.
-2. Enter your personal Router key. For a self-hosted Router, set **Weave Router: Base Url** first.
+2. Confirm the hosted Router URL or enter your own Router base URL, then enter your personal Router key.
 3. Open a new Copilot Chat and select **Weave Router**. If the model does not appear, check `chat.agentHost.byokModels.enabled` and your organization's Copilot BYOK policy.
 
 The extension sends Messages requests to the selected Router. It stores the key in VS Code's secret storage for that Router URL. Run **Weave Router: Connect** again to replace the saved key, or **Weave Router: Disconnect** to remove it from this editor. You can revoke the key in Weave.

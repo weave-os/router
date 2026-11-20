@@ -6,6 +6,7 @@ const vendor = 'weave-router';
 const connectCommand = 'weaveRouter.connect';
 const disconnectCommand = 'weaveRouter.disconnect';
 const baseUrlSetting = 'weaveRouter.baseUrl';
+const hostedRouterUrl = 'https://router.weaveos.com';
 const routerKeyHeader = 'X-Weave-Router-Key';
 const model = {
   id: 'auto',
@@ -18,12 +19,15 @@ const model = {
 } satisfies vscode.LanguageModelChatInformation;
 
 function routerBaseUrl(): string {
-  const configuredUrl = vscode.workspace.getConfiguration('weaveRouter').get<string>('baseUrl', 'https://router.weaveos.com');
+  return normalizeRouterUrl(vscode.workspace.getConfiguration('weaveRouter').get('baseUrl', hostedRouterUrl));
+}
+
+function normalizeRouterUrl(configuredUrl: string): string {
   let url: URL;
   try {
     url = new URL(configuredUrl);
   } catch {
-    throw new Error('Set Weave Router: Base Url to a valid Router URL.');
+    throw new Error('Enter a valid Router URL.');
   }
   const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
   if ((url.protocol !== 'https:' && !(loopback && url.protocol === 'http:')) ||
@@ -38,7 +42,24 @@ function secretName(baseUrl: string): string {
 }
 
 async function connect(secrets: vscode.SecretStorage): Promise<void> {
-  const baseUrl = routerBaseUrl();
+  const configuration = vscode.workspace.getConfiguration('weaveRouter');
+  const configuredUrl = configuration.get('baseUrl', hostedRouterUrl);
+  const selectedUrl = await vscode.window.showInputBox({
+    title: 'Weave Router URL',
+    prompt: 'Keep the hosted URL or enter your organization’s Router base URL.',
+    value: configuredUrl,
+    ignoreFocusOut: true,
+    validateInput(value) {
+      try {
+        normalizeRouterUrl(value);
+        return undefined;
+      } catch (error) {
+        return error instanceof Error ? error.message : 'Enter a valid Router URL.';
+      }
+    },
+  });
+  if (selectedUrl === undefined) return;
+  const baseUrl = normalizeRouterUrl(selectedUrl);
   const key = (await vscode.window.showInputBox({
     title: 'Connect Weave Router',
     prompt: `Enter a personal Router key for ${baseUrl}`,
@@ -55,6 +76,9 @@ async function connect(secrets: vscode.SecretStorage): Promise<void> {
   await response.body?.cancel();
   if (!response.ok) throw new Error(`Router key check failed (HTTP ${response.status}). Check the URL and key.`);
   await secrets.store(secretName(baseUrl), key);
+  if (baseUrl !== configuredUrl) {
+    await configuration.update('baseUrl', baseUrl, vscode.ConfigurationTarget.Global);
+  }
   void vscode.window.showInformationMessage('Weave Router is connected. Select Weave Router in the Copilot Chat model picker.');
 }
 
