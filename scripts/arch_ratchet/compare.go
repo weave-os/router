@@ -89,17 +89,29 @@ func newMovePool(baseFuncs, headFuncs map[string]funcMetrics) movePool {
 	return pool
 }
 
+type exactMove struct {
+	name     string
+	bodyHash uint32
+}
+
 func (p movePool) claimExact(headFuncs, baseFuncs map[string]funcMetrics) map[string]bool {
+	removed := map[exactMove][]string{}
+	for _, key := range sortedKeys(p) {
+		move := exactMove{name: moveName(key), bodyHash: p[key].bodyHash}
+		removed[move] = append(removed[move], key)
+	}
 	claimed := map[string]bool{}
 	for _, key := range sortedKeys(headFuncs) {
 		if _, existed := baseFuncs[key]; existed {
 			continue
 		}
 		fn := headFuncs[key]
-		for _, candidate := range sortedKeys(p) {
-			if moveName(candidate) == moveName(key) && p[candidate].body == fn.body && maps.Equal(p[candidate].values, fn.values) {
+		move := exactMove{name: moveName(key), bodyHash: fn.bodyHash}
+		for i, candidate := range removed[move] {
+			if maps.Equal(p[candidate].values, fn.values) {
 				claimed[key] = true
 				delete(p, candidate)
+				removed[move] = slices.Delete(removed[move], i, i+1)
 				break
 			}
 		}

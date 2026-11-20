@@ -106,9 +106,9 @@ func fnCognitive(key string, lines, cognitive int) funcMetrics {
 	return metrics
 }
 
-func fnBody(key string, lines int, body uint32) funcMetrics {
+func fnBody(key string, lines int, bodyHash uint32) funcMetrics {
 	metrics := fn(key, lines)
-	metrics.body = body
+	metrics.bodyHash = bodyHash
 	return metrics
 }
 
@@ -202,6 +202,15 @@ func TestCompareFuncsKeepsBuildTagVariantsApart(t *testing.T) {
 	}
 	assert.Equal(t, []violation{{subject: "p.F@p/f_linux.go", metric: metricLines, before: 150, after: 160, limit: 100}},
 		compareFuncs(base, head, exceptionSet{}))
+}
+
+func TestMeasureFileHashesFunctionBodiesIndependentlyOfNames(t *testing.T) {
+	src := "package x\n\nfunc A() { y := 1; _ = y }\n\nfunc B() { y := 1; _ = y }\n\nfunc C() { y := 2; _ = y }\n"
+	metrics, _, err := measureFile("internal/x/hash.go", []byte(src))
+	require.NoError(t, err)
+	require.Len(t, metrics.funcs, 3)
+	assert.Equal(t, metrics.funcs[0].bodyHash, metrics.funcs[1].bodyHash)
+	assert.NotEqual(t, metrics.funcs[0].bodyHash, metrics.funcs[2].bodyHash)
 }
 
 func TestMeasureFileMeasuresPackageLevelFuncLiterals(t *testing.T) {

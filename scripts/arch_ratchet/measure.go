@@ -42,9 +42,9 @@ const limitFileLines = 500
 const catalogDir = "internal/router/catalog"
 
 type funcMetrics struct {
-	key    string
-	values map[metric]int
-	body   uint32
+	key      string
+	values   map[metric]int
+	bodyHash uint32
 }
 
 type fileMetrics struct {
@@ -103,8 +103,8 @@ func measureFile(filePath string, src []byte) (metrics fileMetrics, generated bo
 
 func measureFunc(fset *token.FileSet, codeLines map[int]bool, key string, fn *ast.FuncDecl) funcMetrics {
 	return funcMetrics{
-		key:  key,
-		body: sourceHash(fn.Body),
+		key:      key,
+		bodyHash: sourceHash(fn.Body),
 		values: map[metric]int{
 			metricCognitive: gocognit.Complexity(fn),
 			metricLines:     linesWithin(fset, fn, codeLines),
