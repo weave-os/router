@@ -162,7 +162,7 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 		if err := callerPlanRefusal(ctx, pool, callerQuotaUnproven, now); err != nil {
 			return err
 		}
-		return subscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolThrottled)
+		return throttledPoolRefusal(ctx, pool, token != "", now)
 	}
 	if !snapshotPresent {
 		enrolled, _ := ctx.Value(ManagedSubscriptionProvidersContextKey{}).(map[auth.SubscriptionProvider]struct{})
