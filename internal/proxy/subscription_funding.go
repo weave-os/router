@@ -30,13 +30,14 @@ type managedSubscriptionCandidate struct {
 	resetAt            time.Time
 	enabled            bool
 	credentialRejected bool
+	externalAccountID  string
 }
 
 func WithManagedSubscriptionCandidates(ctx context.Context, accounts []*auth.SubscriptionAccount) context.Context {
 	candidates := make([]managedSubscriptionCandidate, 0, len(accounts))
 	enrolled := make(map[auth.SubscriptionProvider]struct{})
 	for _, account := range accounts {
-		candidate := managedSubscriptionCandidate{accountID: account.ID, provider: account.Provider, state: account.State, enabled: account.Enabled, credentialRejected: account.CredentialRejections > 0}
+		candidate := managedSubscriptionCandidate{accountID: account.ID, provider: account.Provider, state: account.State, enabled: account.Enabled, credentialRejected: account.CredentialRejections > 0, externalAccountID: account.ExternalAccountID}
 		if account.CooldownUntil != nil {
 			candidate.resetAt = *account.CooldownUntil
 		}
@@ -129,7 +130,7 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 		return subscriptionPoolUnavailableBecause(ctx, "subscription enrollment could not be verified")
 	}
 	now := s.clock.Now()
-	if subscriptionProviderUnavailable(ctx, pool, now) {
+	if includedLaneCannotServe(ctx, pool, target, now) {
 		return nil
 	}
 	candidates, snapshotPresent := ctx.Value(managedSubscriptionCandidatesKey{}).([]managedSubscriptionCandidate)
