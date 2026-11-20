@@ -1065,14 +1065,7 @@ func main() {
 	safeGo(logger, "escalation-state-sweep", func() { runEscalationSweep(context.Background(), escalationStore) })
 	llmEscalationStore := postgres.NewLLMEscalationRepo(pool)
 	safeGo(logger, "llm-escalation-state-sweep", func() { runEscalationSweep(context.Background(), llmEscalationStore) })
-	var escalationJudge llmescalation.Judge
-	if escalationJudgeEnabled {
-		judge, judgeErr := proxy.NewEscalationJudge(inferencePlans, inferenceExecutor, escalationJudgeKey)
-		if judgeErr != nil {
-			panic(judgeErr)
-		}
-		escalationJudge = judge
-	}
+	escalationJudge := newSwitchyardEscalationJudge(escalationJudgeEnabled, inferencePlans, inferenceExecutor, escalationJudgeKey)
 	qwenEscalationURL := strings.TrimSpace(os.Getenv("ROUTER_LLM_ESCALATION_URL"))
 	qwenEscalationKey := strings.TrimSpace(os.Getenv("ROUTER_LLM_ESCALATION_API_KEY"))
 	var qwenEscalationJudge llmescalation.Judge

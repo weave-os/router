@@ -34,7 +34,7 @@ import (
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/continuity"
-	"weave-os/router/internal/router/escalation"
+	"weave-os/router/internal/router/escalation/floor"
 	"weave-os/router/internal/router/escalationdashboard"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/hmm"
@@ -88,18 +88,10 @@ type Service struct {
 	emitter                      TelemetryEmitter
 	translationMetrics           telemetry.TranslationMetrics
 	pinStore                     sessionpin.Store
-	escalationStore              escalation.Store
-	escalationObserver           escalation.Observer
+	escalation                   *floor.Helper
 	escalationDashboardStore     escalationdashboard.Store
-	llmEscalationStore           llmescalation.Store
-	llmEscalationJudge           llmescalation.Judge
-	qwenEscalationJudge          llmescalation.Judge
-	llmEscalationSlots           chan struct{}
-	llmEscalationShadowSlots     chan struct{}
-	escalationShadowDefault      flags.EscalationClassifier
 	llmEscalationConfiguration   llmescalation.ConfigurationStore
 	llmEscalationInvalidate      func(string)
-	llmEscalationActiveEnabled   bool
 	sessionStrategyStore         sessionstrategy.Store
 	classifierSessions           *classifierSessions
 	noProgress                   *conversation.NoProgressTracker
@@ -1073,6 +1065,7 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		cyberRefusalFallbackModel:      "claude-sonnet-5",
 	}
 	s.routing = routingpolicy.New(nil)
+	s.escalationHelper()
 	if r == nil {
 		return s
 	}
@@ -3502,7 +3495,7 @@ func applyRoutingStateAttrs(
 		String("routing.pin_role", res.PinRole).
 		String("routing.prior_served_model", res.PriorServedModel).
 		Bool("routing.model_changed", res.PriorServedModel != "" && res.PriorServedModel != servedIdentity).
-		Bool("routing.llm_escalation_applied", res.llmEscalation != nil && res.llmEscalation.applied)
+		Bool("routing.llm_escalation_applied", res.escalation.LLMApplied())
 }
 
 func plannerOutcomeAttr(res turnLoopResult) string {

@@ -19,11 +19,13 @@ import (
 )
 
 const (
-	atomizationBaselinePath   = "atomization_ratchet_baseline.json"
-	atomizationSchemaVersion  = "atomization_ratchet_v1"
-	atomizationFixturePackage = "./internal/architecture/testdata/atomization/"
-	sessionpinPackagePath     = routerPackagePath + "/sessionpin"
-	hmmPackagePath            = routerPackagePath + "/hmm"
+	atomizationBaselinePath    = "atomization_ratchet_baseline.json"
+	atomizationSchemaVersion   = "atomization_ratchet_v1"
+	atomizationFixturePackage  = "./internal/architecture/testdata/atomization/"
+	sessionpinPackagePath      = routerPackagePath + "/sessionpin"
+	hmmPackagePath             = routerPackagePath + "/hmm"
+	escalationPackagePath      = routerPackagePath + "/escalation"
+	escalationJudgePackagePath = modulePath + "/internal/escalationjudge"
 )
 
 const (
@@ -33,6 +35,7 @@ const (
 	ratchetStrategyAdapterImports = "strategy_serving_adapter_imports"
 	ratchetServingStrategyImports = "serving_strategy_internal_imports"
 	ratchetHMMPinFields           = "hmm_pin_field_references"
+	ratchetProxyEscalation        = "proxy_escalation_internal_references"
 )
 
 var atomizationRatchetFixes = map[string]string{
@@ -41,6 +44,7 @@ var atomizationRatchetFixes = map[string]string{
 	ratchetProxyReasonComparisons: "internal/proxy must not branch on decision reason text (== / != on a Reason field, or an hmm_policy prefix check); carry the fact as a typed field on the decision",
 	ratchetStrategyAdapterImports: "strategy packages (internal/router/hmm, rl, decisionmodel, policy) must not import serving-layer adapters; declare a port in the strategy package and implement it in the serving layer",
 	ratchetServingStrategyImports: "serving-layer packages may reach a strategy only through router.Router, router.Request and router.Decision; wire the concrete strategy in cmd/router instead of importing its package",
+	ratchetProxyEscalation:        "internal/proxy must not drive escalation scoring, judging or state (escalation.Store/Observer, llmescalation.Judge, internal/escalationjudge); call the helper in internal/router/escalation/floor and pass it turn facts",
 	ratchetHMMPinFields:           "HMM-only session pin fields (sessionpin.Pin.PolicyGroup, ConsecutiveDowngradeVotes, ConsecutiveUpgradeVotes) are read and written only by the accessor in internal/router/hmm",
 }
 
@@ -52,6 +56,7 @@ var (
 	hmmOnlyPinFields        = []string{"PolicyGroup", "ConsecutiveDowngradeVotes", "ConsecutiveUpgradeVotes"}
 	hmmOnlyMetadataFields   = []string{"PolicyGroup", "ArmScores", "SelectionTrace"}
 	hmmOnlyMetadataPrefixes = []string{"Classifier"}
+	escalationInternalPorts = map[string][]string{escalationPackagePath: {"Store", "Observer"}, routerPackagePath + "/llmescalation": {"Judge"}}
 )
 
 type atomizationBaseline struct {
@@ -95,6 +100,9 @@ func TestAtomizationRatchetsDetectSyntheticViolations(t *testing.T) {
 		}},
 		{fixture: "serving_strategy", want: atomizationCounts{
 			ratchetServingStrategyImports: {"internal/architecture/testdata/atomization/serving_strategy -> internal/router/rl": 1},
+		}},
+		{fixture: "proxy_escalation", want: atomizationCounts{
+			ratchetProxyEscalation: {"internal/architecture/testdata/atomization/proxy_escalation": 3},
 		}},
 		{fixture: "pin_fields", want: atomizationCounts{
 			ratchetHMMPinFields: {"internal/architecture/testdata/atomization/pin_fields": 4},
@@ -186,6 +194,9 @@ func measurePackage(counts atomizationCounts, pkg *packages.Package, scope atomi
 		if scope.strategy && isServingAdapterImport(importPath) {
 			counts.add(ratchetStrategyAdapterImports, key+" -> "+relativePackage(importPath))
 		}
+		if scope.proxy && hasPathPrefix(importPath, escalationJudgePackagePath) {
+			counts.add(ratchetProxyEscalation, key)
+		}
 		if scope.serving && isStrategyInternal(importPath) {
 			counts.add(ratchetServingStrategyImports, key+" -> "+relativePackage(importPath))
 		}
@@ -224,11 +235,8 @@ func nodeViolations(info *types.Info, node ast.Node, scope atomizationScope) []s
 		if isRouterFunc(object, "StrategyFromContext") {
 			found = append(found, ratchetStrategyFromContext)
 		}
-		if scope.proxy && isRouterFunc(object, "IsHMMStrategy") {
-			found = append(found, ratchetProxyHMMMetadata)
-		}
-		if scope.proxy && isHMMPolicyPrefixCheck(info, n, object) {
-			found = append(found, ratchetProxyReasonComparisons)
+		if scope.proxy {
+			found = append(found, proxyCallViolations(info, n, object)...)
 		}
 	case *ast.BinaryExpr:
 		if scope.proxy && (n.Op == token.EQL || n.Op == token.NEQ) && (isReasonField(n.X) || isReasonField(n.Y)) {
@@ -270,6 +278,36 @@ func hmmPinLiteralKeys(info *types.Info, literal *ast.CompositeLit) []string {
 func isRouterFunc(object types.Object, name string) bool {
 	function, ok := object.(*types.Func)
 	return ok && function.Pkg() != nil && function.Pkg().Path() == routerPackagePath && function.Name() == name
+}
+
+func proxyCallViolations(info *types.Info, call *ast.CallExpr, object types.Object) []string {
+	var found []string
+	if isRouterFunc(object, "IsHMMStrategy") {
+		found = append(found, ratchetProxyHMMMetadata)
+	}
+	if isEscalationInternalCall(object) {
+		found = append(found, ratchetProxyEscalation)
+	}
+	if isHMMPolicyPrefixCheck(info, call, object) {
+		found = append(found, ratchetProxyReasonComparisons)
+	}
+	return found
+}
+
+func isEscalationInternalCall(object types.Object) bool {
+	function, ok := object.(*types.Func)
+	if !ok {
+		return false
+	}
+	recv := function.Signature().Recv()
+	if recv == nil {
+		return false
+	}
+	named, ok := types.Unalias(recv.Type()).(*types.Named)
+	if !ok || named.Obj().Pkg() == nil {
+		return false
+	}
+	return slices.Contains(escalationInternalPorts[named.Obj().Pkg().Path()], named.Obj().Name())
 }
 
 func isHMMPolicyPrefixCheck(info *types.Info, call *ast.CallExpr, object types.Object) bool {
