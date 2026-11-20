@@ -768,3 +768,39 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexStandaloneToo
 	assert.True(t, converted.Requirements.NativeOnly)
 	assertReportCode(t, converted.Report, "responses_tool_output_native_only")
 }
+
+// A standalone output Codex appends after a linked tool result must not turn the
+// continuation into a main-loop turn for routing.
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexStandaloneToolOutputKeepsToolResultRouting(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"model":"gpt-6.1-sol","input":[` +
+		`{"type":"message","role":"user","content":[{"type":"input_text","text":"fix it"}]},` +
+		`{"type":"function_call","call_id":"call_build","name":"exec","arguments":"{}"},` +
+		`{"type":"function_call_output","call_id":"call_build","output":"exit 0"},` +
+		`{"type":"function_call_output","output":"build finished"}]}`)
+
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+	require.False(t, converted.Requirements.NativeOnly)
+	require.NotEmpty(t, converted.RoutingBody)
+	routing, err := translate.ParseOpenAI(converted.RoutingBody)
+	require.NoError(t, err)
+	assert.Equal(t, "tool_result", routing.RoutingFeatures().LastKind)
+}
+
+// A standalone output Codex appends after a typed model command must not hide the command.
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexStandaloneToolOutputKeepsForceModelCommand(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"model":"gpt-6.1-sol","input":[` +
+		`{"type":"message","role":"user","content":[{"type":"input_text","text":"/force-model gpt-5"}]},` +
+		`{"type":"function_call_output","output":"build finished"}]}`)
+
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+	require.False(t, converted.Requirements.NativeOnly)
+	env, err := translate.ParseOpenAI(converted.Body)
+	require.NoError(t, err)
+	res, found := env.ExtractForceModelCommand()
+	require.True(t, found)
+	assert.Equal(t, "gpt-5", res.Model)
+}

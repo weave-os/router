@@ -40,10 +40,17 @@ func (c *portableCodexResponsesConverter) orphanToolOutput(item gjson.Result, pa
 		return nil, nil, false
 	}
 	c.report("responses_tool_output_native_only", "projected", path)
-	return map[string]any{"role": "user", "content": "Tool output:\n" + content}, nil, true
+	return map[string]any{"role": "user", "content": standaloneToolOutputPrefix + content}, nil, true
 }
 
 func (c *portableCodexResponsesConverter) markNativeOnly(code, path string) {
 	c.result.Requirements.NativeOnly = true
 	c.report(code, "preserved", path)
+}
+
+const standaloneToolOutputPrefix = "Tool output:\n"
+
+func isStandaloneToolOutput(message gjson.Result) bool {
+	content := message.Get("content")
+	return message.Get("role").Str == "user" && content.Type == gjson.String && strings.HasPrefix(content.Str, standaloneToolOutputPrefix)
 }
