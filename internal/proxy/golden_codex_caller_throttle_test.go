@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"testing"
 	"time"
@@ -31,33 +32,27 @@ const goldenLinkedCodexAccount = "golden-provider-codex-seat"
 var goldenCallerCodexJWT = "eyJhbGciOiJub25lIn0." +
 	base64.RawURLEncoding.EncodeToString([]byte(`{"https://api.openai.com/auth":{"chatgpt_user_id":"golden-codex-user"}}`)) + ".signature"
 
-// withConcurrentlyThrottledCodexSeat enrolls one linked Codex seat that a
-// concurrent turn rate-limited after this request loaded its admission
-// snapshot, so the pool can no longer lease it.
-func withConcurrentlyThrottledCodexSeat(svc *proxy.Service, h *goldenHarness) *proxy.Service {
-	codex := newGoldenSubscriptionPool(h.clock.Now, "codex-seat")
-	codex.cooling["codex-seat"] = goldenEpoch.Add(40 * time.Second)
-	return svc.WithUsageObserver(usage.NewObserver([]byte("golden-salt"), 10*time.Minute, h.clock.Now)).
-		WithManagedSubscriptions(goldenProviderPools{subscriptions.ProviderCodex: codex})
+// withGoldenCodexSeats enrolls a Codex pool with the given seats; a seat in
+// cooling was rate-limited by a concurrent turn after this request loaded its
+// admission snapshot, so the pool can no longer lease it.
+func withGoldenCodexSeats(cooling map[string]time.Time, seats ...string) func(*proxy.Service, *goldenHarness) *proxy.Service {
+	return func(svc *proxy.Service, h *goldenHarness) *proxy.Service {
+		codex := newGoldenSubscriptionPool(h.clock.Now, seats...)
+		maps.Copy(codex.cooling, cooling)
+		return svc.WithUsageObserver(usage.NewObserver([]byte("golden-salt"), 10*time.Minute, h.clock.Now)).
+			WithManagedSubscriptions(goldenProviderPools{subscriptions.ProviderCodex: codex})
+	}
 }
 
-// withLeasableLinkedCodexSeat enrolls one linked Codex seat the pool would lease.
-func withLeasableLinkedCodexSeat(svc *proxy.Service, h *goldenHarness) *proxy.Service {
-	return svc.WithUsageObserver(usage.NewObserver([]byte("golden-salt"), 10*time.Minute, h.clock.Now)).
-		WithManagedSubscriptions(goldenProviderPools{subscriptions.ProviderCodex: newGoldenSubscriptionPool(h.clock.Now, "codex-seat")})
-}
+var (
+	goldenOwnCodexSeat      = &auth.SubscriptionAccount{ID: "codex-seat", Provider: auth.SubscriptionProviderCodex, ExternalAccountID: goldenLinkedCodexAccount, ProviderUserID: "golden-codex-user", Enabled: true, State: auth.SubscriptionAccountStateActive}
+	goldenTeammateCodexSeat = &auth.SubscriptionAccount{ID: "codex-seat-other", Provider: auth.SubscriptionProviderCodex, ExternalAccountID: goldenLinkedCodexAccount, ProviderUserID: "golden-codex-teammate", Enabled: true, State: auth.SubscriptionAccountStateActive}
+)
 
-// withSameAndOtherAccountCodexSeats enrolls the caller's own linked seat and a
-// teammate's seat in the same ChatGPT workspace.
-func withSameAndOtherAccountCodexSeats(svc *proxy.Service, h *goldenHarness) *proxy.Service {
-	return svc.WithUsageObserver(usage.NewObserver([]byte("golden-salt"), 10*time.Minute, h.clock.Now)).
-		WithManagedSubscriptions(goldenProviderPools{subscriptions.ProviderCodex: newGoldenSubscriptionPool(h.clock.Now, "codex-seat", "codex-seat-other")})
-}
-
-// goldenCallerCodexLinkedSeatCtx presents the caller's own Codex login on a
-// linked-first turn. The caller's ChatGPT user also owns a linked Codex
-// seat whose admission state is active with no quota snapshot.
-func goldenCallerCodexLinkedSeatCtx(seats ...*auth.SubscriptionAccount) func(context.Context) context.Context {
+// goldenCallerCodexSeatsCtx presents the caller's own Codex login on a
+// linked-first turn whose linked seats are active in the admission snapshot
+// with no quota snapshot.
+func goldenCallerCodexSeatsCtx(seats ...*auth.SubscriptionAccount) func(context.Context) context.Context {
 	return func(ctx context.Context) context.Context {
 		ctx = context.WithValue(ctx, proxy.OpenAISubscriptionContextKey{}, goldenCallerCodexJWT)
 		ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, goldenLinkedCodexAccount)
@@ -65,9 +60,7 @@ func goldenCallerCodexLinkedSeatCtx(seats ...*auth.SubscriptionAccount) func(con
 		ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyLinkedFirst)
 		ctx = requestcontext.WithClientIdentity(ctx, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex, SessionID: "golden-codex-session"})
 		ctx = proxy.WithSubscriptionStateModels(ctx, []string{goldenCodexModel}, []string{goldenCodexModel})
-		ctx = proxy.WithManagedSubscriptionCandidates(ctx, append([]*auth.SubscriptionAccount{
-			{ID: "codex-seat", Provider: auth.SubscriptionProviderCodex, ExternalAccountID: goldenLinkedCodexAccount, ProviderUserID: "golden-codex-user", Enabled: true, State: auth.SubscriptionAccountStateActive},
-		}, seats...))
+		ctx = proxy.WithManagedSubscriptionCandidates(ctx, seats)
 		return proxy.WithManagedSubscriptionUsage(ctx)
 	}
 }
@@ -93,39 +86,41 @@ func goldenCodexCallerThrottleScenarios() []goldenScenario {
 		goldenUpstreamError(http.StatusTooManyRequests, goldenCodexCallerRateLimitBody),
 		goldenResponsesOK("served on weave credits"),
 	}}
-	teammateSeat := &auth.SubscriptionAccount{ID: "codex-seat-other", Provider: auth.SubscriptionProviderCodex, ExternalAccountID: goldenLinkedCodexAccount, ProviderUserID: "golden-codex-teammate", Enabled: true, State: auth.SubscriptionAccountStateActive}
+	leasedOut := withGoldenCodexSeats(map[string]time.Time{goldenTeammateCodexSeat.ID: goldenEpoch.Add(40 * time.Second)}, goldenTeammateCodexSeat.ID)
+	ownSeat := withGoldenCodexSeats(nil, goldenOwnCodexSeat.ID)
 	return []goldenScenario{{
 		name: ingressResponses + "_stream_forced_codex_caller_throttled_seat_leased_out_serves_on_credits", ingress: ingressResponses,
 		decisions: forced, upstreams: throttledThenCredits,
-		requests:  []goldenRequest{{body: goldenCodexPortableToolTurn, headers: goldenForcedCodexHeaders("c1e1"), decorateContext: goldenCallerCodexLinkedSeatCtx()}},
-		configure: withConcurrentlyThrottledCodexSeat,
+		requests:  []goldenRequest{{body: goldenCodexPortableToolTurn, headers: goldenForcedCodexHeaders("c1e1"), decorateContext: goldenCallerCodexSeatsCtx(goldenTeammateCodexSeat)}},
+		configure: leasedOut,
 	}, {
 		name: ingressResponses + "_stream_forced_codex_caller_throttled_seat_leased_out_credits_off_refused", ingress: ingressResponses,
 		decisions: forced, upstreams: throttledThenCredits,
-		requests:  []goldenRequest{{body: goldenCodexPortableToolTurn, headers: goldenForcedCodexHeaders("c1e2"), decorateContext: goldenCreditsOffCtx(goldenCallerCodexLinkedSeatCtx())}},
-		configure: withConcurrentlyThrottledCodexSeat,
+		requests:  []goldenRequest{{body: goldenCodexPortableToolTurn, headers: goldenForcedCodexHeaders("c1e2"), decorateContext: goldenCreditsOffCtx(goldenCallerCodexSeatsCtx(goldenTeammateCodexSeat))}},
+		configure: leasedOut,
 	}, {
 		name: ingressResponses + "_stream_forced_codex_caller_throttled_same_account_seat_serves_on_credits", ingress: ingressResponses,
 		decisions: forced, upstreams: throttledThenCredits,
-		requests:  []goldenRequest{{body: goldenCodexPortableToolTurn, headers: goldenForcedCodexHeaders("c1e3"), decorateContext: goldenCallerCodexLinkedSeatCtx()}},
-		configure: withLeasableLinkedCodexSeat,
+		requests:  []goldenRequest{{body: goldenCodexPortableToolTurn, headers: goldenForcedCodexHeaders("c1e3"), decorateContext: goldenCallerCodexSeatsCtx(goldenOwnCodexSeat)}},
+		configure: ownSeat,
 	}, {
 		name: ingressResponses + "_stream_forced_codex_caller_throttled_same_account_seat_credits_off_refused", ingress: ingressResponses,
 		decisions: forced, upstreams: throttledThenCredits,
-		requests:  []goldenRequest{{body: goldenCodexPortableToolTurn, headers: goldenForcedCodexHeaders("c1e4"), decorateContext: goldenCreditsOffCtx(goldenCallerCodexLinkedSeatCtx())}},
-		configure: withLeasableLinkedCodexSeat,
+		requests:  []goldenRequest{{body: goldenCodexPortableToolTurn, headers: goldenForcedCodexHeaders("c1e4"), decorateContext: goldenCreditsOffCtx(goldenCallerCodexSeatsCtx(goldenOwnCodexSeat))}},
+		configure: ownSeat,
 	}, {
 		name: ingressResponses + "_stream_forced_codex_caller_throttled_teammate_seat_serves", ingress: ingressResponses,
 		decisions: forced, upstreams: map[string][]goldenStep{providers.ProviderOpenAI: {
 			goldenUpstreamError(http.StatusTooManyRequests, goldenCodexCallerRateLimitBody),
 			goldenResponsesOK("served on the other seat"),
 		}},
-		requests:  []goldenRequest{{body: goldenCodexPortableToolTurn, headers: goldenForcedCodexHeaders("c1e5"), decorateContext: goldenCallerCodexLinkedSeatCtx(teammateSeat)}},
-		configure: withSameAndOtherAccountCodexSeats,
+		requests:  []goldenRequest{{body: goldenCodexPortableToolTurn, headers: goldenForcedCodexHeaders("c1e5"), decorateContext: goldenCallerCodexSeatsCtx(goldenOwnCodexSeat, goldenTeammateCodexSeat)}},
+		configure: withGoldenCodexSeats(nil, goldenOwnCodexSeat.ID, goldenTeammateCodexSeat.ID),
 	}}
 }
 
-// goldenCreditDebits counts the billing entries that draw down Weave credits.
+// goldenCreditDebits counts billing entries with a negative DeltaUsdMicros,
+// i.e. Weave-credit debits.
 func goldenCreditDebits(t *testing.T, served goldenRequestTrace) int {
 	t.Helper()
 	debits := 0
