@@ -179,20 +179,20 @@ func handleV5(mux *http.ServeMux) {
 		})
 	})
 	classify := func(w http.ResponseWriter, request *http.Request) {
-		var query struct {
+		var classifyRequest struct {
 			RequestID             string                     `json:"request_id"`
 			ClassifierSelectionID string                     `json:"classifier_selection_id"`
 			ClassifierReleaseID   string                     `json:"classifier_release_id"`
 			ClassifierVariantID   policy.ClassifierVariantID `json:"classifier_variant_id"`
 		}
-		if err := json.NewDecoder(request.Body).Decode(&query); err != nil {
+		if err := json.NewDecoder(request.Body).Decode(&classifyRequest); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		writeJSON(w, map[string]any{
-			"schema_version": policy.SchemaVersionV5, "request_id": query.RequestID,
-			"classifier_selection_id": query.ClassifierSelectionID, "classifier_release_id": query.ClassifierReleaseID,
-			"classifier_variant_id": query.ClassifierVariantID, "classifier_artifact_id": identity.ArtifactID,
+			"schema_version": policy.SchemaVersionV5, "request_id": classifyRequest.RequestID,
+			"classifier_selection_id": classifyRequest.ClassifierSelectionID, "classifier_release_id": classifyRequest.ClassifierReleaseID,
+			"classifier_variant_id": classifyRequest.ClassifierVariantID, "classifier_artifact_id": identity.ArtifactID,
 			"classifier_artifact_sha256": identity.PackageSHA256, "classifier_taxonomy_sha256": identity.TaxonomySHA256,
 			"predicted_label": ClassLabel, "class_order": identity.ClassOrder,
 			"class_probabilities": map[string]float64{ClassLabel: 1}, "classifier_confidence": 1.0, "classifier_margin": 1.0,

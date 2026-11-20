@@ -817,7 +817,7 @@ func main() {
 	}
 	if servingTargetConfigured() {
 		prepareCtx, cancelPrepare := context.WithTimeout(context.Background(), 60*time.Second)
-		admission, baseline, closeRegistry, err := buildManagedServingRuntime(prepareCtx, availableProviders, taskRuntime)
+		admission, baseline, closeRegistry, err := buildManagedServingRuntime(prepareCtx, deploymentMode, availableProviders, taskRuntime)
 		cancelPrepare()
 		if err != nil {
 			logger.Error("Managed worker preparation failed; refusing to boot", "target", config.GetOr("ROUTER_SERVING_TARGET", ""), "registry_uri", config.GetOr("ROUTER_SERVING_REGISTRY_URI", ""), "err", err)

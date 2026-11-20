@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/server"
 	"weave-os/router/smoke/hmmstub"
 )
 
@@ -24,7 +25,7 @@ func TestHMMStubServingRegistryPreparesTheManagedWorker(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, graph.Write(dir))
 
-	store, closeStore, err := openServingStore(context.Background(), dir)
+	store, closeStore, err := openServingStore(context.Background(), server.DeploymentModeSelfHosted, dir)
 	require.NoError(t, err)
 	t.Cleanup(closeStore)
 	cache, err := policyregistry.NewServingRuntimeCache(store, hmmPolicySnapshotBuilder(

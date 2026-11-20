@@ -94,7 +94,7 @@ func strategyList(strategies []router.Strategy) string {
 
 func osEnvLookup(key string) (string, bool) { return os.LookupEnv(key) }
 
-func buildManagedServingRuntime(ctx context.Context, availableProviders map[string]struct{}, taskRuntimes ...*taskDomainRuntime) (*middleware.ServingAdmissionConfig, *policyregistry.Snapshot, func(), error) {
+func buildManagedServingRuntime(ctx context.Context, mode server.DeploymentMode, availableProviders map[string]struct{}, taskRuntimes ...*taskDomainRuntime) (*middleware.ServingAdmissionConfig, *policyregistry.Snapshot, func(), error) {
 	identity := policyregistry.WorkerIdentity{
 		Target:  policyregistry.ServingTarget(config.MustGet("ROUTER_SERVING_TARGET")),
 		Project: config.MustGet("ROUTER_SERVING_PROJECT"), Region: config.MustGet("ROUTER_SERVING_REGION"),
@@ -106,7 +106,7 @@ func buildManagedServingRuntime(ctx context.Context, availableProviders map[stri
 		return nil, nil, nil, err
 	}
 	registryURI := strings.TrimSpace(config.GetOr("ROUTER_SERVING_REGISTRY_URI", config.GetOr("WEAVE_REGISTRY_URI", "gs://weave_ml/weave_registry")))
-	registry, closeRegistry, err := openServingStore(ctx, registryURI)
+	registry, closeRegistry, err := openServingStore(ctx, mode, registryURI)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -129,8 +129,11 @@ func buildManagedServingRuntime(ctx context.Context, availableProviders map[stri
 	return &middleware.ServingAdmissionConfig{Store: registry, Identity: identity, Cache: cache}, baseline, closeRegistry, nil
 }
 
-func openServingStore(ctx context.Context, registryURI string) (policyregistry.ServingStore, func(), error) {
+func openServingStore(ctx context.Context, mode server.DeploymentMode, registryURI string) (policyregistry.ServingStore, func(), error) {
 	if !strings.HasPrefix(registryURI, "gs://") {
+		if mode == server.DeploymentModeManaged {
+			return nil, nil, fmt.Errorf("managed workers require a gs:// serving registry, got %q", registryURI)
+		}
 		store, err := policyregistry.NewDirectoryServingStore(registryURI)
 		return store, func() {}, err
 	}

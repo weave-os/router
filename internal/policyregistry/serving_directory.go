@@ -99,8 +99,7 @@ func (s *DirectoryServingStore) ReadClassifierRuntimeBinding(_ context.Context, 
 	if !validDigest(releaseSHA256) {
 		return ResolvedClassifierRuntimeBinding{}, errors.New("classifier runtime binding requires a release digest")
 	}
-	relative := classifierRuntimeBindingRelativeName(environment, releaseSHA256)
-	payload, err := readLocalObject(filepath.Join(s.dir, filepath.FromSlash(relative)))
+	payload, err := readLocalObject(filepath.Join(s.dir, filepath.FromSlash(classifierRuntimeBindingRelativeName(environment, releaseSHA256))))
 	if err != nil {
 		return ResolvedClassifierRuntimeBinding{}, err
 	}

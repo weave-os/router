@@ -180,7 +180,7 @@ func WriteDirectoryServingRegistry(dir, rootURI string, objects map[string][]byt
 	}
 	objects[directoryServingRootFile] = []byte(rootURI + "\n")
 	for relative, payload := range objects {
-		if relative == "" || strings.HasPrefix(relative, "/") || strings.Contains(relative, "..") {
+		if !filepath.IsLocal(filepath.FromSlash(relative)) {
 			return fmt.Errorf("invalid local serving object path %q", relative)
 		}
 		path := filepath.Join(dir, filepath.FromSlash(relative))

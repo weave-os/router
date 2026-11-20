@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+
 	"github.com/stretchr/testify/require"
 	"testing"
 	"weave-os/router/internal/router"
@@ -51,4 +53,9 @@ func TestManagedServingStrategiesMatchRuntimeRegistration(t *testing.T) {
 	}
 	require.NotContains(t, managedServingStrategies, router.Strategy("cluster"))
 	require.NotContains(t, managedServingStrategies, router.StrategyHMMBeta)
+}
+
+func TestManagedWorkersRefuseLocalServingRegistry(t *testing.T) {
+	_, _, err := openServingStore(context.Background(), server.DeploymentModeManaged, t.TempDir())
+	require.ErrorContains(t, err, "gs://")
 }
