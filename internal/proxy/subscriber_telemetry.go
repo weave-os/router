@@ -82,7 +82,7 @@ func applySubscriberSettlementTelemetry(state subscriberSettlementState, telemet
 	case entitlement.CapacitySourceIncludedRouter:
 		failed := state.includedFailed
 		telemetry.SettlementFailed = &failed
-	case entitlement.CapacitySourcePrepaid, entitlement.CapacitySourceLinkedClaude, entitlement.CapacitySourceLinkedCodex, entitlement.CapacitySourceBillingOverride:
+	case entitlement.CapacitySourceLinkedClaude, entitlement.CapacitySourceLinkedCodex, entitlement.CapacitySourceBillingOverride:
 	}
 }
 
