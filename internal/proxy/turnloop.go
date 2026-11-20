@@ -86,7 +86,7 @@ func plannerInputTokens(env *translate.RequestEnvelope, feats translate.RoutingF
 }
 
 func (s *Service) plannerTokensFor(ctx context.Context, env *translate.RequestEnvelope, feats translate.RoutingFeatures) int {
-	if !plannerConfigFor(ctx, s.planner).CorrectedEconomics {
+	if !plannerConfigFor(ctx, s.continuityConfig.Planner).CorrectedEconomics {
 		return feats.Tokens
 	}
 	return plannerInputTokens(env, feats)
@@ -1224,7 +1224,7 @@ func (s *Service) runTurnLoop(
 			}
 		}
 		turn := continuity.Turn{IsToolResult: res.TurnType == turntype.ToolResult, Escalated: req.Escalation != nil, AuthoritativePerTurn: res.AuthoritativePerTurn}
-		continuityCfg := continuity.Config{PlannerEnabled: s.ResolvePlannerEnabled(ctx), ScoreToolResultTurns: s.ResolveScoreToolResultTurns(ctx), HoldToolResult: holdToolResult}
+		continuityCfg := continuity.Config{PlannerEnabled: s.ResolvePlannerEnabled(ctx), ScoreToolResultTurns: s.ResolveScoreToolResultTurns(ctx), HoldToolResult: holdToolResult, Planner: s.continuityConfig.Planner}
 		if continuity.ToolResultSticky(req.Session, turn, continuityCfg) {
 			decision := pinDecision(pin)
 			res.Decision = decision
@@ -1496,7 +1496,7 @@ func (s *Service) runTurnLoop(
 			CachePrefixKnown:      prefixKnown,
 			PinCacheCold:          pinCacheCold(pin, prefixBroken, s.clock.Now()),
 			AvailableModels:       s.availableModels,
-		}, plannerConfigFor(ctx, s.planner))
+		}, plannerConfigFor(ctx, s.continuityConfig.Planner))
 		res.PlannerDecision = decision
 
 		if decision.Outcome == planner.OutcomeStay && pinFound {

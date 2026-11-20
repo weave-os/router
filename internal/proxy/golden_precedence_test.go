@@ -4,6 +4,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/policy"
 )
 
@@ -54,7 +55,9 @@ func routingPolicyPrecedenceScenarios() []goldenScenario {
 			precedenceStrategyScenario(strategy, "planner_tier_upgrade_switches", nil, []string{routingPolicyLow, routingPolicyHigh}, first.body, followUp.body),
 			precedenceStrategyScenario(strategy, "planner_tier_downgrade_on_warm_pin", nil, []string{routingPolicyHigh, routingPolicyLow}, first.body, followUp.body),
 			precedenceStrategyScenario(strategy, "planner_disabled_keeps_first_decision",
-				[]func(*proxy.Service) *proxy.Service{func(s *proxy.Service) *proxy.Service { return s.WithPlannerEnabled(false) }}, []string{routingPolicyLow, routingPolicyHigh}, first.body, followUp.body),
+				[]func(*proxy.Service) *proxy.Service{func(s *proxy.Service) *proxy.Service {
+					return s.EditContinuityConfig(func(c *continuity.Config) { c.PlannerEnabled = false })
+				}}, []string{routingPolicyLow, routingPolicyHigh}, first.body, followUp.body),
 			precedenceStrategyScenario(strategy, "tool_result_rescored", nil, []string{routingPolicyLow, routingPolicyHigh}, first.body, routingPolicyToolResultTurn),
 		)
 	}

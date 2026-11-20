@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/sessionpin"
 
 	"github.com/google/uuid"
@@ -193,7 +194,7 @@ func TestTurnLoop_HighOutputKeepsActiveAndExpiredPins(t *testing.T) {
 			store.pin = sessionpin.Pin{Provider: providers.ProviderAnthropic, Model: capAnthropicModel, LastServedModel: capAnthropicModel,
 				Reason: "cluster", LastOutputTokens: 32000, LastTurnEndedAt: time.Now().Add(-time.Second), PinnedUntil: until}
 			routes := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: freshModel, Reason: "fresh"}}
-			svc := newPinSvc(routes, store).WithPlannerEnabled(false).WithAvailableModels(map[string]struct{}{capAnthropicModel: {}, freshModel: {}})
+			svc := newPinSvc(routes, store).EditContinuityConfig(func(c *continuity.Config) { c.PlannerEnabled = false }).WithAvailableModels(map[string]struct{}{capAnthropicModel: {}, freshModel: {}})
 			rec := httptest.NewRecorder()
 			require.NoError(t, svc.ProxyMessages(authedCtx(uuid.NewString()), []byte(pinTestBody), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)))
 			assert.Equal(t, capAnthropicModel, rec.Header().Get(proxy.HeaderRouterModel))

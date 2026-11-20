@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/bandswap"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -297,7 +298,9 @@ func routingPolicySessionPinScenarios() []goldenScenario {
 	return []goldenScenario{
 		routingPolicyScenario("first_turn_writes_session_pin", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyLow))}, first),
 		routingPolicyScenario("planner_disabled_keeps_first_decision", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyLow), routingPolicyAnthropic(routingPolicyHigh)),
-			options: []func(*proxy.Service) *proxy.Service{func(s *proxy.Service) *proxy.Service { return s.WithPlannerEnabled(false) }}},
+			options: []func(*proxy.Service) *proxy.Service{func(s *proxy.Service) *proxy.Service {
+				return s.EditContinuityConfig(func(c *continuity.Config) { c.PlannerEnabled = false })
+			}}},
 			first, next),
 		routingPolicyScenario("planner_same_model_refreshes_pin", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyLow))}, first, next, next),
 		routingPolicyScenario("planner_tier_upgrade_switches", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyLow), routingPolicyAnthropic(routingPolicyHigh))}, first, next),
@@ -325,7 +328,9 @@ func routingPolicySessionPinScenarios() []goldenScenario {
 			configure: routingPolicySetup{turns: [][]router.Decision{{routingPolicyAnthropic(routingPolicyLow)}, {routingPolicyAnthropic(routingPolicyLow), routingPolicyAnthropic(routingPolicyMid)}}}.configure,
 			requests:  []goldenRequest{first, {body: routingPolicyFollowUp("continue")}}},
 		routingPolicyScenario("tool_result_reuses_pin_when_scoring_off", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyLow), routingPolicyAnthropic(routingPolicyHigh)),
-			options: []func(*proxy.Service) *proxy.Service{func(s *proxy.Service) *proxy.Service { return s.WithScoreToolResultTurns(false) }}},
+			options: []func(*proxy.Service) *proxy.Service{func(s *proxy.Service) *proxy.Service {
+				return s.EditContinuityConfig(func(c *continuity.Config) { c.ScoreToolResultTurns = false })
+			}}},
 			first, goldenRequest{body: routingPolicyToolResultTurn}),
 		routingPolicyScenario("tool_result_rescored_by_default", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyLow), routingPolicyAnthropic(routingPolicyHigh))},
 			first, goldenRequest{body: routingPolicyToolResultTurn}),

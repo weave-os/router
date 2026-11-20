@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 
@@ -47,7 +48,7 @@ func TestRunTurnLoop_ForcedTextOnlyModel_DropsPinForImageTurn(t *testing.T) {
 	svc := NewService(fr, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithAvailableModels(fr.available).
-		WithPlannerEnabled(false)
+		EditContinuityConfig(func(c *continuity.Config) { c.PlannerEnabled = false })
 
 	env, err := translate.ParseAnthropic([]byte(toolResultImageBody))
 	require.NoError(t, err)
@@ -88,7 +89,7 @@ func TestRunTurnLoop_ForcedTextOnlyModel_HonoredWithoutImages(t *testing.T) {
 	svc := NewService(fr, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithAvailableModels(fr.available).
-		WithPlannerEnabled(false)
+		EditContinuityConfig(func(c *continuity.Config) { c.PlannerEnabled = false })
 
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"plain text turn"}]}`))
 	require.NoError(t, err)
@@ -115,7 +116,7 @@ func TestRunTurnLoop_ForcedImageCapModel_ReachesProvider(t *testing.T) {
 		providers.ProviderDeepInfra, model, nil).
 		WithAvailableModels(available).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderDeepInfra: {}}).
-		WithPlannerEnabled(false)
+		EditContinuityConfig(func(c *continuity.Config) { c.PlannerEnabled = false })
 
 	const imageBlock = `{"type":"image","source":{"type":"base64","media_type":"image/png","data":"AAA"}}`
 	imageBlocks := strings.TrimSuffix(strings.Repeat(imageBlock+",", imageCount), ",")

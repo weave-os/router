@@ -709,7 +709,7 @@ and keeps the default.
 | -------- | ------- | ------- |
 | `ROUTER_FLAG_OVERRIDES_DISABLED` | `false` | Ignores every per-organization flag override so an incident rollback via env var always wins. |
 | `ROUTER_PLANNER_ENABLED` | `true` | Cache-aware planner that decides whether a mid-session model switch pays for its cache-write cost. |
-| `ROUTER_SWITCH_EV_THRESHOLD_USD` | `proxy.DefaultPlannerThresholdUSD` | Minimum expected saving for a planner switch. Zero and negative values are valid and force aggressive switching. |
+| `ROUTER_SWITCH_EV_THRESHOLD_USD` | `continuity.DefaultPlannerThresholdUSD` | Minimum expected saving for a planner switch. Zero and negative values are valid and force aggressive switching. |
 | `ROUTER_CYBER_REFUSAL_REPIN` | `true` | On a safety refusal, re-pins the session off the refusing model and re-serves the refused turn on a fallback model. |
 | `ROUTER_SIBLING_FAILOVER` | `true` | Degrades to a same-cluster candidate when every binding of the routed model is exhausted by a transient upstream fault. |
 | `ROUTER_COMMITTED_STREAM_ARM_DEMOTION` | `false` | Session-level demotion of an arm whose stream died after commit. |

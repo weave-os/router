@@ -12,6 +12,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/planner"
@@ -126,11 +127,10 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 				providers.ProviderAnthropic,
 				"claude-haiku-4-5",
 				nil,
-			).WithScoreToolResultTurns(false).
-				WithPlanner(planner.EVConfig{
-					ThresholdUSD:           1_000_000,
-					ExpectedRemainingTurns: 3,
-				}).
+			).EditContinuityConfig(func(c *continuity.Config) {
+				c.ScoreToolResultTurns = false
+				c.Planner = planner.EVConfig{ThresholdUSD: 1_000_000, ExpectedRemainingTurns: 3}
+			}).
 				WithSummarizer(summarizer).
 				EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).
 				WithPolicyStrategy(policy.StrategySpec{
