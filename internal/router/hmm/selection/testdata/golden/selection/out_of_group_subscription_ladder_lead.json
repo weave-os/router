@@ -1,0 +1,145 @@
+{
+  "model": "claude-sonnet-4-6",
+  "provider": "anthropic",
+  "reason": "hmm_policy:tool_execution(group=low,arm=anthropic/claude-sonnet-4.6,fallback_depth=0)",
+  "policy_group": "low",
+  "selected_roster_arm_id": "anthropic/claude-sonnet-4.6",
+  "rescue_models": [
+    "claude-sonnet-4-6",
+    "claude-haiku-4-5",
+    "gpt-5.5-mini",
+    "gemini-3.5-flash",
+    "gpt-5.4",
+    "gemini-3-pro-preview",
+    "claude-sonnet-5",
+    "gpt-5.6-sol",
+    "gemini-3.1-pro-preview",
+    "claude-opus-5",
+    "gpt-5.6-sol-pro"
+  ],
+  "selection_trace": {
+    "classifier_ranking": [
+      "low",
+      "medium",
+      "high",
+      "maximum"
+    ],
+    "harness": "claude-code",
+    "candidate_roster_ids": [
+      "anthropic/claude-haiku-4.5",
+      "anthropic/claude-opus-5",
+      "anthropic/claude-sonnet-4.6",
+      "anthropic/claude-sonnet-5",
+      "google/gemini-3-pro-preview",
+      "google/gemini-3.1-pro-preview",
+      "google/gemini-3.5-flash",
+      "openai/gpt-5.4",
+      "openai/gpt-5.5-mini",
+      "openai/gpt-5.6-sol",
+      "openai/gpt-5.6-sol-pro"
+    ],
+    "subscription_providers": [
+      "anthropic"
+    ],
+    "effective_orders": {
+      "high": [
+        "anthropic/claude-sonnet-5",
+        "openai/gpt-5.6-sol",
+        "google/gemini-3.1-pro-preview"
+      ],
+      "low": [
+        "anthropic/claude-sonnet-4.6",
+        "anthropic/claude-haiku-4.5",
+        "openai/gpt-5.5-mini",
+        "google/gemini-3.5-flash"
+      ],
+      "maximum": [
+        "anthropic/claude-opus-5",
+        "openai/gpt-5.6-sol-pro"
+      ],
+      "medium": [
+        "openai/gpt-5.4",
+        "anthropic/claude-sonnet-4.6",
+        "google/gemini-3-pro-preview"
+      ]
+    },
+    "scores_by_group": {
+      "high": {
+        "anthropic/claude-sonnet-5": 0.74,
+        "google/gemini-3.1-pro-preview": 0.72,
+        "openai/gpt-5.6-sol": 0.76
+      },
+      "low": {
+        "anthropic/claude-haiku-4.5": 0.45,
+        "google/gemini-3.5-flash": 0.48,
+        "openai/gpt-5.5-mini": 0.5
+      },
+      "maximum": {
+        "anthropic/claude-opus-5": 0.85,
+        "openai/gpt-5.6-sol-pro": 0.88
+      },
+      "medium": {
+        "anthropic/claude-sonnet-4.6": 0.66,
+        "google/gemini-3-pro-preview": 0.6,
+        "openai/gpt-5.4": 0.62
+      }
+    },
+    "score_components_by_group": {
+      "high": {
+        "anthropic/claude-sonnet-5": {
+          "base_score": 0.74,
+          "total_score": 0.74
+        },
+        "google/gemini-3.1-pro-preview": {
+          "base_score": 0.72,
+          "total_score": 0.72
+        },
+        "openai/gpt-5.6-sol": {
+          "base_score": 0.76,
+          "total_score": 0.76
+        }
+      },
+      "low": {
+        "anthropic/claude-haiku-4.5": {
+          "base_score": 0.45,
+          "total_score": 0.45
+        },
+        "google/gemini-3.5-flash": {
+          "base_score": 0.48,
+          "total_score": 0.48
+        },
+        "openai/gpt-5.5-mini": {
+          "base_score": 0.5,
+          "total_score": 0.5
+        }
+      },
+      "maximum": {
+        "anthropic/claude-opus-5": {
+          "base_score": 0.85,
+          "total_score": 0.85
+        },
+        "openai/gpt-5.6-sol-pro": {
+          "base_score": 0.88,
+          "total_score": 0.88
+        }
+      },
+      "medium": {
+        "anthropic/claude-sonnet-4.6": {
+          "base_score": 0.66,
+          "total_score": 0.66
+        },
+        "google/gemini-3-pro-preview": {
+          "base_score": 0.6,
+          "total_score": 0.6
+        },
+        "openai/gpt-5.4": {
+          "base_score": 0.62,
+          "total_score": 0.62
+        }
+      }
+    },
+    "selected_group": "low",
+    "selected_arm": "anthropic/claude-sonnet-4.6",
+    "fallback_depth": 0
+  }
+}

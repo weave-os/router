@@ -1,0 +1,185 @@
+{
+  "schema_version": "hmm_go_selection_policy_v1",
+  "comment": "Synthetic policy for selection goldens.",
+  "class_order": [
+    "low",
+    "medium",
+    "high",
+    "maximum"
+  ],
+  "ranking": {
+    "alpha": {
+      "low": 0.3,
+      "medium": 0.5,
+      "high": 0.7,
+      "maximum": 0.9
+    },
+    "alpha_min": {
+      "low": 0.1,
+      "medium": 0.2,
+      "high": 0.4,
+      "maximum": 0.6
+    },
+    "alpha_max": {
+      "low": 0.6,
+      "medium": 0.8,
+      "high": 0.9,
+      "maximum": 1
+    },
+    "quality_bias_neutral": 0.7,
+    "wii_score_version": "wii-v1",
+    "wii_normalization_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "wpi_score_version": "wpi-v1",
+    "wpi_normalization_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+  },
+  "preferences": {
+    "preferred_model_bonus": 0.5,
+    "subscription_bonus": 0.35
+  },
+  "subscription_ladders": {
+    "anthropic": {
+      "low": "anthropic/claude-sonnet-4.6",
+      "high": "anthropic/claude-sonnet-5"
+    }
+  },
+  "clusters": {
+    "low": {
+      "complexity_label": "low",
+      "arms": [
+        "openai/gpt-5.5-mini",
+        "google/gemini-3.5-flash",
+        "anthropic/claude-haiku-4.5"
+      ],
+      "cost_ref_usd": 0.5,
+      "latency_ref_ms": 800,
+      "arm_scores": {
+        "openai/gpt-5.5-mini": 0.5,
+        "google/gemini-3.5-flash": 0.48,
+        "anthropic/claude-haiku-4.5": 0.45
+      },
+      "arm_indices": {
+        "openai/gpt-5.5-mini": {
+          "wii_v1": 50,
+          "wpi_v1": 80
+        },
+        "google/gemini-3.5-flash": {
+          "wii_v1": 48,
+          "wpi_v1": 85
+        },
+        "anthropic/claude-haiku-4.5": {
+          "wii_v1": 45,
+          "wpi_v1": 70
+        }
+      },
+      "arms_by_harness": {
+        "claude_code": [
+          "anthropic/claude-haiku-4.5",
+          "openai/gpt-5.5-mini",
+          "google/gemini-3.5-flash"
+        ]
+      },
+      "manual_pins_by_harness": {
+        "*": [
+          "google/gemini-3.5-flash"
+        ]
+      },
+      "preferred_vendors_by_harness": {
+        "claude_code": [
+          "anthropic"
+        ]
+      }
+    },
+    "medium": {
+      "complexity_label": "medium",
+      "arms": [
+        "openai/gpt-5.4",
+        "anthropic/claude-sonnet-4.6",
+        "google/gemini-3-pro-preview"
+      ],
+      "cost_ref_usd": 2,
+      "latency_ref_ms": 1500,
+      "arm_scores": {
+        "openai/gpt-5.4": 0.62,
+        "anthropic/claude-sonnet-4.6": 0.66,
+        "google/gemini-3-pro-preview": 0.6
+      },
+      "arm_indices": {
+        "openai/gpt-5.4": {
+          "wii_v1": 62,
+          "wpi_v1": 55
+        },
+        "anthropic/claude-sonnet-4.6": {
+          "wii_v1": 66,
+          "wpi_v1": 50
+        },
+        "google/gemini-3-pro-preview": {
+          "wii_v1": 60,
+          "wpi_v1": 60
+        }
+      },
+      "arms_by_harness": {
+        "codex": [
+          "google/gemini-3-pro-preview",
+          "openai/gpt-5.4"
+        ]
+      },
+      "manual_pins_by_harness": {
+        "codex": [
+          "openai/gpt-5.4"
+        ]
+      }
+    },
+    "high": {
+      "complexity_label": "high",
+      "arms": [
+        "anthropic/claude-sonnet-5",
+        "openai/gpt-5.6-sol",
+        "google/gemini-3.1-pro-preview"
+      ],
+      "cost_ref_usd": 5,
+      "latency_ref_ms": 3000,
+      "arm_scores": {
+        "anthropic/claude-sonnet-5": 0.74,
+        "openai/gpt-5.6-sol": 0.76,
+        "google/gemini-3.1-pro-preview": 0.72
+      },
+      "arm_indices": {
+        "anthropic/claude-sonnet-5": {
+          "wii_v1": 74,
+          "wpi_v1": 40
+        },
+        "openai/gpt-5.6-sol": {
+          "wii_v1": 76,
+          "wpi_v1": 38
+        },
+        "google/gemini-3.1-pro-preview": {
+          "wii_v1": 72,
+          "wpi_v1": 45
+        }
+      }
+    },
+    "maximum": {
+      "complexity_label": "maximum",
+      "arms": [
+        "anthropic/claude-opus-5",
+        "openai/gpt-5.6-sol-pro"
+      ],
+      "cost_ref_usd": 15,
+      "latency_ref_ms": 6000,
+      "arm_scores": {
+        "anthropic/claude-opus-5": 0.85,
+        "openai/gpt-5.6-sol-pro": 0.88
+      },
+      "arm_indices": {
+        "anthropic/claude-opus-5": {
+          "wii_v1": 85,
+          "wpi_v1": 20
+        },
+        "openai/gpt-5.6-sol-pro": {
+          "wii_v1": 88,
+          "wpi_v1": 15
+        }
+      }
+    }
+  }
+}
