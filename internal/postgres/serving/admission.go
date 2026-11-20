@@ -258,17 +258,3 @@ func enrollmentProjection(lane sqlc.GetServingInstallationLaneEnrollmentRow, sub
 	}
 	return projection
 }
-
-func uuidString(value pgtype.UUID) string {
-	if !value.Valid {
-		return ""
-	}
-	return uuid.UUID(value.Bytes).String()
-}
-
-func timestamptzPtr(value pgtype.Timestamptz) *time.Time {
-	if !value.Valid {
-		return nil
-	}
-	return &value.Time
-}
