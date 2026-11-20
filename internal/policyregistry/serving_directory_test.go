@@ -38,6 +38,10 @@ func TestDirectoryServingStoreReadsContentAddressedObjectsUnderItsRoot(t *testin
 	_, err = store.ReadClassifierRuntimeBinding(context.Background(), EnvironmentStaging, digest)
 	require.ErrorIs(t, err, ErrNotFound)
 
+	otherGeneration := ref
+	otherGeneration.Generation = 2
+	_, _, err = store.ReadServingObject(context.Background(), ServingClassifierReleases, otherGeneration)
+	require.ErrorContains(t, err, "generation")
 	tampered := ref
 	tampered.SHA256 = strings.Repeat("0", 64)
 	_, _, err = store.ReadServingObject(context.Background(), ServingClassifierReleases, tampered)

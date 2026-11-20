@@ -48,7 +48,7 @@ func (s *DirectoryServingStore) ReadServingObject(_ context.Context, kind Servin
 	if err != nil {
 		return nil, nil, err
 	}
-	payload, err := readDirectoryObject(s.dir, s.rootURI, ref, namespace)
+	payload, err := s.readPinned(ref, namespace)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -60,7 +60,7 @@ func (s *DirectoryServingStore) ReadServingObject(_ context.Context, kind Servin
 }
 
 func (s *DirectoryServingStore) ReadServingPolicy(_ context.Context, ref ObjectRef) (*rosterdata.Roster, error) {
-	payload, err := readDirectoryObject(s.dir, s.rootURI, ref, policyObjectPrefix)
+	payload, err := s.readPinned(ref, policyObjectPrefix)
 	if err != nil {
 		return nil, err
 	}
@@ -127,4 +127,11 @@ func DirectoryServingStatePath(target ServingTarget) (string, error) {
 
 func DirectoryServingRuntimeBindingPath(environment Environment, releaseSHA256 string) string {
 	return classifierRuntimeBindingRelativeName(environment, releaseSHA256)
+}
+
+func (s *DirectoryServingStore) readPinned(ref ObjectRef, namespace string) ([]byte, error) {
+	if ref.Generation != directoryServingGeneration {
+		return nil, fmt.Errorf("local serving registry holds generation %d, not %d", directoryServingGeneration, ref.Generation)
+	}
+	return readDirectoryObject(s.dir, s.rootURI, ref, namespace)
 }
