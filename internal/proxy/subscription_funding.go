@@ -97,7 +97,7 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 		if state, _ := callCtx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
 			unverified = unverified || state.ClaudePlanUnverified
 		}
-		if claudeEnterpriseEnabled(callCtx) && unverified {
+		if claudeEnterpriseEnabled(callCtx) && unverified && !triedSubscriptionFallsBackToCredits(callCtx) {
 			observability.FromContext(callCtx).Warn("Blocked paid recovery while Claude subscription identity is unverified", "provider", target.Provider, "model", target.CatalogID)
 			return fmt.Errorf("%w: Claude subscription plan could not be verified before paid fallback", ErrSubscriptionPoolUnavailable)
 		}
@@ -186,7 +186,19 @@ func callerPlanRefusal(ctx context.Context, pool subscriptions.Provider, callerQ
 		}
 		return subscriptionPoolRefusal(ctx, subscriptionlane.CallerPlanThrottled)
 	}
+	if triedSubscriptionFallsBackToCredits(ctx) {
+		return nil
+	}
 	return subscriptionPoolUnavailableBecause(ctx, "caller subscription quota is available or unknown")
+}
+
+func triedSubscriptionFallsBackToCredits(ctx context.Context) bool {
+	state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	if state == nil || !state.SubscriptionAttempted || state.CallerCredentialRejected || billing.WeaveCreditsDeniedFromContext(ctx) {
+		return false
+	}
+	passthrough, _ := callerRoutingState(ctx)
+	return !passthrough
 }
 
 func (s *Service) callerQuotaSpent(ctx context.Context, pool subscriptions.Provider, token string, now time.Time) bool {

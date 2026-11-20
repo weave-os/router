@@ -160,14 +160,14 @@ func TestDispatchWithFallbackSurfacesManagedThirdPartyRefusalWithoutFallbackKey(
 	assert.Zero(t, upstream.paidDispatches, "no paid credential exists to fail over to")
 }
 
-func TestSubscriptionThirdPartyRefusalDoesNotPayForInboundSubscription(t *testing.T) {
+func TestSubscriptionThirdPartyRefusalDoesNotPayWithCreditsOffForInboundSubscription(t *testing.T) {
 	in := parityAnthropicIngress()
 	for _, stream := range []bool{false, true} {
 		t.Run(boolLit(stream), func(t *testing.T) {
 			upstream := &parityUpstream{subErr: thirdPartyRefusalError(), okBody: in.upstreamOK(stream)}
 			svc := in.parityService(upstream)
 			rec, req, body := in.request(t, stream)
-			require.Error(t, in.call(svc, in.subCtx(), body, rec, req))
+			require.Error(t, in.call(svc, billing.WithWeaveCreditsDenied(in.subCtx()), body, rec, req))
 			assert.NotContains(t, rec.Body.String(), "output_tokens")
 			assert.Equal(t, 1, upstream.subDispatches)
 			assert.Zero(t, upstream.paidDispatches)
@@ -175,7 +175,7 @@ func TestSubscriptionThirdPartyRefusalDoesNotPayForInboundSubscription(t *testin
 	}
 }
 
-func TestSubscriptionThirdPartyRefusalDoesNotPayForOpenAIIngress(t *testing.T) {
+func TestSubscriptionThirdPartyRefusalDoesNotPayWithCreditsOffForOpenAIIngress(t *testing.T) {
 	in := parityAnthropicIngress()
 	upstream := &parityUpstream{subErr: thirdPartyRefusalError(), okBody: in.upstreamOK(false)}
 	svc := in.parityService(upstream)
@@ -183,7 +183,7 @@ func TestSubscriptionThirdPartyRefusalDoesNotPayForOpenAIIngress(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 
-	require.Error(t, svc.ProxyOpenAIChatCompletion(in.subCtx(), body, recorder, request))
+	require.Error(t, svc.ProxyOpenAIChatCompletion(billing.WithWeaveCreditsDenied(in.subCtx()), body, recorder, request))
 
 	assert.Equal(t, 1, upstream.subDispatches)
 	assert.Zero(t, upstream.paidDispatches)

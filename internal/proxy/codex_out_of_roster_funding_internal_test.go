@@ -123,13 +123,14 @@ func TestCodexOutOfRosterModel_SubscriptionFirstFunding(t *testing.T) {
 			wantOAuth             []bool
 			wantErr               bool
 			wantSubServed         bool
+			creditsDenied         bool
 		}{
 			{name: "subscription serves", wantOAuth: []bool{true}, wantSubServed: true},
 			{name: "personal subscription survives managed enrollment outage", enrollmentUnavailable: true, wantOAuth: []bool{true}, wantSubServed: true},
 			// 429 keeps the existing bounded same-binding retries before rescue.
 			{name: "quota rejection falls back to API credential", subscriptionEr: quotaSpent, wantOAuth: []bool{true, false}},
 			{name: "credential rejection does not buy API capacity", subscriptionEr: tokenRejected, wantOAuth: []bool{true}, wantErr: true},
-			{name: "unsupported model does not buy API capacity", subscriptionEr: modelRejected, wantOAuth: []bool{true}, wantErr: true},
+			{name: "unsupported model does not buy API capacity when credits are off", subscriptionEr: modelRejected, wantOAuth: []bool{true}, wantErr: true, creditsDenied: true},
 			{name: "request-shape rejection stays terminal", subscriptionEr: shapeRejected, wantOAuth: []bool{true}, wantErr: true},
 		} {
 			t.Run(selection.name+"/"+tc.name, func(t *testing.T) {
@@ -138,6 +139,9 @@ func TestCodexOutOfRosterModel_SubscriptionFirstFunding(t *testing.T) {
 				svc := outOfRosterFundingService(client, selection.reason, repo)
 				ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
 				ctx = outOfRosterBillingCtx(ctx)
+				if tc.creditsDenied {
+					ctx = billing.WithWeaveCreditsDenied(ctx)
+				}
 				if tc.enrollmentUnavailable {
 					svc = svc.WithManagedSubscriptions(&scriptedSubscriptionLeaser{})
 					ctx = context.WithValue(ctx, ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)

@@ -121,3 +121,50 @@ func TestSeatsWithoutQuotaSnapshotFundCredits(t *testing.T) {
 	h := newGoldenHarness(t, sc)
 	requireServedOnCredits(t, h.serve(t, sc.ingress, sc.requests[0]), "served on weave credits")
 }
+
+type goldenUnknownClaudePlan struct{}
+
+func (goldenUnknownClaudePlan) SubscriptionPlan(context.Context, []byte) (providers.SubscriptionPlan, error) {
+	return providers.SubscriptionPlanUnknown, nil
+}
+
+func goldenCallerPlanScenario(name string, failure goldenStep) goldenScenario {
+	return goldenScenario{
+		name: ingressAnthropic + "_stream_" + name, ingress: ingressAnthropic,
+		decisions: []router.Decision{decision(providers.ProviderAnthropic, goldenAnthropicModel)},
+		upstreams: map[string][]goldenStep{providers.ProviderAnthropic: {failure, anthropicOK(true, "served on weave credits")}},
+		requests: []goldenRequest{{body: goldenAnthropicBody(true), decorateContext: func(ctx context.Context) context.Context {
+			return proxy.WithManagedSubscriptionUsage(goldenSubscriptionCtx(ctx))
+		}}},
+	}
+}
+
+func TestTriedUnverifiedPlansFundCredits(t *testing.T) {
+	t.Parallel()
+	enterprise := goldenSeatRefusalScenario("unverified_claude_plan_seat_failure_funds_credits", proxy.ClientAppClaudeCode, time.Time{},
+		goldenUpstreamError(http.StatusServiceUnavailable, goldenOverloadedBody))
+	enterprise.noCandidateErr = fmt.Errorf("hmm_embedding: arm selection: %w", policy.ErrNoEligibleArm)
+	configureSeat := enterprise.configure
+	enterprise.configure = func(svc *proxy.Service, h *goldenHarness) *proxy.Service {
+		return configureSeat(svc, h).WithClaudeSubscriptionPlanReader(goldenUnknownClaudePlan{})
+	}
+	thirdParty := goldenCallerPlanScenario("caller_plan_third_party_refusal_funds_credits",
+		goldenUpstreamError(http.StatusBadRequest, goldenThirdPartyRefusalBody))
+	thirdParty.requests[0].decorateContext = func(ctx context.Context) context.Context {
+		ctx = requestcontext.WithClientIdentity(ctx, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode, SessionID: "golden-seat-session"})
+		return proxy.WithManagedSubscriptionUsage(goldenSubscriptionCtx(ctx))
+	}
+	for _, sc := range []goldenScenario{
+		goldenCallerPlanScenario("caller_plan_model_denied_funds_credits",
+			goldenUpstreamError(http.StatusNotFound, `{"type":"error","error":{"type":"not_found_error","message":"model: claude-haiku-4-5"}}`)),
+		thirdParty,
+		enterprise,
+		stateLane(enterprise),
+	} {
+		t.Run(sc.name, func(t *testing.T) {
+			t.Parallel()
+			h := newGoldenHarness(t, sc)
+			requireServedOnCredits(t, h.serve(t, sc.ingress, sc.requests[0]), "served on weave credits")
+		})
+	}
+}
