@@ -54,7 +54,7 @@ func (c *portableCodexResponsesConverter) appendToolOutput(messages *[]map[strin
 	case !ok:
 		return toolImageCalls
 	case item.Get("call_id").Str == "":
-		*messages = c.appendStandaloneToolOutput(*messages, message)
+		c.pendingStandalone = append(c.pendingStandalone, message)
 		return toolImageCalls
 	}
 	*messages = append(*messages, message)
@@ -67,11 +67,6 @@ func (c *portableCodexResponsesConverter) appendToolOutput(messages *[]map[strin
 	}
 	toolImages[callID] = append(toolImages[callID], images...)
 	return toolImageCalls
-}
-
-func (c *portableCodexResponsesConverter) appendStandaloneToolOutput(messages []map[string]any, message map[string]any) []map[string]any {
-	c.pendingStandalone = append(c.pendingStandalone, message)
-	return messages
 }
 
 func (c *portableCodexResponsesConverter) flushStandaloneToolOutputs(messages []map[string]any) []map[string]any {
