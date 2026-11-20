@@ -655,19 +655,7 @@ func main() {
 	}
 	ccWorkspaceSystemAppend := config.GetOr("ROUTER_CC_WORKSPACE_SYSTEM_APPEND", "false") == "true"
 	bandSwapEnabled := config.GetOr("ROUTER_BAND_SWAP", "false") == "true"
-	loopEscalationEnabled := config.GetOr("ROUTER_LOOP_ESCALATION_ENABLED", "true") == "true"
-	loopEscalationHoldoutPct := 10
-	if raw := config.GetOr("ROUTER_LOOP_ESCALATION_HOLDOUT_PCT", ""); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 0 || n > 100 {
-			logger.Warn("Invalid env var; using default", "key", "ROUTER_LOOP_ESCALATION_HOLDOUT_PCT", "value", raw, "default", loopEscalationHoldoutPct)
-		} else {
-			loopEscalationHoldoutPct = n
-		}
-	}
-	spiralShadowEnabled := config.GetOr("ROUTER_SPIRAL_SHADOW_ENABLED", "true") == "true"
 	turnSignalCaptureEnabled := config.GetOr("ROUTER_TURN_SIGNAL_CAPTURE_ENABLED", "true") == "true"
-	struggleShadowEnabled := config.GetOr("ROUTER_STRUGGLE_SHADOW_ENABLED", "true") == "true"
 
 	textRepetitionBreakEnabled := config.GetOr("ROUTER_TEXT_REPETITION_BREAK_ENABLED", "true") == "true"
 	prefixTrimFreeSwitch := config.GetOr("ROUTER_PREFIX_TRIM_FREE_SWITCH", "true") == "true"
@@ -1017,11 +1005,7 @@ func main() {
 		flags.KeyClaudeEnterpriseOnly:                 boolDefault(true),
 		flags.KeySubscriptionExhaustedOpenRouterOnly:  boolDefault(false),
 		flags.KeyPlanUserClusterLists:                 boolDefault(false),
-		flags.KeyStruggleShadowEnabled:                boolDefault(struggleShadowEnabled),
-		flags.KeySpiralShadowEnabled:                  boolDefault(spiralShadowEnabled),
 		flags.KeyTurnSignalCapture:                    boolDefault(turnSignalCaptureEnabled),
-		flags.KeyLoopEscalationEnabled:                boolDefault(loopEscalationEnabled),
-		flags.KeyLoopEscalationHoldoutPct:             strconv.Itoa(loopEscalationHoldoutPct),
 		flags.KeyTextRepetitionBreak:                  boolDefault(textRepetitionBreakEnabled),
 		flags.KeyPlannerEnabled:                       boolDefault(continuityConfig.PlannerEnabled),
 		flags.KeyScoreToolResultTurns:                 boolDefault(continuityConfig.ScoreToolResultTurns),
@@ -1153,14 +1137,8 @@ func main() {
 		WithEarlyStopRedo(earlyStopRedo).
 		WithCCWorkspaceSystemAppend(ccWorkspaceSystemAppend).
 		WithBandSwap(bandSwapEnabled).
-		WithLoopEscalationConfig(loopEscalationEnabled, loopEscalationHoldoutPct).
-		WithLoopEscalationStore(repo.Telemetry).
 		WithGlobalAutomaticExclusions(repo.GlobalAutomaticExclusions).
-		WithSpiralShadowConfig(spiralShadowEnabled).
 		WithTurnSignalCapture(turnSignalCaptureEnabled).
-		WithSpiralShadowStore(repo.Telemetry).
-		WithStruggleShadowConfig(struggleShadowEnabled).
-		WithStruggleShadowStore(repo.Telemetry).
 		WithTextRepetitionBreak(textRepetitionBreakEnabled).
 		WithRouterFeedbackStore(repo.Telemetry).
 		WithSummarizer(summarizer).
@@ -1184,8 +1162,6 @@ func main() {
 	}
 	logger.Info("Effort escalation configured", "enabled", effortEscalation)
 	logger.Info("Cross-vendor Claude Code orchestration tools configured", "enabled", ccOrchToolsCrossVendor, "task_tools_enabled", ccTaskToolsCrossVendor)
-	logger.Info("Loop escalation configured", "enabled", loopEscalationEnabled, "holdout_pct", loopEscalationHoldoutPct)
-	logger.Info("Spiral shadow detector configured", "enabled", spiralShadowEnabled)
 	logger.Info("Turn signal capture configured", "enabled", turnSignalCaptureEnabled)
 	logger.Info("Text-repetition break configured", "enabled", textRepetitionBreakEnabled)
 	logger.Info("Planner configured", "enabled", continuityConfig.PlannerEnabled, "threshold_usd", continuityConfig.Planner.ThresholdUSD, "expected_remaining_turns", continuityConfig.Planner.ExpectedRemainingTurns, "tier_upgrade_enabled", continuityConfig.Planner.TierUpgradeEnabled, "corrected_economics", continuityConfig.Planner.CorrectedEconomics, "prefix_trim_free_switch", prefixTrimFreeSwitch, "routing_targets_count", len(routingTargets))

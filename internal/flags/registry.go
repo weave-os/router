@@ -1,6 +1,6 @@
 package flags
 
-const RegistryVersion = 37
+const RegistryVersion = 38
 
 var Registry = []Definition{
 	{Key: KeyEscalationActiveClassifier, Kind: KindString, Description: "Active escalation classifier: none, xgb, switchyard_llm_v1, or llm_escalation. Absent preserves legacy XGB flags.", OrgOverridable: true},
@@ -36,38 +36,10 @@ var Registry = []Definition{
 		OrgOverridable: true,
 	},
 	{
-		Key:            KeyStruggleShadowEnabled,
-		EnvVar:         "ROUTER_STRUGGLE_SHADOW_ENABLED",
-		Kind:           KindBool,
-		Description:    "Session-level struggle detector (log-only; writes struggle_shadow_events).",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeySpiralShadowEnabled,
-		EnvVar:         "ROUTER_SPIRAL_SHADOW_ENABLED",
-		Kind:           KindBool,
-		Description:    "Per-turn spiral detector (log-only).",
-		OrgOverridable: true,
-	},
-	{
 		Key:            KeyTurnSignalCapture,
 		EnvVar:         "ROUTER_TURN_SIGNAL_CAPTURE_ENABLED",
 		Kind:           KindBool,
 		Description:    "Persist the per-turn behavioral signal snapshot onto telemetry rows. Skipped regardless for installations that opted out of AI training or set content capture to off.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyLoopEscalationEnabled,
-		EnvVar:         "ROUTER_LOOP_ESCALATION_ENABLED",
-		Kind:           KindBool,
-		Description:    "Cyclic-loop escalate-to-opus action. Detection telemetry continues when off.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyLoopEscalationHoldoutPct,
-		EnvVar:         "ROUTER_LOOP_ESCALATION_HOLDOUT_PCT",
-		Kind:           KindInt,
-		Description:    "Percent of loop detections recorded without escalating, as a self-recovery baseline. 0-100.",
 		OrgOverridable: true,
 	},
 	{

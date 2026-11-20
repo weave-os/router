@@ -718,10 +718,6 @@ and keeps the default.
 | `ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS` | `true` | Records the stop reason and `tool_use` block count of Anthropic-native turns into telemetry. |
 | `ROUTER_NATIVE_OPENAI_RESPONSE_SIGNALS` | `true` | The same extraction for the OpenAI-native chat/completions and `/v1/responses` passthrough surfaces. |
 | `ROUTER_BAND_SWAP` | `false` | Per-turn large-vs-small action-classifier swap; enabling loads the compiled-in head. |
-| `ROUTER_LOOP_ESCALATION_ENABLED` | `true` | Cyclic-loop escalation action. Off detaches the action but keeps detection telemetry. |
-| `ROUTER_LOOP_ESCALATION_HOLDOUT_PCT` | `10` (0-100), 0 allowed | Percentage of detected loops that are recorded but not escalated, giving a self-recovery baseline for rescue-rate claims. |
-| `ROUTER_SPIRAL_SHADOW_ENABLED` | `true` | Log-only spiral detector; the switch sheds its per-turn signal scan. |
-| `ROUTER_STRUGGLE_SHADOW_ENABLED` | `true` | Log-only session struggle detector; the switch sheds its per-turn check. |
 | `ROUTER_TURN_SIGNAL_CAPTURE_ENABLED` | `true` | Per-turn signal snapshot on telemetry rows. Always skipped for opted-out installations. |
 | `ROUTER_TEXT_REPETITION_BREAK_ENABLED` | `true` | Enforcing text-repetition break; turn off if it false-positives on legitimately repeated narration. |
 | `ROUTER_HMM_DOWNGRADE_GATE` | `false` | Confidence floor for authoritative HMM picks that are cheaper than the pin (mirror of the upgrade gate). |

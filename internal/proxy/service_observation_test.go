@@ -606,8 +606,7 @@ func TestProxyMessages_PersistedPolicyRolloutIDOverridesClientIdentity(t *testin
 }
 
 // TestProxyMessages_PersistsSessionKeyAndRole: session_key/role are the join
-// key to router.spiral_shadow_events, so they must match spiral's encoding
-// byte-for-byte. role is keyed off the *requested* model (opus-4-7 ->
+// key to session_pins, so they must match its encoding byte-for-byte. role is keyed off the *requested* model (opus-4-7 ->
 // "default_high"), not the cheaper model the router actually picked.
 func TestProxyMessages_PersistsSessionKeyAndRole(t *testing.T) {
 	const installID = "77777777-7777-7777-7777-777777777777"

@@ -11,24 +11,8 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 )
 
-func (s *Service) ResolveStruggleShadowEnabled(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyStruggleShadowEnabled, s.struggleShadowEnabled)
-}
-
-func (s *Service) ResolveSpiralShadowEnabled(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeySpiralShadowEnabled, s.spiralShadowEnabled)
-}
-
 func (s *Service) ResolveTurnSignalCaptureEnabled(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyTurnSignalCapture, s.turnSignalCaptureEnabled)
-}
-
-func (s *Service) ResolveLoopEscalationEnabled(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyLoopEscalationEnabled, s.loopEscalationEnabled)
-}
-
-func (s *Service) ResolveLoopEscalationHoldoutPct(ctx context.Context) int {
-	return flags.IntOr(ctx, flags.KeyLoopEscalationHoldoutPct, s.loopEscalationHoldoutPct)
 }
 
 func (s *Service) ResolveTextRepetitionBreakEnabled(ctx context.Context) bool {
