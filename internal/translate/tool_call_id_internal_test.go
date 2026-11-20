@@ -124,3 +124,17 @@ func TestClampOpenAIToolCallID(t *testing.T) {
 	// string, so they must clamp to the same value.
 	assert.Equal(t, got, clampOpenAIToolCallID(long))
 }
+
+func TestResponsesWriter_CallIDKeepsGeminiThoughtCarrier(t *testing.T) {
+	sig := strings.Repeat("S", 1300)
+	signed := embedSignatureInID("call_abc", sig)
+	assert.Equal(t, signed, clampResponsesCallID(signed))
+
+	longBase := embedSignatureInID("call_"+strings.Repeat("a", 100), sig)
+	clean, gotSig := extractSignatureFromID(clampResponsesCallID(longBase))
+	assert.LessOrEqual(t, len(clean), maxToolCallIDLen)
+	assert.Equal(t, sig, gotSig)
+
+	assert.Equal(t, clampOpenAIToolCallID("toolu_abc"), clampResponsesCallID("toolu_abc"))
+	assert.Equal(t, clampOpenAIToolCallID("call_"+strings.Repeat("b", 100)), clampResponsesCallID("call_"+strings.Repeat("b", 100)))
+}

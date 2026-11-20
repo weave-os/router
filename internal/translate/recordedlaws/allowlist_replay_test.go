@@ -9,8 +9,6 @@ func replayLossAllowlist() []lossRule {
 		{hop: "replay:chat_*>anthropic_*+*", kind: changed, key: "tool.*.id", holds: nonceSuffixed, why: "the client echoes the nonce-suffixed tool_use id; call and result stay paired (TestAnthropicSSETranslator_StreamedToolUseIDUniqueAcrossResponses)"},
 		{hop: "replay:chat_*>anthropic_*+*", kind: dropped, key: "thinking.*.text", why: "unsigned cross-format thinking is not replayed upstream (docs/REQUEST_ENVELOPE.md, Anthropic same-format overrides)"},
 		{hop: "replay:gemini_*>chat_*+*", kind: added, key: "tool.*.signature", why: "docs/TRANSLATION_COMPATIBILITY.md: the first call's signature is replayed on later calls (TestGeminiStream_FirstFunctionCallSignatureLatchesToLaterCalls)"},
-		{hop: "replay:gemini_*>responses_*@chat+*", kind: added, key: "error", candidate: true, why: "candidate bug: the next Codex turn has no thoughtSignature, so PrepareGemini rejects it with ErrGeminiUnsignedToolHistory"},
-		{hop: "replay:gemini_*>responses_*@chat+*", kind: dropped, key: "text", candidate: true, why: "same root cause as the ErrGeminiUnsignedToolHistory rejection"},
-		{hop: "replay:gemini_*>responses_*@chat+*", kind: dropped, key: "tool.*.*", candidate: true, why: "same root cause as the ErrGeminiUnsignedToolHistory rejection"},
+		{hop: "replay:gemini_*>responses_*@chat+*", kind: added, key: "tool.*.signature", why: "docs/TRANSLATION_COMPATIBILITY.md: Codex echoes the call_id carrier, so the first call's signature is replayed on later calls (TestCandidate_ResponsesClientKeepsGeminiThoughtSignatureForTheNextTurn)"},
 	}
 }

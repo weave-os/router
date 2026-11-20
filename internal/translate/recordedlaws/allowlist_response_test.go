@@ -38,6 +38,6 @@ func responseLossAllowlist() []lossRule {
 		{hop: "responses_*>anthropic_*", kind: changed, key: "tool.*.id", holds: carriesOpenAIReasoning, why: "tool_use ids carry the OpenAI reasoning envelope for replay (TestPrepareOpenAIResponses_ReplaysReasoningCarriedOnToolUseID)"},
 		{hop: "responses_*>chat_*", kind: dropped, key: "thinking.*.signature", why: "docs/RESPONSES_TRANSLATION.md: encrypted reasoning has no Chat field"},
 		{hop: "anthropic_*>*", kind: dropped, key: "thinking.*.signature", why: "Chat has no thinking-signature field and unsigned thinking is stripped on replay (docs/REQUEST_ENVELOPE.md, Anthropic same-format overrides)"},
-		{hop: "gemini_*>responses_*@chat", kind: dropped, key: "tool.*.signature", candidate: true, why: "candidate bug: ResponsesWriter projects call_id through clampOpenAIToolCallID, which strips the Gemini thought carrier, so Responses clients never get the signature back"},
+		{hop: "gemini_*>responses_*@chat", kind: added, key: "tool.*.signature", why: "docs/TRANSLATION_COMPATIBILITY.md: the first call's signature is replayed on later calls, carried in the Responses call_id (TestResponsesWriter_CallIDKeepsGeminiThoughtCarrier)"},
 	}
 }

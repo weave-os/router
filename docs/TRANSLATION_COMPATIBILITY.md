@@ -77,4 +77,7 @@ rules; each is pinned by a translate unit test that fails when it is broken.
   `delta.reasoning_content`. The thinking signature and `redacted_thinking`
   have no Chat field and are dropped.
 - Gemini 3.x signs only the first function call in a turn; that signature is
-  replayed on every later call, carried in the OpenAI tool-call id.
+  replayed on every later call, carried in the OpenAI tool-call id. A
+  non-Gemini OpenAI-compatible Chat upstream gets that id shortened to 64
+  characters without the carrier, the same way in `tool_calls[].id` and the
+  matching `tool_call_id`.

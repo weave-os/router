@@ -187,7 +187,7 @@ func stablePromptCacheKey(body []byte) string {
 
 func (e *RequestEnvelope) buildOpenAIFromOpenAI(opts EmitOptions) ([]byte, error) {
 	ov := resolveOpenAIOverrides(e.body, opts)
-	body, err := e.emitSameFormat(ov)
+	body, err := e.emitOpenAISameFormat(ov)
 	if err != nil {
 		return nil, err
 	}
