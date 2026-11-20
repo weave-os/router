@@ -21,14 +21,13 @@ const (
 	commandPublish      commandName = "publish"
 	commandStatus       commandName = "status"
 	commandServing      commandName = "serving"
-	commandExport       commandName = "export"
 )
 
 const defaultRegistryURI = "gs://weave_ml/weave_registry"
 
 func run(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: policyctl <compile|check-rosters|export|serving> [flags]")
+		return errors.New("usage: policyctl <compile|check-rosters|serving> [flags]")
 	}
 	switch commandName(args[0]) {
 	case commandServing:
@@ -37,8 +36,6 @@ func run(ctx context.Context, args []string) error {
 		return runCompile(args[1:])
 	case commandCheckRosters:
 		return runCheckRosters(args[1:])
-	case commandExport:
-		return runExport(ctx, args[1:])
 	default:
 		return fmt.Errorf("unknown policyctl command %q", args[0])
 	}
@@ -81,40 +78,6 @@ func runCompile(args []string) error {
 		"class_order":    policy.ClassOrder,
 		"arms":           len(policy.AllArms()),
 		"output":         *outputPath,
-	})
-}
-
-func runExport(ctx context.Context, args []string) error {
-	flags := flag.NewFlagSet(string(commandExport), flag.ContinueOnError)
-	registryURI := flags.String("registry", defaultRegistryURI, "serving registry root")
-	outDir := flags.String("out", "", "directory to write the release into")
-	classifierImageDigest := flags.String("classifier-image-digest", "", "re-pin the release to this sidecar image digest (sha256:<hex>)")
-	servingTarget := flags.String("serving-target", "", "export the default lane of this managed serving target (e.g. prod/stable)")
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	if strings.TrimSpace(*outDir) == "" {
-		return errors.New("--out is required")
-	}
-	target := policyregistry.ServingTarget(strings.TrimSpace(*servingTarget))
-	if target == "" {
-		return errors.New("--serving-target is required")
-	}
-	registry, err := policyregistry.NewGCSRegistry(ctx, *registryURI)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = registry.Close() }()
-	exported, err := policyregistry.ExportServingTarget(ctx, registry, target, *outDir, strings.TrimSpace(*classifierImageDigest))
-	if err != nil {
-		return err
-	}
-	if _, err := policyregistry.NewDirectoryRegistry(*outDir, ""); err != nil {
-		return fmt.Errorf("exported release does not load: %w", err)
-	}
-	return writeJSON(map[string]any{
-		"serving_target": target, "activation_id": exported.ActivationID, "candidate": exported.Candidate,
-		"release_id": exported.Head.ReleaseSHA256, "package": exported.Package, "out": *outDir,
 	})
 }
 

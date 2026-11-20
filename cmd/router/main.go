@@ -58,7 +58,6 @@ import (
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/llmescalation"
 	"weave-os/router/internal/router/policy"
-	"weave-os/router/internal/router/rl"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/sessionstrategy"
 	"weave-os/router/internal/server"
@@ -457,7 +456,7 @@ func main() {
 	}
 
 	var admissionDecisions *policyregistry.AdmissionDecisionCache
-	if managedServingEnabled(deploymentMode) {
+	if servingTargetConfigured() {
 		target := policyregistry.ServingTarget(config.MustGet("ROUTER_SERVING_TARGET"))
 		environment, err := target.Environment()
 		if err != nil {
@@ -769,26 +768,6 @@ func main() {
 		logger.Info("Feedback link disabled (set ROUTER_FEEDBACK_LINK_SECRET and ROUTER_FEEDBACK_BASE_URL to enable)")
 	}
 
-	var rlRouter router.Router
-	if rlSidecarURL := config.GetOr("ROUTER_RL_SIDECAR_URL", ""); rlSidecarURL != "" {
-		rlTimeout := parseEnvDurationMs("ROUTER_RL_SIDECAR_TIMEOUT_MS", rl.DefaultTimeout)
-		rlHeaders := rlSidecarHeadersFromEnv()
-		rlRouter = rl.New(
-			rl.NewHTTPDeciderWithHeaders(rlSidecarURL, nil, rlTimeout, rlHeaders),
-			routingTargets,
-			availableProviders,
-		)
-		logger.Info(
-			"RL policy router wired",
-			"sidecar_url", rlSidecarURL,
-			"timeout_ms", rlTimeout.Milliseconds(),
-			"candidate_models", len(routingTargets),
-			"modal_proxy_auth", len(rlHeaders) > 0,
-		)
-	} else {
-		logger.Info("RL policy router disabled (ROUTER_RL_SIDECAR_URL unset); x-weave-router-strategy: rl will return 503")
-	}
-
 	var escalationObserver escalation.Observer
 	var hmmRouter router.Router
 	var hmmEmbeddingRouter router.Router
@@ -815,9 +794,9 @@ func main() {
 		defer cancelTaskSweep()
 		safeGo(logger, "task-domain-sweep", func() { taskRuntime.sweep(taskSweepCtx) })
 	}
-	if managedServingEnabled(deploymentMode) {
+	if servingTargetConfigured() {
 		prepareCtx, cancelPrepare := context.WithTimeout(context.Background(), 60*time.Second)
-		admission, baseline, closeRegistry, err := buildManagedServingRuntime(prepareCtx, availableProviders, taskRuntime)
+		admission, baseline, closeRegistry, err := buildManagedServingRuntime(prepareCtx, deploymentMode, availableProviders, taskRuntime)
 		cancelPrepare()
 		if err != nil {
 			logger.Error("Managed worker preparation failed; refusing to boot", "target", config.GetOr("ROUTER_SERVING_TARGET", ""), "registry_uri", config.GetOr("ROUTER_SERVING_REGISTRY_URI", ""), "err", err)
@@ -927,63 +906,9 @@ func main() {
 		routingDistribution = hmmRoutingDistribution(stableManager)
 		escalationObserver = stableDynamicRouter
 
-		var betaManager *policyregistry.Manager
-		var betaManagerErr error
-		if policyReleaseDir == "" {
-			betaManager, betaManagerErr = policyregistry.NewManager(
-				policyRegistry,
-				policyEnvironment,
-				policyregistry.LaneBeta,
-				hmmPolicySnapshotBuilder(availableProviders, []router.Strategy{router.StrategyHMMBeta}, hmmAuthMode, hmmTimeout, hmmAttemptTimeout),
-				logger,
-			)
-		}
-		if policyReleaseDir != "" {
-			logger.Info("Serving the local router policy release; beta lane disabled", "dir", policyReleaseDir)
-		} else if betaManagerErr != nil {
-			logger.Error("Beta router policy manager is invalid; beta disabled", "err", betaManagerErr)
-		} else {
-			hmmBetaRouter = policyregistry.NewDynamicRouter(betaManager, router.StrategyHMMBeta)
-			hmmRosterSources[router.StrategyHMMBeta] = betaManager
-			safeGo(logger, "beta-policy-manager", func() { betaManager.Run(managerCtx) })
-			betaRefreshCtx, cancelBetaRefresh := context.WithTimeout(context.Background(), 30*time.Second)
-			betaRefreshErr := betaManager.Refresh(betaRefreshCtx)
-			cancelBetaRefresh()
-			if betaRefreshErr != nil {
-				logger.Warn("No valid beta router policy snapshot; beta disabled", "err", betaRefreshErr)
-			} else if source, ok := hmmBetaRouter.(policy.CapabilitySource); ok {
-				hmmBetaCapabilities = source.CurrentCapabilities()
-			}
-		}
-		policyInvalidationTopic := strings.TrimSpace(config.GetOr("PUBSUB_TOPIC_ROUTER_POLICY_INVALIDATION", ""))
-		if policyInvalidationTopic != "" {
-			policyInvalidationPrefix := config.GetOr("PUBSUB_SUBSCRIPTION_ROUTER_POLICY_INVALIDATION", policyInvalidationTopic)
-			policySubscriptionCtx, cancelPolicySubscription := context.WithTimeout(context.Background(), 30*time.Second)
-			policySubscriptionName, deletePolicySubscription, subscriptionErr := routerpubsub.CreateReplicaSubscription(
-				policySubscriptionCtx, pubsubClient, pubsubProjectID, policyInvalidationTopic, policyInvalidationPrefix,
-			)
-			cancelPolicySubscription()
-			if subscriptionErr != nil {
-				logger.Warn("Policy invalidation subscription unavailable; polling remains authoritative", "err", subscriptionErr)
-			} else {
-				defer deletePolicySubscription()
-				policyListener := routerpubsub.NewPolicyReleaseListener(pubsubClient.Subscriber(policySubscriptionName), func() {
-					stableManager.Trigger()
-					if betaManager != nil {
-						betaManager.Trigger()
-					}
-				})
-				policyListenerCtx, cancelPolicyListener := context.WithCancel(context.Background())
-				defer func() {
-					cancelPolicyListener()
-					policyListener.Wait()
-				}()
-				safeGo(logger, "policy-invalidation-listener", func() { policyListener.Run(policyListenerCtx) })
-			}
-		}
-		logger.Info("HMM policy managers wired", "registry_uri", policyRegistry.RootURI(), "environment", policyEnvironment, "candidate_models", len(routingTargets))
+		logger.Info("Local-dev HMM policy release wired", "registry_uri", policyRegistry.RootURI(), "environment", policyEnvironment, "candidate_models", len(routingTargets))
 	} else {
-		logger.Info("HMM policy routers disabled (ROUTER_POLICY_ENVIRONMENT and ROUTER_POLICY_RELEASE_DIR unset); HMM strategies will return 503")
+		logger.Info("HMM policy routers disabled (ROUTER_SERVING_TARGET, ROUTER_POLICY_ENVIRONMENT and ROUTER_POLICY_RELEASE_DIR unset); HMM strategies will return 503")
 	}
 
 	configuredPolicySpecs, err := configuredPolicySidecarsFromEnv(routingTargets, availableProviders, logger)
@@ -1066,7 +991,7 @@ func main() {
 	}
 	servedModels := proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)
 
-	proxySvc := withRLPolicyStrategy(proxy.NewService(nil, providerMap, telemetryEmitter, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
+	proxySvc := proxy.WithStrategyPorts(proxy.NewService(nil, providerMap, telemetryEmitter, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry), hmm.ServingPorts()).
 		WithClock(time.Now).WithTranslationMetrics(otel.NewTranslationMetrics()).
 		WithClaudeSubscriptionPlanReader(anthropicClient).
 		WithExternalKeyUsageRecorder(authSvc).
@@ -1146,9 +1071,9 @@ func main() {
 		WithWebSearchExecutor(cortexWebSearch(logger)).
 		WithAvailableModels(servedModels).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
-		WithBillingService(billingSvc), rlRouter)
+		WithBillingService(billingSvc)
 	inferenceDeployment.RoutableModels = servedModels
-	if err := configureAtomicClassifier(proxySvc, pool, availableProviders, deploymentMode); err != nil {
+	if err := configureAtomicClassifier(proxySvc, pool, availableProviders); err != nil {
 		logger.Error("Failed to configure atomic classifier", "err", err)
 		panic(err)
 	}
@@ -1265,7 +1190,7 @@ func main() {
 	if os.Getenv("PUBSUB_EMULATOR_HOST") == "" {
 		initializedOrigins["https://pubsub.googleapis.com"] = struct{}{}
 	}
-	if managedServingEnabled(deploymentMode) || policyEnvironmentRaw != "" {
+	if servingTargetConfigured() || policyEnvironmentRaw != "" {
 		initializedOrigins["https://storage.googleapis.com"] = struct{}{}
 	}
 	processCtx, stopProcess := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -1561,30 +1486,6 @@ func boolDefault(b bool) string {
 		return "true"
 	}
 	return "false"
-}
-
-func rlSidecarHeadersFromEnv() map[string]string {
-	key := strings.TrimSpace(config.GetOr("ROUTER_RL_SIDECAR_MODAL_KEY", ""))
-	secret := strings.TrimSpace(config.GetOr("ROUTER_RL_SIDECAR_MODAL_SECRET", ""))
-	if key == "" && secret == "" {
-		return nil
-	}
-	if key == "" || secret == "" {
-		observability.Get().Error(
-			"Partial Modal RL sidecar proxy auth config; omitting headers",
-			"has_key", key != "",
-			"has_secret", secret != "",
-			"hint", "set both ROUTER_RL_SIDECAR_MODAL_KEY and ROUTER_RL_SIDECAR_MODAL_SECRET",
-		)
-		return nil
-	}
-	return map[string]string{
-		"X-Weave-Band-Key":    key,
-		"X-Weave-Band-Secret": secret,
-		"Authorization":       "Bearer " + key + ":" + secret,
-		"Modal-Key":           key,
-		"Modal-Secret":        secret,
-	}
 }
 
 func parseEnvDurationMs(key string, fallback time.Duration) time.Duration {

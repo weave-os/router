@@ -621,7 +621,8 @@ kept out of revision-specific stamping.
 
 | Variable | Read by | Source | Absent or invalid |
 | --- | --- | --- | --- |
-| `ROUTER_SERVING_REGISTRY_URI` | Worker | Terraform and deploy script (worker) | Falls back to `WEAVE_REGISTRY_URI`, then `gs://weave_ml/weave_registry`; set it explicitly. |
+| `ROUTER_SERVING_REGISTRY_URI` | Worker | Terraform and deploy script (worker) | Falls back to `WEAVE_REGISTRY_URI`, then `gs://weave_ml/weave_registry`; set it explicitly. A local path instead serves a read-only serving registry directory, which the local compose stack bakes from `smoke/hmmstub`. A local directory's classifier runtime bindings get the same schema, environment, release, revision and digest checks as GCS, but skip the managed project and https Cloud Run origin checks, because the local stub classifier is a plain-http compose container. |
+| `ROUTER_ALLOW_LOCAL_SERVING_REGISTRY` | Worker | Local compose and smoke only | `true` lets `ROUTER_DEPLOYMENT_MODE=managed` serve from a local `ROUTER_SERVING_REGISTRY_URI` directory and logs a startup warning. Unset, a managed worker refuses a non-`gs://` serving registry. Never set it on a deployed worker. |
 | `ROUTER_SERVING_TARGET` | Worker | Deploy script and Terraform | Boot fails. Must name a known target (`staging`, `prod/stable`, `prod/weave-internal`). |
 | `ROUTER_SERVING_PROJECT` | Worker | Deploy script and Terraform | Boot fails. |
 | `ROUTER_SERVING_REGION` | Worker | Deploy script and Terraform | Boot fails. |
@@ -668,7 +669,7 @@ sweep backstops any lost signal.
 
 | Variable                          | Default                      | Purpose |
 | --------------------------------- | ---------------------------- | ------- |
-| `ROUTER_DEFAULT_STRATEGY`         | `hmm_embedding`              | Strategy used when an installation has no persisted strategy (a persisted `cluster` also follows it). Change only after the policy rollout gate passes. Beta lanes and `llm_classifier` are opt-in per installation and fail boot as a default. The router refuses to boot, and `/readyz` fails, when this strategy has no router configured (e.g. `hmm_embedding` without `ROUTER_POLICY_ENVIRONMENT`); the retired value `cluster` also fails boot. Requests whose persisted or default strategy is unregistered or unavailable get `503 routing_strategy_unavailable`. Managed serving workers (`ROUTER_DEPLOYMENT_MODE=managed` with `ROUTER_SERVING_TARGET`) additionally refuse to boot unless it is set to one of the policy strategies they register (`hmm`, `hmm_embedding`). |
+| `ROUTER_DEFAULT_STRATEGY`         | `hmm_embedding`              | Strategy used when an installation has no persisted strategy. Change only after the policy rollout gate passes. Beta lanes and `llm_classifier` are opt-in per installation and fail boot as a default. The router refuses to boot, and `/readyz` fails, when this strategy has no router configured (e.g. `hmm_embedding` without `ROUTER_POLICY_ENVIRONMENT`); the retired value `cluster` also fails boot. Requests whose persisted or default strategy is unregistered or unavailable get `503 routing_strategy_unavailable`. Managed serving workers (`ROUTER_DEPLOYMENT_MODE=managed` with `ROUTER_SERVING_TARGET`) additionally refuse to boot unless it is set to one of the policy strategies they register (`hmm`, `hmm_embedding`). |
 | `ROUTER_STICKY_DECISION_TTL_MS`   | `0` (disabled)               | Reuse a routing decision per API key for this many ms. |
 | `ROUTER_SESSION_PIN_ENABLED`      | `true`                       | Pin a session to its first-routed model so multi-turn conversations stay coherent. When on, the `session_pin_enabled` flag can turn pinning off per organization or request; when off, the pin store is not built and the flag has no effect. |
 | `ROUTER_HARD_PIN_MODEL`           | *(none)*                     | Force every request to a specific model, bypassing the routing policy. Debugging only. Without this explicit override, titles and probes with auto/empty/`weave-*` routing models are scored independently, while provider/quota probes with concrete models preserve their requested target; none anchors an automatic conversation pin. |
@@ -1097,17 +1098,13 @@ Go-owned deterministic selection are documented in
 | `ROUTER_POLICY_SIDECAR_AUTH`       | *(none)* | JSON object mapping configured generic strategy IDs to `none`, `google-id-token`, or `bearer`. Google ID-token mode uses the exact sidecar origin as the token audience and fails startup when application default credentials cannot build the client. |
 | `ROUTER_POLICY_SIDECAR_BEARER_TOKENS` | *(none)* | Secret JSON object mapping each strategy using `bearer` auth to its token. Bearer auth requires HTTPS by default. Set `allow_http_bearer: true` in the endpoint object only for sidecars on a private network, such as the benchmark Docker network. |
 | `ROUTER_POLICY_SIDECAR_TIMEOUT_MS` | `3000`  | Total timeout for each generic policy decision, including transient retries. Also bounds startup capability discovery. |
-| `ROUTER_POLICY_ENVIRONMENT`        | *(none)* | Policy registry environment the HMM strategies load their release from (`WEAVE_REGISTRY_URI`). Ignored under managed serving admission. An invalid release refuses boot. |
+| `ROUTER_POLICY_ENVIRONMENT`        | *(none)* | Local-dev only (`make up-hmm`): policy registry environment whose stable lane head the frozen HMM sidecar's v4 release is read from (`WEAVE_REGISTRY_URI`). Managed boot refuses it. TODO: remove once a public v5 classifier package exists. |
 | `ROUTER_POLICY_RELEASE_DIR`        | *(none)* | Local policy release directory, used instead of the registry for local and benchmark runs; sidecar auth defaults to `none`. With neither variable set, HMM strategies return 503. |
 | `ROUTER_HMM_SIDECAR_URL`           | *(none)* | HMM sidecar origin for a `ROUTER_POLICY_RELEASE_DIR` release. |
 | `ROUTER_HMM_SIDECAR_TIMEOUT_MS`    | `3000`  | Total HMM decision timeout. |
 | `ROUTER_HMM_SIDECAR_ATTEMPT_TIMEOUT_MS` | 60% of the decision timeout | Bounds a single HMM attempt so one stalled sidecar instance cannot spend the whole decision budget before the retries run. Set it equal to `ROUTER_HMM_SIDECAR_TIMEOUT_MS`, or to `0`, to let one attempt use the full budget. |
 | `ROUTER_HMM_SIDECAR_AUTH`          | `none`  | Authentication for the HMM sidecar. Use `google-id-token` for managed Cloud Run; the exact sidecar origin is used as the token audience. |
 | `ROUTER_POLICY_PIN_ENABLED`        | `false` | Registers the `x-weave-policy-pin: <policy_artifact_sha256>@<roster_sha256>` header on `/v1/messages`, `/v1/chat/completions`, `/v1/route` and `/v1/route/preview`. Off (default) the middleware is not registered, so the header has no effect and the telemetry columns `policy_pin_requested` / `policy_pin_honoured` stay NULL. On, the header value is only parsed for installations with `policy_header_overrides_enabled`: for every other installation the value (valid or not) is never inspected, the response is identical to a request without the header, and telemetry records `requested=true, honoured=false`. For an authorized installation a malformed value is HTTP 400 (`policy_pin_malformed`); a well-formed pin is honoured on policy-scored turns, which are scored fresh by the HMM sidecar with exactly that artifact (`HMM_PACKAGE_REGISTRY`) and select the arm from exactly that roster — session-sticky pins, `/force-model`, usage-bypass, blind-experiment passthrough and planner stays are not consulted. Auto/empty/`weave-*` routing-model probes are independently scored without conversation state, including under an authorized policy pin. Non-scored utility exceptions retain their own path: probes with concrete models preserve the requested target unless explicitly overridden, compaction keeps its safeguard, and explicitly deployment-pinned titles keep their override. These exceptions may succeed with `policy_pin_honoured=false`. On policy-scored turns, if the artifact or roster is not loaded, or any path would serve a model the pinned policy did not pick, the turn fails HTTP 503 with typed reason `policy_pin_unavailable` and the telemetry row is written with `policy_pin_honoured=false` — an authorized pin never yields a 2xx with `policy_pin_honoured=false` on these turns, and the router never falls through to the current artifact or roster. |
-| `ROUTER_RL_SIDECAR_URL`            | *(none)* | Legacy built-in RL registration. Prefer the generic map for new strategies. |
-| `ROUTER_RL_SIDECAR_TIMEOUT_MS`     | `3000`  | Total RL decision timeout. |
-| `ROUTER_RL_SIDECAR_MODAL_KEY`      | *(none)* | Optional Modal proxy token id (`Modal-Key`) when the RL sidecar is a Modal ASGI app with `requires_proxy_auth`. |
-| `ROUTER_RL_SIDECAR_MODAL_SECRET`   | *(none)* | Optional Modal proxy token secret (`Modal-Secret`); required when `ROUTER_RL_SIDECAR_MODAL_KEY` is set. |
 
 `GET /capabilities` is queried at router startup. A failed probe does not
 silently remove the strategy: serving stays registered and fails closed if
@@ -1123,9 +1120,9 @@ never falls back to another policy.
 ### Self-hosted frozen HMM sidecar
 
 The repository includes an optional companion container under
-`sidecars/hmm/`. Start it with `make up-hmm`; the normal `make up` and
-`make full-setup` paths serve the stub HMM classifier from `smoke/hmmstub`,
-which lands every turn in one routing group.
+`sidecars/hmm/`. Start it with `make up-hmm` (local dev only); the normal
+`make up` and `make full-setup` paths serve the local-dev-only stub HMM
+classifier from `smoke/hmmstub`, which lands every turn in one routing group.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |

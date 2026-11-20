@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -14,10 +13,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-	"weave-os/router/internal/billing"
+
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
 
 	"github.com/google/uuid"
@@ -26,6 +24,7 @@ import (
 	"github.com/tink-crypto/tink-go/v2/aead"
 	"github.com/tink-crypto/tink-go/v2/insecurecleartextkeyset"
 	"github.com/tink-crypto/tink-go/v2/keyset"
+
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/subscriptions"
@@ -158,7 +157,6 @@ func TestVerificationSQLConcurrentSharedRefreshAndReset(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int32(1), refreshes.Load())
 	verifySQLTierLocalAffinity(t, service, runtimes[0], clock, requesters[0], borrowerB, account.ID)
-	verifyDispatchBilling(t, pool, service, oauth, requesters[0], owner, org, key)
 	_, err = pool.Exec(ctx, `UPDATE router.credential_subject_installations SET access_enabled=false WHERE subject_id=$1 AND installation_id=$2`, owner, org)
 	require.NoError(t, err)
 	revoked, available, err := runtimes[0].Lease(ctx, requesters[0], subscriptions.ProviderCodex, "revoked")
@@ -177,95 +175,6 @@ func (verificationBillingRouter) Route(context.Context, router.Request) (router.
 type verificationIncludedClient struct{ *openai.Client }
 
 func (*verificationIncludedClient) IncludedOnlySubscriptions() bool { return true }
-func verifyDispatchBilling(t *testing.T, pool *pgxpool.Pool, authService *auth.Service, refresher subscriptions.TokenRefresher, requester auth.SubscriptionOwner, owner, org, key uuid.UUID) {
-	t.Helper()
-	ctx := context.Background()
-	for _, subject := range []uuid.UUID{owner, uuid.MustParse(requester.SubscriberID)} {
-		_, err := pool.Exec(ctx, `INSERT INTO router.subscriber_credit_balance(subscriber_id,balance_usd_micros) VALUES($1,3000000)`, subject)
-		require.NoError(t, err)
-	}
-	book := postgres.NewSubscriberCreditRepo(pool)
-	billingService := billing.NewService(postgres.NewBillingRepo(pool)).WithSubscriberPrepaid(book)
-	var paidFallbacks int
-	for _, scenario := range []struct {
-		apiFallback     bool
-		genericThrottle bool
-	}{{}, {apiFallback: true, genericThrottle: true}, {apiFallback: true}} {
-		runtime := subscriptions.NewRuntime(authService, refresher, time.Now)
-		accounts, err := authService.ListSubscriptionCandidates(ctx, requester)
-		require.NoError(t, err)
-		require.Len(t, accounts, 1)
-		var bearers []string
-		var bearersMu sync.Mutex
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if serveIncludedCodexQuota(w, r) {
-				return
-			}
-			bearer := r.Header.Get("Authorization")
-			bearersMu.Lock()
-			bearers = append(bearers, bearer)
-			bearersMu.Unlock()
-			if scenario.apiFallback && bearer == "Bearer synthetic-access-refreshed" {
-				w.WriteHeader(http.StatusTooManyRequests)
-				if scenario.genericThrottle {
-					_, _ = io.WriteString(w, `{"error":{"type":"rate_limit_error","message":"synthetic throttle"}}`)
-				} else {
-					_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"type": "usage_limit_reached", "message": "synthetic quota", "resets_at": time.Now().Add(time.Hour).Unix()}})
-				}
-				return
-			}
-			w.Header().Set("Content-Type", "text/event-stream")
-			_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"billing answer\"}\n\n")
-			_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"synthetic\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":11000,\"output_tokens\":7000}}}\n\n")
-		}))
-		client := &verificationIncludedClient{openai.NewClient("synthetic-api-key", server.URL)}
-		client.SetCodexBaseURL(server.URL)
-		svc := proxy.NewService(verificationBillingRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil).WithManagedSubscriptions(runtime).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).WithBillingService(billingService)
-		actionID, requestID := uuid.NewString(), uuid.NewString()
-		authorization, err := billingService.AuthorizeSubscriberPrepaid(ctx, billing.PrepaidAuthorizationRequest{Owner: billing.SubscriberOwner(requester.SubscriberID), ActionID: actionID, RouterRequestID: requestID, APIKeyID: key.String(), RequestedModel: "auto", UpperBoundUsdMicros: 1000000})
-		require.NoError(t, err)
-		requestCtx := billing.WithPrepaidAuthorization(ctx, authorization)
-		requestCtx = proxy.WithSubscriptionOwner(requestCtx, requester)
-		requestCtx = proxy.WithManagedSubscriptionUsage(requestCtx)
-		requestCtx = context.WithValue(requestCtx, proxy.APIKeyIDContextKey{}, key.String())
-		requestCtx = context.WithValue(requestCtx, proxy.InstallationIDContextKey{}, org.String())
-		requestCtx = context.WithValue(requestCtx, proxy.ExternalIDContextKey{}, org.String())
-		requestCtx = proxy.WithManagedSubscriptionCandidates(requestCtx, accounts)
-		body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"synthetic"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
-		rec := httptest.NewRecorder()
-		dispatchErr := svc.ProxyOpenAIChatCompletion(requestCtx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), "POST", "/v1/chat/completions", strings.NewReader(body)))
-		require.NoError(t, dispatchErr)
-		require.Contains(t, rec.Body.String(), "billing answer")
-		_, err = billingService.FinalizeSubscriberPrepaid(ctx, actionID)
-		require.NoError(t, err)
-		requesterBalance, err := book.Balance(ctx, billing.SubscriberOwner(requester.SubscriberID))
-		require.NoError(t, err)
-		ownerBalance, err := book.Balance(ctx, billing.SubscriberOwner(owner.String()))
-		require.NoError(t, err)
-		require.Equal(t, int64(3000000), ownerBalance, "borrowed owner must never pay for requester API")
-		if scenario.apiFallback {
-			paidFallbacks++
-			bearersMu.Lock()
-			require.Equal(t, []string{"Bearer synthetic-access-refreshed", "Bearer synthetic-api-key"}, bearers)
-			bearersMu.Unlock()
-			require.Less(t, requesterBalance, int64(3000000))
-			var settlements int
-			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM router.subscriber_credit_ledger WHERE subscriber_id=$1`, requester.SubscriberID).Scan(&settlements))
-			require.Equal(t, paidFallbacks, settlements, "each paid fallback settles exactly once")
-		} else {
-			bearersMu.Lock()
-			require.Equal(t, []string{"Bearer synthetic-access-refreshed"}, bearers)
-			bearersMu.Unlock()
-			require.Equal(t, int64(3000000), requesterBalance)
-		}
-		// Production activation preserves unexpired cooldowns; reset this fixture
-		// explicitly so each billing scenario starts with independent capacity.
-		_, err = pool.Exec(ctx, `UPDATE router.model_router_subscription_accounts SET health_state=$2,cooldown_until=NULL WHERE id=$1`, accounts[0].ID, string(auth.SubscriptionAccountStateActive))
-		require.NoError(t, err)
-		server.Close()
-	}
-}
-
 func verifySQLTierLocalAffinity(t *testing.T, service *auth.Service, runtime *subscriptions.Runtime, clock *steppedClock, requester auth.SubscriptionOwner, secondOwner uuid.UUID, firstAccountID string) {
 	t.Helper()
 	ctx := context.Background()

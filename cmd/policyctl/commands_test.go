@@ -80,17 +80,8 @@ func TestRunCompileWritesCanonicalBytes(t *testing.T) {
 	assert.False(t, bytes.HasSuffix(payload, []byte{'\n'}))
 }
 
-func releaseWithClassifier() policyregistry.Release {
-	return policyregistry.Release{Classifier: policyregistry.ClassifierIdentity{
-		ArtifactID:    "hmm_router_sidecar_package_64f27f963b2da6f6",
-		PackageSHA256: "64f27f963b2da6f6394d4677f466c6f89a53fbad857b33581bc8be2ed01ac066",
-		ImageDigest:   "sha256:3de4d22f3b895ade91d7eb2f7377586b050260c93d5e016bcbfde52ef2c5dba2",
-	}}
-}
-
-func TestRunRejectsRetiredLaneHeadCommandsAndRequiresServingTargetForExport(t *testing.T) {
-	for _, retired := range []string{"validate", "publish", "promote", "rollback", "status"} {
+func TestRunRejectsRetiredLaneHeadCommands(t *testing.T) {
+	for _, retired := range []string{"validate", "publish", "promote", "rollback", "status", "export"} {
 		require.ErrorContains(t, run(t.Context(), []string{retired}), "unknown policyctl command", retired)
 	}
-	require.ErrorContains(t, run(t.Context(), []string{"export", "--out", t.TempDir()}), "--serving-target is required")
 }

@@ -15,9 +15,9 @@ import (
 	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/armid"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/escalation"
-	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/hmm/selection"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/rosterdata"
@@ -49,7 +49,7 @@ func TestClassifierPerCallHistoryWithinSingleHumanTurn(t *testing.T) {
 			require.Equal(t, router.ClassifierComplexity((response.ResponseIndex/2)%4), response.Complexity)
 		}
 		// A replacement replica must deduplicate this call, not the human turn.
-		replica := &Service{clock: svc.clock}
+		replica := &Service{hmmServing: hmmPorts(), clock: svc.clock}
 		require.NoError(t, replica.WithClassifierSessions(svc.classifierSessions.config, store, svc.classifierSessions.classifier))
 		retried, err := replica.classifyThread(ctx, input)
 		require.NoError(t, err)
@@ -102,7 +102,7 @@ func TestClassifierResponsesToolLoopSwitchesDispatchedModel(t *testing.T) {
 	const largeModel catalog.ModelID = "gpt-5.6-sol"
 	upstream := &classifierResponseProvider{}
 	baseline := &betaTestRouter{}
-	svc := NewService(baseline, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, nil, false, providers.ProviderOpenAI, smallModel.String(), nil)
+	svc := withHMMPorts(NewService(baseline, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, nil, false, providers.ProviderOpenAI, smallModel.String(), nil))
 	require.NoError(t, svc.WithClassifierSessions(config, store, classifier))
 	roster := &rosterdata.Roster{SchemaVersion: rosterdata.SchemaVersionPolicyV1, SHA256: config.SelectionPolicySHA256,
 		ClassOrder: []string{string(escalation.Low), string(escalation.Medium), string(escalation.High), string(escalation.Maximum)}, Clusters: map[string]rosterdata.Cluster{}}

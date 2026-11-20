@@ -64,8 +64,11 @@ written: such a row would be shared by every zero-keyed session.
   sub-agents and the Explore sub-agent's flat window would otherwise look like
   drops, and a false fire hands an in-flight sub-agent a lossy summary.
 - No-progress recovery never clears an explicit `/force-model` pin.
-- Sessions pinned by the retired cyclic-loop escalation keep their
-  `loop_escalation` pin until it expires; nothing writes new ones.
+- The retired escalation tables (`loop_escalation_events`,
+  `spiral_shadow_events`, `struggle_shadow_events`,
+  `struggle_escalation_events`) are archived: kept for posterity, written by
+  nothing, and queried by no SQLC query
+  (`TestArchivedEscalationTablesHaveNoQueries`).
 
 ## Cross-tokenizer usage reporting
 
@@ -96,3 +99,10 @@ storage is wired, and never for headless user agents. It never embeds a link.
 Codex gets its own wording. The footer text must stay matched by the ingress
 pattern that strips echoed footers from the next request's history;
 `TestFeedbackFooter_TextIsRecognisedOnIngress` pins that pairing.
+
+## Archived escalation tables
+
+`loop_escalation_events`, `spiral_shadow_events`, `struggle_shadow_events` and
+`struggle_escalation_events` belong to the retired loop, struggle and spiral
+escalation. They are archived, kept only for posterity; the router never
+writes to them and queries none of them.

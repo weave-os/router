@@ -18,7 +18,7 @@ import (
 )
 
 func TestRoutingModelDoesNotReadLegacyBetaPreference(t *testing.T) {
-	svc := (&Service{}).WithSessionStrategyStore(&betaTestPreferenceStore{getErr: errors.New("legacy preference must not be read")})
+	svc := (&Service{hmmServing: hmmPorts()}).WithSessionStrategyStore(&betaTestPreferenceStore{getErr: errors.New("legacy preference must not be read")})
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
 	key := [sessionpin.SessionKeyLen]byte{1}
 	installation := uuid.New()
@@ -35,7 +35,7 @@ func TestRoutingModelRedirectsLegacyBetaCommandsWithoutChangingPreferences(t *te
 		for _, commandText := range []string{"/beta", "/beta-llm"} {
 			t.Run(string(model)+commandText, func(t *testing.T) {
 				store := &betaTestPreferenceStore{}
-				svc := (&Service{}).WithSessionStrategyStore(store)
+				svc := (&Service{hmmServing: hmmPorts()}).WithSessionStrategyStore(store)
 				ctx := router.WithStrategySelection(context.Background(), router.StrategySelection{RoutingModel: model})
 				envelope := betaTestEnvelope(t, commandText, true)
 				command, found := envelope.ExtractBetaCommand()
@@ -86,7 +86,7 @@ func TestRoutingModelDispatchesConcreteModelAcrossClientProtocols(t *testing.T) 
 				defaultRouter := &betaTestRouter{}
 				hmmRouter := &betaTestRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: completionModel}}
 				provider := &routingModelCaptureProvider{}
-				svc := NewService(defaultRouter, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, nil, false, providers.ProviderAnthropic, completionModel, nil).
+				svc := withHMMPorts(NewService(defaultRouter, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, nil, false, providers.ProviderAnthropic, completionModel, nil)).
 					WithPolicyStrategy(policy.StrategySpec{Strategy: choice.strategy, Router: hmmRouter})
 				ctx := router.WithStrategySelection(context.Background(), router.StrategySelection{Strategy: choice.strategy, RoutingModel: choice.model})
 				request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, tc.path, nil)

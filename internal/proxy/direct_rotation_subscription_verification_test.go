@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/router"
@@ -32,7 +33,7 @@ func TestVerificationNativeCodexSubscriptionPreferredToPaidAPI(t *testing.T) {
 	defer upstream.Close()
 	client := openai.NewClient("synthetic-api-key", upstream.URL)
 	client.SetCodexBaseURL(upstream.URL)
-	svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
+	svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 	body := []byte(`{"model":"auto","stream":true,"messages":[{"role":"user","content":"inspect synthetic billing"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`)
 	recorder := httptest.NewRecorder()
 	err := svc.ProxyOpenAIChatCompletion(codexSubscriptionTestCtx(), body, recorder, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body))))

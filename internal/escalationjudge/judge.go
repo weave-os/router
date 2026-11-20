@@ -21,20 +21,20 @@ import (
 	"weave-os/router/internal/router/policy"
 )
 
-const escalationJudgeBaseURL = "https://api.fireworks.ai/inference/v1"
 const escalationJudgeResponseLimit = 128 * 1024
 
 type Judge struct {
 	plans    *policy.PlanResolver
 	executor *dispatch.Executor
 	apiKey   string
+	baseURL  string
 }
 
-func New(plans *policy.PlanResolver, executor *dispatch.Executor, apiKey string) (*Judge, error) {
-	if plans == nil || executor == nil || strings.TrimSpace(apiKey) == "" {
-		return nil, errors.New("escalation judge requires policy resolver, executor, and platform key")
+func New(plans *policy.PlanResolver, executor *dispatch.Executor, apiKey, baseURL string) (*Judge, error) {
+	if plans == nil || executor == nil || strings.TrimSpace(apiKey) == "" || strings.TrimSpace(baseURL) == "" {
+		return nil, errors.New("escalation judge requires policy resolver, executor, platform key, and base URL")
 	}
-	return &Judge{plans: plans, executor: executor, apiKey: apiKey}, nil
+	return &Judge{plans: plans, executor: executor, apiKey: apiKey, baseURL: baseURL}, nil
 }
 
 func (j *Judge) Judge(ctx context.Context, request llmescalation.JudgeRequest) (llmescalation.Judgment, error) {
@@ -53,7 +53,7 @@ func (j *Judge) Judge(ctx context.Context, request llmescalation.JudgeRequest) (
 	if err := ctx.Err(); err != nil {
 		return llmescalation.Judgment{}, err
 	}
-	callCtx = requestcontext.WithCredentials(callCtx, &requestcontext.Credentials{APIKey: []byte(j.apiKey), BaseURL: escalationJudgeBaseURL})
+	callCtx = requestcontext.WithCredentials(callCtx, &requestcontext.Credentials{APIKey: []byte(j.apiKey), BaseURL: j.baseURL})
 	judgment := llmescalation.Judgment{CostSource: llmescalation.CostSourceUnknown}
 	transport := dispatch.Buffered{
 		Reason: string(policy.PurposeEscalationJudge),

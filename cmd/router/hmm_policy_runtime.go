@@ -8,7 +8,6 @@ import (
 	"slices"
 	"time"
 
-	"weave-os/router/internal/config"
 	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router"
@@ -157,27 +156,7 @@ func buildHMMPolicyRoutersV5(
 	if err != nil {
 		return nil, err
 	}
-	var client *policyclient.Client
-	integrationURL := config.GetOr("ROUTER_HMM_INTEGRATION_URL", "")
-	if integrationURL == "" {
-		client = classifierClient
-	} else {
-		integrationOptions := []policyclient.Option{policyclient.WithAttemptTimeout(attemptTimeout)}
-		if taskResolver != nil {
-			integrationOptions = append(integrationOptions, policyclient.WithTaskDomain(taskResolver))
-		}
-		integrationClient, integrationErr := buildHMMPolicyClientWithGoogleIDTokenFactory(
-			integrationURL, authMode, timeout, policyclient.NewGoogleIDToken,
-			integrationOptions...,
-		)
-		if integrationErr != nil {
-			return nil, integrationErr
-		}
-		client, err = policyclient.NewWithClassifierService(integrationClient, classifierClient)
-		if err != nil {
-			return nil, err
-		}
-	}
+	client := classifierClient
 	release := candidate.ClassifierReleaseV5
 	capabilities, err := client.CapabilitiesForClassifierRelease(
 		ctx, candidate.ClassifierSelectionID, candidate.ClassifierReleaseID,

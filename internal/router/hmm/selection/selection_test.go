@@ -175,7 +175,7 @@ func TestArmOrderOpenCodeHarness(t *testing.T) {
 	assert.True(t, harnessSpecific)
 	assert.Equal(t, []string{"vendor-b/cheap", "vendor-a/cheap"}, order)
 
-	pick, ok := selection.Select(roster, []string{"low"}, policy.HarnessOpenCode, candidateSet("vendor-a/cheap", "vendor-b/cheap"))
+	pick, ok := selectRanked(roster, []string{"low"}, policy.HarnessOpenCode, candidateSet("vendor-a/cheap", "vendor-b/cheap"))
 	require.True(t, ok)
 	assert.Equal(t, selection.Pick{Group: "low", Arm: "vendor-b/cheap", HarnessOrder: true}, pick)
 }
@@ -273,7 +273,7 @@ func TestSelect(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			pick, ok := selection.Select(roster, tc.rankedGroups, tc.harness, tc.candidates)
+			pick, ok := selectRanked(roster, tc.rankedGroups, tc.harness, tc.candidates)
 			require.Equal(t, tc.wantOK, ok)
 			if tc.wantOK {
 				assert.Equal(t, tc.want, pick)
@@ -285,10 +285,10 @@ func TestSelect(t *testing.T) {
 func TestSelectIsDeterministic(t *testing.T) {
 	roster := testRoster()
 	candidates := candidateSet("vendor-a/mid", "vendor-b/mid", "vendor-a/cheap", "vendor-b/cheap")
-	first, ok := selection.Select(roster, []string{"balanced", "low"}, "", candidates)
+	first, ok := selectRanked(roster, []string{"balanced", "low"}, "", candidates)
 	require.True(t, ok)
 	for range 100 {
-		pick, ok := selection.Select(roster, []string{"balanced", "low"}, "", candidates)
+		pick, ok := selectRanked(roster, []string{"balanced", "low"}, "", candidates)
 		require.True(t, ok)
 		require.Equal(t, first, pick)
 	}
@@ -343,10 +343,19 @@ func TestSelectParityFixture(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			pick, ok := selection.Select(roster, tc.rankedGroups, tc.harness, candidateSet(tc.candidates...))
+			pick, ok := selectRanked(roster, tc.rankedGroups, tc.harness, candidateSet(tc.candidates...))
 			require.True(t, ok)
 			assert.Equal(t, tc.wantGroup, pick.Group)
 			assert.Equal(t, tc.wantArm, pick.Arm)
 		})
 	}
+}
+
+func selectRanked(roster *rosterdata.Roster, rankedGroups []string, harness string, candidates map[string]struct{}) (selection.Pick, bool) {
+	groups := make([]selection.Group, 0, len(rankedGroups))
+	for _, label := range rankedGroups {
+		groups = append(groups, selection.Group{Label: label})
+	}
+	pick, _, ok := selection.SelectGroupsWithPreference(roster, groups, harness, candidates, nil)
+	return pick, ok
 }

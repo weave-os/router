@@ -49,8 +49,8 @@ var atomizationRatchetFixes = map[string]string{
 }
 
 var (
-	strategyPackageRoots    = []string{hmmPackagePath, routerPackagePath + "/rl", routerPackagePath + "/decisionmodel", policyPackagePath}
-	strategyInternalRoots   = []string{hmmPackagePath, routerPackagePath + "/rl", routerPackagePath + "/decisionmodel"}
+	strategyPackageRoots    = []string{hmmPackagePath, routerPackagePath + "/decisionmodel", policyPackagePath}
+	strategyInternalRoots   = []string{hmmPackagePath, routerPackagePath + "/decisionmodel"}
 	servingAdapterRoots     = []string{"auth", "billing", "subscriptions", "credentials", "dispatch", "postgres"}
 	routerLayerRoots        = []string{routerPackagePath, modulePath + "/internal/routingpolicy", modulePath + "/internal/architecture"}
 	hmmOnlyPinFields        = []string{"PolicyGroup", "ConsecutiveDowngradeVotes", "ConsecutiveUpgradeVotes"}
@@ -99,7 +99,7 @@ func TestAtomizationRatchetsDetectSyntheticViolations(t *testing.T) {
 			ratchetStrategyAdapterImports: {"internal/architecture/testdata/atomization/strategy_adapter -> internal/billing": 1},
 		}},
 		{fixture: "serving_strategy", want: atomizationCounts{
-			ratchetServingStrategyImports: {"internal/architecture/testdata/atomization/serving_strategy -> internal/router/rl": 1},
+			ratchetServingStrategyImports: {"internal/architecture/testdata/atomization/serving_strategy -> internal/router/decisionmodel": 1},
 		}},
 		{fixture: "proxy_escalation", want: atomizationCounts{
 			ratchetProxyEscalation: {"internal/architecture/testdata/atomization/proxy_escalation": 3},

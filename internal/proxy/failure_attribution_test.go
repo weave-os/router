@@ -27,7 +27,7 @@ func attributionService(t *testing.T, sink *recordingAttemptSink, clients map[st
 	t.Helper()
 	executor, err := dispatch.NewExecutor(dispatch.NewClients(clients), dispatch.WithAttemptSink(sink))
 	require.NoError(t, err)
-	return (&Service{}).WithInferenceExecutor(executor)
+	return (&Service{hmmServing: hmmPorts()}).WithInferenceExecutor(executor)
 }
 
 func TestDispatchPlanned_TranslatedRejectionIsRouterOwned(t *testing.T) {

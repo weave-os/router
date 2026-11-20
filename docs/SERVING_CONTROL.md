@@ -3,9 +3,9 @@
 The `policyctl serving` group is the low-level interface for a trusted deployment
 workflow. It does not build images, deploy Cloud Run services, change revision tags,
 grant IAM access, or turn on managed serving. Those preparation steps belong
-to the environment's orchestrator. The only other `policyctl` commands are the
-offline `compile` and `check-rosters` roster checks and `export`, which snapshots a
-managed target for a local release directory.
+to the environment's orchestrator. The remaining top-level policy commands
+(`compile`, `check-rosters`) only build and check policy artifacts; the lane-head
+`validate`, `publish`, `promote`, `rollback`, `status` and `export` commands are removed.
 
 The trust model is a single operator team publishing through one workflow identity.
 The registry therefore keeps the guarantees that prevent state corruption (immutable
@@ -62,17 +62,16 @@ destination validation calls the HTTPS origins the selection set's lanes declare
   proposal: run `status --proposal` (or re-run `apply` with the same proposal) to
   reconcile the outcome without creating another activation.
 
-### Roster and export commands
+### Roster commands
 
 - `policyctl check-rosters` prints a JSON report with `compiled`, `skipped` and
   `failed` rosters. A roster in a source schema the compiler does not accept is a
   historical artifact and is skipped, not failed. A reviewed v7 roster the compiler
   rejects fails: that drift would strand production without a publishable policy.
-  Every compiled roster must also pass catalog validation, because a policy that
-  fails it can never become a release.
-- `policyctl export --serving-target <target>` snapshots the target's current
-  default lane into the directory layout read from `ROUTER_POLICY_RELEASE_DIR`, so a
-  router outside managed serving can run that exact release.
+  Every compiled roster must also pass the catalog validation `publish` applies,
+  because a policy that fails it can never become a release.
+- The lane-head verbs `validate`, `publish`, `promote`, `rollback`, `status` and
+  `export` are removed; `policyctl serving` publishes and inspects v5 serving releases.
 - The retired serving verbs `validate`, `resolve`, `prepare` and `activate` exit
   non-zero and name the `publish`/`apply` invocation that replaced them.
 - `serving publish` digests the manifest bytes exactly as they would be stored;

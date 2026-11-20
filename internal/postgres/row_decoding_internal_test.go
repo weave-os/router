@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/billing"
 	"weave-os/router/internal/router/sessionpin"
 )
 
@@ -66,16 +65,6 @@ func TestParseOptionalUUIDRejectsMalformedID(t *testing.T) {
 	parsed, ok := parseOptionalUUID(id.String())
 	assert.True(t, ok)
 	assert.Equal(t, id, parsed)
-}
-
-func TestSubscriberOwnerIDRejectsOrganizationOwner(t *testing.T) {
-	orgID := uuid.NewString()
-	_, err := subscriberOwnerID(billing.Owner{Kind: billing.OwnerKindOrganization, OrganizationID: orgID})
-	require.ErrorIs(t, err, billing.ErrOwnerKindUnsupported)
-	subscriberID := uuid.New()
-	got, err := subscriberOwnerID(billing.Owner{Kind: billing.OwnerKindSubscriber, SubscriberID: subscriberID.String()})
-	require.NoError(t, err)
-	assert.Equal(t, subscriberID, got)
 }
 
 func TestSubscriptionOwnerPredicateFailsClosedWithoutOwner(t *testing.T) {

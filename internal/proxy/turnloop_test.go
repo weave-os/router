@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/handover"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -136,7 +137,7 @@ func forwardedMessageCount(t *testing.T, p *fakeProvider) int {
 // so a test can inspect the body forwarded after handover.
 func newPinSvcCapturing(fr *fakeRouter, store *fakePinStore) (*proxy.Service, *fakeProvider) {
 	p := &fakeProvider{}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 		map[string]providers.Client{providers.ProviderAnthropic: p},
 		nil,
@@ -144,8 +145,8 @@ func newPinSvcCapturing(fr *fakeRouter, store *fakePinStore) (*proxy.Service, *f
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
+
 	return svc, p
 }
 
@@ -561,7 +562,7 @@ func TestTurnLoop_ToolResultPinOnExcludedProviderFallsThroughToScorer(t *testing
 		Model:    "claude-haiku-4-5",
 		Reason:   "cluster:v0.2",
 	}}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 		map[string]providers.Client{
 			providers.ProviderAnthropic: &fakeProvider{},
@@ -572,8 +573,7 @@ func TestTurnLoop_ToolResultPinOnExcludedProviderFallsThroughToScorer(t *testing
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
 
 	ctx := context.WithValue(authedCtx(uuid.New().String()),
 		proxy.InstallationExcludedProvidersContextKey{}, []string{providers.ProviderOpenAI})
@@ -833,15 +833,14 @@ func TestTurnLoop_UsageWritebackPersistsCacheStats(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "fresh"}}
 	provider := &usageProvider{in: 1200, out: 80, cacheIn: 900, cacheOut: 200}
 	// Pin storage and telemetry both require upstream usage capture.
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 		map[string]providers.Client{providers.ProviderAnthropic: provider},
 		nil,
 		store,
 		false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
-		recordingTelemetry{},
-	)
+		recordingTelemetry{}), hmm.ServingPorts())
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()

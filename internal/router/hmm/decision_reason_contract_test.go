@@ -38,7 +38,7 @@ func TestDecisionReasonTextIsTheContractWeaveParses(t *testing.T) {
 				})
 			}))
 			defer server.Close()
-			routed := New(policyclient.New(server.URL, server.Client(), 0), map[string]struct{}{providers.ProviderFireworks: {}})
+			routed := NewForStrategy(router.StrategyHMM, policyclient.New(server.URL, server.Client(), 0), map[string]struct{}{providers.ProviderFireworks: {}})
 			routed.WithArmSelector(func(context.Context, policy.SelectionInput) (policy.SelectionPick, error) {
 				return policy.SelectionPick{Group: tt.group, Arm: "moonshotai/kimi-k2.7-code", Trace: policy.SelectionTrace{SelectedArm: "moonshotai/kimi-k2.7-code", SelectedGroup: tt.group}}, nil
 			})

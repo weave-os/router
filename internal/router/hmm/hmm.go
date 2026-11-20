@@ -23,10 +23,6 @@ type Router struct {
 	resolver *policy.Resolver
 }
 
-func New(decider Decider, availableProviders map[string]struct{}) *Router {
-	return NewForStrategy(router.StrategyHMM, decider, availableProviders)
-}
-
 func NewForStrategy(strategy router.Strategy, decider Decider, availableProviders map[string]struct{}) *Router {
 	return newWithRoutingTargets(
 		strategy,

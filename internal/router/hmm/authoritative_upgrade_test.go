@@ -24,39 +24,39 @@ func TestEvaluateAuthoritativeUpgrade(t *testing.T) {
 		change func(*hmm.UpgradeEvidence)
 		want   hmm.UpgradeVerdict
 	}{
-		{"warm same group weak margin", func(e *hmm.UpgradeEvidence) {}, hmm.UpgradeVerdict{hmm.UpgradeHold, hmm.UpgradeWarmPinHold}},
-		{"same group qualified", func(e *hmm.UpgradeEvidence) { e.MarginQualified = &qualified }, hmm.UpgradeVerdict{hmm.UpgradeAllow, hmm.UpgradeMarginQualified}},
-		{"higher group qualified", func(e *hmm.UpgradeEvidence) { e.FreshGroup = escalation.Maximum; e.MarginQualified = &qualified }, hmm.UpgradeVerdict{hmm.UpgradeAllow, hmm.UpgradeGroupEscalation}},
-		{"higher group weak", func(e *hmm.UpgradeEvidence) { e.FreshGroup = escalation.Maximum }, hmm.UpgradeVerdict{hmm.UpgradeHold, hmm.UpgradeInsufficientMargin}},
-		{"cold pin", func(e *hmm.UpgradeEvidence) { e.CacheCold = true }, hmm.UpgradeVerdict{hmm.UpgradeAllow, hmm.UpgradeColdPin}},
-		{"prefix broken", func(e *hmm.UpgradeEvidence) { e.PrefixBroken = true; e.CacheCold = true }, hmm.UpgradeVerdict{hmm.UpgradeAllow, hmm.UpgradePrefixBroken}},
-		{"calibrated stale pin", func(e *hmm.UpgradeEvidence) { e.StalePin = true }, hmm.UpgradeVerdict{hmm.UpgradeAllow, hmm.UpgradeStalePin}},
-		{"explicit high floor", func(e *hmm.UpgradeEvidence) { e.RequestedGroup = escalation.High; e.PinGroup = escalation.Medium }, hmm.UpgradeVerdict{hmm.UpgradeAllow, hmm.UpgradeExplicitQualityFloor}},
-		{"explicit maximum floor", func(e *hmm.UpgradeEvidence) { e.RequestedGroup = escalation.Maximum; e.FreshGroup = escalation.Maximum }, hmm.UpgradeVerdict{hmm.UpgradeAllow, hmm.UpgradeExplicitQualityFloor}},
-		{"fresh does not meet requested floor", func(e *hmm.UpgradeEvidence) { e.RequestedGroup = escalation.Maximum }, hmm.UpgradeVerdict{hmm.UpgradeHold, hmm.UpgradeWarmPinHold}},
-		{"unknown requested group is not maximum", func(e *hmm.UpgradeEvidence) { e.RequestedGroup = escalation.Group("future") }, hmm.UpgradeVerdict{hmm.UpgradeHold, hmm.UpgradeWarmPinHold}},
-		{"missing fresh group", func(e *hmm.UpgradeEvidence) { e.FreshGroup = "" }, hmm.UpgradeVerdict{hmm.UpgradeExistingPolicy, hmm.UpgradeMissingGroup}},
-		{"unknown pin group even when cold", func(e *hmm.UpgradeEvidence) { e.PinGroup = escalation.Group("future"); e.CacheCold = true }, hmm.UpgradeVerdict{hmm.UpgradeExistingPolicy, hmm.UpgradeMissingGroup}},
-		{"missing margin", func(e *hmm.UpgradeEvidence) { e.Margin = nil }, hmm.UpgradeVerdict{hmm.UpgradeExistingPolicy, hmm.UpgradeMissingMargin}},
-		{"invalid margin", func(e *hmm.UpgradeEvidence) { e.Margin = &invalid }, hmm.UpgradeVerdict{hmm.UpgradeExistingPolicy, hmm.UpgradeInvalidMargin}},
-		{"zero margin is evidence", func(e *hmm.UpgradeEvidence) { e.Margin = &zero }, hmm.UpgradeVerdict{hmm.UpgradeHold, hmm.UpgradeWarmPinHold}},
-		{"uncalibrated margin", func(e *hmm.UpgradeEvidence) { e.MarginQualified = nil }, hmm.UpgradeVerdict{hmm.UpgradeExistingPolicy, hmm.UpgradeUncalibratedMargin}},
-		{"repeated compatible votes", func(e *hmm.UpgradeEvidence) { e.VoteCount = &votes; e.RequiredVotes = 3 }, hmm.UpgradeVerdict{hmm.UpgradeAllow, hmm.UpgradeRepeatedVote}},
-		{"votes below threshold", func(e *hmm.UpgradeEvidence) { e.VoteCount = &votes; e.RequiredVotes = 4 }, hmm.UpgradeVerdict{hmm.UpgradeHold, hmm.UpgradeWarmPinHold}},
-		{"votes unavailable", func(e *hmm.UpgradeEvidence) { e.RequiredVotes = 3 }, hmm.UpgradeVerdict{hmm.UpgradeHold, hmm.UpgradeWarmPinHold}},
-		{"votes cannot rescue missing evidence", func(e *hmm.UpgradeEvidence) { e.VoteCount = &votes; e.RequiredVotes = 3; e.Margin = nil }, hmm.UpgradeVerdict{hmm.UpgradeExistingPolicy, hmm.UpgradeMissingMargin}},
+		{"warm same group weak margin", func(e *hmm.UpgradeEvidence) {}, hmm.UpgradeVerdict{Outcome: hmm.UpgradeHold, Reason: hmm.UpgradeWarmPinHold}},
+		{"same group qualified", func(e *hmm.UpgradeEvidence) { e.MarginQualified = &qualified }, hmm.UpgradeVerdict{Outcome: hmm.UpgradeAllow, Reason: hmm.UpgradeMarginQualified}},
+		{"higher group qualified", func(e *hmm.UpgradeEvidence) { e.FreshGroup = escalation.Maximum; e.MarginQualified = &qualified }, hmm.UpgradeVerdict{Outcome: hmm.UpgradeAllow, Reason: hmm.UpgradeGroupEscalation}},
+		{"higher group weak", func(e *hmm.UpgradeEvidence) { e.FreshGroup = escalation.Maximum }, hmm.UpgradeVerdict{Outcome: hmm.UpgradeHold, Reason: hmm.UpgradeInsufficientMargin}},
+		{"cold pin", func(e *hmm.UpgradeEvidence) { e.CacheCold = true }, hmm.UpgradeVerdict{Outcome: hmm.UpgradeAllow, Reason: hmm.UpgradeColdPin}},
+		{"prefix broken", func(e *hmm.UpgradeEvidence) { e.PrefixBroken = true; e.CacheCold = true }, hmm.UpgradeVerdict{Outcome: hmm.UpgradeAllow, Reason: hmm.UpgradePrefixBroken}},
+		{"calibrated stale pin", func(e *hmm.UpgradeEvidence) { e.StalePin = true }, hmm.UpgradeVerdict{Outcome: hmm.UpgradeAllow, Reason: hmm.UpgradeStalePin}},
+		{"explicit high floor", func(e *hmm.UpgradeEvidence) { e.RequestedGroup = escalation.High; e.PinGroup = escalation.Medium }, hmm.UpgradeVerdict{Outcome: hmm.UpgradeAllow, Reason: hmm.UpgradeExplicitQualityFloor}},
+		{"explicit maximum floor", func(e *hmm.UpgradeEvidence) { e.RequestedGroup = escalation.Maximum; e.FreshGroup = escalation.Maximum }, hmm.UpgradeVerdict{Outcome: hmm.UpgradeAllow, Reason: hmm.UpgradeExplicitQualityFloor}},
+		{"fresh does not meet requested floor", func(e *hmm.UpgradeEvidence) { e.RequestedGroup = escalation.Maximum }, hmm.UpgradeVerdict{Outcome: hmm.UpgradeHold, Reason: hmm.UpgradeWarmPinHold}},
+		{"unknown requested group is not maximum", func(e *hmm.UpgradeEvidence) { e.RequestedGroup = escalation.Group("future") }, hmm.UpgradeVerdict{Outcome: hmm.UpgradeHold, Reason: hmm.UpgradeWarmPinHold}},
+		{"missing fresh group", func(e *hmm.UpgradeEvidence) { e.FreshGroup = "" }, hmm.UpgradeVerdict{Outcome: hmm.UpgradeExistingPolicy, Reason: hmm.UpgradeMissingGroup}},
+		{"unknown pin group even when cold", func(e *hmm.UpgradeEvidence) { e.PinGroup = escalation.Group("future"); e.CacheCold = true }, hmm.UpgradeVerdict{Outcome: hmm.UpgradeExistingPolicy, Reason: hmm.UpgradeMissingGroup}},
+		{"missing margin", func(e *hmm.UpgradeEvidence) { e.Margin = nil }, hmm.UpgradeVerdict{Outcome: hmm.UpgradeExistingPolicy, Reason: hmm.UpgradeMissingMargin}},
+		{"invalid margin", func(e *hmm.UpgradeEvidence) { e.Margin = &invalid }, hmm.UpgradeVerdict{Outcome: hmm.UpgradeExistingPolicy, Reason: hmm.UpgradeInvalidMargin}},
+		{"zero margin is evidence", func(e *hmm.UpgradeEvidence) { e.Margin = &zero }, hmm.UpgradeVerdict{Outcome: hmm.UpgradeHold, Reason: hmm.UpgradeWarmPinHold}},
+		{"uncalibrated margin", func(e *hmm.UpgradeEvidence) { e.MarginQualified = nil }, hmm.UpgradeVerdict{Outcome: hmm.UpgradeExistingPolicy, Reason: hmm.UpgradeUncalibratedMargin}},
+		{"repeated compatible votes", func(e *hmm.UpgradeEvidence) { e.VoteCount = &votes; e.RequiredVotes = 3 }, hmm.UpgradeVerdict{Outcome: hmm.UpgradeAllow, Reason: hmm.UpgradeRepeatedVote}},
+		{"votes below threshold", func(e *hmm.UpgradeEvidence) { e.VoteCount = &votes; e.RequiredVotes = 4 }, hmm.UpgradeVerdict{Outcome: hmm.UpgradeHold, Reason: hmm.UpgradeWarmPinHold}},
+		{"votes unavailable", func(e *hmm.UpgradeEvidence) { e.RequiredVotes = 3 }, hmm.UpgradeVerdict{Outcome: hmm.UpgradeHold, Reason: hmm.UpgradeWarmPinHold}},
+		{"votes cannot rescue missing evidence", func(e *hmm.UpgradeEvidence) { e.VoteCount = &votes; e.RequiredVotes = 3; e.Margin = nil }, hmm.UpgradeVerdict{Outcome: hmm.UpgradeExistingPolicy, Reason: hmm.UpgradeMissingMargin}},
 		{"demotion precedes cold floor votes", func(e *hmm.UpgradeEvidence) {
 			e.Demoted = true
 			e.CacheCold = true
 			e.RequestedGroup = escalation.Maximum
 			e.VoteCount = &votes
 			e.RequiredVotes = 3
-		}, hmm.UpgradeVerdict{hmm.UpgradeExcluded, hmm.UpgradeDemotedModel}},
-		{"unavailable fresh arm", func(e *hmm.UpgradeEvidence) { e.FreshEligible = false }, hmm.UpgradeVerdict{hmm.UpgradeExcluded, hmm.UpgradeIneligibleModel}},
-		{"no pin", func(e *hmm.UpgradeEvidence) { e.HasPin = false }, hmm.UpgradeVerdict{hmm.UpgradeNotApplicable, hmm.UpgradeNoPin}},
-		{"same model", func(e *hmm.UpgradeEvidence) { e.SameModel = true }, hmm.UpgradeVerdict{hmm.UpgradeNotApplicable, hmm.UpgradeSameModel}},
-		{"missing pricing", func(e *hmm.UpgradeEvidence) { e.PricingKnown = false }, hmm.UpgradeVerdict{hmm.UpgradeExistingPolicy, hmm.UpgradeMissingPricing}},
-		{"cheaper proposal", func(e *hmm.UpgradeEvidence) { e.MoreExpensive = false }, hmm.UpgradeVerdict{hmm.UpgradeNotApplicable, hmm.UpgradeNotMoreExpensive}},
+		}, hmm.UpgradeVerdict{Outcome: hmm.UpgradeExcluded, Reason: hmm.UpgradeDemotedModel}},
+		{"unavailable fresh arm", func(e *hmm.UpgradeEvidence) { e.FreshEligible = false }, hmm.UpgradeVerdict{Outcome: hmm.UpgradeExcluded, Reason: hmm.UpgradeIneligibleModel}},
+		{"no pin", func(e *hmm.UpgradeEvidence) { e.HasPin = false }, hmm.UpgradeVerdict{Outcome: hmm.UpgradeNotApplicable, Reason: hmm.UpgradeNoPin}},
+		{"same model", func(e *hmm.UpgradeEvidence) { e.SameModel = true }, hmm.UpgradeVerdict{Outcome: hmm.UpgradeNotApplicable, Reason: hmm.UpgradeSameModel}},
+		{"missing pricing", func(e *hmm.UpgradeEvidence) { e.PricingKnown = false }, hmm.UpgradeVerdict{Outcome: hmm.UpgradeExistingPolicy, Reason: hmm.UpgradeMissingPricing}},
+		{"cheaper proposal", func(e *hmm.UpgradeEvidence) { e.MoreExpensive = false }, hmm.UpgradeVerdict{Outcome: hmm.UpgradeNotApplicable, Reason: hmm.UpgradeNotMoreExpensive}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			evidence := base

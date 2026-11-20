@@ -6,7 +6,6 @@ import (
 
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
 )
@@ -28,7 +27,7 @@ func (s *Service) ResolveScoreToolResultTurns(ctx context.Context) bool {
 }
 
 func (s *Service) ResolveHMMToolResultHold(ctx context.Context, strategy router.Strategy) bool {
-	return hmm.Owns(strategy) && flags.BoolOr(ctx, flags.KeyHMMToolResultHold, false)
+	return s.strategyPorts.Ownership.Owns(strategy) && flags.BoolOr(ctx, flags.KeyHMMToolResultHold, false)
 }
 
 func (s *Service) ResolvePrefixTrimFreeSwitch(ctx context.Context) bool {

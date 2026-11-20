@@ -72,34 +72,10 @@ const (
 type Client struct {
 	taskDomain           taskdomain.Resolver
 	baseURL              string
-	classifierClient     *Client
 	client               *http.Client
 	timeout              time.Duration
 	attemptTimeout       time.Duration
 	expectedPolicySHA256 string
-}
-
-func NewWithClassifierService(integrationClient, classifierClient *Client) (*Client, error) {
-	if integrationClient == nil || classifierClient == nil {
-		return nil, errors.New("policy client requires integration and classifier clients")
-	}
-	combined := *integrationClient
-	if integrationClient != classifierClient {
-		combined.classifierClient = classifierClient
-	} else {
-		combined.classifierClient = nil
-	}
-	return &combined, nil
-}
-
-func (c *Client) v5ClassifierClient() (*Client, error) {
-	if c == nil {
-		return nil, errors.New("policy client is required")
-	}
-	if c.classifierClient != nil {
-		return c.classifierClient, nil
-	}
-	return c, nil
 }
 
 func validClassifierSHA256(value string) bool {
@@ -281,19 +257,18 @@ func (c *Client) Capabilities(ctx context.Context) (policy.Capabilities, error) 
 }
 
 func (c *Client) CapabilitiesForClassifierRelease(ctx context.Context, selectionID, releaseID string) (ClassifierCapabilitiesV5, error) {
-	classifierClient, err := c.v5ClassifierClient()
-	if err != nil {
-		return ClassifierCapabilitiesV5{}, err
+	if c == nil {
+		return ClassifierCapabilitiesV5{}, errors.New("policy client is required")
 	}
 	if !validClassifierSHA256(selectionID) || !validClassifierSHA256(releaseID) {
 		return ClassifierCapabilitiesV5{}, errors.New("classifier capabilities require exact selection and release digests")
 	}
-	endpoint := classifierClient.baseURL + "/v5/capabilities?classifier_selection_id=" + selectionID + "&classifier_release_id=" + releaseID
+	endpoint := c.baseURL + "/v5/capabilities?classifier_selection_id=" + selectionID + "&classifier_release_id=" + releaseID
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return ClassifierCapabilitiesV5{}, fmt.Errorf("build v5 classifier capabilities request: %w", err)
 	}
-	resp, err := classifierClient.client.Do(req)
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return ClassifierCapabilitiesV5{}, fmt.Errorf("call v5 classifier capabilities endpoint: %w", err)
 	}
@@ -315,14 +290,6 @@ func (c *Client) CapabilitiesForClassifierRelease(ctx context.Context, selection
 		!validClassifierSHA256(capabilities.TaxonomySHA256) || taxonomyDigest(capabilities.ClassOrder) != capabilities.TaxonomySHA256 ||
 		!slices.Contains(capabilities.ClassifierVariants, policy.ClassifierVariantPrimary) {
 		return ClassifierCapabilitiesV5{}, errors.New("v5 classifier capabilities do not match the selected release")
-	}
-	if classifierClient != c {
-		integrationCapabilities, err := c.Capabilities(ctx)
-		if err != nil {
-			return ClassifierCapabilitiesV5{}, fmt.Errorf("read integration sidecar capabilities: %w", err)
-		}
-		capabilities.ReportsOutcomes = integrationCapabilities.ReportsOutcomes
-		capabilities.ReportsFeedback = integrationCapabilities.ReportsFeedback
 	}
 	return capabilities, nil
 }
@@ -638,13 +605,9 @@ func (c *Client) classifyV5(ctx context.Context, path string, query policy.Query
 	if err != nil {
 		return classifierResponseV5{}, err
 	}
-	classifierClient, err := c.v5ClassifierClient()
-	if err != nil {
-		return classifierResponseV5{}, err
-	}
 	requestCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
-	status, payload, err := classifierClient.doPolicyRequest(requestCtx, path, requestBody)
+	status, payload, err := c.doPolicyRequest(requestCtx, path, requestBody)
 	if err != nil {
 		return classifierResponseV5{}, err
 	}
@@ -851,7 +814,7 @@ func (c *Client) previewV5(ctx context.Context, query policy.Query) (policy.Prev
 
 func supportedSchema(version string) bool {
 	switch version {
-	case policy.SchemaVersionV1, policy.SchemaVersionV2, policy.SchemaVersionV3, policy.SchemaVersionV4:
+	case policy.SchemaVersionV1, policy.SchemaVersionV4:
 		return true
 	default:
 		return false
@@ -867,12 +830,8 @@ func marshalRouteRequest(query policy.Query) ([]byte, error) {
 	models := make([]string, 0, len(query.Candidates))
 	providerMap := make(map[string]string, len(query.Candidates))
 	for _, candidate := range query.Candidates {
-		providerKey := candidate.RosterID
-		if schemaVersion == policy.SchemaVersionV2 {
-			providerKey = candidate.ArmID
-		}
-		models = append(models, providerKey)
-		providerMap[providerKey] = candidate.Provider
+		models = append(models, candidate.RosterID)
+		providerMap[candidate.RosterID] = candidate.Provider
 	}
 	routeLimits := classifierRouteMessageLimits(query)
 	messages := convertRouteMessages(query.ConversationMessages, routeLimits)
@@ -1000,15 +959,6 @@ func routeCandidates(candidates []policy.Candidate, schemaVersion string) []rout
 			EffectiveOutputUSDPer1M:   candidate.EffectiveOutputUSDPer1M,
 			EffectiveEstimatedCostUSD: candidate.EffectiveEstimatedCostUSD,
 			Capabilities:              candidate.Capabilities,
-		}
-		if schemaVersion == policy.SchemaVersionV2 {
-			bindingIndex := candidate.BindingIndex
-			wireCandidate.ArmID = candidate.ArmID
-			wireCandidate.BindingIndex = &bindingIndex
-			wireCandidate.Endpoint = candidate.Endpoint
-			wireCandidate.ModelRevision = candidate.ModelRevision
-			wireCandidate.ReasoningConfigurationSHA256 = candidate.ReasoningConfigurationSHA256
-			wireCandidate.ToolConfigurationSHA256 = candidate.ToolConfigurationSHA256
 		}
 		result = append(result, wireCandidate)
 	}

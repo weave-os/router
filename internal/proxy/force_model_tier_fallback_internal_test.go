@@ -151,8 +151,8 @@ func TestRunTurnLoop_ForcedModelContextOverflow_StaysInTier(t *testing.T) {
 		Reason:      translate.ReasonUserForceModel,
 		PinnedUntil: time.Now().Add(time.Hour),
 	}}
-	svc := NewService(fr, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := withHMMPorts(NewService(fr, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithAvailableModels(fr.available).
 		EditContinuityConfig(func(c *continuity.Config) { c.PlannerEnabled = false })
 
@@ -162,12 +162,13 @@ func TestRunTurnLoop_ForcedModelContextOverflow_StaysInTier(t *testing.T) {
 
 	// The context-window pre-filter would add the forced model to ExcludedModels
 	// on the turn its window is breached; simulate that here.
-	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
+	res, err := svc.runTurnLoop(context.Background(), env, feats, testTurnRequest(context.Background(), "key-1", uuid.New()), "", nil, router.Request{
 		RequestedModel: feats.Model,
 		Candidates: router.Candidates{
 			ExcludedModels: map[string]struct{}{forced: {}},
 		},
 	})
+
 	require.NoError(t, err)
 
 	assert.Equal(t, "claude-opus-5", res.Decision.Model,
@@ -192,7 +193,7 @@ func TestRunTurnLoop_ForcedModelOverridesHardPin(t *testing.T) {
 		PinnedUntil: time.Now().Add(time.Hour),
 	}}
 	fr := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
-	svc := NewService(
+	svc := withHMMPorts(NewService(
 		fr,
 		nil,
 		nil,
@@ -200,8 +201,7 @@ func TestRunTurnLoop_ForcedModelOverridesHardPin(t *testing.T) {
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	)
+		nil))
 
 	env, err := translate.ParseAnthropic([]byte(`{
 		"model":"claude-opus-4-8",
@@ -211,9 +211,10 @@ func TestRunTurnLoop_ForcedModelOverridesHardPin(t *testing.T) {
 	require.NoError(t, err)
 	feats := env.RoutingFeatures()
 
-	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
+	res, err := svc.runTurnLoop(context.Background(), env, feats, testTurnRequest(context.Background(), "key-1", uuid.New()), "", nil, router.Request{
 		RequestedModel: feats.Model,
 	})
+
 	require.NoError(t, err)
 
 	assert.Equal(t, "claude-opus-4-8", res.Decision.Model,
@@ -236,7 +237,7 @@ func TestRunTurnLoop_ForcedModelServesDespiteDisabledProvider(t *testing.T) {
 		DisabledProviders: []string{providers.ProviderAnthropic},
 	}}
 	fr := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
-	svc := NewService(
+	svc := withHMMPorts(NewService(
 		fr,
 		nil,
 		nil,
@@ -244,8 +245,7 @@ func TestRunTurnLoop_ForcedModelServesDespiteDisabledProvider(t *testing.T) {
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	)
+		nil))
 
 	env, err := translate.ParseAnthropic([]byte(`{
 		"model":"claude-opus-4-8",
@@ -254,10 +254,11 @@ func TestRunTurnLoop_ForcedModelServesDespiteDisabledProvider(t *testing.T) {
 	require.NoError(t, err)
 	feats := env.RoutingFeatures()
 
-	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
+	res, err := svc.runTurnLoop(context.Background(), env, feats, testTurnRequest(context.Background(), "key-1", uuid.New()), "", nil, router.Request{
 		RequestedModel:   feats.Model,
 		EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
 	})
+
 	require.NoError(t, err)
 
 	assert.Equal(t, "claude-opus-4-8", res.Decision.Model,
@@ -276,7 +277,7 @@ func TestForceModelHeader_OverridesHardPin(t *testing.T) {
 		PinnedUntil: time.Now().Add(time.Hour),
 	}, found: true}
 	fr := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
-	svc := NewService(
+	svc := withHMMPorts(NewService(
 		fr,
 		nil,
 		nil,
@@ -284,8 +285,7 @@ func TestForceModelHeader_OverridesHardPin(t *testing.T) {
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	)
+		nil))
 
 	env, err := translate.ParseAnthropic([]byte(`{
 		"model":"claude-opus-4-8",
@@ -301,9 +301,10 @@ func TestForceModelHeader_OverridesHardPin(t *testing.T) {
 	require.NoError(t, forceErr)
 
 	feats := env.RoutingFeatures()
-	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", headerReq.Header, router.Request{
+	res, err := svc.runTurnLoop(context.Background(), env, feats, testTurnRequest(context.Background(), "key-1", uuid.New()), "", headerReq.Header, router.Request{
 		RequestedModel: feats.Model,
 	})
+
 	require.NoError(t, err)
 
 	assert.Equal(t, "claude-opus-5-5", res.Decision.Model,
@@ -315,8 +316,8 @@ func TestForceModelHeader_OverridesHardPin(t *testing.T) {
 // Guards the empty-pool escape hatch: with no in-tier candidate, the helper
 // must return ok=false rather than hand the scorer an empty pool.
 func TestRestrictToTier_FallsBackWhenNoInTierCandidate(t *testing.T) {
-	svc := NewService(nil, nil, nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := withHMMPorts(NewService(nil, nil, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithAvailableModels(map[string]struct{}{"claude-haiku-4-5": {}})
 
 	excluded := map[string]struct{}{"deepseek/deepseek-v4-pro": {}}
@@ -328,8 +329,8 @@ func TestRestrictToTier_FallsBackWhenNoInTierCandidate(t *testing.T) {
 // Every available model outside the target tier gets excluded; in-tier
 // models stay eligible.
 func TestRestrictToTier_ExcludesOtherTiers(t *testing.T) {
-	svc := NewService(nil, nil, nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := withHMMPorts(NewService(nil, nil, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithAvailableModels(map[string]struct{}{
 			"claude-opus-5":     {}, // high
 			"claude-haiku-4-5":  {}, // low

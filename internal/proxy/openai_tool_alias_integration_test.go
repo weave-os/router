@@ -9,9 +9,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
+
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 )
 
 func TestProxyMessages_OpenAIToolAliasRoundTrip(t *testing.T) {
@@ -35,7 +37,7 @@ func TestProxyMessages_OpenAIToolAliasRoundTrip(t *testing.T) {
 			"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"r\",\"status\":\"completed\",\"model\":\"gpt-5.5\",\"output\":[%[1]s],\"usage\":{\"input_tokens\":10,\"output_tokens\":5}}}\n\n", item)
 	}}
 	decision := router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.5"}
-	svc := proxy.NewService(&fakeRouter{decision: decision}, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.5", nil)
+	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: decision}, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.5", nil), hmm.ServingPorts())
 	body := []byte(fmt.Sprintf(`{"model":"claude-sonnet-5-5","max_tokens":1024,"tools":[{"name":%q,"input_schema":{"type":"object"}}],"messages":[{"role":"user","content":"list issue types"}]}`, name))
 	sink := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyMessages(context.Background(), body, sink, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)))

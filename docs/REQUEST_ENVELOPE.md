@@ -93,7 +93,7 @@ The routing marker and the feedback footer are injected as assistant text on egr
 
 ## In-band commands
 
-`ExtractForceModelCommand` reads `/force-model <model>` (aliases `/model`, `/fm`), `/force-parent <model>` and `/unforce-model` (`/ufm`), plus `$` forms for clients whose skill namespace is `$` (Codex). Pins it creates carry `ReasonUserForceModel`, an immutable sticky that bypasses routing until cleared; `ReasonLoopEscalation` is the same kind of pin for tool-call loop escalation.
+`ExtractForceModelCommand` reads `/force-model <model>` (aliases `/model`, `/fm`), `/force-parent <model>` and `/unforce-model` (`/ufm`), plus `$` forms for clients whose skill namespace is `$` (Codex). Pins it creates carry `ReasonUserForceModel`, an immutable sticky that bypasses routing until cleared.
 
 - Only the trailing user or tool-result turn counts; a later conversation turn cancels it, but interleaved `role: "system"` notices do not. Codex's separate `<skill>…</skill>` user message right after the typed directive is an attachment, not a newer turn, but only when it follows a user message and holds nothing else.
 - Only the first non-empty line is read, after skipping leading attribute-free `<tag>…</tag>` blocks that clients inject (kept in the stripped output). Pasted content starting with `/` therefore cannot change routing.

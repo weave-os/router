@@ -5,8 +5,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/switchpolicy"
 )
 
@@ -19,7 +21,7 @@ func TestAgreementShadowStrategyLabelsPreserveVotes(t *testing.T) {
 			ctx := agreementContext(policyregistry.TargetInternal, true)
 			telemetry, turn := agreementFixture()
 			turn.Fresh.Metadata.Strategy = string(strategies[0])
-			applyAgreementShadowTelemetry(ctx, &telemetry, turn)
+			applyAgreementShadowTelemetry(hmm.ServingPorts(), ctx, &telemetry, turn)
 			require.NotNil(t, telemetry.agreementShadow)
 			snapshot, first, err := switchpolicy.EvaluateShadow(switchpolicy.ShadowSnapshot{}, false, telemetry.agreementShadow.Observation)
 			require.NoError(t, err)
@@ -29,7 +31,7 @@ func TestAgreementShadowStrategyLabelsPreserveVotes(t *testing.T) {
 			telemetry.RequestID = "second-synthetic-request"
 			telemetry.Timestamp = telemetry.Timestamp.Add(time.Second)
 			turn.Fresh.Metadata.Strategy = string(strategies[1])
-			applyAgreementShadowTelemetry(ctx, &telemetry, turn)
+			applyAgreementShadowTelemetry(hmm.ServingPorts(), ctx, &telemetry, turn)
 			_, second, err := switchpolicy.EvaluateShadow(snapshot, true, telemetry.agreementShadow.Observation)
 			require.NoError(t, err)
 			require.Equal(t, switchpolicy.ShadowGapNone, second.Gap)
@@ -56,7 +58,7 @@ func TestAgreementShadowPolicyChangesStillResetVotes(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := agreementContext(policyregistry.TargetInternal, true)
 			telemetry, turn := agreementFixture()
-			applyAgreementShadowTelemetry(ctx, &telemetry, turn)
+			applyAgreementShadowTelemetry(hmm.ServingPorts(), ctx, &telemetry, turn)
 			snapshot, first, err := switchpolicy.EvaluateShadow(switchpolicy.ShadowSnapshot{}, false, telemetry.agreementShadow.Observation)
 			require.NoError(t, err)
 			require.Equal(t, 1, first.TwoUp.Votes)
@@ -64,7 +66,7 @@ func TestAgreementShadowPolicyChangesStillResetVotes(t *testing.T) {
 			telemetry.RequestID = "changed-synthetic-request"
 			telemetry.Timestamp = telemetry.Timestamp.Add(time.Second)
 			test.change(turn.Fresh.Metadata)
-			applyAgreementShadowTelemetry(ctx, &telemetry, turn)
+			applyAgreementShadowTelemetry(hmm.ServingPorts(), ctx, &telemetry, turn)
 			_, second, err := switchpolicy.EvaluateShadow(snapshot, true, telemetry.agreementShadow.Observation)
 			require.NoError(t, err)
 			require.Equal(t, switchpolicy.ShadowGapPolicyChanged, second.Gap)

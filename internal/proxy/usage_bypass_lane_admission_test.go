@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -28,7 +29,7 @@ func codexBypassFixture(t *testing.T, threshold float64, snapshot usage.Snapshot
 	}}
 	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
 	obs.Record(obs.Key([]byte(laneAdmissionCodexToken)), snapshot)
-	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderOpenAI: p}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-terra", nil).
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderOpenAI: p}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-terra", nil), hmm.ServingPorts()).
 		WithUsageObserver(obs)
 	ctx := context.WithValue(context.Background(), proxy.OpenAISubscriptionContextKey{}, laneAdmissionCodexToken)
 	ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, "account-1")

@@ -90,15 +90,15 @@ func (s *overloadStubPinStore) Consume(context.Context, [sessionpin.SessionKeyLe
 func (s *overloadStubPinStore) SweepExpired(context.Context) error { return nil }
 
 func newOverloadTestService(store *overloadStubPinStore) *Service {
-	return NewService(
+	return withHMMPorts(NewService(
 		nil,
 		nil,
 		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	)
+		nil))
+
 }
 
 // A single exhausted 529 must increment the counter but not disable

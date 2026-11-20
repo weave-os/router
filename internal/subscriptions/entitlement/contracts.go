@@ -117,13 +117,6 @@ type Allowance struct {
 	FinalizedUsdMicros int64
 }
 
-func (a Allowance) Validate() error {
-	if !a.SubscriberID.Valid() || a.EntitlementVersion <= 0 || !a.Plan.Valid() || a.LimitUsdMicros < 0 || a.ReservedUsdMicros < 0 || a.FinalizedUsdMicros < 0 {
-		return ErrInvalidContract
-	}
-	return a.Period.Validate()
-}
-
 type Entitlement struct {
 	SubscriberID                     SubscriberID
 	Version                          int64

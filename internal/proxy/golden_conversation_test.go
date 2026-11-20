@@ -16,7 +16,6 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/policy"
-	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/sessionstrategy"
 	"weave-os/router/internal/translate"
 )
@@ -318,33 +317,6 @@ func goldenDetectionScenarios() []goldenScenario {
 	}
 
 	return []goldenScenario{noProgress, textRep, textRepOff, openAITextRep}
-}
-
-// mutateStoredPins returns a request decorator that rewrites every stored pin
-// of sc's harness before that request runs.
-func mutateStoredPins(sc *goldenScenario, mutate func(key string, p *sessionpin.Pin)) func(context.Context) context.Context {
-	var h *goldenHarness
-	base := sc.configure
-	sc.configure = func(svc *proxy.Service, gh *goldenHarness) *proxy.Service {
-		h = gh
-		if base != nil {
-			return base(svc, gh)
-		}
-		return svc
-	}
-	return func(ctx context.Context) context.Context {
-		h.rec.mu.Lock()
-		defer h.rec.mu.Unlock()
-		for k, p := range h.pins.pins {
-			mutate(k, &p)
-			h.pins.pins[k] = p
-		}
-		return ctx
-	}
-}
-
-func chainConfigure(base func(*proxy.Service, *goldenHarness) *proxy.Service, next func(*proxy.Service) *proxy.Service) func(*proxy.Service, *goldenHarness) *proxy.Service {
-	return func(svc *proxy.Service, h *goldenHarness) *proxy.Service { return next(base(svc, h)) }
 }
 
 func goldenToolResultScenarios() []goldenScenario {
