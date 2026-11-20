@@ -47,10 +47,6 @@ type SelectionTrace = router.SelectionTrace
 type ArmSelector func(ctx context.Context, input SelectionInput) (SelectionPick, error)
 
 func selectionInputFor(strategy router.Strategy, executionMode string, req router.Request, res Result, resolved ResolvedCandidates) SelectionInput {
-	candidateRosterIDs := make([]string, 0, len(resolved.Candidates))
-	for _, candidate := range resolved.Candidates {
-		candidateRosterIDs = append(candidateRosterIDs, candidate.RosterID)
-	}
 	input := SelectionInput{
 		TaskDomain:         res.TaskDomain,
 		Strategy:           strategy,
@@ -60,7 +56,7 @@ func selectionInputFor(strategy router.Strategy, executionMode string, req route
 		PredictedLabel:     res.PredictedLabel,
 		ClassOrder:         append([]string(nil), res.ClassOrder...),
 		ClassProbabilities: cloneProbabilities(res.ClassProbabilities),
-		CandidateRosterIDs: candidateRosterIDs,
+		CandidateRosterIDs: candidateRosterIDs(resolved),
 		PreferredModels:    append([]string(nil), req.PreferredModels...),
 	}
 	for provider := range req.SubscriptionProviders {
@@ -77,6 +73,14 @@ func selectionInputFor(strategy router.Strategy, executionMode string, req route
 		}
 	}
 	return input
+}
+
+func candidateRosterIDs(resolved ResolvedCandidates) []string {
+	ids := make([]string, 0, len(resolved.Candidates))
+	for _, candidate := range resolved.Candidates {
+		ids = append(ids, candidate.RosterID)
+	}
+	return ids
 }
 
 func cloneProbabilities(probabilities map[string]float64) map[string]float64 {
