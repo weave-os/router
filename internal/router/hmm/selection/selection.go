@@ -35,19 +35,6 @@ func ArmOrder(cluster rosterdata.Cluster, harness string) (order []string, harne
 	return cluster.Arms, false
 }
 
-func Select(roster *rosterdata.Roster, rankedGroups []string, harness string, candidates map[string]struct{}) (Pick, bool) {
-	groups := make([]Group, 0, len(rankedGroups))
-	for _, label := range rankedGroups {
-		groups = append(groups, Group{Label: label})
-	}
-	return SelectGroups(roster, groups, harness, candidates)
-}
-
-func SelectGroups(roster *rosterdata.Roster, groups []Group, harness string, candidates map[string]struct{}) (Pick, bool) {
-	pick, _, ok := SelectGroupsWithPreference(roster, groups, harness, candidates, nil)
-	return pick, ok
-}
-
 func SelectGroupsWithPreference(roster *rosterdata.Roster, groups []Group, harness string, candidates map[string]struct{}, qualityBias *float64) (Pick, map[string]map[string]float32, bool) {
 	pick, scoresByGroup, _, _, ok := SelectGroupsWithPreferences(roster, groups, harness, candidates, qualityBias, nil)
 	return pick, scoresByGroup, ok

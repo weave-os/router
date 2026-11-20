@@ -440,17 +440,6 @@ func IntOr(ctx context.Context, key Key, deploymentDefault int) (value int) {
 	return deploymentDefault
 }
 
-func FloatOr(ctx context.Context, key Key, deploymentDefault float64) (value float64) {
-	o, ok := OverridesFromContext(ctx)
-	if !ok {
-		return deploymentDefault
-	}
-	if v, found := o.Floats[key]; found {
-		return v
-	}
-	return deploymentDefault
-}
-
 func StringOr(ctx context.Context, key Key, deploymentDefault string) (value string) {
 	o, ok := OverridesFromContext(ctx)
 	if !ok {
