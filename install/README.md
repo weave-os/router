@@ -332,6 +332,10 @@ Endpoint provider and enables the experimental BYOK setting for the Copilot
 harness. Use a current VS Code release in a local workspace. If your organization
 manages Copilot, it must allow **Bring Your Own Language Model Key in VS Code**.
 
+Use the Router URL supplied with your key. For a custom endpoint, add
+`--base-url https://router.example.com` to the setup command. Use `--local` for
+`http://localhost:8080`.
+
 1. From the Command Palette, open **Chat: Manage Language Models**. Open the gear
    menu for the **Weave Router** group and select **Update API Key**.
 2. Enter your personal Router key. Get a hosted key at
@@ -344,8 +348,9 @@ The installer uses the default VS Code profile. For a named profile, Insiders, o
 a custom data directory, pass `--profile-dir <path>` with the directory containing
 that profile's `chatLanguageModels.json` and `settings.json`. Open
 **Chat: Open Language Models (JSON)** in VS Code to find that directory.
-For a self-hosted Router, add `--base-url https://router.example.com` or use
-`--local` for `http://localhost:8080`. VS Code stores the key in its own secret storage.
+If Copilot reports a serving fleet admission error, confirm the endpoint for your
+key and update the model URL there. Keep the `/v1/messages` path and the key
+reference managed by VS Code.
 
 ### GitHub Copilot SDK (custom provider)
 
