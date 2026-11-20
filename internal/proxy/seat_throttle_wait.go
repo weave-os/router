@@ -1,0 +1,69 @@
+package proxy
+
+import (
+	"context"
+	"time"
+
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/subscriptions"
+)
+
+const shortSeatThrottleWait = 30 * time.Second
+
+func shortestSeatThrottle(ctx context.Context, pool subscriptions.Provider, now time.Time) (time.Duration, bool) {
+	candidates, _ := ctx.Value(managedSubscriptionCandidatesKey{}).([]managedSubscriptionCandidate)
+	usageState, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	var shortest time.Duration
+	for _, candidate := range candidates {
+		if candidate.provider != auth.SubscriptionProvider(pool) || !candidate.enabled || !managedAccountThrottled(ctx, candidate, now) {
+			continue
+		}
+		reset := candidate.resetAt
+		if usageState != nil && usageState.ThrottledAccounts[candidate.accountID].After(reset) {
+			reset = usageState.ThrottledAccounts[candidate.accountID]
+		}
+		if wait := reset.Sub(now); wait > 0 && (shortest == 0 || wait < shortest) {
+			shortest = wait
+		}
+	}
+	return shortest, shortest > 0 && shortest <= shortSeatThrottleWait
+}
+
+func waitOutShortSeatThrottle(ctx context.Context, provider, model string, err error, now time.Time, sleep func(context.Context, time.Duration) error, waited *time.Duration) bool {
+	pool, eligible := managedSubscriptionProviderFromUpstream(provider, model)
+	if !eligible || !isSubscriptionPoolError(err) {
+		return false
+	}
+	wait, short := shortestSeatThrottle(ctx, pool, now)
+	if !short || *waited+wait > shortSeatThrottleWait {
+		return false
+	}
+	*waited += wait
+	observability.FromContext(ctx).Info("Every subscription seat is briefly rate-limited; waiting for the first cooldown", "provider", pool, "wait", wait)
+	return sleepFor(ctx, sleep, wait) == nil
+}
+
+func sleepFor(ctx context.Context, sleep func(context.Context, time.Duration) error, d time.Duration) error {
+	if sleep != nil {
+		return sleep(ctx, d)
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func seatsThrottled(ctx context.Context, pool subscriptions.Provider, now time.Time) bool {
+	candidates, _ := ctx.Value(managedSubscriptionCandidatesKey{}).([]managedSubscriptionCandidate)
+	for _, candidate := range candidates {
+		if candidate.provider == auth.SubscriptionProvider(pool) && candidate.enabled && managedAccountThrottled(ctx, candidate, now) {
+			return true
+		}
+	}
+	return false
+}

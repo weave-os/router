@@ -7,6 +7,7 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"time"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -156,6 +157,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 		in.origin == policy.OverrideSourceDeployment || in.origin == policy.OverrideSourceRequest
 	readmitted := false
 	var includedFailure error
+	var throttleWaited time.Duration
 	for len(includedModels) > 0 && rotationBudget.remaining > 0 {
 		attemptModels := includedModels
 		if !hasFixedTarget {
@@ -210,19 +212,16 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 			!codexSubscriptionModelRejected(err) && !anthropicSubscriptionModelRejected(err) && !codexOAuthCredentialRejected(err) && !anthropicOAuthCredentialRejected(err) && !anthropicSubscriptionThirdPartyRefused(err) {
 			return winner, err
 		}
+		if waitOutShortSeatThrottle(ctx, target.Provider, target.Model, err, s.clock.Now(), s.retrySleep, &throttleWaited) {
+			continue
+		}
 		includedFailure = includedFailureAfter(includedFailure, err, ownCodexLoginRejected(ctx, in.subscriptionStateHeaders, s.usageObserver))
 		observability.FromContext(ctx).Info("Subscription model unavailable; selecting another included target", "model", target.Model, "provider", target.Provider)
 		strikeModelUnlessFundingFailure(ctx, target.Model, err)
 		if !hasFixedTarget {
 			s.holdSessionOffSubscriptionPool(ctx, target.Provider, target.Model)
 		}
-		remainingModels := includedModels[:0]
-		for _, model := range includedModels {
-			if model != target.Model {
-				remainingModels = append(remainingModels, model)
-			}
-		}
-		includedModels = remainingModels
+		includedModels, request.Candidates.ExcludedModels = dropFailedIncludedModels(includedModels, target.Model, request.Candidates.ExcludedModels, codexPlanSpentForTurn(ctx, in.subscriptionStateHeaders, s.usageObserver, target.Provider, err, s.codexSubscriptionExhausted(ctx, in.subscriptionStateHeaders)))
 		if hasFixedTarget {
 			break
 		}
@@ -251,7 +250,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 			paidCtx, paidReq = s.subscriptionStateRequest(paidCtx, request, paidModels)
 		}
 		if len(paidReq.Candidates.AllowedModels) == 0 {
-			return -1, includedFailureOr(includedFailure, router.ErrAllowlistEmptiesPool)
+			return -1, emptyPaidPoolErr(ctx, includedFailure, s.clock.Now())
 		}
 		var err error
 		target, err = s.Route(paidCtx, paidReq)
