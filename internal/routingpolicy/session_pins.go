@@ -10,6 +10,7 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm/pinstate"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 )
@@ -131,7 +132,6 @@ func (sp SessionPins) RefreshVotes(ctx context.Context, installationID uuid.UUID
 		PairedModel:           existing.PairedModel,
 		Reason:                chosen.Reason,
 		Strategy:              sp.strategy,
-		PolicyGroup:           existing.PolicyGroup,
 		TurnCount:             1,
 		PinnedUntil:           PinExpiry(chosen.Reason, sp.now()),
 		LastInputTokens:       existing.LastInputTokens,
@@ -141,11 +141,12 @@ func (sp SessionPins) RefreshVotes(ctx context.Context, installationID uuid.UUID
 		LastTurnEndedAt:       existing.LastTurnEndedAt,
 		LastOutputLimitAt:     existing.LastOutputLimitAt,
 		LastServedModel:       existing.LastServedModel,
-
+	}
+	sp.Upsert(ctx, pinstate.WithColumns(p, sessionpin.StrategyColumns{
+		PolicyGroup:               pinstate.Columns(existing).PolicyGroup,
 		ConsecutiveDowngradeVotes: downgradeVotes,
 		ConsecutiveUpgradeVotes:   upgradeVotes,
-	}
-	sp.Upsert(ctx, p)
+	}))
 }
 
 func (sp SessionPins) WriteNew(ctx context.Context, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, role string, chosen router.Decision) {
@@ -171,11 +172,10 @@ func (sp SessionPins) WriteNew(ctx context.Context, installationID uuid.UUID, se
 		PairedModel:    pairedModel,
 		Reason:         chosen.Reason,
 		Strategy:       sp.strategy,
-		PolicyGroup:    DecisionPolicyGroup(chosen),
 		TurnCount:      1,
 		PinnedUntil:    PinExpiry(chosen.Reason, sp.now()),
 	}
-	sp.Upsert(ctx, p)
+	sp.Upsert(ctx, pinstate.WithColumns(p, sessionpin.StrategyColumns{PolicyGroup: DecisionPolicyGroup(chosen)}))
 }
 
 func (sp SessionPins) Upsert(ctx context.Context, p sessionpin.Pin) {
