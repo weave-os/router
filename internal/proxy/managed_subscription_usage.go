@@ -30,6 +30,7 @@ type ManagedSubscriptionUsage struct {
 	WinningCredentials         *Credentials
 	ClaudeSubscriptionPlan     providers.SubscriptionPlan
 	ClaudePlanUnverified       bool
+	CallerCredentialRejected   bool
 	ClaudeEnterpriseCapRefused bool
 }
 

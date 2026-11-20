@@ -76,7 +76,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 	for _, scenario := range []struct {
 		name                                                                                                                                                                                    string
 		claude, codex, emptyPaid, depleted, liveReject, committedFailure, forced, forcedPin, forceWithRequestSubset, demoteClaude, cooldownClaude, claudeOnlyActive, readmitClaude, rejectCodex bool
-		paidSetIncludesClaude                                                                                                                                                                   bool
+		paidSetIncludesClaude, claudeOnCredits                                                                                                                                                  bool
 		utilityTarget, passthroughTarget                                                                                                                                                        bool
 		want                                                                                                                                                                                    string
 		wantErr                                                                                                                                                                                 bool
@@ -84,7 +84,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 		{name: "Claude included before paid", claude: true, codex: true, want: stateClaudeModel},
 		{name: "Claude exhausted uses active Codex", codex: true, want: stateCodexModel},
 		{name: "both exhausted use cheap paid set", want: statePaidModel},
-		{name: "unavailable Claude skips funding-denied paid target", paidSetIncludesClaude: true, want: statePaidModel},
+		{name: "unavailable Claude without quota snapshot pays its paid target on credits", paidSetIncludesClaude: true, claudeOnCredits: true, want: stateClaudeModel},
 		{name: "live Claude exhaustion rotates to Codex", claude: true, codex: true, liveReject: true, want: stateCodexModel},
 		{name: "live exhaustion uses cheap paid set", claude: true, liveReject: true, want: statePaidModel},
 		{name: "empty exhausted set refuses paid", emptyPaid: true, wantErr: true},
@@ -207,7 +207,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 				require.Contains(t, rec.Body.String(), "answer")
 			}
 			for i, model := range servedModels {
-				if model == statePaidModel {
+				if servedOnStateCredits(model, scenario.claudeOnCredits) {
 					require.False(t, subscriptionFunding[i])
 				} else {
 					require.True(t, subscriptionFunding[i], "expensive models must never reach paid credentials")
@@ -948,4 +948,8 @@ func TestSubscriptionStateModelAvailableFollowsLeaseAdmission(t *testing.T) {
 			require.Equal(t, scenario.wantAvailable, available)
 		})
 	}
+}
+
+func servedOnStateCredits(model string, claudeOnCredits bool) bool {
+	return model == statePaidModel || claudeOnCredits
 }

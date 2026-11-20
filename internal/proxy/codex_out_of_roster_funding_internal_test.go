@@ -123,13 +123,14 @@ func TestCodexOutOfRosterModel_SubscriptionFirstFunding(t *testing.T) {
 			wantOAuth             []bool
 			wantErr               bool
 			wantSubServed         bool
+			creditsDenied         bool
 		}{
 			{name: "subscription serves", wantOAuth: []bool{true}, wantSubServed: true},
 			{name: "personal subscription survives managed enrollment outage", enrollmentUnavailable: true, wantOAuth: []bool{true}, wantSubServed: true},
 			// 429 keeps the existing bounded same-binding retries before rescue.
 			{name: "quota rejection falls back to API credential", subscriptionEr: quotaSpent, wantOAuth: []bool{true, false}},
 			{name: "credential rejection does not buy API capacity", subscriptionEr: tokenRejected, wantOAuth: []bool{true}, wantErr: true},
-			{name: "unsupported model does not buy API capacity", subscriptionEr: modelRejected, wantOAuth: []bool{true}, wantErr: true},
+			{name: "unsupported model does not buy API capacity when credits are off", subscriptionEr: modelRejected, wantOAuth: []bool{true}, wantErr: true, creditsDenied: true},
 			{name: "request-shape rejection stays terminal", subscriptionEr: shapeRejected, wantOAuth: []bool{true}, wantErr: true},
 		} {
 			t.Run(selection.name+"/"+tc.name, func(t *testing.T) {
@@ -138,6 +139,7 @@ func TestCodexOutOfRosterModel_SubscriptionFirstFunding(t *testing.T) {
 				svc := outOfRosterFundingService(client, selection.reason, repo)
 				ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
 				ctx = outOfRosterBillingCtx(ctx)
+				ctx = withWeaveCreditsDeniedWhen(ctx, tc.creditsDenied)
 				if tc.enrollmentUnavailable {
 					svc = svc.WithManagedSubscriptions(&scriptedSubscriptionLeaser{})
 					ctx = context.WithValue(ctx, ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
@@ -190,9 +192,10 @@ func TestCodexOutOfRosterModel_ManagedPoolFundsBeforeAPICredential(t *testing.T)
 		wantOAuth       []bool
 		wantPoolServe   bool
 		wantErr         bool
+		creditsDenied   bool
 	}{
 		{name: "pool serves", wantOAuth: []bool{true}, wantPoolServe: true},
-		{name: "pool model rejection does not buy API capacity", poolErr: modelRejected, wantOAuth: []bool{true}, wantErr: true},
+		{name: "pool model rejection does not buy API capacity when credits are off", poolErr: modelRejected, wantOAuth: []bool{true}, wantErr: true, creditsDenied: true},
 		{name: "unavailable enrollment fails closed", poolUnavailable: true, wantOAuth: []bool{}, wantErr: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -212,6 +215,7 @@ func TestCodexOutOfRosterModel_ManagedPoolFundsBeforeAPICredential(t *testing.T)
 				ctx = context.WithValue(ctx, ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 			}
 			ctx = outOfRosterBillingCtx(ctx)
+			ctx = withWeaveCreditsDeniedWhen(ctx, tc.creditsDenied)
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(body))
 
@@ -263,4 +267,11 @@ func TestCodexOutOfRosterModel_ChatOnlyRequestWithoutAPICredentialRefusesBeforeD
 	err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, req)
 	require.ErrorIs(t, err, ErrSubscriptionUnavailableForTurn)
 	assert.Empty(t, client.attempts, "the Codex token must not be sent to Chat Completions without an API fallback")
+}
+
+func withWeaveCreditsDeniedWhen(ctx context.Context, denied bool) context.Context {
+	if denied {
+		return billing.WithWeaveCreditsDenied(ctx)
+	}
+	return ctx
 }

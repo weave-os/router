@@ -99,7 +99,7 @@
             "z-ai/glm-5.3",
             "z-ai/glm-5.3-flash"
           ],
-          "error": "golden router: every candidate excluded"
+          "error": "hmm_embedding: arm selection: no eligible arm in any ranked group"
         }
       ],
       "dispatch_attempts": [
@@ -180,6 +180,42 @@
             ]
           },
           "outcome": "upstream_status_400"
+        },
+        {
+          "provider": "anthropic",
+          "wire_model": "claude-haiku-4-5",
+          "credential": {
+            "label": "deployment"
+          },
+          "outbound_body": {
+            "max_tokens": 8192,
+            "messages": [
+              {
+                "content": [
+                  {
+                    "cache_control": {
+                      "type": "ephemeral"
+                    },
+                    "text": "Say hello.",
+                    "type": "text"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "model": "claude-haiku-4-5",
+            "stream": true,
+            "system": [
+              {
+                "cache_control": {
+                  "type": "ephemeral"
+                },
+                "text": "Use plain language.",
+                "type": "text"
+              }
+            ]
+          },
+          "outcome": "ok"
         }
       ],
       "attempt_events": [
@@ -202,6 +238,23 @@
             "UpstreamID": "claude-haiku-4-5"
           },
           "UpstreamStatusCode": 400
+        },
+        {
+          "Diagnosis": {
+            "BodyTranslated": true
+          },
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-openai-responses",
+            "PolicyRevision": "3",
+            "Purpose": "openai_responses",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "claude-haiku-4-5",
+            "Provider": "anthropic",
+            "UpstreamID": "claude-haiku-4-5"
+          }
         }
       ],
       "response": {
@@ -320,13 +373,97 @@
             }
           },
           {
-            "event": "response.failed",
+            "event": "response.output_item.added",
+            "data": {
+              "item": {
+                "content": [],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "in_progress",
+                "type": "message"
+              },
+              "output_index": 1,
+              "sequence_number": 7,
+              "type": "response.output_item.added"
+            }
+          },
+          {
+            "event": "response.content_part.added",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 1,
+              "part": {
+                "annotations": [],
+                "text": "",
+                "type": "output_text"
+              },
+              "sequence_number": 8,
+              "type": "response.content_part.added"
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "content_index": 0,
+              "delta": "served on weave credits",
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 1,
+              "sequence_number": 9,
+              "type": "response.output_text.delta"
+            }
+          },
+          {
+            "event": "response.output_text.done",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 1,
+              "sequence_number": 10,
+              "text": "served on weave credits",
+              "type": "response.output_text.done"
+            }
+          },
+          {
+            "event": "response.content_part.done",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 1,
+              "part": {
+                "annotations": [],
+                "text": "served on weave credits",
+                "type": "output_text"
+              },
+              "sequence_number": 11,
+              "type": "response.content_part.done"
+            }
+          },
+          {
+            "event": "response.output_item.done",
+            "data": {
+              "item": {
+                "content": [
+                  {
+                    "annotations": [],
+                    "text": "served on weave credits",
+                    "type": "output_text"
+                  }
+                ],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "completed",
+                "type": "message"
+              },
+              "output_index": 1,
+              "sequence_number": 12,
+              "type": "response.output_item.done"
+            }
+          },
+          {
+            "event": "response.completed",
             "data": {
               "response": {
-                "error": {
-                  "code": "upstream_error",
-                  "message": "Upstream call failed."
-                },
                 "id": "resp_\u003cid\u003e",
                 "model": "claude-haiku-4-5",
                 "object": "response",
@@ -343,12 +480,30 @@
                     "role": "assistant",
                     "status": "completed",
                     "type": "message"
+                  },
+                  {
+                    "content": [
+                      {
+                        "annotations": [],
+                        "text": "served on weave credits",
+                        "type": "output_text"
+                      }
+                    ],
+                    "id": "\u003cid\u003e",
+                    "role": "assistant",
+                    "status": "completed",
+                    "type": "message"
                   }
                 ],
-                "status": "failed"
+                "status": "completed",
+                "usage": {
+                  "input_tokens": 12,
+                  "output_tokens": 7,
+                  "total_tokens": 19
+                }
               },
-              "sequence_number": 7,
-              "type": "response.failed"
+              "sequence_number": 13,
+              "type": "response.completed"
             }
           }
         ]
@@ -383,25 +538,61 @@
             "Strategy": "hmm_embedding",
             "TurnCount": 1
           }
+        },
+        {
+          "op": "update_usage",
+          "role": "default",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "ServedModel": "claude-haiku-4-5",
+            "ServedProvider": "anthropic",
+            "Strategy": "hmm_embedding"
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -47,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 47,
+          "OrganizationID": "golden-org",
+          "RouterModel": "claude-haiku-4-5"
         }
       ],
       "telemetry": [
         {
           "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.000012,
+          "ActualOutputCostUSD": 0.000035,
           "CaptureMode": "off",
           "ClientApp": "opencode",
+          "ContextSnapshot": {
+            "context_window": 200000,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 43,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "requested_model": "auto",
+            "served_model": "claude-haiku-4-5",
+            "version": 1
+          },
           "CrossFormat": true,
           "DecisionModel": "claude-haiku-4-5",
           "DecisionProvider": "anthropic",
           "DecisionReason": "golden_route",
           "EmbedInput": "only_user_message",
-          "ErrorClass": "other",
           "EstimatedInputTokens": 7,
-          "FailureOwner": "unknown",
+          "FailoverAttempted": true,
+          "FailoverUsed": true,
           "FinalModelFamily": "claude-haiku",
           "FreshDecisionModel": "claude-haiku-4-5",
+          "InputTokens": 12,
           "InstallationID": "00000000-0000-4000-8000-000000000001",
           "IntendedModelFamily": "claude-haiku",
+          "OutputTokens": 7,
           "PinTier": "miss",
           "PlannerOutcome": "switch",
           "PlannerReason": "no_pin",
@@ -412,8 +603,11 @@
           },
           "SessionID": "ses_golden_third_party",
           "SpanType": "router.upstream",
+          "StopReason": "stop",
           "Strategy": "hmm_embedding",
           "TurnType": "main_loop",
+          "UpstreamFinishReason": "end_turn",
+          "UpstreamStatusCode": 200,
           "UserPrompt": true
         }
       ]
