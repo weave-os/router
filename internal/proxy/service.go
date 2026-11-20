@@ -387,23 +387,6 @@ func modelSelectionReason(ports continuity.StrategyPorts, res turnLoopResult, fa
 	return "model selected for this turn"
 }
 
-func modelSelectionMarkerForRequest(ports continuity.StrategyPorts, ctx context.Context, res turnLoopResult, marker, servedModel, failoverReason string) string {
-	show, _ := ctx.Value(InstallationShowModelSelectionReasoningContextKey{}).(bool)
-	if !show || marker == "" || servedModel == "" || res.SuggestionMode || res.HardPinned ||
-		isUnpinnedScoredTurn(res.TurnType) || baseModelOf(res.PriorServedModel) == servedModel {
-		return marker
-	}
-	lineEnd := strings.IndexByte(marker, '\n')
-	if lineEnd == -1 {
-		return marker
-	}
-	reason := modelSelectionReason(ports, res, failoverReason)
-	if strings.Contains(marker[:lineEnd], " · "+reason) {
-		return marker
-	}
-	return marker[:lineEnd] + " · " + reason + marker[lineEnd:]
-}
-
 func sanitizeSidecarDisplayMarker(raw string) string {
 	raw = strings.ReplaceAll(raw, "\r\n", "\n")
 	raw = strings.ReplaceAll(raw, "\r", "\n")
