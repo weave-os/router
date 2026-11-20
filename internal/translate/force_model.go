@@ -106,7 +106,7 @@ func (e *RequestEnvelope) extractLeadingCommandWithSource(parse func(text string
 	for i := len(all) - 1; i >= 0; i-- {
 		role := all[i].Get("role").String()
 
-		if isSkillAttachment(all, i) || isStandaloneToolOutput(all[i]) {
+		if isSkillAttachment(all, i) {
 			continue
 		}
 		switch role {
@@ -122,7 +122,7 @@ func (e *RequestEnvelope) extractLeadingCommandWithSource(parse func(text string
 	}
 
 	for i := lastIdx + 1; i < len(all); i++ {
-		if isSkillAttachment(all, i) || isStandaloneToolOutput(all[i]) {
+		if isSkillAttachment(all, i) {
 			continue
 		}
 		if isConversationTurn(all[i].Get("role").String()) {
