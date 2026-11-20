@@ -2,7 +2,7 @@
   "name": "weave-router",
   "displayName": "Weave Router",
   "description": "Use Weave Router from the GitHub Copilot model picker.",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "publisher": "weave-os",
   "license": "Apache-2.0",
   "repository": {
@@ -18,7 +18,8 @@
     "languageModelChatProviders": [{ "vendor": "weave-router", "displayName": "Weave Router" }],
     "commands": [
       { "command": "weaveRouter.connect", "title": "Connect", "category": "Weave Router" },
-      { "command": "weaveRouter.disconnect", "title": "Disconnect", "category": "Weave Router" }
+      { "command": "weaveRouter.disconnect", "title": "Disconnect", "category": "Weave Router" },
+      { "command": "weaveRouter.setRouterUrl", "title": "Set Router URL", "category": "Weave Router" }
     ],
     "configuration": {
       "title": "Weave Router",

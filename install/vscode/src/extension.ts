@@ -5,6 +5,7 @@ import { estimateTokens, toMessagesInput } from './messages';
 const vendor = 'weave-router';
 const connectCommand = 'weaveRouter.connect';
 const disconnectCommand = 'weaveRouter.disconnect';
+const setRouterUrlCommand = 'weaveRouter.setRouterUrl';
 const baseUrlSetting = 'weaveRouter.baseUrl';
 const hostedRouterUrl = 'https://router.weaveos.com';
 const routerKeyHeader = 'X-Weave-Router-Key';
@@ -41,7 +42,7 @@ function secretName(baseUrl: string): string {
   return `weaveRouter.key:${baseUrl}`;
 }
 
-async function connect(secrets: vscode.SecretStorage): Promise<void> {
+async function setRouterUrl(): Promise<void> {
   const configuration = vscode.workspace.getConfiguration('weaveRouter');
   const configuredUrl = configuration.get('baseUrl', hostedRouterUrl);
   const selectedUrl = await vscode.window.showInputBox({
@@ -60,6 +61,14 @@ async function connect(secrets: vscode.SecretStorage): Promise<void> {
   });
   if (selectedUrl === undefined) return;
   const baseUrl = normalizeRouterUrl(selectedUrl);
+  if (baseUrl !== configuredUrl) {
+    await configuration.update('baseUrl', baseUrl, vscode.ConfigurationTarget.Global);
+    void vscode.window.showInformationMessage(`Weave Router URL set to ${baseUrl}.`);
+  }
+}
+
+async function connect(secrets: vscode.SecretStorage): Promise<void> {
+  const baseUrl = routerBaseUrl();
   const key = (await vscode.window.showInputBox({
     title: 'Connect Weave Router',
     prompt: `Enter a personal Router key for ${baseUrl}`,
@@ -76,9 +85,6 @@ async function connect(secrets: vscode.SecretStorage): Promise<void> {
   await response.body?.cancel();
   if (!response.ok) throw new Error(`Router key check failed (HTTP ${response.status}). Check the URL and key.`);
   await secrets.store(secretName(baseUrl), key);
-  if (baseUrl !== configuredUrl) {
-    await configuration.update('baseUrl', baseUrl, vscode.ConfigurationTarget.Global);
-  }
   void vscode.window.showInformationMessage('Weave Router is connected. Select Weave Router in the Copilot Chat model picker.');
 }
 
@@ -169,6 +175,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.onDidChangeConfiguration(change => {
       if (change.affectsConfiguration(baseUrlSetting)) modelChanges.fire();
     }),
+    vscode.commands.registerCommand(setRouterUrlCommand, setRouterUrl),
     vscode.commands.registerCommand(connectCommand, async () => {
       try {
         await connect(context.secrets);
