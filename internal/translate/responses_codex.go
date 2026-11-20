@@ -46,7 +46,6 @@ type portableCodexResponsesConverter struct {
 	routingRoles            map[int]EscalationRole
 	toolImageRoutingCallIDs map[int]string
 	routingOmitted          map[int]bool
-	routingOriginals        map[int]map[string]any
 	hostedWebSearch         bool
 }
 
@@ -193,7 +192,6 @@ func convertPortableCodexResponses(body []byte, lossy bool) (ResponsesConversion
 		routingRoles:            make(map[int]EscalationRole),
 		toolImageRoutingCallIDs: make(map[int]string),
 		routingOmitted:          make(map[int]bool),
-		routingOriginals:        make(map[int]map[string]any),
 	}
 	converter.result.TitleGeneration = requestRootRequestsCodexTitle(root)
 	converter.result.Requirements.Images = root.Get("input").Exists() && containsAnyKey(body, "image_url", "input_image")

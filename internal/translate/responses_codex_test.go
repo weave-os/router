@@ -748,13 +748,11 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexStandaloneToo
 			converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
 			require.NoError(t, err)
 			assert.False(t, converted.Requirements.NativeOnly, "reports: %#v", converted.Report)
-			var texts []string
+			var contents []string
 			for _, message := range gjson.GetBytes(converted.Body, "messages").Array() {
-				for _, part := range message.Get("content").Array() {
-					texts = append(texts, part.Get("text").String())
-				}
+				contents = append(contents, message.Get("content").String())
 			}
-			assert.Contains(t, texts, "Tool output:\nbuild finished")
+			assert.Contains(t, contents, "Tool output:\nbuild finished")
 		})
 	}
 }
@@ -805,4 +803,25 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexStandaloneToo
 	command, found := env.ExtractForceModelCommand()
 	require.True(t, found)
 	assert.Equal(t, "gpt-5", command.Model)
+}
+
+// Codex treats standalone outputs as context items, like developer messages. They
+// must not rewrite the neighbouring user prompt or tool result, whose text drives
+// session keys, feedback commands and skill history cleanup.
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexStandaloneToolOutputLeavesNeighboursUnchanged(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"model":"gpt-6.1-sol","input":[` +
+		`{"type":"message","role":"user","content":"fix it"},` +
+		`{"type":"function_call_output","name":"exec","output":"retained context"},` +
+		`{"type":"function_call","call_id":"call_build","name":"exec","arguments":"{}"},` +
+		`{"type":"function_call_output","call_id":"call_build","output":"exit 0"},` +
+		`{"type":"function_call_output","output":"build finished"}]}`)
+
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+	require.False(t, converted.Requirements.NativeOnly)
+	messages := gjson.GetBytes(converted.Body, "messages")
+	assert.Equal(t, "fix it", messages.Get(`#(role=="user").content`).Str)
+	assert.Equal(t, "exit 0", messages.Get(`#(role=="tool").content`).Str)
+	assert.Equal(t, `["Tool output:\nretained context","Tool output:\nbuild finished"]`, messages.Get(`#(role=="system")#.content`).Raw)
 }
