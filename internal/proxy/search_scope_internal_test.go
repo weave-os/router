@@ -46,7 +46,7 @@ func TestSearchUseTracker_SessionsAreIndependent(t *testing.T) {
 }
 
 func scopeService(enabled bool) *Service {
-	return &Service{
+	return &Service{hmmServing: hmmPorts(),
 		scopedSearchRequirement:     enabled,
 		searchRequirementDecayTurns: DefaultSearchRequirementDecayTurns,
 		searchUse:                   newSearchUseTracker(),

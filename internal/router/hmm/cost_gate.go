@@ -4,6 +4,8 @@ import (
 	"strings"
 	"time"
 
+	"weave-os/router/internal/router/continuity"
+
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
@@ -12,28 +14,15 @@ import (
 	"weave-os/router/internal/routingpolicy"
 )
 
-type CostGate struct {
-	AvailableModels            map[string]struct{}
-	RegisteredProviders        func() map[string]struct{}
-	UpgradeConfidenceThreshold float64
-}
+type CostGate continuity.CostGateConfig
 
-type CostGateInput struct {
-	Request              router.Request
-	ActivePin            sessionpin.Pin
-	HMMHistory           sessionpin.Pin
-	Fresh                router.Decision
-	EstimatedInputTokens int
-	PrefixBroken         bool
-	Planner              planner.EVConfig
-	Now                  time.Time
-}
+type CostGateInput = continuity.CostGateInput
 
 const HistoryReason = "hmm_history"
 
-const DefaultUpgradeConfidenceThreshold = 0.50
+const DefaultUpgradeConfidenceThreshold = continuity.DefaultUpgradeConfidenceThreshold
 
-const DefaultDowngradeHysteresisTurns = 2
+const DefaultDowngradeHysteresisTurns = continuity.DefaultDowngradeHysteresisTurns
 
 const (
 	ReasonConfidentUpgrade     = "hmm_confident_upgrade"

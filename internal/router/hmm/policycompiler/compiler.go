@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/rosterdata"
 )
 
 var defaultClassOrder = []string{"low", "medium", "high", "maximum"}

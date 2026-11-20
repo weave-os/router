@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/option"
 	"weave-os/router/internal/policyregistry"
-	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/rosterdata"
 	"weave-os/router/internal/router/taskdomain"
 )
 

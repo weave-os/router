@@ -23,7 +23,7 @@ class and shrinks the sidecar's authority to what only it can do: ML inference.
 
 | Concern | Owner |
 |---|---|
-| Roster contents (`hmm_router_cluster_roster_v7` JSON) | Declarative data, loaded and fail-loud validated by Go at boot (`internal/router/hmm/rosterdata`) |
+| Roster contents (`hmm_router_cluster_roster_v7` JSON) | Declarative data, loaded and fail-loud validated by Go at boot (`internal/router/rosterdata`) |
 | Roster↔catalog validation | Go: `hmm.ValidateRosterIDs` (`internal/router/hmm/validate.go`) plus the `validate-roster` CLI for CI |
 | Within-cluster deterministic arm selection (harness policy, preference-adjusted WII/WPI ranking, ranked cluster-fallback walk) | Go: `internal/router/hmm/selection` |
 | Complexity classification (ML) | Python sidecar (`policy_router_v4` facts; `policy_router_v5` for pinned classifier releases) |

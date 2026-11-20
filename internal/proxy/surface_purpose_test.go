@@ -12,12 +12,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/tidwall/gjson"
+
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm"
 )
 
 type purposeSink struct{ events []inference.AttemptEvent }
@@ -93,7 +95,7 @@ func TestPublicSurfaces_DispatchThroughResolvedPlan(t *testing.T) {
 			executor, err := dispatch.NewExecutor(dispatch.NewClients(clients), dispatch.WithAttemptSink(sink))
 			require.NoError(t, err)
 			fr := &fakeRouter{decision: router.Decision{Provider: tc.provider, Model: tc.model, Reason: "test"}}
-			svc := proxy.NewService(fr, clients, nil, newFakePinStore(), false, tc.provider, tc.model, nil).
+			svc := proxy.WithStrategyPorts(proxy.NewService(fr, clients, nil, newFakePinStore(), false, tc.provider, tc.model, nil), hmm.ServingPorts()).
 				WithInferenceExecutor(executor)
 
 			rec := httptest.NewRecorder()
@@ -143,7 +145,7 @@ func TestUtilityTurns_DispatchUnderResolvedPurpose(t *testing.T) {
 				executor, err := dispatch.NewExecutor(dispatch.NewClients(clients), dispatch.WithAttemptSink(sink))
 				require.NoError(t, err)
 				fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "test"}}
-				svc := proxy.NewService(fr, clients, nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+				svc := proxy.WithStrategyPorts(proxy.NewService(fr, clients, nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 					WithExplicitUtilityHardPin(explicit).
 					WithInferenceExecutor(executor)
 
@@ -188,7 +190,7 @@ func TestClassifierTurn_DispatchUnderSurfacePurpose(t *testing.T) {
 	executor, err := dispatch.NewExecutor(dispatch.NewClients(clients), dispatch.WithAttemptSink(sink))
 	require.NoError(t, err)
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-7", Reason: "test"}}
-	svc := proxy.NewService(fr, clients, nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, clients, nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithInferenceExecutor(executor)
 
 	rec := httptest.NewRecorder()
@@ -214,7 +216,7 @@ func TestAutomaticProbesServeUnderIngressPolicyWithoutConversationState(t *testi
 			require.NoError(t, err)
 			scorer := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeSonnet46.String()}}
 			pins := newFakePinStore()
-			svc := proxy.NewService(scorer, clients, nil, pins, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil).WithInferenceExecutor(executor)
+			svc := proxy.WithStrategyPorts(proxy.NewService(scorer, clients, nil, pins, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil), hmm.ServingPorts()).WithInferenceExecutor(executor)
 			body := []byte(`{"model":"` + model + `","max_tokens":1,"messages":[{"role":"user","content":"ping"}]}`)
 			rec := httptest.NewRecorder()
 			require.NoError(t, svc.ProxyMessages(authedCtx("00000000-0000-0000-0000-000000000001"), body, rec,
@@ -243,7 +245,7 @@ func TestConcreteProbeFailureNeverRescuesAnotherModel(t *testing.T) {
 	executor, err := dispatch.NewExecutor(dispatch.NewClients(clients), dispatch.WithAttemptSink(sink))
 	require.NoError(t, err)
 	pins := newFakePinStore()
-	svc := proxy.NewService(scorer, clients, nil, pins, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil).
+	svc := proxy.WithStrategyPorts(proxy.NewService(scorer, clients, nil, pins, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil), hmm.ServingPorts()).
 		WithInferenceExecutor(executor).WithRetrySleep(noRetrySleep).WithSiblingFailover(true).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderFireworks: {}})
 	requestedModel := catalog.ModelIDClaudeOpus48.String()

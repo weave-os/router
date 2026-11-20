@@ -27,7 +27,7 @@ var authoritativeDowngradeBody = []byte(
 // authoritativeDowngradeService wires an authoritative policy whose fresh pick
 // is fixed, over a pin store seeded with pin.
 func authoritativeDowngradeService(store *stubPinStore, fresh router.Decision) *Service {
-	return NewService(
+	return withHMMPorts(NewService(
 		nil,
 		nil,
 		nil,
@@ -35,15 +35,15 @@ func authoritativeDowngradeService(store *stubPinStore, fresh router.Decision) *
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	).WithPolicyStrategy(policy.StrategySpec{
-		Strategy: authoritativeDowngradeStrategy,
-		Router:   &authoritativeTestRouter{decision: fresh},
-		Capabilities: policy.Capabilities{
-			SchemaVersion:                 policy.SchemaVersionV1,
-			AuthoritativePerTurnSelection: true,
-		},
-	})
+		nil)).
+		WithPolicyStrategy(policy.StrategySpec{
+			Strategy: authoritativeDowngradeStrategy,
+			Router:   &authoritativeTestRouter{decision: fresh},
+			Capabilities: policy.Capabilities{
+				SchemaVersion:                 policy.SchemaVersionV1,
+				AuthoritativePerTurnSelection: true,
+			},
+		})
 }
 
 func runAuthoritativeDowngradeTurn(t *testing.T, svc *Service) turnLoopResult {
@@ -55,16 +55,16 @@ func runAuthoritativeDowngradeTurn(t *testing.T, svc *Service) turnLoopResult {
 	result, err := svc.runTurnLoop(
 		router.WithStrategy(context.Background(), authoritativeDowngradeStrategy),
 		env,
-		features,
-		"api-key",
-		uuid.New(),
+		features, testTurnRequest(
+			router.WithStrategy(context.Background(), authoritativeDowngradeStrategy), "api-key", uuid.New()),
+
 		"",
 		http.Header{},
 		router.Request{
 			RequestedModel:       features.Model,
 			ConversationMessages: conversationMessagesForRouting(env),
-		},
-	)
+		})
+
 	require.NoError(t, err)
 	assert.True(t, result.AuthoritativePerTurn)
 	return result

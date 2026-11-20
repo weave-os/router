@@ -98,15 +98,15 @@ func (s *evictionStubPinStore) Consume(_ context.Context, key [sessionpin.Sessio
 func (s *evictionStubPinStore) SweepExpired(context.Context) error { return nil }
 
 func newEvictionTestService(store *evictionStubPinStore) *Service {
-	return NewService(
+	return withHMMPorts(NewService(
 		nil,
 		nil,
 		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	)
+		nil))
+
 }
 
 func nonZeroSessionKey() [sessionpin.SessionKeyLen]byte {

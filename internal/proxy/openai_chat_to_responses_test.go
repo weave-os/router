@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -39,11 +40,11 @@ func responsesStreamUpstream(w http.ResponseWriter) {
 }
 
 func openAIChatService(provider providers.Client) *proxy.Service {
-	return proxy.NewService(
+	return proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "test"}},
 		map[string]providers.Client{providers.ProviderOpenAI: provider},
-		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil,
-	)
+		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
+
 }
 
 const chatToolTurnBody = `{"model":"auto","stream":true,"max_tokens":2048,
@@ -332,11 +333,10 @@ func TestService_ProxyOpenAIChatCompletion_GatewayKeepsChatCompletions(t *testin
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, `{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
 	}}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAIGateway, Model: "gpt-5.6-luna", Reason: "test"}},
 		map[string]providers.Client{providers.ProviderOpenAIGateway: provider},
-		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil,
-	)
+		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 
 	body := `{"model":"auto","messages":[{"role":"user","content":"hi"}]}`
 	rec := httptest.NewRecorder()

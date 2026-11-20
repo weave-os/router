@@ -22,6 +22,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 
 	"github.com/stretchr/testify/require"
 )
@@ -65,11 +66,11 @@ func runConformanceCase(t *testing.T, c conformanceCase) {
 	mockStreaming := strings.HasSuffix(c.upstreamFixture, ".sse")
 	mock, srv := newMockUpstream(t, mockStreaming, c.upstreamStatus, fixture)
 
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: c.provider, Model: c.model}},
 		map[string]providers.Client{c.provider: c.newClient(srv.URL)},
-		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithDeploymentKeyedProviders(map[string]struct{}{c.provider: {}})
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
+		WithDeploymentKeyedProviders(map[string]struct{}{c.provider: {}})
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))

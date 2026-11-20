@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
@@ -105,7 +106,7 @@ func cyberRefusalService(
 	store *fakePinStore,
 	telemetry *captureTelemetry,
 ) *proxy.Service {
-	return proxy.NewService(
+	return proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{
 			Provider: providers.ProviderOpenAI,
 			Model:    "gpt-5.6-sol",
@@ -116,11 +117,11 @@ func cyberRefusalService(
 			providers.ProviderOpenAI:    openai.NewClient("test-openai-key", openAIURL),
 			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", anthropicURL),
 		},
-		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", telemetry,
-	).WithDeploymentKeyedProviders(map[string]struct{}{
-		providers.ProviderOpenAI:    {},
-		providers.ProviderAnthropic: {},
-	})
+		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", telemetry), hmm.ServingPorts()).
+		WithDeploymentKeyedProviders(map[string]struct{}{
+			providers.ProviderOpenAI:    {},
+			providers.ProviderAnthropic: {},
+		})
 }
 
 const cyberRefusalInstallationID = "22222222-2222-2222-2222-222222222222"

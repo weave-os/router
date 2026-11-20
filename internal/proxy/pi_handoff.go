@@ -16,8 +16,8 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/armid"
 	"weave-os/router/internal/router/candidates"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
@@ -157,12 +157,12 @@ func (s *Service) finishHandoffPreparation(ctx context.Context, strategy router.
 	if prepared.Complexity == "" && route.Decision.Model == route.PinModel {
 		prepared.Complexity = route.PinPolicyGroup
 	}
-	previousModel, previousEffort := hmm.SplitEffort(route.PriorServedModel)
+	previousModel, previousEffort := armid.SplitEffort(route.PriorServedModel)
 	previousProvider := ""
 	if route.PinModel == previousModel {
 		previousProvider = route.PinProvider
 	}
-	if previousModel != "" && s.pinStore != nil && (hmm.Owns(route.Strategy) || isHMMTurn(route)) {
+	if previousModel != "" && s.pinStore != nil && (s.strategyPorts.Ownership.Owns(route.Strategy) || isHMMTurn(s.strategyPorts, route)) {
 		history := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy).LoadHMMHistory(ctx, route.SessionKey, route.PinRole)
 		if history.LastServedModel == route.PriorServedModel {
 			previousProvider = history.Provider

@@ -10,9 +10,9 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/armid"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/routingpolicy"
@@ -126,7 +126,7 @@ func (c compactionSession) decision(ctx context.Context, sessionKey [sessionpin.
 	if model == "" {
 		model = served.Model
 	}
-	model, effort := hmm.SplitEffort(model)
+	model, effort := armid.SplitEffort(model)
 	if model == "" {
 		return router.Decision{}, strikes, false
 	}

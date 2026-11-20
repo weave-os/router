@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/providers/openaicompat"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -56,13 +57,13 @@ const gatewayToolTurn = `{"model":"gpt-5.4-mini","stream":true,"max_tokens":1024
 
 func gatewayService(t *testing.T, baseURL string) *proxy.Service {
 	t.Helper()
-	return proxy.NewService(
+	return proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAIGateway, Model: "gpt-5.4-mini"}},
 		map[string]providers.Client{
 			providers.ProviderOpenAIGateway: openaicompat.NewGatewayClient("test-key", baseURL),
 		},
-		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAIGateway: {}})
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
+		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAIGateway: {}})
 }
 
 // A reasoning tool turn on a gateway goes to Responses, because gateways like
@@ -178,13 +179,13 @@ const anthropicToollessTurn = `{"model":"gpt-5.4-mini","stream":true,"max_tokens
 
 func directOpenAIService(t *testing.T, baseURL string, broad bool) *proxy.Service {
 	t.Helper()
-	return proxy.NewService(
+	return proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.4-mini"}},
 		map[string]providers.Client{
 			providers.ProviderOpenAI: openai.NewClient("test-key", baseURL),
 		},
-		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
+		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).
 		WithOpenAIResponsesBroad(broad)
 }
 
@@ -246,13 +247,13 @@ func TestProxyMessages_DirectOpenAIStopSequencesStayOnChat(t *testing.T) {
 
 	body := `{"model":"gpt-4.1","stream":true,"max_tokens":1024,"stop_sequences":["\n\nHuman:"],` +
 		`"messages":[{"role":"user","content":"finish the sentence"}]}`
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-4.1"}},
 		map[string]providers.Client{
 			providers.ProviderOpenAI: openai.NewClient("test-key", upstream.URL),
 		},
-		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
+		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))

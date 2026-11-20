@@ -12,7 +12,7 @@ import (
 )
 
 func TestSwitchedAttemptOptionsResolveNewTargetEffortWithoutChangingOriginal(t *testing.T) {
-	svc := NewService(nil, nil, nil, nil, false, providers.ProviderAnthropic, fastOpusModel, nil)
+	svc := withHMMPorts(NewService(nil, nil, nil, nil, false, providers.ProviderAnthropic, fastOpusModel, nil))
 	base := translate.EmitOptions{
 		TargetModel:          fastOpusModel,
 		TargetProvider:       providers.ProviderAnthropic,

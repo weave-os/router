@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -97,11 +98,11 @@ func newEarlyStopFixture(t *testing.T, mode flags.EarlyStopRedoMode) *earlyStopF
 			},
 		},
 	}
-	f.svc = proxy.NewService(
+	f.svc = proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: decision},
 		map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", f.upstream.URL)},
-		nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", newCaptureTelemetry(),
-	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
+		nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", newCaptureTelemetry()), hmm.ServingPorts()).
+		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
 		WithRetrySleep(noRetrySleep).
 		WithEarlyStopRedo(mode)
 	return f

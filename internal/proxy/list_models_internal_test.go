@@ -22,8 +22,8 @@ func forceableByID(models []forceableModel) map[string]forceableModel {
 // The listing is judged by the same check /force-model applies, so a model the
 // installation's allowlist refuses is listed but marked off.
 func TestForceableModels_MarksModelsTheForceCheckRefuses(t *testing.T) {
-	svc := NewService(nil, nil, nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := withHMMPorts(NewService(nil, nil, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 	ctx := context.WithValue(context.Background(),
 		InstallationAllowedModelsContextKey{}, []string{"claude-opus-4-8"})
@@ -40,8 +40,8 @@ func TestForceableModels_MarksModelsTheForceCheckRefuses(t *testing.T) {
 // Every row is a name /force-model resolves to itself, and each shorthand shown
 // resolves to that row's model.
 func TestForceableModels_ShorthandsResolveToTheirRow(t *testing.T) {
-	svc := NewService(nil, nil, nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := withHMMPorts(NewService(nil, nil, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	models := svc.forceableModels(context.Background())
 	require.NotEmpty(t, models)

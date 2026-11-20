@@ -9,7 +9,7 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/continuity"
 )
 
 const ForceClusterHeader = "x-weave-force-cluster"
@@ -29,7 +29,7 @@ func (e *ForcedClusterUnsupportedStrategyError) Unwrap() error {
 	return ErrForcedClusterUnsupportedStrategy
 }
 
-func applyForceClusterHeader(ctx context.Context, strategy router.Strategy, r *http.Request) (string, error) {
+func applyForceClusterHeader(ports continuity.StrategyPorts, ctx context.Context, strategy router.Strategy, r *http.Request) (string, error) {
 	if planHasDedicatedServingPolicy(ctx) {
 		return "", nil
 	}
@@ -37,7 +37,7 @@ func applyForceClusterHeader(ctx context.Context, strategy router.Strategy, r *h
 	if label == "" {
 		return "", nil
 	}
-	if !hmm.Owns(strategy) {
+	if !ports.Ownership.Owns(strategy) {
 		observability.FromContext(ctx).Warn("x-weave-force-cluster: rejected on a strategy with no policy sidecar",
 			"cluster", label,
 			"strategy", strategy,
