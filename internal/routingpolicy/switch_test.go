@@ -13,6 +13,8 @@ const (
 	switchTestMid     = "claude-sonnet-5-5"
 	switchTestHigh    = "claude-opus-5-5"
 	switchTestUnknown = "synthetic-unpriced-model"
+
+	switchTestPrefixCached = "gpt-6.1-sol"
 )
 
 func TestDecideSwitch(t *testing.T) {

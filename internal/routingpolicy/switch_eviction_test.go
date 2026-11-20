@@ -92,6 +92,18 @@ func TestDecideSwitchPricesTheDestinationCache(t *testing.T) {
 			},
 			serve: switchTestHigh, reason: routingpolicy.SwitchReasonUpgrade,
 		},
+		{
+			name: "upgrade to a prefix-cached destination is not limited by the block lookback",
+			input: routingpolicy.SwitchInput{
+				Current: switchTestLow, Fresh: switchTestPrefixCached, EstimatedInputTokens: 200_000, PromptTokens: 200_000,
+				FreshTurnsSinceServed: 15, Now: now, MessageCount: 330,
+				ModelCaches: sessionpin.ModelCaches{
+					switchTestLow:          {ServedAt: now.Add(-10 * time.Second), PromptTokens: 199_000, MessageCount: 328},
+					switchTestPrefixCached: {ServedAt: now.Add(-10 * time.Minute), PromptTokens: 190_000, MessageCount: 300},
+				},
+			},
+			serve: switchTestPrefixCached, reason: routingpolicy.SwitchReasonUpgrade,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

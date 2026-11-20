@@ -235,6 +235,12 @@ breakpoint. Inside the window the rewrite rate was measured on billed cache
 writes (0.5–11% on tool turns, 12–31% on user-prompt turns, rising with
 messages appended). Writes are priced at the 1h TTL rate.
 
+Prefix-cached providers (OpenAI and other non-Anthropic families) have no
+block lookback: a cached prefix stays reachable however many messages were
+appended. Their measured rewrite rate depends only on the gap since the model
+last served the thread (5% under 5 minutes, 20% under an hour, 45% after),
+and writes are priced at the catalog's cache-write multiplier.
+
 A move is taken when the per-turn gap between the two models, times a
 horizon (10 turns down, 40 up), exceeds the extra cache cost of serving this
 turn on the destination instead of the current model. A pricier pick is the
