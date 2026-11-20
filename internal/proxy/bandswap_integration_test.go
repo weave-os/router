@@ -9,7 +9,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/bandswap"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 )
@@ -42,7 +41,7 @@ func TestOrderBandPair_ByTier(t *testing.T) {
 
 // With the swap head disabled the sticky turn must serve the pin's anchor.
 func TestBandSwapServed_DisabledServesAnchor(t *testing.T) {
-	s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}} // bandSwap nil
+	s := &Service{hmmServing: hmmPorts()} // bandSwap nil
 	pin := sessionpin.Pin{
 		Provider: "anthropic", Model: "claude-opus-4-7",
 		PairedProvider: "anthropic", PairedModel: "claude-haiku-4-5", Reason: "cluster",
@@ -55,7 +54,7 @@ func TestBandSwapServed_DisabledServesAnchor(t *testing.T) {
 
 // A pin with no runner-up can never swap, even if the head were enabled.
 func TestBandSwapServed_NoPairServesAnchor(t *testing.T) {
-	s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}
+	s := &Service{hmmServing: hmmPorts()}
 	pin := sessionpin.Pin{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}
 	got := s.bandSwapServed(context.Background(), turntype.MainLoop, pin, router.Decision{}, false, 0, nil, nil)
 	if got.Model != "claude-opus-4-7" {
@@ -94,7 +93,7 @@ func TestBandSwapServed_UnservableChoiceFallsBackToAnchor(t *testing.T) {
 		anchor, paired = large, small
 	}
 
-	s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()},
+	s := &Service{hmmServing: hmmPorts(),
 		bandSwap:        clf,
 		availableModels: map[string]struct{}{large: {}, small: {}},
 		clients:         dispatch.NewClients(map[string]providers.Client{"anthropic": nil}),

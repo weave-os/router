@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/telemetry"
 
 	"github.com/stretchr/testify/assert"
@@ -29,7 +28,7 @@ func TestSubscriptionWinnerTelemetryPreservesOwnerAndAlternative(t *testing.T) {
 	assert.Equal(t, auth.SubscriptionTierShared, telemetryRow.SubscriptionTier)
 
 	attrs := telemetry.NewAttrBuilder(6)
-	(&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}).applySubscriptionSpanTelemetry(ctx, attrs, "auto", "gpt-5.4")
+	(&Service{hmmServing: hmmPorts()}).applySubscriptionSpanTelemetry(ctx, attrs, "auto", "gpt-5.4")
 	values := make(map[string]string)
 	for _, attr := range attrs.Build() {
 		values[attr.Key] = attr.Value.GetStringValue()
@@ -62,7 +61,7 @@ func TestFailedAPIFallbackReplacesInboundSubscriptionAttribution(t *testing.T) {
 	require.Equal(t, credSourceBYOK, winner.Source)
 	require.Equal(t, []byte("api-sentinel"), winner.APIKey)
 	require.False(t, winner.OAuth)
-	assert.False(t, (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}).costNeutralSubscriptionServed(ctx))
+	assert.False(t, (&Service{hmmServing: hmmPorts()}).costNeutralSubscriptionServed(ctx))
 	telemetry := InsertTelemetryParams{RequestedModel: "claude-sonnet-5", DecisionModel: "claude-sonnet-5"}
 	applySubscriberTelemetry(ctx, &telemetry)
 	assert.Empty(t, telemetry.SubscriptionAccountID)

@@ -15,7 +15,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 	"weave-os/router/internal/websearch"
@@ -90,7 +89,7 @@ func TestNativeSearchErrorsUseAnthropicEnvelope(t *testing.T) {
 func TestNativeSearchPreservesRoutingPassthroughWithoutPins(t *testing.T) {
 	spy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
 	pins := newStubPinStore()
-	service := WithStrategyPorts(NewService(spy, nil, nil, pins, false, providers.ProviderOpenAI, catalog.ModelIDGPT56Luna.String(), nil), hmm.ServingPorts())
+	service := withHMMPorts(NewService(spy, nil, nil, pins, false, providers.ProviderOpenAI, catalog.ModelIDGPT56Luna.String(), nil))
 	authService := auth.NewService(nil, nil, nil, nil, nil, nil, time.Now).WithRoutingPolicies(routingPolicyStub{mode: auth.RoutingPolicyPassthrough}, nil)
 	ctx, err := authService.WithRoutingPolicy(context.Background(), "installation")
 	require.NoError(t, err)

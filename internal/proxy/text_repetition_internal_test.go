@@ -8,7 +8,6 @@ import (
 	"weave-os/router/internal/router"
 
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 
@@ -28,7 +27,7 @@ func TestHandleTextRepetitionBreak_ZeroSessionKeyWritesNoPin(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &overwritingPinStore{}
-			svc := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, pinStore: store}
+			svc := &Service{hmmServing: hmmPorts(), pinStore: store}
 			env, err := translate.ParseAnthropic([]byte(`{"model":"synthetic-model","messages":[{"role":"user","content":"continue"}]}`))
 			require.NoError(t, err)
 

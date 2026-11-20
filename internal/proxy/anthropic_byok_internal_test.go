@@ -17,7 +17,6 @@ import (
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/subscriptions"
 )
@@ -133,9 +132,9 @@ func TestAnthropicBYOKHTTPNeverProbesOAuth(t *testing.T) {
 			defer upstream.Close()
 			model := catalog.ModelIDClaudeOpus48.String()
 			leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "synthetic-seat", AccessToken: "sk-ant-oat01-linked"}}}
-			svc := WithStrategyPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: model}}, map[string]providers.Client{
+			svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: model}}, map[string]providers.Client{
 				providers.ProviderAnthropic: anthropic.NewClient("synthetic-deployment-key", upstream.URL),
-			}, nil, nil, false, "", "", nil), hmm.ServingPorts()).
+			}, nil, nil, false, "", "", nil)).
 				WithManagedSubscriptions(leaser)
 			ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("synthetic-byok")}})
 			ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "synthetic-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateUnknown}})

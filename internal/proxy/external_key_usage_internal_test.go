@@ -9,7 +9,6 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/router/hmm"
 )
 
 type recordedKeyUsage struct{ ids []string }
@@ -38,7 +37,7 @@ func TestMarkServedExternalKeyUsed(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := &recordedKeyUsage{}
-			svc := WithStrategyPorts(NewService(nil, map[string]providers.Client{}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
+			svc := withHMMPorts(NewService(nil, map[string]providers.Client{}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 				WithExternalKeyUsageRecorder(recorder)
 			ctx := context.Background()
 			if tc.creds != nil {

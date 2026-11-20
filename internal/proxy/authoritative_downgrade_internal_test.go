@@ -27,7 +27,7 @@ var authoritativeDowngradeBody = []byte(
 // authoritativeDowngradeService wires an authoritative policy whose fresh pick
 // is fixed, over a pin store seeded with pin.
 func authoritativeDowngradeService(store *stubPinStore, fresh router.Decision) *Service {
-	return WithStrategyPorts(NewService(
+	return withHMMPorts(NewService(
 		nil,
 		nil,
 		nil,
@@ -35,7 +35,7 @@ func authoritativeDowngradeService(store *stubPinStore, fresh router.Decision) *
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil), hmm.ServingPorts()).
+		nil)).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: authoritativeDowngradeStrategy,
 			Router:   &authoritativeTestRouter{decision: fresh},

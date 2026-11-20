@@ -14,7 +14,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 )
@@ -176,9 +175,9 @@ func TestCyberRefusalRetryTarget_NeverLandsOnRefusingVendor(t *testing.T) {
 			Strategy:       router.StrategyFromContext(ctx),
 		},
 	}
-	svc := WithStrategyPorts(NewService(nil,
+	svc := withHMMPorts(NewService(nil,
 		map[string]providers.Client{providers.ProviderOpenAI: openai.NewClient("test-openai-key", "http://127.0.0.1:1")},
-		nil, store, false, providers.ProviderOpenAI, "gpt-5.5", nil), hmm.ServingPorts()).
+		nil, store, false, providers.ProviderOpenAI, "gpt-5.5", nil)).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).
 		WithCyberRefusalFallbackModel("gpt-5.5")
 

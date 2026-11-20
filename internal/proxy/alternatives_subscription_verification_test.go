@@ -13,7 +13,6 @@ import (
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/subscriptions"
@@ -89,7 +88,7 @@ func TestVerificationAutomaticAlternativeHTTP(t *testing.T) {
 			if scenario.sessionPinned {
 				pins = &overwritingPinStore{pin: sessionpin.Pin{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: translate.ReasonUserForceModel, PinnedUntil: pinNeverExpires}, found: true}
 			}
-			svc := WithStrategyPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Metadata: metadata, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, pins, false, providers.ProviderOpenAI, codexCoveredModel, nil), hmm.ServingPorts()).WithManagedSubscriptions(&verificationAlternativeLeaser{}).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
+			svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Metadata: metadata, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, pins, false, providers.ProviderOpenAI, codexCoveredModel, nil)).WithManagedSubscriptions(&verificationAlternativeLeaser{}).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 			ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 			ctx = withWeaveCreditsDeniedWhen(ctx, refusesWithCreditsOff(scenario.max, scenario.alternative))
 			if scenario.max {
@@ -136,7 +135,7 @@ func TestVerificationAutomaticAlternativeHTTP(t *testing.T) {
 
 func TestVerificationAlternativesHonorHardRequestExclusions(t *testing.T) {
 	client := openai.NewClient("synthetic-api-key", "http://127.0.0.1:1")
-	svc := WithStrategyPorts(NewService(staticRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil), hmm.ServingPorts())
+	svc := withHMMPorts(NewService(staticRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil))
 	ctx := managedSubscriptionContext(auth.SubscriptionProviderCodex)
 	selected := router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Metadata: &router.RoutingMetadata{CandidateModels: []string{codexCoveredModel, "gpt-6-sol", "gpt-6.1-sol"}}}
 	request := router.Request{

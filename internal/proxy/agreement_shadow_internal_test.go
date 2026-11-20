@@ -189,7 +189,7 @@ func (r *agreementTelemetry) CompareAndSwapAgreementShadow(_ context.Context, _ 
 
 func TestAgreementShadowRecordsOnlyAfterBaselineTelemetryAndHandlesFailures(t *testing.T) {
 	store := &agreementTelemetry{auxTelemetryRepo: &auxTelemetryRepo{}, notify: make(chan struct{}, 1)}
-	svc := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, telemetry: store}
+	svc := &Service{hmmServing: hmmPorts(), telemetry: store}
 	p, res := agreementFixture()
 	applyAgreementShadowTelemetry(hmm.ServingPorts(), agreementContext(policyregistry.TargetInternal, true), &p, res)
 	svc.fireTelemetry(t.Context(), p)
@@ -222,7 +222,7 @@ func TestAgreementShadowRecordsOnlyAfterBaselineTelemetryAndHandlesFailures(t *t
 
 func TestAgreementShadowStoreErrorDoesNotLoseBaselineTelemetry(t *testing.T) {
 	store := &agreementTelemetry{auxTelemetryRepo: &auxTelemetryRepo{}, fail: true}
-	svc := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, telemetry: store}
+	svc := &Service{hmmServing: hmmPorts(), telemetry: store}
 	p, res := agreementFixture()
 	applyAgreementShadowTelemetry(hmm.ServingPorts(), agreementContext(policyregistry.TargetInternal, true), &p, res)
 	svc.fireTelemetry(t.Context(), p)
@@ -241,7 +241,7 @@ func (agreementFailureRouter) Route(context.Context, router.Request) (router.Dec
 func TestAgreementShadowRoutingRefusalBreaksHistoryWithoutDispatch(t *testing.T) {
 	store := &agreementTelemetry{auxTelemetryRepo: &auxTelemetryRepo{}, notify: make(chan struct{}, 1)}
 	pins := newStubPinStore()
-	svc := WithStrategyPorts(NewService(agreementFailureRouter{}, nil, nil, pins, false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, store), hmm.ServingPorts()).
+	svc := withHMMPorts(NewService(agreementFailureRouter{}, nil, nil, pins, false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, store)).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: agreementFailureRouter{}, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}})
 	env, err := translate.ParseAnthropic([]byte(`{"model":"weave-auto","messages":[{"role":"user","content":"synthetic routing test"}]}`))
 	if err != nil {

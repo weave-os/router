@@ -9,7 +9,6 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -51,8 +50,8 @@ func TestCodexCompactionPreservesUntypedResponsesStream(t *testing.T) {
 		{name: "forced model", forceModel: "gpt-5.6-sol"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			svc := WithStrategyPorts(NewService(untypedResponsesRouter{}, map[string]providers.Client{providers.ProviderOpenAI: untypedResponsesStreamProvider{}},
-				nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-luna", nil), hmm.ServingPorts())
+			svc := withHMMPorts(NewService(untypedResponsesRouter{}, map[string]providers.Client{providers.ProviderOpenAI: untypedResponsesStreamProvider{}},
+				nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-luna", nil))
 
 			body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[` +
 				`{"type":"message","role":"user","content":[{"type":"input_text","text":"Fix the bug."}]},` +

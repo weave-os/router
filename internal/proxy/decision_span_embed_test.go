@@ -12,7 +12,6 @@ import (
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 
 	"github.com/stretchr/testify/assert"
@@ -97,8 +96,8 @@ func newEmbedTestService(t *testing.T, collector *bypassSpanCollector, rt router
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = emitter.Shutdown(context.Background()) })
-	return WithStrategyPorts(NewService(rt, map[string]providers.Client{providers.ProviderAnthropic: embedTestProvider{}, providers.ProviderGoogle: embedTestProvider{}}, emitter, pins, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
+	return withHMMPorts(NewService(rt, map[string]providers.Client{providers.ProviderAnthropic: embedTestProvider{}, providers.ProviderGoogle: embedTestProvider{}}, emitter, pins, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 }
 

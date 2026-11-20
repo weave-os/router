@@ -17,7 +17,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 )
 
@@ -153,8 +152,8 @@ func TestRecoveryAcceptanceCooldownExpiryAdmitsOneConcurrentProbe(t *testing.T) 
 		hmmHistoryRole(roleForTier(catalog.TierFor(catalog.ModelGPT6Luna))): {Strategy: router.StrategyHMMEmbedding, DemotionCooldowns: map[string]time.Time{catalog.ModelGPT6Luna: rateLimitTestNow}},
 	}}, reads: make(chan recoveryBucketRead, 128)}
 	sibling := &recoveryAlternativeClient{}
-	svc := WithStrategyPorts(NewService(scorer, map[string]providers.Client{providers.ProviderOpenAIGateway: provider, providers.ProviderAnthropicGateway: sibling},
-		nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil), hmm.ServingPorts()).
+	svc := withHMMPorts(NewService(scorer, map[string]providers.Client{providers.ProviderOpenAIGateway: provider, providers.ProviderAnthropicGateway: sibling},
+		nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil)).
 		WithTransientRateLimit(true, 45)
 	now := rateLimitTestNow.Add(-time.Nanosecond)
 	svc.clock = func() time.Time { return now }

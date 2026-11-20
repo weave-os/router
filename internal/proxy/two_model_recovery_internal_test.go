@@ -35,9 +35,9 @@ func TestTwoModelGatewayRecoveryReadmitsStruckSibling(t *testing.T) {
 		SidecarRescuePool: []string{recoveryOpusModel},
 		CandidateModels:   []string{catalog.ModelGPT6Luna},
 	}}
-	svc := WithStrategyPorts(NewService(staticRouter{decision: decision}, map[string]providers.Client{
+	svc := withHMMPorts(NewService(staticRouter{decision: decision}, map[string]providers.Client{
 		providers.ProviderOpenAIGateway: primary, providers.ProviderAnthropicGateway: sibling,
-	}, nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil), hmm.ServingPorts()).
+	}, nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil)).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil })
 	svc.clock = func() time.Time { return rateLimitTestNow }
 	body := []byte(`{"model":"gpt-6-luna","stream":true,"messages":[{"role":"user","content":"synthetic exhausted pool"}]}`)
@@ -259,10 +259,10 @@ func TestTwoModelGatewayRecoveryRetriesThenRecordsWithdrawal(t *testing.T) {
 				RescueModels:    []string{catalog.ModelGPT6Luna, recoveryOpusModel},
 				CandidateModels: []string{catalog.ModelGPT6Luna, recoveryOpusModel},
 			}}
-			svc := WithStrategyPorts(NewService(staticRouter{decision: decision}, map[string]providers.Client{
+			svc := withHMMPorts(NewService(staticRouter{decision: decision}, map[string]providers.Client{
 				providers.ProviderOpenAIGateway:    primary,
 				providers.ProviderAnthropicGateway: sibling,
-			}, nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil), hmm.ServingPorts()).
+			}, nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil)).
 				WithRescuedFailureArmDemotion(true).WithTransientRateLimit(scenario.transient, 45)
 			now := rateLimitTestNow
 			svc.clock = func() time.Time { return now }

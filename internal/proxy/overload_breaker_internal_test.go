@@ -18,7 +18,6 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/breaker"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/hmm"
 
 	"github.com/google/uuid"
 )
@@ -88,10 +87,10 @@ func newOverloadHarness(enabled bool) *overloadHarness {
 	}
 	now := func() time.Time { return h.clock }
 	registry := breaker.New(breaker.Config{Strikes: 2, Window: time.Minute, OrgConfirmations: 2, RecoveryBase: 30 * time.Second, RecoveryCap: 2 * time.Minute}, now)
-	h.svc = WithStrategyPorts(NewService(h.router, map[string]providers.Client{
+	h.svc = withHMMPorts(NewService(h.router, map[string]providers.Client{
 		providers.ProviderAnthropic: h.primary,
 		providers.ProviderOpenAI:    h.sibling,
-	}, nil, &demotionStubPinStore{}, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
+	}, nil, &demotionStubPinStore{}, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenAI: {}}).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil }).
 		WithProviderOverloaded(enabled, registry)
@@ -468,10 +467,10 @@ func TestOverloadBreaker_GatewayTwoModelRosterStillServes(t *testing.T) {
 		CandidateModels: []string{catalog.ModelGPT6Luna, recoveryOpusModel},
 	}}
 	registry := breaker.New(breaker.Config{Strikes: 1, Window: time.Minute, OrgConfirmations: 1, RecoveryBase: time.Hour}, nil)
-	svc := WithStrategyPorts(NewService(staticRouter{decision: decision}, map[string]providers.Client{
+	svc := withHMMPorts(NewService(staticRouter{decision: decision}, map[string]providers.Client{
 		providers.ProviderOpenAIGateway:    primary,
 		providers.ProviderAnthropicGateway: sibling,
-	}, nil, &cooldownStubPinStore{}, false, providers.ProviderAnthropic, recoveryOpusModel, nil), hmm.ServingPorts()).
+	}, nil, &cooldownStubPinStore{}, false, providers.ProviderAnthropic, recoveryOpusModel, nil)).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil }).
 		WithProviderOverloaded(true, registry)
 	ctx := twoModelGatewayContext()
@@ -491,7 +490,7 @@ func TestOverloadBreaker_GatewayTwoModelRosterStillServes(t *testing.T) {
 func TestOverloadBreaker_GatewayOrganizationProbesItsOwnCircuit(t *testing.T) {
 	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
 	registry := breaker.New(breaker.Config{Strikes: 1, Window: time.Minute, OrgConfirmations: 1, RecoveryBase: 30 * time.Second}, func() time.Time { return now })
-	svc := WithStrategyPorts(NewService(nil, nil, nil, nil, false, providers.ProviderAnthropic, recoveryOpusModel, nil), hmm.ServingPorts()).
+	svc := withHMMPorts(NewService(nil, nil, nil, nil, false, providers.ProviderAnthropic, recoveryOpusModel, nil)).
 		WithProviderOverloaded(true, registry)
 	ctx := twoModelGatewayContext()
 	registry.RecordOverload(installationIDFromContext(ctx).String(), recoveryOpusModel, true)

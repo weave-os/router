@@ -12,7 +12,6 @@ import (
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
 )
@@ -22,7 +21,7 @@ import (
 // serve the forced model instead.
 func TestSubscriptionStateForcedModelThrottledPoolFundsCredits(t *testing.T) {
 	openAI := &fakeClient{name: providers.ProviderOpenAI, outcomes: []fakeOutcome{{writeBytes: []byte("paid answer")}}}
-	svc := WithStrategyPorts(NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderOpenAI: openAI}, nil, nil, false, "", "", nil), hmm.ServingPorts()).
+	svc := withHMMPorts(NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderOpenAI: openAI}, nil, nil, false, "", "", nil)).
 		WithManagedSubscriptions(&stateModelLeaser{})
 	seats := []*auth.SubscriptionAccount{activeCodexAccount("seat-1"), activeCodexAccount("seat-2")}
 	ctx := WithManagedSubscriptionCandidates(WithManagedSubscriptionUsage(managedSubscriptionContext(auth.SubscriptionProviderCodex)), seats)

@@ -20,7 +20,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/translate"
 )
 
@@ -28,7 +27,7 @@ func attributionService(t *testing.T, sink *recordingAttemptSink, clients map[st
 	t.Helper()
 	executor, err := dispatch.NewExecutor(dispatch.NewClients(clients), dispatch.WithAttemptSink(sink))
 	require.NoError(t, err)
-	return (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}).WithInferenceExecutor(executor)
+	return (&Service{hmmServing: hmmPorts()}).WithInferenceExecutor(executor)
 }
 
 func TestDispatchPlanned_TranslatedRejectionIsRouterOwned(t *testing.T) {

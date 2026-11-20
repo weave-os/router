@@ -14,7 +14,6 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -90,14 +89,14 @@ func (s *demotionStubPinStore) Consume(context.Context, [sessionpin.SessionKeyLe
 func (s *demotionStubPinStore) SweepExpired(context.Context) error { return nil }
 
 func newDemotionTestService(store sessionpin.Store, flagOn bool) *Service {
-	return WithStrategyPorts(NewService(
+	return withHMMPorts(NewService(
 		nil,
 		nil,
 		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil), hmm.ServingPorts()).
+		nil)).
 		WithCommittedStreamArmDemotion(flagOn)
 }
 
@@ -127,7 +126,7 @@ func TestMaybeDemoteArmAfterUnrescuedStall(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &demotionStubPinStore{}
-			svc := WithStrategyPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
+			svc := withHMMPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 				WithRescuedFailureArmDemotion(tc.flagOn)
 			ctx := context.Background()
 			if tc.cancelled {
@@ -479,14 +478,14 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_PersistsWithoutExistingRow(t 
 }
 
 func newRescuedDemotionTestService(store sessionpin.Store, flagOn bool) *Service {
-	return WithStrategyPorts(NewService(
+	return withHMMPorts(NewService(
 		nil,
 		nil,
 		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil), hmm.ServingPorts()).
+		nil)).
 		WithRescuedFailureArmDemotion(flagOn)
 }
 
@@ -592,8 +591,8 @@ func TestUnrescuedResponseHeaderTimeoutExcludesPrimaryOnNextTurn(t *testing.T) {
 		Model:    freshTurnModel,
 		Reason:   "response-header-timeout-next-turn",
 	}}
-	nextTurnService := WithStrategyPorts(NewService(nil, nil, nil, &rolePinStore{byRole: store.rows}, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
+	nextTurnService := withHMMPorts(NewService(nil, nil, nil, &rolePinStore{byRole: store.rows}, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: strategy,
 			Router:   scorer,

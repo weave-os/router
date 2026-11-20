@@ -12,7 +12,6 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
 
@@ -84,7 +83,7 @@ func runRescueBypassOn(t *testing.T, p *modelScriptedProvider, retry bool, strea
 }
 
 func rescueService(p *modelScriptedProvider, retry bool, fallbackModel string) (*Service, *bypassCaptureTelemetry) {
-	svc := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: p})}
+	svc := &Service{hmmServing: hmmPorts(), clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: p})}
 	svc.anthropicServerSideFallback = true
 	svc.cyberRefusalRetry = retry
 	svc.cyberRefusalFallbackModel = fallbackModel

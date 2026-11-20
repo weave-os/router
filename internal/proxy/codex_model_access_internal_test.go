@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"weave-os/router/internal/credentials"
-	"weave-os/router/internal/router/hmm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,7 +15,7 @@ import (
 func TestCodexSubscriptionModelRejectionSuppressesLaterOAuthResolution(t *testing.T) {
 	const model = "gpt-6-astra"
 	ctx := codexSubscriptionTestCtx()
-	svc := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}}}
+	svc := &Service{hmmServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}}}
 	err := &providers.UpstreamErrorResponse{
 		Status: http.StatusNotFound,
 		Body:   []byte(`{"error":{"code":"model_not_found","param":"model"}}`),

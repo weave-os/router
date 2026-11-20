@@ -15,7 +15,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/translate"
 )
@@ -201,7 +200,7 @@ func TestDispatchPlanned_RecordsAttemptProvenance(t *testing.T) {
 		providers.ProviderFireworks: primary, providers.ProviderOpenRouter: fallback,
 	}), dispatch.WithAttemptSink(sink))
 	require.NoError(t, err)
-	s := (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}).WithInferenceExecutor(executor)
+	s := (&Service{hmmServing: hmmPorts()}).WithInferenceExecutor(executor)
 
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)

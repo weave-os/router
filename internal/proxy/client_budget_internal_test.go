@@ -7,7 +7,6 @@ import (
 
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
@@ -98,7 +97,7 @@ func TestClientBudgetRecomputedAcrossSameSessionAndAgents(t *testing.T) {
 	} {
 		budget := resolveClientBudget(clientIdentity, nil, tt.model, tt.variant)
 		parent = requestcontext.WithClientBudget(parent, budget)
-		svc := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}
+		svc := &Service{hmmServing: hmmPorts()}
 		req := svc.withPolicyRequestContext(parent, router.Request{})
 		assert.Equal(t, tt.window, req.ClientBudget.DefaultWindow)
 	}

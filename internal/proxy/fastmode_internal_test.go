@@ -13,7 +13,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 
@@ -33,11 +32,11 @@ func fastModeCtx(models ...string) context.Context {
 
 func newFastModeService(decision router.Decision, upstream providers.Client) *Service {
 	telemetry := newBypassCaptureTelemetry()
-	svc := WithStrategyPorts(NewService(staticRouter{decision: decision}, map[string]providers.Client{
+	svc := withHMMPorts(NewService(staticRouter{decision: decision}, map[string]providers.Client{
 		providers.ProviderAnthropic:  upstream,
 		providers.ProviderOpenAI:     upstream,
 		providers.ProviderOpenRouter: upstream,
-	}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", telemetry), hmm.ServingPorts())
+	}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", telemetry))
 
 	return svc
 }

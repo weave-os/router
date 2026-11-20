@@ -12,7 +12,6 @@ import (
 
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/inference"
-	"weave-os/router/internal/router/hmm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -70,10 +69,10 @@ func codexOverloadService(primary, sibling providers.Client, withSibling bool) *
 			CandidateProviders: map[string]string{overloadRescuerModel: providers.ProviderAnthropic},
 		}
 	}
-	svc := WithStrategyPorts(NewService(
+	svc := withHMMPorts(NewService(
 		staticRouter{decision: decision},
 		map[string]providers.Client{providers.ProviderOpenAI: planClient{primary}, providers.ProviderAnthropic: planClient{sibling}},
-		nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil), hmm.ServingPorts()).
+		nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}, providers.ProviderAnthropic: {}}).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil }).
 		WithSiblingFailover(true)
@@ -269,24 +268,24 @@ func emptyCompletion502() error {
 func TestSubscriptionSiblingAllowed(t *testing.T) {
 	oauth := &Credentials{APIKey: []byte("tok"), AccountID: []byte("acct"), Source: credSourceCodexSubscription, OAuth: true}
 	t.Run("subscription OAuth permits sibling rescue", func(t *testing.T) {
-		s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}
+		s := &Service{hmmServing: hmmPorts()}
 		ctx := context.WithValue(context.Background(), CredentialsContextKey{}, oauth)
 		assert.False(t, s.shouldFailover(ctx), "generic binding failover stays off for an OAuth credential")
 		assert.True(t, s.subscriptionSiblingAllowed(ctx))
 	})
 	t.Run("BYOK credential does not", func(t *testing.T) {
-		s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}
+		s := &Service{hmmServing: hmmPorts()}
 		ctx := context.WithValue(context.Background(), CredentialsContextKey{}, &Credentials{APIKey: []byte("sk-byok"), Source: credSourceBYOK})
 		assert.False(t, s.subscriptionSiblingAllowed(ctx))
 	})
 	t.Run("BYOK keys on the request keep the generic rule", func(t *testing.T) {
-		s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}
+		s := &Service{hmmServing: hmmPorts()}
 		ctx := context.WithValue(context.Background(), CredentialsContextKey{}, oauth)
 		ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderMakora, Plaintext: []byte("mk")}})
 		assert.False(t, s.subscriptionSiblingAllowed(ctx))
 	})
 	t.Run("BYOK-only deployment never rescues", func(t *testing.T) {
-		s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, credentials: credentials.Brokerage{BYOKOnly: true}}
+		s := &Service{hmmServing: hmmPorts(), credentials: credentials.Brokerage{BYOKOnly: true}}
 		ctx := context.WithValue(context.Background(), CredentialsContextKey{}, oauth)
 		assert.False(t, s.subscriptionSiblingAllowed(ctx))
 	})
@@ -297,7 +296,7 @@ func TestSubscriptionSiblingAllowed(t *testing.T) {
 // never qualifies and the mark expires with its cooldown.
 func TestAuthorizeSubscriptionAPI_ProviderOverloadAuthorizesPaidRescue(t *testing.T) {
 	now := time.Now()
-	svc := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, clock: func() time.Time { return now }}
+	svc := &Service{hmmServing: hmmPorts(), clock: func() time.Time { return now }}
 	ctx := WithManagedSubscriptionUsage(context.Background())
 	ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "acct-1", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive}})
 

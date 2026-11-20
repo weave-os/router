@@ -14,7 +14,6 @@ import (
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/subscriptions"
 
 	"github.com/stretchr/testify/assert"
@@ -49,7 +48,7 @@ func TestVerificationSafeTransportInboundOAuthUsesLinkedWithoutAPI(t *testing.T)
 	client := openai.NewClient("", upstream.URL)
 	client.SetCodexBaseURL(upstream.URL)
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "linked-account", AccessToken: "linked-token", ProviderAccount: "linked-provider-account"}}}
-	svc := WithStrategyPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil), hmm.ServingPorts()).WithManagedSubscriptions(leaser)
+	svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).WithManagedSubscriptions(leaser)
 	body := []byte(`{"model":"auto","stream":true,"messages":[{"role":"user","content":"inspect synthetic input"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object","properties":{"path":{"type":"string"}}}}}],"reasoning_effort":"medium"}`)
 	ctx := context.WithValue(codexSubscriptionTestCtx(), APIKeyIDContextKey{}, "synthetic-key")
 	ctx = context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderCodex: {}})
@@ -88,7 +87,7 @@ func TestVerificationSafeTransportManagedWinnerQuotaObservedFromHTTP(t *testing.
 	client.SetCodexBaseURL(upstream.URL)
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "quota-account", AccessToken: "quota-token", ProviderAccount: "quota-provider-account"}}}
 	observer := usage.NewObserver([]byte("synthetic-salt"), time.Hour, time.Now)
-	svc := WithStrategyPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil), hmm.ServingPorts()).WithManagedSubscriptions(leaser).WithUsageObserver(observer)
+	svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).WithManagedSubscriptions(leaser).WithUsageObserver(observer)
 	body := []byte(`{"model":"auto","stream":true,"messages":[{"role":"user","content":"inspect synthetic quota"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`)
 	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 	recorder := httptest.NewRecorder()

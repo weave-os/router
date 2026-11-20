@@ -15,7 +15,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/subscriptions"
 )
 
@@ -62,7 +61,7 @@ func TestManagedPoolOverloadIsRememberedAcrossRequests(t *testing.T) {
 		{AccountID: "first", AccessToken: "first-seat", ProviderAccount: "first-provider"},
 		{AccountID: "second", AccessToken: "second-seat", ProviderAccount: "second-provider"},
 	}}}
-	svc := WithStrategyPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil), hmm.ServingPorts()).
+	svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).
 		WithManagedSubscriptions(leaser).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 	svc.retrySleep = noopSleep

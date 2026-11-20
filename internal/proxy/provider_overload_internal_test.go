@@ -10,7 +10,6 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 
@@ -91,14 +90,14 @@ func (s *overloadStubPinStore) Consume(context.Context, [sessionpin.SessionKeyLe
 func (s *overloadStubPinStore) SweepExpired(context.Context) error { return nil }
 
 func newOverloadTestService(store *overloadStubPinStore) *Service {
-	return WithStrategyPorts(NewService(
+	return withHMMPorts(NewService(
 		nil,
 		nil,
 		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil), hmm.ServingPorts())
+		nil))
 
 }
 

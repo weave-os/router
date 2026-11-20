@@ -11,7 +11,6 @@ import (
 	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 
@@ -99,14 +98,14 @@ func (s *evictionStubPinStore) Consume(_ context.Context, key [sessionpin.Sessio
 func (s *evictionStubPinStore) SweepExpired(context.Context) error { return nil }
 
 func newEvictionTestService(store *evictionStubPinStore) *Service {
-	return WithStrategyPorts(NewService(
+	return withHMMPorts(NewService(
 		nil,
 		nil,
 		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil), hmm.ServingPorts())
+		nil))
 
 }
 

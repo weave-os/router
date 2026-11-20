@@ -12,7 +12,6 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 )
 
@@ -23,7 +22,7 @@ func escalationCompletionContext() context.Context {
 }
 
 func newEscalationCompletionService(store *escalationTestStore, observer *escalationTestObserver, clients map[string]providers.Client) *Service {
-	return WithStrategyPorts(NewService(nil, clients, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-opus-4-8", nil), hmm.ServingPorts()).
+	return withHMMPorts(NewService(nil, clients, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-opus-4-8", nil)).
 		WithEscalation(store, observer).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: escalationDispatchRouter{}, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: true}})
 }

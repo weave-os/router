@@ -258,7 +258,7 @@ func TestACappedTreatmentTurnLeavesTheSessionPinAsControlWouldHaveLeftIt(t *test
 			Provider: providers.ProviderAnthropic, Model: "claude-opus-4-7", Reason: "cluster:v0.2", PolicyGroup: "high",
 			TurnCount: 3, PinnedUntil: time.Now().Add(time.Hour), LastTurnEndedAt: time.Now().Add(-time.Minute), LastOutputTokens: 9,
 		}
-		svc := WithStrategyPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
+		svc := withHMMPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 			EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).
 			WithPolicyStrategy(policy.StrategySpec{
 				Strategy:     strategy,

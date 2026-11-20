@@ -18,7 +18,6 @@ import (
 	"weave-os/router/internal/router/armid"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/escalation"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/hmm/selection"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/rosterdata"
@@ -83,7 +82,7 @@ func TestClassifierDispatchAcrossProtocols(t *testing.T) {
 			})
 			upstream := &classifierResponseProvider{}
 			baseline := &betaTestRouter{}
-			svc := WithStrategyPorts(NewService(baseline, map[string]providers.Client{test.provider: upstream}, nil, nil, false, test.provider, test.model, nil), hmm.ServingPorts())
+			svc := withHMMPorts(NewService(baseline, map[string]providers.Client{test.provider: upstream}, nil, nil, false, test.provider, test.model, nil))
 			require.NoError(t, svc.WithClassifierSessions(fixtureService.classifierSessions.config, store, fixtureService.classifierSessions.classifier))
 			escalationClasses := []string{string(escalation.Low), string(escalation.Medium), string(escalation.High), string(escalation.Maximum)}
 			roster := &rosterdata.Roster{SchemaVersion: rosterdata.SchemaVersionPolicyV1, SHA256: strings.Repeat("b", 64), ClassOrder: escalationClasses, Clusters: map[string]rosterdata.Cluster{}}
@@ -168,7 +167,7 @@ func TestClassifierDispatchUsesConfiguredSubscriptionState(t *testing.T) {
 	const model = "claude-sonnet-4-6"
 	fixtureService, principal, store := classifierSessionFixture(t, classifierMedium)
 	upstream := &classifierResponseProvider{}
-	svc := WithStrategyPorts(NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, nil, false, "", "", nil), hmm.ServingPorts())
+	svc := withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, nil, false, "", "", nil))
 	require.NoError(t, svc.WithClassifierSessions(fixtureService.classifierSessions.config, store, fixtureService.classifierSessions.classifier))
 	ctx := classifierAdmit(t, svc, principal)
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{model})
@@ -197,7 +196,7 @@ func TestClassifierRecapServesWithoutAnchoringPin(t *testing.T) {
 	fixtureService, principal, store := classifierSessionFixture(t, classifierMedium)
 	upstream := &classifierResponseProvider{}
 	pins := newStubPinStore()
-	svc := WithStrategyPorts(NewService(&betaTestRouter{}, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, pins, false, providers.ProviderAnthropic, model, nil), hmm.ServingPorts())
+	svc := withHMMPorts(NewService(&betaTestRouter{}, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, pins, false, providers.ProviderAnthropic, model, nil))
 	require.NoError(t, svc.WithClassifierSessions(fixtureService.classifierSessions.config, store, fixtureService.classifierSessions.classifier))
 	escalationClasses := []string{string(escalation.Low), string(escalation.Medium), string(escalation.High), string(escalation.Maximum)}
 	roster := &rosterdata.Roster{SchemaVersion: rosterdata.SchemaVersionPolicyV1, SHA256: strings.Repeat("b", 64), ClassOrder: escalationClasses, Clusters: map[string]rosterdata.Cluster{}}
@@ -265,7 +264,7 @@ func TestClassifierUtilityRequestsDoNotEstablishThreadRoot(t *testing.T) {
 	upstream := &classifierResponseProvider{}
 	baseline := &betaTestRouter{}
 	pins := newStubPinStore()
-	svc := WithStrategyPorts(NewService(baseline, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, pins, false, providers.ProviderAnthropic, utilityModel.String(), nil), hmm.ServingPorts())
+	svc := withHMMPorts(NewService(baseline, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, pins, false, providers.ProviderAnthropic, utilityModel.String(), nil))
 	require.NoError(t, svc.WithClassifierSessions(fixture.classifierSessions.config, store, fixture.classifierSessions.classifier))
 	ctx := classifierAdmit(t, svc, principal)
 	for _, utility := range []struct {

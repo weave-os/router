@@ -11,7 +11,6 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -49,10 +48,10 @@ func TestProxyOpenAIResponses_NativeStreamCompletionDoesNotReplayOutput(t *testi
 		for _, interrupt := range []bool{false, true} {
 			t.Run(fmt.Sprintf("client=%s/interrupted=%t", clientApp, interrupt), func(t *testing.T) {
 				client := &sparseResponsesClient{interrupt: interrupt}
-				svc := WithStrategyPorts(NewService(
+				svc := withHMMPorts(NewService(
 					staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "test"}},
 					map[string]providers.Client{providers.ProviderOpenAI: client},
-					nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
+					nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil))
 
 				svc.retrySleep = noopSleep
 				ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: clientApp})

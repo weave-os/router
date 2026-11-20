@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"weave-os/router/internal/proxy/usage"
-	"weave-os/router/internal/router/hmm"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -33,5 +32,5 @@ func conditionalModelsObserver(snapshot usage.Snapshot) *usage.Observer {
 func TestPreferredModelsForRequest_SeparatesInstallationAndSubscriptionPreferences(t *testing.T) {
 	ctx := context.WithValue(context.Background(), InstallationPreferredModelsContextKey{}, []string{"grok-4.1-fast", "gpt-5.6-sol"})
 
-	assert.Equal(t, []string{"grok-4.1-fast", "gpt-5.6-sol"}, (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}).preferredModelsForRequest(ctx))
+	assert.Equal(t, []string{"grok-4.1-fast", "gpt-5.6-sol"}, (&Service{hmmServing: hmmPorts()}).preferredModelsForRequest(ctx))
 }

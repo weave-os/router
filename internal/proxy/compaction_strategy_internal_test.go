@@ -14,7 +14,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
@@ -26,8 +25,8 @@ const compactionStrategyModel = "gpt-6.1-terra"
 
 func TestCodexCompactionAfterAutoReview(t *testing.T) {
 	store := newForceModelMapStore()
-	svc := WithStrategyPorts(NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: nil}, nil, store, false,
-		providers.ProviderAnthropic, policy.UtilityHardPinDefaultModel, nil), hmm.ServingPorts()).
+	svc := withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: nil}, nil, store, false,
+		providers.ProviderAnthropic, policy.UtilityHardPinDefaultModel, nil)).
 		WithAvailableModels(map[string]struct{}{compactionStrategyModel: {}}).
 		WithHardPinResolver(CatalogUtilityHardPin)
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex, SessionID: "compaction-strategy-test"})
@@ -99,8 +98,8 @@ func TestCodexCompactionDispatchAcrossStrategies(t *testing.T) {
 			Strategy: router.StrategyHMMEmbedding, LastTurnEndedAt: time.Now(),
 		},
 	}}
-	svc := WithStrategyPorts(NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: untypedResponsesStreamProvider{}},
-		nil, store, false, providers.ProviderAnthropic, policy.UtilityHardPinDefaultModel, nil), hmm.ServingPorts()).
+	svc := withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: untypedResponsesStreamProvider{}},
+		nil, store, false, providers.ProviderAnthropic, policy.UtilityHardPinDefaultModel, nil)).
 		WithHardPinResolver(func(HardPinRequest) (string, string, bool) { return "", "", false })
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMM)
 	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})

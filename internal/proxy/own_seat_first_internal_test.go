@@ -18,7 +18,6 @@ import (
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/subscriptions"
 )
 
@@ -59,7 +58,7 @@ func TestOwnSeatFirstOrdersCallerLoginAgainstManagedPool(t *testing.T) {
 				observer.Record(observer.Key([]byte(parityAnthropicToken)), snapshot)
 			}
 			client := anthropic.NewClient("synthetic-paid-key", upstream.URL)
-			service := WithStrategyPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}}, map[string]providers.Client{providers.ProviderAnthropic: client}, nil, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String(), nil), hmm.ServingPorts()).
+			service := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}}, map[string]providers.Client{providers.ProviderAnthropic: client}, nil, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String(), nil)).
 				WithManagedSubscriptions(leaser).
 				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
 				WithUsageObserver(observer)

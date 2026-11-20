@@ -17,7 +17,6 @@ import (
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -31,7 +30,7 @@ func handoffTestService() (*Service, *betaTestRouter, *betaCaptureProvider, cont
 		Metadata: &router.RoutingMetadata{PolicyGroup: "high", AuthoritativePerTurnSelection: true},
 	}}
 	upstream := &betaCaptureProvider{}
-	svc := WithStrategyPorts(NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
+	svc := withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithPiHandoffSecret(strings.Repeat("test-secret-", 4)).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: classifier, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}})
 	ctx := context.WithValue(context.Background(), APIKeyIDContextKey{}, "handoff-test-key")

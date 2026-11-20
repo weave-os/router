@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/router/escalationdashboard"
-	"weave-os/router/internal/router/hmm"
 )
 
 type escalationDashboardStoreStub struct {
@@ -44,7 +43,7 @@ func TestEscalationDashboardCapturesSnapshotTimeAndReturnsStoreResult(t *testing
 			Sessions:         []escalationdashboard.Session{{}, {}},
 		},
 	}}
-	service := (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}).WithEscalationDashboard(store)
+	service := (&Service{hmmServing: hmmPorts()}).WithEscalationDashboard(store)
 	before := time.Now().UTC()
 
 	snapshot, err := service.EscalationDashboard(context.Background(), escalationdashboard.Filter{
@@ -80,7 +79,7 @@ func TestEscalationDashboardReadsContinuationFromSameSnapshot(t *testing.T) {
 		},
 	}}
 
-	snapshot, err := (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}).WithEscalationDashboard(store).EscalationDashboard(
+	snapshot, err := (&Service{hmmServing: hmmPorts()}).WithEscalationDashboard(store).EscalationDashboard(
 		context.Background(), escalationdashboard.Filter{Limit: 50, Cursor: cursor},
 	)
 
@@ -100,15 +99,15 @@ func TestEscalationDashboardReadsContinuationFromSameSnapshot(t *testing.T) {
 }
 
 func TestEscalationDashboardRejectsInvalidPageAndPropagatesStoreErrors(t *testing.T) {
-	service := (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}).WithEscalationDashboard(&escalationDashboardStoreStub{})
+	service := (&Service{hmmServing: hmmPorts()}).WithEscalationDashboard(&escalationDashboardStoreStub{})
 	_, err := service.EscalationDashboard(context.Background(), escalationdashboard.Filter{Limit: 0})
 	require.ErrorContains(t, err, "invalid escalation dashboard page")
 
 	wantErr := errors.New("snapshot failed")
-	service = (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}).WithEscalationDashboard(&escalationDashboardStoreStub{err: wantErr})
+	service = (&Service{hmmServing: hmmPorts()}).WithEscalationDashboard(&escalationDashboardStoreStub{err: wantErr})
 	_, err = service.EscalationDashboard(context.Background(), escalationdashboard.Filter{Limit: 50})
 	require.ErrorIs(t, err, wantErr)
 
-	_, err = (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}).EscalationDashboard(context.Background(), escalationdashboard.Filter{Limit: 50})
+	_, err = (&Service{hmmServing: hmmPorts()}).EscalationDashboard(context.Background(), escalationdashboard.Filter{Limit: 50})
 	require.ErrorIs(t, err, ErrEscalationJudgeUnavailable)
 }

@@ -118,7 +118,7 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 				Reason:   "authoritative-test_policy",
 			}}
 			summarizer := &authoritativeHandoverSummarizer{}
-			svc := WithStrategyPorts(NewService(
+			svc := withHMMPorts(NewService(
 				nil,
 				nil,
 				nil,
@@ -126,7 +126,7 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 				false,
 				providers.ProviderAnthropic,
 				"claude-haiku-4-5",
-				nil), hmm.ServingPorts()).
+				nil)).
 				EditContinuityConfig(func(c *continuity.Config) {
 					c.ScoreToolResultTurns = false
 					c.Planner = planner.EVConfig{ThresholdUSD: 1_000_000, ExpectedRemainingTurns: 3}
@@ -215,7 +215,7 @@ func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
 		Provider: providers.ProviderAnthropic,
 		Model:    "claude-opus-4-8",
 	}}
-	svc := WithStrategyPorts(NewService(
+	svc := withHMMPorts(NewService(
 		nil,
 		nil,
 		nil,
@@ -223,7 +223,7 @@ func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil), hmm.ServingPorts()).
+		nil)).
 		EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).WithPolicyStrategy(policy.StrategySpec{
 		Strategy: strategy,
 		Router:   policyRouter,
@@ -394,7 +394,7 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 				PinnedUntil: time.Now().Add(time.Hour),
 			}
 			policyRouter := &authoritativeTestRouter{decision: test.fresh}
-			svc := WithStrategyPorts(NewService(
+			svc := withHMMPorts(NewService(
 				nil,
 				nil,
 				nil,
@@ -402,7 +402,7 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 				false,
 				providers.ProviderAnthropic,
 				"claude-haiku-4-5",
-				nil), hmm.ServingPorts()).
+				nil)).
 				EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).WithPolicyStrategy(policy.StrategySpec{
 				Strategy: strategy,
 				Router:   policyRouter,

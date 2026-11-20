@@ -10,7 +10,6 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 
@@ -41,10 +40,10 @@ func TestLoopBreaksDoNotNameModelForBlindExperimentSubjects(t *testing.T) {
 		require.NoError(t, err)
 		for name, run := range map[string]func(context.Context, http.ResponseWriter) error{
 			"no_progress": func(ctx context.Context, w http.ResponseWriter) error {
-				return (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}).handleNoProgressBreak(ctx, w, env, 3, sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-served-model", providers.ProviderOpenAI, 1)
+				return (&Service{hmmServing: hmmPorts()}).handleNoProgressBreak(ctx, w, env, 3, sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-served-model", providers.ProviderOpenAI, 1)
 			},
 			"text_repetition": func(ctx context.Context, w http.ResponseWriter) error {
-				return (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}).handleTextRepetitionBreak(ctx, w, env, 3, "synthetic", sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-served-model", providers.ProviderOpenAI, 1)
+				return (&Service{hmmServing: hmmPorts()}).handleTextRepetitionBreak(ctx, w, env, 3, "synthetic", sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-served-model", providers.ProviderOpenAI, 1)
 			},
 		} {
 			rec := httptest.NewRecorder()

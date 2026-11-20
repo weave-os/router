@@ -16,7 +16,6 @@ import (
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
 )
 
 // A caller whose own ChatGPT plan is spent must not be re-preflighted on every
@@ -45,7 +44,7 @@ func TestCodexOwnPlanSpentIsRememberedAcrossTurns(t *testing.T) {
 	defer server.Close()
 	client := openai.NewClient("weave-capacity", server.URL)
 	client.SetCodexBaseURL(server.URL)
-	svc := WithStrategyPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil), hmm.ServingPorts()).
+	svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).
 		WithUsageObserver(usage.NewObserver([]byte("test-salt"), time.Hour, time.Now))
 
@@ -89,7 +88,7 @@ func TestCodexOwnTokenRejectionIsRememberedAcrossTurns(t *testing.T) {
 	defer server.Close()
 	client := openai.NewClient("weave-capacity", server.URL)
 	client.SetCodexBaseURL(server.URL)
-	svc := WithStrategyPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil), hmm.ServingPorts()).
+	svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).
 		WithUsageObserver(usage.NewObserver([]byte("test-salt"), time.Hour, time.Now))
 

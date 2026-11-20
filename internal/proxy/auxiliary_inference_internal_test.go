@@ -12,7 +12,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/handover"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/llmescalation"
 	"weave-os/router/internal/router/policy"
 
@@ -170,7 +169,7 @@ func auxTestService(t *testing.T) (*Service, *auxBillingRepo, *auxTelemetryRepo)
 	t.Helper()
 	billingRepo := &auxBillingRepo{}
 	telemetryRepo := &auxTelemetryRepo{}
-	return &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()},
+	return &Service{hmmServing: hmmPorts(),
 		billing:   billing.NewService(billingRepo).WithByokFeeRate(0.05),
 		telemetry: telemetryRepo,
 	}, billingRepo, telemetryRepo

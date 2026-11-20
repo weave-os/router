@@ -67,7 +67,7 @@ func TestHMMToolResultHoldKeepsUserTurnPick(t *testing.T) {
 				Model:    freshModel,
 				Reason:   "hold-test_policy",
 			}}
-			svc := WithStrategyPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
+			svc := withHMMPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 				EditContinuityConfig(func(c *continuity.Config) { c.ScoreToolResultTurns = true }).
 				EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).
 				WithPolicyStrategy(policy.StrategySpec{

@@ -12,14 +12,13 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/hmm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func siblingService(keyed ...string) *Service {
-	s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{}}}
+	s := &Service{hmmServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{}}}
 	for _, p := range keyed {
 		s.credentials.KeyedProviders[p] = struct{}{}
 	}
@@ -319,7 +318,7 @@ func TestSiblingFailoverDecision(t *testing.T) {
 	})
 
 	t.Run("gateway BYOK rescues via a sibling behind a held gateway key", func(t *testing.T) {
-		s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}
+		s := &Service{hmmServing: hmmPorts()}
 		gwCtx := context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 			{
 				Provider:     providers.ProviderOpenAIGateway,
@@ -348,7 +347,7 @@ func TestSiblingFailoverDecision(t *testing.T) {
 	})
 
 	t.Run("gateway BYOK walks the ranked fallback before other gateway aliases", func(t *testing.T) {
-		s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}
+		s := &Service{hmmServing: hmmPorts()}
 		gwCtx := context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 			{
 				Provider:     providers.ProviderOpenAIGateway,
@@ -375,7 +374,7 @@ func TestSiblingFailoverDecision(t *testing.T) {
 	})
 
 	t.Run("gateway BYOK never rescues onto a provider without a held gateway key", func(t *testing.T) {
-		s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}}
+		s := &Service{hmmServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}}
 		gwCtx := context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 			{
 				Provider:     providers.ProviderOpenAIGateway,
@@ -398,7 +397,7 @@ func TestSiblingFailoverDecision(t *testing.T) {
 	})
 
 	t.Run("gateway BYOK rescues on the same gateway when it aliases a sibling", func(t *testing.T) {
-		s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}
+		s := &Service{hmmServing: hmmPorts()}
 		gwCtx := context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 			{
 				Provider:     providers.ProviderOpenAIGateway,
@@ -424,7 +423,7 @@ func TestSiblingFailoverDecision(t *testing.T) {
 		_, ok := firstSibling(s, ctx, overloadedDecision(nil), 1_000, 0)
 		assert.False(t, ok)
 
-		legacy := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}
+		legacy := &Service{hmmServing: hmmPorts()}
 		_, ok = firstSibling(legacy, ctx, overloadedDecision(&router.RoutingMetadata{
 			CandidateModels: []string{"claude-sonnet-5"},
 		}), 1_000, 0)
@@ -458,7 +457,7 @@ func TestSiblingFailover_RosterOrderBeatsProviderPreferenceAndExcludesUnlistedMo
 // eligible or cooling candidate left, the session-lifetime demotion is
 // lifted for the walk, and the arm that just failed is never re-served.
 func TestGatewayRescueDecisions_AllArmsStruckOutReadmitsDemotedSibling(t *testing.T) {
-	s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}
+	s := &Service{hmmServing: hmmPorts()}
 	ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: providers.ProviderOpenAIGateway, Plaintext: []byte("pat"), ModelAliases: map[string]string{catalog.ModelGPT6Luna: catalog.ModelGPT6Luna}},
 		{Provider: providers.ProviderAnthropicGateway, Plaintext: []byte("pat"), ModelAliases: map[string]string{"claude-opus-5-5": "claude-opus-5-5"}},

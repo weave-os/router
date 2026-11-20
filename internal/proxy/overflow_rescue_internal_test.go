@@ -15,7 +15,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 )
 
@@ -48,14 +47,14 @@ var gatewayOverflowIngresses = map[string]struct {
 func gatewayOverflowFixture(anthropicErr, openAIErr error) (*Service, context.Context, *gatewayCompactionClient, *gatewayCompactionClient) {
 	_, ctx, anthropicGateway, openAIGateway := gatewayCompactionFixture(anthropicErr)
 	openAIGateway.failWith = openAIErr
-	routed := WithStrategyPorts(NewService(staticRouter{decision: router.Decision{
+	routed := withHMMPorts(NewService(staticRouter{decision: router.Decision{
 		Provider: providers.ProviderAnthropicGateway,
 		Model:    gatewayCompactionOpusModel,
 		Reason:   "test",
 	}}, map[string]providers.Client{
 		providers.ProviderAnthropicGateway: anthropicGateway,
 		providers.ProviderOpenAIGateway:    openAIGateway,
-	}, nil, &rolePinStore{}, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil), hmm.ServingPorts()).
+	}, nil, &rolePinStore{}, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil)).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil })
 	return routed, ctx, anthropicGateway, openAIGateway
 }

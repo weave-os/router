@@ -10,7 +10,6 @@ import (
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/subscriptions/entitlement"
 )
@@ -51,7 +50,7 @@ func preparationContext() (context.Context, *policyregistry.Snapshot, *preparati
 
 func TestPrepareRouterModelUsesAdmittedClassifierAndRejectsReleaseChanges(t *testing.T) {
 	ctx, snapshot, preparer := preparationContext()
-	service := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}
+	service := &Service{hmmServing: hmmPorts()}
 	warming, err := service.PrepareRouterModel(ctx, router.ModelQwen, "")
 	require.NoError(t, err)
 	require.Equal(t, policy.PreparationWarming, warming.State)
@@ -77,7 +76,7 @@ func TestPrepareRouterModelAllowsInternalBoostProfile(t *testing.T) {
 	ctx, _, preparer := preparationContext()
 	identity, _ := requestcontext.ServingIdentityFromContext(ctx)
 	identity.Plan = string(entitlement.PlanBoost)
-	preparation, err := (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}).PrepareRouterModel(requestcontext.WithServingIdentity(ctx, identity), router.ModelQwen, "")
+	preparation, err := (&Service{hmmServing: hmmPorts()}).PrepareRouterModel(requestcontext.WithServingIdentity(ctx, identity), router.ModelQwen, "")
 	require.NoError(t, err)
 	require.Equal(t, router.ModelQwen, preparation.Model)
 	require.Equal(t, []string{""}, preparer.operations)
@@ -115,7 +114,7 @@ func TestPrepareRouterModelRejectsUnpermittedScopesBeforeSidecar(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, snapshot, preparer := preparationContext()
-			_, err := (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}).PrepareRouterModel(tc.edit(ctx, snapshot), router.ModelQwen, "")
+			_, err := (&Service{hmmServing: hmmPorts()}).PrepareRouterModel(tc.edit(ctx, snapshot), router.ModelQwen, "")
 			require.Error(t, err)
 			require.Empty(t, preparer.operations)
 		})
@@ -138,14 +137,14 @@ func TestPrepareRouterModelRejectsUntrustedIdentityAndUnsafeOperation(t *testing
 			case "state":
 				preparer.preparation.State = policy.PreparationState("failed")
 			}
-			_, err := (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}).PrepareRouterModel(ctx, router.ModelQwen, "")
+			_, err := (&Service{hmmServing: hmmPorts()}).PrepareRouterModel(ctx, router.ModelQwen, "")
 			require.Error(t, err)
 		})
 	}
 	ctx, _, preparer := preparationContext()
-	_, err := (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}).PrepareRouterModel(ctx, router.ModelHMM, "")
+	_, err := (&Service{hmmServing: hmmPorts()}).PrepareRouterModel(ctx, router.ModelHMM, "")
 	require.ErrorIs(t, err, ErrModelPreparationForbidden)
-	_, err = (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}).PrepareRouterModel(ctx, router.ModelQwen, strings.Repeat("a", 64)+".hmm_qwen.fc-../route")
+	_, err = (&Service{hmmServing: hmmPorts()}).PrepareRouterModel(ctx, router.ModelQwen, strings.Repeat("a", 64)+".hmm_qwen.fc-../route")
 	require.ErrorIs(t, err, ErrModelPreparationOperation)
 	require.Empty(t, preparer.operations)
 }

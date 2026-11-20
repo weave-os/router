@@ -12,7 +12,6 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -82,8 +81,8 @@ func TestTurnLoopExcludesDemotedModelUnderAuthoritativePolicy(t *testing.T) {
 		Model:    freshTurnModel,
 		Reason:   "arm-demotion-authoritative-test_policy",
 	}}
-	svc := WithStrategyPorts(NewService(nil, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
+	svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: strategy,
 			Router:   policyRouter,
@@ -112,8 +111,8 @@ func TestTurnLoopDropsDemotedPinOnScorerPath(t *testing.T) {
 		Model:    freshTurnModel,
 		Reason:   "cluster:v0.2",
 	}}
-	svc := WithStrategyPorts(NewService(scorer, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
+	svc := withHMMPorts(NewService(scorer, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	res := runDemotionTurnLoop(t, svc, context.Background())
 
@@ -135,8 +134,8 @@ func TestTurnLoopHonoursDemotionRecordedOnHMMHistory(t *testing.T) {
 		Model:    freshTurnModel,
 		Reason:   "cluster:v0.2",
 	}}
-	svc := WithStrategyPorts(NewService(scorer, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
+	svc := withHMMPorts(NewService(scorer, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	res := runDemotionTurnLoop(t, svc, context.Background())
 
@@ -156,8 +155,8 @@ func TestTurnLoopKeepsForcedModelDespiteDemotion(t *testing.T) {
 		Model:    freshTurnModel,
 		Reason:   "cluster:v0.2",
 	}}
-	svc := WithStrategyPorts(NewService(scorer, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
+	svc := withHMMPorts(NewService(scorer, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	res := runDemotionTurnLoop(t, svc, context.Background())
 

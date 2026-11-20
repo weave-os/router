@@ -10,7 +10,6 @@ import (
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
 )
@@ -24,8 +23,8 @@ const autonomyGateBody = `{
 }`
 
 func newAutonomyGateService() *Service {
-	return WithStrategyPorts(NewService(nil, map[string]providers.Client{}, nil, nil,
-		false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
+	return withHMMPorts(NewService(nil, map[string]providers.Client{}, nil, nil,
+		false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 }
 

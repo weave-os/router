@@ -13,7 +13,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -73,7 +72,7 @@ func TestAnthropicServedTurn_KeepsServerSideAutoModeReview(t *testing.T) {
 				defer srv.Close()
 
 				client := anthropic.NewClient("synthetic-api-key", srv.URL)
-				svc := WithStrategyPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: arm.model, Reason: "test"}}, map[string]providers.Client{providers.ProviderAnthropic: client}, nil, nil, false, providers.ProviderAnthropic, arm.model, nil), hmm.ServingPorts()).
+				svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: arm.model, Reason: "test"}}, map[string]providers.Client{providers.ProviderAnthropic: client}, nil, nil, false, providers.ProviderAnthropic, arm.model, nil)).
 					WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 				ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, "inst-safeguards")
 				ctx = context.WithValue(ctx, APIKeyIDContextKey{}, "key-safeguards")

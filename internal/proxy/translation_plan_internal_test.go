@@ -9,7 +9,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/hmm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,7 +32,7 @@ func (*translationMetricsRecorder) RecordTranslationTransform(context.Context, s
 }
 
 func compatibilityService(mode TranslationCompatibilityMode) *Service {
-	return &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()},
+	return &Service{hmmServing: hmmPorts(),
 		clients: dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderAnthropic: nil,
 			providers.ProviderOpenAI:    nil,
@@ -216,7 +215,7 @@ func TestTranslationPlan_NativeSearchAlwaysFiltersToSourceProvider(t *testing.T)
 }
 
 func TestApplyTranslationPlan_CompatibleButUnavailable(t *testing.T) {
-	svc := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()},
+	svc := &Service{hmmServing: hmmPorts(),
 		clients:                      dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: nil}),
 		translationCompatibilityMode: TranslationCompatibilityShadow,
 	}

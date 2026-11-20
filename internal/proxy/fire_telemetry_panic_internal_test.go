@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/router/hmm"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -94,7 +93,7 @@ func TestFireTelemetryRecoversFromPanic(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
 	defer slog.SetDefault(prev)
 
-	s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, telemetry: panicTelemetryRepo{}}
+	s := &Service{hmmServing: hmmPorts(), telemetry: panicTelemetryRepo{}}
 
 	assert.NotPanics(t, func() {
 		s.fireTelemetry(t.Context(), InsertTelemetryParams{RequestID: "req-1"})

@@ -18,7 +18,6 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
@@ -49,7 +48,7 @@ func TestExplicitRoutingPolicyPrecedesClassifierAndPins(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			routerSpy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
 			pins := newStubPinStore()
-			service := WithStrategyPorts(NewService(routerSpy, nil, nil, pins, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil), hmm.ServingPorts())
+			service := withHMMPorts(NewService(routerSpy, nil, nil, pins, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
 			authService := auth.NewService(nil, nil, nil, nil, nil, nil, time.Now).WithRoutingPolicies(routingPolicyStub{mode: tc.mode, assigned: tc.assigned}, nil)
 			ctx, err := authService.WithRoutingPolicy(context.Background(), "installation")
 			require.NoError(t, err)
@@ -101,7 +100,7 @@ func TestRoutingPolicyPreservesExplicitForcedModel(t *testing.T) {
 					}
 				}
 				routerSpy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
-				service := WithStrategyPorts(NewService(routerSpy, nil, nil, pins, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil), hmm.ServingPorts())
+				service := withHMMPorts(NewService(routerSpy, nil, nil, pins, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
 				authService := auth.NewService(nil, nil, nil, nil, nil, nil, time.Now).WithRoutingPolicies(routingPolicyStub{mode: mode}, nil)
 				ctx, err := authService.WithRoutingPolicy(context.Background(), "installation")
 				require.NoError(t, err)
@@ -136,7 +135,7 @@ func TestRoutingPolicyPreservesExplicitForcedModel(t *testing.T) {
 }
 
 func TestRoutingPolicyPassthroughUnknownModelIsAttributedToPolicy(t *testing.T) {
-	service := WithStrategyPorts(NewService(nil, nil, nil, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil), hmm.ServingPorts())
+	service := withHMMPorts(NewService(nil, nil, nil, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
 	authService := auth.NewService(nil, nil, nil, nil, nil, nil, time.Now).WithRoutingPolicies(routingPolicyStub{mode: auth.RoutingPolicyPassthrough}, nil)
 	ctx, err := authService.WithRoutingPolicy(context.Background(), "installation")
 	require.NoError(t, err)
@@ -232,7 +231,7 @@ func TestCallerRoutingStateFollowsRoutingPrecedence(t *testing.T) {
 
 func TestClientSelectedModelBypassesRoutingAndPins(t *testing.T) {
 	routerSpy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
-	service := WithStrategyPorts(NewService(routerSpy, nil, nil, newStubPinStore(), false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil), hmm.ServingPorts())
+	service := withHMMPorts(NewService(routerSpy, nil, nil, newStubPinStore(), false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
 	authService := auth.NewService(nil, nil, nil, nil, nil, nil, time.Now).WithRoutingPolicies(routingPolicyStub{mode: auth.RoutingPolicyAssigned, assigned: true}, nil)
 	ctx, err := authService.WithRoutingPolicy(context.Background(), "installation")
 	require.NoError(t, err)
@@ -255,7 +254,7 @@ func TestClientSelectedModelBypassesRoutingAndPins(t *testing.T) {
 func TestRouterOnExperimentArmRoutesClientSelectedModel(t *testing.T) {
 	routed := router.Decision{Model: catalog.ModelIDClaudeHaiku45.String(), Provider: providers.ProviderAnthropic}
 	routerSpy := &blindExperimentRouterSpy{decision: routed}
-	service := WithStrategyPorts(NewService(routerSpy, nil, nil, newStubPinStore(), false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil), hmm.ServingPorts())
+	service := withHMMPorts(NewService(routerSpy, nil, nil, newStubPinStore(), false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
 	ctx := context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn})
 	ctx = auth.WithClientModelPassthrough(ctx)
 	envelope, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}]}`))
@@ -271,7 +270,7 @@ func TestRouterOnExperimentArmRoutesClientSelectedModel(t *testing.T) {
 }
 
 func TestClientSelectedUnknownModelIsNotAttributedToPolicy(t *testing.T) {
-	service := WithStrategyPorts(NewService(nil, nil, nil, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil), hmm.ServingPorts())
+	service := withHMMPorts(NewService(nil, nil, nil, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
 
 	_, err := service.callerModelPassthroughDecision(auth.WithClientModelPassthrough(context.Background()), router.Request{
 		RequestedModel:   "auto",
@@ -317,7 +316,7 @@ func TestPickedModelFundsOnCallersOwnPlan(t *testing.T) {
 }
 
 func TestPickedModelKeepsSpentPlanAndRefusesMeteredRescue(t *testing.T) {
-	svc := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()},
+	svc := &Service{hmmServing: hmmPorts(),
 		usageObserver: observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()),
 		credentials:   credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}},
 		clock:         func() time.Time { return time.Unix(1_000_000, 0) },
@@ -387,7 +386,7 @@ func TestClientSelectedModelRoutesWhenNotServableAsIs(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			routerSpy := &blindExperimentRouterSpy{decision: routed}
-			service := WithStrategyPorts(NewService(routerSpy, nil, nil, newStubPinStore(), false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil), hmm.ServingPorts())
+			service := withHMMPorts(NewService(routerSpy, nil, nil, newStubPinStore(), false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
 
 			turn, err := service.runTurnLoop(auth.WithClientModelPassthrough(context.Background()), envelope, envelope.RoutingFeatures(), testTurnRequest(auth.WithClientModelPassthrough(context.Background()), "api-key", uuid.New()), "", http.Header{}, tc.request)
 
@@ -401,7 +400,7 @@ func TestClientSelectedModelRoutesWhenNotServableAsIs(t *testing.T) {
 
 func TestClientSelectedModelKeepsPolicyPassthroughStrict(t *testing.T) {
 	routerSpy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
-	service := WithStrategyPorts(NewService(routerSpy, nil, nil, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil), hmm.ServingPorts())
+	service := withHMMPorts(NewService(routerSpy, nil, nil, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
 	authService := auth.NewService(nil, nil, nil, nil, nil, nil, time.Now).WithRoutingPolicies(routingPolicyStub{mode: auth.RoutingPolicyPassthrough}, nil)
 	ctx, err := authService.WithRoutingPolicy(context.Background(), "installation")
 	require.NoError(t, err)

@@ -10,7 +10,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 
@@ -179,8 +178,8 @@ func TestRunTurnLoop_ForceModelSessionPinAppliesAcrossChildThreads(t *testing.T)
 		LastOutputLimitAt: endedAt,
 	}
 	freshRouter := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
-	svc := WithStrategyPorts(NewService(freshRouter, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
+	svc := withHMMPorts(NewService(freshRouter, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	features := child.RoutingFeatures()
 
@@ -249,8 +248,8 @@ func TestRunTurnLoop_DroppedSessionForcePreservesThreadPin(t *testing.T) {
 		},
 	}
 	freshRouter := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
-	svc := WithStrategyPorts(NewService(freshRouter, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
+	svc := withHMMPorts(NewService(freshRouter, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	svc.WithTransientRateLimit(true, 45)
 	ctx = router.WithStrategy(ctx, router.StrategyHMMEmbedding)
@@ -303,8 +302,8 @@ func TestRunTurnLoop_ClearTombstoneBlocksLegacyForce(t *testing.T) {
 	freshRouter := &tierProbeRouter{
 		available: map[string]struct{}{"claude-haiku-4-5": {}},
 	}
-	svc := WithStrategyPorts(NewService(freshRouter, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
+	svc := withHMMPorts(NewService(freshRouter, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	result, err := svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, apiKeyID, installationID), "", nil, router.Request{
 		RequestedModel: features.Model,
@@ -340,8 +339,8 @@ func TestRunTurnLoop_SessionForceOverridesAuxiliaryHardPin(t *testing.T) {
 		PinnedUntil:    pinNeverExpires,
 	}
 	freshRouter := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
-	svc := WithStrategyPorts(NewService(freshRouter, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
+	svc := withHMMPorts(NewService(freshRouter, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	features := env.RoutingFeatures()
 
@@ -373,8 +372,8 @@ func TestApplyForceModelCommand_FableThenAstraWritesAndClearsSessionControl(t *t
 	threadKey := deriveSessionKeyForRequest(ctx, env, apiKeyID)
 	forceKey := deriveForceModelSessionKeyForRequest(ctx, env, apiKeyID, threadKey)
 	store := newForceModelMapStore()
-	svc := WithStrategyPorts(NewService(nil, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
+	svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	forcedModel, _, err := svc.applyForceModelCommand(ctx, router.StrategyFromContext(ctx), translate.ForceModelResult{Model: "fable"}, installationID, threadKey, forceKey)
 	require.NoError(t, err)
@@ -415,8 +414,8 @@ func TestApplyForceModelCommand_FableThenAstraWritesAndClearsSessionControl(t *t
 
 func TestRecordTurnUsage_ForcedDecisionWritesThreadHistoryOnly(t *testing.T) {
 	store := newForceModelMapStore()
-	svc := WithStrategyPorts(NewService(nil, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
+	svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	threadKey := [sessionpin.SessionKeyLen]byte{1}
 	controlKey := [sessionpin.SessionKeyLen]byte{2}

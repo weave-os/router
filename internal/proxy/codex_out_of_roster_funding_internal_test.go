@@ -17,7 +17,6 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
 )
@@ -74,10 +73,10 @@ func (c *scriptedFundingClient) Passthrough(context.Context, providers.PreparedR
 }
 
 func outOfRosterFundingService(client providers.Client, reason string, repo billing.Repo) *Service {
-	svc := WithStrategyPorts(NewService(
+	svc := withHMMPorts(NewService(
 		staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: outOfRosterCodexModel, Reason: reason}},
 		map[string]providers.Client{providers.ProviderOpenAI: client},
-		nil, nil, false, providers.ProviderOpenAI, outOfRosterCodexModel, nil), hmm.ServingPorts()).
+		nil, nil, false, providers.ProviderOpenAI, outOfRosterCodexModel, nil)).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).
 		WithBillingService(billing.NewService(repo))
 	svc.retrySleep = noopSleep

@@ -12,7 +12,6 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/hmm"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -29,8 +28,8 @@ func TestRoutingPolicyPassthroughServesGatewayAliasedRetiredModel(t *testing.T) 
 		writeBytes: []byte(`{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":1}}`),
 	}}}
 	spy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
-	svc := WithStrategyPorts(NewService(spy, map[string]providers.Client{providers.ProviderAnthropicGateway: gateway},
-		nil, newStubPinStore(), false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil), hmm.ServingPorts())
+	svc := withHMMPorts(NewService(spy, map[string]providers.Client{providers.ProviderAnthropicGateway: gateway},
+		nil, newStubPinStore(), false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
 
 	installationID := uuid.New().String()
 	authService := auth.NewService(nil, nil, nil, nil, nil, nil, time.Now).WithRoutingPolicies(routingPolicyStub{mode: auth.RoutingPolicyPassthrough}, nil)

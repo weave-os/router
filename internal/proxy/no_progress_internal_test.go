@@ -9,7 +9,6 @@ import (
 	"weave-os/router/internal/router"
 
 	"weave-os/router/internal/conversation"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 
@@ -35,7 +34,7 @@ func TestHandleNoProgressBreak_PreservesUserForcedPin(t *testing.T) {
 		},
 		found: true,
 	}
-	svc := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, pinStore: store}
+	svc := &Service{hmmServing: hmmPorts(), pinStore: store}
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"retry"}]}`))
 	require.NoError(t, err)
 	rec := httptest.NewRecorder()
@@ -64,7 +63,7 @@ func TestShortSessionKey_TruncatesAndRedactsZero(t *testing.T) {
 
 func TestHandleNoProgressBreak_ZeroSessionKeyWritesNoPin(t *testing.T) {
 	store := &overwritingPinStore{}
-	svc := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, pinStore: store}
+	svc := &Service{hmmServing: hmmPorts(), pinStore: store}
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"retry"}]}`))
 	require.NoError(t, err)
 
@@ -79,7 +78,7 @@ func TestHandleNoProgressBreak_ZeroSessionKeyWritesNoPin(t *testing.T) {
 
 func TestHandleNoProgressBreak_ExpiresNonZeroSessionPin(t *testing.T) {
 	store := &overwritingPinStore{}
-	svc := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, pinStore: store}
+	svc := &Service{hmmServing: hmmPorts(), pinStore: store}
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"retry"}]}`))
 	require.NoError(t, err)
 
