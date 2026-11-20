@@ -441,7 +441,10 @@ npx @weave-os/router --uninstall --claude-desktop # remove the proxy, trust and 
 Without `--base-url`, the proxy uses the router endpoint and key from your
 Claude Code install (`~/.claude/settings.json`, or the copy `--claude off`
 parked) when there is one, so it lands on the same fleet as the CLI. Re-runs
-keep the endpoint the proxy already uses.
+keep the endpoint the proxy already uses. With `--base-url`, the Claude Code key
+is reused only when that install points at the same endpoint; a key is never
+sent to a different router, so a mismatch asks for a key and names the endpoint
+your Claude Code install uses.
 
 | Path | Contents |
 | ---- | -------- |
