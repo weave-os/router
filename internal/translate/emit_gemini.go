@@ -249,7 +249,7 @@ func writeGeminiFromOpenAI(jw *jsonWriter, body []byte, opts EmitOptions) error 
 	msgs.ForEach(func(_, msg gjson.Result) bool {
 		role := msg.Get("role").String()
 		switch role {
-		case "system":
+		case "system", "developer":
 			return true
 		case "user":
 			parts := openAIUserPartsGJSON(msg.Get("content"))

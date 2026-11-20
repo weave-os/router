@@ -53,10 +53,11 @@ func (c *goldenClock) Sleep(ctx context.Context, d time.Duration) error {
 // goldenStep scripts one upstream response. A step with err and no frames
 // fails before the first byte; frames followed by err cut a committed stream.
 type goldenStep struct {
-	status  int
-	headers map[string]string
-	frames  []string
-	err     error
+	status     int
+	headers    map[string]string
+	frames     []string
+	err        error
+	rejectBody func([]byte) error
 	// cancel cancels the client's request context after frames are written.
 	cancel bool
 	// pause holds the stream open before the last frame, in wall-clock time,
@@ -101,6 +102,11 @@ func (p *goldenProvider) Proxy(ctx context.Context, decision router.Decision, pr
 		return creds.CredentialError
 	}
 	step := p.rec.nextStep(p)
+	if step.rejectBody != nil {
+		if err := step.rejectBody(prep.Body); err != nil {
+			step = goldenStep{err: err}
+		}
+	}
 	if step.status != 0 || len(step.frames) > 0 {
 		for k, v := range step.headers {
 			w.Header().Set(k, v)
