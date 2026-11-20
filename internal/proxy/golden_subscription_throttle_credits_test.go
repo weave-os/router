@@ -84,6 +84,12 @@ func TestNoLoginLongThrottledSeatsFundsCredits(t *testing.T) {
 			require.Equal(t, "ok", last.Outcome)
 			require.Empty(t, last.Credential, "the turn must be served on the deployment key, not a seat")
 			require.Len(t, served.Billing, 1, "a credit-funded turn is debited exactly once")
+			debit, ok := served.Billing[0].(map[string]any)
+			require.True(t, ok, "billing record: %T", served.Billing[0])
+			delta, ok := debit["DeltaUsdMicros"].(int64)
+			require.True(t, ok, "billing record: %+v", debit)
+			require.Negative(t, delta, "the turn must spend Weave credits, not settle free")
+			require.NotEqual(t, true, debit["SubscriptionServed"], "the turn must not be settled as subscription-served")
 		})
 	}
 }
