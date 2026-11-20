@@ -167,7 +167,7 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 		}
 		return throttledPoolRefusal(ctx, pool, token != "", now)
 	}
-	if !snapshotPresent {
+	if !snapshotPresent && billing.WeaveCreditsDeniedFromContext(ctx) {
 		enrolled, _ := ctx.Value(ManagedSubscriptionProvidersContextKey{}).(map[auth.SubscriptionProvider]struct{})
 		if _, present := enrolled[auth.SubscriptionProvider(pool)]; present {
 			return subscriptionPoolUnavailableBecause(ctx, "enrolled pool has no quota snapshot")

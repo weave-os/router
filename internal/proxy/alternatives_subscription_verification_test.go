@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"weave-os/router/internal/billing"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
@@ -90,6 +91,9 @@ func TestVerificationAutomaticAlternativeHTTP(t *testing.T) {
 			}
 			svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Metadata: metadata, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, pins, false, providers.ProviderOpenAI, codexCoveredModel, nil).WithManagedSubscriptions(&verificationAlternativeLeaser{}).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 			ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+			if !scenario.max && !scenario.alternative {
+				ctx = billing.WithWeaveCreditsDenied(ctx)
+			}
 			if scenario.max {
 				ctx = entitlement.WithProductScope(ctx, entitlement.PlanMax)
 			}
@@ -123,7 +127,7 @@ func TestVerificationAutomaticAlternativeHTTP(t *testing.T) {
 				require.Equal(t, "alternative-account", winner.SubscriptionAccountID)
 				require.Equal(t, "synthetic-owner", winner.SubscriptionOwnerID)
 			} else {
-				require.Error(t, dispatchErr, "model denial or an ineligible alternative does not prove quota exhaustion")
+				require.Error(t, dispatchErr, "with credits off, model denial or an ineligible alternative does not buy API capacity")
 				require.Equal(t, []string{"Bearer alternative-seat"}, bearers)
 				require.NotContains(t, rec.Body.String(), "alternative answer")
 				require.False(t, servedOnSubscription(ctx))

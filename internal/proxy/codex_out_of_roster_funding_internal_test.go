@@ -190,9 +190,10 @@ func TestCodexOutOfRosterModel_ManagedPoolFundsBeforeAPICredential(t *testing.T)
 		wantOAuth       []bool
 		wantPoolServe   bool
 		wantErr         bool
+		creditsDenied   bool
 	}{
 		{name: "pool serves", wantOAuth: []bool{true}, wantPoolServe: true},
-		{name: "pool model rejection does not buy API capacity", poolErr: modelRejected, wantOAuth: []bool{true}, wantErr: true},
+		{name: "pool model rejection does not buy API capacity when credits are off", poolErr: modelRejected, wantOAuth: []bool{true}, wantErr: true, creditsDenied: true},
 		{name: "unavailable enrollment fails closed", poolUnavailable: true, wantOAuth: []bool{}, wantErr: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -212,6 +213,9 @@ func TestCodexOutOfRosterModel_ManagedPoolFundsBeforeAPICredential(t *testing.T)
 				ctx = context.WithValue(ctx, ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 			}
 			ctx = outOfRosterBillingCtx(ctx)
+			if tc.creditsDenied {
+				ctx = billing.WithWeaveCreditsDenied(ctx)
+			}
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(body))
 

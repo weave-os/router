@@ -129,7 +129,7 @@ func TestDispatchWithFallbackKeepsManagedThirdPartyRefusalClientSpecific(t *test
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 	svc.retrySleep = noopSleep
 
-	_, err := dispatchManagedThirdPartyTurn(t, svc, clientAppContext(managedSubscriptionTestContext(), ClientAppOpencode))
+	_, err := dispatchManagedThirdPartyTurn(t, svc, clientAppContext(billing.WithWeaveCreditsDenied(managedSubscriptionTestContext()), ClientAppOpencode))
 	require.Error(t, err)
 	require.Equal(t, 1, upstream.subDispatches)
 
