@@ -258,3 +258,23 @@ func TestSpentCodexLoginLongThrottledSeatsFundsCredits(t *testing.T) {
 	require.Contains(t, string(raw), "served on weave credits")
 	require.NotContains(t, string(raw), "rate-limited")
 }
+
+// TestSpentCodexLoginPrefersFreeClaudeSeatOverSeatWait states the invariant: a
+// free Claude seat serves the turn at once instead of the turn waiting out a
+// short Codex seat cooldown and retrying the spent Codex model.
+func TestSpentCodexLoginPrefersFreeClaudeSeatOverSeatWait(t *testing.T) {
+	t.Parallel()
+	sc := goldenCodexPlanSpentFallbackScenarios()[1]
+	sc.requests[0].headers = goldenCodexSessionHeadersFor("c0d7")
+	h := newGoldenHarness(t, sc)
+	served := h.serve(t, sc.ingress, sc.requests[0])
+	require.Equal(t, http.StatusOK, served.Response.Status, "response: %+v", served.Response.Body)
+	var codexAttempts int
+	for _, attempt := range served.Attempts {
+		if attempt.Provider == providers.ProviderOpenAI {
+			codexAttempts++
+		}
+	}
+	require.Equal(t, 1, codexAttempts, "spent Codex model retried after a seat wait while a Claude seat was free")
+	require.Equal(t, providers.ProviderAnthropic, served.Attempts[len(served.Attempts)-1].Provider)
+}
