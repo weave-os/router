@@ -85,11 +85,6 @@ serving instead promotes the prior immutable policy reference on the current cod
 binding, preserving existing conversations without rebuilding or creating a
 customer-specific revision.
 
-## Still to remove
-
-- The silent-drop mapping contract of `hmm.DeployedModelsForRosterIDs`, once the
-  admin roster view reads the declarative roster instead.
-
 ## Offline model-agreement candidate
 
 `internal/router/switchpolicy` is an experimental replacement for the competing
