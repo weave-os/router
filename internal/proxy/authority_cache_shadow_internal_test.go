@@ -80,10 +80,10 @@ func runAuthorityShadowTurnWithPin(
 	store := newStubPinStore()
 	store.getFound = true
 	store.getPin = pin
-	svc := NewService(
+	svc := withHMMPorts(NewService(
 		nil, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).EditHMMConfig(func(c *hmm.Config) { c.AuthorityCacheShadow = enabled }).
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+		EditHMMConfig(func(c *hmm.Config) { c.AuthorityCacheShadow = enabled }).
 		EditContinuityConfig(func(c *continuity.Config) {
 			c.Planner = planner.EVConfig{ThresholdUSD: 0.001, ExpectedRemainingTurns: 3}
 		}).
@@ -245,8 +245,8 @@ func TestAuthorityCacheShadowCandidateScoreCoverage(t *testing.T) {
 			"anthropic/" + shadowPinnedModel + ":" + effort: 0.62,
 			"anthropic/" + shadowFreshModel + ":" + effort:  0.71,
 		})
-		stay := candidateScoreForWithProvider(dec, shadowPinnedModel+":"+effort, providers.ProviderAnthropic)
-		fresh := candidateScoreForWithProvider(dec, shadowFreshModel+":"+effort, providers.ProviderAnthropic)
+		stay := candidateScoreForWithProvider(hmm.ServingPorts(), dec, shadowPinnedModel+":"+effort, providers.ProviderAnthropic)
+		fresh := candidateScoreForWithProvider(hmm.ServingPorts(), dec, shadowFreshModel+":"+effort, providers.ProviderAnthropic)
 		require.NotNil(t, stay)
 		require.NotNil(t, fresh)
 		assert.InDelta(t, 0.62, *stay, 1e-6)
@@ -338,7 +338,7 @@ func TestCandidateScoreFor(t *testing.T) {
 	)
 
 	t.Run("bare catalog id", func(t *testing.T) {
-		got := candidateScoreFor(dec, shadowFreshModel)
+		got := candidateScoreFor(hmm.ServingPorts(), dec, shadowFreshModel)
 		require.NotNil(t, got)
 		assert.InDelta(t, 0.71, *got, 1e-6)
 	})
@@ -347,7 +347,7 @@ func TestCandidateScoreFor(t *testing.T) {
 		dec := hmmFreshDecisionWithArmScores(nil, map[string]float32{
 			"anthropic/" + shadowFreshModel: 0.71,
 		})
-		got := candidateScoreFor(dec, shadowFreshModel)
+		got := candidateScoreFor(hmm.ServingPorts(), dec, shadowFreshModel)
 		require.NotNil(t, got)
 		assert.InDelta(t, 0.71, *got, 1e-6)
 	})
@@ -357,7 +357,7 @@ func TestCandidateScoreFor(t *testing.T) {
 		dec := hmmFreshDecisionWithArmScores(nil, map[string]float32{
 			rosterArmID: 0.71,
 		})
-		got := candidateScoreForWithArm(dec, shadowFreshModel, providers.ProviderAnthropic, rosterArmID)
+		got := candidateScoreForWithArm(hmm.ServingPorts(), dec, shadowFreshModel, providers.ProviderAnthropic, rosterArmID)
 		require.NotNil(t, got)
 		assert.InDelta(t, 0.71, *got, 1e-6)
 	})
@@ -371,7 +371,7 @@ func TestCandidateScoreFor(t *testing.T) {
 			"anthropic/" + shadowPinnedModel: providers.ProviderAnthropic,
 			"openai/" + shadowPinnedModel:    providers.ProviderOpenAI,
 		}
-		got := candidateScoreForWithProvider(dec, shadowPinnedModel, providers.ProviderAnthropic)
+		got := candidateScoreForWithProvider(hmm.ServingPorts(), dec, shadowPinnedModel, providers.ProviderAnthropic)
 		require.NotNil(t, got)
 		assert.InDelta(t, 0.62, *got, 1e-6)
 	})
@@ -380,22 +380,22 @@ func TestCandidateScoreFor(t *testing.T) {
 		dec := hmmFreshDecisionWithArmScores(nil, map[string]float32{
 			"anthropic/" + shadowFreshModel: 0.71,
 		})
-		got := candidateScoreForWithProvider(dec, shadowFreshModel, "anthropic_gateway")
+		got := candidateScoreForWithProvider(hmm.ServingPorts(), dec, shadowFreshModel, "anthropic_gateway")
 		require.NotNil(t, got)
 		assert.InDelta(t, 0.71, *got, 1e-6)
 	})
 
 	t.Run("effort suffix is stripped to the catalog id", func(t *testing.T) {
-		got := candidateScoreFor(dec, shadowPinnedModel+":high")
+		got := candidateScoreFor(hmm.ServingPorts(), dec, shadowPinnedModel+":high")
 		require.NotNil(t, got)
 		assert.InDelta(t, 0.40, *got, 1e-6,
 			"the model's score, not the roster arm's -- the namespaces differ")
 	})
 
 	t.Run("unscored model stays nil", func(t *testing.T) {
-		assert.Nil(t, candidateScoreFor(dec, "claude-haiku-4-5"))
-		assert.Nil(t, candidateScoreFor(dec, ""))
-		assert.Nil(t, candidateScoreFor(router.Decision{}, shadowFreshModel))
+		assert.Nil(t, candidateScoreFor(hmm.ServingPorts(), dec, "claude-haiku-4-5"))
+		assert.Nil(t, candidateScoreFor(hmm.ServingPorts(), dec, ""))
+		assert.Nil(t, candidateScoreFor(hmm.ServingPorts(), router.Decision{}, shadowFreshModel))
 	})
 }
 

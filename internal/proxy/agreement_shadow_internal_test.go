@@ -21,6 +21,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/escalation"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/switchpolicy"
@@ -72,7 +73,7 @@ func TestAgreementShadowOptInAndInternalAdmission(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			p, res := agreementFixture()
 			before := res
-			applyAgreementShadowTelemetry(test.ctx, &p, res)
+			applyAgreementShadowTelemetry(hmm.ServingPorts(), test.ctx, &p, res)
 			if (p.agreementShadow != nil) != test.want {
 				t.Fatalf("unexpected admission: %+v", p.agreementShadow)
 			}
@@ -91,7 +92,7 @@ func TestAgreementShadowUsesRawEligibleProposalAndResolvedBinding(t *testing.T) 
 	res.Fresh.Model = catalog.ModelGPT6Luna
 	md.SelectionTrace.SelectedArm = "openai/" + catalog.ModelGPT6Luna
 	md.SelectionTrace.EffectiveOrders[string(escalation.High)] = []string{"openai/gpt-6-astra:high", "openai/" + agreementSol + ":high"}
-	applyAgreementShadowTelemetry(agreementContext(policyregistry.TargetInternal, true), &p, res)
+	applyAgreementShadowTelemetry(hmm.ServingPorts(), agreementContext(policyregistry.TargetInternal, true), &p, res)
 	if p.agreementShadow == nil || p.agreementShadow.Observation.Gap != switchpolicy.ShadowGapNone || p.agreementShadow.Observation.Proposal.Target.Model != agreementSol {
 		t.Fatalf("serving sliding decision contaminated the raw proposal: %+v", p.agreementShadow)
 	}
@@ -100,7 +101,7 @@ func TestAgreementShadowUsesRawEligibleProposalAndResolvedBinding(t *testing.T) 
 	}
 	md.CandidateProviders[agreementSol] = providers.ProviderOpenAIGateway
 	p, _ = agreementFixture()
-	applyAgreementShadowTelemetry(agreementContext(policyregistry.TargetInternal, true), &p, res)
+	applyAgreementShadowTelemetry(hmm.ServingPorts(), agreementContext(policyregistry.TargetInternal, true), &p, res)
 	if p.agreementShadow.Observation.Proposal.Target.Provider != providers.ProviderOpenAIGateway {
 		t.Fatal("shadow guessed the native provider instead of using the resolved gateway binding")
 	}
@@ -109,16 +110,16 @@ func TestAgreementShadowUsesRawEligibleProposalAndResolvedBinding(t *testing.T) 
 func TestAgreementShadowResumptionUsesNewEpochNamespace(t *testing.T) {
 	first, res := agreementFixture()
 	ctx := agreementContext(policyregistry.TargetInternal, true)
-	applyAgreementShadowTelemetry(ctx, &first, res)
+	applyAgreementShadowTelemetry(hmm.ServingPorts(), ctx, &first, res)
 	disabled := first
 	disabled.agreementShadow = nil
-	applyAgreementShadowTelemetry(flags.WithOverrides(ctx, flags.Overrides{Ints: map[flags.Key]int{flags.KeyAgreementShadowEpoch: 0}}), &disabled, res)
+	applyAgreementShadowTelemetry(hmm.ServingPorts(), flags.WithOverrides(ctx, flags.Overrides{Ints: map[flags.Key]int{flags.KeyAgreementShadowEpoch: 0}}), &disabled, res)
 	if disabled.agreementShadow != nil {
 		t.Fatal("disabled interval still created an observation")
 	}
 	resumed := first
 	resumed.agreementShadow = nil
-	applyAgreementShadowTelemetry(flags.WithOverrides(ctx, flags.Overrides{Ints: map[flags.Key]int{flags.KeyAgreementShadowEpoch: 2}}), &resumed, res)
+	applyAgreementShadowTelemetry(hmm.ServingPorts(), flags.WithOverrides(ctx, flags.Overrides{Ints: map[flags.Key]int{flags.KeyAgreementShadowEpoch: 2}}), &resumed, res)
 	if resumed.agreementShadow == nil || resumed.agreementShadow.Epoch != 2 || reflect.DeepEqual(first.agreementShadow.Key.SessionKey, resumed.agreementShadow.Key.SessionKey) {
 		t.Fatal("new activation reused old votes or a late callback namespace")
 	}
@@ -143,7 +144,7 @@ func TestAgreementShadowUnsupportedAndMissingInputsBreakSegments(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			p, res := agreementFixture()
 			test.alter(&res)
-			applyAgreementShadowTelemetry(agreementContext(policyregistry.TargetInternal, true), &p, res)
+			applyAgreementShadowTelemetry(hmm.ServingPorts(), agreementContext(policyregistry.TargetInternal, true), &p, res)
 			if p.agreementShadow == nil || p.agreementShadow.Observation.Gap != test.gap {
 				t.Fatalf("boundary was silently scored: %+v", p.agreementShadow)
 			}
@@ -188,9 +189,9 @@ func (r *agreementTelemetry) CompareAndSwapAgreementShadow(_ context.Context, _ 
 
 func TestAgreementShadowRecordsOnlyAfterBaselineTelemetryAndHandlesFailures(t *testing.T) {
 	store := &agreementTelemetry{auxTelemetryRepo: &auxTelemetryRepo{}, notify: make(chan struct{}, 1)}
-	svc := &Service{telemetry: store}
+	svc := &Service{hmmServing: hmmPorts(), telemetry: store}
 	p, res := agreementFixture()
-	applyAgreementShadowTelemetry(agreementContext(policyregistry.TargetInternal, true), &p, res)
+	applyAgreementShadowTelemetry(hmm.ServingPorts(), agreementContext(policyregistry.TargetInternal, true), &p, res)
 	svc.fireTelemetry(t.Context(), p)
 	select {
 	case <-store.notify:
@@ -221,9 +222,9 @@ func TestAgreementShadowRecordsOnlyAfterBaselineTelemetryAndHandlesFailures(t *t
 
 func TestAgreementShadowStoreErrorDoesNotLoseBaselineTelemetry(t *testing.T) {
 	store := &agreementTelemetry{auxTelemetryRepo: &auxTelemetryRepo{}, fail: true}
-	svc := &Service{telemetry: store}
+	svc := &Service{hmmServing: hmmPorts(), telemetry: store}
 	p, res := agreementFixture()
-	applyAgreementShadowTelemetry(agreementContext(policyregistry.TargetInternal, true), &p, res)
+	applyAgreementShadowTelemetry(hmm.ServingPorts(), agreementContext(policyregistry.TargetInternal, true), &p, res)
 	svc.fireTelemetry(t.Context(), p)
 	rows := store.waitForRows(1)
 	if len(rows) != 1 || rows[0].DecisionModel != p.DecisionModel || rows[0].UpstreamStatusCode != http.StatusOK {
@@ -240,7 +241,7 @@ func (agreementFailureRouter) Route(context.Context, router.Request) (router.Dec
 func TestAgreementShadowRoutingRefusalBreaksHistoryWithoutDispatch(t *testing.T) {
 	store := &agreementTelemetry{auxTelemetryRepo: &auxTelemetryRepo{}, notify: make(chan struct{}, 1)}
 	pins := newStubPinStore()
-	svc := NewService(agreementFailureRouter{}, nil, nil, pins, false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, store).
+	svc := withHMMPorts(NewService(agreementFailureRouter{}, nil, nil, pins, false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, store)).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: agreementFailureRouter{}, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}})
 	env, err := translate.ParseAnthropic([]byte(`{"model":"weave-auto","messages":[{"role":"user","content":"synthetic routing test"}]}`))
 	if err != nil {

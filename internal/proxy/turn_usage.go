@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
@@ -20,7 +21,7 @@ func (s *Service) recordTurnUsage(ctx context.Context, res turnLoopResult, serve
 	if s.pinStore == nil || res.HardPinned || res.CallerModelPassthrough {
 		return
 	}
-	if isHMMTurn(res) {
+	if isHMMTurn(s.strategyPorts, res) {
 		s.recordHMMTurnHistory(ctx, res, servedProvider, servedModel, in, out, cacheCreation, cacheRead, outputLimitReached)
 		return
 	}

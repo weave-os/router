@@ -60,7 +60,7 @@ func TestProxyMessagesEmitsHighLevelFlowSpans(t *testing.T) {
 
 	routerImpl := &flowSpanRouter{}
 	providerImpl := &flowSpanProvider{}
-	svc := NewService(
+	svc := withHMMPorts(NewService(
 		routerImpl,
 		map[string]providers.Client{providers.ProviderAnthropic: providerImpl},
 		nil,
@@ -68,8 +68,7 @@ func TestProxyMessagesEmitsHighLevelFlowSpans(t *testing.T) {
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	)
+		nil))
 
 	ctx, requestSpan := provider.Tracer("test").Start(context.Background(), "request")
 	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{SessionID: "client-session-abc"})
@@ -108,7 +107,7 @@ func TestProxyOpenAITranslationErrorMarksInferenceSpanFailed(t *testing.T) {
 		Reason:   "cluster",
 	}}
 	providerImpl := &flowSpanProvider{}
-	svc := NewService(
+	svc := withHMMPorts(NewService(
 		routerImpl,
 		map[string]providers.Client{providers.ProviderGoogle: providerImpl},
 		nil,
@@ -116,8 +115,7 @@ func TestProxyOpenAITranslationErrorMarksInferenceSpanFailed(t *testing.T) {
 		false,
 		providers.ProviderGoogle,
 		"gemini-3-pro-preview",
-		nil,
-	)
+		nil))
 
 	ctx, requestSpan := provider.Tracer("test").Start(context.Background(), "request")
 	body := []byte(`{"model":"gpt-5","messages":[{"role":"user","content":"continue"},{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"Bash","arguments":"{}"}}]},{"role":"tool","tool_call_id":"call_1","content":"ok"}]}`)

@@ -110,7 +110,7 @@ func buildPolicyDeadlineFallbackService(
 	defaultModel string,
 ) *Service {
 	t.Helper()
-	return NewService(
+	return withHMMPorts(NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil},
 		nil,
@@ -118,8 +118,8 @@ func buildPolicyDeadlineFallbackService(
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	).WithPolicyDeadlineFallback(fallbackEnabled).
+		nil)).
+		WithPolicyDeadlineFallback(fallbackEnabled).
 		WithPolicyDeadlineDefaultModel(defaultModel).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: strategy,

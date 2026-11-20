@@ -14,9 +14,9 @@ import (
 
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/armid"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/escalation"
-	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/rosterdata"
 	"weave-os/router/internal/server"
 )

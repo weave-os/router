@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"net/http"
+
 	"weave-os/router/internal/auth"
 
 	"weave-os/router/internal/observability"

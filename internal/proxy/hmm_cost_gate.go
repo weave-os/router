@@ -6,26 +6,24 @@ import (
 
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/candidates"
-	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/routingpolicy"
 )
 
-const hmmHistoryReason = hmm.HistoryReason
-
-func hmmCostGateFor(s *Service) hmm.CostGate {
-	return hmm.CostGate{
+func hmmCostGateFor(s *Service) continuity.CostGateConfig {
+	return continuity.CostGateConfig{
 		AvailableModels:            s.availableModels,
 		RegisteredProviders:        func() map[string]struct{} { return s.clients.NameSet() },
 		UpgradeConfidenceThreshold: s.hmmConfig.UpgradeConfidenceThreshold,
 	}
 }
 
-func hmmCostGatedDecision(ctx context.Context, s *Service, input hmm.CostGateInput) (router.Decision, planner.Decision, bool, string) {
+func hmmCostGatedDecision(ctx context.Context, s *Service, input continuity.CostGateInput) (router.Decision, planner.Decision, bool, string) {
 	input.Planner = plannerConfigFor(ctx, s.continuityConfig.Planner)
 	input.Now = s.clock.Now()
-	stayPin, plan, sticky := hmmCostGateFor(s).Decide(input)
+	stayPin, plan, sticky := s.strategyPorts.CostGate.Decide(hmmCostGateFor(s), input)
 	if sticky {
 		return pinDecision(stayPin), plan, true, stayPin.Model
 	}
@@ -33,7 +31,7 @@ func hmmCostGatedDecision(ctx context.Context, s *Service, input hmm.CostGateInp
 }
 
 func hmmStayPin(s *Service, req router.Request, activePin sessionpin.Pin, hmmHistory sessionpin.Pin) (sessionpin.Pin, bool) {
-	return hmmCostGateFor(s).StayPin(req, activePin, hmmHistory, s.clock.Now())
+	return s.strategyPorts.CostGate.StayPin(hmmCostGateFor(s), req, activePin, hmmHistory, s.clock.Now())
 }
 
 func hmmEffectiveInputUSDPer1M(model string, inputTokens int) (float64, bool) {

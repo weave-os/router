@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/translate"
@@ -50,9 +51,9 @@ func TestBoostLinkedFirstHonorsForcedModel(t *testing.T) {
 					Reason: translate.ReasonUserForceModel, PinnedUntil: time.Now().Add(time.Hour),
 				}
 			}
-			service := proxy.NewService(selection, map[string]providers.Client{
+			service := proxy.WithStrategyPorts(proxy.NewService(selection, map[string]providers.Client{
 				tc.provider: upstream,
-			}, nil, store, false, providers.ProviderOpenAI, "gpt-6.1-sol", nil).
+			}, nil, store, false, providers.ProviderOpenAI, "gpt-6.1-sol", nil), hmm.ServingPorts()).
 				WithDeploymentKeyedProviders(map[string]struct{}{tc.provider: {}})
 			body := `{"model":"gpt-6.1-sol","messages":[{"role":"user","content":"Review this change."}],"max_tokens":4096,"stream":true}`
 			if tc.responses {

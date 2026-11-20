@@ -56,13 +56,13 @@ func proxyPinnedCodexOverload(t *testing.T, pinFound bool) (*anthropicServingCli
 		},
 	}}
 	sibling := &anthropicServingClient{}
-	svc := NewService(nil,
+	svc := withHMMPorts(NewService(nil,
 		map[string]providers.Client{
 			providers.ProviderOpenAI:    planClient{&codexInStreamOverloadClient{}},
 			providers.ProviderAnthropic: planClient{sibling},
 		},
-		nil, store, false, providers.ProviderOpenAI, pinnedOverloadModel, nil,
-	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}, providers.ProviderAnthropic: {}}).
+		nil, store, false, providers.ProviderOpenAI, pinnedOverloadModel, nil)).
+		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}, providers.ProviderAnthropic: {}}).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil }).
 		WithSiblingFailover(true).
 		WithPolicyStrategy(policy.StrategySpec{

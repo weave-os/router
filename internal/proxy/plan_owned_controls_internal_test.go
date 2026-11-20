@@ -54,7 +54,7 @@ func TestPlanOwnedServingIgnoresCustomerRoutingControls(t *testing.T) {
 	assert.Nil(t, installationExcludedProvidersFromContext(ctx))
 	assert.Nil(t, installationFastModeModelsFromContext(ctx))
 	assert.Nil(t, routingKnobsForRequest(ctx))
-	assert.Nil(t, (&Service{}).preferredModelsForRequest(ctx))
+	assert.Nil(t, (&Service{hmmServing: hmmPorts()}).preferredModelsForRequest(ctx))
 	assert.Nil(t, clusterArmOverridesForRequest(ctx))
 }
 
@@ -101,7 +101,7 @@ func TestBoostServingUsesDefaultRoutingControls(t *testing.T) {
 	assert.Equal(t, []string{"customer-provider"}, installationExcludedProvidersFromContext(ctx))
 	assert.Equal(t, []string{"customer-fast"}, installationFastModeModelsFromContext(ctx))
 	assert.Equal(t, *router.RoutingKnobsFromContext(ctx), *routingKnobsForRequest(ctx))
-	assert.Equal(t, []string{"customer-preferred"}, (&Service{}).preferredModelsForRequest(ctx))
+	assert.Equal(t, []string{"customer-preferred"}, (&Service{hmmServing: hmmPorts()}).preferredModelsForRequest(ctx))
 	assert.Equal(t, map[string][]string{"cluster": {"customer-arm"}}, clusterArmOverridesForRequest(ctx))
 	assert.False(t, planHasDedicatedServingPolicy(ctx))
 }
@@ -112,7 +112,7 @@ func TestPlanOwnedServingHonorsCustomerExcludedModels(t *testing.T) {
 	for name, ctx := range map[string]context.Context{"max": planOwnedContext(), "boost": boostPlanOwnedContext()} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			svc := &Service{}
+			svc := &Service{hmmServing: hmmPorts()}
 			assert.Contains(t, svc.excludedModelsForRequest(ctx), "customer-excluded")
 			assert.Contains(t, svc.forcePolicyExcludedModels(ctx), "customer-excluded")
 		})
@@ -126,7 +126,7 @@ func TestBoostServingAllowsForceModelHeader(t *testing.T) {
 	require.NoError(t, err)
 	request.Header.Set(ForceModelHeader, "claude-opus-5")
 
-	ctx, forced, err := (&Service{}).applyForceModelHeader(request.Context(), request, uuid.Nil, [sessionpin.SessionKeyLen]byte{})
+	ctx, forced, err := (&Service{hmmServing: hmmPorts()}).applyForceModelHeader(request.Context(), request, uuid.Nil, [sessionpin.SessionKeyLen]byte{})
 	require.NoError(t, err)
 	assert.Equal(t, "claude-opus-5", forced)
 	assert.False(t, planHasDedicatedServingPolicy(ctx))
@@ -139,7 +139,7 @@ func TestBoostServingHeaderForceModelCarriesEffortSameTurn(t *testing.T) {
 	require.NoError(t, err)
 	request.Header.Set(ForceModelHeader, "sol:medium")
 
-	svc := &Service{}
+	svc := &Service{hmmServing: hmmPorts()}
 	ctx, forced, err := svc.applyForceModelHeader(request.Context(), request, uuid.Nil, [sessionpin.SessionKeyLen]byte{})
 	require.NoError(t, err)
 	assert.Equal(t, "gpt-6.2-sol:medium", forced)
@@ -172,7 +172,7 @@ func TestBoostServingKeepsLegacyForceModelPinActive(t *testing.T) {
 		Reason:      translate.ReasonUserForceModel,
 		PinnedUntil: pinNeverExpires,
 	}
-	svc := &Service{pinStore: store}
+	svc := &Service{hmmServing: hmmPorts(), pinStore: store}
 
 	pin, active, noStoredState := routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now, router.StrategyFromContext(boostDefaultRoutingContext())).LoadWithStoreState(boostDefaultRoutingContext(), sessionKey, role)
 
@@ -183,7 +183,7 @@ func TestBoostServingKeepsLegacyForceModelPinActive(t *testing.T) {
 
 func TestBoostServingAppliesForceModelCommand(t *testing.T) {
 	store := newForceModelMapStore()
-	svc := &Service{pinStore: store}
+	svc := &Service{hmmServing: hmmPorts(), pinStore: store}
 	env := forceCommandEnv(t)
 	threadKey := [sessionpin.SessionKeyLen]byte{2}
 	forceKey := [sessionpin.SessionKeyLen]byte{3}
@@ -205,7 +205,7 @@ func TestBoostServingAppliesForceModelCommand(t *testing.T) {
 func TestBoostServingRoutesExplicitForceModel(t *testing.T) {
 	env := forceCommandEnv(t)
 	features := env.RoutingFeatures()
-	svc := &Service{}
+	svc := &Service{hmmServing: hmmPorts()}
 
 	result, err := svc.runTurnLoop(
 		boostDefaultRoutingContext(), env, features, testTurnRequest(
@@ -221,7 +221,7 @@ func TestBoostServingRoutesExplicitForceModel(t *testing.T) {
 
 func TestMaxServingStillRejectsClosedSourceForceModel(t *testing.T) {
 	store := newForceModelMapStore()
-	svc := &Service{pinStore: store}
+	svc := &Service{hmmServing: hmmPorts(), pinStore: store}
 	env := forceCommandEnv(t)
 	_, message, err := svc.applyForceModelCommand(
 		planOwnedContext(), router.StrategyFromContext(planOwnedContext()), translate.ForceModelResult{Model: "opus"}, uuid.New(),

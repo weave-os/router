@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 )
 
 // pckStrictGatewayProvider rejects any body carrying prompt_cache_key
@@ -47,9 +48,9 @@ func TestService_ProxyOpenAIChatCompletion_GatewayPromptCacheKeyRejectionRetries
 		Model:    "grok-4.6",
 		Reason:   "hmm:test",
 	}}
-	svc := proxy.NewService(fr, map[string]providers.Client{
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{
 		providers.ProviderOpenAIGateway: gw,
-	}, nil, nil, false, providers.ProviderOpenAIGateway, "grok-4.6", nil)
+	}, nil, nil, false, providers.ProviderOpenAIGateway, "grok-4.6", nil), hmm.ServingPorts())
 
 	ctx := context.WithValue(context.Background(), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: providers.ProviderOpenAIGateway, Plaintext: []byte("gw-key"), BaseURL: "https://gw.example.com/v1"},
