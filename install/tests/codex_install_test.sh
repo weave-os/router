@@ -77,6 +77,14 @@ printf '%s\n' 'user-authored prompt' >"$home/.codex/prompts/keep-me.md"
 run_hosted_install
 config="$home/.codex/config.toml"
 [ -f "$config" ] || fail "Codex config was not created"
+grep -Fq '"X-Weave-Router-Config-Version" = "1"' "$config" || fail "missing config version"
+required_version="$(sed -n 's/^WEAVE_REQUIRED_CONFIG_VERSION=//p' "$script_dir/../codex-status.sh")"
+grep -Fq "\"X-Weave-Router-Config-Version\" = \"$required_version\"" "$config" || fail "config version drifted from helper requirement"
+sed -i 's/"X-Weave-Router-Config-Version" = "1"/"X-Weave-Router-Config-Version" = "0"/' "$config"
+HOME="$home" PATH="$test_path" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
+  bash "$installer" update --codex --scope user --quiet --base-url https://router.weaveos.com \
+  || test "$?" = 1
+grep -Fq '"X-Weave-Router-Config-Version" = "1"' "$config" || fail "update did not refresh config version"
 grep -qx 'model_provider = "weave"' "$config" \
   || fail "Weave was not selected as the default provider"
 grep -qx 'model = "weave-auto"' "$config" \
@@ -162,6 +170,7 @@ fi
 # The alias must pick Codex even without a --codex flag and return a later
 # process to Codex's default provider without removing the managed block.
 run_disable_routing
+grep -Fq '"X-Weave-Router-Config-Version" = "1"' "$config" || fail "off lost config version"
 grep -qx '# model_provider = "weave"  # weave-router: off (run on to re-enable)' "$config" \
   || fail "disable-routing did not turn off the Codex provider"
 grep -qx '# model = "weave-auto"  # weave-router: off (run on to re-enable)' "$config" \
@@ -169,6 +178,7 @@ grep -qx '# model = "weave-auto"  # weave-router: off (run on to re-enable)' "$c
 [ "$(grep -c '^\[model_providers\.weave\]$' "$config")" -eq 1 ] \
   || fail "disable-routing removed or duplicated the managed provider"
 HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" on --codex --scope user --quiet >/dev/null
+grep -Fq '"X-Weave-Router-Config-Version" = "1"' "$config" || fail "on lost config version"
 grep -qx 'model = "weave-auto"' "$config" \
   || fail "router-on did not restore automatic routing"
 
