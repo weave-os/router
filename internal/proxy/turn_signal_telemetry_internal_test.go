@@ -146,7 +146,7 @@ func (c *memorySessionTurnClock) AdvanceSessionTurnClock(_ context.Context, adva
 
 func TestApplyUserPromptGap_TimesTypedPromptAgainstPreviousResponse(t *testing.T) {
 	clock := &memorySessionTurnClock{finishes: map[string]SessionTurnClockReading{}}
-	service := (&Service{}).WithSessionTurnClock(clock)
+	service := (&Service{hmmServing: hmmPorts()}).WithSessionTurnClock(clock)
 	start := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
 	turn := func(offset time.Duration, latencyMs int64, turnType string, model string, typed bool) InsertTelemetryParams {
 		return InsertTelemetryParams{
@@ -185,7 +185,7 @@ func TestApplyUserPromptGap_TimesTypedPromptAgainstPreviousResponse(t *testing.T
 
 func TestApplyUserPromptGap_OverlappingPreviousResponseLeavesGapNull(t *testing.T) {
 	clock := &memorySessionTurnClock{finishes: map[string]SessionTurnClockReading{}}
-	service := (&Service{}).WithSessionTurnClock(clock)
+	service := (&Service{hmmServing: hmmPorts()}).WithSessionTurnClock(clock)
 	start := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
 	typed := true
 	long := InsertTelemetryParams{
@@ -205,7 +205,7 @@ func TestApplyUserPromptGap_OverlappingPreviousResponseLeavesGapNull(t *testing.
 
 func TestApplyUserPromptGap_FailedTurnDoesNotMoveTheClock(t *testing.T) {
 	clock := &memorySessionTurnClock{finishes: map[string]SessionTurnClockReading{}}
-	service := (&Service{}).WithSessionTurnClock(clock)
+	service := (&Service{hmmServing: hmmPorts()}).WithSessionTurnClock(clock)
 	start := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
 	typed := true
 	reply := InsertTelemetryParams{
@@ -245,7 +245,7 @@ func (c *deadlineRecordingClock) AdvanceSessionTurnClock(ctx context.Context, _ 
 
 func TestApplyUserPromptGap_ClockLeavesTheInsertItsBudget(t *testing.T) {
 	clock := &deadlineRecordingClock{}
-	service := (&Service{}).WithSessionTurnClock(clock)
+	service := (&Service{hmmServing: hmmPorts()}).WithSessionTurnClock(clock)
 	parent, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	parentDeadline, _ := parent.Deadline()

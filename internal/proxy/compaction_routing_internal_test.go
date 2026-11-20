@@ -47,9 +47,9 @@ func newCompactionRoutingFixture(t *testing.T, scored router.Decision) compactio
 	t.Helper()
 	calls := &atomic.Int32{}
 	store := newForceModelMapStore()
-	svc := NewService(compactionScorer{decision: scored, calls: calls},
+	svc := withHMMPorts(NewService(compactionScorer{decision: scored, calls: calls},
 		map[string]providers.Client{providers.ProviderOpenAI: nil, providers.ProviderAnthropic: nil},
-		nil, store, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil).
+		nil, store, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil)).
 		WithHardPinResolver(func(req HardPinRequest) (string, string, bool) {
 			return policy.UtilityTarget(policy.UtilityTargetRequest{
 				EnabledProviders: req.EnabledProviders,
@@ -64,7 +64,7 @@ func (f compactionRoutingFixture) run(t *testing.T, ctx context.Context, env *tr
 	t.Helper()
 	features := env.RoutingFeatures()
 	req.RequestedModel = features.Model
-	return f.svc.runTurnLoop(ctx, env, features, "test-key", f.installationID, "", nil, req)
+	return f.svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, "test-key", f.installationID), "", nil, req)
 }
 
 func (f compactionRoutingFixture) pinSession(t *testing.T, ctx context.Context, env *translate.RequestEnvelope, decision router.Decision) {

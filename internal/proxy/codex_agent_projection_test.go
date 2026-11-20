@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/translate"
 )
@@ -41,7 +42,7 @@ func TestCodexRoutesAgentRepliesWithoutChangingProviderInput(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			selected := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: catalog.ModelGPT6Luna, Reason: "scored"}}
 			upstream := &fakeProvider{proxyResponse: responsesTextUpstream}
-			svc := proxy.NewService(selected, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, nil, false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, nil).
+			svc := proxy.WithStrategyPorts(proxy.NewService(selected, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, nil, false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, nil), hmm.ServingPorts()).
 				WithOpenAIResponsesBroad(true).
 				WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: selected, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}})
 			body := []byte(`{"model":"weave-auto","stream":true,"tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}],"input":[
@@ -82,7 +83,7 @@ func TestCodexRoutingHistoryStripsConsumedToolCommands(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			selected := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: catalog.ModelGPT6Luna, Reason: "scored"}}
 			upstream := &fakeProvider{proxyResponse: responsesTextUpstream}
-			svc := proxy.NewService(selected, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, newFakePinStore(), false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, nil).
+			svc := proxy.WithStrategyPorts(proxy.NewService(selected, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, newFakePinStore(), false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, nil), hmm.ServingPorts()).
 				WithOpenAIResponsesBroad(true).
 				WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: selected, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}})
 			body := []byte(`{"model":"weave-auto","stream":true,"tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}],"input":[

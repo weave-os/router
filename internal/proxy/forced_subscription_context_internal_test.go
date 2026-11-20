@@ -54,7 +54,7 @@ func TestForcedSubscriptionContextEstimatePreservesHardExclusions(t *testing.T) 
 			if scenario.unsignedHistory {
 				request.Candidates.UnsignedHistoryExcludedModels = modelSet([]string{gatewayCompactionOpusModel})
 			}
-			_, narrowed := (&Service{}).subscriptionStateRequest(context.Background(), request, []string{gatewayCompactionOpusModel})
+			_, narrowed := (&Service{hmmServing: hmmPorts()}).subscriptionStateRequest(context.Background(), request, []string{gatewayCompactionOpusModel})
 			_, allowed := narrowed.Candidates.AllowedModels[gatewayCompactionOpusModel]
 			assert.Equal(t, scenario.wantServed, allowed)
 			assert.Contains(t, request.Candidates.ExcludedModels, gatewayCompactionOpusModel, "state routing must not mutate the original request")
@@ -118,10 +118,10 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 				Provider: providers.ProviderAnthropic, Model: gatewayCompactionOpusModel,
 				Reason: translate.ReasonUserForceModel, PinnedUntil: pinNeverExpires,
 			}}
-			svc := NewService(nil, map[string]providers.Client{
+			svc := withHMMPorts(NewService(nil, map[string]providers.Client{
 				providers.ProviderAnthropic: anthropic.NewClient("synthetic-paid-key", upstream.URL),
 				providers.ProviderOpenAI:    planClient{&fakeClient{name: providers.ProviderOpenAI}},
-			}, nil, store, false, "", "", nil).
+			}, nil, store, false, "", "", nil)).
 				WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: true}}).
 				WithAvailableModels(modelSet([]string{gatewayCompactionOpusModel, catalog.ModelGPT6Luna})).
 				WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI})).

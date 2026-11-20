@@ -14,15 +14,15 @@ import (
 )
 
 func newHMMStayPinRegressionService() *Service {
-	return NewService(
+	return withHMMPorts(NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
 		nil,
 		nil,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	)
+		nil))
+
 }
 
 func hmmStayPinRegressionFresh(reason string) router.Decision {

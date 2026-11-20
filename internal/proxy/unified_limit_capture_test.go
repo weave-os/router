@@ -101,7 +101,7 @@ func TestUnifiedLimitHeadersJSON(t *testing.T) {
 // Capture must work when s.usageObserver is nil — the Phase 0 dogfooding
 // scenario before subsidy-aware routing is enabled.
 func TestWithUsageObserver_CapturesRawHeadersEvenWithoutSubsidyObserver(t *testing.T) {
-	s := &Service{} // usageObserver is nil: subsidy feature not configured
+	s := &Service{hmmServing: hmmPorts()} // usageObserver is nil: subsidy feature not configured
 
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer sk-ant-oat01-claudecode")
@@ -125,7 +125,7 @@ func TestWithUsageObserver_CapturesRawHeadersEvenWithoutSubsidyObserver(t *testi
 // No-op contract: nothing captured when usageObserver is nil AND no subscription
 // token is present — Phase 0 must not capture on every request.
 func TestWithUsageObserver_NoopWhenNothingToObserve(t *testing.T) {
-	s := &Service{}
+	s := &Service{hmmServing: hmmPorts()}
 	ctx := context.Background()
 	got := s.withUsageObserver(ctx, http.Header{}) // no Authorization at all
 	assert.Nil(t, UnifiedLimitHeadersFrom(got), "no subscription token present -> capture never installed")
@@ -177,7 +177,7 @@ func TestCaptureUnifiedLimitHeaders_LastAttemptReplacesOtherFamily(t *testing.T)
 }
 
 func TestWithUsageObserver_CapturesCodexHeadersForDirectCodexLogin(t *testing.T) {
-	s := &Service{}
+	s := &Service{hmmServing: hmmPorts()}
 
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer eyJhbGciOi.codex.jwt")

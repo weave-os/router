@@ -13,13 +13,10 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/router"
-
-	"weave-os/router/internal/auth"
-	"weave-os/router/internal/postgres"
-	"weave-os/router/internal/subscriptions"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -27,6 +24,10 @@ import (
 	"github.com/tink-crypto/tink-go/v2/aead"
 	"github.com/tink-crypto/tink-go/v2/insecurecleartextkeyset"
 	"github.com/tink-crypto/tink-go/v2/keyset"
+
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/postgres"
+	"weave-os/router/internal/subscriptions"
 )
 
 func TestVerificationSQLConcurrentSharedRefreshAndReset(t *testing.T) {

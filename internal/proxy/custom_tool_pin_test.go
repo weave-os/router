@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 )
 
@@ -32,7 +33,7 @@ func TestService_SessionPin_CustomToolTurnKeepsUnsupportedPinExcluded(t *testing
 	}
 	fresh := catalog.ModelIDGPT55.String()
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: fresh, Reason: "cluster:v0.57"}}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 		map[string]providers.Client{providers.ProviderOpenAI: &fakeProvider{}, providers.ProviderDeepInfra: &fakeProvider{}},
 		nil,
@@ -40,8 +41,7 @@ func TestService_SessionPin_CustomToolTurnKeepsUnsupportedPinExcluded(t *testing
 		false,
 		providers.ProviderOpenAI,
 		catalog.ModelIDGPT55.String(),
-		nil,
-	)
+		nil), hmm.ServingPorts())
 
 	body := `{"model":"auto","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic task"}]}],"tools":[{"type":"custom","name":"exec"}]}`
 	rec := httptest.NewRecorder()

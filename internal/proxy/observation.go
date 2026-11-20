@@ -7,7 +7,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/timing"
 )
@@ -62,7 +62,7 @@ type observationContext struct {
 	FreshCandidateScores     []byte
 }
 
-func buildObservationContext(ctx context.Context, strategy router.Strategy, decision, fresh router.Decision, captureMode ContentCaptureMode) observationContext {
+func buildObservationContext(ports continuity.StrategyPorts, ctx context.Context, strategy router.Strategy, decision, fresh router.Decision, captureMode ContentCaptureMode) observationContext {
 	debugEnabled, _ := ctx.Value(PolicyDebugEnabledContextKey{}).(bool)
 	obs := observationContext{
 		TrainingAllowed: policyTrainingAllowedForRequest(ctx),
@@ -79,7 +79,7 @@ func buildObservationContext(ctx context.Context, strategy router.Strategy, deci
 		obs.FreshDecisionModel = fresh.Model
 	}
 	if fresh.Metadata != nil {
-		obs.FreshClassifierMargin, obs.FreshPolicyGroup = hmm.ClassifierTelemetryOf(fresh.Metadata).Margin, hmm.ClassifierTelemetryOf(fresh.Metadata).PolicyGroup
+		obs.FreshClassifierMargin, obs.FreshPolicyGroup = ports.Facts.ClassifierTelemetryOf(fresh.Metadata).Margin, ports.Facts.ClassifierTelemetryOf(fresh.Metadata).PolicyGroup
 	}
 	if md := fresh.Metadata; md != nil && len(md.CandidateScores) > 0 {
 		if b, err := json.Marshal(md.CandidateScores); err == nil {
@@ -89,7 +89,7 @@ func buildObservationContext(ctx context.Context, strategy router.Strategy, deci
 		}
 	}
 	if md := decision.Metadata; md != nil {
-		classifier := hmm.ClassifierTelemetryOf(md)
+		classifier := ports.Facts.ClassifierTelemetryOf(md)
 		if len(md.CandidateModels) > 0 {
 			obs.CandidateModels = append([]string(nil), md.CandidateModels...)
 		}
@@ -140,7 +140,7 @@ func buildObservationContext(ctx context.Context, strategy router.Strategy, deci
 		}
 	}
 	if md := fresh.Metadata; md != nil {
-		classifier := hmm.ClassifierTelemetryOf(md)
+		classifier := ports.Facts.ClassifierTelemetryOf(md)
 		if obs.RouteID == "" {
 			obs.RouteID = md.RouteID
 		}

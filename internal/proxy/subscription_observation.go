@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"net/http"
+
 	"weave-os/router/internal/auth"
 
 	"weave-os/router/internal/observability"
@@ -19,16 +20,12 @@ const (
 	routePathResponses       = "/v1/responses"
 )
 
-func CodexSubscriptionCoversModel(model string) bool {
-	return requestcontext.CodexSubscriptionCoversModel(model)
-}
-
 func codexSubscriptionCanAttemptModel(model string) bool {
 	return requestcontext.CodexSubscriptionCanAttemptModel(model)
 }
 
 func codexSubscriptionCoversModel(model string) bool {
-	return CodexSubscriptionCoversModel(model)
+	return requestcontext.CodexSubscriptionCoversModel(model)
 }
 
 func (s *Service) WithUsageObserver(obs *usage.Observer) *Service {
