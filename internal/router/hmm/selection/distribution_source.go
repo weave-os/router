@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/rosterdata"
 )
 
 type DistributionRosters interface {

@@ -10,8 +10,8 @@ import (
 
 	"weave-os/router/internal/api/admin"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/hmm/selection"
+	"weave-os/router/internal/router/rosterdata"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"

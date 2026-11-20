@@ -10,8 +10,8 @@ import (
 
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/router/rosterdata"
 )
 
 const testRegistryRoot = "gs://weave_ml/weave_registry"
