@@ -3,7 +3,7 @@ package selection
 import (
 	"log/slog"
 
-	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/rosterdata"
 	"weave-os/router/internal/router/taskdomain"
 )
 
