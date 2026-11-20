@@ -537,8 +537,9 @@ endpoint in the tracked project settings is one you approved. If the endpoint
 was changed in the checkout, repeat it with `--base-url <url>` (or reinstall
 against that endpoint) before the update can send a local router key there.
 
-**Claude Code also refreshes itself.** `cc-statusline.sh` checks
-`raw.githubusercontent.com` for a newer copy of itself at most once every
+**Claude Code also refreshes itself.** `cc-statusline.sh` takes a newer copy of
+itself from the latest published `@weave-os/router` npm release (never from a
+branch, and only when the tarball matches the registry's SHA-512) at most once every
 `$WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS` (default 7) in a detached background
 fork, and on the same schedule refreshes the `.claude/commands/*.md` slash-command
 wrappers. Both swap only on a real content change, and a wrapper is replaced
@@ -552,11 +553,9 @@ nothing lands in a repo working tree.
 | `WEAVE_STATUSLINE_UPDATE=0`                 | on      | Disable every background network path in the statusline.       |
 | `WEAVE_COMMANDS_UPDATE=0`                   | on      | Disable only the slash-command refresh.                        |
 | `WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS`     | `7`     | How often either check may run.                                |
-| `WEAVE_STATUSLINE_URL`                      | GitHub raw | Source for the statusline (self-hosters who fork).          |
-| `WEAVE_COMMANDS_URL_BASE`                   | GitHub raw | Source directory for the slash-command wrappers.            |
 | `WEAVE_CODEX_STATUS_UPDATE=0`               | on      | Disable the Codex status helper's self-refresh.                |
 | `WEAVE_CODEX_STATUS_UPDATE_INTERVAL_DAYS`   | `7`     | How often the Codex helper may check for a new copy.           |
-| `WEAVE_CODEX_STATUS_URL`                    | GitHub raw | Source for the Codex status helper (self-hosters who fork). |
+| `WEAVE_RELEASE_REGISTRY`                    | npmjs.org | npm registry (or mirror) every self-update reads from.       |
 
 **Codex refreshes itself too.** The status helper checks for a newer copy of
 itself on the same schedule and swaps it in atomically, so an install picks up
