@@ -34,6 +34,8 @@ func TestLookup(t *testing.T) {
 		{name: "gpt-6-astra", model: "gpt-6-astra", wantInput: 10.00, wantOutput: 50.00},
 		{name: "gpt-6-sol", model: "gpt-6-sol", wantInput: 2.00, wantOutput: 10.00},
 		{name: "gpt-6.1-sol", model: "gpt-6.1-sol", wantInput: 2.00, wantOutput: 10.00},
+		{name: "gpt-6.2-sol", model: "gpt-6.2-sol", wantInput: 2.00, wantOutput: 10.00},
+		{name: "gpt-6.2-astra", model: "gpt-6.2-astra", wantInput: 8.00, wantOutput: 40.00},
 		{name: "gpt-6.1-terra", model: "gpt-6.1-terra", wantInput: 1.00, wantOutput: 5.00},
 		{name: "gpt-6-luna", model: "gpt-6-luna", wantInput: 0.10, wantOutput: 0.50},
 		{name: "gpt-5.6-sol", model: "gpt-5.6-sol", wantInput: 4.00, wantOutput: 20.00},
@@ -80,6 +82,7 @@ func TestLookup(t *testing.T) {
 		{name: "gemini-3.5-flash-lite", model: "gemini-3.5-flash-lite", wantInput: 0.30, wantOutput: 2.50},
 		{name: "gemini-3.7-flash", model: "gemini-3.7-flash", wantInput: 1.50, wantOutput: 7.50},
 		{name: "gemini-3.8-flash", model: "gemini-3.8-flash", wantInput: 1.50, wantOutput: 7.50},
+		{name: "gemini-4-neon", model: "gemini-4-neon", wantInput: 3.00, wantOutput: 15.00},
 
 		// ── Google Gemini 2.x (legacy) ─────────────────────────
 		{name: "gemini-2.5-pro", model: "gemini-2.5-pro", wantInput: 1.25, wantOutput: 5.00},

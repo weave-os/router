@@ -253,8 +253,8 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 	sort.Strings(deployedIDs)
 
 	for _, id := range deployedIDs {
-		if len(req.AllowedModels) > 0 {
-			if _, allowed := req.AllowedModels[id]; !allowed {
+		if len(req.Candidates.AllowedModels) > 0 {
+			if _, allowed := req.Candidates.AllowedModels[id]; !allowed {
 				diagnostics = append(diagnostics, Diagnostic{CatalogID: id, Reason: ExclusionNotAllowlisted})
 				continue
 			}
@@ -268,10 +268,10 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, Reason: ExclusionProductIneligible})
 			continue
 		}
-		_, unsignedHistoryExcluded := req.UnsignedHistoryExcludedModels[id]
-		_, contextWindowExcluded := req.ContextWindowExcludedModels[id]
-		_, imageLimitExcluded := req.ImageLimitExcludedModels[id]
-		if _, excluded := req.ExcludedModels[id]; excluded && !unsignedHistoryExcluded && !contextWindowExcluded && !imageLimitExcluded {
+		_, unsignedHistoryExcluded := req.Candidates.UnsignedHistoryExcludedModels[id]
+		_, contextWindowExcluded := req.Candidates.ContextWindowExcludedModels[id]
+		_, imageLimitExcluded := req.Candidates.ImageLimitExcludedModels[id]
+		if _, excluded := req.Candidates.ExcludedModels[id]; excluded && !unsignedHistoryExcluded && !contextWindowExcluded && !imageLimitExcluded {
 			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, Reason: ExclusionRequested})
 			continue
 		}
@@ -353,7 +353,7 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 
 	base, diagnostics = softFilter(base, req.HasImages, r.imageLow, ExclusionImageCapability, diagnostics)
 	base, diagnostics = softFilter(base, req.HasTools, r.toolLow, ExclusionToolCapability, diagnostics)
-	base, diagnostics = softFilter(base, true, req.AutomaticExcludedModels, ExclusionAutomaticDisabled, diagnostics)
+	base, diagnostics = softFilter(base, true, req.Candidates.AutomaticExcludedModels, ExclusionAutomaticDisabled, diagnostics)
 
 	selectionCounts := make(map[string]int, len(base))
 	for _, candidate := range base {
@@ -450,7 +450,7 @@ func requiredContextTokens(req router.Request) int {
 }
 
 func exceedsContextWindow(req router.Request, catalogID string, contextWindow int) bool {
-	if _, admitted := req.OverflowAdmittedModels[catalogID]; admitted {
+	if _, admitted := req.Candidates.OverflowAdmittedModels[catalogID]; admitted {
 		return false
 	}
 	return requiredContextTokens(req) > contextWindow

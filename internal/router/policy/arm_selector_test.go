@@ -129,6 +129,19 @@ func TestArmSelectorErrorFailsTheTurn(t *testing.T) {
 		"a failed selection must surface as the strategy's unavailable sentinel, not a sidecar-picked arm")
 }
 
+func TestArmSelectorNoEligibleArmIsNotAnOutage(t *testing.T) {
+	adapter := newSelectorAdapter(classifierOnlyResult())
+	adapter.WithArmSelector(func(_ context.Context, _ policy.SelectionInput) (policy.SelectionPick, error) {
+		return policy.SelectionPick{}, policy.ErrNoEligibleArm
+	})
+
+	_, err := adapter.Route(context.Background(), router.Request{})
+
+	require.ErrorIs(t, err, policy.ErrNoEligibleArm)
+	assert.NotContains(t, err.Error(), "selection unavailable",
+		"a candidate set the roster cannot serve is a request eligibility failure, not a policy outage")
+}
+
 func TestArmSelectorForceClusterExhaustionIsCallerError(t *testing.T) {
 	result := classifierOnlyResult()
 	adapter := newSelectorAdapter(result)

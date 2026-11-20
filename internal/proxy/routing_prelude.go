@@ -13,6 +13,7 @@ import (
 )
 
 type requestNoticeStream struct {
+	now        func() time.Time
 	delivery   *translate.NoticeDelivery
 	lastNotice translate.RouterNotice
 	modelShown bool
@@ -25,7 +26,7 @@ func (s *requestNoticeStream) prepare(ctx context.Context, sink http.ResponseWri
 	}
 	if trace := attemptTraceFromContext(ctx); trace != nil && streaming {
 		s.delivery.SetBeforeProviderContent(func() (translate.RouterNotice, bool) {
-			return slowStartNotice(ctx, trace, slowStarts, time.Now())
+			return slowStartNotice(ctx, trace, slowStarts, s.now())
 		})
 	}
 	retainNotices := prelude == nil || prelude.PreludeSent()
@@ -44,6 +45,12 @@ func (s *requestNoticeStream) prepare(ctx context.Context, sink http.ResponseWri
 		return nil, err
 	}
 	return s.delivery, nil
+}
+
+func (s *requestNoticeStream) selectModel(model string) {
+	if s != nil && s.delivery != nil {
+		s.delivery.SetRoutedModel(model)
+	}
 }
 
 func (s *requestNoticeStream) suppressed(notice translate.RouterNotice) bool {
@@ -65,7 +72,7 @@ func (s *requestNoticeStream) deliver(notice translate.RouterNotice) error {
 	return nil
 }
 
-func addRoutingFundingSource(ctx context.Context, provider, model string, notice translate.RouterNotice) translate.RouterNotice {
+func addRoutingFundingSource(ctx context.Context, seats seatAdmission, provider, model string, notice translate.RouterNotice) translate.RouterNotice {
 	if notice.Kind != translate.NoticeModelSelection || notice.Text == "" {
 		return notice
 	}
@@ -73,7 +80,8 @@ func addRoutingFundingSource(ctx context.Context, provider, model string, notice
 	if credentials := CredentialsFromContext(ctx); credentials != nil {
 		credentialSource = credentials.Source
 	}
-	if managedSubscriptionCanServe(ctx, provider, model) {
+	seats.verifiedPlanOnly = true
+	if seats.mayAdmit(ctx, provider, model) {
 		if source, eligible := managedSubscriptionProviderFromUpstream(provider, model); eligible {
 			switch source {
 			case subscriptions.ProviderClaude:

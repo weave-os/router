@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"weave-os/router/internal/billing"
@@ -13,6 +14,24 @@ const codexLoginRejectedMessage = "Your ChatGPT (Codex) login was rejected. Sign
 	SubscriptionsDashboardURL + "?reconnect=codex"
 
 var codexLoginRejectedBody = []byte(`{"error":{"type":"authentication_error","code":"token_revoked","message":"` + codexLoginRejectedMessage + `"}}`)
+
+func attributeCodexLoginRejection(err error) error {
+	if !codexOAuthCredentialRejected(err) {
+		return err
+	}
+	rejection := &providers.UpstreamErrorResponse{Status: http.StatusUnauthorized, Body: codexLoginRejectedBody}
+	return attributedError{err: ownLoginRejection{err: rejection}, message: codexLoginRejectedMessage}
+}
+
+type ownLoginRejection struct{ err error }
+
+func (e ownLoginRejection) Error() string { return e.err.Error() }
+func (e ownLoginRejection) Unwrap() error { return e.err }
+
+func isOwnLoginRejection(err error) bool {
+	var rejection ownLoginRejection
+	return errors.As(err, &rejection)
+}
 
 func ownCodexLoginRejected(ctx context.Context, headers http.Header, observer *usage.Observer) bool {
 	if ClientIdentityFrom(ctx).ClientApp != ClientAppCodex {
@@ -32,13 +51,9 @@ func includedFailureAfter(prev, err error, ownLoginRejected bool) error {
 	return prev
 }
 
-func includedLaneVerdict(ctx context.Context, includedFailure error, ownLoginRejected bool) error {
-	switch {
-	case billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx):
+func includedLaneVerdict(ctx context.Context) error {
+	if billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
 		return subscriptionPoolExhausted(ctx)
-	case codexOAuthCredentialRejected(includedFailure), ownLoginRejected:
-		rejection := &providers.UpstreamErrorResponse{Status: http.StatusUnauthorized, Body: codexLoginRejectedBody}
-		return attributedError{err: rejection, message: codexLoginRejectedMessage}
 	}
 	return nil
 }

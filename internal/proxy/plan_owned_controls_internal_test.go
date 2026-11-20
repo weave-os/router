@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/translate"
 
@@ -141,7 +142,7 @@ func TestBoostServingHeaderForceModelCarriesEffortSameTurn(t *testing.T) {
 	svc := &Service{}
 	ctx, forced, err := svc.applyForceModelHeader(request.Context(), request, uuid.Nil, [sessionpin.SessionKeyLen]byte{})
 	require.NoError(t, err)
-	assert.Equal(t, "gpt-6.1-sol:medium", forced)
+	assert.Equal(t, "gpt-6.2-sol:medium", forced)
 
 	env := forceCommandEnv(t)
 	features := env.RoutingFeatures()
@@ -150,7 +151,7 @@ func TestBoostServingHeaderForceModelCarriesEffortSameTurn(t *testing.T) {
 		router.Request{RequestedModel: features.Model, ForceModel: forced},
 	)
 	require.NoError(t, err)
-	assert.Equal(t, "gpt-6.1-sol", result.Decision.Model)
+	assert.Equal(t, "gpt-6.2-sol", result.Decision.Model)
 	assert.Equal(t, "medium", result.Decision.Effort)
 }
 
@@ -170,7 +171,7 @@ func TestBoostServingKeepsLegacyForceModelPinActive(t *testing.T) {
 	}
 	svc := &Service{pinStore: store}
 
-	pin, active, noStoredState := svc.loadPinWithStoreState(boostDefaultRoutingContext(), sessionKey, role)
+	pin, active, noStoredState := routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now, router.StrategyFromContext(boostDefaultRoutingContext())).LoadWithStoreState(boostDefaultRoutingContext(), sessionKey, role)
 
 	assert.Equal(t, "claude-opus-5", pin.Model)
 	assert.True(t, active)
@@ -185,17 +186,17 @@ func TestBoostServingAppliesForceModelCommand(t *testing.T) {
 	forceKey := [sessionpin.SessionKeyLen]byte{3}
 
 	forcedModel, message, err := svc.applyForceModelCommand(
-		boostDefaultRoutingContext(), translate.ForceModelResult{Model: "sol"}, uuid.New(), threadKey, forceKey,
+		boostDefaultRoutingContext(), router.StrategyFromContext(boostDefaultRoutingContext()), translate.ForceModelResult{Model: "sol"}, uuid.New(), threadKey, forceKey,
 	)
 	require.NoError(t, err)
-	assert.Equal(t, "gpt-6.1-sol", forcedModel)
+	assert.Equal(t, "gpt-6.2-sol", forcedModel)
 	assert.Contains(t, message.render(env.SourceFormat()), "force-model applied")
 	assert.NotContains(t, message.render(env.SourceFormat()), "automatic model selection")
 
 	stored, found, err := store.Get(context.Background(), forceKey, forceModelSessionRole)
 	require.NoError(t, err)
 	require.True(t, found)
-	assert.Equal(t, "gpt-6.1-sol", stored.Model)
+	assert.Equal(t, "gpt-6.2-sol", stored.Model)
 }
 
 func TestBoostServingRoutesExplicitForceModel(t *testing.T) {
@@ -208,7 +209,7 @@ func TestBoostServingRoutesExplicitForceModel(t *testing.T) {
 		router.Request{RequestedModel: features.Model, ForceModel: "sol"},
 	)
 	require.NoError(t, err)
-	assert.Equal(t, "gpt-6.1-sol", result.Decision.Model)
+	assert.Equal(t, "gpt-6.2-sol", result.Decision.Model)
 	assert.Equal(t, translate.ReasonUserForceModel, result.Decision.Reason)
 }
 
@@ -217,7 +218,7 @@ func TestMaxServingStillRejectsClosedSourceForceModel(t *testing.T) {
 	svc := &Service{pinStore: store}
 	env := forceCommandEnv(t)
 	_, message, err := svc.applyForceModelCommand(
-		planOwnedContext(), translate.ForceModelResult{Model: "opus"}, uuid.New(),
+		planOwnedContext(), router.StrategyFromContext(planOwnedContext()), translate.ForceModelResult{Model: "opus"}, uuid.New(),
 		[sessionpin.SessionKeyLen]byte{4}, [sessionpin.SessionKeyLen]byte{5},
 	)
 	require.NoError(t, err)

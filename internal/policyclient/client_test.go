@@ -597,6 +597,39 @@ func TestClientPreviewPostsNonLearningRequestAndReturnsEveryArm(t *testing.T) {
 	assert.Equal(t, "sha256:roster", result.RosterSHA256)
 }
 
+func TestBearerUsesPolicyTimeoutForDefaultHTTPClient(t *testing.T) {
+	configured := NewBearer("https://sidecar.example.test", "fixture-token", nil, 3*time.Second)
+	assert.Equal(t, 3*time.Second, configured.client.Timeout)
+
+	defaults := NewBearer("https://sidecar.example.test", "fixture-token", nil, 0)
+	assert.Equal(t, DefaultTimeout, defaults.client.Timeout)
+}
+
+func TestPinnedPreviewRejectsWrongResponseIdentity(t *testing.T) {
+	const digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	for _, tc := range []struct {
+		name, routeID, digest string
+	}{
+		{"wrong route", "another-route", digest},
+		{"wrong digest", "preview-1", "another-digest"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				assert.Equal(t, "/preview", request.URL.Path)
+				_ = json.NewEncoder(w).Encode(previewResponse{
+					SchemaVersion: policy.SchemaVersionV1, RouteID: tc.routeID, PolicySHA256: tc.digest,
+				})
+			}))
+			defer server.Close()
+			client := New(server.URL, server.Client(), 0, WithExpectedPolicySHA256(digest))
+			_, err := client.Preview(context.Background(), policy.Query{
+				RouteID: "preview-1", ExecutionMode: policy.ExecutionModePreview,
+			})
+			require.ErrorIs(t, err, router.ErrPolicyPinUnavailable)
+		})
+	}
+}
+
 func TestClientPreviewRequiresPreviewExecutionMode(t *testing.T) {
 	_, err := New("http://unused.invalid", nil, 0).Preview(context.Background(), policy.Query{})
 

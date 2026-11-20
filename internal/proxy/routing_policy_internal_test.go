@@ -317,7 +317,7 @@ func TestPickedModelKeepsSpentPlanAndRefusesMeteredRescue(t *testing.T) {
 	svc := &Service{
 		usageObserver: observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()),
 		credentials:   credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}},
-		now:           func() time.Time { return time.Unix(1_000_000, 0) },
+		clock:         func() time.Time { return time.Unix(1_000_000, 0) },
 	}
 	routed := withClaudeCreditFallback(context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, exhaustedSubToken))
 	picked := withPickedModelFunding(auth.WithClientModelPassthrough(routed), true, providers.ProviderAnthropic)
@@ -369,7 +369,9 @@ func TestClientSelectedModelRoutesWhenNotServableAsIs(t *testing.T) {
 		{name: "excluded", request: router.Request{
 			RequestedModel:   catalog.ModelIDClaudeSonnet46.String(),
 			EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
-			ExcludedModels:   map[string]struct{}{catalog.ModelIDClaudeSonnet46.String(): {}},
+			Candidates: router.Candidates{
+				ExcludedModels: map[string]struct{}{catalog.ModelIDClaudeSonnet46.String(): {}},
+			},
 		}},
 		{name: "no gateway alias", request: router.Request{
 			RequestedModel:   catalog.ModelIDClaudeSonnet46.String(),
@@ -401,10 +403,12 @@ func TestClientSelectedModelKeepsPolicyPassthroughStrict(t *testing.T) {
 	ctx, err := authService.WithRoutingPolicy(context.Background(), "installation")
 	require.NoError(t, err)
 
-	_, err = service.routeFor(auth.WithClientModelPassthrough(ctx), router.Request{
+	_, err = service.routeFor(auth.WithClientModelPassthrough(ctx), router.StrategyFromContext(ctx), router.Request{
 		RequestedModel:   catalog.ModelIDClaudeSonnet46.String(),
 		EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
-		ExcludedModels:   map[string]struct{}{catalog.ModelIDClaudeSonnet46.String(): {}},
+		Candidates: router.Candidates{
+			ExcludedModels: map[string]struct{}{catalog.ModelIDClaudeSonnet46.String(): {}},
+		},
 	})
 
 	require.ErrorIs(t, err, router.ErrNoEligibleProvider)

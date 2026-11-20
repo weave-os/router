@@ -382,7 +382,7 @@ func TestTurnLoop_HMMHistoryMaxedOutExcludesServedModelBeforeRouting(t *testing.
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	require.NotNil(t, fr.capturedReq)
-	assert.Contains(t, fr.capturedReq.ExcludedModels, "claude-sonnet-5",
+	assert.Contains(t, fr.capturedReq.Candidates.ExcludedModels, "claude-sonnet-5",
 		"HMM history saturation must exclude the prior served model before sidecar routing")
 	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel))
 	store.mu.Lock()
@@ -421,7 +421,7 @@ func TestTurnLoop_HMMExpiredHistoryMaxedOutStillExcludesServedModel(t *testing.T
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	require.NotNil(t, fr.capturedReq)
-	assert.Contains(t, fr.capturedReq.ExcludedModels, "claude-sonnet-5",
+	assert.Contains(t, fr.capturedReq.Candidates.ExcludedModels, "claude-sonnet-5",
 		"a maxed-out model must stay excluded even after the history row's TTL lapses")
 	store.mu.Lock()
 	assertOnlyHMMHistoryUpserts(t, store)
@@ -464,7 +464,7 @@ func TestTurnLoop_HMMConversationFollowsFreshDecision(t *testing.T) {
 	store.mu.Unlock()
 }
 
-func TestTurnLoop_HMMToolExecutionPhaseChangeUsesFreshDecision(t *testing.T) {
+func TestTurnLoop_HMMToolExecutionPhaseChangeKeepsWarmPinWhenEVNegative(t *testing.T) {
 	store := newFakePinStore()
 	store.hasPin = true
 	store.pin = sessionpin.Pin{
@@ -492,8 +492,8 @@ func TestTurnLoop_HMMToolExecutionPhaseChangeUsesFreshDecision(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	assert.Equal(t, 1, fr.routeCalls, "main-loop HMM turn must ask for a fresh decision")
-	assert.Equal(t, "claude-sonnet-5", rec.Header().Get(proxy.HeaderRouterModel),
-		"HMM tool/explore phase changes should follow the fresh sidecar decision")
+	assert.Equal(t, "claude-sonnet-4-5", rec.Header().Get(proxy.HeaderRouterModel),
+		"a lateral HMM phase change must keep the warm pin when the EV gate does not pay for the cache rebuild")
 
 	store.mu.Lock()
 	assertOnlyHMMHistoryUpserts(t, store)
@@ -902,9 +902,8 @@ func TestTurnLoop_PrefixTrimPricesPinColdAndSkipsSummarizer(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster:v0.2"}}
 	sz := &fakeSummarizer{summary: "Prior conversation summary."}
 	svc := newPinSvc(fr, store).WithSummarizer(sz).WithPlanner(planner.EVConfig{
-		ThresholdUSD:           0.001,
+		ThresholdUSD:           0.00002,
 		ExpectedRemainingTurns: 3,
-		ColdPinFollowFresh:     true,
 	})
 	ctx := authedCtx(uuid.New().String())
 
@@ -913,7 +912,7 @@ func TestTurnLoop_PrefixTrimPricesPinColdAndSkipsSummarizer(t *testing.T) {
 	req1 := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, trimSessionTurn(t, 9), rec1, req1))
 	require.Equal(t, "claude-opus-4-7", rec1.Header().Get(proxy.HeaderRouterModel),
-		"warm pin must stay on turn 1 (cold lever must not fire on a warm cache)")
+		"warm pin must stay on turn 1")
 
 	// Turn 2 drops to 3 messages: a full-compaction trim.
 	rec2 := httptest.NewRecorder()
@@ -926,7 +925,7 @@ func TestTurnLoop_PrefixTrimPricesPinColdAndSkipsSummarizer(t *testing.T) {
 }
 
 // With the kill switch off, the trim is detected but the planner keeps
-// pricing the pin warm and stays, even with the cold-pin lever armed.
+// pricing the pin warm and stays.
 func TestTurnLoop_PrefixTrimKillSwitchPreservesWarmStay(t *testing.T) {
 	store := newFakePinStore()
 	store.hasPin = true
@@ -936,7 +935,6 @@ func TestTurnLoop_PrefixTrimKillSwitchPreservesWarmStay(t *testing.T) {
 	svc := newPinSvc(fr, store).WithSummarizer(sz).WithPrefixTrimFreeSwitch(false).WithPlanner(planner.EVConfig{
 		ThresholdUSD:           0.001,
 		ExpectedRemainingTurns: 3,
-		ColdPinFollowFresh:     true,
 	})
 	ctx := authedCtx(uuid.New().String())
 
@@ -1038,7 +1036,7 @@ func TestTurnLoop_MaxedOutPinExcludedFromCandidates(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	require.NotNil(t, fr.capturedReq, "scorer must run after a maxed-out pin is dropped")
-	assert.Contains(t, fr.capturedReq.ExcludedModels, "moonshotai/kimi-k2.6",
+	assert.Contains(t, fr.capturedReq.Candidates.ExcludedModels, "moonshotai/kimi-k2.6",
 		"pinned model must be excluded from candidates after a maxed-out turn")
 	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel),
 		"router must serve the fresh decision, not the broken pin")
@@ -1070,9 +1068,9 @@ func TestTurnLoop_MaxedOutExcludesLastServedModelNotAnchor(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	require.NotNil(t, fr.capturedReq, "scorer must run after a maxed-out pin is dropped")
-	assert.Contains(t, fr.capturedReq.ExcludedModels, "moonshotai/kimi-k2.6",
+	assert.Contains(t, fr.capturedReq.Candidates.ExcludedModels, "moonshotai/kimi-k2.6",
 		"the model that actually maxed out (LastServedModel) must be excluded")
-	assert.NotContains(t, fr.capturedReq.ExcludedModels, "claude-haiku-4-5",
+	assert.NotContains(t, fr.capturedReq.Candidates.ExcludedModels, "claude-haiku-4-5",
 		"the healthy anchor must not be excluded when the paired model maxed out")
 }
 
@@ -1097,7 +1095,7 @@ func TestTurnLoop_UnconfirmedHighOutputKeepsPin(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
 
 	require.NotNil(t, fr.capturedReq)
-	assert.NotContains(t, fr.capturedReq.ExcludedModels, "claude-haiku-4-5",
+	assert.NotContains(t, fr.capturedReq.Candidates.ExcludedModels, "claude-haiku-4-5",
 		"healthy pin must not be excluded from candidates")
 	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel))
 }

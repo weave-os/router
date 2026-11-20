@@ -4,12 +4,13 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
 )
@@ -38,14 +39,17 @@ type rescueServices interface {
 	earlyStopRedoTarget(ctx context.Context, served router.Decision, est, sigSavings, outputReserve int) (router.Decision, bool)
 	redoEarlyStop(ctx context.Context, redo earlyStopRedo) (redone bool, err error)
 	ResolveCyberRefusalRetry(ctx context.Context) bool
-	isHardPinnedTurn(ctx context.Context, tt turntype.TurnType) bool
-	cyberRefusalRetryTarget(ctx context.Context, failed router.Decision, sessionKey [sessionpin.SessionKeyLen]byte, role string, est, sigSavings, outputReserve int) (router.Decision, bool)
+	isHardPinnedTurn(ctx context.Context, strategy router.Strategy, tt turntype.TurnType) bool
+	cyberRefusalRetryTarget(ctx context.Context, failed router.Decision, target sessionTarget, role string, est, sigSavings, outputReserve int) (router.Decision, bool)
 	openaiFallbackKeyAvailable(ctx context.Context) bool
 	recordCodexQuotaExhaustion(ctx context.Context, headers http.Header, err error)
 }
 
 type rescueChain struct {
 	svc              rescueServices
+	seats            seatAdmission
+	clock            auth.Clock
+	usageObserver    *usage.Observer
 	r                *http.Request
 	log              *slog.Logger
 	env              *translate.RequestEnvelope

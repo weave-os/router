@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -66,7 +65,6 @@ import (
 	"weave-os/router/internal/server"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions"
-	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/websearch"
 	"weave-os/router/internal/wif"
 
@@ -574,7 +572,7 @@ func main() {
 
 	var pinStore sessionpin.Store
 	if config.GetOr("ROUTER_SESSION_PIN_ENABLED", "true") == "true" {
-		pinStore = postgres.NewSessionPinRepo(pool)
+		pinStore = sessionpin.GatedByFlag(postgres.NewSessionPinRepo(pool))
 		safeGo(logger, "session-pin-sweep", func() { runSessionPinSweep(context.Background(), pinStore) })
 		logger.Info("Session pin store enabled (sliding 1h TTL, hourly sweep)")
 	}
@@ -678,35 +676,14 @@ func main() {
 		ThresholdUSD:           parseEnvFloat("ROUTER_SWITCH_EV_THRESHOLD_USD", proxy.DefaultPlannerThresholdUSD),
 		ExpectedRemainingTurns: parseEnvInt("ROUTER_SWITCH_EXPECTED_REMAINING_TURNS", proxy.DefaultPlannerExpectedRemainingTurns),
 		TierUpgradeEnabled:     config.GetOr("ROUTER_SWITCH_TIER_UPGRADE_ENABLED", boolDefault(proxy.DefaultPlannerTierUpgradeEnabled)) == "true",
-		ColdPinFollowFresh:     config.GetOr("ROUTER_SWITCH_COLD_PIN_FOLLOW_FRESH", boolDefault(proxy.DefaultPlannerColdPinFollowFresh)) == "true",
 		CorrectedEconomics:     config.GetOr("ROUTER_SWITCH_CORRECTED_ECONOMICS", boolDefault(proxy.DefaultPlannerCorrectedEconomics)) == "true",
 	}
 	prefixTrimFreeSwitch := config.GetOr("ROUTER_PREFIX_TRIM_FREE_SWITCH", "true") == "true"
-	hmmUpgradeConfidence := parseEnvFloat("ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD", proxy.DefaultHMMUpgradeConfidenceThreshold)
-	upgradeConfig, err := authoritativeUpgradeConfigFromEnv()
+	hmmConfig, err := hmmConfigFromEnv()
 	if err != nil {
-		logger.Error("Invalid authoritative upgrade shadow configuration; refusing to boot", "err", err)
+		logger.Error("Invalid HMM configuration; refusing to boot", "err", err)
 		panic(err)
 	}
-	hmmSameTierPin := config.GetOr("ROUTER_HMM_SAME_TIER_PIN", "false") == "true"
-	authoritativeUpgradeGate := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_GATE", "true") == "true"
-	authoritativeUpgradePolicy := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_POLICY", string(flags.AuthoritativeUpgradePolicyScore))
-	parsedUpgradePolicy, err := flags.ParseAuthoritativeUpgradePolicy(authoritativeUpgradePolicy)
-	if err != nil {
-		logger.Error("Invalid ROUTER_AUTHORITATIVE_UPGRADE_POLICY; refusing to boot", "err", err)
-		panic(err)
-	}
-	authoritativeUpgradeHoldoutPct := parseEnvNonNegativeInt("ROUTER_AUTHORITATIVE_UPGRADE_HOLDOUT_PCT", 0)
-	if authoritativeUpgradeHoldoutPct > 100 {
-		logger.Error("ROUTER_AUTHORITATIVE_UPGRADE_HOLDOUT_PCT must be 0-100; refusing to boot", "value", authoritativeUpgradeHoldoutPct)
-		panic("invalid ROUTER_AUTHORITATIVE_UPGRADE_HOLDOUT_PCT")
-	}
-	authoritativeUpgradeVotes := parseEnvNonNegativeInt("ROUTER_AUTHORITATIVE_UPGRADE_VOTES", 3)
-	authoritativeDowngradeGate := config.GetOr("ROUTER_AUTHORITATIVE_DOWNGRADE_GATE", "false") == "true"
-	authoritativeUpgradeSlidingThreshold := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_SLIDING_THRESHOLD", "false") == "true"
-	hmmDowngradeHysteresisTurns := parseEnvNonNegativeInt("ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS", proxy.DefaultHMMDowngradeHysteresisTurns)
-	hmmDowngradeHysteresisShadowTurns := parseEnvNonNegativeInt("ROUTER_HMM_DOWNGRADE_HYSTERESIS_SHADOW_TURNS", 2)
-	authorityCacheShadow := config.GetOr("ROUTER_AUTHORITY_CACHE_SHADOW", "true") == "true"
 	policyDeadlineFallback := config.GetOr("ROUTER_POLICY_DEADLINE_FALLBACK", "false") == "true"
 	policyDeadlineDefaultModel := config.GetOr("ROUTER_POLICY_DEADLINE_DEFAULT_MODEL", "")
 	handoverProviderName := config.GetOr("ROUTER_HANDOVER_PROVIDER", providers.ProviderAnthropic)
@@ -1029,22 +1006,13 @@ func main() {
 		logger.Info("HMM policy routers disabled (ROUTER_POLICY_ENVIRONMENT and ROUTER_POLICY_RELEASE_DIR unset); HMM strategies will return 503")
 	}
 
-	configuredPolicySpecs, err := buildConfiguredPolicySidecars(
-		context.Background(),
-		config.GetOr("ROUTER_POLICY_SIDECARS", ""),
-		config.GetOr("ROUTER_POLICY_SIDECAR_AUTH", ""),
-		parseEnvDurationMs("ROUTER_POLICY_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout),
-		routingTargets,
-		availableProviders,
-		nil,
-		logger,
-	)
+	configuredPolicySpecs, err := configuredPolicySidecarsFromEnv(routingTargets, availableProviders, logger)
 	if err != nil {
 		logger.Error("Generic policy sidecar configuration is invalid", "err", err)
 		panic(err)
 	}
 
-	publishFlagRegistry(logger, repo.FlagDefinitions, map[flags.Key]string{
+	publishFlagRegistry(logger, repo.FlagDefinitions, withRoutingSwitchDefaults(map[flags.Key]string{
 		flags.KeyEscalationActiveClassifier:           string(flags.EscalationClassifierNone),
 		flags.KeyEscalationShadowClassifier:           string(escalationShadowDefault),
 		flags.KeyEscalationCadence:                    strconv.Itoa(llmescalation.DefaultCadence),
@@ -1067,15 +1035,15 @@ func main() {
 		flags.KeyScoreToolResultTurns:                 boolDefault(scoreToolResultTurns),
 		flags.KeyHMMToolResultHold:                    boolDefault(false),
 		flags.KeyPrefixTrimFreeSwitch:                 boolDefault(prefixTrimFreeSwitch),
-		flags.KeyAuthoritativeUpgradeGate:             boolDefault(authoritativeUpgradeGate),
-		flags.KeyAuthoritativeUpgradePolicy:           string(parsedUpgradePolicy),
-		flags.KeyAuthoritativeUpgradeHoldoutPct:       strconv.Itoa(authoritativeUpgradeHoldoutPct),
-		flags.KeyAuthoritativeUpgradeVotes:            strconv.Itoa(authoritativeUpgradeVotes),
-		flags.KeyAuthoritativeDowngradeGate:           boolDefault(authoritativeDowngradeGate),
-		flags.KeyAuthoritativeUpgradeSlidingThreshold: boolDefault(authoritativeUpgradeSlidingThreshold),
-		flags.KeyHMMDowngradeHysteresisTurns:          strconv.Itoa(hmmDowngradeHysteresisTurns),
-		flags.KeyHMMDowngradeHysteresisShadowTurns:    strconv.Itoa(hmmDowngradeHysteresisShadowTurns),
-		flags.KeyAuthorityCacheShadow:                 boolDefault(authorityCacheShadow),
+		flags.KeyAuthoritativeUpgradeGate:             boolDefault(hmmConfig.UpgradeGate),
+		flags.KeyAuthoritativeUpgradePolicy:           string(hmmConfig.UpgradePolicy),
+		flags.KeyAuthoritativeUpgradeVotes:            strconv.Itoa(hmmConfig.UpgradeVotes),
+		flags.KeyAuthoritativeDowngradeGate:           boolDefault(hmmConfig.DowngradeGate),
+		flags.KeyAuthoritativeUpgradeSlidingThreshold: boolDefault(hmmConfig.UpgradeSlidingThreshold),
+		flags.KeyHMMDowngradeHysteresisTurns:          strconv.Itoa(hmmConfig.DowngradeHysteresisTurns),
+		flags.KeyHMMDowngradeHysteresisShadowTurns:    strconv.Itoa(hmmConfig.DowngradeHysteresisShadowTurns),
+		flags.KeyAuthorityCacheShadow:                 boolDefault(hmmConfig.AuthorityCacheShadow),
+		flags.KeySwitchDecideShadow:                   boolDefault(true),
 		flags.KeyAgreementShadowEpoch:                 "0",
 		flags.KeySiblingFailover:                      boolDefault(siblingFailover),
 		flags.KeyOpenAIResponsesBroad:                 boolDefault(openAIResponsesBroad),
@@ -1096,7 +1064,7 @@ func main() {
 		flags.KeyCyberRefusalRetry:                    boolDefault(cyberRefusalRetry),
 		flags.KeyCyberRefusalFallback:                 cyberRefusalFallbackModel,
 		flags.KeyAnthropicServerFallback:              boolDefault(anthropicServerSideFallback),
-	})
+	}, hardPinExplore, ccOrchToolsCrossVendor, escapeNormalize, plannerCfg))
 
 	var sessionStrategyStore sessionstrategy.Store = postgres.NewSessionStrategyRepo(pool)
 
@@ -1129,8 +1097,8 @@ func main() {
 	}
 	servedModels := proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)
 
-	proxySvc := proxy.NewService(nil, providerMap, telemetryEmitter, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
-		WithTranslationMetrics(otel.NewTranslationMetrics()).
+	proxySvc := withRLPolicyStrategy(proxy.NewService(nil, providerMap, telemetryEmitter, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
+		WithClock(time.Now).WithTranslationMetrics(otel.NewTranslationMetrics()).
 		WithClaudeSubscriptionPlanReader(anthropicClient).
 		WithExternalKeyUsageRecorder(authSvc).
 		WithCodexExtraCredits(allowCodexCredits).
@@ -1144,7 +1112,6 @@ func main() {
 		WithEscalationShadowDefault(escalationShadowDefault).
 		WithTranslationCompatibilityMode(proxy.TranslationCompatibilityMode(translationCompatibilityMode)).
 		WithScopedSearchRequirement(scopedSearchRequirement, searchRequirementDecayTurns).
-		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyRL, Router: rlRouter, Unavailable: rl.ErrPolicyUnavailable}).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: router.StrategyHMM, Router: hmmRouter, Unavailable: hmm.ErrHMMUnavailable,
 			Capabilities: hmmCapabilities,
@@ -1191,18 +1158,7 @@ func main() {
 		WithNativeOpenAIResponseSignals(nativeOpenAIResponseSignals).
 		WithIngress(ingress.New(sseKeepaliveInterval())).
 		WithPrefixTrimFreeSwitch(prefixTrimFreeSwitch).
-		WithHMMUpgradeConfidenceThreshold(hmmUpgradeConfidence).
-		WithAuthoritativeUpgradeConfig(upgradeConfig).
-		WithHMMSameTierPin(hmmSameTierPin).
-		WithAuthoritativeUpgradeGate(authoritativeUpgradeGate).
-		WithAuthoritativeUpgradePolicy(parsedUpgradePolicy).
-		WithAuthoritativeUpgradeHoldoutPct(authoritativeUpgradeHoldoutPct).
-		WithAuthoritativeUpgradeVotes(authoritativeUpgradeVotes).
-		WithAuthoritativeDowngradeGate(authoritativeDowngradeGate).
-		WithAuthoritativeUpgradeSlidingThreshold(authoritativeUpgradeSlidingThreshold).
-		WithHMMDowngradeHysteresisTurns(hmmDowngradeHysteresisTurns).
-		WithHMMDowngradeHysteresisShadowTurns(hmmDowngradeHysteresisShadowTurns).
-		WithAuthorityCacheShadow(authorityCacheShadow).
+		WithHMMConfig(hmmConfig).
 		WithPolicyDeadlineFallback(policyDeadlineFallback).
 		WithPolicyDeadlineDefaultModel(policyDeadlineDefaultModel).
 		WithEscapeNormalize(escapeNormalize).
@@ -1229,7 +1185,7 @@ func main() {
 		WithWebSearchExecutor(cortexWebSearch(logger)).
 		WithAvailableModels(servedModels).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
-		WithBillingService(billingSvc)
+		WithBillingService(billingSvc), rlRouter)
 	inferenceDeployment.RoutableModels = servedModels
 	if err := configureAtomicClassifier(proxySvc, pool, availableProviders, deploymentMode); err != nil {
 		logger.Error("Failed to configure atomic classifier", "err", err)
@@ -1249,7 +1205,7 @@ func main() {
 	logger.Info("Spiral shadow detector configured", "enabled", spiralShadowEnabled)
 	logger.Info("Turn signal capture configured", "enabled", turnSignalCaptureEnabled)
 	logger.Info("Text-repetition break configured", "enabled", textRepetitionBreakEnabled)
-	logger.Info("Planner configured", "enabled", plannerEnabled, "threshold_usd", plannerCfg.ThresholdUSD, "expected_remaining_turns", plannerCfg.ExpectedRemainingTurns, "tier_upgrade_enabled", plannerCfg.TierUpgradeEnabled, "cold_pin_follow_fresh", plannerCfg.ColdPinFollowFresh, "corrected_economics", plannerCfg.CorrectedEconomics, "prefix_trim_free_switch", prefixTrimFreeSwitch, "routing_targets_count", len(routingTargets))
+	logger.Info("Planner configured", "enabled", plannerEnabled, "threshold_usd", plannerCfg.ThresholdUSD, "expected_remaining_turns", plannerCfg.ExpectedRemainingTurns, "tier_upgrade_enabled", plannerCfg.TierUpgradeEnabled, "corrected_economics", plannerCfg.CorrectedEconomics, "prefix_trim_free_switch", prefixTrimFreeSwitch, "routing_targets_count", len(routingTargets))
 	logger.Info("Tool-result scoring configured", "enabled", scoreToolResultTurns)
 
 	if plannerCfg.TierUpgradeEnabled && len(routingTargets) > 0 {
@@ -1287,16 +1243,8 @@ func main() {
 		logger.Info("Provider exclusion override active", "excluded_providers", cleaned)
 	}
 
-	subscriptionTTL := 10 * time.Minute
-	if v, err := time.ParseDuration(config.GetOr("ROUTER_SUBSCRIPTION_OBSERVATION_TTL", "10m")); err == nil {
-		subscriptionTTL = v
-	}
-	observerSalt := make([]byte, 16)
-	if _, err := rand.Read(observerSalt); err != nil {
-		logger.Error("Failed to seed subscription usage observer salt", "err", err)
-		panic(err)
-	}
-	usageObserver := usage.NewObserver(observerSalt, subscriptionTTL, time.Now)
+	seatUsage := postgres.NewSeatUsageRepo(pool)
+	usageObserver := newUsageObserver(logger, seatUsage)
 	if subscriptionRuntime != nil {
 		subscriptionRuntime.WithCandidateSignal(func(accountID string, _ subscriptions.Provider, now time.Time) subscriptions.CandidateSignal {
 			snapshot, observed := usageObserver.Snapshot(usageObserver.Key([]byte("subscription-account:" + accountID)))
@@ -1306,16 +1254,7 @@ func main() {
 			return subscriptionCandidateSignal(snapshot, now)
 		})
 	}
-	go func() {
-		t := time.NewTicker(time.Minute)
-		defer t.Stop()
-		for range t.C {
-			usageObserver.Sweep()
-		}
-	}()
 	proxySvc = proxySvc.WithUsageObserver(usageObserver)
-
-	logger.Info("Subscription quota observer configured", "observation_ttl", subscriptionTTL)
 
 	trafficCapture, err := newTrafficCaptureFromEnvironment()
 	if err != nil {
@@ -1355,16 +1294,7 @@ func main() {
 	if policyPinEnabled {
 		logger.Info("Policy pin header enabled", "header", middleware.PolicyPinOverrideHeader)
 	}
-	var subscriberAllowanceSvc *entitlement.Service
-	if billingSvc != nil && strings.EqualFold(config.GetOr("ROUTER_SUBSCRIBER_ALLOWANCE_ENABLED", "false"), "true") {
-		subscriberAllowanceSvc = entitlement.NewService(
-			postgres.NewSubscriberEntitlementRepo(pool),
-			postgres.NewSubscriberAllowanceRepo(pool),
-		)
-		billingSvc = billingSvc.
-			WithSubscriberAllowance(subscriberAllowanceSvc)
-		logger.Info("Individual subscriber allowance enforcement enabled")
-	}
+	subscriberAllowanceSvc, billingSvc := newSubscriberAllowance(logger, pool, billingSvc)
 	var testPlans *policyregistry.TestPlanTools
 	if testPlansEnabled {
 		if servingAdmission == nil || billingSvc == nil {
@@ -1381,9 +1311,11 @@ func main() {
 	}
 	processCtx, stopProcess := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stopProcess()
+	waitForKeepWarm := startSubscriptionKeepWarm(processCtx, subscriptionRuntime, logger)
 	egressProbe.prepare(processCtx, logger, providerMap, envKeyedProviders, initializedOrigins)
 	logger.Info("Router startup initialization complete")
 	serverFeatures := server.Features{
+		SeatUsage:                seatUsage,
 		SubscriptionLogins:       subscriptionLogins,
 		SubscriptionRefresh:      subscriptionRuntime,
 		StartupDatabasePing:      pool.Ping,
@@ -1440,9 +1372,7 @@ func main() {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		logger.Error("Graceful shutdown failed", "err", err)
-	}
+	drainServer(shutdownCtx, srv, logger, waitForKeepWarm)
 	emitterCtx, emitterCancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	defer emitterCancel()
 	if err := emitter.Shutdown(emitterCtx); err != nil {
@@ -1730,41 +1660,6 @@ func safeGo(logger *slog.Logger, name string, fn func()) {
 	}()
 }
 
-func runSessionPinSweep(ctx context.Context, store sessionpin.Store) {
-	logger := observability.Get()
-	ticker := time.NewTicker(1 * time.Hour)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			sweepCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-			if err := store.SweepExpired(sweepCtx); err != nil {
-				logger.Error("Session pin sweep failed", "err", err)
-			}
-			cancel()
-		}
-	}
-}
-
-func runSessionTurnClockSweep(ctx context.Context, store *postgres.SessionTurnClockRepo) {
-	ticker := time.NewTicker(time.Hour)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			sweepCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			if err := store.SweepExpired(sweepCtx); err != nil {
-				observability.FromContext(ctx).Error("Session turn clock sweep failed", "err", err)
-			}
-			cancel()
-		}
-	}
-}
-
 func cortexWebSearch(logger *slog.Logger) websearch.Executor {
 	if config.GetOr("ROUTER_CORTEX_WEB_SEARCH", "true") != "true" {
 		logger.Info("Cortex Agents web-search executor disabled (ROUTER_CORTEX_WEB_SEARCH)")
@@ -1872,23 +1767,6 @@ func upstreamIDsForProvider(provider string) map[string]string {
 
 type escalationStateSweeper interface {
 	SweepExpired(context.Context) error
-}
-
-func runEscalationSweep(ctx context.Context, store escalationStateSweeper) {
-	ticker := time.NewTicker(time.Hour)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			sweepCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			if err := store.SweepExpired(sweepCtx); err != nil {
-				observability.FromContext(ctx).Error("Escalation state sweep failed", "err", err)
-			}
-			cancel()
-		}
-	}
 }
 
 func buildAnthropicFederationTokenSource(deploymentMode server.DeploymentMode) auth.AnthropicFederationTokenSource {

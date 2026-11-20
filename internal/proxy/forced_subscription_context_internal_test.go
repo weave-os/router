@@ -40,23 +40,25 @@ func TestForcedSubscriptionContextEstimatePreservesHardExclusions(t *testing.T) 
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			request := router.Request{
-				ExcludedModels:       modelSet([]string{gatewayCompactionOpusModel}),
-				SafetyExcludedModels: modelSet([]string{gatewayCompactionOpusModel}),
+				Candidates: router.Candidates{
+					ExcludedModels:       modelSet([]string{gatewayCompactionOpusModel}),
+					SafetyExcludedModels: modelSet([]string{gatewayCompactionOpusModel}),
+				},
 			}
 			if scenario.forced {
 				request.ForceModel = gatewayCompactionOpusModel
 			}
 			if scenario.estimate {
-				request.ContextWindowExcludedModels = modelSet([]string{gatewayCompactionOpusModel})
+				request.Candidates.ContextWindowExcludedModels = modelSet([]string{gatewayCompactionOpusModel})
 			}
 			if scenario.unsignedHistory {
-				request.UnsignedHistoryExcludedModels = modelSet([]string{gatewayCompactionOpusModel})
+				request.Candidates.UnsignedHistoryExcludedModels = modelSet([]string{gatewayCompactionOpusModel})
 			}
 			_, narrowed := (&Service{}).subscriptionStateRequest(context.Background(), request, []string{gatewayCompactionOpusModel})
-			_, allowed := narrowed.AllowedModels[gatewayCompactionOpusModel]
+			_, allowed := narrowed.Candidates.AllowedModels[gatewayCompactionOpusModel]
 			assert.Equal(t, scenario.wantServed, allowed)
-			assert.Contains(t, request.ExcludedModels, gatewayCompactionOpusModel, "state routing must not mutate the original request")
-			assert.Contains(t, request.SafetyExcludedModels, gatewayCompactionOpusModel)
+			assert.Contains(t, request.Candidates.ExcludedModels, gatewayCompactionOpusModel, "state routing must not mutate the original request")
+			assert.Contains(t, request.Candidates.SafetyExcludedModels, gatewayCompactionOpusModel)
 		})
 	}
 }

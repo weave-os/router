@@ -31,7 +31,7 @@ func (r *tierProbeRouter) Route(_ context.Context, req router.Request) (router.D
 	best := ""
 	bestTier := catalog.TierHigh + 1
 	for m := range r.available {
-		if _, excluded := req.ExcludedModels[m]; excluded {
+		if _, excluded := req.Candidates.ExcludedModels[m]; excluded {
 			continue
 		}
 		if t := catalog.TierFor(m); best == "" || t < bestTier {
@@ -163,7 +163,9 @@ func TestRunTurnLoop_ForcedModelContextOverflow_StaysInTier(t *testing.T) {
 	// on the turn its window is breached; simulate that here.
 	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
 		RequestedModel: feats.Model,
-		ExcludedModels: map[string]struct{}{forced: {}},
+		Candidates: router.Candidates{
+			ExcludedModels: map[string]struct{}{forced: {}},
+		},
 	})
 	require.NoError(t, err)
 
@@ -175,9 +177,9 @@ func TestRunTurnLoop_ForcedModelContextOverflow_StaysInTier(t *testing.T) {
 	// The scorer must have been handed a tier-constrained denylist: the
 	// low-tier candidate is excluded so it can never be chosen.
 	require.Len(t, fr.captured, 1, "exactly one (constrained) scorer call")
-	_, haikuExcluded := fr.captured[0].ExcludedModels["claude-haiku-4-5"]
+	_, haikuExcluded := fr.captured[0].Candidates.ExcludedModels["claude-haiku-4-5"]
 	assert.True(t, haikuExcluded, "tier constraint must exclude the low-tier model from the scorer pool")
-	_, opusExcluded := fr.captured[0].ExcludedModels["claude-opus-5"]
+	_, opusExcluded := fr.captured[0].Candidates.ExcludedModels["claude-opus-5"]
 	assert.False(t, opusExcluded, "the same-tier replacement must remain eligible")
 }
 

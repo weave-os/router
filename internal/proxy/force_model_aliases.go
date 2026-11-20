@@ -1,8 +1,12 @@
 package proxy
 
-import "weave-os/router/internal/router/catalog"
+import (
+	"strings"
 
-var forceModelAliases = map[string]string{
+	"weave-os/router/internal/router/catalog"
+)
+
+var forceModelAliases = unversionedAliasesFollowLatestFamilyRelease(map[string]string{
 	"anthropic":                "claude-opus-5-5",
 	"claude":                   "claude-opus-5-5",
 	"opus":                     "claude-opus-5-5",
@@ -59,6 +63,8 @@ var forceModelAliases = map[string]string{
 	"astra":                    "gpt-6-astra",
 	"sol":                      "gpt-6.1-sol",
 	"gpt-6-1-sol":              "gpt-6.1-sol",
+	"gpt-6-2-sol":              "gpt-6.2-sol",
+	"gpt-6-2-astra":            "gpt-6.2-astra",
 	"gpt6sol":                  "gpt-6-sol",
 	"gpt-6sol":                 "gpt-6-sol",
 	"luna":                     "gpt-6-luna",
@@ -112,6 +118,7 @@ var forceModelAliases = map[string]string{
 	"gemini-3-5-flash-lite":    "gemini-3.5-flash-lite",
 	"gemini-3-7-flash":         "gemini-3.7-flash",
 	"gemini-3-8-flash":         "gemini-3.8-flash",
+	"neon":                     catalog.ModelIDGemini4Neon.String(),
 	"deepseek":                 "deepseek/deepseek-v4.1-flash",
 	"deepseek-pro":             "deepseek/deepseek-v4-pro-0813",
 	"deepseek-flash":           "deepseek/deepseek-v4.1-flash",
@@ -147,4 +154,20 @@ var forceModelAliases = map[string]string{
 	"minimax-m3":               "minimax/minimax-m3",
 	"minimax-m2.7":             "minimax/minimax-m2.7",
 	"mistral":                  "mistralai/mistral-small-2603",
+})
+
+func unversionedAliasesFollowLatestFamilyRelease(aliases map[string]string) map[string]string {
+	servable := func(id string) bool {
+		_, ok := servableForceModel(id, "")
+		return ok
+	}
+	for alias, target := range aliases {
+		if strings.ContainsAny(alias, "0123456789") {
+			continue
+		}
+		if latest := catalog.LatestInFamily(target, servable); latest != "" {
+			aliases[alias] = latest
+		}
+	}
+	return aliases
 }

@@ -8,14 +8,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 )
 
 const compactionSessionPinTier = "compaction_session_pin"
@@ -31,31 +31,30 @@ func (s *Service) routeCompaction(
 	req router.Request,
 	res turnLoopResult,
 	reqHeaders http.Header,
-	sessionKey [sessionpin.SessionKeyLen]byte,
-	installationID uuid.UUID,
+	target sessionTarget,
 	forceModelFound bool,
 	forceModelPin sessionpin.Pin,
 ) (turnLoopResult, error) {
 	if s.pinStore == nil {
-		return s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
+		return s.routeWithoutPin(ctx, target.strategy, req, res, reqHeaders, forceModelFound, forceModelPin)
 	}
-	res.SessionKey = sessionKey
-	if forceModelFound && forcedPinEligible(forceModelPin, req) {
-		return s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
+	res.SessionKey = target.sessionKey
+	if forceModelFound && candidates.ForcedPinEligible(forceModelPin, req) {
+		return s.routeWithoutPin(ctx, target.strategy, req, res, reqHeaders, forceModelFound, forceModelPin)
 	}
 	session := compactionSession{
 		pins:           s.pinStore,
 		providers:      s.clients.NameSet(),
 		available:      s.availableModels,
 		cortexGateways: cortexGatewayProvidersForRequest(ctx),
-		now:            time.Now(),
+		now:            s.clock.Now(),
 	}
-	decision, strikes, ok := session.decision(ctx, sessionKey, res.PinRole, req)
+	decision, strikes, ok := session.decision(ctx, target.sessionKey, res.PinRole, req)
 	req = strikes.apply(req)
 	if ok {
 		scoreReq := req
-		scoreReq.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{})
-		if fresh, err := s.routeFor(ctx, scoreReq); err == nil {
+		scoreReq.Session.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{}, s.clock.Now())
+		if fresh, err := s.routeFor(ctx, target.strategy, scoreReq); err == nil {
 			res.Fresh = fresh
 		}
 		res.Decision = decision
@@ -65,11 +64,11 @@ func (s *Service) routeCompaction(
 		res.Origin = policy.OverrideSourceSession
 		return res, nil
 	}
-	res, err := s.routeWithoutPin(ctx, req, res, reqHeaders, false, sessionpin.Pin{})
+	res, err := s.routeWithoutPin(ctx, target.strategy, req, res, reqHeaders, false, sessionpin.Pin{})
 	if err != nil || res.UsageBypass || res.CallerModelPassthrough {
 		return res, err
 	}
-	s.writeNewPin(ctx, installationID, sessionKey, res.PinRole, res.Decision)
+	routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, target.strategy).WriteNew(ctx, target.installationID, target.sessionKey, res.PinRole, res.Decision)
 	return res, nil
 }
 
@@ -99,7 +98,7 @@ func (st sessionStrikes) apply(req router.Request) router.Request {
 		for _, model := range st.demotedModels {
 			demoted[model] = struct{}{}
 		}
-		req.AutomaticExcludedModels = mergeExcludedModels(req.AutomaticExcludedModels, demoted)
+		req.Candidates.AutomaticExcludedModels = candidates.MergeExcludedModels(req.Candidates.AutomaticExcludedModels, demoted)
 	}
 	return req
 }
@@ -116,8 +115,8 @@ func (c compactionSession) decision(ctx context.Context, sessionKey [sessionpin.
 		if !found {
 			continue
 		}
-		strikes.disabledProviders = mergeSessionStrikes(strikes.disabledProviders, pin.DisabledProviders)
-		strikes.demotedModels = mergeSessionStrikes(strikes.demotedModels, pin.DemotedModels)
+		strikes.disabledProviders = candidates.MergeSessionStrikes(strikes.disabledProviders, pin.DisabledProviders)
+		strikes.demotedModels = candidates.MergeSessionStrikes(strikes.demotedModels, pin.DemotedModels)
 		if pinRole == role && !pin.PinnedUntil.After(c.now) {
 			continue
 		}
@@ -151,7 +150,7 @@ func (c compactionSession) decision(ctx context.Context, sessionKey [sessionpin.
 	fits := req.EstimatedInputTokens <= 0 ||
 		req.EstimatedInputTokens+contextWindowOutputReserve <= gatewayContextWindow(c.cortexGateways, model, binding.Provider)
 	struck := slices.Contains(strikes.disabledProviders, binding.Provider) || slices.Contains(strikes.demotedModels, model)
-	if !fits || struck || !automaticPinEligible(pin, req) {
+	if !fits || struck || !candidates.AutomaticPinEligible(pin, req) {
 		return router.Decision{}, strikes, false
 	}
 	return pinDecision(pin), strikes, true
@@ -165,7 +164,7 @@ func (s *Service) crossGatewayRescuers(ctx context.Context, primary compactionSu
 		if !held || provider == primary.provider || catalog.TierFor(model) < catalog.TierMid {
 			continue
 		}
-		if _, excluded := req.ExcludedModels[model]; excluded || automaticallyDisabled(req, model) {
+		if _, excluded := req.Candidates.ExcludedModels[model]; excluded || automaticallyDisabled(req, model) {
 			continue
 		}
 		if s.availableModels != nil {

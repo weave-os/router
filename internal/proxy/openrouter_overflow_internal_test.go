@@ -61,7 +61,9 @@ func (d *overflowDispatch) run(ctx context.Context, laneRequest bool) error {
 	}
 	if laneRequest {
 		in.subscriptionStateRequest = &router.Request{
-			AllowedModels:    allowedModelsForRequest(ctx),
+			Candidates: router.Candidates{
+				AllowedModels: allowedModelsForRequest(ctx),
+			},
 			EnabledProviders: modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter}),
 		}
 	}

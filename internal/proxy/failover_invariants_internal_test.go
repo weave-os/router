@@ -64,11 +64,9 @@ func TestCommittedStreamStrikeLandsAfterClientCancel(t *testing.T) {
 		false,
 		fmt.Errorf("stream: %w", providers.ErrUpstreamIdleTimeout),
 		demotedArm,
-		"hmm:authoritative model=claude-opus-4-7",
-		uuid.New(),
-		nonZeroSessionKey(),
-		sessionpin.DefaultRole, sessionpin.DefaultRole,
-	)
+		"hmm:authoritative model=claude-opus-4-7", sessionTarget{strategy: router.StrategyFromContext(canceledContext()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+
+		sessionpin.DefaultRole, sessionpin.DefaultRole)
 
 	assert.Equal(t, demotedArm, demoted)
 	assert.NotEmpty(t, stub.demotions)
@@ -83,11 +81,9 @@ func TestPinEvictionSecondStrikeLandsAfterClientCancel(t *testing.T) {
 		canceledContext(),
 		true,
 		&providers.UpstreamStatusError{Status: http.StatusBadRequest},
-		"cluster:v0.57 model=gpt-5.5 provider=openai",
-		uuid.New(),
-		nonZeroSessionKey(),
-		sessionpin.DefaultRole,
-	)
+		"cluster:v0.57 model=gpt-5.5 provider=openai", sessionTarget{strategy: router.StrategyFromContext(canceledContext()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+
+		sessionpin.DefaultRole)
 
 	require.Len(t, stub.upserts, 1, "the second consecutive strike expires the pin even after the client left")
 	assert.Empty(t, stub.upserts[0].Model)
@@ -113,7 +109,7 @@ func TestReplayedUpstreamErrorDropsBodyFraming(t *testing.T) {
 		flush(rec, upstream())
 		assert.Equal(t, http.StatusBadRequest, rec.Code, name)
 		assert.Empty(t, rec.Header().Get("Content-Length"), name)
-		assert.Empty(t, rec.Header().Get("Content-Encoding"), name)
+		assert.Equal(t, "gzip", rec.Header().Get("Content-Encoding"), "%s forwards the upstream bytes, so their encoding stays", name)
 		assert.Equal(t, "req_synthetic", rec.Header().Get("X-Request-Id"), name)
 	}
 
@@ -121,6 +117,7 @@ func TestReplayedUpstreamErrorDropsBodyFraming(t *testing.T) {
 	flushUpstreamErrorAsAnthropic(rec, upstream())
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Empty(t, rec.Header().Get("Content-Length"))
+	assert.Empty(t, rec.Header().Get("Content-Encoding"), "a rewritten body drops the upstream encoding")
 	assert.Equal(t, "req_synthetic", rec.Header().Get("X-Request-Id"))
 }
 
@@ -149,13 +146,13 @@ func TestEvictPinAfterDegenerateResponse_ForceModelSkipped(t *testing.T) {
 	for _, reason := range []string{translate.ReasonUserForceModel, translate.ReasonUserForceModel + "+tier_clamp"} {
 		store := &evictionStubPinStore{}
 		newEvictionTestService(store).evictPinAfterDegenerateResponse(
-			context.Background(), true, reason, uuid.New(), nonZeroSessionKey(), sessionpin.DefaultRole)
+			context.Background(), router.StrategyFromContext(context.Background()), true, reason, uuid.New(), nonZeroSessionKey(), sessionpin.DefaultRole)
 		assert.Empty(t, store.upserts, reason)
 	}
 
 	store := &evictionStubPinStore{}
 	newEvictionTestService(store).evictPinAfterDegenerateResponse(
-		context.Background(), true, "cluster:v0.57 model=gpt-5.5 provider=openai", uuid.New(), nonZeroSessionKey(), sessionpin.DefaultRole)
+		context.Background(), router.StrategyFromContext(context.Background()), true, "cluster:v0.57 model=gpt-5.5 provider=openai", uuid.New(), nonZeroSessionKey(), sessionpin.DefaultRole)
 	assert.Len(t, store.upserts, 1, "an automatic pin is evicted")
 }
 
@@ -186,7 +183,7 @@ func TestCyberRefusalRetryTarget_NeverLandsOnRefusingVendor(t *testing.T) {
 
 	_, found := svc.cyberRefusalRetryTarget(ctx,
 		router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol"},
-		nonZeroSessionKey(), sessionpin.DefaultRole, 1000, 0, 0)
+		sessionTarget{strategy: router.StrategyFromContext(ctx), sessionKey: nonZeroSessionKey()}, sessionpin.DefaultRole, 1000, 0, 0)
 
 	assert.False(t, found, "with the off-vendor runner-up unreachable, the OpenAI fallback must not be used")
 }

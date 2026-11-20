@@ -38,8 +38,6 @@ var ErrInvalidKeypairAuth = errors.New("auth: invalid keypair auth")
 
 var ErrInvalidEntraAuth = errors.New("auth: invalid Microsoft Entra auth")
 
-type Clock func() time.Time
-
 const (
 	blindExperimentFetchTimeout  = 5 * time.Second
 	blindExperimentFetchAttempts = 3
@@ -788,25 +786,26 @@ func (s *Service) verifyAPIKey(ctx context.Context, rawToken string, includeUpst
 	}
 
 	var externalKeys []*ExternalAPIKey
+	cacheable := true
 	if includeUpstreamKeys && s.externalKeys != nil {
 		externalKeys, err = s.externalKeys.GetForInstallation(ctx, apiKey.InstallationID)
 		if err != nil {
 			observability.FromContext(ctx).Warn("Failed to fetch external API keys", "installation_id", apiKey.InstallationID, "err", err)
+			cacheable = false
 		}
 	}
 
 	var clusterModelLists []ClusterModelList
-	clusterModelListsFetchOK := true
 	if s.clusterModelLists != nil {
 		clusterModelLists, err = s.clusterModelLists.GetForAPIKey(ctx, apiKey.ID)
 		if err != nil {
 			observability.FromContext(ctx).Warn("Failed to fetch cluster model lists", "api_key_id", apiKey.ID, "err", err)
 			clusterModelLists = nil
-			clusterModelListsFetchOK = false
+			cacheable = false
 		}
 	}
 
-	if clusterModelListsFetchOK && includeUpstreamKeys {
+	if cacheable && includeUpstreamKeys {
 		s.cache.Set(keyHash, CachedKey{APIKey: apiKey, Installation: installation, ExternalKeys: externalKeys, ClusterModelLists: clusterModelLists})
 	}
 	s.fireMarkUsed(ctx, apiKey, installation)
@@ -871,30 +870,17 @@ func (s *Service) ResolveAndStashUser(ctx context.Context, installationID, email
 }
 
 func (s *Service) ResolveAndStashKeyOwner(ctx context.Context, installationID, credentialSubjectID, displayName string) context.Context {
-	log := observability.FromContext(ctx)
-	if s.users == nil || installationID == "" {
-		return ctx
-	}
-	identityKey := "subject:" + credentialSubjectID
-	if cached, ok := s.userCache.Get(installationID, identityKey); ok {
-		return s.withUserSettings(ctx, installationID, cached)
-	}
 	var optionalName *string
 	if displayName != "" {
 		optionalName = &displayName
 	}
-	user, err := s.users.UpsertByCredentialSubject(ctx, UpsertUserByCredentialSubjectParams{
-		InstallationID:      installationID,
-		CredentialSubjectID: credentialSubjectID,
-		DisplayName:         optionalName,
+	return s.resolveAndStashScopedUser(ctx, installationID, "subject:"+credentialSubjectID, func() (*User, error) {
+		return s.users.UpsertByCredentialSubject(ctx, UpsertUserByCredentialSubjectParams{
+			InstallationID:      installationID,
+			CredentialSubjectID: credentialSubjectID,
+			DisplayName:         optionalName,
+		})
 	})
-	if err != nil {
-		log.Warn("Failed to resolve router user for API key owner", "installation_id", installationID, "err", err)
-		return ctx
-	}
-	s.userCache.Set(installationID, identityKey, user.ID)
-	log.Debug("ResolveAndStashKeyOwner upsert ok", "installation_id", installationID, "user_id", user.ID)
-	return s.withUserSettings(ctx, installationID, user.ID)
 }
 
 func (s *Service) withUserSettings(ctx context.Context, installationID, routerUserID string) context.Context {
@@ -1044,9 +1030,4 @@ func (s *Service) fireMarkFirstRequestServed(ctx context.Context, installationID
 			log.Warn("Failed to mark installation first request served", "err", err)
 		}
 	})
-}
-
-func (s *Service) WithAnthropicFederationTokenSource(source AnthropicFederationTokenSource) *Service {
-	s.anthropicFederationTokens = source
-	return s
 }

@@ -107,15 +107,6 @@ func TestRoutingMarkerFor_PlannerPaths(t *testing.T) {
 			wantEmpty: true,
 		},
 		{
-			name: "same_tier_pinned: same model as last turn, marker suppressed",
-			res: turnLoopResult{
-				Decision:         decision,
-				PlannerDecision:  planner.Decision{Reason: planner.ReasonSameTierPinned},
-				PriorServedModel: decision.Model,
-			},
-			wantEmpty: true,
-		},
-		{
 			name: "same_model: same model as last turn, marker suppressed",
 			res: turnLoopResult{
 				Decision:         decision,

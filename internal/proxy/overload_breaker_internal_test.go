@@ -36,7 +36,7 @@ func (r *overloadAwareRouter) Route(_ context.Context, req router.Request) (rout
 		CandidateProviders: map[string]string{rescuerModel: providers.ProviderOpenAI},
 	}
 	decision := router.Decision{Provider: providers.ProviderAnthropic, Model: rescuedPrimaryModel, Reason: "hmm:authoritative model=" + rescuedPrimaryModel, Metadata: metadata}
-	if _, withdrawn := req.AutomaticExcludedModels[rescuedPrimaryModel]; withdrawn || r.preferRescuer {
+	if _, withdrawn := req.Candidates.AutomaticExcludedModels[rescuedPrimaryModel]; withdrawn || r.preferRescuer {
 		decision = router.Decision{Provider: providers.ProviderOpenAI, Model: rescuerModel, Reason: "hmm:authoritative model=" + rescuerModel, Metadata: metadata}
 	}
 	r.routed = append(r.routed, decision.Model)
@@ -94,7 +94,7 @@ func newOverloadHarness(enabled bool) *overloadHarness {
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenAI: {}}).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil }).
 		WithProviderOverloaded(enabled, registry)
-	h.svc.now = now
+	h.svc.clock = now
 	return h
 }
 

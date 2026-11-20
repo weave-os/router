@@ -20,7 +20,7 @@ type fakeRosterSource struct {
 	snapshot policy.RosterSnapshot
 }
 
-func (f fakeRosterSource) ClusterRoster(context.Context) (policy.RosterSnapshot, error) {
+func (f fakeRosterSource) ClusterRoster(context.Context, router.Strategy) (policy.RosterSnapshot, error) {
 	return f.snapshot, nil
 }
 

@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/subscriptionlane"
 	"weave-os/router/internal/subscriptions"
 )
 
@@ -101,10 +102,10 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 			return nil
 		}
 		if pickedModelOnOwnPlan(callCtx) {
-			return fmt.Errorf("%w: picked model runs on the caller's own plan", ErrSubscriptionPoolUnavailable)
+			return subscriptionPoolUnavailableBecause(callCtx, "picked model runs on the caller's own plan")
 		}
 		refusal := clientAppRefusalFunding{counts: clientAppRefusalPaidFallback(callCtx), poolRefused: claudePoolRefusesClientApp(callCtx), clientApp: ClientIdentityFrom(callCtx).ClientApp}
-		if err := s.authorizeSubscriptionAPI(admissionCtx, pool, codexToken, claudeToken, refusal); err != nil {
+		if err := s.authorizeSubscriptionAPI(admissionCtx, pool, target, codexToken, claudeToken, refusal); err != nil {
 			observability.FromContext(callCtx).Warn("Blocked API inference without subscription quota-exhaustion evidence", "model", target.CatalogID, "provider", target.Provider, "subscription_provider", pool, "err", err)
 			return err
 		}
@@ -123,11 +124,11 @@ type clientAppRefusalFunding struct {
 	clientApp   string
 }
 
-func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptions.Provider, codexToken, claudeToken string, refusal clientAppRefusalFunding) error {
+func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptions.Provider, target inference.Target, codexToken, claudeToken string, refusal clientAppRefusalFunding) error {
 	if managedSubscriptionEnrollmentUnavailable(ctx) {
-		return fmt.Errorf("%w: subscription enrollment could not be verified", ErrSubscriptionPoolUnavailable)
+		return subscriptionPoolUnavailableBecause(ctx, "subscription enrollment could not be verified")
 	}
-	now := s.clockNow()
+	now := s.clock.Now()
 	if subscriptionProviderUnavailable(ctx, pool, now) {
 		return nil
 	}
@@ -140,6 +141,9 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 		if s.managedAccountQuotaExhausted(ctx, candidate, now) || managedAccountCredentialCooling(candidate, now) {
 			continue
 		}
+		if s.subscriptionModels.managedDenied("account:"+candidate.accountID, candidate.accountID, target.Provider, target.CatalogID, now) {
+			continue
+		}
 		if refusal.counts && pool == subscriptions.ProviderClaude && (refusal.poolRefused || s.subscriptionModels.managedClientAppDenied(candidate.accountID, providers.ProviderAnthropic, refusal.clientApp, now)) {
 			continue
 		}
@@ -147,7 +151,7 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 			throttledBlocker = true
 			continue
 		}
-		return fmt.Errorf("%w: included quota is available or unknown", ErrSubscriptionPoolUnavailable)
+		return subscriptionPoolUnavailableBecause(ctx, "included quota is available or unknown")
 	}
 	token := claudeToken
 	if pool == subscriptions.ProviderCodex {
@@ -158,12 +162,12 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 		if err := callerPlanRefusal(ctx, pool, callerQuotaUnproven, now); err != nil {
 			return err
 		}
-		return ErrSubscriptionPoolThrottled
+		return subscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolThrottled)
 	}
 	if !snapshotPresent {
 		enrolled, _ := ctx.Value(ManagedSubscriptionProvidersContextKey{}).(map[auth.SubscriptionProvider]struct{})
 		if _, present := enrolled[auth.SubscriptionProvider(pool)]; present {
-			return fmt.Errorf("%w: enrolled pool has no quota snapshot", ErrSubscriptionPoolUnavailable)
+			return subscriptionPoolUnavailableBecause(ctx, "enrolled pool has no quota snapshot")
 		}
 	}
 	return callerPlanRefusal(ctx, pool, callerQuotaUnproven, now)
@@ -174,9 +178,9 @@ func callerPlanRefusal(ctx context.Context, pool subscriptions.Provider, callerQ
 		return nil
 	}
 	if callerPlanThrottled(ctx, pool, now) {
-		return errCallerPlanThrottled
+		return subscriptionPoolRefusal(ctx, subscriptionlane.CallerPlanThrottled)
 	}
-	return fmt.Errorf("%w: caller subscription quota is available or unknown", ErrSubscriptionPoolUnavailable)
+	return subscriptionPoolUnavailableBecause(ctx, "caller subscription quota is available or unknown")
 }
 
 func (s *Service) callerQuotaSpent(ctx context.Context, pool subscriptions.Provider, token string, now time.Time) bool {
@@ -184,7 +188,11 @@ func (s *Service) callerQuotaSpent(ctx context.Context, pool subscriptions.Provi
 		return true
 	}
 	if s.usageObserver != nil {
-		if snapshot, observed := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(token))); observed && includedQuotaSpent(snapshot, now) {
+		key := s.usageObserver.Key([]byte(token))
+		if s.usageObserver.Rejected(key) {
+			return true
+		}
+		if snapshot, observed := s.usageObserver.Snapshot(key); observed && includedQuotaSpent(snapshot, now) {
 			return true
 		}
 	}
@@ -212,7 +220,7 @@ func (s *Service) markSubscriptionPoolUnavailable(ctx context.Context, pool subs
 	if state.UnavailableProviders == nil {
 		state.UnavailableProviders = make(map[subscriptions.Provider]time.Time)
 	}
-	state.UnavailableProviders[pool] = s.clockNow().Add(subscriptionUnavailableCooldown)
+	state.UnavailableProviders[pool] = s.clock.Now().Add(subscriptionUnavailableCooldown)
 	observability.FromContext(ctx).Warn("Subscription inference failed on provider capacity; paid rescue eligible subject to funding authorization")
 }
 
@@ -249,7 +257,7 @@ func upstreamServerFailure(err error) bool {
 
 func (s *Service) subscriptionPoolUnavailable(ctx context.Context, provider, model string) bool {
 	pool, compatible := managedSubscriptionProviderFromUpstream(provider, model)
-	return compatible && subscriptionProviderUnavailable(ctx, pool, s.clockNow())
+	return compatible && subscriptionProviderUnavailable(ctx, pool, s.clock.Now())
 }
 
 func subscriptionProviderUnavailable(ctx context.Context, pool subscriptions.Provider, now time.Time) bool {
@@ -262,7 +270,44 @@ func (s *Service) linkedSeatCanCover(ctx context.Context, provider, model string
 		return false
 	}
 	pool, _ := managedSubscriptionProviderFromUpstream(provider, model)
-	now := s.clockNow()
+	now := s.clock.Now()
+	return managedSeatCanCover(ctx, pool, now, func(candidate managedSubscriptionCandidate) bool {
+		return s.managedAccountQuotaExhausted(ctx, candidate, now)
+	})
+}
+
+type seatAdmission struct {
+	now               time.Time
+	observer          *usage.Observer
+	codexExtraCredits bool
+	verifiedPlanOnly  bool
+}
+
+func seatAdmissionOf(s *Service) seatAdmission {
+	return seatAdmission{now: s.clock.Now(), observer: s.usageObserver, codexExtraCredits: s.codexExtraCreditsAllowed()}
+}
+
+func (a seatAdmission) mayAdmit(ctx context.Context, provider, model string) bool {
+	if !managedSubscriptionCanServe(ctx, provider, model) || managedSubscriptionEnrollmentUnavailable(ctx) {
+		return false
+	}
+	pool, _ := managedSubscriptionProviderFromUpstream(provider, model)
+	enterpriseOverage := pool == subscriptions.ProviderClaude && (claudeEnterpriseOnly(ctx) || !a.verifiedPlanOnly && claudeEnterpriseEnabled(ctx))
+	return managedSeatCanCover(ctx, pool, a.now, func(candidate managedSubscriptionCandidate) bool {
+		switch {
+		case enterpriseOverage:
+			return false
+		case recordedQuotaExhausted(ctx, candidate, a.now):
+			return true
+		case pool == subscriptions.ProviderCodex && a.codexExtraCredits:
+			return false
+		default:
+			return includedQuotaObservedSpent(a.observer, candidate, a.now)
+		}
+	})
+}
+
+func managedSeatCanCover(ctx context.Context, pool subscriptions.Provider, now time.Time, quotaExhausted func(managedSubscriptionCandidate) bool) bool {
 	if subscriptionProviderUnavailable(ctx, pool, now) {
 		return false
 	}
@@ -277,7 +322,7 @@ func (s *Service) linkedSeatCanCover(ctx context.Context, provider, model string
 		if candidate.state == auth.SubscriptionAccountStateCooldown && candidate.resetAt.After(now) {
 			continue
 		}
-		if !s.managedAccountQuotaExhausted(ctx, candidate, now) {
+		if !quotaExhausted(candidate) {
 			return true
 		}
 	}
@@ -298,6 +343,24 @@ func managedAccountCredentialCooling(candidate managedSubscriptionCandidate, now
 }
 
 func (s *Service) managedAccountQuotaExhausted(ctx context.Context, candidate managedSubscriptionCandidate, now time.Time) bool {
+	if recordedQuotaExhausted(ctx, candidate, now) {
+		return true
+	}
+	if candidate.provider == auth.SubscriptionProviderClaude && claudeEnterpriseOnly(ctx) {
+		return false
+	}
+	return includedQuotaObservedSpent(s.usageObserver, candidate, now)
+}
+
+func includedQuotaObservedSpent(observer *usage.Observer, candidate managedSubscriptionCandidate, now time.Time) bool {
+	if observer == nil {
+		return false
+	}
+	snapshot, observed := observer.Snapshot(observer.Key([]byte("subscription-account:" + candidate.accountID)))
+	return observed && includedQuotaSpent(snapshot, now)
+}
+
+func recordedQuotaExhausted(ctx context.Context, candidate managedSubscriptionCandidate, now time.Time) bool {
 	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
 		if state.QuotaExhaustedAccounts[candidate.accountID].After(now) {
 			return true
@@ -306,14 +369,7 @@ func (s *Service) managedAccountQuotaExhausted(ctx context.Context, candidate ma
 	if candidate.provider == auth.SubscriptionProviderClaude && claudeEnterpriseOnly(ctx) {
 		return false
 	}
-	if candidate.state == auth.SubscriptionAccountStateExhausted && candidate.resetAt.After(now) {
-		return true
-	}
-	if s.usageObserver != nil {
-		snapshot, observed := s.usageObserver.Snapshot(s.usageObserver.Key([]byte("subscription-account:" + candidate.accountID)))
-		return observed && includedQuotaSpent(snapshot, now)
-	}
-	return false
+	return candidate.state == auth.SubscriptionAccountStateExhausted && candidate.resetAt.After(now)
 }
 
 func includedQuotaSpent(snapshot usage.Snapshot, now time.Time) bool {

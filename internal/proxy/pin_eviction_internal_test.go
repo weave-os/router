@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
@@ -127,13 +128,11 @@ func TestMaybeEvictPin_FirstStrikeOnlyIncrements(t *testing.T) {
 	upstreamErr := &providers.UpstreamErrorResponse{Status: http.StatusBadRequest}
 	svc.maybeEvictPinAfterUpstreamErr(
 		context.Background(),
-		true, // stickyHit
+		true,
 		upstreamErr,
-		"cluster:v0.57 model=gpt-5.5 provider=openai",
-		uuid.New(),
-		nonZeroSessionKey(),
-		sessionpin.DefaultRole,
-	)
+		"cluster:v0.57 model=gpt-5.5 provider=openai", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+
+		sessionpin.DefaultRole)
 
 	assert.Equal(t, 1, store.incrementCalls, "first 4xx must increment exactly once")
 	assert.Equal(t, 0, store.resetCalls, "reset must not fire on a failed turn")
@@ -153,11 +152,9 @@ func TestMaybeEvictPin_SecondStrikeExpires(t *testing.T) {
 		context.Background(),
 		true,
 		upstreamErr,
-		"cluster:v0.57 model=gpt-5.5 provider=openai",
-		installationID,
-		sessionKey,
-		sessionpin.DefaultRole,
-	)
+		"cluster:v0.57 model=gpt-5.5 provider=openai", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: installationID, sessionKey: sessionKey},
+
+		sessionpin.DefaultRole)
 
 	require.Len(t, store.upserts, 1, "threshold strike must trigger an expired-pin upsert")
 	expired := store.upserts[0]
@@ -172,7 +169,7 @@ func TestMaybeEvictPin_SecondStrikeExpires(t *testing.T) {
 }
 
 func TestExpireSessionPinInvalidatesPostCommandContinuation(t *testing.T) {
-	continuationRole := commandContinuationRole(sessionpin.DefaultRole)
+	continuationRole := conversation.CommandContinuationRole(sessionpin.DefaultRole)
 	store := &evictionStubPinStore{continuations: map[string]sessionpin.Pin{
 		continuationRole: {
 			Provider:    providers.ProviderAnthropic,
@@ -183,7 +180,7 @@ func TestExpireSessionPinInvalidatesPostCommandContinuation(t *testing.T) {
 	svc := newEvictionTestService(store)
 
 	err := svc.expireSessionPin(
-		context.Background(),
+		context.Background(), router.StrategyFromContext(context.Background()),
 		uuid.New(),
 		nonZeroSessionKey(),
 		sessionpin.DefaultRole,
@@ -203,7 +200,7 @@ func TestExpireSessionPinAndHMMHistoryExpiresBothRoles(t *testing.T) {
 	sessionKey := nonZeroSessionKey()
 
 	err := svc.expireSessionPinAndHMMHistory(
-		context.Background(),
+		context.Background(), router.StrategyFromContext(context.Background()),
 		installationID,
 		sessionKey,
 		sessionpin.DefaultRole,
@@ -214,7 +211,7 @@ func TestExpireSessionPinAndHMMHistoryExpiresBothRoles(t *testing.T) {
 	require.Len(t, store.upserts, 2)
 	assert.Equal(t, sessionpin.DefaultRole, store.upserts[0].Role)
 	assert.Equal(t, hmmHistoryRole(sessionpin.DefaultRole), store.upserts[1].Role)
-	assert.Equal(t, []string{commandContinuationRole(sessionpin.DefaultRole)}, store.consumeRoles,
+	assert.Equal(t, []string{conversation.CommandContinuationRole(sessionpin.DefaultRole)}, store.consumeRoles,
 		"only the primary pin may invalidate a post-command continuation")
 	for _, expired := range store.upserts {
 		assert.Equal(t, installationID, expired.InstallationID)
@@ -234,12 +231,10 @@ func TestMaybeEvictPin_SuccessResets(t *testing.T) {
 	svc.maybeEvictPinAfterUpstreamErr(
 		context.Background(),
 		true,
-		nil, // success
-		"cluster:v0.57 model=gpt-5.5 provider=openai",
-		uuid.New(),
-		nonZeroSessionKey(),
-		sessionpin.DefaultRole,
-	)
+		nil,
+		"cluster:v0.57 model=gpt-5.5 provider=openai", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+
+		sessionpin.DefaultRole)
 
 	assert.Equal(t, 1, store.resetCalls, "successful turn on a sticky pin must clear the strike counter")
 	assert.Equal(t, 0, store.incrementCalls)
@@ -257,11 +252,9 @@ func TestMaybeEvictPin_RetryableStatusIgnored(t *testing.T) {
 			context.Background(),
 			true,
 			&providers.UpstreamErrorResponse{Status: status},
-			"cluster:v0.57 model=gpt-5.5 provider=openai",
-			uuid.New(),
-			nonZeroSessionKey(),
-			sessionpin.DefaultRole,
-		)
+			"cluster:v0.57 model=gpt-5.5 provider=openai", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+
+			sessionpin.DefaultRole)
 
 		assert.Zero(t, store.incrementCalls, "status %d is retryable and must not bump the strike counter", status)
 		assert.Empty(t, store.upserts, "status %d must not trigger eviction", status)
@@ -279,11 +272,9 @@ func TestMaybeEvictPin_UserForcedSkipped(t *testing.T) {
 			context.Background(),
 			true,
 			&providers.UpstreamErrorResponse{Status: http.StatusBadRequest},
-			reason,
-			uuid.New(),
-			nonZeroSessionKey(),
-			sessionpin.DefaultRole,
-		)
+			reason, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+
+			sessionpin.DefaultRole)
 
 		assert.Zero(t, store.incrementCalls, "user-forced pins (%q) must skip the counter increment", reason)
 		assert.Zero(t, store.resetCalls)
@@ -299,13 +290,11 @@ func TestMaybeEvictPin_NoStickyHitSkipped(t *testing.T) {
 
 	svc.maybeEvictPinAfterUpstreamErr(
 		context.Background(),
-		false, // !stickyHit
+		false,
 		&providers.UpstreamErrorResponse{Status: http.StatusBadRequest},
-		"cluster:v0.57 model=gpt-5.5 provider=openai",
-		uuid.New(),
-		nonZeroSessionKey(),
-		sessionpin.DefaultRole,
-	)
+		"cluster:v0.57 model=gpt-5.5 provider=openai", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+
+		sessionpin.DefaultRole)
 
 	assert.Zero(t, store.incrementCalls)
 	assert.Zero(t, store.resetCalls)
@@ -322,11 +311,9 @@ func TestMaybeEvictPin_ZeroSessionKeySkipped(t *testing.T) {
 		context.Background(),
 		true,
 		&providers.UpstreamErrorResponse{Status: http.StatusBadRequest},
-		"cluster:v0.57 model=gpt-5.5 provider=openai",
-		uuid.New(),
-		[sessionpin.SessionKeyLen]byte{}, // zero key
-		sessionpin.DefaultRole,
-	)
+		"cluster:v0.57 model=gpt-5.5 provider=openai", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{}},
+
+		sessionpin.DefaultRole)
 
 	assert.Zero(t, store.incrementCalls)
 	assert.Empty(t, store.upserts)
@@ -342,11 +329,9 @@ func TestMaybeEvictPin_NilInstallationSkipped(t *testing.T) {
 		context.Background(),
 		true,
 		&providers.UpstreamErrorResponse{Status: http.StatusBadRequest},
-		"cluster:v0.57 model=gpt-5.5 provider=openai",
-		uuid.Nil,
-		nonZeroSessionKey(),
-		sessionpin.DefaultRole,
-	)
+		"cluster:v0.57 model=gpt-5.5 provider=openai", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.Nil, sessionKey: nonZeroSessionKey()},
+
+		sessionpin.DefaultRole)
 
 	assert.Zero(t, store.incrementCalls)
 	assert.Empty(t, store.upserts)
@@ -362,11 +347,9 @@ func TestMaybeEvictPin_NonUpstreamErrorIgnored(t *testing.T) {
 		context.Background(),
 		true,
 		errors.New("upstream call: dial tcp: connection refused"),
-		"cluster:v0.57 model=gpt-5.5 provider=openai",
-		uuid.New(),
-		nonZeroSessionKey(),
-		sessionpin.DefaultRole,
-	)
+		"cluster:v0.57 model=gpt-5.5 provider=openai", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+
+		sessionpin.DefaultRole)
 
 	assert.Zero(t, store.incrementCalls)
 	assert.Empty(t, store.upserts)
@@ -394,7 +377,7 @@ func TestMaybeExpireDeadArmPin(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &evictionStubPinStore{}
 			svc := newEvictionTestService(store)
-			svc.maybeExpireDeadArmPin(context.Background(), tc.rejected, tc.decisionReason, installationID, sessionKey, sessionpin.DefaultRole)
+			svc.maybeExpireDeadArmPin(context.Background(), router.StrategyFromContext(context.Background()), tc.rejected, tc.decisionReason, installationID, sessionKey, sessionpin.DefaultRole)
 			if tc.wantFired {
 				require.Len(t, store.upserts, 1, "dead-arm rejection must expire the pin")
 				expired := store.upserts[0]
@@ -418,11 +401,9 @@ func TestMaybeEvictPin_SubscriptionPoolExhaustedLeavesStrikeCounter(t *testing.T
 		context.Background(),
 		true,
 		ErrSubscriptionPoolExhausted,
-		"loop_escalation",
-		installationID,
-		sessionKey,
-		sessionpin.DefaultRole,
-	)
+		"loop_escalation", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: installationID, sessionKey: sessionKey},
+
+		sessionpin.DefaultRole)
 
 	assert.Zero(t, store.incrementCalls, "pool exhaustion has no upstream status and must not use the 4xx strike counter")
 	assert.Empty(t, store.upserts, "subscription-arm expiry is keyed off the primary attempt, not the final rescue error")
@@ -447,7 +428,7 @@ func TestMaybeExpireSubscriptionArmPin(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &evictionStubPinStore{}
 			svc := newEvictionTestService(store)
-			svc.maybeExpireSubscriptionArmPin(context.Background(), tc.failure, tc.decisionReason, installationID, sessionKey, sessionpin.DefaultRole)
+			svc.maybeExpireSubscriptionArmPin(context.Background(), router.StrategyFromContext(context.Background()), tc.failure, tc.decisionReason, installationID, sessionKey, sessionpin.DefaultRole)
 			if tc.wantReason != "" {
 				require.Len(t, store.upserts, 1)
 				assert.Equal(t, tc.wantReason, store.upserts[0].Reason)

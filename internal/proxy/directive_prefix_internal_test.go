@@ -4,11 +4,13 @@ import (
 	"context"
 	"net/http/httptest"
 	"testing"
+	"weave-os/router/internal/router"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/translate"
 )
@@ -31,8 +33,9 @@ func TestForceModelCommand_CodexAckNamesTheDollarForm(t *testing.T) {
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.handleForceModelCommand(codexCtx("sess-1"), rec, env,
-		translate.ForceModelResult{Model: "opus"},
-		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
+		translate.ForceModelResult{Model: "opus"}, sessionTarget{strategy: router.StrategyFromContext(codexCtx("sess-1")), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
+
+		DeriveSessionKey(env, "key-1"), 10))
 
 	body := rec.Body.String()
 	require.Contains(t, body, "force-model applied")
@@ -52,8 +55,9 @@ func TestForceModelCommand_ClaudeCodeAckKeepsTheSlashForm(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{},
 		ClientIdentity{ClientApp: ClientAppClaudeCode})
 	require.NoError(t, svc.handleForceModelCommand(ctx, rec, env,
-		translate.ForceModelResult{Model: "opus"},
-		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
+		translate.ForceModelResult{Model: "opus"}, sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.New(), sessionKey: DeriveSessionKey(env, "key-1")},
+
+		DeriveSessionKey(env, "key-1"), 10))
 
 	assert.Contains(t, rec.Body.String(), "/unforce-model")
 }
@@ -102,12 +106,12 @@ func TestSupportsResponsesTerminalSurfaces(t *testing.T) {
 }
 
 func TestRouterSessionMessage_NamesTheIDAndTheClientsOwnSigil(t *testing.T) {
-	codex := routerSessionMessage("01a08ca1-6f83-7233", ClientAppCodex, translate.FormatOpenAI)
+	codex := conversation.RouterSessionMessage("01a08ca1-6f83-7233", directivePrefix(ClientAppCodex), translate.FormatOpenAI)
 	assert.Contains(t, codex, "01a08ca1-6f83-7233")
 	assert.Contains(t, codex, "$router-feedback")
 	assert.NotContains(t, codex, "/router-feedback")
 
-	claude := routerSessionMessage("sess-abc", ClientAppClaudeCode, translate.FormatAnthropic)
+	claude := conversation.RouterSessionMessage("sess-abc", directivePrefix(ClientAppClaudeCode), translate.FormatAnthropic)
 	assert.Contains(t, claude, "sess-abc")
 	assert.Contains(t, claude, "/router-feedback")
 	// Anthropic-format acks are formatted as routing markers so
@@ -119,7 +123,7 @@ func TestRouterSessionMessage_NamesTheIDAndTheClientsOwnSigil(t *testing.T) {
 // absent id has to read as absent.
 func TestRouterSessionMessage_MissingIDSaysSoRatherThanGuessing(t *testing.T) {
 	for _, format := range []translate.Format{translate.FormatOpenAI, translate.FormatAnthropic} {
-		msg := routerSessionMessage("", ClientAppCodex, format)
+		msg := conversation.RouterSessionMessage("", directivePrefix(ClientAppCodex), format)
 		assert.Contains(t, msg, "no session id")
 		assert.NotContains(t, msg, "session id: ")
 	}

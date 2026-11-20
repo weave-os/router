@@ -19,10 +19,11 @@ const (
 )
 
 type failureOwnerInput struct {
-	Err                error
-	Status             int
-	BodyTranslated     bool
-	CustomerCredential bool
+	Err                    error
+	Status                 int
+	BodyTranslated         bool
+	CustomerCredential     bool
+	RejectedFieldUnchanged bool
 }
 
 func classifyFailureOwner(in failureOwnerInput) FailureOwner {
@@ -33,7 +34,7 @@ func classifyFailureOwner(in failureOwnerInput) FailureOwner {
 	if isUpstreamWatchdogError(err) || isStreamTerminalMissing(err) || providers.IsUpstreamCyberPolicyRefusal(err) {
 		return FailureOwnerProvider
 	}
-	if errors.Is(err, context.Canceled) {
+	if errors.Is(err, context.Canceled) || isOwnLoginRejection(err) {
 		return FailureOwnerClient
 	}
 	if errors.Is(err, translate.ErrCustomToolArguments) {
@@ -46,14 +47,22 @@ func classifyFailureOwner(in failureOwnerInput) FailureOwner {
 		return FailureOwnerClient
 	}
 	if cls, ok := ClassifyDispatchError(err); ok && cls.Kind != DispatchErrorUpstreamStatus {
-		if cls.Kind == DispatchErrorHandoff && errors.Is(err, ErrHandoffUnavailable) {
+		switch {
+		case cls.Kind == DispatchErrorHandoff && errors.Is(err, ErrHandoffUnavailable):
 			return FailureOwnerRouter
+		case cls.Kind == DispatchErrorSubscriptionPoolExhausted && (upstreamStatus(err) == http.StatusTooManyRequests || errors.Is(err, errLinkedSeatsThrottled)):
+			return FailureOwnerProvider
+		case cls.Kind == DispatchErrorSubscriptionPoolExhausted && errors.Is(err, errLinkedSeatsUnusable):
+			return FailureOwnerClient
 		}
 		return dispatchErrorKindOwner(cls.Kind)
 	}
 	status := in.Status
 	if status == 0 {
 		status = upstreamStatus(err)
+	}
+	if status == http.StatusBadRequest && in.RejectedFieldUnchanged && !providers.IsUpstreamCredentialRefusal(err) {
+		return FailureOwnerClient
 	}
 	if status != 0 {
 		return upstreamStatusOwner(status, err, in.BodyTranslated, in.CustomerCredential)
@@ -67,7 +76,7 @@ func upstreamStatusOwner(status int, err error, bodyTranslated, customerCredenti
 		credentialOwner = FailureOwnerClient
 	}
 	switch {
-	case providers.IsUpstreamProviderBillingBlocked(err):
+	case providers.IsUpstreamProviderBillingBlocked(err), providers.IsUpstreamCredentialRefusal(err):
 		return credentialOwner
 	case status == http.StatusUnauthorized, status == http.StatusForbidden, status == http.StatusPaymentRequired:
 		return credentialOwner
@@ -100,7 +109,7 @@ func streamFailureOwner(class streamFailureClass) FailureOwner {
 
 func dispatchErrorKindOwner(kind DispatchErrorKind) FailureOwner {
 	switch kind {
-	case DispatchErrorSubscriptionPoolExhausted, DispatchErrorSubscriptionPoolThrottled, DispatchErrorNotImplemented, DispatchErrorProviderNotConfigured, DispatchErrorAnthropicFederationUnavailable, DispatchErrorRLPolicyUnavailable,
+	case DispatchErrorSubscriptionPoolExhausted, DispatchErrorNotImplemented, DispatchErrorProviderNotConfigured, DispatchErrorAnthropicFederationUnavailable, DispatchErrorRLPolicyUnavailable,
 		DispatchErrorHMMUnavailable, DispatchErrorPolicyUnavailable,
 		DispatchErrorClusterUnavailable, DispatchErrorDecisionModelUnavailable, DispatchErrorClassifierUnavailable,
 		DispatchErrorPolicyPinUnavailable, DispatchErrorPlanTargetMismatch, DispatchErrorPlanUnresolvable,
@@ -108,7 +117,7 @@ func dispatchErrorKindOwner(kind DispatchErrorKind) FailureOwner {
 		DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorTranslationProviderUnavailable,
 		DispatchErrorRoutedModelIncompatible, DispatchErrorNoEligibleArm:
 		return FailureOwnerRouter
-	case DispatchErrorCompactionUnservable:
+	case DispatchErrorCompactionUnservable, DispatchErrorSubscriptionPoolThrottled:
 		return FailureOwnerProvider
 	case DispatchErrorRequestNotJSONObject, DispatchErrorResponsesChatCompletionsBody, DispatchErrorContextWindowExceeded, DispatchErrorImageLimitExceeded,
 		DispatchErrorInvalidRoutingKnobs, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded,

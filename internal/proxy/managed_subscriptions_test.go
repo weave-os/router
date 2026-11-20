@@ -27,13 +27,14 @@ import (
 )
 
 type scriptedSubscriptionLeaser struct {
-	leases      []subscriptions.Lease
-	next        int
-	repeatLast  bool
-	providers   []subscriptions.Provider
-	owners      []auth.SubscriptionOwner
-	cooldownIDs []string
-	disabledIDs []string
+	leases        []subscriptions.Lease
+	next          int
+	repeatLast    bool
+	providers     []subscriptions.Provider
+	owners        []auth.SubscriptionOwner
+	cooldownIDs   []string
+	cooldownUntil []time.Time
+	disabledIDs   []string
 }
 
 type healthSubscriptionLeaser struct {
@@ -60,8 +61,9 @@ func (s *scriptedSubscriptionLeaser) Lease(_ context.Context, owner auth.Subscri
 	return lease, true, nil
 }
 
-func (s *scriptedSubscriptionLeaser) Cooldown(_ context.Context, _ auth.SubscriptionOwner, _ subscriptions.Provider, accountID string, _ time.Time) error {
+func (s *scriptedSubscriptionLeaser) Cooldown(_ context.Context, _ auth.SubscriptionOwner, _ subscriptions.Provider, accountID string, until time.Time) error {
 	s.cooldownIDs = append(s.cooldownIDs, accountID)
+	s.cooldownUntil = append(s.cooldownUntil, until)
 	return nil
 }
 
@@ -144,7 +146,7 @@ func TestLeaseManagedSubscriptionSkipsObservedExhaustedAccount(t *testing.T) {
 	svc := newServiceWithProviders(t, nil).
 		WithManagedSubscriptions(leaser).
 		WithUsageObserver(observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()))
-	svc.now = func() time.Time { return time.Unix(1_000_000, 0) }
+	svc.clock = func() time.Time { return time.Unix(1_000_000, 0) }
 
 	_, lease, managed, err := svc.leaseManagedSubscription(
 		managedSubscriptionTestContext(), providers.ProviderAnthropic, "claude-opus-4-8",
@@ -623,7 +625,7 @@ func TestDispatchWithFallbackSlowInferenceDoesNotConsumeLeaseBudget(t *testing.T
 	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: client}).WithManagedSubscriptions(leaser)
 	startedAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	// Only provider inference advances the clock; account admission remains fast.
-	svc.now = func() time.Time {
+	svc.clock = func() time.Time {
 		if client.calls == 0 {
 			return startedAt
 		}
@@ -796,4 +798,26 @@ func TestDispatchWithFallbackRotatesManagedTransientErrorOnSameBinding(t *testin
 	require.Empty(t, leaser.cooldownIDs, "a 503 is not a quota signal")
 	require.Equal(t, "served", recorder.Body.String())
 	require.True(t, servedOnSubscription(ctx))
+}
+
+// An Anthropic seat out of extra usage answers 400, not 429. Rotating keeps the
+// turn on another seat instead of returning the refusal to the client.
+func TestManagedClaudeSeatOutOfExtraUsageRotates(t *testing.T) {
+	leaser := &healthSubscriptionLeaser{scriptedSubscriptionLeaser: &scriptedSubscriptionLeaser{}}
+	service := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
+	err := &providers.UpstreamErrorResponse{
+		Status:    http.StatusBadRequest,
+		Body:      []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"You're out of extra usage."}}`),
+		Rejection: providers.UpstreamRejection{Kind: providers.UpstreamRejectionCredential},
+	}
+
+	now := time.Now()
+	service.clock = func() time.Time { return now }
+
+	rotated := service.recordManagedSubscriptionFailure(managedSubscriptionTestContext(), providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String(), subscriptions.Lease{AccountID: "seat-1"}, err)
+
+	require.True(t, rotated)
+	require.Equal(t, []string{"seat-1"}, leaser.cooldownIDs)
+	require.Equal(t, []time.Time{now.Add(managedUsageRefusalCooldown)}, leaser.cooldownUntil, "a seat out of usage stays out of rotation instead of being retried every minute")
+	require.Empty(t, leaser.exhaustedIDs)
 }

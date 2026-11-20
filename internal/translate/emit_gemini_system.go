@@ -5,7 +5,7 @@ import "github.com/tidwall/gjson"
 func openAISystemTextParts(msgs gjson.Result) []string {
 	var sysParts []string
 	msgs.ForEach(func(_, msg gjson.Result) bool {
-		if msg.Get("role").String() != "system" {
+		if role := msg.Get("role").String(); role != "system" && role != "developer" {
 			return true
 		}
 		content := msg.Get("content")

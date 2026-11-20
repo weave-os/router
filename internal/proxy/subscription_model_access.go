@@ -6,6 +6,7 @@ import (
 	"errors"
 	"hash/maphash"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,8 @@ import (
 
 const subscriptionModelDenialTTL = 15 * time.Minute
 
+const subscriptionModelServedTTL = 6 * time.Hour
+
 type subscriptionModelKey struct {
 	token    uint64
 	owner    string
@@ -31,12 +34,16 @@ type subscriptionModelAccess struct {
 	once    sync.Once
 	seed    maphash.Seed
 	entries *lru.Cache[subscriptionModelKey, time.Time]
+
+	servedMu sync.Mutex
+	served   *lru.Cache[uint64, map[string]time.Time]
 }
 
 func (a *subscriptionModelAccess) cache() *lru.Cache[subscriptionModelKey, time.Time] {
 	a.once.Do(func() {
 		a.seed = maphash.MakeSeed()
 		a.entries, _ = lru.New[subscriptionModelKey, time.Time](4096)
+		a.served, _ = lru.New[uint64, map[string]time.Time](4096)
 	})
 	return a.entries
 }
@@ -56,6 +63,45 @@ func (a *subscriptionModelAccess) managedKey(owner, account, provider, model str
 
 func (a *subscriptionModelAccess) denied(token []byte, model string, now time.Time) bool {
 	return a.deniedForProvider(token, "", model, now)
+}
+
+func (a *subscriptionModelAccess) deniedForCaller(ctx context.Context, model string, now time.Time) bool {
+	creds := CredentialsFromContext(ctx)
+	return creds != nil && creds.OAuth && a.denied(creds.APIKey, model, now)
+}
+
+func (a *subscriptionModelAccess) markServed(token []byte, model string, now time.Time) {
+	a.cache()
+	key := maphash.Bytes(a.seed, token)
+	a.servedMu.Lock()
+	defer a.servedMu.Unlock()
+	prev, _ := a.served.Get(key)
+	next := map[string]time.Time{router.StripDateSuffix(model): now}
+	for id, at := range prev {
+		if _, ok := next[id]; !ok && now.Sub(at) < subscriptionModelServedTTL {
+			next[id] = at
+		}
+	}
+	a.served.Add(key, next)
+}
+
+func (a *subscriptionModelAccess) servedForCaller(ctx context.Context, now time.Time) []string {
+	creds := CredentialsFromContext(ctx)
+	if creds == nil || !creds.OAuth || len(creds.APIKey) == 0 {
+		return nil
+	}
+	a.cache()
+	a.servedMu.Lock()
+	models, _ := a.served.Get(maphash.Bytes(a.seed, creds.APIKey))
+	a.servedMu.Unlock()
+	var out []string
+	for id, at := range models {
+		if now.Sub(at) < subscriptionModelServedTTL {
+			out = append(out, id)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 func (a *subscriptionModelAccess) deniedForProvider(token []byte, provider, model string, now time.Time) bool {
@@ -92,12 +138,26 @@ func anthropicSubscriptionModelUnavailable(model string) error {
 	return &providers.UpstreamErrorResponse{Status: http.StatusNotFound, Body: body}
 }
 
+func (a *subscriptionModelAccess) markServedForCaller(ctx context.Context, provider, model string, now time.Time) {
+	if creds := CredentialsFromContext(ctx); provider == providers.ProviderAnthropic && creds != nil && creds.OAuth && len(creds.APIKey) > 0 {
+		a.markServed(creds.APIKey, model, now)
+	}
+}
+
+func recordSubscriptionModelOutcome(s *Service, ctx context.Context, provider, model string, err error) {
+	if err == nil {
+		s.subscriptionModels.markServedForCaller(ctx, provider, model, s.clock.Now())
+		return
+	}
+	s.recordSubscriptionModelRejection(ctx, provider, model, err)
+}
+
 func (s *Service) recordSubscriptionModelRejection(ctx context.Context, provider, model string, err error) {
 	creds := CredentialsFromContext(ctx)
 	if creds == nil || !creds.OAuth || len(creds.APIKey) == 0 {
 		return
 	}
-	until := s.clockNow().Add(subscriptionModelDenialTTL)
+	until := s.clock.Now().Add(subscriptionModelDenialTTL)
 	switch provider {
 	case providers.ProviderAnthropic:
 		if anthropicSubscriptionModelRejected(err) {
@@ -123,11 +183,11 @@ func (s *Service) resolveCredentials(ctx context.Context, provider, model string
 	creds := CredentialsFromContext(resolved)
 	if provider == providers.ProviderOpenAI && creds != nil && creds.OAuth && len(creds.AccountID) > 0 &&
 
-		s.subscriptionModels.deniedForProvider(creds.APIKey, provider, model, s.clockNow()) {
+		s.subscriptionModels.deniedForProvider(creds.APIKey, provider, model, s.clock.Now()) {
 		return resolveAndInjectCredentials(withSuppressedCodexModel(resolved, model), provider, model, headers)
 	}
 	if provider != providers.ProviderAnthropic || creds == nil || !creds.OAuth ||
-		!s.subscriptionModels.denied(creds.APIKey, model, s.clockNow()) {
+		!s.subscriptionModels.denied(creds.APIKey, model, s.clock.Now()) {
 		return resolved
 	}
 	previous, _ := ctx.Value(suppressClaudeModelContextKey{}).(map[string]struct{})

@@ -456,7 +456,13 @@ type RouterModelRouterInferenceAttempt struct {
 	// Who owns the attempt failure: provider, router, client or unknown; NULL on a served attempt
 	FailureOwner *string
 	// TRUE when the router rewrote the request body it sent (format translation or same-format rewrite); NULL on rows written before this column
-	BodyTranslated *bool
+	BodyTranslated        *bool
+	SubscriptionAccountID *string
+	CredentialSource      *string
+	CapacitySource        *string
+	FundingPoolID         *string
+	SelectionPolicySha256 *string
+	CapacityObservedAt    pgtype.Timestamptz
 }
 
 // Customer router installations; owns API keys
@@ -511,6 +517,7 @@ type RouterModelRouterInstallation struct {
 	ModelsExcludedWhenSubscriptionInactive []string
 	PickedModelCreditFallbackEnabled       bool
 	WeaveCreditInferenceEnabled            bool
+	PoolSubjectID                          pgtype.UUID
 }
 
 type RouterModelRouterRequestTelemetry struct {
@@ -801,6 +808,8 @@ type RouterModelRouterUser struct {
 	DisplayName *string
 	// Authenticated owner of the personal API key that carried a request with no client-asserted identity. Set only on rows created for such requests (email and claude_account_uuid NULL).
 	CredentialSubjectID pgtype.UUID
+	// Ownerless (team) API key that carried a request with no client-asserted identity. One synthetic user per key, so per-user spend caps still apply to that traffic.
+	UnidentifiedAPIKeyID pgtype.UUID
 }
 
 type RouterModelRouterUserClusterModelList struct {
@@ -820,6 +829,19 @@ type RouterModelRouterUserMonthlySpend struct {
 	Month          pgtype.Date
 	SpentUsdMicros int64
 	UpdatedAt      pgtype.Timestamptz
+}
+
+type RouterModelRouterUserSeatUsage struct {
+	RouterUserID           uuid.UUID
+	Provider               string
+	PrimaryUsedPercent     float64
+	PrimaryWindowMinutes   int64
+	PrimaryResetsAt        pgtype.Timestamptz
+	SecondaryUsedPercent   float64
+	SecondaryWindowMinutes int64
+	SecondaryResetsAt      pgtype.Timestamptz
+	OverageInUse           bool
+	ObservedAt             pgtype.Timestamptz
 }
 
 type RouterModelRouterUserSpendLimit struct {

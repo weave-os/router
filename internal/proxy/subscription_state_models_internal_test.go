@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -149,12 +150,12 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 			if scenario.depleted {
 				ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
 			}
-			req := router.Request{AllowedModels: allowedModelsForRequest(ctx), EnabledProviders: modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter})}
+			req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter})}
 			if scenario.forced {
 				req.ForceModel = stateClaudeModel
 			}
 			if scenario.forceWithRequestSubset {
-				req.AllowedModels = modelSet([]string{stateCodexModel})
+				req.Candidates.AllowedModels = modelSet([]string{stateCodexModel})
 			}
 			initialModel := stateClaudeModel
 			if scenario.utilityTarget {
@@ -245,7 +246,7 @@ func TestSubscriptionStateRateLimitedIncludedLaneKeepsUpstreamStatus(t *testing.
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel})
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
 	ctx = withTurnFailures(ctx)
-	req := router.Request{AllowedModels: allowedModelsForRequest(ctx), EnabledProviders: modelSet([]string{providers.ProviderAnthropic})}
+	req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: modelSet([]string{providers.ProviderAnthropic})}
 	rec := httptest.NewRecorder()
 	buffer := newPreludeBuffer(rec)
 	inputs := failoverInputs{
@@ -278,8 +279,8 @@ func TestSubscriptionStateModelsIntersectGlobalAllowlist(t *testing.T) {
 	ctx = context.WithValue(ctx, InstallationAllowedModelsContextKey{}, []string{stateCodexModel})
 	require.Equal(t, map[string]struct{}{stateCodexModel: {}}, allowedModelsForRequest(ctx))
 	svc := &Service{}
-	_, paid := svc.subscriptionStateRequest(ctx, router.Request{AllowedModels: allowedModelsForRequest(ctx)}, []string{statePaidModel})
-	require.Empty(t, paid.AllowedModels, "a state must never widen the global allowlist")
+	_, paid := svc.subscriptionStateRequest(ctx, router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}}, []string{statePaidModel})
+	require.Empty(t, paid.Candidates.AllowedModels, "a state must never widen the global allowlist")
 }
 
 func TestSubscriptionStateModelsHTTPIngress(t *testing.T) {
@@ -406,7 +407,9 @@ func TestSubscriptionStateModelsPaidFallbackSkipsUnavailableProvider(t *testing.
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel, stateCodexModel})
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{stateClaudeModel, statePaidModel})
 	req := router.Request{
-		AllowedModels:    allowedModelsForRequest(ctx),
+		Candidates: router.Candidates{
+			AllowedModels: allowedModelsForRequest(ctx),
+		},
 		EnabledProviders: modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter}),
 	}
 	rec := httptest.NewRecorder()
@@ -443,7 +446,9 @@ func TestSubscriptionStateFailedTargetReachesRecoveryCallback(t *testing.T) {
 	ctx := context.WithValue(context.Background(), InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel})
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
 	request := router.Request{
-		AllowedModels:    allowedModelsForRequest(ctx),
+		Candidates: router.Candidates{
+			AllowedModels: allowedModelsForRequest(ctx),
+		},
 		EnabledProviders: modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter}),
 	}
 	var recoveryDecision router.Decision
@@ -513,12 +518,14 @@ func TestSubscriptionStatePaidRescueRequiresExhaustedSetTarget(t *testing.T) {
 func TestSubscriptionStateModelsKeepSafetyExclusions(t *testing.T) {
 	ctx := conditionalModelsContext([]string{stateClaudeModel, stateCodexModel}, []string{statePaidModel})
 	request := router.Request{
-		AllowedModels:                 allowedModelsForRequest(ctx),
-		SafetyExcludedModels:          map[string]struct{}{stateClaudeModel: {}},
-		UnsignedHistoryExcludedModels: map[string]struct{}{stateCodexModel: {}},
+		Candidates: router.Candidates{
+			AllowedModels:                 allowedModelsForRequest(ctx),
+			SafetyExcludedModels:          map[string]struct{}{stateClaudeModel: {}},
+			UnsignedHistoryExcludedModels: map[string]struct{}{stateCodexModel: {}},
+		},
 	}
 	_, narrowed := (&Service{}).subscriptionStateRequest(ctx, request, []string{stateClaudeModel, stateCodexModel})
-	require.Empty(t, narrowed.AllowedModels)
+	require.Empty(t, narrowed.Candidates.AllowedModels)
 }
 
 func TestSubscriptionStateModelsStrictDirectSubscription(t *testing.T) {
@@ -531,7 +538,7 @@ func TestSubscriptionStateModelsStrictDirectSubscription(t *testing.T) {
 	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer "+conditionalModelsSubscriptionToken)
-	request := router.Request{RequestedModel: stateClaudeModel, AllowedModels: allowedModelsForRequest(ctx), EnabledProviders: modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI})}
+	request := router.Request{RequestedModel: stateClaudeModel, Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI})}
 	rec := httptest.NewRecorder()
 	buffer := newPreludeBuffer(rec)
 	var winner router.Decision
@@ -618,10 +625,9 @@ func TestSubscriptionStateModelsCodexNativeAttemptAfterCrossFamilyPick(t *testin
 	assert.NotContains(t, out, "response.failed")
 }
 
-// A revoked own ChatGPT login is not spent quota: the turn answers 401 so
-// Codex signs in again, instead of the exhausted model set serving it (prod
-// 2026-11-13: token_revoked sessions ran on allowance models).
-func TestSubscriptionStateModelsRevokedCodexLoginFailsTurn(t *testing.T) {
+// A revoked own ChatGPT login cannot serve the turn, so the exhausted model set
+// serves it on Weave credits and the stream names the reconnect.
+func TestSubscriptionStateModelsRevokedCodexLoginFallsBackWithReconnectNotice(t *testing.T) {
 	for _, tc := range []struct {
 		held, stream bool
 		client       string
@@ -635,6 +641,8 @@ func TestSubscriptionStateModelsRevokedCodexLoginFailsTurn(t *testing.T) {
 				}
 				if strings.HasSuffix(r.URL.Path, "/chat/completions") {
 					paidCalls++
+					writeSyntheticChatCompletion(w, gjson.GetBytes(mustReadBody(r), "stream").Bool())
+					return
 				}
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusUnauthorized)
@@ -665,18 +673,10 @@ func TestSubscriptionStateModelsRevokedCodexLoginFailsTurn(t *testing.T) {
 			rec := httptest.NewRecorder()
 			err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathResponses, strings.NewReader(body)))
 
-			if tc.client != ClientAppCodex {
-				assert.Equal(t, 1, paidCalls, "a client that does not depend on its linked Codex login keeps the exhausted model set")
-				return
-			}
-			require.Error(t, err)
-			class, ok := ClassifyDispatchError(err)
-			require.True(t, ok)
-			assert.Equal(t, http.StatusUnauthorized, class.Status)
-			assert.Contains(t, class.Message, "reconnect=codex", "the ingress handler's error names the recovery")
-			assert.Zero(t, paidCalls, "the exhausted model set must not serve a revoked login")
-			if tc.stream {
-				assert.Contains(t, rec.Body.String(), "reconnect=codex", "a committed stream's response.failed names the recovery")
+			require.NoError(t, err)
+			assert.Equal(t, 1, paidCalls, "the exhausted model set serves a turn the revoked login cannot")
+			if tc.client == ClientAppCodex && tc.stream {
+				assert.Contains(t, rec.Body.String(), "reconnect=codex", "the stream names the recovery")
 			}
 		})
 	}
@@ -837,4 +837,115 @@ func assertResponsesClientGridOutcome(t *testing.T, cell string, err error, mode
 	assert.Contains(t, out, "synthetic answer")
 	assert.Contains(t, out, `"type":"response.completed"`)
 	assert.NotContains(t, out, "response.failed")
+}
+
+func mustReadBody(r *http.Request) []byte {
+	body, _ := io.ReadAll(r.Body)
+	return body
+}
+
+func writeSyntheticChatCompletion(w http.ResponseWriter, stream bool) {
+	if !stream {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"chatcmpl_synthetic","object":"chat.completion","model":"synthetic","choices":[{"index":0,"message":{"role":"assistant","content":"synthetic answer"},"finish_reason":"stop"}],"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}}`)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	_, _ = io.WriteString(w, "data: {\"id\":\"chatcmpl_synthetic\",\"object\":\"chat.completion.chunk\",\"model\":\"synthetic\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"synthetic answer\"},\"finish_reason\":null}]}\n\n"+
+		"data: {\"id\":\"chatcmpl_synthetic\",\"object\":\"chat.completion.chunk\",\"model\":\"synthetic\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":11,\"completion_tokens\":7,\"total_tokens\":18}}\n\n"+
+		"data: [DONE]\n\n")
+}
+
+func TestSubscriptionStateModelsSkipSpentSeatPoolsBeforeDispatch(t *testing.T) {
+	claude := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{{writeBytes: []byte("included Claude answer")}}}
+	codex := &fakeClient{name: providers.ProviderOpenAI, outcomes: []fakeOutcome{{writeBytes: []byte("included Codex answer")}}}
+	paid := &fakeClient{name: providers.ProviderOpenRouter, outcomes: []fakeOutcome{{writeBytes: []byte("cheap paid answer")}}}
+	leaser := &scriptedSubscriptionLeaser{}
+	svc := NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderAnthropic: claude, providers.ProviderOpenAI: codex, providers.ProviderOpenRouter: paid}, nil, nil, false, "", "", nil).
+		WithManagedSubscriptions(leaser)
+	resetAt := time.Now().Add(48 * time.Hour)
+	ctx := WithManagedSubscriptionCandidates(managedSubscriptionTestContext(), []*auth.SubscriptionAccount{
+		{ID: "synthetic-spent-claude", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &resetAt},
+		{ID: "synthetic-spent-codex", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &resetAt},
+		{ID: "synthetic-reconnect-codex", Provider: auth.SubscriptionProviderCodex, State: auth.SubscriptionAccountStateReconnectRequired},
+	})
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel, stateClaudeModel})
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
+	ctx = withTurnFailures(ctx)
+	req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter})}
+	rec := httptest.NewRecorder()
+	buffer := newPreludeBuffer(rec)
+	var attempted []string
+	var winner router.Decision
+	_, err := svc.dispatchWithFallback(ctx, failoverInputs{
+		w: rec, buf: buffer, subscriptionStateRequest: &req,
+		subscriptionStateWinnerProvider: new(string),
+		initialDecision:                 router.Decision{Model: stateCodexModel, Provider: providers.ProviderOpenAI},
+		purpose:                         inference.PurposeAnthropicMessages,
+		buildAlternative: func(router.Decision) (dispatchAttempt, error) {
+			return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
+				attempted = append(attempted, decision.Model)
+				buffer.Seal()
+				return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/messages", nil))
+			}, nil
+		},
+		onAlternative: func(decision router.Decision) { winner = decision },
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, statePaidModel, winner.Model)
+	require.Equal(t, []string{statePaidModel}, attempted)
+	require.Empty(t, leaser.providers, "pools whose every seat is spent must not be leased again on each request")
+	require.Zero(t, claude.calls)
+	require.Zero(t, codex.calls)
+}
+
+func TestSubscriptionStateModelAvailableFollowsLeaseAdmission(t *testing.T) {
+	resetAt := time.Now().Add(48 * time.Hour)
+	spentObserver := usage.NewObserver([]byte("synthetic-salt"), time.Hour, time.Now)
+	spentObserver.Record(spentObserver.Key([]byte("subscription-account:synthetic-active-codex")), usage.Snapshot{Primary: usage.Window{UsedPercent: 1.0, WindowMinutes: 300}})
+	enterpriseEnabled := func(ctx context.Context) context.Context {
+		return flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyClaudeEnterpriseOnly: true}})
+	}
+	for _, scenario := range []struct {
+		name          string
+		model         string
+		account       *auth.SubscriptionAccount
+		extraCredits  bool
+		decorate      func(context.Context) context.Context
+		wantAvailable bool
+	}{
+		{name: "spent Claude seat may still admit an Enterprise plan on overage", model: stateClaudeModel,
+			account:       &auth.SubscriptionAccount{ID: "synthetic-spent-claude", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &resetAt},
+			decorate:      enterpriseEnabled,
+			wantAvailable: true},
+		{name: "spent Claude seat without Enterprise overage cannot admit", model: stateClaudeModel,
+			account: &auth.SubscriptionAccount{ID: "synthetic-spent-claude", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &resetAt}},
+		{name: "observed-spent Codex seat admits with extra credits", model: stateCodexModel, extraCredits: true,
+			account:       &auth.SubscriptionAccount{ID: "synthetic-active-codex", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive},
+			wantAvailable: true},
+		{name: "observed-spent Codex seat without extra credits cannot admit", model: stateCodexModel,
+			account: &auth.SubscriptionAccount{ID: "synthetic-active-codex", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive}},
+		{name: "extra credits do not revive a seat the pool marks exhausted", model: stateCodexModel, extraCredits: true,
+			account: &auth.SubscriptionAccount{ID: "synthetic-spent-codex", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &resetAt}},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			clients := map[string]providers.Client{
+				providers.ProviderAnthropic: &fakeClient{name: providers.ProviderAnthropic},
+				providers.ProviderOpenAI:    &fakeClient{name: providers.ProviderOpenAI},
+			}
+			svc := NewService(stateModelRouter{}, clients, nil, nil, false, "", "", nil).
+				WithManagedSubscriptions(&scriptedSubscriptionLeaser{}).
+				WithCodexExtraCredits(scenario.extraCredits).
+				WithUsageObserver(spentObserver)
+			ctx := WithManagedSubscriptionCandidates(managedSubscriptionTestContext(), []*auth.SubscriptionAccount{scenario.account})
+			if scenario.decorate != nil {
+				ctx = scenario.decorate(ctx)
+			}
+
+			available := svc.subscriptionStateModelAvailable(ctx, router.Request{}, http.Header{}, scenario.model)
+
+			require.Equal(t, scenario.wantAvailable, available)
+		})
+	}
 }

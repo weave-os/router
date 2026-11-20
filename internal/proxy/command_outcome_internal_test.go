@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"weave-os/router/internal/router"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -146,7 +147,7 @@ func TestCommandOutcomeRequiresPersistence(t *testing.T) {
 	env := forceCommandEnv(t)
 	for _, command := range []translate.ForceModelResult{{Model: "opus"}, {Clear: true}} {
 		rec := httptest.NewRecorder()
-		err := svc.handleForceModelCommand(context.Background(), rec, env, command, uuid.New(), [sessionpin.SessionKeyLen]byte{1}, [sessionpin.SessionKeyLen]byte{2}, 1)
+		err := svc.handleForceModelCommand(context.Background(), rec, env, command, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, [sessionpin.SessionKeyLen]byte{2}, 1)
 		require.Error(t, err)
 		assert.Empty(t, rec.Header().Get(translate.RouterCommandHeader))
 		assert.Empty(t, rec.Body.String())
@@ -160,9 +161,9 @@ func TestLoopStopsPreserveHistoricalForcePin(t *testing.T) {
 		rec := httptest.NewRecorder()
 		var err error
 		if repetition {
-			err = svc.handleTextRepetitionBreak(context.Background(), rec, env, 3, "synthetic", uuid.New(), [sessionpin.SessionKeyLen]byte{1}, "maximum", "synthetic-model", providers.ProviderAnthropic, 1)
+			err = svc.handleTextRepetitionBreak(context.Background(), rec, env, 3, "synthetic", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-model", providers.ProviderAnthropic, 1)
 		} else {
-			err = svc.handleNoProgressBreak(context.Background(), rec, env, 3, uuid.New(), [sessionpin.SessionKeyLen]byte{1}, "maximum", "synthetic-model", providers.ProviderAnthropic, 1, translate.ReasonUserForceModel)
+			err = svc.handleNoProgressBreak(context.Background(), rec, env, 3, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-model", providers.ProviderAnthropic, 1, translate.ReasonUserForceModel)
 		}
 		require.NoError(t, err)
 		outcome := readCommandOutcome(t, rec)
@@ -180,7 +181,7 @@ func TestAcknowledgmentWriteFailureDoesNotUndoPin(t *testing.T) {
 	svc := NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 	key := [sessionpin.SessionKeyLen]byte{2}
-	err := svc.handleForceModelCommand(context.Background(), &commandWriteFailure{httptest.NewRecorder()}, forceCommandEnv(t), translate.ForceModelResult{Model: "opus"}, uuid.New(), [sessionpin.SessionKeyLen]byte{1}, key, 1)
+	err := svc.handleForceModelCommand(context.Background(), &commandWriteFailure{httptest.NewRecorder()}, forceCommandEnv(t), translate.ForceModelResult{Model: "opus"}, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, key, 1)
 	require.Error(t, err)
 	pin, found, err := store.Get(context.Background(), key, forceModelSessionRole)
 	require.NoError(t, err)

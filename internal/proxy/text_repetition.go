@@ -2,60 +2,16 @@ package proxy
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
+	"github.com/google/uuid"
 	"net/http"
-	"strings"
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/conversation"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
-
-	"github.com/google/uuid"
 )
-
-const (
-	textRepetitionWindow    = 12
-	textRepetitionThreshold = 3
-	textRepetitionMinLen    = 40
-)
-
-func normalizeAssistantText(s string) string {
-	return strings.ToLower(strings.Join(strings.Fields(s), " "))
-}
-
-func detectTextRepetition(env *translate.RequestEnvelope) (looped bool, count int, sampleHash string) {
-	texts := env.TrailingAssistantTexts()
-	if len(texts) < textRepetitionThreshold {
-		return false, 0, ""
-	}
-	start := 0
-	if len(texts) > textRepetitionWindow {
-		start = len(texts) - textRepetitionWindow
-	}
-	window := texts[start:]
-
-	counts := make(map[string]int, len(window))
-	topKey := ""
-	for _, t := range window {
-		n := normalizeAssistantText(t)
-		if len(n) < textRepetitionMinLen {
-			continue
-		}
-		counts[n]++
-		if counts[n] > count {
-			count = counts[n]
-			topKey = n
-		}
-	}
-	if count < textRepetitionThreshold {
-		return false, count, ""
-	}
-	h := sha256.Sum256([]byte(topKey))
-	return true, count, hex.EncodeToString(h[:8])
-}
 
 func (s *Service) handleTextRepetitionBreak(
 	ctx context.Context,
@@ -63,8 +19,7 @@ func (s *Service) handleTextRepetitionBreak(
 	env *translate.RequestEnvelope,
 	count int,
 	sampleHash string,
-	installationID uuid.UUID,
-	sessionKey [sessionpin.SessionKeyLen]byte,
+	target sessionTarget,
 	role string,
 	decisionModel string,
 	decisionProvider string,
@@ -89,20 +44,25 @@ func (s *Service) handleTextRepetitionBreak(
 
 	log.Info("Text-repetition loop detected; breaking turn",
 		"repeat_count", count,
-		"window_size", textRepetitionWindow,
+		"window_size", conversation.TextRepetitionWindow,
 		"text_sample_hash", sampleHash,
 		"decision_model", decisionModel,
 		"decision_provider", decisionProvider,
-		"session_key_prefix", shortSessionKey(sessionKey),
+		"session_key_prefix", shortSessionKey(target.sessionKey),
 		"role", role,
 	)
 
-	if s.pinStore != nil && installationID != uuid.Nil && sessionKey != ([sessionpin.SessionKeyLen]byte{}) {
-		if err := s.expireSessionPinAndHMMHistory(ctx, installationID, sessionKey, role, "text_repetition_break"); err != nil {
+	if s.pinStore != nil && target.installationID != uuid.Nil && target.sessionKey != ([sessionpin.SessionKeyLen]byte{}) {
+		if err := s.expireSessionPinAndHMMHistory(ctx, target.strategy, target.installationID, target.sessionKey, role, "text_repetition_break"); err != nil {
 			log.Error("text-repetition-break: pin store upsert failed", "err", err)
 		}
 	}
 
 	ack := newCommandAcknowledgment(translate.CommandLoopStop)
 	return writeCommandOutcome(ctx, w, env, msg, ack.outcome, inputTokens)
+}
+
+func (s *Service) WithTextRepetitionBreak(enabled bool) *Service {
+	s.textRepetitionBreakEnabled = enabled
+	return s
 }

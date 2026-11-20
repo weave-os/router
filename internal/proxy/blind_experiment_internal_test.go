@@ -209,8 +209,10 @@ func TestCallerModelPassthroughHonorsExcludedModels(t *testing.T) {
 		http.Header{},
 		router.Request{
 			RequestedModel: "claude-sonnet-4-6",
-			ExcludedModels: map[string]struct{}{
-				"claude-sonnet-4-6": {},
+			Candidates: router.Candidates{
+				ExcludedModels: map[string]struct{}{
+					"claude-sonnet-4-6": {},
+				},
 			},
 		},
 	)
@@ -401,7 +403,7 @@ func TestApplyBlindExperimentTelemetry(t *testing.T) {
 	assert.False(t, telemetry.TrainingAllowed)
 
 	observation := buildObservationContext(
-		context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough), PolicyTrainingAllowedContextKey{}, true),
+		context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough), PolicyTrainingAllowedContextKey{}, true), router.StrategyFromContext(context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough), PolicyTrainingAllowedContextKey{}, true)),
 		router.Decision{},
 		router.Decision{},
 		CaptureOff,
@@ -522,8 +524,8 @@ func TestBlindPassthroughUnknownModelBaselineHonoursExclusions(t *testing.T) {
 		name string
 		req  router.Request
 	}{
-		{name: "excluded", req: router.Request{ExcludedModels: map[string]struct{}{"claude-opus-5-5": {}}}},
-		{name: "safety excluded", req: router.Request{SafetyExcludedModels: map[string]struct{}{"claude-opus-5-5": {}}}},
+		{name: "excluded", req: router.Request{Candidates: router.Candidates{ExcludedModels: map[string]struct{}{"claude-opus-5-5": {}}}}},
+		{name: "safety excluded", req: router.Request{Candidates: router.Candidates{SafetyExcludedModels: map[string]struct{}{"claude-opus-5-5": {}}}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			service := NewService(nil, nil, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)

@@ -10,7 +10,7 @@ INSTALLER = Path(__file__).resolve().parents[1] / "install.sh"
 
 
 class JqBootstrapTest(unittest.TestCase):
-    def run_bootstrap(self, system: str, architecture: str, checksum: str, corrupt: bool = False, checksum_program: str = "sha256sum", fail_chmod: bool = False) -> tuple[subprocess.CompletedProcess[str], Path]:
+    def run_bootstrap(self, system: str, architecture: str, checksum: str, corrupt: bool = False, checksum_program: str = "sha256sum", fail_chmod: bool = False, path_jq_version: str | None = None, private_jq_version: str | None = None) -> tuple[subprocess.CompletedProcess[str], Path]:
         workspace = tempfile.TemporaryDirectory()
         self.addCleanup(workspace.cleanup)
         home = Path(workspace.name)
@@ -31,10 +31,17 @@ class JqBootstrapTest(unittest.TestCase):
             "curl": '#!/bin/sh\nprintf "%s\\n" "$@" > "$HOME/download-args"\nwhile [ "$1" != "-o" ]; do shift; done\nprintf \'#!/bin/sh\\necho jq-' + ("corrupt" if corrupt else "1.8.1") + '\\n\' > "$2"\n',
             checksum_program: f'#!/bin/sh\nprintf "%s\\n" "$@" > "$HOME/{checksum_program}-args"\n' + (f'exec "{shasum_path}" -a 256 "$@"\n' if checksum_program == "sha256sum" else f'exec "{shasum_path}" "$@"\n'),
         }
+        if path_jq_version is not None:
+            scripts["jq"] = f'#!/bin/sh\necho "{path_jq_version}"\n'
         for name, script in scripts.items():
             executable = binaries / name
             executable.write_text(script)
             executable.chmod(0o755)
+        if private_jq_version is not None:
+            private_jq = home / ".weave/bin/jq"
+            private_jq.parent.mkdir(parents=True)
+            private_jq.write_text(f'#!/bin/sh\necho "{private_jq_version}"\n')
+            private_jq.chmod(0o755)
         source = INSTALLER.read_text()
         downloaded_binary = b"#!/bin/sh\necho jq-1.8.1\n"
         mock_checksum = hashlib.sha256(downloaded_binary).hexdigest()
@@ -44,7 +51,7 @@ class JqBootstrapTest(unittest.TestCase):
         cleanup_end = source.index("\ntrap _spin_cleanup", cleanup_start)
         start = source.index("ensure_jq() {")
         end = source.index("\n#", source.index("require_cmd() {", start))
-        shell = 'set -euo pipefail\nexport PATH="$PATH:$HOME/.weave/bin"\nerr() { echo "$*" >&2; }\ninfo() { :; }\ntty_out=false\nspin_pid=""\nspin_log=""\n' + source[cleanup_start:cleanup_end] + '\ntrap _spin_cleanup EXIT\n' + source[start:end] + '\nensure_jq\njq --version\n'
+        shell = 'set -euo pipefail\nexport PATH="$PATH:$HOME/.weave/bin"\nerr() { echo "$*" >&2; }\ninfo() { :; }\ntty_out=false\nspin_pid=""\nspin_log=""\njq_download_tmp=""\n' + source[cleanup_start:cleanup_end] + '\ntrap _spin_cleanup EXIT\n' + source[start:end] + '\nensure_jq\njq --version\n'
         completed = subprocess.run(["/bin/bash", "-c", shell], env={**os.environ, "HOME": str(home), "PATH": str(binaries)}, text=True, capture_output=True)
         return completed, home
 
@@ -90,6 +97,48 @@ class JqBootstrapTest(unittest.TestCase):
         completed, home = self.run_bootstrap("Darwin", "arm64", checksum, fail_chmod=True)
         self.assertNotEqual(completed.returncode, 0)
         self.assertEqual(list((home / ".weave/bin").iterdir()), [])
+
+    def test_supported_jq_on_path_is_used_without_download(self) -> None:
+        checksum = "020468de7539ce70ef1bceaf7cde2e8c4f2ca6c3afb84642aabc5c97d9fc2a0d"
+        for version in ("jq-1.6", "jq-1.7.1", "jq-1.8.1", "jq-1.6-159-gcff5336-dirty", "jq-2.0"):
+            with self.subTest(version=version):
+                completed, home = self.run_bootstrap("Linux", "x86_64", checksum, path_jq_version=version)
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertEqual(completed.stdout.strip(), version)
+                self.assertFalse((home / "download-args").exists())
+                self.assertFalse((home / ".weave/bin").exists())
+
+    def test_old_or_unrecognized_jq_on_path_is_replaced_by_pinned_download(self) -> None:
+        checksum = "020468de7539ce70ef1bceaf7cde2e8c4f2ca6c3afb84642aabc5c97d9fc2a0d"
+        for version in ("jq-1.5", "jq-1.5rc2-dirty", "jq-1.4", "jq version unknown", ""):
+            with self.subTest(version=version):
+                completed, home = self.run_bootstrap("Linux", "x86_64", checksum, path_jq_version=version)
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertEqual(completed.stdout.strip(), "jq-1.8.1")
+                self.assertIn("/jq-1.8.1/jq-linux-amd64", (home / "download-args").read_text())
+                self.assertTrue((home / ".weave/bin/jq").is_file())
+                self.assertEqual((home / "tools/jq").read_text(), f'#!/bin/sh\necho "{version}"\n')
+
+    def test_old_jq_on_path_reuses_previously_downloaded_private_jq(self) -> None:
+        checksum = "020468de7539ce70ef1bceaf7cde2e8c4f2ca6c3afb84642aabc5c97d9fc2a0d"
+        completed, home = self.run_bootstrap("Linux", "x86_64", checksum, path_jq_version="jq-1.5", private_jq_version="jq-1.8.1")
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout.strip(), "jq-1.8.1")
+        self.assertFalse((home / "download-args").exists())
+
+    def test_old_jq_on_path_and_old_private_jq_downloads_pinned_jq(self) -> None:
+        checksum = "020468de7539ce70ef1bceaf7cde2e8c4f2ca6c3afb84642aabc5c97d9fc2a0d"
+        completed, home = self.run_bootstrap("Linux", "x86_64", checksum, path_jq_version="jq-1.5", private_jq_version="jq-1.5")
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout.strip(), "jq-1.8.1")
+        self.assertIn("/jq-1.8.1/jq-linux-amd64", (home / "download-args").read_text())
+
+    def test_old_jq_on_unsupported_platform_names_the_minimum(self) -> None:
+        checksum = "020468de7539ce70ef1bceaf7cde2e8c4f2ca6c3afb84642aabc5c97d9fc2a0d"
+        completed, home = self.run_bootstrap("FreeBSD", "amd64", checksum, path_jq_version="jq-1.5")
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("jq 1.6 or newer", completed.stderr)
+        self.assertFalse((home / "download-args").exists())
 
 
 if __name__ == "__main__":

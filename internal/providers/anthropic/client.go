@@ -345,6 +345,7 @@ func (c *Client) proxyTo(ctx context.Context, cancel context.CancelCauseFunc, ur
 			Body:       bufBody,
 			BodyBytes:  totalRead,
 			BodyCapped: totalRead > int64(len(bufBody)),
+			Rejection:  classifyRejection(resp.StatusCode, bufBody, prep.Body, body),
 		}
 	}
 
@@ -357,6 +358,7 @@ func (c *Client) proxyTo(ctx context.Context, cancel context.CancelCauseFunc, ur
 				errHeaders := http.Header{}
 				providers.CopyUpstreamHeaders(httputil.HeaderCapture{H: errHeaders}, resp)
 				buffered.Headers = errHeaders
+				buffered.Rejection = classifyRejection(buffered.Status, buffered.Body, prep.Body, body)
 				httputil.LogUpstreamStatus(
 					ctx,
 					"Upstream Anthropic returned SSE error event",

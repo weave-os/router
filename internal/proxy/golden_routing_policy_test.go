@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/bandswap"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -127,14 +128,14 @@ type routingPolicyRequestTrace struct {
 func routingPolicyRequestTraceOf(req router.Request) routingPolicyRequestTrace {
 	return routingPolicyRequestTrace{
 		EnabledProviders:     routingPolicySorted(req.EnabledProviders),
-		AllowedModels:        routingPolicySorted(req.AllowedModels),
+		AllowedModels:        routingPolicySorted(req.Candidates.AllowedModels),
 		PreferredModels:      req.PreferredModels,
 		CustomBindings:       req.CustomBindings,
 		GatewayProviders:     routingPolicySorted(req.GatewayProviders),
-		SafetyExcludedModels: routingPolicySorted(req.SafetyExcludedModels),
-		PreviousPolicyGroup:  string(req.PreviousPolicyGroup),
+		SafetyExcludedModels: routingPolicySorted(req.Candidates.SafetyExcludedModels),
+		PreviousPolicyGroup:  string(req.Session.PreviousPolicyGroup),
 		ForceCluster:         req.ForceCluster,
-		PolicyTurnContext:    req.PolicyTurnContext,
+		PolicyTurnContext:    req.Session.PolicyTurnContext,
 	}
 }
 
@@ -164,24 +165,39 @@ func (s *routingPolicySession) editPins(role string, edit func(*sessionpin.Pin))
 	}
 }
 
-func routingPolicyExpire(p *sessionpin.Pin) { p.PinnedUntil = time.Now().Add(-time.Minute) }
+func (s *routingPolicySession) evictPins(role string) func(context.Context) context.Context {
+	return func(ctx context.Context) context.Context {
+		s.h.rec.mu.Lock()
+		defer s.h.rec.mu.Unlock()
+		for k, p := range s.h.pins.pins {
+			if p.Role == role {
+				delete(s.h.pins.pins, k)
+			}
+		}
+		return ctx
+	}
+}
 
-func routingPolicyEvict(p *sessionpin.Pin) { p.PinnedUntil = goldenEpoch.Add(-time.Minute) }
+func routingPolicyExpire(p *sessionpin.Pin) { p.PinnedUntil = goldenEpoch.Add(-time.Minute) }
 
 type routingPolicySetup struct {
-	turns   [][]router.Decision
-	caps    policy.Capabilities
-	trace   bool
-	session *routingPolicySession
-	options []func(*proxy.Service) *proxy.Service
+	strategy router.Strategy
+	turns    [][]router.Decision
+	caps     policy.Capabilities
+	trace    bool
+	session  *routingPolicySession
+	options  []func(*proxy.Service) *proxy.Service
 }
 
 func (p routingPolicySetup) configure(svc *proxy.Service, h *goldenHarness) *proxy.Service {
 	if p.session != nil {
 		p.session.h = h
 	}
+	if p.strategy == "" {
+		p.strategy = router.StrategyHMMEmbedding
+	}
 	svc = svc.WithPolicyStrategy(policy.StrategySpec{
-		Strategy:     router.StrategyHMMEmbedding,
+		Strategy:     p.strategy,
 		Router:       &scriptedPolicyRouter{rec: h.rec, turns: p.turns, traceRequest: p.trace},
 		Capabilities: p.caps,
 	})
@@ -268,7 +284,7 @@ func withAvailable(svc *proxy.Service) *proxy.Service {
 
 func goldenRoutingPolicyScenarios() []goldenScenario {
 	return append(append(append(append(routingPolicySessionPinScenarios(), routingPolicyEscalationAndClassifierScenarios()...),
-		routingPolicySelectionGateScenarios()...), routingPolicyForceModelScenarios()...), routingPolicyEligibilityScenarios()...)
+		routingPolicySelectionGateScenarios()...), routingPolicyForceModelScenarios()...), append(routingPolicyEligibilityScenarios(), routingPolicyPrecedenceScenarios()...)...)
 }
 
 // routingPolicySessionPinScenarios cover pin load, refresh, expiry and every guard that
@@ -291,7 +307,7 @@ func routingPolicySessionPinScenarios() []goldenScenario {
 			first, routingPolicyRequest(next.body, expired.editPins("default_mid", routingPolicyExpire))),
 		routingPolicyScenario("pin_absent_from_store_routes_as_first_turn", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyHigh), routingPolicyAnthropic(routingPolicyLow)),
 			session: evicted, options: []func(*proxy.Service) *proxy.Service{withAvailable}},
-			first, routingPolicyRequest(next.body, evicted.editPins("default_mid", routingPolicyEvict))),
+			first, routingPolicyRequest(next.body, evicted.evictPins("default_mid"))),
 		routingPolicyScenario("pin_from_other_strategy_ignored", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyHigh), routingPolicyAnthropic(routingPolicyLow)), session: mismatched},
 			first, routingPolicyRequest(next.body, mismatched.editPins("default_mid", func(p *sessionpin.Pin) { p.Strategy = router.StrategyHMMBeta }))),
 		routingPolicyScenario("pin_on_excluded_provider_falls_through", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyLow)), trace: true, session: providerNotEnabled,
@@ -359,6 +375,7 @@ func routingPolicySelectionGateScenarios() []goldenScenario {
 	first, next := goldenRequest{body: routingPolicyFirstTurn}, goldenRequest{body: routingPolicyFollowUp("Now say bye")}
 	authoritative := policy.Capabilities{AuthoritativePerTurnSelection: true}
 	excluded := routingPolicyRequest(next.body, routingPolicyExcludeModels(routingPolicyLow))
+	decisionModel := routingPolicyStrategy(router.StrategyDecisionModel)
 	return []goldenScenario{
 		routingPolicyScenario("hmm_first_turn_routes_unpinned", routingPolicySetup{turns: routingPolicyTurns(routingPolicyHMM(routingPolicyLow, 0.9))}, first),
 		routingPolicyScenario("hmm_low_confidence_upgrade_stays", routingPolicySetup{turns: routingPolicyTurns(routingPolicyHMM(routingPolicyLow, 0.9), routingPolicyHMM(routingPolicyHigh, 0.3))}, first, next),
@@ -373,14 +390,22 @@ func routingPolicySelectionGateScenarios() []goldenScenario {
 		routingPolicyScenario("authoritative_confident_upgrade_served", routingPolicySetup{turns: routingPolicyTurns(routingPolicyHMM(routingPolicyLow, 0.9), routingPolicyHMM(routingPolicyHigh, 0.9)), caps: authoritative},
 			first, next),
 		routingPolicyScenario("authoritative_upgrade_gate_off_serves_low_confidence", routingPolicySetup{turns: routingPolicyTurns(routingPolicyHMM(routingPolicyLow, 0.9), routingPolicyHMM(routingPolicyHigh, 0.3)), caps: authoritative,
-			options: []func(*proxy.Service) *proxy.Service{func(s *proxy.Service) *proxy.Service { return s.WithAuthoritativeUpgradeGate(false) }}},
+			options: []func(*proxy.Service) *proxy.Service{func(s *proxy.Service) *proxy.Service {
+				return s.EditHMMConfig(func(c *hmm.Config) { c.UpgradeGate = false })
+			}}},
 			first, next),
 		routingPolicyScenario("authoritative_downgrade_vote_held_by_hysteresis", routingPolicySetup{turns: routingPolicyTurns(routingPolicyHMM(routingPolicyHigh, 0.9), routingPolicyHMM(routingPolicyLow, 0.9)), caps: authoritative},
 			first, next),
+		routingPolicyScenario("authoritative_non_hmm_step_down_serves_same_turn", routingPolicySetup{
+			strategy: router.StrategyDecisionModel, caps: authoritative,
+			turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyHigh), routingPolicyAnthropic(routingPolicyLow)),
+		}, routingPolicyRequest(first.body, decisionModel), routingPolicyRequest(next.body, decisionModel)),
 		routingPolicyScenario("authoritative_downgrade_served_on_second_vote", routingPolicySetup{turns: routingPolicyTurns(routingPolicyHMM(routingPolicyHigh, 0.9), routingPolicyHMM(routingPolicyLow, 0.9)), caps: authoritative},
 			first, next, goldenRequest{body: routingPolicyFollowUp("And once more")}),
 		routingPolicyScenario("authoritative_low_confidence_downgrade_gated", routingPolicySetup{turns: routingPolicyTurns(routingPolicyHMM(routingPolicyHigh, 0.9), routingPolicyHMM(routingPolicyLow, 0.2)), caps: authoritative,
-			options: []func(*proxy.Service) *proxy.Service{func(s *proxy.Service) *proxy.Service { return s.WithAuthoritativeDowngradeGate(true) }}},
+			options: []func(*proxy.Service) *proxy.Service{func(s *proxy.Service) *proxy.Service {
+				return s.EditHMMConfig(func(c *hmm.Config) { c.DowngradeGate = true })
+			}}},
 			first, next),
 	}
 }

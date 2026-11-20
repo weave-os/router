@@ -72,6 +72,7 @@ func toAuthInstallation(row sqlc.RouterModelRouterInstallation) *auth.Installati
 		UpdatedAt:                        timestampOrZero(row.UpdatedAt),
 		DeletedAt:                        timestampPtr(row.DeletedAt),
 		CreatedBy:                        row.CreatedBy,
+		PoolSubjectID:                    uuidString(row.PoolSubjectID),
 		ExcludedModels:                   excluded,
 		AllowedModels:                    allowed,
 		ModelsWhenSubscriptionActive:     modelsWhenSubscriptionActive,

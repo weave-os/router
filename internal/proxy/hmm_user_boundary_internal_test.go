@@ -110,12 +110,12 @@ func TestHMMCommandOnlyTurnHonorsEligibilityAndPolicyPin(t *testing.T) {
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
 	request := router.Request{RequestedModel: "claude-opus-5-5", ConversationMessages: []router.ConversationMessage{}}
 
-	request.ExcludedModels = map[string]struct{}{"claude-opus-5-5": {}}
+	request.Candidates.ExcludedModels = map[string]struct{}{"claude-opus-5-5": {}}
 	decision, err := svc.routeWithStrategy(ctx, router.StrategyHMMEmbedding, request)
 	require.NoError(t, err)
 	assert.Equal(t, "claude-haiku-4-5", decision.Model)
 
-	request.ExcludedModels = nil
+	request.Candidates.ExcludedModels = nil
 	request.EnabledProviders = map[string]struct{}{providers.ProviderOpenAI: {}}
 	_, err = svc.routeWithStrategy(ctx, router.StrategyHMMEmbedding, request)
 	require.ErrorIs(t, err, policy.ErrNoRoutableModels)
@@ -136,7 +136,7 @@ func TestHMMCommandOnlyTurnUsesPromotedRosterAndAutomaticExclusions(t *testing.T
 	assert.Equal(t, "claude-haiku-4-5", decision.Model, "a catalog price does not admit a retired model to the serving roster")
 
 	req.RequestedModel = "claude-opus-5-5"
-	req.AutomaticExcludedModels = map[string]struct{}{"claude-opus-5-5": {}}
+	req.Candidates.AutomaticExcludedModels = map[string]struct{}{"claude-opus-5-5": {}}
 	decision, err = svc.routeWithStrategy(ctx, router.StrategyHMMEmbedding, req)
 	require.NoError(t, err)
 	assert.NotEqual(t, "claude-opus-5-5", decision.Model)
@@ -148,24 +148,26 @@ func TestHMMCommandOnlyEscalationRespectsSessionFloor(t *testing.T) {
 	req := router.Request{
 		RequestedModel:       "claude-haiku-4-5",
 		ConversationMessages: []router.ConversationMessage{},
-		PreviousPolicyGroup:  escalation.High,
-		Escalation:           &escalation.Constraint{Floor: escalation.Medium},
+		Session: router.SessionView{
+			PreviousPolicyGroup: escalation.High,
+		},
+		Escalation: &escalation.Constraint{Floor: escalation.Medium},
 	}
 	decision, err := svc.routeWithStrategy(ctx, router.StrategyHMMEmbedding, req)
 	require.NoError(t, err)
 	assert.Equal(t, "claude-opus-5-5", decision.Model)
 	assert.Equal(t, "maximum", decision.Metadata.PolicyGroup)
 
-	req.ExcludedModels = map[string]struct{}{"claude-opus-5-5": {}}
+	req.Candidates.ExcludedModels = map[string]struct{}{"claude-opus-5-5": {}}
 	_, err = svc.routeWithStrategy(ctx, router.StrategyHMMEmbedding, req)
 	require.ErrorIs(t, err, policy.ErrNoEligibleArm)
-	require.ErrorIs(t, err, hmm.ErrHMMUnavailable)
+	require.NotErrorIs(t, err, hmm.ErrHMMUnavailable)
 	classified, matched := ClassifyDispatchError(err)
 	require.True(t, matched)
 	assert.Equal(t, DispatchErrorNoEligibleArm, classified.Kind)
 	assert.Equal(t, http.StatusBadRequest, classified.Status)
 
-	req.ExcludedModels = nil
+	req.Candidates.ExcludedModels = nil
 	req.Escalation = &escalation.Constraint{Escalate: true}
 	decision, err = svc.routeWithStrategy(ctx, router.StrategyHMMEmbedding, req)
 	require.NoError(t, err)
@@ -202,9 +204,10 @@ func TestHMMCommandOnlyTurnHonorsForcedClusterAndKeyList(t *testing.T) {
 
 	req.ForceCluster = "maximum"
 	req.ClusterArmOverrides = map[string][]string{"maximum": {"claude-opus-5-5"}}
-	req.ExcludedModels = map[string]struct{}{"claude-haiku-4-5": {}, "claude-sonnet-4-6": {}, "claude-opus-5-5": {}}
+	req.Candidates.ExcludedModels = map[string]struct{}{"claude-haiku-4-5": {}, "claude-sonnet-4-6": {}, "claude-opus-5-5": {}}
 	_, err = svc.routeWithStrategy(ctx, router.StrategyHMMEmbedding, req)
-	require.ErrorIs(t, err, hmm.ErrHMMUnavailable)
+	require.ErrorIs(t, err, policy.ErrNoEligibleArm)
+	require.NotErrorIs(t, err, hmm.ErrHMMUnavailable)
 	require.NotErrorIs(t, err, policy.ErrForcedClusterUnservable)
 	classified, matched = ClassifyDispatchError(err)
 	require.True(t, matched)

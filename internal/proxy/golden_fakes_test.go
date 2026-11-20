@@ -53,10 +53,11 @@ func (c *goldenClock) Sleep(ctx context.Context, d time.Duration) error {
 // goldenStep scripts one upstream response. A step with err and no frames
 // fails before the first byte; frames followed by err cut a committed stream.
 type goldenStep struct {
-	status  int
-	headers map[string]string
-	frames  []string
-	err     error
+	status     int
+	headers    map[string]string
+	frames     []string
+	err        error
+	rejectBody func([]byte) error
 	// cancel cancels the client's request context after frames are written.
 	cancel bool
 	// pause holds the stream open before the last frame, in wall-clock time,
@@ -101,6 +102,11 @@ func (p *goldenProvider) Proxy(ctx context.Context, decision router.Decision, pr
 		return creds.CredentialError
 	}
 	step := p.rec.nextStep(p)
+	if step.rejectBody != nil {
+		if err := step.rejectBody(prep.Body); err != nil {
+			step = goldenStep{err: err}
+		}
+	}
 	if step.status != 0 || len(step.frames) > 0 {
 		for k, v := range step.headers {
 			w.Header().Set(k, v)
@@ -182,12 +188,12 @@ type goldenRouter struct {
 }
 
 func (g *goldenRouter) Route(_ context.Context, req router.Request) (router.Decision, error) {
-	excluded := make([]string, 0, len(req.ExcludedModels))
-	for m := range req.ExcludedModels {
+	excluded := make([]string, 0, len(req.Candidates.ExcludedModels))
+	for m := range req.Candidates.ExcludedModels {
 		excluded = append(excluded, m)
 	}
-	automaticExcluded := make([]string, 0, len(req.AutomaticExcludedModels))
-	for m := range req.AutomaticExcludedModels {
+	automaticExcluded := make([]string, 0, len(req.Candidates.AutomaticExcludedModels))
+	for m := range req.Candidates.AutomaticExcludedModels {
 		automaticExcluded = append(automaticExcluded, m)
 	}
 	sort.Strings(excluded)
@@ -210,8 +216,8 @@ func (g *goldenRouter) Route(_ context.Context, req router.Request) (router.Deci
 			providerIneligible = true
 			continue
 		}
-		_, excludedByCaller := req.ExcludedModels[candidate.Model]
-		_, excludedAutomatically := req.AutomaticExcludedModels[candidate.Model]
+		_, excludedByCaller := req.Candidates.ExcludedModels[candidate.Model]
+		_, excludedAutomatically := req.Candidates.AutomaticExcludedModels[candidate.Model]
 		if !excludedByCaller && !excludedAutomatically {
 			d = candidate
 			break
@@ -262,15 +268,12 @@ func (s *goldenPinStore) Get(_ context.Context, key [sessionpin.SessionKeyLen]by
 	s.rec.mu.Lock()
 	defer s.rec.mu.Unlock()
 	p, ok := s.pins[pinKey(key, role)]
-	if !ok || !p.PinnedUntil.After(s.clock.Now()) {
-		return sessionpin.Pin{}, false, nil
-	}
-	return p, true, nil
+	return p, ok, nil
 }
 
 func (s *goldenPinStore) Consume(ctx context.Context, key [sessionpin.SessionKeyLen]byte, role string, strategy router.Strategy) (sessionpin.Pin, bool, error) {
 	p, ok, err := s.Get(ctx, key, role)
-	if !ok || err != nil || p.Strategy != strategy {
+	if !ok || err != nil || p.Strategy != strategy || !p.PinnedUntil.After(s.clock.Now()) {
 		return sessionpin.Pin{}, false, err
 	}
 	s.rec.mu.Lock()

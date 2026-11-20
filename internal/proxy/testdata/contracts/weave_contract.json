@@ -1,0 +1,947 @@
+{
+  "model_router_request_telemetry_columns": [
+    "installation_id",
+    "api_key_id",
+    "request_id",
+    "span_type",
+    "trace_id",
+    "timestamp",
+    "requested_model",
+    "decision_model",
+    "decision_provider",
+    "decision_reason",
+    "estimated_input_tokens",
+    "sticky_hit",
+    "pin_tier",
+    "embed_input",
+    "input_tokens",
+    "output_tokens",
+    "requested_input_cost_usd",
+    "requested_output_cost_usd",
+    "actual_input_cost_usd",
+    "actual_output_cost_usd",
+    "route_latency_ms",
+    "upstream_latency_ms",
+    "total_latency_ms",
+    "cross_format",
+    "upstream_status_code",
+    "cluster_ids",
+    "candidate_models",
+    "chosen_score",
+    "candidate_scores",
+    "propensity",
+    "alpha_breakdown",
+    "cluster_router_version",
+    "strategy",
+    "route_id",
+    "policy_route_key",
+    "policy_artifact_id",
+    "policy_artifact_sha256",
+    "roster_version",
+    "classifier_artifact_id",
+    "classifier_artifact_sha256",
+    "classifier_predicted_label",
+    "classifier_class_order",
+    "classifier_probabilities",
+    "selection_policy_release_id",
+    "selection_policy_sha256",
+    "selection_head_generation",
+    "selection_trace",
+    "sidecar_schema_version",
+    "training_allowed",
+    "capture_mode",
+    "debug_ref",
+    "ttft_ms",
+    "cache_creation_tokens",
+    "cache_creation_1h_tokens",
+    "cache_read_tokens",
+    "reasoning_tokens",
+    "speed",
+    "inference_geo",
+    "device_id",
+    "session_id",
+    "router_user_id",
+    "client_app",
+    "blind_experiment_arm",
+    "blind_experiment_assignment_source",
+    "blind_experiment_subject_key",
+    "blind_experiment_mode",
+    "blind_experiment_session_key",
+    "cohort_experiment_id",
+    "cohort_group_id",
+    "cohort_phase_index",
+    "cohort_revision",
+    "cohort_scheduled_arm",
+    "cohort_treatment_applied",
+    "cohort_bypass_reason",
+    "blind_experiment_model_source",
+    "blind_experiment_treatment_applied",
+    "blind_experiment_baseline_model",
+    "blind_experiment_model_changed",
+    "turn_type",
+    "rollout_id",
+    "upstream_finish_reason",
+    "stop_reason",
+    "tool_use_blocks",
+    "invalid_tool_args_blocks",
+    "last_tool_use_name",
+    "last_tool_use_input_bytes",
+    "tool_error_counts",
+    "autonomy_append_fired",
+    "workspace_append_fired",
+    "failover_used",
+    "failover_attempted",
+    "degenerate_shadow",
+    "session_key",
+    "role",
+    "fresh_decision_model",
+    "fresh_candidate_scores",
+    "pin_age_sec",
+    "tool_result_bytes",
+    "credential_key_prefix",
+    "credential_key_suffix",
+    "credential_source",
+    "subscription_account_id",
+    "subscription_owner_id",
+    "subscription_tier",
+    "intended_model_family",
+    "final_model_family",
+    "unified_limit_headers",
+    "codex_limit_headers",
+    "policy_pin_requested",
+    "policy_pin_honoured",
+    "planner_outcome",
+    "planner_reason",
+    "planner_pin_model",
+    "planner_pin_provider",
+    "planner_expected_savings_usd_micros",
+    "planner_eviction_cost_usd_micros",
+    "planner_pin_cache_cold",
+    "planner_shadow_outcome",
+    "planner_shadow_savings_usd_micros",
+    "authority_shadow_outcome",
+    "authority_shadow_would_diverge",
+    "authority_shadow_reason",
+    "authority_shadow_stay_model",
+    "authority_shadow_stay_provider",
+    "authority_shadow_savings_usd_micros",
+    "authority_shadow_eviction_cost_usd_micros",
+    "authority_shadow_pin_cache_cold",
+    "authority_shadow_corrected_outcome",
+    "authority_shadow_corrected_savings_usd_micros",
+    "authority_shadow_stay_score",
+    "authority_shadow_fresh_score",
+    "spiral_err_streak",
+    "spiral_errored_results",
+    "spiral_tool_results",
+    "spiral_max_same_file_edits",
+    "spiral_same_file_path_hash",
+    "spiral_repeat_frac",
+    "spiral_monologue_len",
+    "spiral_tool_call_count",
+    "spiral_message_count",
+    "spiral_ping_pong_len",
+    "spiral_steps_since_progress",
+    "spiral_edit_attempted",
+    "spiral_reasons",
+    "requested_allowed_models",
+    "inference_purpose",
+    "inference_policy_id",
+    "inference_registry_revision",
+    "inference_policy_revision",
+    "plan_model",
+    "plan_provider",
+    "fallback_reason",
+    "accounting_outcome",
+    "usage_known",
+    "client_git_head_sha",
+    "client_git_branch",
+    "client_git_dirty",
+    "effort_arm",
+    "effort_selected",
+    "effort_sent",
+    "effort_source",
+    "subscriber_plan",
+    "entitlement_version",
+    "capacity_source",
+    "retail_usage_usd_micros",
+    "included_usage_usd_micros",
+    "linked_usage_usd_micros",
+    "prepaid_usage_usd_micros",
+    "settlement_failed",
+    "serving_profile_id",
+    "serving_profile_version",
+    "serving_release_id",
+    "serving_binding_id",
+    "serving_target",
+    "boost_optimizer_version",
+    "user_prompt",
+    "user_prompt_gap_ms",
+    "user_prompt_gap_prior_model",
+    "error_class",
+    "failure_owner",
+    "latest_tool_call_counts",
+    "context_snapshot"
+  ],
+  "model_router_request_telemetry_vocabularies": {
+    "decision_reason": [
+      "classifier_requested_model",
+      "cluster_argmax",
+      "decision_model_policy",
+      "early-stop-redo",
+      "golden_route",
+      "hmm_policy",
+      "hmm_policy:tool_execution",
+      "loop_escalation",
+      "policy_pin_unavailable",
+      "probe_hard_pin",
+      "rl_policy",
+      "rl_policy(score=0)",
+      "sibling_failover",
+      "usage_bypass",
+      "user_forced"
+    ],
+    "pin_tier": [
+      "authoritative_hmm_downgrade_confidence_low",
+      "authoritative_hmm_downgrade_hysteresis",
+      "authoritative_hmm_upgrade_confidence_low",
+      "authoritative_per_turn",
+      "authoritative_sliding_threshold_upgrade",
+      "hmm_ev_same_same_model",
+      "hmm_ev_stay_ev_negative",
+      "hmm_ev_stay_hmm_upgrade_confidence_low",
+      "hmm_ev_switch_hmm_confident_upgrade",
+      "hmm_ev_switch_hmm_phase_change",
+      "hmm_fresh_unpinned",
+      "loop_escalation",
+      "miss",
+      "policy_pin",
+      "post_command_continuation",
+      "postgres",
+      "postgres_reanchor",
+      "postgres_stay_ev_negative",
+      "postgres_stay_same_model",
+      "postgres_tool_result_sc",
+      "probe_hard_pin",
+      "switch_tier_upgrade",
+      "user_forced"
+    ],
+    "planner_outcome": [
+      "stay",
+      "switch"
+    ],
+    "sticky_hit": [
+      "true"
+    ],
+    "strategy": [
+      "decision_model",
+      "hmm",
+      "hmm_embedding",
+      "rl"
+    ]
+  },
+  "decision_reason_classification": {
+    "classifier_requested_model": "router_decision",
+    "cluster_argmax": "router_decision",
+    "decision_model_policy": "router_decision",
+    "early-stop-redo": "router_decision",
+    "golden_route": "router_decision",
+    "hmm_policy": "router_decision",
+    "hmm_policy:tool_execution": "router_decision",
+    "loop_escalation": "router_decision",
+    "policy_pin_unavailable": "router_decision",
+    "probe_hard_pin": "utility",
+    "rl_policy": "router_decision",
+    "rl_policy(score=0)": "router_decision",
+    "sibling_failover": "router_decision",
+    "usage_bypass": "router_decision",
+    "user_forced": "forced"
+  },
+  "analytics_schema_version": "3",
+  "analytics_fields": [
+    {
+      "name": "id",
+      "type": "string",
+      "nullable": false,
+      "description": "Unique id of this routing decision row."
+    },
+    {
+      "name": "recorded_at",
+      "type": "timestamp",
+      "nullable": false,
+      "description": "Ingest time. The export is ordered and paged on this, not on requested_at."
+    },
+    {
+      "name": "requested_at",
+      "type": "timestamp",
+      "nullable": false,
+      "description": "Event time of the routed turn. Can move backwards within a page."
+    },
+    {
+      "name": "request_id",
+      "type": "string",
+      "nullable": false,
+      "description": "Router request id. One request id can span several rows (retry, failover)."
+    },
+    {
+      "name": "trace_id",
+      "type": "string",
+      "nullable": false,
+      "description": "Trace id correlating this decision with emitted spans."
+    },
+    {
+      "name": "session_id",
+      "type": "string",
+      "nullable": true,
+      "description": "Client session id, when the client supplied one."
+    },
+    {
+      "name": "rollout_id",
+      "type": "string",
+      "nullable": true,
+      "description": "Client-supplied rollout identifier used to join benchmark tasks and rewards."
+    },
+    {
+      "name": "device_id",
+      "type": "string",
+      "nullable": true,
+      "description": "Client device id, when the client supplied one."
+    },
+    {
+      "name": "client_app",
+      "type": "string",
+      "nullable": true,
+      "description": "Calling application as reported by the client."
+    },
+    {
+      "name": "turn_type",
+      "type": "string",
+      "nullable": true,
+      "description": "Turn classification: main_loop, tool_result, probe, title_gen, compaction, classifier, recap, sub_agent_dispatch. Filter on main_loop to count user-visible turns."
+    },
+    {
+      "name": "user_id",
+      "type": "string",
+      "nullable": true,
+      "description": "Router-assigned end-user id, stable within the installation."
+    },
+    {
+      "name": "user_email",
+      "type": "string",
+      "nullable": true,
+      "description": "End-user email as supplied by the client."
+    },
+    {
+      "name": "user_account_uuid",
+      "type": "string",
+      "nullable": true,
+      "description": "End-user account uuid as supplied by the client."
+    },
+    {
+      "name": "requested_model",
+      "type": "string",
+      "nullable": true,
+      "description": "Model the caller asked for."
+    },
+    {
+      "name": "decision_model",
+      "type": "string",
+      "nullable": true,
+      "description": "Model the router served."
+    },
+    {
+      "name": "decision_provider",
+      "type": "string",
+      "nullable": true,
+      "description": "Upstream provider that served the turn."
+    },
+    {
+      "name": "route_id",
+      "type": "string",
+      "nullable": true,
+      "description": "Identifier of the routing decision path."
+    },
+    {
+      "name": "routing_strategy",
+      "type": "string",
+      "nullable": true,
+      "description": "Routing strategy that selected the served model."
+    },
+    {
+      "name": "policy_route_key",
+      "type": "string",
+      "nullable": true,
+      "description": "Stable route key emitted by the active routing policy."
+    },
+    {
+      "name": "cluster_router_version",
+      "type": "string",
+      "nullable": true,
+      "description": "Version of the cluster router that scored the turn."
+    },
+    {
+      "name": "candidate_models",
+      "type": "string[]",
+      "nullable": true,
+      "description": "Models the router considered for this turn."
+    },
+    {
+      "name": "chosen_score",
+      "type": "float",
+      "nullable": true,
+      "description": "Score of the served model within the candidate set. Comparable within a row, not across rows."
+    },
+    {
+      "name": "decision_reason",
+      "type": "string",
+      "nullable": true,
+      "description": "Free-form diagnostic prose explaining the decision. NOT a stable enum: the format changes between router versions, so do not parse it."
+    },
+    {
+      "name": "blind_experiment_arm",
+      "type": "string",
+      "nullable": true,
+      "description": "Effective blind experiment arm: router_on or passthrough. Null outside an active experiment."
+    },
+    {
+      "name": "blind_experiment_assignment_source",
+      "type": "string",
+      "nullable": true,
+      "description": "Whether the effective experiment arm came from automatic allocation or a manual override. Null outside an active experiment."
+    },
+    {
+      "name": "blind_experiment_subject_key",
+      "type": "string",
+      "nullable": true,
+      "description": "Canonical subject key used for the experiment assignment. Null outside an active experiment."
+    },
+    {
+      "name": "blind_experiment_mode",
+      "type": "string",
+      "nullable": true,
+      "description": "Experiment mode the arm came from: user, cohort, or session. Null outside an active experiment."
+    },
+    {
+      "name": "blind_experiment_session_key",
+      "type": "string",
+      "nullable": true,
+      "description": "Opaque credential-scoped client session key the arm was drawn from. Null outside session mode or when the client sent no session id."
+    },
+    {
+      "name": "cohort_experiment_id",
+      "type": "string",
+      "nullable": true,
+      "description": "Frozen cohort experiment identifier; null on legacy installations."
+    },
+    {
+      "name": "cohort_group_id",
+      "type": "integer",
+      "nullable": true,
+      "description": "Fixed group number for the linked roster member."
+    },
+    {
+      "name": "cohort_phase_index",
+      "type": "integer",
+      "nullable": true,
+      "description": "Scheduled phase at request time."
+    },
+    {
+      "name": "cohort_revision",
+      "type": "integer",
+      "nullable": true,
+      "description": "Immutable schedule revision used at request time."
+    },
+    {
+      "name": "cohort_scheduled_arm",
+      "type": "string",
+      "nullable": true,
+      "description": "Assigned treatment before an operator override."
+    },
+    {
+      "name": "cohort_treatment_applied",
+      "type": "boolean",
+      "nullable": true,
+      "description": "Whether the scheduled cohort treatment was in effect; false on a force-model, hard-pin, usage-bypass or undispatched turn. A client-named model still counts as applied here; use blind_experiment_treatment_applied for whether the treatment chose the model."
+    },
+    {
+      "name": "cohort_bypass_reason",
+      "type": "string",
+      "nullable": true,
+      "description": "Why scheduled treatment did not apply (including unassigned or disabled identities)."
+    },
+    {
+      "name": "blind_experiment_model_source",
+      "type": "string",
+      "nullable": true,
+      "description": "What chose the served model on an experiment turn: router, experiment_passthrough, client_model_passthrough, routing_policy_passthrough, hard_pin, force_model, usage_bypass or not_dispatched. Null outside an active experiment."
+    },
+    {
+      "name": "blind_experiment_treatment_applied",
+      "type": "boolean",
+      "nullable": true,
+      "description": "Whether the assigned arm's treatment chose the model (router on router_on, experiment_passthrough on passthrough). Null outside an active experiment."
+    },
+    {
+      "name": "blind_experiment_baseline_model",
+      "type": "string",
+      "nullable": true,
+      "description": "Model the client would get without routing: the requested model, or the client default for an automatic-routing alias or an unknown model id. Null outside an active experiment, or for an automatic-routing alias from a client with no default."
+    },
+    {
+      "name": "blind_experiment_model_changed",
+      "type": "boolean",
+      "nullable": true,
+      "description": "Whether the served model (decision_model, after any retry) differs from blind_experiment_baseline_model. Null outside an active experiment, when the turn was not dispatched, or when there is no baseline."
+    },
+    {
+      "name": "policy_pin_requested",
+      "type": "boolean",
+      "nullable": true,
+      "description": "True when the caller sent an x-weave-policy-pin header. Null when no pin was requested."
+    },
+    {
+      "name": "policy_pin_honoured",
+      "type": "boolean",
+      "nullable": true,
+      "description": "True when the turn was served by exactly the pinned policy artifact and roster. False when the pin was ignored (installation not authorized) or unservable. Null when no pin was requested."
+    },
+    {
+      "name": "sticky_hit",
+      "type": "boolean",
+      "nullable": false,
+      "description": "True when the turn reused a session-sticky decision instead of scoring fresh."
+    },
+    {
+      "name": "failover_used",
+      "type": "boolean",
+      "nullable": false,
+      "description": "True when the first-choice upstream failed and another served the turn."
+    },
+    {
+      "name": "cross_format",
+      "type": "boolean",
+      "nullable": false,
+      "description": "True when the request was translated between API formats (e.g. Anthropic to OpenAI)."
+    },
+    {
+      "name": "error_class",
+      "type": "string",
+      "nullable": true,
+      "description": "How the turn failed: rate_limited, invalid_request, auth_rejected, model_not_found, upstream_4xx, upstream_5xx, stream_cut, stream_stalled (the router's stream watchdog ended a stalled stream), timeout, client_canceled, routing_refused, refusal, max_tokens, invalid_tool_args or other. Null on a normal completion."
+    },
+    {
+      "name": "failure_owner",
+      "type": "string",
+      "nullable": true,
+      "description": "Who owns the turn's failure: provider (timeouts, 5xx, overload, stalled or cut streams, refusals, 400/422 on a body the router sent unchanged), router (routing or policy outages, impossible translations, setup errors, 400/422 on a body the router rewrote), client (cancellation, oversized context, invalid request, unknown forced model, spend or credit limits, org configuration) or unknown. Null on a normal completion."
+    },
+    {
+      "name": "estimated_input_tokens",
+      "type": "integer",
+      "nullable": true,
+      "description": "Input tokens estimated at decision time, before the upstream reported actuals."
+    },
+    {
+      "name": "input_tokens",
+      "type": "integer",
+      "nullable": true,
+      "description": "Input tokens reported by the upstream."
+    },
+    {
+      "name": "output_tokens",
+      "type": "integer",
+      "nullable": true,
+      "description": "Output tokens reported by the upstream."
+    },
+    {
+      "name": "cache_creation_tokens",
+      "type": "integer",
+      "nullable": true,
+      "description": "Tokens written to the upstream prompt cache."
+    },
+    {
+      "name": "cache_read_tokens",
+      "type": "integer",
+      "nullable": true,
+      "description": "Tokens served from the upstream prompt cache."
+    },
+    {
+      "name": "cache_creation_1h_tokens",
+      "type": "integer",
+      "nullable": true,
+      "description": "Share of cache_creation_tokens written with the 1-hour TTL, priced at cache_write_1h_multiplier from /v1/analytics/models. Null when the turn wrote no cache or predates the column."
+    },
+    {
+      "name": "reasoning_tokens",
+      "type": "integer",
+      "nullable": true,
+      "description": "Share of output_tokens spent on reasoning; already included in output_tokens and priced at the output rate. Null when the upstream does not break reasoning out (Anthropic) or the row predates the column."
+    },
+    {
+      "name": "speed",
+      "type": "string",
+      "nullable": true,
+      "description": "Serving speed the upstream reported (e.g. fast); fast turns are priced at the binding's fast rate. Null when not reported."
+    },
+    {
+      "name": "inference_geo",
+      "type": "string",
+      "nullable": true,
+      "description": "Inference geography the upstream reported; \"us\" applies us_inference_geo_multiplier to every token category. Null when not reported."
+    },
+    {
+      "name": "subscription_served",
+      "type": "boolean",
+      "nullable": false,
+      "description": "True when the turn used included Claude/Codex subscription quota. Paid Claude overage is false, even if the OAuth credential served the turn."
+    },
+    {
+      "name": "credential_source",
+      "type": "string",
+      "nullable": true,
+      "description": "Winning credential source; null when attribution was not recorded."
+    },
+    {
+      "name": "subscription_account_id",
+      "type": "string",
+      "nullable": true,
+      "description": "Stable physical subscription account that served the request; null for request-local OAuth and API capacity."
+    },
+    {
+      "name": "subscription_owner_id",
+      "type": "string",
+      "nullable": true,
+      "description": "Verified subscription owner; distinct from the requesting subscriber for shared capacity."
+    },
+    {
+      "name": "subscription_tier",
+      "type": "string",
+      "nullable": true,
+      "description": "Winning subscription tier: personal or shared."
+    },
+    {
+      "name": "intended_model_family",
+      "type": "string",
+      "nullable": true,
+      "description": "Canonical family selected before subscription alternatives."
+    },
+    {
+      "name": "final_model_family",
+      "type": "string",
+      "nullable": true,
+      "description": "Canonical family that served the request."
+    },
+    {
+      "name": "actual_input_cost_usd",
+      "type": "float",
+      "nullable": true,
+      "description": "Input cost of the model that actually served the turn. 0 when subscription_served."
+    },
+    {
+      "name": "actual_output_cost_usd",
+      "type": "float",
+      "nullable": true,
+      "description": "Output cost of the model that actually served the turn. 0 when subscription_served."
+    },
+    {
+      "name": "api_rate_input_cost_usd",
+      "type": "float",
+      "nullable": true,
+      "description": "Input cost of the served turn at API rates. Equals actual_input_cost_usd unless subscription_served."
+    },
+    {
+      "name": "api_rate_output_cost_usd",
+      "type": "float",
+      "nullable": true,
+      "description": "Output cost of the served turn at API rates. Equals actual_output_cost_usd unless subscription_served."
+    },
+    {
+      "name": "route_latency_ms",
+      "type": "integer",
+      "nullable": true,
+      "description": "Time spent choosing a model."
+    },
+    {
+      "name": "upstream_latency_ms",
+      "type": "integer",
+      "nullable": true,
+      "description": "Time spent waiting on the upstream provider."
+    },
+    {
+      "name": "total_latency_ms",
+      "type": "integer",
+      "nullable": true,
+      "description": "End-to-end time for the action."
+    },
+    {
+      "name": "ttft_ms",
+      "type": "integer",
+      "nullable": true,
+      "description": "Time to first token on a streamed response."
+    },
+    {
+      "name": "upstream_status_code",
+      "type": "integer",
+      "nullable": true,
+      "description": "HTTP status returned by the upstream provider."
+    },
+    {
+      "name": "upstream_finish_reason",
+      "type": "string",
+      "nullable": true,
+      "description": "Finish reason reported by the upstream provider."
+    },
+    {
+      "name": "stop_reason",
+      "type": "string",
+      "nullable": true,
+      "description": "Normalized stop reason for the turn."
+    },
+    {
+      "name": "tool_use_blocks",
+      "type": "integer",
+      "nullable": true,
+      "description": "Count of tool-use blocks in the response."
+    },
+    {
+      "name": "invalid_tool_args_blocks",
+      "type": "integer",
+      "nullable": true,
+      "description": "Count of tool-use blocks whose arguments failed to parse."
+    },
+    {
+      "name": "subscriber_plan",
+      "type": "string",
+      "nullable": true,
+      "description": "Router subscription plan that admitted the turn."
+    },
+    {
+      "name": "entitlement_version",
+      "type": "integer",
+      "nullable": true,
+      "description": "Monotonic subscriber entitlement version used for admission."
+    },
+    {
+      "name": "capacity_source",
+      "type": "string",
+      "nullable": true,
+      "description": "Capacity that funded the turn: included_router, linked_claude, linked_codex, prepaid, or billing_override."
+    },
+    {
+      "name": "retail_usage_usd_micros",
+      "type": "integer",
+      "nullable": true,
+      "description": "Retail value of the served model usage in USD micros, independent of funding source."
+    },
+    {
+      "name": "included_usage_usd_micros",
+      "type": "integer",
+      "nullable": true,
+      "description": "Retail usage funded by included Router allowance; null for other capacity sources."
+    },
+    {
+      "name": "linked_usage_usd_micros",
+      "type": "integer",
+      "nullable": true,
+      "description": "Retail usage served by a linked Claude or Codex subscription; null for other capacity sources."
+    },
+    {
+      "name": "prepaid_usage_usd_micros",
+      "type": "integer",
+      "nullable": true,
+      "description": "Retail usage funded by subscriber prepaid balance; null for other capacity sources."
+    },
+    {
+      "name": "settlement_failed",
+      "type": "boolean",
+      "nullable": true,
+      "description": "Whether included-allowance or prepaid settlement failed after serving. Null when no Router settlement applies."
+    },
+    {
+      "name": "serving_profile_id",
+      "type": "string",
+      "nullable": true,
+      "description": "Server-owned Router profile used to serve the turn."
+    },
+    {
+      "name": "serving_profile_version",
+      "type": "string",
+      "nullable": true,
+      "description": "Immutable revision of the server-owned Router profile."
+    },
+    {
+      "name": "serving_release_id",
+      "type": "string",
+      "nullable": true,
+      "description": "Verified serving release identifier."
+    },
+    {
+      "name": "serving_binding_id",
+      "type": "string",
+      "nullable": true,
+      "description": "Verified serving binding identifier."
+    },
+    {
+      "name": "serving_target",
+      "type": "string",
+      "nullable": true,
+      "description": "Managed serving target that admitted the turn: staging, prod/stable, or prod/weave-internal."
+    },
+    {
+      "name": "boost_optimizer_version",
+      "type": "string",
+      "nullable": true,
+      "description": "Boost source optimizer version used for selection."
+    },
+    {
+      "name": "policy_artifact_id",
+      "type": "string",
+      "nullable": true,
+      "description": "Routing policy artifact identifier."
+    },
+    {
+      "name": "policy_artifact_sha256",
+      "type": "string",
+      "nullable": true,
+      "description": "SHA-256 digest of the routing policy artifact."
+    },
+    {
+      "name": "roster_version",
+      "type": "string",
+      "nullable": true,
+      "description": "Immutable routing roster version."
+    },
+    {
+      "name": "selection_policy_release_id",
+      "type": "string",
+      "nullable": true,
+      "description": "Selection-policy release identifier."
+    },
+    {
+      "name": "selection_policy_sha256",
+      "type": "string",
+      "nullable": true,
+      "description": "SHA-256 digest of the selection policy."
+    },
+    {
+      "name": "client_git_head_sha",
+      "type": "string",
+      "nullable": true,
+      "description": "Client-reported HEAD sha of the tree a trial-mode session started from, abbreviated as the client printed it (compare by prefix). Stamped on the session's first turn only; null elsewhere."
+    },
+    {
+      "name": "client_git_branch",
+      "type": "string",
+      "nullable": true,
+      "description": "Client-reported branch of the tree a trial-mode session started from. First turn only; null elsewhere."
+    },
+    {
+      "name": "client_git_dirty",
+      "type": "boolean",
+      "nullable": true,
+      "description": "True when the client-reported starting tree had uncommitted changes. Null when not captured, so null and false are distinct."
+    }
+  ],
+  "routing_span_attributes": [
+    "routing.arm_effort",
+    "routing.blind_experiment_arm",
+    "routing.blind_experiment_assignment_source",
+    "routing.blind_experiment_baseline_model",
+    "routing.blind_experiment_model_changed",
+    "routing.blind_experiment_model_source",
+    "routing.blind_experiment_treatment_applied",
+    "routing.caller_passthrough",
+    "routing.caller_routing_source",
+    "routing.candidate_scores",
+    "routing.capture_mode",
+    "routing.chosen_score",
+    "routing.classifier_artifact_id",
+    "routing.classifier_artifact_sha256",
+    "routing.classifier_class_order",
+    "routing.classifier_predicted_label",
+    "routing.classifier_probabilities",
+    "routing.cross_format",
+    "routing.debug_ref",
+    "routing.effort_mismatch",
+    "routing.effort_source",
+    "routing.embed_cache_evictions",
+    "routing.embed_cache_hits",
+    "routing.embed_cache_misses",
+    "routing.embed_input",
+    "routing.entitlement_version",
+    "routing.estimated_input_tokens",
+    "routing.fresh_classifier_margin",
+    "routing.fresh_policy_group",
+    "routing.llm_escalation_applied",
+    "routing.model_changed",
+    "routing.pin_role",
+    "routing.plan",
+    "routing.policy_artifact_id",
+    "routing.policy_artifact_sha256",
+    "routing.policy_fallback",
+    "routing.policy_route_key",
+    "routing.prior_served_model",
+    "routing.propensity",
+    "routing.rollout_id",
+    "routing.roster_version",
+    "routing.route_id",
+    "routing.selected_effort",
+    "routing.selection_head_generation",
+    "routing.selection_policy_release_id",
+    "routing.selection_policy_sha256",
+    "routing.selection_trace",
+    "routing.sent_effort",
+    "routing.session_key",
+    "routing.session_pin_age_s",
+    "routing.session_pin_hit",
+    "routing.session_pin_tier",
+    "routing.sidecar_inflight",
+    "routing.sidecar_overruns_live",
+    "routing.sidecar_schema_version",
+    "routing.sticky_hit",
+    "routing.strategy",
+    "routing.task_arm_experiment_arm",
+    "routing.task_arm_experiment_ceiling_binds",
+    "routing.task_arm_experiment_control_cluster",
+    "routing.task_arm_experiment_control_model",
+    "routing.task_arm_experiment_propensity",
+    "routing.task_arm_experiment_step",
+    "routing.task_arm_experiment_task_key",
+    "routing.task_arm_experiment_treatment_applied",
+    "routing.training_allowed",
+    "routing.turn_type"
+  ],
+  "weave_ingested_routing_span_attributes": [
+    "routing.caller_passthrough",
+    "routing.caller_routing_source",
+    "routing.cluster_ids",
+    "routing.cross_format",
+    "routing.embed_cache_evictions",
+    "routing.embed_cache_hits",
+    "routing.embed_cache_misses",
+    "routing.embed_input",
+    "routing.estimated_input_tokens",
+    "routing.llm_escalation_applied",
+    "routing.prior_served_model",
+    "routing.rollout_id",
+    "routing.session_pin_tier",
+    "routing.sidecar_inflight",
+    "routing.sidecar_overruns_live",
+    "routing.sticky_hit",
+    "routing.task_arm_experiment_arm",
+    "routing.task_arm_experiment_ceiling_binds",
+    "routing.task_arm_experiment_control_cluster",
+    "routing.task_arm_experiment_control_model",
+    "routing.task_arm_experiment_propensity",
+    "routing.task_arm_experiment_step",
+    "routing.task_arm_experiment_task_key",
+    "routing.task_arm_experiment_treatment_applied"
+  ],
+  "weave_ingested_routing_span_attributes_not_emitted": [
+    "routing.cluster_ids"
+  ],
+  "forced_classification_markers": {
+    "forced_reason_prefix": "user_forced",
+    "utility_reason_suffix": "_hard_pin"
+  }
+}

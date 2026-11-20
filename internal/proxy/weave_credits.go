@@ -41,6 +41,15 @@ func weaveCreditsFundedProviders(ctx context.Context) (funded map[string]struct{
 	return funded, ok
 }
 
+func weaveCreditsCannotFund(ctx context.Context, provider string) bool {
+	funded, denied := weaveCreditsFundedProviders(ctx)
+	if !denied {
+		return false
+	}
+	_, ok := funded[provider]
+	return !ok
+}
+
 func applyWeaveCreditsPolicy(ctx context.Context, enabled map[string]struct{}) (map[string]struct{}, error) {
 	funded, ok := weaveCreditsFundedProviders(ctx)
 	if !ok {

@@ -65,6 +65,9 @@ func TestParseOverridesIgnoresRetiredFlags(t *testing.T) {
 		"struggle_evidence_arming": false,
 		"subscriber_paid_fallback_enabled": false,
 		"subscription_pool_quota_aware_selection_enabled": true,
+		"authoritative_upgrade_holdout_pct": 10,
+		"hmm_same_tier_pin": true,
+		"planner_cold_pin_follow_fresh": true,
 		"planner_enabled": false,
 		"loop_escalation_holdout_pct": 25
 	}`))
@@ -74,6 +77,7 @@ func TestParseOverridesIgnoresRetiredFlags(t *testing.T) {
 	assert.NotContains(t, o.Keys(), flags.Key("struggle_escalation_enabled"))
 	assert.NotContains(t, o.Keys(), flags.Key("subscriber_paid_fallback_enabled"))
 	assert.NotContains(t, o.Keys(), flags.Key("subscription_pool_quota_aware_selection_enabled"))
+	assert.NotContains(t, o.Keys(), flags.Key("hmm_same_tier_pin"))
 }
 
 func TestParseOverridesRejectsBadPayloads(t *testing.T) {
@@ -263,7 +267,7 @@ func TestAuthoritativeDowngradeControlsAreOrgOverridable(t *testing.T) {
 	gate, ok := flags.Lookup(flags.KeyAuthoritativeDowngradeGate)
 	require.True(t, ok)
 	assert.Equal(t, flags.KindBool, gate.Kind)
-	assert.Equal(t, "ROUTER_AUTHORITATIVE_DOWNGRADE_GATE", gate.EnvVar)
+	assert.Equal(t, "ROUTER_HMM_DOWNGRADE_GATE", gate.EnvVar)
 	assert.True(t, gate.OrgOverridable)
 
 	hysteresis, ok := flags.Lookup(flags.KeyHMMDowngradeHysteresisTurns)
@@ -293,14 +297,31 @@ func TestAuthoritativeDowngradeControlsAreOrgOverridable(t *testing.T) {
 }
 
 func TestRegistryVersionTracksRegistryMembership(t *testing.T) {
-	const membershipAtVersion30 = "5ffa40f90a156fdc182b4f76aadc2bb85eb49c863b1959357f3bc5b9c5aa61b6"
+	const membershipAtVersion37 = "4ea87916f0315b36c72629270ac48126f620cfd6a3085ad58643ed14f42bf7cd"
 	keys := make([]string, 0, len(flags.Registry))
 	for _, def := range flags.Registry {
 		keys = append(keys, string(def.Key))
 	}
 	sort.Strings(keys)
 	digest := sha256.Sum256([]byte(strings.Join(keys, "\n")))
-	require.Equal(t, 30, flags.RegistryVersion, "re-pin the membership digest for the new RegistryVersion")
-	assert.Equal(t, membershipAtVersion30, hex.EncodeToString(digest[:]),
+	require.Equal(t, 37, flags.RegistryVersion, "re-pin the membership digest for the new RegistryVersion")
+	assert.Equal(t, membershipAtVersion37, hex.EncodeToString(digest[:]),
 		"Registry membership changed: bump flags.RegistryVersion (currently %d) and re-pin this digest", flags.RegistryVersion)
+}
+
+func TestOverridesOverlayReplacesOnlyLayeredKeys(t *testing.T) {
+	stored := flags.Overrides{
+		Bools: map[flags.Key]bool{flags.KeyPlannerEnabled: true, flags.KeySiblingFailover: true},
+		Ints:  map[flags.Key]int{flags.KeyLoopEscalationHoldoutPct: 10},
+	}
+	layered := stored.Overlay(flags.Overrides{
+		Bools:   map[flags.Key]bool{flags.KeyPlannerEnabled: false},
+		Strings: map[flags.Key]string{flags.KeyEscalationActiveClassifier: "none"},
+	})
+
+	assert.Equal(t, map[flags.Key]bool{flags.KeyPlannerEnabled: false, flags.KeySiblingFailover: true}, layered.Bools)
+	assert.Equal(t, map[flags.Key]int{flags.KeyLoopEscalationHoldoutPct: 10}, layered.Ints)
+	assert.Equal(t, map[flags.Key]string{flags.KeyEscalationActiveClassifier: "none"}, layered.Strings)
+	assert.Nil(t, layered.Floats)
+	assert.True(t, stored.Bools[flags.KeyPlannerEnabled], "overlay must not mutate the stored overrides")
 }

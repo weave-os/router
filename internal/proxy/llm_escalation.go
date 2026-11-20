@@ -93,7 +93,7 @@ func (s *Service) beginLLMEscalation(ctx context.Context, env *translate.Request
 		observability.FromContext(ctx).Info("LLM escalation skipped", "reason", "provider_restricted")
 		return nil
 	}
-	if _, excluded := req.ExcludedModels[policy.EscalationJudgeModel]; excluded && classifier == flags.EscalationClassifierSwitchyard {
+	if _, excluded := req.Candidates.ExcludedModels[policy.EscalationJudgeModel]; excluded && classifier == flags.EscalationClassifierSwitchyard {
 		observability.FromContext(ctx).Info("LLM escalation skipped", "reason", "judge_model_restricted")
 		return nil
 	}

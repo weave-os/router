@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/routingpolicy"
+	"weave-os/router/internal/router/candidates"
 )
 
 const globalAutomaticExclusionTTL = time.Minute
@@ -29,9 +29,9 @@ func newGlobalAutomaticExclusionCache(store GlobalAutomaticExclusionStore) *glob
 	return &globalAutomaticExclusionCache{store: store}
 }
 
-func (c *globalAutomaticExclusionCache) snapshot(ctx context.Context) map[string]string {
+func (c *globalAutomaticExclusionCache) snapshot(ctx context.Context, now func() time.Time) map[string]string {
 	c.mu.Lock()
-	if c.loaded && time.Since(c.refreshedAt) < globalAutomaticExclusionTTL {
+	if c.loaded && now().Sub(c.refreshedAt) < globalAutomaticExclusionTTL {
 		byModel := c.byModel
 		c.mu.Unlock()
 		return byModel
@@ -58,24 +58,10 @@ func (c *globalAutomaticExclusionCache) snapshot(ctx context.Context) map[string
 		return stale
 	}
 	c.byModel = byModel
-	c.refreshedAt = time.Now()
+	c.refreshedAt = now()
 	c.loaded = true
 	c.mu.Unlock()
 	return byModel
-}
-
-func mergeExcludedModels(hard, automatic map[string]struct{}) map[string]struct{} {
-	if len(automatic) == 0 {
-		return hard
-	}
-	merged := make(map[string]struct{}, len(hard)+len(automatic))
-	for model := range hard {
-		merged[model] = struct{}{}
-	}
-	for model := range automatic {
-		merged[model] = struct{}{}
-	}
-	return merged
 }
 
 func (s *Service) globalAutomaticExcludedModels(ctx context.Context) map[string]struct{} {
@@ -84,14 +70,14 @@ func (s *Service) globalAutomaticExcludedModels(ctx context.Context) map[string]
 	if len(overloaded) == 0 {
 		return controlPlane
 	}
-	return mergeExcludedModels(overloaded, controlPlane)
+	return candidates.MergeExcludedModels(overloaded, controlPlane)
 }
 
 func (s *Service) controlPlaneExcludedModels(ctx context.Context) map[string]struct{} {
 	if s.globalAutomaticExclusions == nil {
 		return nil
 	}
-	byModel := s.globalAutomaticExclusions.snapshot(ctx)
+	byModel := s.globalAutomaticExclusions.snapshot(ctx, s.clock.Now)
 	if len(byModel) == 0 {
 		return nil
 	}
@@ -104,7 +90,7 @@ func (s *Service) controlPlaneExcludedModels(ctx context.Context) map[string]str
 
 func (s *Service) globalAutomaticExclusionReason(ctx context.Context, model string) (string, bool) {
 	if s.globalAutomaticExclusions != nil {
-		if reason, disabled := s.globalAutomaticExclusions.snapshot(ctx)[model]; disabled {
+		if reason, disabled := s.globalAutomaticExclusions.snapshot(ctx, s.clock.Now)[model]; disabled {
 			return reason, true
 		}
 	}
@@ -114,4 +100,4 @@ func (s *Service) globalAutomaticExclusionReason(ctx context.Context, model stri
 	return "", false
 }
 
-func modelSet(ids []string) map[string]struct{} { return routingpolicy.ModelSet(ids) }
+func modelSet(ids []string) map[string]struct{} { return candidates.ModelSet(ids) }

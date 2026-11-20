@@ -139,54 +139,6 @@ func TestDecide_ShadowInclusiveCostModel(t *testing.T) {
 	assert.Greater(t, cold.ShadowStayCostUSD, got.ShadowStayCostUSD, "a cold pin pays its current cache write")
 }
 
-// With ColdPinFollowFresh enabled, a cold pin follows the scorer's fresh pick
-// even when the raw-price EV is below threshold.
-func TestDecide_ColdPinFollowFresh(t *testing.T) {
-	t.Parallel()
-	coldCfg := planner.EVConfig{
-		ThresholdUSD:           0.001,
-		ExpectedRemainingTurns: 3,
-		ColdPinFollowFresh:     true,
-	}
-	// Cheap pin → expensive fresh: raw-price EV is strongly negative, so only
-	// the cold-pin lever can flip it.
-	base := planner.Inputs{
-		Pin:                  pinWithUsage(modelHaiku),
-		Fresh:                router.Decision{Model: modelOpus},
-		EstimatedInputTokens: 50_000,
-		AvailableModels:      availableAll,
-		PinCacheCold:         true,
-	}
-
-	got := planner.Decide(base, coldCfg)
-	assert.Equal(t, planner.OutcomeSwitch, got.Outcome, "cold pin + lever on must follow the fresh pick")
-	assert.Equal(t, planner.ReasonColdPinFresh, got.Reason)
-	assert.True(t, got.PinCacheCold, "decision must echo the cold pricing assumption")
-
-	off := planner.Decide(base, defaultCfg)
-	assert.Equal(t, planner.OutcomeStay, off.Outcome, "lever off must preserve the EV-negative stay")
-	assert.Equal(t, planner.ReasonEVNegative, off.Reason)
-
-	warm := base
-	warm.PinCacheCold = false
-	stay := planner.Decide(warm, coldCfg)
-	assert.Equal(t, planner.OutcomeStay, stay.Outcome, "warm pin must not follow fresh on the cold lever")
-	assert.Equal(t, planner.ReasonEVNegative, stay.Reason)
-
-	// A cold pin whose switch is already EV-positive keeps the more specific
-	// ev_positive reason.
-	evPositive := planner.Inputs{
-		Pin:                  pinWithUsage(modelOpus),
-		Fresh:                router.Decision{Model: modelHaiku},
-		EstimatedInputTokens: 50_000,
-		AvailableModels:      availableAll,
-		PinCacheCold:         true,
-	}
-	pos := planner.Decide(evPositive, coldCfg)
-	assert.Equal(t, planner.OutcomeSwitch, pos.Outcome)
-	assert.Equal(t, planner.ReasonEVPositive, pos.Reason, "EV-positive must take precedence over the cold-pin reason")
-}
-
 func TestDecide(t *testing.T) {
 	t.Parallel()
 

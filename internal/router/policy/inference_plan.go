@@ -408,8 +408,8 @@ func resolutionModels(spec PolicySpec, override *TargetOverride) ([]string, erro
 func restrictModels(request router.Request, models []string) (router.Request, bool) {
 	allowed := make(map[string]struct{}, len(models))
 	for _, catalogID := range models {
-		if len(request.AllowedModels) > 0 {
-			if _, requestAllows := request.AllowedModels[catalogID]; !requestAllows {
+		if len(request.Candidates.AllowedModels) > 0 {
+			if _, requestAllows := request.Candidates.AllowedModels[catalogID]; !requestAllows {
 				continue
 			}
 		}
@@ -418,7 +418,7 @@ func restrictModels(request router.Request, models []string) (router.Request, bo
 	if len(allowed) == 0 {
 		return request, false
 	}
-	request.AllowedModels = allowed
+	request.Candidates.AllowedModels = allowed
 	return request, true
 }
 

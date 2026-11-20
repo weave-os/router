@@ -11,17 +11,19 @@ import (
 	"slices"
 	"time"
 
-	"github.com/google/uuid"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/escalation"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/switchpolicy"
 	"weave-os/router/internal/router/turntype"
+
+	"github.com/google/uuid"
 )
 
 type agreementShadowInput struct {
@@ -58,12 +60,12 @@ func applyAgreementShadowTelemetry(ctx context.Context, p *InsertTelemetryParams
 	if !res.AuthoritativePerTurn || !isHMMDecision(res.Fresh) || res.HardPinned || res.ForcedPinDropped || res.PolicyFallback || res.CallerModelPassthrough || res.UsageBypass || escalationRoutingApplied(res.Fresh) {
 		return
 	}
-	md := res.Fresh.Metadata
-	if md == nil || md.SelectionTrace == nil || md.ClassifierArtifactSHA256 == "" || md.SelectionPolicySHA256 == "" {
+	md, classifier := res.Fresh.Metadata, hmm.ClassifierTelemetryOf(res.Fresh.Metadata)
+	if md == nil || classifier.SelectionTrace == nil || classifier.ArtifactSHA256 == "" || md.SelectionPolicySHA256 == "" {
 		shadow.Observation.Gap = switchpolicy.ShadowGapMissing
 		return
 	}
-	trace := md.SelectionTrace
+	trace := classifier.SelectionTrace
 	if trace.ForcedGroup != "" || trace.ClusterOverridesPresent || (trace.OverrideReason != router.SelectionOverrideNone && trace.OverrideReason != router.SelectionOverrideSlidingThreshold) {
 		return
 	}
@@ -73,8 +75,8 @@ func applyAgreementShadowTelemetry(ctx context.Context, p *InsertTelemetryParams
 		shadow.Observation.Gap = switchpolicy.ShadowGapMissing
 		return
 	}
-	group := escalation.Group(md.ClassifierPredictedLabel)
-	confidence, scored := md.ClassifierProbabilities[string(group)]
+	group := escalation.Group(classifier.PredictedLabel)
+	confidence, scored := classifier.Probabilities[string(group)]
 	if escalation.Rank(group) < 0 || !scored || math.IsNaN(confidence) || math.IsInf(confidence, 0) || confidence < 0 || confidence > 1 {
 		shadow.Observation.Gap = switchpolicy.ShadowGapMissing
 		return
@@ -103,7 +105,7 @@ func applyAgreementShadowTelemetry(ctx context.Context, p *InsertTelemetryParams
 		if identityStrategy == router.StrategyHMMEmbedding {
 			identityStrategy = router.StrategyHMM
 		}
-		shadow.Observation.PolicyIdentity = string(switchpolicy.VersionAgreementV1) + ":" + string(identityStrategy) + ":" + md.ClassifierArtifactSHA256 + ":" + md.SelectionPolicySHA256 + ":" + md.RosterVersion
+		shadow.Observation.PolicyIdentity = string(switchpolicy.VersionAgreementV1) + ":" + string(identityStrategy) + ":" + classifier.ArtifactSHA256 + ":" + md.SelectionPolicySHA256 + ":" + md.RosterVersion
 		shadow.Observation.LivePin = switchpolicy.Selection{Target: switchpolicy.Target{Provider: res.PinProvider, Model: res.PinModel}, Group: escalation.Group(res.PinPolicyGroup)}
 		for model, provider := range md.CandidateProviders {
 			shadow.Observation.Eligible = append(shadow.Observation.Eligible, switchpolicy.Target{Provider: provider, Model: model})
@@ -173,7 +175,7 @@ func (s *Service) recordAgreementShadowCommandBoundary(ctx context.Context, inst
 	}
 	boundaryCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 	defer cancel()
-	startedAt := time.Now()
+	startedAt := s.clock.Now()
 	log := observability.FromContext(ctx).With("command_outcome_id", commandID)
 	for _, role := range forceModelClearRoles() {
 		p := InsertTelemetryParams{InstallationID: installationID.String(), RequestID: commandID, Timestamp: startedAt,

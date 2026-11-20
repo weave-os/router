@@ -1,0 +1,130 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages",
+      "stream": false,
+      "routing_decisions": [],
+      "dispatch_attempts": [
+        {
+          "provider": "fireworks",
+          "wire_model": "z-ai/glm-5.1",
+          "outbound_body": {
+            "chat_template_kwargs": {
+              "enable_thinking": false
+            },
+            "max_tokens": 64,
+            "messages": [
+              {
+                "content": "Say hi",
+                "role": "user"
+              }
+            ],
+            "model": "z-ai/glm-5.1",
+            "tool_stream": true
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Diagnosis": {
+            "BodyTranslated": true
+          },
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-anthropic-messages",
+            "PolicyRevision": "3",
+            "Purpose": "anthropic_messages",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "z-ai/glm-5.1",
+            "Provider": "fireworks",
+            "UpstreamID": "accounts/fireworks/models/glm-5p1"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Router-Cache-Creation-Tokens": "0",
+          "X-Router-Cache-Read-Tokens": "0",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "22",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "202752",
+          "X-Router-Cost-Input-Usd": "0.0000168",
+          "X-Router-Cost-Output-Usd": "0.0000308",
+          "X-Router-Cost-Usd": "0.0000476",
+          "X-Router-Decision": "classifier_requested_model",
+          "X-Router-Model": "z-ai/glm-5.1",
+          "X-Router-Provider": "fireworks"
+        },
+        "body": {
+          "content": [
+            {
+              "text": "ok",
+              "type": "text"
+            }
+          ],
+          "id": "\u003cid\u003e",
+          "model": "z-ai/glm-5.1",
+          "role": "assistant",
+          "stop_reason": "end_turn",
+          "stop_sequence": null,
+          "type": "message",
+          "usage": {
+            "input_tokens": 12,
+            "output_tokens": 7
+          }
+        }
+      },
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -48,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 48,
+          "OrganizationID": "golden-org",
+          "RouterModel": "z-ai/glm-5.1"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.0000168,
+          "ActualOutputCostUSD": 0.0000308,
+          "CaptureMode": "off",
+          "CrossFormat": true,
+          "DecisionModel": "z-ai/glm-5.1",
+          "DecisionProvider": "fireworks",
+          "DecisionReason": "classifier_requested_model",
+          "EmbedInput": "only_user_message",
+          "EstimatedInputTokens": 1,
+          "FinalModelFamily": "z-ai/glm",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "z-ai/glm",
+          "LatestToolCallCounts": {},
+          "OutputTokens": 7,
+          "PinTier": "miss",
+          "RequestedInputCostUSD": 0.0000168,
+          "RequestedModel": "z-ai/glm-5.1",
+          "RequestedOutputCostUSD": 0.0000308,
+          "Role": "default_high",
+          "SelectionTrace": {
+            "served_group": ""
+          },
+          "SpanType": "router.upstream",
+          "TurnType": "classifier",
+          "UpstreamStatusCode": 200,
+          "UserPrompt": true
+        }
+      ]
+    }
+  ],
+  "scenario": "router_atom_usage_bypass_non_anthropic_requested_model"
+}

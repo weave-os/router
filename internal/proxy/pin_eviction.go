@@ -22,31 +22,31 @@ const (
 )
 
 func (s *Service) expireSessionPin(
-	ctx context.Context,
+	ctx context.Context, strategy router.Strategy,
 	installationID uuid.UUID,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
 	reason string,
 ) error {
-	return s.expireSessionPinRow(ctx, installationID, sessionKey, role, reason, true)
+	return s.expireSessionPinRow(ctx, strategy, installationID, sessionKey, role, reason, true)
 }
 
 func (s *Service) expireSessionPinRow(
-	ctx context.Context,
+	ctx context.Context, strategy router.Strategy,
 	installationID uuid.UUID,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
 	reason string,
 	invalidateContinuation bool,
 ) error {
-	expired := expiredSessionPin(installationID, sessionKey, role, reason, router.StrategyFromContext(ctx))
+	expired := expiredSessionPin(installationID, sessionKey, role, reason, strategy, s.clock.Now())
 	if err := s.pinStore.Upsert(context.WithoutCancel(ctx), expired); err != nil {
 		return err
 	}
 	if !invalidateContinuation {
 		return nil
 	}
-	return s.invalidatePostCommandContinuation(ctx, sessionKey, role)
+	return s.invalidatePostCommandContinuation(ctx, strategy, sessionKey, role)
 }
 
 func expiredSessionPin(
@@ -55,6 +55,7 @@ func expiredSessionPin(
 	role string,
 	reason string,
 	strategy router.Strategy,
+	now time.Time,
 ) sessionpin.Pin {
 	return sessionpin.Pin{
 		SessionKey:     sessionKey,
@@ -65,29 +66,29 @@ func expiredSessionPin(
 		Reason:         reason,
 		Strategy:       strategy,
 		TurnCount:      1,
-		PinnedUntil:    time.Now().Add(-time.Second),
+		PinnedUntil:    now.Add(-time.Second),
 	}
 }
 
 func (s *Service) expireSessionPinAndHMMHistory(
-	ctx context.Context,
+	ctx context.Context, strategy router.Strategy,
 	installationID uuid.UUID,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
 	reason string,
 ) error {
-	if err := s.expireSessionPin(ctx, installationID, sessionKey, role, reason); err != nil {
+	if err := s.expireSessionPin(ctx, strategy, installationID, sessionKey, role, reason); err != nil {
 		return err
 	}
 	historyRole := hmmHistoryRole(role)
 	if historyRole == role {
 		return nil
 	}
-	return s.expireSessionPinRow(ctx, installationID, sessionKey, historyRole, reason, false)
+	return s.expireSessionPinRow(ctx, strategy, installationID, sessionKey, historyRole, reason, false)
 }
 
 func (s *Service) evictPinAfterDegenerateResponse(
-	ctx context.Context,
+	ctx context.Context, strategy router.Strategy,
 	stickyHit bool,
 	decisionReason string,
 	installationID uuid.UUID,
@@ -106,7 +107,7 @@ func (s *Service) evictPinAfterDegenerateResponse(
 
 	log := observability.FromContext(ctx)
 
-	if err := s.expireSessionPin(ctx, installationID, sessionKey, role, "degenerate_response"); err != nil {
+	if err := s.expireSessionPin(ctx, strategy, installationID, sessionKey, role, "degenerate_response"); err != nil {
 		log.Error("pin eviction after degenerate response failed", "err", err, "role", role)
 		return
 	}
@@ -116,7 +117,7 @@ func (s *Service) evictPinAfterDegenerateResponse(
 }
 
 func (s *Service) maybeExpireDeadArmPin(
-	ctx context.Context,
+	ctx context.Context, strategy router.Strategy,
 	deadArmRejected bool,
 	decisionReason string,
 	installationID uuid.UUID,
@@ -127,13 +128,13 @@ func (s *Service) maybeExpireDeadArmPin(
 		return
 	}
 	log := observability.FromContext(ctx)
-	if err := s.expireSessionPin(ctx, installationID, sessionKey, role, "dead_arm_rejected"); err != nil {
+	if err := s.expireSessionPin(ctx, strategy, installationID, sessionKey, role, "dead_arm_rejected"); err != nil {
 		log.Error("pin eviction after dead-arm rejection failed", "err", err, "role", role)
 	}
 }
 
 func (s *Service) maybeExpireSubscriptionArmPin(
-	ctx context.Context,
+	ctx context.Context, strategy router.Strategy,
 	failure error,
 	decisionReason string,
 	installationID uuid.UUID,
@@ -145,7 +146,7 @@ func (s *Service) maybeExpireSubscriptionArmPin(
 		return
 	}
 	log := observability.FromContext(ctx)
-	if err := s.expireSessionPin(ctx, installationID, sessionKey, role, reason); err != nil {
+	if err := s.expireSessionPin(ctx, strategy, installationID, sessionKey, role, reason); err != nil {
 		log.Error("pin eviction after subscription arm became unavailable failed", "err", err, "role", role, "reason", reason)
 		return
 	}
@@ -171,14 +172,13 @@ func (s *Service) maybeEvictPinAfterUpstreamErr(
 	stickyHit bool,
 	proxyErr error,
 	decisionReason string,
-	installationID uuid.UUID,
-	sessionKey [sessionpin.SessionKeyLen]byte,
+	target sessionTarget,
 	role string,
 ) {
-	if !stickyHit || s.pinStore == nil || installationID == uuid.Nil {
+	if !stickyHit || s.pinStore == nil || target.installationID == uuid.Nil {
 		return
 	}
-	if sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
+	if target.sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
 		return
 	}
 	if strings.HasPrefix(decisionReason, translate.ReasonUserForceModel) {
@@ -188,7 +188,7 @@ func (s *Service) maybeEvictPinAfterUpstreamErr(
 	log := observability.FromContext(ctx)
 
 	if proxyErr == nil {
-		if err := s.pinStore.ResetUpstreamErrors(context.WithoutCancel(ctx), sessionKey, role, router.StrategyFromContext(ctx)); err != nil {
+		if err := s.pinStore.ResetUpstreamErrors(context.WithoutCancel(ctx), target.sessionKey, role, target.strategy); err != nil {
 			log.Error("pin error-counter reset failed", "err", err, "role", role)
 		}
 		return
@@ -202,7 +202,7 @@ func (s *Service) maybeEvictPinAfterUpstreamErr(
 		return
 	}
 
-	count, err := s.pinStore.IncrementUpstreamErrors(context.WithoutCancel(ctx), sessionKey, role, router.StrategyFromContext(ctx))
+	count, err := s.pinStore.IncrementUpstreamErrors(context.WithoutCancel(ctx), target.sessionKey, role, target.strategy)
 	if err != nil {
 		log.Error("pin error-counter increment failed", "err", err, "role", role, "upstream_status", status)
 		return
@@ -217,7 +217,7 @@ func (s *Service) maybeEvictPinAfterUpstreamErr(
 		return
 	}
 
-	if err := s.expireSessionPin(ctx, installationID, sessionKey, role, "upstream_error_strike_threshold"); err != nil {
+	if err := s.expireSessionPin(ctx, target.strategy, target.installationID, target.sessionKey, role, "upstream_error_strike_threshold"); err != nil {
 		log.Error("pin eviction upsert failed", "err", err, "role", role)
 		return
 	}

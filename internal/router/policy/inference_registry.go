@@ -26,7 +26,6 @@ const (
 	PrecompactionLargeWindowModel = "claude-opus-5"
 	UtilityHardPinDefaultProvider = providers.ProviderAnthropic
 	UtilityHardPinDefaultModel    = "claude-haiku-4-5"
-	ClassifierModel               = "claude-haiku-5-5"
 )
 
 var compactionSummarizerModels = []string{

@@ -84,7 +84,7 @@ behavior of the same features is in [CONFIGURATION.md](CONFIGURATION.md#forcing-
 - An authoritative-per-turn upgrade that costs more than the pin keeps the pin
   when the fresh decision carries a confidence score below the configured
   `hmmUpgradeConfidenceThreshold` (`ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD`,
-  default `DefaultHMMUpgradeConfidenceThreshold`). The check runs only while the
+  default `hmm.DefaultUpgradeConfidenceThreshold`). The check runs only while the
   upgrade gate is on and neither the evidence path nor the sliding threshold
   served the turn; an upgrade without a confidence score passes. The downgrade
   guards are off by default; an unconfident cheaper vote is discarded before hysteresis

@@ -46,6 +46,12 @@ func NewProtocolNoticeSink(w http.ResponseWriter, capabilities NoticeCapabilitie
 	}
 	return sink
 }
+func (d *NoticeDelivery) SetRoutedModel(model string) {
+	if sink, ok := d.sink.(*protocolNoticeSink); ok && sink.responses != nil {
+		sink.responses.SetRoutedModel(model)
+	}
+}
+
 func (s *protocolNoticeSink) WriteHeader(status int) {
 	if s.streaming && s.ResponseWriter.Header().Get("Content-Type") != "application/json" {
 		s.ResponseWriter.Header().Set("Content-Type", "text/event-stream")

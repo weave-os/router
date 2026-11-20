@@ -7,13 +7,13 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/telemetry"
@@ -55,8 +55,7 @@ func (s *Service) handleRouterFeedbackCommand(
 	w http.ResponseWriter,
 	env *translate.RequestEnvelope,
 	cmd translate.RouterFeedbackResult,
-	installationID uuid.UUID,
-	sessionKey [sessionpin.SessionKeyLen]byte,
+	target sessionTarget,
 	inputTokens int,
 	synthetic bool,
 ) error {
@@ -81,7 +80,7 @@ func (s *Service) handleRouterFeedbackCommand(
 	var telemetryRouteID string
 	var telemetryStrategy string
 	if cmd.Sequence != 0 && s.telemetry != nil {
-		turn, err := s.telemetry.GetTelemetryBySessionSequence(ctx, installationID, sessionKey[:], role, cmd.Sequence)
+		turn, err := s.telemetry.GetTelemetryBySessionSequence(ctx, target.installationID, target.sessionKey[:], role, cmd.Sequence)
 		if err != nil {
 			log.Error("/router-feedback: sequence lookup failed", "sequence", cmd.Sequence, "err", err)
 			if errors.Is(err, sql.ErrNoRows) {
@@ -106,12 +105,12 @@ func (s *Service) handleRouterFeedbackCommand(
 	}
 	if servedModel == "" && s.pinStore != nil {
 		pin := sessionpin.Pin{}
-		if storedPin, found, err := s.pinStore.Get(ctx, sessionKey, role); err != nil {
+		if storedPin, found, err := s.pinStore.Get(ctx, target.sessionKey, role); err != nil {
 			log.Error("/router-feedback: pin lookup failed", "err", err)
-		} else if found && pinMatchesEffectiveStrategy(ctx, storedPin) {
+		} else if found && pinMatchesEffectiveStrategy(target.strategy, storedPin) {
 			pin = storedPin
 		}
-		forceHistory := s.loadForceModelHistory(ctx, sessionKey, role)
+		forceHistory := s.loadForceModelHistory(ctx, target.sessionKey, role)
 		servedModel, _ = switchHistoryFromPins(pin, forceHistory)
 		if servedModel == "" {
 			servedModel = pin.Model
@@ -122,10 +121,10 @@ func (s *Service) handleRouterFeedbackCommand(
 	routerUserID := auth.UserIDFrom(ctx)
 	externalID, _ := ctx.Value(ExternalIDContextKey{}).(string)
 
-	if s.feedbackStore != nil && installationID != uuid.Nil {
+	if s.feedbackStore != nil && target.installationID != uuid.Nil {
 		event := RouterFeedbackEvent{
-			InstallationID: installationID.String(),
-			SessionKey:     sessionKey[:],
+			InstallationID: target.installationID.String(),
+			SessionKey:     target.sessionKey[:],
 			Role:           role,
 			RouterUserID:   routerUserID,
 			ClientApp:      clientID.TelemetryClientApp(),
@@ -147,7 +146,7 @@ func (s *Service) handleRouterFeedbackCommand(
 	if telemetryRequestID != "" && rating != "" && s.feedbackRepo != nil {
 		comment := feedback
 		upsertParams := UpsertFeedbackParams{
-			InstallationID: installationID.String(),
+			InstallationID: target.installationID.String(),
 			ExternalID:     externalID,
 			RequestID:      telemetryRequestID,
 			Rating:         rating,
@@ -160,20 +159,19 @@ func (s *Service) handleRouterFeedbackCommand(
 		}
 	}
 
-	strategy := router.StrategyFromContext(ctx)
 	if telemetryStrategy != "" {
-		strategy = router.Strategy(telemetryStrategy)
+		target.strategy = router.Strategy(telemetryStrategy)
 	}
-	if registered, ok := s.strategies[strategy]; ok && registered.feedback != nil {
+	if registered, ok := s.strategies[target.strategy]; ok && registered.feedback != nil {
 		trainingAllowed := policyTrainingAllowedForRequest(ctx)
 		trainingDelta := []router.ConversationMessage(nil)
-		if (cmd.Sequence == 0 || cmd.Sequence == -1) && router.IsHMMStrategy(strategy) && trainingAllowed {
+		if (cmd.Sequence == 0 || cmd.Sequence == -1) && hmm.Owns(target.strategy) && trainingAllowed {
 			trainingDelta = routerFeedbackTrainingDelta(env)
 		}
-		s.reportRouterFeedback(ctx, registered.feedback, strategy, externalID, installationID, sessionKey, role, routerUserID, clientID, env.Model(), servedModel, rating, feedback, cmd.SuggestedLabel, RouterFeedbackSourceUser, trainingDelta, telemetryRequestID, telemetryRouteID)
+		s.reportRouterFeedback(ctx, registered.feedback, target.strategy, externalID, target.installationID, target.sessionKey, role, routerUserID, clientID, env.Model(), servedModel, rating, feedback, cmd.SuggestedLabel, RouterFeedbackSourceUser, trainingDelta, telemetryRequestID, telemetryRouteID)
 	}
 
-	now := time.Now()
+	now := s.clock.Now()
 	attrs := telemetry.NewAttrBuilder(15).
 		String("external_id", externalID).
 		String("router_user_id", routerUserID).
@@ -271,7 +269,7 @@ func (s *Service) reportRouterFeedback(
 	if installationID != uuid.Nil {
 		payload["installation_id"] = installationID.String()
 	}
-	if router.IsHMMStrategy(strategy) && trainingAllowed && len(trainingDelta) > 0 {
+	if hmm.Owns(strategy) && trainingAllowed && len(trainingDelta) > 0 {
 		payload["training_conversation_delta"] = trainingDelta
 	}
 	log := observability.FromContext(ctx)

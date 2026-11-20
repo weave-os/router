@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"time"
 
@@ -14,7 +13,6 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/gitcontext"
-	"weave-os/router/internal/router/turntype"
 )
 
 type InstallationIDContextKey struct{}
@@ -523,42 +521,6 @@ func applyAuthorityShadowTelemetry(p *InsertTelemetryParams, res turnLoopResult)
 	p.AuthorityShadowCorrectedSavingsUSD = &corrected
 }
 
-func turnSignalCaptureAllowed(trainingAllowed bool, capture ContentCaptureMode) bool {
-	return trainingAllowed && (capture == CaptureHashed || capture == CaptureFull)
-}
-
-func applyTurnSignalTelemetry(
-	p *InsertTelemetryParams,
-	sig spiralSignals,
-	reasons []spiralReason,
-	computed bool,
-	enabled bool,
-	trainingAllowed bool,
-	capture ContentCaptureMode,
-) {
-	if p == nil || !computed || !enabled || !turnSignalCaptureAllowed(trainingAllowed, capture) {
-		return
-	}
-	p.SpiralErrStreak = int32Ptr(int32(sig.errStats.TrailingErrStreak))
-	p.SpiralErroredResults = int32Ptr(int32(sig.errStats.Errored))
-	p.SpiralToolResults = int32Ptr(int32(sig.errStats.Total))
-	p.SpiralMaxSameFileEdits = int32Ptr(int32(sig.maxSameFileEdits))
-	p.SpiralSameFilePathHash = sig.sameFilePathHash
-	repeatFrac := sig.repeatFrac
-	p.SpiralRepeatFrac = &repeatFrac
-	p.SpiralMonologueLen = int32Ptr(int32(sig.monologueLen))
-	p.SpiralToolCallCount = int32Ptr(int32(sig.toolCallCount))
-	p.SpiralMessageCount = int32Ptr(int32(sig.messageCount))
-	p.SpiralPingPongLen = int32Ptr(int32(sig.pingPongLen))
-	p.SpiralStepsSinceProgress = int32Ptr(int32(sig.stepsSinceProgress))
-	editAttempted := sig.editAttempted
-	p.SpiralEditAttempted = &editAttempted
-	if reasons == nil {
-		reasons = []spiralReason{}
-	}
-	p.SpiralReasons = spiralReasonStrings(reasons)
-}
-
 func int32Ptr(v int32) *int32 {
 	return &v
 }
@@ -594,34 +556,3 @@ func NewAttemptSink(store InferenceAttemptStore, logger *slog.Logger) dispatch.A
 const DecisionReasonPolicyPinUnservable = router.PolicyPinUnavailableReason
 
 const DecisionReasonRoutingFailed = "routing_failed"
-
-func (s *Service) recordPolicyPinRouteFailure(ctx context.Context, requestID string, requestStart time.Time, requestedModel string, turnType turntype.TurnType, userPrompt bool, routeErr error) {
-	if _, honoured := router.HonouredPolicyPin(ctx); !honoured {
-		return
-	}
-	installationID := installationIDFromContext(ctx)
-	if installationID == uuid.Nil {
-		return
-	}
-	params := InsertTelemetryParams{
-		InstallationID: installationID.String(),
-		APIKeyID:       apiKeyIDFromContext(ctx),
-		RequestID:      requestID,
-		SpanType:       "router.upstream",
-		TraceID:        requestID,
-		Timestamp:      requestStart,
-		RequestedModel: requestedModel,
-		TurnType:       string(turnType),
-		DecisionReason: DecisionReasonPolicyPinUnservable,
-		ErrorClass:     TurnErrorRoutingRefused,
-		UserPrompt:     &userPrompt,
-		Strategy:       string(router.StrategyFromContext(ctx)),
-		RouterUserID:   auth.UserIDFrom(ctx),
-	}
-	if !errors.Is(routeErr, router.ErrPolicyPinUnavailable) {
-		params.DecisionReason = DecisionReasonRoutingFailed
-	}
-	applyBlindExperimentTelemetry(ctx, &params, nil)
-	applyPolicyPinTelemetry(ctx, &params, nil)
-	s.fireTelemetry(ctx, params)
-}

@@ -8,6 +8,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -66,7 +67,7 @@ func TestRunTurnLoop_ForcedTextOnlyModel_DropsPinForImageTurn(t *testing.T) {
 	assert.False(t, res.StickyHit, "the pin was dropped, so this is not a sticky hit")
 
 	require.Len(t, fr.captured, 1, "exactly one scorer call after the pin is dropped")
-	_, textOnlyExcluded := fr.captured[0].ExcludedModels[textOnlyForcedModel]
+	_, textOnlyExcluded := fr.captured[0].Candidates.ExcludedModels[textOnlyForcedModel]
 	assert.True(t, textOnlyExcluded,
 		"the dropped text-only model must be excluded from the scorer pool, not left available to re-pick")
 }
@@ -125,17 +126,19 @@ func TestRunTurnLoop_ForcedImageCapModel_ReachesProvider(t *testing.T) {
 
 	excludedModels := map[string]struct{}{model: {}}
 	req := router.Request{
-		RequestedModel:           feats.Model,
-		ForceModel:               model,
-		HasImages:                true,
-		ImageCount:               imageCount,
-		EnabledProviders:         map[string]struct{}{providers.ProviderDeepInfra: {}},
-		ExcludedModels:           excludedModels,
-		ImageLimitExcludedModels: excludedModels,
-		SafetyExcludedModels:     excludedModels,
+		RequestedModel:   feats.Model,
+		ForceModel:       model,
+		HasImages:        true,
+		ImageCount:       imageCount,
+		EnabledProviders: map[string]struct{}{providers.ProviderDeepInfra: {}},
+		Candidates: router.Candidates{
+			ExcludedModels:           excludedModels,
+			ImageLimitExcludedModels: excludedModels,
+			SafetyExcludedModels:     excludedModels,
+		},
 	}
 	pin := sessionpin.Pin{Provider: providers.ProviderDeepInfra, Model: model}
-	assert.True(t, forcedPinEligible(pin, req), "the explicit force must survive an image-count-only exclusion")
+	assert.True(t, candidates.ForcedPinEligible(pin, req), "the explicit force must survive an image-count-only exclusion")
 
 	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, req)
 	require.NoError(t, err)
@@ -148,37 +151,4 @@ func TestRunTurnLoop_ForcedImageCapModel_ReachesProvider(t *testing.T) {
 	bindings := svc.resolveBindingsForDispatch(withRequestImageCount(context.Background(), imageCount), res.Decision)
 	require.Len(t, bindings, 1)
 	assert.Equal(t, providers.ProviderDeepInfra, bindings[0].Provider)
-}
-
-func TestReadmitForcedImageLimitCopiesExcludedModels(t *testing.T) {
-	const model = "xiaomi/mimo-v2.6-pro"
-	excluded := map[string]struct{}{model: {}, "other-model": {}}
-	req := router.Request{
-		ImageCount:               17,
-		ExcludedModels:           excluded,
-		ImageLimitExcludedModels: map[string]struct{}{model: {}},
-	}
-
-	readmitted := readmitForcedImageLimit(req, model)
-
-	assert.Zero(t, readmitted.ImageCount)
-	assert.NotContains(t, readmitted.ExcludedModels, model)
-	assert.Contains(t, readmitted.ExcludedModels, "other-model")
-	assert.Contains(t, req.ExcludedModels, model, "readmission must not mutate the caller's exclusion set")
-	assert.Equal(t, 17, req.ImageCount, "readmission must not mutate the caller's request")
-}
-
-// forcedPinEligible is the gate for the hard-pinned-turn fast path, which is a
-// separate branch from the one above and needs the same guard.
-func TestForcedPinEligible_RejectsTextOnlyModelOnImageTurn(t *testing.T) {
-	pin := sessionpin.Pin{Provider: providers.ProviderFireworks, Model: textOnlyForcedModel}
-
-	assert.False(t, forcedPinEligible(pin, router.Request{HasImages: true}),
-		"text-only forced pin must be ineligible for an image-bearing turn")
-	assert.True(t, forcedPinEligible(pin, router.Request{HasImages: false}),
-		"same pin stays eligible without images")
-	assert.True(t, forcedPinEligible(
-		sessionpin.Pin{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6"},
-		router.Request{HasImages: true}),
-		"an image-capable forced pin stays eligible on an image turn")
 }

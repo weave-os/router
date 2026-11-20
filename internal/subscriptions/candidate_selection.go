@@ -64,14 +64,6 @@ func (r *Runtime) reserveCandidate(ctx context.Context, accounts []*auth.Subscri
 		if left.ID == right.ID {
 			return 0
 		}
-		leftPersonal := left.SubscriberID == requester.SubscriberID
-		rightPersonal := right.SubscriberID == requester.SubscriberID
-		if leftPersonal != rightPersonal {
-			if leftPersonal {
-				return -1
-			}
-			return 1
-		}
 		if signals != nil {
 			leftSignal, rightSignal := signals[left.ID], signals[right.ID]
 			if rank := candidateSignalRank(leftSignal) - candidateSignalRank(rightSignal); rank != 0 {
@@ -119,7 +111,7 @@ func (r *Runtime) reserveCandidate(ctx context.Context, accounts []*auth.Subscri
 			probe, probeLastSelected := -1, time.Time{}
 			for i, account := range accounts {
 				load, signal := r.candidateLoads[account.ID], signals[account.ID]
-				if i == 0 || (account.SubscriberID == requester.SubscriberID) != (accounts[0].SubscriberID == requester.SubscriberID) ||
+				if i == 0 ||
 					signal.Exhausted || signal.Billable || load.inFlight > 0 ||
 					account.State == auth.SubscriptionAccountStateExhausted && (account.CooldownUntil == nil || account.CooldownUntil.After(now)) ||
 					!load.lastSelected.IsZero() && now.Sub(load.lastSelected) < candidateExplorationIdle {

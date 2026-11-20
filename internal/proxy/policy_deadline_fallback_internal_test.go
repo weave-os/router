@@ -155,7 +155,9 @@ func runPolicyDeadlineFallbackTurnLoop(
 		EstimatedInputTokens: features.Tokens,
 		HasTools:             features.HasTools,
 		ConversationMessages: conversationMessagesForRouting(env),
-		ExcludedModels:       excluded,
+		Candidates: router.Candidates{
+			ExcludedModels: excluded,
+		},
 	}
 	return svc.runTurnLoop(ctx, env, features, "api-key", uuid.New(), "", http.Header{}, req)
 }

@@ -39,8 +39,22 @@ func (s *Service) holdSessionOffSubscriptionPool(ctx context.Context, provider, 
 	if owner == "" || !compatible || !s.subscriptionPoolUnavailable(ctx, provider, model) {
 		return
 	}
-	s.sessionHolds.cache().Add(owner+"\x00"+string(pool), s.clockNow().Add(subscriptionSessionHold))
+	s.sessionHolds.cache().Add(owner+"\x00"+string(pool), s.clock.Now().Add(subscriptionSessionHold))
 	observability.FromContext(ctx).Info("Session held off subscription pool after capacity failure", "pool", pool, "hold", subscriptionSessionHold)
+}
+
+func (h *subscriptionSessionHolds) withUnservedHoldsReleased(ctx context.Context) context.Context {
+	owner := sessionHoldOwner(ctx)
+	state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	if owner == "" || state == nil {
+		return ctx
+	}
+	for pool := range state.UnavailableProviders {
+		if h.cache().Remove(owner + "\x00" + string(pool)) {
+			observability.FromContext(ctx).Info("Session hold released; no included subscription pool served the turn", "pool", pool)
+		}
+	}
+	return ctx
 }
 
 func (s *Service) withoutHeldSubscriptionModels(ctx context.Context, models []string) []string {
@@ -48,7 +62,7 @@ func (s *Service) withoutHeldSubscriptionModels(ctx context.Context, models []st
 	if owner == "" {
 		return models
 	}
-	now := s.clockNow()
+	now := s.clock.Now()
 	held := func(pool subscriptions.Provider) bool {
 		until, ok := s.sessionHolds.cache().Get(owner + "\x00" + string(pool))
 		return ok && now.Before(until)

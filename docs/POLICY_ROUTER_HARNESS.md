@@ -275,6 +275,13 @@ inside the sidecar. `google-id-token` authentication uses the exact configured
 origin as the token audience and fails router startup when credentials cannot
 build an authenticated client.
 
+Benchmark sidecars use an entry such as
+`{"benchmark-step-down":{"origin":"http://policy:8095","policy_sha256":"<64 lowercase hex characters>"}}`
+on a private benchmark network. Set that strategy's auth mode to `bearer` and
+supply its token through the secret `ROUTER_POLICY_SIDECAR_BEARER_TOKENS` map.
+The router discovers `authoritative_per_turn_selection` at startup and checks
+the response route ID and artifact digest on each selection.
+
 ## Release gates
 
 A policy is ready for production only when all of these are true:

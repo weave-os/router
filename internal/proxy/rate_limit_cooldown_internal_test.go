@@ -47,7 +47,7 @@ var rateLimitTestNow = time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
 
 func newRateLimitTestService(store sessionpin.Store, transient bool) *Service {
 	svc := newRescuedDemotionTestService(store, true).WithTransientRateLimit(transient, 45)
-	svc.now = func() time.Time { return rateLimitTestNow }
+	svc.clock = func() time.Time { return rateLimitTestNow }
 	return svc
 }
 
@@ -65,11 +65,10 @@ func strikeRescuedPrimary(svc *Service, ctx context.Context, err error) (string,
 		true,
 		false,
 		err,
-		rescuedPrimaryDecision("hmm:authoritative model=claude-opus-4-7"),
-		uuid.New(),
-		nonZeroSessionKey(),
-		sessionpin.DefaultRole, sessionpin.DefaultRole,
-	)
+		rescuedPrimaryDecision("hmm:authoritative model=claude-opus-4-7"), sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+
+		sessionpin.DefaultRole, sessionpin.DefaultRole)
+
 }
 
 // A rescued 429 under the flag is a cooldown on both rows the next turn
@@ -159,7 +158,7 @@ func TestRescued429_FlagOffKeepsPermanentDemotion(t *testing.T) {
 	ctx, turn := svc.withRateLimitTurn(context.Background())
 	assert.Nil(t, turn)
 	assert.Nil(t, turn.CompletionLogFields())
-	assert.Nil(t, dispatch.ThrottleLedgerFromContext(ctx).RetryDelay(svc.clockNow))
+	assert.Nil(t, dispatch.ThrottleLedgerFromContext(ctx).RetryDelay(svc.clock.Now))
 
 	model, reason := strikeRescuedPrimary(svc, ctx, upstream429(""))
 
@@ -414,7 +413,7 @@ func TestThrottleRetryDelay_RecordsHonouredRetryAfter(t *testing.T) {
 	svc := newRateLimitTestService(&cooldownStubPinStore{}, true)
 	ctx, turn := svc.withRateLimitTurn(context.Background())
 	require.NotNil(t, turn)
-	retryDelay := dispatch.ThrottleLedgerFromContext(ctx).RetryDelay(svc.clockNow)
+	retryDelay := dispatch.ThrottleLedgerFromContext(ctx).RetryDelay(svc.clock.Now)
 	require.NotNil(t, retryDelay)
 
 	delay, retry := retryDelay(dispatch.Attempt{}, upstream429("3"), 250*time.Millisecond)
@@ -445,7 +444,7 @@ func cooldownTurnLoopService(store sessionpin.Store, transient bool) (*Service, 
 	svc := NewService(scorer, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithTransientRateLimit(transient, 45)
-	svc.now = func() time.Time { return rateLimitTestNow }
+	svc.clock = func() time.Time { return rateLimitTestNow }
 	return svc, scorer
 }
 
@@ -463,7 +462,7 @@ func TestTurnLoopExcludesCoolingArmBeforeExpiry(t *testing.T) {
 	assert.Equal(t, freshTurnModel, res.Decision.Model)
 	assert.False(t, res.StickyHit, "a cooling pin must not be reused")
 	require.Len(t, scorer.requests, 1)
-	assert.Contains(t, scorer.requests[0].AutomaticExcludedModels, demotedPinModel)
+	assert.Contains(t, scorer.requests[0].Candidates.AutomaticExcludedModels, demotedPinModel)
 	assert.Equal(t, []string{demotedPinModel}, res.SessionDemotedModels)
 	assert.Equal(t, map[string]time.Time{demotedPinModel: until}, res.SessionCooldownModels)
 }
@@ -481,7 +480,7 @@ func TestTurnLoopReadmitsArmAfterCooldownExpiry(t *testing.T) {
 	assert.Equal(t, demotedPinModel, res.Decision.Model, "the cooled arm is served again")
 	assert.True(t, res.StickyHit)
 	for _, req := range scorer.requests {
-		assert.NotContains(t, req.AutomaticExcludedModels, demotedPinModel)
+		assert.NotContains(t, req.Candidates.AutomaticExcludedModels, demotedPinModel)
 	}
 	assert.Empty(t, res.SessionDemotedModels)
 	assert.Empty(t, res.SessionCooldownModels)
@@ -500,7 +499,7 @@ func TestTurnLoopHonoursCooldownRecordedOnHMMHistory(t *testing.T) {
 
 	assert.Equal(t, freshTurnModel, res.Decision.Model)
 	require.Len(t, scorer.requests, 1)
-	assert.Contains(t, scorer.requests[0].AutomaticExcludedModels, demotedPinModel)
+	assert.Contains(t, scorer.requests[0].Candidates.AutomaticExcludedModels, demotedPinModel)
 	assert.Equal(t, map[string]time.Time{demotedPinModel: until}, res.SessionCooldownModels)
 }
 
@@ -518,7 +517,7 @@ func TestTurnLoopPermanentStrikeOutranksLeftoverCooldown(t *testing.T) {
 
 	assert.Equal(t, freshTurnModel, res.Decision.Model)
 	require.Len(t, scorer.requests, 1)
-	assert.Contains(t, scorer.requests[0].AutomaticExcludedModels, demotedPinModel)
+	assert.Contains(t, scorer.requests[0].Candidates.AutomaticExcludedModels, demotedPinModel)
 	assert.Equal(t, []string{demotedPinModel}, res.SessionDemotedModels)
 	assert.Nil(t, res.SessionCooldownModels, "a lifetime strike is never readmitted as a cooldown")
 	assert.Equal(t, []string{demotedPinModel}, res.SessionStrikeReadmitModels, "only as the struck-out last resort")
@@ -537,7 +536,7 @@ func TestTurnLoopIgnoresCooldownsWhenFlagOff(t *testing.T) {
 	assert.Equal(t, demotedPinModel, res.Decision.Model)
 	assert.True(t, res.StickyHit)
 	for _, req := range scorer.requests {
-		assert.NotContains(t, req.AutomaticExcludedModels, demotedPinModel)
+		assert.NotContains(t, req.Candidates.AutomaticExcludedModels, demotedPinModel)
 	}
 	assert.Empty(t, res.SessionDemotedModels)
 	assert.Nil(t, res.SessionCooldownModels)

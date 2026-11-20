@@ -94,3 +94,15 @@ func (s *Service) TryAcquireSubscriptionMaintenanceRefreshLease(ctx context.Cont
 	}
 	return repo.TryAcquireSubscriptionMaintenanceRefreshLease(ctx, accountID, owner, leaseID, ttl)
 }
+
+type SubscriptionKeepWarmRepository interface {
+	ListSubscriptionAccountsDueForKeepWarm(context.Context, time.Time, int32) ([]*SubscriptionAccount, error)
+}
+
+func (s *Service) ListSubscriptionAccountsDueForKeepWarm(ctx context.Context, refreshedBefore time.Time, limit int32) ([]*SubscriptionAccount, error) {
+	repo, ok := s.subscriptionAccounts.(SubscriptionKeepWarmRepository)
+	if !ok {
+		return nil, errors.New("subscription keep-warm is not configured")
+	}
+	return repo.ListSubscriptionAccountsDueForKeepWarm(ctx, refreshedBefore, limit)
+}

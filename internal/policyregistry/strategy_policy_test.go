@@ -67,13 +67,13 @@ func TestServingCandidatePinsAnIndependentQwenRoster(t *testing.T) {
 			if strategy == router.StrategyHMMQwen {
 				expectedRoster, expectedReference = qwenPolicy.Roster, strategyPolicy
 			}
-			arms, err := source.Roster(ctx)
+			arms, err := source.Roster(ctx, strategy)
 			require.NoError(t, err)
 			require.Equal(t, expectedRoster.AllArms(), arms)
-			distribution, err := source.DistributionRoster(ctx)
+			distribution, err := source.DistributionRoster(ctx, strategy)
 			require.NoError(t, err)
 			require.Same(t, expectedRoster, distribution)
-			clusters, err := source.ClusterRoster(ctx)
+			clusters, err := source.ClusterRoster(ctx, strategy)
 			require.NoError(t, err)
 			require.Equal(t, expectedReference.SHA256, clusters.PolicySHA256)
 		})

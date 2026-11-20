@@ -167,7 +167,13 @@ export function registerEscalationCompaction(
 				headers: { ...providerHeaders(getRole(), key), "content-type": "application/json" },
 				body: JSON.stringify(payload), signal: AbortSignal.any(signals),
 			});
-			if (!response.ok) throw new Error(`Route preparation returned HTTP ${response.status}; the router must support Pi handoffs`);
+			if (!response.ok) {
+				const body: unknown = await response.json().catch(() => undefined);
+				const message = isRecord(body) && isRecord(body.error) && typeof body.error.message === "string"
+					? body.error.message.trim() : "";
+				const status = `Route preparation returned HTTP ${response.status}`;
+				throw new Error(message ? `${status}: ${message}` : status);
+			}
 			const prepared = parsePreparedRoute(await response.json());
 			if (requestGeneration !== generation || ctx.signal?.aborted) {
 				ctx.abort();

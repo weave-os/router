@@ -27,8 +27,10 @@ func TestRecoveryAcceptanceRescued502HasBoundedWithdrawal(t *testing.T) {
 	svc := newRateLimitTestService(store, true, 45)
 	primary := router.Decision{Provider: providers.ProviderOpenAIGateway, Model: catalog.ModelGPT6Luna}
 	model, _ := svc.maybeStrikeArmAfterRescuedFailure(context.Background(), true, false,
-		&providers.UpstreamErrorResponse{Status: http.StatusBadGateway}, primary,
-		uuid.New(), nonZeroSessionKey(), sessionpin.DefaultRole, sessionpin.DefaultRole)
+		&providers.UpstreamErrorResponse{Status: http.StatusBadGateway}, primary, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+
+		sessionpin.DefaultRole, sessionpin.DefaultRole)
+
 	require.Equal(t, catalog.ModelGPT6Luna, model)
 	assert.Empty(t, store.demotions, "a single transient 502 must not create session-lifetime withdrawal")
 	require.Len(t, store.cooldowns, 2, "temporary withdrawal must cover base and history roles")
@@ -136,7 +138,7 @@ type recoveryObservedRouter struct {
 
 func (r *recoveryObservedRouter) Route(_ context.Context, req router.Request) (router.Decision, error) {
 	r.requests <- req
-	if _, excluded := req.AutomaticExcludedModels[catalog.ModelGPT6Luna]; excluded {
+	if _, excluded := req.Candidates.AutomaticExcludedModels[catalog.ModelGPT6Luna]; excluded {
 		return router.Decision{Provider: providers.ProviderAnthropicGateway, Model: recoveryOpusModel}, nil
 	}
 	return router.Decision{Provider: providers.ProviderOpenAIGateway, Model: catalog.ModelGPT6Luna}, nil
@@ -153,14 +155,14 @@ func TestRecoveryAcceptanceCooldownExpiryAdmitsOneConcurrentProbe(t *testing.T) 
 	svc := NewService(scorer, map[string]providers.Client{providers.ProviderOpenAIGateway: provider, providers.ProviderAnthropicGateway: sibling},
 		nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil).WithTransientRateLimit(true, 45)
 	now := rateLimitTestNow.Add(-time.Nanosecond)
-	svc.now = func() time.Time { return now }
+	svc.clock = func() time.Time { return now }
 	ctx, cancel := context.WithTimeout(twoModelGatewayContext(), 5*time.Second)
 	defer cancel()
 	body := []byte(`{"model":"gpt-6-luna","stream":true,"messages":[{"role":"user","content":"synthetic concurrent recovery"}]}`)
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/messages", nil)))
 	require.Equal(t, recoveryOpusModel, rec.Header().Get(HeaderRouterModel))
-	require.Contains(t, (<-scorer.requests).AutomaticExcludedModels, catalog.ModelGPT6Luna, "before expiry the real turn loop must load the history cooldown")
+	require.Contains(t, (<-scorer.requests).Candidates.AutomaticExcludedModels, catalog.ModelGPT6Luna, "before expiry the real turn loop must load the history cooldown")
 	require.Empty(t, provider.entered)
 	now = rateLimitTestNow
 	var callersDone sync.WaitGroup
@@ -178,7 +180,7 @@ func TestRecoveryAcceptanceCooldownExpiryAdmitsOneConcurrentProbe(t *testing.T) 
 	for range callers {
 		select {
 		case req := <-scorer.requests:
-			if _, excluded := req.AutomaticExcludedModels[catalog.ModelGPT6Luna]; !excluded {
+			if _, excluded := req.Candidates.AutomaticExcludedModels[catalog.ModelGPT6Luna]; !excluded {
 				probeEligible++
 			}
 		case <-ctx.Done():

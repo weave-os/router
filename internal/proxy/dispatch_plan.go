@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"strings"
-	"time"
 
 	"context"
 	"errors"
@@ -19,6 +18,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/subscriptionlane"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
 )
@@ -56,7 +56,7 @@ func (s *Service) inferenceExecutor() (*dispatch.Executor, error) {
 	}
 	var err error
 	s.defaultExecutorOnce.Do(func() {
-		opts := []dispatch.Option{dispatch.WithClock(s.clockNow)}
+		opts := []dispatch.Option{dispatch.WithClock(s.clock.Now)}
 		if s.retrySleep != nil {
 			opts = append(opts, dispatch.WithSleep(s.retrySleep))
 		}
@@ -121,7 +121,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			return errors.As(err, &abort)
 		},
 		Bound:      func(dispatch.Attempt, error) bool { return managedBinding },
-		RetryDelay: dispatch.ThrottleLedgerFromContext(ctx).RetryDelay(s.clockNow),
+		RetryDelay: dispatch.ThrottleLedgerFromContext(ctx).RetryDelay(s.clock.Now),
 	}
 	transport.Attempt = func(attemptCtx context.Context, attempt dispatch.Attempt, client providers.Client) error {
 		decision := in.initialDecision
@@ -129,7 +129,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 		guarded := dispatch.GuardTarget(client, attempt.Target)
 		trace := attemptTraceFromContext(ctx)
 		if trace != nil {
-			trace.BeginAttempt(attempt.Target, gatewayDeploymentBaseURL(attempt.Target.Provider, client), time.Now())
+			trace.BeginAttempt(attempt.Target, gatewayDeploymentBaseURL(attempt.Target.Provider, client), s.clock.Now())
 			guarded = dispatch.ObservePrepared(guarded, observeAttemptSent(trace))
 		}
 		var lastSubscriptionErr error
@@ -148,14 +148,14 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			}
 			if current := CredentialsFromContext(attemptCtx); current != nil && current.OAuth && !s.supportsSubscriptionTransport(decision.Provider) {
 				if subscriptionAttemptOnly(ctx) || paidFallbackForbidden(ctx) || !s.managedProviderFallbackAvailable(ctx, subscriptions.ProviderCodex) && decision.Provider == providers.ProviderOpenAI || !s.managedProviderFallbackAvailable(ctx, subscriptions.ProviderClaude) && decision.Provider == providers.ProviderAnthropic {
-					return dispatchAbort{err: ErrSubscriptionPoolUnavailable}
+					return dispatchAbort{err: subscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable)}
 				}
 				attemptCtx = resolveAndInjectCredentials(withSuppressedClaudeSubscription(withSuppressedCodexSubscription(attemptCtx)), decision.Provider, decision.Model, http.Header{})
 			}
 			if !subscriptionAPIOnly(attemptCtx) && rotationBudget.remaining <= 0 {
-				return dispatchAbort{err: s.afterSubscriptionRotationBudget(ctx, decision, account, ErrSubscriptionPoolUnavailable)}
+				return dispatchAbort{err: s.afterSubscriptionRotationBudget(ctx, decision, account, subscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolUnavailable))}
 			}
-			leaseCtx, finishLease := rotationBudget.leaseContext(attemptCtx, s.clockNow)
+			leaseCtx, finishLease := rotationBudget.leaseContext(attemptCtx, s.clock.Now)
 			if subscriptionAPIOnly(attemptCtx) {
 				finishLease()
 				leaseCtx = attemptCtx
@@ -169,7 +169,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			}
 			if leaseErr != nil {
 				if forcedClaudeClientAppRefused(ctx, decision, nil) {
-					return dispatchAbort{err: errors.Join(ErrSubscriptionClientAppRefused, leaseErr, lastSubscriptionErr)}
+					return dispatchAbort{err: errors.Join(subscriptionClientAppRefusal(ctx), leaseErr, lastSubscriptionErr)}
 				}
 				return dispatchAbort{err: errors.Join(leaseErr, lastSubscriptionErr)}
 			}
@@ -189,12 +189,12 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			}
 			if forcedClaudeClientAppRefused(ctx, decision, CredentialsFromContext(credentialCtx)) {
 				lease.Release()
-				return dispatchAbort{err: ErrSubscriptionClientAppRefused}
+				return dispatchAbort{err: subscriptionClientAppRefusal(ctx)}
 			}
 			if paidAttemptForbidden(ctx, CredentialsFromContext(credentialCtx)) {
 				lease.Release()
 				if claudeEnterpriseTurn(ctx) {
-					return dispatchAbort{err: ErrClaudeEnterpriseSubscriptionUnavailable}
+					return dispatchAbort{err: claudeEnterpriseRefusal(ctx)}
 				}
 				return dispatchAbort{err: subscriptionOnlyUnavailable(ctx)}
 			}
@@ -207,15 +207,14 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 					}
 				}
 			}
-			attemptStarted := time.Now()
-			attemptErr := in.attempt(credentialCtx, decision, guarded)
+			attemptStarted, attemptErr := invokeLeasedProviderAttempt(s, credentialCtx, plan, leasedProviderAttempt{inputs: in, decision: decision, target: attempt.Target, lease: lease, client: guarded, managed: managedAttempt})
 
 			bookkeepingCtx := context.WithoutCancel(credentialCtx)
 			if managedAttempt {
 				observability.FromContext(bookkeepingCtx).Info("Subscription account attempt completed",
 					"subscription_event", auth.SubscriptionCredentialEventAttempted, "account_id", lease.AccountID,
 					"provider", decision.Provider, "succeeded", attemptErr == nil,
-					"upstream_status", upstreamStatus(attemptErr), "attempt_ms", time.Since(attemptStarted).Milliseconds(),
+					"upstream_status", upstreamStatus(attemptErr), "attempt_ms", s.clock.Now().Sub(attemptStarted).Milliseconds(),
 					"response_committed", committed(in.buf), "subscription_account_attempt", account+1)
 			}
 			if creds := CredentialsFromContext(credentialCtx); !managedAttempt && creds != nil && creds.OAuth && attemptErr != nil {
@@ -270,7 +269,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			}
 			if trace != nil {
 				describeAttempt(ctx, trace, attempt, attemptErr)
-				trace.BeginAttempt(attempt.Target, gatewayDeploymentBaseURL(attempt.Target.Provider, client), time.Now())
+				trace.BeginAttempt(attempt.Target, gatewayDeploymentBaseURL(attempt.Target.Provider, client), s.clock.Now())
 			}
 			lastSubscriptionErr = attemptErr
 			if rotationBudget.remaining <= 0 {
@@ -300,17 +299,14 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 		return lastIdx, nil
 	}
 	var abort dispatchAbort
-	if errors.As(runErr, &abort) {
-		if in.flushErr != nil && !in.deferFlushOnExhaustion && !committed(in.buf) {
-			in.flushErr(in.w, abort.err)
-		}
-		return lastIdx, abort.err
-	}
-	switch result.Summary.FallbackReason {
-	case dispatch.FailureReasonProviderNotConfigured, dispatch.FailureReasonPrepare:
+	switch reason := result.Summary.FallbackReason; {
+	case errors.As(runErr, &abort):
+		runErr = attributeCodexUsageLimitAbort(attemptTraceFromContext(ctx), abort.err)
+	case reason == dispatch.FailureReasonProviderNotConfigured, reason == dispatch.FailureReasonPrepare:
 		return lastIdx, runErr
+	default:
+		runErr = attributeTerminalError(attemptTraceFromContext(ctx), runErr)
 	}
-	runErr = attributeTerminalError(attemptTraceFromContext(ctx), runErr)
 	if in.flushErr != nil && !in.deferFlushOnExhaustion && !committed(in.buf) {
 		in.flushErr(in.w, runErr)
 	}
@@ -341,7 +337,7 @@ func (s *Service) InspectInferencePlan(request policy.InspectionRequest) (policy
 func (s *Service) afterSubscriptionRotationBudget(ctx context.Context, decision router.Decision, subscriptionAttempts int, rotationErr error) error {
 	observability.FromContext(ctx).Warn("Subscription admission budget spent; refusing unproven paid recovery", "model", decision.Model, "provider", decision.Provider, "budget_ms", subscriptionRotationBudget.Milliseconds(), "subscription_account_attempt", subscriptionAttempts, "err", rotationErr)
 	if forcedClaudeClientAppRefused(ctx, decision, nil) {
-		return errors.Join(ErrSubscriptionClientAppRefused, rotationErr)
+		return errors.Join(subscriptionClientAppRefusal(ctx), rotationErr)
 	}
 	if errors.Is(rotationErr, ErrSubscriptionPoolUnavailable) {
 		return rotationErr

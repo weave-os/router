@@ -53,10 +53,20 @@ func TestLookup_GPT6AstraReasoning(t *testing.T) {
 	assert.True(t, spec.Reasoning().AlwaysOn)
 }
 
-func TestLookup_Gemini4ArgonReasoning(t *testing.T) {
-	spec := router.Lookup(router.ModelGemini4Argon)
-	assert.Equal(t, []string{"low", "medium", "high"}, spec.Reasoning().Levels)
-	assert.True(t, spec.Reasoning().AlwaysOn)
+func TestLookup_Gemini4Reasoning(t *testing.T) {
+	for _, tc := range []struct {
+		model  string
+		levels []string
+		xhigh  bool
+	}{
+		{router.ModelGemini4Argon, []string{"low", "medium", "high"}, false},
+		{router.ModelGemini4Neon, []string{"low", "medium", "high", "xhigh", "max"}, true},
+	} {
+		spec := router.Lookup(tc.model)
+		assert.Equal(t, tc.levels, spec.Reasoning().Levels, tc.model)
+		assert.True(t, spec.Reasoning().AlwaysOn, tc.model)
+		assert.Equal(t, tc.xhigh, spec.Supports(router.CapXhighEffort), tc.model)
+	}
 }
 
 func TestLookup_Haiku55AcceptsDisabledThinkingAndForcedTools(t *testing.T) {
@@ -73,4 +83,33 @@ func TestLookup_GPT61SolRequiresReasoning(t *testing.T) {
 	assert.True(t, spec.Supports(router.CapReasoning))
 	assert.Equal(t, []string{"low", "medium", "high", "xhigh", "max"}, spec.Reasoning().Levels)
 	assert.True(t, spec.Reasoning().AlwaysOn)
+}
+
+func TestLookup_GPT62RequiresReasoning(t *testing.T) {
+	for _, id := range []string{"gpt-6.2-sol", "gpt-6.2-astra"} {
+		spec := router.Lookup(id)
+		assert.True(t, spec.Supports(router.CapReasoning), id)
+		assert.True(t, spec.Reasoning().AlwaysOn, id)
+	}
+}
+
+func TestLookup_ThinkingOffSwitch(t *testing.T) {
+	for model, want := range map[string]router.ThinkingOff{
+		"claude-sonnet-5-5": router.ThinkingOffBetweenTools,
+		"claude-opus-5-5":   router.ThinkingOffAdaptiveLowEffort,
+		"claude-fable-5":    router.ThinkingOffAdaptiveLowEffort,
+		"claude-fable-5-1":  router.ThinkingOffAdaptiveLowEffort,
+		"claude-fable-5-2":  router.ThinkingOffAdaptiveLowEffort,
+		"claude-mythos-5-2": router.ThinkingOffAdaptiveLowEffort,
+		"claude-opus-5":     router.ThinkingOffDisabled,
+		"claude-opus-4-8":   router.ThinkingOffDisabled,
+		"claude-opus-4-7":   router.ThinkingOffDisabled,
+		"claude-sonnet-5":   router.ThinkingOffDisabled,
+		"claude-sonnet-4-6": router.ThinkingOffDisabled,
+		"claude-opus-4-6":   router.ThinkingOffDisabled,
+		"claude-haiku-5-5":  router.ThinkingOffDisabled,
+		"claude-haiku-4-5":  router.ThinkingOffDisabled,
+	} {
+		assert.Equal(t, want, router.Lookup(model).Reasoning().ThinkingOff, model)
+	}
 }

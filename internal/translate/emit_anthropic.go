@@ -299,15 +299,16 @@ func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) error {
 	messages.ForEach(func(_, msg gjson.Result) bool {
 		role := msg.Get("role").String()
 		content := msg.Get("content")
+		isInstruction := role == "system" || role == "developer"
 
 		var built string
 		var err error
 		switch {
-		case role == "system" && !leading:
+		case isInstruction && !leading:
 			flushToolBatch()
 			built, err = buildAnthropicUserMessage("user", content)
 
-		case role == "system":
+		case isInstruction:
 			systemBlocks = append(systemBlocks, anthropicSystemTextBlocks(content, sourceMessageCacheControl(msg))...)
 			return true
 

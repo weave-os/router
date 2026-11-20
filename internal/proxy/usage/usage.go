@@ -104,6 +104,7 @@ type Observer struct {
 	data map[CredentialKey]Snapshot
 
 	rejected map[CredentialKey]time.Time
+	seats    *seatRecording
 }
 
 func NewObserver(salt []byte, ttl time.Duration, now func() time.Time) *Observer {

@@ -25,15 +25,14 @@ func (s *Service) maybeDemoteArmAfterCommittedStreamFailure(
 	proxyErr error,
 	model string,
 	decisionReason string,
-	installationID uuid.UUID,
-	sessionKey [sessionpin.SessionKeyLen]byte,
+	target sessionTarget,
 	role string,
 	pinRole string,
 ) string {
-	if !s.ResolveCommittedStreamArmDemotion(ctx) || s.pinStore == nil || installationID == uuid.Nil {
+	if !s.ResolveCommittedStreamArmDemotion(ctx) || s.pinStore == nil || target.installationID == uuid.Nil {
 		return ""
 	}
-	if sessionKey == ([sessionpin.SessionKeyLen]byte{}) || model == "" || hardPinned {
+	if target.sessionKey == ([sessionpin.SessionKeyLen]byte{}) || model == "" || hardPinned {
 		return ""
 	}
 	if strings.HasPrefix(decisionReason, translate.ReasonUserForceModel) {
@@ -42,7 +41,7 @@ func (s *Service) maybeDemoteArmAfterCommittedStreamFailure(
 	if !committedStream || !isCommittedStreamFailure(ctx, proxyErr) {
 		return ""
 	}
-	if !s.demoteArmForSession(ctx, model, sessionpin.DemotionReasonCommittedStreamFailure, time.Time{}, upstreamStatus(proxyErr), installationID, sessionKey, role, pinRole) {
+	if !s.demoteArmForSession(ctx, model, sessionpin.DemotionReasonCommittedStreamFailure, time.Time{}, upstreamStatus(proxyErr), target, role, pinRole) {
 		return ""
 	}
 	return model
@@ -54,10 +53,9 @@ func (s *Service) maybeDemoteArmAfterRescuedFailure(
 	hardPinned bool,
 	primaryErr error,
 	primary router.Decision,
-	installationID uuid.UUID,
-	sessionKey [sessionpin.SessionKeyLen]byte,
+	target sessionTarget,
 ) string {
-	model, _ := s.maybeStrikeArmAfterRescuedFailure(ctx, rescueRan, hardPinned, primaryErr, primary, installationID, sessionKey, sessionpin.DefaultRole, sessionpin.DefaultRole)
+	model, _ := s.maybeStrikeArmAfterRescuedFailure(ctx, rescueRan, hardPinned, primaryErr, primary, target, sessionpin.DefaultRole, sessionpin.DefaultRole)
 	return model
 }
 
@@ -67,15 +65,14 @@ func (s *Service) maybeStrikeArmAfterRescuedFailure(
 	hardPinned bool,
 	primaryErr error,
 	primary router.Decision,
-	installationID uuid.UUID,
-	sessionKey [sessionpin.SessionKeyLen]byte,
+	target sessionTarget,
 	role string,
 	pinRole string,
 ) (string, sessionpin.DemotionReason) {
-	if s.pinStore == nil || installationID == uuid.Nil {
+	if s.pinStore == nil || target.installationID == uuid.Nil {
 		return "", ""
 	}
-	if sessionKey == ([sessionpin.SessionKeyLen]byte{}) || primary.Model == "" || hardPinned {
+	if target.sessionKey == ([sessionpin.SessionKeyLen]byte{}) || primary.Model == "" || hardPinned {
 		return "", ""
 	}
 	if strings.HasPrefix(primary.Reason, translate.ReasonUserForceModel) {
@@ -96,14 +93,14 @@ func (s *Service) maybeStrikeArmAfterRescuedFailure(
 		reason = sessionpin.DemotionReasonResponseHeaderTimeout
 	} else if s.ResolveTransientRateLimit(ctx) && isTransientGatewayFailure(primaryErr) {
 		cooldown := s.ResolveRateLimitCooldown(ctx)
-		reason, cooldownUntil = sessionpin.DemotionReasonTransientFailure, s.clockNow().Add(cooldown)
+		reason, cooldownUntil = sessionpin.DemotionReasonTransientFailure, s.clock.Now().Add(cooldown)
 		dispatch.ThrottleLedgerFromContext(ctx).RecordCooldown(cooldownUntil, cooldown)
 	} else if s.ResolveTransientRateLimit(ctx) && isRateLimitedPrimaryFailure(primaryErr) {
 		cooldown := s.ResolveRateLimitCooldown(ctx)
-		reason, cooldownUntil = sessionpin.DemotionReasonRateLimited, s.clockNow().Add(cooldown)
+		reason, cooldownUntil = sessionpin.DemotionReasonRateLimited, s.clock.Now().Add(cooldown)
 		dispatch.ThrottleLedgerFromContext(ctx).RecordCooldown(cooldownUntil, cooldown)
 	}
-	if !s.demoteArmForSession(ctx, primary.Model, reason, cooldownUntil, upstreamStatus(primaryErr), installationID, sessionKey, role, pinRole) {
+	if !s.demoteArmForSession(ctx, primary.Model, reason, cooldownUntil, upstreamStatus(primaryErr), target, role, pinRole) {
 		return "", ""
 	}
 	return primary.Model, reason
@@ -123,16 +120,15 @@ func (s *Service) maybeDemoteArmAfterUnrescuedStall(
 	rescueRan, committed, hardPinned bool,
 	stallErr error,
 	failed router.Decision,
-	installationID uuid.UUID,
-	sessionKey [sessionpin.SessionKeyLen]byte,
+	target sessionTarget,
 	role, pinRole string,
 ) string {
-	if !s.ResolveRescuedFailureArmDemotion(ctx) || s.pinStore == nil || installationID == uuid.Nil ||
-		sessionKey == ([sessionpin.SessionKeyLen]byte{}) || failed.Model == "" || hardPinned || rescueRan || committed || ctx.Err() != nil ||
+	if !s.ResolveRescuedFailureArmDemotion(ctx) || s.pinStore == nil || target.installationID == uuid.Nil ||
+		target.sessionKey == ([sessionpin.SessionKeyLen]byte{}) || failed.Model == "" || hardPinned || rescueRan || committed || ctx.Err() != nil ||
 		strings.HasPrefix(failed.Reason, translate.ReasonUserForceModel) || !isUpstreamWatchdogError(stallErr) {
 		return ""
 	}
-	if !s.demoteArmForSession(ctx, failed.Model, sessionpin.DemotionReasonUnrescuedStall, time.Time{}, upstreamStatus(stallErr), installationID, sessionKey, role, pinRole) {
+	if !s.demoteArmForSession(ctx, failed.Model, sessionpin.DemotionReasonUnrescuedStall, time.Time{}, upstreamStatus(stallErr), target, role, pinRole) {
 		return ""
 	}
 	return failed.Model
@@ -144,8 +140,7 @@ func (s *Service) demoteArmForSession(
 	reason sessionpin.DemotionReason,
 	cooldownUntil time.Time,
 	primaryStatus int,
-	installationID uuid.UUID,
-	sessionKey [sessionpin.SessionKeyLen]byte,
+	target sessionTarget,
 	role string,
 	pinRole string,
 ) bool {
@@ -166,14 +161,13 @@ func (s *Service) demoteArmForSession(
 	if role == "" {
 		role = sessionpin.DefaultRole
 	}
-	strategy := router.StrategyFromContext(ctx)
 	cooldownStore, hasCooldownStore := s.pinStore.(sessionpin.CooldownStore)
 	if !cooldownUntil.IsZero() && !hasCooldownStore {
 		log.Warn("session pin store cannot persist a cooldown, demoting for the session", "model", model, "reason", string(reason))
 		cooldownUntil = time.Time{}
 	}
 	for _, strikeRole := range demotionRoles(role, pinRole) {
-		expired := expiredSessionPin(installationID, sessionKey, strikeRole, string(reason), strategy)
+		expired := expiredSessionPin(target.installationID, target.sessionKey, strikeRole, string(reason), target.strategy, s.clock.Now())
 		var err error
 		if cooldownUntil.IsZero() {
 			err = s.pinStore.ExpireAndDemoteModel(context.WithoutCancel(ctx), expired, model, reason)
@@ -185,7 +179,7 @@ func (s *Service) demoteArmForSession(
 			return false
 		}
 	}
-	if err := s.invalidatePostCommandContinuation(ctx, sessionKey, pinRole); err != nil {
+	if err := s.invalidatePostCommandContinuation(ctx, target.strategy, target.sessionKey, pinRole); err != nil {
 		log.Error("continuation invalidation after session model demotion failed", "err", err, "role", role, "pin_role", pinRole, "model", model, "reason", string(reason))
 		return false
 	}

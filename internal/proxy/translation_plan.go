@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"time"
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -102,7 +101,7 @@ func (s *Service) planTranslation(req router.Request) TranslationPlan {
 	if req.EnabledProviders != nil {
 		plan.EnabledProviders = cloneStringSet(req.EnabledProviders)
 	}
-	plan.ExcludedModels = cloneStringSet(req.ExcludedModels)
+	plan.ExcludedModels = cloneStringSet(req.Candidates.ExcludedModels)
 
 	requirements := req.TranslationRequirements
 	if requirements.IsZero() {
@@ -296,7 +295,7 @@ func (s *Service) applyTranslationPlan(ctx context.Context, req router.Request) 
 		req.EnabledProviders = plan.EnabledProviders
 	}
 	if plan.ExcludedModels != nil {
-		req.ExcludedModels = plan.ExcludedModels
+		req.Candidates.ExcludedModels = plan.ExcludedModels
 	}
 	for _, exclusion := range plan.Exclusions {
 		if metrics := s.translationMetrics; metrics != nil {
@@ -311,7 +310,7 @@ func (s *Service) applyTranslationPlan(ctx context.Context, req router.Request) 
 		}
 		telemetry.RecordLog(ctx, telemetry.LogRecord{
 			Name: "translation.compatibility",
-			Time: time.Now(),
+			Time: s.clock.Now(),
 			Attrs: telemetry.NewAttrBuilder(7).
 				String("translation.requirement", exclusion.Code).
 				String("translation.source_format", string(req.TranslationRequirements.SourceFormat)).
