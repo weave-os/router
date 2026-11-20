@@ -176,13 +176,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		engine.GET("/v1/router/models", middleware.WithTimeout(catalogModelsTimeout), admin.CatalogModelsHandler(hmmModels))
 	}
 
-	if features.RoutingDistribution != nil {
-		discovery.GET("/v1/router/routing-distribution", middleware.WithTimeout(healthTimeout), admin.RoutingDistributionHandler(features.RoutingDistribution))
-	}
-
-	if len(hmmRosterSources) > 0 {
-		discovery.GET("/v1/router/hmm-roster", middleware.WithTimeout(readinessTimeout), admin.HMMRosterHandler(hmmRosterSources, features.RosterCatalogID))
-	}
+	registerStrategyDiscovery(discovery, hmmRosterSources, features)
 
 	if internalToken := strings.TrimSpace(os.Getenv("ROUTER_INTERNAL_SERVICE_TOKEN")); internalToken != "" {
 		internalGroup := engine.Group("/internal/v1", middleware.WithTimeout(adminTimeout), middleware.WithInternalServiceAuth(internalToken))
@@ -200,7 +194,9 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		internalGroup.GET("/inference-policies", admin.InternalInferencePoliciesHandler(proxySvc))
 		internalGroup.GET("/inference-policies/deployment", admin.InternalInferenceDeploymentHandler(proxySvc))
 		internalGroup.POST("/inference-policies/resolve", admin.InternalInferenceResolveHandler(proxySvc))
-		internalGroup.POST("/task-domain/preview", admin.InternalTaskDomainPreviewHandler(features.TaskDomainPreview))
+		if features.TaskDomainPreview != nil {
+			internalGroup.POST("/task-domain/preview", admin.InternalTaskDomainPreviewHandler(features.TaskDomainPreview))
+		}
 		internalGroup.GET("/escalation/sessions", admin.InternalLLMEscalationSessionsHandler(proxySvc))
 		internalGroup.GET("/escalation/dashboard", admin.InternalEscalationDashboardHandler(proxySvc))
 		internalGroup.GET("/escalation/sessions/:scope", admin.InternalLLMEscalationSessionHandler(proxySvc))
@@ -455,4 +451,14 @@ func registerUIStatic(engine *gin.Engine, root string) {
 	engine.HEAD("/ui", handler)
 	engine.GET("/ui/*filepath", handler)
 	engine.HEAD("/ui/*filepath", handler)
+}
+
+func registerStrategyDiscovery(discovery gin.IRoutes, hmmRosterSources map[router.Strategy]policy.RosterSource, features Features) {
+	if features.RoutingDistribution != nil {
+		discovery.GET("/v1/router/routing-distribution", middleware.WithTimeout(healthTimeout), admin.RoutingDistributionHandler(features.RoutingDistribution))
+	}
+
+	if len(hmmRosterSources) > 0 && features.RosterCatalogID != nil {
+		discovery.GET("/v1/router/hmm-roster", middleware.WithTimeout(readinessTimeout), admin.HMMRosterHandler(hmmRosterSources, features.RosterCatalogID))
+	}
 }
