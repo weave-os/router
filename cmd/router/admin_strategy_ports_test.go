@@ -1,0 +1,59 @@
+package main
+
+import (
+	"context"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/hmm/selection"
+	"weave-os/router/internal/server"
+	"weave-os/router/internal/server/middleware"
+)
+
+type fixtureDistributionSource struct{ name string }
+
+func (fixtureDistributionSource) DistributionRoster(context.Context, router.Strategy) (router.DistributionRoster, error) {
+	return nil, nil
+}
+
+func TestHMMRoutingDistributionWrapsRosters(t *testing.T) {
+	rosters := policyregistry.AdmittedRosterSource{}
+	assert.Equal(t, selection.DistributionSource{Rosters: rosters}, hmmRoutingDistribution(rosters))
+}
+
+func TestWithHMMAdminPortsSelfHostedKeepsConfiguredDistribution(t *testing.T) {
+	configured := fixtureDistributionSource{name: "configured"}
+	features := withHMMAdminPorts(server.Features{SubscriptionPoolsEnabled: true}, nil, configured)
+
+	assert.Equal(t, configured, features.RoutingDistribution, "without serving admission the configured distribution source backs the route")
+	assert.True(t, features.SubscriptionPoolsEnabled, "existing features are preserved")
+	assertHMMAdminPortsWired(t, features)
+}
+
+func TestWithHMMAdminPortsServingAdmissionUsesAdmittedRosters(t *testing.T) {
+	configured := fixtureDistributionSource{name: "configured"}
+	features := withHMMAdminPorts(server.Features{}, &middleware.ServingAdmissionConfig{}, configured)
+
+	assert.Equal(t, selection.DistributionSource{Rosters: policyregistry.AdmittedRosterSource{}}, features.RoutingDistribution,
+		"with serving admission the distribution reads the admitted roster, not the configured source")
+	assertHMMAdminPortsWired(t, features)
+}
+
+func TestWithHMMAdminPortsLeavesNilDistributionUnwired(t *testing.T) {
+	features := withHMMAdminPorts(server.Features{}, nil, nil)
+	assert.Nil(t, features.RoutingDistribution)
+}
+
+func assertHMMAdminPortsWired(t *testing.T, features server.Features) {
+	t.Helper()
+	require.NotNil(t, features.RosterCatalogID)
+	const arm = "anthropic/claude-opus-5:xhigh"
+	assert.Equal(t, hmm.CatalogIDForRoster(arm), features.RosterCatalogID(arm))
+	assert.NotEqual(t, arm, features.RosterCatalogID(arm), "the catalog projection strips the effort suffix")
+	assert.Equal(t, selection.TaskDomainPreviewer{}, features.TaskDomainPreview)
+}
