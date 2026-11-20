@@ -111,7 +111,7 @@ func TestCodexAgentRoutingIsolation(t *testing.T) {
 	}
 	classification := &codexRoutingClassification{}
 	capabilities := policy.Capabilities{SchemaVersion: policy.SchemaVersionV4, AuthoritativePerTurnSelection: true}
-	routing := hmm.New(classification, map[string]struct{}{providers.ProviderOpenAI: {}})
+	routing := hmm.NewForStrategy(router.StrategyHMM, classification, map[string]struct{}{providers.ProviderOpenAI: {}})
 	routing.WithCapabilities(capabilities).WithArmSelector(selection.Selector(roster))
 	store := &codexRoutingPinStore{stubPinStore: newStubPinStore(), pins: make(map[codexRoutingPinKey]sessionpin.Pin)}
 	upstream := &codexTitleProvider{}
