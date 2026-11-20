@@ -142,7 +142,7 @@ func TestTaskArmTurnRoute(t *testing.T) {
 			turn := tc.turn
 			var routes []router.Request
 			var released []string
-			route := turnRoute(func(_ context.Context, _ *translate.RequestEnvelope, _ translate.RoutingFeatures, _ string, _ uuid.UUID, _ string, _ http.Header, req router.Request) (turnLoopResult, error) {
+			route := turnRoute(func(_ context.Context, _ *translate.RequestEnvelope, _ translate.RoutingFeatures, _ turnIdentity, _ string, _ http.Header, req router.Request) (turnLoopResult, error) {
 				routes = append(routes, req)
 				if req.SkipSessionPin {
 					return turnLoopResult{
@@ -165,7 +165,7 @@ func TestTaskArmTurnRoute(t *testing.T) {
 				return control, tc.controlErr
 			})
 
-			res, err := turn.route(context.Background(), route)(nil, translate.RoutingFeatures{}, "", uuid.Nil, "", nil, router.Request{})
+			res, err := turn.route(context.Background(), route)(nil, translate.RoutingFeatures{}, turnIdentity{}, "", nil, router.Request{})
 
 			require.ErrorIs(t, err, tc.wantErr)
 			assert.Equal(t, tc.wantRoutes, routes)
@@ -270,7 +270,7 @@ func TestACappedTreatmentTurnLeavesTheSessionPinAsControlWouldHaveLeftIt(t *test
 		req := router.Request{RequestedModel: features.Model, EstimatedInputTokens: features.Tokens, ConversationMessages: conversationMessagesForRouting(env)}
 		turn := taskArmTurn{assignment: taskarm.Assignment{Arm: arm}, assigned: true, cluster: "medium"}
 
-		res, err := turn.route(router.WithStrategy(context.Background(), strategy), svc.runTurnLoop)(env, features, "api-key", uuid.New(), "", http.Header{}, req)
+		res, err := turn.route(router.WithStrategy(context.Background(), strategy), svc.runTurnLoop)(env, features, turnIdentity{Strategy: strategy, APIKeyID: "api-key", InstallationID: uuid.New()}, "", http.Header{}, req)
 
 		require.NoError(t, err)
 		return res, turn, store

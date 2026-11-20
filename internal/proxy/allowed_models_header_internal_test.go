@@ -194,8 +194,9 @@ func TestTurnLoop_StickyPinOutsideRequestSubsetReroutes(t *testing.T) {
 	fr := &tierProbeRouter{available: map[string]struct{}{testOpus: {}, "gpt-5.4-mini": {}}}
 	svc := newSvc(fr)
 	ctx := ctxWithRequestSubset(context.Background(), "gpt-5.4-mini")
-	res, err := svc.runTurnLoop(ctx, env, feats, "key-1", uuid.New(), "", nil,
+	res, err := svc.runTurnLoop(ctx, env, feats, turnIdentity{Strategy: router.StrategyFromContext(ctx), APIKeyID: "key-1", InstallationID: uuid.New()}, "", nil,
 		router.Request{RequestedModel: feats.Model, Candidates: router.Candidates{ExcludedModels: svc.excludedModelsForRequest(ctx)}})
+
 	require.NoError(t, err)
 	assert.Equal(t, "gpt-5.4-mini", res.Decision.Model)
 	assert.False(t, res.StickyHit)
@@ -203,8 +204,9 @@ func TestTurnLoop_StickyPinOutsideRequestSubsetReroutes(t *testing.T) {
 	fr = &tierProbeRouter{available: map[string]struct{}{testOpus: {}, "gpt-5.4-mini": {}}}
 	svc = newSvc(fr)
 	ctx = ctxWithRequestSubset(context.Background(), testOpus, "gpt-5.4-mini")
-	res, err = svc.runTurnLoop(ctx, env, feats, "key-1", uuid.New(), "", nil,
+	res, err = svc.runTurnLoop(ctx, env, feats, turnIdentity{Strategy: router.StrategyFromContext(ctx), APIKeyID: "key-1", InstallationID: uuid.New()}, "", nil,
 		router.Request{RequestedModel: feats.Model, Candidates: router.Candidates{ExcludedModels: svc.excludedModelsForRequest(ctx)}})
+
 	require.NoError(t, err)
 	assert.Equal(t, testOpus, res.Decision.Model)
 }

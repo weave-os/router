@@ -54,13 +54,19 @@ func assignTaskArm(ctx context.Context, strategy router.Strategy, env *translate
 	return taskArmTurn{assignment: assignment, assigned: assigned, cluster: cluster}
 }
 
-type turnRoute func(ctx context.Context, env *translate.RequestEnvelope, feats translate.RoutingFeatures, apiKeyID string, installationID uuid.UUID, subAgentHint string, reqHeaders http.Header, req router.Request) (turnLoopResult, error)
+type turnIdentity struct {
+	Strategy       router.Strategy
+	APIKeyID       string
+	InstallationID uuid.UUID
+}
 
-type taskArmRoute func(env *translate.RequestEnvelope, feats translate.RoutingFeatures, apiKeyID string, installationID uuid.UUID, subAgentHint string, reqHeaders http.Header, req router.Request) (turnLoopResult, error)
+type turnRoute func(ctx context.Context, env *translate.RequestEnvelope, feats translate.RoutingFeatures, identity turnIdentity, subAgentHint string, reqHeaders http.Header, req router.Request) (turnLoopResult, error)
+
+type taskArmRoute func(env *translate.RequestEnvelope, feats translate.RoutingFeatures, identity turnIdentity, subAgentHint string, reqHeaders http.Header, req router.Request) (turnLoopResult, error)
 
 func (turn *taskArmTurn) route(ctx context.Context, route turnRoute) taskArmRoute {
-	return func(env *translate.RequestEnvelope, feats translate.RoutingFeatures, apiKeyID string, installationID uuid.UUID, subAgentHint string, reqHeaders http.Header, req router.Request) (turnLoopResult, error) {
-		control, err := route(ctx, env, feats, apiKeyID, installationID, subAgentHint, reqHeaders, req)
+	return func(env *translate.RequestEnvelope, feats translate.RoutingFeatures, identity turnIdentity, subAgentHint string, reqHeaders http.Header, req router.Request) (turnLoopResult, error) {
+		control, err := route(ctx, env, feats, identity, subAgentHint, reqHeaders, req)
 		if err != nil || !turn.observeControl(control) {
 			return control, err
 		}
@@ -69,7 +75,7 @@ func (turn *taskArmTurn) route(ctx context.Context, route turnRoute) taskArmRout
 		for _, model := range control.SessionDemotedModels {
 			req.Candidates.ExcludedModels = candidates.ExcludingModel(req.Candidates.ExcludedModels, model)
 		}
-		cappedRes, err := route(ctx, env, feats, apiKeyID, installationID, subAgentHint, reqHeaders, req)
+		cappedRes, err := route(ctx, env, feats, identity, subAgentHint, reqHeaders, req)
 		if err != nil {
 			cappedRes.releaseCooldownProbes()
 			observability.FromContext(ctx).Warn("Task-arm ceiling cluster could not serve the turn; serving the control decision",

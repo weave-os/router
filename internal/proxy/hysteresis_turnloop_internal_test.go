@@ -88,9 +88,9 @@ func TestTurnLoopHoldsPinnedEffortOnLowGapEscalation(t *testing.T) {
 			result, err := svc.runTurnLoop(
 				ctx,
 				env,
-				features,
-				"api-key",
-				uuid.New(),
+				features, turnIdentity{Strategy: router.StrategyFromContext(
+					ctx), APIKeyID: "api-key", InstallationID: uuid.New()},
+
 				"",
 				http.Header{},
 				router.Request{
@@ -98,8 +98,7 @@ func TestTurnLoopHoldsPinnedEffortOnLowGapEscalation(t *testing.T) {
 					EstimatedInputTokens: features.Tokens,
 					HasTools:             features.HasTools,
 					ConversationMessages: conversationMessagesForRouting(env),
-				},
-			)
+				})
 
 			require.NoError(t, err)
 			assert.Equal(t, pinnedModel, result.Decision.Model)

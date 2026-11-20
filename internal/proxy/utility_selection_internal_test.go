@@ -42,10 +42,11 @@ func TestAutomaticUtilitySelectionDoesNotUseDeploymentShortcut(t *testing.T) {
 					envelope, err := translate.ParseAnthropic([]byte(fixture.body))
 					require.NoError(t, err)
 					features := envelope.RoutingFeatures()
-					turn, err := service.runTurnLoop(ctx, envelope, features, "utility-key", uuid.New(), "", http.Header{}, router.Request{
+					turn, err := service.runTurnLoop(ctx, envelope, features, turnIdentity{Strategy: router.StrategyFromContext(ctx), APIKeyID: "utility-key", InstallationID: uuid.New()}, "", http.Header{}, router.Request{
 						RequestedModel:   features.Model,
 						EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
 					})
+
 					require.NoError(t, err)
 					assert.False(t, turn.HardPinned)
 					assert.Zero(t, turn.SessionKey)
@@ -115,9 +116,10 @@ func TestAutomaticProbeWithoutConcreteTargetScoresWithoutPinning(t *testing.T) {
 			envelope, err := translate.ParseAnthropic([]byte(body))
 			require.NoError(t, err)
 			features := envelope.RoutingFeatures()
-			turn, err := service.runTurnLoop(context.Background(), envelope, features, "utility-key", uuid.New(), "", http.Header{}, router.Request{
+			turn, err := service.runTurnLoop(context.Background(), envelope, features, turnIdentity{Strategy: router.StrategyFromContext(context.Background()), APIKeyID: "utility-key", InstallationID: uuid.New()}, "", http.Header{}, router.Request{
 				RequestedModel: features.Model, EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
 			})
+
 			require.NoError(t, err)
 			require.Equal(t, turntype.Probe, turn.TurnType)
 			assert.Equal(t, catalog.ModelIDClaudeSonnet46.String(), turn.Decision.Model)
@@ -146,11 +148,12 @@ func TestDefaultProbeDroppedForceDoesNotAttachConversationState(t *testing.T) {
 			envelope, err := translate.ParseAnthropic([]byte(body))
 			require.NoError(t, err)
 			features := envelope.RoutingFeatures()
-			turn, err := service.runTurnLoop(context.Background(), envelope, features, "utility-key", uuid.New(), "", http.Header{}, router.Request{
+			turn, err := service.runTurnLoop(context.Background(), envelope, features, turnIdentity{Strategy: router.StrategyFromContext(context.Background()), APIKeyID: "utility-key", InstallationID: uuid.New()}, "", http.Header{}, router.Request{
 				RequestedModel:   features.Model,
 				ForceModel:       catalog.ModelIDGPT55.String(),
 				EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
 			})
+
 			require.NoError(t, err)
 			require.True(t, turn.ForcedPinDropped)
 			assert.Empty(t, routingMarkerFor(turn), "probe output remains machine-readable when a force pin is unavailable")

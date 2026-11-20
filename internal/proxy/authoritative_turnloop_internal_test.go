@@ -156,13 +156,12 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 			result, err := svc.runTurnLoop(
 				ctx,
 				env,
-				features,
-				"api-key",
-				uuid.New(),
+				features, turnIdentity{Strategy: router.StrategyFromContext(
+					ctx), APIKeyID: "api-key", InstallationID: uuid.New()},
+
 				"",
 				http.Header{},
-				req,
-			)
+				req)
 
 			require.NoError(t, err)
 			assert.True(t, result.AuthoritativePerTurn)
@@ -241,16 +240,15 @@ func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
 	result, err := svc.runTurnLoop(
 		router.WithStrategy(context.Background(), strategy),
 		env,
-		features,
-		"api-key",
-		uuid.New(),
+		features, turnIdentity{Strategy: router.StrategyFromContext(
+			router.WithStrategy(context.Background(), strategy)), APIKeyID: "api-key", InstallationID: uuid.New()},
+
 		"",
 		http.Header{},
 		router.Request{
 			RequestedModel:       features.Model,
 			ConversationMessages: conversationMessagesForRouting(env),
-		},
-	)
+		})
 
 	require.NoError(t, err)
 	assert.Equal(t, "claude-opus-4-7", result.Decision.Model)
@@ -423,16 +421,15 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 			result, err := svc.runTurnLoop(
 				router.WithStrategy(context.Background(), strategy),
 				env,
-				features,
-				"api-key",
-				uuid.New(),
+				features, turnIdentity{Strategy: router.StrategyFromContext(
+					router.WithStrategy(context.Background(), strategy)), APIKeyID: "api-key", InstallationID: uuid.New()},
+
 				"",
 				http.Header{},
 				router.Request{
 					RequestedModel:       features.Model,
 					ConversationMessages: conversationMessagesForRouting(env),
-				},
-			)
+				})
 
 			require.NoError(t, err)
 			assert.True(t, result.AuthoritativePerTurn)

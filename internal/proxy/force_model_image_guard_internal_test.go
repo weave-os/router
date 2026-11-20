@@ -55,10 +55,11 @@ func TestRunTurnLoop_ForcedTextOnlyModel_DropsPinForImageTurn(t *testing.T) {
 	feats := env.RoutingFeatures()
 	require.True(t, feats.HasImages, "the nested tool_result image must register as an image-bearing turn")
 
-	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
+	res, err := svc.runTurnLoop(context.Background(), env, feats, turnIdentity{Strategy: router.StrategyFromContext(context.Background()), APIKeyID: "key-1", InstallationID: uuid.New()}, "", nil, router.Request{
 		RequestedModel: feats.Model,
 		HasImages:      feats.HasImages,
 	})
+
 	require.NoError(t, err)
 
 	assert.NotEqual(t, textOnlyForcedModel, res.Decision.Model,
@@ -96,10 +97,11 @@ func TestRunTurnLoop_ForcedTextOnlyModel_HonoredWithoutImages(t *testing.T) {
 	feats := env.RoutingFeatures()
 	require.False(t, feats.HasImages)
 
-	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
+	res, err := svc.runTurnLoop(context.Background(), env, feats, turnIdentity{Strategy: router.StrategyFromContext(context.Background()), APIKeyID: "key-1", InstallationID: uuid.New()}, "", nil, router.Request{
 		RequestedModel: feats.Model,
 		HasImages:      feats.HasImages,
 	})
+
 	require.NoError(t, err)
 
 	assert.Equal(t, textOnlyForcedModel, res.Decision.Model, "a text-only forced pin still serves text-only turns")
@@ -141,7 +143,7 @@ func TestRunTurnLoop_ForcedImageCapModel_ReachesProvider(t *testing.T) {
 	pin := sessionpin.Pin{Provider: providers.ProviderDeepInfra, Model: model}
 	assert.True(t, candidates.ForcedPinEligible(pin, req), "the explicit force must survive an image-count-only exclusion")
 
-	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, req)
+	res, err := svc.runTurnLoop(context.Background(), env, feats, turnIdentity{Strategy: router.StrategyFromContext(context.Background()), APIKeyID: "key-1", InstallationID: uuid.New()}, "", nil, req)
 	require.NoError(t, err)
 	assert.Equal(t, model, res.Decision.Model)
 	assert.Equal(t, providers.ProviderDeepInfra, res.Decision.Provider)

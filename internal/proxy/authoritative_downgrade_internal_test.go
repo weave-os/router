@@ -55,16 +55,16 @@ func runAuthoritativeDowngradeTurn(t *testing.T, svc *Service) turnLoopResult {
 	result, err := svc.runTurnLoop(
 		router.WithStrategy(context.Background(), authoritativeDowngradeStrategy),
 		env,
-		features,
-		"api-key",
-		uuid.New(),
+		features, turnIdentity{Strategy: router.StrategyFromContext(
+			router.WithStrategy(context.Background(), authoritativeDowngradeStrategy)), APIKeyID: "api-key", InstallationID: uuid.New()},
+
 		"",
 		http.Header{},
 		router.Request{
 			RequestedModel:       features.Model,
 			ConversationMessages: conversationMessagesForRouting(env),
-		},
-	)
+		})
+
 	require.NoError(t, err)
 	assert.True(t, result.AuthoritativePerTurn)
 	return result
