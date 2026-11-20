@@ -15,7 +15,6 @@ func TestOwnerValidateRejectsCrossedIdentifiers(t *testing.T) {
 
 	require.NoError(t, billing.OrganizationOwner("org_1").Validate())
 
-	// Identifiers from another owner kind must never validate.
 	crossed := []billing.Owner{
 		{Kind: billing.OwnerKindOrganization, OrganizationID: "org_1", TestSubjectID: "test_1"},
 		{Kind: billing.OwnerKindOrganization},
