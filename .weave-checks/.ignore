@@ -17,6 +17,5 @@ sidecars/hmm/uv.lock
 
 # Trained routing artifacts and recorded provider traffic
 internal/router/percallband/artifacts
-internal/router/percallband/testdata
 internal/router/bandswap/artifacts
 smoke/mitmproxy/cassettes
