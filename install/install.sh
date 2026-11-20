@@ -384,6 +384,7 @@ Set up
   $npx setup --claude --codex   install for both (one key prompt)
   $npx --opencode | --pi        install for opencode or pi
   $npx --copilot                add Weave Router to Copilot CLI's /model picker
+  $npx --copilot --vscode       add Weave Router to VS Code Copilot Chat
   $npx --claude-desktop         route Claude Desktop's Code tab and Cowork (local proxy)
 
 Every day

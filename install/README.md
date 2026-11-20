@@ -16,6 +16,7 @@ npx @weave-os/router --claude                     # Claude Code, user scope
 npx @weave-os/router --codex                      # Codex, user scope
 npx @weave-os/router --opencode                   # opencode, user scope
 npx @weave-os/router --copilot                    # GitHub Copilot CLI: adds weave/auto to /model
+npx @weave-os/router --copilot --vscode           # VS Code Copilot Chat: adds Weave Router to the picker
 npx @weave-os/router --claude-desktop             # Claude Desktop (Code tab and Cowork), through a local proxy
 npx @weave-os/router --claude --return-url https://app.example.com/onboarding # continue after a verified install
 
@@ -322,6 +323,29 @@ copilot --model weave/auto                        # or pick "Weave Router" in /m
 npx @weave-os/router off --copilot                # restore the previous default; weave/auto stays in /model
 npx @weave-os/router --uninstall --copilot        # remove provider, model, skills
 ```
+
+### GitHub Copilot Chat in VS Code using npm
+
+Run `npx @weave-os/router --copilot --vscode` on the machine running VS Code.
+The command adds one model named **Weave Router** using VS Code's built-in Custom
+Endpoint provider and enables the experimental BYOK setting for the Copilot
+harness. Use a current VS Code release in a local workspace. If your organization
+manages Copilot, it must allow **Bring Your Own Language Model Key in VS Code**.
+
+1. From the Command Palette, open **Chat: Manage Language Models**. Open the gear
+   menu for the **Weave Router** group and select **Update API Key**.
+2. Enter your personal Router key. Get a hosted key at
+   [Weave Router setup](https://app.weaveos.com/start) or ask your Router admin.
+3. Select **Weave Router** in a new Copilot chat. Reload the window if the model
+   does not appear. Use the provider's gear menu to rotate the key or remove the
+   group and its saved key.
+
+The installer uses the default VS Code profile. For a named profile, Insiders, or
+a custom data directory, pass `--profile-dir <path>` with the directory containing
+that profile's `chatLanguageModels.json` and `settings.json`. Open
+**Chat: Open Language Models (JSON)** in VS Code to find that directory.
+For a self-hosted Router, add `--base-url https://router.example.com` or use
+`--local` for `http://localhost:8080`. VS Code stores the key in its own secret storage.
 
 ### GitHub Copilot SDK (custom provider)
 
