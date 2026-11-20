@@ -107,14 +107,7 @@ func decodeRouteResponse(query policy.Query, status int, payload []byte, expecte
 	}
 	selectedModel := firstNonEmpty(parsed.SelectedRosterID, parsed.Model)
 	switch parsed.SchemaVersion {
-	case policy.SchemaVersionV3:
-		if parsed.SelectedArmID != "" || selectedModel != "" || parsed.SelectedProvider != "" {
-			return policy.Result{}, fmt.Errorf("policy sidecar returned a selected arm or provider on schema %s", policy.SchemaVersionV3)
-		}
-		if len(parsed.RankedFallback) == 0 {
-			return policy.Result{}, fmt.Errorf("policy sidecar returned no ranked fallback on schema %s", policy.SchemaVersionV3)
-		}
-	case "", policy.SchemaVersionV1, policy.SchemaVersionV2:
+	case "", policy.SchemaVersionV1:
 		if parsed.SelectedArmID == "" && selectedModel == "" {
 			return policy.Result{}, fmt.Errorf("policy sidecar returned empty arm and model")
 		}

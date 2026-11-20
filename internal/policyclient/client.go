@@ -851,7 +851,7 @@ func (c *Client) previewV5(ctx context.Context, query policy.Query) (policy.Prev
 
 func supportedSchema(version string) bool {
 	switch version {
-	case policy.SchemaVersionV1, policy.SchemaVersionV2, policy.SchemaVersionV3, policy.SchemaVersionV4:
+	case policy.SchemaVersionV1, policy.SchemaVersionV4:
 		return true
 	default:
 		return false
@@ -867,12 +867,8 @@ func marshalRouteRequest(query policy.Query) ([]byte, error) {
 	models := make([]string, 0, len(query.Candidates))
 	providerMap := make(map[string]string, len(query.Candidates))
 	for _, candidate := range query.Candidates {
-		providerKey := candidate.RosterID
-		if schemaVersion == policy.SchemaVersionV2 {
-			providerKey = candidate.ArmID
-		}
-		models = append(models, providerKey)
-		providerMap[providerKey] = candidate.Provider
+		models = append(models, candidate.RosterID)
+		providerMap[candidate.RosterID] = candidate.Provider
 	}
 	routeLimits := classifierRouteMessageLimits(query)
 	messages := convertRouteMessages(query.ConversationMessages, routeLimits)
@@ -1000,15 +996,6 @@ func routeCandidates(candidates []policy.Candidate, schemaVersion string) []rout
 			EffectiveOutputUSDPer1M:   candidate.EffectiveOutputUSDPer1M,
 			EffectiveEstimatedCostUSD: candidate.EffectiveEstimatedCostUSD,
 			Capabilities:              candidate.Capabilities,
-		}
-		if schemaVersion == policy.SchemaVersionV2 {
-			bindingIndex := candidate.BindingIndex
-			wireCandidate.ArmID = candidate.ArmID
-			wireCandidate.BindingIndex = &bindingIndex
-			wireCandidate.Endpoint = candidate.Endpoint
-			wireCandidate.ModelRevision = candidate.ModelRevision
-			wireCandidate.ReasoningConfigurationSHA256 = candidate.ReasoningConfigurationSHA256
-			wireCandidate.ToolConfigurationSHA256 = candidate.ToolConfigurationSHA256
 		}
 		result = append(result, wireCandidate)
 	}

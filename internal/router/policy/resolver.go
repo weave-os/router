@@ -188,14 +188,13 @@ func (r ResolvedCandidates) ArmCandidateScores(scores map[string]float32) map[st
 }
 
 type Resolver struct {
-	deployed          map[string]struct{}
-	available         map[string]struct{}
-	mapper            RosterMapper
-	providerPolicy    ProviderPolicy
-	enumerateBindings bool
-	routerSelectsArm  bool
-	toolLow           map[string]struct{}
-	imageLow          map[string]struct{}
+	deployed         map[string]struct{}
+	available        map[string]struct{}
+	mapper           RosterMapper
+	providerPolicy   ProviderPolicy
+	routerSelectsArm bool
+	toolLow          map[string]struct{}
+	imageLow         map[string]struct{}
 }
 
 func NewResolver(deployed, available map[string]struct{}, mapper RosterMapper, providerPolicy ProviderPolicy) *Resolver {
@@ -209,12 +208,6 @@ func NewResolver(deployed, available map[string]struct{}, mapper RosterMapper, p
 	}
 }
 
-func NewArmResolver(deployed, available map[string]struct{}, mapper RosterMapper, providerPolicy ProviderPolicy) *Resolver {
-	resolver := NewResolver(deployed, available, mapper, providerPolicy)
-	resolver.enumerateBindings = true
-	return resolver
-}
-
 func (r *Resolver) RouterSelectsArm() {
 	r.routerSelectsArm = true
 }
@@ -222,9 +215,6 @@ func (r *Resolver) RouterSelectsArm() {
 func (r *Resolver) SchemaVersion() string {
 	if r.routerSelectsArm {
 		return SchemaVersionV4
-	}
-	if r.enumerateBindings {
-		return SchemaVersionV2
 	}
 	return SchemaVersionV1
 }
@@ -479,17 +469,6 @@ func (r *Resolver) appendCandidates(base []eligibleCandidate, ctx candidateConte
 		upstreamID := catalog.UpstreamIDFor(ctx.catalogID, binding.UpstreamID)
 		modelRevision := upstreamID
 		armID := ctx.rosterID
-		if r.enumerateBindings {
-			armID = MakeArmID(ArmIdentity{
-				CanonicalModel:               ctx.catalogID,
-				Provider:                     binding.Provider,
-				UpstreamID:                   upstreamID,
-				Endpoint:                     ctx.armContext.Endpoint,
-				ModelRevision:                modelRevision,
-				ReasoningConfigurationSHA256: ctx.armContext.ReasoningConfigurationSHA256,
-				ToolConfigurationSHA256:      ctx.armContext.ToolConfigurationSHA256,
-			})
-		}
 		marginalCostFactor := 1.0
 		pricing := binding.Price.ForInputTokens(ctx.req.EstimatedInputTokens)
 		expanded = append(expanded, Candidate{
@@ -527,13 +506,7 @@ func (r *Resolver) appendCandidates(base []eligibleCandidate, ctx candidateConte
 			estimatedCostUSD: candidate.EstimatedCostUSD,
 		}
 	}
-	if !r.enumerateBindings {
-		return append(base, eligibleCandidate{Candidate: expanded[0], bindings: resolvedBindings})
-	}
-	for _, candidate := range expanded {
-		base = append(base, eligibleCandidate{Candidate: candidate, bindings: resolvedBindings})
-	}
-	return base
+	return append(base, eligibleCandidate{Candidate: expanded[0], bindings: resolvedBindings})
 }
 
 func bindingFromCandidate(candidate Candidate) Binding {
