@@ -38,7 +38,7 @@ function normalizeRouterUrl(configuredUrl: string): string {
   return url.href.replace(/\/+$/, '');
 }
 
-function secretName(baseUrl: string): string {
+function secretName(baseUrl: string) {
   return `weaveRouter.key:${baseUrl}`;
 }
 
@@ -101,7 +101,7 @@ async function streamReply(
   const { request, editorToolNames } = toMessagesInput(history, options);
   if (!request.messages.length) throw new Error('Weave Router received no supported chat messages.');
   const controller = new AbortController();
-  const cancel = cancellation.onCancellationRequested(() => controller.abort());
+  const cancelListener = cancellation.onCancellationRequested(() => controller.abort());
   if (cancellation.isCancellationRequested) controller.abort();
   try {
     const client = new Anthropic({
@@ -144,7 +144,7 @@ async function streamReply(
     }
     throw new Error('Weave Router returned an invalid or incomplete Messages stream.');
   } finally {
-    cancel.dispose();
+    cancelListener.dispose();
   }
 }
 
@@ -153,11 +153,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const provider: vscode.LanguageModelChatProvider = {
     onDidChangeLanguageModelChatInformation: modelChanges.event,
     async provideLanguageModelChatInformation() {
-      try {
-        return await context.secrets.get(secretName(routerBaseUrl())) ? [model] : [];
-      } catch {
-        return [];
-      }
+      return (await context.secrets.get(secretName(routerBaseUrl()))) ? [model] : [];
     },
     provideLanguageModelChatResponse(_model, history, options, progress, cancellation) {
       return streamReply(context.secrets, history, options, progress, cancellation);
@@ -184,12 +180,15 @@ export function activate(context: vscode.ExtensionContext): void {
           void vscode.window.showErrorMessage('Could not reach Weave Router to validate your key. Check the Router URL and network.');
         } else if (error instanceof Error) {
           void vscode.window.showErrorMessage(error.message);
+        } else {
+          void vscode.window.showErrorMessage('Could not connect Weave Router. Try again.');
         }
       }
     }),
     vscode.commands.registerCommand(disconnectCommand, async () => {
-      await context.secrets.delete(secretName(routerBaseUrl()));
-      void vscode.window.showInformationMessage('Weave Router was disconnected from this editor.');
+      const baseUrl = routerBaseUrl();
+      await context.secrets.delete(secretName(baseUrl));
+      void vscode.window.showInformationMessage(`Removed the saved Weave Router key for ${baseUrl}.`);
     }),
   );
 }
