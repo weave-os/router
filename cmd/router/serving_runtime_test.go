@@ -7,12 +7,11 @@ import (
 	"weave-os/router/internal/server"
 )
 
-func TestManagedServingUsesFleetTarget(t *testing.T) {
+func TestServingRuntimeFollowsFleetTarget(t *testing.T) {
 	t.Setenv("ROUTER_SERVING_TARGET", "")
-	require.False(t, managedServingEnabled(server.DeploymentModeManaged))
+	require.False(t, servingTargetConfigured())
 	t.Setenv("ROUTER_SERVING_TARGET", "prod/stable")
-	require.True(t, managedServingEnabled(server.DeploymentModeManaged))
-	require.False(t, managedServingEnabled(server.DeploymentModeSelfHosted))
+	require.True(t, servingTargetConfigured())
 }
 func TestValidateManagedServingBoot(t *testing.T) {
 	for _, tc := range []struct {

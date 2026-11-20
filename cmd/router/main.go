@@ -457,7 +457,7 @@ func main() {
 	}
 
 	var admissionDecisions *policyregistry.AdmissionDecisionCache
-	if managedServingEnabled(deploymentMode) {
+	if servingTargetConfigured() {
 		target := policyregistry.ServingTarget(config.MustGet("ROUTER_SERVING_TARGET"))
 		environment, err := target.Environment()
 		if err != nil {
@@ -815,7 +815,7 @@ func main() {
 		defer cancelTaskSweep()
 		safeGo(logger, "task-domain-sweep", func() { taskRuntime.sweep(taskSweepCtx) })
 	}
-	if managedServingEnabled(deploymentMode) {
+	if servingTargetConfigured() {
 		prepareCtx, cancelPrepare := context.WithTimeout(context.Background(), 60*time.Second)
 		admission, baseline, closeRegistry, err := buildManagedServingRuntime(prepareCtx, availableProviders, taskRuntime)
 		cancelPrepare()
@@ -1148,7 +1148,7 @@ func main() {
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
 		WithBillingService(billingSvc), rlRouter)
 	inferenceDeployment.RoutableModels = servedModels
-	if err := configureAtomicClassifier(proxySvc, pool, availableProviders, deploymentMode); err != nil {
+	if err := configureAtomicClassifier(proxySvc, pool, availableProviders); err != nil {
 		logger.Error("Failed to configure atomic classifier", "err", err)
 		panic(err)
 	}
@@ -1265,7 +1265,7 @@ func main() {
 	if os.Getenv("PUBSUB_EMULATOR_HOST") == "" {
 		initializedOrigins["https://pubsub.googleapis.com"] = struct{}{}
 	}
-	if managedServingEnabled(deploymentMode) || policyEnvironmentRaw != "" {
+	if servingTargetConfigured() || policyEnvironmentRaw != "" {
 		initializedOrigins["https://storage.googleapis.com"] = struct{}{}
 	}
 	processCtx, stopProcess := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

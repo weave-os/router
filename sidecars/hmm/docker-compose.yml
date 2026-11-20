@@ -3,6 +3,7 @@ services:
     environment:
       ROUTER_HMM_SIDECAR_URL: http://hmm-sidecar:8093
       ROUTER_HMM_SIDECAR_AUTH: none
-      # The stub release pins the stub classifier; the real sidecar needs the
-      # policy release from ROUTER_POLICY_ENVIRONMENT.
+      # The stub serving registry pins the stub classifier; the real sidecar
+      # still needs the policy release from ROUTER_POLICY_ENVIRONMENT.
+      ROUTER_SERVING_TARGET: ""
       ROUTER_POLICY_RELEASE_DIR: ""

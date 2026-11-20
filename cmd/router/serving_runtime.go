@@ -38,8 +38,8 @@ var managedServingEnvVars = []string{
 	"ROUTER_SERVING_ASSERTION_KEY",
 }
 
-func managedServingEnabled(mode server.DeploymentMode) bool {
-	return mode == server.DeploymentModeManaged && strings.TrimSpace(config.GetOr("ROUTER_SERVING_TARGET", "")) != ""
+func servingTargetConfigured() bool {
+	return strings.TrimSpace(config.GetOr("ROUTER_SERVING_TARGET", "")) != ""
 }
 
 func validateManagedServingBoot(mode server.DeploymentMode, lookup func(string) (string, bool)) error {
@@ -106,11 +106,10 @@ func buildManagedServingRuntime(ctx context.Context, availableProviders map[stri
 		return nil, nil, nil, err
 	}
 	registryURI := strings.TrimSpace(config.GetOr("ROUTER_SERVING_REGISTRY_URI", config.GetOr("WEAVE_REGISTRY_URI", "gs://weave_ml/weave_registry")))
-	registry, err := policyregistry.NewGCSRegistry(ctx, registryURI)
+	registry, closeRegistry, err := openServingStore(ctx, registryURI)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	closeRegistry := func() { _ = registry.Close() }
 	timeout := parseEnvDurationMs("ROUTER_HMM_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout)
 	attemptTimeout := parseEnvAttemptTimeoutMs(policyclient.DeriveAttemptTimeout(timeout))
 	cache, err := policyregistry.NewServingRuntimeCache(registry, hmmPolicySnapshotBuilder(
@@ -128,6 +127,18 @@ func buildManagedServingRuntime(ctx context.Context, availableProviders map[stri
 		return nil, nil, nil, err
 	}
 	return &middleware.ServingAdmissionConfig{Store: registry, Identity: identity, Cache: cache}, baseline, closeRegistry, nil
+}
+
+func openServingStore(ctx context.Context, registryURI string) (policyregistry.ServingStore, func(), error) {
+	if !strings.HasPrefix(registryURI, "gs://") {
+		store, err := policyregistry.NewDirectoryServingStore(registryURI)
+		return store, func() {}, err
+	}
+	registry, err := policyregistry.NewGCSRegistry(ctx, registryURI)
+	if err != nil {
+		return nil, nil, err
+	}
+	return registry, func() { _ = registry.Close() }, nil
 }
 
 func servingReferenceFromEnv(prefix string) policyregistry.ObjectRef {
