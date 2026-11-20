@@ -333,7 +333,8 @@ harness. Use a current VS Code release in a local workspace. If your organizatio
 manages Copilot, it must allow **Bring Your Own Language Model Key in VS Code**.
 
 Use the Router URL supplied with your key. For a custom endpoint, add
-`--base-url https://router.example.com` to the setup command. Use `--local` for
+`--base-url https://router.example.com` to the setup command or set
+`WEAVE_ROUTER_URL` as the default for new setups. Use `--local` for
 `http://localhost:8080`.
 
 1. From the Command Palette, open **Chat: Manage Language Models**. Open the gear

@@ -43,7 +43,7 @@ function setupVSCode(args) {
     }
   }
 
-  const endpoint = messagesUrl(baseUrl ?? hostedBaseUrl);
+  const endpoint = messagesUrl(baseUrl ?? (process.env.WEAVE_ROUTER_URL || hostedBaseUrl));
   profileDir ??= defaultProfileDir();
   const modelsFile = path.join(profileDir, "chatLanguageModels.json");
   const settingsFile = path.join(profileDir, "settings.json");

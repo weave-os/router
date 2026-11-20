@@ -9,7 +9,7 @@ const { parse } = require("jsonc-parser");
 const entrypoint = path.join(__dirname, "bin.js");
 const byokSetting = "chat.agentHost.byokModels.enabled";
 
-function fixture(t) {
+function fixture(t, routerUrl = "") {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "weave-vscode-"));
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   const profile = path.join(home, "Profile With Spaces");
@@ -26,6 +26,7 @@ function fixture(t) {
       COPILOT_HOME: path.join(home, ".copilot"),
       VSCODE_PORTABLE: "",
       WEAVE_ROUTER_KEY: "fixture-key-never-written",
+      WEAVE_ROUTER_URL: routerUrl,
     },
   });
   return { home, profile, models, settings, run };
@@ -111,8 +112,21 @@ test("validates both files before editing either of them", (t) => {
   assert.equal(fs.readFileSync(settings, "utf8"), "// Existing comments only");
 });
 
+test("uses the Router URL from the environment unless an explicit flag overrides it", (t) => {
+  const { home, profile, models, run } = fixture(t, "https://env-router.example.test");
+  const command = run("--profile-dir", profile);
+  assert.equal(command.status, 0, command.stderr);
+  assert.equal(parse(fs.readFileSync(models, "utf8"))[0].models[0].url, "https://env-router.example.test/v1/messages");
+
+  const explicitProfile = path.join(home, "Explicit Profile");
+  const explicit = run("--profile-dir", explicitProfile, "--base-url", "https://flag-router.example.test");
+  assert.equal(explicit.status, 0, explicit.stderr);
+  const explicitModels = path.join(explicitProfile, "chatLanguageModels.json");
+  assert.equal(parse(fs.readFileSync(explicitModels, "utf8"))[0].models[0].url, "https://flag-router.example.test/v1/messages");
+});
+
 test("rejects insecure endpoints and accepts local Router setup", (t) => {
-  const { profile, models, run } = fixture(t);
+  const { profile, models, run } = fixture(t, "https://env-router.example.test");
   const rejected = run("--profile-dir", profile, "--base-url", "http://example.test");
   assert.notEqual(rejected.status, 0);
   assert.match(rejected.stderr, /HTTPS/);

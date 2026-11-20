@@ -134,7 +134,8 @@ check "the canonical no-argument entrypoint opens the hosted start page" \
 check "the no-argument entrypoint says which page it opened" "yes" \
   "$(grep -Fq 'opening https://app.weaveos.com/start' <<<"$entrypoint_output" && echo yes || echo no)"
 
-NODE_PATH="$npm_dir/node_modules" node "$root/bin.js" --copilot --vscode --profile-dir "$work/vscode-profile" >/dev/null
+WEAVE_ROUTER_URL="" NODE_PATH="$npm_dir/node_modules" \
+  node "$root/bin.js" --copilot --vscode --profile-dir "$work/vscode-profile" >/dev/null
 check "the packed entrypoint installs the VS Code Custom Endpoint model" \
   "https://router.weaveos.com/v1/messages" \
   "$(jq -r '.[0].models[0].url' "$work/vscode-profile/chatLanguageModels.json")"
