@@ -5560,9 +5560,7 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	} else {
 		ctx = context.WithValue(ctx, responsesReplayedModelContextKey{}, translate.LastReplayedResponsesModel(body))
 	}
-	conversion, err := translate.ConvertResponsesToChatCompletionsWithOptions(conversionBody, translate.ResponsesConversionOptions{
-		PortableCodex: portableCodex,
-	})
+	conversion, err := convertCodexResponses(ctx, conversionBody, portableCodex, codexLossyRescueNeeded(ctx, s, r.Header))
 	if err != nil {
 		return fmt.Errorf("translate responses request: %w", err)
 	}
