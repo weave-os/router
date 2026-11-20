@@ -45,7 +45,7 @@ func clientAppRefusalPaidFallback(ctx context.Context) bool {
 }
 
 func claudePoolRefusesClientApp(ctx context.Context) bool {
-	if funding, _ := ctx.Value(clientAppRefusalPaidFallbackKey{}).(clientAppRefusalFallback); !funding.spendsPool {
+	if fallback, _ := ctx.Value(clientAppRefusalPaidFallbackKey{}).(clientAppRefusalFallback); !fallback.spendsPool {
 		return false
 	}
 	usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
