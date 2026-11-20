@@ -72,8 +72,7 @@ func TestNoLoginLongThrottledSeatsFundsCredits(t *testing.T) {
 		t.Run(sc.name, func(t *testing.T) {
 			t.Parallel()
 			h := newGoldenHarness(t, sc)
-			served := h.serve(t, sc.ingress, sc.requests[0])
-			requireServedOnCredits(t, served, "served on weave credits")
+			requireServedOnCredits(t, h.serve(t, sc.ingress, sc.requests[0]), "served on weave credits")
 		})
 	}
 }
