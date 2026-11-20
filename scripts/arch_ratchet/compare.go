@@ -59,11 +59,12 @@ func compareFuncs(base, head map[string]fileMetrics, allowed exceptionSet) []vio
 	}
 	baseFuncs, headFuncs := indexFuncs(base, occurrences), indexFuncs(head, occurrences)
 	moves := newMovePool(baseFuncs, headFuncs)
+	exactMoves := moves.claimExact(headFuncs, baseFuncs)
 	var violations []violation
 	for _, key := range sortedKeys(headFuncs) {
 		fn := headFuncs[key]
 		previous, existed := baseFuncs[key]
-		if !existed && moves.claim(fn) {
+		if !existed && (exactMoves[key] || moves.claim(fn)) {
 			continue
 		}
 		for _, m := range slices.Sorted(maps.Keys(funcLimits)) {
@@ -86,6 +87,24 @@ func newMovePool(baseFuncs, headFuncs map[string]funcMetrics) movePool {
 		}
 	}
 	return pool
+}
+
+func (p movePool) claimExact(headFuncs, baseFuncs map[string]funcMetrics) map[string]bool {
+	claimed := map[string]bool{}
+	for _, key := range sortedKeys(headFuncs) {
+		if _, existed := baseFuncs[key]; existed {
+			continue
+		}
+		fn := headFuncs[key]
+		for _, candidate := range sortedKeys(p) {
+			if shortName(candidate) == shortName(key) && p[candidate].body == fn.body && maps.Equal(p[candidate].values, fn.values) {
+				claimed[key] = true
+				delete(p, candidate)
+				break
+			}
+		}
+	}
+	return claimed
 }
 
 func (p movePool) claim(fn funcMetrics) bool {

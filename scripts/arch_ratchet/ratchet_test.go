@@ -100,6 +100,12 @@ func fn(key string, lines int) funcMetrics {
 	return funcMetrics{key: key, values: map[metric]int{metricLines: lines}}
 }
 
+func fnBody(key string, lines int, body uint32) funcMetrics {
+	metrics := fn(key, lines)
+	metrics.body = body
+	return metrics
+}
+
 func TestCompareFuncs(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -145,6 +151,12 @@ func TestCompareFuncs(t *testing.T) {
 			base: []funcMetrics{fn("p.A", 200), fn("p.B", 150)},
 			head: []funcMetrics{fn("q.A", 150), fn("q.C", 180)},
 			want: []violation{{subject: "q.C", metric: metricLines, before: 0, after: 180, limit: 100}},
+		},
+		{
+			name: "an exact name and body match is claimed before greedy moves",
+			base: []funcMetrics{fnBody("p.validateSchema", 150, 1)},
+			head: []funcMetrics{fnBody("q.aaa", 150, 2), fnBody("q.validateSchema", 150, 1)},
+			want: []violation{{subject: "q.aaa", metric: metricLines, before: 0, after: 150, limit: 100}},
 		},
 		{
 			name:    "reviewed exception",
