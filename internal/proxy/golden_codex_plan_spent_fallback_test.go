@@ -204,8 +204,8 @@ func goldenSpentCodexLoginLongThrottledSeatsCtx(ctx context.Context) context.Con
 }
 
 // TestSpentCodexLoginThrottledSeatsNoticeNamesSeats states the invariant: when
-// the caller's own plan is spent and the shared seats are rate-limited past the
-// wait, the notice names the rate-limited seats instead of asking the caller to
+// the caller's own plan is spent, the shared seats are rate-limited past the
+// wait and credits are denied, the notice names the rate-limited seats instead of asking the caller to
 // reconnect a seat.
 func TestSpentCodexLoginThrottledSeatsNoticeNamesSeats(t *testing.T) {
 	t.Parallel()
@@ -217,8 +217,8 @@ func TestSpentCodexLoginThrottledSeatsNoticeNamesSeats(t *testing.T) {
 			goldenUpstreamError(http.StatusTooManyRequests, goldenCodexModelUsageLimitBody),
 		}},
 		requests: []goldenRequest{
-			{body: goldenCodexPortableToolTurn, headers: goldenCodexSessionHeadersFor("c0d4"), decorateContext: goldenSpentCodexLoginLongThrottledSeatsCtx},
-			{body: goldenCodexPortableToolTurn, headers: goldenCodexSessionHeadersFor("c0d4"), decorateContext: goldenSpentCodexLoginLongThrottledSeatsCtx, advance: time.Second},
+			{body: goldenCodexPortableToolTurn, headers: goldenCodexSessionHeadersFor("c0d4"), decorateContext: goldenSpentCodexLoginLongThrottledSeatsCreditsDeniedCtx},
+			{body: goldenCodexPortableToolTurn, headers: goldenCodexSessionHeadersFor("c0d4"), decorateContext: goldenSpentCodexLoginLongThrottledSeatsCreditsDeniedCtx, advance: time.Second},
 		},
 		configure: withLongThrottledCodexSeats,
 	}
@@ -230,4 +230,31 @@ func TestSpentCodexLoginThrottledSeatsNoticeNamesSeats(t *testing.T) {
 	body := string(raw)
 	require.NotContains(t, body, "Connect or reconnect a Codex seat")
 	require.Contains(t, body, "rate-limited")
+}
+
+func goldenSpentCodexLoginLongThrottledSeatsCreditsDeniedCtx(ctx context.Context) context.Context {
+	return goldenCreditsDeniedCtx(goldenSpentCodexLoginLongThrottledSeatsCtx(ctx))
+}
+
+// TestSpentCodexLoginLongThrottledSeatsFundsCredits states the invariant: when
+// the caller's own plan is spent and every shared seat stays rate-limited past
+// the short wait, the turn is paid with Weave credits instead of refused.
+func TestSpentCodexLoginLongThrottledSeatsFundsCredits(t *testing.T) {
+	t.Parallel()
+	sc := goldenScenario{
+		name: ingressResponses + "_stream_spent_codex_login_long_seat_throttle_funds_credits", ingress: ingressResponses,
+		decisions: []router.Decision{decision(providers.ProviderOpenAI, goldenCodexModel)},
+		upstreams: map[string][]goldenStep{providers.ProviderOpenAI: {
+			goldenUpstreamError(http.StatusTooManyRequests, goldenCodexModelUsageLimitBody),
+			goldenResponsesOK("served on weave credits"),
+		}},
+		requests:  []goldenRequest{{body: goldenCodexPortableToolTurn, headers: goldenCodexSessionHeadersFor("c0d5"), decorateContext: goldenSpentCodexLoginLongThrottledSeatsCtx}},
+		configure: withLongThrottledCodexSeats,
+	}
+	h := newGoldenHarness(t, sc)
+	served := h.serve(t, sc.ingress, sc.requests[0])
+	raw, err := json.Marshal(served.Response)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), "served on weave credits")
+	require.NotContains(t, string(raw), "rate-limited")
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"time"
+	"weave-os/router/internal/subscriptionlane"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
@@ -84,4 +85,11 @@ func seatsThrottled(ctx context.Context, pool subscriptions.Provider, now time.T
 		}
 	}
 	return false
+}
+
+func throttledPoolRefusal(ctx context.Context, pool subscriptions.Provider, callerSpent bool, now time.Time) error {
+	if _, short := shortestSeatThrottle(ctx, pool, now); callerSpent && !short {
+		return nil
+	}
+	return subscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolThrottled)
 }
