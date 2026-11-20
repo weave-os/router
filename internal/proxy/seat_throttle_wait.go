@@ -87,8 +87,8 @@ func seatsThrottled(ctx context.Context, pool subscriptions.Provider, now time.T
 	return false
 }
 
-func throttledPoolRefusal(ctx context.Context, pool subscriptions.Provider, callerSpent bool, now time.Time) error {
-	if _, short := shortestSeatThrottle(ctx, pool, now); callerSpent && !short {
+func throttledPoolRefusal(ctx context.Context, pool subscriptions.Provider, callerHasToken bool, now time.Time) error {
+	if _, withinShortWait := shortestSeatThrottle(ctx, pool, now); callerHasToken && !withinShortWait {
 		return nil
 	}
 	return subscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolThrottled)

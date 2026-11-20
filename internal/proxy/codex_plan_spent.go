@@ -50,6 +50,6 @@ func emptyPaidPoolErr(ctx context.Context, includedFailure error, now time.Time)
 	return includedFailureOr(includedFailure, router.ErrAllowlistEmptiesPool)
 }
 
-func codexSeatsCoverOrBusy(ctx context.Context, covered bool, now time.Time) bool {
+func codexSeatsCoverOrThrottled(ctx context.Context, covered bool, now time.Time) bool {
 	return covered || seatsThrottled(ctx, subscriptions.ProviderCodex, now)
 }
