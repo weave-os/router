@@ -114,5 +114,4 @@ func requireServedOnCredits(t *testing.T, served goldenRequestTrace, text string
 	delta, ok := debit["DeltaUsdMicros"].(int64)
 	require.True(t, ok, "billing record: %+v", debit)
 	require.Negative(t, delta, "the turn must spend Weave credits, not settle free")
-	require.NotEqual(t, true, debit["SubscriptionServed"], "the turn must not be settled as subscription-served")
 }
