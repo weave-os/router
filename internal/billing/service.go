@@ -284,8 +284,6 @@ func (s *Service) maybeSignalRecharge(ctx context.Context, owner Owner, delta, b
 		log := observability.FromContext(ctx).With("owner_kind", owner.Kind)
 		if owner.Kind == OwnerKindOrganization {
 			log = log.With("organization_id", owner.OrganizationID)
-		} else {
-			log = log.With("subscriber_id", owner.SubscriberID)
 		}
 		log.Warn("Autopay crossing check skipped: config read failed", "err", err)
 		return

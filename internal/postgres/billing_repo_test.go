@@ -10,10 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A router booted before migration 0102 lands passes the table-count check only
-// if subscriber_autopay_config is counted: without it the prepaid settlement
-// path's GetSubscriberAutopayConfig read fails and the recharge signal is
-// silently dropped.
+// subscriber_autopay_config is part of the billing readiness table set.
 func TestBillingTablesExistDetectsMissingAutopayConfig(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
