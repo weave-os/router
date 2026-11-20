@@ -7,15 +7,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/requestcontext"
-	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/translate"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNoticePreludeDoesNotCommitProviderAttempt(t *testing.T) {
@@ -80,10 +80,8 @@ func TestAddRoutingFundingSource(t *testing.T) {
 			want:     "funded by Codex subscription",
 		},
 		{
-			name: "Weave credits",
-			ctx: billing.WithPrepaidAuthorization(context.Background(), billing.PrepaidAuthorization{
-				CapacitySource: entitlement.CapacitySourcePrepaid,
-			}),
+			name:     "Weave credits",
+			ctx:      billing.WithOrganizationPrepaid(context.Background()),
 			provider: providers.ProviderOpenAI,
 			model:    "gpt-6-luna",
 			want:     "funded by Weave credits",
@@ -140,10 +138,8 @@ func TestAddRoutingFundingSource(t *testing.T) {
 			oldSource: "Claude subscription",
 		},
 		{
-			name: "paid retry replaces subscription source",
-			ctx: billing.WithPrepaidAuthorization(context.Background(), billing.PrepaidAuthorization{
-				CapacitySource: entitlement.CapacitySourcePrepaid,
-			}),
+			name:      "paid retry replaces subscription source",
+			ctx:       billing.WithOrganizationPrepaid(context.Background()),
 			provider:  providers.ProviderOpenAI,
 			model:     "gpt-6-luna",
 			want:      "funded by Weave credits",

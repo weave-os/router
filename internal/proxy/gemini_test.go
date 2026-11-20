@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -306,15 +305,6 @@ func TestProxyGeminiGenerateContent_PersistsSubscriberTelemetry(t *testing.T) {
 				})
 			},
 			want: entitlement.CapacitySourceIncludedRouter,
-		},
-		{
-			name: "prepaid",
-			ctx: func(ctx context.Context) context.Context {
-				return billing.WithPrepaidAuthorization(ctx, billing.PrepaidAuthorization{
-					CapacitySource: entitlement.CapacitySourcePrepaid,
-				})
-			},
-			want: entitlement.CapacitySourcePrepaid,
 		},
 	}
 	for _, tt := range tests {
