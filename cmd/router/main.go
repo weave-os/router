@@ -924,7 +924,7 @@ func main() {
 			router.StrategyHMMEmbedding: stableManager,
 		}
 		hmmRosterModels = newHMMRosterSource(stableManager, hmmTimeout)
-		routingDistribution = stableManager
+		routingDistribution = hmmRoutingDistribution(stableManager)
 		escalationObserver = stableDynamicRouter
 
 		var betaManager *policyregistry.Manager
@@ -1284,7 +1284,9 @@ func main() {
 		SubscriberAllowance:      subscriberAllowanceSvc,
 		SubscriptionPoolsEnabled: subscriptionPoolsEnabled,
 		PolicyStatus:             policyStatus,
-		RoutingDistribution:      routingDistribution,
+		RoutingDistribution:      servingRoutingDistribution(servingAdmission, routingDistribution),
+		RosterCatalogID:          hmm.CatalogIDForRoster,
+		TaskDomainPreview:        taskDomainPreviewer{},
 	}
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture

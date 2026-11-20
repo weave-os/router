@@ -1,4 +1,4 @@
-package admin_test
+package main
 
 import (
 	"bytes"
@@ -61,7 +61,7 @@ func postTaskDomainPreview(t *testing.T, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	engine.POST("/preview", admin.InternalTaskDomainPreviewHandler())
+	engine.POST("/preview", admin.InternalTaskDomainPreviewHandler(taskDomainPreviewer{}))
 	payload, err := json.Marshal(body)
 	require.NoError(t, err)
 	recorder := httptest.NewRecorder()
@@ -141,7 +141,7 @@ func TestInternalTaskDomainPreviewRejectsEmptyAndOversizedBatches(t *testing.T) 
 	valid, err := json.Marshal(map[string]any{"items": []map[string]any{{"policy": policy, "evidence": evidence, "cluster": "low"}}})
 	require.NoError(t, err)
 	engine := gin.New()
-	engine.POST("/preview", admin.InternalTaskDomainPreviewHandler())
+	engine.POST("/preview", admin.InternalTaskDomainPreviewHandler(taskDomainPreviewer{}))
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/preview", bytes.NewReader(append(valid, []byte(` {"items":[]}`)...))))
 	assert.Equal(t, http.StatusBadRequest, recorder.Code, "trailing content is rejected")

@@ -93,6 +93,8 @@ type Features struct {
 	SubscriptionRefresh      subscriptions.AccountRefresher
 	PolicyStatus             admin.PolicyStatusSource
 	RoutingDistribution      admin.DistributionRosterSource
+	RosterCatalogID          func(string) string
+	TaskDomainPreview        admin.TaskDomainPreviewer
 	SeatUsage                admin.SeatUsageReader
 }
 
@@ -174,14 +176,12 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		engine.GET("/v1/router/models", middleware.WithTimeout(catalogModelsTimeout), admin.CatalogModelsHandler(hmmModels))
 	}
 
-	if features.ServingAdmission != nil {
-		discovery.GET("/v1/router/routing-distribution", middleware.WithTimeout(healthTimeout), admin.RoutingDistributionHandler(policyregistry.AdmittedRosterSource{}))
-	} else if features.RoutingDistribution != nil {
+	if features.RoutingDistribution != nil {
 		discovery.GET("/v1/router/routing-distribution", middleware.WithTimeout(healthTimeout), admin.RoutingDistributionHandler(features.RoutingDistribution))
 	}
 
 	if len(hmmRosterSources) > 0 {
-		discovery.GET("/v1/router/hmm-roster", middleware.WithTimeout(readinessTimeout), admin.HMMRosterHandler(hmmRosterSources))
+		discovery.GET("/v1/router/hmm-roster", middleware.WithTimeout(readinessTimeout), admin.HMMRosterHandler(hmmRosterSources, features.RosterCatalogID))
 	}
 
 	if internalToken := strings.TrimSpace(os.Getenv("ROUTER_INTERNAL_SERVICE_TOKEN")); internalToken != "" {
@@ -200,7 +200,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		internalGroup.GET("/inference-policies", admin.InternalInferencePoliciesHandler(proxySvc))
 		internalGroup.GET("/inference-policies/deployment", admin.InternalInferenceDeploymentHandler(proxySvc))
 		internalGroup.POST("/inference-policies/resolve", admin.InternalInferenceResolveHandler(proxySvc))
-		internalGroup.POST("/task-domain/preview", admin.InternalTaskDomainPreviewHandler())
+		internalGroup.POST("/task-domain/preview", admin.InternalTaskDomainPreviewHandler(features.TaskDomainPreview))
 		internalGroup.GET("/escalation/sessions", admin.InternalLLMEscalationSessionsHandler(proxySvc))
 		internalGroup.GET("/escalation/dashboard", admin.InternalEscalationDashboardHandler(proxySvc))
 		internalGroup.GET("/escalation/sessions/:scope", admin.InternalLLMEscalationSessionHandler(proxySvc))

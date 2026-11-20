@@ -11,9 +11,6 @@
       "internal/proxy": 20
     },
     "serving_strategy_internal_imports": {
-      "internal/api/admin -> internal/router/hmm": 1,
-      "internal/api/admin -> internal/router/hmm/rosterdata": 1,
-      "internal/api/admin -> internal/router/hmm/selection": 1,
       "internal/policyregistry -> internal/router/hmm/armid": 1,
       "internal/policyregistry -> internal/router/hmm/rosterdata": 1,
       "internal/proxy -> internal/router/hmm": 1,
