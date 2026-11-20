@@ -158,6 +158,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 	readmitted := false
 	var includedFailure error
 	var throttleWaited time.Duration
+	var spentCodexModels map[string]struct{}
 	for len(includedModels) > 0 && rotationBudget.remaining > 0 {
 		attemptModels := includedModels
 		if !hasFixedTarget {
@@ -168,6 +169,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 			attemptCtx, attemptReq = s.subscriptionStateRequest(ctx, request, includedModels)
 		}
 		attemptCtx = withSubscriptionAttempt(attemptCtx)
+		attemptReq.Candidates.ExcludedModels = candidates.MergeExcludedModels(attemptReq.Candidates.ExcludedModels, spentCodexModels)
 		attemptReq.EnabledProviders = make(map[string]struct{})
 		excludedProviders := s.excludedProvidersForRequest(ctx)
 		for provider := range request.EnabledProviders {
@@ -221,7 +223,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 		if !hasFixedTarget {
 			s.holdSessionOffSubscriptionPool(ctx, target.Provider, target.Model)
 		}
-		includedModels, request.Candidates.ExcludedModels = dropFailedIncludedModels(includedModels, target.Model, request.Candidates.ExcludedModels, codexPlanSpentForTurn(ctx, in.subscriptionStateHeaders, s.usageObserver, target.Provider, err, s.codexSubscriptionExhausted(ctx, in.subscriptionStateHeaders)))
+		includedModels, spentCodexModels = dropFailedIncludedModels(includedModels, target.Model, spentCodexModels, codexPlanSpentForTurn(ctx, in.subscriptionStateHeaders, s.usageObserver, target.Provider, err, s.codexSubscriptionExhausted(ctx, in.subscriptionStateHeaders)))
 		if hasFixedTarget {
 			break
 		}
