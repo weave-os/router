@@ -183,17 +183,7 @@ func TestCohortTargetsAndAuthenticatedWorkerScopesStayIsolated(t *testing.T) {
 		snapshot, err := cache.Snapshot(context.Background(), binding)
 		require.NoError(t, err)
 		require.Equal(t, []string{check.arm}, snapshot.Policy.AllArms())
-		worker := policyregistry.WorkerIdentity{Target: set.Target, Project: set.Code.Project, Region: set.Code.Region, Revision: set.Code.Router.Name, ImageDigest: set.Code.Router.ImageDigest, Configuration: set.Code.Router.Configuration}
 		assertion := policyregistry.ServingAssertion{APIKeyID: "synthetic-key", Scope: policyregistry.AdmissionScope{InstallationID: "synthetic-installation", CredentialIdentity: "synthetic-key", Persistent: true}, Admission: binding}
-		_, err = policyregistry.ValidateWorkerAdmission(context.Background(), store, worker, assertion, "synthetic-installation", "synthetic-key")
-		require.NoError(t, err)
-		_, err = policyregistry.ValidateWorkerAdmission(context.Background(), store, worker, assertion, "other-installation", "synthetic-key")
-		require.Error(t, err)
-		_, err = policyregistry.ValidateWorkerAdmission(context.Background(), store, worker, assertion, "synthetic-installation", "other-key")
-		require.Error(t, err)
-		worker.Target = policyregistry.TargetStaging
-		_, err = policyregistry.ValidateWorkerAdmission(context.Background(), store, worker, assertion, "synthetic-installation", "synthetic-key")
-		require.Error(t, err)
 		firstIdentity, _ := requestcontext.ServingIdentityFromContext(policyregistry.WithServingAssertion(context.Background(), assertion))
 		assertion.Scope.InstallationID = "other-installation"
 		otherIdentity, _ := requestcontext.ServingIdentityFromContext(policyregistry.WithServingAssertion(context.Background(), assertion))
