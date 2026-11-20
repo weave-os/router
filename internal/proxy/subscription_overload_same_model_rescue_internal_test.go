@@ -67,7 +67,8 @@ func TestCodexPlanOverload_RetriesSameModelOnWeaveKey(t *testing.T) {
 }
 
 // planMetadataThenOverloadClient answers the plan attempt like the ChatGPT
-// backend: lifecycle and response.metadata frames, then an in-stream overload.
+// backend: lifecycle, response.metadata and keepalive frames, then an
+// in-stream overload.
 type planMetadataThenOverloadClient struct{ oauthPerCall []bool }
 
 func (*planMetadataThenOverloadClient) SupportsSubscriptions() bool { return true }
@@ -81,6 +82,7 @@ func (c *planMetadataThenOverloadClient) Proxy(ctx context.Context, _ router.Dec
 	if oauth {
 		_, _ = io.WriteString(w, "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_overloaded\",\"object\":\"response\",\"status\":\"in_progress\",\"output\":[]}}\n\n")
 		_, _ = io.WriteString(w, "event: response.metadata\ndata: {\"type\":\"response.metadata\",\"sequence_number\":1,\"metadata\":{}}\n\n")
+		_, _ = io.WriteString(w, "event: keepalive\ndata: {\"type\":\"keepalive\",\"sequence_number\":2}\n\n")
 		_, _ = io.WriteString(w, "event: response.failed\ndata: "+codexInStreamOverloadFailure+"\n\n")
 		return &providers.UpstreamErrorResponse{Status: http.StatusBadGateway, Body: []byte(codexInStreamOverloadFailure)}
 	}
@@ -93,8 +95,8 @@ func (*planMetadataThenOverloadClient) Passthrough(context.Context, providers.Pr
 	return providers.ErrNotImplemented
 }
 
-// response.metadata carries no output. An overload after it must still be
-// retried on the Weave key instead of reaching Codex.
+// response.metadata and keepalive frames carry no output. An overload after
+// them must still be retried on the Weave key instead of reaching Codex.
 func TestCodexPlanOverloadAfterMetadata_RetriesSameModelOnWeaveKey(t *testing.T) {
 	client := &planMetadataThenOverloadClient{}
 	svc := codexOverloadService(client, &anthropicServingClient{}, false)
