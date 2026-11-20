@@ -62,7 +62,7 @@ func TestQueriesUsePrefixedNames(t *testing.T) {
 }
 
 func TestArchivedEscalationTablesHaveNoQueries(t *testing.T) {
-	findings := sqlFindings(t, filepath.Join(repositoryRoot(t), "db", "queries"), "*.sql", queriesArchivedTable)
+	findings := sqlFindings(t, filepath.Join(repositoryRoot(t), "db", "queries"), "*.sql", referencesArchivedTable)
 	assert.Empty(t, findings, "the retired escalation tables are archived for posterity (migration 0158): read them ad hoc, never add an SQLC query")
 }
 
@@ -78,8 +78,8 @@ func TestSQLConventionChecksRejectNegativeFixtures(t *testing.T) {
 	assert.True(t, numberedParameters("SELECT * FROM router.t WHERE id = $1;"))
 	assert.False(t, numberedParameters("SELECT * FROM router.t WHERE id = @id::uuid;"))
 	assert.Equal(t, []string{"FetchThing", "Getter"}, unprefixedQueryNames("-- name: FetchThing :one\n-- name: Getter :one\n-- name: GetThing :one\n-- name: SoftDeleteThing :exec\n"))
-	assert.True(t, queriesArchivedTable("INSERT INTO router.loop_escalation_events (id) VALUES (@id::uuid);"))
-	assert.False(t, queriesArchivedTable("-- not router.struggle_escalation_events\nSELECT * FROM router.session_pins;"))
+	assert.True(t, referencesArchivedTable("INSERT INTO router.loop_escalation_events (id) VALUES (@id::uuid);"))
+	assert.False(t, referencesArchivedTable("-- not router.struggle_escalation_events\nSELECT * FROM router.session_pins;"))
 	assert.False(t, numberedParameters("-- never $1\nSELECT * FROM router.t WHERE note = 'costs $1' AND id = @id::uuid;"))
 }
 
@@ -96,7 +96,7 @@ func numberedParameters(sql string) bool {
 	return numberedParameter.MatchString(sqlCode(sql))
 }
 
-func queriesArchivedTable(sql string) bool {
+func referencesArchivedTable(sql string) bool {
 	return archivedTable.MatchString(sqlCode(sql))
 }
 
