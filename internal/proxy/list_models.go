@@ -13,8 +13,9 @@ import (
 )
 
 type forceableModel struct {
-	id, provider, refusal string
-	shorthands            []string
+	id, provider string
+	refusal      *ForcedModelExcludedError
+	shorthands   []string
 }
 
 func (s *Service) handleListModelsCommand(
@@ -75,7 +76,7 @@ func listModelsMessage(models []forceableModel, prefix string, format translate.
 			b.WriteString("\n" + provider + "\n")
 		}
 		mark := "x"
-		if m.refusal != "" {
+		if m.refusal != nil {
 			mark = " "
 		} else {
 			available++

@@ -455,10 +455,10 @@ func TestForcedModelBinding_RejectsPassthroughModelOutsideAllowlist(t *testing.T
 	ctx := context.WithValue(context.Background(),
 		InstallationAllowedModelsContextKey{}, []string{"claude-opus-5"})
 
-	binding, reason := svc.forcedModelBinding(ctx, "claude-opus-4-8", providers.ProviderAnthropic)
+	binding, refusal := svc.forcedModelBinding(ctx, "claude-opus-4-8", providers.ProviderAnthropic)
 
 	assert.Empty(t, binding, "a passthrough model outside the allowlist must not resolve a binding")
-	assert.Contains(t, reason, "allowed-model list",
+	assert.Contains(t, refusal.Error(), "allowed-model list",
 		"the refusal must name the allowlist, not a generic exclusion")
 }
 
@@ -471,9 +471,9 @@ func TestForcedModelBinding_AllowsPassthroughModelInsideAllowlist(t *testing.T) 
 	ctx := context.WithValue(context.Background(),
 		InstallationAllowedModelsContextKey{}, []string{"claude-opus-4-8"})
 
-	binding, reason := svc.forcedModelBinding(ctx, "claude-opus-4-8", providers.ProviderAnthropic)
+	binding, refusal := svc.forcedModelBinding(ctx, "claude-opus-4-8", providers.ProviderAnthropic)
 
-	assert.Empty(t, reason)
+	assert.Nil(t, refusal)
 	assert.Equal(t, providers.ProviderAnthropic, binding)
 }
 
@@ -483,9 +483,9 @@ func TestForcedModelBinding_NoAllowlistLeavesPassthroughForcingUnchanged(t *test
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 
-	binding, reason := svc.forcedModelBinding(context.Background(), "claude-opus-4-8", providers.ProviderAnthropic)
+	binding, refusal := svc.forcedModelBinding(context.Background(), "claude-opus-4-8", providers.ProviderAnthropic)
 
-	assert.Empty(t, reason)
+	assert.Nil(t, refusal)
 	assert.Equal(t, providers.ProviderAnthropic, binding)
 }
 
@@ -494,10 +494,10 @@ func TestForcedModelBinding_RefreshesRetiredProviderOnSavedPin(t *testing.T) {
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderOpenRouter))
 
-	binding, reason := svc.forcedModelBinding(
+	binding, refusal := svc.forcedModelBinding(
 		context.Background(), "deepseek/deepseek-v4-flash", providers.ProviderMakora)
 
-	assert.Empty(t, reason)
+	assert.Nil(t, refusal)
 	assert.Equal(t, providers.ProviderOpenRouter, binding,
 		"a saved force pin must move off Makora after its V4 binding is retired")
 }
@@ -518,10 +518,10 @@ func TestForcedModelBinding_GatewayExclusivePinsTheGateway(t *testing.T) {
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 
-	binding, reason := svc.forcedModelBinding(
+	binding, refusal := svc.forcedModelBinding(
 		gatewayKeyCtx("claude-opus-5"), "claude-opus-5", providers.ProviderAnthropic)
 
-	assert.Empty(t, reason)
+	assert.Nil(t, refusal)
 	assert.Equal(t, providers.ProviderAnthropicGateway, binding)
 }
 
@@ -532,11 +532,11 @@ func TestForcedModelBinding_GatewayExclusiveRefusesUnaliasedModel(t *testing.T) 
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 
-	binding, reason := svc.forcedModelBinding(
+	binding, refusal := svc.forcedModelBinding(
 		gatewayKeyCtx("claude-opus-5"), "claude-haiku-4-5", providers.ProviderAnthropic)
 
 	assert.Empty(t, binding)
-	assert.Contains(t, reason, "gateway keys")
+	assert.Contains(t, refusal.Error(), "gateway keys")
 }
 
 // Gateway-exclusive forcing skips only the positive allowlist; an explicit
@@ -547,12 +547,12 @@ func TestForcedModelBinding_GatewayExclusiveKeepsExplicitExclusion(t *testing.T)
 	ctx := context.WithValue(gatewayKeyCtx("claude-opus-5"),
 		InstallationAllowedModelsContextKey{}, []string{"claude-opus-5-5"})
 
-	binding, reason := svc.forcedModelBinding(ctx, "claude-opus-5", providers.ProviderAnthropic)
-	assert.Empty(t, reason, "the gateway, not the allowlist, bounds a force")
+	binding, refusal := svc.forcedModelBinding(ctx, "claude-opus-5", providers.ProviderAnthropic)
+	assert.Nil(t, refusal, "the gateway, not the allowlist, bounds a force")
 	assert.Equal(t, providers.ProviderAnthropicGateway, binding)
 
 	ctx = context.WithValue(ctx, InstallationExcludedModelsContextKey{}, []string{"claude-opus-5"})
-	binding, reason = svc.forcedModelBinding(ctx, "claude-opus-5", providers.ProviderAnthropic)
+	binding, refusal = svc.forcedModelBinding(ctx, "claude-opus-5", providers.ProviderAnthropic)
 	assert.Empty(t, binding)
-	assert.Contains(t, reason, "excluded on this installation")
+	assert.Contains(t, refusal.Error(), "excluded on this installation")
 }

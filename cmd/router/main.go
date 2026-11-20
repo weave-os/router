@@ -571,7 +571,7 @@ func main() {
 
 	var pinStore sessionpin.Store
 	if config.GetOr("ROUTER_SESSION_PIN_ENABLED", "true") == "true" {
-		pinStore = sessionpin.GatedByFlag(postgres.NewSessionPinRepo(pool))
+		pinStore = sessionpin.GatedByFlag(postgres.NewSessionPinRepo(pool, hmm.SessionPinColumns()))
 		safeGo(logger, "session-pin-sweep", func() { runSessionPinSweep(context.Background(), pinStore) })
 		logger.Info("Session pin store enabled (sliding 1h TTL, hourly sweep)")
 	}

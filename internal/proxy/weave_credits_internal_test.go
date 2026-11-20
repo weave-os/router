@@ -59,16 +59,18 @@ func TestForcedModelBinding_UnfundedProviderReturnsCreditsError(t *testing.T) {
 	svc := NewService(nil, map[string]providers.Client{}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 	ctx := deniedCtxWithKeys(&auth.ExternalAPIKey{Provider: providers.ProviderAnthropic, Plaintext: []byte("synthetic-byok")})
 
-	_, reason := svc.forcedModelBinding(ctx, "gpt-5.4", providers.ProviderOpenAI)
-	binding, fundedReason := svc.forcedModelBinding(ctx, "claude-sonnet-4-6", providers.ProviderAnthropic)
+	_, refusal := svc.forcedModelBinding(ctx, "gpt-5.4", providers.ProviderOpenAI)
+	binding, fundedRefusal := svc.forcedModelBinding(ctx, "claude-sonnet-4-6", providers.ProviderAnthropic)
 
-	require.Equal(t, forcedModelUnfundedReason, reason)
-	err := error(&ForcedModelExcludedError{Model: "gpt-5.4", Reason: reason})
+	require.NotNil(t, refusal)
+	require.Equal(t, forcedModelUnfundedReason, refusal.Reason)
+	require.Equal(t, "gpt-5.4", refusal.Model)
+	err := error(refusal)
 	require.ErrorIs(t, err, ErrWeaveCreditsDisabled)
 	class, ok := ClassifyDispatchError(err)
 	require.True(t, ok)
 	assert.Equal(t, http.StatusPaymentRequired, class.Status)
-	assert.Empty(t, fundedReason)
+	assert.Nil(t, fundedRefusal)
 	assert.Equal(t, providers.ProviderAnthropic, binding)
 }
 

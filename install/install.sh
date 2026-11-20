@@ -114,6 +114,8 @@ export PATH="$PATH:$HOME/.weave/bin"
 HOSTED_BASE_URL="https://router.weaveos.com"
 # Pre-rebrand hosted endpoint; still vouched for in settings written by older installs.
 LEGACY_HOSTED_BASE_URL="https://router.workweave.ai"
+# Where a hosted user gets a key; the same page the no-argument npx command opens.
+HOSTED_KEY_SETUP_URL="https://router.workweave.ai/start"
 DEFAULT_BASE_URL="${WEAVE_ROUTER_URL:-$HOSTED_BASE_URL}"
 # npm package name is supplied by the Node wrapper; direct shell installs keep
 # the current package name; WEAVE_ROUTER_NPM_PACKAGE remains an escape hatch for
@@ -4756,6 +4758,26 @@ if [ "$target" = "claude-desktop" ] && [ "$base_url_explicit" != "true" ] && [ -
   [ -z "$installed_base" ] || base_url="$(strip_trailing_slashes "$installed_base")"
 fi
 
+# An explicit --base-url (or WEAVE_ROUTER_URL) still reuses the Claude Code
+# key, but only from a CLI install that already points at that same endpoint:
+# a key must never be sent to a router it wasn't installed against. A CLI
+# install on a different endpoint is reported (endpoint only) so the user can
+# see why the key wasn't picked up.
+desktop_cli_other_base=""
+if [ "$target" = "claude-desktop" ] && { [ "$base_url_explicit" = "true" ] || [ -n "${WEAVE_ROUTER_URL:-}" ]; }; then
+  for cli_settings_file in "$settings_base/.claude/settings.json" "$settings_base/.claude/.weave-parked.json"; do
+    cli_base="$(json_get "$cli_settings_file" '.env.ANTHROPIC_BASE_URL')"
+    router_shaped_url "$cli_base" || continue
+    cli_base="$(strip_trailing_slashes "$cli_base")"
+    if [ "$cli_base" = "$(strip_trailing_slashes "$base_url")" ]; then
+      desktop_cli_key="$(read_claude_key "$cli_settings_file")"
+      desktop_cli_other_base=""
+      break
+    fi
+    [ -n "$desktop_cli_other_base" ] || desktop_cli_other_base="$cli_base"
+  done
+fi
+
 if [ "$mode" = "install" ]; then
   [ "$quiet" = "true" ] || info "scope=${C_BOLD}${scope}${C_RESET}  target=${C_BOLD}${target}${C_RESET}  base_url=${C_BOLD}${base_url}${C_RESET}"
 else
@@ -4771,6 +4793,19 @@ fi
 # friction. --rotate-key skips the read-back so a new key can replace the old.
 # read_installed_key itself is defined above, next to the other settings readers.
 
+# key_setup_url prints where a person gets a key for the given router endpoint.
+# A Weave-hosted endpoint is an API host, not a page anyone can use, so point at
+# the hosted setup page instead; a self-hosted router serves its own key page.
+key_setup_url() {
+  local host="${1#*://}"
+  host="${host%%/*}"
+  case "$host" in
+    router.weaveos.com|*.router.weaveos.com|router.workweave.ai|*.router.workweave.ai)
+      printf '%s' "$HOSTED_KEY_SETUP_URL" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
 # prompt_for_key reads a key from the controlling terminal into $api_key. Only
 # ever called on an interactive install; callers check first.
 prompt_for_key() {
@@ -4780,7 +4815,11 @@ prompt_for_key() {
   # _spin_cleanup (installed globally above) already restores stty echo on
   # any exit path, so we don't need a separate trap here — that would
   # overwrite the spinner cleanup and leak the cursor / child PID on Ctrl-C.
-  printf "%sGet your Weave Router API key at %s%s\n" "$C_BRAND" "$base_url" "$C_RESET"
+  if [ -n "$desktop_cli_other_base" ]; then
+    printf "%sYour Claude Code install points at %s, not %s, so its key wasn't reused.%s\n" "$C_DIM" "$desktop_cli_other_base" "$base_url" "$C_RESET"
+    printf "%sDrop --base-url to reuse that install's endpoint and key.%s\n" "$C_DIM" "$C_RESET"
+  fi
+  printf "%sGet your Weave Router API key at %s%s\n" "$C_BRAND" "$(key_setup_url "$base_url")" "$C_RESET"
   printf "%sPaste your key here (rk_…):%s " "$C_DIM" "$C_RESET"
   stty -echo </dev/tty 2>/dev/null || true
   read -r api_key </dev/tty
@@ -4815,6 +4854,9 @@ elif [ "$non_interactive" = "true" ]; then
     err "--rotate-key needs either a prompt or WEAVE_ROUTER_KEY, and neither is available. Export the new key and re-run."
   else
     err "--non-interactive set but WEAVE_ROUTER_KEY is empty and no installed key was found. Export it and re-run."
+  fi
+  if [ -n "$desktop_cli_other_base" ]; then
+    printf "  Your Claude Code install points at %s, not %s, so its key wasn't reused. Drop --base-url to reuse that install's endpoint and key.\n" "$desktop_cli_other_base" "$base_url" >&2
   fi
   exit 1
 else

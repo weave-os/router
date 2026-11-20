@@ -166,12 +166,12 @@ func TestForcedModelBinding_IgnoresRequestSubset(t *testing.T) {
 	s := &Service{availableModels: map[string]struct{}{testSol: {}, testTerra: {}, testOpus: {}}}
 	ctx := ctxWithRequestSubset(ctxWithAllowedModels(testSol, testTerra), testSol)
 
-	binding, reason := s.forcedModelBinding(ctx, testTerra, providers.ProviderOpenAI)
-	assert.Empty(t, reason)
+	binding, refusal := s.forcedModelBinding(ctx, testTerra, providers.ProviderOpenAI)
+	assert.Nil(t, refusal)
 	assert.Equal(t, providers.ProviderOpenAI, binding)
 
-	_, reason = s.forcedModelBinding(ctx, testOpus, providers.ProviderAnthropic)
-	assert.NotEmpty(t, reason, "installation allowlist still binds a forced model")
+	_, refusal = s.forcedModelBinding(ctx, testOpus, providers.ProviderAnthropic)
+	assert.NotNil(t, refusal, "installation allowlist still binds a forced model")
 }
 
 // A sticky pin outside the request subset must reroute inside it; a pin

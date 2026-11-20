@@ -516,9 +516,9 @@ func (s *Service) runTurnLoop(
 		forceModelPin, forceModelFound, forceModelCleared = s.loadForceModelSessionPin(ctx, forceModelSessionKey, threadSessionKey, turntype.IsSubAgent(env, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx))))
 	}
 	if forcePinBindsNonClassifierTurn(forceModelFound, res.TurnType) {
-		binding, reason := s.forcedModelBinding(ctx, forceModelPin.Model, forceModelPin.Provider)
-		if reason != "" {
-			return res, &ForcedModelExcludedError{Model: forceModelPin.Model, Reason: reason}
+		binding, refusal := s.forcedModelBinding(ctx, forceModelPin.Model, forceModelPin.Provider)
+		if refusal != nil {
+			return res, refusal
 		}
 		forceModelPin.Provider = binding
 		req.Candidates.ExcludedModels = s.readmitForcedModel(ctx, req, env, feats, forceModelPin)
@@ -580,9 +580,9 @@ func (s *Service) runTurnLoop(
 	if s.pinStore != nil && hardPinnedTurn && !forceModelFound && !forceModelCleared {
 		legacyPin, found := sessionPins.Load(ctx, threadSessionKey, res.PinRole)
 		if found && isUserForcedReason(legacyPin.Reason) {
-			binding, reason := s.forcedModelBinding(ctx, legacyPin.Model, legacyPin.Provider)
-			if reason != "" {
-				return res, &ForcedModelExcludedError{Model: legacyPin.Model, Reason: reason}
+			binding, refusal := s.forcedModelBinding(ctx, legacyPin.Model, legacyPin.Provider)
+			if refusal != nil {
+				return res, refusal
 			}
 			legacyPin.Provider = binding
 			forceModelPin, forceModelFound = legacyPin, true
@@ -760,19 +760,16 @@ func (s *Service) runTurnLoop(
 
 	pin, pinFound, noStoredState := sessionPins.LoadWithStoreState(ctx, res.SessionKey, res.PinRole)
 	res.SessionFirstTurn = noStoredState
-	clearedPinReason := ""
-	if !pinFound && pin.Model == "" && pin.Provider == "" && pin.Reason != "" {
-		clearedPinReason = pin.Reason
-	}
+	clearedPinReason := routingpolicy.ClearedPinReason(pin, pinFound)
 	hmmHistory := sessionPins.LoadHMMHistory(ctx, res.SessionKey, res.PinRole)
 	forceHistory := sessionpin.Pin{}
 	if forceModelFound || forceModelCleared {
 		forceHistory = s.loadForceModelHistory(ctx, res.SessionKey, res.PinRole)
 	}
 	if !forceModelFound && !forceModelCleared && pinFound && isUserForcedReason(pin.Reason) {
-		binding, reason := s.forcedModelBinding(ctx, pin.Model, pin.Provider)
-		if reason != "" {
-			return res, &ForcedModelExcludedError{Model: pin.Model, Reason: reason}
+		binding, refusal := s.forcedModelBinding(ctx, pin.Model, pin.Provider)
+		if refusal != nil {
+			return res, refusal
 		}
 		pin.Provider = binding
 		forceModelPin, forceModelFound = pin, true
@@ -788,14 +785,14 @@ func (s *Service) runTurnLoop(
 		commandContinuation, commandContinuationFound = s.consumePostCommandContinuation(ctx, strategy, res.SessionKey, res.PinRole)
 	}
 	if pinFound && isUserForcedReason(pin.Reason) {
-		binding, reason := s.forcedModelBinding(ctx, pin.Model, pin.Provider)
-		if reason != "" {
+		binding, refusal := s.forcedModelBinding(ctx, pin.Model, pin.Provider)
+		if refusal != nil {
 			log.Warn("turnloop: forced pin refers to an excluded model",
 				"pin_model", pin.Model,
 				"pin_provider", pin.Provider,
-				"reason", reason,
+				"reason", refusal.Reason,
 			)
-			return res, &ForcedModelExcludedError{Model: pin.Model, Reason: reason}
+			return res, refusal
 		}
 		pin.Provider = binding
 	}
@@ -949,7 +946,7 @@ func (s *Service) runTurnLoop(
 			pin = sessionpin.Pin{}
 		}
 	}
-	if pinFound && (isUserForcedReason(pin.Reason) || pin.Reason == translate.ReasonLoopEscalation) {
+	if pinFound && (isUserForcedReason(pin.Reason) || routingpolicy.IsLoopEscalationReason(pin.Reason)) {
 		_, excluded := req.Candidates.ExcludedModels[pin.Model]
 		_, providerEnabled := req.EnabledProviders[pin.Provider]
 		providerEligible := req.EnabledProviders == nil || providerEnabled
@@ -1320,7 +1317,7 @@ func (s *Service) runTurnLoop(
 				ctx, req, activePin, hmmHistory, fresh, plannerTokens, prefixBroken,
 			)
 			s.logAuthorityCacheShadow(ctx, res)
-			if res.UpgradeShadow != nil && res.UpgradeShadow.Verdict.Reason == hmm.UpgradeDemotedModel {
+			if res.UpgradeShadow != nil && res.UpgradeShadow.Verdict.DemotedModel() {
 				if pinFound && candidates.AutomaticPinEligible(pin, req) {
 					decision := pinDecision(pin)
 					res.Decision = decision
@@ -1415,9 +1412,9 @@ func (s *Service) runTurnLoop(
 				res.StickyRole = hmmHistoryRole(res.PinRole)
 			} else {
 				res.PinTier = "hmm_fresh_unpinned"
-				if hmmPlannerDecision.Outcome == planner.OutcomeStay && hmmPlannerDecision.Reason != "" {
+				if hmmPlannerDecision.Outcome == planner.OutcomeStay && hmmPlannerDecision.Evaluated() {
 					res.PinTier = "hmm_ev_same_" + hmmPlannerDecision.Reason
-				} else if hmmPlannerDecision.Reason != "" && hmmPlannerDecision.Reason != planner.ReasonNoPin {
+				} else if hmmPlannerDecision.EvaluatedAgainstPin() {
 					res.PinTier = "hmm_ev_switch_" + hmmPlannerDecision.Reason
 				}
 			}

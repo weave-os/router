@@ -20,7 +20,6 @@ import (
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/subscriptionlane"
 	"weave-os/router/internal/subscriptions"
-	"weave-os/router/internal/translate"
 )
 
 func (s *Service) WithInferencePlans(plans *policy.PlanResolver) *Service {
@@ -73,7 +72,7 @@ func (s *Service) inferenceExecutor() (*dispatch.Executor, error) {
 
 func routedOrigin(decision router.Decision, hardPinned, stickyHit bool) policy.OverrideSource {
 	switch {
-	case decision.Reason == translate.ReasonUserForceModel:
+	case decision.UserForcedModel():
 		return policy.OverrideSourceRequest
 	case hardPinned:
 		return policy.OverrideSourceDeployment

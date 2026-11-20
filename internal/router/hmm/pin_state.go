@@ -2,6 +2,7 @@ package hmm
 
 import (
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm/pinstate"
 	"weave-os/router/internal/router/sessionpin"
 )
 
@@ -15,6 +16,10 @@ func PinStateOf(pin sessionpin.Pin) PinState {
 		PolicyGroup:  pin.PolicyGroup,
 		UpgradeVotes: pin.ConsecutiveUpgradeVotes,
 	}
+}
+
+func SessionPinColumns() sessionpin.StrategyColumnAccessor {
+	return pinstate.Accessor{}
 }
 
 func ClassifierMargin(dec router.Decision) *float64 {

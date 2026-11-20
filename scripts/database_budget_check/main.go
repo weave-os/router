@@ -20,6 +20,7 @@ import (
 	"weave-os/router/internal/postgres/poolconfig"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm/pinstate"
 	"weave-os/router/internal/router/sessionpin"
 )
 
@@ -99,7 +100,7 @@ func check(dsn string) (checkErr error) {
 	if _, err := lockConnection.Exec(ctx, "SELECT id FROM router.model_router_installations WHERE id = $1 FOR UPDATE", installation.ID); err != nil {
 		return fmt.Errorf("lock installation fixture: %w", err)
 	}
-	pinStore := postgres.NewSessionPinRepo(pool)
+	pinStore := postgres.NewSessionPinRepo(pool, pinstate.Accessor{})
 	pin := sessionpin.Pin{
 		SessionKey:     sessionKey(),
 		Role:           sessionpin.DefaultRole,
