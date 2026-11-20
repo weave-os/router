@@ -22,4 +22,6 @@ func hmmHistoryRole(role string) string { return routingpolicy.HMMHistoryRole(ro
 
 func isUserForcedReason(reason string) bool { return routingpolicy.IsUserForcedReason(reason) }
 
+const userUnforcedReason = routingpolicy.ReasonUserUnforced
+
 func forceModelHistoryRole(role string) string { return routingpolicy.ForceModelHistoryRole(role) }

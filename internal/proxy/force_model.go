@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -290,10 +291,7 @@ var bareCatalogNames = func() map[string]string {
 	return out
 }()
 
-const (
-	forceModelSessionRole = "force_model"
-	userUnforcedReason    = "user_unforced"
-)
+const forceModelSessionRole = "force_model"
 
 func (s *Service) preserveForceModelControlHistory(
 	ctx context.Context,
@@ -357,7 +355,7 @@ func (s *Service) loadForceModelSessionPin(
 		observability.FromContext(ctx).Error("force-model session pin lookup failed", "err", err)
 		return sessionpin.Pin{}, false, false
 	}
-	if found && pin.Reason == userUnforcedReason {
+	if found && routingpolicy.IsUserUnforcedPin(pin) {
 		return pin, false, true
 	}
 	if !found || !pin.PinnedUntil.After(s.clock.Now()) || !isUserForcedReason(pin.Reason) || pin.Model == "" || pin.Provider == "" {
@@ -474,15 +472,15 @@ func (s *Service) applyForceModelHeader(
 		)
 		return ctx, "", &ForcedModelUnknownError{Model: raw}
 	}
-	binding, reason := s.forcedModelBinding(ctx, canonicalModel, provider)
-	if reason != "" {
+	binding, refusal := s.forcedModelBinding(ctx, canonicalModel, provider)
+	if refusal != nil {
 		log.Warn("x-weave-force-model: rejected excluded model",
 			"input_model", raw,
 			"canonical_model", canonicalModel,
 			"provider", provider,
-			"reason", reason,
+			"reason", refusal.Reason,
 		)
-		return ctx, "", &ForcedModelExcludedError{Model: canonicalModel, Reason: reason}
+		return ctx, "", refusal
 	}
 	provider = binding
 	forcedModel := canonicalModel
@@ -561,18 +559,18 @@ func (s *Service) applyForceModelCommand(
 		return "", ack, nil
 	}
 
-	binding, reason := s.forcedModelBinding(ctx, canonicalModel, provider)
-	if reason != "" {
+	binding, refusal := s.forcedModelBinding(ctx, canonicalModel, provider)
+	if refusal != nil {
 		log.Warn("/force-model: rejected excluded model",
 			"input_model", cmd.Model,
 			"canonical_model", canonicalModel,
 			"provider", provider,
-			"reason", reason,
+			"reason", refusal.Reason,
 			"force_model_session_key_hex", fmt.Sprintf("%x", forceModelSessionKey),
 			"role", forceModelSessionRole,
 		)
 		ack.outcome.Disposition = translate.CommandRejected
-		ack.force = forceAcknowledgment{rejection: forceExcludedModel, reason: reason}
+		ack.force = forceAcknowledgment{rejection: forceExcludedModel, reason: refusal.Reason}
 		return "", ack, nil
 	}
 

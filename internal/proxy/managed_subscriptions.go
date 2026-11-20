@@ -41,36 +41,6 @@ func subscriptionOwnerFromContext(ctx context.Context) auth.SubscriptionOwner {
 	return auth.SubscriptionOwner{APIKeyID: apiKeyIDFromContext(ctx)}
 }
 
-type ManagedSubscriptionUsage struct {
-	Served                     bool
-	SubscriptionAttempted      bool
-	CredentialSource           string
-	OverageInUse               bool
-	SubscriptionAccountID      string
-	SubscriptionOwnerID        string
-	SubscriptionTier           auth.SubscriptionTier
-	IntendedModel              string
-	AttemptedAccounts          map[string]struct{}
-	QuotaExhaustedAccounts     map[string]time.Time
-	QuotaExhaustedProviders    map[subscriptions.Provider]time.Time
-	ThrottledAccounts          map[string]time.Time
-	ThrottledProviders         map[subscriptions.Provider]time.Time
-	UnavailableProviders       map[subscriptions.Provider]time.Time
-	ClientAppRefused           bool
-	Finished                   bool
-	WinningCredentials         *Credentials
-	ClaudeSubscriptionPlan     providers.SubscriptionPlan
-	ClaudePlanUnverified       bool
-	ClaudeEnterpriseCapRefused bool
-}
-
-func WithManagedSubscriptionUsage(ctx context.Context) context.Context {
-	if existing, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); existing != nil {
-		return ctx
-	}
-	return context.WithValue(ctx, ManagedSubscriptionUsageContextKey{}, &ManagedSubscriptionUsage{})
-}
-
 func managedSubscriptionProviderFromUpstream(provider, model string) (subscriptions.Provider, bool) {
 	switch provider {
 	case providers.ProviderAnthropic:
@@ -177,7 +147,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		if poolProvider == subscriptions.ProviderClaude && claudeEnterpriseEnabled(ctx) {
 			leaseCtx = requestcontext.WithSubscriptionExtraUsage(ctx)
 		}
-		lease, present, err := s.managedSubscriptions.Lease(leaseCtx, owner, poolProvider, ClientIdentityFrom(ctx).SessionID)
+		lease, present, err := leaseOrMarkLeasedOut(leaseCtx, s.managedSubscriptions, owner, poolProvider, model, ClientIdentityFrom(ctx).SessionID)
 		if err != nil && !errors.Is(err, subscriptions.ErrNoAvailableAccount) {
 			if current := CredentialsFromContext(ctx); ctx.Err() == nil && current != nil && current.OAuth {
 				observability.FromContext(ctx).Warn("Subscription pool lease failed; using caller subscription", "provider", poolProvider, "err", err)
@@ -334,7 +304,7 @@ func (s *Service) recordManagedSubscriptionFailure(ctx context.Context, provider
 			"provider", poolProvider, "account_id", lease.AccountID, "model", model)
 		return true
 	}
-	if provider == providers.ProviderAnthropic && anthropicSubscriptionThirdPartyRefused(attemptErr) {
+	if provider == providers.ProviderAnthropic && anthropicClientAppRefused(ctx, attemptErr) {
 		clientApp := ClientIdentityFrom(ctx).ClientApp
 		s.subscriptionModels.denyManagedClientApp(lease.AccountID, provider, clientApp, s.clock.Now().Add(subscriptionThirdPartyDenialTTL))
 		markSubscriptionClientAppRefused(ctx)

@@ -31,9 +31,10 @@ func TestForceableModels_MarksModelsTheForceCheckRefuses(t *testing.T) {
 	models := forceableByID(svc.forceableModels(ctx))
 
 	require.Contains(t, models, "claude-opus-4-8")
-	assert.Empty(t, models["claude-opus-4-8"].refusal)
+	assert.Nil(t, models["claude-opus-4-8"].refusal)
 	require.Contains(t, models, "claude-opus-5-5")
-	assert.Contains(t, models["claude-opus-5-5"].refusal, "allowed-model list")
+	require.NotNil(t, models["claude-opus-5-5"].refusal)
+	assert.Contains(t, models["claude-opus-5-5"].refusal.Error(), "allowed-model list")
 }
 
 // Every row is a name /force-model resolves to itself, and each shorthand shown
@@ -60,7 +61,7 @@ func TestForceableModels_ShorthandsResolveToTheirRow(t *testing.T) {
 func TestListModelsMessage_MarksRefusedRowsAndCountsForceable(t *testing.T) {
 	msg := listModelsMessage([]forceableModel{
 		{id: "claude-opus-5-5", provider: providers.ProviderAnthropic, shorthands: []string{"opus", "claude"}},
-		{id: "gpt-6.1-sol", provider: providers.ProviderOpenAI, refusal: "excluded", shorthands: []string{"sol"}},
+		{id: "gpt-6.1-sol", provider: providers.ProviderOpenAI, refusal: forcedModelExcluded("gpt-6.1-sol", "excluded"), shorthands: []string{"sol"}},
 	}, "$", translate.FormatOpenAI)
 
 	assert.Contains(t, msg, "[x] claude-opus-5-5 (opus, claude)")
