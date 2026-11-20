@@ -285,24 +285,6 @@ func ThinkTagReasoningFor(id string) bool {
 	return m.ThinkTagReasoning
 }
 
-func IsAtOrBelow(id string, ceiling Tier) bool {
-	t := TierFor(id)
-	if t == TierUnknown {
-		return false
-	}
-	return t <= ceiling
-}
-
-func AllowedAtOrBelow(ceiling Tier) map[string]struct{} {
-	out := make(map[string]struct{}, len(Models))
-	for _, m := range Models {
-		if m.Tier != TierUnknown && m.Tier <= ceiling {
-			out[m.ID] = struct{}{}
-		}
-	}
-	return out
-}
-
 const DefaultContextWindow = 128_000
 
 func ContextWindowFor(id string) int {

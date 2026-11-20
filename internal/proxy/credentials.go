@@ -44,10 +44,6 @@ func ApplyModelAlias(ctx context.Context, body []byte, model string) []byte {
 	return requestcontext.ApplyModelAlias(ctx, body, model)
 }
 
-func ApplyWIFTokenType(ctx context.Context, upstream *http.Request) {
-	requestcontext.ApplyWIFTokenType(ctx, upstream)
-}
-
 func ApplyIdentityHeader(ctx context.Context, upstream *http.Request) {
 	requestcontext.ApplyIdentityHeader(ctx, upstream)
 }
