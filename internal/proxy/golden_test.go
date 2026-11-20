@@ -27,6 +27,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/breaker"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/sse"
@@ -158,8 +159,8 @@ func newGoldenHarness(t *testing.T, sc goldenScenario) *goldenHarness {
 	require.NoError(t, err)
 
 	rt := &goldenRouter{decisions: sc.decisions, err: sc.routeErr, noCandidateErr: sc.noCandidateErr, rec: h.rec}
-	svc := proxy.NewService(rt, providerMap, nil, h.pins, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", h.telemetry).
+	svc := proxy.WithStrategyPorts(proxy.NewService(rt, providerMap, nil, h.pins, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", h.telemetry), hmm.ServingPorts()).
 		WithClock(h.clock.Now).
 		WithDeploymentKeyedProviders(available).
 		WithProviderOverloaded(false, breaker.New(breaker.Defaults(), h.clock.Now)).

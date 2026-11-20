@@ -64,7 +64,7 @@ func TestTurnLoopHoldsPinnedEffortOnLowGapEscalation(t *testing.T) {
 					},
 				},
 			}}
-			svc := NewService(
+			svc := withHMMPorts(NewService(
 				nil,
 				nil,
 				nil,
@@ -72,12 +72,12 @@ func TestTurnLoopHoldsPinnedEffortOnLowGapEscalation(t *testing.T) {
 				false,
 				providers.ProviderAnthropic,
 				"claude-haiku-4-5",
-				nil,
-			).WithPolicyStrategy(policy.StrategySpec{
-				Strategy:     strategy,
-				Router:       policyRouter,
-				Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1},
-			})
+				nil)).
+				WithPolicyStrategy(policy.StrategySpec{
+					Strategy:     strategy,
+					Router:       policyRouter,
+					Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1},
+				})
 			env, err := translate.ParseAnthropic(
 				[]byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"continue"}]}`),
 			)
@@ -88,9 +88,9 @@ func TestTurnLoopHoldsPinnedEffortOnLowGapEscalation(t *testing.T) {
 			result, err := svc.runTurnLoop(
 				ctx,
 				env,
-				features,
-				"api-key",
-				uuid.New(),
+				features, testTurnRequest(
+					ctx, "api-key", uuid.New()),
+
 				"",
 				http.Header{},
 				router.Request{
@@ -98,8 +98,7 @@ func TestTurnLoopHoldsPinnedEffortOnLowGapEscalation(t *testing.T) {
 					EstimatedInputTokens: features.Tokens,
 					HasTools:             features.HasTools,
 					ConversationMessages: conversationMessagesForRouting(env),
-				},
-			)
+				})
 
 			require.NoError(t, err)
 			assert.Equal(t, pinnedModel, result.Decision.Model)

@@ -32,5 +32,5 @@ func conditionalModelsObserver(snapshot usage.Snapshot) *usage.Observer {
 func TestPreferredModelsForRequest_SeparatesInstallationAndSubscriptionPreferences(t *testing.T) {
 	ctx := context.WithValue(context.Background(), InstallationPreferredModelsContextKey{}, []string{"grok-4.1-fast", "gpt-5.6-sol"})
 
-	assert.Equal(t, []string{"grok-4.1-fast", "gpt-5.6-sol"}, (&Service{}).preferredModelsForRequest(ctx))
+	assert.Equal(t, []string{"grok-4.1-fast", "gpt-5.6-sol"}, (&Service{hmmServing: hmmPorts()}).preferredModelsForRequest(ctx))
 }

@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/rosterdata"
 )
 
 const (

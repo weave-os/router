@@ -22,7 +22,6 @@ import (
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/escalation/floor"
 	"weave-os/router/internal/router/handover"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
 
@@ -57,10 +56,10 @@ func installationIDFromContext(ctx context.Context) uuid.UUID {
 	return id
 }
 
-func applyPinEvidence(res *turnLoopResult, pin sessionpin.Pin, now time.Time) {
+func applyPinEvidence(ports continuity.StrategyPorts, res *turnLoopResult, pin sessionpin.Pin, now time.Time) {
 	res.PinModel = pin.Model
 	res.PinProvider = pin.Provider
-	res.PinPolicyGroup = hmm.PinStateOf(pin).PolicyGroup
+	res.PinPolicyGroup = ports.Facts.PinStateOf(pin).PolicyGroup
 	res.PinAgeSec = pinAge(pin, now)
 	if !pin.LastTurnEndedAt.IsZero() {
 		gapMS := now.Sub(pin.LastTurnEndedAt).Milliseconds()
@@ -234,8 +233,8 @@ func (r turnLoopResult) baselineWarmPrefillTokens(requestStart time.Time, cacheC
 	return min(cacheCreation, max(r.PriorPromptTokens-cacheRead, 0))
 }
 
-func isHMMDecision(dec router.Decision) bool {
-	return hmm.IsDecision(dec)
+func isHMMDecision(ports continuity.StrategyPorts, dec router.Decision) bool {
+	return ports.Ownership.IsDecision(dec)
 }
 
 const (
@@ -252,7 +251,7 @@ func isPolicyDeadlineErr(err error) bool {
 	if err == nil {
 		return false
 	}
-	if !errors.Is(err, hmm.ErrHMMUnavailable) {
+	if !errors.Is(err, router.ErrHMMUnavailable) {
 		return false
 	}
 	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)
@@ -307,7 +306,7 @@ func (s *Service) isHardPinnedTurn(ctx context.Context, strategy router.Strategy
 		if s.hasSubAgentOverride() {
 			return true
 		}
-		return flags.BoolOr(ctx, flags.KeyHardPinExplore, s.hardPinExplore) && !hmm.Owns(strategy)
+		return flags.BoolOr(ctx, flags.KeyHardPinExplore, s.hardPinExplore) && !s.strategyPorts.Ownership.Owns(strategy)
 	default:
 		return false
 	}
@@ -389,13 +388,12 @@ func (s *Service) runTurnLoop(
 	ctx context.Context,
 	env *translate.RequestEnvelope,
 	feats translate.RoutingFeatures,
-	apiKeyID string,
-	installationID uuid.UUID,
+	turnReq turnRequest,
 	subAgentHint string,
 	reqHeaders http.Header,
 	req router.Request,
 ) (res turnLoopResult, routeErr error) {
-	strategy, subAgentHint := router.StrategyFromContext(ctx), subAgentHintForRequest(ctx, subAgentHint)
+	strategy, apiKeyID, installationID, subAgentHint := turnReq.Strategy, turnReq.APIKeyID, turnReq.InstallationID, subAgentHintForRequest(ctx, subAgentHint)
 	shadowStartedAt, sessionPins := s.clock.Now(), routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy)
 	defer func() {
 		if routeErr == nil {
@@ -409,7 +407,7 @@ func (s *Service) runTurnLoop(
 			params := InsertTelemetryParams{InstallationID: installationID.String(), RequestID: observability.RequestIDFromContext(ctx),
 				Timestamp: shadowStartedAt, SessionKey: key[:], Role: res.PinRole,
 				TurnType: string(turntype.Detect(env, feats, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx)))), ErrorClass: TurnErrorRoutingRefused}
-			applyAgreementShadowTelemetry(ctx, &params, res)
+			applyAgreementShadowTelemetry(s.strategyPorts, ctx, &params, res)
 			if params.agreementShadow != nil {
 				log := observability.FromContext(ctx)
 				observability.SafeGoContext(ctx, log, 5*time.Second, "agreementShadowRoutingFailure", func(shadowCtx context.Context) {
@@ -878,7 +876,7 @@ func (s *Service) runTurnLoop(
 	if pinFound {
 		res.PinTurnCount = pin.TurnCount + 1
 		res.PinFirstPinnedAt = pin.FirstPinnedAt
-		applyPinEvidence(&res, pin, s.clock.Now())
+		applyPinEvidence(s.strategyPorts, &res, pin, s.clock.Now())
 		log.Info("turnloop pin lookup hit",
 			"pin_model", pin.Model,
 			"pin_provider", pin.Provider,
@@ -1178,9 +1176,9 @@ func (s *Service) runTurnLoop(
 		return res, nil
 	}
 
-	if hmm.Owns(strategy) && pinFound && res.AuthoritativePerTurn && req.ForceCluster == "" &&
-		escalation.Rank(escalation.Group(hmm.PinStateOf(pin).PolicyGroup)) >= 0 && s.ResolveAuthoritativeUpgradeSlidingThreshold(ctx) {
-		req.Session.SlidingThresholdPinGroup = escalation.Group(hmm.PinStateOf(pin).PolicyGroup)
+	if s.strategyPorts.Ownership.Owns(strategy) && pinFound && res.AuthoritativePerTurn && req.ForceCluster == "" &&
+		escalation.Rank(escalation.Group(s.strategyPorts.Facts.PinStateOf(pin).PolicyGroup)) >= 0 && s.ResolveAuthoritativeUpgradeSlidingThreshold(ctx) {
+		req.Session.SlidingThresholdPinGroup = escalation.Group(s.strategyPorts.Facts.PinStateOf(pin).PolicyGroup)
 	}
 	baselineRequest := req
 	baselineTurn := res
@@ -1188,7 +1186,7 @@ func (s *Service) runTurnLoop(
 	escalationTurn.Apply(&req)
 	res.escalation = escalationTurn
 	if pinFound {
-		req.Session.PreviousPolicyGroup = escalation.Group(hmm.PinStateOf(pin).PolicyGroup)
+		req.Session.PreviousPolicyGroup = escalation.Group(s.strategyPorts.Facts.PinStateOf(pin).PolicyGroup)
 	}
 
 	routeRemaining := func() (turnLoopResult, error) {
@@ -1199,7 +1197,7 @@ func (s *Service) runTurnLoop(
 			res.AuthoritativePerTurn = false
 		}
 		if req.Escalation == nil && pinFound && candidates.AutomaticPinEligible(pin, req) && req.ConversationMessages != nil &&
-			hmm.Owns(strategy) &&
+			s.strategyPorts.Ownership.Owns(strategy) &&
 			!hasTextUserBoundary(req.ConversationMessages) {
 			if _, honoured := router.HonouredPolicyPin(ctx); !honoured {
 				decision := pinDecision(pin)
@@ -1269,7 +1267,7 @@ func (s *Service) runTurnLoop(
 							"err", err,
 							"pin_model", pin.Model,
 							"pin_provider", pin.Provider,
-							"pin_policy_group", hmm.PinStateOf(pin).PolicyGroup,
+							"pin_policy_group", s.strategyPorts.Facts.PinStateOf(pin).PolicyGroup,
 							"requested_model", req.RequestedModel,
 						)
 						refreshed := decision
@@ -1357,7 +1355,7 @@ func (s *Service) runTurnLoop(
 				sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, rerouted)
 				return res, nil
 			}
-			sliding := hmm.SlidingThresholdServes(req, pin, fresh)
+			sliding := s.strategyPorts.Upgrade.SlidingThresholdServes(req, pin, fresh)
 			if sliding.Served {
 				log.Info("authoritative sliding threshold serving fresh model",
 					"pin_model", pin.Model,
@@ -1368,8 +1366,8 @@ func (s *Service) runTurnLoop(
 					"probability", sliding.Probability,
 				)
 			}
-			verdict := authoritativeGuardsFor(ctx, s, sliding.Served).Judge(pin, pinFound, fresh, plannerTokens)
-			if holdAuthoritativePin(ctx, sessionPins, installationID, &res, pin, fresh, verdict) {
+			verdict := s.strategyPorts.Upgrade.JudgeAuthoritative(authoritativeGuardsFor(ctx, s, sliding.Served), pin, pinFound, fresh, plannerTokens)
+			if holdAuthoritativePin(ctx, sessionPins, s.strategyPorts.Ownership, &res, pin, fresh, verdict) {
 				return res, nil
 			}
 			res.Decision = fresh
@@ -1380,21 +1378,21 @@ func (s *Service) runTurnLoop(
 			sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, fresh)
 			return res, nil
 		}
-		if isHMMDecision(fresh) {
+		if isHMMDecision(s.strategyPorts, fresh) {
 			activePin := sessionpin.Pin{}
 			if pinFound {
 				activePin = pin
 			}
-			hmmGateInput := hmm.CostGateInput{
+			hmmGateInput := continuity.CostGateInput{
 				Request: req, ActivePin: activePin, HMMHistory: hmmHistory, Fresh: fresh,
 				EstimatedInputTokens: s.plannerTokensFor(ctx, env, feats), PrefixBroken: prefixBroken,
 			}
 			hmmDecision, hmmPlannerDecision, hmmSticky, hmmStayModel := hmmCostGatedDecision(ctx, s, hmmGateInput)
 			res.Decision = hmmDecision
 			res.PlannerDecision = hmmPlannerDecision
-			if heldEffort := hmm.EffortHysteresisHold(fresh, res.PriorServedModel, hmmDecision.Model, hmmDecision.Effort); heldEffort != "" {
+			if heldEffort := s.strategyPorts.Upgrade.EffortHysteresisHold(fresh, res.PriorServedModel, hmmDecision.Model, hmmDecision.Effort); heldEffort != "" {
 				res.Decision.Effort = heldEffort
-				res.PlannerDecision.Reason = hmm.AppendEffortHysteresisReason(res.PlannerDecision.Reason)
+				res.PlannerDecision.Reason = s.strategyPorts.Upgrade.AppendEffortHysteresisReason(res.PlannerDecision.Reason)
 				log.Info("HMM effort hysteresis held incumbent",
 					"incumbent", res.PriorServedModel,
 					"challenger_effort", hmmDecision.Effort,
@@ -1404,7 +1402,7 @@ func (s *Service) runTurnLoop(
 			if hmmStayModel != "" {
 				res.PinModel = hmmStayModel
 				if hmmPin, ok := hmmStayPin(s, req, activePin, hmmHistory); ok && hmmPin.Model == hmmStayModel {
-					applyPinEvidence(&res, hmmPin, s.clock.Now())
+					applyPinEvidence(s.strategyPorts, &res, hmmPin, s.clock.Now())
 				}
 			}
 			if hmmSticky {
@@ -1610,10 +1608,10 @@ func (s *Service) authorityCacheShadowFor(
 	if !s.ResolveAuthorityCacheShadow(ctx) {
 		return authorityCacheShadow{}
 	}
-	if !isHMMDecision(fresh) {
+	if !isHMMDecision(s.strategyPorts, fresh) {
 		return authorityCacheShadow{}
 	}
-	_, plannerDecision, sticky, stayModel := hmmCostGatedDecision(ctx, s, hmm.CostGateInput{
+	_, plannerDecision, sticky, stayModel := hmmCostGatedDecision(ctx, s, continuity.CostGateInput{
 		Request: req, ActivePin: activePin, HMMHistory: hmmHistory, Fresh: fresh,
 		EstimatedInputTokens: estimatedInputTokens, PrefixBroken: prefixBroken,
 	})
@@ -1633,8 +1631,8 @@ func (s *Service) authorityCacheShadowFor(
 		Decision:   plannerDecision,
 		StayModel:  stayModel,
 		Sticky:     sticky,
-		StayScore:  candidateScoreForWithProvider(fresh, stayIdentity, stayProvider),
-		FreshScore: candidateScoreForWithArm(fresh, fresh.ServedIdentity(), fresh.Provider, freshRosterArmID),
+		StayScore:  candidateScoreForWithProvider(s.strategyPorts, fresh, stayIdentity, stayProvider),
+		FreshScore: candidateScoreForWithArm(s.strategyPorts, fresh, fresh.ServedIdentity(), fresh.Provider, freshRosterArmID),
 	}
 	if stayPinOK && stayPin.Model == stayModel {
 		shadow.StayProvider = stayPin.Provider
@@ -1642,16 +1640,16 @@ func (s *Service) authorityCacheShadowFor(
 	return shadow
 }
 
-func candidateScoreFor(dec router.Decision, servedIdentity string) *float64 {
-	return candidateScoreForWithProvider(dec, servedIdentity, dec.Provider)
+func candidateScoreFor(ports continuity.StrategyPorts, dec router.Decision, servedIdentity string) *float64 {
+	return candidateScoreForWithProvider(ports, dec, servedIdentity, dec.Provider)
 }
 
-func candidateScoreForWithProvider(dec router.Decision, servedIdentity, provider string) *float64 {
-	return candidateScoreForWithArm(dec, servedIdentity, provider, "")
+func candidateScoreForWithProvider(ports continuity.StrategyPorts, dec router.Decision, servedIdentity, provider string) *float64 {
+	return candidateScoreForWithArm(ports, dec, servedIdentity, provider, "")
 }
 
-func candidateScoreForWithArm(dec router.Decision, servedIdentity, provider, rosterArmID string) *float64 {
-	return hmm.CandidateScore(dec, servedIdentity, provider, rosterArmID)
+func candidateScoreForWithArm(ports continuity.StrategyPorts, dec router.Decision, servedIdentity, provider, rosterArmID string) *float64 {
+	return ports.Facts.CandidateScore(dec, servedIdentity, provider, rosterArmID)
 }
 
 func (s *Service) logAuthorityCacheShadow(ctx context.Context, res turnLoopResult) {

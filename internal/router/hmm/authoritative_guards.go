@@ -2,37 +2,22 @@ package hmm
 
 import (
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/sessionpin"
 )
 
-type AuthoritativeHold int
+type AuthoritativeHold = continuity.AuthoritativeHold
 
 const (
-	AuthoritativeServe AuthoritativeHold = iota
-	AuthoritativeHoldUpgradeConfidenceLow
-	AuthoritativeHoldDowngradeConfidenceLow
-	AuthoritativeHoldDowngradeHysteresis
+	AuthoritativeServe                      = continuity.AuthoritativeServe
+	AuthoritativeHoldUpgradeConfidenceLow   = continuity.AuthoritativeHoldUpgradeConfidenceLow
+	AuthoritativeHoldDowngradeConfidenceLow = continuity.AuthoritativeHoldDowngradeConfidenceLow
+	AuthoritativeHoldDowngradeHysteresis    = continuity.AuthoritativeHoldDowngradeHysteresis
 )
 
-type AuthoritativeGuards struct {
-	ConfidenceThreshold   float64
-	UpgradeGate           bool
-	DowngradeGate         bool
-	HysteresisTurns       int
-	ShadowHysteresisTurns int
-}
+type AuthoritativeGuards continuity.AuthoritativeGuards
 
-type AuthoritativeVerdict struct {
-	Hold                  AuthoritativeHold
-	Threshold             float64
-	Confidence            float64
-	Downgrade             bool
-	DowngradeVotes        int
-	HysteresisTurns       int
-	ShadowHysteresisTurns int
-	HysteresisWouldHold   bool
-	ConfidenceWouldHold   bool
-}
+type AuthoritativeVerdict = continuity.AuthoritativeVerdict
 
 func (g AuthoritativeGuards) Judge(pin sessionpin.Pin, pinFound bool, fresh router.Decision, inputTokens int) AuthoritativeVerdict {
 	verdict := AuthoritativeVerdict{Threshold: g.ConfidenceThreshold}

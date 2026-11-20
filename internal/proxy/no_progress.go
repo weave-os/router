@@ -3,8 +3,10 @@ package proxy
 import (
 	"context"
 	"fmt"
-	"github.com/google/uuid"
 	"net/http"
+
+	"github.com/google/uuid"
+
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/conversation"
 
