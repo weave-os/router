@@ -78,9 +78,9 @@ func TestClassifierV5ClientPinsRelease(t *testing.T) {
 	}))
 	defer classifierServer.Close()
 
-	combined := New(classifierServer.URL, nil, time.Second)
+	client := New(classifierServer.URL, nil, time.Second)
 
-	capabilities, err := combined.CapabilitiesForClassifierRelease(context.Background(), classifierV5SelectionID, classifierV5ReleaseID)
+	capabilities, err := client.CapabilitiesForClassifierRelease(context.Background(), classifierV5SelectionID, classifierV5ReleaseID)
 	require.NoError(t, err)
 	assert.Equal(t, policy.SchemaVersionV5, capabilities.SchemaVersion)
 	assert.Equal(t, []string{"fast", "maximum"}, capabilities.ClassOrder)
@@ -95,7 +95,7 @@ func TestClassifierV5ClientPinsRelease(t *testing.T) {
 		Candidates:      []policy.Candidate{{RosterID: "openai/gpt-6-sol", Provider: "openai"}},
 		PreferredModels: []string{"openai/gpt-6-sol"}, TrainingAllowed: true,
 	}
-	decision, err := combined.Decide(context.Background(), query)
+	decision, err := client.Decide(context.Background(), query)
 	require.NoError(t, err)
 	assert.Equal(t, "qwen-v5", decision.PolicyArtifactID)
 	assert.InDelta(t, 0.7, decision.Score, 1e-9, "classifier confidence is the decision score")
@@ -105,7 +105,7 @@ func TestClassifierV5ClientPinsRelease(t *testing.T) {
 	assert.Nil(t, decision.HMMStatePath, "non-HMM variants do not receive fabricated state facts")
 
 	query.ExecutionMode = policy.ExecutionModePreview
-	preview, err := combined.Preview(context.Background(), query)
+	preview, err := client.Preview(context.Background(), query)
 	require.NoError(t, err)
 	assert.Equal(t, classifierV5ReleaseID, preview.ClassifierReleaseID)
 	assert.Equal(t, classifierV5SelectionID, preview.ClassifierSelectionID)
