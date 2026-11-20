@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -354,7 +355,7 @@ func (s *Service) loadForceModelSessionPin(
 		observability.FromContext(ctx).Error("force-model session pin lookup failed", "err", err)
 		return sessionpin.Pin{}, false, false
 	}
-	if found && isUserUnforcedPin(pin) {
+	if found && routingpolicy.IsUserUnforcedPin(pin) {
 		return pin, false, true
 	}
 	if !found || !pin.PinnedUntil.After(s.clock.Now()) || !isUserForcedReason(pin.Reason) || pin.Model == "" || pin.Provider == "" {

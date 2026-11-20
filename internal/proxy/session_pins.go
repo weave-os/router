@@ -24,6 +24,4 @@ func isUserForcedReason(reason string) bool { return routingpolicy.IsUserForcedR
 
 const userUnforcedReason = routingpolicy.ReasonUserUnforced
 
-func isUserUnforcedPin(pin sessionpin.Pin) bool { return routingpolicy.IsUserUnforcedPin(pin) }
-
 func forceModelHistoryRole(role string) string { return routingpolicy.ForceModelHistoryRole(role) }
