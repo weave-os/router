@@ -23,8 +23,8 @@ const (
 )
 
 const (
-	switchDowngradeHorizonTurns = 10
-	switchUpgradeHorizonTurns   = 40
+	switchDowngradeHorizonTurns = 5
+	switchUpgradeHorizonTurns   = 50
 	switchDefaultOutputTokens   = 1_500
 )
 

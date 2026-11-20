@@ -110,9 +110,10 @@ func (r *SessionPinRepo) UpdateUsage(ctx context.Context, sessionKey [sessionpin
 
 func usageModelCache(usage sessionpin.Usage, endedAt time.Time) []byte {
 	raw, err := json.Marshal(sessionpin.ModelCacheState{
-		ServedAt:     endedAt.UTC(),
-		PromptTokens: usage.InputTokens + usage.CachedReadTokens + usage.CachedWriteTokens,
-		MessageCount: usage.MessageCount,
+		ServedAt:        endedAt.UTC(),
+		PromptTokens:    usage.InputTokens + usage.CachedReadTokens + usage.CachedWriteTokens,
+		MessageCount:    usage.MessageCount,
+		WriteTTLSeconds: int(usage.CacheWriteTTL / time.Second),
 	})
 	if err != nil {
 		return []byte("{}")

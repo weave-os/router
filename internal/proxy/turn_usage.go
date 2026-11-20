@@ -48,6 +48,7 @@ func (s *Service) recordTurnUsage(ctx context.Context, res turnLoopResult, serve
 		PriorServedModel:    res.PriorServedModel,
 		SessionEverSwitched: res.SessionEverSwitched,
 		MessageCount:        res.MessageCount,
+		CacheWriteTTL:       res.CacheWriteTTL,
 	}
 	role := res.PinRole
 	if isUserForcedReason(res.Decision.Reason) {
@@ -107,6 +108,7 @@ func (s *Service) recordHMMTurnHistory(ctx context.Context, res turnLoopResult, 
 		PriorServedModel:    res.PriorServedModel,
 		SessionEverSwitched: res.SessionEverSwitched,
 		MessageCount:        res.MessageCount,
+		CacheWriteTTL:       res.CacheWriteTTL,
 	}); err != nil {
 		observability.Get().Error("HMM switch-history writeback failed", "err", err)
 	}

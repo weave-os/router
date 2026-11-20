@@ -9,9 +9,10 @@ import (
 )
 
 const (
-	evictionLookbackMessages = 20
-	evictionBasePrefixTokens = 30_000
-	evictionOutsideLookback  = 0.97
+	evictionLookbackMessages   = 20
+	evictionBasePrefixTokens   = 30_000
+	evictionSharedPrefixTokens = 12_000
+	evictionOutsideLookback    = 0.97
 
 	evictionPrefixCacheShortGap = 5 * time.Minute
 	evictionPrefixCacheLongGap  = time.Hour
@@ -42,7 +43,10 @@ type evictionTurn struct {
 func predictCacheOutlook(model string, state sessionpin.ModelCacheState, known bool, turn evictionTurn) CacheOutlook {
 	p := rewriteProbability(model, state, known, turn)
 	prompt := float64(turn.promptTokens)
-	base := min(float64(evictionBasePrefixTokens), prompt)
+	base := min(float64(evictionSharedPrefixTokens), prompt)
+	if known {
+		base = min(float64(evictionBasePrefixTokens), prompt)
+	}
 	prior := 0.0
 	if known {
 		prior = min(float64(state.PromptTokens), prompt)
@@ -69,7 +73,11 @@ func rewriteProbability(model string, state sessionpin.ModelCacheState, known bo
 	if providers.FamilyFor(m.PrimaryProvider()) != providers.FamilyAnthropic {
 		return prefixCacheRewriteProbability(turn.now.Sub(state.ServedAt), appended)
 	}
-	if turn.now.Sub(state.ServedAt) >= providers.CacheTTLFor(m.PrimaryProvider()) {
+	ttl := providers.CacheTTLFor(m.PrimaryProvider())
+	if state.WriteTTLSeconds > 0 {
+		ttl = time.Duration(state.WriteTTLSeconds) * time.Second
+	}
+	if turn.now.Sub(state.ServedAt) >= ttl {
 		return 1
 	}
 	if appended < 0 || appended >= evictionLookbackMessages {

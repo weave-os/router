@@ -89,6 +89,7 @@ type Usage struct {
 	PriorServedModel    string
 	SessionEverSwitched bool
 	MessageCount        int
+	CacheWriteTTL       time.Duration
 }
 
 type Store interface {

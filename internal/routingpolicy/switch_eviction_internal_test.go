@@ -30,3 +30,22 @@ func TestRewriteProbabilityFollowsTheDestinationProvidersCache(t *testing.T) {
 		})
 	}
 }
+
+func TestRewriteProbabilityUsesTheRecordedWriteTTL(t *testing.T) {
+	now := time.Date(2026, 1, 2, 12, 0, 0, 0, time.UTC)
+	turn := evictionTurn{now: now, promptTokens: 200_000, messageCount: 304, turnsSince: 2}
+	fiveMinute := sessionpin.ModelCacheState{ServedAt: now.Add(-10 * time.Minute), PromptTokens: 190_000, MessageCount: 300, WriteTTLSeconds: 300}
+	oneHour := fiveMinute
+	oneHour.WriteTTLSeconds = 3600
+	assert.InDelta(t, 1.0, rewriteProbability("claude-sonnet-5-5", fiveMinute, true, turn), 1e-9)
+	assert.InDelta(t, evictionRewriteRate[0][1], rewriteProbability("claude-sonnet-5-5", oneHour, true, turn), 1e-9)
+}
+
+func TestUnseenDestinationReadsOnlyTheSharedPrefix(t *testing.T) {
+	turn := evictionTurn{now: time.Date(2026, 1, 2, 12, 0, 0, 0, time.UTC), promptTokens: 200_000}
+	for _, model := range []string{"gpt-6.1-sol", "claude-sonnet-5-5"} {
+		outlook := predictCacheOutlook(model, sessionpin.ModelCacheState{}, false, turn)
+		assert.InDelta(t, 12_000, outlook.ReadTokens, 1e-9, model)
+		assert.InDelta(t, 188_000, outlook.WriteTokens, 1e-9, model)
+	}
+}
