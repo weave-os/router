@@ -43,7 +43,8 @@ func TestMigration0159RetiresClusterAndLoopEscalationState(t *testing.T) {
 		}))
 		return key
 	}
-	clusterPin := seedPin(" Cluster", "force_model_history")
+	clusterPin := seedPin("\v Cluster", "force_model_history")
+	lookalikePin := seedPin("clusterv", "test")
 	loopPin := seedPin(router.StrategyHMMEmbedding, "loop_escalation")
 	livePin := seedPin(router.StrategyHMMEmbedding, "test")
 
@@ -52,7 +53,7 @@ func TestMigration0159RetiresClusterAndLoopEscalationState(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	for key, wantKept := range map[[sessionpin.SessionKeyLen]byte]bool{clusterPin: false, loopPin: false, livePin: true} {
+	for key, wantKept := range map[[sessionpin.SessionKeyLen]byte]bool{clusterPin: false, lookalikePin: true, loopPin: false, livePin: true} {
 		var count int
 		require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM router.session_pins WHERE session_key = $1", key[:]).Scan(&count))
 		assert.Equal(t, wantKept, count == 1)
