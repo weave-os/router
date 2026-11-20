@@ -109,23 +109,10 @@ func TestOverloadedSeatFundsCreditsOnNextTurn(t *testing.T) {
 	}
 }
 
-func TestSeatsWithoutQuotaSnapshotFundCredits(t *testing.T) {
-	t.Parallel()
-	sc := goldenSeatRefusalScenario("rate_limited_seat_without_quota_snapshot_funds_credits", proxy.ClientAppClaudeCode, time.Time{},
-		goldenUpstreamError(http.StatusTooManyRequests, `{"type":"error","error":{"type":"rate_limit_error","message":"Rate limited"}}`))
-	sc.requests[0].decorateContext = func(ctx context.Context) context.Context {
-		ctx = requestcontext.WithClientIdentity(ctx, proxy.ClientIdentity{ClientApp: proxy.ClientAppClaudeCode, SessionID: "golden-seat-session"})
-		ctx = context.WithValue(ctx, proxy.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
-		return proxy.WithManagedSubscriptionUsage(ctx)
-	}
-	h := newGoldenHarness(t, sc)
-	requireServedOnCredits(t, h.serve(t, sc.ingress, sc.requests[0]), "served on weave credits")
-}
+type goldenClaudePlan providers.SubscriptionPlan
 
-type goldenUnknownClaudePlan struct{}
-
-func (goldenUnknownClaudePlan) SubscriptionPlan(context.Context, []byte) (providers.SubscriptionPlan, error) {
-	return providers.SubscriptionPlanUnknown, nil
+func (plan goldenClaudePlan) SubscriptionPlan(context.Context, []byte) (providers.SubscriptionPlan, error) {
+	return providers.SubscriptionPlan(plan), nil
 }
 
 func goldenCallerPlanScenario(name string, failure goldenStep) goldenScenario {
@@ -146,7 +133,7 @@ func TestTriedUnverifiedPlansFundCredits(t *testing.T) {
 	enterprise.noCandidateErr = fmt.Errorf("hmm_embedding: arm selection: %w", policy.ErrNoEligibleArm)
 	configureSeat := enterprise.configure
 	enterprise.configure = func(svc *proxy.Service, h *goldenHarness) *proxy.Service {
-		return configureSeat(svc, h).WithClaudeSubscriptionPlanReader(goldenUnknownClaudePlan{})
+		return configureSeat(svc, h).WithClaudeSubscriptionPlanReader(goldenClaudePlan(providers.SubscriptionPlanUnknown))
 	}
 	thirdParty := goldenCallerPlanScenario("caller_plan_third_party_refusal_funds_credits",
 		goldenUpstreamError(http.StatusBadRequest, goldenThirdPartyRefusalBody))

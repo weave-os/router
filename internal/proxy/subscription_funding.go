@@ -167,11 +167,8 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 		}
 		return throttledPoolRefusal(ctx, pool, token != "", now)
 	}
-	if !snapshotPresent && billing.WeaveCreditsDeniedFromContext(ctx) {
-		enrolled, _ := ctx.Value(ManagedSubscriptionProvidersContextKey{}).(map[auth.SubscriptionProvider]struct{})
-		if _, present := enrolled[auth.SubscriptionProvider(pool)]; present {
-			return subscriptionPoolUnavailableBecause(ctx, "enrolled pool has no quota snapshot")
-		}
+	if err := missingQuotaSnapshotRefusal(ctx, pool, snapshotPresent); err != nil {
+		return err
 	}
 	return callerPlanRefusal(ctx, pool, callerQuotaUnproven, now)
 }
@@ -396,4 +393,15 @@ func includedQuotaSpent(snapshot usage.Snapshot, now time.Time) bool {
 
 func credentialRejectionStands(subscriptionErr, retryErr error, credentialRejected func(error) bool) bool {
 	return errors.Is(retryErr, dispatch.ErrAuthorizationDenied) && credentialRejected(subscriptionErr)
+}
+
+func missingQuotaSnapshotRefusal(ctx context.Context, pool subscriptions.Provider, snapshotPresent bool) error {
+	if snapshotPresent || !billing.WeaveCreditsDeniedFromContext(ctx) {
+		return nil
+	}
+	enrolled, _ := ctx.Value(ManagedSubscriptionProvidersContextKey{}).(map[auth.SubscriptionProvider]struct{})
+	if _, present := enrolled[auth.SubscriptionProvider(pool)]; present {
+		return subscriptionPoolUnavailableBecause(ctx, "enrolled pool has no quota snapshot")
+	}
+	return nil
 }

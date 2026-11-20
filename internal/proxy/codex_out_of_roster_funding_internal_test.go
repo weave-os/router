@@ -139,9 +139,7 @@ func TestCodexOutOfRosterModel_SubscriptionFirstFunding(t *testing.T) {
 				svc := outOfRosterFundingService(client, selection.reason, repo)
 				ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
 				ctx = outOfRosterBillingCtx(ctx)
-				if tc.creditsDenied {
-					ctx = billing.WithWeaveCreditsDenied(ctx)
-				}
+				ctx = withWeaveCreditsDeniedWhen(ctx, tc.creditsDenied)
 				if tc.enrollmentUnavailable {
 					svc = svc.WithManagedSubscriptions(&scriptedSubscriptionLeaser{})
 					ctx = context.WithValue(ctx, ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
@@ -217,9 +215,7 @@ func TestCodexOutOfRosterModel_ManagedPoolFundsBeforeAPICredential(t *testing.T)
 				ctx = context.WithValue(ctx, ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 			}
 			ctx = outOfRosterBillingCtx(ctx)
-			if tc.creditsDenied {
-				ctx = billing.WithWeaveCreditsDenied(ctx)
-			}
+			ctx = withWeaveCreditsDeniedWhen(ctx, tc.creditsDenied)
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(body))
 
@@ -271,4 +267,11 @@ func TestCodexOutOfRosterModel_ChatOnlyRequestWithoutAPICredentialRefusesBeforeD
 	err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, req)
 	require.ErrorIs(t, err, ErrSubscriptionUnavailableForTurn)
 	assert.Empty(t, client.attempts, "the Codex token must not be sent to Chat Completions without an API fallback")
+}
+
+func withWeaveCreditsDeniedWhen(ctx context.Context, denied bool) context.Context {
+	if denied {
+		return billing.WithWeaveCreditsDenied(ctx)
+	}
+	return ctx
 }

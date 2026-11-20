@@ -207,7 +207,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 				require.Contains(t, rec.Body.String(), "answer")
 			}
 			for i, model := range servedModels {
-				if model == statePaidModel || scenario.claudeOnCredits {
+				if servedOnStateCredits(model, scenario.claudeOnCredits) {
 					require.False(t, subscriptionFunding[i])
 				} else {
 					require.True(t, subscriptionFunding[i], "expensive models must never reach paid credentials")
@@ -948,4 +948,8 @@ func TestSubscriptionStateModelAvailableFollowsLeaseAdmission(t *testing.T) {
 			require.Equal(t, scenario.wantAvailable, available)
 		})
 	}
+}
+
+func servedOnStateCredits(model string, claudeOnCredits bool) bool {
+	return model == statePaidModel || claudeOnCredits
 }

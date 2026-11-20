@@ -8,6 +8,7 @@ import (
 	"testing"
 	"testing/synctest"
 	"time"
+	"weave-os/router/internal/billing"
 
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
@@ -327,4 +328,11 @@ func TestSubscriptionFundingDirectTokenOverageIsQuotaProof(t *testing.T) {
 	observer.Record(observer.Key([]byte("synthetic-undated-token")), usage.Snapshot{OverageInUse: true})
 	require.ErrorIs(t, svc.authorizeSubscriptionAPI(context.Background(), subscriptions.ProviderClaude, inference.Target{}, "", "synthetic-undated-token", clientAppRefusalFunding{}), ErrSubscriptionPoolUnavailable,
 		"overage without a reported plan reset cannot authorize paid inference indefinitely")
+}
+
+func TestEnrolledPoolWithoutQuotaSnapshotFundsCredits(t *testing.T) {
+	ctx := context.WithValue(context.Background(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
+	svc := newServiceWithProviders(t, nil)
+	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderClaude, inference.Target{}, "", "", clientAppRefusalFunding{}))
+	require.ErrorIs(t, svc.authorizeSubscriptionAPI(billing.WithWeaveCreditsDenied(ctx), subscriptions.ProviderClaude, inference.Target{}, "", "", clientAppRefusalFunding{}), ErrSubscriptionPoolUnavailable)
 }
