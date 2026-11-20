@@ -1816,15 +1816,6 @@ func (s *Service) RegisteredStrategies() []router.Strategy {
 	return strategies
 }
 
-func (s *Service) WithRLRouter(r router.Router) *Service {
-	return s.WithPolicyStrategy(policy.StrategySpec{
-		Strategy:     router.StrategyRL,
-		Router:       r,
-		Unavailable:  router.ErrRLPolicyUnavailable,
-		Capabilities: policy.Capabilities{},
-	})
-}
-
 func (s *Service) WithHMMRouter(r router.Router) *Service {
 	return s.WithPolicyStrategy(policy.StrategySpec{
 		Strategy:    router.StrategyHMM,

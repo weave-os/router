@@ -197,7 +197,6 @@
       "policy_pin_unavailable",
       "probe_hard_pin",
       "rl_policy",
-      "rl_policy(score=0)",
       "sibling_failover",
       "usage_bypass",
       "user_forced"
@@ -254,7 +253,6 @@
     "policy_pin_unavailable": "router_decision",
     "probe_hard_pin": "utility",
     "rl_policy": "router_decision",
-    "rl_policy(score=0)": "router_decision",
     "sibling_failover": "router_decision",
     "usage_bypass": "router_decision",
     "user_forced": "forced"

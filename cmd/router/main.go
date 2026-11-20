@@ -58,7 +58,6 @@ import (
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/llmescalation"
 	"weave-os/router/internal/router/policy"
-	"weave-os/router/internal/router/rl"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/sessionstrategy"
 	"weave-os/router/internal/server"
@@ -769,26 +768,6 @@ func main() {
 		logger.Info("Feedback link disabled (set ROUTER_FEEDBACK_LINK_SECRET and ROUTER_FEEDBACK_BASE_URL to enable)")
 	}
 
-	var rlRouter router.Router
-	if rlSidecarURL := config.GetOr("ROUTER_RL_SIDECAR_URL", ""); rlSidecarURL != "" {
-		rlTimeout := parseEnvDurationMs("ROUTER_RL_SIDECAR_TIMEOUT_MS", rl.DefaultTimeout)
-		rlHeaders := rlSidecarHeadersFromEnv()
-		rlRouter = rl.New(
-			rl.NewHTTPDeciderWithHeaders(rlSidecarURL, nil, rlTimeout, rlHeaders),
-			routingTargets,
-			availableProviders,
-		)
-		logger.Info(
-			"RL policy router wired",
-			"sidecar_url", rlSidecarURL,
-			"timeout_ms", rlTimeout.Milliseconds(),
-			"candidate_models", len(routingTargets),
-			"modal_proxy_auth", len(rlHeaders) > 0,
-		)
-	} else {
-		logger.Info("RL policy router disabled (ROUTER_RL_SIDECAR_URL unset); x-weave-router-strategy: rl will return 503")
-	}
-
 	var escalationObserver escalation.Observer
 	var hmmRouter router.Router
 	var hmmEmbeddingRouter router.Router
@@ -1066,7 +1045,7 @@ func main() {
 	}
 	servedModels := proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)
 
-	proxySvc := withRLPolicyStrategy(proxy.NewService(nil, providerMap, telemetryEmitter, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
+	proxySvc := proxy.NewService(nil, providerMap, telemetryEmitter, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
 		WithClock(time.Now).WithTranslationMetrics(otel.NewTranslationMetrics()).
 		WithClaudeSubscriptionPlanReader(anthropicClient).
 		WithExternalKeyUsageRecorder(authSvc).
@@ -1146,7 +1125,7 @@ func main() {
 		WithWebSearchExecutor(cortexWebSearch(logger)).
 		WithAvailableModels(servedModels).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
-		WithBillingService(billingSvc), rlRouter)
+		WithBillingService(billingSvc)
 	inferenceDeployment.RoutableModels = servedModels
 	if err := configureAtomicClassifier(proxySvc, pool, availableProviders, deploymentMode); err != nil {
 		logger.Error("Failed to configure atomic classifier", "err", err)
@@ -1561,30 +1540,6 @@ func boolDefault(b bool) string {
 		return "true"
 	}
 	return "false"
-}
-
-func rlSidecarHeadersFromEnv() map[string]string {
-	key := strings.TrimSpace(config.GetOr("ROUTER_RL_SIDECAR_MODAL_KEY", ""))
-	secret := strings.TrimSpace(config.GetOr("ROUTER_RL_SIDECAR_MODAL_SECRET", ""))
-	if key == "" && secret == "" {
-		return nil
-	}
-	if key == "" || secret == "" {
-		observability.Get().Error(
-			"Partial Modal RL sidecar proxy auth config; omitting headers",
-			"has_key", key != "",
-			"has_secret", secret != "",
-			"hint", "set both ROUTER_RL_SIDECAR_MODAL_KEY and ROUTER_RL_SIDECAR_MODAL_SECRET",
-		)
-		return nil
-	}
-	return map[string]string{
-		"X-Weave-Band-Key":    key,
-		"X-Weave-Band-Secret": secret,
-		"Authorization":       "Bearer " + key + ":" + secret,
-		"Modal-Key":           key,
-		"Modal-Secret":        secret,
-	}
 }
 
 func parseEnvDurationMs(key string, fallback time.Duration) time.Duration {
