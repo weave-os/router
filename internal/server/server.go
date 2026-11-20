@@ -25,6 +25,7 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/router/taskdomain"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -94,7 +95,7 @@ type Features struct {
 	PolicyStatus             admin.PolicyStatusSource
 	RoutingDistribution      admin.DistributionRosterSource
 	RosterCatalogID          func(string) string
-	TaskDomainPreview        admin.TaskDomainPreviewer
+	TaskDomainPreview        taskdomain.Previewer
 	SeatUsage                admin.SeatUsageReader
 }
 
