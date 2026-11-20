@@ -118,6 +118,7 @@ type turnLoopResult struct {
 	TurnType                    turntype.TurnType
 	StickyHit                   bool
 	HardPinned                  bool
+	UserForced                  bool
 	SessionFirstTurn            bool
 	Purpose                     inference.Purpose
 	Origin                      policy.OverrideSource
@@ -325,10 +326,7 @@ func (s *Service) routeWithoutPin(
 	forceModelPin sessionpin.Pin,
 ) (turnLoopResult, error) {
 	if forceModelFound && res.TurnType != turntype.Classifier && candidates.ForcedPinEligible(forceModelPin, req) {
-		res.Decision = pinDecision(forceModelPin)
-		res.Decision.Reason = translate.ReasonUserForceModel
-		res.StickyHit = true
-		res.PinTier = translate.ReasonUserForceModel
+		res.serveForceModelPin(forceModelPin)
 		return res, nil
 	}
 	req.Session.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{}, s.clock.Now())
@@ -628,10 +626,7 @@ func (s *Service) runTurnLoop(
 						res.applySwitchHistory(threadPin, hmmHistory, forceHistory)
 						res.EscalateEffort = !forceHistory.LastTurnEndedAt.IsZero() &&
 							(forceHistory.LastOutputTokens == 0 || forceHistory.ConsecutiveUpstreamErrors > 0)
-						res.Decision = pinDecision(forceModelPin)
-						res.Decision.Reason = translate.ReasonUserForceModel
-						res.StickyHit = true
-						res.PinTier = translate.ReasonUserForceModel
+						res.serveForceModelPin(forceModelPin)
 						sessionPins.AnchorForceModelHistory(ctx, installationID, threadSessionKey, res.PinRole, forceModelPin)
 						return true, nil
 					}
@@ -917,10 +912,7 @@ func (s *Service) runTurnLoop(
 			res.PinAgeSec = pinAge(forceModelPin, s.clock.Now())
 			res.EscalateEffort = !forceHistory.LastTurnEndedAt.IsZero() &&
 				(forceHistory.LastOutputTokens == 0 || forceHistory.ConsecutiveUpstreamErrors > 0)
-			res.Decision = pinDecision(forceModelPin)
-			res.Decision.Reason = translate.ReasonUserForceModel
-			res.StickyHit = true
-			res.PinTier = translate.ReasonUserForceModel
+			res.serveForceModelPin(forceModelPin)
 			sessionPins.AnchorForceModelHistory(ctx, installationID, res.SessionKey, res.PinRole, forceModelPin)
 			return res, nil
 		}
@@ -956,6 +948,7 @@ func (s *Service) runTurnLoop(
 			decision.Reason = pin.Reason
 			res.PinTier = pin.Reason
 			res.Decision = decision
+			res.UserForced = decision.UserForcedModel()
 			res.StickyHit = true
 			sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, pinDecision(pin))
 			return res, nil

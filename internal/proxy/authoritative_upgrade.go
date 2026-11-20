@@ -168,7 +168,7 @@ func holdAuthoritativePin(
 		return false
 	}
 	decision := pinDecision(pin)
-	res.Decision = decision
+	res.Decision, res.UserForced = decision, false
 	res.StickyHit = true
 	switch verdict.Hold {
 	case continuity.AuthoritativeHoldUpgradeConfidenceLow:

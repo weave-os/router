@@ -509,10 +509,10 @@ func routingReasonShort(res turnLoopResult) string {
 	if res.PlannerDecision.Evaluated() {
 		return humanReasonFromPlanner(res.PlannerDecision.Reason)
 	}
-	switch res.Decision.Reason {
-	case translate.ReasonUserForceModel:
+	if res.UserForced {
 		return markerReasonUserForced
-	case translate.ReasonLoopEscalation:
+	}
+	if routingpolicy.IsLoopEscalationReason(res.Decision.Reason) {
 		return markerReasonLoopEscalated
 	}
 	return markerReasonBestPick
@@ -2514,7 +2514,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				log.Error("Reroute after usage-bypass failure failed", "err", rerouteErr)
 				return rerouteErr
 			}
-			routeRes.Decision = decision
+			routeRes.Decision, routeRes.UserForced = decision, false
 			routeRes.Fresh = decision
 		}
 	}
