@@ -17,7 +17,7 @@
     "strategy_from_context_callers": {
       "internal/api/admin": 2,
       "internal/api/anthropic": 1,
-      "internal/proxy": 10,
+      "internal/proxy": 9,
       "internal/server/middleware": 1
     },
     "strategy_serving_adapter_imports": {}

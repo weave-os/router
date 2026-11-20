@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net/http"
@@ -181,7 +182,8 @@ func (s *Service) handleBetaCommand(
 
 	log := observability.FromContext(ctx)
 	if err := s.invalidateSessionRoutingState(
-		router.WithStrategy(ctx, previousStrategy),
+		ctx,
+		cmp.Or(previousStrategy, currentStrategy),
 		sessionKey,
 	); err != nil {
 		log.Error("post-toggle routing-state cleanup failed", "err", err)
@@ -198,6 +200,7 @@ func (s *Service) handleBetaCommand(
 
 func (s *Service) invalidateSessionRoutingState(
 	ctx context.Context,
+	strategy router.Strategy,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 ) error {
 	if s.pinStore == nil {
@@ -209,7 +212,6 @@ func (s *Service) invalidateSessionRoutingState(
 		roleForTier(catalog.TierMid),
 		roleForTier(catalog.TierHigh),
 	}
-	strategy := router.StrategyFromContext(ctx)
 	seen := make(map[string]struct{}, len(roles)*3)
 	var firstErr error
 	for _, role := range roles {
