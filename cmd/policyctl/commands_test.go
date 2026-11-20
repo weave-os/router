@@ -79,3 +79,9 @@ func TestRunCompileWritesCanonicalBytes(t *testing.T) {
 	assert.Equal(t, policyregistry.Digest(payload), summary.PolicySHA256)
 	assert.False(t, bytes.HasSuffix(payload, []byte{'\n'}))
 }
+
+func TestRunRejectsRetiredLaneHeadCommands(t *testing.T) {
+	for _, retired := range []string{"validate", "publish", "promote", "rollback", "status", "export"} {
+		require.ErrorContains(t, run(t.Context(), []string{retired}), "unknown policyctl command", retired)
+	}
+}

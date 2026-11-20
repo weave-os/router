@@ -6,13 +6,11 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"net/url"
 	"os"
 	"strings"
 
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router/hmm/policycompiler"
-	"weave-os/router/internal/router/rosterdata"
 )
 
 type commandName string
@@ -20,7 +18,6 @@ type commandName string
 const (
 	commandCompile      commandName = "compile"
 	commandCheckRosters commandName = "check-rosters"
-	commandValidate     commandName = "validate"
 	commandPublish      commandName = "publish"
 	commandStatus       commandName = "status"
 	commandServing      commandName = "serving"
@@ -30,7 +27,7 @@ const defaultRegistryURI = "gs://weave_ml/weave_registry"
 
 func run(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: policyctl <compile|check-rosters|validate|serving> [flags]")
+		return errors.New("usage: policyctl <compile|check-rosters|serving> [flags]")
 	}
 	switch commandName(args[0]) {
 	case commandServing:
@@ -39,8 +36,6 @@ func run(ctx context.Context, args []string) error {
 		return runCompile(args[1:])
 	case commandCheckRosters:
 		return runCheckRosters(args[1:])
-	case commandValidate:
-		return runValidate(args[1:])
 	default:
 		return fmt.Errorf("unknown policyctl command %q", args[0])
 	}
@@ -84,47 +79,6 @@ func runCompile(args []string) error {
 		"arms":           len(policy.AllArms()),
 		"output":         *outputPath,
 	})
-}
-
-func runValidate(args []string) error {
-	flags := flag.NewFlagSet(string(commandValidate), flag.ContinueOnError)
-	policyPath := flags.String("policy", "", "compiled policy JSON")
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	if *policyPath == "" {
-		return errors.New("validate requires --policy")
-	}
-	payload, err := os.ReadFile(*policyPath)
-	if err != nil {
-		return fmt.Errorf("read policy: %w", err)
-	}
-	policy, err := rosterdata.ParseValidated(payload)
-	if err != nil {
-		return err
-	}
-	if policy.SchemaVersion != rosterdata.SchemaVersionPolicyV1 {
-		return fmt.Errorf("policy uses legacy schema %q", policy.SchemaVersion)
-	}
-	canonical, err := rosterdata.CanonicalBytes(policy)
-	if err != nil {
-		return err
-	}
-	return writeJSON(map[string]any{
-		"schema_version": policy.SchemaVersion,
-		"policy_sha256":  policyregistry.Digest(canonical),
-		"class_order":    policy.ClassOrder,
-		"clusters":       len(policy.Clusters),
-		"arms":           len(policy.AllArms()),
-	})
-}
-
-func validateClassifierRevisionURL(raw string) error {
-	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.User != nil {
-		return errors.New("classifier revision URL must be an absolute HTTPS base URL without path, query, fragment, or userinfo")
-	}
-	return nil
 }
 
 func parseList(raw string) []string {

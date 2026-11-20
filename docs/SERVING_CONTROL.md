@@ -4,8 +4,8 @@ The `policyctl serving` group is the low-level interface for a trusted deploymen
 workflow. It does not build images, deploy Cloud Run services, change revision tags,
 grant IAM access, or turn on managed serving. Those preparation steps belong
 to the environment's orchestrator. The remaining top-level policy commands
-(`compile`, `check-rosters`, `validate`) only build and check policy artifacts; the
-lane-head `publish`, `promote`, `rollback`, `status` and `export` commands are removed.
+(`compile`, `check-rosters`) only build and check policy artifacts; the lane-head
+`validate`, `publish`, `promote`, `rollback`, `status` and `export` commands are removed.
 
 The trust model is a single operator team publishing through one workflow identity.
 The registry therefore keeps the guarantees that prevent state corruption (immutable
@@ -62,7 +62,7 @@ destination validation calls the HTTPS origins the selection set's lanes declare
   proposal: run `status --proposal` (or re-run `apply` with the same proposal) to
   reconcile the outcome without creating another activation.
 
-### Legacy lane-head commands
+### Roster commands
 
 - `policyctl check-rosters` prints a JSON report with `compiled`, `skipped` and
   `failed` rosters. A roster in a source schema the compiler does not accept is a
@@ -70,8 +70,8 @@ destination validation calls the HTTPS origins the selection set's lanes declare
   rejects fails: that drift would strand production without a publishable policy.
   Every compiled roster must also pass the catalog validation `publish` applies,
   because a policy that fails it can never become a release.
-- The lane-head verbs `publish`, `promote`, `rollback`, `status` and `export` are
-  removed; `policyctl serving` publishes and inspects v5 serving releases.
+- The lane-head verbs `validate`, `publish`, `promote`, `rollback`, `status` and
+  `export` are removed; `policyctl serving` publishes and inspects v5 serving releases.
 - The retired serving verbs `validate`, `resolve`, `prepare` and `activate` exit
   non-zero and name the `publish`/`apply` invocation that replaced them.
 - `serving publish` digests the manifest bytes exactly as they would be stored;
