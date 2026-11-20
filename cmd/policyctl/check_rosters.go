@@ -10,7 +10,7 @@ import (
 
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router/hmm/policycompiler"
-	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/rosterdata"
 )
 
 type rosterCheckReport struct {
