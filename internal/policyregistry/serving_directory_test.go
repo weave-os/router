@@ -14,7 +14,7 @@ func TestDirectoryServingStoreReadsContentAddressedObjectsUnderItsRoot(t *testin
 	payload, err := CanonicalBytes(release)
 	require.NoError(t, err)
 	digest := Digest(payload)
-	binding, err := json.Marshal(ClassifierRuntimeBinding{SchemaVersion: ClassifierRuntimeBindingSchemaV1, Environment: EnvironmentProd, ReleaseSHA256: digest, WorkerURL: "http://localhost:8093"})
+	binding, err := json.Marshal(localRuntimeBinding(digest, "sha256:"+strings.Repeat("b", 64)))
 	require.NoError(t, err)
 	dir := t.TempDir()
 	require.NoError(t, WriteDirectoryServingRegistry(dir, classifierContractRegistryRoot, map[string][]byte{
@@ -57,4 +57,29 @@ func TestDirectoryServingStoreRequiresAGCSRoot(t *testing.T) {
 	require.ErrorContains(t, WriteDirectoryServingRegistry(dir, "file:///registry", map[string][]byte{}), "gs:// URI")
 	_, err := NewDirectoryServingStore(dir)
 	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestDirectoryServingStoreRejectsMalformedRuntimeBinding(t *testing.T) {
+	payload, err := CanonicalBytes(classifierContractRelease())
+	require.NoError(t, err)
+	digest := Digest(payload)
+	binding, err := json.Marshal(localRuntimeBinding(digest, "not-a-digest"))
+	require.NoError(t, err)
+	dir := t.TempDir()
+	require.NoError(t, WriteDirectoryServingRegistry(dir, classifierContractRegistryRoot, map[string][]byte{
+		servingArtifactsNamespace + digest + ".json":                payload,
+		DirectoryServingRuntimeBindingPath(EnvironmentProd, digest): binding,
+	}))
+	store, err := NewDirectoryServingStore(dir)
+	require.NoError(t, err)
+	_, err = store.ReadClassifierRuntimeBinding(context.Background(), EnvironmentProd, digest)
+	require.ErrorContains(t, err, "image or configuration digest is invalid")
+}
+
+func localRuntimeBinding(releaseSHA256, imageDigest string) ClassifierRuntimeBinding {
+	return ClassifierRuntimeBinding{
+		SchemaVersion: ClassifierRuntimeBindingSchemaV1, Environment: EnvironmentProd, ProjectID: "local", ReleaseSHA256: releaseSHA256,
+		WorkerRevision: "local", WorkerURL: "http://localhost:8093", WorkerAudience: "http://localhost:8093",
+		ImageDigest: imageDigest, ConfigurationSHA256: strings.Repeat("c", 64),
+	}
 }

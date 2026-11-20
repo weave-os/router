@@ -103,12 +103,9 @@ func (s *DirectoryServingStore) ReadClassifierRuntimeBinding(_ context.Context, 
 	if err != nil {
 		return ResolvedClassifierRuntimeBinding{}, err
 	}
-	var binding ClassifierRuntimeBinding
-	if err := strictDecode(payload, &binding); err != nil {
-		return ResolvedClassifierRuntimeBinding{}, fmt.Errorf("decode classifier runtime binding: %w", err)
-	}
-	if binding.SchemaVersion != ClassifierRuntimeBindingSchemaV1 || binding.Environment != environment || binding.ReleaseSHA256 != releaseSHA256 {
-		return ResolvedClassifierRuntimeBinding{}, errors.New("local classifier runtime binding names another schema, environment or release")
+	binding, err := DecodeLocalClassifierRuntimeBinding(payload, environment, releaseSHA256)
+	if err != nil {
+		return ResolvedClassifierRuntimeBinding{}, err
 	}
 	return ResolvedClassifierRuntimeBinding{
 		Ref:     ObjectRef{URI: ClassifierRuntimeBindingURI(s.rootURI, environment, releaseSHA256), SHA256: Digest(payload), Generation: directoryServingGeneration},
