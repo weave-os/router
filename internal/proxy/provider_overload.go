@@ -2,8 +2,9 @@ package proxy
 
 import (
 	"context"
-	"github.com/google/uuid"
 	"strings"
+
+	"github.com/google/uuid"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router/sessionpin"

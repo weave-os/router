@@ -7,7 +7,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/router/hmm"
 )
 
 func ctxWithCreds(creds *Credentials) context.Context {
@@ -15,7 +17,7 @@ func ctxWithCreds(creds *Credentials) context.Context {
 }
 
 func TestCredentialKeyParts_DeploymentKeyTurnIsEmpty(t *testing.T) {
-	s := &Service{}
+	s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}
 	prefix, suffix, src := s.credentialKeyParts(context.Background())
 	assert.Empty(t, prefix, "a deployment-key turn has no per-request credential to record")
 	assert.Empty(t, suffix)
@@ -28,7 +30,7 @@ func TestCredentialKeyParts_DeploymentKeyTurnIsEmpty(t *testing.T) {
 }
 
 func TestCredentialKeyParts_RecordsPrefixSuffixAndSource(t *testing.T) {
-	s := &Service{}
+	s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}
 	ctx := ctxWithCreds(&Credentials{APIKey: []byte("sk-ant-oat-vinh-1234"), Source: credSourceSubscription})
 
 	prefix, suffix, src := s.credentialKeyParts(ctx)
@@ -38,7 +40,7 @@ func TestCredentialKeyParts_RecordsPrefixSuffixAndSource(t *testing.T) {
 }
 
 func TestCredentialKeyParts_SharedTokenAcrossUsersMatches(t *testing.T) {
-	s := &Service{}
+	s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}
 	shared := []byte("sk-ant-oat-shared-account")
 
 	prefixA, suffixA, _ := s.credentialKeyParts(ctxWithCreds(&Credentials{APIKey: shared, Source: credSourceSubscription}))
@@ -51,7 +53,7 @@ func TestCredentialKeyParts_SharedTokenAcrossUsersMatches(t *testing.T) {
 }
 
 func TestCredentialKeyParts_ShortKey(t *testing.T) {
-	s := &Service{}
+	s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}
 	prefix, suffix, src := s.credentialKeyParts(ctxWithCreds(&Credentials{APIKey: []byte("short-key"), Source: credSourceClient}))
 	assert.Equal(t, "short-key", prefix)
 	assert.Empty(t, suffix)
@@ -59,7 +61,7 @@ func TestCredentialKeyParts_ShortKey(t *testing.T) {
 }
 
 func TestCredentialKeyParts_ManagedSubscriptionSourceOutranksOuterCredential(t *testing.T) {
-	s := &Service{}
+	s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}
 	ctx := WithManagedSubscriptionUsage(ctxWithCreds(&Credentials{APIKey: []byte("byok-token"), Source: credSourceBYOK}))
 	managedCtx := context.WithValue(ctx, CredentialsContextKey{}, &Credentials{
 		APIKey: []byte("managed-token"), Source: credSourceSubscription, OAuth: true,
@@ -74,7 +76,7 @@ func TestCredentialKeyParts_ManagedSubscriptionSourceOutranksOuterCredential(t *
 
 func TestSubscriptionOverageIsBillableWithoutLosingSubscriptionBillingAttribution(t *testing.T) {
 	observer := observerWithSnapshot("overage-token", usage.Snapshot{OverageInUse: true})
-	s := (&Service{}).WithUsageObserver(observer)
+	s := (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}).WithUsageObserver(observer)
 	ctx := ctxWithCreds(&Credentials{APIKey: []byte("overage-token"), Source: credSourceSubscription, OAuth: true})
 
 	assert.True(t, servedOnSubscription(ctx))
@@ -91,7 +93,7 @@ func TestSubscriptionOverageIsBillableWithoutLosingSubscriptionBillingAttributio
 }
 
 func TestSubscriptionOverageHeaderMarksCostEvenWithoutObserver(t *testing.T) {
-	s := &Service{}
+	s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}
 	ctx := withUnifiedLimitCapture(ctxWithCreds(&Credentials{APIKey: []byte("overage-token"), Source: credSourceSubscription, OAuth: true}))
 	headers := http.Header{}
 	headers.Set("anthropic-ratelimit-unified-representative-claim", "overage")
@@ -110,7 +112,7 @@ func TestSubscriptionOverageHeaderMarksCostEvenWithoutObserver(t *testing.T) {
 
 func TestIncludedClaimOverridesPriorPaidObservation(t *testing.T) {
 	observer := observerWithSnapshot("overage-token", usage.Snapshot{OverageInUse: true})
-	s := (&Service{}).WithUsageObserver(observer)
+	s := (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}).WithUsageObserver(observer)
 	ctx := withUnifiedLimitCapture(ctxWithCreds(&Credentials{
 		APIKey: []byte("overage-token"), Source: credSourceSubscription, OAuth: true,
 	}))

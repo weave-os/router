@@ -16,9 +16,10 @@ import (
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/armid"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/escalation/floor"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/switchpolicy"
 	"weave-os/router/internal/router/turntype"
@@ -37,7 +38,7 @@ func agreementShadowEnabled(ctx context.Context) bool {
 	return managed && policyregistry.ServingTarget(identity.Target) == policyregistry.TargetInternal && identity.StateNamespace != "" && identity.ReleaseID != "" && identity.BindingID != "" && flags.IntOr(ctx, flags.KeyAgreementShadowEpoch, 0) > 0
 }
 
-func applyAgreementShadowTelemetry(ctx context.Context, p *InsertTelemetryParams, res turnLoopResult) {
+func applyAgreementShadowTelemetry(ports continuity.StrategyPorts, ctx context.Context, p *InsertTelemetryParams, res turnLoopResult) {
 	if !agreementShadowEnabled(ctx) {
 		return
 	}
@@ -57,10 +58,10 @@ func applyAgreementShadowTelemetry(ctx context.Context, p *InsertTelemetryParams
 		Observation: switchpolicy.ShadowObservation{RequestID: p.RequestID, StartedAt: p.Timestamp, Gap: switchpolicy.ShadowGapUnsupported},
 	}
 	p.agreementShadow = shadow
-	if !res.AuthoritativePerTurn || !isHMMDecision(res.Fresh) || res.HardPinned || res.ForcedPinDropped || res.PolicyFallback || res.CallerModelPassthrough || res.UsageBypass || floor.RoutingApplied(res.Fresh) {
+	if !res.AuthoritativePerTurn || !isHMMDecision(ports, res.Fresh) || res.HardPinned || res.ForcedPinDropped || res.PolicyFallback || res.CallerModelPassthrough || res.UsageBypass || floor.RoutingApplied(res.Fresh) {
 		return
 	}
-	md, classifier := res.Fresh.Metadata, hmm.ClassifierTelemetryOf(res.Fresh.Metadata)
+	md, classifier := res.Fresh.Metadata, ports.Facts.ClassifierTelemetryOf(res.Fresh.Metadata)
 	if md == nil || classifier.SelectionTrace == nil || classifier.ArtifactSHA256 == "" || md.SelectionPolicySHA256 == "" {
 		shadow.Observation.Gap = switchpolicy.ShadowGapMissing
 		return
@@ -69,8 +70,8 @@ func applyAgreementShadowTelemetry(ctx context.Context, p *InsertTelemetryParams
 	if trace.ForcedGroup != "" || trace.ClusterOverridesPresent || (trace.OverrideReason != router.SelectionOverrideNone && trace.OverrideReason != router.SelectionOverrideSlidingThreshold) {
 		return
 	}
-	selectedBase, _ := hmm.SplitEffort(trace.SelectedArm)
-	selectedModel := hmm.CatalogIDForRoster(selectedBase)
+	selectedBase, _ := armid.SplitEffort(trace.SelectedArm)
+	selectedModel := armid.CatalogIDForRoster(selectedBase)
 	if selectedModel != res.Fresh.Model || md.CandidateProviders[selectedModel] != res.Fresh.Provider {
 		shadow.Observation.Gap = switchpolicy.ShadowGapMissing
 		return
@@ -82,11 +83,11 @@ func applyAgreementShadowTelemetry(ctx context.Context, p *InsertTelemetryParams
 		return
 	}
 	for _, arm := range trace.EffectiveOrders[string(group)] {
-		base, _ := hmm.SplitEffort(arm)
+		base, _ := armid.SplitEffort(arm)
 		if !slices.Contains(trace.CandidateRosterIDs, base) {
 			continue
 		}
-		model := hmm.CatalogIDForRoster(base)
+		model := armid.CatalogIDForRoster(base)
 		provider := md.CandidateProviders[model]
 		if provider == "" {
 			continue
@@ -180,7 +181,7 @@ func (s *Service) recordAgreementShadowCommandBoundary(ctx context.Context, inst
 	for _, role := range forceModelClearRoles() {
 		p := InsertTelemetryParams{InstallationID: installationID.String(), RequestID: commandID, Timestamp: startedAt,
 			SessionKey: threadKey[:], Role: role, TurnType: string(turntype.MainLoop), UpstreamStatusCode: http.StatusOK}
-		applyAgreementShadowTelemetry(ctx, &p, turnLoopResult{})
+		applyAgreementShadowTelemetry(s.strategyPorts, ctx, &p, turnLoopResult{})
 		s.recordAgreementShadow(boundaryCtx, log, p)
 	}
 }

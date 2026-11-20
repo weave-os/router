@@ -27,7 +27,7 @@ var authoritativeDowngradeBody = []byte(
 // authoritativeDowngradeService wires an authoritative policy whose fresh pick
 // is fixed, over a pin store seeded with pin.
 func authoritativeDowngradeService(store *stubPinStore, fresh router.Decision) *Service {
-	return NewService(
+	return WithStrategyPorts(NewService(
 		nil,
 		nil,
 		nil,
@@ -35,15 +35,15 @@ func authoritativeDowngradeService(store *stubPinStore, fresh router.Decision) *
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	).WithPolicyStrategy(policy.StrategySpec{
-		Strategy: authoritativeDowngradeStrategy,
-		Router:   &authoritativeTestRouter{decision: fresh},
-		Capabilities: policy.Capabilities{
-			SchemaVersion:                 policy.SchemaVersionV1,
-			AuthoritativePerTurnSelection: true,
-		},
-	})
+		nil), hmm.ServingPorts()).
+		WithPolicyStrategy(policy.StrategySpec{
+			Strategy: authoritativeDowngradeStrategy,
+			Router:   &authoritativeTestRouter{decision: fresh},
+			Capabilities: policy.Capabilities{
+				SchemaVersion:                 policy.SchemaVersionV1,
+				AuthoritativePerTurnSelection: true,
+			},
+		})
 }
 
 func runAuthoritativeDowngradeTurn(t *testing.T, svc *Service) turnLoopResult {

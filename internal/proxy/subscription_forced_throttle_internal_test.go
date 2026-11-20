@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
 )
@@ -20,7 +21,7 @@ import (
 // throttle (retryable 429), not an organization allowlist problem (400).
 func TestSubscriptionStateForcedModelThrottledPoolKeeps429(t *testing.T) {
 	openAI := &fakeClient{name: providers.ProviderOpenAI}
-	svc := NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderOpenAI: openAI}, nil, nil, false, "", "", nil).
+	svc := WithStrategyPorts(NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderOpenAI: openAI}, nil, nil, false, "", "", nil), hmm.ServingPorts()).
 		WithManagedSubscriptions(&stateModelLeaser{})
 	seats := []*auth.SubscriptionAccount{activeCodexAccount("seat-1"), activeCodexAccount("seat-2")}
 	ctx := WithManagedSubscriptionCandidates(WithManagedSubscriptionUsage(managedSubscriptionContext(auth.SubscriptionProviderCodex)), seats)

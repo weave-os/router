@@ -4,17 +4,20 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
+
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/subscriptions"
 )
 
@@ -53,7 +56,7 @@ func TestVerificationOpaqueReasoningWireScope(t *testing.T) {
 			if scenario.modelChanged {
 				model = "gpt-6-sol"
 			}
-			svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: model, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, model, nil).WithManagedSubscriptions(&scriptedSubscriptionLeaser{leases: leases})
+			svc := WithStrategyPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: model, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, model, nil), hmm.ServingPorts()).WithManagedSubscriptions(&scriptedSubscriptionLeaser{leases: leases})
 			// Mint a protocol envelope for the old stable provider principal/model; token differs from current bearer.
 			oldCtx := context.WithValue(context.Background(), CredentialsContextKey{}, &Credentials{APIKey: []byte("old-access-token"), AccountID: []byte("reasoning-provider"), OAuth: true, Source: credSourceCodexSubscription, PrincipalID: "chatgpt-account:reasoning-provider"})
 			scope := svc.reasoningReplayScope(oldCtx, router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel})

@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/subscriptions"
 )
 
@@ -35,7 +36,7 @@ func TestProxyOpenAIChatCompletion_ManagedPoolFailureIsRenderedOnce(t *testing.T
 			Body:   []byte(`{"error":{"type":"rate_limit_error","message":"quota exhausted"}}`),
 		}},
 	}}
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		fixedRouter{decision: router.Decision{
 			Provider: providers.ProviderOpenAI,
 			Model:    "gpt-5.6-sol",
@@ -45,8 +46,8 @@ func TestProxyOpenAIChatCompletion_ManagedPoolFailureIsRenderedOnce(t *testing.T
 			providers.ProviderOpenAI:    openAI,
 			providers.ProviderAnthropic: &fakeClient{name: providers.ProviderAnthropic},
 		},
-		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithManagedSubscriptions(leaser).
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
+		WithManagedSubscriptions(leaser).
 		WithDeploymentKeyedProviders(map[string]struct{}{
 			providers.ProviderOpenAI:    {},
 			providers.ProviderAnthropic: {},

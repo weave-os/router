@@ -41,7 +41,7 @@ func unscorableHMMService(store sessionpin.Store, sidecarFailure error) *Service
 	policyRouter := hmm.NewForStrategy(router.StrategyHMMEmbedding, unavailableHMMDecider{sidecarFailure},
 		map[string]struct{}{providers.ProviderAnthropic: {}})
 	policyRouter.WithArmSelector(selection.Selector(roster))
-	return NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	return WithStrategyPorts(NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: policyRouter})
 }
 
@@ -87,7 +87,7 @@ func TestHMMCommandOnlyTurnUsesAdmittedRuntimeFallback(t *testing.T) {
 		router.StrategyHMMEmbedding: innerRouter,
 	}}
 	admittedRouter := policyregistry.NewAdmittedRouter(router.StrategyHMMEmbedding, snapshot)
-	service := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	service := WithStrategyPorts(NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: admittedRouter})
 	ctx := policyregistry.WithServingSnapshot(
 		router.WithStrategy(context.Background(), router.StrategyHMMEmbedding),

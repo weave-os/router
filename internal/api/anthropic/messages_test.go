@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 
 	"github.com/gin-gonic/gin"
@@ -136,7 +137,7 @@ func newTestService(r router.Router, clientName string, client providers.Client)
 	if clientName != "" && client != nil {
 		providerMap[clientName] = client
 	}
-	return proxy.NewService(r, providerMap, nil, nil, false, "", "", nil)
+	return proxy.WithStrategyPorts(proxy.NewService(r, providerMap, nil, nil, false, "", "", nil), hmm.ServingPorts())
 }
 
 func errorEnvelope(t *testing.T, body []byte) map[string]any {
@@ -296,11 +297,11 @@ data: {"type":"response.failed","response":{"id":"resp_1","status":"failed","err
 	for _, stream := range []bool{false, true} {
 		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
 			client := &fakeProviderClient{proxyStatus: http.StatusOK, proxyBody: responsesOverflow, flushProxyBody: true, propagateProxyWriteErr: true}
-			svc := proxy.NewService(
+			svc := proxy.WithStrategyPorts(proxy.NewService(
 				&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5-mini", Reason: "test"}},
 				map[string]providers.Client{providers.ProviderOpenAI: client},
-				nil, nil, false, providers.ProviderOpenAI, "gpt-5-mini", nil,
-			)
+				nil, nil, false, providers.ProviderOpenAI, "gpt-5-mini", nil), hmm.ServingPorts())
+
 			reqBody := fmt.Sprintf(`{"model":"gpt-5-mini","max_tokens":1024,"stream":%t,"messages":[{"role":"user","content":"hi"}]}`, stream)
 			rec := postMessages(t.Context(), messagesEngine(svc), []byte(reqBody))
 
@@ -618,11 +619,11 @@ func TestMessagesHandler_UnservableCompactionTellsClientNotToRetry(t *testing.T)
 		Status: http.StatusBadRequest,
 		Body:   []byte(`{"message":"prompt is too long: 2100056 tokens \u003e 1000000 maximum"}`),
 	}}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-5", Reason: "test"}},
 		map[string]providers.Client{providers.ProviderAnthropic: client},
-		nil, nil, false, providers.ProviderAnthropic, "claude-sonnet-4-5", nil,
-	)
+		nil, nil, false, providers.ProviderAnthropic, "claude-sonnet-4-5", nil), hmm.ServingPorts())
+
 	body := `{"model":"claude-sonnet-4-5","max_tokens":4096,"messages":[{"role":"user","content":"Your task is to create a detailed summary of the conversation so far. Do not call any tools."}]}`
 
 	rec := postMessages(t.Context(), messagesEngine(svc), []byte(body))

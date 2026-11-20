@@ -18,6 +18,7 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/escalation/floor"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -165,7 +166,7 @@ func TestEscalationLiveModelThroughTurnLoop(t *testing.T) {
 	var last turnLoopResult
 	for n, body := range observations[:11] {
 		// Recreate the service each turn: all continuity must come from the store.
-		svc := NewService(nil, nil, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-opus-4-8", nil).WithEscalation(store, client).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: escalationDispatchRouter{}, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: true}})
+		svc := WithStrategyPorts(NewService(nil, nil, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-opus-4-8", nil), hmm.ServingPorts()).WithEscalation(store, client).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: escalationDispatchRouter{}, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: true}})
 		env, parseErr := translate.ParseAnthropic(body)
 		require.NoError(t, parseErr)
 		features := env.RoutingFeatures()
@@ -183,7 +184,7 @@ func TestEscalationLiveModelThroughTurnLoop(t *testing.T) {
 
 func TestEscalationCommitFailureDoesNotDispatchUncommittedPromotion(t *testing.T) {
 	store := newEscalationTestStore()
-	svc := NewService(nil, nil, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-opus-4-8", nil).WithEscalation(store, &escalationTestObserver{}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: escalationDispatchRouter{}, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: true}})
+	svc := WithStrategyPorts(NewService(nil, nil, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-opus-4-8", nil), hmm.ServingPorts()).WithEscalation(store, &escalationTestObserver{}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: escalationDispatchRouter{}, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: true}})
 	ctx := escalationTestContext(true, false)
 	installation := uuid.New()
 	for n := 1; n <= 5; n++ {
@@ -202,7 +203,7 @@ func TestEscalationCommitFailureDoesNotDispatchUncommittedPromotion(t *testing.T
 
 func TestEscalationRecordsServedHistoryWithoutReplacingBaselinePin(t *testing.T) {
 	pins := newStubPinStore()
-	svc := NewService(nil, nil, nil, pins, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := WithStrategyPorts(NewService(nil, nil, nil, pins, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 	res := turnLoopResult{Strategy: router.StrategyHMMEmbedding, InstallationID: uuid.New(), PinRole: "default", Decision: router.Decision{Model: "claude-sonnet-4-6", Provider: providers.ProviderAnthropic, Metadata: &router.RoutingMetadata{Strategy: string(router.StrategyHMMEmbedding), Escalation: &escalation.Decision{Baseline: escalation.Low, Effective: escalation.Medium, Outcome: escalation.OutcomePromoted, Constrained: true}}}}
 	res.SessionKey[0] = 1
 	svc.recordTurnUsage(context.Background(), res, providers.ProviderAnthropic, "claude-sonnet-4-6", 100, 20, 0, 0, false)
@@ -218,7 +219,7 @@ func TestEscalationCommitFailurePreservesOrdinaryStickySelection(t *testing.T) {
 	pins := &rolePinStore{byRole: map[string]sessionpin.Pin{
 		roleForTier(catalog.TierFor("claude-opus-4-8")): {Provider: providers.ProviderAnthropic, Model: "claude-opus-4-7", Strategy: router.StrategyHMMEmbedding, PinnedUntil: time.Now().Add(time.Hour)},
 	}}
-	svc := NewService(nil, nil, nil, pins, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).WithEscalation(store, observer).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: escalationDispatchRouter{}, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1}})
+	svc := WithStrategyPorts(NewService(nil, nil, nil, pins, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).WithEscalation(store, observer).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: escalationDispatchRouter{}, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1}})
 	ctx := flags.WithOverrides(router.WithStrategy(context.Background(), router.StrategyHMMEmbedding), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyEscalationXGBoostEnabled: true, flags.KeyPlannerEnabled: false}})
 	installation := uuid.New()
 	for n := 1; n <= 5; n++ {
@@ -244,7 +245,7 @@ func TestEscalationCommitFailureDoesNotRepeatUnconstrainedSelection(t *testing.T
 			store.failCommit = true
 			pins := newStubPinStore()
 			classifier := &authoritativeTestRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Metadata: &router.RoutingMetadata{Strategy: string(router.StrategyHMMEmbedding), Escalation: &escalation.Decision{Baseline: escalation.Maximum, Effective: escalation.Maximum, Outcome: outcome}}}}
-			svc := NewService(nil, nil, nil, pins, false, providers.ProviderAnthropic, "claude-opus-4-8", nil).WithEscalation(store, &escalationTestObserver{}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: classifier, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: true}})
+			svc := WithStrategyPorts(NewService(nil, nil, nil, pins, false, providers.ProviderAnthropic, "claude-opus-4-8", nil), hmm.ServingPorts()).WithEscalation(store, &escalationTestObserver{}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: classifier, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: true}})
 			env := escalationTestEnvelope(t, 1)
 			feats := env.RoutingFeatures()
 			res, err := svc.runTurnLoop(escalationTestContext(true, false), env, feats, turnRequest{Strategy: router.StrategyFromContext(escalationTestContext(true, false)), APIKeyID: "test-key", InstallationID: uuid.New()}, "", http.Header{}, router.Request{RequestedModel: feats.Model})
@@ -281,7 +282,7 @@ func TestEscalationShadowCheckpointsDoNotChangeRoutingOrEstablishFloor(t *testin
 			}
 			ctx := flags.WithOverrides(router.WithStrategy(context.Background(), tc.strategy), overrides)
 			installation := uuid.New()
-			svc := NewService(escalationDispatchRouter{}, nil, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-opus-4-8", nil).
+			svc := WithStrategyPorts(NewService(escalationDispatchRouter{}, nil, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-opus-4-8", nil), hmm.ServingPorts()).
 				WithEscalation(store, observer).
 				WithPolicyStrategy(policy.StrategySpec{Strategy: tc.strategy, Router: escalationDispatchRouter{}, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: router.IsHMMStrategy(tc.strategy)}})
 			for ordinal := 1; ordinal <= 11; ordinal++ {

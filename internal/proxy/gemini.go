@@ -93,7 +93,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 
 	subAgentHint, strategy := r.Header.Get("x-weave-subagent-type"), router.StrategyFromContext(ctx)
 
-	forceCluster, forceErr := applyForceClusterHeader(ctx, strategy, r)
+	forceCluster, forceErr := applyForceClusterHeader(s.strategyPorts, ctx, strategy, r)
 	if forceErr != nil {
 		return forceErr
 	}
@@ -269,7 +269,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	clientSink, escalationCapture = s.captureEscalationResponse(clientSink, routeRes)
 	contentSink, contentCap := s.maybeCaptureResponse(ctx, clientSink)
 	preludeBuf := newPreludeBuffer(contentSink)
-	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, routingMarkerFor(routeRes), decision.Model, ""))
+	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(s.strategyPorts, ctx, routeRes, routingMarkerFor(routeRes), decision.Model, ""))
 	muteSlowStartFor(ctx, routeRes)
 	bindings := s.resolveBindingsForDispatch(ctx, decision)
 	primaryDecision := decision
@@ -370,7 +370,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	applyEffortAttrs(geminiUpstreamBuilder, effortServed)
 	s.applySubscriptionSpanTelemetry(ctx, geminiUpstreamBuilder, feats.Model, decision.Model)
 	addTimingAttrs(ctx, geminiUpstreamBuilder)
-	geminiObs := buildObservationContext(ctx, strategy, decision, routeRes.Fresh, s.effectiveCaptureMode(ctx))
+	geminiObs := buildObservationContext(s.strategyPorts, ctx, strategy, decision, routeRes.Fresh, s.effectiveCaptureMode(ctx))
 	geminiObs.applySpanAttrs(geminiUpstreamBuilder)
 	telemetry.Record(ctx, telemetry.Span{
 		Name:  "router.upstream",
@@ -459,14 +459,14 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 			CredentialKeySuffix:    credentialKeySuffix,
 			CredentialSource:       credentialSource,
 		}
-		applyServedGroupTelemetry(ctx, &telemetryParams, routeRes, decision)
+		applyServedGroupTelemetry(s.strategyPorts, ctx, &telemetryParams, routeRes, decision)
 		applyPlannerTelemetry(&telemetryParams, routeRes)
 		applyEffortTelemetry(&telemetryParams, effortServed)
 		applyAuthorityShadowTelemetry(&telemetryParams, routeRes)
 		applyBlindExperimentTelemetry(ctx, &telemetryParams, &routeRes)
 		applyPolicyPinTelemetry(ctx, &telemetryParams, decision.Metadata)
 		applySubscriberTelemetry(ctx, &telemetryParams)
-		applyAgreementShadowTelemetry(ctx, &telemetryParams, routeRes)
+		applyAgreementShadowTelemetry(s.strategyPorts, ctx, &telemetryParams, routeRes)
 		subscriberTelemetry = &telemetryParams
 	}
 

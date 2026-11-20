@@ -9,7 +9,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/router/hmm"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
@@ -187,7 +189,7 @@ func (in parityIngress) resolved(ctx context.Context) context.Context {
 // deploymentKeyedService builds a Service with the ingress' provider wired to a
 // deployment key — the paid fallback a rescue spends.
 func (in parityIngress) deploymentKeyedService() *Service {
-	return &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{in.provider: {}}}}
+	return &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{in.provider: {}}}}
 }
 
 // parityObserver seeds a usage observer that already read the token's plan spent.
@@ -218,12 +220,12 @@ func TestSubscriptionFailoverParity_Eligibility(t *testing.T) {
 			})
 
 			t.Run("no fallback key: not eligible", func(t *testing.T) {
-				assert.False(t, in.fallbackAvailable(&Service{}, in.subCtx()),
+				assert.False(t, in.fallbackAvailable(&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}, in.subCtx()),
 					"with no BYOK and no deployment key there is nothing to fail over to")
 			})
 
 			t.Run("BYOK key is a fallback", func(t *testing.T) {
-				assert.True(t, in.fallbackAvailable(&Service{}, in.byokCtx(in.subCtx())),
+				assert.True(t, in.fallbackAvailable(&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}, in.byokCtx(in.subCtx())),
 					"a per-request BYOK key can serve the turn the subscription cannot")
 			})
 
@@ -234,7 +236,7 @@ func TestSubscriptionFailoverParity_Eligibility(t *testing.T) {
 
 			t.Run("another provider's key is not a fallback", func(t *testing.T) {
 				other := providers.ProviderOpenRouter
-				svc := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{other: {}}}}
+				svc := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{other: {}}}}
 				assert.False(t, in.fallbackAvailable(svc, in.subCtx()),
 					"the fallback probe is provider-scoped; a key for another provider cannot serve this turn")
 			})
@@ -323,7 +325,7 @@ func TestSubscriptionFailoverParity_PreDispatchSuppression(t *testing.T) {
 			})
 
 			t.Run("no fallback key: still suppress", func(t *testing.T) {
-				assert.True(t, in.exhausted(withObserver(&Service{}), in.subCtx(), http.Header{}),
+				assert.True(t, in.exhausted(withObserver(&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}), in.subCtx(), http.Header{}),
 					"known spent capacity is unavailable even without API credentials")
 			})
 
@@ -621,11 +623,11 @@ func (p *parityUpstream) Passthrough(context.Context, providers.PreparedRequest,
 // parityService wires the ingress' provider to upstream with a deployment key,
 // which is the paid fallback the rescue spends.
 func (in parityIngress) parityService(upstream providers.Client) *Service {
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		staticRouter{decision: router.Decision{Provider: in.provider, Model: in.model, Reason: "test"}},
 		map[string]providers.Client{in.provider: upstream},
-		nil, nil, false, in.provider, in.model, nil,
-	).WithDeploymentKeyedProviders(map[string]struct{}{in.provider: {}})
+		nil, nil, false, in.provider, in.model, nil), hmm.ServingPorts()).
+		WithDeploymentKeyedProviders(map[string]struct{}{in.provider: {}})
 	svc.retrySleep = noopSleep
 	return svc
 }
@@ -711,11 +713,11 @@ func TestSubscriptionFailoverParity_RescueDispatch(t *testing.T) {
 				subErr: upstreamErr(http.StatusServiceUnavailable, `{"error":{"type":"overloaded_error"}}`),
 				okBody: in.upstreamOK(false),
 			}
-			svc := NewService(
+			svc := WithStrategyPorts(NewService(
 				staticRouter{decision: router.Decision{Provider: in.provider, Model: in.model, Reason: "test"}},
 				map[string]providers.Client{in.provider: upstream},
-				nil, nil, false, in.provider, in.model, nil,
-			)
+				nil, nil, false, in.provider, in.model, nil), hmm.ServingPorts())
+
 			svc.retrySleep = noopSleep
 			rec, req, body := in.request(t, false)
 

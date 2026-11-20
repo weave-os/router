@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 
@@ -46,7 +47,7 @@ func TestSearchUseTracker_SessionsAreIndependent(t *testing.T) {
 }
 
 func scopeService(enabled bool) *Service {
-	return &Service{
+	return &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()},
 		scopedSearchRequirement:     enabled,
 		searchRequirementDecayTurns: DefaultSearchRequirementDecayTurns,
 		searchUse:                   newSearchUseTracker(),

@@ -121,8 +121,9 @@ func TestConsumePostCommandContinuation_RequiresEffectiveStrategy(t *testing.T) 
 	store := newStubPinStore()
 	store.consumeHit = true
 	store.consumePin = sessionpin.Pin{Strategy: router.StrategyHMMEmbedding}
-	svc := NewService(nil, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := WithStrategyPorts(NewService(nil, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
+
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMMBeta)
 
 	_, found := svc.consumePostCommandContinuation(ctx, router.StrategyFromContext(ctx), [sessionpin.SessionKeyLen]byte{1}, sessionpin.DefaultRole)
@@ -138,20 +139,22 @@ func TestApplyPinEvidence_UsesAvailablePriorTurnData(t *testing.T) {
 	t.Parallel()
 
 	zeroTimestamp := turnLoopResult{}
-	applyPinEvidence(&zeroTimestamp, sessionpin.Pin{
+	applyPinEvidence(hmm.ServingPorts(), &zeroTimestamp, sessionpin.Pin{
 		Provider: providers.ProviderAnthropic,
 		Model:    "claude-haiku-4-5",
 	}, time.Now())
+
 	assert.Equal(t, providers.ProviderAnthropic, zeroTimestamp.PinProvider)
 	assert.Nil(t, zeroTimestamp.PriorTurnGapMS)
 
 	withHistory := turnLoopResult{}
-	applyPinEvidence(&withHistory, sessionpin.Pin{
+	applyPinEvidence(hmm.ServingPorts(), &withHistory, sessionpin.Pin{
 		Provider:        providers.ProviderFireworks,
 		Model:           "accounts/fireworks/models/qwen3-235b-a22b",
 		PolicyGroup:     "high",
 		LastTurnEndedAt: time.Now().Add(-time.Second),
 	}, time.Now())
+
 	assert.Equal(t, providers.ProviderFireworks, withHistory.PinProvider)
 	assert.Equal(t, "high", withHistory.PinPolicyGroup)
 	require.NotNil(t, withHistory.PriorTurnGapMS)
@@ -195,15 +198,14 @@ func TestCacheablePrefixTokens_UsesReadOrWriteEvidence(t *testing.T) {
 // prior-turn evidence by the next turn.
 func TestRecordTurnUsage_WritesToStore(t *testing.T) {
 	store := newStubPinStore()
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		nil,
 		nil,
 		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
 
 	var sessionKey [sessionpin.SessionKeyLen]byte
 	for i := range sessionKey {
@@ -231,15 +233,14 @@ func TestRecordTurnUsage_WritesToStore(t *testing.T) {
 
 func TestRecordTurnUsage_PassthroughDoesNotReadOrWritePins(t *testing.T) {
 	store := newStubPinStore()
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		nil,
 		nil,
 		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
 
 	var sessionKey [sessionpin.SessionKeyLen]byte
 	sessionKey[0] = 1
@@ -259,15 +260,14 @@ func TestRecordTurnUsage_PassthroughDoesNotReadOrWritePins(t *testing.T) {
 
 func TestRecordTurnUsage_ForwardsSwitchHistory(t *testing.T) {
 	store := newStubPinStore()
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		nil,
 		nil,
 		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
 
 	var sessionKey [sessionpin.SessionKeyLen]byte
 	for i := range sessionKey {
@@ -292,15 +292,14 @@ func TestRecordTurnUsage_ForwardsSwitchHistory(t *testing.T) {
 
 func TestRecordTurnUsage_HMMDecisionWritesHistoryOnly(t *testing.T) {
 	store := newStubPinStore()
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		nil,
 		nil,
 		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
 
 	var sessionKey [sessionpin.SessionKeyLen]byte
 	for i := range sessionKey {
@@ -349,15 +348,14 @@ func TestRecordTurnUsage_HMMDecisionWritesHistoryOnly(t *testing.T) {
 
 func TestRecordTurnUsage_HMMModelChangeWritesCurrentUsageOnly(t *testing.T) {
 	store := newStubPinStore()
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		nil,
 		nil,
 		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
 
 	var sessionKey [sessionpin.SessionKeyLen]byte
 	for i := range sessionKey {
@@ -394,15 +392,14 @@ func TestRecordTurnUsage_HMMModelChangeWritesCurrentUsageOnly(t *testing.T) {
 
 func TestRecordHMMTurnHistory_ZeroUsageRefreshesTTLButSkipsUsageWriteback(t *testing.T) {
 	store := newStubPinStore()
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		nil,
 		nil,
 		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
 
 	var sessionKey [sessionpin.SessionKeyLen]byte
 	for i := range sessionKey {
@@ -438,15 +435,14 @@ func TestRecordHMMTurnHistory_ZeroUsagePreservesPriorProvider(t *testing.T) {
 	store := newStubPinStore()
 	store.getFound = true
 	store.getPin = sessionpin.Pin{Provider: providers.ProviderMakora}
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderMakora: nil, providers.ProviderOpenAI: nil},
 		nil,
 		store,
 		false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
 
 	var sessionKey [sessionpin.SessionKeyLen]byte
 	for i := range sessionKey {
@@ -475,15 +471,15 @@ func TestRecordHMMTurnHistory_ZeroUsagePreservesPriorProvider(t *testing.T) {
 }
 
 func TestNormalizeHMMStayPin_RepairsMismatchedProvider(t *testing.T) {
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderMakora: nil, providers.ProviderOpenAI: nil},
 		nil,
 		nil,
 		false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
+
 	pin := sessionpin.Pin{
 		Provider:        providers.ProviderOpenAI,
 		LastServedModel: "deepseek/deepseek-v4.1-flash",
@@ -491,7 +487,7 @@ func TestNormalizeHMMStayPin_RepairsMismatchedProvider(t *testing.T) {
 		PinnedUntil:     time.Now().Add(time.Hour),
 	}
 
-	normalized, ok := hmmCostGateFor(svc).NormalizeStayPin(router.Request{}, pin, svc.clock.Now())
+	normalized, ok := hmm.CostGate(hmmCostGateFor(svc)).NormalizeStayPin(router.Request{}, pin, svc.clock.Now())
 	require.True(t, ok)
 	assert.Equal(t, "deepseek/deepseek-v4.1-flash", normalized.Model)
 	assert.Equal(t, providers.ProviderMakora, normalized.Provider,
@@ -499,15 +495,15 @@ func TestNormalizeHMMStayPin_RepairsMismatchedProvider(t *testing.T) {
 }
 
 func TestNormalizeHMMStayPin_ReResolvesDisabledProvider(t *testing.T) {
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderMakora: nil, providers.ProviderOpenAI: nil},
 		nil,
 		nil,
 		false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
+
 	pin := sessionpin.Pin{
 		Provider:        providers.ProviderOpenAI,
 		LastServedModel: "deepseek/deepseek-v4.1-flash",
@@ -515,7 +511,7 @@ func TestNormalizeHMMStayPin_ReResolvesDisabledProvider(t *testing.T) {
 		PinnedUntil:     time.Now().Add(time.Hour),
 	}
 
-	normalized, ok := hmmCostGateFor(svc).NormalizeStayPin(router.Request{
+	normalized, ok := hmm.CostGate(hmmCostGateFor(svc)).NormalizeStayPin(router.Request{
 		EnabledProviders: map[string]struct{}{providers.ProviderMakora: {}},
 	}, pin, svc.clock.Now())
 	require.True(t, ok)
@@ -525,15 +521,15 @@ func TestNormalizeHMMStayPin_ReResolvesDisabledProvider(t *testing.T) {
 
 func TestNormalizeHMMStayPin_PreservesCatalogRoutableTerra(t *testing.T) {
 	availableProviders := map[string]struct{}{providers.ProviderOpenAI: {}}
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderOpenAI: nil},
 		nil,
 		nil,
 		false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
-		nil,
-	).WithAvailableModels(catalog.RoutingTargetSet(availableProviders))
+		nil), hmm.ServingPorts()).
+		WithAvailableModels(catalog.RoutingTargetSet(availableProviders))
 	pin := sessionpin.Pin{
 		Provider:        providers.ProviderOpenAI,
 		Model:           "gpt-5.6-terra",
@@ -542,7 +538,7 @@ func TestNormalizeHMMStayPin_PreservesCatalogRoutableTerra(t *testing.T) {
 		PinnedUntil:     time.Now().Add(time.Hour),
 	}
 
-	normalized, ok := hmmCostGateFor(svc).NormalizeStayPin(router.Request{}, pin, svc.clock.Now())
+	normalized, ok := hmm.CostGate(hmmCostGateFor(svc)).NormalizeStayPin(router.Request{}, pin, svc.clock.Now())
 
 	require.True(t, ok)
 	assert.Equal(t, "gpt-5.6-terra", normalized.Model)
@@ -551,15 +547,14 @@ func TestNormalizeHMMStayPin_PreservesCatalogRoutableTerra(t *testing.T) {
 
 func TestRecordTurnUsage_HMMEVStayWritesHistoryOnly(t *testing.T) {
 	store := newStubPinStore()
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		nil,
 		nil,
 		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
 
 	var sessionKey [sessionpin.SessionKeyLen]byte
 	for i := range sessionKey {
@@ -571,7 +566,7 @@ func TestRecordTurnUsage_HMMEVStayWritesHistoryOnly(t *testing.T) {
 		Decision: router.Decision{
 			Provider: providers.ProviderAnthropic,
 			Model:    "claude-sonnet-5",
-			Reason:   hmmHistoryReason,
+			Reason:   hmm.HistoryReason,
 		},
 		Fresh: router.Decision{
 			Provider: providers.ProviderMakora,
@@ -616,15 +611,15 @@ func TestStickyStateRole_DefaultsToActivePinRole(t *testing.T) {
 }
 
 func TestHMMCostGate_StaysOnWarmCacheWhenCheaperFreshDoesNotClearEV(t *testing.T) {
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
 		nil,
 		nil,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
+
 	history := sessionpin.Pin{
 		Provider:        providers.ProviderAnthropic,
 		LastServedModel: "claude-sonnet-5",
@@ -655,15 +650,15 @@ func TestHMMCostGate_StaysOnWarmCacheWhenCheaperFreshDoesNotClearEV(t *testing.T
 }
 
 func TestHMMCostGate_SwitchesCheaperFreshWhenEVPositive(t *testing.T) {
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
 		nil,
 		nil,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
+
 	history := sessionpin.Pin{
 		Provider:        providers.ProviderAnthropic,
 		LastServedModel: "claude-sonnet-5",
@@ -693,15 +688,15 @@ func TestHMMCostGate_SwitchesCheaperFreshWhenEVPositive(t *testing.T) {
 }
 
 func TestHMMCostGate_PhaseChangeFollowsFreshDecisionWhenEVPositive(t *testing.T) {
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
 		nil,
 		nil,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
+
 	activePin := sessionpin.Pin{
 		Provider:        providers.ProviderAnthropic,
 		Model:           "claude-sonnet-5",
@@ -734,15 +729,15 @@ func TestHMMCostGate_PhaseChangeFollowsFreshDecisionWhenEVPositive(t *testing.T)
 }
 
 func TestHMMCostGate_HistoryPhaseChangeFollowsFreshDecisionWhenEVPositive(t *testing.T) {
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
 		nil,
 		nil,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
+
 	history := sessionpin.Pin{
 		Provider:        providers.ProviderAnthropic,
 		LastServedModel: "claude-sonnet-5",
@@ -774,15 +769,15 @@ func TestHMMCostGate_HistoryPhaseChangeFollowsFreshDecisionWhenEVPositive(t *tes
 }
 
 func TestHMMCostGate_ExpensiveUpgradeRequiresHighConfidence(t *testing.T) {
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderFireworks: nil},
 		nil,
 		nil,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
+
 	history := sessionpin.Pin{
 		Provider:        providers.ProviderFireworks,
 		LastServedModel: "moonshotai/kimi-k2.7",
@@ -824,15 +819,15 @@ func TestHMMCostGate_ExpensiveUpgradeRequiresHighConfidence(t *testing.T) {
 }
 
 func TestHMMCostGate_IgnoresExpiredActivePin(t *testing.T) {
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
 		nil,
 		nil,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
+
 	expired := sessionpin.Pin{
 		Provider:        providers.ProviderAnthropic,
 		Model:           "claude-sonnet-5",
@@ -864,15 +859,15 @@ func TestHMMCostGate_IgnoresExpiredActivePin(t *testing.T) {
 }
 
 func TestHMMCostGate_IgnoresNonHMMActivePin(t *testing.T) {
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
 		nil,
 		nil,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
+
 	// A warm cluster/planner pin (non-HMM reason) must NOT steer an HMM turn's
 	// EV stay — otherwise HMM turns silently reuse ordinary session pins.
 	clusterPin := sessionpin.Pin{
@@ -907,15 +902,15 @@ func TestHMMCostGate_IgnoresNonHMMActivePin(t *testing.T) {
 }
 
 func TestHMMCostGate_HonorsHMMReasonedActivePin(t *testing.T) {
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
 		nil,
 		nil,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
+
 	// The active pin IS HMM-reasoned, so it remains a valid stay candidate: a
 	// cheaper fresh pick that doesn't clear EV must stay on it.
 	hmmPin := sessionpin.Pin{
@@ -951,15 +946,15 @@ func TestHMMCostGate_HonorsHMMReasonedActivePin(t *testing.T) {
 
 func TestHMMCostGate_IgnoresMaxedHistory(t *testing.T) {
 	endedAt := time.Now().Add(-30 * time.Second)
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
 		nil,
 		nil,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
+
 	history := sessionpin.Pin{
 		Provider:          providers.ProviderAnthropic,
 		LastServedModel:   "claude-sonnet-5",
@@ -996,15 +991,15 @@ func TestHMMCostGate_IgnoresMaxedHistory(t *testing.T) {
 // Anthropic emit still strips poisoned thinking blocks.
 func TestLoadPin_DoesNotServeExpiredPostgresPinButKeepsEmitHistory(t *testing.T) {
 	store := newStubPinStore()
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		nil,
 		nil,
 		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
+
 	require.NotNil(t, svc.pinStore)
 
 	var sessionKey [sessionpin.SessionKeyLen]byte
@@ -1042,15 +1037,14 @@ func TestLoadPin_DoesNotServeExpiredPostgresPinButKeepsEmitHistory(t *testing.T)
 // row is returned verbatim.
 func TestLoadPin_ServesFreshPostgresPin(t *testing.T) {
 	store := newStubPinStore()
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		nil,
 		nil,
 		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
 
 	var sessionKey [sessionpin.SessionKeyLen]byte
 	for i := range sessionKey {
@@ -1099,8 +1093,9 @@ func TestLoadPin_RequiresBetaStrategyMatch(t *testing.T) {
 				Strategy:    tt.stored,
 				PinnedUntil: time.Now().Add(time.Hour),
 			}
-			svc := NewService(nil, nil, nil, store, false,
-				providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+			svc := WithStrategyPorts(NewService(nil, nil, nil, store, false,
+				providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
+
 			ctx := router.WithStrategy(context.Background(), tt.request)
 
 			pin, found := routingpolicy.NewSessionPins(svc.pinStore, svc.clock.Now, router.StrategyFromContext(ctx)).Load(ctx, [sessionpin.SessionKeyLen]byte{1}, sessionpin.DefaultRole)
@@ -1185,28 +1180,28 @@ func TestModelSwitched(t *testing.T) {
 }
 
 func TestService_NewService_HMMUpgradeConfidenceDefaults(t *testing.T) {
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil},
 		nil,
 		nil,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
+
 	assert.InDelta(t, hmm.DefaultUpgradeConfidenceThreshold, svc.hmmConfig.UpgradeConfidenceThreshold, 1e-9)
 }
 
 func TestHMMCostGate_UpgradeThresholdConfigurable(t *testing.T) {
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderFireworks: nil},
 		nil,
 		nil,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
+
 	svc.EditHMMConfig(func(c *hmm.Config) { c.UpgradeConfidenceThreshold = 0.20 })
 
 	history := sessionpin.Pin{

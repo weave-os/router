@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 )
 
@@ -59,7 +60,7 @@ func (r *cancellationCheckingBillingRepo) DebitInference(ctx context.Context, p 
 
 func TestFireBilling_DebitsAfterClientCancellation(t *testing.T) {
 	repo := &cancellationCheckingBillingRepo{auxBillingRepo: &auxBillingRepo{}}
-	s := &Service{billing: billing.NewService(repo)}
+	s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, billing: billing.NewService(repo)}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -92,7 +93,7 @@ func (f *cancellationCheckingPinStore) Upsert(ctx context.Context, p sessionpin.
 
 func TestMaybeRepinOnRefusal_WritesAfterRequestCancellation(t *testing.T) {
 	store := &cancellationCheckingPinStore{repinFakeStore: &repinFakeStore{}}
-	s := &Service{pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
+	s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
 	ctx, cancel := context.WithCancel(repinCtx())
 	cancel()
 
@@ -131,7 +132,7 @@ func (s *cancellationCheckingRecoveryStore) ClearDemotionCooldown(ctx context.Co
 
 func TestClearRecoveredCooldown_LandsAfterRequestCancellation(t *testing.T) {
 	store := &cancellationCheckingRecoveryStore{}
-	s := &Service{pinStore: store}
+	s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, pinStore: store}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	observedUntil := time.Now().Add(-time.Second)
@@ -218,7 +219,7 @@ func TestUsageBypassEngaged_UnsetThresholdDefaultsToNinetyFivePercent(t *testing
 	}{{0.90, true}, {0.96, false}} {
 		obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
 		obs.Record(obs.Key([]byte(token)), usage.Snapshot{Primary: usage.Window{UsedPercent: c.used, WindowMinutes: 300}})
-		svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: obs}
+		svc := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: obs}
 		ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, token)
 		ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
 		_, ok := svc.usageBypassEngaged(ctx, http.Header{}, router.Request{

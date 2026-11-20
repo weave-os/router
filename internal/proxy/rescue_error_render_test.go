@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,7 +39,7 @@ func TestProxyMessages_SubscriptionRescueFailurePreservesHTTPError(t *testing.T)
 	}))
 	defer upstream.Close()
 
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{
 			Provider: providers.ProviderAnthropic,
 			Model:    "claude-opus-4-8",
@@ -47,8 +48,8 @@ func TestProxyMessages_SubscriptionRescueFailurePreservesHTTPError(t *testing.T)
 		map[string]providers.Client{
 			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", upstream.URL),
 		},
-		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
+		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
 		WithRetrySleep(noRetrySleep).
 		WithUsageObserver(usage.NewObserver([]byte("rescue-render-quota-salt"), time.Hour, time.Now))
 

@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -93,12 +94,12 @@ func TestService_HardPin_TitleGen_GatewayModelNotFound_ExcludedOnLaterTurns(t *t
 	}
 
 	gateway := &aliasGateway{unserved: unservedAlias}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr, map[string]providers.Client{providers.ProviderOpenAIGateway: gateway},
 		nil, store, false,
 		providers.ProviderAnthropic, servedAlias,
-		nil,
-	).WithByokOnly(true).WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver)
+		nil), hmm.ServingPorts()).
+		WithByokOnly(true).WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver)
 
 	ctx := ctxWithGatewayAliases(uuid.New().String(), unservedAlias, servedAlias)
 
@@ -137,12 +138,12 @@ func TestService_HardPin_TitleGen_GatewayModelNotFound_KeepsServedAliasesRoutabl
 	}
 
 	gateway := &aliasGateway{unserved: unservedAlias}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr, map[string]providers.Client{providers.ProviderOpenAIGateway: gateway},
 		nil, store, false,
 		providers.ProviderAnthropic, servedAlias,
-		nil,
-	).WithByokOnly(true).WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver)
+		nil), hmm.ServingPorts()).
+		WithByokOnly(true).WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver)
 
 	ctx := ctxWithGatewayAliases(uuid.New().String(), unservedAlias, servedAlias)
 	for i := 0; i < 2; i++ {
@@ -169,12 +170,12 @@ func TestService_HardPin_TitleGen_VendorModelNotFound_DoesNotExcludeModel(t *tes
 	}
 
 	vendor := &aliasGateway{unserved: servedAlias}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr, map[string]providers.Client{providers.ProviderAnthropic: vendor},
 		nil, store, false,
 		providers.ProviderAnthropic, servedAlias,
-		nil,
-	).WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver).
+		nil), hmm.ServingPorts()).
+		WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 
 	ctx := authedCtx(uuid.New().String())

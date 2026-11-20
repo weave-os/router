@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm"
 )
 
 const requestedWindowModel = "claude-opus-5-5"
@@ -24,11 +25,11 @@ var pastRequestedWindowPrompt = strings.Repeat("overflow ", 453_000)
 func proxyRequestedWindowOverflow(t *testing.T, prompt string, stream bool, upstreamErr error) (*httptest.ResponseRecorder, *fakeProvider, error) {
 	t.Helper()
 	upstream := &fakeProvider{proxyErr: upstreamErr}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: catalog.ModelGPT6Luna, Reason: "cluster"}},
 		map[string]providers.Client{providers.ProviderOpenAI: upstream},
-		nil, newFakePinStore(), false, providers.ProviderAnthropic, requestedWindowModel, nil,
-	).WithAvailableModels(map[string]struct{}{catalog.ModelGPT6Luna: {}, requestedWindowModel: {}})
+		nil, newFakePinStore(), false, providers.ProviderAnthropic, requestedWindowModel, nil), hmm.ServingPorts()).
+		WithAvailableModels(map[string]struct{}{catalog.ModelGPT6Luna: {}, requestedWindowModel: {}})
 	streamField := "false"
 	if stream {
 		streamField = "true"
@@ -86,11 +87,11 @@ func TestProxyMessages_CompactionTurnPastRequestedWindowIsNotOverflow(t *testing
 	utilityPin := func(proxy.HardPinRequest) (string, string, bool) {
 		return providers.ProviderOpenAI, catalog.ModelGPT6Luna, true
 	}
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: catalog.ModelGPT6Luna, Reason: "cluster"}},
 		map[string]providers.Client{providers.ProviderOpenAI: upstream},
-		nil, newFakePinStore(), false, providers.ProviderAnthropic, requestedWindowModel, nil,
-	).WithAvailableModels(map[string]struct{}{catalog.ModelGPT6Luna: {}, requestedWindowModel: {}}).
+		nil, newFakePinStore(), false, providers.ProviderAnthropic, requestedWindowModel, nil), hmm.ServingPorts()).
+		WithAvailableModels(map[string]struct{}{catalog.ModelGPT6Luna: {}, requestedWindowModel: {}}).
 		WithHardPinResolver(utilityPin)
 	body := []byte(`{"model":"` + requestedWindowModel + `","max_tokens":1024,"system":"Your task is to create a detailed summary of the conversation so far.","messages":[{"role":"user","content":"` + pastRequestedWindowPrompt + `"}]}`)
 

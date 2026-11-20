@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router/hmm"
 )
 
 // The Codex force-model skill ends its turn once emit.sh prints the
@@ -20,8 +21,9 @@ import (
 func TestCodexForceModelSkillToolResultIsAnsweredByRouter(t *testing.T) {
 	store := &recordingPinStore{}
 	upstream := &codexTitleProvider{}
-	svc := NewService(&codexTitleRouter{}, map[string]providers.Client{providers.ProviderOpenAI: upstream},
-		nil, store, false, providers.ProviderOpenAI, "gpt-6.1-sol", nil)
+	svc := WithStrategyPorts(NewService(&codexTitleRouter{}, map[string]providers.Client{providers.ProviderOpenAI: upstream},
+		nil, store, false, providers.ProviderOpenAI, "gpt-6.1-sol", nil), hmm.ServingPorts())
+
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
 	ctx = context.WithValue(ctx, InstallationIDContextKey{}, uuid.New().String())
 	ctx = context.WithValue(ctx, APIKeyIDContextKey{}, "synthetic-api-key")

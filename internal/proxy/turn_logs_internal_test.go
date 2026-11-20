@@ -21,6 +21,7 @@ import (
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/telemetry"
@@ -56,7 +57,7 @@ func TestParseCaptureMode(t *testing.T) {
 func TestZdrLogField_BlanksOnlyWhenEffectiveOff(t *testing.T) {
 	deploymentModes := []ContentCaptureMode{CaptureOff, CaptureHashed, CaptureFull}
 	for _, deployment := range deploymentModes {
-		s := &Service{captureMode: deployment}
+		s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, captureMode: deployment}
 		if deployment == CaptureOff {
 			assert.Empty(t, s.zdrLogField(context.Background(), "secret"))
 		} else {
@@ -70,7 +71,7 @@ func TestZdrLogField_BlanksOnlyWhenEffectiveOff(t *testing.T) {
 }
 
 func TestMaybeCaptureResponse_OffReturnsNil(t *testing.T) {
-	s := &Service{captureMode: CaptureOff}
+	s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, captureMode: CaptureOff}
 	rec := httptest.NewRecorder()
 	sink, cw := s.maybeCaptureResponse(context.Background(), rec)
 	assert.Nil(t, cw)
@@ -84,7 +85,7 @@ func TestMaybeCaptureResponse_OffReturnsNil(t *testing.T) {
 func TestEffectiveCaptureMode_OverrideOnlyTightens(t *testing.T) {
 	modes := []ContentCaptureMode{CaptureOff, CaptureHashed, CaptureFull}
 	for _, deployment := range modes {
-		s := &Service{captureMode: deployment}
+		s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, captureMode: deployment}
 		assert.Equal(t, deployment, s.effectiveCaptureMode(context.Background()),
 			"no installation override must leave the deployment mode untouched")
 		for _, override := range modes {
@@ -98,7 +99,7 @@ func TestEffectiveCaptureMode_OverrideOnlyTightens(t *testing.T) {
 }
 
 func TestMaybeCaptureResponse_InstallationOffSkipsCaptureUnderFullDeployment(t *testing.T) {
-	s := &Service{captureMode: CaptureFull, captureMaxBytes: 1024}
+	s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, captureMode: CaptureFull, captureMaxBytes: 1024}
 	rec := httptest.NewRecorder()
 	ctx := context.WithValue(context.Background(), InstallationCaptureModeContextKey{}, CaptureOff)
 
@@ -109,7 +110,7 @@ func TestMaybeCaptureResponse_InstallationOffSkipsCaptureUnderFullDeployment(t *
 }
 
 func TestMaybeCaptureResponse_CapturesAndTruncates(t *testing.T) {
-	s := &Service{captureMode: CaptureFull, captureMaxBytes: 1024}
+	s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, captureMode: CaptureFull, captureMaxBytes: 1024}
 	rec := httptest.NewRecorder()
 	sink, cw := s.maybeCaptureResponse(context.Background(), rec)
 	require.NotNil(t, cw)
@@ -120,7 +121,7 @@ func TestMaybeCaptureResponse_CapturesAndTruncates(t *testing.T) {
 	assert.Equal(t, "hello world", rec.Body.String())
 
 	// Over-cap response is dropped and flagged truncated.
-	small := &Service{captureMode: CaptureFull, captureMaxBytes: 4}
+	small := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, captureMode: CaptureFull, captureMaxBytes: 4}
 	rec2 := httptest.NewRecorder()
 	sink2, cap2 := small.maybeCaptureResponse(context.Background(), rec2)
 	_, _ = sink2.Write([]byte("way too long"))
@@ -225,7 +226,7 @@ func newServiceWithEmitter(t *testing.T, mode ContentCaptureMode, redactor Redac
 		FlushInterval: time.Second,
 	})
 	require.NoError(t, err)
-	return &Service{emitter: em, captureMode: mode, captureMaxBytes: 1 << 20, redactor: redactor}, em
+	return &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, emitter: em, captureMode: mode, captureMaxBytes: 1 << 20, redactor: redactor}, em
 }
 
 func TestRecordCallLog_OffEmitsNothing(t *testing.T) {

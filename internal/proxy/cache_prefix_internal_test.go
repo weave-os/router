@@ -8,6 +8,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/continuity"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -72,11 +73,11 @@ func TestPlannerTokensStayLegacyUntilFlagIsArmed(t *testing.T) {
 	require.NoError(t, err)
 	feats := translate.RoutingFeatures{Tokens: 10}
 
-	off := &Service{continuityConfig: continuity.Config{Planner: planner.EVConfig{CorrectedEconomics: false}}}
+	off := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, continuityConfig: continuity.Config{Planner: planner.EVConfig{CorrectedEconomics: false}}}
 	assert.Equal(t, feats.Tokens, off.plannerTokensFor(t.Context(), env, feats),
 		"flag off must leave the legacy estimate untouched")
 
-	on := &Service{continuityConfig: continuity.Config{Planner: planner.EVConfig{CorrectedEconomics: true}}}
+	on := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, continuityConfig: continuity.Config{Planner: planner.EVConfig{CorrectedEconomics: true}}}
 	assert.Greater(t, on.plannerTokensFor(t.Context(), env, feats), feats.Tokens,
 		"flag on counts tool definitions the text-only estimate misses")
 }

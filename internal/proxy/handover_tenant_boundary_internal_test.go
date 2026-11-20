@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/handover"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/translate"
 )
 
@@ -54,7 +55,7 @@ func TestRunCompactionHandover_SummarizerNeverCrossesTenantCredentialBoundary(t 
 			env, err := translate.ParseAnthropic([]byte(sampleConversation))
 			require.NoError(t, err)
 			sz := &credentialRecordingSummarizer{}
-			svc := NewService(nil, nil, nil, nil, false, "", "", nil).WithCompactionHandoverSummarizer(sz)
+			svc := WithStrategyPorts(NewService(nil, nil, nil, nil, false, "", "", nil), hmm.ServingPorts()).WithCompactionHandoverSummarizer(sz)
 
 			out := svc.runCompactionHandover(tc.ctx, env, http.Header{}, "compat-model", router.Request{})
 

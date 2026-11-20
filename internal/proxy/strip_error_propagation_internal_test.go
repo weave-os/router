@@ -10,6 +10,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -53,8 +54,8 @@ func TestProxyOpenAIChatCompletion_StripRoutingMarkerFailure_ReturnsError(t *tes
 
 	fr := &stripFailureRouter{}
 	fp := &stripFailureProvider{}
-	svc := NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: fp}, nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := WithStrategyPorts(NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: fp}, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 	body := `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`
 	rec := httptest.NewRecorder()
@@ -77,8 +78,8 @@ func TestProxyMessages_StripRoutingMarkerFailure_ReturnsError(t *testing.T) {
 
 	fr := &stripFailureRouter{}
 	fp := &stripFailureProvider{}
-	svc := NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: fp}, nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := WithStrategyPorts(NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: fp}, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 	body := `{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}]}`
 	rec := httptest.NewRecorder()

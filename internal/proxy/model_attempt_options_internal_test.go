@@ -8,11 +8,12 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/translate"
 )
 
 func TestSwitchedAttemptOptionsResolveNewTargetEffortWithoutChangingOriginal(t *testing.T) {
-	svc := NewService(nil, nil, nil, nil, false, providers.ProviderAnthropic, fastOpusModel, nil)
+	svc := WithStrategyPorts(NewService(nil, nil, nil, nil, false, providers.ProviderAnthropic, fastOpusModel, nil), hmm.ServingPorts())
 	base := translate.EmitOptions{
 		TargetModel:          fastOpusModel,
 		TargetProvider:       providers.ProviderAnthropic,

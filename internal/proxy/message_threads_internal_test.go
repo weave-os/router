@@ -13,10 +13,11 @@ import (
 	"github.com/tidwall/gjson"
 
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 )
 
 func TestProxyMessages_ThreadContinueBouncedBeforeClassifierHistory(t *testing.T) {
-	svc := &Service{clock: time.Now}
+	svc := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, clock: time.Now}
 	ctx := router.WithStrategy(context.Background(), router.StrategyLLMClassifier)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))

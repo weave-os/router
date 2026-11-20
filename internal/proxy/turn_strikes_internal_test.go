@@ -15,6 +15,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 )
@@ -188,10 +189,10 @@ func TestSiblingRescueRecordsEveryFailedModel(t *testing.T) {
 			CandidateProviders: map[string]string{"gpt-5.6-luna": providers.ProviderOpenAI, "claude-sonnet-5-5": providers.ProviderAnthropic},
 		},
 	}
-	svc := NewService(staticRouter{decision: decision}, map[string]providers.Client{
+	svc := WithStrategyPorts(NewService(staticRouter{decision: decision}, map[string]providers.Client{
 		providers.ProviderAnthropic: anthropicClient,
 		providers.ProviderOpenAI:    openAIClient,
-	}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenAI: {}})
 	svc.retrySleep = noopSleep
 	ctx := withTurnFailures(context.Background())

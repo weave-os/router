@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/continuity"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 
@@ -151,8 +152,8 @@ func TestRunTurnLoop_ForcedModelContextOverflow_StaysInTier(t *testing.T) {
 		Reason:      translate.ReasonUserForceModel,
 		PinnedUntil: time.Now().Add(time.Hour),
 	}}
-	svc := NewService(fr, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := WithStrategyPorts(NewService(fr, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithAvailableModels(fr.available).
 		EditContinuityConfig(func(c *continuity.Config) { c.PlannerEnabled = false })
 
@@ -193,7 +194,7 @@ func TestRunTurnLoop_ForcedModelOverridesHardPin(t *testing.T) {
 		PinnedUntil: time.Now().Add(time.Hour),
 	}}
 	fr := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		fr,
 		nil,
 		nil,
@@ -201,8 +202,7 @@ func TestRunTurnLoop_ForcedModelOverridesHardPin(t *testing.T) {
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
 
 	env, err := translate.ParseAnthropic([]byte(`{
 		"model":"claude-opus-4-8",
@@ -238,7 +238,7 @@ func TestRunTurnLoop_ForcedModelServesDespiteDisabledProvider(t *testing.T) {
 		DisabledProviders: []string{providers.ProviderAnthropic},
 	}}
 	fr := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		fr,
 		nil,
 		nil,
@@ -246,8 +246,7 @@ func TestRunTurnLoop_ForcedModelServesDespiteDisabledProvider(t *testing.T) {
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
 
 	env, err := translate.ParseAnthropic([]byte(`{
 		"model":"claude-opus-4-8",
@@ -279,7 +278,7 @@ func TestForceModelHeader_OverridesHardPin(t *testing.T) {
 		PinnedUntil: time.Now().Add(time.Hour),
 	}, found: true}
 	fr := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		fr,
 		nil,
 		nil,
@@ -287,8 +286,7 @@ func TestForceModelHeader_OverridesHardPin(t *testing.T) {
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	)
+		nil), hmm.ServingPorts())
 
 	env, err := translate.ParseAnthropic([]byte(`{
 		"model":"claude-opus-4-8",
@@ -319,8 +317,8 @@ func TestForceModelHeader_OverridesHardPin(t *testing.T) {
 // Guards the empty-pool escape hatch: with no in-tier candidate, the helper
 // must return ok=false rather than hand the scorer an empty pool.
 func TestRestrictToTier_FallsBackWhenNoInTierCandidate(t *testing.T) {
-	svc := NewService(nil, nil, nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := WithStrategyPorts(NewService(nil, nil, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithAvailableModels(map[string]struct{}{"claude-haiku-4-5": {}})
 
 	excluded := map[string]struct{}{"deepseek/deepseek-v4-pro": {}}
@@ -332,8 +330,8 @@ func TestRestrictToTier_FallsBackWhenNoInTierCandidate(t *testing.T) {
 // Every available model outside the target tier gets excluded; in-tier
 // models stay eligible.
 func TestRestrictToTier_ExcludesOtherTiers(t *testing.T) {
-	svc := NewService(nil, nil, nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := WithStrategyPorts(NewService(nil, nil, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithAvailableModels(map[string]struct{}{
 			"claude-opus-5":     {}, // high
 			"claude-haiku-4-5":  {}, // low

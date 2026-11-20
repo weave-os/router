@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/providers/openaicompat"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/subscriptions"
 
 	"github.com/stretchr/testify/assert"
@@ -21,7 +22,7 @@ const cortexBaseURL = "https://acct-a.snowflakecomputing.com/api/v2/cortex/v1"
 
 func reasoningScopeService(t *testing.T, clients map[string]providers.Client) *Service {
 	t.Helper()
-	return &Service{clients: dispatch.NewClients(clients)}
+	return &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, clients: dispatch.NewClients(clients)}
 }
 
 // Encrypted reasoning only decrypts under the account and model that minted

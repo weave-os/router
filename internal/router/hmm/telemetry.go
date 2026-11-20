@@ -1,17 +1,11 @@
 package hmm
 
-import "weave-os/router/internal/router"
+import (
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/continuity"
+)
 
-type ClassifierTelemetry struct {
-	Margin         *float64
-	PolicyGroup    string
-	ArtifactID     string
-	ArtifactSHA256 string
-	PredictedLabel string
-	ClassOrder     []string
-	Probabilities  map[string]float64
-	SelectionTrace *router.SelectionTrace
-}
+type ClassifierTelemetry = continuity.ClassifierTelemetry
 
 func ClassifierTelemetryOf(md *router.RoutingMetadata) ClassifierTelemetry {
 	if md == nil {

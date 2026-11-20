@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/subscriptions"
 )
 
@@ -65,7 +66,7 @@ func TestCodexSubscriptionIngressKeepsCacheAffinityAcrossTurns(t *testing.T) {
 			client := openai.NewClient("", upstream.URL)
 			client.SetCodexBaseURL(upstream.URL)
 			lease := subscriptions.Lease{AccountID: "10000000-0000-4000-8000-000000000001", OwnerID: "10000000-0000-4000-8000-000000000002", Tier: auth.SubscriptionTierShared, AccessToken: "synthetic-included-token", ProviderAccount: "synthetic-provider-account"}
-			svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, newRowBackedPinStore(), false, providers.ProviderOpenAI, codexCoveredModel, nil).
+			svc := WithStrategyPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, newRowBackedPinStore(), false, providers.ProviderOpenAI, codexCoveredModel, nil), hmm.ServingPorts()).
 				WithManagedSubscriptions(&scriptedSubscriptionLeaser{leases: []subscriptions.Lease{lease}, repeatLast: true})
 			for _, body := range fixture.turns {
 				ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")

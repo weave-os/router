@@ -6,14 +6,15 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
 )
 
 func TestResolveEffort_SourcesAndClamping(t *testing.T) {
-	svc := NewService(nil, nil, nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil).WithEffortEscalation(true)
+	svc := WithStrategyPorts(NewService(nil, nil, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).WithEffortEscalation(true)
 
 	for _, tc := range []struct {
 		name         string

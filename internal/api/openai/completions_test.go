@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -54,10 +55,10 @@ func TestChatCompletionHandler_CrossFormatOverflowReturnsNativeError(t *testing.
 	gin.SetMode(gin.TestMode)
 	for _, stream := range []bool{false, true} {
 		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
-			svc := proxy.NewService(
+			svc := proxy.WithStrategyPorts(proxy.NewService(
 				overflowRouter{}, map[string]providers.Client{providers.ProviderOpenAI: overflowProvider{}},
-				nil, nil, false, providers.ProviderOpenAI, "gpt-5-mini", nil,
-			)
+				nil, nil, false, providers.ProviderOpenAI, "gpt-5-mini", nil), hmm.ServingPorts())
+
 			engine := gin.New()
 			engine.POST("/v1/chat/completions", openai.ChatCompletionHandler(svc, nil))
 			body := fmt.Sprintf(`{"model":"gpt-5-mini","max_tokens":1024,"stream":%t,"messages":[{"role":"user","content":"hi"}]}`, stream)

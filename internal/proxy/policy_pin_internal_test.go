@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
@@ -89,7 +90,7 @@ func TestClassifyDispatchError_PolicyPinUnavailableIs503WithTypedReason(t *testi
 
 func TestRecordPolicyPinRouteFailureWritesHonouredFalseRow(t *testing.T) {
 	sink := newBypassCaptureTelemetry()
-	svc := &Service{telemetry: sink}
+	svc := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, telemetry: sink}
 	installationID := uuid.New()
 	ctx := context.WithValue(pinnedContext(true), InstallationIDContextKey{}, installationID.String())
 
@@ -113,7 +114,7 @@ func TestRecordPolicyPinRouteFailureWritesHonouredFalseRow(t *testing.T) {
 
 func TestRecordPolicyPinRouteFailureIsSilentWithoutAPin(t *testing.T) {
 	sink := newBypassCaptureTelemetry()
-	svc := &Service{telemetry: sink}
+	svc := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, telemetry: sink}
 	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, uuid.New().String())
 
 	svc.recordPolicyPinRouteFailure(ctx, routeFailureRequest{RequestID: "req-plain", RequestStart: time.Now(), RequestedModel: "claude-sonnet-5", Strategy: router.StrategyFromContext(ctx)}, turntype.TurnType("interactive"), false, errors.New("routing failed"))
@@ -138,7 +139,7 @@ func (r *countingPinnedRouter) Route(context.Context, router.Request) (router.De
 func pinnedTurnLoopService(t *testing.T, rt router.Router, store sessionpin.Store) *Service {
 	t.Helper()
 	clients := map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderOpenAI: nil}
-	return NewService(rt, clients, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	return WithStrategyPorts(NewService(rt, clients, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 }
 
 func pinnedTurnLoopEnvelope(t *testing.T) (*translate.RequestEnvelope, translate.RoutingFeatures) {

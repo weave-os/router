@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"testing"
+
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -44,8 +46,9 @@ func TestForceModelCommand_TypedForms(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.typed, func(t *testing.T) {
 			store := &recordingPinStore{}
-			svc := NewService(nil, nil, nil, store, false,
-				providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+			svc := WithStrategyPorts(NewService(nil, nil, nil, store, false,
+				providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
+
 			env := typedCommandEnv(t, tt.typed+"\nfix the failing test")
 			cmd, found := env.ExtractForceModelCommand()
 			require.True(t, found, "command parsed")
@@ -68,8 +71,9 @@ func TestForceModelCommand_TypedUnknownKeepsRouting(t *testing.T) {
 	for _, typed := range []string{"/fm opsu", "/fm opus-5-", "/fm gpt-5.6-astra", "/fm opus fix the tests"} {
 		t.Run(typed, func(t *testing.T) {
 			store := &recordingPinStore{}
-			svc := NewService(nil, nil, nil, store, false,
-				providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+			svc := WithStrategyPorts(NewService(nil, nil, nil, store, false,
+				providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
+
 			env := typedCommandEnv(t, typed)
 			cmd, found := env.ExtractForceModelCommand()
 			require.True(t, found, "command parsed")
@@ -86,8 +90,9 @@ func TestForceModelCommand_TypedUnknownKeepsRouting(t *testing.T) {
 
 func TestForceModelCommand_TypoSuggestsWithoutPinning(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := NewService(nil, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := WithStrategyPorts(NewService(nil, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
+
 	env := typedCommandEnv(t, "/fm opsu")
 	cmd, found := env.ExtractForceModelCommand()
 	require.True(t, found, "command parsed")

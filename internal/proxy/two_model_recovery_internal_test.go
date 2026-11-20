@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 )
 
@@ -34,9 +35,10 @@ func TestTwoModelGatewayRecoveryReadmitsStruckSibling(t *testing.T) {
 		SidecarRescuePool: []string{recoveryOpusModel},
 		CandidateModels:   []string{catalog.ModelGPT6Luna},
 	}}
-	svc := NewService(staticRouter{decision: decision}, map[string]providers.Client{
+	svc := WithStrategyPorts(NewService(staticRouter{decision: decision}, map[string]providers.Client{
 		providers.ProviderOpenAIGateway: primary, providers.ProviderAnthropicGateway: sibling,
-	}, nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil).WithRetrySleep(func(context.Context, time.Duration) error { return nil })
+	}, nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil), hmm.ServingPorts()).
+		WithRetrySleep(func(context.Context, time.Duration) error { return nil })
 	svc.clock = func() time.Time { return rateLimitTestNow }
 	body := []byte(`{"model":"gpt-6-luna","stream":true,"messages":[{"role":"user","content":"synthetic exhausted pool"}]}`)
 	rec := httptest.NewRecorder()
@@ -257,10 +259,10 @@ func TestTwoModelGatewayRecoveryRetriesThenRecordsWithdrawal(t *testing.T) {
 				RescueModels:    []string{catalog.ModelGPT6Luna, recoveryOpusModel},
 				CandidateModels: []string{catalog.ModelGPT6Luna, recoveryOpusModel},
 			}}
-			svc := NewService(staticRouter{decision: decision}, map[string]providers.Client{
+			svc := WithStrategyPorts(NewService(staticRouter{decision: decision}, map[string]providers.Client{
 				providers.ProviderOpenAIGateway:    primary,
 				providers.ProviderAnthropicGateway: sibling,
-			}, nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil).
+			}, nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil), hmm.ServingPorts()).
 				WithRescuedFailureArmDemotion(true).WithTransientRateLimit(scenario.transient, 45)
 			now := rateLimitTestNow
 			svc.clock = func() time.Time { return now }
@@ -310,7 +312,7 @@ func TestTwoModelRecoveryHMMRefreshDoesNotRewriteCooldown(t *testing.T) {
 	now := rateLimitTestNow
 	svc.clock = func() time.Time { return now }
 	res := turnLoopResult{InstallationID: uuid.New(), SessionKey: nonZeroSessionKey(), PinRole: sessionpin.DefaultRole,
-		Decision: router.Decision{Provider: providers.ProviderAnthropic, Model: freshTurnModel, Reason: hmmHistoryReason}}
+		Decision: router.Decision{Provider: providers.ProviderAnthropic, Model: freshTurnModel, Reason: hmm.HistoryReason}}
 	for step := 0; step <= 96; step++ {
 		now = rateLimitTestNow.Add(time.Duration(step) * 30 * time.Minute)
 		svc.recordHMMTurnHistory(context.Background(), res, providers.ProviderAnthropic, freshTurnModel, 0, 0, 0, 0, false)

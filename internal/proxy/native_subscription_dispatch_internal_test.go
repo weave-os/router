@@ -9,11 +9,13 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/subscriptions"
 )
 
@@ -40,7 +42,7 @@ func TestNativeCodexSubscriptionWithDepletedCredits(t *testing.T) {
 			defer upstream.Close()
 			client := openai.NewClient("synthetic-paid-key", upstream.URL)
 			client.SetCodexBaseURL(upstream.URL)
-			svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).
+			svc := WithStrategyPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil), hmm.ServingPorts()).
 				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 			ctx := codexSubscriptionTestCtx()
 			expectedBearer := "Bearer " + codexTestToken

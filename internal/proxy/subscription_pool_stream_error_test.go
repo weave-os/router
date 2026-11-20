@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/subscriptions"
 )
 
@@ -28,15 +29,15 @@ func TestProxyMessages_ManagedPoolStreamingFailureLeavesRenderingToHandler(t *te
 			Body:   []byte(`{"type":"error","error":{"type":"rate_limit_error","message":"quota exhausted"}}`),
 		}},
 	}}
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		fixedRouter{decision: router.Decision{
 			Provider: providers.ProviderAnthropic,
 			Model:    "claude-opus-4-8",
 			Metadata: &router.RoutingMetadata{CandidateModels: []string{"claude-opus-4-8"}},
 		}},
 		map[string]providers.Client{providers.ProviderAnthropic: anthropic},
-		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithManagedSubscriptions(leaser).
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
+		WithManagedSubscriptions(leaser).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 
 	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderClaude),
@@ -69,15 +70,15 @@ func TestProxyMessages_ManagedPoolFailureBeforeAnyBytesLeavesRenderingToHandler(
 			Body:   []byte(`{"type":"error","error":{"type":"rate_limit_error","message":"quota exhausted"}}`),
 		}},
 	}}
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		fixedRouter{decision: router.Decision{
 			Provider: providers.ProviderAnthropic,
 			Model:    "claude-opus-4-8",
 			Metadata: &router.RoutingMetadata{CandidateModels: []string{"claude-opus-4-8"}},
 		}},
 		map[string]providers.Client{providers.ProviderAnthropic: anthropic},
-		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithManagedSubscriptions(leaser).
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
+		WithManagedSubscriptions(leaser).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 
 	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderClaude),

@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/subscriptions"
 
 	"github.com/stretchr/testify/require"
@@ -28,7 +29,7 @@ func newOverflowDispatch(activeProviders map[subscriptions.Provider]bool) *overf
 		anthropic:  &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{{writeBytes: []byte("anthropic answer")}}},
 		openRouter: &fakeClient{name: providers.ProviderOpenRouter, outcomes: []fakeOutcome{{writeBytes: []byte("openrouter answer")}}},
 	}
-	d.svc = NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderAnthropic: d.anthropic, providers.ProviderOpenRouter: d.openRouter}, nil, nil, false, "", "", nil).
+	d.svc = WithStrategyPorts(NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderAnthropic: d.anthropic, providers.ProviderOpenRouter: d.openRouter}, nil, nil, false, "", "", nil), hmm.ServingPorts()).
 		WithManagedSubscriptions(&stateModelLeaser{activeProviders: activeProviders})
 	d.svc.credentials.KeyedProviders = map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenAI: {}, providers.ProviderOpenRouter: {}}
 	return d

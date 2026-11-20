@@ -2,14 +2,12 @@ package hmm
 
 import (
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/hmm/pinstate"
 	"weave-os/router/internal/router/sessionpin"
 )
 
-type PinState struct {
-	PolicyGroup  string
-	UpgradeVotes int
-}
+type PinState = continuity.PinState
 
 func PinStateOf(pin sessionpin.Pin) PinState {
 	return PinState{

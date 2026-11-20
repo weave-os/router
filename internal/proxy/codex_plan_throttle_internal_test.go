@@ -10,11 +10,12 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/subscriptions"
 )
 
 func TestCodexPlanRateLimitRefusesAsCallerThrottle(t *testing.T) {
-	svc := &Service{usageObserver: usage.NewObserver([]byte("test-salt"), time.Hour, time.Now)}
+	svc := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, usageObserver: usage.NewObserver([]byte("test-salt"), time.Hour, time.Now)}
 	ctx := WithManagedSubscriptionUsage(codexSubscriptionTestCtx())
 
 	svc.recordCodexQuotaExhaustion(ctx, http.Header{}, &providers.UpstreamErrorResponse{

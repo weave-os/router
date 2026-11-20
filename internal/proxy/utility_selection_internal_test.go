@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
@@ -37,8 +38,9 @@ func TestAutomaticUtilitySelectionDoesNotUseDeploymentShortcut(t *testing.T) {
 						Metadata: &router.RoutingMetadata{PolicyPinHonoured: true},
 					}}
 					pins := newStubPinStore()
-					service := NewService(scorer, nil, nil, pins, false,
-						providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
+					service := WithStrategyPorts(NewService(scorer, nil, nil, pins, false,
+						providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil), hmm.ServingPorts())
+
 					envelope, err := translate.ParseAnthropic([]byte(fixture.body))
 					require.NoError(t, err)
 					features := envelope.RoutingFeatures()
@@ -110,8 +112,9 @@ func TestAutomaticProbeWithoutConcreteTargetScoresWithoutPinning(t *testing.T) {
 				Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeSonnet46.String(),
 			}}
 			pins := newStubPinStore()
-			service := NewService(scorer, nil, nil, pins, false,
-				providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
+			service := WithStrategyPorts(NewService(scorer, nil, nil, pins, false,
+				providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil), hmm.ServingPorts())
+
 			body := strings.Replace(blindExperimentUtilityTurnBodies()[0].body, catalog.ModelIDClaudeOpus48.String(), requestedModel, 1)
 			envelope, err := translate.ParseAnthropic([]byte(body))
 			require.NoError(t, err)
@@ -142,8 +145,9 @@ func TestDefaultProbeDroppedForceDoesNotAttachConversationState(t *testing.T) {
 				Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeSonnet46.String(),
 			}}
 			pins := newStubPinStore()
-			service := NewService(scorer, nil, nil, pins, false,
-				providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
+			service := WithStrategyPorts(NewService(scorer, nil, nil, pins, false,
+				providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil), hmm.ServingPorts())
+
 			body := strings.Replace(blindExperimentUtilityTurnBodies()[0].body, catalog.ModelIDClaudeOpus48.String(), requestedModel, 1)
 			envelope, err := translate.ParseAnthropic([]byte(body))
 			require.NoError(t, err)

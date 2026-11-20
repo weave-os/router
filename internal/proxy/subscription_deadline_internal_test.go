@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/subscriptions"
 
 	"github.com/stretchr/testify/require"
@@ -187,7 +188,7 @@ func TestStateModelsTerminalRejectionAfterBudgetIsNotRescued(t *testing.T) {
 	codex := &fakeClient{name: providers.ProviderOpenAI}
 	paid := &fakeClient{name: providers.ProviderOpenRouter}
 	// NewService owns background cache timers outside the synthetic-time bubble.
-	svc := NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderAnthropic: claude, providers.ProviderOpenAI: codex, providers.ProviderOpenRouter: paid}, nil, nil, false, "", "", nil).
+	svc := WithStrategyPorts(NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderAnthropic: claude, providers.ProviderOpenAI: codex, providers.ProviderOpenRouter: paid}, nil, nil, false, "", "", nil), hmm.ServingPorts()).
 		WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: true, subscriptions.ProviderCodex: true}})
 	synctest.Test(t, func(t *testing.T) {
 		ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})

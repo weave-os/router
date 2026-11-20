@@ -9,6 +9,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router/hmm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -56,7 +57,7 @@ func TestPaidFallbackCredentials_UsesCustomerKeyWhenCreditsDenied(t *testing.T) 
 }
 
 func TestForcedModelBinding_UnfundedProviderReturnsCreditsError(t *testing.T) {
-	svc := NewService(nil, map[string]providers.Client{}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := WithStrategyPorts(NewService(nil, map[string]providers.Client{}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 	ctx := deniedCtxWithKeys(&auth.ExternalAPIKey{Provider: providers.ProviderAnthropic, Plaintext: []byte("synthetic-byok")})
 
 	_, refusal := svc.forcedModelBinding(ctx, "gpt-5.4", providers.ProviderOpenAI)
@@ -75,7 +76,7 @@ func TestForcedModelBinding_UnfundedProviderReturnsCreditsError(t *testing.T) {
 }
 
 func TestOpenAIPaidCredential_IgnoresDeploymentKeyWhenCreditsDenied(t *testing.T) {
-	svc := NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: &betaCaptureProvider{}}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := WithStrategyPorts(NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: &betaCaptureProvider{}}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 	assert.True(t, svc.openAIPaidCredentialAvailable(context.Background(), http.Header{}))
 	assert.False(t, svc.openAIPaidCredentialAvailable(deniedCtxWithKeys(), http.Header{}))

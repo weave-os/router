@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
@@ -315,7 +316,7 @@ func TestForcedThirdPartyRefusalPaysThroughSubscriptionStateModelsOnlyWhenKeyCon
 	for _, consented := range []bool{false, true} {
 		t.Run(map[bool]string{false: "without consent", true: "with consent"}[consented], func(t *testing.T) {
 			upstream := &parityUpstream{subErr: thirdPartyRefusalError(), okBody: "served"}
-			svc := NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, nil, false, "", "", nil).
+			svc := WithStrategyPorts(NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, nil, false, "", "", nil), hmm.ServingPorts()).
 				WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: true}}).
 				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 			svc.retrySleep = noopSleep

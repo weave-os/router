@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -89,15 +90,15 @@ func (s *demotionStubPinStore) Consume(context.Context, [sessionpin.SessionKeyLe
 func (s *demotionStubPinStore) SweepExpired(context.Context) error { return nil }
 
 func newDemotionTestService(store sessionpin.Store, flagOn bool) *Service {
-	return NewService(
+	return WithStrategyPorts(NewService(
 		nil,
 		nil,
 		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	).WithCommittedStreamArmDemotion(flagOn)
+		nil), hmm.ServingPorts()).
+		WithCommittedStreamArmDemotion(flagOn)
 }
 
 const demotedArm = "claude-opus-4-7"
@@ -126,7 +127,7 @@ func TestMaybeDemoteArmAfterUnrescuedStall(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &demotionStubPinStore{}
-			svc := NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+			svc := WithStrategyPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 				WithRescuedFailureArmDemotion(tc.flagOn)
 			ctx := context.Background()
 			if tc.cancelled {
@@ -478,15 +479,15 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_PersistsWithoutExistingRow(t 
 }
 
 func newRescuedDemotionTestService(store sessionpin.Store, flagOn bool) *Service {
-	return NewService(
+	return WithStrategyPorts(NewService(
 		nil,
 		nil,
 		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	).WithRescuedFailureArmDemotion(flagOn)
+		nil), hmm.ServingPorts()).
+		WithRescuedFailureArmDemotion(flagOn)
 }
 
 func rescuedPrimaryDecision(reason string) router.Decision {
@@ -591,8 +592,8 @@ func TestUnrescuedResponseHeaderTimeoutExcludesPrimaryOnNextTurn(t *testing.T) {
 		Model:    freshTurnModel,
 		Reason:   "response-header-timeout-next-turn",
 	}}
-	nextTurnService := NewService(nil, nil, nil, &rolePinStore{byRole: store.rows}, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	nextTurnService := WithStrategyPorts(NewService(nil, nil, nil, &rolePinStore{byRole: store.rows}, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: strategy,
 			Router:   scorer,

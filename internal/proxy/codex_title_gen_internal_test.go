@@ -9,6 +9,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -48,12 +49,12 @@ func (p *codexTitleProvider) Passthrough(context.Context, providers.PreparedRequ
 func TestCodexResponsesTitleGenerationScoresWithoutMarker(t *testing.T) {
 	routerSpy := &codexTitleRouter{}
 	provider := &codexTitleProvider{}
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		routerSpy,
 		map[string]providers.Client{providers.ProviderOpenAI: provider},
 		nil, nil, false,
-		providers.ProviderOpenAI, "gpt-5.6-luna", nil,
-	)
+		providers.ProviderOpenAI, "gpt-5.6-luna", nil), hmm.ServingPorts())
+
 	body := []byte(`{
 		"model":"gpt-5.6-sol",
 		"stream":true,
@@ -80,12 +81,12 @@ func TestCodexResponsesTitleGenerationScoresWithoutMarker(t *testing.T) {
 func TestCodexResponsesTitlePromptScoresWithoutMarker(t *testing.T) {
 	routerSpy := &codexTitleRouter{}
 	provider := &codexTitleProvider{}
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		routerSpy,
 		map[string]providers.Client{providers.ProviderOpenAI: provider},
 		nil, nil, false,
-		providers.ProviderOpenAI, "gpt-5.6-luna", nil,
-	)
+		providers.ProviderOpenAI, "gpt-5.6-luna", nil), hmm.ServingPorts())
+
 	body := []byte(`{
 		"model":"gpt-5.6-sol",
 		"parallel_tool_calls":true,
@@ -112,12 +113,12 @@ func TestCodexResponsesTitlePromptScoresWithoutMarker(t *testing.T) {
 func TestCodexResponsesTitlePromptAfterHarnessContextScores(t *testing.T) {
 	routerSpy := &codexTitleRouter{}
 	provider := &codexTitleProvider{}
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		routerSpy,
 		map[string]providers.Client{providers.ProviderOpenAI: provider},
 		nil, nil, false,
-		providers.ProviderOpenAI, "gpt-5.6-luna", nil,
-	)
+		providers.ProviderOpenAI, "gpt-5.6-luna", nil), hmm.ServingPorts())
+
 	body := []byte(`{
 		"model":"gpt-5.6-sol",
 		"stream":true,
@@ -144,12 +145,12 @@ func TestCodexResponsesTitlePromptAfterHarnessContextScores(t *testing.T) {
 func TestCodexDesktopThreadTitleScoresWithoutMarker(t *testing.T) {
 	routerSpy := &codexTitleRouter{}
 	provider := &codexTitleProvider{}
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		routerSpy,
 		map[string]providers.Client{providers.ProviderOpenAI: provider},
 		nil, nil, false,
-		providers.ProviderOpenAI, "gpt-5.6-luna", nil,
-	)
+		providers.ProviderOpenAI, "gpt-5.6-luna", nil), hmm.ServingPorts())
+
 	body := []byte(`{
 		"model":"gpt-5.6-luna",
 		"stream":true,
@@ -184,12 +185,12 @@ func TestCodexDesktopThreadTitleScoresWithoutMarker(t *testing.T) {
 func TestCodexResponsesTitlePromptWithAssistantHistoryUsesScorer(t *testing.T) {
 	routerSpy := &codexTitleRouter{}
 	provider := &codexTitleProvider{}
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		routerSpy,
 		map[string]providers.Client{providers.ProviderOpenAI: provider},
 		nil, nil, false,
-		providers.ProviderOpenAI, "gpt-5.6-luna", nil,
-	)
+		providers.ProviderOpenAI, "gpt-5.6-luna", nil), hmm.ServingPorts())
+
 	body := []byte(`{
 		"model":"gpt-5.6-sol",
 		"stream":true,
@@ -212,12 +213,12 @@ func TestCodexResponsesTitlePromptWithAssistantHistoryUsesScorer(t *testing.T) {
 func TestResponsesTitlePromptWithoutCodexIdentityUsesScorer(t *testing.T) {
 	routerSpy := &codexTitleRouter{}
 	provider := &codexTitleProvider{}
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		routerSpy,
 		map[string]providers.Client{providers.ProviderOpenAI: provider},
 		nil, nil, false,
-		providers.ProviderOpenAI, "gpt-5.6-luna", nil,
-	)
+		providers.ProviderOpenAI, "gpt-5.6-luna", nil), hmm.ServingPorts())
+
 	body := []byte(`{
 		"model":"gpt-5.6-sol",
 		"stream":true,

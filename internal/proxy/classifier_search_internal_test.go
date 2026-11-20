@@ -11,6 +11,7 @@ import (
 	"github.com/tidwall/sjson"
 
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 )
 
 const classifierSearchBody = `{"model":"auto","max_tokens":1024,"system":[{"type":"text","text":"Synthetic SDK instructions"},{"type":"text","text":"You are an assistant for performing a web search tool use"}],"messages":[{"role":"user","content":"Perform a web search for the query: synthetic language documentation"}],"tools":[{"type":"web_search_20250305","name":"web_search"}],"tool_choice":{"type":"auto"}}`
@@ -59,7 +60,7 @@ func TestClassifierSearchChildIsolationAndReplay(t *testing.T) {
 	require.Equal(t, "Synthetic answer", inputs[2].User.PrecedingResponses[0].Content)
 
 	// Parent advancement cannot change a retry's child identity.
-	replica := &Service{clock: svc.clock}
+	replica := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, clock: svc.clock}
 	require.NoError(t, replica.WithClassifierSessions(svc.classifierSessions.config, store, svc.classifierSessions.classifier))
 	var workers sync.WaitGroup
 	for range 8 {

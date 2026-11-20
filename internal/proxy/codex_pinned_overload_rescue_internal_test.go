@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -56,13 +57,13 @@ func proxyPinnedCodexOverload(t *testing.T, pinFound bool) (*anthropicServingCli
 		},
 	}}
 	sibling := &anthropicServingClient{}
-	svc := NewService(nil,
+	svc := WithStrategyPorts(NewService(nil,
 		map[string]providers.Client{
 			providers.ProviderOpenAI:    planClient{&codexInStreamOverloadClient{}},
 			providers.ProviderAnthropic: planClient{sibling},
 		},
-		nil, store, false, providers.ProviderOpenAI, pinnedOverloadModel, nil,
-	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}, providers.ProviderAnthropic: {}}).
+		nil, store, false, providers.ProviderOpenAI, pinnedOverloadModel, nil), hmm.ServingPorts()).
+		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}, providers.ProviderAnthropic: {}}).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil }).
 		WithSiblingFailover(true).
 		WithPolicyStrategy(policy.StrategySpec{

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+
 	"weave-os/router/internal/credentials"
 
 	"weave-os/router/internal/auth"
@@ -23,6 +24,7 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
@@ -78,7 +80,7 @@ func (f *bypassFakeProvider) Passthrough(context.Context, providers.PreparedRequ
 // provider for direct bypassToAnthropic tests. The full ProxyMessages path is
 // not exercised here; only bypassToAnthropic is.
 func newBypassService(p providers.Client) *Service {
-	return &Service{
+	return &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()},
 		clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: p}),
 	}
 }
@@ -97,7 +99,7 @@ func TestUsageBypassDecision_CodexSubscriptionPreservesRequestedModel(t *testing
 	obs.Record(obs.Key([]byte(codexToken)), usage.Snapshot{
 		Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300},
 	})
-	svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: obs}
+	svc := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: obs}
 	ctx := context.WithValue(context.Background(), OpenAISubscriptionContextKey{}, codexToken)
 	ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, "account-1")
 	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{
@@ -134,7 +136,7 @@ func TestUsageBypassDecision_SessionDemotionBlocks_GlobalAutomaticExclusionDoesN
 	obs.Record(obs.Key([]byte(token)), usage.Snapshot{
 		Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300},
 	})
-	svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: obs}
+	svc := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: obs}
 	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, token)
 	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{
 		Enabled:   true,
@@ -197,7 +199,7 @@ func TestUsageBypassEngaged_SafetyExclusionBlocks_PolicyExclusionDoesNot(t *test
 	enabled := map[string]struct{}{providers.ProviderAnthropic: {}}
 
 	t.Run("installation excluded_models does not block bypass", func(t *testing.T) {
-		svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: newObs()}
+		svc := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: newObs()}
 		provider, ok := svc.usageBypassEngaged(baseCtx(), http.Header{}, router.Request{
 			RequestedModel:   model,
 			EnabledProviders: enabled,
@@ -210,7 +212,7 @@ func TestUsageBypassEngaged_SafetyExclusionBlocks_PolicyExclusionDoesNot(t *test
 	})
 
 	t.Run("safety exclusion blocks bypass", func(t *testing.T) {
-		svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: newObs()}
+		svc := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: newObs()}
 		_, ok := svc.usageBypassEngaged(baseCtx(), http.Header{}, router.Request{
 			RequestedModel:   model,
 			EnabledProviders: enabled,
@@ -222,7 +224,7 @@ func TestUsageBypassEngaged_SafetyExclusionBlocks_PolicyExclusionDoesNot(t *test
 	})
 
 	t.Run("both excluded: safety exclusion still blocks", func(t *testing.T) {
-		svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: newObs()}
+		svc := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: newObs()}
 		_, ok := svc.usageBypassEngaged(baseCtx(), http.Header{}, router.Request{
 			RequestedModel:   model,
 			EnabledProviders: enabled,
@@ -248,7 +250,7 @@ func TestUsageBypass_PreservesSwitchHistory(t *testing.T) {
 		LastServedModel: "claude-haiku-4-5",
 		HasEverSwitched: true,
 	}
-	svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := WithStrategyPorts(NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithUsageObserver(obs)
 	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, token)
 	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{
@@ -289,7 +291,7 @@ func TestUsageBypass_EngagesUnderAuthoritativePolicy(t *testing.T) {
 		Model:    "gpt-5.6-luna",
 		Reason:   "authoritative-bypass-test_policy",
 	}}
-	svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := WithStrategyPorts(NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithUsageObserver(obs).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: strategy,
@@ -451,7 +453,7 @@ func TestBypass_TransportError_ReroutesViaScorer(t *testing.T) {
 func TestBypass_LocalPrepError_PropagatesToClient(t *testing.T) {
 	// Wire a service WITHOUT the Anthropic provider to trigger the
 	// provider-not-configured prep error path.
-	svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{})}
+	svc := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, clients: dispatch.NewClients(map[string]providers.Client{})}
 
 	env := bypassAnthropicEnvelope(t)
 	feats := env.RoutingFeatures()
@@ -484,13 +486,13 @@ func TestSubscriptionFailover_EligibilityAndSuppression(t *testing.T) {
 	require.True(t, servedOnSubscription(ctx), "a resolved subscription token must report servedOnSubscription")
 
 	t.Run("no fallback key: not eligible", func(t *testing.T) {
-		s := &Service{} // no deployment Anthropic key, no BYOK
+		s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}} // no deployment Anthropic key, no BYOK
 		assert.False(t, s.anthropicFallbackKeyAvailable(ctx),
 			"without a Weave/BYOK Anthropic key there is nothing to fail over to")
 	})
 
 	t.Run("deployment Anthropic key present: eligible", func(t *testing.T) {
-		s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}}
+		s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}}
 		assert.True(t, s.anthropicFallbackKeyAvailable(ctx),
 			"a deployment Anthropic key is a valid failover target for a throttled subscription")
 	})

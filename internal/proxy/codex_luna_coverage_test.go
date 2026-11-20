@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/subscriptions/entitlement"
 
 	"github.com/stretchr/testify/assert"
@@ -30,9 +31,9 @@ func TestBoostCodexLunaSubscriptionCoverage(t *testing.T) {
 				Model:    codexLunaCoverageModel,
 			}}
 			upstream := &fakeProvider{proxyResponse: codexResponsesStream}
-			service := proxy.NewService(selection, map[string]providers.Client{
+			service := proxy.WithStrategyPorts(proxy.NewService(selection, map[string]providers.Client{
 				providers.ProviderOpenAI: upstream,
-			}, nil, nil, false, providers.ProviderOpenAI, codexLunaCoverageModel, nil).
+			}, nil, nil, false, providers.ProviderOpenAI, codexLunaCoverageModel, nil), hmm.ServingPorts()).
 				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 
 			body := `{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"Refactor the auth middleware and add tests."}],"max_tokens":4096,"stream":true,"tools":[{"type":"function","function":{"name":"edit_file","parameters":{"type":"object"}}}]}`

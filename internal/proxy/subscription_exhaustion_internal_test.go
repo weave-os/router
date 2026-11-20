@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/router/hmm"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
@@ -127,7 +129,7 @@ func TestClaudeSubscriptionExhausted(t *testing.T) {
 	deploymentKeyed := map[string]struct{}{providers.ProviderAnthropic: {}}
 
 	t.Run("exhausted snapshot + deployment key", func(t *testing.T) {
-		s := &Service{
+		s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()},
 			usageObserver: observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()),
 			credentials:   credentials.Brokerage{KeyedProviders: deploymentKeyed},
 		}
@@ -137,7 +139,7 @@ func TestClaudeSubscriptionExhausted(t *testing.T) {
 	t.Run("exhausted without fallback key is unavailable", func(t *testing.T) {
 		// Without a deployment / BYOK Anthropic key, a spent plan is still
 		// unavailable: the turn is refused rather than billing overage or 429ing.
-		s := &Service{
+		s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()},
 			usageObserver: observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()),
 			credentials:   credentials.Brokerage{KeyedProviders: map[string]struct{}{}},
 		}
@@ -145,7 +147,7 @@ func TestClaudeSubscriptionExhausted(t *testing.T) {
 	})
 
 	t.Run("subscription has headroom", func(t *testing.T) {
-		s := &Service{
+		s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()},
 			usageObserver: observerWithSnapshot(exhaustedSubToken, usage.Snapshot{
 				Secondary: usage.Window{UsedPercent: 0.80, WindowMinutes: 10080},
 			}),
@@ -155,7 +157,7 @@ func TestClaudeSubscriptionExhausted(t *testing.T) {
 	})
 
 	t.Run("no subscription token present", func(t *testing.T) {
-		s := &Service{
+		s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()},
 			usageObserver: observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()),
 			credentials:   credentials.Brokerage{KeyedProviders: deploymentKeyed},
 		}
@@ -163,13 +165,13 @@ func TestClaudeSubscriptionExhausted(t *testing.T) {
 	})
 
 	t.Run("observer not wired", func(t *testing.T) {
-		s := &Service{credentials: credentials.Brokerage{KeyedProviders: deploymentKeyed}}
+		s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, credentials: credentials.Brokerage{KeyedProviders: deploymentKeyed}}
 		assert.False(t, s.claudeSubscriptionExhausted(context.Background(), headers()))
 	})
 
 	t.Run("token present but never observed", func(t *testing.T) {
 		now := time.Unix(1_000_000, 0)
-		s := &Service{
+		s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()},
 			usageObserver: usage.NewObserver([]byte("salt"), time.Minute, func() time.Time { return now }),
 			credentials:   credentials.Brokerage{KeyedProviders: deploymentKeyed},
 		}
@@ -180,22 +182,22 @@ func TestClaudeSubscriptionExhausted(t *testing.T) {
 
 func TestAnthropicFallbackKeyAvailable(t *testing.T) {
 	t.Run("deployment key present", func(t *testing.T) {
-		s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}}
+		s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}}
 		assert.True(t, s.anthropicFallbackKeyAvailable(context.Background()))
 	})
 	t.Run("BYOK present", func(t *testing.T) {
-		s := &Service{}
+		s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}
 		ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 			{Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-api-byok")},
 		})
 		assert.True(t, s.anthropicFallbackKeyAvailable(ctx))
 	})
 	t.Run("neither", func(t *testing.T) {
-		s := &Service{credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}}}
+		s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}}}}
 		assert.False(t, s.anthropicFallbackKeyAvailable(context.Background()))
 	})
 	t.Run("nil deploymentKeyedProviders, no BYOK", func(t *testing.T) {
-		s := &Service{}
+		s := &Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}
 		assert.False(t, s.anthropicFallbackKeyAvailable(context.Background()))
 	})
 }

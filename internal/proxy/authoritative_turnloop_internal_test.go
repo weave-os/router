@@ -118,7 +118,7 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 				Reason:   "authoritative-test_policy",
 			}}
 			summarizer := &authoritativeHandoverSummarizer{}
-			svc := NewService(
+			svc := WithStrategyPorts(NewService(
 				nil,
 				nil,
 				nil,
@@ -126,11 +126,11 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 				false,
 				providers.ProviderAnthropic,
 				"claude-haiku-4-5",
-				nil,
-			).EditContinuityConfig(func(c *continuity.Config) {
-				c.ScoreToolResultTurns = false
-				c.Planner = planner.EVConfig{ThresholdUSD: 1_000_000, ExpectedRemainingTurns: 3}
-			}).
+				nil), hmm.ServingPorts()).
+				EditContinuityConfig(func(c *continuity.Config) {
+					c.ScoreToolResultTurns = false
+					c.Planner = planner.EVConfig{ThresholdUSD: 1_000_000, ExpectedRemainingTurns: 3}
+				}).
 				WithSummarizer(summarizer).
 				EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).
 				WithPolicyStrategy(policy.StrategySpec{
@@ -215,7 +215,7 @@ func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
 		Provider: providers.ProviderAnthropic,
 		Model:    "claude-opus-4-8",
 	}}
-	svc := NewService(
+	svc := WithStrategyPorts(NewService(
 		nil,
 		nil,
 		nil,
@@ -223,8 +223,8 @@ func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	).EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).WithPolicyStrategy(policy.StrategySpec{
+		nil), hmm.ServingPorts()).
+		EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).WithPolicyStrategy(policy.StrategySpec{
 		Strategy: strategy,
 		Router:   policyRouter,
 		Capabilities: policy.Capabilities{
@@ -394,7 +394,7 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 				PinnedUntil: time.Now().Add(time.Hour),
 			}
 			policyRouter := &authoritativeTestRouter{decision: test.fresh}
-			svc := NewService(
+			svc := WithStrategyPorts(NewService(
 				nil,
 				nil,
 				nil,
@@ -402,8 +402,8 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 				false,
 				providers.ProviderAnthropic,
 				"claude-haiku-4-5",
-				nil,
-			).EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).WithPolicyStrategy(policy.StrategySpec{
+				nil), hmm.ServingPorts()).
+				EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).WithPolicyStrategy(policy.StrategySpec{
 				Strategy: strategy,
 				Router:   policyRouter,
 				Capabilities: policy.Capabilities{

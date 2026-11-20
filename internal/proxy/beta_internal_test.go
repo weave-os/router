@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/sessionstrategy"
@@ -45,7 +46,7 @@ func TestQwenBetaToggleUsesAdmittedClassifierAndInternalIdentity(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &betaTestPreferenceStore{}
-			svc := (&Service{}).
+			svc := (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}).
 				WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMQwen, Router: policyregistry.NewAdmittedRouter(router.StrategyHMMQwen, &policyregistry.Snapshot{})}).
 				WithSessionStrategyStore(store)
 			selected := &policyregistry.Snapshot{Routers: map[router.Strategy]router.Router{}}
@@ -266,7 +267,7 @@ func mustJSONQuote(t *testing.T, value string) string {
 func TestHandleBetaCommandTogglesAndAcknowledges(t *testing.T) {
 	store := &betaTestPreferenceStore{}
 	pins := &betaCleanupPinStore{}
-	svc := (&Service{pinStore: pins}).
+	svc := (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, pinStore: pins}).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMBeta, Router: &betaTestRouter{}}).
 		WithSessionStrategyStore(store)
 	installationID := uuid.New()
@@ -294,7 +295,7 @@ func TestHandleBetaCommandTogglesAndAcknowledges(t *testing.T) {
 func TestHandleBetaCommandIsInertWhenInstallationPinnedToBeta(t *testing.T) {
 	store := &betaTestPreferenceStore{}
 	pins := &betaCleanupPinStore{}
-	svc := (&Service{pinStore: pins}).
+	svc := (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, pinStore: pins}).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMBeta, Router: &betaTestRouter{}}).
 		WithSessionStrategyStore(store)
 	env := betaTestEnvelope(t, "/beta", true)
@@ -313,7 +314,7 @@ func TestHandleBetaCommandIsInertWhenInstallationPinnedToBeta(t *testing.T) {
 
 func TestHandleBetaCommandAcceptsHeaderOnlyClientSession(t *testing.T) {
 	store := &betaTestPreferenceStore{}
-	svc := (&Service{pinStore: &betaCleanupPinStore{}}).
+	svc := (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, pinStore: &betaCleanupPinStore{}}).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMBeta, Router: &betaTestRouter{}}).
 		WithSessionStrategyStore(store)
 	env := betaTestEnvelope(t, "/beta", false)
@@ -337,7 +338,7 @@ func TestHandleBetaCommandOverlappingTogglesAcknowledgeDistinctStates(t *testing
 		readers.Done()
 		readers.Wait()
 	}
-	svc := (&Service{}).
+	svc := (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMBeta, Router: &betaTestRouter{}}).
 		WithSessionStrategyStore(store)
 	installationID := uuid.New()
@@ -377,7 +378,7 @@ func TestHandleBetaCommandOverlappingTogglesAcknowledgeDistinctStates(t *testing
 
 func TestHandleBetaCommandRejectsArgumentsWithoutStateChange(t *testing.T) {
 	store := &betaTestPreferenceStore{}
-	svc := (&Service{}).
+	svc := (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMBeta, Router: &betaTestRouter{}}).
 		WithSessionStrategyStore(store)
 	env := betaTestEnvelope(t, "/beta status", true)
@@ -405,7 +406,7 @@ func TestHandleBetaCommandRequiresClientSessionAndAvailablePolicy(t *testing.T) 
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &betaTestPreferenceStore{}
-			svc := (&Service{}).WithSessionStrategyStore(store)
+			svc := (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}).WithSessionStrategyStore(store)
 			if tt.withPolicy {
 				svc.WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMBeta, Router: &betaTestRouter{}})
 			}
@@ -428,7 +429,7 @@ func TestHandleBetaCommandRequiresClientSessionAndAvailablePolicy(t *testing.T) 
 func TestHandleBetaCommandWriteFailureLeavesStablePinsUntouched(t *testing.T) {
 	store := &betaTestPreferenceStore{toggleErr: errors.New("write failed")}
 	pins := &betaCleanupPinStore{}
-	svc := (&Service{pinStore: pins}).
+	svc := (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}, pinStore: pins}).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMBeta, Router: &betaTestRouter{}}).
 		WithSessionStrategyStore(store)
 	env := betaTestEnvelope(t, "/beta", true)
@@ -458,7 +459,7 @@ func TestHandleBetaCommandCanDisablePersistedBetaWhilePolicyUnavailable(t *testi
 		},
 		found: true,
 	}
-	svc := (&Service{}).WithSessionStrategyStore(store)
+	svc := (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}).WithSessionStrategyStore(store)
 	env := betaTestEnvelope(t, "/beta", true)
 	cmd, found := env.ExtractBetaCommand()
 	require.True(t, found)
@@ -491,7 +492,7 @@ func TestHandleBetaCommandOverlappingTogglesCannotReenableUnavailableBeta(t *tes
 		arrivals.Done()
 		arrivals.Wait()
 	}
-	svc := (&Service{}).WithSessionStrategyStore(store)
+	svc := (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}).WithSessionStrategyStore(store)
 
 	acknowledgements := make(chan string, 2)
 	var commands sync.WaitGroup
@@ -529,7 +530,7 @@ func TestApplySessionStrategyOnlyUsesPersistedPreference(t *testing.T) {
 	sessionKey[0] = 1
 	stableCtx := router.WithStrategy(context.Background(), router.StrategyHMM)
 	store := &betaTestPreferenceStore{}
-	svc := (&Service{}).WithSessionStrategyStore(store)
+	svc := (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}).WithSessionStrategyStore(store)
 
 	ctx, err := svc.applySessionStrategy(stableCtx, installationID, sessionKey)
 	require.NoError(t, err)
@@ -550,7 +551,7 @@ type betaMarkerKey struct{}
 
 func TestApplySessionStrategyReturnsOriginalContextOnStoreError(t *testing.T) {
 	ctx := context.WithValue(context.Background(), betaMarkerKey{}, "kept")
-	svc := (&Service{}).WithSessionStrategyStore(&betaTestPreferenceStore{getErr: errors.New("db down")})
+	svc := (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}).WithSessionStrategyStore(&betaTestPreferenceStore{getErr: errors.New("db down")})
 	var sessionKey [sessionstrategy.SessionKeyLen]byte
 	sessionKey[0] = 1
 
@@ -573,7 +574,7 @@ func TestPersistedBetaPreferenceFailsClosedWhenBetaRouterUnavailable(t *testing.
 		},
 		found: true,
 	}
-	svc := (&Service{}).
+	svc := (&Service{hmmServing: hmmServing{strategyPorts: hmm.ServingPorts()}}).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy:    router.StrategyHMMBeta,
 			Router:      nil,
@@ -603,7 +604,7 @@ func TestProxyEntrypointsInterceptBetaWithoutRoutingUpstream(t *testing.T) {
 			betaRouter := &betaTestRouter{}
 			store := &betaTestPreferenceStore{}
 			pins := &betaCleanupPinStore{}
-			svc := NewService(stableRouter, nil, nil, pins, false, "", "", nil).
+			svc := WithStrategyPorts(NewService(stableRouter, nil, nil, pins, false, "", "", nil), hmm.ServingPorts()).
 				WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMBeta, Router: betaRouter}).
 				WithSessionStrategyStore(store)
 			ctx := context.WithValue(context.Background(), APIKeyIDContextKey{}, "beta-test-key")
@@ -637,7 +638,7 @@ func TestBetaToggleSelectsBetaThenRestoresStableRouter(t *testing.T) {
 	stableRouter := &betaTestRouter{}
 	betaRouter := &betaTestRouter{}
 	store := &betaTestPreferenceStore{}
-	svc := NewService(stableRouter, nil, nil, nil, false, "", "", nil).
+	svc := WithStrategyPorts(NewService(stableRouter, nil, nil, nil, false, "", "", nil), hmm.ServingPorts()).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMBeta, Router: betaRouter}).
 		WithSessionStrategyStore(store)
 	installationID := uuid.New()
@@ -704,15 +705,15 @@ func TestProxyEntrypointsStripHistoricalBetaArtifactsBeforeRouting(t *testing.T)
 				Model:    decisionModel,
 				Reason:   "test",
 			}}
-			svc := NewService(
+			svc := WithStrategyPorts(NewService(
 				routing,
 				map[string]providers.Client{
 					providers.ProviderAnthropic: embedTestProvider{},
 					providers.ProviderOpenAI:    embedTestProvider{},
 				},
 				nil, nil, false,
-				providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-			)
+				providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
+
 			body, err := json.Marshal(map[string]any{
 				"model": "claude-opus-4-8",
 				"messages": []any{
@@ -760,12 +761,12 @@ func TestHistoricalBetaArtifactsStripStaleThinkingSignatures(t *testing.T) {
 				Reason:   "test",
 			}}
 			provider := &betaCaptureProvider{}
-			svc := NewService(
+			svc := WithStrategyPorts(NewService(
 				routing,
 				map[string]providers.Client{providers.ProviderAnthropic: provider},
 				nil, nil, false,
-				providers.ProviderAnthropic, "claude-opus-4-7", nil,
-			)
+				providers.ProviderAnthropic, "claude-opus-4-7", nil), hmm.ServingPorts())
+
 			body := []byte(`{
 				"model":"claude-opus-4-7",
 				"messages":[
@@ -812,15 +813,14 @@ func TestBetaPreferenceSurvivesFirstMessageRewriteWithinClientSession(t *testing
 			decision := router.Decision{Provider: decisionProvider, Model: decisionModel, Reason: "test"}
 			stableRouter := &betaTestRouter{decision: decision}
 			betaRouter := &betaTestRouter{decision: decision}
-			svc := NewService(
+			svc := WithStrategyPorts(NewService(
 				stableRouter,
 				map[string]providers.Client{
 					providers.ProviderAnthropic: embedTestProvider{},
 					providers.ProviderOpenAI:    embedTestProvider{},
 				},
 				nil, nil, false,
-				providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-			).
+				providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 				WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMBeta, Router: betaRouter}).
 				WithSessionStrategyStore(&betaTestPreferenceStore{})
 			ctx := context.WithValue(context.Background(), APIKeyIDContextKey{}, "beta-test-key")

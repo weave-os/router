@@ -11,12 +11,14 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/subscriptions"
 )
 
@@ -58,7 +60,7 @@ func TestFundingBypassPartialStreamRecoversOnLinkedSubscription(t *testing.T) {
 				}))
 				defer upstream.Close()
 				pool := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "spent", AccessToken: "sk-ant-oat01-linked-spent"}, {AccountID: "healthy", AccessToken: "sk-ant-oat01-linked-healthy"}}}
-				svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("synthetic-paid-key", upstream.URL)}, nil, nil, false, providers.ProviderAnthropic, model, nil).
+				svc := WithStrategyPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("synthetic-paid-key", upstream.URL)}, nil, nil, false, providers.ProviderAnthropic, model, nil), hmm.ServingPorts()).
 					WithManagedSubscriptions(pool).WithUsageObserver(usage.NewObserver([]byte("salt"), time.Minute, time.Now)).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 				ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderClaude), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-direct-partial")
 				ctx = billing.WithSubscriptionOnly(ctx, reason)
@@ -122,7 +124,7 @@ func TestClaudeBypassDepletedCreditsRotatesLinkedAccounts(t *testing.T) {
 				if available {
 					pool.leases = []subscriptions.Lease{{AccountID: "spent", AccessToken: "sk-ant-oat01-linked-spent"}, {AccountID: "healthy", AccessToken: "sk-ant-oat01-linked-healthy"}}
 				}
-				svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("synthetic-paid-key", upstream.URL)}, nil, nil, false, providers.ProviderAnthropic, model, nil).
+				svc := WithStrategyPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("synthetic-paid-key", upstream.URL)}, nil, nil, false, providers.ProviderAnthropic, model, nil), hmm.ServingPorts()).
 					WithManagedSubscriptions(pool).WithUsageObserver(usage.NewObserver([]byte("salt"), time.Minute, time.Now)).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 				ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderClaude), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-direct-spent")
 				ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
