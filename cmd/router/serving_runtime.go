@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"slices"
 	"strings"
@@ -38,8 +39,8 @@ var managedServingEnvVars = []string{
 	"ROUTER_SERVING_ASSERTION_KEY",
 }
 
-func managedServingEnabled(mode server.DeploymentMode) bool {
-	return mode == server.DeploymentModeManaged && strings.TrimSpace(config.GetOr("ROUTER_SERVING_TARGET", "")) != ""
+func servingTargetConfigured() bool {
+	return strings.TrimSpace(config.GetOr("ROUTER_SERVING_TARGET", "")) != ""
 }
 
 func validateManagedServingBoot(mode server.DeploymentMode, lookup func(string) (string, bool)) error {
@@ -94,7 +95,7 @@ func strategyList(strategies []router.Strategy) string {
 
 func osEnvLookup(key string) (string, bool) { return os.LookupEnv(key) }
 
-func buildManagedServingRuntime(ctx context.Context, availableProviders map[string]struct{}, taskRuntimes ...*taskDomainRuntime) (*middleware.ServingAdmissionConfig, *policyregistry.Snapshot, func(), error) {
+func buildManagedServingRuntime(ctx context.Context, mode server.DeploymentMode, availableProviders map[string]struct{}, taskRuntimes ...*taskDomainRuntime) (*middleware.ServingAdmissionConfig, *policyregistry.Snapshot, func(), error) {
 	identity := policyregistry.WorkerIdentity{
 		Target:  policyregistry.ServingTarget(config.MustGet("ROUTER_SERVING_TARGET")),
 		Project: config.MustGet("ROUTER_SERVING_PROJECT"), Region: config.MustGet("ROUTER_SERVING_REGION"),
@@ -106,11 +107,10 @@ func buildManagedServingRuntime(ctx context.Context, availableProviders map[stri
 		return nil, nil, nil, err
 	}
 	registryURI := strings.TrimSpace(config.GetOr("ROUTER_SERVING_REGISTRY_URI", config.GetOr("WEAVE_REGISTRY_URI", "gs://weave_ml/weave_registry")))
-	registry, err := policyregistry.NewGCSRegistry(ctx, registryURI)
+	registry, closeRegistry, err := openServingStore(ctx, mode, registryURI)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	closeRegistry := func() { _ = registry.Close() }
 	timeout := parseEnvDurationMs("ROUTER_HMM_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout)
 	attemptTimeout := parseEnvAttemptTimeoutMs(policyclient.DeriveAttemptTimeout(timeout))
 	cache, err := policyregistry.NewServingRuntimeCache(registry, hmmPolicySnapshotBuilder(
@@ -128,6 +128,24 @@ func buildManagedServingRuntime(ctx context.Context, availableProviders map[stri
 		return nil, nil, nil, err
 	}
 	return &middleware.ServingAdmissionConfig{Store: registry, Identity: identity, Cache: cache}, baseline, closeRegistry, nil
+}
+
+func openServingStore(ctx context.Context, mode server.DeploymentMode, registryURI string) (policyregistry.ServingStore, func(), error) {
+	if !strings.HasPrefix(registryURI, "gs://") {
+		switch {
+		case strings.EqualFold(strings.TrimSpace(config.GetOr("ROUTER_ALLOW_LOCAL_SERVING_REGISTRY", "false")), "true"):
+			slog.Warn("Serving from a local directory registry; ROUTER_ALLOW_LOCAL_SERVING_REGISTRY must only be set for a local stack", "registry_uri", registryURI)
+		case mode == server.DeploymentModeManaged:
+			return nil, nil, fmt.Errorf("managed workers require a gs:// serving registry, got %q (set ROUTER_ALLOW_LOCAL_SERVING_REGISTRY=true only for a local stack)", registryURI)
+		}
+		store, err := policyregistry.NewDirectoryServingStore(registryURI)
+		return store, func() {}, err
+	}
+	registry, err := policyregistry.NewGCSRegistry(ctx, registryURI)
+	if err != nil {
+		return nil, nil, err
+	}
+	return registry, func() { _ = registry.Close() }, nil
 }
 
 func servingReferenceFromEnv(prefix string) policyregistry.ObjectRef {

@@ -39,11 +39,11 @@ conversations receive promotions or roster rollback. See
 [SERVING_CONTROL.md](SERVING_CONTROL.md#shared-code-cohorts-and-roster-configuration-selection-v3)
 for schema, retention and reader-rollout requirements.
 
-Outside managed admission, rosters come from a policy release, not a boot file:
-`ROUTER_POLICY_ENVIRONMENT` reads the GCS policy registry and
-`ROUTER_POLICY_RELEASE_DIR` reads a local release directory (with
-`ROUTER_HMM_SIDECAR_URL` as its sidecar origin). An invalid release refuses
-boot. With neither set, HMM strategies return HTTP 503.
+Rosters come from the admitted serving selection, not a boot file. The local
+compose stack serves the same runtime from the stub's read-only serving
+registry directory (`ROUTER_SERVING_REGISTRY_URI` set to a local path). The
+legacy `ROUTER_POLICY_ENVIRONMENT` lane-head reader remains only for
+`make up-hmm`. With no serving target or release, HMM strategies return HTTP 503.
 
 Per decision: Go's deterministic pick serves (reason suffixed `:go_selection`)
 and the sidecar's classifier label/confidence is kept. Explicit force-cluster

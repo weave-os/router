@@ -6,10 +6,9 @@
 # environment exposed beyond localhost.
 #
 # The router defaults to the HMM policy (hmm_embedding) and refuses to boot
-# without one, so this stack serves the stub classifier and baked policy
-# release from smoke/hmmstub (every turn lands in one routing group). For the
-# real classifier use `make up-hmm` with ROUTER_POLICY_ENVIRONMENT, or export
-# ROUTER_POLICY_RELEASE_DIR / ROUTER_HMM_SIDECAR_URL to override the stub.
+# without one, so this stack serves the local-development stub classifier and
+# its read-only v5 serving registry from smoke/hmmstub (every turn lands in one
+# routing group).
 #
 # Usage:
 #   docker compose up --build
@@ -132,16 +131,28 @@ services:
       # The server listens on the container interface when capture is enabled;
       # the published port below remains host-loopback-only.
       ROUTER_HTTP_CAPTURE_LISTEN_HOST: "0.0.0.0"
-      # Stub HMM policy (see header); export an override, or an empty
-      # ROUTER_POLICY_RELEASE_DIR to use ROUTER_POLICY_ENVIRONMENT instead.
-      ROUTER_POLICY_RELEASE_DIR: ${ROUTER_POLICY_RELEASE_DIR-/policy/release}
-      ROUTER_HMM_SIDECAR_URL: ${ROUTER_HMM_SIDECAR_URL-http://hmm-stub:8093}
-      ROUTER_HMM_SIDECAR_AUTH: ${ROUTER_HMM_SIDECAR_AUTH-none}
+      # Local-development worker identity bound by the stub's v5 serving
+      # registry (smoke/hmmstub/serving.go); the router serves it through the
+      # same managed serving runtime production uses.
+      ROUTER_SERVING_TARGET: prod/stable
+      ROUTER_SERVING_PROJECT: local
+      ROUTER_SERVING_REGION: local
+      ROUTER_SERVING_REVISION: hmm-stub-router
+      ROUTER_SERVING_IMAGE_DIGEST: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+      ROUTER_SERVING_REGISTRY_URI: /policy/registry
+      ROUTER_ALLOW_LOCAL_SERVING_REGISTRY: "true"
+      ROUTER_SERVING_CONFIGURATION_URI: gs://hmm-stub-fixture/registry/artifacts/5e512326f32fd6b47871cc8927e61e0244ec09a9a6b4258ad9dfc12fe8165af5.json
+      ROUTER_SERVING_CONFIGURATION_SHA256: 5e512326f32fd6b47871cc8927e61e0244ec09a9a6b4258ad9dfc12fe8165af5
+      ROUTER_SERVING_CONFIGURATION_GENERATION: "1"
+      ROUTER_SERVING_SELECTION_SET_URI: gs://hmm-stub-fixture/registry/artifacts/50909073bddd4c1412b5d1cf00a7f57708ab0591d1d65bb8f94e19320862d227.json
+      ROUTER_SERVING_SELECTION_SET_SHA256: 50909073bddd4c1412b5d1cf00a7f57708ab0591d1d65bb8f94e19320862d227
+      ROUTER_SERVING_SELECTION_SET_GENERATION: "1"
+      ROUTER_HMM_SIDECAR_AUTH: none
     volumes:
       # Set ROUTER_HTTP_CAPTURE_FILE=/router-captures/<new-file>.jsonl in
       # .env.local to enable Compose capture and keep the output on the host.
       - ./.local/router-captures:/router-captures
-      - hmm_stub_release:/policy/release:ro
+      - hmm_stub_registry:/policy/registry:ro
     ports:
       - "127.0.0.1:8080:8080"
     restart: unless-stopped
@@ -155,7 +166,7 @@ services:
       context: .
       dockerfile: smoke/hmmstub/Dockerfile
     volumes:
-      - hmm_stub_release:/release
+      - hmm_stub_registry:/registry
     healthcheck:
       test: ["CMD", "/hmm-stub", "-healthcheck"]
       interval: 2s
@@ -209,5 +220,5 @@ services:
     restart: "no"
 
 volumes:
-  hmm_stub_release:
+  hmm_stub_registry:
   router_postgres_data:

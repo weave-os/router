@@ -92,14 +92,18 @@ func (r *DirectoryRegistry) ReadPolicy(_ context.Context, ref ObjectRef) (*roste
 }
 
 func (r *DirectoryRegistry) readExact(ref ObjectRef, requiredPathPrefix string) ([]byte, error) {
+	return readDirectoryObject(r.dir, r.rootURI, ref, requiredPathPrefix)
+}
+
+func readDirectoryObject(dir, rootURI string, ref ObjectRef, requiredPathPrefix string) ([]byte, error) {
 	if !validDigest(ref.SHA256) {
 		return nil, errors.New("immutable object reference has an invalid digest")
 	}
-	relative, found := strings.CutPrefix(ref.URI, r.rootURI+"/")
+	relative, found := strings.CutPrefix(ref.URI, rootURI+"/")
 	if !found || relative != requiredPathPrefix+ref.SHA256+".json" {
 		return nil, errors.New("immutable object URI does not match its digest path")
 	}
-	payload, err := readLocalObject(filepath.Join(r.dir, filepath.FromSlash(relative)))
+	payload, err := readLocalObject(filepath.Join(dir, filepath.FromSlash(relative)))
 	if err != nil {
 		return nil, err
 	}
@@ -166,6 +170,26 @@ func WriteDirectoryRelease(dir string, head LaneHead, releasePayload, policyPayl
 	}
 	if err := os.Rename(staged.Name(), filepath.Join(dir, directoryHeadFile)); err != nil {
 		return fmt.Errorf("replace local lane head: %w", err)
+	}
+	return nil
+}
+
+func WriteDirectoryServingRegistry(dir, rootURI string, objects map[string][]byte) error {
+	if err := validateDirectoryServingRoot(rootURI); err != nil {
+		return err
+	}
+	objects[directoryServingRootFile] = []byte(rootURI + "\n")
+	for relative, payload := range objects {
+		if !filepath.IsLocal(filepath.FromSlash(relative)) {
+			return fmt.Errorf("invalid local serving object path %q", relative)
+		}
+		path := filepath.Join(dir, filepath.FromSlash(relative))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return fmt.Errorf("create local serving directory: %w", err)
+		}
+		if err := os.WriteFile(path, payload, 0o644); err != nil {
+			return fmt.Errorf("write local serving object: %w", err)
+		}
 	}
 	return nil
 }
