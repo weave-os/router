@@ -47,6 +47,11 @@ func validateManagedServingBoot(mode server.DeploymentMode, lookup func(string) 
 	if mode != server.DeploymentModeManaged {
 		return nil
 	}
+	for _, name := range localDevPolicyReleaseEnvVars {
+		if value, present := lookup(name); present && strings.TrimSpace(value) != "" {
+			return fmt.Errorf("%s is a local-dev-only policy release reader; managed workers serve from ROUTER_SERVING_TARGET", name)
+		}
+	}
 	if target, present := lookup("ROUTER_SERVING_TARGET"); present {
 		if strings.TrimSpace(target) == "" {
 			return fmt.Errorf("ROUTER_SERVING_TARGET is empty")
@@ -159,3 +164,5 @@ func servingReferenceFromEnv(prefix string) policyregistry.ObjectRef {
 func localServingRegistryAllowed() bool {
 	return strings.EqualFold(strings.TrimSpace(config.GetOr("ROUTER_ALLOW_LOCAL_SERVING_REGISTRY", "false")), "true")
 }
+
+var localDevPolicyReleaseEnvVars = []string{"ROUTER_POLICY_ENVIRONMENT", "ROUTER_POLICY_RELEASE_DIR"}

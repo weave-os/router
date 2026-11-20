@@ -863,7 +863,7 @@ func main() {
 			}
 		}
 		logger.Info("Managed serving admission enabled", "target", admission.Identity.Target, "revision", admission.Identity.Revision)
-	} else if policyEnvironmentRaw != "" || policyReleaseDir != "" {
+	} else if localDevV4ReleaseUntilPublicV5Package := policyEnvironmentRaw != "" || policyReleaseDir != ""; localDevV4ReleaseUntilPublicV5Package {
 		var policyRegistry policyregistry.Loader
 		var policyEnvironment policyregistry.Environment
 		policyLane := policyregistry.LaneStable
@@ -927,63 +927,9 @@ func main() {
 		routingDistribution = hmmRoutingDistribution(stableManager)
 		escalationObserver = stableDynamicRouter
 
-		var betaManager *policyregistry.Manager
-		var betaManagerErr error
-		if policyReleaseDir == "" {
-			betaManager, betaManagerErr = policyregistry.NewManager(
-				policyRegistry,
-				policyEnvironment,
-				policyregistry.LaneBeta,
-				hmmPolicySnapshotBuilder(availableProviders, []router.Strategy{router.StrategyHMMBeta}, hmmAuthMode, hmmTimeout, hmmAttemptTimeout),
-				logger,
-			)
-		}
-		if policyReleaseDir != "" {
-			logger.Info("Serving the local router policy release; beta lane disabled", "dir", policyReleaseDir)
-		} else if betaManagerErr != nil {
-			logger.Error("Beta router policy manager is invalid; beta disabled", "err", betaManagerErr)
-		} else {
-			hmmBetaRouter = policyregistry.NewDynamicRouter(betaManager, router.StrategyHMMBeta)
-			hmmRosterSources[router.StrategyHMMBeta] = betaManager
-			safeGo(logger, "beta-policy-manager", func() { betaManager.Run(managerCtx) })
-			betaRefreshCtx, cancelBetaRefresh := context.WithTimeout(context.Background(), 30*time.Second)
-			betaRefreshErr := betaManager.Refresh(betaRefreshCtx)
-			cancelBetaRefresh()
-			if betaRefreshErr != nil {
-				logger.Warn("No valid beta router policy snapshot; beta disabled", "err", betaRefreshErr)
-			} else if source, ok := hmmBetaRouter.(policy.CapabilitySource); ok {
-				hmmBetaCapabilities = source.CurrentCapabilities()
-			}
-		}
-		policyInvalidationTopic := strings.TrimSpace(config.GetOr("PUBSUB_TOPIC_ROUTER_POLICY_INVALIDATION", ""))
-		if policyInvalidationTopic != "" {
-			policyInvalidationPrefix := config.GetOr("PUBSUB_SUBSCRIPTION_ROUTER_POLICY_INVALIDATION", policyInvalidationTopic)
-			policySubscriptionCtx, cancelPolicySubscription := context.WithTimeout(context.Background(), 30*time.Second)
-			policySubscriptionName, deletePolicySubscription, subscriptionErr := routerpubsub.CreateReplicaSubscription(
-				policySubscriptionCtx, pubsubClient, pubsubProjectID, policyInvalidationTopic, policyInvalidationPrefix,
-			)
-			cancelPolicySubscription()
-			if subscriptionErr != nil {
-				logger.Warn("Policy invalidation subscription unavailable; polling remains authoritative", "err", subscriptionErr)
-			} else {
-				defer deletePolicySubscription()
-				policyListener := routerpubsub.NewPolicyReleaseListener(pubsubClient.Subscriber(policySubscriptionName), func() {
-					stableManager.Trigger()
-					if betaManager != nil {
-						betaManager.Trigger()
-					}
-				})
-				policyListenerCtx, cancelPolicyListener := context.WithCancel(context.Background())
-				defer func() {
-					cancelPolicyListener()
-					policyListener.Wait()
-				}()
-				safeGo(logger, "policy-invalidation-listener", func() { policyListener.Run(policyListenerCtx) })
-			}
-		}
-		logger.Info("HMM policy managers wired", "registry_uri", policyRegistry.RootURI(), "environment", policyEnvironment, "candidate_models", len(routingTargets))
+		logger.Info("Local-dev HMM policy release wired", "registry_uri", policyRegistry.RootURI(), "environment", policyEnvironment, "candidate_models", len(routingTargets))
 	} else {
-		logger.Info("HMM policy routers disabled (ROUTER_POLICY_ENVIRONMENT and ROUTER_POLICY_RELEASE_DIR unset); HMM strategies will return 503")
+		logger.Info("HMM policy routers disabled (ROUTER_SERVING_TARGET, ROUTER_POLICY_ENVIRONMENT and ROUTER_POLICY_RELEASE_DIR unset); HMM strategies will return 503")
 	}
 
 	configuredPolicySpecs, err := configuredPolicySidecarsFromEnv(routingTargets, availableProviders, logger)

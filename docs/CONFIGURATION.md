@@ -1098,7 +1098,7 @@ Go-owned deterministic selection are documented in
 | `ROUTER_POLICY_SIDECAR_AUTH`       | *(none)* | JSON object mapping configured generic strategy IDs to `none`, `google-id-token`, or `bearer`. Google ID-token mode uses the exact sidecar origin as the token audience and fails startup when application default credentials cannot build the client. |
 | `ROUTER_POLICY_SIDECAR_BEARER_TOKENS` | *(none)* | Secret JSON object mapping each strategy using `bearer` auth to its token. Bearer auth requires HTTPS by default. Set `allow_http_bearer: true` in the endpoint object only for sidecars on a private network, such as the benchmark Docker network. |
 | `ROUTER_POLICY_SIDECAR_TIMEOUT_MS` | `3000`  | Total timeout for each generic policy decision, including transient retries. Also bounds startup capability discovery. |
-| `ROUTER_POLICY_ENVIRONMENT`        | *(none)* | Policy registry environment the HMM strategies load their release from (`WEAVE_REGISTRY_URI`). Ignored under managed serving admission. An invalid release refuses boot. |
+| `ROUTER_POLICY_ENVIRONMENT`        | *(none)* | Local-dev only (`make up-hmm`): policy registry environment whose stable lane head the frozen HMM sidecar's v4 release is read from (`WEAVE_REGISTRY_URI`). Managed boot refuses it. TODO: remove once a public v5 classifier package exists. |
 | `ROUTER_POLICY_RELEASE_DIR`        | *(none)* | Local policy release directory, used instead of the registry for local and benchmark runs; sidecar auth defaults to `none`. With neither variable set, HMM strategies return 503. |
 | `ROUTER_HMM_SIDECAR_URL`           | *(none)* | HMM sidecar origin for a `ROUTER_POLICY_RELEASE_DIR` release. |
 | `ROUTER_HMM_SIDECAR_TIMEOUT_MS`    | `3000`  | Total HMM decision timeout. |

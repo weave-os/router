@@ -71,14 +71,8 @@ destination validation calls the HTTPS origins the selection set's lanes declare
   rejects fails: that drift would strand production without a publishable policy.
   Every compiled roster must also pass the catalog validation `publish` applies,
   because a policy that fails it can never become a release.
-- `policyctl promote` and `rollback` take `--classifier-verification`. `probe` (the
-  default) calls the tagged revision's `/readyz`. `control-plane` serves callers
-  outside the VPC that cannot reach an internal-ingress revision: instead of calling
-  it, policyctl compares what Cloud Run reports for the revision (the container image
-  plus the pinned classifier package env the sidecar refuses to boot without) with
-  the release. The router still probes `/readyz` at boot.
-- `policyctl export` snapshots a promoted lane into the directory layout read from
-  `ROUTER_POLICY_RELEASE_DIR`, so a self-hosted router can run that exact release.
+- The lane-head verbs `publish`, `promote`, `rollback`, `status` and `export` are
+  removed; `policyctl serving` publishes and inspects v5 serving releases.
 - The retired serving verbs `validate`, `resolve`, `prepare` and `activate` exit
   non-zero and name the `publish`/`apply` invocation that replaced them.
 - `serving publish` digests the manifest bytes exactly as they would be stored;

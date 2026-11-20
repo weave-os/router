@@ -3,7 +3,9 @@ services:
     environment:
       ROUTER_HMM_SIDECAR_URL: http://hmm-sidecar:8093
       ROUTER_HMM_SIDECAR_AUTH: none
-      # The stub serving registry pins the stub classifier; the real sidecar
-      # still needs the policy release from ROUTER_POLICY_ENVIRONMENT.
+      # Local-dev only. The stub serving registry pins the stub classifier, and the
+      # frozen sidecar still serves the legacy v4 /route API, so it reads its
+      # policy release from ROUTER_POLICY_ENVIRONMENT.
+      # TODO(public v5 classifier package): serve /v5/classify instead.
       ROUTER_SERVING_TARGET: ""
       ROUTER_POLICY_RELEASE_DIR: ""

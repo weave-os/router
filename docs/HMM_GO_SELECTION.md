@@ -42,8 +42,8 @@ for schema, retention and reader-rollout requirements.
 Rosters come from the admitted serving selection, not a boot file. The local
 compose stack serves the same runtime from the stub's read-only serving
 registry directory (`ROUTER_SERVING_REGISTRY_URI` set to a local path). The
-legacy `ROUTER_POLICY_ENVIRONMENT` lane-head reader remains only for
-`make up-hmm`. With no serving target or release, HMM strategies return HTTP 503.
+legacy `ROUTER_POLICY_ENVIRONMENT` lane-head reader remains, local-dev only, for
+`make up-hmm` until a public v5 classifier package exists; managed boot refuses it. With no serving target or release, HMM strategies return HTTP 503.
 
 Per decision: Go's deterministic pick serves (reason suffixed `:go_selection`)
 and the sidecar's classifier label/confidence is kept. Explicit force-cluster

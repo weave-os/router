@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -136,19 +135,4 @@ func promoteArgs(extra ...string) []string {
 		"--reason", "test",
 		"--actor", "test",
 	}, extra...)
-}
-
-func TestRunPromoteRejectsUnknownClassifierVerification(t *testing.T) {
-	err := runPromote(context.Background(), promoteArgs("--classifier-verification", "trust-me"), false)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), `unknown --classifier-verification "trust-me"`)
-}
-
-func TestRunPromoteControlPlaneVerificationRequiresObservedIdentity(t *testing.T) {
-	err := runPromote(context.Background(), promoteArgs(
-		"--classifier-verification", "control-plane",
-		"--classifier-artifact-id", "hmm_router_sidecar_package_64f27f963b2da6f6",
-	), false)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "requires --classifier-artifact-id, --classifier-package-sha256, and --classifier-image-digest")
 }
