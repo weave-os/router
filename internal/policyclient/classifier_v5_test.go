@@ -45,7 +45,7 @@ func TestClassifierV5ProjectsDeveloperInstructionsAsSystemEvidence(t *testing.T)
 	assert.Equal(t, "developer", query.ConversationMessages[0].Role)
 }
 
-func TestClassifierV5ClientPinsReleaseAndKeepsCallbacksOnIntegrationClient(t *testing.T) {
+func TestClassifierV5ClientPinsRelease(t *testing.T) {
 	var routeRequests []map[string]any
 	classifierServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		if request.Method == http.MethodGet {
@@ -78,30 +78,14 @@ func TestClassifierV5ClientPinsReleaseAndKeepsCallbacksOnIntegrationClient(t *te
 	}))
 	defer classifierServer.Close()
 
-	var integrationPaths []string
-	integrationServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		integrationPaths = append(integrationPaths, request.URL.Path)
-		if request.URL.Path == "/capabilities" {
-			_ = json.NewEncoder(w).Encode(policy.Capabilities{
-				SchemaVersion: policy.SchemaVersionV4, ReportsOutcomes: true, ReportsFeedback: true,
-			})
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer integrationServer.Close()
+	client := New(classifierServer.URL, nil, time.Second)
 
-	integrationClient := New(integrationServer.URL, nil, time.Second)
-	classifierClient := New(classifierServer.URL, nil, time.Second)
-	combined, err := NewWithClassifierService(integrationClient, classifierClient)
-	require.NoError(t, err)
-
-	capabilities, err := combined.CapabilitiesForClassifierRelease(context.Background(), classifierV5SelectionID, classifierV5ReleaseID)
+	capabilities, err := client.CapabilitiesForClassifierRelease(context.Background(), classifierV5SelectionID, classifierV5ReleaseID)
 	require.NoError(t, err)
 	assert.Equal(t, policy.SchemaVersionV5, capabilities.SchemaVersion)
 	assert.Equal(t, []string{"fast", "maximum"}, capabilities.ClassOrder)
-	assert.True(t, capabilities.ReportsOutcomes)
-	assert.True(t, capabilities.ReportsFeedback)
+	assert.False(t, capabilities.ReportsOutcomes)
+	assert.False(t, capabilities.ReportsFeedback)
 
 	query := policy.Query{
 		SchemaVersion: policy.SchemaVersionV5, ExecutionMode: policy.ExecutionModeServing,
@@ -111,7 +95,7 @@ func TestClassifierV5ClientPinsReleaseAndKeepsCallbacksOnIntegrationClient(t *te
 		Candidates:      []policy.Candidate{{RosterID: "openai/gpt-6-sol", Provider: "openai"}},
 		PreferredModels: []string{"openai/gpt-6-sol"}, TrainingAllowed: true,
 	}
-	decision, err := combined.Decide(context.Background(), query)
+	decision, err := client.Decide(context.Background(), query)
 	require.NoError(t, err)
 	assert.Equal(t, "qwen-v5", decision.PolicyArtifactID)
 	assert.InDelta(t, 0.7, decision.Score, 1e-9, "classifier confidence is the decision score")
@@ -121,7 +105,7 @@ func TestClassifierV5ClientPinsReleaseAndKeepsCallbacksOnIntegrationClient(t *te
 	assert.Nil(t, decision.HMMStatePath, "non-HMM variants do not receive fabricated state facts")
 
 	query.ExecutionMode = policy.ExecutionModePreview
-	preview, err := combined.Preview(context.Background(), query)
+	preview, err := client.Preview(context.Background(), query)
 	require.NoError(t, err)
 	assert.Equal(t, classifierV5ReleaseID, preview.ClassifierReleaseID)
 	assert.Equal(t, classifierV5SelectionID, preview.ClassifierSelectionID)
@@ -137,9 +121,6 @@ func TestClassifierV5ClientPinsReleaseAndKeepsCallbacksOnIntegrationClient(t *te
 		assert.NotContains(t, requestPayload, "preferred_models")
 		assert.NotContains(t, requestPayload, "training_allowed")
 	}
-
-	require.NoError(t, combined.ReportOutcome(context.Background(), map[string]interface{}{"status": "ok"}))
-	assert.Equal(t, []string{"/capabilities", "/outcome"}, integrationPaths)
 }
 
 func TestClassifierV5WrongReleaseIdentityIsAPinError(t *testing.T) {
@@ -155,9 +136,8 @@ func TestClassifierV5WrongReleaseIdentityIsAPinError(t *testing.T) {
 		})
 	}))
 	defer classifierServer.Close()
-	client, err := NewWithClassifierService(New(classifierServer.URL, nil, time.Second), New(classifierServer.URL, nil, time.Second))
-	require.NoError(t, err)
-	_, err = client.Decide(context.Background(), policy.Query{
+	client := New(classifierServer.URL, nil, time.Second)
+	_, err := client.Decide(context.Background(), policy.Query{
 		SchemaVersion: policy.SchemaVersionV5, ClassifierReleaseID: classifierV5ReleaseID,
 		ClassifierSelectionID: classifierV5SelectionID, ClassifierVariantID: policy.ClassifierVariantPrimary,
 		RouteID: "route-v5", ExecutionMode: policy.ExecutionModeServing,
