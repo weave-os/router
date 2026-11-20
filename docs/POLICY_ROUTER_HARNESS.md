@@ -211,8 +211,8 @@ Its response classifies; it does not decide:
 - it never names a model, provider, roster ID or ranked fallback; Go ranks the
   groups and picks the arm from the admitted roster.
 
-There is no dual-support window: such a router rejects a `policy_router_v1` or
-`v2` decision, and a ranked fallback with no eligible arm fails the turn with
+There is no dual-support window: such a router rejects a `policy_router_v1`
+decision, and a ranked fallback with no eligible arm fails the turn with
 HTTP 503 rather than serving a sidecar pick.
 
 `POST /outcome` reports `selected_model`, `selected_provider`, `served_model`,

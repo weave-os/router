@@ -64,7 +64,7 @@ scores used by effort hysteresis. WPI is a normalized evaluation-workload axis,
 not a billing rate; preview dollars always come from catalog serving prices.
 
 Selection is **fail-closed**. A classifier response that is not classifier facts
-(for example a `policy_router_v1`/`v2` decision), or a ranked fallback holding
+(for example a `policy_router_v1` decision), or a ranked fallback holding
 no eligible arm, is rejected as a classifier outage and the turn returns HTTP
 503. There is no classifier-picked arm to fall back to: the response carries no
 model, provider or roster ID.
