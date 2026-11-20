@@ -444,13 +444,14 @@ func TestForcedThirdPartyRefusalConsentSpendsWholeClaudePool(t *testing.T) {
 		assert.Zero(t, upstream.paidDispatches)
 	})
 
-	t.Run("routed turn is served on Weave credits", func(t *testing.T) {
-		svc, upstream, _ := newSharedPoolRefusalService(t, ownSeat)
+	t.Run("routed turn tries every seat, then is served on Weave credits", func(t *testing.T) {
+		svc, upstream, _ := newSharedPoolRefusalService(t, ownSeat, sharedSeat)
 
 		recorder, err := dispatchManagedThirdPartyTurn(t, svc, sharedPoolRefusalContext(false))
 
 		require.NoError(t, err)
 		assert.Equal(t, "served", recorder.Body.String())
+		assert.Equal(t, 2, upstream.subDispatches)
 		assert.Equal(t, 1, upstream.paidDispatches)
 	})
 }

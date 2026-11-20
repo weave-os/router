@@ -211,7 +211,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 			return winner, err
 		}
 		if !isSubscriptionPoolError(err) && !subscriptionLaneRefused(err) && !providers.IsRetryable(err) &&
-			!codexSubscriptionModelRejected(err) && !anthropicSubscriptionModelRejected(err) && !codexOAuthCredentialRejected(err) && !anthropicOAuthCredentialRejected(err) && !anthropicSubscriptionThirdPartyRefused(err) {
+			!codexSubscriptionModelRejected(err) && !anthropicSubscriptionModelRejected(err) && !codexOAuthCredentialRejected(err) && !anthropicOAuthCredentialRejected(err) && !anthropicClientAppRefused(ctx, err) {
 			return winner, err
 		}
 		if !anotherSeatPoolCanServe(ctx, seatAdmissionOf(s), includedModels, target) && waitOutShortSeatThrottle(ctx, target.Provider, target.Model, err, s.clock.Now(), s.retrySleep, &throttleWaited) {
