@@ -6,8 +6,8 @@ ML inference (complexity classification) only.
 
 The staged rollout (`ROUTER_HMM_SELECTION_SHADOW` → `ROUTER_HMM_GO_SELECTION`)
 is complete and both flags are gone: Go selection is the only path. The sidecar
-contract followed: `policy_router_v3` carries a classification and no selected
-arm at all.
+contract followed: `policy_router_v4` carries classification facts and no
+selected arm at all, and pinned classifier releases use `policy_router_v5`.
 
 ## Why
 
@@ -26,7 +26,7 @@ class and shrinks the sidecar's authority to what only it can do: ML inference.
 | Roster contents (`hmm_router_cluster_roster_v7` JSON) | Declarative data, loaded and fail-loud validated by Go at boot (`internal/router/hmm/rosterdata`) |
 | Roster↔catalog validation | Go: `hmm.ValidateRosterIDs` (`internal/router/hmm/validate.go`) plus the `validate-roster` CLI for CI |
 | Within-cluster deterministic arm selection (harness policy, preference-adjusted WII/WPI ranking, ranked cluster-fallback walk) | Go: `internal/router/hmm/selection` |
-| Complexity classification (ML) | Python sidecar (`policy_router_v3` contract) |
+| Complexity classification (ML) | Python sidecar (`policy_router_v4` facts; `policy_router_v5` for pinned classifier releases) |
 | Ranked cluster fallback (per-group probability, roster arms, eligible arms) | Python sidecar — the only selection input the router accepts |
 
 ## Configuration
@@ -73,9 +73,9 @@ See [CONFIGURATION.md](CONFIGURATION.md) for the full variable reference.
 
 ## Deployment and rollback
 
-`policy_router_v3` is a hard break with no compatibility window: a v3 router
-rejects a v1/v2 sidecar and a v3 sidecar names no arm for a v1/v2 router. Router
-and sidecar deploy together, and roll back together — revert both image pins.
+The classifier-only contract is a hard break with no compatibility window: the
+router rejects a sidecar response that names an arm, and the HMM sidecar
+rejects requests on older schemas. Router and sidecar deploy together, and roll back together — revert both image pins.
 There is no runtime flag to flip.
 
 Without managed admission, roll back roster content by republishing the previous

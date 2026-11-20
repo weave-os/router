@@ -254,9 +254,6 @@ func (r *SidecarRouter) PreviewRoute(ctx context.Context, req router.Request) (P
 	}
 
 	eligibleCandidates := resolved.ByRosterID
-	if r.resolver.SchemaVersion() == SchemaVersionV2 {
-		eligibleCandidates = resolved.ByArmID
-	}
 	seen := make(map[string]struct{}, len(result.EligibleRosterIDs))
 	for _, rosterID := range result.EligibleRosterIDs {
 		if _, duplicate := seen[rosterID]; duplicate {
