@@ -385,5 +385,5 @@
       ]
     }
   ],
-  "scenario": "openai_responses_stream_forced_codex_caller_throttled_other_account_seat_serves"
+  "scenario": "openai_responses_stream_forced_codex_caller_throttled_teammate_seat_serves"
 }

@@ -2,6 +2,7 @@ package proxy_test
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -25,6 +26,11 @@ const goldenCodexCallerRateLimitBody = `{"detail":"Rate limit exceeded"}`
 
 const goldenLinkedCodexAccount = "golden-provider-codex-seat"
 
+// goldenCallerCodexJWT is an unsigned Codex access token naming the caller's
+// ChatGPT user, so the router can match it to the caller's own linked seat.
+var goldenCallerCodexJWT = "eyJhbGciOiJub25lIn0." +
+	base64.RawURLEncoding.EncodeToString([]byte(`{"https://api.openai.com/auth":{"chatgpt_user_id":"golden-codex-user"}}`)) + ".signature"
+
 // withConcurrentlyThrottledCodexSeat enrolls one linked Codex seat that a
 // concurrent turn rate-limited after this request loaded its admission
 // snapshot, so the pool can no longer lease it.
@@ -42,25 +48,25 @@ func withLeasableLinkedCodexSeat(svc *proxy.Service, h *goldenHarness) *proxy.Se
 }
 
 // withSameAndOtherAccountCodexSeats enrolls the caller's own linked seat and a
-// seat on a different ChatGPT account.
+// teammate's seat in the same ChatGPT workspace.
 func withSameAndOtherAccountCodexSeats(svc *proxy.Service, h *goldenHarness) *proxy.Service {
 	return svc.WithUsageObserver(usage.NewObserver([]byte("golden-salt"), 10*time.Minute, h.clock.Now)).
 		WithManagedSubscriptions(goldenProviderPools{subscriptions.ProviderCodex: newGoldenSubscriptionPool(h.clock.Now, "codex-seat", "codex-seat-other")})
 }
 
 // goldenCallerCodexLinkedSeatCtx presents the caller's own Codex login on a
-// linked-first turn. The caller's ChatGPT account also backs a linked Codex
+// linked-first turn. The caller's ChatGPT user also owns a linked Codex
 // seat whose admission state is active with no quota snapshot.
 func goldenCallerCodexLinkedSeatCtx(seats ...*auth.SubscriptionAccount) func(context.Context) context.Context {
 	return func(ctx context.Context) context.Context {
-		ctx = context.WithValue(ctx, proxy.OpenAISubscriptionContextKey{}, "eyJhbGciOiJIUzI1NiJ9.golden-codex-jwt.signature")
+		ctx = context.WithValue(ctx, proxy.OpenAISubscriptionContextKey{}, goldenCallerCodexJWT)
 		ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, goldenLinkedCodexAccount)
 		ctx = flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyOwnSeatFirst: true}})
 		ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyLinkedFirst)
 		ctx = requestcontext.WithClientIdentity(ctx, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex, SessionID: "golden-codex-session"})
 		ctx = proxy.WithSubscriptionStateModels(ctx, []string{goldenCodexModel}, []string{goldenCodexModel})
 		ctx = proxy.WithManagedSubscriptionCandidates(ctx, append([]*auth.SubscriptionAccount{
-			{ID: "codex-seat", Provider: auth.SubscriptionProviderCodex, ExternalAccountID: goldenLinkedCodexAccount, Enabled: true, State: auth.SubscriptionAccountStateActive},
+			{ID: "codex-seat", Provider: auth.SubscriptionProviderCodex, ExternalAccountID: goldenLinkedCodexAccount, ProviderUserID: "golden-codex-user", Enabled: true, State: auth.SubscriptionAccountStateActive},
 		}, seats...))
 		return proxy.WithManagedSubscriptionUsage(ctx)
 	}
@@ -87,7 +93,7 @@ func goldenCodexCallerThrottleScenarios() []goldenScenario {
 		goldenUpstreamError(http.StatusTooManyRequests, goldenCodexCallerRateLimitBody),
 		goldenResponsesOK("served on weave credits"),
 	}}
-	otherSeat := &auth.SubscriptionAccount{ID: "codex-seat-other", Provider: auth.SubscriptionProviderCodex, ExternalAccountID: "golden-provider-codex-seat-other", Enabled: true, State: auth.SubscriptionAccountStateActive}
+	teammateSeat := &auth.SubscriptionAccount{ID: "codex-seat-other", Provider: auth.SubscriptionProviderCodex, ExternalAccountID: goldenLinkedCodexAccount, ProviderUserID: "golden-codex-teammate", Enabled: true, State: auth.SubscriptionAccountStateActive}
 	return []goldenScenario{{
 		name: ingressResponses + "_stream_forced_codex_caller_throttled_seat_leased_out_serves_on_credits", ingress: ingressResponses,
 		decisions: forced, upstreams: throttledThenCredits,
@@ -109,12 +115,12 @@ func goldenCodexCallerThrottleScenarios() []goldenScenario {
 		requests:  []goldenRequest{{body: goldenCodexPortableToolTurn, headers: goldenForcedCodexHeaders("c1e4"), decorateContext: goldenCreditsOffCtx(goldenCallerCodexLinkedSeatCtx())}},
 		configure: withLeasableLinkedCodexSeat,
 	}, {
-		name: ingressResponses + "_stream_forced_codex_caller_throttled_other_account_seat_serves", ingress: ingressResponses,
+		name: ingressResponses + "_stream_forced_codex_caller_throttled_teammate_seat_serves", ingress: ingressResponses,
 		decisions: forced, upstreams: map[string][]goldenStep{providers.ProviderOpenAI: {
 			goldenUpstreamError(http.StatusTooManyRequests, goldenCodexCallerRateLimitBody),
 			goldenResponsesOK("served on the other seat"),
 		}},
-		requests:  []goldenRequest{{body: goldenCodexPortableToolTurn, headers: goldenForcedCodexHeaders("c1e5"), decorateContext: goldenCallerCodexLinkedSeatCtx(otherSeat)}},
+		requests:  []goldenRequest{{body: goldenCodexPortableToolTurn, headers: goldenForcedCodexHeaders("c1e5"), decorateContext: goldenCallerCodexLinkedSeatCtx(teammateSeat)}},
 		configure: withSameAndOtherAccountCodexSeats,
 	}}
 }
@@ -177,10 +183,10 @@ func TestRateLimitedCallerCodexLoginFallsBackToCredits(t *testing.T) {
 	}
 }
 
-// TestRateLimitedCallerCodexLoginPrefersOtherAccountSeat states the invariant:
-// a linked seat on a different ChatGPT account still serves the turn before
-// Weave credits are spent.
-func TestRateLimitedCallerCodexLoginPrefersOtherAccountSeat(t *testing.T) {
+// TestRateLimitedCallerCodexLoginPrefersTeammateSeat states the invariant: a
+// teammate's seat in the caller's ChatGPT workspace has its own rate limit, so
+// it still serves the turn before Weave credits are spent.
+func TestRateLimitedCallerCodexLoginPrefersTeammateSeat(t *testing.T) {
 	t.Parallel()
 	sc := goldenCodexCallerThrottleScenarios()[4]
 	served := newGoldenHarness(t, sc).serve(t, sc.ingress, sc.requests[0])

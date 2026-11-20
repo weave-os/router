@@ -58,17 +58,22 @@ func recordCallerCodexFailureOnLinkedSeat(ctx context.Context, creds *Credential
 	}
 	state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	candidates, _ := ctx.Value(managedSubscriptionCandidatesKey{}).([]managedSubscriptionCandidate)
-	if state == nil || state.IntendedModel == "" {
+	callerUserID := subscriptions.CodexUserIDFromJWT(string(creds.APIKey))
+	if state == nil || state.IntendedModel == "" || callerUserID == "" {
 		return
 	}
+	resetAt, spent := codexQuotaExhaustion(attemptErr)
+	if resetAt.IsZero() {
+		resetAt = managedSubscriptionResetAt(attemptErr, now)
+	}
 	for _, candidate := range candidates {
-		if candidate.provider != auth.SubscriptionProviderCodex || candidate.externalAccountID == "" || candidate.externalAccountID != string(creds.AccountID) {
+		if candidate.provider != auth.SubscriptionProviderCodex || candidate.externalAccountID != string(creds.AccountID) || candidate.providerUserID != callerUserID {
 			continue
 		}
-		if resetAt, spent := codexQuotaExhaustion(attemptErr); spent {
+		if spent {
 			recordManagedQuotaProof(ctx, candidate.accountID, resetAt)
 		} else {
-			recordManagedThrottle(ctx, candidate.accountID, managedSubscriptionResetAt(attemptErr, now))
+			recordManagedThrottle(ctx, candidate.accountID, resetAt)
 		}
 		if state.AttemptedAccounts == nil {
 			state.AttemptedAccounts = make(map[string]struct{})
