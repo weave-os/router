@@ -1,0 +1,49 @@
+scripts/serving_admission_check/main.go
+  s_8a02447f80f56f::t_362372f3441e9e 137-139,218-241
+  s_8a02447f80f56f::t_11c66407b0801a 242-244
+internal/server/middleware/serving_admission.go
+  s_8a02447f80f56f::t_23a1ba38279415 55
+internal/gateway/gateway.go
+  s_8a02447f80f56f::t_23a1ba38279415 112
+internal/policyregistry/serving_controller_logging_test.go
+  s_8a02447f80f56f::t_88809f8d5a89b0 59
+internal/proxy/observation_internal_test.go
+  s_8a02447f80f56f::t_23a1ba38279415 21,24,29-31
+internal/policyregistry/serving_validator.go
+  s_8a02447f80f56f::t_23a1ba38279415 57
+internal/policyregistry/serving_test.go
+  s_8a02447f80f56f::t_23a1ba38279415 286,288-289,312,485
+internal/gateway/products.go
+  s_8a02447f80f56f::t_23a1ba38279415 104-109,121
+internal/policyregistry/serving_snapshot.go
+  s_8a02447f80f56f::t_362372f3441e9e 8,15-16,69,86-92,105,141-143
+internal/postgres/serving/admission.go
+  s_8a02447f80f56f::t_ba16bd74970923 127
+internal/policyregistry/serving_snapshot_test.go
+  s_8a02447f80f56f::t_362372f3441e9e 7,16-46
+  s_8a02447f80f56f::t_660ddb12ca2c94 47
+internal/policyregistry/serving_validator_test.go
+  s_8a02447f80f56f::t_23a1ba38279415 68,70
+db/queries/serving_admission.sql
+  s_8a02447f80f56f::t_362372f3441e9e 68-69
+internal/policyregistry/serving_controller.go
+  s_8a02447f80f56f::t_23a1ba38279415 43,237,246,346,357
+internal/sqlc/serving_admission.sql.go
+  s_8a02447f80f56f::t_699070381f8bbd 204-205,262-263
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "412162f0128d13393f93b7327e709e249ec9399e",
+  "prompts": {},
+  "sessions": {
+    "s_8a02447f80f56f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b21d-11cd-7991-b037-e545c68b7062",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

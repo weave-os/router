@@ -1,0 +1,31 @@
+internal/router/hmm/selection/domain.go
+  s_f4fb01213503cf::t_6f35baefb4cdcd 121-122,124-132
+  s_2ee48faf7abd19::t_aad2693e419431 123
+internal/router/hmm/selection/domain_test.go
+  s_f4fb01213503cf::t_8bbf72eb45c76a 214,216-218,221-223,237
+  s_f4fb01213503cf::t_d512d16ec3d398 213,215,219-220,224-236,238-241
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ab39d2889659e4f59c33a64e55d339452f87a15f",
+  "prompts": {},
+  "sessions": {
+    "s_2ee48faf7abd19": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e957-5423-7460-b8e2-37ff0692d92a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_f4fb01213503cf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e9df-892d-7171-aee5-b0a6ef9a6f46",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

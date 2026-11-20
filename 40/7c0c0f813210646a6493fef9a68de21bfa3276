@@ -1,0 +1,37 @@
+internal/policyregistry/serving_contract_v4.go
+  s_285faa1119c6bb::t_d5f5447e497031 260
+  s_285faa1119c6bb::t_ef446d74a839cb 121-123
+  s_285faa1119c6bb::t_76623fea2b2488 258-259,261-264
+internal/policyregistry/serving_contract_v4_test.go
+  s_285faa1119c6bb::t_ef446d74a839cb 92-97
+  s_285faa1119c6bb::t_76623fea2b2488 136-142
+sidecars/hmm/hmm_sidecar/classifier_release.py
+  s_285faa1119c6bb::t_ef446d74a839cb 113-115
+  s_47903e2adb858d::t_0b7ca556a12517 112
+sidecars/hmm/tests/test_classifier_release.py
+  s_285faa1119c6bb::t_ef446d74a839cb 120-132
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "407c0c0f813210646a6493fef9a68de21bfa3276",
+  "prompts": {},
+  "sessions": {
+    "s_285faa1119c6bb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ae16-530d-7433-a77c-9d8e58f3f26b",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_47903e2adb858d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a835-4919-7000-bcd5-aa6fa0c04bee",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

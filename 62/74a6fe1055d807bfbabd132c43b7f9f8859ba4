@@ -1,0 +1,42 @@
+internal/translate/notice_history_test.go
+  s_c360271c2fbc08::t_cfc3aae609b519 1-32,34-50,56-58
+  s_c360271c2fbc08::t_4a068bd6f290ff 51-55
+  s_c360271c2fbc08::t_2487a3e49d628e 33
+internal/translate/responses.go
+  s_c360271c2fbc08::t_b2cc53fc0698de 343,377
+internal/translate/notice_content.go
+  s_c360271c2fbc08::t_5761f085c08f23 84,86-95
+  s_c360271c2fbc08::t_24f3fc02904a98 6-7,33-48,51,53-54,57,60-65,80-81,83
+  s_c360271c2fbc08::t_2487a3e49d628e 49-50,52,55-56,58-59
+  s_c360271c2fbc08::t_cfc3aae609b519 66-79,82
+  s_c360271c2fbc08::t_893248beaffe00 85
+docs/ROUTER_NOTICES.md
+  s_c360271c2fbc08::t_cfc3aae609b519 50-56
+internal/proxy/routing_announcement_history_test.go
+  s_c360271c2fbc08::t_851a7cee4b91f7 1-51
+internal/proxy/routing_announcement_replay_test.go
+  s_c360271c2fbc08::t_b486720798e2ef 36,78,103-107
+  s_c360271c2fbc08::t_90f2bae55b0183 1-35,37-77,79-81,84-102,108
+  s_c360271c2fbc08::t_df98999f13358e 82-83
+internal/translate/responses_codex.go
+  s_c360271c2fbc08::t_b2cc53fc0698de 523,546
+internal/proxy/service.go
+  s_c360271c2fbc08::t_7fbbcf15ba55b2 7692-7696
+  s_c360271c2fbc08::t_24f3fc02904a98 514-515,9122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6274a6fe1055d807bfbabd132c43b7f9f8859ba4",
+  "prompts": {},
+  "sessions": {
+    "s_c360271c2fbc08": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18abd-0c1a-7322-af25-2d84a257108c",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

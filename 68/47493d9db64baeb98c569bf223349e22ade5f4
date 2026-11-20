@@ -1,0 +1,72 @@
+internal/subscriptions/runtime.go
+  s_076d574238ec31::t_68de4d38e877cf 164,258,283,312,395,436,441
+docs/SUBSCRIPTION_ROUTING.md
+  s_076d574238ec31::t_0b1e02623bbdb0 85-87,146-147
+  s_076d574238ec31::t_eb66257b182e79 148
+internal/flags/flags.go
+  s_076d574238ec31::t_c6dbc1c8e9b595 180
+internal/subscriptions/runtime_test.go
+  s_076d574238ec31::t_6d5a1cc7fcae25 14,99,104-105,259-260,264,266-280,284-292
+  s_076d574238ec31::t_c6a8315f37c12c 261-263,265,281-283
+  s_076d574238ec31::t_79a5ca9ea57c92 156,160,173
+  s_076d574238ec31::t_80fd995da113c1 293-295
+internal/proxy/failure_owner.go
+  s_076d574238ec31::t_c16b5a82c97759 133
+internal/proxy/linked_first.go
+  s_076d574238ec31::t_c6dbc1c8e9b595 25
+internal/sqlc/model_router_subscription_accounts.sql.go
+  s_076d574238ec31::t_4d52566c59228c 792-793,803-808,837-838,852
+internal/proxy/managed_subscriptions.go
+  s_076d574238ec31::t_c6dbc1c8e9b595 85,258-262,414-419
+internal/proxy/claude_enterprise.go
+  s_076d574238ec31::t_c6dbc1c8e9b595 5,16,24,38
+internal/subscriptions/pool.go
+  s_076d574238ec31::t_6a1aa9f008ebe2 121-125
+  s_076d574238ec31::t_c6dbc1c8e9b595 14,270,308,315,347-351
+  s_076d574238ec31::t_28657229c42028 352-353
+internal/proxy/claude_enterprise_internal_test.go
+  s_076d574238ec31::t_79a5ca9ea57c92 18,57-58
+  s_076d574238ec31::t_6d5a1cc7fcae25 46,55-56,59
+  s_076d574238ec31::t_c6a8315f37c12c 107
+  s_076d574238ec31::t_115f06cdc974a4 60,101-106,108-113
+  s_076d574238ec31::t_a5e22d1f3a7870 61,100
+internal/requestcontext/subscription_extra_usage.go
+  s_076d574238ec31::t_c6dbc1c8e9b595 8-9
+internal/postgres/subscription_repo.go
+  s_076d574238ec31::t_c6a8315f37c12c 233
+  s_076d574238ec31::t_c6dbc1c8e9b595 11,234
+internal/proxy/subscription_funding.go
+  s_076d574238ec31::t_c6dbc1c8e9b595 82-83,293-294
+  s_076d574238ec31::t_ccd2c9e0419d11 295
+internal/proxy/dispatch_error.go
+  s_076d574238ec31::t_c6dbc1c8e9b595 81,182-184,186
+  s_076d574238ec31::t_c6a8315f37c12c 185
+  s_076d574238ec31::t_216862134c6116 187
+internal/proxy/usage/CLAUDE.md
+  s_076d574238ec31::t_0b1e02623bbdb0 22
+internal/proxy/usage/AGENTS.md
+  s_076d574238ec31::t_c6a8315f37c12c 22
+internal/subscriptions/pool_test.go
+  s_076d574238ec31::t_5549b9dbe89b8e 12,29-39
+  s_076d574238ec31::t_fdb2e989fe6dbf 40-41
+db/queries/model_router_subscription_accounts.sql
+  s_076d574238ec31::t_c6dbc1c8e9b595 219-220
+internal/proxy/dispatch_error_test.go
+  s_076d574238ec31::t_6d5a1cc7fcae25 30-39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6847493d9db64baeb98c569bf223349e22ade5f4",
+  "prompts": {},
+  "sessions": {
+    "s_076d574238ec31": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ad02-88ea-74f0-b7fc-51e661cc98ca",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

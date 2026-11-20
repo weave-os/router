@@ -1,0 +1,24 @@
+internal/proxy/subscription_funding_internal_test.go
+  s_5184255b00bb11::t_833d896addb10e 91-93
+internal/dispatch/authorization.go
+  s_5184255b00bb11::t_833d896addb10e 28-29
+internal/router/catalog/catalog.go
+  s_5184255b00bb11::t_833d896addb10e 189
+  s_5184255b00bb11::t_08be12a0702cd9 183-188
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9d3a965b4f36b93d8bf5b7bb732ed1a654b14f2e",
+  "prompts": {},
+  "sessions": {
+    "s_5184255b00bb11": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a13253-bc94-77f2-9506-bf359f389866",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

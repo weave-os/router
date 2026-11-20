@@ -1,0 +1,30 @@
+internal/postgres/subscription_repo_test.go
+  s_c7ed207f42b223::t_bd071e49a8e5d0 584,586,588
+internal/subscriptions/oauth.go
+  s_c7ed207f42b223::t_bd071e49a8e5d0 202,246,256,265-271,276-282
+  s_c7ed207f42b223::t_f4ae1834409bfd 283-284
+internal/subscriptions/credential_rejection_test.go
+  s_c7ed207f42b223::t_bd071e49a8e5d0 273
+internal/subscriptions/runtime_test.go
+  s_c7ed207f42b223::t_bd071e49a8e5d0 1242,1248
+internal/subscriptions/oauth_test.go
+  s_c7ed207f42b223::t_bd071e49a8e5d0 227-248
+internal/subscriptions/login.go
+  s_c7ed207f42b223::t_bd071e49a8e5d0 169,235
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4cb48024e2c4e203ab8857dd5794030b1e5888f8",
+  "prompts": {},
+  "sessions": {
+    "s_c7ed207f42b223": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c7f4-1d25-7b31-9661-2876b54142a6",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
