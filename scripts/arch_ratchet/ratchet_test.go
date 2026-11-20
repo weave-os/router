@@ -100,6 +100,12 @@ func fn(key string, lines int) funcMetrics {
 	return funcMetrics{key: key, values: map[metric]int{metricLines: lines}}
 }
 
+func fnCognitive(key string, lines, cognitive int) funcMetrics {
+	metrics := fn(key, lines)
+	metrics.values[metricCognitive] = cognitive
+	return metrics
+}
+
 func fnBody(key string, lines int, body uint32) funcMetrics {
 	metrics := fn(key, lines)
 	metrics.body = body
@@ -163,6 +169,11 @@ func TestCompareFuncs(t *testing.T) {
 			base: []funcMetrics{fnBody("p.p_test.TestX", 160, 1)},
 			head: []funcMetrics{fnBody("q.aaa", 160, 2), fnBody("q.q_test.TestX", 160, 1)},
 			want: []violation{{subject: "q.aaa", metric: metricLines, before: 0, after: 160, limit: 100}},
+		},
+		{
+			name: "greedy moves keep production and external test names apart",
+			base: []funcMetrics{fnCognitive("p.F", 200, 10), fnCognitive("p.p_test.F", 150, 40)},
+			head: []funcMetrics{fnCognitive("q.F", 140, 10), fnCognitive("q.q_test.F", 150, 39)},
 		},
 		{
 			name:    "reviewed exception",

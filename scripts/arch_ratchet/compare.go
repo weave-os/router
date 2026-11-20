@@ -132,8 +132,8 @@ func (p movePool) claim(fn funcMetrics) bool {
 }
 
 func betterMove(fn funcMetrics, candidate, current string, p movePool) bool {
-	name := moveName(fn.key)
-	candidateSame, currentSame := moveName(candidate) == name, moveName(current) == name
+	name := shortName(fn.key)
+	candidateSame, currentSame := shortName(candidate) == name, shortName(current) == name
 	if candidateSame != currentSame {
 		return candidateSame
 	}
