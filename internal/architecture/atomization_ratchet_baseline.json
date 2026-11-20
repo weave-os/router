@@ -5,13 +5,11 @@
     "proxy_escalation_internal_references": {},
     "proxy_hmm_metadata_references": {},
     "proxy_reason_string_comparisons": {},
-    "serving_strategy_internal_imports": {
-      "internal/proxy -> internal/router/hmm": 1
-    },
+    "serving_strategy_internal_imports": {},
     "strategy_from_context_callers": {
       "internal/api/admin": 2,
       "internal/api/anthropic": 1,
-      "internal/proxy": 10,
+      "internal/proxy": 8,
       "internal/server/middleware": 1
     },
     "strategy_serving_adapter_imports": {}

@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -86,11 +87,10 @@ func TestProxyMessages_CCTaskToolsCrossVendor_OrgOverrideReachesUpstream(t *test
 			t.Cleanup(func() { slog.SetDefault(prev) })
 
 			provider := ccTaskToolProvider()
-			svc := proxy.NewService(
+			svc := proxy.WithStrategyPorts(proxy.NewService(
 				&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "test"}},
 				map[string]providers.Client{providers.ProviderOpenAI: provider},
-				nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-			)
+				nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 			ctx := context.Background()
 			if tc.override != nil {

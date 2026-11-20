@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 
@@ -63,9 +64,9 @@ func TestService_GatewayForcedPinOutsideAllowlistServes(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{
 		Provider: providers.ProviderAnthropicGateway, Model: "claude-opus-5-5", Reason: "cluster:v0.2",
 	}}
-	svc := proxy.NewService(fr,
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr,
 		map[string]providers.Client{providers.ProviderAnthropicGateway: anthropicOKProvider()},
-		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 	ctx := gatewayAllowlistCtx([]string{"claude-opus-5-5"}, "claude-opus-5", "claude-opus-5-5")
 	rec := httptest.NewRecorder()
@@ -83,9 +84,9 @@ func TestService_GatewayForceCommandOutsideAllowlistApplies(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{
 		Provider: providers.ProviderAnthropicGateway, Model: "claude-opus-5-5", Reason: "cluster:v0.2",
 	}}
-	svc := proxy.NewService(fr,
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr,
 		map[string]providers.Client{providers.ProviderAnthropicGateway: anthropicOKProvider()},
-		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 	ctx := gatewayAllowlistCtx([]string{"claude-opus-5-5"}, "claude-opus-5", "claude-opus-5-5")
 	rec := httptest.NewRecorder()
@@ -107,9 +108,9 @@ func TestService_GatewayForceCommandUnaliasedModelStillRejected(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{
 		Provider: providers.ProviderAnthropicGateway, Model: "claude-opus-5-5", Reason: "cluster:v0.2",
 	}}
-	svc := proxy.NewService(fr,
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr,
 		map[string]providers.Client{providers.ProviderAnthropicGateway: anthropicOKProvider()},
-		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 	ctx := gatewayAllowlistCtx([]string{"claude-opus-5-5"}, "claude-opus-5", "claude-opus-5-5")
 	rec := httptest.NewRecorder()

@@ -157,8 +157,9 @@ services:
       - "127.0.0.1:8080:8080"
     restart: unless-stopped
 
-  # Stub HMM classifier that also bakes the matching policy release into the
-  # shared volume, so the default stack boots with no classifier credentials.
+  # Local-dev only: stub HMM classifier that also bakes the matching policy
+  # release into the shared volume, so the default stack boots with no
+  # classifier credentials. Not a production or self-hosted serving path.
   hmm-stub:
     image: router-hmm-stub
     build:
@@ -173,9 +174,9 @@ services:
       retries: 15
     restart: unless-stopped
 
-  # Frozen HMM classifier. Start it through `make up-hmm`, which points the
-  # router at it instead of the stub; its policy release then comes from
-  # ROUTER_POLICY_ENVIRONMENT.
+  # Local-dev only: frozen HMM classifier. Start it through `make up-hmm`, which
+  # points the router at it instead of the stub; its policy release then comes
+  # from ROUTER_POLICY_ENVIRONMENT.
   hmm-sidecar:
     profiles:
       - hmm

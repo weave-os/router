@@ -5,7 +5,7 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/translate"
 
 	"github.com/tidwall/sjson"
@@ -22,12 +22,12 @@ func latestToolCallCountsJSON(env *translate.RequestEnvelope) []byte {
 	return counts
 }
 
-func applyServedGroupTelemetry(ctx context.Context, params *InsertTelemetryParams, routed turnLoopResult, served router.Decision) {
+func applyServedGroupTelemetry(ports continuity.StrategyPorts, ctx context.Context, params *InsertTelemetryParams, routed turnLoopResult, served router.Decision) {
 	group := ""
 	if served.Model == routed.Decision.Model && !isUserForcedReason(routed.Decision.Reason) {
 		group = decisionPolicyGroup(routed.Decision)
-		if group == "" && routed.Decision.Metadata != nil && hmm.ClassifierTelemetryOf(routed.Decision.Metadata).SelectionTrace != nil {
-			group = hmm.ClassifierTelemetryOf(routed.Decision.Metadata).SelectionTrace.SelectedGroup
+		if group == "" && routed.Decision.Metadata != nil && ports.Facts.ClassifierTelemetryOf(routed.Decision.Metadata).SelectionTrace != nil {
+			group = ports.Facts.ClassifierTelemetryOf(routed.Decision.Metadata).SelectionTrace.SelectedGroup
 		}
 		if group == "" && routed.StickyHit && served.Model == routed.PinModel {
 			group = routed.PinPolicyGroup

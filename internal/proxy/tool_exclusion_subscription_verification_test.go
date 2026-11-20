@@ -2,13 +2,15 @@ package proxy
 
 import (
 	"context"
-	"github.com/stretchr/testify/require"
-	"github.com/tidwall/gjson"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
+
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
@@ -63,7 +65,7 @@ func TestVerificationRealResolverWeakToolExclusionPreventsHTTP(t *testing.T) {
 	client.SetCodexBaseURL(server.URL)
 	routed := &verificationToolResolverRouter{resolver: resolver}
 	// Both providers have a real HTTP transport available; rejected candidates must never reach either.
-	svc := NewService(routed, map[string]providers.Client{providers.ProviderOpenAI: client, providers.ProviderBedrock: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).WithManagedSubscriptions(&verificationAlternativeLeaser{}).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}, providers.ProviderBedrock: {}})
+	svc := withHMMPorts(NewService(routed, map[string]providers.Client{providers.ProviderOpenAI: client, providers.ProviderBedrock: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).WithManagedSubscriptions(&verificationAlternativeLeaser{}).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}, providers.ProviderBedrock: {}})
 	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 	body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"synthetic tools"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
 	rec := httptest.NewRecorder()

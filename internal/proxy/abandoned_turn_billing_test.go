@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -260,11 +261,11 @@ func TestAbandonBillingWithCanceledRequestErrors(t *testing.T) {
 }
 
 func abandonedBillingService(provider, model string, upstream *fakeProvider, repo *capturingBillingRepo) *proxy.Service {
-	return proxy.NewService(
+	return proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: provider, Model: model}},
 		map[string]providers.Client{provider: upstream},
-		nil, nil, false, provider, model, nil,
-	).WithBillingService(billing.NewService(repo))
+		nil, nil, false, provider, model, nil), hmm.ServingPorts()).
+		WithBillingService(billing.NewService(repo))
 }
 
 func writeAbandonedBillingAnthropicStream(w http.ResponseWriter) {

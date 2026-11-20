@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/continuity"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 
 	"github.com/google/uuid"
@@ -59,8 +60,8 @@ func TestProxyOutputLimitAcrossResponsePaths(t *testing.T) {
 						w.WriteHeader(http.StatusOK)
 						_, _ = w.Write([]byte(response))
 					}}
-					svc := proxy.NewService(&fakeRouter{decision: router.Decision{Provider: path.provider, Model: path.model, Reason: "fresh"}},
-						map[string]providers.Client{path.provider: provider}, nil, store, false, path.provider, path.model, nil).
+					svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: router.Decision{Provider: path.provider, Model: path.model, Reason: "fresh"}},
+						map[string]providers.Client{path.provider: provider}, nil, store, false, path.provider, path.model, nil), hmm.ServingPorts()).
 						WithOpenAIResponsesBroad(path.wire == "responses").
 						WithNativeAnthropicResponseSignals(false).
 						WithNativeOpenAIResponseSignals(false)
@@ -106,9 +107,10 @@ func TestProxyGeminiTelemetryClassifiesOutputCap(t *testing.T) {
 				_, _ = w.Write([]byte(response))
 			}}
 			telem := newCaptureTelemetry()
-			svc := proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: capGeminiModel, Reason: "fresh"}},
+			svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: capGeminiModel, Reason: "fresh"}},
 				map[string]providers.Client{providers.ProviderGoogle: provider}, nil, newFakePinStore(), false,
-				providers.ProviderGoogle, capGeminiModel, telem)
+				providers.ProviderGoogle, capGeminiModel, telem), hmm.ServingPorts())
+
 			body := []byte(`{"contents":[{"role":"user","parts":[{"text":"Inspect the repository files"}]}],"generationConfig":{"maxOutputTokens":64000}}`)
 			require.NoError(t, svc.ProxyGeminiGenerateContent(authedCtx(uuid.NewString()), body, httptest.NewRecorder(),
 				httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1beta/models/"+capGeminiModel+":generateContent", nil)))

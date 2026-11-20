@@ -111,11 +111,11 @@ func TestCodexAgentRoutingIsolation(t *testing.T) {
 	}
 	classification := &codexRoutingClassification{}
 	capabilities := policy.Capabilities{SchemaVersion: policy.SchemaVersionV4, AuthoritativePerTurnSelection: true}
-	routing := hmm.New(classification, map[string]struct{}{providers.ProviderOpenAI: {}})
+	routing := hmm.NewForStrategy(router.StrategyHMM, classification, map[string]struct{}{providers.ProviderOpenAI: {}})
 	routing.WithCapabilities(capabilities).WithArmSelector(selection.Selector(roster))
 	store := &codexRoutingPinStore{stubPinStore: newStubPinStore(), pins: make(map[codexRoutingPinKey]sessionpin.Pin)}
 	upstream := &codexTitleProvider{}
-	svc := NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, store, false, providers.ProviderOpenAI, codexRoutingLuna.String(), nil).
+	svc := withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, store, false, providers.ProviderOpenAI, codexRoutingLuna.String(), nil)).
 		WithOpenAIResponsesBroad(true).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: routing, Capabilities: capabilities}).
 		EditHMMConfig(func(c *hmm.Config) {
@@ -182,14 +182,14 @@ func TestCodexAgentRoutingIsolation(t *testing.T) {
 			classification.prediction.ClassProbabilities = map[string]float64{string(escalation.Low): .8, string(escalation.Medium): .1, string(escalation.High): .06, string(escalation.Maximum): .04}
 		}
 		features := test.env.RoutingFeatures()
-		selected, err := svc.runTurnLoop(test.ctx, test.env, features, "synthetic-api-key", installationID, "", http.Header{}, router.Request{RequestedModel: features.Model, HasTools: features.HasTools, ConversationMessages: conversationMessagesForRouting(test.env)})
+		selected, err := svc.runTurnLoop(test.ctx, test.env, features, testTurnRequest(test.ctx, "synthetic-api-key", installationID), "", http.Header{}, router.Request{RequestedModel: features.Model, HasTools: features.HasTools, ConversationMessages: conversationMessagesForRouting(test.env)})
 		require.NoError(t, err)
 		assert.Equal(t, test.want, selected.Decision.Model, "parent-only forcing must not leak to a child")
 	}
 	forced.ForcedThreadKey = ""
 	require.NoError(t, store.Upsert(rootCtx, forced))
 	features := child.RoutingFeatures()
-	selected, err := svc.runTurnLoop(childCtx, child, features, "synthetic-api-key", installationID, "", http.Header{}, router.Request{RequestedModel: features.Model, HasTools: features.HasTools, ConversationMessages: conversationMessagesForRouting(child)})
+	selected, err := svc.runTurnLoop(childCtx, child, features, testTurnRequest(childCtx, "synthetic-api-key", installationID), "", http.Header{}, router.Request{RequestedModel: features.Model, HasTools: features.HasTools, ConversationMessages: conversationMessagesForRouting(child)})
 	require.NoError(t, err)
 	assert.Equal(t, codexRoutingSol.String(), selected.Decision.Model, "conversation-wide forcing must still reach children")
 }

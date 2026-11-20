@@ -18,14 +18,13 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/subscriptions"
-	"weave-os/router/internal/translate"
 )
 
 func claudeOpusPinnedDecision() router.Decision {
 	return router.Decision{
 		Provider: providers.ProviderAnthropic,
 		Model:    "claude-opus-5",
-		Reason:   translate.ReasonLoopEscalation,
+		Reason:   "hmm_policy",
 		Metadata: &router.RoutingMetadata{
 			CandidateModels:    []string{"claude-opus-5", "gpt-5.6-luna"},
 			CandidateProviders: map[string]string{"gpt-5.6-luna": providers.ProviderOpenAI},
@@ -45,14 +44,14 @@ func TestProxyOpenAIChatCompletion_SubscriptionPoolExhaustionRescuesSibling(t *t
 	leaser := &scriptedSubscriptionLeaser{}
 	rescue := &responsesRetryClient{}
 	store := &evictionStubPinStore{}
-	svc := NewService(
+	svc := withHMMPorts(NewService(
 		staticRouter{decision: claudeOpusPinnedDecision()},
 		map[string]providers.Client{
 			providers.ProviderAnthropic: &fakeClient{name: providers.ProviderAnthropic},
 			providers.ProviderOpenAI:    rescue,
 		},
-		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithManagedSubscriptions(leaser).
+		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+		WithManagedSubscriptions(leaser).
 		WithDeploymentKeyedProviders(map[string]struct{}{
 			providers.ProviderAnthropic: {},
 			providers.ProviderOpenAI:    {},
@@ -75,14 +74,14 @@ func TestProxyOpenAIChatCompletion_SubscriptionPoolExhaustionRescuesSibling(t *t
 func TestProxyOpenAIChatCompletion_SubscriptionOnlyKeepsPoolUnavailability(t *testing.T) {
 	leaser := &scriptedSubscriptionLeaser{}
 	rescue := &responsesRetryClient{}
-	svc := NewService(
+	svc := withHMMPorts(NewService(
 		staticRouter{decision: claudeOpusPinnedDecision()},
 		map[string]providers.Client{
 			providers.ProviderAnthropic: &fakeClient{name: providers.ProviderAnthropic},
 			providers.ProviderOpenAI:    rescue,
 		},
-		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithManagedSubscriptions(leaser).
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+		WithManagedSubscriptions(leaser).
 		WithDeploymentKeyedProviders(map[string]struct{}{
 			providers.ProviderAnthropic: {},
 			providers.ProviderOpenAI:    {},
@@ -102,14 +101,14 @@ func TestProxyOpenAIChatCompletion_SubscriptionOnlyKeepsPoolUnavailability(t *te
 func TestProxyMessages_SubscriptionPoolExhaustionRescuesSibling(t *testing.T) {
 	leaser := &scriptedSubscriptionLeaser{}
 	rescue := &responsesRetryClient{}
-	svc := NewService(
+	svc := withHMMPorts(NewService(
 		staticRouter{decision: claudeOpusPinnedDecision()},
 		map[string]providers.Client{
 			providers.ProviderAnthropic: &fakeClient{name: providers.ProviderAnthropic},
 			providers.ProviderOpenAI:    rescue,
 		},
-		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithManagedSubscriptions(leaser).
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+		WithManagedSubscriptions(leaser).
 		WithDeploymentKeyedProviders(map[string]struct{}{
 			providers.ProviderAnthropic: {},
 			providers.ProviderOpenAI:    {},
@@ -127,13 +126,13 @@ func TestProxyMessages_SubscriptionPoolExhaustionRescuesSibling(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "served after retry")
 }
 
-func TestMaybeExpireSubscriptionArmPin_StickyLoopEscalation(t *testing.T) {
+func TestMaybeExpireSubscriptionArmPin_StickyRouterPin(t *testing.T) {
 	store := &evictionStubPinStore{}
 	svc := newEvictionTestService(store)
 	installationID := uuid.New()
 	sessionKey := nonZeroSessionKey()
 
-	svc.maybeExpireSubscriptionArmPin(context.Background(), router.StrategyFromContext(context.Background()), ErrSubscriptionPoolExhausted, translate.ReasonLoopEscalation, installationID, sessionKey, sessionpin.DefaultRole)
+	svc.maybeExpireSubscriptionArmPin(context.Background(), router.StrategyFromContext(context.Background()), ErrSubscriptionPoolExhausted, "hmm_policy", installationID, sessionKey, sessionpin.DefaultRole)
 
 	require.Len(t, store.upserts, 1)
 	assert.Equal(t, pinEvictionReasonSubscriptionPool, store.upserts[0].Reason)
@@ -169,11 +168,11 @@ func TestProxyEndpoints_CachedManagedModelDenialEvictsAutomaticPin(t *testing.T)
 			}
 			upstream := &fakeClient{name: providers.ProviderAnthropic}
 			store := &evictionStubPinStore{}
-			svc := NewService(
+			svc := withHMMPorts(NewService(
 				staticRouter{decision: claudeOpusPinnedDecision()},
 				map[string]providers.Client{providers.ProviderAnthropic: upstream},
-				nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-			).WithManagedSubscriptions(leaser)
+				nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+				WithManagedSubscriptions(leaser)
 			svc.subscriptionModels.denyManaged("account:opaque-claude", "opaque-claude", providers.ProviderAnthropic, "claude-opus-5", time.Now().Add(time.Minute))
 
 			installationID := uuid.MustParse("33333333-3333-3333-3333-333333333333")

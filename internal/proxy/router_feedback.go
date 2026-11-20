@@ -13,7 +13,6 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/telemetry"
@@ -165,7 +164,7 @@ func (s *Service) handleRouterFeedbackCommand(
 	if registered, ok := s.strategies[target.strategy]; ok && registered.feedback != nil {
 		trainingAllowed := policyTrainingAllowedForRequest(ctx)
 		trainingDelta := []router.ConversationMessage(nil)
-		if (cmd.Sequence == 0 || cmd.Sequence == -1) && hmm.Owns(target.strategy) && trainingAllowed {
+		if (cmd.Sequence == 0 || cmd.Sequence == -1) && s.strategyPorts.Ownership.Owns(target.strategy) && trainingAllowed {
 			trainingDelta = routerFeedbackTrainingDelta(env)
 		}
 		s.reportRouterFeedback(ctx, registered.feedback, target.strategy, externalID, target.installationID, target.sessionKey, role, routerUserID, clientID, env.Model(), servedModel, rating, feedback, cmd.SuggestedLabel, RouterFeedbackSourceUser, trainingDelta, telemetryRequestID, telemetryRouteID)
@@ -269,7 +268,7 @@ func (s *Service) reportRouterFeedback(
 	if installationID != uuid.Nil {
 		payload["installation_id"] = installationID.String()
 	}
-	if hmm.Owns(strategy) && trainingAllowed && len(trainingDelta) > 0 {
+	if s.strategyPorts.Ownership.Owns(strategy) && trainingAllowed && len(trainingDelta) > 0 {
 		payload["training_conversation_delta"] = trainingDelta
 	}
 	log := observability.FromContext(ctx)

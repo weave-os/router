@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -65,7 +66,7 @@ func upstreamModelsAuthService(keys []*auth.ExternalAPIKey) *auth.Service {
 }
 
 func upstreamModelsProxyService(providerMap map[string]providers.Client) *proxy.Service {
-	return proxy.NewService(nil, providerMap, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	return proxy.WithStrategyPorts(proxy.NewService(nil, providerMap, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 }
 
 func TestListUpstreamModelsHandler_ReturnsEndpointModels(t *testing.T) {

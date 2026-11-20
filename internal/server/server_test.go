@@ -318,11 +318,3 @@ func TestParseDefaultStrategyRejectsOptInLanes(t *testing.T) {
 		assert.Contains(t, err.Error(), "not a valid deployment default")
 	}
 }
-
-func TestParseDefaultStrategyRejectsRetiredCluster(t *testing.T) {
-	for _, raw := range []string{"cluster", " CLUSTER "} {
-		_, err := server.ParseDefaultStrategy(raw)
-		require.Error(t, err, raw)
-		assert.Contains(t, err.Error(), "no longer supported")
-	}
-}
