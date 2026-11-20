@@ -28,7 +28,7 @@ func TestSubscriptionModelAccessDoesNotPayAndRemembers(t *testing.T) {
 			svc := in.parityService(upstream)
 			for i := 0; i < 2; i++ {
 				rec, req, body := in.request(t, stream)
-				require.ErrorIs(t, in.call(svc, in.subCtx(), body, rec, req), ErrSubscriptionPoolUnavailable)
+				require.ErrorIs(t, in.call(svc, billing.WithWeaveCreditsDenied(in.subCtx()), body, rec, req), ErrWeaveCreditsDisabled)
 				assert.Empty(t, rec.Body.String(), "the handler owns rendering the unpaid refusal")
 			}
 			assert.Equal(t, 1, upstream.subDispatches)
@@ -46,7 +46,7 @@ func TestSubscriptionModelAccessOpenAIIngressDoesNotPayAndRemembers(t *testing.T
 	for range 2 {
 		recorder := httptest.NewRecorder()
 		request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
-		require.ErrorIs(t, svc.ProxyOpenAIChatCompletion(in.subCtx(), body, recorder, request), ErrSubscriptionPoolUnavailable)
+		require.ErrorIs(t, svc.ProxyOpenAIChatCompletion(billing.WithWeaveCreditsDenied(in.subCtx()), body, recorder, request), ErrWeaveCreditsDisabled)
 		assert.Empty(t, recorder.Body.String(), "the handler owns rendering the unpaid refusal")
 	}
 
@@ -61,7 +61,7 @@ func TestSubscriptionModelAccessPreservesFailedAttemptAttribution(t *testing.T) 
 	telemetry := &auxTelemetryRepo{}
 	svc.telemetry = telemetry
 	rec, req, body := in.request(t, false)
-	require.ErrorIs(t, in.call(svc, in.subCtx(), body, rec, req), ErrSubscriptionPoolUnavailable)
+	require.ErrorIs(t, in.call(svc, billing.WithWeaveCreditsDenied(in.subCtx()), body, rec, req), ErrWeaveCreditsDisabled)
 	assert.Empty(t, rec.Body.String(), "blocked funding must not commit a success response")
 	assert.Equal(t, 1, upstream.subDispatches)
 	assert.Zero(t, upstream.paidDispatches)
@@ -77,7 +77,7 @@ func TestSubscriptionModelAccessDoesNotSpendWithoutPermission(t *testing.T) {
 		t.Run(boolLit(subscriptionOnly), func(t *testing.T) {
 			upstream := &parityUpstream{subErr: modelAccessError(), okBody: in.upstreamOK(false)}
 			svc := in.parityService(upstream)
-			ctx := in.subCtx()
+			ctx := billing.WithWeaveCreditsDenied(in.subCtx())
 			if subscriptionOnly {
 				ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
 			} else {
@@ -96,17 +96,17 @@ func TestSubscriptionModelAccessScopeAndExpiry(t *testing.T) {
 	svc := in.deploymentKeyedService()
 	now := time.Unix(1_700_000_000, 0)
 	svc.clock = func() time.Time { return now }
-	svc.recordSubscriptionModelRejection(in.resolved(in.subCtx()), in.provider, in.model, modelAccessError())
-	resolved := svc.resolveCredentials(in.subCtx(), in.provider, in.model, nil)
+	svc.recordSubscriptionModelRejection(in.resolved(billing.WithWeaveCreditsDenied(in.subCtx())), in.provider, in.model, modelAccessError())
+	resolved := svc.resolveCredentials(billing.WithWeaveCreditsDenied(in.subCtx()), in.provider, in.model, nil)
 	assert.Nil(t, CredentialsFromContext(resolved))
 	assert.Nil(t, CredentialsFromContext(resolveAndInjectCredentials(resolved, in.provider, in.model, nil)))
 	assert.True(t, servedOnSubscription(svc.resolveCredentials(resolved, in.provider, accessOtherModel, nil)))
-	assert.True(t, servedOnSubscription(svc.resolveCredentials(context.WithValue(in.subCtx(), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-other"), in.provider, in.model, nil)))
-	assert.False(t, servedOnSubscription(svc.resolveCredentials(billing.WithSubscriptionOnly(in.subCtx(), billing.SubscriptionOnlyCreditsDepleted), in.provider, in.model, nil)), "known denied OAuth must never be replayed")
-	linkedFirstContext := billing.WithSubscriptionOnly(in.subCtx(), billing.SubscriptionOnlyLinkedFirst)
+	assert.True(t, servedOnSubscription(svc.resolveCredentials(context.WithValue(billing.WithWeaveCreditsDenied(in.subCtx()), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-other"), in.provider, in.model, nil)))
+	assert.False(t, servedOnSubscription(svc.resolveCredentials(billing.WithSubscriptionOnly(billing.WithWeaveCreditsDenied(in.subCtx()), billing.SubscriptionOnlyCreditsDepleted), in.provider, in.model, nil)), "known denied OAuth must never be replayed")
+	linkedFirstContext := billing.WithSubscriptionOnly(billing.WithWeaveCreditsDenied(in.subCtx()), billing.SubscriptionOnlyLinkedFirst)
 	assert.False(t, servedOnSubscription(svc.resolveCredentials(linkedFirstContext, in.provider, in.model, nil)), "a denied linked subscription must not be replayed")
 	now = now.Add(16 * time.Minute)
-	assert.True(t, servedOnSubscription(svc.resolveCredentials(in.subCtx(), in.provider, in.model, nil)), "access changes are rechecked after expiry")
+	assert.True(t, servedOnSubscription(svc.resolveCredentials(billing.WithWeaveCreditsDenied(in.subCtx()), in.provider, in.model, nil)), "access changes are rechecked after expiry")
 }
 
 func TestSubscriptionModelAccessOnlyLearnsModelRejection(t *testing.T) {
@@ -119,12 +119,12 @@ func TestSubscriptionModelAccessOnlyLearnsModelRejection(t *testing.T) {
 		nil,
 	} {
 		svc := in.deploymentKeyedService()
-		svc.recordSubscriptionModelRejection(in.resolved(in.subCtx()), in.provider, in.model, err)
-		assert.True(t, servedOnSubscription(svc.resolveCredentials(in.subCtx(), in.provider, in.model, nil)))
+		svc.recordSubscriptionModelRejection(in.resolved(billing.WithWeaveCreditsDenied(in.subCtx())), in.provider, in.model, err)
+		assert.True(t, servedOnSubscription(svc.resolveCredentials(billing.WithWeaveCreditsDenied(in.subCtx()), in.provider, in.model, nil)))
 	}
 	svc := in.deploymentKeyedService()
 	svc.recordSubscriptionModelRejection(in.resolved(in.byokCtx(context.Background())), in.provider, in.model, modelAccessError())
-	assert.True(t, servedOnSubscription(svc.resolveCredentials(in.subCtx(), in.provider, in.model, nil)))
+	assert.True(t, servedOnSubscription(svc.resolveCredentials(billing.WithWeaveCreditsDenied(in.subCtx()), in.provider, in.model, nil)))
 }
 
 func TestSubscriptionModelAccessLearnsServedModelsPerSubscription(t *testing.T) {
@@ -133,13 +133,13 @@ func TestSubscriptionModelAccessLearnsServedModelsPerSubscription(t *testing.T) 
 		t.Run(boolLit(stream), func(t *testing.T) {
 			svc := in.parityService(&parityUpstream{okBody: in.upstreamOK(stream)})
 			rec, req, body := in.request(t, stream)
-			require.NoError(t, in.call(svc, in.subCtx(), body, rec, req))
+			require.NoError(t, in.call(svc, billing.WithWeaveCreditsDenied(in.subCtx()), body, rec, req))
 
 			now := time.Now()
-			assert.Equal(t, []string{in.model}, svc.subscriptionModels.servedForCaller(in.resolved(in.subCtx()), now))
-			other := context.WithValue(in.subCtx(), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-other")
+			assert.Equal(t, []string{in.model}, svc.subscriptionModels.servedForCaller(in.resolved(billing.WithWeaveCreditsDenied(in.subCtx())), now))
+			other := context.WithValue(billing.WithWeaveCreditsDenied(in.subCtx()), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-other")
 			assert.Empty(t, svc.subscriptionModels.servedForCaller(in.resolved(other), now), "served models are per subscription")
-			assert.Empty(t, svc.subscriptionModels.servedForCaller(in.resolved(in.subCtx()), now.Add(subscriptionModelServedTTL+time.Minute)), "served models expire")
+			assert.Empty(t, svc.subscriptionModels.servedForCaller(in.resolved(billing.WithWeaveCreditsDenied(in.subCtx())), now.Add(subscriptionModelServedTTL+time.Minute)), "served models expire")
 		})
 	}
 }

@@ -453,7 +453,7 @@ jobs:
         shell: pwsh
         run: |
           npm install --prefix install/npm --ignore-scripts --package-lock=false --no-audit --no-fund
-          node --test install/npm/windows.test.js
+          node --test install/npm/windows.test.js install/npm/vscode.test.js
 
       - name: Check the npm package ships the native installer
         shell: pwsh

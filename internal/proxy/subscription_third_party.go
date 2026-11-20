@@ -30,19 +30,20 @@ type clientAppRefusalPaidFallbackKey struct{}
 
 func withClientAppRefusalPaidFallback(ctx context.Context, decision router.Decision) context.Context {
 	consented, _ := ctx.Value(APIKeyPaidFallbackOnSubscriptionRefusalContextKey{}).(bool)
-	if !consented || !strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel) {
+	forcedConsent := consented && strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel)
+	if !forcedConsent && weaveCreditsDenied(ctx) {
 		return ctx
 	}
-	return context.WithValue(ctx, clientAppRefusalPaidFallbackKey{}, true)
+	return context.WithValue(ctx, clientAppRefusalPaidFallbackKey{}, forcedConsent)
 }
 
 func clientAppRefusalPaidFallback(ctx context.Context) bool {
-	allowed, _ := ctx.Value(clientAppRefusalPaidFallbackKey{}).(bool)
+	_, allowed := ctx.Value(clientAppRefusalPaidFallbackKey{}).(bool)
 	return allowed
 }
 
 func claudePoolRefusesClientApp(ctx context.Context) bool {
-	if !clientAppRefusalPaidFallback(ctx) {
+	if spendsPool, _ := ctx.Value(clientAppRefusalPaidFallbackKey{}).(bool); !spendsPool {
 		return false
 	}
 	usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
