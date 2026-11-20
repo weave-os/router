@@ -86,18 +86,18 @@ func goldenCodexCallerThrottleScenarios() []goldenScenario {
 		goldenUpstreamError(http.StatusTooManyRequests, goldenCodexCallerRateLimitBody),
 		goldenResponsesOK("served on weave credits"),
 	}}
-	leasedOut := withGoldenCodexSeats(map[string]time.Time{goldenTeammateCodexSeat.ID: goldenEpoch.Add(40 * time.Second)}, goldenTeammateCodexSeat.ID)
+	coolingTeammateSeat := withGoldenCodexSeats(map[string]time.Time{goldenTeammateCodexSeat.ID: goldenEpoch.Add(40 * time.Second)}, goldenTeammateCodexSeat.ID)
 	ownSeat := withGoldenCodexSeats(nil, goldenOwnCodexSeat.ID)
 	return []goldenScenario{{
 		name: ingressResponses + "_stream_forced_codex_caller_throttled_seat_leased_out_serves_on_credits", ingress: ingressResponses,
 		decisions: forced, upstreams: throttledThenCredits,
 		requests:  []goldenRequest{{body: goldenCodexPortableToolTurn, headers: goldenForcedCodexHeaders("c1e1"), decorateContext: goldenCallerCodexSeatsCtx(goldenTeammateCodexSeat)}},
-		configure: leasedOut,
+		configure: coolingTeammateSeat,
 	}, {
 		name: ingressResponses + "_stream_forced_codex_caller_throttled_seat_leased_out_credits_off_refused", ingress: ingressResponses,
 		decisions: forced, upstreams: throttledThenCredits,
 		requests:  []goldenRequest{{body: goldenCodexPortableToolTurn, headers: goldenForcedCodexHeaders("c1e2"), decorateContext: goldenCreditsOffCtx(goldenCallerCodexSeatsCtx(goldenTeammateCodexSeat))}},
-		configure: leasedOut,
+		configure: coolingTeammateSeat,
 	}, {
 		name: ingressResponses + "_stream_forced_codex_caller_throttled_same_account_seat_serves_on_credits", ingress: ingressResponses,
 		decisions: forced, upstreams: throttledThenCredits,
