@@ -1,15 +1,10 @@
 {
   "schema_version": "atomization_ratchet_v1",
   "ratchets": {
-    "hmm_pin_field_references": {
-      "internal/postgres": 6,
-      "internal/routingpolicy": 5
-    },
+    "hmm_pin_field_references": {},
     "proxy_escalation_internal_references": {},
     "proxy_hmm_metadata_references": {},
-    "proxy_reason_string_comparisons": {
-      "internal/proxy": 20
-    },
+    "proxy_reason_string_comparisons": {},
     "serving_strategy_internal_imports": {
       "internal/proxy -> internal/router/hmm": 1
     },

@@ -39,14 +39,11 @@ conversations receive promotions or roster rollback. See
 [SERVING_CONTROL.md](SERVING_CONTROL.md#shared-code-cohorts-and-roster-configuration-selection-v3)
 for schema, retention and reader-rollout requirements.
 
-The following boot-file configuration describes the legacy/self-hosted path.
-
-`ROUTER_HMM_ROSTER_PATH` is the only lever, and it is **required** whenever
-`ROUTER_HMM_SIDECAR_URL` is set: the roster is loaded and validated against the
-model catalog at boot (any invalid arm fails boot) and then serves every HMM /
-`hmm_embedding` decision. Booting an HMM sidecar without a roster is a
-misconfiguration and panics at startup rather than silently handing selection
-back to the sidecar.
+Outside managed admission, rosters come from a policy release, not a boot file:
+`ROUTER_POLICY_ENVIRONMENT` reads the GCS policy registry and
+`ROUTER_POLICY_RELEASE_DIR` reads a local release directory (with
+`ROUTER_HMM_SIDECAR_URL` as its sidecar origin). An invalid release refuses
+boot. With neither set, HMM strategies return HTTP 503.
 
 Per decision: Go's deterministic pick serves (reason suffixed `:go_selection`)
 and the sidecar's classifier label/confidence is kept. Explicit force-cluster
@@ -81,8 +78,8 @@ rejects a v1/v2 sidecar and a v3 sidecar names no arm for a v1/v2 router. Router
 and sidecar deploy together, and roll back together — revert both image pins.
 There is no runtime flag to flip.
 
-For legacy/self-hosted configuration, roll back roster content by republishing the
-previous roster artifact and redeploying; an invalid roster fails boot. Managed
+Without managed admission, roll back roster content by republishing the previous
+policy release; an invalid release fails boot. Managed
 serving instead promotes the prior immutable policy reference on the current code
 binding, preserving existing conversations without rebuilding or creating a
 customer-specific revision.

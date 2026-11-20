@@ -507,7 +507,7 @@ func cyberRefusalRoutingMarkerFor(res turnLoopResult, fallbackModel string) stri
 }
 
 func routingReasonShort(res turnLoopResult) string {
-	if res.PlannerDecision.Reason != "" {
+	if res.PlannerDecision.Evaluated() {
 		return humanReasonFromPlanner(res.PlannerDecision.Reason)
 	}
 	switch res.Decision.Reason {
@@ -3368,7 +3368,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 }
 
 func applyPlannerAttrs(b *telemetry.AttrBuilder, res turnLoopResult) {
-	if res.PlannerDecision.Reason != "" {
+	if res.PlannerDecision.Evaluated() {
 		b.String("planner.outcome", plannerOutcomeAttr(res)).
 			String("planner.reason", res.PlannerDecision.Reason).
 			Float64("planner.expected_savings_usd", res.PlannerDecision.ExpectedSavingsUSD).
@@ -3453,7 +3453,7 @@ func applyRoutingStateAttrs(
 }
 
 func plannerOutcomeAttr(res turnLoopResult) string {
-	if res.PlannerDecision.Reason == "" {
+	if !res.PlannerDecision.Evaluated() {
 		return "skipped"
 	}
 	switch res.PlannerDecision.Outcome {
@@ -3468,7 +3468,7 @@ func plannerOutcomeAttr(res turnLoopResult) string {
 
 func plannerLogFields(res turnLoopResult) []any {
 	var pinCacheWarm any
-	if res.PlannerDecision.Reason != "" {
+	if res.PlannerDecision.Evaluated() {
 		pinCacheWarm = !res.PlannerDecision.PinCacheCold
 	}
 	return []any{
@@ -3497,7 +3497,7 @@ func stickyStateRole(res turnLoopResult) string {
 }
 
 func (s *Service) logPlannerOutcome(ctx context.Context, res turnLoopResult) {
-	if res.PlannerDecision.Reason == "" {
+	if !res.PlannerDecision.Evaluated() {
 		return
 	}
 	log := observability.FromContext(ctx)

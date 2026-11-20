@@ -6,9 +6,11 @@ import (
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
+
+	"weave-os/router/internal/router"
 )
 
-const ReasonUserForceModel = "user_forced"
+const ReasonUserForceModel = router.ReasonUserForceModel
 
 const ReasonLoopEscalation = "loop_escalation"
 

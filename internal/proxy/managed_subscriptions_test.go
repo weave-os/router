@@ -803,21 +803,26 @@ func TestDispatchWithFallbackRotatesManagedTransientErrorOnSameBinding(t *testin
 // An Anthropic seat out of extra usage answers 400, not 429. Rotating keeps the
 // turn on another seat instead of returning the refusal to the client.
 func TestManagedClaudeSeatOutOfExtraUsageRotates(t *testing.T) {
-	leaser := &healthSubscriptionLeaser{scriptedSubscriptionLeaser: &scriptedSubscriptionLeaser{}}
-	service := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
-	err := &providers.UpstreamErrorResponse{
-		Status:    http.StatusBadRequest,
-		Body:      []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"You're out of extra usage."}}`),
-		Rejection: providers.UpstreamRejection{Kind: providers.UpstreamRejectionCredential},
+	for _, clientApp := range []string{"", ClientAppClaudeCode, "custom-agent"} {
+		t.Run("client_app="+clientApp, func(t *testing.T) {
+			leaser := &healthSubscriptionLeaser{scriptedSubscriptionLeaser: &scriptedSubscriptionLeaser{}}
+			service := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
+			err := &providers.UpstreamErrorResponse{
+				Status:    http.StatusBadRequest,
+				Body:      []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"You're out of extra usage."}}`),
+				Rejection: providers.UpstreamRejection{Kind: providers.UpstreamRejectionCredential},
+			}
+
+			now := time.Now()
+			service.clock = func() time.Time { return now }
+
+			ctx := clientAppContext(managedSubscriptionTestContext(), clientApp)
+			rotated := service.recordManagedSubscriptionFailure(ctx, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String(), subscriptions.Lease{AccountID: "seat-1"}, err)
+
+			require.True(t, rotated)
+			require.Equal(t, []string{"seat-1"}, leaser.cooldownIDs, "only a known third-party client's refusal is scoped to that client")
+			require.Equal(t, []time.Time{now.Add(managedUsageRefusalCooldown)}, leaser.cooldownUntil, "a seat out of usage stays out of rotation instead of being retried every minute")
+			require.Empty(t, leaser.exhaustedIDs)
+		})
 	}
-
-	now := time.Now()
-	service.clock = func() time.Time { return now }
-
-	rotated := service.recordManagedSubscriptionFailure(managedSubscriptionTestContext(), providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String(), subscriptions.Lease{AccountID: "seat-1"}, err)
-
-	require.True(t, rotated)
-	require.Equal(t, []string{"seat-1"}, leaser.cooldownIDs)
-	require.Equal(t, []time.Time{now.Add(managedUsageRefusalCooldown)}, leaser.cooldownUntil, "a seat out of usage stays out of rotation instead of being retried every minute")
-	require.Empty(t, leaser.exhaustedIDs)
 }
