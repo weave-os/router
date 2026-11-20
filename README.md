@@ -37,9 +37,12 @@ npx @weave-os/router --opencode
 npx @weave-os/router --pi
 ```
 
-The installer configures your selected tool to use Weave. For Copilot, it adds
-Weave Router to the model picker; you can also start it with
+The installer configures your selected tool to use Weave. For Copilot CLI, it
+adds Weave Router to the model picker. You can also start it with
 `copilot --model weave/auto`.
+
+For GitHub Copilot Chat in VS Code, [build and install the Weave Router extension](install/vscode/README.md),
+then run **Weave Router: Connect** from the Command Palette.
 
 For example, to switch Codex back to its previous provider, run
 `npx @weave-os/router off --codex`. Use `on --codex` to switch back to Weave,
