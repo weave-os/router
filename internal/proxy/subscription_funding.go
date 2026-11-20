@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
@@ -180,6 +181,9 @@ func callerPlanRefusal(ctx context.Context, pool subscriptions.Provider, callerQ
 		return nil
 	}
 	if callerPlanThrottled(ctx, pool, now) {
+		if !billing.WeaveCreditsDeniedFromContext(ctx) {
+			return nil
+		}
 		return subscriptionPoolRefusal(ctx, subscriptionlane.CallerPlanThrottled)
 	}
 	return subscriptionPoolUnavailableBecause(ctx, "caller subscription quota is available or unknown")

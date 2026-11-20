@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/subscriptions"
@@ -20,8 +21,10 @@ func codexRateLimitedErr() *providers.UpstreamErrorResponse {
 	return &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"detail":"Rate limit exceeded"}`)}
 }
 
+// throttleTestContext denies Weave credits so a throttle stays a refusal; with
+// credits allowed a long throttle funds the turn instead.
 func throttleTestContext(accounts ...*auth.SubscriptionAccount) context.Context {
-	ctx := WithManagedSubscriptionUsage(context.Background())
+	ctx := WithManagedSubscriptionUsage(billing.WithWeaveCreditsDenied(context.Background()))
 	return WithManagedSubscriptionCandidates(ctx, accounts)
 }
 
@@ -75,6 +78,23 @@ func TestAuthorizeSubscriptionAPI_PersistedCooldownCountsAsThrottle(t *testing.T
 
 	cooling.CredentialRejections = 1
 	require.NoError(t, svc.authorizeSubscriptionAPI(throttleTestContext(cooling), subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{}), "a 401/403 cooldown is a credential fault, not a rate limit, and the seat cannot serve")
+}
+
+// A seat or caller-plan throttle past the short wait would fail the turn, so
+// Weave credits fund it, with or without a caller login.
+func TestAuthorizeSubscriptionAPI_LongThrottleFundsCredits(t *testing.T) {
+	now := time.Now()
+	svc := &Service{clock: func() time.Time { return now }}
+	callerCreds := &Credentials{APIKey: []byte("caller-codex-token"), OAuth: true}
+	ctx := WithManagedSubscriptionCandidates(WithManagedSubscriptionUsage(context.Background()), []*auth.SubscriptionAccount{activeCodexAccount("seat-1")})
+	recordManagedThrottle(ctx, "seat-1", now.Add(time.Hour))
+	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{}))
+	svc.recordDirectSubscriptionQuota(ctx, providers.ProviderOpenAI, codexCoveredModel, callerCreds, codexRateLimitedErr())
+	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "caller-codex-token", "", clientAppRefusalFunding{}))
+
+	short := WithManagedSubscriptionCandidates(WithManagedSubscriptionUsage(context.Background()), []*auth.SubscriptionAccount{activeCodexAccount("seat-1")})
+	recordManagedThrottle(short, "seat-1", now.Add(10*time.Second))
+	requireThrottledRefusal(t, svc.authorizeSubscriptionAPI(short, subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{}))
 }
 
 func TestAuthorizeSubscriptionAPI_UnknownCallerQuotaKeeps503(t *testing.T) {

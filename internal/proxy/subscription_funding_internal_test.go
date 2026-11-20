@@ -33,7 +33,7 @@ func TestSubscriptionFundingPaidDispatchRequiresQuotaProof(t *testing.T) {
 		{name: "no compatible pool", accounts: []*auth.SubscriptionAccount{{ID: "codex", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive}}, allowed: true},
 		{name: "unknown quota", accounts: []*auth.SubscriptionAccount{{ID: "claude", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateUnknown}}},
 		{name: "active quota", accounts: []*auth.SubscriptionAccount{{ID: "claude", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive}}},
-		{name: "cooldown is not exhaustion", accounts: []*auth.SubscriptionAccount{{ID: "claude", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateCooldown, CooldownUntil: &resetAt}}},
+		{name: "long seat cooldown funds credits", accounts: []*auth.SubscriptionAccount{{ID: "claude", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateCooldown, CooldownUntil: &resetAt}}, allowed: true},
 		{name: "reconnect-required seat cannot block API", accounts: []*auth.SubscriptionAccount{{ID: "claude", Provider: auth.SubscriptionProviderClaude, State: auth.SubscriptionAccountStateReconnectRequired}}, allowed: true},
 		{name: "disabled seat cannot block API", accounts: []*auth.SubscriptionAccount{{ID: "claude", Provider: auth.SubscriptionProviderClaude, State: auth.SubscriptionAccountStateDisabled}}, allowed: true},
 		{name: "dead seat beside exhausted seat", accounts: []*auth.SubscriptionAccount{
@@ -190,7 +190,6 @@ func TestSubscriptionFundingProviderFailureAuthorizesPaidRescue(t *testing.T) {
 func TestSubscriptionFundingOperationalFailuresNeverAuthorizeAPI(t *testing.T) {
 	for _, failure := range []error{
 		&providers.UpstreamErrorResponse{Status: http.StatusUnauthorized},
-		&providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"error":{"type":"rate_limit_error"}}`)},
 		&providers.UpstreamErrorResponse{Status: http.StatusBadRequest, Body: []byte(`{"error":{"type":"invalid_request_error","message":"Third-party apps now draw from your extra usage, not your plan limits"}}`)},
 	} {
 		t.Run(failure.Error(), func(t *testing.T) {
