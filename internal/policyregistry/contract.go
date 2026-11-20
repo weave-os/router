@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/router/rosterdata"
 )
 
 const ReleaseSchemaV1 = "hmm_go_policy_release_v1"

@@ -89,15 +89,15 @@ func (s *demotionStubPinStore) Consume(context.Context, [sessionpin.SessionKeyLe
 func (s *demotionStubPinStore) SweepExpired(context.Context) error { return nil }
 
 func newDemotionTestService(store sessionpin.Store, flagOn bool) *Service {
-	return NewService(
+	return withHMMPorts(NewService(
 		nil,
 		nil,
 		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	).WithCommittedStreamArmDemotion(flagOn)
+		nil)).
+		WithCommittedStreamArmDemotion(flagOn)
 }
 
 const demotedArm = "claude-opus-4-7"
@@ -126,7 +126,7 @@ func TestMaybeDemoteArmAfterUnrescuedStall(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &demotionStubPinStore{}
-			svc := NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+			svc := withHMMPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 				WithRescuedFailureArmDemotion(tc.flagOn)
 			ctx := context.Background()
 			if tc.cancelled {
@@ -478,15 +478,15 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_PersistsWithoutExistingRow(t 
 }
 
 func newRescuedDemotionTestService(store sessionpin.Store, flagOn bool) *Service {
-	return NewService(
+	return withHMMPorts(NewService(
 		nil,
 		nil,
 		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
-		nil,
-	).WithRescuedFailureArmDemotion(flagOn)
+		nil)).
+		WithRescuedFailureArmDemotion(flagOn)
 }
 
 func rescuedPrimaryDecision(reason string) router.Decision {
@@ -591,8 +591,8 @@ func TestUnrescuedResponseHeaderTimeoutExcludesPrimaryOnNextTurn(t *testing.T) {
 		Model:    freshTurnModel,
 		Reason:   "response-header-timeout-next-turn",
 	}}
-	nextTurnService := NewService(nil, nil, nil, &rolePinStore{byRole: store.rows}, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	nextTurnService := withHMMPorts(NewService(nil, nil, nil, &rolePinStore{byRole: store.rows}, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: strategy,
 			Router:   scorer,

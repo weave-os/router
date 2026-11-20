@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 )
 
 // A directive that opens the conversation is the session key's first-message
@@ -42,10 +43,10 @@ func TestService_HistoricalDirective_KeepsSessionPin(t *testing.T) {
 				w.WriteHeader(http.StatusOK)
 				_, _ = w.Write([]byte(`{"id":"resp_1","object":"response","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}]}`))
 			}}
-			svc := proxy.NewService(fr, map[string]providers.Client{
+			svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{
 				providers.ProviderAnthropic: &fakeProvider{},
 				providers.ProviderOpenAI:    openAI,
-			}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+			}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 			identity := proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex, SessionID: tc.sessionID}
 			ctx := context.WithValue(authedCtx(uuid.New().String()), proxy.ClientIdentityContextKey{}, identity)

@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/providers/openaicompat"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 
 	"github.com/stretchr/testify/assert"
@@ -83,16 +84,16 @@ func TestProxyMessages_CrossModelRescueKeepsNextTurnOnPinnedBinding(t *testing.T
 	t.Cleanup(fireworksServer.Close)
 
 	store := newProviderRescuePinStore()
-	svc := proxy.NewService(
+	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: siblingClusterDecision("")},
 		map[string]providers.Client{
 			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", anthropicServer.URL),
 			providers.ProviderFireworks: openaicompat.NewClient("test-fw-key", fireworksServer.URL),
 		},
-		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", newCaptureTelemetry(),
-	).WithDeploymentKeyedProviders(map[string]struct{}{
-		providers.ProviderAnthropic: {}, providers.ProviderFireworks: {},
-	}).WithRetrySleep(noRetrySleep).WithRescuedFailureArmDemotion(false)
+		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", newCaptureTelemetry()), hmm.ServingPorts()).
+		WithDeploymentKeyedProviders(map[string]struct{}{
+			providers.ProviderAnthropic: {}, providers.ProviderFireworks: {},
+		}).WithRetrySleep(noRetrySleep).WithRescuedFailureArmDemotion(false)
 
 	first := runRescueTurn(t, svc, []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"start this session"}]}`))
 	require.Equal(t, providers.ProviderFireworks, first.Header().Get(proxy.HeaderRouterProvider))

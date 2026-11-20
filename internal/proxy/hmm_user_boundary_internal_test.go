@@ -16,9 +16,9 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/hmm"
-	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/hmm/selection"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/router/rosterdata"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 )
@@ -41,7 +41,7 @@ func unscorableHMMService(store sessionpin.Store, sidecarFailure error) *Service
 	policyRouter := hmm.NewForStrategy(router.StrategyHMMEmbedding, unavailableHMMDecider{sidecarFailure},
 		map[string]struct{}{providers.ProviderAnthropic: {}})
 	policyRouter.WithArmSelector(selection.Selector(roster))
-	return NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	return withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: policyRouter})
 }
 
@@ -60,7 +60,7 @@ func TestHMMCommandOnlyTurnUsesEligibleRosterFallback(t *testing.T) {
 		EstimatedInputTokens: features.Tokens,
 		ConversationMessages: conversationMessagesForRouting(env),
 	}
-	turn, err := svc.runTurnLoop(ctx, env, features, "api-key", uuid.New(), "", http.Header{}, requestForRouting)
+	turn, err := svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, "api-key", uuid.New()), "", http.Header{}, requestForRouting)
 	require.NoError(t, err)
 	assert.Equal(t, "claude-haiku-4-5", turn.Decision.Model)
 	assert.Equal(t, providers.ProviderAnthropic, turn.Decision.Provider)
@@ -87,7 +87,7 @@ func TestHMMCommandOnlyTurnUsesAdmittedRuntimeFallback(t *testing.T) {
 		router.StrategyHMMEmbedding: innerRouter,
 	}}
 	admittedRouter := policyregistry.NewAdmittedRouter(router.StrategyHMMEmbedding, snapshot)
-	service := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	service := withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: admittedRouter})
 	ctx := policyregistry.WithServingSnapshot(
 		router.WithStrategy(context.Background(), router.StrategyHMMEmbedding),
@@ -230,7 +230,7 @@ func TestHMMCommandOnlyTurnKeepsEligibleSessionPin(t *testing.T) {
 	svc := unscorableHMMService(store, errors.New("must not call sidecar"))
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
 	request := router.Request{RequestedModel: features.Model, ConversationMessages: conversationMessagesForRouting(env)}
-	turn, err := svc.runTurnLoop(ctx, env, features, "api-key", uuid.New(), "", http.Header{}, request)
+	turn, err := svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, "api-key", uuid.New()), "", http.Header{}, request)
 	require.NoError(t, err)
 	assert.Equal(t, "claude-sonnet-4-6", turn.Decision.Model)
 	assert.Equal(t, unscorableHMMStickyReason, turn.Decision.Reason)

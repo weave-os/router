@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 
@@ -95,7 +96,7 @@ func reviewerService(p *reviewerProvider, store *fakePinStore) *proxy.Service {
 	if store == nil {
 		store = newFakePinStore()
 	}
-	return proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, store, false, providers.ProviderAnthropic, reviewerDefaultModel, nil)
+	return proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, store, false, providers.ProviderAnthropic, reviewerDefaultModel, nil), hmm.ServingPorts())
 }
 
 // Claude Code's auto-mode reviewer picks its own model (Sonnet 5 by default)

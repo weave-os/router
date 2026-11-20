@@ -15,7 +15,7 @@ import (
 )
 
 func TestCodexPlanRateLimitRefusesAsCallerThrottle(t *testing.T) {
-	svc := &Service{usageObserver: usage.NewObserver([]byte("test-salt"), time.Hour, time.Now)}
+	svc := &Service{hmmServing: hmmPorts(), usageObserver: usage.NewObserver([]byte("test-salt"), time.Hour, time.Now)}
 	ctx := WithManagedSubscriptionUsage(codexSubscriptionTestCtx())
 
 	svc.recordCodexQuotaExhaustion(ctx, http.Header{}, &providers.UpstreamErrorResponse{

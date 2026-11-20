@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/policyregistry"
-	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/rosterdata"
 )
 
 func publishChangedPolicy(t *testing.T, store *servingMemoryStore, base *rosterdata.Roster, bonus float64) policyregistry.PolicyObject {
