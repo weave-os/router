@@ -217,14 +217,6 @@ func workerEnv(dsn, pubsubAddress string, port int, policy policyFixture, mode s
 		"ROUTER_HMM_SIDECAR_AUTH=none",
 		"GIN_MODE=release",
 	}
-	if mode == server.DeploymentModeSelfHosted {
-		env = append(env,
-			"ROUTER_SERVING_REGISTRY_URI=invalid-disabled-registry",
-			"ROUTER_SERVING_CONFIGURATION_URI=invalid-disabled-configuration",
-			"ROUTER_SERVING_CONFIGURATION_GENERATION=invalid-disabled-generation",
-			"ROUTER_SERVING_TARGET=invalid-disabled-target",
-		)
-	}
 	return env
 }
 
