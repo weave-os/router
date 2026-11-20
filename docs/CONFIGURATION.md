@@ -1123,9 +1123,9 @@ never falls back to another policy.
 ### Self-hosted frozen HMM sidecar
 
 The repository includes an optional companion container under
-`sidecars/hmm/`. Start it with `make up-hmm`; the normal `make up` and
-`make full-setup` paths serve the stub HMM classifier from `smoke/hmmstub`,
-which lands every turn in one routing group.
+`sidecars/hmm/`. Start it with `make up-hmm` (local dev only); the normal
+`make up` and `make full-setup` paths serve the local-dev-only stub HMM
+classifier from `smoke/hmmstub`, which lands every turn in one routing group.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |

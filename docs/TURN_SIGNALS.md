@@ -96,3 +96,10 @@ storage is wired, and never for headless user agents. It never embeds a link.
 Codex gets its own wording. The footer text must stay matched by the ingress
 pattern that strips echoed footers from the next request's history;
 `TestFeedbackFooter_TextIsRecognisedOnIngress` pins that pairing.
+
+## Archived escalation tables
+
+`loop_escalation_events`, `spiral_shadow_events`, `struggle_shadow_events` and
+`struggle_escalation_events` belong to the retired loop, struggle and spiral
+escalation. They are archived, kept only for posterity; the router never
+writes to them and queries none of them.
