@@ -22,6 +22,7 @@ func logSwitchShadow(ctx context.Context, stayPin sessionpin.Pin, gate hmm.CostG
 		Fresh:                gate.Fresh.Model,
 		EstimatedInputTokens: gate.EstimatedInputTokens,
 		PromptTokens:         routingpolicy.PriorPromptTokens(stayPin),
+		OutputTokens:         stayPin.LastOutputTokens,
 		CacheCold:            stayPin.Model != "" && pinCacheCold(stayPin, gate.PrefixBroken, now),
 		PrefixBroken:         gate.PrefixBroken,
 	}

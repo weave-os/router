@@ -19,10 +19,11 @@ const (
 )
 
 const (
-	switchUpgradeWindow   = 3
-	switchUpgradeVotes    = 2
-	switchWarmReturnTurns = 2
-	switchPaybackTurns    = 10
+	switchUpgradeWindow       = 3
+	switchUpgradeVotes        = 2
+	switchWarmReturnTurns     = 2
+	switchPaybackTurns        = 40
+	switchDefaultOutputTokens = 1_500
 )
 
 type SwitchInput struct {
@@ -35,6 +36,7 @@ type SwitchInput struct {
 	CacheCold             bool
 	PrefixBroken          bool
 	SideRequest           bool
+	OutputTokens          int
 }
 
 type SwitchVerdict struct {
@@ -57,7 +59,7 @@ func DecideSwitch(input SwitchInput) SwitchVerdict {
 		return stay(SwitchReasonSameModel)
 	}
 	if input.SideRequest {
-		return stay(SwitchReasonSideRequest)
+		return SwitchVerdict{Serve: input.Fresh, Reason: SwitchReasonSideRequest}
 	}
 	tokens := switchPricingTokens(input)
 	currentPrice, currentPriced := HMMEffectiveInputUSDPer1M(input.Current, tokens)
@@ -75,7 +77,7 @@ func DecideSwitch(input SwitchInput) SwitchVerdict {
 		return move(SwitchReasonDowngrade)
 	case freshPrice < currentPrice && rewriteFree:
 		return move(SwitchReasonDowngradeWarm)
-	case freshPrice < currentPrice && switchDowngradePaysBack(input.Current, input.Fresh, tokens):
+	case freshPrice < currentPrice && switchDowngradePaysBack(input, tokens):
 		return move(SwitchReasonDowngrade)
 	case freshPrice < currentPrice:
 		return stay(SwitchReasonDowngradePending)
@@ -96,16 +98,29 @@ func switchFreshCacheWarm(input SwitchInput) bool {
 	return input.FreshTurnsSinceServed > 0 && input.FreshTurnsSinceServed <= switchWarmReturnTurns
 }
 
-func switchDowngradePaysBack(current, fresh string, tokens int) bool {
-	currentPrice, currentOK := catalog.PrimaryPriceFor(current)
-	freshPrice, freshOK := catalog.PrimaryPriceFor(fresh)
-	if !currentOK || !freshOK {
+func switchDowngradePaysBack(input SwitchInput, tokens int) bool {
+	freshModel, freshOK := catalog.ByID(input.Fresh)
+	currentTurn, currentOK := switchTurnCostUSDPer1M(input.Current, tokens, input.OutputTokens)
+	freshTurn, freshPriced := switchTurnCostUSDPer1M(input.Fresh, tokens, input.OutputTokens)
+	if !freshOK || !currentOK || !freshPriced {
 		return true
 	}
-	currentPrice, freshPrice = currentPrice.ForInputTokens(tokens), freshPrice.ForInputTokens(tokens)
-	readSavingsPerTurn := currentPrice.InputUSDPer1M*currentPrice.CacheReadMultiplier - freshPrice.InputUSDPer1M*freshPrice.CacheReadMultiplier
-	rewrite := freshPrice.InputUSDPer1M * freshPrice.EffectiveCacheWriteMultiplier()
-	return readSavingsPerTurn*switchPaybackTurns > rewrite
+	freshPrice, _ := catalog.PrimaryPriceFor(input.Fresh)
+	freshPrice = freshPrice.ForInputTokens(tokens)
+	rewrite := float64(tokens) * freshPrice.InputUSDPer1M * freshPrice.EffectiveCacheWrite1hMultiplier(freshModel.PrimaryProvider())
+	return (currentTurn-freshTurn)*switchPaybackTurns > rewrite
+}
+
+func switchTurnCostUSDPer1M(model string, tokens, outputTokens int) (float64, bool) {
+	price, ok := catalog.PrimaryPriceFor(model)
+	if !ok {
+		return 0, false
+	}
+	if outputTokens <= 0 {
+		outputTokens = switchDefaultOutputTokens
+	}
+	price = price.ForInputTokens(tokens)
+	return float64(tokens)*price.InputUSDPer1M*price.EffectiveCacheReadMultiplier() + float64(outputTokens)*price.OutputUSDPer1M, true
 }
 
 func switchUpgradeVoteCount(input SwitchInput, currentPrice float64, tokens int) int {

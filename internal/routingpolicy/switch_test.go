@@ -74,11 +74,10 @@ func TestDecideSwitchPricesTheRewriteOfALargeWarmPrompt(t *testing.T) {
 		serve  string
 		reason routingpolicy.SwitchReason
 	}{
-		{"side request keeps the current model", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestLow, SideRequest: true}, switchTestMid, routingpolicy.SwitchReasonSideRequest},
-		{"warm downgrade whose rewrite exceeds the read savings holds", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestLow}, switchTestMid, routingpolicy.SwitchReasonDowngradePending},
-		{"warm downgrade holds when only the estimate is small", routingpolicy.SwitchInput{Current: switchTestHigh, Fresh: switchTestMid, EstimatedInputTokens: 80_000}, switchTestHigh, routingpolicy.SwitchReasonDowngradePending},
+		{"side request is served on the fresh pick without moving the session", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestLow, SideRequest: true}, switchTestLow, routingpolicy.SwitchReasonSideRequest},
+		{"warm downgrade whose savings repay the rewrite moves", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestLow}, switchTestLow, routingpolicy.SwitchReasonDowngrade},
 		{"downgrade to a model served last turn moves", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestLow, FreshTurnsSinceServed: 1}, switchTestLow, routingpolicy.SwitchReasonDowngradeWarm},
-		{"downgrade to a model whose cache aged out holds", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestLow, FreshTurnsSinceServed: 6}, switchTestMid, routingpolicy.SwitchReasonDowngradePending},
+		{"downgrade to a model whose cache aged out is priced as a rewrite", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestLow, FreshTurnsSinceServed: 6}, switchTestLow, routingpolicy.SwitchReasonDowngrade},
 		{"cold downgrade moves", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestLow, CacheCold: true}, switchTestLow, routingpolicy.SwitchReasonDowngrade},
 		{"upgrade to a model served last turn is free", routingpolicy.SwitchInput{Current: switchTestLow, Fresh: switchTestMid, FreshTurnsSinceServed: 2}, switchTestMid, routingpolicy.SwitchReasonUpgradeFree},
 		{"lone warm upgrade still waits for a second vote", routingpolicy.SwitchInput{Current: switchTestLow, Fresh: switchTestMid}, switchTestLow, routingpolicy.SwitchReasonUpgradePending},
@@ -92,7 +91,7 @@ func TestDecideSwitchPricesTheRewriteOfALargeWarmPrompt(t *testing.T) {
 			verdict := routingpolicy.DecideSwitch(tc.input)
 			assert.Equal(t, tc.serve, verdict.Serve)
 			assert.Equal(t, tc.reason, verdict.Reason)
-			assert.Equal(t, tc.serve != tc.input.Current, verdict.Switch)
+			assert.Equal(t, tc.serve != tc.input.Current && !tc.input.SideRequest, verdict.Switch)
 		})
 	}
 }
