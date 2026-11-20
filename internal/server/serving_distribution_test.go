@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"weave-os/router/internal/policyregistry"
-	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/hmm/selection"
+	"weave-os/router/internal/router/rosterdata"
 	"weave-os/router/internal/server"
 	"weave-os/router/internal/server/middleware"
 )
