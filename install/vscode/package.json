@@ -1,0 +1,50 @@
+{
+  "name": "weave-router",
+  "displayName": "Weave Router",
+  "description": "Use Weave Router from the GitHub Copilot model picker.",
+  "version": "0.0.1",
+  "publisher": "weave-os",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/weave-os/router.git",
+    "directory": "install/vscode"
+  },
+  "engines": { "vscode": "^1.146.0" },
+  "categories": ["AI"],
+  "main": "./dist/extension.js",
+  "extensionKind": ["ui"],
+  "contributes": {
+    "languageModelChatProviders": [{ "vendor": "weave-router", "displayName": "Weave Router" }],
+    "commands": [
+      { "command": "weaveRouter.connect", "title": "Connect", "category": "Weave Router" },
+      { "command": "weaveRouter.disconnect", "title": "Disconnect", "category": "Weave Router" }
+    ],
+    "configuration": {
+      "title": "Weave Router",
+      "properties": {
+        "weaveRouter.baseUrl": {
+          "type": "string",
+          "default": "https://router.weaveos.com",
+          "scope": "machine",
+          "description": "Base URL of the Router to connect to. Run Weave Router: Connect after switching URLs."
+        }
+      }
+    }
+  },
+  "activationEvents": ["onLanguageModelChat:weave-router"],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "esbuild src/extension.ts --bundle --platform=node --target=node22 --external:vscode --outfile=dist/extension.js",
+    "vscode:prepublish": "npm run typecheck && npm run build",
+    "package": "vsce package --no-dependencies"
+  },
+  "dependencies": { "@anthropic-ai/sdk": "0.82.0" },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "1.146.0",
+    "@vscode/vsce": "^3.7.1",
+    "esbuild": "^0.27.0",
+    "typescript": "~5.9.3"
+  }
+}
