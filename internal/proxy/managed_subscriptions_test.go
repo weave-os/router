@@ -249,7 +249,7 @@ func TestLeaseManagedCodexRefusesPaidFallbackAfterAllLinkedAccountsAreRejected(t
 	}}
 	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
 	svc.credentials.KeyedProviders = map[string]struct{}{providers.ProviderOpenAI: {}}
-	ctx := managedSubscriptionContext(auth.SubscriptionProviderCodex)
+	ctx := billing.WithWeaveCreditsDenied(managedSubscriptionContext(auth.SubscriptionProviderCodex))
 	svc.subscriptionModels.denyManaged(
 		"account:opaque-codex", "opaque-codex", providers.ProviderOpenAI, "gpt-5.6-sol", time.Now().Add(time.Minute),
 	)
@@ -524,7 +524,7 @@ func TestDispatchWithFallbackRefusesPaidRecoveryAfterManagedModelDenial(t *testi
 	for requestIndex := range 2 {
 		recorder := httptest.NewRecorder()
 		buffer := newPreludeBuffer(recorder)
-		_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), failoverInputs{
+		_, err := svc.dispatchWithFallback(billing.WithWeaveCreditsDenied(managedSubscriptionTestContext()), failoverInputs{
 			w:               recorder,
 			buf:             buffer,
 			initialDecision: router.Decision{Model: parityAnthropicModel, Provider: providers.ProviderAnthropic},

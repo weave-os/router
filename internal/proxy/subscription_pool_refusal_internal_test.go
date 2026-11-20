@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/inference"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/refusal"
 	"weave-os/router/internal/router"
@@ -59,7 +60,7 @@ func poolRefusalPins() map[string]poolRefusalPin {
 		},
 		"funding with every blocking seat throttled": {
 			err: func(ctx context.Context) error {
-				return svc.authorizeSubscriptionAPI(WithManagedSubscriptionCandidates(WithManagedSubscriptionUsage(ctx), []*auth.SubscriptionAccount{throttledSeat}), subscriptions.ProviderClaude, inference.Target{}, "", "", clientAppRefusalFunding{})
+				return svc.authorizeSubscriptionAPI(WithManagedSubscriptionCandidates(WithManagedSubscriptionUsage(billing.WithWeaveCreditsDenied(ctx)), []*auth.SubscriptionAccount{throttledSeat}), subscriptions.ProviderClaude, inference.Target{}, "", "", clientAppRefusalFunding{})
 			},
 			sentinel: ErrSubscriptionPoolThrottled, kind: refusal.SubscriptionPoolThrottled,
 			text: "subscription account pool unavailable: every blocking account is rate-limited",
@@ -73,7 +74,7 @@ func poolRefusalPins() map[string]poolRefusalPin {
 		},
 		"funding with a throttled caller plan": {
 			err: func(ctx context.Context) error {
-				return callerPlanRefusal(callerPlanThrottledCtx(ctx), subscriptions.ProviderClaude, true, now)
+				return callerPlanRefusal(callerPlanThrottledCtx(billing.WithWeaveCreditsDenied(ctx)), subscriptions.ProviderClaude, true, now)
 			},
 			sentinel: errCallerPlanThrottled, kind: refusal.SubscriptionPoolThrottled,
 			text: "subscription account pool unavailable: every blocking account is rate-limited: caller plan is rate-limited",

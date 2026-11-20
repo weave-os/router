@@ -7,6 +7,7 @@ import (
 	"weave-os/router/internal/subscriptionlane"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -90,7 +91,8 @@ func seatsThrottled(ctx context.Context, pool subscriptions.Provider, now time.T
 }
 
 func throttledPoolRefusal(ctx context.Context, pool subscriptions.Provider, callerHasToken bool, now time.Time) error {
-	if _, withinShortWait := shortestSeatThrottle(ctx, pool, now); callerHasToken && !withinShortWait {
+	_, withinShortWait := shortestSeatThrottle(ctx, pool, now)
+	if !billing.WeaveCreditsDeniedFromContext(ctx) || callerHasToken && !withinShortWait {
 		return nil
 	}
 	return subscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolThrottled)
