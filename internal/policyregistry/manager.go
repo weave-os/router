@@ -14,8 +14,8 @@ import (
 
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/escalation"
-	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/router/rosterdata"
 )
 
 const defaultPollInterval = time.Minute
