@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/subscriptions"
 
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/observability"
@@ -27,6 +28,17 @@ func convertCodexResponses(ctx context.Context, body []byte, portableCodex bool,
 
 func codexLossyRescueNeeded(ctx context.Context, s *Service, headers http.Header) func(model string) bool {
 	return func(model string) bool {
-		return s.codexSubscriptionExhausted(ctx, headers) && !s.linkedSeatCanCover(ctx, providers.ProviderOpenAI, model)
+		return s.codexSubscriptionExhausted(ctx, headers) && !s.linkedSeatCanCover(ctx, providers.ProviderOpenAI, model) &&
+			(codexSubscriptionCanAttemptModel(model) || !codexPoolHasFreeSeat(ctx, s))
 	}
+}
+
+func codexPoolHasFreeSeat(ctx context.Context, s *Service) bool {
+	if s.managedSubscriptions == nil || managedSubscriptionEnrollmentUnavailable(ctx) {
+		return false
+	}
+	now := s.clock.Now()
+	return managedSeatCanCover(ctx, subscriptions.ProviderCodex, now, func(candidate managedSubscriptionCandidate) bool {
+		return s.managedAccountQuotaExhausted(ctx, candidate, now)
+	})
 }
