@@ -12,8 +12,6 @@ import (
 
 const ReasonUserForceModel = router.ReasonUserForceModel
 
-const ReasonLoopEscalation = "loop_escalation"
-
 type ForceModelResult struct {
 	Model string
 

@@ -151,35 +151,3 @@ func TestTurnLoop_KeepsForcedPinOnDisabledModel(t *testing.T) {
 	assert.Equal(t, "claude-opus-5", res.Decision.Model)
 	assert.True(t, res.StickyHit)
 }
-
-// Loop escalation is a router-chosen rescue, so it must not resurrect a model
-// the deployment disabled.
-func TestTurnLoop_DropsEscalationPinOnDisabledModel(t *testing.T) {
-	fakeRouter := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
-	store := &overwritingPinStore{pin: sessionpin.Pin{
-		Provider:    providers.ProviderAnthropic,
-		Model:       "claude-opus-5",
-		Reason:      translate.ReasonLoopEscalation,
-		PinnedUntil: time.Now().Add(time.Hour),
-	}, found: true}
-	svc := withHMMPorts(NewService(fakeRouter, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
-		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic)).
-		WithGlobalAutomaticExclusions(&stubGlobalExclusionStore{
-			byModel: map[string]string{"claude-opus-5": ""},
-		})
-
-	env := forceCommandEnv(t)
-	feats := env.RoutingFeatures()
-	res, err := svc.runTurnLoop(context.Background(), env, feats, testTurnRequest(context.Background(), "key-1", uuid.New()), "", nil,
-		router.Request{
-			RequestedModel:   feats.Model,
-			EnabledProviders: keyed(providers.ProviderAnthropic),
-			Candidates: router.Candidates{
-				AutomaticExcludedModels: map[string]struct{}{"claude-opus-5": {}},
-			},
-		})
-
-	require.NoError(t, err)
-	assert.Equal(t, "claude-haiku-4-5", res.Decision.Model)
-}

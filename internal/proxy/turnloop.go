@@ -937,13 +937,12 @@ func (s *Service) runTurnLoop(
 			pin = sessionpin.Pin{}
 		}
 	}
-	if pinFound && (isUserForcedReason(pin.Reason) || routingpolicy.IsLoopEscalationReason(pin.Reason)) {
+	if pinFound && isUserForcedReason(pin.Reason) {
 		_, excluded := req.Candidates.ExcludedModels[pin.Model]
 		_, providerEnabled := req.EnabledProviders[pin.Provider]
 		providerEligible := req.EnabledProviders == nil || providerEnabled
 		imageCapable := candidates.PinServesImages(pin, req)
-		autoDisabled := !isUserForcedReason(pin.Reason) && automaticallyDisabled(req, pin.Model)
-		if !excluded && !autoDisabled && providerEligible && imageCapable {
+		if !excluded && providerEligible && imageCapable {
 			decision := pinDecision(pin)
 			decision.Reason = pin.Reason
 			res.PinTier = pin.Reason
@@ -955,8 +954,6 @@ func (s *Service) runTurnLoop(
 		}
 		dropReason := "excluded"
 		switch {
-		case autoDisabled:
-			dropReason = "automatic_routing_disabled"
 		case !providerEligible:
 			dropReason = "provider_not_enabled"
 		case !imageCapable:
@@ -970,21 +967,11 @@ func (s *Service) runTurnLoop(
 			"enabled_providers", sortedEnabledKeys(req.EnabledProviders),
 			"role", res.PinRole,
 		)
-		if isUserForcedReason(pin.Reason) {
-			res.ForcedPinDropped = true
-			res.ForcedPinDropReason = dropReason
-			res.ForcedPinModel = pin.Model
-			if excluded || !imageCapable {
-				forcedTierFloor = catalog.TierFor(pin.Model)
-			}
-		} else if excluded || autoDisabled {
-			evictReason := "escalation_pin_excluded"
-			if autoDisabled {
-				evictReason = "escalation_pin_automatic_routing_disabled"
-			}
-			if err := s.expireSessionPin(ctx, strategy, installationID, res.SessionKey, res.PinRole, evictReason); err != nil {
-				log.Error("ineligible escalation pin eviction failed", "err", err, "pin_model", pin.Model, "role", res.PinRole, "evict_reason", evictReason)
-			}
+		res.ForcedPinDropped = true
+		res.ForcedPinDropReason = dropReason
+		res.ForcedPinModel = pin.Model
+		if excluded || !imageCapable {
+			forcedTierFloor = catalog.TierFor(pin.Model)
 		}
 		if !imageCapable {
 			req.Candidates.ExcludedModels = candidates.ExcludingModel(req.Candidates.ExcludedModels, pin.Model)

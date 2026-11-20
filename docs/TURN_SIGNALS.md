@@ -64,8 +64,6 @@ written: such a row would be shared by every zero-keyed session.
   sub-agents and the Explore sub-agent's flat window would otherwise look like
   drops, and a false fire hands an in-flight sub-agent a lossy summary.
 - No-progress recovery never clears an explicit `/force-model` pin.
-- Sessions pinned by the retired cyclic-loop escalation keep their
-  `loop_escalation` pin until it expires; nothing writes new ones.
 - The retired escalation tables (`loop_escalation_events`,
   `spiral_shadow_events`, `struggle_shadow_events`,
   `struggle_escalation_events`) are archived: kept for posterity, written by

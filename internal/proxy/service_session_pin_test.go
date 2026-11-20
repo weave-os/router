@@ -1438,29 +1438,6 @@ func TestService_ForcedPin_ReasonStaysUserForced(t *testing.T) {
 	assert.Equal(t, translate.ReasonUserForceModel, rec.Header().Get(proxy.HeaderRouterDecision), "forced pin keeps the plain user_forced reason")
 }
 
-// A loop_escalation pin is treated like /force-model: bypasses the scorer.
-func TestService_LoopEscalationPin_HonoredAsImmutableSticky(t *testing.T) {
-	store := newFakePinStore()
-	store.hasPin = true
-	store.pin = sessionpin.Pin{
-		Provider:    providers.ProviderAnthropic,
-		Model:       "claude-opus-4-8",
-		Reason:      translate.ReasonLoopEscalation,
-		PinnedUntil: time.Now().Add(30 * time.Minute),
-	}
-	// Scorer would pick a cheap model; the escalation pin must win.
-	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster:v0.65"}}
-	svc := newPinSvc(fr, store)
-
-	ctx := authedCtx(uuid.New().String())
-	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
-	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
-
-	assert.Equal(t, "claude-opus-4-8", rec.Header().Get(proxy.HeaderRouterModel), "escalation pin must keep the session on opus")
-	assert.Equal(t, translate.ReasonLoopEscalation, rec.Header().Get(proxy.HeaderRouterDecision), "escalation pin must report loop_escalation, not the scorer reason")
-}
-
 // buildCyclicLoopBody builds a wide re-read cycle (same files re-Read, no
 // edits) — enough to trip conversation.DetectCyclicToolCallLoop.
 func buildCyclicLoopBody(t *testing.T, nFiles, total int) []byte {
