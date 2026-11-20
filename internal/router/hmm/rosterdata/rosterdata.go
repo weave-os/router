@@ -112,6 +112,10 @@ type Cluster struct {
 	PreferredVendorsByHarness map[Harness][]string  `json:"preferred_vendors_by_harness"`
 }
 
+func (r *Roster) CatalogDiagnostics() []armid.Diagnostic {
+	return armid.ValidateRosterIDs(r.AllArms())
+}
+
 func (r *Roster) AllArms() []string {
 	seen := make(map[string]struct{})
 	for _, cluster := range r.Clusters {

@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/api/admin"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm/selection"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -48,10 +49,10 @@ func twoArmDistributionRoster() *rosterdata.Roster {
 	}
 }
 
-func newDistributionEngine(src admin.DistributionRosterSource) *gin.Engine {
+func newDistributionEngine(src selection.DistributionRosters) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	engine.GET("/v1/router/routing-distribution", admin.RoutingDistributionHandler(src))
+	engine.GET("/v1/router/routing-distribution", admin.RoutingDistributionHandler(selection.DistributionSource{Rosters: src}))
 	return engine
 }
 

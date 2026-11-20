@@ -2,7 +2,6 @@ package rl
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"weave-os/router/internal/observability"
@@ -10,7 +9,7 @@ import (
 	"weave-os/router/internal/router/policy"
 )
 
-var ErrPolicyUnavailable = errors.New("rl: policy router unavailable")
+var ErrPolicyUnavailable = router.ErrRLPolicyUnavailable
 
 type Candidate = policy.Candidate
 

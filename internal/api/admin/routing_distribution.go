@@ -9,14 +9,12 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm/rosterdata"
-	hmmselection "weave-os/router/internal/router/hmm/selection"
 
 	"github.com/gin-gonic/gin"
 )
 
 type DistributionRosterSource interface {
-	DistributionRoster(context.Context, router.Strategy) (*rosterdata.Roster, error)
+	DistributionRoster(context.Context, router.Strategy) (router.DistributionRoster, error)
 }
 
 const maxDistributionGrid = 101
@@ -53,7 +51,7 @@ func RoutingDistributionHandler(source DistributionRosterSource) gin.HandlerFunc
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "routing distribution unavailable"})
 			return
 		}
-		points, err := hmmselection.RoutingDistribution(roster, gridN, excludedModels, excludedProviders)
+		points, err := roster.RoutingDistribution(gridN, excludedModels, excludedProviders)
 		if err != nil {
 			if errors.Is(err, router.ErrNoEligibleProvider) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "exclusions leave no eligible models"})

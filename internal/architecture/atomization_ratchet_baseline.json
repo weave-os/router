@@ -6,15 +6,8 @@
     "proxy_hmm_metadata_references": {},
     "proxy_reason_string_comparisons": {},
     "serving_strategy_internal_imports": {
-      "internal/api/admin -> internal/router/hmm": 1,
-      "internal/api/admin -> internal/router/hmm/rosterdata": 1,
-      "internal/api/admin -> internal/router/hmm/selection": 1,
-      "internal/policyregistry -> internal/router/hmm/armid": 1,
       "internal/policyregistry -> internal/router/hmm/rosterdata": 1,
-      "internal/proxy -> internal/router/decisionmodel": 1,
-      "internal/proxy -> internal/router/hmm": 1,
-      "internal/proxy -> internal/router/hmm/armid": 1,
-      "internal/proxy -> internal/router/rl": 1
+      "internal/proxy -> internal/router/hmm": 1
     },
     "strategy_from_context_callers": {
       "internal/api/admin": 2,

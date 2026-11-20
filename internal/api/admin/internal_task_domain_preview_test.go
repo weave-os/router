@@ -16,6 +16,7 @@ import (
 
 	"weave-os/router/internal/api/admin"
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm/selection"
 )
 
 const (
@@ -61,7 +62,7 @@ func postTaskDomainPreview(t *testing.T, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	engine.POST("/preview", admin.InternalTaskDomainPreviewHandler())
+	engine.POST("/preview", admin.InternalTaskDomainPreviewHandler(selection.TaskDomainPreviewer{}))
 	payload, err := json.Marshal(body)
 	require.NoError(t, err)
 	recorder := httptest.NewRecorder()
@@ -141,7 +142,7 @@ func TestInternalTaskDomainPreviewRejectsEmptyAndOversizedBatches(t *testing.T) 
 	valid, err := json.Marshal(map[string]any{"items": []map[string]any{{"policy": policy, "evidence": evidence, "cluster": "low"}}})
 	require.NoError(t, err)
 	engine := gin.New()
-	engine.POST("/preview", admin.InternalTaskDomainPreviewHandler())
+	engine.POST("/preview", admin.InternalTaskDomainPreviewHandler(selection.TaskDomainPreviewer{}))
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/preview", bytes.NewReader(append(valid, []byte(` {"items":[]}`)...))))
 	assert.Equal(t, http.StatusBadRequest, recorder.Code, "trailing content is rejected")

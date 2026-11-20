@@ -11,7 +11,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
+	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm/selection"
 	"weave-os/router/internal/server"
 	"weave-os/router/internal/server/middleware"
 )
@@ -31,7 +33,7 @@ func TestSelfHostedDistributionComesFromConfiguredRosterSource(t *testing.T) {
 		"without an HMM distribution source no legacy projection may be mounted")
 
 	engine := gin.New()
-	server.RegisterWithFeatures(engine, nil, nil, fakeHMMRosterSource{}, server.DeploymentModeSelfHosted, nil, nil, nil, nil, server.Features{RoutingDistribution: unavailableDistributionRoster{}})
+	server.RegisterWithFeatures(engine, nil, nil, fakeHMMRosterSource{}, server.DeploymentModeSelfHosted, nil, nil, nil, nil, server.Features{RoutingDistribution: selection.DistributionSource{Rosters: unavailableDistributionRoster{}}})
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/router/routing-distribution?grid=2", nil))
 	assert.Equal(t, http.StatusServiceUnavailable, recorder.Code, "the configured roster source must back the route")
@@ -40,7 +42,7 @@ func TestSelfHostedDistributionComesFromConfiguredRosterSource(t *testing.T) {
 func TestServingDistributionMountsWithoutLegacyScorerAndRequiresAuthentication(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	server.RegisterWithFeatures(engine, nil, nil, nil, server.DeploymentModeManaged, nil, nil, nil, nil, server.Features{ServingAdmission: &middleware.ServingAdmissionConfig{}})
+	server.RegisterWithFeatures(engine, nil, nil, nil, server.DeploymentModeManaged, nil, nil, nil, nil, server.Features{ServingAdmission: &middleware.ServingAdmissionConfig{}, RoutingDistribution: selection.DistributionSource{Rosters: policyregistry.AdmittedRosterSource{}}})
 	assert.Contains(t, routeSet(engine), "GET /v1/router/routing-distribution")
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/router/routing-distribution?grid=2", nil))

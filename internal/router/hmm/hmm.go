@@ -1,7 +1,6 @@
 package hmm
 
 import (
-	"errors"
 	"strings"
 
 	"weave-os/router/internal/router"
@@ -9,7 +8,7 @@ import (
 	"weave-os/router/internal/router/policy"
 )
 
-var ErrHMMUnavailable = errors.New("hmm: policy router unavailable")
+var ErrHMMUnavailable = router.ErrHMMUnavailable
 
 type Candidate = policy.Candidate
 

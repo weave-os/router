@@ -19,7 +19,6 @@ import (
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/escalation/floor"
 	"weave-os/router/internal/router/hmm"
-	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/switchpolicy"
 	"weave-os/router/internal/router/turntype"
@@ -70,8 +69,8 @@ func applyAgreementShadowTelemetry(ctx context.Context, p *InsertTelemetryParams
 	if trace.ForcedGroup != "" || trace.ClusterOverridesPresent || (trace.OverrideReason != router.SelectionOverrideNone && trace.OverrideReason != router.SelectionOverrideSlidingThreshold) {
 		return
 	}
-	selectedBase, _ := armid.SplitEffort(trace.SelectedArm)
-	selectedModel := armid.CatalogIDForRoster(selectedBase)
+	selectedBase, _ := hmm.SplitEffort(trace.SelectedArm)
+	selectedModel := hmm.CatalogIDForRoster(selectedBase)
 	if selectedModel != res.Fresh.Model || md.CandidateProviders[selectedModel] != res.Fresh.Provider {
 		shadow.Observation.Gap = switchpolicy.ShadowGapMissing
 		return
@@ -83,11 +82,11 @@ func applyAgreementShadowTelemetry(ctx context.Context, p *InsertTelemetryParams
 		return
 	}
 	for _, arm := range trace.EffectiveOrders[string(group)] {
-		base, _ := armid.SplitEffort(arm)
+		base, _ := hmm.SplitEffort(arm)
 		if !slices.Contains(trace.CandidateRosterIDs, base) {
 			continue
 		}
-		model := armid.CatalogIDForRoster(base)
+		model := hmm.CatalogIDForRoster(base)
 		provider := md.CandidateProviders[model]
 		if provider == "" {
 			continue
