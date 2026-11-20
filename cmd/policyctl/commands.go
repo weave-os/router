@@ -8,11 +8,8 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"slices"
 	"strings"
-	"time"
 
-	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router/hmm/policycompiler"
 	"weave-os/router/internal/router/rosterdata"
@@ -30,19 +27,6 @@ const (
 )
 
 const defaultRegistryURI = "gs://weave_ml/weave_registry"
-
-type classifierVerification string
-
-const (
-	classifierVerificationProbe        classifierVerification = "probe"
-	classifierVerificationControlPlane classifierVerification = "control-plane"
-)
-
-type classifierRevisionIdentity struct {
-	ArtifactID    string
-	PackageSHA256 string
-	ImageDigest   string
-}
 
 func run(ctx context.Context, args []string) error {
 	if len(args) == 0 {
@@ -135,50 +119,6 @@ func runValidate(args []string) error {
 	})
 }
 
-func validateClassifierRevision(ctx context.Context, release policyregistry.Release, revisionURL string) error {
-	if err := validateClassifierRevisionURL(revisionURL); err != nil {
-		return err
-	}
-	client, err := policyclient.NewGoogleIDToken(revisionURL, 15*time.Second)
-	if err != nil {
-		return err
-	}
-	health, err := client.ReadClassifierHealth(ctx)
-	if err != nil {
-		return fmt.Errorf("probe classifier revision: %w", err)
-	}
-	if err := validateClassifierRevisionIdentity(release, classifierRevisionIdentity{
-		ArtifactID:    health.ClassifierArtifactID,
-		PackageSHA256: health.ClassifierSHA256,
-		ImageDigest:   health.ClassifierImageDigest,
-	}); err != nil {
-		return err
-	}
-	expected := release.Classifier
-	switch {
-	case health.SchemaVersion != expected.WireSchema:
-		return fmt.Errorf("classifier schema %q does not match release %q", health.SchemaVersion, expected.WireSchema)
-	case health.ClassifierTaxonomySHA != expected.TaxonomySHA256:
-		return fmt.Errorf("classifier taxonomy digest %q does not match release %q", health.ClassifierTaxonomySHA, expected.TaxonomySHA256)
-	case !slices.Equal(health.ClassifierClassOrder, expected.ClassOrder):
-		return errors.New("classifier class order does not match release")
-	}
-	return nil
-}
-
-func validateClassifierRevisionIdentity(release policyregistry.Release, observed classifierRevisionIdentity) error {
-	expected := release.Classifier
-	switch {
-	case observed.ArtifactID != expected.ArtifactID:
-		return fmt.Errorf("classifier artifact %q does not match release %q", observed.ArtifactID, expected.ArtifactID)
-	case observed.PackageSHA256 != expected.PackageSHA256:
-		return fmt.Errorf("classifier package digest %q does not match release %q", observed.PackageSHA256, expected.PackageSHA256)
-	case observed.ImageDigest != expected.ImageDigest:
-		return fmt.Errorf("classifier image digest %q does not match release %q", observed.ImageDigest, expected.ImageDigest)
-	}
-	return nil
-}
-
 func validateClassifierRevisionURL(raw string) error {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.User != nil {
@@ -199,15 +139,6 @@ func parseList(raw string) []string {
 		}
 	}
 	return values
-}
-
-func defaultActor() string {
-	for _, key := range []string{"GITHUB_ACTOR", "USER"} {
-		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
-			return value
-		}
-	}
-	return "unknown"
 }
 
 func writeJSON(value any) error {

@@ -863,7 +863,7 @@ func main() {
 			}
 		}
 		logger.Info("Managed serving admission enabled", "target", admission.Identity.Target, "revision", admission.Identity.Revision)
-	} else if localDevV4ReleaseUntilPublicV5Package := policyEnvironmentRaw != "" || policyReleaseDir != ""; localDevV4ReleaseUntilPublicV5Package {
+	} else if policyEnvironmentRaw != "" || policyReleaseDir != "" {
 		var policyRegistry policyregistry.Loader
 		var policyEnvironment policyregistry.Environment
 		policyLane := policyregistry.LaneStable

@@ -206,14 +206,6 @@ func (r *Registry) readObject(ctx context.Context, name string, generation int64
 	return payload, nil
 }
 
-func (r *Registry) policyObjectName(digest string) string {
-	return r.prefix + "/router_policy/v1/policies/sha256/" + digest + ".json"
-}
-
-func (r *Registry) releaseObjectName(digest string) string {
-	return r.prefix + "/router_policy/v1/releases/sha256/" + digest + ".json"
-}
-
 func (r *Registry) headObjectName(environment Environment, lane Lane) string {
 	return fmt.Sprintf("%s/runtime_state/router_policy/v1/environments/%s/lanes/%s/head.json", r.prefix, environment, lane)
 }

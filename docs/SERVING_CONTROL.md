@@ -3,10 +3,9 @@
 The `policyctl serving` group is the low-level interface for a trusted deployment
 workflow. It does not build images, deploy Cloud Run services, change revision tags,
 grant IAM access, or turn on managed serving. Those preparation steps belong
-to the environment's orchestrator. Existing top-level policy commands (`compile`,
-`check-rosters`, `validate`, `publish`, `promote`, `rollback`, `status`) remain the
-legacy lane-head interface for the self-hosted HMM path; they must not be used to
-manage migrated targets.
+to the environment's orchestrator. The remaining top-level policy commands
+(`compile`, `check-rosters`, `validate`) only build and check policy artifacts; the
+lane-head `publish`, `promote`, `rollback`, `status` and `export` commands are removed.
 
 The trust model is a single operator team publishing through one workflow identity.
 The registry therefore keeps the guarantees that prevent state corruption (immutable
