@@ -825,3 +825,23 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexStandaloneToo
 	assert.Equal(t, "exit 0", messages.Get(`#(role=="tool").content`).Str)
 	assert.Equal(t, `["Tool output:\nretained context","Tool output:\nbuild finished"]`, messages.Get(`#(role=="system")#.content`).Raw)
 }
+
+// A standalone output between parallel tool results must not split the result batch.
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexStandaloneToolOutputFollowsParallelResults(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"model":"gpt-6.1-sol","input":[` +
+		`{"type":"message","role":"user","content":"fix it"},` +
+		`{"type":"function_call","call_id":"call_a","name":"exec","arguments":"{}"},` +
+		`{"type":"function_call","call_id":"call_b","name":"exec","arguments":"{}"},` +
+		`{"type":"function_call_output","call_id":"call_a","output":"a done"},` +
+		`{"type":"function_call_output","output":"build finished"},` +
+		`{"type":"function_call_output","call_id":"call_b","output":"b done"}]}`)
+
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+	require.False(t, converted.Requirements.NativeOnly)
+	assert.Equal(t, `["user","assistant","tool","tool","system"]`, gjson.GetBytes(converted.Body, "messages.#.role").Raw)
+	routing, err := translate.ParseOpenAI(converted.RoutingBody)
+	require.NoError(t, err)
+	assert.Equal(t, "tool_result", routing.RoutingFeatures().LastKind)
+}

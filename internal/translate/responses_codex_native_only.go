@@ -70,6 +70,15 @@ func (c *portableCodexResponsesConverter) appendToolOutput(messages *[]map[strin
 }
 
 func (c *portableCodexResponsesConverter) appendStandaloneToolOutput(messages []map[string]any, message map[string]any) []map[string]any {
-	c.routingOmitted[len(messages)] = true
-	return append(messages, message)
+	c.pendingStandalone = append(c.pendingStandalone, message)
+	return messages
+}
+
+func (c *portableCodexResponsesConverter) flushStandaloneToolOutputs(messages []map[string]any) []map[string]any {
+	for _, message := range c.pendingStandalone {
+		c.routingOmitted[len(messages)] = true
+		messages = append(messages, message)
+	}
+	c.pendingStandalone = nil
+	return messages
 }

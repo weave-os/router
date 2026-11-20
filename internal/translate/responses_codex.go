@@ -46,6 +46,7 @@ type portableCodexResponsesConverter struct {
 	routingRoles            map[int]EscalationRole
 	toolImageRoutingCallIDs map[int]string
 	routingOmitted          map[int]bool
+	pendingStandalone       []map[string]any
 	hostedWebSearch         bool
 }
 
@@ -397,6 +398,7 @@ func (c *portableCodexResponsesConverter) convertInput(input gjson.Result) []map
 	var toolImageCalls []string
 	toolImages := map[string][]map[string]any{}
 	flushToolImages := func() {
+		defer func() { messages = c.flushStandaloneToolOutputs(messages) }()
 		if len(toolImageCalls) == 0 {
 			return
 		}
