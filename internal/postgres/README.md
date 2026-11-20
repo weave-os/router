@@ -36,6 +36,9 @@ owning context.
 - **Flag registry publish.** Not transactional: every replica publishes the same
   rows at boot, and the registry version prevents an older revision from pruning
   a newer revision's rows.
+- **External consumers.** `serving.CredentialLookup` has no caller inside the
+  router, but the Weave benchmark harness (`ml_dev/router_benchmarks/harness_setup`)
+  builds it from the pinned router tree to verify fixture credentials; keep it.
 - **Check fixtures.** `EscalationCheckFixture` and `LLMEscalationCheckFixture`
   only touch the disposable installation the database verification command
   created.
