@@ -95,10 +95,10 @@ type exactMove struct {
 }
 
 func (p movePool) claimExact(headFuncs, baseFuncs map[string]funcMetrics) map[string]bool {
-	removed := map[exactMove][]string{}
+	unclaimed := map[exactMove][]string{}
 	for _, key := range sortedKeys(p) {
 		move := exactMove{name: moveName(key), bodyHash: p[key].bodyHash}
-		removed[move] = append(removed[move], key)
+		unclaimed[move] = append(unclaimed[move], key)
 	}
 	claimed := map[string]bool{}
 	for _, key := range sortedKeys(headFuncs) {
@@ -107,11 +107,11 @@ func (p movePool) claimExact(headFuncs, baseFuncs map[string]funcMetrics) map[st
 		}
 		fn := headFuncs[key]
 		move := exactMove{name: moveName(key), bodyHash: fn.bodyHash}
-		for i, candidate := range removed[move] {
+		for i, candidate := range unclaimed[move] {
 			if maps.Equal(p[candidate].values, fn.values) {
 				claimed[key] = true
 				delete(p, candidate)
-				removed[move] = slices.Delete(removed[move], i, i+1)
+				unclaimed[move] = slices.Delete(unclaimed[move], i, i+1)
 				break
 			}
 		}
