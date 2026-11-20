@@ -748,11 +748,13 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexStandaloneToo
 			converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
 			require.NoError(t, err)
 			assert.False(t, converted.Requirements.NativeOnly, "reports: %#v", converted.Report)
-			var contents []string
+			var texts []string
 			for _, message := range gjson.GetBytes(converted.Body, "messages").Array() {
-				contents = append(contents, message.Get("content").String())
+				for _, part := range message.Get("content").Array() {
+					texts = append(texts, part.Get("text").String())
+				}
 			}
-			assert.Contains(t, contents, "Tool output:\nbuild finished")
+			assert.Contains(t, texts, "Tool output:\nbuild finished")
 		})
 	}
 }
@@ -800,7 +802,7 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexStandaloneToo
 	require.False(t, converted.Requirements.NativeOnly)
 	env, err := translate.ParseOpenAI(converted.Body)
 	require.NoError(t, err)
-	res, found := env.ExtractForceModelCommand()
+	command, found := env.ExtractForceModelCommand()
 	require.True(t, found)
-	assert.Equal(t, "gpt-5", res.Model)
+	assert.Equal(t, "gpt-5", command.Model)
 }
