@@ -104,8 +104,9 @@ func runAuthorityShadowTurnWithPin(
 	features := env.RoutingFeatures()
 	ctx := router.WithStrategy(context.Background(), strategy)
 	result, err := svc.runTurnLoop(
-		ctx, env, features, turnRequest{Strategy: router.StrategyFromContext(
-			ctx), APIKeyID: "api-key", InstallationID: uuid.New()},
+		ctx, env, features, testTurnRequest(
+			ctx, "api-key", uuid.New()),
+
 		"", http.Header{},
 		router.Request{
 			RequestedModel:       features.Model,

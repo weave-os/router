@@ -167,7 +167,7 @@ func TestRunTurnLoop_ClassifierPassthrough_NoSessionState(t *testing.T) {
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{"claude-sonnet-4-6"})
 	var zeroKey [sessionpin.SessionKeyLen]byte
 
-	res, err := svc.runTurnLoop(ctx, env, feats, turnRequest{Strategy: router.StrategyFromContext(ctx), APIKeyID: "api-key", InstallationID: uuid.New()}, "", http.Header{}, router.Request{RequestedModel: feats.Model})
+	res, err := svc.runTurnLoop(ctx, env, feats, testTurnRequest(ctx, "api-key", uuid.New()), "", http.Header{}, router.Request{RequestedModel: feats.Model})
 
 	require.NoError(t, err)
 	assert.Equal(t, turntype.Classifier, res.TurnType)
@@ -185,7 +185,7 @@ func TestRunTurnLoop_ClassifierForceModel_DoesNotApply(t *testing.T) {
 	svc := WithStrategyPorts(NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, classifierTestSubToken)
 
-	res, err := svc.runTurnLoop(ctx, env, feats, turnRequest{Strategy: router.StrategyFromContext(ctx), APIKeyID: "api-key", InstallationID: uuid.New()}, "", http.Header{}, router.Request{RequestedModel: feats.Model, ForceModel: "claude-sonnet-5"})
+	res, err := svc.runTurnLoop(ctx, env, feats, testTurnRequest(ctx, "api-key", uuid.New()), "", http.Header{}, router.Request{RequestedModel: feats.Model, ForceModel: "claude-sonnet-5"})
 
 	require.NoError(t, err)
 	assert.True(t, res.UsageBypass)

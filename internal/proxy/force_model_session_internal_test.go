@@ -185,7 +185,7 @@ func TestRunTurnLoop_ForceModelSessionPinAppliesAcrossChildThreads(t *testing.T)
 	features := child.RoutingFeatures()
 
 	ctx = router.WithStrategy(ctx, router.StrategyHMMBeta)
-	result, err := svc.runTurnLoop(ctx, child, features, turnRequest{Strategy: router.StrategyFromContext(ctx), APIKeyID: apiKeyID, InstallationID: installationID}, "", nil, router.Request{
+	result, err := svc.runTurnLoop(ctx, child, features, testTurnRequest(ctx, apiKeyID, installationID), "", nil, router.Request{
 		RequestedModel: features.Model,
 	})
 
@@ -255,7 +255,7 @@ func TestRunTurnLoop_DroppedSessionForcePreservesThreadPin(t *testing.T) {
 	svc.WithTransientRateLimit(true, 45)
 	ctx = router.WithStrategy(ctx, router.StrategyHMMEmbedding)
 
-	result, err := svc.runTurnLoop(ctx, env, features, turnRequest{Strategy: router.StrategyFromContext(ctx), APIKeyID: apiKeyID, InstallationID: installationID}, "", nil, router.Request{
+	result, err := svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, apiKeyID, installationID), "", nil, router.Request{
 		RequestedModel: features.Model,
 		EnabledProviders: map[string]struct{}{
 			providers.ProviderOpenAI: {},
@@ -306,7 +306,7 @@ func TestRunTurnLoop_ClearTombstoneBlocksLegacyForce(t *testing.T) {
 	svc := WithStrategyPorts(NewService(freshRouter, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
-	result, err := svc.runTurnLoop(ctx, env, features, turnRequest{Strategy: router.StrategyFromContext(ctx), APIKeyID: apiKeyID, InstallationID: installationID}, "", nil, router.Request{
+	result, err := svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, apiKeyID, installationID), "", nil, router.Request{
 		RequestedModel: features.Model,
 	})
 
@@ -345,7 +345,7 @@ func TestRunTurnLoop_SessionForceOverridesAuxiliaryHardPin(t *testing.T) {
 
 	features := env.RoutingFeatures()
 
-	result, err := svc.runTurnLoop(ctx, env, features, turnRequest{Strategy: router.StrategyFromContext(ctx), APIKeyID: apiKeyID, InstallationID: installationID}, "", nil, router.Request{
+	result, err := svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, apiKeyID, installationID), "", nil, router.Request{
 		RequestedModel: features.Model,
 	})
 

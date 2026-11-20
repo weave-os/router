@@ -99,7 +99,7 @@ func TestRunTurnLoop_ForcedPinRehydratesEffort(t *testing.T) {
 	require.NoError(t, err)
 	feats := env.RoutingFeatures()
 
-	res, err := svc.runTurnLoop(context.Background(), env, feats, turnRequest{Strategy: router.StrategyFromContext(context.Background()), APIKeyID: "key-1", InstallationID: uuid.New()}, "", nil, router.Request{
+	res, err := svc.runTurnLoop(context.Background(), env, feats, testTurnRequest(context.Background(), "key-1", uuid.New()), "", nil, router.Request{
 		RequestedModel: feats.Model,
 	})
 
@@ -128,7 +128,7 @@ func TestRunTurnLoop_RequestForceModelCarriesEffort(t *testing.T) {
 	require.NoError(t, err)
 	feats := env.RoutingFeatures()
 
-	res, err := svc.runTurnLoop(context.Background(), env, feats, turnRequest{Strategy: router.StrategyFromContext(context.Background()), APIKeyID: "key-1", InstallationID: uuid.New()}, "", nil, router.Request{
+	res, err := svc.runTurnLoop(context.Background(), env, feats, testTurnRequest(context.Background(), "key-1", uuid.New()), "", nil, router.Request{
 		RequestedModel: feats.Model,
 		ForceModel:     "opus:medium",
 	})

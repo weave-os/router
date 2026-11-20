@@ -236,8 +236,8 @@ func TestTurnLoop_ForcedPinToNewlyExcludedProviderRejects(t *testing.T) {
 	feats := env.RoutingFeatures()
 	_, err := svc.runTurnLoop(
 		excludedProvidersCtx(providers.ProviderAnthropic),
-		env, feats, turnRequest{Strategy: router.StrategyFromContext(
-			excludedProvidersCtx(providers.ProviderAnthropic)), APIKeyID: "key-1", InstallationID: uuid.New()},
+		env, feats, testTurnRequest(
+			excludedProvidersCtx(providers.ProviderAnthropic), "key-1", uuid.New()),
 
 		"", nil,
 		router.Request{RequestedModel: feats.Model})
@@ -266,8 +266,8 @@ func TestTurnLoop_AutomaticPinToExcludedProviderStillFallsThrough(t *testing.T) 
 	feats := env.RoutingFeatures()
 	_, err := svc.runTurnLoop(
 		excludedProvidersCtx(providers.ProviderAnthropic),
-		env, feats, turnRequest{Strategy: router.StrategyFromContext(
-			excludedProvidersCtx(providers.ProviderAnthropic)), APIKeyID: "key-1", InstallationID: uuid.New()},
+		env, feats, testTurnRequest(
+			excludedProvidersCtx(providers.ProviderAnthropic), "key-1", uuid.New()),
 
 		"", nil,
 		router.Request{RequestedModel: feats.Model})
@@ -339,8 +339,8 @@ func TestTurnLoop_ForcedPinFollowsSurvivingBinding(t *testing.T) {
 	feats := env.RoutingFeatures()
 	res, err := svc.runTurnLoop(
 		excludedProvidersCtx(providers.ProviderAnthropic),
-		env, feats, turnRequest{Strategy: router.StrategyFromContext(
-			excludedProvidersCtx(providers.ProviderAnthropic)), APIKeyID: "key-1", InstallationID: uuid.New()},
+		env, feats, testTurnRequest(
+			excludedProvidersCtx(providers.ProviderAnthropic), "key-1", uuid.New()),
 
 		"", nil,
 		router.Request{
@@ -375,8 +375,8 @@ func TestTurnLoop_StrikeExemptionCoversRemappedBinding(t *testing.T) {
 	feats := env.RoutingFeatures()
 	res, err := svc.runTurnLoop(
 		excludedProvidersCtx(providers.ProviderAnthropic),
-		env, feats, turnRequest{Strategy: router.StrategyFromContext(
-			excludedProvidersCtx(providers.ProviderAnthropic)), APIKeyID: "key-1", InstallationID: uuid.New()},
+		env, feats, testTurnRequest(
+			excludedProvidersCtx(providers.ProviderAnthropic), "key-1", uuid.New()),
 
 		"", nil,
 		router.Request{
@@ -410,8 +410,8 @@ func TestTurnLoop_HardPinnedTurnForcedPinFollowsSurvivingBinding(t *testing.T) {
 	feats := env.RoutingFeatures()
 	res, err := svc.runTurnLoop(
 		excludedProvidersCtx(providers.ProviderAnthropic),
-		env, feats, turnRequest{Strategy: router.StrategyFromContext(
-			excludedProvidersCtx(providers.ProviderAnthropic)), APIKeyID: "key-1", InstallationID: uuid.New()},
+		env, feats, testTurnRequest(
+			excludedProvidersCtx(providers.ProviderAnthropic), "key-1", uuid.New()),
 
 		"", nil,
 		router.Request{

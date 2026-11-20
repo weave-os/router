@@ -260,7 +260,7 @@ func TestUsageBypass_PreservesSwitchHistory(t *testing.T) {
 	env := bypassAnthropicEnvelope(t)
 	feats := env.RoutingFeatures()
 
-	res, err := svc.runTurnLoop(ctx, env, feats, turnRequest{Strategy: router.StrategyFromContext(ctx), APIKeyID: "api-key", InstallationID: uuid.New()}, "", http.Header{}, router.Request{
+	res, err := svc.runTurnLoop(ctx, env, feats, testTurnRequest(ctx, "api-key", uuid.New()), "", http.Header{}, router.Request{
 		RequestedModel: feats.Model,
 		EnabledProviders: map[string]struct{}{
 			providers.ProviderAnthropic: {},
@@ -310,7 +310,7 @@ func TestUsageBypass_EngagesUnderAuthoritativePolicy(t *testing.T) {
 	env := bypassAnthropicEnvelope(t)
 	feats := env.RoutingFeatures()
 
-	res, err := svc.runTurnLoop(ctx, env, feats, turnRequest{Strategy: router.StrategyFromContext(ctx), APIKeyID: "api-key", InstallationID: uuid.New()}, "", http.Header{}, router.Request{
+	res, err := svc.runTurnLoop(ctx, env, feats, testTurnRequest(ctx, "api-key", uuid.New()), "", http.Header{}, router.Request{
 		RequestedModel: feats.Model,
 		EnabledProviders: map[string]struct{}{
 			providers.ProviderAnthropic: {},

@@ -107,7 +107,7 @@ func TestTurnLoop_DropsAutomaticPinOnDisabledModel(t *testing.T) {
 
 	env := forceCommandEnv(t)
 	feats := env.RoutingFeatures()
-	res, err := svc.runTurnLoop(context.Background(), env, feats, turnRequest{Strategy: router.StrategyFromContext(context.Background()), APIKeyID: "key-1", InstallationID: uuid.New()}, "", nil,
+	res, err := svc.runTurnLoop(context.Background(), env, feats, testTurnRequest(context.Background(), "key-1", uuid.New()), "", nil,
 		router.Request{
 			RequestedModel:   feats.Model,
 			EnabledProviders: keyed(providers.ProviderAnthropic),
@@ -139,7 +139,7 @@ func TestTurnLoop_KeepsForcedPinOnDisabledModel(t *testing.T) {
 
 	env := forceCommandEnv(t)
 	feats := env.RoutingFeatures()
-	res, err := svc.runTurnLoop(context.Background(), env, feats, turnRequest{Strategy: router.StrategyFromContext(context.Background()), APIKeyID: "key-1", InstallationID: uuid.New()}, "", nil,
+	res, err := svc.runTurnLoop(context.Background(), env, feats, testTurnRequest(context.Background(), "key-1", uuid.New()), "", nil,
 		router.Request{
 			RequestedModel:   feats.Model,
 			EnabledProviders: keyed(providers.ProviderAnthropic),
@@ -172,7 +172,7 @@ func TestTurnLoop_DropsEscalationPinOnDisabledModel(t *testing.T) {
 
 	env := forceCommandEnv(t)
 	feats := env.RoutingFeatures()
-	res, err := svc.runTurnLoop(context.Background(), env, feats, turnRequest{Strategy: router.StrategyFromContext(context.Background()), APIKeyID: "key-1", InstallationID: uuid.New()}, "", nil,
+	res, err := svc.runTurnLoop(context.Background(), env, feats, testTurnRequest(context.Background(), "key-1", uuid.New()), "", nil,
 		router.Request{
 			RequestedModel:   feats.Model,
 			EnabledProviders: keyed(providers.ProviderAnthropic),

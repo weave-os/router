@@ -88,8 +88,8 @@ func TestTurnLoopHoldsPinnedEffortOnLowGapEscalation(t *testing.T) {
 			result, err := svc.runTurnLoop(
 				ctx,
 				env,
-				features, turnRequest{Strategy: router.StrategyFromContext(
-					ctx), APIKeyID: "api-key", InstallationID: uuid.New()},
+				features, testTurnRequest(
+					ctx, "api-key", uuid.New()),
 
 				"",
 				http.Header{},

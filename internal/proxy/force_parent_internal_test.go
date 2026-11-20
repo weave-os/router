@@ -44,7 +44,7 @@ func TestForceParentRoutesChildrenAndSupportsScopeTransitions(t *testing.T) {
 	route := func(env *translate.RequestEnvelope) turnLoopResult {
 		t.Helper()
 		features := env.RoutingFeatures()
-		routed, err := svc.runTurnLoop(ctx, env, features, turnRequest{Strategy: router.StrategyFromContext(ctx), APIKeyID: apiKeyID, InstallationID: installationID}, "", nil, router.Request{RequestedModel: features.Model})
+		routed, err := svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, apiKeyID, installationID), "", nil, router.Request{RequestedModel: features.Model})
 		require.NoError(t, err)
 		return routed
 	}
@@ -60,7 +60,7 @@ func TestForceParentRoutesChildrenAndSupportsScopeTransitions(t *testing.T) {
 	assert.Contains(t, ack, "force-parent applied:")
 	assert.Contains(t, ack, "Subagents use automatic routing")
 	features := parent.RoutingFeatures()
-	inheritedChild, err := svc.runTurnLoop(ctx, parent, features, turnRequest{Strategy: router.StrategyFromContext(ctx), APIKeyID: apiKeyID, InstallationID: installationID}, "explore", nil, router.Request{RequestedModel: features.Model})
+	inheritedChild, err := svc.runTurnLoop(ctx, parent, features, testTurnRequest(ctx, apiKeyID, installationID), "explore", nil, router.Request{RequestedModel: features.Model})
 	require.NoError(t, err)
 	assert.Equal(t, catalog.ModelIDClaudeHaiku45.String(), inheritedChild.Decision.Model, "identified subagents must route even when they inherit the parent transcript")
 	parentRoute := route(parent)
@@ -100,7 +100,7 @@ func TestForceParentDoesNotOverrideChildCompaction(t *testing.T) {
 	features := compaction.RoutingFeatures()
 	route := func() turnLoopResult {
 		t.Helper()
-		turn, err := svc.runTurnLoop(ctx, compaction, features, turnRequest{Strategy: router.StrategyFromContext(ctx), APIKeyID: apiKeyID, InstallationID: installationID}, "explore", nil, router.Request{RequestedModel: features.Model})
+		turn, err := svc.runTurnLoop(ctx, compaction, features, testTurnRequest(ctx, apiKeyID, installationID), "explore", nil, router.Request{RequestedModel: features.Model})
 		require.NoError(t, err)
 		return turn
 	}
