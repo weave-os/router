@@ -1224,7 +1224,7 @@ func (s *Service) runTurnLoop(
 			}
 		}
 		turn := continuity.Turn{IsToolResult: res.TurnType == turntype.ToolResult, Escalated: req.Escalation != nil, AuthoritativePerTurn: res.AuthoritativePerTurn}
-		continuityCfg := s.resolveContinuityConfig(ctx, holdToolResult)
+		continuityCfg := continuity.Config{PlannerEnabled: s.ResolvePlannerEnabled(ctx), ScoreToolResultTurns: s.ResolveScoreToolResultTurns(ctx), HoldToolResult: holdToolResult, Planner: s.continuityConfig.Planner}
 		if continuity.ToolResultSticky(req.Session, turn, continuityCfg) {
 			decision := pinDecision(pin)
 			res.Decision = decision
