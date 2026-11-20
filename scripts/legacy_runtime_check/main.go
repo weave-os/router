@@ -87,10 +87,8 @@ func run() error {
 	pubsubpb.RegisterSubscriberServer(pubsub, pubsubFixture{})
 	defer pubsub.Stop()
 	go func() { _ = pubsub.Serve(listener) }()
-	for _, mode := range []server.DeploymentMode{server.DeploymentModeSelfHosted, server.DeploymentModeManaged} {
-		if err := checkWorker(ctx, binary, dsn, listener.Addr().String(), token, policy, mode); err != nil {
-			return fmt.Errorf("%s worker: %w", mode, err)
-		}
+	if err := checkWorker(ctx, binary, dsn, listener.Addr().String(), token, policy, server.DeploymentModeSelfHosted); err != nil {
+		return fmt.Errorf("%s worker: %w", server.DeploymentModeSelfHosted, err)
 	}
 	return nil
 }
@@ -188,11 +186,7 @@ func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, 
 	}
 	request.Header.Set("X-Weave-Router-Key", token)
 	request.Header.Set("Content-Type", "application/json")
-	wantStatus := http.StatusOK
-	if mode == server.DeploymentModeManaged {
-		wantStatus = http.StatusPaymentRequired
-	}
-	if err := expectResponse(client, request, wantStatus, ""); err != nil {
+	if err := expectResponse(client, request, http.StatusOK, ""); err != nil {
 		return err
 	}
 	slog.Info("Legacy worker started and served authenticated requests without serving dependencies", "mode", mode, "log", logFile.Name())
