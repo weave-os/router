@@ -30,7 +30,8 @@ type clientAppRefusalPaidFallbackKey struct{}
 
 func withClientAppRefusalPaidFallback(ctx context.Context, decision router.Decision) context.Context {
 	consented, _ := ctx.Value(APIKeyPaidFallbackOnSubscriptionRefusalContextKey{}).(bool)
-	if !consented || !strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel) {
+	forcedConsent := consented && strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel)
+	if !forcedConsent && weaveCreditsDenied(ctx) {
 		return ctx
 	}
 	return context.WithValue(ctx, clientAppRefusalPaidFallbackKey{}, true)

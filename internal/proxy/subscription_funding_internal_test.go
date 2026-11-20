@@ -190,7 +190,6 @@ func TestSubscriptionFundingProviderFailureAuthorizesPaidRescue(t *testing.T) {
 func TestSubscriptionFundingOperationalFailuresNeverAuthorizeAPI(t *testing.T) {
 	for _, failure := range []error{
 		&providers.UpstreamErrorResponse{Status: http.StatusUnauthorized},
-		&providers.UpstreamErrorResponse{Status: http.StatusBadRequest, Body: []byte(`{"error":{"type":"invalid_request_error","message":"Third-party apps now draw from your extra usage, not your plan limits"}}`)},
 	} {
 		t.Run(failure.Error(), func(t *testing.T) {
 			upstream := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{{err: failure}, {writeBytes: []byte("unexpected paid answer")}}}

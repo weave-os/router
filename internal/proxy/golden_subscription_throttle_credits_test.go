@@ -73,23 +73,7 @@ func TestNoLoginLongThrottledSeatsFundsCredits(t *testing.T) {
 			t.Parallel()
 			h := newGoldenHarness(t, sc)
 			served := h.serve(t, sc.ingress, sc.requests[0])
-			require.Nil(t, served.DispatchError, "dispatch error: %+v", served.DispatchError)
-			require.Equal(t, http.StatusOK, served.Response.Status, "response: %+v", served.Response.Body)
-			raw, err := json.Marshal(served.Response)
-			require.NoError(t, err)
-			require.Contains(t, string(raw), "served on weave credits")
-			require.NotEmpty(t, served.Attempts)
-			last := served.Attempts[len(served.Attempts)-1]
-			require.Equal(t, providers.ProviderAnthropic, last.Provider)
-			require.Equal(t, "ok", last.Outcome)
-			require.Empty(t, last.Credential, "the turn must be served on the deployment key, not a seat")
-			require.Len(t, served.Billing, 1, "a credit-funded turn is debited exactly once")
-			debit, ok := served.Billing[0].(map[string]any)
-			require.True(t, ok, "billing record: %T", served.Billing[0])
-			delta, ok := debit["DeltaUsdMicros"].(int64)
-			require.True(t, ok, "billing record: %+v", debit)
-			require.Negative(t, delta, "the turn must spend Weave credits, not settle free")
-			require.NotEqual(t, true, debit["SubscriptionServed"], "the turn must not be settled as subscription-served")
+			requireServedOnCredits(t, served, "served on weave credits")
 		})
 	}
 }
@@ -110,4 +94,25 @@ func TestNoLoginLongThrottledSeatsCreditsDeniedIsRefused(t *testing.T) {
 	raw, err := json.Marshal(served.Response)
 	require.NoError(t, err)
 	require.NotContains(t, string(raw), "served on weave credits")
+}
+
+func requireServedOnCredits(t *testing.T, served goldenRequestTrace, text string) {
+	t.Helper()
+	require.Nil(t, served.DispatchError, "dispatch error: %+v", served.DispatchError)
+	require.Equal(t, http.StatusOK, served.Response.Status, "response: %+v", served.Response.Body)
+	raw, err := json.Marshal(served.Response)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), text)
+	require.NotEmpty(t, served.Attempts)
+	last := served.Attempts[len(served.Attempts)-1]
+	require.Equal(t, providers.ProviderAnthropic, last.Provider)
+	require.Equal(t, "ok", last.Outcome)
+	require.Empty(t, last.Credential, "the turn must be served on the deployment key, not a seat")
+	require.Len(t, served.Billing, 1, "a credit-funded turn is debited exactly once")
+	debit, ok := served.Billing[0].(map[string]any)
+	require.True(t, ok, "billing record: %T", served.Billing[0])
+	delta, ok := debit["DeltaUsdMicros"].(int64)
+	require.True(t, ok, "billing record: %+v", debit)
+	require.Negative(t, delta, "the turn must spend Weave credits, not settle free")
+	require.NotEqual(t, true, debit["SubscriptionServed"], "the turn must not be settled as subscription-served")
 }

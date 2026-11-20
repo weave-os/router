@@ -80,8 +80,8 @@ func TestAuthorizeSubscriptionAPI_PersistedCooldownCountsAsThrottle(t *testing.T
 	require.NoError(t, svc.authorizeSubscriptionAPI(throttleTestContext(cooling), subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{}), "a 401/403 cooldown is a credential fault, not a rate limit, and the seat cannot serve")
 }
 
-// A seat or caller-plan throttle past the short wait would fail the turn, so
-// Weave credits fund it, with or without a caller login.
+// A seat or caller-plan throttle would fail the turn, so Weave credits fund
+// it, with or without a caller login.
 func TestAuthorizeSubscriptionAPI_LongThrottleFundsCredits(t *testing.T) {
 	now := time.Now()
 	svc := &Service{clock: func() time.Time { return now }}
@@ -94,7 +94,8 @@ func TestAuthorizeSubscriptionAPI_LongThrottleFundsCredits(t *testing.T) {
 
 	short := WithManagedSubscriptionCandidates(WithManagedSubscriptionUsage(context.Background()), []*auth.SubscriptionAccount{activeCodexAccount("seat-1")})
 	recordManagedThrottle(short, "seat-1", now.Add(10*time.Second))
-	requireThrottledRefusal(t, svc.authorizeSubscriptionAPI(short, subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{}))
+	require.NoError(t, svc.authorizeSubscriptionAPI(short, subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{}), "outside the subscription-state lane no seat wait is coming, so a short throttle pays too")
+	requireThrottledRefusal(t, svc.authorizeSubscriptionAPI(billing.WithWeaveCreditsDenied(short), subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{}))
 }
 
 func TestAuthorizeSubscriptionAPI_UnknownCallerQuotaKeeps503(t *testing.T) {

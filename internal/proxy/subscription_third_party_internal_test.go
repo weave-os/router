@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -94,7 +95,7 @@ func dispatchManagedThirdPartyTurnWithReason(t *testing.T, svc *Service, ctx con
 	return recorder, err
 }
 
-func TestDispatchWithFallbackDoesNotPayForManagedThirdPartyRefusal(t *testing.T) {
+func TestDispatchWithFallbackPaysCreditsForManagedThirdPartyRefusal(t *testing.T) {
 	leaser := &scriptedSubscriptionLeaser{
 		leases:     []subscriptions.Lease{{AccountID: "opaque-a", AccessToken: "token-a"}},
 		repeatLast: true,
@@ -106,13 +107,13 @@ func TestDispatchWithFallbackDoesNotPayForManagedThirdPartyRefusal(t *testing.T)
 	svc.retrySleep = noopSleep
 
 	for range 2 {
-		recorder, err := dispatchManagedThirdPartyTurn(t, svc, clientAppContext(managedSubscriptionTestContext(), ClientAppOpencode))
-		require.Error(t, err)
-		assert.NotEqual(t, "served", recorder.Body.String())
+		recorder, err := dispatchManagedThirdPartyTurn(t, svc, admittedThirdPartyRefusalContext(false))
+		require.NoError(t, err)
+		assert.Equal(t, "served", recorder.Body.String())
 	}
 
 	assert.Equal(t, 1, upstream.subDispatches, "the refused account is skipped for this client app on later turns")
-	assert.Zero(t, upstream.paidDispatches, "a client-specific refusal does not prove the account quota is exhausted")
+	assert.Equal(t, 2, upstream.paidDispatches, "every turn the seats refuse is served on Weave credits")
 	assert.Empty(t, leaser.disabledIDs, "a third-party refusal must not mark the account as needing reconnect")
 	assert.Empty(t, leaser.cooldownIDs, "a third-party refusal must not cool the account down for every client")
 }
@@ -200,7 +201,7 @@ func TestDispatchWithFallbackRejectsPaidFallbackForForcedThirdPartyRefusal(t *te
 	svc.retrySleep = noopSleep
 
 	for range 2 {
-		_, err := dispatchManagedThirdPartyTurnWithReason(t, svc, clientAppContext(managedSubscriptionTestContext(), ClientAppOpencode), translate.ReasonUserForceModel)
+		_, err := dispatchManagedThirdPartyTurnWithReason(t, svc, clientAppContext(billing.WithWeaveCreditsDenied(managedSubscriptionTestContext()), ClientAppOpencode), translate.ReasonUserForceModel)
 		require.ErrorIs(t, err, ErrSubscriptionClientAppRefused)
 		cls, ok := ClassifyDispatchError(err)
 		require.True(t, ok)
@@ -208,7 +209,7 @@ func TestDispatchWithFallbackRejectsPaidFallbackForForcedThirdPartyRefusal(t *te
 	}
 
 	assert.Equal(t, 1, upstream.subDispatches, "the refused account is skipped for this client app on later turns")
-	assert.Zero(t, upstream.paidDispatches, "a forced Claude turn must not bill paid API for a refused third-party client")
+	assert.Zero(t, upstream.paidDispatches, "with Weave credits off, a forced Claude turn must not bill paid API for a refused third-party client")
 }
 
 func TestRotationBudgetPaidRescueRejectsForcedThirdPartyRefusal(t *testing.T) {
@@ -216,7 +217,7 @@ func TestRotationBudgetPaidRescueRejectsForcedThirdPartyRefusal(t *testing.T) {
 	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: &fakeClient{name: providers.ProviderAnthropic}}).
 		WithManagedSubscriptions(leaser).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
-	ctx := expiredRotationContext(auth.SubscriptionProviderClaude)
+	ctx := billing.WithWeaveCreditsDenied(expiredRotationContext(auth.SubscriptionProviderClaude))
 	markSubscriptionClientAppRefused(ctx)
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
@@ -290,24 +291,36 @@ func TestForcedThirdPartyRefusalPaysOnlyWhenKeyConsents(t *testing.T) {
 		assert.Equal(t, 1, upstream.paidDispatches)
 	})
 
-	t.Run("key without consent still fails the forced turn", func(t *testing.T) {
+	t.Run("key without consent is served on Weave credits", func(t *testing.T) {
 		svc, upstream := newThirdPartyRefusalService(t)
 
-		_, err := dispatchManagedThirdPartyTurnWithReason(t, svc, admittedThirdPartyRefusalContext(false), translate.ReasonUserForceModel)
+		recorder, err := dispatchManagedThirdPartyTurnWithReason(t, svc, admittedThirdPartyRefusalContext(false), translate.ReasonUserForceModel)
+
+		require.NoError(t, err)
+		assert.Equal(t, "served", recorder.Body.String())
+		assert.Equal(t, 1, upstream.subDispatches)
+		assert.Equal(t, 1, upstream.paidDispatches)
+	})
+
+	t.Run("key without consent fails the forced turn when Weave credits are off", func(t *testing.T) {
+		svc, upstream := newThirdPartyRefusalService(t)
+
+		_, err := dispatchManagedThirdPartyTurnWithReason(t, svc, billing.WithWeaveCreditsDenied(admittedThirdPartyRefusalContext(false)), translate.ReasonUserForceModel)
 
 		require.ErrorIs(t, err, ErrSubscriptionClientAppRefused)
 		assert.Equal(t, 1, upstream.subDispatches)
 		assert.Zero(t, upstream.paidDispatches)
 	})
 
-	t.Run("consent does not fund routed turns", func(t *testing.T) {
+	t.Run("routed turn is served on Weave credits", func(t *testing.T) {
 		svc, upstream := newThirdPartyRefusalService(t)
 
-		_, err := dispatchManagedThirdPartyTurn(t, svc, admittedThirdPartyRefusalContext(true))
+		recorder, err := dispatchManagedThirdPartyTurn(t, svc, admittedThirdPartyRefusalContext(false))
 
-		require.Error(t, err)
+		require.NoError(t, err)
+		assert.Equal(t, "served", recorder.Body.String())
 		assert.Equal(t, 1, upstream.subDispatches)
-		assert.Zero(t, upstream.paidDispatches, "a refusal is not quota proof for a routed turn")
+		assert.Equal(t, 1, upstream.paidDispatches)
 	})
 }
 
@@ -348,14 +361,9 @@ func TestForcedThirdPartyRefusalPaysThroughSubscriptionStateModelsOnlyWhenKeyCon
 			})
 
 			assert.Equal(t, 1, upstream.subDispatches)
-			if consented {
-				require.NoError(t, err)
-				assert.Equal(t, "served", recorder.Body.String())
-				assert.Equal(t, 1, upstream.paidDispatches)
-				return
-			}
-			require.Error(t, err)
-			assert.Zero(t, upstream.paidDispatches)
+			require.NoError(t, err)
+			assert.Equal(t, "served", recorder.Body.String())
+			assert.Equal(t, 1, upstream.paidDispatches)
 		})
 	}
 }
@@ -426,22 +434,23 @@ func TestForcedThirdPartyRefusalConsentSpendsWholeClaudePool(t *testing.T) {
 		assert.Equal(t, 1, upstream.paidDispatches)
 	})
 
-	t.Run("key without consent still fails the forced turn", func(t *testing.T) {
+	t.Run("key without consent fails the forced turn when Weave credits are off", func(t *testing.T) {
 		svc, upstream, _ := newSharedPoolRefusalService(t, ownSeat)
 
-		_, err := dispatchManagedThirdPartyTurnWithReason(t, svc, sharedPoolRefusalContext(false), translate.ReasonUserForceModel)
+		_, err := dispatchManagedThirdPartyTurnWithReason(t, svc, billing.WithWeaveCreditsDenied(sharedPoolRefusalContext(false)), translate.ReasonUserForceModel)
 
 		require.ErrorIs(t, err, ErrSubscriptionClientAppRefused)
 		assert.Equal(t, 1, upstream.subDispatches)
 		assert.Zero(t, upstream.paidDispatches)
 	})
 
-	t.Run("consent does not fund routed turns", func(t *testing.T) {
+	t.Run("routed turn is served on Weave credits", func(t *testing.T) {
 		svc, upstream, _ := newSharedPoolRefusalService(t, ownSeat)
 
-		_, err := dispatchManagedThirdPartyTurn(t, svc, sharedPoolRefusalContext(true))
+		recorder, err := dispatchManagedThirdPartyTurn(t, svc, sharedPoolRefusalContext(false))
 
-		require.Error(t, err)
-		assert.Zero(t, upstream.paidDispatches)
+		require.NoError(t, err)
+		assert.Equal(t, "served", recorder.Body.String())
+		assert.Equal(t, 1, upstream.paidDispatches)
 	})
 }

@@ -92,7 +92,7 @@ func seatsThrottled(ctx context.Context, pool subscriptions.Provider, now time.T
 
 func throttledPoolRefusal(ctx context.Context, pool subscriptions.Provider, callerHasToken bool, now time.Time) error {
 	_, withinShortWait := shortestSeatThrottle(ctx, pool, now)
-	if !withinShortWait && (callerHasToken || !billing.WeaveCreditsDeniedFromContext(ctx)) {
+	if !billing.WeaveCreditsDeniedFromContext(ctx) || callerHasToken && !withinShortWait {
 		return nil
 	}
 	return subscriptionPoolRefusal(ctx, subscriptionlane.SubscriptionPoolThrottled)
