@@ -401,7 +401,7 @@ func TestMaybeEvictPin_SubscriptionPoolExhaustedLeavesStrikeCounter(t *testing.T
 		context.Background(),
 		true,
 		ErrSubscriptionPoolExhausted,
-		"loop_escalation", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: installationID, sessionKey: sessionKey},
+		"hmm_policy", sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: installationID, sessionKey: sessionKey},
 
 		sessionpin.DefaultRole)
 
@@ -419,9 +419,9 @@ func TestMaybeExpireSubscriptionArmPin(t *testing.T) {
 		decisionReason string
 		wantReason     string
 	}{
-		{"pool exhaustion evicts the pin", ErrSubscriptionPoolExhausted, "loop_escalation", pinEvictionReasonSubscriptionPool},
-		{"model denial evicts the pin", modelAccessError(), "loop_escalation", pinEvictionReasonSubscriptionModel},
-		{"healthy arm leaves the pin", nil, "loop_escalation", ""},
+		{"pool exhaustion evicts the pin", ErrSubscriptionPoolExhausted, "hmm_policy", pinEvictionReasonSubscriptionPool},
+		{"model denial evicts the pin", modelAccessError(), "hmm_policy", pinEvictionReasonSubscriptionModel},
+		{"healthy arm leaves the pin", nil, "hmm_policy", ""},
 		{"force-model pin is never evicted", modelAccessError(), translate.ReasonUserForceModel, ""},
 	}
 	for _, tc := range cases {

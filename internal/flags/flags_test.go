@@ -58,30 +58,6 @@ func TestParseOverridesEmptyIsNotAnError(t *testing.T) {
 	}
 }
 
-func TestParseOverridesIgnoresRetiredFlags(t *testing.T) {
-	o, err := flags.ParseOverrides([]byte(`{
-		"struggle_escalation_enabled": true,
-		"struggle_escalation_holdout_pct": "retired",
-		"struggle_evidence_arming": false,
-		"subscriber_paid_fallback_enabled": false,
-		"subscription_pool_quota_aware_selection_enabled": true,
-		"authoritative_upgrade_holdout_pct": 10,
-		"hmm_same_tier_pin": true,
-		"planner_cold_pin_follow_fresh": true,
-		"planner_enabled": false,
-		"loop_escalation_holdout_pct": 25,
-		"task_arm_experiment_treatment_pct": 25
-	}`))
-	require.NoError(t, err)
-	assert.False(t, o.Bools[flags.KeyPlannerEnabled])
-	assert.Equal(t, 25, o.Ints[flags.KeyTaskArmExperimentTreatmentPct])
-	assert.NotContains(t, o.Keys(), flags.Key("loop_escalation_holdout_pct"))
-	assert.NotContains(t, o.Keys(), flags.Key("struggle_escalation_enabled"))
-	assert.NotContains(t, o.Keys(), flags.Key("subscriber_paid_fallback_enabled"))
-	assert.NotContains(t, o.Keys(), flags.Key("subscription_pool_quota_aware_selection_enabled"))
-	assert.NotContains(t, o.Keys(), flags.Key("hmm_same_tier_pin"))
-}
-
 func TestParseOverridesRejectsBadPayloads(t *testing.T) {
 	for name, raw := range map[string]string{
 		// A typo'd key must not be silently dropped: a dropped override reads at
@@ -103,7 +79,7 @@ func TestParseOverridesRejectsBadPayloads(t *testing.T) {
 }
 
 func TestOverridesRoundTrip(t *testing.T) {
-	original := []byte(`{"planner_enabled":false,"loop_escalation_holdout_pct":7,"cyber_refusal_fallback_model":"claude-sonnet-5"}`)
+	original := []byte(`{"planner_enabled":false,"cyber_refusal_fallback_model":"claude-sonnet-5"}`)
 	parsed, err := flags.ParseOverrides(original)
 	require.NoError(t, err)
 

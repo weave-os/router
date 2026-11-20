@@ -23,12 +23,6 @@ func IsHMMStrategy(strategy Strategy) bool {
 	return strategy == StrategyHMM || strategy == StrategyHMMEmbedding || IsBetaStrategy(strategy)
 }
 
-const retiredClusterStrategy Strategy = "cluster"
-
-func IsRetiredStrategy(strategy Strategy) bool {
-	return strategy == retiredClusterStrategy
-}
-
 func IsBetaStrategy(strategy Strategy) bool {
 	return strategy == StrategyHMMBeta || strategy == StrategyHMMQwen
 }

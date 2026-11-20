@@ -116,40 +116,6 @@ const (
 	KeyPlanUserClusterLists                 Key = "plan_user_cluster_lists"
 )
 
-const (
-	retiredKeyStruggleEscalationEnabled Key = "struggle_escalation_enabled"
-	retiredKeyStruggleEscalationHoldout Key = "struggle_escalation_holdout_pct"
-	retiredKeyStruggleEvidenceArming    Key = "struggle_evidence_arming"
-	retiredKeySubscriberPaidFallback    Key = "subscriber_paid_fallback_enabled"
-	retiredKeySubscriptionPoolQuota     Key = "subscription_pool_quota_aware_selection_enabled"
-	retiredKeyEmbedOnlyUserMessage      Key = "embed_only_user_message"
-	retiredKeyUpgradeHoldoutPct         Key = "authoritative_upgrade_holdout_pct"
-	retiredKeyHMMSameTierPin            Key = "hmm_same_tier_pin"
-	retiredKeyColdPinFollowFresh        Key = "planner_cold_pin_follow_fresh"
-	retiredKeyInstallationPoolAllowance Key = "installation_pool_allowance"
-	retiredKeyStruggleShadowEnabled     Key = "struggle_shadow_enabled"
-	retiredKeySpiralShadowEnabled       Key = "spiral_shadow_enabled"
-	retiredKeyLoopEscalationEnabled     Key = "loop_escalation_enabled"
-	retiredKeyLoopEscalationHoldoutPct  Key = "loop_escalation_holdout_pct"
-)
-
-var retiredOverrideKeys = map[Key]struct{}{
-	retiredKeyStruggleEscalationEnabled: {},
-	retiredKeyStruggleEscalationHoldout: {},
-	retiredKeyStruggleEvidenceArming:    {},
-	retiredKeySubscriberPaidFallback:    {},
-	retiredKeySubscriptionPoolQuota:     {},
-	retiredKeyEmbedOnlyUserMessage:      {},
-	retiredKeyUpgradeHoldoutPct:         {},
-	retiredKeyHMMSameTierPin:            {},
-	retiredKeyColdPinFollowFresh:        {},
-	retiredKeyInstallationPoolAllowance: {},
-	retiredKeyStruggleShadowEnabled:     {},
-	retiredKeySpiralShadowEnabled:       {},
-	retiredKeyLoopEscalationEnabled:     {},
-	retiredKeyLoopEscalationHoldoutPct:  {},
-}
-
 type Definition struct {
 	Key            Key
 	EnvVar         string
@@ -323,9 +289,6 @@ func DecodeOverrides(raw []byte) (o Overrides, err error) {
 		key := Key(name)
 		def, ok := definitions[key]
 		if !ok {
-			if _, retired := retiredOverrideKeys[key]; retired {
-				continue
-			}
 			return Overrides{}, fmt.Errorf("flags: unknown flag %q", name)
 		}
 		if !def.OrgOverridable {

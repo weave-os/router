@@ -18,14 +18,13 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/subscriptions"
-	"weave-os/router/internal/translate"
 )
 
 func claudeOpusPinnedDecision() router.Decision {
 	return router.Decision{
 		Provider: providers.ProviderAnthropic,
 		Model:    "claude-opus-5",
-		Reason:   translate.ReasonLoopEscalation,
+		Reason:   "hmm_policy",
 		Metadata: &router.RoutingMetadata{
 			CandidateModels:    []string{"claude-opus-5", "gpt-5.6-luna"},
 			CandidateProviders: map[string]string{"gpt-5.6-luna": providers.ProviderOpenAI},
@@ -127,13 +126,13 @@ func TestProxyMessages_SubscriptionPoolExhaustionRescuesSibling(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "served after retry")
 }
 
-func TestMaybeExpireSubscriptionArmPin_StickyLoopEscalation(t *testing.T) {
+func TestMaybeExpireSubscriptionArmPin_StickyRouterPin(t *testing.T) {
 	store := &evictionStubPinStore{}
 	svc := newEvictionTestService(store)
 	installationID := uuid.New()
 	sessionKey := nonZeroSessionKey()
 
-	svc.maybeExpireSubscriptionArmPin(context.Background(), router.StrategyFromContext(context.Background()), ErrSubscriptionPoolExhausted, translate.ReasonLoopEscalation, installationID, sessionKey, sessionpin.DefaultRole)
+	svc.maybeExpireSubscriptionArmPin(context.Background(), router.StrategyFromContext(context.Background()), ErrSubscriptionPoolExhausted, "hmm_policy", installationID, sessionKey, sessionpin.DefaultRole)
 
 	require.Len(t, store.upserts, 1)
 	assert.Equal(t, pinEvictionReasonSubscriptionPool, store.upserts[0].Reason)

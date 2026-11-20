@@ -38,7 +38,7 @@ var reservedPolicyStrategies = map[router.Strategy]struct{}{
 
 func isReservedPolicyStrategy(strategy router.Strategy) bool {
 	_, reserved := reservedPolicyStrategies[strategy]
-	return reserved || router.IsRetiredStrategy(strategy)
+	return reserved
 }
 
 type policySidecarEndpoint struct {

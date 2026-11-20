@@ -440,7 +440,6 @@ func sanitizeSidecarDisplayMarker(raw string) string {
 const (
 	markerReasonShadowEscalation    = "escalation marked — shadow mode; no action taken"
 	markerReasonUserForced          = "pinned by force-model"
-	markerReasonLoopEscalated       = "escalated due to loop"
 	markerReasonSwitched            = "switched for positive EV after cache eviction"
 	markerReasonStayed              = "stayed on your last pick"
 	markerReasonTierUpgrade         = "upgraded to a stronger tier"
@@ -511,9 +510,6 @@ func routingReasonShort(res turnLoopResult) string {
 	}
 	if res.UserForced {
 		return markerReasonUserForced
-	}
-	if routingpolicy.IsLoopEscalationReason(res.Decision.Reason) {
-		return markerReasonLoopEscalated
 	}
 	return markerReasonBestPick
 }
@@ -1750,7 +1746,7 @@ func (s *Service) Clients() *dispatch.Clients {
 }
 
 func (s *Service) WithPolicyStrategy(spec policy.StrategySpec) *Service {
-	if spec.Strategy == "" || router.IsRetiredStrategy(spec.Strategy) {
+	if spec.Strategy == "" {
 		return s
 	}
 	if s.strategies == nil {
