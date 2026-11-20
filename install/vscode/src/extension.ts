@@ -14,8 +14,9 @@ const model = {
   name: 'Weave Router',
   family: 'weave-router',
   version: '1',
-  maxInputTokens: 123_904,
-  maxOutputTokens: 4_096,
+  // Match the 500K Auto window in install.sh, reserving 32K for output.
+  maxInputTokens: 468_000,
+  maxOutputTokens: 32_000,
   capabilities: { toolCalling: true, imageInput: false },
 } satisfies vscode.LanguageModelChatInformation;
 
