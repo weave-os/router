@@ -202,10 +202,10 @@ func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router
 	if !modelPermittedByAllowlist(ctx, req.RequestedModel) || !modelInRequestSubset(ctx, req.RequestedModel) {
 		return router.Decision{}, fmt.Errorf("requested model %q is not allowed: %w", req.RequestedModel, router.ErrAllowlistEmptiesPool)
 	}
-	if _, excluded := req.ExcludedModels[req.RequestedModel]; excluded {
+	if _, excluded := req.Candidates.ExcludedModels[req.RequestedModel]; excluded {
 		return router.Decision{}, fmt.Errorf("requested model %q cannot serve this request: %w", req.RequestedModel, router.ErrNoEligibleProvider)
 	}
-	if _, excluded := req.SafetyExcludedModels[req.RequestedModel]; excluded {
+	if _, excluded := req.Candidates.SafetyExcludedModels[req.RequestedModel]; excluded {
 		return router.Decision{}, fmt.Errorf("requested model %q cannot serve this request: %w", req.RequestedModel, router.ErrNoEligibleProvider)
 	}
 	if req.HasImages && (!catalog.AcceptsImages(req.RequestedModel) ||

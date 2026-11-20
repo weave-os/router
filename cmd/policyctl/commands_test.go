@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/policyregistry"
-	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/rosterdata"
 )
 
 func TestRunCompileWritesCanonicalBytes(t *testing.T) {

@@ -150,3 +150,32 @@ cheapest first for deterministic clamping. `model_test.go` pins the quirks:
 M3.1 Flash, GPT-6 Astra); GPT-6 Sol/Luna accept `none`. GPT-5.6 keeps `max` off
 its menu because only the Codex backend accepts it. Gemini's OpenAI-compatible
 endpoint ignores reasoning and thinking fields.
+
+## Continuity helpers
+
+`internal/router/continuity` holds the router-layer session-continuity rules
+that the serving layer applies to non-HMM strategy decisions (`rl`,
+`decision_model`, `llm_classifier`, HTTP policy adapters). They read only
+`router.SessionView` (its `Pin` is the generic session-pin view) plus turn
+facts and flag values, and never perform I/O:
+
+- `ToolResultSticky`: keep the eligible pin on a tool-result turn.
+- `CanReusePin`: keep the eligible pin when the planner is disabled.
+- `Plan`: run the pure `planner.Decide` against the pin view; the EV planner
+  still governs both switch directions.
+
+Strategies that set `AuthoritativePerTurnSelection` bypass both pin helpers.
+HMM-only pin state stays behind `internal/router/hmm` accessors.
+
+## Package layers
+
+| Package | Layer | Owner | Role |
+| --- | --- | --- | --- |
+| `switchpolicy` | Router | `continuity` (cache economics) | Versioned switch-policy rules replayed by the agreement shadow. |
+| `bandswap` | Router | `continuity` (cache economics) | Classifier that picks the served band when the planner stays on a pin. |
+| `percallband` | Router | `continuity` (cache economics) | Per-call band head and features; not wired into serving. |
+| `taskarm` | Router | `policy` (classifier inputs) | Task-arm labels and assignment read by the serving-layer experiment. |
+| `taskdomain` | Router | `policy` (classifier inputs) | Task-domain contracts consumed by HMM selection and policy inference. |
+
+The serving layer (`internal/proxy`) calls these packages; none of them
+import serving-layer code.

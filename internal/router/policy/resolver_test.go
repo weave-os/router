@@ -262,8 +262,10 @@ func TestResolverKeepsOverflowAdmittedModels(t *testing.T) {
 	)
 
 	resolved := resolver.Resolve(router.Request{
-		EstimatedInputTokens:   catalog.ContextWindowFor("claude-opus-4-8") + 1,
-		OverflowAdmittedModels: set("claude-opus-4-8"),
+		EstimatedInputTokens: catalog.ContextWindowFor("claude-opus-4-8") + 1,
+		Candidates: router.Candidates{
+			OverflowAdmittedModels: set("claude-opus-4-8"),
+		},
 	})
 
 	assert.Equal(t, []string{"claude-opus-4-8"}, resolved.CandidateModels(),
@@ -285,9 +287,11 @@ func TestResolverPreservesUnsignedHistoryExclusionAfterOverflowAdmission(t *test
 	)
 
 	resolved := resolver.Resolve(router.Request{
-		ExcludedModels:                set(model),
-		OverflowAdmittedModels:        set(model),
-		UnsignedHistoryExcludedModels: set(model),
+		Candidates: router.Candidates{
+			ExcludedModels:                set(model),
+			OverflowAdmittedModels:        set(model),
+			UnsignedHistoryExcludedModels: set(model),
+		},
 	})
 
 	assert.Empty(t, resolved.Candidates)
@@ -308,8 +312,10 @@ func TestResolverDoesNotCallUnmappedOverflowCandidateAContextExclusion(t *testin
 	)
 
 	resolved := resolver.Resolve(router.Request{
-		ExcludedModels:              set(model),
-		ContextWindowExcludedModels: set(model),
+		Candidates: router.Candidates{
+			ExcludedModels:              set(model),
+			ContextWindowExcludedModels: set(model),
+		},
 	})
 
 	assert.Empty(t, resolved.Candidates)
@@ -382,12 +388,13 @@ func TestResolverReportsNotAllowlistedSeparatelyFromRequestedExclusion(t *testin
 	)
 
 	resolved := resolver.Resolve(router.Request{
-		// Both are excluded on the wire; only one is an explicit exclusion.
-		ExcludedModels: map[string]struct{}{
-			"claude-opus-4-8":  {},
-			"claude-haiku-4-5": {},
+		Candidates: router.Candidates{
+			ExcludedModels: map[string]struct{}{
+				"claude-opus-4-8":  {},
+				"claude-haiku-4-5": {},
+			},
+			AllowedModels: map[string]struct{}{"claude-haiku-4-5": {}},
 		},
-		AllowedModels: map[string]struct{}{"claude-haiku-4-5": {}},
 	})
 
 	assert.Contains(t, resolved.Diagnostics, policy.Diagnostic{
@@ -410,7 +417,9 @@ func TestResolverKeepsRequestedExclusionWhenNoAllowlist(t *testing.T) {
 	)
 
 	resolved := resolver.Resolve(router.Request{
-		ExcludedModels: map[string]struct{}{"claude-opus-4-8": {}},
+		Candidates: router.Candidates{
+			ExcludedModels: map[string]struct{}{"claude-opus-4-8": {}},
+		},
 	})
 
 	assert.Contains(t, resolved.Diagnostics, policy.Diagnostic{
@@ -428,7 +437,9 @@ func TestResolverDropsAutomaticallyDisabledModels(t *testing.T) {
 	)
 
 	resolved := resolver.Resolve(router.Request{
-		AutomaticExcludedModels: map[string]struct{}{"claude-opus-4-8": {}},
+		Candidates: router.Candidates{
+			AutomaticExcludedModels: map[string]struct{}{"claude-opus-4-8": {}},
+		},
 	})
 
 	assert.Equal(t, []string{"claude-haiku-4-5"}, resolved.CandidateModels())
@@ -450,7 +461,9 @@ func TestResolverKeepsPoolWhenAutomaticDisablesWouldEmptyIt(t *testing.T) {
 	)
 
 	resolved := resolver.Resolve(router.Request{
-		AutomaticExcludedModels: map[string]struct{}{"claude-opus-4-8": {}},
+		Candidates: router.Candidates{
+			AutomaticExcludedModels: map[string]struct{}{"claude-opus-4-8": {}},
+		},
 	})
 
 	assert.Equal(t, []string{"claude-opus-4-8"}, resolved.CandidateModels())
@@ -470,8 +483,10 @@ func TestResolverSessionDemotionStaysInsideAllowlist(t *testing.T) {
 
 	t.Run("allowlist admits an Anthropic sibling", func(t *testing.T) {
 		resolved := resolver.Resolve(router.Request{
-			AllowedModels:           set("claude-opus-4-8", "claude-sonnet-5"),
-			AutomaticExcludedModels: set("claude-opus-4-8"),
+			Candidates: router.Candidates{
+				AllowedModels:           set("claude-opus-4-8", "claude-sonnet-5"),
+				AutomaticExcludedModels: set("claude-opus-4-8"),
+			},
 		})
 
 		assert.Equal(t, []string{"claude-sonnet-5"}, resolved.CandidateModels())
@@ -479,8 +494,10 @@ func TestResolverSessionDemotionStaysInsideAllowlist(t *testing.T) {
 
 	t.Run("allowlist admits only the demoted model", func(t *testing.T) {
 		resolved := resolver.Resolve(router.Request{
-			AllowedModels:           set("claude-opus-4-8"),
-			AutomaticExcludedModels: set("claude-opus-4-8"),
+			Candidates: router.Candidates{
+				AllowedModels:           set("claude-opus-4-8"),
+				AutomaticExcludedModels: set("claude-opus-4-8"),
+			},
 		})
 
 		assert.Equal(t, []string{"claude-opus-4-8"}, resolved.CandidateModels(),
@@ -498,7 +515,9 @@ func TestResolverDirectlyEnforcesAllowlistForStrategySpecificCandidates(t *testi
 	)
 
 	resolved := resolver.Resolve(router.Request{
-		AllowedModels: map[string]struct{}{"claude-haiku-4-5": {}},
+		Candidates: router.Candidates{
+			AllowedModels: map[string]struct{}{"claude-haiku-4-5": {}},
+		},
 	})
 
 	assert.Empty(t, resolved.Candidates)

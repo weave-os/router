@@ -23,6 +23,28 @@ const (
 	classifierV5ArtifactSHA = "c333333333333333333333333333333333333333333333333333333333333333"
 )
 
+func TestClassifierV5ProjectsDeveloperInstructionsAsSystemEvidence(t *testing.T) {
+	query := policy.Query{
+		SchemaVersion: policy.SchemaVersionV5, ClassifierSelectionID: classifierV5SelectionID,
+		ClassifierReleaseID: classifierV5ReleaseID, ClassifierVariantID: policy.ClassifierVariantPrimary,
+		ConversationMessages: []router.ConversationMessage{
+			{Role: "developer", Text: "Answer briefly."},
+			{Role: "user", Text: "Say hello."},
+		},
+	}
+
+	body, err := marshalClassifierRequestV5(query)
+	require.NoError(t, err)
+	var request classifierRequestV5
+	require.NoError(t, json.Unmarshal(body, &request))
+	require.Equal(t, []routeMessage{
+		{Role: "system", Text: "Answer briefly."},
+		{Role: "user", Text: "Say hello."},
+	}, request.ConversationMessages)
+	assert.Equal(t, "Say hello.", request.LatestUserText)
+	assert.Equal(t, "developer", query.ConversationMessages[0].Role)
+}
+
 func TestClassifierV5ClientPinsReleaseAndKeepsCallbacksOnIntegrationClient(t *testing.T) {
 	var routeRequests []map[string]any
 	classifierServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
@@ -269,4 +291,37 @@ func TestClassifierV5MalformedResponseIsAProtocolErrorNotAPinError(t *testing.T)
 			assert.NotErrorIs(t, err, router.ErrPolicyPinUnavailable)
 		})
 	}
+}
+
+func TestClassifierV5NamesTypeOnlyTools(t *testing.T) {
+	body, err := marshalClassifierRequestV5(policy.Query{
+		SchemaVersion: policy.SchemaVersionV5, ClassifierReleaseID: classifierV5ReleaseID,
+		ClassifierSelectionID: classifierV5SelectionID, ClassifierVariantID: policy.ClassifierVariantPrimary,
+		RouteID: "route-v5", ClientApp: "codex",
+		Tools: []router.ToolDescriptor{{Type: "web_search"}, {Name: "shell", Type: "function"}, {Type: "local_shell"}},
+	})
+	require.NoError(t, err)
+	var wire classifierRequestV5
+	require.NoError(t, json.Unmarshal(body, &wire))
+	assert.Equal(t, []routeTool{
+		{Name: "web_search", Type: "web_search"},
+		{Name: "shell", Type: "function"},
+		{Name: "local_shell", Type: "local_shell"},
+	}, wire.Tools)
+}
+
+func TestClassifierV5ValidationDetailListIsReported(t *testing.T) {
+	classifierServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"detail":[{"type":"string_too_short","loc":["body","tools",0,"name"],"msg":"String should have at least 1 character","input":"synthetic-input"}]}`))
+	}))
+	defer classifierServer.Close()
+	_, err := New(classifierServer.URL, nil, time.Second).Decide(context.Background(), policy.Query{
+		SchemaVersion: policy.SchemaVersionV5, ClassifierReleaseID: classifierV5ReleaseID,
+		ClassifierSelectionID: classifierV5SelectionID, ClassifierVariantID: policy.ClassifierVariantPrimary,
+		RouteID: "route-v5", ExecutionMode: policy.ExecutionModeServing,
+	})
+	require.Error(t, err)
+	require.ErrorContains(t, err, "status 422: body.tools.0.name: String should have at least 1 character")
+	assert.NotContains(t, err.Error(), "synthetic-input")
 }

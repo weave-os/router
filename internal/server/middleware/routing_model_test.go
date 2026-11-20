@@ -98,7 +98,8 @@ func TestRoutingModelSelectsPolicyAndPreservesRequest(t *testing.T) {
 				retained, err := io.ReadAll(c.Request.Body)
 				require.NoError(t, err)
 				require.Equal(t, body, string(retained))
-				model, selected := router.RoutingModelFromContext(c.Request.Context())
+				selection := router.StrategySelectionFromContext(c.Request.Context())
+				model, selected := selection.RoutingModel, selection.RoutingModelSelected()
 				require.Equal(t, router.IsRoutingModel(tc.model), selected)
 				if selected {
 					require.Equal(t, router.CanonicalRoutingModel(tc.model), model)
@@ -194,7 +195,8 @@ func TestRoutingModelReadsGeminiURLModel(t *testing.T) {
 	body := `{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`
 	engine.POST("/v1beta/models/:modelAction", middleware.WithClassifierThread(&proxy.Service{}, func(router.Strategy) bool { return true }), func(c *gin.Context) {
 		require.Equal(t, router.StrategyHMMQwen, router.StrategyFromContext(c.Request.Context()))
-		model, selected := router.RoutingModelFromContext(c.Request.Context())
+		selection := router.StrategySelectionFromContext(c.Request.Context())
+		model, selected := selection.RoutingModel, selection.RoutingModelSelected()
 		require.True(t, selected)
 		require.Equal(t, router.ModelQwen, model)
 		c.Status(http.StatusOK)
@@ -217,7 +219,8 @@ func TestRoutingModelGeminiURLOverridesBodyAndRejectsForceHeader(t *testing.T) {
 				engine.POST("/v1beta/models/:modelAction", middleware.WithClassifierThread(&proxy.Service{}, func(router.Strategy) bool { return true }), func(c *gin.Context) {
 					require.False(t, forced, "a routing selector cannot bypass conflicting force headers through body.model")
 					require.Equal(t, router.StrategyHMMQwen, router.StrategyFromContext(c.Request.Context()))
-					model, selected := router.RoutingModelFromContext(c.Request.Context())
+					selection := router.StrategySelectionFromContext(c.Request.Context())
+					model, selected := selection.RoutingModel, selection.RoutingModelSelected()
 					require.True(t, selected)
 					require.Equal(t, router.ModelQwen, model)
 					c.Status(http.StatusOK)

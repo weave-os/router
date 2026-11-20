@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/subscriptions"
@@ -60,7 +61,7 @@ func (m *messagesRescue) dispatchBaseline(ctx context.Context) context.Context {
 		}
 		m.effortServed = baselineEffort
 		baselineBindings := s.resolveBindingsForDispatch(baselineCtx, baselineDecision)
-		baselineMarker := withRescueDetail(suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, baselineRoutingMarkerFor(routeRes, m.baselineModel), m.baselineModel, markerReasonBaseline)), lastFailureDetail(attemptTraceFromContext(ctx)))
+		baselineMarker := withRescueDetail(suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(m.strategyPorts, ctx, routeRes, baselineRoutingMarkerFor(routeRes, m.baselineModel), m.baselineModel, markerReasonBaseline)), lastFailureDetail(attemptTraceFromContext(ctx)))
 		baselineNotice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, baselineOpts.TargetModel, baselineMarker)
 		baselineNotice = addRoutingFundingSource(baselineCtx, m.seats, providers.ProviderAnthropic, baselineOpts.TargetModel, baselineNotice)
 		baselineAttempt := m.anthropicTierAttemptFor(baselineOpts, baselinePrep, baselineNotice).attempt(m.recordFastServed)

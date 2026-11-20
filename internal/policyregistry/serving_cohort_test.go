@@ -56,7 +56,7 @@ func TestCohortCustomersShareCodeWithIsolatedConcurrentRosters(t *testing.T) {
 					return err
 				}
 				ctx := policyregistry.WithServingSnapshot(context.Background(), snapshot)
-				arms, err := (policyregistry.AdmittedRosterSource{}).Roster(ctx)
+				arms, err := (policyregistry.AdmittedRosterSource{}).Roster(ctx, router.StrategyFromContext(ctx))
 				if err != nil {
 					return err
 				}

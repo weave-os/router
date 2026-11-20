@@ -20,7 +20,7 @@ import (
 )
 
 func TestSessionHoldRequiresAnUnavailablePoolMark(t *testing.T) {
-	svc := &Service{clock: time.Now}
+	svc := &Service{hmmServing: hmmPorts(), clock: time.Now}
 	ctx := context.WithValue(WithManagedSubscriptionUsage(context.Background()), ClientIdentityContextKey{}, ClientIdentity{SessionID: "codex-session"})
 
 	svc.holdSessionOffSubscriptionPool(ctx, providers.ProviderOpenAI, stateCodexModel)
@@ -71,7 +71,7 @@ func TestEnterpriseCapRescueNeedsAUsableAnthropicKey(t *testing.T) {
 
 func TestUnleasableSeatsDoNotHoldPaidFallbackEvenWhileEnabled(t *testing.T) {
 	now := time.Now()
-	svc := &Service{clock: func() time.Time { return now }}
+	svc := &Service{hmmServing: hmmPorts(), clock: func() time.Time { return now }}
 	reconnect := activeCodexAccount("seat-reconnect")
 	reconnect.State = auth.SubscriptionAccountStateReconnectRequired
 	disabled := activeCodexAccount("seat-disabled")
@@ -84,7 +84,7 @@ func TestUnleasableSeatsDoNotHoldPaidFallbackEvenWhileEnabled(t *testing.T) {
 func heldCodexOnlyService(t *testing.T) (*fakeClient, func() router.Decision) {
 	t.Helper()
 	codex := &fakeClient{name: providers.ProviderOpenAI, outcomes: []fakeOutcome{{writeBytes: []byte("answer")}}}
-	svc := NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderOpenAI: codex}, nil, nil, false, "", "", nil).
+	svc := withHMMPorts(NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderOpenAI: codex}, nil, nil, false, "", "", nil)).
 		WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderCodex: true}})
 	svc.clock = time.Now
 	turnCtx := func() context.Context {
@@ -102,7 +102,7 @@ func heldCodexOnlyService(t *testing.T) (*fakeClient, func() router.Decision) {
 
 	serve := func() router.Decision {
 		ctx := turnCtx()
-		req := router.Request{AllowedModels: allowedModelsForRequest(ctx), EnabledProviders: modelSet([]string{providers.ProviderOpenAI})}
+		req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: modelSet([]string{providers.ProviderOpenAI})}
 		rec := httptest.NewRecorder()
 		buffer := newPreludeBuffer(rec)
 		var winner router.Decision
@@ -137,7 +137,7 @@ func TestHeldPoolIsTriedWhenNothingElseTheRequestAdmitsRemains(t *testing.T) {
 func TestMemberPickNoSubscriptionServesSkipsTheIncludedLane(t *testing.T) {
 	codex := &fakeClient{name: providers.ProviderOpenAI, outcomes: []fakeOutcome{{writeBytes: []byte("covered swap")}}}
 	paid := &fakeClient{name: providers.ProviderOpenRouter, outcomes: []fakeOutcome{{writeBytes: []byte("member pick")}}}
-	svc := NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderOpenAI: codex, providers.ProviderOpenRouter: paid}, nil, nil, false, "", "", nil).
+	svc := withHMMPorts(NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderOpenAI: codex, providers.ProviderOpenRouter: paid}, nil, nil, false, "", "", nil)).
 		WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderCodex: true}}).
 		WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderOpenRouter}))
 	ctx := flags.WithOverrides(managedSubscriptionTestContext(), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyPlanUserClusterLists: true}})
@@ -146,7 +146,7 @@ func TestMemberPickNoSubscriptionServesSkipsTheIncludedLane(t *testing.T) {
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel})
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
 	ctx = withTurnFailures(ctx)
-	req := router.Request{AllowedModels: allowedModelsForRequest(ctx), EnabledProviders: modelSet([]string{providers.ProviderOpenAI, providers.ProviderOpenRouter})}
+	req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: modelSet([]string{providers.ProviderOpenAI, providers.ProviderOpenRouter})}
 	rec := httptest.NewRecorder()
 	buffer := newPreludeBuffer(rec)
 	var winner router.Decision

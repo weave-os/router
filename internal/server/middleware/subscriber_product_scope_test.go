@@ -36,7 +36,7 @@ func runProductScopeMiddleware(
 	engine := gin.New()
 	engine.POST("/v1/messages", func(c *gin.Context) {
 		c.Set("router_api_key", subscriberAPIKey())
-		middleware.WithSubscriberAllowance(svc, false)(c)
+		middleware.WithSubscriberAllowance(svc)(c)
 		observed <- c.Request.Context()
 		if c.IsAborted() {
 			return
@@ -71,7 +71,7 @@ func TestWithSubscriberProductScope_StampsDryRunsWithoutAllowanceAccounting(t *t
 			var observed context.Context
 			engine := gin.New()
 			engine.Use(func(c *gin.Context) { c.Set("router_api_key", subscriberAPIKey()) })
-			engine.Use(middleware.WithSubscriberProductScope(svc, false))
+			engine.Use(middleware.WithSubscriberProductScope(svc))
 			engine.POST(path, func(c *gin.Context) {
 				observed = c.Request.Context()
 				c.Status(http.StatusOK)
@@ -96,7 +96,7 @@ func TestWithSubscriberProductScope_RejectsUnreadableProjection(t *testing.T) {
 	svc := entitlement.NewService(&stubEntitlements{err: errors.New("database unavailable")}, &stubAllowances{})
 	engine := gin.New()
 	engine.Use(func(c *gin.Context) { c.Set("router_api_key", subscriberAPIKey()) })
-	engine.Use(middleware.WithSubscriberProductScope(svc, false))
+	engine.Use(middleware.WithSubscriberProductScope(svc))
 	engine.POST("/v1/route", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	response := httptest.NewRecorder()
@@ -189,7 +189,7 @@ func TestWithSubscriberAllowance_ScopesAgentShadowWithoutSpendingAllowance(t *te
 			RolloutID: "rollout-1",
 			StateID:   "state-1",
 		}))
-		middleware.WithSubscriberAllowance(svc, false)(c)
+		middleware.WithSubscriberAllowance(svc)(c)
 		if c.IsAborted() {
 			return
 		}

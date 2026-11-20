@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/breaker"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/taskarm"
@@ -46,8 +47,8 @@ func taskArmEnvelope(t *testing.T, body string) *translate.RequestEnvelope {
 
 func TestAssignTaskArm(t *testing.T) {
 	installation := uuid.MustParse("11111111-1111-1111-1111-111111111111")
-	hmm := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
-	unrankedCluster := flags.WithOverrides(hmm, flags.Overrides{
+	hmmCtx := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
+	unrankedCluster := flags.WithOverrides(hmmCtx, flags.Overrides{
 		Ints:    map[flags.Key]int{flags.KeyTaskArmExperimentTreatmentPct: 100},
 		Strings: map[flags.Key]string{flags.KeyTaskArmExperimentSteps: "verify", flags.KeyTaskArmExperimentTreatmentCluster: "bespoke"},
 	})
@@ -60,7 +61,7 @@ func TestAssignTaskArm(t *testing.T) {
 		forceCluster string
 		assigned     bool
 	}{
-		{"default flags leave every turn outside the experiment", hmm, taskArmLabelledHistory, installation, "", "", false},
+		{"default flags leave every turn outside the experiment", hmmCtx, taskArmLabelledHistory, installation, "", "", false},
 		{"an eligible task is assigned", taskArmContext(), taskArmLabelledHistory, installation, "", "", true},
 		{"a forced model keeps the turn outside the experiment", taskArmContext(), taskArmLabelledHistory, installation, "claude-opus-5-5", "", false},
 		{"a forced cluster keeps the turn outside the experiment", taskArmContext(), taskArmLabelledHistory, installation, "", "high", false},
@@ -74,7 +75,7 @@ func TestAssignTaskArm(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			turn := assignTaskArm(tc.ctx, taskArmEnvelope(t, tc.body), tc.installation, tc.forceModel, tc.forceCluster)
+			turn := assignTaskArm(hmm.ServingPorts(), tc.ctx, router.StrategyFromContext(tc.ctx), taskArmEnvelope(t, tc.body), tc.installation, tc.forceModel, tc.forceCluster)
 
 			assert.Equal(t, tc.assigned, turn.assigned)
 			attrs := telemetry.NewAttrBuilder(8)
@@ -92,9 +93,9 @@ func TestAssignTaskArmFollowsTheTaskAcrossSessions(t *testing.T) {
 	installation := uuid.MustParse("11111111-1111-1111-1111-111111111111")
 	resumedElsewhere := strings.Replace(taskArmLabelledHistory, "write the exporter", "pick the exporter back up", 1)
 
-	first := assignTaskArm(taskArmContext(), taskArmEnvelope(t, taskArmLabelledHistory), installation, "", "")
-	resumed := assignTaskArm(taskArmContext(), taskArmEnvelope(t, resumedElsewhere), installation, "", "")
-	otherUser := assignTaskArm(context.WithValue(taskArmContext(), auth.UserIDContextKey{}, "user-b"), taskArmEnvelope(t, taskArmLabelledHistory), installation, "", "")
+	first := assignTaskArm(hmm.ServingPorts(), taskArmContext(), router.StrategyFromContext(taskArmContext()), taskArmEnvelope(t, taskArmLabelledHistory), installation, "", "")
+	resumed := assignTaskArm(hmm.ServingPorts(), taskArmContext(), router.StrategyFromContext(taskArmContext()), taskArmEnvelope(t, resumedElsewhere), installation, "", "")
+	otherUser := assignTaskArm(hmm.ServingPorts(), context.WithValue(taskArmContext(), auth.UserIDContextKey{}, "user-b"), router.StrategyFromContext(context.WithValue(taskArmContext(), auth.UserIDContextKey{}, "user-b")), taskArmEnvelope(t, taskArmLabelledHistory), installation, "", "")
 
 	require.True(t, first.assigned)
 	assert.Equal(t, first.assignment, resumed.assignment)
@@ -111,7 +112,7 @@ func TestTaskArmTurnRoute(t *testing.T) {
 	control := taskArmTurn{assignment: taskarm.Assignment{Arm: taskarm.ArmControl}, assigned: true, cluster: "medium"}
 	sidecarDown := errors.New("sidecar down")
 	unservable := &policy.ForcedClusterUnservableError{Cluster: "medium", Reason: "no model"}
-	cappedRequest := router.Request{ForceCluster: "medium", SkipSessionPin: true, ExcludedModels: map[string]struct{}{"struck": {}}}
+	cappedRequest := router.Request{ForceCluster: "medium", SkipSessionPin: true, Candidates: router.Candidates{ExcludedModels: map[string]struct{}{"struck": {}}}}
 	cases := []struct {
 		name         string
 		turn         taskArmTurn
@@ -141,7 +142,7 @@ func TestTaskArmTurnRoute(t *testing.T) {
 			turn := tc.turn
 			var routes []router.Request
 			var released []string
-			route := turnRoute(func(_ context.Context, _ *translate.RequestEnvelope, _ translate.RoutingFeatures, _ string, _ uuid.UUID, _ string, _ http.Header, req router.Request) (turnLoopResult, error) {
+			route := turnRoute(func(_ context.Context, _ *translate.RequestEnvelope, _ translate.RoutingFeatures, _ turnRequest, _ string, _ http.Header, req router.Request) (turnLoopResult, error) {
 				routes = append(routes, req)
 				if req.SkipSessionPin {
 					return turnLoopResult{
@@ -164,7 +165,7 @@ func TestTaskArmTurnRoute(t *testing.T) {
 				return control, tc.controlErr
 			})
 
-			res, err := turn.route(context.Background(), route)(nil, translate.RoutingFeatures{}, "", uuid.Nil, "", nil, router.Request{})
+			res, err := turn.route(context.Background(), route)(nil, translate.RoutingFeatures{}, turnRequest{}, "", nil, router.Request{})
 
 			require.ErrorIs(t, err, tc.wantErr)
 			assert.Equal(t, tc.wantRoutes, routes)
@@ -230,7 +231,7 @@ func TestForceClusterForTurn(t *testing.T) {
 			}
 			env := taskArmEnvelope(t, taskArmLabelledHistory)
 
-			cluster, turn, err := forceClusterForTurn(ctx, r, env, env.RoutingFeatures(), installation, "")
+			cluster, turn, err := forceClusterForTurn(hmm.ServingPorts(), ctx, turnRequest{Strategy: router.StrategyFromContext(ctx), InstallationID: installation}, r, env, env.RoutingFeatures(), "")
 
 			require.NoError(t, err)
 			assert.Equal(t, tc.assigned, turn.assigned)
@@ -257,8 +258,8 @@ func TestACappedTreatmentTurnLeavesTheSessionPinAsControlWouldHaveLeftIt(t *test
 			Provider: providers.ProviderAnthropic, Model: "claude-opus-4-7", Reason: "cluster:v0.2", PolicyGroup: "high",
 			TurnCount: 3, PinnedUntil: time.Now().Add(time.Hour), LastTurnEndedAt: time.Now().Add(-time.Minute), LastOutputTokens: 9,
 		}
-		svc := NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
-			WithHMMDowngradeHysteresisTurns(0).
+		svc := withHMMPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+			EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).
 			WithPolicyStrategy(policy.StrategySpec{
 				Strategy:     strategy,
 				Router:       taskArmCeilingRouter{},
@@ -269,7 +270,7 @@ func TestACappedTreatmentTurnLeavesTheSessionPinAsControlWouldHaveLeftIt(t *test
 		req := router.Request{RequestedModel: features.Model, EstimatedInputTokens: features.Tokens, ConversationMessages: conversationMessagesForRouting(env)}
 		turn := taskArmTurn{assignment: taskarm.Assignment{Arm: arm}, assigned: true, cluster: "medium"}
 
-		res, err := turn.route(router.WithStrategy(context.Background(), strategy), svc.runTurnLoop)(env, features, "api-key", uuid.New(), "", http.Header{}, req)
+		res, err := turn.route(router.WithStrategy(context.Background(), strategy), svc.runTurnLoop)(env, features, turnRequest{Strategy: strategy, APIKeyID: "api-key", InstallationID: uuid.New()}, "", http.Header{}, req)
 
 		require.NoError(t, err)
 		return res, turn, store

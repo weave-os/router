@@ -7,9 +7,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func WithSubscriberProductScope(svc *entitlement.Service, poolAllowanceDefault bool) gin.HandlerFunc {
+func WithSubscriberProductScope(svc *entitlement.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		subscriberID := allowanceSubscriber(c, poolAllowanceDefault)
+		subscriberID := allowanceSubscriber(c)
 		if subscriberID == "" {
 			c.Next()
 			return

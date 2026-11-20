@@ -1,10 +1,12 @@
 package proxy
 
 import (
+	"context"
 	"log/slog"
 	"strings"
 
-	"weave-os/router/internal/routingpolicy"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/translate"
 )
 
@@ -14,7 +16,7 @@ func advisorExclusions(env *translate.RequestEnvelope, routable map[string]struc
 	}
 }
 
-func logPrefilter(log *slog.Logger, env *translate.RequestEnvelope, imageCount, outputReserve int, prefiltered routingpolicy.Prefiltered) {
+func logPrefilter(log *slog.Logger, env *translate.RequestEnvelope, imageCount, outputReserve int, prefiltered candidates.Prefiltered) {
 	if len(prefiltered.UnsignedHistory) > 0 {
 		log.Info("gemini pre-filter: excluded gemini-3.x for unsigned tool-call history",
 			"excluded_models", strings.Join(prefiltered.UnsignedHistory, ","),
@@ -40,5 +42,17 @@ func logPrefilter(log *slog.Logger, env *translate.RequestEnvelope, imageCount, 
 			"excluded_models", strings.Join(prefiltered.ContextOverflowed, ","),
 			"admitted_for_upstream", strings.Join(prefiltered.OverflowAdmitted, ","),
 		)
+	}
+}
+
+func prefilteredCandidates(ctx context.Context, excluded map[string]struct{}, prefiltered candidates.Prefiltered) router.Candidates {
+	return router.Candidates{
+		ExcludedModels:                excluded,
+		AllowedModels:                 allowedModelsForRequest(ctx),
+		SafetyExcludedModels:          prefiltered.Safety,
+		ContextWindowExcludedModels:   prefiltered.ContextWindowOnly,
+		ImageLimitExcludedModels:      modelSet(prefiltered.ImageLimited),
+		UnsignedHistoryExcludedModels: modelSet(prefiltered.UnsignedHistory),
+		OverflowAdmittedModels:        modelSet(prefiltered.OverflowAdmitted),
 	}
 }

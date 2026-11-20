@@ -27,6 +27,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/breaker"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/sse"
@@ -158,8 +159,8 @@ func newGoldenHarness(t *testing.T, sc goldenScenario) *goldenHarness {
 	require.NoError(t, err)
 
 	rt := &goldenRouter{decisions: sc.decisions, err: sc.routeErr, noCandidateErr: sc.noCandidateErr, rec: h.rec}
-	svc := proxy.NewService(rt, providerMap, nil, h.pins, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", h.telemetry).
+	svc := proxy.WithStrategyPorts(proxy.NewService(rt, providerMap, nil, h.pins, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", h.telemetry), hmm.ServingPorts()).
 		WithClock(h.clock.Now).
 		WithDeploymentKeyedProviders(available).
 		WithProviderOverloaded(false, breaker.New(breaker.Defaults(), h.clock.Now)).
@@ -551,13 +552,24 @@ func TestGolden(t *testing.T) {
 	names := map[string]bool{}
 	scenarios := append(goldenInferenceScenarios(), goldenInferenceExecutionScenarios()...)
 	scenarios = append(scenarios, goldenCredentialScenarios()...)
+	scenarios = append(scenarios, goldenRouterAtomScenarios()...)
 	scenarios = append(scenarios, goldenRoutingPolicyScenarios()...)
+	scenarios = append(scenarios, goldenSlidingThresholdUpgradeScenarios()...)
+	scenarios = append(scenarios, goldenRLTurnIndexScenario())
+	scenarios = append(scenarios, goldenCandidateEnforcementScenarios()...)
 	scenarios = append(scenarios, goldenConversationScenarios()...)
 	scenarios = append(scenarios, goldenSubscriptionExhaustionScenarios()...)
 	scenarios = append(scenarios, goldenCodexLoginRejectedScenarios()...)
 	scenarios = append(scenarios, goldenSubscriptionSessionHoldScenarios()...)
 	scenarios = append(scenarios, goldenCodexToolImageTurnScenarios()...)
 	scenarios = append(scenarios, goldenSubscriptionUsageLimitScenarios()...)
+	scenarios = append(scenarios, goldenUsageBypassScenarios()...)
+	scenarios = append(scenarios, goldenSubscriptionThrottleScenarios()...)
+	scenarios = append(scenarios, goldenCodexPlanSpentFallbackScenarios()...)
+	scenarios = append(scenarios, goldenShortSeatThrottleScenarios()...)
+	scenarios = append(scenarios, goldenOpenCodeProviderScenarios()...)
+	scenarios = append(scenarios, goldenSubscriptionClientRefusalScenarios()...)
+	scenarios = append(scenarios, goldenCodexCallerThrottleScenarios()...)
 	for _, sc := range append(scenarios, goldenIngressScenarios()...) {
 		require.False(t, names[sc.name], "duplicate golden scenario %s", sc.name)
 		names[sc.name] = true

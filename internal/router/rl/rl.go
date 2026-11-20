@@ -2,7 +2,6 @@ package rl
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"weave-os/router/internal/observability"
@@ -10,7 +9,7 @@ import (
 	"weave-os/router/internal/router/policy"
 )
 
-var ErrPolicyUnavailable = errors.New("rl: policy router unavailable")
+var ErrPolicyUnavailable = router.ErrRLPolicyUnavailable
 
 type Candidate = policy.Candidate
 
@@ -55,9 +54,13 @@ func (r *Router) Route(ctx context.Context, req router.Request) (router.Decision
 		return router.Decision{}, fmt.Errorf("rl: no eligible candidate: %w", ErrPolicyUnavailable)
 	}
 
+	var turnIndex int
+	if turn := req.Session.PolicyTurnContext; turn != nil {
+		turnIndex = turn.VisibleTurnIndex
+	}
 	res, err := r.decider.Decide(ctx, Query{
 		PromptText: req.PromptText,
-		TurnIndex:  0,
+		TurnIndex:  turnIndex,
 		Candidates: resolved.Candidates,
 	})
 	if err != nil {

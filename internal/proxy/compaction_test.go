@@ -88,8 +88,8 @@ func TestCompactionSessionDecision(t *testing.T) {
 		{name: "low-tier session", store: history(sessionpin.Pin{Provider: providers.ProviderOpenAI, LastServedModel: "gpt-4.1-mini", LastTurnEndedAt: time.Now()}), wantModel: "gpt-4.1-mini", wantProvider: providers.ProviderOpenAI},
 		{name: "effort qualified", store: history(sessionpin.Pin{Provider: providers.ProviderOpenAI, LastServedModel: "gpt-5.6-luna:xhigh", LastTurnEndedAt: time.Now()}), wantModel: "gpt-5.6-luna", wantEffort: "xhigh", wantProvider: providers.ProviderOpenAI},
 		{name: "provider disabled", store: solHistory, req: router.Request{EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}},
-		{name: "org exclusion", store: solHistory, req: router.Request{ExcludedModels: solFamily}},
-		{name: "automatic exclusion", store: solHistory, req: router.Request{AutomaticExcludedModels: solFamily}},
+		{name: "org exclusion", store: solHistory, req: router.Request{Candidates: router.Candidates{ExcludedModels: solFamily}}},
+		{name: "automatic exclusion", store: solHistory, req: router.Request{Candidates: router.Candidates{AutomaticExcludedModels: solFamily}}},
 		{name: "unavailable in deployment", store: solHistory, available: map[string]struct{}{"gpt-6-sol": {}}},
 		{name: "transcript past the window", store: solHistory, req: router.Request{EstimatedInputTokens: catalog.ContextWindowForBinding("gpt-5.6-sol", providers.ProviderOpenAI)}},
 	} {
@@ -112,12 +112,12 @@ func TestTurnLoop_CompactionReadsClientIdentityBeforeSessionPin(t *testing.T) {
 			LastTurnEndedAt: time.Now(), PinnedUntil: time.Now().Add(time.Hour),
 		},
 	}}
-	s := NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: nil, providers.ProviderAnthropic: nil}, nil, store, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil)
+	s := withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: nil, providers.ProviderAnthropic: nil}, nil, store, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil))
 	env, err := translate.ParseOpenAI([]byte(`{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"You are performing a CONTEXT CHECKPOINT COMPACTION. Create a summary."}],"max_tokens":4096}`))
 	require.NoError(t, err)
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
 	features := env.RoutingFeatures()
-	turn, err := s.runTurnLoop(ctx, env, features, "test-key", uuid.Nil, "", nil, router.Request{RequestedModel: features.Model})
+	turn, err := s.runTurnLoop(ctx, env, features, testTurnRequest(ctx, "test-key", uuid.Nil), "", nil, router.Request{RequestedModel: features.Model})
 	require.NoError(t, err)
 	assert.Equal(t, turntype.Compaction, turn.TurnType)
 	assert.Equal(t, providers.ProviderOpenAI, turn.Decision.Provider)
@@ -128,5 +128,5 @@ func TestSessionStrikesWithdrawStruckArmsFromScoring(t *testing.T) {
 	strikes := sessionStrikes{disabledProviders: []string{providers.ProviderOpenAI}, demotedModels: []string{"claude-opus-4-8"}}
 	req := strikes.apply(router.Request{EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}, providers.ProviderAnthropic: {}}})
 	assert.Equal(t, map[string]struct{}{providers.ProviderAnthropic: {}}, req.EnabledProviders)
-	assert.Contains(t, req.AutomaticExcludedModels, "claude-opus-4-8")
+	assert.Contains(t, req.Candidates.AutomaticExcludedModels, "claude-opus-4-8")
 }

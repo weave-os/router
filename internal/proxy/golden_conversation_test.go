@@ -10,7 +10,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -114,10 +113,7 @@ func withConvStores(sc goldenScenario, seed bool) goldenScenario {
 	sc.configure = func(svc *proxy.Service, h *goldenHarness) *proxy.Service {
 		store := &goldenConversationStore{rec: h.rec, enabled: seed}
 		return svc.WithRouterFeedbackStore(store).
-			WithSessionStrategyStore(store).
-			WithLoopEscalationStore(store).
-			WithSpiralShadowStore(store).
-			WithStruggleShadowStore(store)
+			WithSessionStrategyStore(store)
 	}
 	return sc
 }
@@ -284,18 +280,6 @@ func conversationRepeatedToolCalls(n int, name, input string) []string {
 }
 
 func goldenDetectionScenarios() []goldenScenario {
-	loop := withConvStores(conversationScenario("cyclic_tool_loop_escalates",
-		conversationReq(conversationRepeatedToolCalls(24, "Read", `{"path":"parser.go"}`)...)), false)
-	loopDisabled := withConvStores(conversationScenario("cyclic_tool_loop_disabled_records_event",
-		conversationReq(conversationRepeatedToolCalls(24, "Read", `{"path":"parser.go"}`)...)), false)
-	base := loopDisabled.configure
-	loopDisabled.configure = func(svc *proxy.Service, h *goldenHarness) *proxy.Service {
-		return base(svc, h).WithLoopEscalationConfig(false, 0)
-	}
-	withEdit := conversationRepeatedToolCalls(23, "Read", `{"path":"parser.go"}`)
-	withEdit = append(withEdit, conversationToolUse("toolu_edit", "Edit", `{"path":"parser.go"}`), conversationToolResult("toolu_edit", "ok"))
-	editProgress := withConvStores(conversationScenario("cyclic_tool_loop_with_edit_is_progress", conversationReq(withEdit...)), false)
-
 	stuck := conversationRepeatedToolCalls(1, "Bash", `{"command":"go test ./..."}`)
 	noProgressReqs := make([]goldenRequest, 5)
 	for i := range noProgressReqs {
@@ -333,33 +317,7 @@ func goldenDetectionScenarios() []goldenScenario {
 		}}},
 	}
 
-	erroredTurns := []string{conversationUser(goldenConversationOpening)}
-	for i := range 12 {
-		id := fmt.Sprintf("toolu_e%02d", i)
-		erroredTurns = append(erroredTurns, conversationToolUse(id, "Bash", fmt.Sprintf(`{"command":"go build ./pkg%d"}`, i)),
-			fmt.Sprintf(`{"role":"user","content":[{"type":"tool_result","tool_use_id":%q,"is_error":true,"content":"build failed"}]}`, id))
-	}
-	consented := goldenRequest{body: conversationBody(false, erroredTurns...), decorateContext: func(ctx context.Context) context.Context {
-		return context.WithValue(ctx, proxy.PolicyTrainingAllowedContextKey{}, true)
-	}}
-	spiral := withConvStores(conversationScenario("spiral_shadow_records_error_streak", consented), false)
-	spiral.configure = chainConfigure(spiral.configure, func(svc *proxy.Service) *proxy.Service {
-		return svc.WithSpiralShadowConfig(true).WithContentCapture(proxy.CaptureHashed, 0, nil)
-	})
-	spiralNoConsent := withConvStores(conversationScenario("spiral_shadow_skipped_without_training_consent", conversationReq(erroredTurns...)), false)
-	spiralNoConsent.configure = chainConfigure(spiralNoConsent.configure, func(svc *proxy.Service) *proxy.Service {
-		return svc.WithSpiralShadowConfig(true).WithContentCapture(proxy.CaptureHashed, 0, nil)
-	})
-
-	struggle := withConvStores(conversationScenario("struggle_shadow_records_long_session",
-		conversationReq(conversationLongHistory(1)...),
-		goldenRequest{body: conversationBody(false, conversationLongHistory(2)...)}), false)
-	struggle.configure = chainConfigure(struggle.configure, func(svc *proxy.Service) *proxy.Service { return svc.WithStruggleShadowConfig(true) })
-	struggle.requests[1].decorateContext = mutateStoredPins(&struggle, func(_ string, p *sessionpin.Pin) {
-		p.TurnCount, p.FirstPinnedAt = 80, goldenEpoch.Add(-time.Hour)
-	})
-
-	return []goldenScenario{loop, loopDisabled, editProgress, noProgress, textRep, textRepOff, openAITextRep, spiral, spiralNoConsent, struggle}
+	return []goldenScenario{noProgress, textRep, textRepOff, openAITextRep}
 }
 
 // mutateStoredPins returns a request decorator that rewrites every stored pin
@@ -419,33 +377,6 @@ func (s *goldenConversationStore) record(op string, detail any) {
 func (s *goldenConversationStore) InsertRouterFeedback(_ context.Context, p proxy.RouterFeedbackEvent) error {
 	s.record("router_feedback.insert", p)
 	return nil
-}
-
-func (s *goldenConversationStore) InsertLoopEscalationEvent(_ context.Context, p conversation.LoopEscalationEvent) error {
-	s.record("loop_escalation.insert", p)
-	return nil
-}
-
-func (s *goldenConversationStore) CountLoopEscalationEvents(context.Context, []byte, string) (int64, error) {
-	return 0, nil
-}
-
-func (s *goldenConversationStore) InsertSpiralShadowEvent(_ context.Context, p conversation.SpiralShadowEvent) error {
-	s.record("spiral_shadow.insert", p)
-	return nil
-}
-
-func (s *goldenConversationStore) CountSpiralShadowEvents(context.Context, []byte, string, string) (int64, error) {
-	return 0, nil
-}
-
-func (s *goldenConversationStore) InsertStruggleShadowEvent(_ context.Context, p conversation.StruggleShadowEvent) error {
-	s.record("struggle_shadow.insert", p)
-	return nil
-}
-
-func (s *goldenConversationStore) CountStruggleShadowEvents(context.Context, []byte, string, string) (int64, error) {
-	return 0, nil
 }
 
 func (s *goldenConversationStore) Get(_ context.Context, installationID uuid.UUID, key [sessionstrategy.SessionKeyLen]byte) (sessionstrategy.Preference, bool, error) {

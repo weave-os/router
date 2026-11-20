@@ -208,11 +208,11 @@ func (g *cyberRefusalGate) discardHeld() {
 func (s *Service) cyberRefusalRetryTarget(
 	ctx context.Context,
 	failed router.Decision,
-	sessionKey [sessionpin.SessionKeyLen]byte,
+	target sessionTarget,
 	role string,
 	est, sigSavings, outputReserve int,
 ) (router.Decision, bool) {
-	repinTarget, _, ok := s.cyberRefusalFallback(ctx, sessionKey, role, failed, failed.Provider)
+	repinTarget, _, ok := s.cyberRefusalFallback(ctx, target.strategy, target.sessionKey, role, failed, failed.Provider)
 	if !ok {
 		return router.Decision{}, false
 	}
@@ -221,16 +221,16 @@ func (s *Service) cyberRefusalRetryTarget(
 			!modelPermittedByAllowlist(ctx, model) || !modelInRequestSubset(ctx, model) {
 			continue
 		}
-		target, found := s.rescueDecision(ctx, failed, []string{model}, ReasonCyberRefusalRetry, est, sigSavings, outputReserve)
-		if found && target.Provider != providers.ProviderOpenAI {
-			return target, true
+		retry, found := s.rescueDecision(ctx, failed, []string{model}, ReasonCyberRefusalRetry, est, sigSavings, outputReserve)
+		if found && retry.Provider != providers.ProviderOpenAI {
+			return retry, true
 		}
 	}
 	return router.Decision{}, false
 }
 
 func (s *Service) cyberRefusalFallback(
-	ctx context.Context,
+	ctx context.Context, strategy router.Strategy,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
 	served router.Decision,
@@ -239,7 +239,7 @@ func (s *Service) cyberRefusalFallback(
 	model = s.ResolveCyberRefusalFallbackModel(ctx)
 	if s.pinStore != nil && sessionKey != ([sessionpin.SessionKeyLen]byte{}) {
 		if existing, found, err := s.pinStore.Get(context.WithoutCancel(ctx), sessionKey, role); err == nil && found &&
-			pinMatchesEffectiveStrategy(ctx, existing) && existing.PairedModel != "" &&
+			pinMatchesEffectiveStrategy(strategy, existing) && existing.PairedModel != "" &&
 			!providerAvoided(providerForModel(existing.PairedProvider, existing.PairedModel), avoidProvider) {
 			model, provider = existing.PairedModel, existing.PairedProvider
 		}

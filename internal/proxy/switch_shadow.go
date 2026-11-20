@@ -6,13 +6,14 @@ import (
 
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/routingpolicy"
 )
 
 const switchDecideShadowDefault = true
 
-func logSwitchShadow(ctx context.Context, stayPin sessionpin.Pin, gate routingpolicy.HMMCostGateInput, now time.Time, res turnLoopResult) {
+func logSwitchShadow(ctx context.Context, stayPin sessionpin.Pin, gate continuity.CostGateInput, now time.Time, res turnLoopResult) {
 	if !flags.BoolOr(ctx, flags.KeySwitchDecideShadow, switchDecideShadowDefault) {
 		return
 	}

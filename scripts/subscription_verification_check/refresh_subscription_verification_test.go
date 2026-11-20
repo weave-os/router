@@ -14,11 +14,13 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -26,6 +28,7 @@ import (
 	"github.com/tink-crypto/tink-go/v2/aead"
 	"github.com/tink-crypto/tink-go/v2/insecurecleartextkeyset"
 	"github.com/tink-crypto/tink-go/v2/keyset"
+
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/subscriptions"
@@ -186,6 +189,7 @@ func verifyDispatchBilling(t *testing.T, pool *pgxpool.Pool, authService *auth.S
 	}
 	book := postgres.NewSubscriberCreditRepo(pool)
 	billingService := billing.NewService(postgres.NewBillingRepo(pool)).WithSubscriberPrepaid(book)
+	var paidFallbacks int
 	for _, scenario := range []struct {
 		apiFallback     bool
 		genericThrottle bool
@@ -219,7 +223,7 @@ func verifyDispatchBilling(t *testing.T, pool *pgxpool.Pool, authService *auth.S
 		}))
 		client := &verificationIncludedClient{openai.NewClient("synthetic-api-key", server.URL)}
 		client.SetCodexBaseURL(server.URL)
-		svc := proxy.NewService(verificationBillingRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil).WithManagedSubscriptions(runtime).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).WithBillingService(billingService)
+		svc := proxy.WithStrategyPorts(proxy.NewService(verificationBillingRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts()).WithManagedSubscriptions(runtime).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).WithBillingService(billingService)
 		actionID, requestID := uuid.NewString(), uuid.NewString()
 		authorization, err := billingService.AuthorizeSubscriberPrepaid(ctx, billing.PrepaidAuthorizationRequest{Owner: billing.SubscriberOwner(requester.SubscriberID), ActionID: actionID, RouterRequestID: requestID, APIKeyID: key.String(), RequestedModel: "auto", UpperBoundUsdMicros: 1000000})
 		require.NoError(t, err)
@@ -233,13 +237,8 @@ func verifyDispatchBilling(t *testing.T, pool *pgxpool.Pool, authService *auth.S
 		body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"synthetic"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
 		rec := httptest.NewRecorder()
 		dispatchErr := svc.ProxyOpenAIChatCompletion(requestCtx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), "POST", "/v1/chat/completions", strings.NewReader(body)))
-		if scenario.genericThrottle {
-			require.ErrorIs(t, dispatchErr, proxy.ErrSubscriptionPoolExhausted)
-			require.NotContains(t, rec.Body.String(), "billing answer")
-		} else {
-			require.NoError(t, dispatchErr)
-			require.Contains(t, rec.Body.String(), "billing answer")
-		}
+		require.NoError(t, dispatchErr)
+		require.Contains(t, rec.Body.String(), "billing answer")
 		_, err = billingService.FinalizeSubscriberPrepaid(ctx, actionID)
 		require.NoError(t, err)
 		requesterBalance, err := book.Balance(ctx, billing.SubscriberOwner(requester.SubscriberID))
@@ -247,14 +246,15 @@ func verifyDispatchBilling(t *testing.T, pool *pgxpool.Pool, authService *auth.S
 		ownerBalance, err := book.Balance(ctx, billing.SubscriberOwner(owner.String()))
 		require.NoError(t, err)
 		require.Equal(t, int64(3000000), ownerBalance, "borrowed owner must never pay for requester API")
-		if scenario.apiFallback && !scenario.genericThrottle {
+		if scenario.apiFallback {
+			paidFallbacks++
 			bearersMu.Lock()
 			require.Equal(t, []string{"Bearer synthetic-access-refreshed", "Bearer synthetic-api-key"}, bearers)
 			bearersMu.Unlock()
 			require.Less(t, requesterBalance, int64(3000000))
 			var settlements int
 			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM router.subscriber_credit_ledger WHERE subscriber_id=$1`, requester.SubscriberID).Scan(&settlements))
-			require.Equal(t, 1, settlements)
+			require.Equal(t, paidFallbacks, settlements, "each paid fallback settles exactly once")
 		} else {
 			bearersMu.Lock()
 			require.Equal(t, []string{"Bearer synthetic-access-refreshed"}, bearers)

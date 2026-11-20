@@ -34,8 +34,8 @@ func (s *stubGlobalExclusionStore) ListGlobalAutomaticRoutingExclusions(context.
 
 func TestGlobalAutomaticExclusions_ServesCachedSnapshotWithinTTL(t *testing.T) {
 	store := &stubGlobalExclusionStore{byModel: map[string]string{"claude-opus-5": "too expensive"}}
-	svc := NewService(nil, nil, nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := withHMMPorts(NewService(nil, nil, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithGlobalAutomaticExclusions(store)
 
 	first := svc.globalAutomaticExcludedModels(context.Background())
@@ -50,8 +50,8 @@ func TestGlobalAutomaticExclusions_ServesCachedSnapshotWithinTTL(t *testing.T) {
 // be loaded reports nothing disabled and retries on the next turn.
 func TestGlobalAutomaticExclusions_ColdReadFailureFailsOpen(t *testing.T) {
 	store := &stubGlobalExclusionStore{err: errors.New("router database unreachable")}
-	svc := NewService(nil, nil, nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := withHMMPorts(NewService(nil, nil, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithGlobalAutomaticExclusions(store)
 
 	assert.Empty(t, svc.globalAutomaticExcludedModels(context.Background()))
@@ -61,8 +61,8 @@ func TestGlobalAutomaticExclusions_ColdReadFailureFailsOpen(t *testing.T) {
 
 func TestGlobalAutomaticExclusions_RefreshFailureKeepsLastSnapshot(t *testing.T) {
 	store := &stubGlobalExclusionStore{byModel: map[string]string{"claude-opus-5": ""}}
-	svc := NewService(nil, nil, nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := withHMMPorts(NewService(nil, nil, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithGlobalAutomaticExclusions(store)
 
 	require.NotEmpty(t, svc.globalAutomaticExcludedModels(context.Background()))
@@ -77,27 +77,14 @@ func TestGlobalAutomaticExclusions_RefreshFailureKeepsLastSnapshot(t *testing.T)
 // ExcludedModels would also reject explicit force-model pins.
 func TestWithPolicyRequestContext_CarriesAutomaticExclusionsSeparately(t *testing.T) {
 	store := &stubGlobalExclusionStore{byModel: map[string]string{"claude-opus-5": ""}}
-	svc := NewService(nil, nil, nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := withHMMPorts(NewService(nil, nil, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithGlobalAutomaticExclusions(store)
 
 	req := svc.withPolicyRequestContext(context.Background(), router.Request{})
 
-	assert.Equal(t, map[string]struct{}{"claude-opus-5": {}}, req.AutomaticExcludedModels)
-	assert.Empty(t, req.ExcludedModels)
-}
-
-func automaticallyDisabledRequest(model string) router.Request {
-	return router.Request{AutomaticExcludedModels: map[string]struct{}{model: {}}}
-}
-
-func TestAutomaticPinEligible_RejectsDisabledModelButForcedPinSurvives(t *testing.T) {
-	pin := sessionpin.Pin{Model: "claude-opus-5", Provider: providers.ProviderAnthropic}
-	req := automaticallyDisabledRequest("claude-opus-5")
-
-	assert.False(t, automaticPinEligible(pin, req))
-	assert.True(t, forcedPinEligible(pin, req),
-		"a user-forced pin is the escape hatch that keeps a disabled model reachable")
+	assert.Equal(t, map[string]struct{}{"claude-opus-5": {}}, req.Candidates.AutomaticExcludedModels)
+	assert.Empty(t, req.Candidates.ExcludedModels)
 }
 
 // A session already pinned to a model must move off it once the model is
@@ -110,8 +97,8 @@ func TestTurnLoop_DropsAutomaticPinOnDisabledModel(t *testing.T) {
 		Reason:      "postgres",
 		PinnedUntil: time.Now().Add(time.Hour),
 	}, found: true}
-	svc := NewService(fakeRouter, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := withHMMPorts(NewService(fakeRouter, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic)).
 		WithGlobalAutomaticExclusions(&stubGlobalExclusionStore{
 			byModel: map[string]string{"claude-opus-5": "quality regression"},
@@ -119,11 +106,13 @@ func TestTurnLoop_DropsAutomaticPinOnDisabledModel(t *testing.T) {
 
 	env := forceCommandEnv(t)
 	feats := env.RoutingFeatures()
-	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil,
+	res, err := svc.runTurnLoop(context.Background(), env, feats, testTurnRequest(context.Background(), "key-1", uuid.New()), "", nil,
 		router.Request{
-			RequestedModel:          feats.Model,
-			EnabledProviders:        keyed(providers.ProviderAnthropic),
-			AutomaticExcludedModels: map[string]struct{}{"claude-opus-5": {}},
+			RequestedModel:   feats.Model,
+			EnabledProviders: keyed(providers.ProviderAnthropic),
+			Candidates: router.Candidates{
+				AutomaticExcludedModels: map[string]struct{}{"claude-opus-5": {}},
+			},
 		})
 
 	require.NoError(t, err)
@@ -140,8 +129,8 @@ func TestTurnLoop_KeepsForcedPinOnDisabledModel(t *testing.T) {
 		Reason:      translate.ReasonUserForceModel,
 		PinnedUntil: pinNeverExpires,
 	}, found: true}
-	svc := NewService(fakeRouter, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := withHMMPorts(NewService(fakeRouter, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic)).
 		WithGlobalAutomaticExclusions(&stubGlobalExclusionStore{
 			byModel: map[string]string{"claude-opus-5": "quality regression"},
@@ -149,11 +138,13 @@ func TestTurnLoop_KeepsForcedPinOnDisabledModel(t *testing.T) {
 
 	env := forceCommandEnv(t)
 	feats := env.RoutingFeatures()
-	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil,
+	res, err := svc.runTurnLoop(context.Background(), env, feats, testTurnRequest(context.Background(), "key-1", uuid.New()), "", nil,
 		router.Request{
-			RequestedModel:          feats.Model,
-			EnabledProviders:        keyed(providers.ProviderAnthropic),
-			AutomaticExcludedModels: map[string]struct{}{"claude-opus-5": {}},
+			RequestedModel:   feats.Model,
+			EnabledProviders: keyed(providers.ProviderAnthropic),
+			Candidates: router.Candidates{
+				AutomaticExcludedModels: map[string]struct{}{"claude-opus-5": {}},
+			},
 		})
 
 	require.NoError(t, err)
@@ -171,8 +162,8 @@ func TestTurnLoop_DropsEscalationPinOnDisabledModel(t *testing.T) {
 		Reason:      translate.ReasonLoopEscalation,
 		PinnedUntil: time.Now().Add(time.Hour),
 	}, found: true}
-	svc := NewService(fakeRouter, nil, nil, store, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := withHMMPorts(NewService(fakeRouter, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic)).
 		WithGlobalAutomaticExclusions(&stubGlobalExclusionStore{
 			byModel: map[string]string{"claude-opus-5": ""},
@@ -180,11 +171,13 @@ func TestTurnLoop_DropsEscalationPinOnDisabledModel(t *testing.T) {
 
 	env := forceCommandEnv(t)
 	feats := env.RoutingFeatures()
-	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil,
+	res, err := svc.runTurnLoop(context.Background(), env, feats, testTurnRequest(context.Background(), "key-1", uuid.New()), "", nil,
 		router.Request{
-			RequestedModel:          feats.Model,
-			EnabledProviders:        keyed(providers.ProviderAnthropic),
-			AutomaticExcludedModels: map[string]struct{}{"claude-opus-5": {}},
+			RequestedModel:   feats.Model,
+			EnabledProviders: keyed(providers.ProviderAnthropic),
+			Candidates: router.Candidates{
+				AutomaticExcludedModels: map[string]struct{}{"claude-opus-5": {}},
+			},
 		})
 
 	require.NoError(t, err)

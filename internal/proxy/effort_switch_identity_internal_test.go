@@ -2,12 +2,10 @@ package proxy
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/sessionpin"
 )
 
 // An effort change on the same model invalidates thinking-block signatures
@@ -63,35 +61,4 @@ func TestServedIdentity_FoldsEffortAndOmitsWhenAbsent(t *testing.T) {
 		router.Decision{Model: "claude-opus-5", Effort: "xhigh"}.ServedIdentity())
 	assert.Equal(t, "claude-opus-5",
 		router.Decision{Model: "claude-opus-5"}.ServedIdentity())
-}
-
-// ExcludedModels / SafetyExcludedModels are keyed on bare catalog IDs;
-// leaving effort on would silently disable loop-breaking for effort-carrying turns.
-func TestMaxedOutServedModel_StripsEffortSoExclusionMatches(t *testing.T) {
-	pin := sessionpin.Pin{
-		LastServedModel:   "claude-opus-5:xhigh",
-		LastOutputTokens:  8192,
-		LastTurnEndedAt:   time.Unix(100, 0),
-		LastOutputLimitAt: time.Unix(100, 0),
-	}
-
-	assert.Equal(t, "claude-opus-5", maxedOutServedModel(pin),
-		"exclusion keys are bare catalog IDs")
-}
-
-func TestMaxedOutServedModel_BareIdentityUnchanged(t *testing.T) {
-	pin := sessionpin.Pin{
-		LastServedModel:   "claude-opus-5",
-		LastOutputTokens:  8192,
-		LastTurnEndedAt:   time.Unix(100, 0),
-		LastOutputLimitAt: time.Unix(100, 0),
-	}
-
-	assert.Equal(t, "claude-opus-5", maxedOutServedModel(pin))
-}
-
-func TestBaseModelOf(t *testing.T) {
-	assert.Equal(t, "claude-opus-5", baseModelOf("claude-opus-5:xhigh"))
-	assert.Equal(t, "claude-opus-5", baseModelOf("claude-opus-5"))
-	assert.Empty(t, baseModelOf(""))
 }

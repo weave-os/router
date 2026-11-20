@@ -1,6 +1,6 @@
 package flags
 
-const RegistryVersion = 35
+const RegistryVersion = 38
 
 var Registry = []Definition{
 	{Key: KeyEscalationActiveClassifier, Kind: KindString, Description: "Active escalation classifier: none, xgb, switchyard_llm_v1, or llm_escalation. Absent preserves legacy XGB flags.", OrgOverridable: true},
@@ -36,38 +36,10 @@ var Registry = []Definition{
 		OrgOverridable: true,
 	},
 	{
-		Key:            KeyStruggleShadowEnabled,
-		EnvVar:         "ROUTER_STRUGGLE_SHADOW_ENABLED",
-		Kind:           KindBool,
-		Description:    "Session-level struggle detector (log-only; writes struggle_shadow_events).",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeySpiralShadowEnabled,
-		EnvVar:         "ROUTER_SPIRAL_SHADOW_ENABLED",
-		Kind:           KindBool,
-		Description:    "Per-turn spiral detector (log-only).",
-		OrgOverridable: true,
-	},
-	{
 		Key:            KeyTurnSignalCapture,
 		EnvVar:         "ROUTER_TURN_SIGNAL_CAPTURE_ENABLED",
 		Kind:           KindBool,
 		Description:    "Persist the per-turn behavioral signal snapshot onto telemetry rows. Skipped regardless for installations that opted out of AI training or set content capture to off.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyLoopEscalationEnabled,
-		EnvVar:         "ROUTER_LOOP_ESCALATION_ENABLED",
-		Kind:           KindBool,
-		Description:    "Cyclic-loop escalate-to-opus action. Detection telemetry continues when off.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyLoopEscalationHoldoutPct,
-		EnvVar:         "ROUTER_LOOP_ESCALATION_HOLDOUT_PCT",
-		Kind:           KindInt,
-		Description:    "Percent of loop detections recorded without escalating, as a self-recovery baseline. 0-100.",
 		OrgOverridable: true,
 	},
 	{
@@ -106,35 +78,35 @@ var Registry = []Definition{
 	},
 	{
 		Key:            KeyAuthoritativeUpgradeGate,
-		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_GATE",
+		EnvVar:         "ROUTER_HMM_UPGRADE_GATE",
 		Kind:           KindBool,
 		Description:    "Keep the confidence floor active for authoritative-per-turn policies.",
 		OrgOverridable: true,
 	},
 	{
 		Key:            KeyAuthoritativeUpgradePolicy,
-		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_POLICY",
+		EnvVar:         "ROUTER_HMM_UPGRADE_POLICY",
 		Kind:           KindString,
 		Description:    "Authoritative upgrade policy: score (default 0.85 floor) or off (verbatim fresh policy).",
 		OrgOverridable: true,
 	},
 	{
 		Key:            KeyAuthoritativeUpgradeVotes,
-		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_VOTES",
+		EnvVar:         "ROUTER_HMM_UPGRADE_VOTES",
 		Kind:           KindInt,
 		Description:    "Consecutive same-group expensive upgrade votes required before evidence mode switches. 0 disables vote hysteresis.",
 		OrgOverridable: true,
 	},
 	{
 		Key:            KeyAuthoritativeDowngradeGate,
-		EnvVar:         "ROUTER_AUTHORITATIVE_DOWNGRADE_GATE",
+		EnvVar:         "ROUTER_HMM_DOWNGRADE_GATE",
 		Kind:           KindBool,
 		Description:    "Apply the upgrade gate's confidence floor to authoritative-per-turn downgrades too: a cheaper-than-pin pick below the threshold keeps the pin. Off by default.",
 		OrgOverridable: true,
 	},
 	{
 		Key:            KeyAuthoritativeUpgradeSlidingThreshold,
-		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_SLIDING_THRESHOLD",
+		EnvVar:         "ROUTER_HMM_UPGRADE_SLIDING_THRESHOLD",
 		Kind:           KindBool,
 		Description:    "Upgrade a session pin by probability bands that bypass the confidence floor: from low/medium, maximum at 0.3-0.5 serves high and >=0.5 maximum; from low, high at 0.3-0.5 serves medium and >=0.5 high, medium >=0.3 serves medium; from medium, high needs >=0.4; from high, maximum needs >=0.5. Below a band the existing upgrade gates decide. Off by default.",
 		OrgOverridable: true,
@@ -161,7 +133,7 @@ var Registry = []Definition{
 	},
 	{
 		Key:            KeyAuthorityCacheShadow,
-		EnvVar:         "ROUTER_AUTHORITY_CACHE_SHADOW",
+		EnvVar:         "ROUTER_HMM_AUTHORITY_CACHE_SHADOW",
 		Kind:           KindBool,
 		Description:    "Record the HMM cache gate's counterfactual verdict on authoritative-per-turn turns. Observation only; never changes what is served.",
 		OrgOverridable: true,
@@ -180,10 +152,15 @@ var Registry = []Definition{
 		OrgOverridable: true,
 	},
 	{
-		Key:            KeyInstallationPoolAllowance,
-		EnvVar:         "ROUTER_INSTALLATION_POOL_ALLOWANCE",
+		Key:            KeyOwnSeatFirst,
 		Kind:           KindBool,
-		Description:    "Release (owner steventohme, expires 2027-01-31): admit ownerless-key traffic against the installation pool subject's allowance.",
+		Description:    "Release (owner steventohme, expires 2027-03-31): serve routed turns on the caller's own Claude or Codex login before the installation's managed pool, until that login is exhausted.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyOwnOverageBeforePool,
+		Kind:           KindBool,
+		Description:    "Setting (owner steventohme): with own_seat_first, keep serving on the caller's own login while it bills overage instead of moving to the managed pool first.",
 		OrgOverridable: true,
 	},
 	{

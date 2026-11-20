@@ -5,25 +5,25 @@ import (
 	"time"
 
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/routingpolicy"
 )
 
-const hmmHistoryReason = routingpolicy.HMMHistoryReason
-
-func hmmCostGateFor(s *Service) routingpolicy.HMMCostGate {
-	return routingpolicy.HMMCostGate{
+func hmmCostGateFor(s *Service) continuity.CostGateConfig {
+	return continuity.CostGateConfig{
 		AvailableModels:            s.availableModels,
 		RegisteredProviders:        func() map[string]struct{} { return s.clients.NameSet() },
-		UpgradeConfidenceThreshold: s.hmmUpgradeConfidenceThreshold,
+		UpgradeConfidenceThreshold: s.hmmConfig.UpgradeConfidenceThreshold,
 	}
 }
 
-func hmmCostGatedDecision(ctx context.Context, s *Service, input routingpolicy.HMMCostGateInput) (router.Decision, planner.Decision, bool, string) {
-	input.Planner = plannerConfigFor(ctx, s.planner)
+func hmmCostGatedDecision(ctx context.Context, s *Service, input continuity.CostGateInput) (router.Decision, planner.Decision, bool, string) {
+	input.Planner = plannerConfigFor(ctx, s.continuityConfig.Planner)
 	input.Now = s.clock.Now()
-	stayPin, plan, sticky := hmmCostGateFor(s).Decide(input)
+	stayPin, plan, sticky := s.strategyPorts.CostGate.Decide(hmmCostGateFor(s), input)
 	if sticky {
 		return pinDecision(stayPin), plan, true, stayPin.Model
 	}
@@ -31,11 +31,7 @@ func hmmCostGatedDecision(ctx context.Context, s *Service, input routingpolicy.H
 }
 
 func hmmStayPin(s *Service, req router.Request, activePin sessionpin.Pin, hmmHistory sessionpin.Pin) (sessionpin.Pin, bool) {
-	return hmmCostGateFor(s).StayPin(req, activePin, hmmHistory, s.clock.Now())
-}
-
-func hmmFreshIsMoreExpensive(stayModel, freshModel string, inputTokens int) bool {
-	return routingpolicy.HMMFreshIsMoreExpensive(stayModel, freshModel, inputTokens)
+	return s.strategyPorts.CostGate.StayPin(hmmCostGateFor(s), req, activePin, hmmHistory, s.clock.Now())
 }
 
 func hmmEffectiveInputUSDPer1M(model string, inputTokens int) (float64, bool) {
@@ -55,12 +51,12 @@ func pinCacheCold(pin sessionpin.Pin, prefixBroken bool, now time.Time) bool {
 }
 
 func automaticallyDisabled(req router.Request, model string) bool {
-	return routingpolicy.AutomaticallyDisabled(req, model)
+	return candidates.AutomaticallyDisabled(req, model)
 }
 
-func maxedOutServedModel(pin sessionpin.Pin) string { return routingpolicy.MaxedOutServedModel(pin) }
+func maxedOutServedModel(pin sessionpin.Pin) string { return candidates.MaxedOutServedModel(pin) }
 
-func baseModelOf(servedIdentity string) string { return routingpolicy.BaseModelOf(servedIdentity) }
+func baseModelOf(servedIdentity string) string { return candidates.BaseModelOf(servedIdentity) }
 
 func stripEffortSuffix(model string) (effort string, modelOut string) {
 	return routingpolicy.StripEffortSuffix(model)

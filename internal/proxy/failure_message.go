@@ -19,8 +19,9 @@ import (
 )
 
 const (
-	upstreamCallFailedMessage = "Upstream call failed."
-	cortexDisplayName         = "Cortex"
+	upstreamCallFailedMessage        = "Upstream call failed."
+	subscriptionPoolThrottledMessage = "All enrolled subscription accounts are rate-limited. Retry shortly."
+	cortexDisplayName                = "Cortex"
 )
 
 var providerDisplayNames = map[string]string{
@@ -332,6 +333,9 @@ func TerminalErrorMessage(err error) string {
 	var attributed attributedError
 	if errors.As(err, &attributed) && attributed.message != "" {
 		return attributed.message
+	}
+	if errors.Is(err, ErrSubscriptionPoolThrottled) {
+		return subscriptionPoolThrottledMessage
 	}
 	return upstreamCallFailedMessage
 }

@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
@@ -26,38 +27,38 @@ func TestModelSelectionReasoningIsOptInAndUsesRecordedClassification(t *testing.
 		ClassifierPredictedLabel: string(selectionComplexityHigh), PolicyGroup: string(selectionComplexityLow),
 	}}}
 	marker := routingMarkerFor(turn)
-	assert.Equal(t, marker, modelSelectionMarkerForRequest(context.Background(), turn, marker, turn.Decision.Model, ""))
+	assert.Equal(t, marker, modelSelectionMarkerForRequest(hmm.ServingPorts(), context.Background(), turn, marker, turn.Decision.Model, ""))
 	assert.Equal(t, "✦ **Weave Router** → chosen-model · best pick for this turn · request classified as high difficulty\n\n",
-		modelSelectionMarkerForRequest(ctx, turn, marker, turn.Decision.Model, ""))
+		modelSelectionMarkerForRequest(hmm.ServingPorts(), ctx, turn, marker, turn.Decision.Model, ""))
 
 	turn.Decision.Metadata.ClassifierPredictedLabel = "unrecognized"
-	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, marker, turn.Decision.Model, ""), "classified as low difficulty")
+	assert.Contains(t, modelSelectionMarkerForRequest(hmm.ServingPorts(), ctx, turn, marker, turn.Decision.Model, ""), "classified as low difficulty")
 	turn.Decision.Metadata.PolicyGroup = string(selectionComplexityFast)
-	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, marker, turn.Decision.Model, ""), " · request classified as fast\n\n")
+	assert.Contains(t, modelSelectionMarkerForRequest(hmm.ServingPorts(), ctx, turn, marker, turn.Decision.Model, ""), " · request classified as fast\n\n")
 	turn.Decision.Metadata.PolicyGroup = "unknown-group"
-	assert.Equal(t, marker, modelSelectionMarkerForRequest(ctx, turn, marker, turn.Decision.Model, ""))
+	assert.Equal(t, marker, modelSelectionMarkerForRequest(hmm.ServingPorts(), ctx, turn, marker, turn.Decision.Model, ""))
 	turn.Decision.Metadata.ClassifierPredictedLabel = string(selectionComplexityHigh)
-	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, siblingRoutingMarkerFor(turn, siblingMarkerReason(ctx, "overloaded-model"), "rescue-model"), "rescue-model", siblingMarkerReason(ctx, "overloaded-model")), "classified as high difficulty")
+	assert.Contains(t, modelSelectionMarkerForRequest(hmm.ServingPorts(), ctx, turn, siblingRoutingMarkerFor(turn, siblingMarkerReason(ctx, "overloaded-model"), "rescue-model"), "rescue-model", siblingMarkerReason(ctx, "overloaded-model")), "classified as high difficulty")
 }
 
 func TestModelSelectionReasoningOnlyForNewlyServedModel(t *testing.T) {
 	ctx := context.WithValue(context.Background(), InstallationShowModelSelectionReasoningContextKey{}, true)
 	turn := turnLoopResult{Decision: router.Decision{Model: "new-model"}, PriorServedModel: "old-model"}
 	marker := routingMarkerFor(turn)
-	assert.Equal(t, marker, modelSelectionMarkerForRequest(ctx, turn, marker, turn.Decision.Model, ""))
-	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, siblingRoutingMarkerFor(turn, siblingMarkerReason(ctx, "overloaded-model"), "rescue-model"), "rescue-model", siblingMarkerReason(ctx, "overloaded-model")), " · switched after overloaded-model was unavailable\n\n")
-	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, baselineRoutingMarkerFor(turn, "baseline-model"), "baseline-model", markerReasonBaseline), " · "+markerReasonBaseline+"\n\n")
-	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, cyberRefusalRoutingMarkerFor(turn, "retry-model"), "retry-model", markerReasonCyberRefusal), " · "+markerReasonCyberRefusal+"\n\n")
+	assert.Equal(t, marker, modelSelectionMarkerForRequest(hmm.ServingPorts(), ctx, turn, marker, turn.Decision.Model, ""))
+	assert.Contains(t, modelSelectionMarkerForRequest(hmm.ServingPorts(), ctx, turn, siblingRoutingMarkerFor(turn, siblingMarkerReason(ctx, "overloaded-model"), "rescue-model"), "rescue-model", siblingMarkerReason(ctx, "overloaded-model")), " · switched after overloaded-model was unavailable\n\n")
+	assert.Contains(t, modelSelectionMarkerForRequest(hmm.ServingPorts(), ctx, turn, baselineRoutingMarkerFor(turn, "baseline-model"), "baseline-model", markerReasonBaseline), " · "+markerReasonBaseline+"\n\n")
+	assert.Contains(t, modelSelectionMarkerForRequest(hmm.ServingPorts(), ctx, turn, cyberRefusalRoutingMarkerFor(turn, "retry-model"), "retry-model", markerReasonCyberRefusal), " · "+markerReasonCyberRefusal+"\n\n")
 
 	turn.PriorServedModel = "new-model"
-	assert.Equal(t, "✦ **Weave Router** → new-model\n\n", modelSelectionMarkerForRequest(ctx, turn, "✦ **Weave Router** → new-model\n\n", turn.Decision.Model, ""))
+	assert.Equal(t, "✦ **Weave Router** → new-model\n\n", modelSelectionMarkerForRequest(hmm.ServingPorts(), ctx, turn, "✦ **Weave Router** → new-model\n\n", turn.Decision.Model, ""))
 	turn.PriorServedModel = "old-model"
 	turn.SuggestionMode = true
-	assert.Equal(t, marker, modelSelectionMarkerForRequest(ctx, turn, marker, turn.Decision.Model, ""))
+	assert.Equal(t, marker, modelSelectionMarkerForRequest(hmm.ServingPorts(), ctx, turn, marker, turn.Decision.Model, ""))
 	turn.SuggestionMode = false
 	turn.HardPinned = true
-	assert.Equal(t, marker, modelSelectionMarkerForRequest(ctx, turn, marker, turn.Decision.Model, ""))
-	assert.Empty(t, modelSelectionMarkerForRequest(ctx, turn, "", turn.Decision.Model, ""))
+	assert.Equal(t, marker, modelSelectionMarkerForRequest(hmm.ServingPorts(), ctx, turn, marker, turn.Decision.Model, ""))
+	assert.Empty(t, modelSelectionMarkerForRequest(hmm.ServingPorts(), ctx, turn, "", turn.Decision.Model, ""))
 }
 
 func TestRoutingMarkerFor_PlannerPaths(t *testing.T) {
@@ -537,13 +538,13 @@ func TestSubscriptionTargetMarker_UnchangedModelKeepsRoutedMarker(t *testing.T) 
 	picked := router.Decision{Model: "gpt-6.1-sol", Provider: "openai"}
 
 	passthrough := turnLoopResult{Decision: picked, CallerModelPassthrough: true}
-	assert.Empty(t, subscriptionTargetMarker(ctx, http.Header{}, passthrough, picked, picked, routingMarkerFor(passthrough)),
+	assert.Empty(t, subscriptionTargetMarker(hmm.ServingPorts(), ctx, http.Header{}, passthrough, picked, picked, routingMarkerFor(passthrough)),
 		"a subscription target equal to the caller's model must not invent a badge in passthrough")
 
 	routed := turnLoopResult{Decision: picked}
 	routedMarker := routingMarkerFor(routed)
 	require.NotEmpty(t, routedMarker)
-	got := subscriptionTargetMarker(ctx, http.Header{}, routed, picked, picked, routedMarker)
+	got := subscriptionTargetMarker(hmm.ServingPorts(), ctx, http.Header{}, routed, picked, picked, routedMarker)
 	assert.Equal(t, routedMarker, got)
 	assert.NotContains(t, got, "was overloaded", "an unchanged model was not switched after an overload")
 }
@@ -555,11 +556,11 @@ func TestSubscriptionTargetMarker_SwitchedModelIsWordedAsRescue(t *testing.T) {
 	res := turnLoopResult{Decision: picked}
 
 	assert.Equal(t, "✦ **Weave Router** → gpt-6.1-sol · switched after gpt-6-luna was overloaded\n\n",
-		subscriptionTargetMarker(ctx, http.Header{}, res, picked, target, routingMarkerFor(res)))
+		subscriptionTargetMarker(hmm.ServingPorts(), ctx, http.Header{}, res, picked, target, routingMarkerFor(res)))
 
 	optOut := http.Header{}
 	optOut.Set(routingMarkerHeader, "off")
-	assert.Empty(t, subscriptionTargetMarker(ctx, optOut, res, picked, target, "kept"),
+	assert.Empty(t, subscriptionTargetMarker(hmm.ServingPorts(), ctx, optOut, res, picked, target, "kept"),
 		"the per-request opt-out still hides a genuine switch badge")
 }
 
@@ -572,8 +573,8 @@ func TestSubscriptionTargetMarker_RotationBackToPickRestoresRoutedMarker(t *test
 
 	// Always compared against the original pick: after the sibling failed,
 	// rotation returning to the pick is not a rescue and must not be badged.
-	assert.Contains(t, subscriptionTargetMarker(ctx, http.Header{}, res, picked, sibling, pickedMarker), siblingMarkerReason(ctx, picked.Model))
-	assert.Empty(t, subscriptionTargetMarker(ctx, http.Header{}, res, picked, picked, pickedMarker))
+	assert.Contains(t, subscriptionTargetMarker(hmm.ServingPorts(), ctx, http.Header{}, res, picked, sibling, pickedMarker), siblingMarkerReason(ctx, picked.Model))
+	assert.Empty(t, subscriptionTargetMarker(hmm.ServingPorts(), ctx, http.Header{}, res, picked, picked, pickedMarker))
 }
 
 func TestSubscriptionTargetMarker_UndispatchedPickIsNotCalledOverloaded(t *testing.T) {
@@ -581,13 +582,13 @@ func TestSubscriptionTargetMarker_UndispatchedPickIsNotCalledOverloaded(t *testi
 	target := router.Decision{Model: "claude-opus-5-5", Provider: "anthropic"}
 	res := turnLoopResult{Decision: picked}
 
-	got := subscriptionTargetMarker(context.Background(), http.Header{}, res, picked, target, routingMarkerFor(res))
+	got := subscriptionTargetMarker(hmm.ServingPorts(), context.Background(), http.Header{}, res, picked, target, routingMarkerFor(res))
 	assert.Equal(t, "✦ **Weave Router** → claude-opus-5-5 · "+markerReasonSubscriptionCovered+"\n\n", got,
 		"a pick that was never dispatched did not fail, so the badge must not blame it")
 
 	failed := dispatch.TracedAttempt{Target: inference.Target{Provider: providers.ProviderOpenAI, CatalogID: "xiaomi/mimo-v2.6-pro"}, Err: errors.New("boom"),
 		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(TurnErrorUpstream5xx)}}
 	traced := context.WithValue(context.Background(), attemptTraceContextKey{}, traceOf(failed))
-	assert.Contains(t, subscriptionTargetMarker(traced, http.Header{}, res, picked, target, routingMarkerFor(res)), "switched after xiaomi/mimo-v2.6-pro",
+	assert.Contains(t, subscriptionTargetMarker(hmm.ServingPorts(), traced, http.Header{}, res, picked, target, routingMarkerFor(res)), "switched after xiaomi/mimo-v2.6-pro",
 		"a pick that did fail is still named as the failed model")
 }

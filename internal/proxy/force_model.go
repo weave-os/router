@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -290,10 +291,7 @@ var bareCatalogNames = func() map[string]string {
 	return out
 }()
 
-const (
-	forceModelSessionRole = "force_model"
-	userUnforcedReason    = "user_unforced"
-)
+const forceModelSessionRole = "force_model"
 
 func (s *Service) preserveForceModelControlHistory(
 	ctx context.Context,
@@ -357,7 +355,7 @@ func (s *Service) loadForceModelSessionPin(
 		observability.FromContext(ctx).Error("force-model session pin lookup failed", "err", err)
 		return sessionpin.Pin{}, false, false
 	}
-	if found && pin.Reason == userUnforcedReason {
+	if found && routingpolicy.IsUserUnforcedPin(pin) {
 		return pin, false, true
 	}
 	if !found || !pin.PinnedUntil.After(s.clock.Now()) || !isUserForcedReason(pin.Reason) || pin.Model == "" || pin.Provider == "" {
@@ -398,7 +396,7 @@ func forceModelClearRoles() []string {
 }
 
 func (s *Service) clearLegacyForceModelPins(
-	ctx context.Context,
+	ctx context.Context, strategy router.Strategy,
 	installationID uuid.UUID,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 ) error {
@@ -413,7 +411,7 @@ func (s *Service) clearLegacyForceModelPins(
 		if !found || !isUserForcedReason(pin.Reason) {
 			continue
 		}
-		if err := s.expireSessionPin(ctx, installationID, sessionKey, role, userUnforcedReason); err != nil {
+		if err := s.expireSessionPin(ctx, strategy, installationID, sessionKey, role, userUnforcedReason); err != nil {
 			return err
 		}
 	}
@@ -474,15 +472,15 @@ func (s *Service) applyForceModelHeader(
 		)
 		return ctx, "", &ForcedModelUnknownError{Model: raw}
 	}
-	binding, reason := s.forcedModelBinding(ctx, canonicalModel, provider)
-	if reason != "" {
+	binding, refusal := s.forcedModelBinding(ctx, canonicalModel, provider)
+	if refusal != nil {
 		log.Warn("x-weave-force-model: rejected excluded model",
 			"input_model", raw,
 			"canonical_model", canonicalModel,
 			"provider", provider,
-			"reason", reason,
+			"reason", refusal.Reason,
 		)
-		return ctx, "", &ForcedModelExcludedError{Model: canonicalModel, Reason: reason}
+		return ctx, "", refusal
 	}
 	provider = binding
 	forcedModel := canonicalModel
@@ -509,11 +507,11 @@ func (s *Service) handleForceModelCommand(
 	w http.ResponseWriter,
 	env *translate.RequestEnvelope,
 	cmd translate.ForceModelResult,
-	installationID uuid.UUID,
-	threadSessionKey, forceModelSessionKey [sessionpin.SessionKeyLen]byte,
+	target sessionTarget,
+	forceModelSessionKey [sessionpin.SessionKeyLen]byte,
 	inputTokens int,
 ) error {
-	_, ack, err := s.applyForceModelCommand(ctx, cmd, installationID, threadSessionKey, forceModelSessionKey)
+	_, ack, err := s.applyForceModelCommand(ctx, target.strategy, cmd, target.installationID, target.sessionKey, forceModelSessionKey)
 	if err != nil {
 		return err
 	}
@@ -521,7 +519,7 @@ func (s *Service) handleForceModelCommand(
 }
 
 func (s *Service) applyForceModelCommand(
-	ctx context.Context,
+	ctx context.Context, strategy router.Strategy,
 	cmd translate.ForceModelResult,
 	installationID uuid.UUID,
 	threadSessionKey, forceModelSessionKey [sessionpin.SessionKeyLen]byte,
@@ -530,7 +528,7 @@ func (s *Service) applyForceModelCommand(
 
 	ack := newCommandAcknowledgment(translate.CommandForceModel)
 	if cmd.Clear {
-		if err := s.clearLegacyForceModelPins(ctx, installationID, threadSessionKey); err != nil {
+		if err := s.clearLegacyForceModelPins(ctx, strategy, installationID, threadSessionKey); err != nil {
 			log.Error("/unforce-model: legacy pin cleanup failed", "err", err)
 			return "", commandAcknowledgment{}, err
 		}
@@ -561,22 +559,22 @@ func (s *Service) applyForceModelCommand(
 		return "", ack, nil
 	}
 
-	binding, reason := s.forcedModelBinding(ctx, canonicalModel, provider)
-	if reason != "" {
+	binding, refusal := s.forcedModelBinding(ctx, canonicalModel, provider)
+	if refusal != nil {
 		log.Warn("/force-model: rejected excluded model",
 			"input_model", cmd.Model,
 			"canonical_model", canonicalModel,
 			"provider", provider,
-			"reason", reason,
+			"reason", refusal.Reason,
 			"force_model_session_key_hex", fmt.Sprintf("%x", forceModelSessionKey),
 			"role", forceModelSessionRole,
 		)
 		ack.outcome.Disposition = translate.CommandRejected
-		ack.force = forceAcknowledgment{rejection: forceExcludedModel, reason: reason}
+		ack.force = forceAcknowledgment{rejection: forceExcludedModel, reason: refusal.Reason}
 		return "", ack, nil
 	}
 
-	if err := s.clearLegacyForceModelPins(ctx, installationID, threadSessionKey); err != nil {
+	if err := s.clearLegacyForceModelPins(ctx, strategy, installationID, threadSessionKey); err != nil {
 		log.Error("/force-model: legacy pin cleanup failed", "err", err)
 		return "", commandAcknowledgment{}, err
 	}

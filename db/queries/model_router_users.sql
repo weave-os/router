@@ -115,6 +115,21 @@ DO UPDATE SET
     display_name = COALESCE(EXCLUDED.display_name, router.model_router_users.display_name)
 RETURNING *;
 
+-- name: UpsertModelRouterUserByUnidentifiedKey :one
+INSERT INTO router.model_router_users (
+    installation_id,
+    unidentified_api_key_id
+)
+VALUES (
+    @installation_id::uuid,
+    @shared_key_id::uuid
+)
+ON CONFLICT (installation_id, unidentified_api_key_id)
+  WHERE email IS NULL AND claude_account_uuid IS NULL AND credential_subject_id IS NULL AND unidentified_api_key_id IS NOT NULL AND deleted_at IS NULL
+DO UPDATE SET
+    last_seen_at = CURRENT_TIMESTAMP
+RETURNING *;
+
 -- Single-row read by id; returns sql.ErrNoRows when missing or soft-deleted.
 -- name: GetModelRouterUser :one
 SELECT *

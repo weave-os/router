@@ -64,11 +64,7 @@ const (
 	KeyEscalationXGBoostShadowEnabled       Key = "escalation_xgb_shadow_enabled"
 	KeyEscalationXGBoostShadowMarkerEnabled Key = "escalation_xgb_shadow_marker_enabled"
 	KeyEscalationXGBoostEpoch               Key = "escalation_xgb_epoch"
-	KeyStruggleShadowEnabled                Key = "struggle_shadow_enabled"
-	KeySpiralShadowEnabled                  Key = "spiral_shadow_enabled"
 	KeyTurnSignalCapture                    Key = "turn_signal_capture_enabled"
-	KeyLoopEscalationEnabled                Key = "loop_escalation_enabled"
-	KeyLoopEscalationHoldoutPct             Key = "loop_escalation_holdout_pct"
 	KeyTextRepetitionBreak                  Key = "text_repetition_break_enabled"
 	KeyPlannerEnabled                       Key = "planner_enabled"
 	KeyScoreToolResultTurns                 Key = "score_tool_result_turns"
@@ -85,7 +81,8 @@ const (
 	KeyAuthorityCacheShadow                 Key = "authority_cache_shadow"
 	KeyAgreementShadowEpoch                 Key = "agreement_shadow_epoch"
 	KeySiblingFailover                      Key = "sibling_failover"
-	KeyInstallationPoolAllowance            Key = "installation_pool_allowance"
+	KeyOwnSeatFirst                         Key = "own_seat_first"
+	KeyOwnOverageBeforePool                 Key = "own_overage_before_pool"
 	KeyEffortEscalation                     Key = "effort_escalation"
 	KeyCyberRefusalRepin                    Key = "cyber_refusal_repin"
 	KeyCyberRefusalRetry                    Key = "cyber_refusal_retry"
@@ -129,6 +126,11 @@ const (
 	retiredKeyUpgradeHoldoutPct         Key = "authoritative_upgrade_holdout_pct"
 	retiredKeyHMMSameTierPin            Key = "hmm_same_tier_pin"
 	retiredKeyColdPinFollowFresh        Key = "planner_cold_pin_follow_fresh"
+	retiredKeyInstallationPoolAllowance Key = "installation_pool_allowance"
+	retiredKeyStruggleShadowEnabled     Key = "struggle_shadow_enabled"
+	retiredKeySpiralShadowEnabled       Key = "spiral_shadow_enabled"
+	retiredKeyLoopEscalationEnabled     Key = "loop_escalation_enabled"
+	retiredKeyLoopEscalationHoldoutPct  Key = "loop_escalation_holdout_pct"
 )
 
 var retiredOverrideKeys = map[Key]struct{}{
@@ -141,6 +143,11 @@ var retiredOverrideKeys = map[Key]struct{}{
 	retiredKeyUpgradeHoldoutPct:         {},
 	retiredKeyHMMSameTierPin:            {},
 	retiredKeyColdPinFollowFresh:        {},
+	retiredKeyInstallationPoolAllowance: {},
+	retiredKeyStruggleShadowEnabled:     {},
+	retiredKeySpiralShadowEnabled:       {},
+	retiredKeyLoopEscalationEnabled:     {},
+	retiredKeyLoopEscalationHoldoutPct:  {},
 }
 
 type Definition struct {
@@ -220,7 +227,7 @@ func ValidateOverrides(o Overrides) error {
 		if err := check(key, KindInt); err != nil {
 			return err
 		}
-		if key == KeyLoopEscalationHoldoutPct || key == KeyTaskArmExperimentTreatmentPct {
+		if key == KeyTaskArmExperimentTreatmentPct {
 			if value < 0 || value > 100 {
 				return fmt.Errorf("%w: %q must be between 0 and 100, got %d", ErrInvalidValue, key, value)
 			}

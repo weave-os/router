@@ -15,6 +15,7 @@ import (
 var ErrStale = errors.New("LLM escalation lifetime superseded")
 
 var ErrInvalidJudgment = errors.New("invalid LLM escalation judgment")
+var ErrInvalidEscalationJudgment = errors.New("invalid escalation judgment")
 
 const (
 	Version             = string(flags.EscalationClassifierSwitchyard)

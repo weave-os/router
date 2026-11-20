@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/turntype"
@@ -46,9 +47,9 @@ func newCompactionRoutingFixture(t *testing.T, scored router.Decision) compactio
 	t.Helper()
 	calls := &atomic.Int32{}
 	store := newForceModelMapStore()
-	svc := NewService(compactionScorer{decision: scored, calls: calls},
+	svc := withHMMPorts(NewService(compactionScorer{decision: scored, calls: calls},
 		map[string]providers.Client{providers.ProviderOpenAI: nil, providers.ProviderAnthropic: nil},
-		nil, store, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil).
+		nil, store, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil)).
 		WithHardPinResolver(func(req HardPinRequest) (string, string, bool) {
 			return policy.UtilityTarget(policy.UtilityTargetRequest{
 				EnabledProviders: req.EnabledProviders,
@@ -63,13 +64,13 @@ func (f compactionRoutingFixture) run(t *testing.T, ctx context.Context, env *tr
 	t.Helper()
 	features := env.RoutingFeatures()
 	req.RequestedModel = features.Model
-	return f.svc.runTurnLoop(ctx, env, features, "test-key", f.installationID, "", nil, req)
+	return f.svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, "test-key", f.installationID), "", nil, req)
 }
 
 func (f compactionRoutingFixture) pinSession(t *testing.T, ctx context.Context, env *translate.RequestEnvelope, decision router.Decision) {
 	t.Helper()
 	role := roleForTier(catalog.TierFor(env.RoutingFeatures().Model))
-	routingpolicy.NewSessionPins(f.svc.pinStore, f.svc.clock.Now).WriteNew(ctx, f.installationID, deriveSessionKeyForRequest(ctx, env, "test-key"), role, decision)
+	routingpolicy.NewSessionPins(f.svc.pinStore, f.svc.clock.Now, router.StrategyFromContext(ctx)).WriteNew(ctx, f.installationID, deriveSessionKeyForRequest(ctx, env, "test-key"), role, decision)
 }
 
 func openAICatalogModels() map[string]struct{} {
@@ -85,7 +86,7 @@ func openAICatalogModels() map[string]struct{} {
 }
 
 // A resumed Codex thread whose first request is a compaction has no session
-// pin yet. With every OpenAI catalog model excluded and only OpenAI
+// pin yet. With every other OpenAI catalog model excluded and only OpenAI
 // enabled, compaction used to fail with a retryable "cluster scorer failed"
 // 503 on every retry instead of asking the scorer.
 func TestCompactionWithoutSessionPinUsesScorer(t *testing.T) {
@@ -97,7 +98,9 @@ func TestCompactionWithoutSessionPinUsesScorer(t *testing.T) {
 
 	turn, err := f.run(t, ctx, env, router.Request{
 		EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}},
-		ExcludedModels:   openAICatalogModels(),
+		Candidates: router.Candidates{
+			ExcludedModels: candidates.WithoutModels(openAICatalogModels(), []string{compactionStrategyModel}),
+		},
 	})
 
 	require.NoError(t, err)
@@ -173,7 +176,9 @@ func TestCompactionIneligibleSessionPinUsesScorer(t *testing.T) {
 
 	turn, err := f.run(t, ctx, env, router.Request{
 		EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}},
-		ExcludedModels:   map[string]struct{}{catalog.ModelGPT6Luna: {}},
+		Candidates: router.Candidates{
+			ExcludedModels: map[string]struct{}{catalog.ModelGPT6Luna: {}},
+		},
 	})
 
 	require.NoError(t, err)

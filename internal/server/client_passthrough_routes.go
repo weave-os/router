@@ -17,7 +17,7 @@ import (
 
 const codexImagesTimeout = 300 * time.Second
 
-func registerClientPassthroughRoutes(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, byokRequiresOptIn bool, servingAdmission *middleware.ServingAdmissionConfig, servingAdmissionMiddleware []gin.HandlerFunc) {
+func registerClientPassthroughRoutes(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, byokRequiresOptIn bool, servingAdmission *middleware.ServingAdmissionConfig, servingAdmissionMiddleware []gin.HandlerFunc, seatUsage admin.SeatUsageReader) {
 	codexImagesGroup := engine.Group("",
 		middleware.WithTimeout(codexImagesTimeout),
 		middleware.WithAuth(authSvc, byokRequiresOptIn, servingAdmission),
@@ -39,5 +39,5 @@ func registerClientPassthroughRoutes(engine *gin.Engine, authSvc *auth.Service, 
 	passthroughGroup.GET("/v1/display-settings", admin.DisplaySettingsHandler(authSvc, func(c *gin.Context) context.Context {
 		ctx := requestcontext.WithClientIdentity(c.Request.Context(), proxy.ClientIdentityFromHeaders(c.Request.Header))
 		return proxy.ResolveUserFromContext(ctx, authSvc, middleware.InstallationFrom(c), middleware.APIKeyFrom(c))
-	}, authSvc))
+	}, authSvc, seatUsage))
 }

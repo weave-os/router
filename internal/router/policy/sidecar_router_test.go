@@ -71,10 +71,12 @@ func TestSidecarRouterReportsImageLimitWhenNoBindingCanServe(t *testing.T) {
 	require.NotErrorIs(t, err, router.ErrStrategyUnavailable, "an empty candidate set is not a policy outage")
 
 	prefiltered := router.Request{
-		EnabledProviders:         set(providers.ProviderDeepInfra),
-		ExcludedModels:           set(model),
-		ImageLimitExcludedModels: set(model),
-		ImageCount:               17,
+		EnabledProviders: set(providers.ProviderDeepInfra),
+		Candidates: router.Candidates{
+			ExcludedModels:           set(model),
+			ImageLimitExcludedModels: set(model),
+		},
+		ImageCount: 17,
 	}
 	resolved := resolver.Resolve(prefiltered)
 	assert.Empty(t, resolved.Candidates)
@@ -104,8 +106,10 @@ func TestSidecarRouter_CoolingRescuePoolStaysWithinEligibleGroups(t *testing.T) 
 	adapter := policy.NewSidecarRouter(policy.SidecarRouterConfig{Strategy: router.StrategyHMM}, decider,
 		policy.NewResolver(set(models...), set(providers.ProviderAnthropic, providers.ProviderOpenAI), catalogRosterID, policy.ManagedProviderPolicy()))
 	req := router.Request{
-		AutomaticExcludedModels: set("claude-opus-4-8", "gpt-5"),
-		ExcludedModels:          set("claude-sonnet-5"),
+		Candidates: router.Candidates{
+			AutomaticExcludedModels: set("claude-opus-4-8", "gpt-5"),
+			ExcludedModels:          set("claude-sonnet-5"),
+		},
 	}
 
 	decision, err := adapter.Route(context.Background(), req)
@@ -185,14 +189,16 @@ func TestSidecarRouterOnboardsFutureStrategyWithoutProxyChanges(t *testing.T) {
 		TrainingAllowed:      true,
 		CaptureMode:          "hashed",
 		EstimatedInputTokens: 1000,
-		PolicyTurnContext: &router.PolicyTurnContext{
-			VisibleTurnIndex:    3,
-			SessionTurnCount:    4,
-			TurnType:            "main_loop",
-			PreviousServedModel: "gpt-5.4",
-			PreviousProvider:    providers.ProviderOpenAI,
-			CacheState:          router.PolicyCacheStateWarm,
-			PriorOutputTokens:   &priorOutputTokens,
+		Session: router.SessionView{
+			PolicyTurnContext: &router.PolicyTurnContext{
+				VisibleTurnIndex:    3,
+				SessionTurnCount:    4,
+				TurnType:            "main_loop",
+				PreviousServedModel: "gpt-5.4",
+				PreviousProvider:    providers.ProviderOpenAI,
+				CacheState:          router.PolicyCacheStateWarm,
+				PriorOutputTokens:   &priorOutputTokens,
+			},
 		},
 	})
 
@@ -405,7 +411,9 @@ func TestSidecarRouterPreviewRecordsZeroEligibleArms(t *testing.T) {
 	)).WithCapabilities(policy.Capabilities{SupportsPreview: true})
 
 	result, err := adapter.PreviewRoute(context.Background(), router.Request{
-		ExcludedModels: set("gpt-5.5"),
+		Candidates: router.Candidates{
+			ExcludedModels: set("gpt-5.5"),
+		},
 	})
 
 	require.NoError(t, err)

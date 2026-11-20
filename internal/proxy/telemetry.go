@@ -464,7 +464,7 @@ type TelemetryTurnResult struct {
 }
 
 func applyPlannerTelemetry(p *InsertTelemetryParams, res turnLoopResult) {
-	if p == nil || res.PlannerDecision.Reason == "" {
+	if p == nil || !res.PlannerDecision.Evaluated() {
 		return
 	}
 	p.PlannerOutcome = plannerOutcomeAttr(res)

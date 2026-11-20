@@ -5,28 +5,13 @@ import (
 	"time"
 
 	"weave-os/router/internal/flags"
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
 )
 
-func (s *Service) ResolveStruggleShadowEnabled(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyStruggleShadowEnabled, s.struggleShadowEnabled)
-}
-
-func (s *Service) ResolveSpiralShadowEnabled(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeySpiralShadowEnabled, s.spiralShadowEnabled)
-}
-
 func (s *Service) ResolveTurnSignalCaptureEnabled(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyTurnSignalCapture, s.turnSignalCaptureEnabled)
-}
-
-func (s *Service) ResolveLoopEscalationEnabled(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyLoopEscalationEnabled, s.loopEscalationEnabled)
-}
-
-func (s *Service) ResolveLoopEscalationHoldoutPct(ctx context.Context) int {
-	return flags.IntOr(ctx, flags.KeyLoopEscalationHoldoutPct, s.loopEscalationHoldoutPct)
 }
 
 func (s *Service) ResolveTextRepetitionBreakEnabled(ctx context.Context) bool {
@@ -34,15 +19,15 @@ func (s *Service) ResolveTextRepetitionBreakEnabled(ctx context.Context) bool {
 }
 
 func (s *Service) ResolvePlannerEnabled(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyPlannerEnabled, s.plannerEnabled)
+	return flags.BoolOr(ctx, flags.KeyPlannerEnabled, s.continuityConfig.PlannerEnabled)
 }
 
 func (s *Service) ResolveScoreToolResultTurns(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyScoreToolResultTurns, s.scoreToolResultTurns)
+	return flags.BoolOr(ctx, flags.KeyScoreToolResultTurns, s.continuityConfig.ScoreToolResultTurns)
 }
 
-func (s *Service) ResolveHMMToolResultHold(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyHMMToolResultHold, false)
+func (s *Service) ResolveHMMToolResultHold(ctx context.Context, strategy router.Strategy) bool {
+	return s.strategyPorts.Ownership.Owns(strategy) && flags.BoolOr(ctx, flags.KeyHMMToolResultHold, false)
 }
 
 func (s *Service) ResolvePrefixTrimFreeSwitch(ctx context.Context) bool {
@@ -50,11 +35,11 @@ func (s *Service) ResolvePrefixTrimFreeSwitch(ctx context.Context) bool {
 }
 
 func (s *Service) ResolveAuthoritativeUpgradeGate(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyAuthoritativeUpgradeGate, s.authoritativeUpgradeGate)
+	return flags.BoolOr(ctx, flags.KeyAuthoritativeUpgradeGate, s.hmmConfig.UpgradeGate)
 }
 
 func (s *Service) ResolveAuthoritativeUpgradePolicy(ctx context.Context) flags.AuthoritativeUpgradePolicy {
-	defaultPolicy := s.authoritativeUpgradePolicy
+	defaultPolicy := s.hmmConfig.UpgradePolicy
 	if defaultPolicy == "" {
 		defaultPolicy = flags.AuthoritativeUpgradePolicyScore
 	}
@@ -62,27 +47,27 @@ func (s *Service) ResolveAuthoritativeUpgradePolicy(ctx context.Context) flags.A
 }
 
 func (s *Service) ResolveAuthoritativeUpgradeVotes(ctx context.Context) int {
-	return flags.IntOr(ctx, flags.KeyAuthoritativeUpgradeVotes, s.authoritativeUpgradeVotes)
+	return flags.IntOr(ctx, flags.KeyAuthoritativeUpgradeVotes, s.hmmConfig.UpgradeVotes)
 }
 
 func (s *Service) ResolveAuthoritativeDowngradeGate(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyAuthoritativeDowngradeGate, s.authoritativeDowngradeGate)
+	return flags.BoolOr(ctx, flags.KeyAuthoritativeDowngradeGate, s.hmmConfig.DowngradeGate)
 }
 
 func (s *Service) ResolveAuthoritativeUpgradeSlidingThreshold(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyAuthoritativeUpgradeSlidingThreshold, s.authoritativeUpgradeSlidingThreshold)
+	return flags.BoolOr(ctx, flags.KeyAuthoritativeUpgradeSlidingThreshold, s.hmmConfig.UpgradeSlidingThreshold)
 }
 
 func (s *Service) ResolveHMMDowngradeHysteresisTurns(ctx context.Context) int {
-	return flags.IntOr(ctx, flags.KeyHMMDowngradeHysteresisTurns, s.hmmDowngradeHysteresisTurns)
+	return flags.IntOr(ctx, flags.KeyHMMDowngradeHysteresisTurns, s.hmmConfig.DowngradeHysteresisTurns)
 }
 
 func (s *Service) ResolveHMMDowngradeHysteresisShadowTurns(ctx context.Context) int {
-	return flags.IntOr(ctx, flags.KeyHMMDowngradeHysteresisShadowTurns, s.hmmDowngradeHysteresisShadowTurns)
+	return flags.IntOr(ctx, flags.KeyHMMDowngradeHysteresisShadowTurns, s.hmmConfig.DowngradeHysteresisShadowTurns)
 }
 
 func (s *Service) ResolveAuthorityCacheShadow(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyAuthorityCacheShadow, s.authorityCacheShadow)
+	return flags.BoolOr(ctx, flags.KeyAuthorityCacheShadow, s.hmmConfig.AuthorityCacheShadow)
 }
 
 func (s *Service) ResolveSiblingFailover(ctx context.Context) bool {

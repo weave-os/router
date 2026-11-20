@@ -13,8 +13,8 @@ import (
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/armid"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/subscriptionlane"
 	"weave-os/router/internal/subscriptions"
 )
@@ -39,36 +39,6 @@ func subscriptionOwnerFromContext(ctx context.Context) auth.SubscriptionOwner {
 		return owner
 	}
 	return auth.SubscriptionOwner{APIKeyID: apiKeyIDFromContext(ctx)}
-}
-
-type ManagedSubscriptionUsage struct {
-	Served                     bool
-	SubscriptionAttempted      bool
-	CredentialSource           string
-	OverageInUse               bool
-	SubscriptionAccountID      string
-	SubscriptionOwnerID        string
-	SubscriptionTier           auth.SubscriptionTier
-	IntendedModel              string
-	AttemptedAccounts          map[string]struct{}
-	QuotaExhaustedAccounts     map[string]time.Time
-	QuotaExhaustedProviders    map[subscriptions.Provider]time.Time
-	ThrottledAccounts          map[string]time.Time
-	ThrottledProviders         map[subscriptions.Provider]time.Time
-	UnavailableProviders       map[subscriptions.Provider]time.Time
-	ClientAppRefused           bool
-	Finished                   bool
-	WinningCredentials         *Credentials
-	ClaudeSubscriptionPlan     providers.SubscriptionPlan
-	ClaudePlanUnverified       bool
-	ClaudeEnterpriseCapRefused bool
-}
-
-func WithManagedSubscriptionUsage(ctx context.Context) context.Context {
-	if existing, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); existing != nil {
-		return ctx
-	}
-	return context.WithValue(ctx, ManagedSubscriptionUsageContextKey{}, &ManagedSubscriptionUsage{})
 }
 
 func managedSubscriptionProviderFromUpstream(provider, model string) (subscriptions.Provider, bool) {
@@ -136,7 +106,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 	if !s.supportsSubscriptionTransport(provider) {
 		return ctx, subscriptions.Lease{}, false, nil
 	}
-	if current := CredentialsFromContext(ctx); current != nil && current.OAuth && pickedModelOnOwnPlan(ctx) {
+	if callerLoginServesFirst(ctx, model, s.usageObserver, &s.subscriptionModels, s.clock.Now()) {
 		return ctx, subscriptions.Lease{}, false, nil
 	}
 
@@ -177,7 +147,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		if poolProvider == subscriptions.ProviderClaude && claudeEnterpriseEnabled(ctx) {
 			leaseCtx = requestcontext.WithSubscriptionExtraUsage(ctx)
 		}
-		lease, present, err := s.managedSubscriptions.Lease(leaseCtx, owner, poolProvider, ClientIdentityFrom(ctx).SessionID)
+		lease, present, err := leaseOrMarkLeasedOut(leaseCtx, s.managedSubscriptions, owner, poolProvider, model, ClientIdentityFrom(ctx).SessionID)
 		if err != nil && !errors.Is(err, subscriptions.ErrNoAvailableAccount) {
 			if current := CredentialsFromContext(ctx); ctx.Err() == nil && current != nil && current.OAuth {
 				observability.FromContext(ctx).Warn("Subscription pool lease failed; using caller subscription", "provider", poolProvider, "err", err)
@@ -334,7 +304,7 @@ func (s *Service) recordManagedSubscriptionFailure(ctx context.Context, provider
 			"provider", poolProvider, "account_id", lease.AccountID, "model", model)
 		return true
 	}
-	if provider == providers.ProviderAnthropic && anthropicSubscriptionThirdPartyRefused(attemptErr) {
+	if provider == providers.ProviderAnthropic && anthropicClientAppRefused(ctx, attemptErr) {
 		clientApp := ClientIdentityFrom(ctx).ClientApp
 		s.subscriptionModels.denyManagedClientApp(lease.AccountID, provider, clientApp, s.clock.Now().Add(subscriptionThirdPartyDenialTTL))
 		markSubscriptionClientAppRefused(ctx)
@@ -469,7 +439,7 @@ func (s *Service) subscriptionAlternativeDecisions(ctx context.Context, req rout
 		return nil
 	}
 	var ordered []string
-	if trace := selected.Metadata.SelectionTrace; trace != nil && trace.SelectedGroup != "" {
+	if trace := s.strategyPorts.Facts.ClassifierTelemetryOf(selected.Metadata).SelectionTrace; trace != nil && trace.SelectedGroup != "" {
 		ordered = trace.EffectiveOrders[trace.SelectedGroup]
 	}
 	if len(ordered) == 0 {
@@ -485,18 +455,18 @@ func (s *Service) subscriptionAlternativeDecisions(ctx context.Context, req rout
 	var alternatives []router.Decision
 	seen := map[string]bool{selected.Model: true}
 	for _, arm := range ordered {
-		model, effort := hmm.SplitEffort(arm)
-		model = hmm.CatalogIDForRoster(model)
+		model, effort := armid.SplitEffort(arm)
+		model = armid.CatalogIDForRoster(model)
 		eligible := false
 		for _, candidate := range selected.Metadata.CandidateModels {
 			if candidate == model {
 				eligible = true
 			}
 		}
-		if trace := selected.Metadata.SelectionTrace; trace != nil {
+		if trace := s.strategyPorts.Facts.ClassifierTelemetryOf(selected.Metadata).SelectionTrace; trace != nil {
 			for _, candidate := range trace.CandidateRosterIDs {
-				base, _ := hmm.SplitEffort(candidate)
-				if hmm.CatalogIDForRoster(base) == model {
+				base, _ := armid.SplitEffort(candidate)
+				if armid.CatalogIDForRoster(base) == model {
 					eligible = true
 				}
 			}
@@ -514,16 +484,16 @@ func (s *Service) subscriptionAlternativeDecisions(ctx context.Context, req rout
 			continue
 		}
 		seen[model] = true
-		if _, blocked := req.ExcludedModels[model]; blocked {
+		if _, blocked := req.Candidates.ExcludedModels[model]; blocked {
 			continue
 		}
-		if _, blocked := req.AutomaticExcludedModels[model]; blocked {
+		if _, blocked := req.Candidates.AutomaticExcludedModels[model]; blocked {
 			continue
 		}
-		if _, blocked := req.SafetyExcludedModels[model]; blocked {
+		if _, blocked := req.Candidates.SafetyExcludedModels[model]; blocked {
 			continue
 		}
-		if _, blocked := req.UnsignedHistoryExcludedModels[model]; blocked {
+		if _, blocked := req.Candidates.UnsignedHistoryExcludedModels[model]; blocked {
 			continue
 		}
 		entry, known := catalog.ByID(model)
@@ -533,7 +503,7 @@ func (s *Service) subscriptionAlternativeDecisions(ctx context.Context, req rout
 			continue
 		}
 		if entry.ContextWindow > 0 && req.EstimatedInputTokens > entry.ContextWindow {
-			if _, admitted := req.OverflowAdmittedModels[model]; !admitted {
+			if _, admitted := req.Candidates.OverflowAdmittedModels[model]; !admitted {
 				continue
 			}
 		}
