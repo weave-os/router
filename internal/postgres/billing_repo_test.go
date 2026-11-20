@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// subscriber_autopay_config is part of the billing readiness table set.
 func TestBillingTablesExistDetectsMissingAutopayConfig(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
