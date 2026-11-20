@@ -42,3 +42,12 @@ func TestPortableCodexLossyRescueKeepsOtherNativeOnlyItems(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, rescued.Requirements.NativeOnly)
 }
+
+func TestPortableCodexLossyRescueKeepsOrphanToolImagesNative(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"model":"gpt-5.6-sol","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]},` +
+		`{"type":"function_call_output","call_id":"","output":[{"type":"input_image","image_url":"data:image/png;base64,iVBORw0KGgo="}]}]}`)
+	rescued, err := ConvertResponsesToChatCompletionsWithOptions(body, ResponsesConversionOptions{PortableCodex: true, LossyRescue: true})
+	require.NoError(t, err)
+	require.True(t, rescued.Requirements.NativeOnly)
+}

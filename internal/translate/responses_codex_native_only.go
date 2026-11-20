@@ -31,13 +31,19 @@ func (c *portableCodexResponsesConverter) lossyOr(code, action, path string) boo
 }
 
 func (c *portableCodexResponsesConverter) orphanToolOutput(item gjson.Result, path string) (map[string]any, []map[string]any, bool) {
-	if !c.lossyOr("responses_tool_output_native_only", "projected", path) {
+	if !c.lossy {
+		c.markNativeOnly("responses_tool_output_native_only", path)
 		return nil, nil, false
 	}
-	content, _, _, ok := c.convertToolOutputContent(item.Get("output"), path+".output")
+	content, images, _, ok := c.convertToolOutputContent(item.Get("output"), path+".output")
 	if !ok {
 		return nil, nil, false
 	}
+	if len(images) > 0 {
+		c.markNativeOnly("responses_tool_output_native_only", path)
+		return nil, nil, false
+	}
+	c.report("responses_tool_output_native_only", "projected", path)
 	return map[string]any{"role": "user", "content": "Tool output:\n" + content}, nil, true
 }
 
