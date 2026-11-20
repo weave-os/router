@@ -137,12 +137,11 @@ func buildManagedServingRuntime(ctx context.Context, mode server.DeploymentMode,
 
 func openServingStore(ctx context.Context, mode server.DeploymentMode, registryURI string) (policyregistry.ServingStore, func(), error) {
 	if !strings.HasPrefix(registryURI, "gs://") {
-		if !localServingRegistryAllowed() {
-			if mode == server.DeploymentModeManaged {
-				return nil, nil, fmt.Errorf("managed workers require a gs:// serving registry, got %q (set ROUTER_ALLOW_LOCAL_SERVING_REGISTRY=true only for a local stack)", registryURI)
-			}
-		} else {
+		switch {
+		case strings.EqualFold(strings.TrimSpace(config.GetOr("ROUTER_ALLOW_LOCAL_SERVING_REGISTRY", "false")), "true"):
 			slog.Warn("Serving from a local directory registry; ROUTER_ALLOW_LOCAL_SERVING_REGISTRY must only be set for a local stack", "registry_uri", registryURI)
+		case mode == server.DeploymentModeManaged:
+			return nil, nil, fmt.Errorf("managed workers require a gs:// serving registry, got %q (set ROUTER_ALLOW_LOCAL_SERVING_REGISTRY=true only for a local stack)", registryURI)
 		}
 		store, err := policyregistry.NewDirectoryServingStore(registryURI)
 		return store, func() {}, err
@@ -159,10 +158,6 @@ func servingReferenceFromEnv(prefix string) policyregistry.ObjectRef {
 		URI: config.MustGet(prefix + "_URI"), SHA256: config.MustGet(prefix + "_SHA256"),
 		Generation: int64(parseEnvInt(prefix+"_GENERATION", 0)),
 	}
-}
-
-func localServingRegistryAllowed() bool {
-	return strings.EqualFold(strings.TrimSpace(config.GetOr("ROUTER_ALLOW_LOCAL_SERVING_REGISTRY", "false")), "true")
 }
 
 var localDevPolicyReleaseEnvVars = []string{"ROUTER_POLICY_ENVIRONMENT", "ROUTER_POLICY_RELEASE_DIR"}
