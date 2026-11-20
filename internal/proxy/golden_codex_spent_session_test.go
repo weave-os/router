@@ -198,7 +198,7 @@ func TestCodexHoldOutlivesTurnOnlyCodexCouldCarry(t *testing.T) {
 	last := served.Attempts[len(served.Attempts)-1]
 	require.Equal(t, providers.ProviderAnthropic, last.Provider, "attempts: %+v", served.Attempts)
 	require.Equal(t, "ok", last.Outcome)
-	native := h.serve(t, sc.ingress, sc.requests[2])
-	require.Equal(t, http.StatusOK, native.Response.Status, "native-only turn under the hold: %+v", native.Response.Body)
-	require.Equal(t, "ok", native.Attempts[len(native.Attempts)-1].Outcome, "attempts: %+v", native.Attempts)
+	nativeOnlyServed := h.serve(t, sc.ingress, sc.requests[2])
+	require.Equal(t, http.StatusOK, nativeOnlyServed.Response.Status, "native-only turn under the hold: %+v", nativeOnlyServed.Response.Body)
+	require.Equal(t, "ok", nativeOnlyServed.Attempts[len(nativeOnlyServed.Attempts)-1].Outcome, "attempts: %+v", nativeOnlyServed.Attempts)
 }

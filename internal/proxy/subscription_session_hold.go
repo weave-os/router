@@ -8,7 +8,6 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2"
 
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
 )
@@ -99,9 +98,7 @@ func otherSubscriptionPoolEnabled(pool subscriptions.Provider, enabledProviders 
 		return true
 	}
 	for provider := range enabledProviders {
-		switch {
-		case provider == providers.ProviderAnthropic && pool != subscriptions.ProviderClaude,
-			provider == providers.ProviderOpenAI && pool != subscriptions.ProviderCodex:
+		if other, ok := subscriptions.PoolForUpstream(provider); ok && other != pool {
 			return true
 		}
 	}
