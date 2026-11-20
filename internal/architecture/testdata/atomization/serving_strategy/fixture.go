@@ -1,5 +1,5 @@
 package servingstrategy
 
-import "weave-os/router/internal/router/rl"
+import "weave-os/router/internal/router/decisionmodel"
 
-var _ = rl.NewHTTPDecider
+var _ = decisionmodel.ErrUnavailable

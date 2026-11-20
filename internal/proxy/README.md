@@ -41,9 +41,6 @@ variables are in [CONFIGURATION.md](../../docs/CONFIGURATION.md).
 
 ## Routing and eligibility
 
-- `routeFor`: the `rl` strategy fails closed with `ErrPolicyUnavailable` (HTTP
-  503) when the policy router is not wired; there is no silent fallback to the
-  cluster scorer.
 - `routeWithStrategy` re-checks `catalog.CheckEligibility` on the decision as a
   last product-boundary gate, catching a model that came from a pin, fallback
   table or deployed-set default rather than the filtered pool.
