@@ -226,9 +226,10 @@ answer quality, cache behavior, billing, or the result of a fleet-wide rollout.
 `routingpolicy.DecideSwitch` (shadow-only, `router.switch_shadow`) prices a
 move by the destination model's own prompt cache. Each served turn records,
 per model, when it served the thread, the prompt size and the message count
-(`sessionpin.ModelCaches`, column `session_pins.model_caches`). A destination
+(`sessionpin.ModelCaches`, column `session_pins.model_caches`), along with the cache TTL its request asked for. A destination
 is predicted to rewrite the prompt after the system+tools prefix (~30k
-tokens) when its record is missing, past the provider TTL, the thread shrank
+tokens; ~12k shared cross-thread prefix when the thread never used the model)
+when its record is missing, past the recorded TTL, the thread shrank
 (compaction), or 20+ messages were appended since it last served: the
 provider's cache lookback checks at most 20 block positions back from the
 breakpoint. Inside the window the rewrite rate was measured on billed cache
@@ -242,7 +243,7 @@ last served the thread (5% under 5 minutes, 20% under an hour, 45% after),
 and writes are priced at the catalog's cache-write multiplier.
 
 A move is taken when the per-turn gap between the two models, times a
-horizon (10 turns down, 40 up), exceeds the extra cache cost of serving this
+horizon (5 turns down, 50 up), exceeds the extra cache cost of serving this
 turn on the destination instead of the current model. A pricier pick is the
 classifier asking for quality, valued at the same per-turn gap. Side requests
 are served on the pick without moving the pin.
