@@ -21,6 +21,7 @@ func logSwitchShadow(ctx context.Context, stayPin sessionpin.Pin, gate hmm.CostG
 		Current:              stayPin.Model,
 		Fresh:                gate.Fresh.Model,
 		EstimatedInputTokens: gate.EstimatedInputTokens,
+		PromptTokens:         routingpolicy.PriorPromptTokens(stayPin),
 		CacheCold:            stayPin.Model != "" && pinCacheCold(stayPin, gate.PrefixBroken, now),
 		PrefixBroken:         gate.PrefixBroken,
 	}
@@ -34,6 +35,7 @@ func logSwitchShadow(ctx context.Context, stayPin sessionpin.Pin, gate hmm.CostG
 		"cache_cold", input.CacheCold,
 		"prefix_broken", input.PrefixBroken,
 		"estimated_input_tokens", input.EstimatedInputTokens,
+		"prompt_tokens", input.PromptTokens,
 		"served_model", res.Decision.Model,
 		"pin_tier", res.PinTier,
 		"would_serve", verdict.Serve,

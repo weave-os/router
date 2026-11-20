@@ -65,3 +65,40 @@ func TestDecideSwitchNeverHoldsBelowAlternatingPicks(t *testing.T) {
 	}
 	assert.Equal(t, 1, heldPricierPicks, "only the first pricier pick is held")
 }
+
+func TestDecideSwitchPricesTheRewriteOfALargeWarmPrompt(t *testing.T) {
+	const largePrompt = 600_000
+	cases := []struct {
+		name   string
+		input  routingpolicy.SwitchInput
+		serve  string
+		reason routingpolicy.SwitchReason
+	}{
+		{"side request keeps the current model", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestLow, SideRequest: true}, switchTestMid, routingpolicy.SwitchReasonSideRequest},
+		{"warm downgrade whose rewrite exceeds the read savings holds", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestLow}, switchTestMid, routingpolicy.SwitchReasonDowngradePending},
+		{"warm downgrade holds when only the estimate is small", routingpolicy.SwitchInput{Current: switchTestHigh, Fresh: switchTestMid, EstimatedInputTokens: 80_000}, switchTestHigh, routingpolicy.SwitchReasonDowngradePending},
+		{"downgrade to a model served last turn moves", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestLow, FreshTurnsSinceServed: 1}, switchTestLow, routingpolicy.SwitchReasonDowngradeWarm},
+		{"downgrade to a model whose cache aged out holds", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestLow, FreshTurnsSinceServed: 6}, switchTestMid, routingpolicy.SwitchReasonDowngradePending},
+		{"cold downgrade moves", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestLow, CacheCold: true}, switchTestLow, routingpolicy.SwitchReasonDowngrade},
+		{"upgrade to a model served last turn is free", routingpolicy.SwitchInput{Current: switchTestLow, Fresh: switchTestMid, FreshTurnsSinceServed: 2}, switchTestMid, routingpolicy.SwitchReasonUpgradeFree},
+		{"lone warm upgrade still waits for a second vote", routingpolicy.SwitchInput{Current: switchTestLow, Fresh: switchTestMid}, switchTestLow, routingpolicy.SwitchReasonUpgradePending},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.input.EstimatedInputTokens == 0 {
+				tc.input.EstimatedInputTokens = 80_000
+			}
+			tc.input.PromptTokens = largePrompt
+			verdict := routingpolicy.DecideSwitch(tc.input)
+			assert.Equal(t, tc.serve, verdict.Serve)
+			assert.Equal(t, tc.reason, verdict.Reason)
+			assert.Equal(t, tc.serve != tc.input.Current, verdict.Switch)
+		})
+	}
+}
+
+func TestDecideSwitchSmallPromptDowngradeStillMovesAtOnce(t *testing.T) {
+	verdict := routingpolicy.DecideSwitch(routingpolicy.SwitchInput{Current: switchTestHigh, Fresh: switchTestLow, EstimatedInputTokens: 10_000, PromptTokens: 10_000})
+	assert.Equal(t, switchTestLow, verdict.Serve)
+	assert.Equal(t, routingpolicy.SwitchReasonDowngrade, verdict.Reason)
+}
