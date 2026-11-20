@@ -102,11 +102,8 @@ func TestHMMRosterSource_WarnsOncePerRosterOnInvalidArms(t *testing.T) {
 	handler := &countingHandler{}
 	ctx := observability.WithLogger(context.Background(), slog.New(handler))
 
-	entries, err := src.HMMDeployedModels(ctx)
-	require.NoError(t, err)
-	// Serving behavior is unchanged: the unknown arm is still silently dropped.
-	require.Len(t, entries, 1)
-	assert.Equal(t, "gpt-5.6-sol", entries[0].Model)
+	_, err := src.HMMDeployedModels(ctx)
+	require.ErrorContains(t, err, "newvendor/model-x")
 	assert.Equal(t, int64(1), handler.warns.Load())
 
 	// A repeated refresh of the same roster must not warn again.
@@ -114,7 +111,7 @@ func TestHMMRosterSource_WarnsOncePerRosterOnInvalidArms(t *testing.T) {
 	src.fetchedAt = src.fetchedAt.Add(-2 * hmmRosterTTL)
 	src.mu.Unlock()
 	_, err = src.HMMDeployedModels(ctx)
-	require.NoError(t, err)
+	require.Error(t, err)
 	assert.Equal(t, int64(1), handler.warns.Load())
 
 	// A different roster with invalid arms warns anew.
@@ -123,7 +120,7 @@ func TestHMMRosterSource_WarnsOncePerRosterOnInvalidArms(t *testing.T) {
 	src.fetchedAt = src.fetchedAt.Add(-2 * hmmRosterTTL)
 	src.mu.Unlock()
 	_, err = src.HMMDeployedModels(ctx)
-	require.NoError(t, err)
+	require.Error(t, err)
 	assert.Equal(t, int64(2), handler.warns.Load())
 
 	// A clean roster resets the dedup key...

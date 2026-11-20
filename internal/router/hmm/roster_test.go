@@ -10,10 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDeployedModelsForRosterIDs_MapsRosterSlugsToCatalogEntries(t *testing.T) {
+func TestDeployedEntriesForRoster_MapsRosterSlugsToCatalogEntries(t *testing.T) {
 	// Roster slugs are provider-prefixed (openai/…); entries carry bare
 	// catalog IDs and primary provider, matching the cluster source shape.
-	got := hmm.DeployedModelsForRosterIDs([]string{
+	got, err := hmm.DeployedEntriesForRoster([]string{
 		"openai/gpt-5.6-sol",
 		"openai/gpt-5.6-sol-pro",
 		"openai/gpt-5.6-luna-pro",
@@ -22,6 +22,7 @@ func TestDeployedModelsForRosterIDs_MapsRosterSlugsToCatalogEntries(t *testing.T
 		"x-ai/grok-4.6",
 		"x-ai/grok-4.7",
 	})
+	require.NoError(t, err)
 
 	byModel := make(map[string]string, len(got))
 	for _, e := range got {
@@ -42,17 +43,26 @@ func TestDeployedModelsForRosterIDs_MapsRosterSlugsToCatalogEntries(t *testing.T
 	assert.NotEmpty(t, byModel["deepseek/deepseek-v4-flash"])
 }
 
-func TestDeployedModelsForRosterIDs_PreservesOrderAndDropsUnknown(t *testing.T) {
-	got := hmm.DeployedModelsForRosterIDs([]string{
+func TestDeployedEntriesForRoster_PreservesOrderAndCollapsesDuplicates(t *testing.T) {
+	got, err := hmm.DeployedEntriesForRoster([]string{
+		"openai/gpt-5.6-sol-pro",
 		"openai/gpt-5.6-sol",
-		"not/a-real-roster-id",
-		"openai/gpt-5.6-sol", // duplicate: only the first survives
+		"openai/gpt-5.6-sol:high",
 	})
 
-	require.Len(t, got, 1)
-	assert.Equal(t, "gpt-5.6-sol", got[0].Model)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "gpt-5.6-sol-pro", got[0].Model)
+	assert.Equal(t, "gpt-5.6-sol", got[1].Model)
 }
 
-func TestDeployedModelsForRosterIDs_EmptyInput(t *testing.T) {
-	assert.Empty(t, hmm.DeployedModelsForRosterIDs(nil))
+func TestDeployedEntriesForRoster_RejectsArmsWithoutCatalogModel(t *testing.T) {
+	_, err := hmm.DeployedEntriesForRoster([]string{"openai/gpt-5.6-sol", "not/a-real-roster-id"})
+	require.ErrorContains(t, err, "not/a-real-roster-id")
+}
+
+func TestDeployedEntriesForRoster_EmptyInput(t *testing.T) {
+	got, err := hmm.DeployedEntriesForRoster(nil)
+	require.NoError(t, err)
+	assert.Empty(t, got)
 }

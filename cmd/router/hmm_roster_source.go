@@ -104,6 +104,11 @@ func (s *hmmRosterSource) refresh(ctx context.Context) ([]router.DeployedEntry, 
 	s.mu.Unlock()
 
 	rosterIDs, fetchErr := s.fetch.Roster(ctx)
+	var mapped []router.DeployedEntry
+	if fetchErr == nil {
+		s.warnRosterDiagnostics(ctx, rosterIDs)
+		mapped, fetchErr = hmm.DeployedEntriesForRoster(rosterIDs)
+	}
 	if fetchErr != nil {
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -115,8 +120,6 @@ func (s *hmmRosterSource) refresh(ctx context.Context) ([]router.DeployedEntry, 
 		return nil, fetchErr
 	}
 
-	s.warnRosterDiagnostics(ctx, rosterIDs)
-	mapped := hmm.DeployedModelsForRosterIDs(rosterIDs)
 	s.mu.Lock()
 	s.cached = mapped
 	s.cachedPolicy = policy
