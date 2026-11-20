@@ -51,9 +51,9 @@ func TestCallerModelPassthroughSkipsAutomaticPinsAndScorer(t *testing.T) {
 	loopResult, err := service.runTurnLoop(
 		blindExperimentContext(auth.BlindExperimentArmPassthrough),
 		envelope,
-		envelope.RoutingFeatures(),
-		"api-key",
-		uuid.New(),
+		envelope.RoutingFeatures(), testTurnRequest(
+			blindExperimentContext(auth.BlindExperimentArmPassthrough), "api-key", uuid.New()),
+
 		"",
 		http.Header{},
 		router.Request{
@@ -61,8 +61,7 @@ func TestCallerModelPassthroughSkipsAutomaticPinsAndScorer(t *testing.T) {
 			EnabledProviders: map[string]struct{}{
 				providers.ProviderAnthropic: {},
 			},
-		},
-	)
+		})
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, routerSpy.routeCalls)
@@ -89,13 +88,12 @@ func TestCallerModelPassthroughLeavesAutomaticSessionHistoryUntouched(t *testing
 	loopResult, err := service.runTurnLoop(
 		blindExperimentContext(auth.BlindExperimentArmPassthrough),
 		envelope,
-		envelope.RoutingFeatures(),
-		"api-key",
-		uuid.New(),
+		envelope.RoutingFeatures(), testTurnRequest(
+			blindExperimentContext(auth.BlindExperimentArmPassthrough), "api-key", uuid.New()),
+
 		"",
 		http.Header{},
-		router.Request{RequestedModel: "claude-sonnet-4-6"},
-	)
+		router.Request{RequestedModel: "claude-sonnet-4-6"})
 
 	require.NoError(t, err)
 	assert.Equal(t, [sessionpin.SessionKeyLen]byte{}, loopResult.SessionKey)
@@ -202,9 +200,9 @@ func TestCallerModelPassthroughHonorsExcludedModels(t *testing.T) {
 	_, err = service.runTurnLoop(
 		blindExperimentContext(auth.BlindExperimentArmPassthrough),
 		envelope,
-		envelope.RoutingFeatures(),
-		"api-key",
-		uuid.New(),
+		envelope.RoutingFeatures(), testTurnRequest(
+			blindExperimentContext(auth.BlindExperimentArmPassthrough), "api-key", uuid.New()),
+
 		"",
 		http.Header{},
 		router.Request{
@@ -214,8 +212,7 @@ func TestCallerModelPassthroughHonorsExcludedModels(t *testing.T) {
 					"claude-sonnet-4-6": {},
 				},
 			},
-		},
-	)
+		})
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, router.ErrNoEligibleProvider)
@@ -249,9 +246,9 @@ func runBlindExperimentUtilityTurn(t *testing.T, ctx context.Context, body strin
 	loopResult, err := service.runTurnLoop(
 		ctx,
 		envelope,
-		features,
-		"api-key",
-		uuid.New(),
+		features, testTurnRequest(
+			ctx, "api-key", uuid.New()),
+
 		"",
 		http.Header{},
 		router.Request{
@@ -260,8 +257,8 @@ func runBlindExperimentUtilityTurn(t *testing.T, ctx context.Context, body strin
 				providers.ProviderAnthropic: {},
 				providers.ProviderGoogle:    {},
 			},
-		},
-	)
+		})
+
 	require.NoError(t, err)
 	assert.Zero(t, routerSpy.routeCalls)
 	return loopResult
@@ -345,17 +342,16 @@ func TestBlindExperimentPassthroughYieldsUtilityTurnToForceModel(t *testing.T) {
 	loopResult, err := service.runTurnLoop(
 		blindExperimentContext(auth.BlindExperimentArmPassthrough),
 		envelope,
-		envelope.RoutingFeatures(),
-		"api-key",
-		uuid.New(),
+		envelope.RoutingFeatures(), testTurnRequest(
+			blindExperimentContext(auth.BlindExperimentArmPassthrough), "api-key", uuid.New()),
+
 		"",
 		http.Header{},
 		router.Request{
 			RequestedModel:   "claude-opus-4-8",
 			ForceModel:       "claude-sonnet-4-6",
 			EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
-		},
-	)
+		})
 
 	require.NoError(t, err)
 	require.Equal(t, turntype.Probe, loopResult.TurnType)
@@ -378,13 +374,12 @@ func TestBlindExperimentRouterOnUsesScorer(t *testing.T) {
 	loopResult, err := service.runTurnLoop(
 		blindExperimentContext(auth.BlindExperimentArmRouterOn),
 		envelope,
-		envelope.RoutingFeatures(),
-		"api-key",
-		uuid.New(),
+		envelope.RoutingFeatures(), testTurnRequest(
+			blindExperimentContext(auth.BlindExperimentArmRouterOn), "api-key", uuid.New()),
+
 		"",
 		http.Header{},
-		router.Request{RequestedModel: "claude-sonnet-4-6"},
-	)
+		router.Request{RequestedModel: "claude-sonnet-4-6"})
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, routerSpy.routeCalls)

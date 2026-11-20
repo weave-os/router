@@ -389,13 +389,12 @@ func (s *Service) runTurnLoop(
 	ctx context.Context,
 	env *translate.RequestEnvelope,
 	feats translate.RoutingFeatures,
-	apiKeyID string,
-	installationID uuid.UUID,
+	turnReq turnRequest,
 	subAgentHint string,
 	reqHeaders http.Header,
 	req router.Request,
 ) (res turnLoopResult, routeErr error) {
-	strategy, subAgentHint := router.StrategyFromContext(ctx), subAgentHintForRequest(ctx, subAgentHint)
+	strategy, apiKeyID, installationID, subAgentHint := turnReq.Strategy, turnReq.APIKeyID, turnReq.InstallationID, subAgentHintForRequest(ctx, subAgentHint)
 	shadowStartedAt, sessionPins := s.clock.Now(), routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy)
 	defer func() {
 		if routeErr == nil {

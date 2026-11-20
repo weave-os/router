@@ -159,7 +159,7 @@ func runPolicyDeadlineFallbackTurnLoop(
 			ExcludedModels: excluded,
 		},
 	}
-	return svc.runTurnLoop(ctx, env, features, "api-key", uuid.New(), "", http.Header{}, req)
+	return svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, "api-key", uuid.New()), "", http.Header{}, req)
 }
 
 // TestTurnLoop_DeadlineFallbackToPin covers T5: with a pin present and the

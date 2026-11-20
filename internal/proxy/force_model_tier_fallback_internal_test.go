@@ -162,12 +162,13 @@ func TestRunTurnLoop_ForcedModelContextOverflow_StaysInTier(t *testing.T) {
 
 	// The context-window pre-filter would add the forced model to ExcludedModels
 	// on the turn its window is breached; simulate that here.
-	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
+	res, err := svc.runTurnLoop(context.Background(), env, feats, testTurnRequest(context.Background(), "key-1", uuid.New()), "", nil, router.Request{
 		RequestedModel: feats.Model,
 		Candidates: router.Candidates{
 			ExcludedModels: map[string]struct{}{forced: {}},
 		},
 	})
+
 	require.NoError(t, err)
 
 	assert.Equal(t, "claude-opus-5", res.Decision.Model,
@@ -211,9 +212,10 @@ func TestRunTurnLoop_ForcedModelOverridesHardPin(t *testing.T) {
 	require.NoError(t, err)
 	feats := env.RoutingFeatures()
 
-	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
+	res, err := svc.runTurnLoop(context.Background(), env, feats, testTurnRequest(context.Background(), "key-1", uuid.New()), "", nil, router.Request{
 		RequestedModel: feats.Model,
 	})
+
 	require.NoError(t, err)
 
 	assert.Equal(t, "claude-opus-4-8", res.Decision.Model,
@@ -254,10 +256,11 @@ func TestRunTurnLoop_ForcedModelServesDespiteDisabledProvider(t *testing.T) {
 	require.NoError(t, err)
 	feats := env.RoutingFeatures()
 
-	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
+	res, err := svc.runTurnLoop(context.Background(), env, feats, testTurnRequest(context.Background(), "key-1", uuid.New()), "", nil, router.Request{
 		RequestedModel:   feats.Model,
 		EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
 	})
+
 	require.NoError(t, err)
 
 	assert.Equal(t, "claude-opus-4-8", res.Decision.Model,
@@ -301,9 +304,10 @@ func TestForceModelHeader_OverridesHardPin(t *testing.T) {
 	require.NoError(t, forceErr)
 
 	feats := env.RoutingFeatures()
-	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", headerReq.Header, router.Request{
+	res, err := svc.runTurnLoop(context.Background(), env, feats, testTurnRequest(context.Background(), "key-1", uuid.New()), "", headerReq.Header, router.Request{
 		RequestedModel: feats.Model,
 	})
+
 	require.NoError(t, err)
 
 	assert.Equal(t, "claude-opus-5-5", res.Decision.Model,

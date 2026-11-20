@@ -55,12 +55,13 @@ func runTurnLoopWithBody(t *testing.T, svc *Service, body string) turnLoopResult
 	env, err := translate.ParseAnthropic([]byte(body))
 	require.NoError(t, err)
 	features := env.RoutingFeatures()
-	res, err := svc.runTurnLoop(context.Background(), env, features, "api-key", uuid.New(), "", http.Header{}, router.Request{
+	res, err := svc.runTurnLoop(context.Background(), env, features, testTurnRequest(context.Background(), "api-key", uuid.New()), "", http.Header{}, router.Request{
 		RequestedModel:       features.Model,
 		EstimatedInputTokens: features.Tokens,
 		HasTools:             features.HasTools,
 		ConversationMessages: conversationMessagesForRouting(env),
 	})
+
 	require.NoError(t, err)
 	return res
 }

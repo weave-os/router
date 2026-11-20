@@ -104,15 +104,18 @@ func runAuthorityShadowTurnWithPin(
 	features := env.RoutingFeatures()
 	ctx := router.WithStrategy(context.Background(), strategy)
 	result, err := svc.runTurnLoop(
-		ctx, env, features, "api-key", uuid.New(), "", http.Header{},
+		ctx, env, features, testTurnRequest(
+			ctx, "api-key", uuid.New()),
+
+		"", http.Header{},
 		router.Request{
 			RequestedModel:       features.Model,
 			EstimatedInputTokens: features.Tokens,
 			HasTools:             features.HasTools,
 			ConversationMessages: conversationMessagesForRouting(env),
 			EnabledProviders:     map[string]struct{}{providers.ProviderAnthropic: {}},
-		},
-	)
+		})
+
 	require.NoError(t, err)
 	require.True(t, result.AuthoritativePerTurn)
 	return result

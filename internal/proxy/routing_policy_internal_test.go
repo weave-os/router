@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
 	"weave-os/router/internal/credentials"
 
 	"github.com/google/uuid"
@@ -56,7 +57,7 @@ func TestExplicitRoutingPolicyPrecedesClassifierAndPins(t *testing.T) {
 			envelope, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}]}`))
 			require.NoError(t, err)
 			request := router.Request{RequestedModel: catalog.ModelIDClaudeSonnet46.String(), EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}
-			turn, err := service.runTurnLoop(ctx, envelope, envelope.RoutingFeatures(), "api-key", uuid.New(), "", http.Header{}, request)
+			turn, err := service.runTurnLoop(ctx, envelope, envelope.RoutingFeatures(), testTurnRequest(ctx, "api-key", uuid.New()), "", http.Header{}, request)
 			require.NoError(t, err)
 			assert.True(t, turn.CallerModelPassthrough)
 			assert.Equal(t, catalog.ModelIDClaudeSonnet46.String(), turn.Decision.Model)
@@ -110,9 +111,10 @@ func TestRoutingPolicyPreservesExplicitForcedModel(t *testing.T) {
 				}
 				envelope, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}]}`))
 				require.NoError(t, err)
-				turn, err := service.runTurnLoop(ctx, envelope, envelope.RoutingFeatures(), "api-key", uuid.New(), "", http.Header{}, router.Request{
+				turn, err := service.runTurnLoop(ctx, envelope, envelope.RoutingFeatures(), testTurnRequest(ctx, "api-key", uuid.New()), "", http.Header{}, router.Request{
 					RequestedModel: catalog.ModelIDClaudeSonnet46.String(), ForceModel: forceModel, EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
 				})
+
 				assert.Zero(t, routerSpy.routeCalls)
 				if tc.excluded {
 					require.ErrorIs(t, err, ErrForcedModelExcluded)
@@ -241,7 +243,7 @@ func TestClientSelectedModelBypassesRoutingAndPins(t *testing.T) {
 	require.NoError(t, err)
 	request := router.Request{RequestedModel: catalog.ModelIDClaudeSonnet46.String(), EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}
 
-	turn, err := service.runTurnLoop(ctx, envelope, envelope.RoutingFeatures(), "api-key", uuid.New(), "", http.Header{}, request)
+	turn, err := service.runTurnLoop(ctx, envelope, envelope.RoutingFeatures(), testTurnRequest(ctx, "api-key", uuid.New()), "", http.Header{}, request)
 
 	require.NoError(t, err)
 	assert.True(t, turn.CallerModelPassthrough)
@@ -259,7 +261,7 @@ func TestRouterOnExperimentArmRoutesClientSelectedModel(t *testing.T) {
 	require.NoError(t, err)
 	request := router.Request{RequestedModel: catalog.ModelIDClaudeSonnet46.String(), EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}
 
-	turn, err := service.runTurnLoop(ctx, envelope, envelope.RoutingFeatures(), "api-key", uuid.New(), "", http.Header{}, request)
+	turn, err := service.runTurnLoop(ctx, envelope, envelope.RoutingFeatures(), testTurnRequest(ctx, "api-key", uuid.New()), "", http.Header{}, request)
 
 	require.NoError(t, err)
 	assert.False(t, turn.CallerModelPassthrough)
@@ -386,7 +388,7 @@ func TestClientSelectedModelRoutesWhenNotServableAsIs(t *testing.T) {
 			routerSpy := &blindExperimentRouterSpy{decision: routed}
 			service := NewService(routerSpy, nil, nil, newStubPinStore(), false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
 
-			turn, err := service.runTurnLoop(auth.WithClientModelPassthrough(context.Background()), envelope, envelope.RoutingFeatures(), "api-key", uuid.New(), "", http.Header{}, tc.request)
+			turn, err := service.runTurnLoop(auth.WithClientModelPassthrough(context.Background()), envelope, envelope.RoutingFeatures(), testTurnRequest(auth.WithClientModelPassthrough(context.Background()), "api-key", uuid.New()), "", http.Header{}, tc.request)
 
 			require.NoError(t, err)
 			assert.False(t, turn.CallerModelPassthrough)

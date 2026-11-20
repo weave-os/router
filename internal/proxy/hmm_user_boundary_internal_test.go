@@ -60,7 +60,7 @@ func TestHMMCommandOnlyTurnUsesEligibleRosterFallback(t *testing.T) {
 		EstimatedInputTokens: features.Tokens,
 		ConversationMessages: conversationMessagesForRouting(env),
 	}
-	turn, err := svc.runTurnLoop(ctx, env, features, "api-key", uuid.New(), "", http.Header{}, requestForRouting)
+	turn, err := svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, "api-key", uuid.New()), "", http.Header{}, requestForRouting)
 	require.NoError(t, err)
 	assert.Equal(t, "claude-haiku-4-5", turn.Decision.Model)
 	assert.Equal(t, providers.ProviderAnthropic, turn.Decision.Provider)
@@ -230,7 +230,7 @@ func TestHMMCommandOnlyTurnKeepsEligibleSessionPin(t *testing.T) {
 	svc := unscorableHMMService(store, errors.New("must not call sidecar"))
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
 	request := router.Request{RequestedModel: features.Model, ConversationMessages: conversationMessagesForRouting(env)}
-	turn, err := svc.runTurnLoop(ctx, env, features, "api-key", uuid.New(), "", http.Header{}, request)
+	turn, err := svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, "api-key", uuid.New()), "", http.Header{}, request)
 	require.NoError(t, err)
 	assert.Equal(t, "claude-sonnet-4-6", turn.Decision.Model)
 	assert.Equal(t, unscorableHMMStickyReason, turn.Decision.Reason)

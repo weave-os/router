@@ -183,9 +183,10 @@ func TestRunTurnLoop_ForceModelSessionPinAppliesAcrossChildThreads(t *testing.T)
 	features := child.RoutingFeatures()
 
 	ctx = router.WithStrategy(ctx, router.StrategyHMMBeta)
-	result, err := svc.runTurnLoop(ctx, child, features, apiKeyID, installationID, "", nil, router.Request{
+	result, err := svc.runTurnLoop(ctx, child, features, testTurnRequest(ctx, apiKeyID, installationID), "", nil, router.Request{
 		RequestedModel: features.Model,
 	})
+
 	require.NoError(t, err)
 
 	assert.Equal(t, forcedModel, result.Decision.Model)
@@ -251,12 +252,13 @@ func TestRunTurnLoop_DroppedSessionForcePreservesThreadPin(t *testing.T) {
 	svc.WithTransientRateLimit(true, 45)
 	ctx = router.WithStrategy(ctx, router.StrategyHMMEmbedding)
 
-	result, err := svc.runTurnLoop(ctx, env, features, apiKeyID, installationID, "", nil, router.Request{
+	result, err := svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, apiKeyID, installationID), "", nil, router.Request{
 		RequestedModel: features.Model,
 		EnabledProviders: map[string]struct{}{
 			providers.ProviderOpenAI: {},
 		},
 	})
+
 	require.NoError(t, err)
 	assert.Equal(t, "gpt-5.5", result.Decision.Model)
 	assert.True(t, result.StickyHit)
@@ -301,9 +303,10 @@ func TestRunTurnLoop_ClearTombstoneBlocksLegacyForce(t *testing.T) {
 	svc := NewService(freshRouter, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
-	result, err := svc.runTurnLoop(ctx, env, features, apiKeyID, installationID, "", nil, router.Request{
+	result, err := svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, apiKeyID, installationID), "", nil, router.Request{
 		RequestedModel: features.Model,
 	})
+
 	require.NoError(t, err)
 	assert.Equal(t, "claude-haiku-4-5", result.Decision.Model)
 	assert.NotEqual(t, translate.ReasonUserForceModel, result.Decision.Reason)
@@ -338,9 +341,10 @@ func TestRunTurnLoop_SessionForceOverridesAuxiliaryHardPin(t *testing.T) {
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 	features := env.RoutingFeatures()
 
-	result, err := svc.runTurnLoop(ctx, env, features, apiKeyID, installationID, "", nil, router.Request{
+	result, err := svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, apiKeyID, installationID), "", nil, router.Request{
 		RequestedModel: features.Model,
 	})
+
 	require.NoError(t, err)
 	assert.Equal(t, "claude-opus-5", result.Decision.Model)
 	assert.Equal(t, translate.ReasonUserForceModel, result.Decision.Reason)

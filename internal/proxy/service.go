@@ -2430,7 +2430,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	} else if agentShadowMode {
 		routeRes, routeErr = s.runAgentShadowEvaluationRoute(routeCtx, env, feats, facts.InstallationID, req, agentShadowEval)
 	} else {
-		routeRes, routeErr = taskArm.route(routeCtx, s.runTurnLoop)(env, feats, facts.APIKeyID, facts.InstallationID, "", r.Header, req)
+		routeRes, routeErr = taskArm.route(routeCtx, s.runTurnLoop)(env, feats, turnRequest{Strategy: strategy, APIKeyID: facts.APIKeyID, InstallationID: facts.InstallationID}, "", r.Header, req)
 	}
 	defer routeRes.releaseCooldownProbes()
 	var escalationCapture *captureWriter
@@ -2442,7 +2442,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	finishRoutingSpan(routeSpan, routeRes.Decision, routeErr)
 	if routeErr != nil {
 		log.Error("Routing failed", "err", routeErr, "route_ms", s.clock.Now().Sub(routeStart).Milliseconds(), "requested_model", feats.Model, "total_input_tokens", feats.Tokens)
-		s.recordPolicyPinRouteFailure(ctx, facts.RequestID, requestStart, feats.Model, routeRes.TurnType, inboundUserPrompt, routeErr)
+		s.recordPolicyPinRouteFailure(ctx, routeFailureRequest{RequestID: facts.RequestID, RequestStart: requestStart, RequestedModel: feats.Model, Strategy: strategy}, routeRes.TurnType, inboundUserPrompt, routeErr)
 		return routeErr
 	}
 	ctx = requestcontext.WithCallerModelPassthrough(ctx, routeRes.CallerModelPassthrough)
@@ -4521,7 +4521,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	routeStart := s.clock.Now()
 	routeCtx, routeSpan := startRoutingSpan(ctx, strategy, routeRequest)
-	routeRes, err := taskArm.route(routeCtx, s.runTurnLoop)(env, feats, facts.APIKeyID, facts.InstallationID, subAgentHint, r.Header, routeRequest)
+	routeRes, err := taskArm.route(routeCtx, s.runTurnLoop)(env, feats, turnRequest{Strategy: strategy, APIKeyID: facts.APIKeyID, InstallationID: facts.InstallationID}, subAgentHint, r.Header, routeRequest)
 	defer routeRes.releaseCooldownProbes()
 	var escalationCapture *captureWriter
 	defer func() {
@@ -4531,7 +4531,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	routeMs := s.clock.Now().Sub(routeStart).Milliseconds()
 	if err != nil {
 		log.Error("Routing failed for OpenAI request", "err", err, "route_ms", routeMs, "requested_model", feats.Model, "total_input_tokens", feats.Tokens)
-		s.recordPolicyPinRouteFailure(ctx, facts.RequestID, requestStart, feats.Model, routeRes.TurnType, inboundUserPromptOpenAI, err)
+		s.recordPolicyPinRouteFailure(ctx, routeFailureRequest{RequestID: facts.RequestID, RequestStart: requestStart, RequestedModel: feats.Model, Strategy: strategy}, routeRes.TurnType, inboundUserPromptOpenAI, err)
 		return err
 	}
 	ctx = requestcontext.WithCallerModelPassthrough(ctx, routeRes.CallerModelPassthrough)

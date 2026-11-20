@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+
 	"weave-os/router/internal/credentials"
 
 	"weave-os/router/internal/auth"
@@ -258,7 +259,7 @@ func TestUsageBypass_PreservesSwitchHistory(t *testing.T) {
 	env := bypassAnthropicEnvelope(t)
 	feats := env.RoutingFeatures()
 
-	res, err := svc.runTurnLoop(ctx, env, feats, "api-key", uuid.New(), "", http.Header{}, router.Request{
+	res, err := svc.runTurnLoop(ctx, env, feats, testTurnRequest(ctx, "api-key", uuid.New()), "", http.Header{}, router.Request{
 		RequestedModel: feats.Model,
 		EnabledProviders: map[string]struct{}{
 			providers.ProviderAnthropic: {},
@@ -308,7 +309,7 @@ func TestUsageBypass_EngagesUnderAuthoritativePolicy(t *testing.T) {
 	env := bypassAnthropicEnvelope(t)
 	feats := env.RoutingFeatures()
 
-	res, err := svc.runTurnLoop(ctx, env, feats, "api-key", uuid.New(), "", http.Header{}, router.Request{
+	res, err := svc.runTurnLoop(ctx, env, feats, testTurnRequest(ctx, "api-key", uuid.New()), "", http.Header{}, router.Request{
 		RequestedModel: feats.Model,
 		EnabledProviders: map[string]struct{}{
 			providers.ProviderAnthropic: {},

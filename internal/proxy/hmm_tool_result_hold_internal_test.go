@@ -90,7 +90,7 @@ func TestHMMToolResultHoldKeepsUserTurnPick(t *testing.T) {
 				ConversationMessages: conversationMessagesForRouting(env),
 			}
 
-			result, err := svc.runTurnLoop(ctx, env, features, "api-key", uuid.New(), "", http.Header{}, req)
+			result, err := svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, "api-key", uuid.New()), "", http.Header{}, req)
 
 			require.NoError(t, err)
 			assert.Equal(t, test.wantModel, result.Decision.Model)

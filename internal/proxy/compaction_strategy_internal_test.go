@@ -62,7 +62,7 @@ func TestCodexCompactionAfterAutoReview(t *testing.T) {
 			legacyExcluded[entry.Model] = struct{}{}
 		}
 	}
-	turn, err := svc.runTurnLoop(ctx, env, features, "test-key", installationID, "", nil, router.Request{
+	turn, err := svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, "test-key", installationID), "", nil, router.Request{
 		RequestedModel:   string(router.ModelHMM),
 		EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}},
 		Candidates: router.Candidates{
@@ -72,6 +72,7 @@ func TestCodexCompactionAfterAutoReview(t *testing.T) {
 			SourceFormat: router.WireFormatOpenAI, Endpoint: router.EndpointOpenAIResponses, NativeOnly: true,
 		},
 	})
+
 	if err != nil {
 		class, _ := ClassifyDispatchError(err)
 		t.Logf("compaction rejected: HTTP %d: %s", class.Status, class.Message)

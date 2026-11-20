@@ -147,9 +147,12 @@ func TestBoostServingHeaderForceModelCarriesEffortSameTurn(t *testing.T) {
 	env := forceCommandEnv(t)
 	features := env.RoutingFeatures()
 	result, err := svc.runTurnLoop(
-		ctx, env, features, "api-key", uuid.New(), "", request.Header,
-		router.Request{RequestedModel: features.Model, ForceModel: forced},
-	)
+		ctx, env, features, testTurnRequest(
+			ctx, "api-key", uuid.New()),
+
+		"", request.Header,
+		router.Request{RequestedModel: features.Model, ForceModel: forced})
+
 	require.NoError(t, err)
 	assert.Equal(t, "gpt-6.2-sol", result.Decision.Model)
 	assert.Equal(t, "medium", result.Decision.Effort)
@@ -205,9 +208,12 @@ func TestBoostServingRoutesExplicitForceModel(t *testing.T) {
 	svc := &Service{}
 
 	result, err := svc.runTurnLoop(
-		boostDefaultRoutingContext(), env, features, "api-key", uuid.New(), "", nil,
-		router.Request{RequestedModel: features.Model, ForceModel: "sol"},
-	)
+		boostDefaultRoutingContext(), env, features, testTurnRequest(
+			boostDefaultRoutingContext(), "api-key", uuid.New()),
+
+		"", nil,
+		router.Request{RequestedModel: features.Model, ForceModel: "sol"})
+
 	require.NoError(t, err)
 	assert.Equal(t, "gpt-6.2-sol", result.Decision.Model)
 	assert.Equal(t, translate.ReasonUserForceModel, result.Decision.Reason)

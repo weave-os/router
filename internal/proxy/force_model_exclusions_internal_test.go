@@ -235,7 +235,10 @@ func TestTurnLoop_ForcedPinToNewlyExcludedProviderRejects(t *testing.T) {
 	feats := env.RoutingFeatures()
 	_, err := svc.runTurnLoop(
 		excludedProvidersCtx(providers.ProviderAnthropic),
-		env, feats, "key-1", uuid.New(), "", nil,
+		env, feats, testTurnRequest(
+			excludedProvidersCtx(providers.ProviderAnthropic), "key-1", uuid.New()),
+
+		"", nil,
 		router.Request{RequestedModel: feats.Model})
 
 	require.Error(t, err)
@@ -262,7 +265,10 @@ func TestTurnLoop_AutomaticPinToExcludedProviderStillFallsThrough(t *testing.T) 
 	feats := env.RoutingFeatures()
 	_, err := svc.runTurnLoop(
 		excludedProvidersCtx(providers.ProviderAnthropic),
-		env, feats, "key-1", uuid.New(), "", nil,
+		env, feats, testTurnRequest(
+			excludedProvidersCtx(providers.ProviderAnthropic), "key-1", uuid.New()),
+
+		"", nil,
 		router.Request{RequestedModel: feats.Model})
 
 	require.NoError(t, err, "an automatic pin must not fail the request")
@@ -332,7 +338,10 @@ func TestTurnLoop_ForcedPinFollowsSurvivingBinding(t *testing.T) {
 	feats := env.RoutingFeatures()
 	res, err := svc.runTurnLoop(
 		excludedProvidersCtx(providers.ProviderAnthropic),
-		env, feats, "key-1", uuid.New(), "", nil,
+		env, feats, testTurnRequest(
+			excludedProvidersCtx(providers.ProviderAnthropic), "key-1", uuid.New()),
+
+		"", nil,
 		router.Request{
 			RequestedModel:   feats.Model,
 			EnabledProviders: keyed(providers.ProviderAnthropicGateway),
@@ -365,7 +374,10 @@ func TestTurnLoop_StrikeExemptionCoversRemappedBinding(t *testing.T) {
 	feats := env.RoutingFeatures()
 	res, err := svc.runTurnLoop(
 		excludedProvidersCtx(providers.ProviderAnthropic),
-		env, feats, "key-1", uuid.New(), "", nil,
+		env, feats, testTurnRequest(
+			excludedProvidersCtx(providers.ProviderAnthropic), "key-1", uuid.New()),
+
+		"", nil,
 		router.Request{
 			RequestedModel:   feats.Model,
 			EnabledProviders: keyed(providers.ProviderAnthropicGateway),
@@ -397,7 +409,10 @@ func TestTurnLoop_HardPinnedTurnForcedPinFollowsSurvivingBinding(t *testing.T) {
 	feats := env.RoutingFeatures()
 	res, err := svc.runTurnLoop(
 		excludedProvidersCtx(providers.ProviderAnthropic),
-		env, feats, "key-1", uuid.New(), "", nil,
+		env, feats, testTurnRequest(
+			excludedProvidersCtx(providers.ProviderAnthropic), "key-1", uuid.New()),
+
+		"", nil,
 		router.Request{
 			RequestedModel:   feats.Model,
 			EnabledProviders: keyed(providers.ProviderAnthropicGateway),
