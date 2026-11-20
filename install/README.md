@@ -87,7 +87,8 @@ the target flag:
 No Codex install forces a strategy header; every install keeps the target
 router's configured default, so a deployment-default change reaches clients
 that were installed earlier. This also matters for self-hosted routers,
-including the bundled local stack, which may not run the optional HMM sidecar.
+including the bundled local-dev stack, which serves a stub classifier unless
+started with `make up-hmm`.
 A deployment that wants a specific policy can add `X-Weave-Router-Strategy`
 explicitly to its managed Codex config.
 

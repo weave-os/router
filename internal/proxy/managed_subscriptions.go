@@ -13,8 +13,8 @@ import (
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/armid"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/subscriptionlane"
 	"weave-os/router/internal/subscriptions"
 )
@@ -439,7 +439,7 @@ func (s *Service) subscriptionAlternativeDecisions(ctx context.Context, req rout
 		return nil
 	}
 	var ordered []string
-	if trace := hmm.ClassifierTelemetryOf(selected.Metadata).SelectionTrace; trace != nil && trace.SelectedGroup != "" {
+	if trace := s.strategyPorts.Facts.ClassifierTelemetryOf(selected.Metadata).SelectionTrace; trace != nil && trace.SelectedGroup != "" {
 		ordered = trace.EffectiveOrders[trace.SelectedGroup]
 	}
 	if len(ordered) == 0 {
@@ -455,18 +455,18 @@ func (s *Service) subscriptionAlternativeDecisions(ctx context.Context, req rout
 	var alternatives []router.Decision
 	seen := map[string]bool{selected.Model: true}
 	for _, arm := range ordered {
-		model, effort := hmm.SplitEffort(arm)
-		model = hmm.CatalogIDForRoster(model)
+		model, effort := armid.SplitEffort(arm)
+		model = armid.CatalogIDForRoster(model)
 		eligible := false
 		for _, candidate := range selected.Metadata.CandidateModels {
 			if candidate == model {
 				eligible = true
 			}
 		}
-		if trace := hmm.ClassifierTelemetryOf(selected.Metadata).SelectionTrace; trace != nil {
+		if trace := s.strategyPorts.Facts.ClassifierTelemetryOf(selected.Metadata).SelectionTrace; trace != nil {
 			for _, candidate := range trace.CandidateRosterIDs {
-				base, _ := hmm.SplitEffort(candidate)
-				if hmm.CatalogIDForRoster(base) == model {
+				base, _ := armid.SplitEffort(candidate)
+				if armid.CatalogIDForRoster(base) == model {
 					eligible = true
 				}
 			}

@@ -11,8 +11,8 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/candidates"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/escalation"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/taskarm"
 	"weave-os/router/internal/router/turntype"
@@ -31,7 +31,7 @@ type taskArmTurn struct {
 	cappedModel    string
 }
 
-func assignTaskArm(ctx context.Context, strategy router.Strategy, env *translate.RequestEnvelope, installationID uuid.UUID, forceModel, forceCluster string) taskArmTurn {
+func assignTaskArm(ports continuity.StrategyPorts, ctx context.Context, strategy router.Strategy, env *translate.RequestEnvelope, installationID uuid.UUID, forceModel, forceCluster string) taskArmTurn {
 	treatmentPct := flags.IntOr(ctx, flags.KeyTaskArmExperimentTreatmentPct, 0)
 	cluster := flags.StringOr(ctx, flags.KeyTaskArmExperimentTreatmentCluster, "")
 	steps := taskarm.Steps(flags.StringOr(ctx, flags.KeyTaskArmExperimentSteps, ""))
@@ -39,7 +39,7 @@ func assignTaskArm(ctx context.Context, strategy router.Strategy, env *translate
 		return taskArmTurn{}
 	}
 	routerDecides := forceModel == "" && forceCluster == "" &&
-		hmm.Owns(strategy) &&
+		ports.Ownership.Owns(strategy) &&
 		!callerModelPassthroughActive(ctx) && !planHasDedicatedServingPolicy(ctx) && !policyPinHonoured(ctx)
 	if !routerDecides || installationID == uuid.Nil {
 		return taskArmTurn{}
@@ -54,13 +54,19 @@ func assignTaskArm(ctx context.Context, strategy router.Strategy, env *translate
 	return taskArmTurn{assignment: assignment, assigned: assigned, cluster: cluster}
 }
 
-type turnRoute func(ctx context.Context, env *translate.RequestEnvelope, feats translate.RoutingFeatures, apiKeyID string, installationID uuid.UUID, subAgentHint string, reqHeaders http.Header, req router.Request) (turnLoopResult, error)
+type turnRequest struct {
+	Strategy       router.Strategy
+	APIKeyID       string
+	InstallationID uuid.UUID
+}
 
-type taskArmRoute func(env *translate.RequestEnvelope, feats translate.RoutingFeatures, apiKeyID string, installationID uuid.UUID, subAgentHint string, reqHeaders http.Header, req router.Request) (turnLoopResult, error)
+type turnRoute func(ctx context.Context, env *translate.RequestEnvelope, feats translate.RoutingFeatures, request turnRequest, subAgentHint string, reqHeaders http.Header, req router.Request) (turnLoopResult, error)
+
+type taskArmRoute func(env *translate.RequestEnvelope, feats translate.RoutingFeatures, request turnRequest, subAgentHint string, reqHeaders http.Header, req router.Request) (turnLoopResult, error)
 
 func (turn *taskArmTurn) route(ctx context.Context, route turnRoute) taskArmRoute {
-	return func(env *translate.RequestEnvelope, feats translate.RoutingFeatures, apiKeyID string, installationID uuid.UUID, subAgentHint string, reqHeaders http.Header, req router.Request) (turnLoopResult, error) {
-		control, err := route(ctx, env, feats, apiKeyID, installationID, subAgentHint, reqHeaders, req)
+	return func(env *translate.RequestEnvelope, feats translate.RoutingFeatures, request turnRequest, subAgentHint string, reqHeaders http.Header, req router.Request) (turnLoopResult, error) {
+		control, err := route(ctx, env, feats, request, subAgentHint, reqHeaders, req)
 		if err != nil || !turn.observeControl(control) {
 			return control, err
 		}
@@ -69,7 +75,7 @@ func (turn *taskArmTurn) route(ctx context.Context, route turnRoute) taskArmRout
 		for _, model := range control.SessionDemotedModels {
 			req.Candidates.ExcludedModels = candidates.ExcludingModel(req.Candidates.ExcludedModels, model)
 		}
-		cappedRes, err := route(ctx, env, feats, apiKeyID, installationID, subAgentHint, reqHeaders, req)
+		cappedRes, err := route(ctx, env, feats, request, subAgentHint, reqHeaders, req)
 		if err != nil {
 			cappedRes.releaseCooldownProbes()
 			observability.FromContext(ctx).Warn("Task-arm ceiling cluster could not serve the turn; serving the control decision",
@@ -126,8 +132,8 @@ func applyTaskArmAttrs(b *telemetry.AttrBuilder, turn taskArmTurn, servedModel s
 		Bool("routing.task_arm_experiment_treatment_applied", turn.capped && servedModel == turn.cappedModel)
 }
 
-func forceClusterForTurn(ctx context.Context, strategy router.Strategy, r *http.Request, env *translate.RequestEnvelope, feats translate.RoutingFeatures, installationID uuid.UUID, forceModel string) (string, taskArmTurn, error) {
-	forceCluster, err := applyForceClusterHeader(ctx, strategy, r)
+func forceClusterForTurn(ports continuity.StrategyPorts, ctx context.Context, turnReq turnRequest, r *http.Request, env *translate.RequestEnvelope, feats translate.RoutingFeatures, forceModel string) (string, taskArmTurn, error) {
+	forceCluster, err := applyForceClusterHeader(ports, ctx, turnReq.Strategy, r)
 	if err != nil || handoffFromContext(ctx) != nil {
 		return forceCluster, taskArmTurn{}, err
 	}
@@ -136,7 +142,7 @@ func forceClusterForTurn(ctx context.Context, strategy router.Strategy, r *http.
 	if turnType != turntype.MainLoop && turnType != turntype.ToolResult {
 		return forceCluster, taskArmTurn{}, nil
 	}
-	return forceCluster, assignTaskArm(ctx, strategy, env, installationID, forceModel, forceCluster), nil
+	return forceCluster, assignTaskArm(ports, ctx, turnReq.Strategy, env, turnReq.InstallationID, forceModel, forceCluster), nil
 }
 
 func applyExperimentAttrs(ctx context.Context, b *telemetry.AttrBuilder, routed *turnLoopResult, turn taskArmTurn, requestedModel, servedModel string) {

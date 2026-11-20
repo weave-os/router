@@ -11,7 +11,7 @@ import (
 )
 
 func TestServedCredentialLogValues(t *testing.T) {
-	service := &Service{}
+	service := &Service{hmmServing: hmmPorts()}
 
 	source, tier := service.servedCredentialLogValues(context.Background())
 	assert.Empty(t, source, "deployment key")

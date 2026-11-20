@@ -20,6 +20,7 @@ var (
 	queryName         = regexp.MustCompile(`(?m)^-- name: (\w+) :`)
 	dollarQuoteTag    = regexp.MustCompile(`^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$`)
 	queryNamePrefix   = regexp.MustCompile(`^(` + strings.Join(queryNameVerbs, "|") + `)[A-Z]`)
+	archivedTable     = regexp.MustCompile(`(?i)\b(loop_escalation_events|spiral_shadow_events|struggle_shadow_events|struggle_escalation_events)\b`)
 )
 
 var queryNameVerbs = []string{
@@ -60,6 +61,11 @@ func TestQueriesUsePrefixedNames(t *testing.T) {
 	assert.Empty(t, findings, "start the query name with one of: %s", strings.Join(queryNameVerbs, ", "))
 }
 
+func TestArchivedEscalationTablesHaveNoQueries(t *testing.T) {
+	findings := sqlFindings(t, filepath.Join(repositoryRoot(t), "db", "queries"), "*.sql", referencesArchivedTable)
+	assert.Empty(t, findings, "the retired escalation tables are archived for posterity (migration 0158): read them ad hoc, never add an SQLC query")
+}
+
 func TestSQLConventionChecksRejectNegativeFixtures(t *testing.T) {
 	assert.True(t, untransactionalMigration("ALTER TABLE router.t ADD COLUMN c TEXT;\n"))
 	assert.True(t, untransactionalMigration("BEGIN;\nALTER TABLE router.t ADD COLUMN c TEXT;\n"))
@@ -72,6 +78,8 @@ func TestSQLConventionChecksRejectNegativeFixtures(t *testing.T) {
 	assert.True(t, numberedParameters("SELECT * FROM router.t WHERE id = $1;"))
 	assert.False(t, numberedParameters("SELECT * FROM router.t WHERE id = @id::uuid;"))
 	assert.Equal(t, []string{"FetchThing", "Getter"}, unprefixedQueryNames("-- name: FetchThing :one\n-- name: Getter :one\n-- name: GetThing :one\n-- name: SoftDeleteThing :exec\n"))
+	assert.True(t, referencesArchivedTable("INSERT INTO router.loop_escalation_events (id) VALUES (@id::uuid);"))
+	assert.False(t, referencesArchivedTable("-- not router.struggle_escalation_events\nSELECT * FROM router.session_pins;"))
 	assert.False(t, numberedParameters("-- never $1\nSELECT * FROM router.t WHERE note = 'costs $1' AND id = @id::uuid;"))
 }
 
@@ -86,6 +94,10 @@ func guardedRollback(sql string) bool {
 
 func numberedParameters(sql string) bool {
 	return numberedParameter.MatchString(sqlCode(sql))
+}
+
+func referencesArchivedTable(sql string) bool {
+	return archivedTable.MatchString(sqlCode(sql))
 }
 
 func unprefixedQueryNames(sql string) []string {

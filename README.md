@@ -97,8 +97,9 @@ The optional self-hosted HMM is a barebones, frozen version of the policy. It
 doesn't include the managed service's training, online learning, or registry.
 For the best experience, use the [Weave-managed router](#get-started). The
 self-hosted stack defaults to it (`hmm_embedding`). The local compose stack
-boots on a stub classifier (`smoke/hmmstub`) that puts every turn in one
-routing group; `make up-hmm` swaps in the real sidecar. See the
+boots on a local-dev-only stub classifier (`smoke/hmmstub`) that puts every
+turn in one routing group; `make up-hmm` (also local dev only) swaps in the
+real sidecar. See the
 [HMM guide](sidecars/hmm/README.md) for setup.
 
 ### Architecture
@@ -112,7 +113,7 @@ service; its default configuration calls Google's embedding API.
 flowchart LR
     client["Claude Code, Codex, opencode,<br/>pi, Cursor, your own app"]
     router["Router :8080<br/>/v1/messages · /v1/chat/completions<br/>/v1beta/models · /v1/route"]
-    hmm["HMM policy sidecar :8093<br/>stub by default, make up-hmm"]
+    hmm["HMM policy sidecar :8093<br/>local dev: stub by default, make up-hmm"]
     pg[("Postgres<br/>installations, rk_ keys,<br/>encrypted BYOK keys, usage")]
     ui["Dashboard /ui<br/>selfhosted mode only"]
     providers["Anthropic · OpenAI · Gemini<br/>OpenRouter and any<br/>OpenAI-compatible endpoint"]

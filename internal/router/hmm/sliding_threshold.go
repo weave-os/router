@@ -2,16 +2,12 @@ package hmm
 
 import (
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/sessionpin"
 )
 
-type SlidingThreshold struct {
-	Served          bool
-	Probability     float64
-	FreshGroup      string
-	ClassifiedGroup string
-}
+type SlidingThreshold = continuity.SlidingThreshold
 
 func SlidingThresholdServes(req router.Request, pin sessionpin.Pin, fresh router.Decision) SlidingThreshold {
 	if req.Session.SlidingThresholdPinGroup == "" || pin.Model == "" || pin.Model == fresh.Model || fresh.Metadata == nil {

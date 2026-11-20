@@ -3,112 +3,92 @@ package hmm
 import (
 	"math"
 
+	"weave-os/router/internal/router/continuity"
+
 	"weave-os/router/internal/router/escalation"
 )
 
-type UpgradeOutcome string
+type UpgradeOutcome = continuity.UpgradeOutcome
 
 const (
-	UpgradeAllow          UpgradeOutcome = "allow"
-	UpgradeHold           UpgradeOutcome = "hold"
-	UpgradeExistingPolicy UpgradeOutcome = "existing_policy"
-	UpgradeNotApplicable  UpgradeOutcome = "not_applicable"
-	UpgradeExcluded       UpgradeOutcome = "excluded"
+	UpgradeAllow          = continuity.UpgradeAllow
+	UpgradeHold           = continuity.UpgradeHold
+	UpgradeExistingPolicy = continuity.UpgradeExistingPolicy
+	UpgradeNotApplicable  = continuity.UpgradeNotApplicable
+	UpgradeExcluded       = continuity.UpgradeExcluded
 )
 
-type UpgradeReason string
+type UpgradeReason = continuity.UpgradeReason
 
 const (
-	UpgradeColdPin              UpgradeReason = "cold_pin"
-	UpgradePrefixBroken         UpgradeReason = "prefix_broken"
-	UpgradeExplicitQualityFloor UpgradeReason = "explicit_quality_floor"
-	UpgradeGroupEscalation      UpgradeReason = "group_escalation"
-	UpgradeMarginQualified      UpgradeReason = "margin_qualified"
-	UpgradeRepeatedVote         UpgradeReason = "repeated_vote"
-	UpgradeWarmPinHold          UpgradeReason = "warm_pin_hold"
-	UpgradeInsufficientMargin   UpgradeReason = "insufficient_margin"
-	UpgradeMissingGroup         UpgradeReason = "missing_group"
-	UpgradeMissingMargin        UpgradeReason = "missing_margin"
-	UpgradeInvalidMargin        UpgradeReason = "invalid_margin"
-	UpgradeUncalibratedMargin   UpgradeReason = "uncalibrated_margin"
-	UpgradeDemotedModel         UpgradeReason = "demoted_model"
-	UpgradeIneligibleModel      UpgradeReason = "ineligible_model"
-	UpgradeNoPin                UpgradeReason = "no_pin"
-	UpgradeSameModel            UpgradeReason = "same_model"
-	UpgradeNotMoreExpensive     UpgradeReason = "not_more_expensive"
-	UpgradeMissingPricing       UpgradeReason = "missing_pricing"
-	UpgradeStalePin             UpgradeReason = "stale_pin"
+	UpgradeColdPin              = continuity.UpgradeColdPin
+	UpgradePrefixBroken         = continuity.UpgradePrefixBroken
+	UpgradeExplicitQualityFloor = continuity.UpgradeExplicitQualityFloor
+	UpgradeGroupEscalation      = continuity.UpgradeGroupEscalation
+	UpgradeMarginQualified      = continuity.UpgradeMarginQualified
+	UpgradeRepeatedVote         = continuity.UpgradeRepeatedVote
+	UpgradeWarmPinHold          = continuity.UpgradeWarmPinHold
+	UpgradeInsufficientMargin   = continuity.UpgradeInsufficientMargin
+	UpgradeMissingGroup         = continuity.UpgradeMissingGroup
+	UpgradeMissingMargin        = continuity.UpgradeMissingMargin
+	UpgradeInvalidMargin        = continuity.UpgradeInvalidMargin
+	UpgradeUncalibratedMargin   = continuity.UpgradeUncalibratedMargin
+	UpgradeDemotedModel         = continuity.UpgradeDemotedModel
+	UpgradeIneligibleModel      = continuity.UpgradeIneligibleModel
+	UpgradeNoPin                = continuity.UpgradeNoPin
+	UpgradeSameModel            = continuity.UpgradeSameModel
+	UpgradeNotMoreExpensive     = continuity.UpgradeNotMoreExpensive
+	UpgradeMissingPricing       = continuity.UpgradeMissingPricing
+	UpgradeStalePin             = continuity.UpgradeStalePin
 )
 
-type UpgradeVerdict struct {
-	Outcome UpgradeOutcome
-	Reason  UpgradeReason
-}
+type UpgradeVerdict = continuity.UpgradeVerdict
 
-func (v UpgradeVerdict) DemotedModel() bool { return v.Reason == UpgradeDemotedModel }
-
-type UpgradeEvidence struct {
-	HasPin          bool
-	SameModel       bool
-	MoreExpensive   bool
-	PricingKnown    bool
-	FreshEligible   bool
-	Demoted         bool
-	FreshGroup      escalation.Group
-	PinGroup        escalation.Group
-	RequestedGroup  escalation.Group
-	CacheCold       bool
-	PrefixBroken    bool
-	Margin          *float64
-	MarginQualified *bool
-	StalePin        bool
-	VoteCount       *int
-	RequiredVotes   int
-}
+type UpgradeEvidence = continuity.UpgradeEvidence
 
 func EvaluateAuthoritativeUpgrade(evidence UpgradeEvidence) UpgradeVerdict {
 	switch {
 	case evidence.Demoted:
-		return UpgradeVerdict{UpgradeExcluded, UpgradeDemotedModel}
+		return UpgradeVerdict{Outcome: UpgradeExcluded, Reason: UpgradeDemotedModel}
 	case !evidence.FreshEligible:
-		return UpgradeVerdict{UpgradeExcluded, UpgradeIneligibleModel}
+		return UpgradeVerdict{Outcome: UpgradeExcluded, Reason: UpgradeIneligibleModel}
 	case !evidence.HasPin:
-		return UpgradeVerdict{UpgradeNotApplicable, UpgradeNoPin}
+		return UpgradeVerdict{Outcome: UpgradeNotApplicable, Reason: UpgradeNoPin}
 	case evidence.SameModel:
-		return UpgradeVerdict{UpgradeNotApplicable, UpgradeSameModel}
+		return UpgradeVerdict{Outcome: UpgradeNotApplicable, Reason: UpgradeSameModel}
 	case !evidence.PricingKnown:
-		return UpgradeVerdict{UpgradeExistingPolicy, UpgradeMissingPricing}
+		return UpgradeVerdict{Outcome: UpgradeExistingPolicy, Reason: UpgradeMissingPricing}
 	case !evidence.MoreExpensive:
-		return UpgradeVerdict{UpgradeNotApplicable, UpgradeNotMoreExpensive}
+		return UpgradeVerdict{Outcome: UpgradeNotApplicable, Reason: UpgradeNotMoreExpensive}
 	case escalation.Rank(evidence.FreshGroup) < 0 || escalation.Rank(evidence.PinGroup) < 0:
-		return UpgradeVerdict{UpgradeExistingPolicy, UpgradeMissingGroup}
+		return UpgradeVerdict{Outcome: UpgradeExistingPolicy, Reason: UpgradeMissingGroup}
 	case evidence.PrefixBroken:
-		return UpgradeVerdict{UpgradeAllow, UpgradePrefixBroken}
+		return UpgradeVerdict{Outcome: UpgradeAllow, Reason: UpgradePrefixBroken}
 	case evidence.CacheCold:
-		return UpgradeVerdict{UpgradeAllow, UpgradeColdPin}
+		return UpgradeVerdict{Outcome: UpgradeAllow, Reason: UpgradeColdPin}
 	case (evidence.RequestedGroup == escalation.High || evidence.RequestedGroup == escalation.Maximum) &&
 		escalation.Rank(evidence.RequestedGroup) > escalation.Rank(evidence.PinGroup) &&
 		escalation.Rank(evidence.FreshGroup) >= escalation.Rank(evidence.RequestedGroup):
-		return UpgradeVerdict{UpgradeAllow, UpgradeExplicitQualityFloor}
+		return UpgradeVerdict{Outcome: UpgradeAllow, Reason: UpgradeExplicitQualityFloor}
 	case evidence.StalePin:
-		return UpgradeVerdict{UpgradeAllow, UpgradeStalePin}
+		return UpgradeVerdict{Outcome: UpgradeAllow, Reason: UpgradeStalePin}
 	case evidence.Margin == nil:
-		return UpgradeVerdict{UpgradeExistingPolicy, UpgradeMissingMargin}
+		return UpgradeVerdict{Outcome: UpgradeExistingPolicy, Reason: UpgradeMissingMargin}
 	case math.IsNaN(*evidence.Margin) || math.IsInf(*evidence.Margin, 0) || *evidence.Margin < 0 || *evidence.Margin > 1:
-		return UpgradeVerdict{UpgradeExistingPolicy, UpgradeInvalidMargin}
+		return UpgradeVerdict{Outcome: UpgradeExistingPolicy, Reason: UpgradeInvalidMargin}
 	case evidence.MarginQualified == nil:
-		return UpgradeVerdict{UpgradeExistingPolicy, UpgradeUncalibratedMargin}
+		return UpgradeVerdict{Outcome: UpgradeExistingPolicy, Reason: UpgradeUncalibratedMargin}
 	case *evidence.MarginQualified:
 		if escalation.Rank(evidence.FreshGroup) > escalation.Rank(evidence.PinGroup) {
-			return UpgradeVerdict{UpgradeAllow, UpgradeGroupEscalation}
+			return UpgradeVerdict{Outcome: UpgradeAllow, Reason: UpgradeGroupEscalation}
 		}
-		return UpgradeVerdict{UpgradeAllow, UpgradeMarginQualified}
+		return UpgradeVerdict{Outcome: UpgradeAllow, Reason: UpgradeMarginQualified}
 	case evidence.FreshGroup == evidence.PinGroup:
 		if evidence.RequiredVotes > 0 && evidence.VoteCount != nil && *evidence.VoteCount >= evidence.RequiredVotes {
-			return UpgradeVerdict{UpgradeAllow, UpgradeRepeatedVote}
+			return UpgradeVerdict{Outcome: UpgradeAllow, Reason: UpgradeRepeatedVote}
 		}
-		return UpgradeVerdict{UpgradeHold, UpgradeWarmPinHold}
+		return UpgradeVerdict{Outcome: UpgradeHold, Reason: UpgradeWarmPinHold}
 	default:
-		return UpgradeVerdict{UpgradeHold, UpgradeInsufficientMargin}
+		return UpgradeVerdict{Outcome: UpgradeHold, Reason: UpgradeInsufficientMargin}
 	}
 }

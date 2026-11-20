@@ -118,7 +118,7 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 				Reason:   "authoritative-test_policy",
 			}}
 			summarizer := &authoritativeHandoverSummarizer{}
-			svc := NewService(
+			svc := withHMMPorts(NewService(
 				nil,
 				nil,
 				nil,
@@ -126,11 +126,11 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 				false,
 				providers.ProviderAnthropic,
 				"claude-haiku-4-5",
-				nil,
-			).EditContinuityConfig(func(c *continuity.Config) {
-				c.ScoreToolResultTurns = false
-				c.Planner = planner.EVConfig{ThresholdUSD: 1_000_000, ExpectedRemainingTurns: 3}
-			}).
+				nil)).
+				EditContinuityConfig(func(c *continuity.Config) {
+					c.ScoreToolResultTurns = false
+					c.Planner = planner.EVConfig{ThresholdUSD: 1_000_000, ExpectedRemainingTurns: 3}
+				}).
 				WithSummarizer(summarizer).
 				EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).
 				WithPolicyStrategy(policy.StrategySpec{
@@ -156,13 +156,12 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 			result, err := svc.runTurnLoop(
 				ctx,
 				env,
-				features,
-				"api-key",
-				uuid.New(),
+				features, testTurnRequest(
+					ctx, "api-key", uuid.New()),
+
 				"",
 				http.Header{},
-				req,
-			)
+				req)
 
 			require.NoError(t, err)
 			assert.True(t, result.AuthoritativePerTurn)
@@ -216,7 +215,7 @@ func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
 		Provider: providers.ProviderAnthropic,
 		Model:    "claude-opus-4-8",
 	}}
-	svc := NewService(
+	svc := withHMMPorts(NewService(
 		nil,
 		nil,
 		nil,
@@ -224,8 +223,8 @@ func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	).EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).WithPolicyStrategy(policy.StrategySpec{
+		nil)).
+		EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).WithPolicyStrategy(policy.StrategySpec{
 		Strategy: strategy,
 		Router:   policyRouter,
 		Capabilities: policy.Capabilities{
@@ -241,16 +240,15 @@ func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
 	result, err := svc.runTurnLoop(
 		router.WithStrategy(context.Background(), strategy),
 		env,
-		features,
-		"api-key",
-		uuid.New(),
+		features, testTurnRequest(
+			router.WithStrategy(context.Background(), strategy), "api-key", uuid.New()),
+
 		"",
 		http.Header{},
 		router.Request{
 			RequestedModel:       features.Model,
 			ConversationMessages: conversationMessagesForRouting(env),
-		},
-	)
+		})
 
 	require.NoError(t, err)
 	assert.Equal(t, "claude-opus-4-7", result.Decision.Model)
@@ -396,7 +394,7 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 				PinnedUntil: time.Now().Add(time.Hour),
 			}
 			policyRouter := &authoritativeTestRouter{decision: test.fresh}
-			svc := NewService(
+			svc := withHMMPorts(NewService(
 				nil,
 				nil,
 				nil,
@@ -404,8 +402,8 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 				false,
 				providers.ProviderAnthropic,
 				"claude-haiku-4-5",
-				nil,
-			).EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).WithPolicyStrategy(policy.StrategySpec{
+				nil)).
+				EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).WithPolicyStrategy(policy.StrategySpec{
 				Strategy: strategy,
 				Router:   policyRouter,
 				Capabilities: policy.Capabilities{
@@ -423,16 +421,15 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 			result, err := svc.runTurnLoop(
 				router.WithStrategy(context.Background(), strategy),
 				env,
-				features,
-				"api-key",
-				uuid.New(),
+				features, testTurnRequest(
+					router.WithStrategy(context.Background(), strategy), "api-key", uuid.New()),
+
 				"",
 				http.Header{},
 				router.Request{
 					RequestedModel:       features.Model,
 					ConversationMessages: conversationMessagesForRouting(env),
-				},
-			)
+				})
 
 			require.NoError(t, err)
 			assert.True(t, result.AuthoritativePerTurn)

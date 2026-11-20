@@ -347,18 +347,7 @@ func routingPolicySessionPinScenarios() []goldenScenario {
 
 func routingPolicyEscalationAndClassifierScenarios() []goldenScenario {
 	first, next := goldenRequest{body: routingPolicyFirstTurn}, goldenRequest{body: routingPolicyFollowUp("Now say bye")}
-	served, excluded, providerNotEnabled := &routingPolicySession{}, &routingPolicySession{}, &routingPolicySession{}
-	escalate := func(p *sessionpin.Pin) {
-		p.Model, p.Provider, p.Reason = routingPolicyHigh, providers.ProviderAnthropic, translate.ReasonLoopEscalation
-	}
 	return []goldenScenario{
-		routingPolicyScenario("loop_escalation_pin_served_and_refreshed", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyLow)), session: served},
-			first, routingPolicyRequest(next.body, served.editPins("default_mid", escalate))),
-		routingPolicyScenario("loop_escalation_pin_excluded_is_expired", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyLow)), session: excluded},
-			first, routingPolicyRequest(next.body, excluded.editPins("default_mid", escalate), routingPolicyExcludeModels(routingPolicyHigh))),
-		routingPolicyScenario("loop_escalation_pin_provider_not_enabled_dropped", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyLow)), session: providerNotEnabled,
-			options: []func(*proxy.Service) *proxy.Service{excludeCompatProvider}},
-			first, routingPolicyRequest(next.body, providerNotEnabled.editPins("default_mid", routingPolicyMoveToCompat(translate.ReasonLoopEscalation)))),
 		routingPolicyScenario("classifier_strategy_without_thread_fails_closed", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyLow))},
 			routingPolicyRefused(routingPolicyFirstTurn, nil, routingPolicyStrategy(router.StrategyLLMClassifier))),
 		routingPolicyScenario("classifier_strategy_rejects_utility_turn", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyLow))},

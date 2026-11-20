@@ -70,11 +70,8 @@ func DefaultStrategyFromEnv() (router.Strategy, error) {
 
 func ParseDefaultStrategy(raw string) (router.Strategy, error) {
 	strategy := router.Strategy(strings.ToLower(strings.TrimSpace(raw)))
-	switch {
-	case strategy == "":
+	if strategy == "" {
 		return router.StrategyHMMEmbedding, nil
-	case router.IsRetiredStrategy(strategy):
-		return "", fmt.Errorf("ROUTER_DEFAULT_STRATEGY=%q is no longer supported: the cluster scorer is retired; unset it to use %q or set another registered strategy", raw, router.StrategyHMMEmbedding)
 	}
 	if router.IsBetaStrategy(strategy) || strategy == router.StrategyLLMClassifier {
 		return "", fmt.Errorf("ROUTER_DEFAULT_STRATEGY=%q is not a valid deployment default: beta and classifier lanes are opt-in per installation", raw)

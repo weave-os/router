@@ -30,10 +30,6 @@ func (e *RequestEnvelope) PrepareAnthropicPassthrough(in http.Header) (providers
 	return providers.PreparedRequest{Body: body, Headers: AnthropicPassthroughHeadersForBody(in, body)}, nil
 }
 
-func AnthropicPassthroughHeaders(in http.Header) http.Header {
-	return AnthropicPassthroughHeadersForBody(in, nil)
-}
-
 func AnthropicPassthroughHeadersForBody(in http.Header, body []byte) http.Header {
 	h := make(http.Header)
 	if v := in.Get("anthropic-version"); v != "" {

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"weave-os/router/smoke/hmmstub"
 
 	"github.com/stretchr/testify/require"
@@ -87,4 +89,21 @@ func TestManagedBootRefusesLocalDevPolicyRelease(t *testing.T) {
 			require.NoError(t, validateManagedServingBoot(server.DeploymentModeSelfHosted, lookup))
 		})
 	}
+}
+
+func TestLocalServingRegistryOptInLogsAStartupWarning(t *testing.T) {
+	t.Setenv("ROUTER_ALLOW_LOCAL_SERVING_REGISTRY", "true")
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	graph, err := hmmstub.NewServingGraph("http://hmm-stub:8093")
+	require.NoError(t, err)
+	dir := t.TempDir()
+	require.NoError(t, graph.Write(dir))
+	_, closeStore, err := openServingStore(context.Background(), server.DeploymentModeSelfHosted, dir)
+	require.NoError(t, err)
+	t.Cleanup(closeStore)
+	require.Contains(t, logs.String(), "ROUTER_ALLOW_LOCAL_SERVING_REGISTRY must only be set for a local stack")
+	require.Contains(t, logs.String(), "level=WARN")
 }

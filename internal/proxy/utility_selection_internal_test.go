@@ -37,15 +37,17 @@ func TestAutomaticUtilitySelectionDoesNotUseDeploymentShortcut(t *testing.T) {
 						Metadata: &router.RoutingMetadata{PolicyPinHonoured: true},
 					}}
 					pins := newStubPinStore()
-					service := NewService(scorer, nil, nil, pins, false,
-						providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
+					service := withHMMPorts(NewService(scorer, nil, nil, pins, false,
+						providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
+
 					envelope, err := translate.ParseAnthropic([]byte(fixture.body))
 					require.NoError(t, err)
 					features := envelope.RoutingFeatures()
-					turn, err := service.runTurnLoop(ctx, envelope, features, "utility-key", uuid.New(), "", http.Header{}, router.Request{
+					turn, err := service.runTurnLoop(ctx, envelope, features, testTurnRequest(ctx, "utility-key", uuid.New()), "", http.Header{}, router.Request{
 						RequestedModel:   features.Model,
 						EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
 					})
+
 					require.NoError(t, err)
 					assert.False(t, turn.HardPinned)
 					assert.Zero(t, turn.SessionKey)
@@ -109,15 +111,17 @@ func TestAutomaticProbeWithoutConcreteTargetScoresWithoutPinning(t *testing.T) {
 				Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeSonnet46.String(),
 			}}
 			pins := newStubPinStore()
-			service := NewService(scorer, nil, nil, pins, false,
-				providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
+			service := withHMMPorts(NewService(scorer, nil, nil, pins, false,
+				providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
+
 			body := strings.Replace(blindExperimentUtilityTurnBodies()[0].body, catalog.ModelIDClaudeOpus48.String(), requestedModel, 1)
 			envelope, err := translate.ParseAnthropic([]byte(body))
 			require.NoError(t, err)
 			features := envelope.RoutingFeatures()
-			turn, err := service.runTurnLoop(context.Background(), envelope, features, "utility-key", uuid.New(), "", http.Header{}, router.Request{
+			turn, err := service.runTurnLoop(context.Background(), envelope, features, testTurnRequest(context.Background(), "utility-key", uuid.New()), "", http.Header{}, router.Request{
 				RequestedModel: features.Model, EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
 			})
+
 			require.NoError(t, err)
 			require.Equal(t, turntype.Probe, turn.TurnType)
 			assert.Equal(t, catalog.ModelIDClaudeSonnet46.String(), turn.Decision.Model)
@@ -140,17 +144,19 @@ func TestDefaultProbeDroppedForceDoesNotAttachConversationState(t *testing.T) {
 				Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeSonnet46.String(),
 			}}
 			pins := newStubPinStore()
-			service := NewService(scorer, nil, nil, pins, false,
-				providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
+			service := withHMMPorts(NewService(scorer, nil, nil, pins, false,
+				providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
+
 			body := strings.Replace(blindExperimentUtilityTurnBodies()[0].body, catalog.ModelIDClaudeOpus48.String(), requestedModel, 1)
 			envelope, err := translate.ParseAnthropic([]byte(body))
 			require.NoError(t, err)
 			features := envelope.RoutingFeatures()
-			turn, err := service.runTurnLoop(context.Background(), envelope, features, "utility-key", uuid.New(), "", http.Header{}, router.Request{
+			turn, err := service.runTurnLoop(context.Background(), envelope, features, testTurnRequest(context.Background(), "utility-key", uuid.New()), "", http.Header{}, router.Request{
 				RequestedModel:   features.Model,
 				ForceModel:       catalog.ModelIDGPT55.String(),
 				EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
 			})
+
 			require.NoError(t, err)
 			require.True(t, turn.ForcedPinDropped)
 			assert.Empty(t, routingMarkerFor(turn), "probe output remains machine-readable when a force pin is unavailable")

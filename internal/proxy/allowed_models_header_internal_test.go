@@ -72,7 +72,7 @@ func TestAllowedModelsForRequest_SubsetAloneRestricts(t *testing.T) {
 }
 
 func TestExcludedModelsForRequest_SubsetExcludesComplementButPolicySetDoesNot(t *testing.T) {
-	s := &Service{availableModels: map[string]struct{}{"a": {}, "b": {}, "c": {}}}
+	s := &Service{hmmServing: hmmPorts(), availableModels: map[string]struct{}{"a": {}, "b": {}, "c": {}}}
 	ctx := ctxWithRequestSubset(ctxWithAllowedModels("a", "b"), "b")
 
 	got := s.excludedModelsForRequest(ctx)
@@ -109,7 +109,7 @@ func TestRequestedAllowedModelsForTelemetry(t *testing.T) {
 }
 
 func TestReadmitForcedModel_LiftsSubsetOnlyExclusion(t *testing.T) {
-	s := &Service{availableModels: map[string]struct{}{testSol: {}, testTerra: {}, testOpus: {}}}
+	s := &Service{hmmServing: hmmPorts(), availableModels: map[string]struct{}{testSol: {}, testTerra: {}, testOpus: {}}}
 	ctx := ctxWithRequestSubset(context.Background(), testSol)
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-5","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`))
 	require.NoError(t, err)
@@ -124,7 +124,7 @@ func TestReadmitForcedModel_LiftsSubsetOnlyExclusion(t *testing.T) {
 }
 
 func TestReadmitForcedModel_KeepsPolicyExclusion(t *testing.T) {
-	s := &Service{availableModels: map[string]struct{}{testSol: {}, testTerra: {}, testOpus: {}}}
+	s := &Service{hmmServing: hmmPorts(), availableModels: map[string]struct{}{testSol: {}, testTerra: {}, testOpus: {}}}
 	ctx := ctxWithRequestSubset(ctxWithAllowedModels(testSol, testTerra), testSol)
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-5","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`))
 	require.NoError(t, err)
@@ -136,7 +136,7 @@ func TestReadmitForcedModel_KeepsPolicyExclusion(t *testing.T) {
 }
 
 func TestReadmitForcedModel_KeepsAdvisorPairingExclusion(t *testing.T) {
-	s := &Service{availableModels: map[string]struct{}{testSol: {}, "claude-fable-5-1": {}}}
+	s := &Service{hmmServing: hmmPorts(), availableModels: map[string]struct{}{testSol: {}, "claude-fable-5-1": {}}}
 	ctx := ctxWithRequestSubset(context.Background(), testSol)
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-5","max_tokens":16,"messages":[{"role":"user","content":"hi"}],"tools":[{"type":"advisor_20260301","name":"advisor","model":"claude-opus-5"}]}`))
 	require.NoError(t, err)
@@ -149,7 +149,7 @@ func TestReadmitForcedModel_KeepsAdvisorPairingExclusion(t *testing.T) {
 }
 
 func TestReadmitForcedModel_NoSubsetIsNoOp(t *testing.T) {
-	s := &Service{availableModels: map[string]struct{}{testSol: {}, testTerra: {}}}
+	s := &Service{hmmServing: hmmPorts(), availableModels: map[string]struct{}{testSol: {}, testTerra: {}}}
 	req := router.Request{Candidates: router.Candidates{ExcludedModels: map[string]struct{}{testTerra: {}}}}
 	got := s.readmitForcedModel(context.Background(), req, nil, translate.RoutingFeatures{}, sessionpin.Pin{Model: testTerra})
 	assert.Contains(t, got, testTerra)
@@ -163,7 +163,7 @@ func TestModelInRequestSubset(t *testing.T) {
 }
 
 func TestForcedModelBinding_IgnoresRequestSubset(t *testing.T) {
-	s := &Service{availableModels: map[string]struct{}{testSol: {}, testTerra: {}, testOpus: {}}}
+	s := &Service{hmmServing: hmmPorts(), availableModels: map[string]struct{}{testSol: {}, testTerra: {}, testOpus: {}}}
 	ctx := ctxWithRequestSubset(ctxWithAllowedModels(testSol, testTerra), testSol)
 
 	binding, refusal := s.forcedModelBinding(ctx, testTerra, providers.ProviderOpenAI)
@@ -184,8 +184,8 @@ func TestTurnLoop_StickyPinOutsideRequestSubsetReroutes(t *testing.T) {
 			Reason:      "cluster:v0.2",
 			PinnedUntil: time.Now().Add(time.Hour),
 		}, found: true}
-		return NewService(fr, nil, nil, store, false,
-			providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		return withHMMPorts(NewService(fr, nil, nil, store, false,
+			providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 			WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic, providers.ProviderOpenAI))
 	}
 	env := forceCommandEnv(t)
@@ -194,8 +194,9 @@ func TestTurnLoop_StickyPinOutsideRequestSubsetReroutes(t *testing.T) {
 	fr := &tierProbeRouter{available: map[string]struct{}{testOpus: {}, "gpt-5.4-mini": {}}}
 	svc := newSvc(fr)
 	ctx := ctxWithRequestSubset(context.Background(), "gpt-5.4-mini")
-	res, err := svc.runTurnLoop(ctx, env, feats, "key-1", uuid.New(), "", nil,
+	res, err := svc.runTurnLoop(ctx, env, feats, testTurnRequest(ctx, "key-1", uuid.New()), "", nil,
 		router.Request{RequestedModel: feats.Model, Candidates: router.Candidates{ExcludedModels: svc.excludedModelsForRequest(ctx)}})
+
 	require.NoError(t, err)
 	assert.Equal(t, "gpt-5.4-mini", res.Decision.Model)
 	assert.False(t, res.StickyHit)
@@ -203,8 +204,9 @@ func TestTurnLoop_StickyPinOutsideRequestSubsetReroutes(t *testing.T) {
 	fr = &tierProbeRouter{available: map[string]struct{}{testOpus: {}, "gpt-5.4-mini": {}}}
 	svc = newSvc(fr)
 	ctx = ctxWithRequestSubset(context.Background(), testOpus, "gpt-5.4-mini")
-	res, err = svc.runTurnLoop(ctx, env, feats, "key-1", uuid.New(), "", nil,
+	res, err = svc.runTurnLoop(ctx, env, feats, testTurnRequest(ctx, "key-1", uuid.New()), "", nil,
 		router.Request{RequestedModel: feats.Model, Candidates: router.Candidates{ExcludedModels: svc.excludedModelsForRequest(ctx)}})
+
 	require.NoError(t, err)
 	assert.Equal(t, testOpus, res.Decision.Model)
 }
@@ -217,7 +219,7 @@ func TestRequestAllowedModelsPresent(t *testing.T) {
 
 func TestReadmitForcedModel_GatewayBypassKeepsUnsignedHistoryGeminiExclusion(t *testing.T) {
 	const gemini = "gemini-3.1-pro-preview"
-	s := &Service{availableModels: map[string]struct{}{testOpus: {}, gemini: {}}}
+	s := &Service{hmmServing: hmmPorts(), availableModels: map[string]struct{}{testOpus: {}, gemini: {}}}
 	ctx := context.WithValue(gatewayKeyCtx(gemini), InstallationAllowedModelsContextKey{}, []string{testOpus})
 	req := router.Request{Candidates: router.Candidates{ExcludedModels: s.excludedModelsForRequest(ctx)}}
 	require.Contains(t, req.Candidates.ExcludedModels, gemini)

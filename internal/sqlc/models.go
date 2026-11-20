@@ -335,7 +335,7 @@ type RouterLlmEscalationSession struct {
 	UpdatedAt      pgtype.Timestamptz
 }
 
-// Cyclic tool-call loop detections: ops signal and (session, looping_model) -> looped training labels
+// ARCHIVED: retired cyclic-loop escalation detections, kept read-only for posterity. Nothing writes here.
 type RouterLoopEscalationEvent struct {
 	ID             uuid.UUID
 	CreatedAt      pgtype.Timestamptz
@@ -1134,7 +1134,7 @@ type RouterSessionTurnClock struct {
 	UpdatedAt           pgtype.Timestamptz
 }
 
-// Shadow-mode spiral (death-march) detections: log-only fire-rate corpus measured on live traffic before escalation is armed
+// ARCHIVED: retired shadow spiral detections, kept read-only for posterity. Nothing writes here.
 type RouterSpiralShadowEvent struct {
 	ID             uuid.UUID
 	CreatedAt      pgtype.Timestamptz
@@ -1160,6 +1160,7 @@ type RouterSpiralShadowEvent struct {
 	StepsSinceProgress int32
 }
 
+// ARCHIVED: retired struggle escalations, kept read-only for posterity. Nothing writes here.
 type RouterStruggleEscalationEvent struct {
 	ID                  uuid.UUID
 	CreatedAt           pgtype.Timestamptz
@@ -1178,6 +1179,7 @@ type RouterStruggleEscalationEvent struct {
 	EvidenceReasons []string
 }
 
+// ARCHIVED: retired shadow struggle-escalation decisions, kept read-only for posterity. Nothing writes here.
 type RouterStruggleShadowEvent struct {
 	ID                  uuid.UUID
 	CreatedAt           pgtype.Timestamptz

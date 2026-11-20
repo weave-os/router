@@ -95,8 +95,6 @@ dependency-free.
   `StrategyHMMBeta`/`StrategyHMMQwen` are explicit session overrides
   (`IsBetaStrategy`). `StrategyLLMClassifier` requires the release-bound thread
   handshake ([LLM classifier context](../../docs/LLM_CLASSIFIER_CONTEXT.md)).
-- The retired `cluster` strategy is never routable: persisted values follow
-  the deployment default and a configured default refuses boot.
 - `RoutingModel` IDs select an automatic router, not an upstream model.
   Variants with `FallsBackToPrimary` serve `PrimaryRoutingStrategy` when the
   variant is absent, so releases can add and drop experiments.
@@ -173,7 +171,6 @@ HMM-only pin state stays behind `internal/router/hmm` accessors.
 | --- | --- | --- | --- |
 | `switchpolicy` | Router | `continuity` (cache economics) | Versioned switch-policy rules replayed by the agreement shadow. |
 | `bandswap` | Router | `continuity` (cache economics) | Classifier that picks the served band when the planner stays on a pin. |
-| `percallband` | Router | `continuity` (cache economics) | Per-call band head and features; not wired into serving. |
 | `taskarm` | Router | `policy` (classifier inputs) | Task-arm labels and assignment read by the serving-layer experiment. |
 | `taskdomain` | Router | `policy` (classifier inputs) | Task-domain contracts consumed by HMM selection and policy inference. |
 

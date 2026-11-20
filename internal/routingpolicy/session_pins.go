@@ -68,8 +68,6 @@ const ReasonUserUnforced = "user_unforced"
 
 func IsUserUnforcedPin(pin sessionpin.Pin) bool { return pin.Reason == ReasonUserUnforced }
 
-func IsLoopEscalationReason(reason string) bool { return reason == translate.ReasonLoopEscalation }
-
 func ClearedPinReason(pin sessionpin.Pin, active bool) string {
 	if active || pin.Model != "" || pin.Provider != "" {
 		return ""
