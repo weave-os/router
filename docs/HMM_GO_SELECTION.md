@@ -5,9 +5,9 @@ within-cluster arm selection — which lives in the Go router. The sidecar keeps
 ML inference (complexity classification) only.
 
 The staged rollout (`ROUTER_HMM_SELECTION_SHADOW` → `ROUTER_HMM_GO_SELECTION`)
-is complete and both flags are gone: Go selection is the only path. The sidecar
-contract followed: `policy_router_v3` carries a classification and no selected
-arm at all.
+is complete and both flags are gone: Go selection is the only path. The
+classifier contract followed: the classifier (`policy_router_v5`,
+`/v5/classify`) returns classifier facts and never names an arm.
 
 ## Why
 
@@ -26,8 +26,8 @@ class and shrinks the sidecar's authority to what only it can do: ML inference.
 | Roster contents (`hmm_router_cluster_roster_v7` JSON) | Declarative data, loaded and fail-loud validated by Go at boot (`internal/router/rosterdata`) |
 | Roster↔catalog validation | Go: `hmm.ValidateRosterIDs` (`internal/router/hmm/validate.go`) plus the `validate-roster` CLI for CI |
 | Within-cluster deterministic arm selection (harness policy, preference-adjusted WII/WPI ranking, ranked cluster-fallback walk) | Go: `internal/router/hmm/selection` |
-| Complexity classification (ML) | Python sidecar (`policy_router_v3` contract) |
-| Ranked cluster fallback (per-group probability, roster arms, eligible arms) | Python sidecar — the only selection input the router accepts |
+| Complexity classification (ML) | Python classifier (`policy_router_v5` contract): `predicted_label`, `class_order`, `class_probabilities` and the classifier identity |
+| Ranked cluster fallback (per-group probability, roster arms, eligible arms) | Go: `internal/router/hmm/selection`, from the classifier's class probabilities and the admitted roster |
 
 ## Configuration
 
@@ -63,20 +63,21 @@ The same Go scorer produces `/v1/router/routing-distribution` and the per-arm
 scores used by effort hysteresis. WPI is a normalized evaluation-workload axis,
 not a billing rate; preview dollars always come from catalog serving prices.
 
-Selection is **fail-closed**. A `/route` response with no ranked fallback, a
-ranked fallback holding no eligible arm, or a `policy_router_v1`/`v2` schema is
-rejected as a sidecar outage and the turn returns HTTP 503. There is no
-sidecar-picked arm to fall back to: `selected_roster_id`, `selected_provider`
-and `model` are null on the wire.
+Selection is **fail-closed**. A classifier response that is not classifier facts
+(for example a `policy_router_v1` decision), or a ranked fallback holding
+no eligible arm, is rejected as a classifier outage and the turn returns HTTP
+503. There is no classifier-picked arm to fall back to: the response carries no
+model, provider or roster ID.
 
 See [CONFIGURATION.md](CONFIGURATION.md) for the full variable reference.
 
 ## Deployment and rollback
 
-`policy_router_v3` is a hard break with no compatibility window: a v3 router
-rejects a v1/v2 sidecar and a v3 sidecar names no arm for a v1/v2 router. Router
-and sidecar deploy together, and roll back together — revert both image pins.
-There is no runtime flag to flip.
+Managed serving pins the classifier release in the selection set, so router
+code and classifier promote and roll back independently
+([SERVING_CONTROL.md](SERVING_CONTROL.md#classifier-service-selection-v4-candidate-v3-classifier-api-v5)).
+Every `/v5/classify` response must echo the pinned release and artifact; a
+mismatch fails the turn closed. There is no runtime flag to flip.
 
 Without managed admission, roll back roster content by republishing the previous
 policy release; an invalid release fails boot. Managed
