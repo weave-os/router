@@ -3,10 +3,9 @@
 The `policyctl serving` group is the low-level interface for a trusted deployment
 workflow. It does not build images, deploy Cloud Run services, change revision tags,
 grant IAM access, or turn on managed serving. Those preparation steps belong
-to the environment's orchestrator. Existing top-level policy commands (`compile`,
-`check-rosters`, `validate`, `publish`, `promote`, `rollback`, `status`) remain the
-legacy lane-head interface for the self-hosted HMM path; they must not be used to
-manage migrated targets.
+to the environment's orchestrator. The only other `policyctl` commands are the
+offline `compile` and `check-rosters` roster checks and `export`, which snapshots a
+managed target for a local release directory.
 
 The trust model is a single operator team publishing through one workflow identity.
 The registry therefore keeps the guarantees that prevent state corruption (immutable
@@ -63,22 +62,17 @@ destination validation calls the HTTPS origins the selection set's lanes declare
   proposal: run `status --proposal` (or re-run `apply` with the same proposal) to
   reconcile the outcome without creating another activation.
 
-### Legacy lane-head commands
+### Roster and export commands
 
 - `policyctl check-rosters` prints a JSON report with `compiled`, `skipped` and
   `failed` rosters. A roster in a source schema the compiler does not accept is a
   historical artifact and is skipped, not failed. A reviewed v7 roster the compiler
   rejects fails: that drift would strand production without a publishable policy.
-  Every compiled roster must also pass the catalog validation `publish` applies,
-  because a policy that fails it can never become a release.
-- `policyctl promote` and `rollback` take `--classifier-verification`. `probe` (the
-  default) calls the tagged revision's `/readyz`. `control-plane` serves callers
-  outside the VPC that cannot reach an internal-ingress revision: instead of calling
-  it, policyctl compares what Cloud Run reports for the revision (the container image
-  plus the pinned classifier package env the sidecar refuses to boot without) with
-  the release. The router still probes `/readyz` at boot.
-- `policyctl export` snapshots a promoted lane into the directory layout read from
-  `ROUTER_POLICY_RELEASE_DIR`, so a self-hosted router can run that exact release.
+  Every compiled roster must also pass catalog validation, because a policy that
+  fails it can never become a release.
+- `policyctl export --serving-target <target>` snapshots the target's current
+  default lane into the directory layout read from `ROUTER_POLICY_RELEASE_DIR`, so a
+  router outside managed serving can run that exact release.
 - The retired serving verbs `validate`, `resolve`, `prepare` and `activate` exit
   non-zero and name the `publish`/`apply` invocation that replaced them.
 - `serving publish` digests the manifest bytes exactly as they would be stored;
