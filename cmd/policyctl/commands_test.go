@@ -87,3 +87,10 @@ func releaseWithClassifier() policyregistry.Release {
 		ImageDigest:   "sha256:3de4d22f3b895ade91d7eb2f7377586b050260c93d5e016bcbfde52ef2c5dba2",
 	}}
 }
+
+func TestRunRejectsRetiredLaneHeadCommandsAndRequiresServingTargetForExport(t *testing.T) {
+	for _, retired := range []string{"validate", "publish", "promote", "rollback", "status"} {
+		require.ErrorContains(t, run(t.Context(), []string{retired}), "unknown policyctl command", retired)
+	}
+	require.ErrorContains(t, run(t.Context(), []string{"export", "--out", t.TempDir()}), "--serving-target is required")
+}
