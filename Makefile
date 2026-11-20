@@ -207,7 +207,7 @@ dev: ## Run with hot-reload (CompileDaemon)
 up: ## Start the compose stack in the background on the stub HMM policy (no install.sh wiring)
 	docker compose up --build -d
 
-up-hmm: ## Local dev only: start the stack with the frozen HMM sidecar instead of the stub (needs ROUTER_POLICY_ENVIRONMENT)
+up-hmm: ## Local-dev only: start the stack with the frozen HMM sidecar on the legacy v4 lane head from ROUTER_POLICY_ENVIRONMENT (TODO: public v5 classifier package)
 	docker compose -f docker-compose.yml -f sidecars/hmm/docker-compose.yml \
 		--profile hmm build hmm-sidecar
 	CLASSIFIER_IMAGE_DIGEST=$$(docker image inspect --format '{{.Id}}' \

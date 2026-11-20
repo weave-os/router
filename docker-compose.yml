@@ -174,9 +174,9 @@ services:
       retries: 15
     restart: unless-stopped
 
-  # Local-dev only: frozen HMM classifier. Start it through `make up-hmm`, which
-  # points the router at it instead of the stub; its policy release then comes
-  # from ROUTER_POLICY_ENVIRONMENT.
+  # Frozen HMM classifier. Start it through `make up-hmm`, which points the
+  # router at it instead of the stub. Local-dev only: its legacy v4 policy release
+  # comes from ROUTER_POLICY_ENVIRONMENT until a public v5 classifier package exists.
   hmm-sidecar:
     profiles:
       - hmm

@@ -20,6 +20,9 @@ The router defaults to `hmm_embedding`. Plain `make up` serves a
 local-dev-only stub classifier; `make up-hmm` (local dev only) routes through
 this sidecar instead and takes its
 policy release from `ROUTER_POLICY_ENVIRONMENT`, which must pin this sidecar.
+This path is local-dev only and still uses the legacy v4 `/route` API, because
+the published frozen package cannot serve `/v5/classify`. TODO: move it to
+`/v5/classify` once a public v5 classifier package exists.
 Stop the stack with `make down-hmm`.
 
 The Compose configuration downloads the public

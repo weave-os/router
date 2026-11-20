@@ -3,11 +3,9 @@ package policyregistry
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"slices"
 	"strings"
 
 	"cloud.google.com/go/storage"
@@ -65,31 +63,6 @@ func (r *Registry) Close() error { return r.client.Close() }
 
 func (r *Registry) RootURI() string { return r.rootURI }
 
-func (r *Registry) PublishPolicy(ctx context.Context, payload []byte) (ObjectRef, error) {
-	roster, err := rosterdata.ParseValidated(payload)
-	if err != nil {
-		return ObjectRef{}, err
-	}
-	canonical, err := rosterdata.CanonicalBytes(roster)
-	if err != nil {
-		return ObjectRef{}, err
-	}
-	digest := Digest(canonical)
-	return r.publishImmutable(ctx, r.policyObjectName(digest), canonical, digest)
-}
-
-func (r *Registry) PublishRelease(ctx context.Context, release Release) (ObjectRef, error) {
-	if err := release.Validate(r.rootURI); err != nil {
-		return ObjectRef{}, err
-	}
-	canonical, err := CanonicalBytes(release)
-	if err != nil {
-		return ObjectRef{}, err
-	}
-	digest := Digest(canonical)
-	return r.publishImmutable(ctx, r.releaseObjectName(digest), canonical, digest)
-}
-
 func (r *Registry) ReadRelease(ctx context.Context, ref ObjectRef) (Release, error) {
 	payload, err := r.readExact(ctx, ref, "router_policy/v1/releases/sha256/")
 	if err != nil {
@@ -100,43 +73,6 @@ func (r *Registry) ReadRelease(ctx context.Context, ref ObjectRef) (Release, err
 		return Release{}, err
 	}
 	return release, nil
-}
-
-func (r *Registry) ExportHead(ctx context.Context, environment Environment, lane Lane, dir, classifierImageDigest string) (HeadSnapshot, error) {
-	head, err := r.ReadHead(ctx, environment, lane)
-	if err != nil {
-		return HeadSnapshot{}, err
-	}
-	releasePayload, err := r.readExact(ctx, ObjectRef{
-		URI: head.Head.ReleaseURI, SHA256: head.Head.ReleaseSHA256, Generation: head.Head.ReleaseGeneration,
-	}, releaseObjectPrefix)
-	if err != nil {
-		return HeadSnapshot{}, err
-	}
-	release, err := DecodeRelease(releasePayload, r.rootURI)
-	if err != nil {
-		return HeadSnapshot{}, err
-	}
-	policyRef := ObjectRef{URI: release.Policy.URI, SHA256: release.Policy.SHA256, Generation: release.Policy.Generation}
-	if _, err := r.ReadPolicy(ctx, policyRef); err != nil {
-		return HeadSnapshot{}, err
-	}
-	policyPayload, err := r.readExact(ctx, policyRef, policyObjectPrefix)
-	if err != nil {
-		return HeadSnapshot{}, err
-	}
-	if classifierImageDigest != "" && classifierImageDigest != release.Classifier.ImageDigest {
-		release.Classifier.ImageDigest = classifierImageDigest
-		if err := release.Validate(r.rootURI); err != nil {
-			return HeadSnapshot{}, err
-		}
-		if releasePayload, err = json.Marshal(release); err != nil {
-			return HeadSnapshot{}, fmt.Errorf("encode re-pinned release: %w", err)
-		}
-		head.Head.ReleaseSHA256 = Digest(releasePayload)
-		head.Head.ReleaseURI = r.rootURI + "/" + releaseObjectPrefix + head.Head.ReleaseSHA256 + ".json"
-	}
-	return head, WriteDirectoryRelease(dir, head.Head, releasePayload, policyPayload)
 }
 
 func (r *Registry) ReadPolicy(ctx context.Context, ref ObjectRef) (*rosterdata.Roster, error) {
@@ -163,13 +99,6 @@ func (r *Registry) ReadServingPolicy(ctx context.Context, ref ObjectRef) (*roste
 	return roster, nil
 }
 
-func (r *Registry) ReleaseRef(ctx context.Context, digest string) (ObjectRef, error) {
-	if !validDigest(digest) {
-		return ObjectRef{}, fmt.Errorf("invalid release digest %q", digest)
-	}
-	return r.objectRef(ctx, r.releaseObjectName(digest), digest)
-}
-
 func (r *Registry) ReadHead(ctx context.Context, environment Environment, lane Lane) (HeadSnapshot, error) {
 	if err := ValidateEnvironment(environment); err != nil {
 		return HeadSnapshot{}, err
@@ -189,59 +118,6 @@ func (r *Registry) ReadHead(ctx context.Context, environment Environment, lane L
 	head, err := DecodeLaneHead(payload, r.rootURI, environment, lane)
 	if err != nil {
 		return HeadSnapshot{}, err
-	}
-	return HeadSnapshot{Head: head, Generation: attrs.Generation}, nil
-}
-
-func (r *Registry) Promote(ctx context.Context, head LaneHead, expectedGeneration int64) (HeadSnapshot, error) {
-	if expectedGeneration < 0 {
-		return HeadSnapshot{}, errors.New("expected lane-head generation cannot be negative")
-	}
-	if err := head.Validate(r.rootURI, head.Environment, head.Lane); err != nil {
-		return HeadSnapshot{}, err
-	}
-	releaseRef := ObjectRef{URI: head.ReleaseURI, SHA256: head.ReleaseSHA256, Generation: head.ReleaseGeneration}
-	release, err := r.ReadRelease(ctx, releaseRef)
-	if err != nil {
-		return HeadSnapshot{}, fmt.Errorf("validate promoted release: %w", err)
-	}
-	policyRef := ObjectRef{URI: release.Policy.URI, SHA256: release.Policy.SHA256, Generation: release.Policy.Generation}
-	selectionPolicy, err := r.ReadPolicy(ctx, policyRef)
-	if err != nil {
-		return HeadSnapshot{}, fmt.Errorf("validate promoted selection policy: %w", err)
-	}
-	if !slices.Equal(selectionPolicy.ClassOrder, release.Classifier.ClassOrder) {
-		return HeadSnapshot{}, errors.New("promoted classifier class order does not match selection policy")
-	}
-	payload, err := CanonicalBytes(head)
-	if err != nil {
-		return HeadSnapshot{}, err
-	}
-	object := r.bucket.Object(r.headObjectName(head.Environment, head.Lane))
-	if expectedGeneration == 0 {
-		object = object.If(storage.Conditions{DoesNotExist: true})
-	} else {
-		object = object.If(storage.Conditions{GenerationMatch: expectedGeneration})
-	}
-	writer := object.NewWriter(ctx)
-	writer.ContentType = "application/json"
-	if _, err := writer.Write(payload); err != nil {
-		_ = writer.Close()
-		return HeadSnapshot{}, classifyStorageError("write lane head", err)
-	}
-	if err := writer.Close(); err != nil {
-		return HeadSnapshot{}, classifyStorageError("commit lane head", err)
-	}
-	attrs := writer.Attrs()
-	if attrs == nil || attrs.Generation <= expectedGeneration {
-		return HeadSnapshot{}, errors.New("lane-head write returned no newer generation")
-	}
-	stored, err := r.readObject(ctx, r.headObjectName(head.Environment, head.Lane), attrs.Generation)
-	if err != nil {
-		return HeadSnapshot{}, err
-	}
-	if !bytes.Equal(stored, payload) {
-		return HeadSnapshot{}, errors.New("lane-head read-after-write bytes differ")
 	}
 	return HeadSnapshot{Head: head, Generation: attrs.Generation}, nil
 }
@@ -328,14 +204,6 @@ func (r *Registry) readObject(ctx context.Context, name string, generation int64
 		return nil, fmt.Errorf("router policy object exceeds %d bytes", maxPolicyObjectBytes)
 	}
 	return payload, nil
-}
-
-func (r *Registry) policyObjectName(digest string) string {
-	return r.prefix + "/router_policy/v1/policies/sha256/" + digest + ".json"
-}
-
-func (r *Registry) releaseObjectName(digest string) string {
-	return r.prefix + "/router_policy/v1/releases/sha256/" + digest + ".json"
 }
 
 func (r *Registry) headObjectName(environment Environment, lane Lane) string {

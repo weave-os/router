@@ -76,6 +76,21 @@ func TestManagedWorkersOpenLocalServingRegistryWhenAllowed(t *testing.T) {
 	require.Equal(t, "gs://hmm-stub-fixture/registry", store.RootURI())
 }
 
+func TestManagedBootRefusesLocalDevPolicyRelease(t *testing.T) {
+	for _, name := range []string{"ROUTER_POLICY_ENVIRONMENT", "ROUTER_POLICY_RELEASE_DIR"} {
+		t.Run(name, func(t *testing.T) {
+			lookup := func(key string) (string, bool) {
+				if key == name {
+					return "prod", true
+				}
+				return "", false
+			}
+			require.ErrorContains(t, validateManagedServingBoot(server.DeploymentModeManaged, lookup), name+" is a local-dev-only policy release reader")
+			require.NoError(t, validateManagedServingBoot(server.DeploymentModeSelfHosted, lookup))
+		})
+	}
+}
+
 func TestLocalServingRegistryOptInLogsAStartupWarning(t *testing.T) {
 	t.Setenv("ROUTER_ALLOW_LOCAL_SERVING_REGISTRY", "true")
 	var logs bytes.Buffer
