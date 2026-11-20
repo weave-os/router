@@ -42,7 +42,7 @@ func TestAutomaticUtilitySelectionDoesNotUseDeploymentShortcut(t *testing.T) {
 					envelope, err := translate.ParseAnthropic([]byte(fixture.body))
 					require.NoError(t, err)
 					features := envelope.RoutingFeatures()
-					turn, err := service.runTurnLoop(ctx, envelope, features, turnIdentity{Strategy: router.StrategyFromContext(ctx), APIKeyID: "utility-key", InstallationID: uuid.New()}, "", http.Header{}, router.Request{
+					turn, err := service.runTurnLoop(ctx, envelope, features, turnRequest{Strategy: router.StrategyFromContext(ctx), APIKeyID: "utility-key", InstallationID: uuid.New()}, "", http.Header{}, router.Request{
 						RequestedModel:   features.Model,
 						EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
 					})
@@ -116,7 +116,7 @@ func TestAutomaticProbeWithoutConcreteTargetScoresWithoutPinning(t *testing.T) {
 			envelope, err := translate.ParseAnthropic([]byte(body))
 			require.NoError(t, err)
 			features := envelope.RoutingFeatures()
-			turn, err := service.runTurnLoop(context.Background(), envelope, features, turnIdentity{Strategy: router.StrategyFromContext(context.Background()), APIKeyID: "utility-key", InstallationID: uuid.New()}, "", http.Header{}, router.Request{
+			turn, err := service.runTurnLoop(context.Background(), envelope, features, turnRequest{Strategy: router.StrategyFromContext(context.Background()), APIKeyID: "utility-key", InstallationID: uuid.New()}, "", http.Header{}, router.Request{
 				RequestedModel: features.Model, EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
 			})
 
@@ -148,7 +148,7 @@ func TestDefaultProbeDroppedForceDoesNotAttachConversationState(t *testing.T) {
 			envelope, err := translate.ParseAnthropic([]byte(body))
 			require.NoError(t, err)
 			features := envelope.RoutingFeatures()
-			turn, err := service.runTurnLoop(context.Background(), envelope, features, turnIdentity{Strategy: router.StrategyFromContext(context.Background()), APIKeyID: "utility-key", InstallationID: uuid.New()}, "", http.Header{}, router.Request{
+			turn, err := service.runTurnLoop(context.Background(), envelope, features, turnRequest{Strategy: router.StrategyFromContext(context.Background()), APIKeyID: "utility-key", InstallationID: uuid.New()}, "", http.Header{}, router.Request{
 				RequestedModel:   features.Model,
 				ForceModel:       catalog.ModelIDGPT55.String(),
 				EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},

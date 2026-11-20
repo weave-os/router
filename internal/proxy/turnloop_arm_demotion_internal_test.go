@@ -37,7 +37,7 @@ func runDemotionTurnLoop(t *testing.T, svc *Service, ctx context.Context) turnLo
 	res, err := svc.runTurnLoop(
 		ctx,
 		env,
-		features, turnIdentity{Strategy: router.StrategyFromContext(
+		features, turnRequest{Strategy: router.StrategyFromContext(
 			ctx), APIKeyID: "api-key", InstallationID: uuid.New()},
 
 		"",

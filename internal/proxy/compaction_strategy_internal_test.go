@@ -62,7 +62,7 @@ func TestCodexCompactionAfterAutoReview(t *testing.T) {
 			legacyExcluded[entry.Model] = struct{}{}
 		}
 	}
-	turn, err := svc.runTurnLoop(ctx, env, features, turnIdentity{Strategy: router.StrategyFromContext(ctx), APIKeyID: "test-key", InstallationID: installationID}, "", nil, router.Request{
+	turn, err := svc.runTurnLoop(ctx, env, features, turnRequest{Strategy: router.StrategyFromContext(ctx), APIKeyID: "test-key", InstallationID: installationID}, "", nil, router.Request{
 		RequestedModel:   string(router.ModelHMM),
 		EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}},
 		Candidates: router.Candidates{

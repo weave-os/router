@@ -12,7 +12,7 @@ import (
 
 type routeFailureRequest struct {
 	RequestID      string
-	Start          time.Time
+	RequestStart   time.Time
 	RequestedModel string
 	Strategy       router.Strategy
 }
@@ -31,7 +31,7 @@ func (s *Service) recordPolicyPinRouteFailure(ctx context.Context, request route
 		RequestID:      request.RequestID,
 		SpanType:       "router.upstream",
 		TraceID:        request.RequestID,
-		Timestamp:      request.Start,
+		Timestamp:      request.RequestStart,
 		RequestedModel: request.RequestedModel,
 		TurnType:       string(turnType),
 		DecisionReason: DecisionReasonPolicyPinUnservable,

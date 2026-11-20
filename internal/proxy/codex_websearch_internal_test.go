@@ -98,7 +98,7 @@ func TestNativeSearchPreservesRoutingPassthroughWithoutPins(t *testing.T) {
 	envelope, err := translate.ParseOpenAI(body)
 	require.NoError(t, err)
 	request := router.Request{RequestedModel: catalog.ModelIDGPT56Luna.String(), EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}}}
-	turn, err := service.runTurnLoop(ctx, envelope, envelope.RoutingFeatures(), turnIdentity{Strategy: router.StrategyFromContext(ctx), APIKeyID: "api-key", InstallationID: uuid.New()}, "", http.Header{}, request)
+	turn, err := service.runTurnLoop(ctx, envelope, envelope.RoutingFeatures(), turnRequest{Strategy: router.StrategyFromContext(ctx), APIKeyID: "api-key", InstallationID: uuid.New()}, "", http.Header{}, request)
 	require.NoError(t, err)
 	assert.True(t, turn.CallerModelPassthrough)
 	assert.True(t, turn.HardPinned)

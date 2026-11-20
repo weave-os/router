@@ -235,7 +235,7 @@ func TestTurnLoop_ForcedPinToNewlyExcludedProviderRejects(t *testing.T) {
 	feats := env.RoutingFeatures()
 	_, err := svc.runTurnLoop(
 		excludedProvidersCtx(providers.ProviderAnthropic),
-		env, feats, turnIdentity{Strategy: router.StrategyFromContext(
+		env, feats, turnRequest{Strategy: router.StrategyFromContext(
 			excludedProvidersCtx(providers.ProviderAnthropic)), APIKeyID: "key-1", InstallationID: uuid.New()},
 
 		"", nil,
@@ -265,7 +265,7 @@ func TestTurnLoop_AutomaticPinToExcludedProviderStillFallsThrough(t *testing.T) 
 	feats := env.RoutingFeatures()
 	_, err := svc.runTurnLoop(
 		excludedProvidersCtx(providers.ProviderAnthropic),
-		env, feats, turnIdentity{Strategy: router.StrategyFromContext(
+		env, feats, turnRequest{Strategy: router.StrategyFromContext(
 			excludedProvidersCtx(providers.ProviderAnthropic)), APIKeyID: "key-1", InstallationID: uuid.New()},
 
 		"", nil,
@@ -338,7 +338,7 @@ func TestTurnLoop_ForcedPinFollowsSurvivingBinding(t *testing.T) {
 	feats := env.RoutingFeatures()
 	res, err := svc.runTurnLoop(
 		excludedProvidersCtx(providers.ProviderAnthropic),
-		env, feats, turnIdentity{Strategy: router.StrategyFromContext(
+		env, feats, turnRequest{Strategy: router.StrategyFromContext(
 			excludedProvidersCtx(providers.ProviderAnthropic)), APIKeyID: "key-1", InstallationID: uuid.New()},
 
 		"", nil,
@@ -374,7 +374,7 @@ func TestTurnLoop_StrikeExemptionCoversRemappedBinding(t *testing.T) {
 	feats := env.RoutingFeatures()
 	res, err := svc.runTurnLoop(
 		excludedProvidersCtx(providers.ProviderAnthropic),
-		env, feats, turnIdentity{Strategy: router.StrategyFromContext(
+		env, feats, turnRequest{Strategy: router.StrategyFromContext(
 			excludedProvidersCtx(providers.ProviderAnthropic)), APIKeyID: "key-1", InstallationID: uuid.New()},
 
 		"", nil,
@@ -409,7 +409,7 @@ func TestTurnLoop_HardPinnedTurnForcedPinFollowsSurvivingBinding(t *testing.T) {
 	feats := env.RoutingFeatures()
 	res, err := svc.runTurnLoop(
 		excludedProvidersCtx(providers.ProviderAnthropic),
-		env, feats, turnIdentity{Strategy: router.StrategyFromContext(
+		env, feats, turnRequest{Strategy: router.StrategyFromContext(
 			excludedProvidersCtx(providers.ProviderAnthropic)), APIKeyID: "key-1", InstallationID: uuid.New()},
 
 		"", nil,
