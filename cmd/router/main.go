@@ -1273,7 +1273,7 @@ func main() {
 	waitForKeepWarm := startSubscriptionKeepWarm(processCtx, subscriptionRuntime, logger)
 	egressProbe.prepare(processCtx, logger, providerMap, envKeyedProviders, initializedOrigins)
 	logger.Info("Router startup initialization complete")
-	serverFeatures := server.Features{
+	serverFeatures := withHMMAdminPorts(server.Features{
 		SeatUsage:                seatUsage,
 		SubscriptionLogins:       subscriptionLogins,
 		SubscriptionRefresh:      subscriptionRuntime,
@@ -1284,10 +1284,7 @@ func main() {
 		SubscriberAllowance:      subscriberAllowanceSvc,
 		SubscriptionPoolsEnabled: subscriptionPoolsEnabled,
 		PolicyStatus:             policyStatus,
-		RoutingDistribution:      servingRoutingDistribution(servingAdmission, routingDistribution),
-		RosterCatalogID:          hmm.CatalogIDForRoster,
-		TaskDomainPreview:        taskDomainPreviewer{},
-	}
+	}, servingAdmission, routingDistribution)
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture
 	}
