@@ -15,7 +15,6 @@ import (
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
-	"weave-os/router/internal/translate"
 )
 
 type subscriptionStateAllowedModelsKey struct{}
@@ -142,7 +141,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 		}
 	}
 	request.Candidates.AutomaticExcludedModels = candidates.MergeExcludedModels(request.Candidates.AutomaticExcludedModels, sessionUnavailableModels)
-	if in.initialDecision.Reason == translate.ReasonUserForceModel {
+	if in.initialDecision.UserForcedModel() {
 		request.ForceModel = in.initialDecision.Model
 	}
 	in.subscriptionStateRequest = nil
