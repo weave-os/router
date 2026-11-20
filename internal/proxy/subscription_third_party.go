@@ -77,8 +77,15 @@ func anthropicClientAppRefused(ctx context.Context, err error) bool {
 	if anthropicSubscriptionThirdPartyRefused(err) {
 		return true
 	}
-	clientApp := ClientIdentityFrom(ctx).ClientApp
-	return clientApp != "" && clientApp != ClientAppClaudeCode && strings.Contains(anthropicInvalidRequestMessage(err), "extra usage")
+	return knownThirdPartyClientApp(ClientIdentityFrom(ctx).ClientApp) && strings.Contains(anthropicInvalidRequestMessage(err), "extra usage")
+}
+
+func knownThirdPartyClientApp(clientApp string) bool {
+	switch clientApp {
+	case ClientAppCodex, ClientAppCursor, ClientAppGeminiCLI, ClientAppOpencode:
+		return true
+	}
+	return false
 }
 
 func thirdPartyDenialModel(clientApp string) string {
