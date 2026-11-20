@@ -38,6 +38,7 @@ function dataSource(): RouterDashboardDataSource {
       summary: vi.fn(),
     },
     requests: notSupported,
+    weekStartsOn: 1,
     settings: {
       apiKeys: notSupported,
       models: notSupported,

@@ -175,4 +175,5 @@ export const selfHostedDataSource: RouterDashboardDataSource = {
       };
     },
   },
+  weekStartsOn: 1,
 };
