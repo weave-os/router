@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"weave-os/router/internal/auth"
@@ -41,7 +42,24 @@ func waitOutShortSeatThrottle(ctx context.Context, provider, model string, err e
 	}
 	*waited += wait
 	observability.FromContext(ctx).Info("Every subscription seat is briefly rate-limited; waiting for the first cooldown", "provider", pool, "wait", wait)
-	return sleepFor(ctx, sleep, wait) == nil
+	if sleepFor(ctx, sleep, wait) != nil {
+		return false
+	}
+	releaseCooledSeats(ctx, now.Add(wait))
+	return true
+}
+
+func releaseCooledSeats(ctx context.Context, at time.Time) {
+	usageState, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	if usageState == nil {
+		return
+	}
+	for pair := range usageState.AttemptedAccounts {
+		account, _, _ := strings.Cut(pair, "\x00")
+		if reset, throttled := usageState.ThrottledAccounts[account]; throttled && !reset.After(at) {
+			delete(usageState.AttemptedAccounts, pair)
+		}
+	}
 }
 
 func sleepFor(ctx context.Context, sleep func(context.Context, time.Duration) error, d time.Duration) error {
