@@ -57,8 +57,8 @@ func goldenSubscriptionClientRefusalScenarios() []goldenScenario {
 			goldenOutOfExtraUsage(), goldenOutOfExtraUsage(), anthropicOK(true, "served on claude seat"),
 		}},
 		requests: []goldenRequest{
-			{body: goldenOpenCodeOpening, decorateContext: goldenClaudeSeatsCtx(proxy.ClientAppOpencode, "golden-third-party-session")},
-			{body: goldenOpenCodeOpening, decorateContext: goldenClaudeSeatsCtx(proxy.ClientAppClaudeCode, "golden-claude-code-session")},
+			{body: goldenOpenCodeOpening, headers: map[string]string{"User-Agent": goldenOpenCodeHeadersAgent, "X-OpenCode-Session": "ses_golden_third_party"}, decorateContext: goldenClaudeSeatsCtx(proxy.ClientAppOpencode, "golden-third-party-session")},
+			{body: goldenOpenCodeOpening, headers: map[string]string{"User-Agent": "claude-cli/2.1.0 (external, cli)"}, decorateContext: goldenClaudeSeatsCtx(proxy.ClientAppClaudeCode, "golden-claude-code-session")},
 		},
 		configure:   withTwoClaudeSeats,
 		credentials: map[string]string{"golden-seat-claude-seat-a": "claude-seat-a", "golden-seat-claude-seat-b": "claude-seat-b"},
