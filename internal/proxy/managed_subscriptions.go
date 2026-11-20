@@ -334,7 +334,7 @@ func (s *Service) recordManagedSubscriptionFailure(ctx context.Context, provider
 			"provider", poolProvider, "account_id", lease.AccountID, "model", model)
 		return true
 	}
-	if provider == providers.ProviderAnthropic && anthropicSubscriptionThirdPartyRefused(attemptErr) {
+	if provider == providers.ProviderAnthropic && anthropicClientAppRefused(ctx, attemptErr) {
 		clientApp := ClientIdentityFrom(ctx).ClientApp
 		s.subscriptionModels.denyManagedClientApp(lease.AccountID, provider, clientApp, s.clock.Now().Add(subscriptionThirdPartyDenialTTL))
 		markSubscriptionClientAppRefused(ctx)
