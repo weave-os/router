@@ -1918,13 +1918,12 @@ func (s *Service) routeWithStrategy(ctx context.Context, strategy router.Strateg
 	if err != nil {
 		return decision, err
 	}
-	if err := productEligibilityRefusal(ctx, req.ProductEligibility, decision.Model); err != nil {
-		return router.Decision{}, fmt.Errorf("strategy %q: %w", strategy, err)
+	if decision, err = eligibleStrategyDecision(ctx, strategy, req, decision); err != nil {
+		return router.Decision{}, err
 	}
 	if pin, pinned := router.HonouredPolicyPin(ctx); pinned && (decision.Metadata == nil || !decision.Metadata.PolicyPinHonoured) {
 		return router.Decision{}, fmt.Errorf("strategy %q cannot serve policy pin %s: %w", strategy, pin, router.ErrPolicyPinUnavailable)
 	}
-	logCandidateViolation(ctx, strategy, req, decision)
 	return decision, nil
 }
 

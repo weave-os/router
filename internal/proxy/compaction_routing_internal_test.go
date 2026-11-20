@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/turntype"
@@ -85,7 +86,7 @@ func openAICatalogModels() map[string]struct{} {
 }
 
 // A resumed Codex thread whose first request is a compaction has no session
-// pin yet. With every OpenAI catalog model excluded and only OpenAI
+// pin yet. With every other OpenAI catalog model excluded and only OpenAI
 // enabled, compaction used to fail with a retryable "cluster scorer failed"
 // 503 on every retry instead of asking the scorer.
 func TestCompactionWithoutSessionPinUsesScorer(t *testing.T) {
@@ -98,7 +99,7 @@ func TestCompactionWithoutSessionPinUsesScorer(t *testing.T) {
 	turn, err := f.run(t, ctx, env, router.Request{
 		EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}},
 		Candidates: router.Candidates{
-			ExcludedModels: openAICatalogModels(),
+			ExcludedModels: candidates.WithoutModels(openAICatalogModels(), []string{compactionStrategyModel}),
 		},
 	})
 

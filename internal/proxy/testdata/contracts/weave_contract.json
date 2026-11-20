@@ -185,6 +185,7 @@
   ],
   "model_router_request_telemetry_vocabularies": {
     "decision_reason": [
+      "candidate_fallback",
       "classifier_requested_model",
       "cluster_argmax",
       "decision_model_policy",
@@ -241,6 +242,7 @@
     ]
   },
   "decision_reason_classification": {
+    "candidate_fallback": "router_decision",
     "classifier_requested_model": "router_decision",
     "cluster_argmax": "router_decision",
     "decision_model_policy": "router_decision",
