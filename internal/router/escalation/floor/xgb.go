@@ -37,6 +37,10 @@ func (t *xgbTurn) constraint() *escalation.Constraint {
 	if !t.active {
 		return nil
 	}
+	return t.verdict()
+}
+
+func (t *xgbTurn) verdict() *escalation.Constraint {
 	positive := !t.replay && t.checkpoint.Prediction != nil && t.checkpoint.Prediction.Escalate
 	if !positive && t.session.Floor == "" {
 		return nil
@@ -200,6 +204,9 @@ func (h *Helper) releaseXGB(ctx context.Context, turn *xgbTurn) {
 }
 
 func (h *Helper) Finish(ctx context.Context, t *Turn, decision router.Decision, servedGroup string, routeErr error) (Committed, error) {
+	if routeErr == nil {
+		logShadowTierFloor(ctx, t, decision)
+	}
 	if !t.HasXGB() {
 		return Committed{}, nil
 	}
