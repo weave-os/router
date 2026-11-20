@@ -34,7 +34,7 @@ func withLongThrottledCodexSeatsAndClaudeSeat(svc *proxy.Service, h *goldenHarne
 		})
 }
 
-func goldenSpentCodexLoginLongThrottledSeatsAndClaudeSeatCtx(ctx context.Context) context.Context {
+func goldenCodexPlanSpentClaudeSeatAvailableCtx(ctx context.Context) context.Context {
 	models := []string{goldenCodexModel, goldenAnthropicModel}
 	ctx = goldenCodexCtx(ctx)
 	ctx = requestcontext.WithClientIdentity(ctx, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex, SessionID: "golden-codex-session"})
@@ -69,8 +69,8 @@ func TestSpentCodexPlanRescuesOpaqueHistoryOnClaudeSeat(t *testing.T) {
 			providers.ProviderAnthropic: {anthropicOK(true, "served on claude seat"), anthropicOK(true, "rescued on claude seat")},
 		},
 		requests: []goldenRequest{
-			{body: goldenCodexPortableToolTurn, headers: goldenCodexSessionHeadersFor("c0e1"), decorateContext: goldenSpentCodexLoginLongThrottledSeatsAndClaudeSeatCtx},
-			{body: goldenCodexOpaqueHistoryTurn, headers: goldenCodexSessionHeadersFor("c0e1"), decorateContext: goldenSpentCodexLoginLongThrottledSeatsAndClaudeSeatCtx, advance: time.Second},
+			{body: goldenCodexPortableToolTurn, headers: goldenCodexSessionHeadersFor("c0e1"), decorateContext: goldenCodexPlanSpentClaudeSeatAvailableCtx},
+			{body: goldenCodexOpaqueHistoryTurn, headers: goldenCodexSessionHeadersFor("c0e1"), decorateContext: goldenCodexPlanSpentClaudeSeatAvailableCtx, advance: time.Second},
 		},
 		configure: withLongThrottledCodexSeatsAndClaudeSeat,
 	}
