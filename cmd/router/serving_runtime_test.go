@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"weave-os/router/smoke/hmmstub"
 
 	"github.com/stretchr/testify/require"
 	"testing"
@@ -56,6 +57,19 @@ func TestManagedServingStrategiesMatchRuntimeRegistration(t *testing.T) {
 }
 
 func TestManagedWorkersRefuseLocalServingRegistry(t *testing.T) {
+	t.Setenv("ROUTER_ALLOW_LOCAL_SERVING_REGISTRY", "")
 	_, _, err := openServingStore(context.Background(), server.DeploymentModeManaged, t.TempDir())
-	require.ErrorContains(t, err, "gs://")
+	require.ErrorContains(t, err, "managed workers require a gs:// serving registry")
+}
+
+func TestManagedWorkersOpenLocalServingRegistryWhenAllowed(t *testing.T) {
+	t.Setenv("ROUTER_ALLOW_LOCAL_SERVING_REGISTRY", "true")
+	graph, err := hmmstub.NewServingGraph("http://hmm-stub:8093")
+	require.NoError(t, err)
+	dir := t.TempDir()
+	require.NoError(t, graph.Write(dir))
+	store, closeStore, err := openServingStore(context.Background(), server.DeploymentModeManaged, dir)
+	require.NoError(t, err)
+	t.Cleanup(closeStore)
+	require.Equal(t, "gs://hmm-stub-fixture/registry", store.RootURI())
 }

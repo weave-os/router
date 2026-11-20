@@ -140,6 +140,7 @@ services:
       ROUTER_SERVING_REVISION: hmm-stub-router
       ROUTER_SERVING_IMAGE_DIGEST: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
       ROUTER_SERVING_REGISTRY_URI: /policy/registry
+      ROUTER_ALLOW_LOCAL_SERVING_REGISTRY: "true"
       ROUTER_SERVING_CONFIGURATION_URI: gs://hmm-stub-fixture/registry/artifacts/5e512326f32fd6b47871cc8927e61e0244ec09a9a6b4258ad9dfc12fe8165af5.json
       ROUTER_SERVING_CONFIGURATION_SHA256: 5e512326f32fd6b47871cc8927e61e0244ec09a9a6b4258ad9dfc12fe8165af5
       ROUTER_SERVING_CONFIGURATION_GENERATION: "1"

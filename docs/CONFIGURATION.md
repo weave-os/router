@@ -622,6 +622,7 @@ kept out of revision-specific stamping.
 | Variable | Read by | Source | Absent or invalid |
 | --- | --- | --- | --- |
 | `ROUTER_SERVING_REGISTRY_URI` | Worker | Terraform and deploy script (worker) | Falls back to `WEAVE_REGISTRY_URI`, then `gs://weave_ml/weave_registry`; set it explicitly. A local path instead serves a read-only serving registry directory, which the local compose stack bakes from `smoke/hmmstub`. |
+| `ROUTER_ALLOW_LOCAL_SERVING_REGISTRY` | Worker | Local compose and smoke only | `true` lets `ROUTER_DEPLOYMENT_MODE=managed` serve from a local `ROUTER_SERVING_REGISTRY_URI` directory and logs a startup warning. Unset, a managed worker refuses a non-`gs://` serving registry. Never set it on a deployed worker. |
 | `ROUTER_SERVING_TARGET` | Worker | Deploy script and Terraform | Boot fails. Must name a known target (`staging`, `prod/stable`, `prod/weave-internal`). |
 | `ROUTER_SERVING_PROJECT` | Worker | Deploy script and Terraform | Boot fails. |
 | `ROUTER_SERVING_REGION` | Worker | Deploy script and Terraform | Boot fails. |
