@@ -81,6 +81,15 @@ func TestHMMRosterSource_RefetchesWhenActivePolicyChanges(t *testing.T) {
 	assert.Equal(t, int64(2), fetch.calls.Load())
 }
 
+func TestHMMRosterSource_SkipsUnknownArmWithoutCache(t *testing.T) {
+	src := newHMMRosterSource(&stubRosterFetcher{ids: []string{"newvendor/model-x", "openai/gpt-5.6-sol"}}, 0)
+
+	entries, err := src.HMMDeployedModels(context.Background())
+	require.NoError(t, err, "the admin deployed-models view must not fail on an unknown arm")
+	require.Len(t, entries, 1)
+	assert.Equal(t, "gpt-5.6-sol", entries[0].Model)
+}
+
 // countingHandler counts records at or above WARN; slog.Handler for tests.
 type countingHandler struct {
 	warns atomic.Int64
@@ -102,8 +111,11 @@ func TestHMMRosterSource_WarnsOncePerRosterOnInvalidArms(t *testing.T) {
 	handler := &countingHandler{}
 	ctx := observability.WithLogger(context.Background(), slog.New(handler))
 
-	_, err := src.HMMDeployedModels(ctx)
-	require.ErrorContains(t, err, "newvendor/model-x")
+	entries, err := src.HMMDeployedModels(ctx)
+	require.NoError(t, err)
+	// Serving behavior is unchanged: the unknown arm is still silently dropped.
+	require.Len(t, entries, 1)
+	assert.Equal(t, "gpt-5.6-sol", entries[0].Model)
 	assert.Equal(t, int64(1), handler.warns.Load())
 
 	// A repeated refresh of the same roster must not warn again.
@@ -111,7 +123,7 @@ func TestHMMRosterSource_WarnsOncePerRosterOnInvalidArms(t *testing.T) {
 	src.fetchedAt = src.fetchedAt.Add(-2 * hmmRosterTTL)
 	src.mu.Unlock()
 	_, err = src.HMMDeployedModels(ctx)
-	require.Error(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, int64(1), handler.warns.Load())
 
 	// A different roster with invalid arms warns anew.
@@ -120,7 +132,7 @@ func TestHMMRosterSource_WarnsOncePerRosterOnInvalidArms(t *testing.T) {
 	src.fetchedAt = src.fetchedAt.Add(-2 * hmmRosterTTL)
 	src.mu.Unlock()
 	_, err = src.HMMDeployedModels(ctx)
-	require.Error(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, int64(2), handler.warns.Load())
 
 	// A clean roster resets the dedup key...

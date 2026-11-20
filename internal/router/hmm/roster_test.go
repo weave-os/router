@@ -10,10 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDeployedEntriesForRoster_MapsRosterSlugsToCatalogEntries(t *testing.T) {
+func TestDeployedEntriesSkippingUnknownArms_MapsRosterSlugsToCatalogEntries(t *testing.T) {
 	// Roster slugs are provider-prefixed (openai/…); entries carry bare
 	// catalog IDs and primary provider, matching the cluster source shape.
-	got, err := hmm.DeployedEntriesForRoster([]string{
+	got := hmm.DeployedEntriesSkippingUnknownArms([]string{
 		"openai/gpt-5.6-sol",
 		"openai/gpt-5.6-sol-pro",
 		"openai/gpt-5.6-luna-pro",
@@ -22,7 +22,6 @@ func TestDeployedEntriesForRoster_MapsRosterSlugsToCatalogEntries(t *testing.T) 
 		"x-ai/grok-4.6",
 		"x-ai/grok-4.7",
 	})
-	require.NoError(t, err)
 
 	byModel := make(map[string]string, len(got))
 	for _, e := range got {
@@ -43,26 +42,25 @@ func TestDeployedEntriesForRoster_MapsRosterSlugsToCatalogEntries(t *testing.T) 
 	assert.NotEmpty(t, byModel["deepseek/deepseek-v4-flash"])
 }
 
-func TestDeployedEntriesForRoster_PreservesOrderAndCollapsesDuplicates(t *testing.T) {
-	got, err := hmm.DeployedEntriesForRoster([]string{
+func TestDeployedEntriesSkippingUnknownArms_PreservesOrderAndCollapsesDuplicates(t *testing.T) {
+	got := hmm.DeployedEntriesSkippingUnknownArms([]string{
 		"openai/gpt-5.6-sol-pro",
 		"openai/gpt-5.6-sol",
 		"openai/gpt-5.6-sol:high",
 	})
 
-	require.NoError(t, err)
 	require.Len(t, got, 2)
 	assert.Equal(t, "gpt-5.6-sol-pro", got[0].Model)
 	assert.Equal(t, "gpt-5.6-sol", got[1].Model)
 }
 
-func TestDeployedEntriesForRoster_RejectsArmsWithoutCatalogModel(t *testing.T) {
-	_, err := hmm.DeployedEntriesForRoster([]string{"openai/gpt-5.6-sol", "not/a-real-roster-id"})
-	require.ErrorContains(t, err, "not/a-real-roster-id")
+func TestDeployedEntriesSkippingUnknownArms_SkipsArmsWithoutCatalogModel(t *testing.T) {
+	got := hmm.DeployedEntriesSkippingUnknownArms([]string{"openai/gpt-5.6-sol", "not/a-real-roster-id"})
+	require.Len(t, got, 1)
+	assert.Equal(t, "gpt-5.6-sol", got[0].Model)
 }
 
-func TestDeployedEntriesForRoster_EmptyInput(t *testing.T) {
-	got, err := hmm.DeployedEntriesForRoster(nil)
-	require.NoError(t, err)
+func TestDeployedEntriesSkippingUnknownArms_EmptyInput(t *testing.T) {
+	got := hmm.DeployedEntriesSkippingUnknownArms(nil)
 	assert.Empty(t, got)
 }
