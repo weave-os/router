@@ -1,11 +1,23 @@
 Created: 2026-11-15
-Last edited: 2026-11-15
+Last edited: 2026-11-19
 
 # Proxy turn loop, session keys, force-model and handover
 
-Contributor reference for `internal/proxy/turnloop.go`, `session_key.go`,
-`force_model*.go`, `force_cluster.go` and `handover.go`. Operator-facing
-behavior of the same features is in [CONFIGURATION.md](CONFIGURATION.md#forcing-a-model-or-a-routing-cluster).
+Contributor reference for `internal/proxy/turnloop.go`, `turnloop_overrides.go`,
+`session_key.go`, `force_model*.go`, `force_cluster.go` and `handover.go`.
+Operator-facing behavior of the same features is in [CONFIGURATION.md](CONFIGURATION.md#forcing-a-model-or-a-routing-cluster).
+
+`runTurnLoop` orders the turn; the rules it applies live in their own packages:
+
+| Rule | Package |
+| --- | --- |
+| Effective strategy (`router.StrategySelection`) | `internal/router` |
+| Hard-pinned turn overrides, in `PolicySpec.OverridePrecedence` order | `internal/routingpolicy/overrides` |
+| Pin and force eligibility, exclusion and strike merging | `internal/router/candidates` |
+| Usage bypass | `internal/proxy/usage_bypass.go` |
+| Tool-result stickiness, pin reuse, EV planner | `internal/router/continuity` |
+| HMM cost gate, hysteresis, sliding threshold, authoritative upgrade, pin state | `internal/router/hmm` |
+| Escalation floor (XGB, Switchyard and Qwen judges) | `internal/router/escalation/floor` |
 
 ## Session keys
 
@@ -49,15 +61,21 @@ behavior of the same features is in [CONFIGURATION.md](CONFIGURATION.md#forcing-
    overrides) bypass pin lookup, pin writes, planner and scorer. They never
    write a session pin, so the cheap utility decision cannot leak into the
    conversation that follows. A utility turn with no servable model is a
-   configuration fault, not a retryable outage.
+   configuration fault, not a retryable outage. On a hard-pinned turn, the
+   user force (request source) and the utility hard pin (deployment source) are
+   resolvers run by `overrides.Resolve` in the purpose's
+   `PolicySpec.OverridePrecedence`; the first that handles the turn wins.
 4. Classifier, recap and title turns are scored but never read or anchor a
    session pin.
 5. Automatic session pins are reused only while eligible: provider enabled,
    model not excluded or deployment-disabled, image-capable when needed, not
    saturated at the output cap on the previous turn, and fitting the context
-   window. A failing guard treats the pin as missing; it is left in storage.
-6. Usage bypass, tool-result stickiness, planner-disabled stickiness, the HMM
-   EV stay and the expired-pin re-anchor follow, then the scorer and planner.
+   window (`candidates.AutomaticPinEligible`). A failing guard treats the pin
+   as missing; it is left in storage.
+6. Usage bypass, then the HMM-only stays (`hmm.Owns`), then tool-result
+   stickiness and planner-disabled pin reuse (`continuity`). Otherwise the
+   scorer runs; the escalation floor may raise its decision, and the planner
+   (`continuity.Plan`) and HMM cost gate decide between it and the pin.
 
 ## Session strikes and exclusions
 
@@ -83,7 +101,7 @@ behavior of the same features is in [CONFIGURATION.md](CONFIGURATION.md#forcing-
   `hmm.ErrHMMUnavailable` because contract violations also wrap the latter.
 - An authoritative-per-turn upgrade that costs more than the pin keeps the pin
   when the fresh decision carries a confidence score below the configured
-  `hmmUpgradeConfidenceThreshold` (`ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD`,
+  `hmm.Config.UpgradeConfidenceThreshold` (`ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD`,
   default `hmm.DefaultUpgradeConfidenceThreshold`). The check runs only while the
   upgrade gate is on and neither the evidence path nor the sliding threshold
   served the turn; an upgrade without a confidence score passes. The downgrade
