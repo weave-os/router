@@ -41,7 +41,6 @@ import (
 	"weave-os/router/internal/router/llmescalation"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
-	"weave-os/router/internal/router/rl"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/sessionstrategy"
 	"weave-os/router/internal/router/turntype"
@@ -1821,7 +1820,7 @@ func (s *Service) WithRLRouter(r router.Router) *Service {
 	return s.WithPolicyStrategy(policy.StrategySpec{
 		Strategy:     router.StrategyRL,
 		Router:       r,
-		Unavailable:  rl.ErrPolicyUnavailable,
+		Unavailable:  router.ErrRLPolicyUnavailable,
 		Capabilities: policy.Capabilities{},
 	})
 }
@@ -1921,7 +1920,7 @@ func policyRolloutIDFromContext(ctx context.Context) string {
 func defaultStrategyUnavailable(strategy router.Strategy) error {
 	switch strategy {
 	case router.StrategyRL:
-		return rl.ErrPolicyUnavailable
+		return router.ErrRLPolicyUnavailable
 	case router.StrategyHMM, router.StrategyHMMEmbedding, router.StrategyHMMBeta, router.StrategyHMMQwen:
 		return hmm.ErrHMMUnavailable
 	default:
