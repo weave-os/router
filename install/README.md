@@ -25,6 +25,9 @@ npx @weave-os/router --codex    --scope project   # Codex
 npx @weave-os/router --opencode --scope project   # opencode
 ```
 
+For GitHub Copilot Chat in VS Code, use the editor's
+[Custom Endpoint setup](#github-copilot-in-vs-code).
+
 On npm ≤ 6 the bundled `npx` mis-parses a leading `-y` (it consumes the next
 token, dropping the package name), so name the binary explicitly there — or
 just upgrade with `npm i -g npm@latest`:
@@ -322,6 +325,72 @@ copilot --model weave/auto                        # or pick "Weave Router" in /m
 npx @weave-os/router off --copilot                # restore the previous default; weave/auto stays in /model
 npx @weave-os/router --uninstall --copilot        # remove provider, model, skills
 ```
+
+### GitHub Copilot in VS Code
+
+Use VS Code's built-in **Custom Endpoint** provider to add Weave Router to the
+Copilot Chat model picker in a local workspace. Use a current VS Code release
+with Custom Endpoint support and a personal Weave Router key (`rk_…`). If an
+organization manages Copilot, it must allow **Bring Your Own Language Model Key
+in VS Code**. For the Copilot harness, enable `chat.agentHost.byokModels.enabled`
+in your VS Code user settings. VS Code marks this setting as experimental. See
+[VS Code's language model guide](https://code.visualstudio.com/docs/agent-customization/language-models).
+
+1. Open **Chat: Manage Language Models** from the Command Palette. Choose **Add
+   Models → Custom Endpoint** and name the provider group **Weave Router**.
+2. Enter your Router key in the VS Code API key prompt and choose **Messages**.
+   In `chatLanguageModels.json`, keep the `apiKey` secret reference that VS Code
+   creates and update the Weave Router entry as shown below. VS Code resolves
+   the reference from its secret storage. Leave other provider entries in the
+   same array. For a self-hosted Router, use your Router's full endpoint URL
+   ending in `/v1/messages`.
+3. Open a fresh Copilot Chat and select **Weave Router** from the model picker.
+   The model ID `auto` tells Weave Router to choose the upstream model. Copilot's
+   built-in **Auto** entry uses GitHub's model selection.
+
+```json
+[
+  {
+    "name": "Weave Router",
+    "vendor": "customendpoint",
+    "apiKey": "${input:replaceWithTheSecretReferenceCreatedByVSCode}",
+    "apiType": "messages",
+    "models": [
+      {
+        "id": "auto",
+        "name": "Weave Router",
+        "url": "https://router.weaveos.com/v1/messages",
+        "toolCalling": true,
+        "maxInputTokens": 123904,
+        "maxOutputTokens": 4096
+      }
+    ]
+  }
+]
+```
+
+The model-level URL selects an explicit model entry. Leave the provider-level
+`url` unset to skip automatic model discovery. If an existing Responses setup
+returns an upstream 400 for a Copilot Chat request, switch the API type and URL
+to Messages and remove any `statefulResponses` setting. Messages handles system
+instructions separately, which avoids a rejection seen when routing the VS Code
+Responses request through the OpenAI subscription backend.
+
+The example budgets 128,000 tokens in total, including 4,096 for the response.
+The Copilot harness can exhaust that budget on system instructions and tool
+definitions before it sends an inference request. If it reports that static
+system messages and tools exceed the context budget, open **Chat: Open
+Customizations → Tools**, turn off optional MCP or extension tool groups, and
+retry in a fresh chat. VS Code persists tool selections for the harness. See
+[how to manage available tools](https://code.visualstudio.com/docs/agents/run/tools#_manage-available-tools).
+
+If **Weave Router** is missing from the picker, check the active VS Code
+profile, BYOK setting and organization policy, then reload the window. For a
+401, use the gear menu in **Chat: Manage Language Models** to update the
+provider's API key, then check that its `apiKey` still points to the secret
+reference. The same menu lets you remove the provider. Copilot's inline code
+suggestions use a separate model setting. Remote Copilot workspaces depend on
+[VS Code's remote BYOK support](https://code.visualstudio.com/blogs/2026/11/18/copilot-harness#_byok-and-locally-served-models).
 
 ### GitHub Copilot SDK (custom provider)
 
