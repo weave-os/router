@@ -309,7 +309,12 @@ func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) error {
 			built, err = buildAnthropicUserMessage("user", content)
 
 		case isInstruction:
-			systemBlocks = append(systemBlocks, anthropicSystemTextBlocks(content, sourceMessageCacheControl(msg))...)
+			policy := sourceMessageCacheControl(msg)
+			for _, text := range anthropicSystemTexts(content) {
+				block := newJSONWriter()
+				writeAnthropicTextBlock(block, text)
+				systemBlocks = append(systemBlocks, appendCacheControlRaw(string(block.Bytes()), policy))
+			}
 			return true
 
 		case role == "tool":
@@ -360,35 +365,6 @@ func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) error {
 		jw.EndArr()
 	}
 	return nil
-}
-
-func anthropicSystemTextBlocks(content gjson.Result, policy string) []string {
-	var texts []string
-	if content.Type == gjson.String {
-		texts = append(texts, content.String())
-	} else if content.IsArray() {
-		content.ForEach(func(_, part gjson.Result) bool {
-			if part.Get("type").String() == "text" {
-				texts = append(texts, part.Get("text").String())
-			}
-			return true
-		})
-	}
-	var blocks []string
-	for _, text := range texts {
-		if text == "" {
-			continue
-		}
-		sb := newJSONWriter()
-		sb.Obj()
-		sb.Key("type")
-		sb.Str("text")
-		sb.Key("text")
-		sb.Str(text)
-		sb.EndObj()
-		blocks = append(blocks, appendCacheControlRaw(string(sb.Bytes()), policy))
-	}
-	return blocks
 }
 
 func appendCacheControlRaw(block, policy string) string {
