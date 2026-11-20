@@ -51,8 +51,8 @@ func TestCallerModelPassthroughSkipsAutomaticPinsAndScorer(t *testing.T) {
 	loopResult, err := service.runTurnLoop(
 		blindExperimentContext(auth.BlindExperimentArmPassthrough),
 		envelope,
-		envelope.RoutingFeatures(), turnRequest{Strategy: router.StrategyFromContext(
-			blindExperimentContext(auth.BlindExperimentArmPassthrough)), APIKeyID: "api-key", InstallationID: uuid.New()},
+		envelope.RoutingFeatures(), testTurnRequest(
+			blindExperimentContext(auth.BlindExperimentArmPassthrough), "api-key", uuid.New()),
 
 		"",
 		http.Header{},
@@ -88,8 +88,8 @@ func TestCallerModelPassthroughLeavesAutomaticSessionHistoryUntouched(t *testing
 	loopResult, err := service.runTurnLoop(
 		blindExperimentContext(auth.BlindExperimentArmPassthrough),
 		envelope,
-		envelope.RoutingFeatures(), turnRequest{Strategy: router.StrategyFromContext(
-			blindExperimentContext(auth.BlindExperimentArmPassthrough)), APIKeyID: "api-key", InstallationID: uuid.New()},
+		envelope.RoutingFeatures(), testTurnRequest(
+			blindExperimentContext(auth.BlindExperimentArmPassthrough), "api-key", uuid.New()),
 
 		"",
 		http.Header{},
@@ -200,8 +200,8 @@ func TestCallerModelPassthroughHonorsExcludedModels(t *testing.T) {
 	_, err = service.runTurnLoop(
 		blindExperimentContext(auth.BlindExperimentArmPassthrough),
 		envelope,
-		envelope.RoutingFeatures(), turnRequest{Strategy: router.StrategyFromContext(
-			blindExperimentContext(auth.BlindExperimentArmPassthrough)), APIKeyID: "api-key", InstallationID: uuid.New()},
+		envelope.RoutingFeatures(), testTurnRequest(
+			blindExperimentContext(auth.BlindExperimentArmPassthrough), "api-key", uuid.New()),
 
 		"",
 		http.Header{},
@@ -246,8 +246,8 @@ func runBlindExperimentUtilityTurn(t *testing.T, ctx context.Context, body strin
 	loopResult, err := service.runTurnLoop(
 		ctx,
 		envelope,
-		features, turnRequest{Strategy: router.StrategyFromContext(
-			ctx), APIKeyID: "api-key", InstallationID: uuid.New()},
+		features, testTurnRequest(
+			ctx, "api-key", uuid.New()),
 
 		"",
 		http.Header{},
@@ -342,8 +342,8 @@ func TestBlindExperimentPassthroughYieldsUtilityTurnToForceModel(t *testing.T) {
 	loopResult, err := service.runTurnLoop(
 		blindExperimentContext(auth.BlindExperimentArmPassthrough),
 		envelope,
-		envelope.RoutingFeatures(), turnRequest{Strategy: router.StrategyFromContext(
-			blindExperimentContext(auth.BlindExperimentArmPassthrough)), APIKeyID: "api-key", InstallationID: uuid.New()},
+		envelope.RoutingFeatures(), testTurnRequest(
+			blindExperimentContext(auth.BlindExperimentArmPassthrough), "api-key", uuid.New()),
 
 		"",
 		http.Header{},
@@ -374,8 +374,8 @@ func TestBlindExperimentRouterOnUsesScorer(t *testing.T) {
 	loopResult, err := service.runTurnLoop(
 		blindExperimentContext(auth.BlindExperimentArmRouterOn),
 		envelope,
-		envelope.RoutingFeatures(), turnRequest{Strategy: router.StrategyFromContext(
-			blindExperimentContext(auth.BlindExperimentArmRouterOn)), APIKeyID: "api-key", InstallationID: uuid.New()},
+		envelope.RoutingFeatures(), testTurnRequest(
+			blindExperimentContext(auth.BlindExperimentArmRouterOn), "api-key", uuid.New()),
 
 		"",
 		http.Header{},

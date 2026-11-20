@@ -117,7 +117,7 @@ func TestTurnLoop_CompactionReadsClientIdentityBeforeSessionPin(t *testing.T) {
 	require.NoError(t, err)
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
 	features := env.RoutingFeatures()
-	turn, err := s.runTurnLoop(ctx, env, features, turnRequest{Strategy: router.StrategyFromContext(ctx), APIKeyID: "test-key", InstallationID: uuid.Nil}, "", nil, router.Request{RequestedModel: features.Model})
+	turn, err := s.runTurnLoop(ctx, env, features, testTurnRequest(ctx, "test-key", uuid.Nil), "", nil, router.Request{RequestedModel: features.Model})
 	require.NoError(t, err)
 	assert.Equal(t, turntype.Compaction, turn.TurnType)
 	assert.Equal(t, providers.ProviderOpenAI, turn.Decision.Provider)

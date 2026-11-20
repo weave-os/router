@@ -212,7 +212,7 @@ func TestRecoveryProbeSkipsModelWithoutEligibleProviderBinding(t *testing.T) {
 	}}}
 	svc, _ := cooldownTurnLoopService(store, true)
 	env, features := demotionTurnLoopEnv(t)
-	result, err := svc.runTurnLoop(context.Background(), env, features, turnRequest{Strategy: router.StrategyFromContext(context.Background()), APIKeyID: "api-key", InstallationID: uuid.New()}, "", http.Header{}, router.Request{
+	result, err := svc.runTurnLoop(context.Background(), env, features, testTurnRequest(context.Background(), "api-key", uuid.New()), "", http.Header{}, router.Request{
 		RequestedModel:       features.Model,
 		EnabledProviders:     map[string]struct{}{providers.ProviderOpenAI: {}},
 		EstimatedInputTokens: features.Tokens,

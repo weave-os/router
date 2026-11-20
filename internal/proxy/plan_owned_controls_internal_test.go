@@ -147,8 +147,9 @@ func TestBoostServingHeaderForceModelCarriesEffortSameTurn(t *testing.T) {
 	env := forceCommandEnv(t)
 	features := env.RoutingFeatures()
 	result, err := svc.runTurnLoop(
-		ctx, env, features, turnRequest{Strategy: router.StrategyFromContext(
-			ctx), APIKeyID: "api-key", InstallationID: uuid.New()},
+		ctx, env, features, testTurnRequest(
+			ctx, "api-key", uuid.New()),
+
 		"", request.Header,
 		router.Request{RequestedModel: features.Model, ForceModel: forced})
 
@@ -207,8 +208,9 @@ func TestBoostServingRoutesExplicitForceModel(t *testing.T) {
 	svc := &Service{}
 
 	result, err := svc.runTurnLoop(
-		boostDefaultRoutingContext(), env, features, turnRequest{Strategy: router.StrategyFromContext(
-			boostDefaultRoutingContext()), APIKeyID: "api-key", InstallationID: uuid.New()},
+		boostDefaultRoutingContext(), env, features, testTurnRequest(
+			boostDefaultRoutingContext(), "api-key", uuid.New()),
+
 		"", nil,
 		router.Request{RequestedModel: features.Model, ForceModel: "sol"})
 

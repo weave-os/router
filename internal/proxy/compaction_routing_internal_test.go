@@ -64,7 +64,7 @@ func (f compactionRoutingFixture) run(t *testing.T, ctx context.Context, env *tr
 	t.Helper()
 	features := env.RoutingFeatures()
 	req.RequestedModel = features.Model
-	return f.svc.runTurnLoop(ctx, env, features, turnRequest{Strategy: router.StrategyFromContext(ctx), APIKeyID: "test-key", InstallationID: f.installationID}, "", nil, req)
+	return f.svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, "test-key", f.installationID), "", nil, req)
 }
 
 func (f compactionRoutingFixture) pinSession(t *testing.T, ctx context.Context, env *translate.RequestEnvelope, decision router.Decision) {

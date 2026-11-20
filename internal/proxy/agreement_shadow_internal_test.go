@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
@@ -247,7 +248,7 @@ func TestAgreementShadowRoutingRefusalBreaksHistoryWithoutDispatch(t *testing.T)
 	}
 	ctx := router.WithStrategy(agreementContext(policyregistry.TargetInternal, true), router.StrategyHMM)
 	ctx = observability.WithRequestID(ctx, "synthetic-refusal")
-	_, err = svc.runTurnLoop(ctx, env, env.RoutingFeatures(), turnRequest{Strategy: router.StrategyFromContext(ctx), APIKeyID: "synthetic-key", InstallationID: uuid.New()}, "", http.Header{}, router.Request{RequestedModel: string(router.ModelAutomatic)})
+	_, err = svc.runTurnLoop(ctx, env, env.RoutingFeatures(), testTurnRequest(ctx, "synthetic-key", uuid.New()), "", http.Header{}, router.Request{RequestedModel: string(router.ModelAutomatic)})
 	if err == nil {
 		t.Fatal("synthetic refusal unexpectedly succeeded")
 	}

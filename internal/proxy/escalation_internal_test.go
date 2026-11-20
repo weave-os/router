@@ -169,7 +169,7 @@ func TestEscalationLiveModelThroughTurnLoop(t *testing.T) {
 		env, parseErr := translate.ParseAnthropic(body)
 		require.NoError(t, parseErr)
 		features := env.RoutingFeatures()
-		last, err = svc.runTurnLoop(ctx, env, features, turnRequest{Strategy: router.StrategyFromContext(ctx), APIKeyID: "test-key", InstallationID: installation}, "", http.Header{}, router.Request{RequestedModel: features.Model, EstimatedInputTokens: features.Tokens, HasTools: features.HasTools, ConversationMessages: conversationMessagesForRouting(env)})
+		last, err = svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, "test-key", installation), "", http.Header{}, router.Request{RequestedModel: features.Model, EstimatedInputTokens: features.Tokens, HasTools: features.HasTools, ConversationMessages: conversationMessagesForRouting(env)})
 		require.NoError(t, err)
 		require.Equal(t, int64(n+1), last.EscalationOrdinal)
 		if n < 9 {
@@ -190,7 +190,7 @@ func TestEscalationCommitFailureDoesNotDispatchUncommittedPromotion(t *testing.T
 		store.failCommit = n == 5
 		env := escalationTestEnvelope(t, n)
 		feats := env.RoutingFeatures()
-		res, err := svc.runTurnLoop(ctx, env, feats, turnRequest{Strategy: router.StrategyFromContext(ctx), APIKeyID: "test-key", InstallationID: installation}, "", http.Header{}, router.Request{RequestedModel: feats.Model})
+		res, err := svc.runTurnLoop(ctx, env, feats, testTurnRequest(ctx, "test-key", installation), "", http.Header{}, router.Request{RequestedModel: feats.Model})
 		require.NoError(t, err)
 		require.Equal(t, "claude-haiku-4-5", res.Decision.Model)
 		if n == 5 {
@@ -225,7 +225,7 @@ func TestEscalationCommitFailurePreservesOrdinaryStickySelection(t *testing.T) {
 		store.failCommit = n == 5
 		env := escalationTestEnvelope(t, n)
 		feats := env.RoutingFeatures()
-		res, err := svc.runTurnLoop(ctx, env, feats, turnRequest{Strategy: router.StrategyFromContext(ctx), APIKeyID: "test-key", InstallationID: installation}, "", http.Header{}, router.Request{RequestedModel: feats.Model})
+		res, err := svc.runTurnLoop(ctx, env, feats, testTurnRequest(ctx, "test-key", installation), "", http.Header{}, router.Request{RequestedModel: feats.Model})
 		require.NoError(t, err)
 		require.Equal(t, "claude-opus-4-7", res.Decision.Model)
 		require.True(t, res.StickyHit)
@@ -247,7 +247,7 @@ func TestEscalationCommitFailureDoesNotRepeatUnconstrainedSelection(t *testing.T
 			svc := NewService(nil, nil, nil, pins, false, providers.ProviderAnthropic, "claude-opus-4-8", nil).WithEscalation(store, &escalationTestObserver{}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: classifier, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: true}})
 			env := escalationTestEnvelope(t, 1)
 			feats := env.RoutingFeatures()
-			res, err := svc.runTurnLoop(escalationTestContext(true, false), env, feats, turnRequest{Strategy: router.StrategyFromContext(escalationTestContext(true, false)), APIKeyID: "test-key", InstallationID: uuid.New()}, "", http.Header{}, router.Request{RequestedModel: feats.Model})
+			res, err := svc.runTurnLoop(escalationTestContext(true, false), env, feats, testTurnRequest(escalationTestContext(true, false), "test-key", uuid.New()), "", http.Header{}, router.Request{RequestedModel: feats.Model})
 			require.NoError(t, err)
 			require.Equal(t, "claude-opus-4-8", res.Decision.Model)
 			require.Zero(t, res.EscalationOrdinal)
@@ -287,7 +287,7 @@ func TestEscalationShadowCheckpointsDoNotChangeRoutingOrEstablishFloor(t *testin
 			for ordinal := 1; ordinal <= 11; ordinal++ {
 				env := escalationTestEnvelope(t, ordinal)
 				features := env.RoutingFeatures()
-				turn, err := svc.runTurnLoop(ctx, env, features, turnRequest{Strategy: router.StrategyFromContext(ctx), APIKeyID: "shadow-key", InstallationID: installation}, "", http.Header{}, router.Request{RequestedModel: features.Model})
+				turn, err := svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, "shadow-key", installation), "", http.Header{}, router.Request{RequestedModel: features.Model})
 				require.NoError(t, err)
 				require.Equal(t, tc.strategy, turn.Strategy)
 				require.Equal(t, int64(ordinal), turn.EscalationOrdinal)
@@ -297,7 +297,7 @@ func TestEscalationShadowCheckpointsDoNotChangeRoutingOrEstablishFloor(t *testin
 				require.Equal(t, showMarker && ordinal%5 == 0, turn.EscalationShadowMarked)
 				if ordinal%5 == 0 {
 					require.Equal(t, showMarker, strings.Contains(routingMarkerFor(turn), markerReasonShadowEscalation))
-					replayed, replayErr := svc.runTurnLoop(ctx, env, features, turnRequest{Strategy: router.StrategyFromContext(ctx), APIKeyID: "shadow-key", InstallationID: installation}, "", http.Header{}, router.Request{RequestedModel: features.Model})
+					replayed, replayErr := svc.runTurnLoop(ctx, env, features, testTurnRequest(ctx, "shadow-key", installation), "", http.Header{}, router.Request{RequestedModel: features.Model})
 					require.NoError(t, replayErr)
 					require.Equal(t, int64(ordinal), replayed.EscalationOrdinal)
 					require.Equal(t, turn.Decision.Model, replayed.Decision.Model)
@@ -311,7 +311,7 @@ func TestEscalationShadowCheckpointsDoNotChangeRoutingOrEstablishFloor(t *testin
 			for _, disabledInstallation := range []uuid.UUID{installation, uuid.New()} {
 				env := escalationTestEnvelope(t, 12)
 				features := env.RoutingFeatures()
-				disabled, err := svc.runTurnLoop(router.WithStrategy(escalationTestContext(false, false), tc.strategy), env, features, turnRequest{Strategy: router.StrategyFromContext(router.WithStrategy(escalationTestContext(false, false), tc.strategy)), APIKeyID: "shadow-key", InstallationID: disabledInstallation}, "", http.Header{}, router.Request{RequestedModel: features.Model})
+				disabled, err := svc.runTurnLoop(router.WithStrategy(escalationTestContext(false, false), tc.strategy), env, features, testTurnRequest(router.WithStrategy(escalationTestContext(false, false), tc.strategy), "shadow-key", disabledInstallation), "", http.Header{}, router.Request{RequestedModel: features.Model})
 				require.NoError(t, err)
 				require.Zero(t, disabled.EscalationOrdinal)
 				require.False(t, disabled.EscalationShadowMarked)

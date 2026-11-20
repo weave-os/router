@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -105,7 +106,7 @@ func TestAgreementShadowForceUnforceBeforeToolResultBreaksVotes(t *testing.T) {
 			t.Fatalf("successful command left simulated histories connected: %+v %v", boundary, err)
 		}
 	}
-	routed, err := svc.runTurnLoop(ctx, env, env.RoutingFeatures(), turnRequest{Strategy: router.StrategyFromContext(ctx), APIKeyID: "synthetic-api-key", InstallationID: installationID}, "", http.Header{}, router.Request{RequestedModel: string(router.ModelAutomatic)})
+	routed, err := svc.runTurnLoop(ctx, env, env.RoutingFeatures(), testTurnRequest(ctx, "synthetic-api-key", installationID), "", http.Header{}, router.Request{RequestedModel: string(router.ModelAutomatic)})
 	if err != nil {
 		t.Fatal(err)
 	}

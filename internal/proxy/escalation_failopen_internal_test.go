@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -43,7 +44,7 @@ func TestEscalationCommitFailurePreservesEligibilityAndTurnEvidence(t *testing.T
 			svc.compaction.CheckAndRecord(sessionKey, installation, role, 9, 0)
 			require.True(t, svc.searchUse.observe(string(sessionKey[:]), 0, DefaultSearchRequirementDecayTurns))
 		}
-		res, err := svc.runTurnLoop(ctx, env, feats, turnRequest{Strategy: router.StrategyFromContext(ctx), APIKeyID: "test-key", InstallationID: installation}, "", http.Header{}, router.Request{
+		res, err := svc.runTurnLoop(ctx, env, feats, testTurnRequest(ctx, "test-key", installation), "", http.Header{}, router.Request{
 			RequestedModel:          feats.Model,
 			TranslationRequirements: router.TranslationRequirements{SourceFormat: router.WireFormatAnthropic, Endpoint: router.EndpointAnthropicMessages, CitationsOrSearch: true},
 		})
