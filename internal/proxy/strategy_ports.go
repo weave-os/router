@@ -8,6 +8,9 @@ type hmmServing struct {
 }
 
 func WithStrategyPorts(s *Service, ports continuity.StrategyPorts) *Service {
+	if err := ports.Validate(); err != nil {
+		panic(err)
+	}
 	s.strategyPorts = ports
 	return s
 }

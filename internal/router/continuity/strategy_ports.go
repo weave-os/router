@@ -1,6 +1,8 @@
 package continuity
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	"weave-os/router/internal/router"
@@ -40,4 +42,24 @@ type StrategyPorts struct {
 	Facts     DecisionFacts
 	Upgrade   UpgradeJudge
 	CostGate  CostGate
+}
+
+func (p StrategyPorts) Validate() error {
+	var missing []string
+	if p.Ownership == nil {
+		missing = append(missing, "Ownership")
+	}
+	if p.Facts == nil {
+		missing = append(missing, "Facts")
+	}
+	if p.Upgrade == nil {
+		missing = append(missing, "Upgrade")
+	}
+	if p.CostGate == nil {
+		missing = append(missing, "CostGate")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("strategy ports not wired: %s", strings.Join(missing, ", "))
+	}
+	return nil
 }
