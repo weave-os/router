@@ -21,9 +21,9 @@ func (c *portableCodexResponsesConverter) requireNativeForForcedWebSearch(toolCh
 	}
 }
 
-func (c *portableCodexResponsesConverter) lossyOr(code, action, path string) bool {
+func (c *portableCodexResponsesConverter) tryDropLossy(code, path string) bool {
 	if c.lossy {
-		c.report(code, action, path)
+		c.report(code, "dropped", path)
 		return true
 	}
 	c.markNativeOnly(code, path)

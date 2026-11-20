@@ -12,9 +12,9 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-func convertCodexResponses(ctx context.Context, body []byte, portableCodex bool, rescue func(model string) bool) (translate.ResponsesConversion, error) {
+func convertCodexResponses(ctx context.Context, body []byte, portableCodex bool, shouldRescue func(model string) bool) (translate.ResponsesConversion, error) {
 	conversion, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: portableCodex})
-	if err != nil || !portableCodex || !conversion.Requirements.NativeOnly || !rescue(conversion.Model) {
+	if err != nil || !portableCodex || !conversion.Requirements.NativeOnly || !shouldRescue(conversion.Model) {
 		return conversion, err
 	}
 	rescued, _ := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true, LossyRescue: true})

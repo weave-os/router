@@ -289,7 +289,7 @@ func (c *portableCodexResponsesConverter) collectToolArray(tools gjson.Result, n
 			c.hostedWebSearch = true
 			c.report("responses_hosted_web_search_dropped", "dropped", toolPath)
 		case "tool_search":
-			if !c.lossyOr("responses_unknown_tool_native_only", "dropped", toolPath) {
+			if !c.tryDropLossy("responses_unknown_tool_native_only", toolPath) {
 				c.result.Requirements.CustomTools = true
 			}
 		default:
@@ -453,7 +453,7 @@ func (c *portableCodexResponsesConverter) convertInput(input gjson.Result) []map
 				}
 			}
 		case "tool_search_call", "tool_search_output":
-			c.lossyOr("responses_unknown_input_native_only", "dropped", path)
+			c.tryDropLossy("responses_unknown_input_native_only", path)
 		default:
 			c.markNativeOnly("responses_unknown_input_native_only", path)
 		}
@@ -563,7 +563,7 @@ func (c *portableCodexResponsesConverter) convertAgentMessage(item gjson.Result,
 			textParts = append(textParts, text)
 			hasPlainText = hasPlainText || strings.TrimSpace(text) != ""
 		case "encrypted_content":
-			c.lossyOr("responses_agent_message_native_only", "dropped", partPath)
+			c.tryDropLossy("responses_agent_message_native_only", partPath)
 			encrypted = true
 		default:
 			c.markNativeOnly("responses_agent_message_native_only", partPath)
@@ -571,7 +571,7 @@ func (c *portableCodexResponsesConverter) convertAgentMessage(item gjson.Result,
 		}
 	}
 	if !hasPlainText {
-		c.lossyOr("responses_agent_message_native_only", "dropped", path)
+		c.tryDropLossy("responses_agent_message_native_only", path)
 		return nil, false
 	}
 	if encrypted {
