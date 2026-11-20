@@ -61,7 +61,7 @@ func (m *messagesRescue) armBaseline(ctx context.Context) {
 		modelInRequestSubset(ctx, m.baselineModel)
 	m.baselineViable = !m.agentShadowMode &&
 		!routeRes.CallerModelPassthrough &&
-		m.decision.Reason != translate.ReasonUserForceModel &&
+		!m.decision.UserForcedModel() &&
 		s.shouldFailover(ctx) &&
 		!paidFallbackForbiddenForModel(ctx, m.baselineModel) &&
 		!anthropicExcluded &&
@@ -85,7 +85,7 @@ func (m *messagesRescue) armSubscriptionRetry(ctx context.Context) {
 }
 
 func (m *messagesRescue) armRescues(ctx context.Context) context.Context {
-	return m.armSiblings(ctx, m.agentShadowMode || m.routeRes.CallerModelPassthrough || m.decision.Reason == translate.ReasonUserForceModel)
+	return m.armSiblings(ctx, m.agentShadowMode || m.routeRes.CallerModelPassthrough || m.decision.UserForcedModel())
 }
 
 func (m *messagesRescue) armEarlyStop(ctx context.Context) {

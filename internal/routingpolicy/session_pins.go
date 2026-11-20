@@ -64,6 +64,19 @@ func IsUserForcedReason(reason string) bool {
 	return strings.HasPrefix(reason, translate.ReasonUserForceModel)
 }
 
+const ReasonUserUnforced = "user_unforced"
+
+func IsUserUnforcedPin(pin sessionpin.Pin) bool { return pin.Reason == ReasonUserUnforced }
+
+func IsLoopEscalationReason(reason string) bool { return reason == translate.ReasonLoopEscalation }
+
+func ClearedPinReason(pin sessionpin.Pin, active bool) string {
+	if active || pin.Model != "" || pin.Provider != "" {
+		return ""
+	}
+	return pin.Reason
+}
+
 func (sp SessionPins) Load(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (sessionpin.Pin, bool) {
 	pin, active, _ := sp.LoadWithStoreState(ctx, sessionKey, role)
 	return pin, active

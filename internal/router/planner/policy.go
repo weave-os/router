@@ -29,6 +29,10 @@ type Decision struct {
 	PinCacheCold             bool
 }
 
+func (d Decision) Evaluated() bool { return d.Reason != "" }
+
+func (d Decision) EvaluatedAgainstPin() bool { return d.Evaluated() && d.Reason != ReasonNoPin }
+
 type EVConfig struct {
 	ThresholdUSD           float64
 	ExpectedRemainingTurns int

@@ -4,9 +4,7 @@
     "hmm_pin_field_references": {},
     "proxy_escalation_internal_references": {},
     "proxy_hmm_metadata_references": {},
-    "proxy_reason_string_comparisons": {
-      "internal/proxy": 20
-    },
+    "proxy_reason_string_comparisons": {},
     "serving_strategy_internal_imports": {
       "internal/api/admin -> internal/router/hmm": 1,
       "internal/api/admin -> internal/router/hmm/rosterdata": 1,

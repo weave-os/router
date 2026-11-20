@@ -45,6 +45,8 @@ type UpgradeVerdict struct {
 	Reason  UpgradeReason
 }
 
+func (v UpgradeVerdict) DemotedModel() bool { return v.Reason == UpgradeDemotedModel }
+
 type UpgradeEvidence struct {
 	HasPin          bool
 	SameModel       bool

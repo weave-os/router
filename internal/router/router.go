@@ -180,6 +180,10 @@ type Decision struct {
 	Metadata *RoutingMetadata
 }
 
+const ReasonUserForceModel = "user_forced"
+
+func (d Decision) UserForcedModel() bool { return d.Reason == ReasonUserForceModel }
+
 func (d Decision) ServedIdentity() string {
 	if d.Effort == "" {
 		return d.Model
