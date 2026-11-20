@@ -42,15 +42,11 @@ func subscriptionOwnerFromContext(ctx context.Context) auth.SubscriptionOwner {
 }
 
 func managedSubscriptionProviderFromUpstream(provider, model string) (subscriptions.Provider, bool) {
-	switch provider {
-	case providers.ProviderAnthropic:
-		return subscriptions.ProviderClaude, true
-	case providers.ProviderOpenAI:
-		if codexSubscriptionCanAttemptModel(model) {
-			return subscriptions.ProviderCodex, true
-		}
+	pool, ok := subscriptions.PoolForUpstream(provider)
+	if !ok || pool == subscriptions.ProviderCodex && !codexSubscriptionCanAttemptModel(model) {
+		return "", false
 	}
-	return "", false
+	return pool, true
 }
 
 func managedSubscriptionEnrolled(ctx context.Context, provider subscriptions.Provider) bool {

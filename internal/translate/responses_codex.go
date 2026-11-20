@@ -45,6 +45,8 @@ type portableCodexResponsesConverter struct {
 	agentPath               string
 	routingRoles            map[int]EscalationRole
 	toolImageRoutingCallIDs map[int]string
+	routingOmitted          map[int]bool
+	pendingStandalone       []map[string]any
 	hostedWebSearch         bool
 }
 
@@ -190,6 +192,7 @@ func convertPortableCodexResponses(body []byte, lossy bool) (ResponsesConversion
 		agentPath:               codexCurrentAgentPath(root.Get("input")),
 		routingRoles:            make(map[int]EscalationRole),
 		toolImageRoutingCallIDs: make(map[int]string),
+		routingOmitted:          make(map[int]bool),
 	}
 	converter.result.TitleGeneration = requestRootRequestsCodexTitle(root)
 	converter.result.Requirements.Images = root.Get("input").Exists() && containsAnyKey(body, "image_url", "input_image")
@@ -395,6 +398,7 @@ func (c *portableCodexResponsesConverter) convertInput(input gjson.Result) []map
 	var toolImageCalls []string
 	toolImages := map[string][]map[string]any{}
 	flushToolImages := func() {
+		defer func() { messages = c.flushStandaloneToolOutputs(messages) }()
 		if len(toolImageCalls) == 0 {
 			return
 		}
@@ -442,16 +446,7 @@ func (c *portableCodexResponsesConverter) convertInput(input gjson.Result) []map
 		case "web_search_call":
 			c.report("responses_web_search_call_dropped", "dropped", path)
 		case "function_call_output", "custom_tool_call_output":
-			if message, images, ok := c.convertToolOutput(item, path); ok {
-				messages = append(messages, message)
-				if len(images) > 0 {
-					callID := item.Get("call_id").Str
-					if _, seen := toolImages[callID]; !seen {
-						toolImageCalls = append(toolImageCalls, callID)
-					}
-					toolImages[callID] = append(toolImages[callID], images...)
-				}
-			}
+			toolImageCalls = c.appendToolOutput(&messages, item, path, toolImages, toolImageCalls)
 		case "tool_search_call", "tool_search_output":
 			c.tryDropLossy("responses_unknown_input_native_only", path)
 		default:
