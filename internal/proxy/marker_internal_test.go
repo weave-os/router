@@ -216,8 +216,8 @@ func TestRoutingMarkerFor_PlannerPaths(t *testing.T) {
 		{
 			name: "user-forced model: distinct marker, not best-pick",
 			res: turnLoopResult{
-				Decision:         router.Decision{Model: "gpt-5.5", Provider: "openai", Reason: translate.ReasonUserForceModel},
-				StickyHit:        true,
+				Decision:  router.Decision{Model: "gpt-5.5", Provider: "openai", Reason: translate.ReasonUserForceModel},
+				StickyHit: true, UserForced: true,
 				PriorServedModel: "deepseek/deepseek-v4-flash",
 			},
 			wantContains: []string{
@@ -251,8 +251,8 @@ func TestRoutingMarkerFor_PlannerPaths(t *testing.T) {
 			// "force-model applied" acknowledgment when the directive was issued.
 			name: "user-forced same model on a sticky follow-up: marker suppressed",
 			res: turnLoopResult{
-				Decision:         router.Decision{Model: "gpt-5.5", Provider: "openai", Reason: translate.ReasonUserForceModel},
-				StickyHit:        true,
+				Decision:  router.Decision{Model: "gpt-5.5", Provider: "openai", Reason: translate.ReasonUserForceModel},
+				StickyHit: true, UserForced: true,
 				PriorServedModel: "gpt-5.5", // pin already serving the forced model
 			},
 			wantEmpty: true,
