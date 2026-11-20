@@ -31,10 +31,6 @@ func (c *portableCodexResponsesConverter) tryDropLossy(code, path string) bool {
 }
 
 func (c *portableCodexResponsesConverter) orphanToolOutput(item gjson.Result, path string) (map[string]any, []map[string]any, bool) {
-	if !c.lossy {
-		c.markNativeOnly("responses_tool_output_native_only", path)
-		return nil, nil, false
-	}
 	content, images, _, ok := c.convertToolOutputContent(item.Get("output"), path+".output")
 	if !ok {
 		return nil, nil, false

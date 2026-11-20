@@ -728,3 +728,43 @@ func TestConvertResponsesToChatCompletions_LegacyIgnoresCodexModelSwitch(t *test
 	require.NoError(t, err)
 	assert.False(t, converted.CodexModelSwitch)
 }
+
+// Codex sends standalone tool outputs without a call_id for context it injects
+// itself (retained tool output, additional context). A few of them in history
+// must not lock every later turn of the session to the native wire family.
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexStandaloneToolOutputProjectsToText(t *testing.T) {
+	t.Parallel()
+	for name, output := range map[string]string{
+		"absent call_id": `{"type":"function_call_output","name":"exec","output":"build finished"}`,
+		"empty call_id":  `{"type":"function_call_output","call_id":"","output":"build finished"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			body := []byte(`{"model":"gpt-6.1-sol","input":[` +
+				`{"type":"message","role":"user","content":[{"type":"input_text","text":"fix it"}]},` +
+				output + `,` +
+				`{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}]}`)
+
+			converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+			require.NoError(t, err)
+			assert.False(t, converted.Requirements.NativeOnly, "reports: %#v", converted.Report)
+			var contents []string
+			for _, message := range gjson.GetBytes(converted.Body, "messages").Array() {
+				contents = append(contents, message.Get("content").String())
+			}
+			assert.Contains(t, contents, "Tool output:\nbuild finished")
+		})
+	}
+}
+
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexStandaloneToolImageStaysNative(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"model":"gpt-6.1-sol","input":[` +
+		`{"type":"message","role":"user","content":[{"type":"input_text","text":"fix it"}]},` +
+		`{"type":"function_call_output","output":[{"type":"input_image","image_url":"data:image/png;base64,iVBORw0KGgo="}]}]}`)
+
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+	assert.True(t, converted.Requirements.NativeOnly)
+	assertReportCode(t, converted.Report, "responses_tool_output_native_only")
+}
