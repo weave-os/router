@@ -272,6 +272,7 @@
           "role": "default_mid",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
             "ServedModel": "gpt-5.4-mini",
             "ServedProvider": "openai_gateway",
@@ -539,6 +540,7 @@
           "role": "default_mid",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
             "PriorServedModel": "gpt-5.4-mini",
             "ServedModel": "gpt-5.4-mini",

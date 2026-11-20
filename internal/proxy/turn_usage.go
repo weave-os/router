@@ -2,9 +2,13 @@ package proxy
 
 import (
 	"context"
+
+	"github.com/google/uuid"
+
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/routingpolicy"
 	"weave-os/router/internal/translate"
 )
 
@@ -43,6 +47,7 @@ func (s *Service) recordTurnUsage(ctx context.Context, res turnLoopResult, serve
 		ServedProvider:      servedProvider,
 		PriorServedModel:    res.PriorServedModel,
 		SessionEverSwitched: res.SessionEverSwitched,
+		MessageCount:        res.MessageCount,
 	}
 	role := res.PinRole
 	if isUserForcedReason(res.Decision.Reason) {
@@ -53,6 +58,57 @@ func (s *Service) recordTurnUsage(ctx context.Context, res turnLoopResult, serve
 	}
 	if err := s.pinStore.UpdateUsage(context.WithoutCancel(ctx), res.SessionKey, role, usage); err != nil {
 		observability.Get().Error("session pin usage writeback failed", "err", err)
+	}
+	s.recordTokenizerObservation(ctx, res, role, servedProvider, in, cacheCreation, cacheRead)
+}
+
+func (s *Service) recordHMMTurnHistory(ctx context.Context, res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int, outputLimitReached bool) {
+	sessionPins := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategyForTurnLoopResult(res))
+	if servedModel == "" || res.InstallationID == uuid.Nil {
+		return
+	}
+	var zeroKey [sessionpin.SessionKeyLen]byte
+	if res.SessionKey == zeroKey {
+		return
+	}
+	hasUsage := in != 0 || out != 0 || cacheCreation != 0 || cacheRead != 0
+	strategyCtx := strategyContext(ctx, strategyForTurnLoopResult(res))
+	historyProvider := servedProvider
+	if !hasUsage {
+		if prior := sessionPins.LoadHMMHistory(strategyCtx, res.SessionKey, res.PinRole); prior.Provider != "" {
+			historyProvider = prior.Provider
+		}
+	}
+	role := hmmHistoryRole(res.PinRole)
+	sessionPins.Upsert(strategyCtx, sessionpin.Pin{
+		SessionKey:     res.SessionKey,
+		Role:           role,
+		InstallationID: res.InstallationID,
+		Provider:       historyProvider,
+		Reason:         hmmHistoryStoredReason(res),
+		Strategy:       strategyForTurnLoopResult(res),
+		TurnCount:      1,
+		PinnedUntil:    pinExpiry(hmmHistoryReason, s.clock.Now()),
+	})
+	if !hasUsage {
+		return
+	}
+	now := s.clock.Now()
+	if err := s.pinStore.UpdateUsage(strategyCtx, res.SessionKey, role, sessionpin.Usage{
+		Strategy:            strategyForTurnLoopResult(res),
+		InputTokens:         in,
+		CachedReadTokens:    cacheRead,
+		CachedWriteTokens:   cacheCreation,
+		OutputTokens:        out,
+		OutputLimitReached:  outputLimitReached,
+		EndedAt:             now,
+		ServedModel:         servedModel,
+		ServedProvider:      servedProvider,
+		PriorServedModel:    res.PriorServedModel,
+		SessionEverSwitched: res.SessionEverSwitched,
+		MessageCount:        res.MessageCount,
+	}); err != nil {
+		observability.Get().Error("HMM switch-history writeback failed", "err", err)
 	}
 	s.recordTokenizerObservation(ctx, res, role, servedProvider, in, cacheCreation, cacheRead)
 }

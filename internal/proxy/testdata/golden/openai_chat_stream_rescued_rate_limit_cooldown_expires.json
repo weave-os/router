@@ -338,6 +338,7 @@
           "role": "default_high",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
             "ServedModel": "deepseek/deepseek-v4-pro",
             "ServedProvider": "fireworks",
@@ -621,6 +622,7 @@
           "role": "default_high",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
             "PriorServedModel": "deepseek/deepseek-v4-pro",
             "ServedModel": "deepseek/deepseek-v4-pro",
@@ -859,6 +861,7 @@
           "role": "default_high",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
             "PriorServedModel": "deepseek/deepseek-v4-pro",
             "ServedModel": "deepseek/deepseek-v4-pro",

@@ -207,6 +207,7 @@
           "role": "default_mid",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
             "ServedModel": "deepseek/deepseek-v4-pro",
             "ServedProvider": "fireworks",

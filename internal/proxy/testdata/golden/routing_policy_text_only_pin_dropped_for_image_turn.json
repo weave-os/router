@@ -125,6 +125,7 @@
           "role": "default_mid",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
             "ServedModel": "z-ai/glm-5.1",
             "ServedProvider": "fireworks",
@@ -336,6 +337,7 @@
           "role": "default_mid",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 3,
             "OutputTokens": 7,
             "PriorServedModel": "z-ai/glm-5.1",
             "ServedModel": "claude-opus-4-7",

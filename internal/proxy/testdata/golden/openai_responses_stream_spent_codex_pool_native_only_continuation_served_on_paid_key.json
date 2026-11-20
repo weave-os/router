@@ -594,6 +594,7 @@
           "role": "default",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 3,
             "OutputTokens": 7,
             "ServedModel": "claude-haiku-4-5",
             "ServedProvider": "anthropic",
@@ -949,6 +950,7 @@
           "role": "default",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 4,
             "OutputTokens": 7,
             "PriorServedModel": "claude-haiku-4-5",
             "ServedModel": "gpt-5.6-sol",

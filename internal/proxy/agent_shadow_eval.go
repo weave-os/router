@@ -78,13 +78,13 @@ func (s *Service) runAgentShadowEvaluationRoute(
 	decision := router.Decision{Model: model, Provider: provider, Reason: ReasonAgentShadowEval}
 	requestedTier := catalog.TierFor(feats.Model)
 	return turnLoopResult{
-		InstallationID:      installationID,
-		TurnType:            turntype.DetectFromEnvelope(env, feats, ""),
-		PinTier:             "agent_shadow_eval",
-		PinRole:             roleForTier(requestedTier),
-		RequestedTier:       requestedTier,
-		Decision:            decision,
-		Fresh:               decision,
-		StripThinkingBlocks: feats.Model != model || env.SignatureTokenSavings() > 0,
+		InstallationID:   installationID,
+		TurnType:         turntype.DetectFromEnvelope(env, feats, ""),
+		PinTier:          "agent_shadow_eval",
+		PinRole:          roleForTier(requestedTier),
+		RequestedTier:    requestedTier,
+		Decision:         decision,
+		Fresh:            decision,
+		turnRequestShape: turnRequestShape{StripThinkingBlocks: feats.Model != model || env.SignatureTokenSavings() > 0},
 	}, nil
 }

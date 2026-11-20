@@ -150,6 +150,7 @@
           "role": "default_mid_force_hist",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
             "ServedModel": "claude-opus-4-7",
             "ServedProvider": "anthropic",

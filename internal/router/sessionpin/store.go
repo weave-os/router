@@ -48,6 +48,7 @@ type Pin struct {
 	DemotionCooldowns         map[string]time.Time
 	TurnStrikes               []string
 	TokenizerCalibration      TokenizerCalibration
+	ModelCaches               ModelCaches
 }
 
 type DemotionReason string
@@ -87,6 +88,7 @@ type Usage struct {
 	ServedProvider      string
 	PriorServedModel    string
 	SessionEverSwitched bool
+	MessageCount        int
 }
 
 type Store interface {

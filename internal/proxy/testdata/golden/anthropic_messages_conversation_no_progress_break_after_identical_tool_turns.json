@@ -184,6 +184,7 @@
           "role": "default_low",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 3,
             "OutputTokens": 7,
             "ServedModel": "claude-haiku-4-5",
             "ServedProvider": "anthropic",
@@ -448,6 +449,7 @@
           "role": "default_low",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 3,
             "OutputTokens": 7,
             "PriorServedModel": "claude-haiku-4-5",
             "ServedModel": "claude-haiku-4-5",
@@ -716,6 +718,7 @@
           "role": "default_low",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 3,
             "OutputTokens": 7,
             "PriorServedModel": "claude-haiku-4-5",
             "ServedModel": "claude-haiku-4-5",
@@ -984,6 +987,7 @@
           "role": "default_low",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 3,
             "OutputTokens": 7,
             "PriorServedModel": "claude-haiku-4-5",
             "ServedModel": "claude-haiku-4-5",

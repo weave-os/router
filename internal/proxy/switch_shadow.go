@@ -25,6 +25,10 @@ func logSwitchShadow(ctx context.Context, stayPin sessionpin.Pin, gate hmm.CostG
 		OutputTokens:         stayPin.LastOutputTokens,
 		CacheCold:            stayPin.Model != "" && pinCacheCold(stayPin, gate.PrefixBroken, now),
 		PrefixBroken:         gate.PrefixBroken,
+		Now:                  now,
+		MessageCount:         res.MessageCount,
+		UserPrompt:           res.UserPromptTurn,
+		ModelCaches:          gate.HMMHistory.ModelCaches,
 	}
 	verdict := routingpolicy.DecideSwitch(input)
 	observability.FromContext(ctx).Info("router.switch_shadow",
@@ -37,6 +41,8 @@ func logSwitchShadow(ctx context.Context, stayPin sessionpin.Pin, gate hmm.CostG
 		"prefix_broken", input.PrefixBroken,
 		"estimated_input_tokens", input.EstimatedInputTokens,
 		"prompt_tokens", input.PromptTokens,
+		"message_count", input.MessageCount,
+		"model_caches", len(input.ModelCaches),
 		"served_model", res.Decision.Model,
 		"pin_tier", res.PinTier,
 		"would_serve", verdict.Serve,

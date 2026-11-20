@@ -186,6 +186,7 @@
           "role": "default_high",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
             "ServedModel": "gpt-5.6-sol",
             "ServedProvider": "openai",
@@ -418,6 +419,7 @@
           "role": "default_high",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
             "PriorServedModel": "gpt-5.6-sol",
             "ServedModel": "gpt-5.6-sol",

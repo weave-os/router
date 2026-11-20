@@ -166,6 +166,7 @@
           "role": "default_low",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
             "ServedModel": "claude-haiku-4-5",
             "ServedProvider": "anthropic",
@@ -484,6 +485,7 @@
           "role": "default_low",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 4,
             "OutputTokens": 7,
             "PriorServedModel": "claude-haiku-4-5",
             "ServedModel": "claude-haiku-4-5",

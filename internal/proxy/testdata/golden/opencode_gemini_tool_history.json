@@ -379,6 +379,7 @@
           "role": "default",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 6,
             "OutputTokens": 7,
             "ServedModel": "gemini-2.5-flash",
             "ServedProvider": "google",

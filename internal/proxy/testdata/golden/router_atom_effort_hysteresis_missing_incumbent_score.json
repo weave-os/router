@@ -134,6 +134,7 @@
           "role": "default_mid_hmm_history",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 7,
             "ServedModel": "claude-opus-4-7:high",
             "ServedProvider": "anthropic",
@@ -349,6 +350,7 @@
           "role": "default_mid_hmm_history",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 3,
             "OutputTokens": 7,
             "PriorServedModel": "claude-opus-4-7:high",
             "ServedModel": "claude-opus-4-7:low",

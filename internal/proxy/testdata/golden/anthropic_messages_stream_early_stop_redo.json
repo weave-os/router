@@ -319,6 +319,7 @@
           "role": "default_high",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 3,
             "OutputTokens": 9,
             "ServedModel": "claude-opus-4-7",
             "ServedProvider": "anthropic",

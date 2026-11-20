@@ -243,6 +243,7 @@
           "role": "default_low_force_hist",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 4,
             "OutputTokens": 7,
             "ServedModel": "claude-opus-4-7",
             "ServedProvider": "anthropic",

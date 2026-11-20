@@ -199,6 +199,7 @@
           "role": "default_mid",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 1,
             "ServedModel": "claude-opus-4-7",
             "ServedProvider": "anthropic",
@@ -420,6 +421,7 @@
           "role": "default_mid",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputTokens": 1,
             "PriorServedModel": "claude-opus-4-7",
             "ServedModel": "claude-opus-4-7",

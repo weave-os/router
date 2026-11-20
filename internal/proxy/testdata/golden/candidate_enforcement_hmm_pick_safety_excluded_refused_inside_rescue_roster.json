@@ -129,6 +129,7 @@
           "role": "default_mid",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 1,
             "OutputLimitReached": true,
             "OutputTokens": 4096,
             "ServedModel": "claude-sonnet-4-5",

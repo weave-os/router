@@ -112,42 +112,42 @@ type turnLoopResult struct {
 	EscalationOrdinal      int64
 	escalation             *floor.Turn
 
-	Decision                    router.Decision
-	SessionKey                  [sessionpin.SessionKeyLen]byte
-	InstallationID              uuid.UUID
-	Strategy                    router.Strategy
-	TurnType                    turntype.TurnType
-	StickyHit                   bool
-	HardPinned                  bool
-	SessionFirstTurn            bool
-	Purpose                     inference.Purpose
-	Origin                      policy.OverrideSource
-	AuthoritativePerTurn        bool
-	UsageBypass                 bool
-	CallerModelPassthrough      bool
-	PinTier                     string
-	PinAgeSec                   int64
-	ForcedPinDropped            bool
-	ForcedPinDropReason         string
-	ForcedPinModel              string
-	PinProvider                 string
-	PrefixBroken                bool
-	PriorTurnGapMS              *int64
-	PolicyFallback              bool
-	RequestedTier               catalog.Tier
-	PinRole                     string
-	StickyRole                  string
-	Fresh                       router.Decision
-	PlannerDecision             planner.Decision
-	PinModel                    string
-	PinPolicyGroup              string
-	PriorServedModel            string
-	SessionEverSwitched         bool
-	PriorServedEndedAt          time.Time
-	PriorPromptTokens           int
-	TokenizerCalibration        sessionpin.TokenizerCalibration
-	ContextEstimate             int
-	StripThinkingBlocks         bool
+	Decision               router.Decision
+	SessionKey             [sessionpin.SessionKeyLen]byte
+	InstallationID         uuid.UUID
+	Strategy               router.Strategy
+	TurnType               turntype.TurnType
+	StickyHit              bool
+	HardPinned             bool
+	SessionFirstTurn       bool
+	Purpose                inference.Purpose
+	Origin                 policy.OverrideSource
+	AuthoritativePerTurn   bool
+	UsageBypass            bool
+	CallerModelPassthrough bool
+	PinTier                string
+	PinAgeSec              int64
+	ForcedPinDropped       bool
+	ForcedPinDropReason    string
+	ForcedPinModel         string
+	PinProvider            string
+	PrefixBroken           bool
+	PriorTurnGapMS         *int64
+	PolicyFallback         bool
+	RequestedTier          catalog.Tier
+	PinRole                string
+	StickyRole             string
+	Fresh                  router.Decision
+	PlannerDecision        planner.Decision
+	PinModel               string
+	PinPolicyGroup         string
+	PriorServedModel       string
+	SessionEverSwitched    bool
+	PriorServedEndedAt     time.Time
+	PriorPromptTokens      int
+	TokenizerCalibration   sessionpin.TokenizerCalibration
+	ContextEstimate        int
+	turnRequestShape
 	Handover                    handoverOutcome
 	SuggestionMode              bool
 	PrefixTrimmed               bool
@@ -472,7 +472,7 @@ func (s *Service) runTurnLoop(
 		TurnType:                    turntype.Detect(env, feats, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx))),
 		PinTier:                     "miss",
 		RequestedTier:               catalog.TierFor(feats.Model),
-		StripThinkingBlocks:         stripsThinkingHistory(ctx),
+		turnRequestShape:            newTurnRequestShape(ctx, env, feats),
 	}
 	res.AuthoritativePerTurn = authoritativePolicyTurn(res.TurnType) &&
 		s.authoritativePerTurnSelection(ctx, strategy)

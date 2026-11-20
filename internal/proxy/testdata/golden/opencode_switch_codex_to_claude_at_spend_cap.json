@@ -324,6 +324,7 @@
           "role": "default_force_hist",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 2,
             "OutputTokens": 7,
             "ServedModel": "gpt-5.6-sol",
             "ServedProvider": "openai",
@@ -818,6 +819,7 @@
           "role": "default_force_hist",
           "detail": {
             "InputTokens": 12,
+            "MessageCount": 6,
             "OutputTokens": 7,
             "PriorServedModel": "gpt-5.6-sol",
             "ServedModel": "claude-haiku-4-5",

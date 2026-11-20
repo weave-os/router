@@ -26,15 +26,10 @@ func TestDecideSwitch(t *testing.T) {
 		{"same model stays", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestMid}, switchTestMid, routingpolicy.SwitchReasonSameModel},
 		{"unpriced current model serves the pick", routingpolicy.SwitchInput{Current: switchTestUnknown, Fresh: switchTestHigh}, switchTestHigh, routingpolicy.SwitchReasonCurrentUnavailable},
 		{"unpriced pick stays", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestUnknown}, switchTestMid, routingpolicy.SwitchReasonPricingMissing},
-		{"cheaper pick is served at once on a warm cache", routingpolicy.SwitchInput{Current: switchTestHigh, Fresh: switchTestLow}, switchTestLow, routingpolicy.SwitchReasonDowngrade},
-		{"pricier pick is served at once on a cold cache", routingpolicy.SwitchInput{Current: switchTestLow, Fresh: switchTestHigh, CacheCold: true}, switchTestHigh, routingpolicy.SwitchReasonUpgradeFree},
-		{"pricier pick is served at once on a broken prefix", routingpolicy.SwitchInput{Current: switchTestLow, Fresh: switchTestHigh, PrefixBroken: true}, switchTestHigh, routingpolicy.SwitchReasonUpgradeFree},
-		{"first pricier pick waits", routingpolicy.SwitchInput{Current: switchTestLow, Fresh: switchTestHigh}, switchTestLow, routingpolicy.SwitchReasonUpgradePending},
-		{"first pricier pick after cheaper picks waits", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestHigh, PriorPicks: []string{switchTestLow, switchTestMid}}, switchTestMid, routingpolicy.SwitchReasonUpgradePending},
-		{"second consecutive pricier pick is served", routingpolicy.SwitchInput{Current: switchTestLow, Fresh: switchTestHigh, PriorPicks: []string{switchTestLow, switchTestHigh}}, switchTestHigh, routingpolicy.SwitchReasonUpgradeVotes},
-		{"alternating picks upgrade on two of the last three", routingpolicy.SwitchInput{Current: switchTestLow, Fresh: switchTestHigh, PriorPicks: []string{switchTestHigh, switchTestLow}}, switchTestHigh, routingpolicy.SwitchReasonUpgradeVotes},
-		{"pricier picks may differ and still count", routingpolicy.SwitchInput{Current: switchTestLow, Fresh: switchTestHigh, PriorPicks: []string{switchTestMid}}, switchTestHigh, routingpolicy.SwitchReasonUpgradeVotes},
-		{"picks older than the window do not count", routingpolicy.SwitchInput{Current: switchTestLow, Fresh: switchTestHigh, PriorPicks: []string{switchTestHigh, switchTestLow, switchTestLow}}, switchTestLow, routingpolicy.SwitchReasonUpgradePending},
+		{"cheaper pick on a small prompt moves", routingpolicy.SwitchInput{Current: switchTestHigh, Fresh: switchTestLow}, switchTestLow, routingpolicy.SwitchReasonDowngrade},
+		{"pricier pick on a small prompt moves", routingpolicy.SwitchInput{Current: switchTestLow, Fresh: switchTestHigh}, switchTestHigh, routingpolicy.SwitchReasonUpgrade},
+		{"pricier pick on a cold cache moves", routingpolicy.SwitchInput{Current: switchTestLow, Fresh: switchTestHigh, CacheCold: true}, switchTestHigh, routingpolicy.SwitchReasonUpgrade},
+		{"pricier pick on a broken prefix moves", routingpolicy.SwitchInput{Current: switchTestLow, Fresh: switchTestHigh, PrefixBroken: true}, switchTestHigh, routingpolicy.SwitchReasonUpgrade},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -47,26 +42,7 @@ func TestDecideSwitch(t *testing.T) {
 	}
 }
 
-func TestDecideSwitchNeverHoldsBelowAlternatingPicks(t *testing.T) {
-	current := switchTestLow
-	var picks []string
-	heldPricierPicks := 0
-	for turn := range 20 {
-		fresh := switchTestLow
-		if turn%2 == 0 {
-			fresh = switchTestHigh
-		}
-		verdict := routingpolicy.DecideSwitch(routingpolicy.SwitchInput{Current: current, Fresh: fresh, PriorPicks: picks, EstimatedInputTokens: 10_000})
-		if verdict.Serve == switchTestLow && fresh == switchTestHigh {
-			heldPricierPicks++
-		}
-		current = verdict.Serve
-		picks = append(picks, fresh)
-	}
-	assert.Equal(t, 1, heldPricierPicks, "only the first pricier pick is held")
-}
-
-func TestDecideSwitchPricesTheRewriteOfALargeWarmPrompt(t *testing.T) {
+func TestDecideSwitchPricesTheRewriteOfALargePrompt(t *testing.T) {
 	const largePrompt = 600_000
 	cases := []struct {
 		name   string
@@ -75,18 +51,14 @@ func TestDecideSwitchPricesTheRewriteOfALargeWarmPrompt(t *testing.T) {
 		reason routingpolicy.SwitchReason
 	}{
 		{"side request is served on the fresh pick without moving the session", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestLow, SideRequest: true}, switchTestLow, routingpolicy.SwitchReasonSideRequest},
-		{"warm downgrade whose savings repay the rewrite moves", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestLow}, switchTestLow, routingpolicy.SwitchReasonDowngrade},
-		{"downgrade to a model served last turn moves", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestLow, FreshTurnsSinceServed: 1}, switchTestLow, routingpolicy.SwitchReasonDowngradeWarm},
-		{"downgrade to a model whose cache aged out is priced as a rewrite", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestLow, FreshTurnsSinceServed: 6}, switchTestLow, routingpolicy.SwitchReasonDowngrade},
-		{"cold downgrade moves", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestLow, CacheCold: true}, switchTestLow, routingpolicy.SwitchReasonDowngrade},
-		{"upgrade to a model served last turn is free", routingpolicy.SwitchInput{Current: switchTestLow, Fresh: switchTestMid, FreshTurnsSinceServed: 2}, switchTestMid, routingpolicy.SwitchReasonUpgradeFree},
-		{"lone warm upgrade still waits for a second vote", routingpolicy.SwitchInput{Current: switchTestLow, Fresh: switchTestMid}, switchTestLow, routingpolicy.SwitchReasonUpgradePending},
+		{"downgrade into an unseen destination holds while the current cache is warm", routingpolicy.SwitchInput{Current: switchTestHigh, Fresh: switchTestMid}, switchTestHigh, routingpolicy.SwitchReasonDowngradePending},
+		{"downgrade to a model served last turn moves", routingpolicy.SwitchInput{Current: switchTestMid, Fresh: switchTestLow, FreshTurnsSinceServed: 1}, switchTestLow, routingpolicy.SwitchReasonDowngrade},
+		{"cold downgrade moves", routingpolicy.SwitchInput{Current: switchTestHigh, Fresh: switchTestMid, CacheCold: true}, switchTestMid, routingpolicy.SwitchReasonDowngrade},
+		{"broken prefix downgrade moves", routingpolicy.SwitchInput{Current: switchTestHigh, Fresh: switchTestMid, PrefixBroken: true}, switchTestMid, routingpolicy.SwitchReasonDowngrade},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.input.EstimatedInputTokens == 0 {
-				tc.input.EstimatedInputTokens = 80_000
-			}
+			tc.input.EstimatedInputTokens = 80_000
 			tc.input.PromptTokens = largePrompt
 			verdict := routingpolicy.DecideSwitch(tc.input)
 			assert.Equal(t, tc.serve, verdict.Serve)
@@ -94,10 +66,4 @@ func TestDecideSwitchPricesTheRewriteOfALargeWarmPrompt(t *testing.T) {
 			assert.Equal(t, tc.serve != tc.input.Current && !tc.input.SideRequest, verdict.Switch)
 		})
 	}
-}
-
-func TestDecideSwitchSmallPromptDowngradeStillMovesAtOnce(t *testing.T) {
-	verdict := routingpolicy.DecideSwitch(routingpolicy.SwitchInput{Current: switchTestHigh, Fresh: switchTestLow, EstimatedInputTokens: 10_000, PromptTokens: 10_000})
-	assert.Equal(t, switchTestLow, verdict.Serve)
-	assert.Equal(t, routingpolicy.SwitchReasonDowngrade, verdict.Reason)
 }
