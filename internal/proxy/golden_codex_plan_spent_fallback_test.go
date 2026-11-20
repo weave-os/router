@@ -278,3 +278,26 @@ func TestSpentCodexLoginPrefersFreeClaudeSeatOverSeatWait(t *testing.T) {
 	require.Equal(t, 1, codexAttempts, "spent Codex model retried after a seat wait while a Claude seat was free")
 	require.Equal(t, providers.ProviderAnthropic, served.Attempts[len(served.Attempts)-1].Provider)
 }
+
+// TestForcedSpentCodexTurnWaitsOutShortSeatThrottle states the invariant: a
+// turn forced onto a Codex model cannot move to the free Claude seat, so it
+// still waits out the short Codex seat cooldown instead of failing.
+func TestForcedSpentCodexTurnWaitsOutShortSeatThrottle(t *testing.T) {
+	t.Parallel()
+	sc := goldenCodexPlanSpentFallbackScenarios()[1]
+	sc.decisions = []router.Decision{decision(providers.ProviderOpenAI, goldenCodexModel)}
+	sc.upstreams = map[string][]goldenStep{
+		providers.ProviderOpenAI: {
+			goldenUpstreamError(http.StatusTooManyRequests, goldenCodexModelUsageLimitBody),
+			goldenResponsesOK("served on codex seat after cooldown"),
+		},
+	}
+	sc.requests[0].headers = goldenCodexSessionHeadersFor("c0d8")
+	sc.requests[0].headers[proxy.ForceModelHeader] = goldenCodexModel
+	h := newGoldenHarness(t, sc)
+	served := h.serve(t, sc.ingress, sc.requests[0])
+	require.Equal(t, http.StatusOK, served.Response.Status, "response: %+v", served.Response.Body)
+	last := served.Attempts[len(served.Attempts)-1]
+	require.Equal(t, providers.ProviderOpenAI, last.Provider)
+	require.Equal(t, "ok", last.Outcome)
+}
