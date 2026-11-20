@@ -20,6 +20,7 @@ const (
 	SwitchReasonUpgradePending     SwitchReason = "upgrade_rewrite_exceeds_value"
 	SwitchReasonSideRequest        SwitchReason = "side_request"
 	SwitchReasonDowngradePending   SwitchReason = "downgrade_rewrite_exceeds_savings"
+	SwitchReasonCompactThenSwitch  SwitchReason = "compact_then_switch"
 )
 
 const (
@@ -43,12 +44,14 @@ type SwitchInput struct {
 	MessageCount          int
 	UserPrompt            bool
 	ModelCaches           sessionpin.ModelCaches
+	CompactedTokens       int
 }
 
 type SwitchVerdict struct {
-	Serve  string
-	Switch bool
-	Reason SwitchReason
+	Serve   string
+	Switch  bool
+	Compact bool
+	Reason  SwitchReason
 }
 
 func DecideSwitch(input SwitchInput) SwitchVerdict {
@@ -92,7 +95,11 @@ func DecideSwitch(input SwitchInput) SwitchVerdict {
 	if downgrade {
 		horizon = switchDowngradeHorizonTurns
 	}
-	pays := horizon*math.Abs(currentWarm-freshWarm) > eviction
+	moveValue := horizon * math.Abs(currentWarm-freshWarm)
+	if compactionPays(input, tokens, output, eviction, moveValue) {
+		return SwitchVerdict{Serve: input.Fresh, Switch: true, Compact: true, Reason: SwitchReasonCompactThenSwitch}
+	}
+	pays := moveValue > eviction
 	switch {
 	case downgrade && pays:
 		return move(SwitchReasonDowngrade)
