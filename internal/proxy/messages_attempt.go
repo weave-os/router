@@ -166,8 +166,8 @@ func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target 
 				ChatOnlyParams: deps.env.RequiresChatCompletionsParams(targetOpts.Capabilities),
 				Broad:          deps.svc.ResolveOpenAIResponsesBroad(actx),
 			}) && !deps.svc.gatewayCaps.LacksResponses(gatewayKey)
-			stripPCK := deps.svc.gatewayCaps.RejectsPromptCacheKey(gatewayKey)
-			finalize, rawErr := dispatchOpenAICompat(actx, d, p, useResponses, stripPCK)
+			stripPromptCacheKey := deps.svc.gatewayCaps.RejectsPromptCacheKey(gatewayKey)
+			finalize, rawErr := dispatchOpenAICompat(actx, d, p, useResponses, stripPromptCacheKey)
 			if rawErr != nil && useResponses && !committed(deps.preludeBuf) &&
 				providers.IsUpstreamResponsesUnsupported(rawErr) {
 				deps.svc.gatewayCaps.RememberLacksResponses(gatewayKey)
@@ -178,9 +178,9 @@ func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target 
 					deps.preludeBuf.Discard()
 				}
 				useResponses = false
-				finalize, rawErr = dispatchOpenAICompat(actx, d, p, false, stripPCK)
+				finalize, rawErr = dispatchOpenAICompat(actx, d, p, false, stripPromptCacheKey)
 			}
-			if rawErr != nil && !stripPCK && gatewayKey != "" && !committed(deps.preludeBuf) &&
+			if rawErr != nil && !stripPromptCacheKey && gatewayKey != "" && !committed(deps.preludeBuf) &&
 				providers.IsUpstreamPromptCacheKeyRejection(rawErr) {
 				deps.svc.gatewayCaps.RememberRejectsPromptCacheKey(gatewayKey)
 				deps.log.Warn("Gateway rejected prompt_cache_key; retrying without the affinity hint",
