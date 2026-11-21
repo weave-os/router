@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -258,7 +259,7 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_HardPinnedSkipped(t *testing.
 		true,
 		&providers.UpstreamStatusError{Status: http.StatusBadGateway},
 		demotedArm,
-		nativeWebSearchPassthroughReason, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
+		candidates.NativeWebSearchPassthroughReason, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: nonZeroSessionKey()},
 
 		sessionpin.DefaultRole, sessionpin.DefaultRole)
 
@@ -672,7 +673,7 @@ func TestMaybeDemoteArmAfterRescuedFailure_PinnedPrimarySkipped(t *testing.T) {
 		hardPinned bool
 		reason     string
 	}{
-		{name: "hard pinned", hardPinned: true, reason: nativeWebSearchPassthroughReason},
+		{name: "hard pinned", hardPinned: true, reason: candidates.NativeWebSearchPassthroughReason},
 		{name: "user forced", reason: translate.ReasonUserForceModel},
 		{name: "user forced with tier clamp", reason: translate.ReasonUserForceModel + "+tier_clamp"},
 	}
