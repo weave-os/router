@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/errgroup"
 
+	"weave-os/router/cmd/logconfig"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/proxy"
@@ -24,6 +25,7 @@ import (
 )
 
 func main() {
+	logconfig.Configure()
 	dsn := os.Getenv("ROUTER_TEST_DATABASE_URL")
 	if dsn == "" {
 		slog.Error("ROUTER_TEST_DATABASE_URL must name a disposable migrated database")
