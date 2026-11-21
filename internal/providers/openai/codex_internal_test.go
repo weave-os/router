@@ -116,7 +116,7 @@ func TestProxy_CodexSubscriptionDispatch(t *testing.T) {
 	c := NewClient("deployment-key", upstream.URL)
 	c.codexBaseURL = upstream.URL // point the Codex backend at the test server
 
-	body := []byte(`{"model":"gpt-5.6-sol","input":"hi","stream":true}`)
+	body := []byte(`{"model":"gpt-5.6-sol","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}],"store":false,"stream":true}`)
 	prep := providers.PreparedRequest{Body: body, Endpoint: providers.EndpointResponses, Headers: make(http.Header)}
 	rec := httptest.NewRecorder()
 	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))
@@ -175,7 +175,7 @@ func TestProxy_CodexSubscriptionStripsUnsupportedParams(t *testing.T) {
 	}
 	assert.True(t, gjson.GetBytes(gotBody, "parallel_tool_calls").Bool(),
 		"supported params must survive")
-	assert.Equal(t, "hi", gjson.GetBytes(gotBody, "input").String(), "the turn itself must be untouched")
+	assert.Equal(t, "hi", gjson.GetBytes(gotBody, "input.0.content.0.text").String(), "the turn text must survive")
 }
 
 func TestProxy_CodexSubscriptionCredentialRejectsInfrastructureModel(t *testing.T) {
@@ -317,7 +317,7 @@ func TestProxy_ResponsesMaxEffortUnchangedWithCodexCred(t *testing.T) {
 	c := NewClient("deployment-key", upstream.URL)
 	c.codexBaseURL = upstream.URL
 
-	body := []byte(`{"model":"gpt-5.6-sol","input":"hi","stream":true,"reasoning":{"effort":"max","summary":"detailed"}}`)
+	body := []byte(`{"model":"gpt-5.6-sol","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}],"store":false,"stream":true,"reasoning":{"effort":"max","summary":"detailed"}}`)
 	prep := providers.PreparedRequest{Body: body, Endpoint: providers.EndpointResponses, Headers: make(http.Header)}
 	rec := httptest.NewRecorder()
 	clientReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(""))

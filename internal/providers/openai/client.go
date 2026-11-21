@@ -55,24 +55,6 @@ func maxEffortToXhigh(body []byte, model string) []byte {
 	return out
 }
 
-var codexUnsupportedParams = []string{
-	"max_output_tokens", "temperature", "top_p", "metadata", "service_tier", "truncation",
-}
-
-func stripCodexUnsupportedParams(body []byte) []byte {
-	for _, key := range codexUnsupportedParams {
-		if !gjson.GetBytes(body, key).Exists() {
-			continue
-		}
-		out, err := sjson.DeleteBytes(body, key)
-		if err != nil {
-			continue
-		}
-		body = out
-	}
-	return body
-}
-
 func codexSubscriptionCreds(ctx context.Context) *requestcontext.Credentials {
 	creds := requestcontext.CredentialsFromContext(ctx)
 	if creds != nil && creds.OAuth && len(creds.AccountID) > 0 {
@@ -231,7 +213,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	if useCodex {
 		baseURL = c.codexBaseURL
 		path = codexResponsesPath
-		reqBody = stripCodexUnsupportedParams(reqBody)
+		reqBody = codexBackendBody(reqBody)
 		if !gjson.GetBytes(reqBody, "stream").Bool() {
 			streamed, err := sjson.SetBytes(reqBody, "stream", true)
 			if err != nil {
