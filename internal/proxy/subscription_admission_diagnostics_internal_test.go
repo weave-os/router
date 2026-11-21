@@ -9,13 +9,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestSubscriptionAdmissionReportsSkipGateAndPreservesRotation(t *testing.T) {
@@ -35,15 +36,15 @@ func TestSubscriptionAdmissionReportsSkipGateAndPreservesRotation(t *testing.T) 
 			return ctx
 		}},
 		{name: "model denial", reason: subscriptionSkipModelDenied, configure: func(s *Service, ctx context.Context, _ *scriptedSubscriptionLeaser) context.Context {
-			s.subscriptionModels.denyManaged("account:skipped", "skipped", providers.ProviderAnthropic, model, now.Add(time.Minute))
+			s.credentials.SubscriptionModels.DenyManaged("account:skipped", "skipped", providers.ProviderAnthropic, model, now.Add(time.Minute))
 			return ctx
 		}},
 		{name: "overload", reason: subscriptionSkipOverloadCooldown, configure: func(s *Service, ctx context.Context, _ *scriptedSubscriptionLeaser) context.Context {
-			s.subscriptionModels.denyManaged(managedOverloadOwner("skipped"), "skipped", providers.ProviderAnthropic, model, now.Add(time.Minute))
+			s.credentials.SubscriptionModels.DenyManaged(managedOverloadOwner("skipped"), "skipped", providers.ProviderAnthropic, model, now.Add(time.Minute))
 			return ctx
 		}},
 		{name: "client restriction", reason: subscriptionSkipClientAppDenied, configure: func(s *Service, ctx context.Context, _ *scriptedSubscriptionLeaser) context.Context {
-			s.subscriptionModels.denyManagedClientApp("skipped", providers.ProviderAnthropic, ClientIdentityFrom(ctx).ClientApp, now.Add(time.Minute))
+			s.credentials.SubscriptionModels.DenyManagedClientApp("skipped", providers.ProviderAnthropic, ClientIdentityFrom(ctx).ClientApp, now.Add(time.Minute))
 			return ctx
 		}},
 		{name: "plan", reason: subscriptionSkipPlanIneligible, configure: func(_ *Service, ctx context.Context, l *scriptedSubscriptionLeaser) context.Context {
@@ -176,7 +177,7 @@ func TestSubscriptionAdmissionReportsCodexModelDenial(t *testing.T) {
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "codex-denied", AccessToken: "private-access-token"}, {AccountID: "codex-winner", AccessToken: "winner-token"}}}
 	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
 	svc.clock = func() time.Time { return now }
-	svc.subscriptionModels.denyManaged("account:codex-denied", "codex-denied", providers.ProviderOpenAI, model, now.Add(time.Minute))
+	svc.credentials.SubscriptionModels.DenyManaged("account:codex-denied", "codex-denied", providers.ProviderOpenAI, model, now.Add(time.Minute))
 	ctx := observability.WithLogger(managedSubscriptionContext(auth.SubscriptionProviderCodex), slog.New(slog.NewJSONHandler(&output, nil)))
 	_, lease, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderOpenAI, model)
 	require.NoError(t, err)

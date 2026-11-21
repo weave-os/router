@@ -145,10 +145,10 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 		if s.managedAccountQuotaExhausted(ctx, candidate, now) || managedAccountCredentialCooling(candidate, now) {
 			continue
 		}
-		if s.subscriptionModels.managedDenied("account:"+candidate.accountID, candidate.accountID, target.Provider, target.CatalogID, now) {
+		if s.credentials.SubscriptionModels.ManagedDenied("account:"+candidate.accountID, candidate.accountID, target.Provider, target.CatalogID, now) {
 			continue
 		}
-		if refusal.counts && pool == subscriptions.ProviderClaude && (refusal.poolRefused || s.subscriptionModels.managedClientAppDenied(candidate.accountID, providers.ProviderAnthropic, refusal.clientApp, now)) {
+		if refusal.counts && pool == subscriptions.ProviderClaude && (refusal.poolRefused || s.credentials.SubscriptionModels.ManagedClientAppDenied(candidate.accountID, providers.ProviderAnthropic, refusal.clientApp, now)) {
 			continue
 		}
 		if managedAccountThrottled(ctx, candidate, now) {

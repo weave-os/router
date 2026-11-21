@@ -7,7 +7,7 @@ import (
 	"weave-os/router/internal/requestcontext"
 )
 
-func (b Brokerage) SummarizerCredentials(ctx context.Context, provider string, headers http.Header) *requestcontext.Credentials {
+func (b *Brokerage) SummarizerCredentials(ctx context.Context, provider string, headers http.Header) *requestcontext.Credentials {
 	if provider == "" {
 		return nil
 	}
@@ -21,6 +21,6 @@ func (b Brokerage) SummarizerCredentials(ctx context.Context, provider string, h
 	return creds
 }
 
-func (b Brokerage) RequestUsesNonDeploymentCreds(ctx context.Context, headers http.Header) bool {
+func (b *Brokerage) RequestUsesNonDeploymentCreds(ctx context.Context, headers http.Header) bool {
 	return b.UsesNonDeploymentCreds(ExternalKeysFromContext(ctx), headers)
 }
