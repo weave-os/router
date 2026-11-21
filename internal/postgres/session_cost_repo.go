@@ -17,8 +17,7 @@ func (r *TelemetryRepo) GetSessionCost(ctx context.Context, installationID, sess
 	if err != nil {
 		return turnrecord.SessionCost{}, err
 	}
-	q := dbbudget.Queries(r.tx)
-	row, err := q.GetSessionCost(ctx, sqlc.GetSessionCostParams{
+	row, err := dbbudget.Queries(r.tx).GetSessionCost(ctx, sqlc.GetSessionCostParams{
 		InstallationID: id,
 		SessionID:      sessionID,
 	})
