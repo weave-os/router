@@ -111,19 +111,15 @@ func (s *Service) ResolveRescuedFailureArmDemotion(ctx context.Context) bool {
 }
 
 func (s *Service) ResolveTransientRateLimit(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyTransientRateLimit, s.transientRateLimit)
+	return s.throttling.RateLimit.Transient(ctx)
 }
 
 func (s *Service) ResolveRateLimitCooldown(ctx context.Context) time.Duration {
-	seconds := flags.IntOr(ctx, flags.KeyRateLimitCooldownSeconds, s.rateLimitCooldownSeconds)
-	if seconds < 1 {
-		seconds = DefaultRateLimitCooldownSeconds
-	}
-	return time.Duration(seconds) * time.Second
+	return s.throttling.RateLimit.Cooldown(ctx)
 }
 
 func (s *Service) ResolveProviderOverloaded(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyProviderOverloaded, s.providerOverloaded)
+	return s.throttling.Overload.Enabled(ctx)
 }
 
 func (s *Service) ResolveNativeAnthropicResponseSignals(ctx context.Context) bool {
