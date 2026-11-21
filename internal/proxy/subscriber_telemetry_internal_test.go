@@ -7,6 +7,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions/entitlement"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,7 +25,7 @@ func TestApplySubscriberTelemetryIncludedUsage(t *testing.T) {
 		ReleaseID:       "release-id",
 		BindingID:       "binding-id",
 	})
-	telemetry := InsertTelemetryParams{
+	telemetry := turnrecord.InsertTelemetryParams{
 		ActualInputCostUSD:  0.0000015,
 		ActualOutputCostUSD: 0.0000025,
 		InputTokens:         1,
@@ -81,7 +82,7 @@ func TestApplySubscriberTelemetryCapacitySources(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			telemetry := InsertTelemetryParams{
+			telemetry := turnrecord.InsertTelemetryParams{
 				ActualInputCostUSD:  0.25,
 				ActualOutputCostUSD: 0.75,
 				CredentialSource:    tt.credentialSource,
@@ -120,12 +121,12 @@ func TestApplySubscriberTelemetryCapacitySources(t *testing.T) {
 func TestApplySubscriberSettlementTelemetry(t *testing.T) {
 	includedContext := entitlement.WithCoverage(context.Background(), entitlement.Coverage{})
 	entitlement.MarkSettlementFailed(includedContext)
-	included := InsertTelemetryParams{CapacitySource: string(entitlement.CapacitySourceIncludedRouter)}
+	included := turnrecord.InsertTelemetryParams{CapacitySource: string(entitlement.CapacitySourceIncludedRouter)}
 	applySubscriberSettlementTelemetry(captureSubscriberSettlementState(includedContext), &included)
 	require.NotNil(t, included.SettlementFailed)
 	assert.True(t, *included.SettlementFailed)
 
-	linked := InsertTelemetryParams{CapacitySource: string(entitlement.CapacitySourceLinkedClaude)}
+	linked := turnrecord.InsertTelemetryParams{CapacitySource: string(entitlement.CapacitySourceLinkedClaude)}
 	applySubscriberSettlementTelemetry(subscriberSettlementState{}, &linked)
 	assert.Nil(t, linked.SettlementFailed)
 }
@@ -135,7 +136,7 @@ func TestApplySubscriberSettlementTelemetryUsesCapturedState(t *testing.T) {
 	state := captureSubscriberSettlementState(ctx)
 	entitlement.MarkSettlementFailed(ctx)
 
-	telemetry := InsertTelemetryParams{
+	telemetry := turnrecord.InsertTelemetryParams{
 		CapacitySource: string(entitlement.CapacitySourceIncludedRouter),
 	}
 	applySubscriberSettlementTelemetry(state, &telemetry)
@@ -149,7 +150,7 @@ func TestApplySubscriberTelemetryLeavesBYOKAndUnknownUsageUnattributed(t *testin
 		EntitlementVersion: 17,
 		Plan:               entitlement.PlanMax,
 	})
-	for _, telemetry := range []InsertTelemetryParams{
+	for _, telemetry := range []turnrecord.InsertTelemetryParams{
 		{
 			CredentialSource:   credSourceBYOK,
 			InputTokens:        1,
@@ -165,7 +166,7 @@ func TestApplySubscriberTelemetryLeavesBYOKAndUnknownUsageUnattributed(t *testin
 }
 
 func TestApplySubscriberTelemetryLeavesUsageEmptyWithoutCapacitySource(t *testing.T) {
-	telemetry := InsertTelemetryParams{
+	telemetry := turnrecord.InsertTelemetryParams{
 		ActualInputCostUSD:  0.25,
 		ActualOutputCostUSD: 0.75,
 		CredentialSource:    credSourceSubscription,
@@ -186,7 +187,7 @@ func TestApplySubscriberTelemetryStampsServingIdentityWithoutSubscription(t *tes
 		ReleaseID: "release-id",
 		BindingID: "binding-id",
 	})
-	var telemetry InsertTelemetryParams
+	var telemetry turnrecord.InsertTelemetryParams
 
 	applySubscriberTelemetry(ctx, &telemetry)
 

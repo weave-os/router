@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -125,9 +126,9 @@ func TestProxyGeminiTelemetryClassifiesOutputCap(t *testing.T) {
 			telem.mu.Lock()
 			defer telem.mu.Unlock()
 			require.NotEmpty(t, telem.rows)
-			want := proxy.TurnErrorClass("")
+			want := turnrecord.TurnErrorClass("")
 			if capped {
-				want = proxy.TurnErrorMaxTokens
+				want = turnrecord.TurnErrorMaxTokens
 			}
 			assert.Equal(t, want, telem.rows[len(telem.rows)-1].ErrorClass)
 		})

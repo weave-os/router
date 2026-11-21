@@ -9,8 +9,8 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/policyregistry"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/sqlc"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -42,7 +42,7 @@ func (*telemetryInsertCapture) QueryRow(context.Context, string, ...interface{})
 func TestServingTargetReachesTelemetryInsertAndAnalyticsExport(t *testing.T) {
 	target := string(policyregistry.TargetInternal)
 	capture := &telemetryInsertCapture{}
-	err := NewTelemetryRepo(capture).InsertRequestTelemetry(context.Background(), proxy.InsertTelemetryParams{
+	err := NewTelemetryRepo(capture).InsertRequestTelemetry(context.Background(), turnrecord.InsertTelemetryParams{
 		InstallationID: uuid.NewString(),
 		ServingTarget:  target,
 	})
@@ -71,7 +71,7 @@ func TestSubscriptionWinnerAttributionSurvivesInsertAndExport(t *testing.T) {
 	intendedFamily, finalFamily := "claude-sonnet", "gpt"
 	credentialSource := "codex_subscription"
 	capture := &telemetryInsertCapture{}
-	err := NewTelemetryRepo(capture).InsertRequestTelemetry(context.Background(), proxy.InsertTelemetryParams{
+	err := NewTelemetryRepo(capture).InsertRequestTelemetry(context.Background(), turnrecord.InsertTelemetryParams{
 		InstallationID:        uuid.NewString(),
 		SubscriptionAccountID: accountID.String(),
 		SubscriptionOwnerID:   ownerID.String(),

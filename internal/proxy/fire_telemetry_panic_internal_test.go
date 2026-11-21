@@ -11,58 +11,59 @@ import (
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// panicTelemetryRepo is a TelemetryRepository whose InsertRequestTelemetry
+// panicTelemetryRepo is a turnrecord.TelemetryRepository whose InsertRequestTelemetry
 // always panics, simulating a bug in the telemetry sink.
 type panicTelemetryRepo struct{}
 
-func (panicTelemetryRepo) InsertRequestTelemetry(ctx context.Context, p InsertTelemetryParams) error {
+func (panicTelemetryRepo) InsertRequestTelemetry(ctx context.Context, p turnrecord.InsertTelemetryParams) error {
 	panic("boom: telemetry insert")
 }
 
-func (panicTelemetryRepo) GetTelemetrySummary(ctx context.Context, installationID string, from, to time.Time) (TelemetrySummary, error) {
-	return TelemetrySummary{}, nil
+func (panicTelemetryRepo) GetTelemetrySummary(ctx context.Context, installationID string, from, to time.Time) (turnrecord.TelemetrySummary, error) {
+	return turnrecord.TelemetrySummary{}, nil
 }
 
-func (panicTelemetryRepo) GetTelemetryTimeseries(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryBucket, error) {
+func (panicTelemetryRepo) GetTelemetryTimeseries(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]turnrecord.TelemetryBucket, error) {
 	return nil, nil
 }
 
-func (panicTelemetryRepo) GetTelemetrySummaryAll(ctx context.Context, from, to time.Time) (TelemetrySummary, error) {
-	return TelemetrySummary{}, nil
+func (panicTelemetryRepo) GetTelemetrySummaryAll(ctx context.Context, from, to time.Time) (turnrecord.TelemetrySummary, error) {
+	return turnrecord.TelemetrySummary{}, nil
 }
 
-func (panicTelemetryRepo) GetTelemetryTimeseriesAll(ctx context.Context, from, to time.Time, granularity string) ([]TelemetryBucket, error) {
+func (panicTelemetryRepo) GetTelemetryTimeseriesAll(ctx context.Context, from, to time.Time, granularity string) ([]turnrecord.TelemetryBucket, error) {
 	return nil, nil
 }
 
-func (panicTelemetryRepo) GetTelemetryRows(ctx context.Context, installationID string, from, to time.Time, limit int32) ([]TelemetryRow, error) {
+func (panicTelemetryRepo) GetTelemetryRows(ctx context.Context, installationID string, from, to time.Time, limit int32) ([]turnrecord.TelemetryRow, error) {
 	return nil, nil
 }
 
-func (panicTelemetryRepo) GetTelemetryRowsAll(ctx context.Context, from, to time.Time, limit int32) ([]TelemetryRow, error) {
+func (panicTelemetryRepo) GetTelemetryRowsAll(ctx context.Context, from, to time.Time, limit int32) ([]turnrecord.TelemetryRow, error) {
 	return nil, nil
 }
 
-func (panicTelemetryRepo) GetTelemetryModelBreakdown(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryModelBucket, error) {
+func (panicTelemetryRepo) GetTelemetryModelBreakdown(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]turnrecord.TelemetryModelBucket, error) {
 	return nil, nil
 }
 
-func (panicTelemetryRepo) GetTelemetryModelBreakdownAll(ctx context.Context, from, to time.Time, granularity string) ([]TelemetryModelBucket, error) {
+func (panicTelemetryRepo) GetTelemetryModelBreakdownAll(ctx context.Context, from, to time.Time, granularity string) ([]turnrecord.TelemetryModelBucket, error) {
 	return nil, nil
 }
 
-func (panicTelemetryRepo) GetSessionCost(ctx context.Context, installationID, sessionID string) (SessionCost, error) {
-	return SessionCost{}, ErrSessionCostNotFound
+func (panicTelemetryRepo) GetSessionCost(ctx context.Context, installationID, sessionID string) (turnrecord.SessionCost, error) {
+	return turnrecord.SessionCost{}, turnrecord.ErrSessionCostNotFound
 }
 
-func (panicTelemetryRepo) GetTelemetryBySessionSequence(ctx context.Context, installationID uuid.UUID, sessionKey []byte, role string, seq int) (TelemetryTurnResult, error) {
-	return TelemetryTurnResult{}, nil
+func (panicTelemetryRepo) GetTelemetryBySessionSequence(ctx context.Context, installationID uuid.UUID, sessionKey []byte, role string, seq int) (turnrecord.TelemetryTurnResult, error) {
+	return turnrecord.TelemetryTurnResult{}, nil
 }
 
 type panicLogBuffer struct {
@@ -97,7 +98,7 @@ func TestFireTelemetryRecoversFromPanic(t *testing.T) {
 	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), telemetry: panicTelemetryRepo{}}
 
 	assert.NotPanics(t, func() {
-		s.fireTelemetry(t.Context(), InsertTelemetryParams{RequestID: "req-1"})
+		s.fireTelemetry(t.Context(), turnrecord.InsertTelemetryParams{RequestID: "req-1"})
 	})
 
 	require.Eventually(t, func() bool {
@@ -108,26 +109,26 @@ func TestFireTelemetryRecoversFromPanic(t *testing.T) {
 	assert.Contains(t, buf.String(), "fireTelemetry")
 }
 
-func (panicTelemetryRepo) GetTelemetryDashboardFacts(context.Context, string, time.Time, time.Time, string) ([]TelemetryDashboardFact, error) {
+func (panicTelemetryRepo) GetTelemetryDashboardFacts(context.Context, string, time.Time, time.Time, string) ([]turnrecord.TelemetryDashboardFact, error) {
 	return nil, nil
 }
 
-func (panicTelemetryRepo) GetTelemetryDashboardActiveUsers(context.Context, string, time.Time, time.Time, string) ([]TelemetryActiveUsers, error) {
+func (panicTelemetryRepo) GetTelemetryDashboardActiveUsers(context.Context, string, time.Time, time.Time, string) ([]turnrecord.TelemetryActiveUsers, error) {
 	return nil, nil
 }
 
-func (panicTelemetryRepo) GetTelemetryDashboardPeople(context.Context, string) ([]TelemetryPerson, error) {
+func (panicTelemetryRepo) GetTelemetryDashboardPeople(context.Context, string) ([]turnrecord.TelemetryPerson, error) {
 	return nil, nil
 }
 
-func (panicTelemetryRepo) GetTelemetrySubscriptionPoolSeats(context.Context, string, time.Time, time.Time) ([]TelemetrySubscriptionSeat, error) {
+func (panicTelemetryRepo) GetTelemetrySubscriptionPoolSeats(context.Context, string, time.Time, time.Time) ([]turnrecord.TelemetrySubscriptionSeat, error) {
 	return nil, nil
 }
 
-func (panicTelemetryRepo) GetTelemetryDashboardDrillDown(context.Context, string, time.Time, time.Time) ([]TelemetryDrillDownRow, error) {
+func (panicTelemetryRepo) GetTelemetryDashboardDrillDown(context.Context, string, time.Time, time.Time) ([]turnrecord.TelemetryDrillDownRow, error) {
 	return nil, nil
 }
 
-func (panicTelemetryRepo) GetTelemetryDashboardIndividualFacts(context.Context, string, time.Time, time.Time, string) ([]TelemetryIndividualFact, error) {
+func (panicTelemetryRepo) GetTelemetryDashboardIndividualFacts(context.Context, string, time.Time, time.Time, string) ([]turnrecord.TelemetryIndividualFact, error) {
 	return nil, nil
 }

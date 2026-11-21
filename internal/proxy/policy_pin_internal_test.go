@@ -19,6 +19,7 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 )
 
@@ -49,7 +50,7 @@ func TestApplyPolicyPinTelemetry(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			params := InsertTelemetryParams{}
+			params := turnrecord.InsertTelemetryParams{}
 			applyPolicyPinTelemetry(tc.ctx, &params, tc.metadata)
 			assert.Equal(t, tc.wantRequested, params.PolicyPinRequested)
 			assert.Equal(t, tc.wantHonoured, params.PolicyPinHonoured)

@@ -20,6 +20,7 @@ import (
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -1104,62 +1105,62 @@ func TestTurnLoop_UnconfirmedHighOutputKeepsPin(t *testing.T) {
 // don't assert on telemetry rows here.
 type recordingTelemetry struct{}
 
-func (recordingTelemetry) InsertRequestTelemetry(ctx context.Context, p proxy.InsertTelemetryParams) error {
+func (recordingTelemetry) InsertRequestTelemetry(ctx context.Context, p turnrecord.InsertTelemetryParams) error {
 	return nil
 }
-func (recordingTelemetry) GetTelemetrySummary(ctx context.Context, installationID string, from, to time.Time) (proxy.TelemetrySummary, error) {
-	return proxy.TelemetrySummary{}, nil
+func (recordingTelemetry) GetTelemetrySummary(ctx context.Context, installationID string, from, to time.Time) (turnrecord.TelemetrySummary, error) {
+	return turnrecord.TelemetrySummary{}, nil
 }
-func (recordingTelemetry) GetTelemetryTimeseries(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]proxy.TelemetryBucket, error) {
+func (recordingTelemetry) GetTelemetryTimeseries(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]turnrecord.TelemetryBucket, error) {
 	return nil, nil
 }
-func (recordingTelemetry) GetTelemetrySummaryAll(ctx context.Context, from, to time.Time) (proxy.TelemetrySummary, error) {
-	return proxy.TelemetrySummary{}, nil
+func (recordingTelemetry) GetTelemetrySummaryAll(ctx context.Context, from, to time.Time) (turnrecord.TelemetrySummary, error) {
+	return turnrecord.TelemetrySummary{}, nil
 }
-func (recordingTelemetry) GetTelemetryTimeseriesAll(ctx context.Context, from, to time.Time, granularity string) ([]proxy.TelemetryBucket, error) {
+func (recordingTelemetry) GetTelemetryTimeseriesAll(ctx context.Context, from, to time.Time, granularity string) ([]turnrecord.TelemetryBucket, error) {
 	return nil, nil
 }
-func (recordingTelemetry) GetTelemetryRows(ctx context.Context, installationID string, from, to time.Time, limit int32) ([]proxy.TelemetryRow, error) {
+func (recordingTelemetry) GetTelemetryRows(ctx context.Context, installationID string, from, to time.Time, limit int32) ([]turnrecord.TelemetryRow, error) {
 	return nil, nil
 }
-func (recordingTelemetry) GetTelemetryRowsAll(ctx context.Context, from, to time.Time, limit int32) ([]proxy.TelemetryRow, error) {
+func (recordingTelemetry) GetTelemetryRowsAll(ctx context.Context, from, to time.Time, limit int32) ([]turnrecord.TelemetryRow, error) {
 	return nil, nil
 }
-func (recordingTelemetry) GetTelemetryModelBreakdown(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]proxy.TelemetryModelBucket, error) {
+func (recordingTelemetry) GetTelemetryModelBreakdown(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]turnrecord.TelemetryModelBucket, error) {
 	return nil, nil
 }
-func (recordingTelemetry) GetTelemetryModelBreakdownAll(ctx context.Context, from, to time.Time, granularity string) ([]proxy.TelemetryModelBucket, error) {
-	return nil, nil
-}
-
-func (recordingTelemetry) GetSessionCost(ctx context.Context, installationID, sessionID string) (proxy.SessionCost, error) {
-	return proxy.SessionCost{}, proxy.ErrSessionCostNotFound
-}
-
-func (recordingTelemetry) GetTelemetryBySessionSequence(ctx context.Context, installationID uuid.UUID, sessionKey []byte, role string, seq int) (proxy.TelemetryTurnResult, error) {
-	return proxy.TelemetryTurnResult{}, nil
-}
-
-func (recordingTelemetry) GetTelemetryDashboardFacts(context.Context, string, time.Time, time.Time, string) ([]proxy.TelemetryDashboardFact, error) {
+func (recordingTelemetry) GetTelemetryModelBreakdownAll(ctx context.Context, from, to time.Time, granularity string) ([]turnrecord.TelemetryModelBucket, error) {
 	return nil, nil
 }
 
-func (recordingTelemetry) GetTelemetryDashboardActiveUsers(context.Context, string, time.Time, time.Time, string) ([]proxy.TelemetryActiveUsers, error) {
+func (recordingTelemetry) GetSessionCost(ctx context.Context, installationID, sessionID string) (turnrecord.SessionCost, error) {
+	return turnrecord.SessionCost{}, turnrecord.ErrSessionCostNotFound
+}
+
+func (recordingTelemetry) GetTelemetryBySessionSequence(ctx context.Context, installationID uuid.UUID, sessionKey []byte, role string, seq int) (turnrecord.TelemetryTurnResult, error) {
+	return turnrecord.TelemetryTurnResult{}, nil
+}
+
+func (recordingTelemetry) GetTelemetryDashboardFacts(context.Context, string, time.Time, time.Time, string) ([]turnrecord.TelemetryDashboardFact, error) {
 	return nil, nil
 }
 
-func (recordingTelemetry) GetTelemetryDashboardPeople(context.Context, string) ([]proxy.TelemetryPerson, error) {
+func (recordingTelemetry) GetTelemetryDashboardActiveUsers(context.Context, string, time.Time, time.Time, string) ([]turnrecord.TelemetryActiveUsers, error) {
 	return nil, nil
 }
 
-func (recordingTelemetry) GetTelemetrySubscriptionPoolSeats(context.Context, string, time.Time, time.Time) ([]proxy.TelemetrySubscriptionSeat, error) {
+func (recordingTelemetry) GetTelemetryDashboardPeople(context.Context, string) ([]turnrecord.TelemetryPerson, error) {
 	return nil, nil
 }
 
-func (recordingTelemetry) GetTelemetryDashboardDrillDown(context.Context, string, time.Time, time.Time) ([]proxy.TelemetryDrillDownRow, error) {
+func (recordingTelemetry) GetTelemetrySubscriptionPoolSeats(context.Context, string, time.Time, time.Time) ([]turnrecord.TelemetrySubscriptionSeat, error) {
 	return nil, nil
 }
 
-func (recordingTelemetry) GetTelemetryDashboardIndividualFacts(context.Context, string, time.Time, time.Time, string) ([]proxy.TelemetryIndividualFact, error) {
+func (recordingTelemetry) GetTelemetryDashboardDrillDown(context.Context, string, time.Time, time.Time) ([]turnrecord.TelemetryDrillDownRow, error) {
+	return nil, nil
+}
+
+func (recordingTelemetry) GetTelemetryDashboardIndividualFacts(context.Context, string, time.Time, time.Time, string) ([]turnrecord.TelemetryIndividualFact, error) {
 	return nil, nil
 }

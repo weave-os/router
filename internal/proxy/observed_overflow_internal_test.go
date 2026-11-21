@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/telemetry/turnrecord"
 )
 
 func observedOverflowRequest() router.Request {
@@ -69,7 +70,7 @@ func TestExcludeObservedOverflowModelsReadmitsACompactedThread(t *testing.T) {
 func TestRescueDetailLineNamesContextOverflow(t *testing.T) {
 	attempt := dispatch.TracedAttempt{
 		Target:    inference.Target{Provider: providers.ProviderAnthropicGateway, CatalogID: gatewayCompactionOpusModel},
-		Diagnosis: inference.AttemptDiagnosis{FailureOwner: string(FailureOwnerClient)},
+		Diagnosis: inference.AttemptDiagnosis{FailureOwner: string(turnrecord.FailureOwnerClient)},
 		Err: &providers.UpstreamErrorResponse{
 			Status: http.StatusBadRequest,
 			Body:   []byte(`{"message":"prompt is too long: 1400000 tokens > 1000000 maximum"}`),

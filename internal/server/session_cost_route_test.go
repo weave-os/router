@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/server"
 	"weave-os/router/internal/server/middleware"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -86,15 +87,15 @@ func (r readSubjectRepo) GetCredentialSubject(_ context.Context, subjectID, _ st
 }
 
 type costTelemetry struct {
-	proxy.TelemetryRepository
+	turnrecord.TelemetryRepository
 	installationID string
 	sessionID      string
 }
 
-func (c *costTelemetry) GetSessionCost(_ context.Context, installationID, sessionID string) (proxy.SessionCost, error) {
+func (c *costTelemetry) GetSessionCost(_ context.Context, installationID, sessionID string) (turnrecord.SessionCost, error) {
 	c.installationID = installationID
 	c.sessionID = sessionID
-	return proxy.SessionCost{SessionID: sessionID, RequestCount: 1, LastRecordedAt: time.Now()}, nil
+	return turnrecord.SessionCost{SessionID: sessionID, RequestCount: 1, LastRecordedAt: time.Now()}, nil
 }
 
 // A managed worker verifies gateway assertions on inference routes; the cost

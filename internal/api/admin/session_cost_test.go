@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -26,19 +27,19 @@ import (
 // for, so the handler's installation scoping is observable.
 type sessionCostRepo struct {
 	stubTelemetryRepo
-	cost               proxy.SessionCost
+	cost               turnrecord.SessionCost
 	err                error
 	seenInstallationID string
 	seenSessionID      string
 }
 
-func (r *sessionCostRepo) GetSessionCost(_ context.Context, installationID, sessionID string) (proxy.SessionCost, error) {
+func (r *sessionCostRepo) GetSessionCost(_ context.Context, installationID, sessionID string) (turnrecord.SessionCost, error) {
 	r.seenInstallationID = installationID
 	r.seenSessionID = sessionID
 	return r.cost, r.err
 }
 
-func sessionCostEngine(t *testing.T, repo proxy.TelemetryRepository, installation *auth.Installation) *gin.Engine {
+func sessionCostEngine(t *testing.T, repo turnrecord.TelemetryRepository, installation *auth.Installation) *gin.Engine {
 	t.Helper()
 	svc := proxy.WithStrategyPorts(proxy.NewService(nil, dispatch.NewClients(nil), nil, nil, false, "", "", repo), hmm.ServingPorts())
 	engine := gin.New()
@@ -83,7 +84,7 @@ func TestSessionCostHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	t.Run("reports the public cost fields plus savings", func(t *testing.T) {
-		repo := &sessionCostRepo{cost: proxy.SessionCost{
+		repo := &sessionCostRepo{cost: turnrecord.SessionCost{
 			SessionID:              "session-1",
 			RequestCount:           3,
 			ActualCostUSDMicros:    250_000,
@@ -121,7 +122,7 @@ func TestSessionCostHandler(t *testing.T) {
 	})
 
 	t.Run("blind experiment sessions read as not found", func(t *testing.T) {
-		repo := &sessionCostRepo{cost: proxy.SessionCost{
+		repo := &sessionCostRepo{cost: turnrecord.SessionCost{
 			SessionID:              "session-1",
 			RequestCount:           2,
 			ActualCostUSDMicros:    100_000,
@@ -139,7 +140,7 @@ func TestSessionCostHandler(t *testing.T) {
 
 	t.Run("scopes the lookup to the calling installation", func(t *testing.T) {
 		installationID := uuid.NewString()
-		repo := &sessionCostRepo{cost: proxy.SessionCost{SessionID: "session-1"}}
+		repo := &sessionCostRepo{cost: turnrecord.SessionCost{SessionID: "session-1"}}
 		engine := sessionCostEngine(t, repo, &auth.Installation{ID: installationID})
 
 		engine.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/sessions/session-1/cost", nil))
@@ -148,7 +149,7 @@ func TestSessionCostHandler(t *testing.T) {
 	})
 
 	t.Run("reports a negative total when the router spent more", func(t *testing.T) {
-		repo := &sessionCostRepo{cost: proxy.SessionCost{
+		repo := &sessionCostRepo{cost: turnrecord.SessionCost{
 			SessionID:              "session-1",
 			ActualCostUSDMicros:    900_000,
 			RequestedCostUSDMicros: 400_000,
@@ -165,7 +166,7 @@ func TestSessionCostHandler(t *testing.T) {
 	})
 
 	t.Run("404s an unknown or foreign session", func(t *testing.T) {
-		repo := &sessionCostRepo{err: proxy.ErrSessionCostNotFound}
+		repo := &sessionCostRepo{err: turnrecord.ErrSessionCostNotFound}
 		engine := sessionCostEngine(t, repo, &auth.Installation{ID: uuid.NewString()})
 
 		rec := httptest.NewRecorder()
@@ -176,7 +177,7 @@ func TestSessionCostHandler(t *testing.T) {
 	})
 
 	t.Run("400s a session id over the identifier limit", func(t *testing.T) {
-		repo := &sessionCostRepo{cost: proxy.SessionCost{SessionID: "session-1"}}
+		repo := &sessionCostRepo{cost: turnrecord.SessionCost{SessionID: "session-1"}}
 		engine := sessionCostEngine(t, repo, &auth.Installation{ID: uuid.NewString()})
 
 		rec := httptest.NewRecorder()
@@ -189,7 +190,7 @@ func TestSessionCostHandler(t *testing.T) {
 	})
 
 	t.Run("accepts a session id at the identifier limit", func(t *testing.T) {
-		repo := &sessionCostRepo{cost: proxy.SessionCost{SessionID: "session-1"}}
+		repo := &sessionCostRepo{cost: turnrecord.SessionCost{SessionID: "session-1"}}
 		engine := sessionCostEngine(t, repo, &auth.Installation{ID: uuid.NewString()})
 		sessionID := strings.Repeat("s", requestcontext.MaxClientIdentifierLen)
 
@@ -223,7 +224,7 @@ func TestSessionCostHandler(t *testing.T) {
 	})
 
 	t.Run("401s without an authenticated installation", func(t *testing.T) {
-		repo := &sessionCostRepo{cost: proxy.SessionCost{SessionID: "session-1"}}
+		repo := &sessionCostRepo{cost: turnrecord.SessionCost{SessionID: "session-1"}}
 		engine := sessionCostEngine(t, repo, nil)
 
 		rec := httptest.NewRecorder()
@@ -238,8 +239,8 @@ func TestSessionCostContextExpiry(t *testing.T) {
 	for _, age := range []time.Duration{time.Minute, 6 * time.Minute} {
 		t.Run(age.String(), func(t *testing.T) {
 			now := time.Now().Add(-age)
-			repo := &sessionCostRepo{cost: proxy.SessionCost{SessionID: "session-context", ContextSnapshot: &proxy.ContextSnapshot{
-				Version: 1, EstimateKind: proxy.ContextEstimateApproximate, EstimateTokens: 72000, ContextWindow: 128000, OutputReserveTokens: 8000,
+			repo := &sessionCostRepo{cost: turnrecord.SessionCost{SessionID: "session-context", ContextSnapshot: &turnrecord.ContextSnapshot{
+				Version: 1, EstimateKind: turnrecord.ContextEstimateApproximate, EstimateTokens: 72000, ContextWindow: 128000, OutputReserveTokens: 8000,
 				ServedModel: "gpt-5.6-sol", RequestID: "test-request", RequestedAt: now.Add(-time.Second), RecordedAt: now,
 			}}}
 			engine := sessionCostEngine(t, repo, &auth.Installation{ID: uuid.NewString()})
@@ -249,7 +250,7 @@ func TestSessionCostContextExpiry(t *testing.T) {
 			require.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
 			var body map[string]json.RawMessage
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-			if age < proxy.ContextSnapshotTTL {
+			if age < turnrecord.ContextSnapshotTTL {
 				require.Contains(t, body, "context_snapshot")
 			} else {
 				require.NotContains(t, body, "context_snapshot")

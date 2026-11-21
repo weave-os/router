@@ -4,13 +4,14 @@ import (
 	"testing"
 
 	"weave-os/router/internal/router/planner"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestApplyPlannerTelemetry_SkippedWhenPlannerDidNotRun(t *testing.T) {
-	p := InsertTelemetryParams{RequestID: "r"}
+	p := turnrecord.InsertTelemetryParams{RequestID: "r"}
 	applyPlannerTelemetry(&p, turnLoopResult{})
 	assert.Empty(t, p.PlannerOutcome)
 	assert.Empty(t, p.PlannerReason)
@@ -20,7 +21,7 @@ func TestApplyPlannerTelemetry_SkippedWhenPlannerDidNotRun(t *testing.T) {
 }
 
 func TestApplyPlannerTelemetry_StayPopulatesPinAndEV(t *testing.T) {
-	p := InsertTelemetryParams{}
+	p := turnrecord.InsertTelemetryParams{}
 	applyPlannerTelemetry(&p, turnLoopResult{
 		PinModel:    "claude-sonnet-5",
 		PinProvider: "anthropic",
@@ -47,7 +48,7 @@ func TestApplyPlannerTelemetry_StayPopulatesPinAndEV(t *testing.T) {
 }
 
 func TestApplyPlannerTelemetry_SwitchRecordsAbandonedPin(t *testing.T) {
-	p := InsertTelemetryParams{}
+	p := turnrecord.InsertTelemetryParams{}
 	applyPlannerTelemetry(&p, turnLoopResult{
 		PinModel:    "claude-opus-5",
 		PinProvider: "anthropic",
