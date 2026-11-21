@@ -171,18 +171,18 @@ func finishedManagedTurnOnAnotherCredential() (ctx context.Context, requested, w
 	return ctx, requested, winning
 }
 
-type anyPurposePlan struct{ inference.ResolvedPlan }
+type blankPurposePlan struct{ inference.ResolvedPlan }
 
-func (anyPurposePlan) Purpose() inference.Purpose { return inference.Purpose("") }
+func (blankPurposePlan) Purpose() inference.Purpose { return inference.Purpose("") }
 
 func TestLeasedProviderAttemptMarksTheModelServedForTheWinningCredential(t *testing.T) {
 	now := time.Now()
 	svc := &Service{clock: func() time.Time { return now }}
 	ctx, requested, winning := finishedManagedTurnOnAnotherCredential()
-	served := func(context.Context, router.Decision, dispatch.Upstream) error { return nil }
+	succeedingAttempt := func(context.Context, router.Decision, dispatch.Upstream) error { return nil }
 
-	_, err := invokeLeasedProviderAttempt(svc, ctx, anyPurposePlan{}, leasedProviderAttempt{
-		inputs:   dispatch.FailoverInputs{Attempt: served},
+	_, err := invokeLeasedProviderAttempt(svc, ctx, blankPurposePlan{}, leasedProviderAttempt{
+		inputs:   dispatch.FailoverInputs{Attempt: succeedingAttempt},
 		decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-5-5"},
 	})
 
