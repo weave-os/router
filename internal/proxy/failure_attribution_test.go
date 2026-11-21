@@ -42,7 +42,7 @@ func TestDispatchPlanned_TranslatedRejectionIsRouterOwned(t *testing.T) {
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderGoogle}, {Provider: providers.ProviderOpenRouter}}, translated)
-	in.deferFlushOnExhaustion = true
+	in.DeferFlushOnExhaustion = true
 	_, err := s.dispatchWithFallback(ctx, in)
 	require.Error(t, err)
 
@@ -71,7 +71,7 @@ func TestDispatchPlanned_TranslatedRejectionOfAnUnchangedClientFieldIsClientOwne
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderGoogle}, {Provider: providers.ProviderOpenRouter}}, translated)
-	in.deferFlushOnExhaustion = true
+	in.DeferFlushOnExhaustion = true
 	_, err := s.dispatchWithFallback(ctx, in)
 	require.Error(t, err)
 
@@ -91,7 +91,7 @@ func TestDispatchPlanned_UntranslatedRejectionIsProviderOwned(t *testing.T) {
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}, {Provider: providers.ProviderOpenRouter}}, body)
-	in.deferFlushOnExhaustion = true
+	in.DeferFlushOnExhaustion = true
 	_, err := s.dispatchWithFallback(ctx, in)
 	require.Error(t, err)
 
@@ -155,7 +155,7 @@ func TestDispatchPlanned_ExhaustionNamesOwnerInTerminalMessage(t *testing.T) {
 			rec := httptest.NewRecorder()
 			buf := newPreludeBuffer(rec)
 			in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}}, body)
-			in.deferFlushOnExhaustion = true
+			in.DeferFlushOnExhaustion = true
 			_, err := s.dispatchWithFallback(ctx, in)
 			require.Error(t, err)
 
@@ -290,7 +290,7 @@ func TestDispatchPlanned_CredentialRefusalIsNotBlamedOnTranslation(t *testing.T)
 	ctx := withAttemptTrace(context.Background(), inbound, http.Header{})
 	rec := httptest.NewRecorder()
 	plannedIn := plannedInputs(t.Context(), rec, newPreludeBuffer(rec), []catalog.ProviderBinding{{Provider: providers.ProviderGoogle}, {Provider: providers.ProviderOpenRouter}}, translated)
-	plannedIn.deferFlushOnExhaustion = true
+	plannedIn.DeferFlushOnExhaustion = true
 	_, err := s.dispatchWithFallback(ctx, plannedIn)
 	require.Error(t, err)
 
