@@ -18,6 +18,7 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/telemetry/turnrecord"
 )
 
@@ -488,7 +489,7 @@ func (g *goldenTelemetry) InsertRequestTelemetry(_ context.Context, p turnrecord
 	return nil
 }
 
-func (g *goldenTelemetry) InsertInferenceAttempt(_ context.Context, p proxy.InsertInferenceAttemptParams) error {
+func (g *goldenTelemetry) InsertInferenceAttempt(_ context.Context, p telemetry.InsertInferenceAttemptParams) error {
 	g.rec.mu.Lock()
 	defer g.rec.mu.Unlock()
 	g.rec.inferenceAttempts = append(g.rec.inferenceAttempts, goldenValue(p.Event))

@@ -703,7 +703,7 @@ func (s *Service) runTurnLoop(
 
 	sessionKey := threadSessionKey
 
-	res.PrefixTrimmed = s.compaction.CheckAndRecord(
+	res.PrefixTrimmed = s.lifecycle.Compaction().CheckAndRecord(
 		sessionKey, installationID, res.PinRole,
 		feats.MessageCount, len(env.AssistantToolCallSignatures()),
 	)
@@ -843,7 +843,7 @@ func (s *Service) runTurnLoop(
 		commandContinuationFound = false
 	}
 	if commandContinuationFound && candidates.AutomaticPinEligible(commandContinuation, req) {
-		decision := pinDecision(commandContinuation)
+		decision := commandContinuation.Decision()
 		res.Decision = decision
 		res.StickyHit = true
 		res.PinTier = "post_command_continuation"
@@ -894,21 +894,21 @@ func (s *Service) runTurnLoop(
 			s.strategyPorts.Ownership.Owns(strategy) &&
 			!hasTextUserBoundary(req.ConversationMessages) {
 			if _, honoured := router.HonouredPolicyPin(ctx); !honoured {
-				decision := pinDecision(pin)
+				decision := pin.Decision()
 				decision.Reason = unscorableHMMStickyReason
 				res.Decision = decision
 				res.StickyHit = true
 				res.PinTier = unscorableHMMStickyReason
 				log.Info("HMM turn has no user text; preserving eligible session pin",
 					"pin_model", pin.Model, "pin_provider", pin.Provider)
-				sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, pinDecision(pin))
+				sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, pin.Decision())
 				return res, nil
 			}
 		}
 		turn := continuity.Turn{IsToolResult: res.TurnType == turntype.ToolResult, Escalated: req.Escalation != nil, AuthoritativePerTurn: res.AuthoritativePerTurn}
 		continuityCfg := continuity.Config{PlannerEnabled: s.ResolvePlannerEnabled(ctx), ScoreToolResultTurns: s.ResolveScoreToolResultTurns(ctx), HoldToolResult: holdToolResult, Planner: s.continuityConfig.Planner}
 		if continuity.ToolResultSticky(req.Session, turn, continuityCfg) {
-			decision := pinDecision(pin)
+			decision := pin.Decision()
 			res.Decision = decision
 			res.StickyHit = true
 			res.PinTier = "postgres_tool_result_sc"
@@ -917,7 +917,7 @@ func (s *Service) runTurnLoop(
 		}
 
 		if continuity.CanReusePin(req.Session, turn, continuityCfg) {
-			decision := pinDecision(pin)
+			decision := pin.Decision()
 			res.Decision = decision
 			res.StickyHit = true
 			res.PinTier = "postgres"
@@ -1023,7 +1023,7 @@ func (s *Service) runTurnLoop(
 			case continuity.ReanchorSkipTextOnly:
 				log.Info("Expired session pin is text-only for image-bearing turn; skipping re-anchor", "pin_model", pin.Model, "pin_provider", pin.Provider)
 			case continuity.ReanchorServe:
-				priorDecision := pinDecision(pin)
+				priorDecision := pin.Decision()
 				res.Decision = priorDecision
 				res.StickyHit = true
 				res.PinTier = "postgres_reanchor"
@@ -1052,7 +1052,7 @@ func (s *Service) runTurnLoop(
 
 		outcome := continuity.Settle(decision, pinFound, prefixBroken)
 		if outcome.Stay {
-			anchor := pinDecision(pin)
+			anchor := pin.Decision()
 			served := s.bandSwapServed(ctx, res.TurnType, pin, fresh, req.HasImages, req.ImageCount, req.EnabledProviders, req.Candidates.ExcludedModels)
 			res.Decision = served
 			res.StickyHit = true
@@ -1177,7 +1177,7 @@ func (s *Service) authorityCacheShadowFor(
 	stayPin, stayPinOK := hmmStayPin(s, req, activePin, hmmHistory)
 	if stayPinOK && stayPin.Model == stayModel {
 		stayProvider = stayPin.Provider
-		stayIdentity = pinDecision(stayPin).ServedIdentity()
+		stayIdentity = stayPin.Decision().ServedIdentity()
 	}
 	freshRosterArmID := ""
 	if fresh.Metadata != nil {

@@ -10,19 +10,11 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/gitcontext"
+	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/telemetry/turnrecord"
 )
 
 type InstallationIDContextKey struct{}
-
-type InferenceAttemptStore interface {
-	InsertInferenceAttempt(ctx context.Context, p InsertInferenceAttemptParams) error
-}
-
-type InsertInferenceAttemptParams struct {
-	InstallationID string
-	Event          inference.AttemptEvent
-}
 
 func applyClientGitContextTelemetry(ctx context.Context, params *turnrecord.InsertTelemetryParams, firstTurn bool, systemBlocks []string) {
 	if params == nil || !firstTurn || !trialCaptureEnabledFromContext(ctx) {
@@ -182,7 +174,7 @@ func int32Ptr(v int32) *int32 {
 }
 
 type attemptSink struct {
-	store  InferenceAttemptStore
+	store  telemetry.InferenceAttemptStore
 	logger *slog.Logger
 }
 
@@ -194,7 +186,7 @@ func (s attemptSink) RecordAttempt(ctx context.Context, event inference.AttemptE
 	if installationID == "" {
 		return
 	}
-	if err := s.store.InsertInferenceAttempt(context.WithoutCancel(ctx), InsertInferenceAttemptParams{
+	if err := s.store.InsertInferenceAttempt(context.WithoutCancel(ctx), telemetry.InsertInferenceAttemptParams{
 		InstallationID: installationID,
 		Event:          event,
 	}); err != nil && s.logger != nil {
@@ -205,7 +197,7 @@ func (s attemptSink) RecordAttempt(ctx context.Context, event inference.AttemptE
 	}
 }
 
-func NewAttemptSink(store InferenceAttemptStore, logger *slog.Logger) dispatch.AttemptSink {
+func NewAttemptSink(store telemetry.InferenceAttemptStore, logger *slog.Logger) dispatch.AttemptSink {
 	return attemptSink{store: store, logger: logger}
 }
 

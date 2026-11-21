@@ -13,7 +13,6 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
@@ -87,35 +86,6 @@ func (s *Service) usageBypassEngaged(ctx context.Context, headers http.Header, r
 func subscriptionCoveredTarget(ctx context.Context, headers http.Header, req router.Request) (provider, token string, covered bool) {
 	codexToken, anthropicToken := presentSubscriptionTokens(ctx, headers)
 	return overrides.SubscriptionCoveredTarget(req, codexToken, anthropicToken)
-}
-
-func (s *Service) claudeSubscriptionExhausted(ctx context.Context, headers http.Header) bool {
-	return ownClaudeLoginRejected(ctx, headers, s.usageObserver) && !pickedModelOnOwnPlan(ctx) || s.anthropicSubscriptionObservedExhausted(ctx, headers)
-}
-
-func (s *Service) anthropicSubscriptionObservedExhausted(ctx context.Context, headers http.Header) bool {
-	if s.usageObserver == nil {
-		return false
-	}
-	_, anthroTok := presentSubscriptionTokens(ctx, headers)
-	if anthroTok == "" {
-		return false
-	}
-	snap, ok := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(anthroTok)))
-	return ok && claudeSnapshotUnservable(ctx, snap)
-}
-
-func claudeSnapshotUnservable(ctx context.Context, snap usage.Snapshot) bool {
-	if claudeEnterpriseOnly(ctx) {
-		return false
-	}
-	if pickedModelOnOwnPlan(ctx) || ownOverageServesFirst(ctx, snap) {
-		return false
-	}
-	if reason, ok := billing.SubscriptionOnlyReasonFromContext(ctx); ok && reason != billing.SubscriptionOnlyLinkedFirst && claudeSubscriptionPlan(ctx) == providers.SubscriptionPlanEnterprise {
-		return false
-	}
-	return snap.BillableOrExhausted()
 }
 
 func (s *Service) anthropicFallbackKeyAvailable(ctx context.Context) bool {

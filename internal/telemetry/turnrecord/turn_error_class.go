@@ -14,6 +14,7 @@ const (
 	TurnErrorTimeout         TurnErrorClass = "timeout"
 	TurnErrorClientCanceled  TurnErrorClass = "client_canceled"
 	TurnErrorRoutingRefused  TurnErrorClass = "routing_refused"
+	TurnErrorFundingRefused  TurnErrorClass = "funding_refused"
 	TurnErrorOther           TurnErrorClass = "other"
 	TurnErrorRefusal         TurnErrorClass = "refusal"
 	TurnErrorMaxTokens       TurnErrorClass = "max_tokens"
