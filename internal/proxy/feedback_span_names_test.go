@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	feedbacktoken "weave-os/router/internal/feedback"
+	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
@@ -96,11 +96,11 @@ func TestFeedbackSpans_UseDistinctNamesAndSchemas(t *testing.T) {
 
 	// --- Pipeline A: signed feedback-link submission ---
 	repo := &fakeFeedbackRepoForSpanTest{}
-	signer := feedbacktoken.NewSigner("secret", time.Hour)
+	signer := feedback.NewSigner("secret", time.Hour)
 	linkSvc := proxy.WithStrategyPorts(proxy.NewService(nil, nil, emitter, nil, false, "", "", nil), hmm.ServingPorts()).
 		WithFeedback(repo, signer, "https://router.example.com")
 
-	err := linkSvc.SubmitFeedback(context.Background(), feedbacktoken.SubmitFeedbackParams{
+	err := linkSvc.SubmitFeedback(context.Background(), feedback.SubmitFeedbackParams{
 		InstallationID: "inst-1",
 		ExternalID:     "org-1",
 		RequestID:      "req-1",
@@ -168,10 +168,10 @@ func TestFeedbackSpans_UseDistinctNamesAndSchemas(t *testing.T) {
 
 type fakeFeedbackRepoForSpanTest struct{}
 
-func (f *fakeFeedbackRepoForSpanTest) Upsert(_ context.Context, _ feedbacktoken.UpsertFeedbackParams) error {
+func (f *fakeFeedbackRepoForSpanTest) Upsert(_ context.Context, _ feedback.UpsertFeedbackParams) error {
 	return nil
 }
 
-func (f *fakeFeedbackRepoForSpanTest) GetContext(_ context.Context, _, _ string) (feedbacktoken.FeedbackContext, error) {
-	return feedbacktoken.FeedbackContext{}, nil
+func (f *fakeFeedbackRepoForSpanTest) GetContext(_ context.Context, _, _ string) (feedback.FeedbackContext, error) {
+	return feedback.FeedbackContext{}, nil
 }

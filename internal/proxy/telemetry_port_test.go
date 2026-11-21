@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	feedbacktoken "weave-os/router/internal/feedback"
+	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
@@ -60,9 +60,9 @@ func TestTelemetryPort_LinkFeedbackRecordsAndFlushes(t *testing.T) {
 	emitter := &capturingTelemetryEmitter{recorder: recorder}
 	comment := "The response was helpful."
 	service := proxy.WithStrategyPorts(proxy.NewService(nil, nil, emitter, nil, false, "", "", nil), hmm.ServingPorts()).
-		WithFeedback(&fakeFeedbackRepoForSpanTest{}, feedbacktoken.NewSigner("secret", time.Hour), "https://router.example.com")
+		WithFeedback(&fakeFeedbackRepoForSpanTest{}, feedback.NewSigner("secret", time.Hour), "https://router.example.com")
 
-	err := service.SubmitFeedback(context.Background(), feedbacktoken.SubmitFeedbackParams{
+	err := service.SubmitFeedback(context.Background(), feedback.SubmitFeedbackParams{
 		InstallationID: "inst-1",
 		ExternalID:     "org-1",
 		RequestID:      "req-1",

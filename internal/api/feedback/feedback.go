@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	token "weave-os/router/internal/feedback"
+	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
 
@@ -87,7 +87,7 @@ func SubmitHandler(svc *proxy.Service) gin.HandlerFunc {
 			return
 		}
 
-		err = svc.SubmitFeedback(c.Request.Context(), token.SubmitFeedbackParams{
+		err = svc.SubmitFeedback(c.Request.Context(), feedback.SubmitFeedbackParams{
 			InstallationID: claims.InstallationID,
 			ExternalID:     claims.ExternalID,
 			RequestID:      claims.RequestID,
@@ -117,18 +117,18 @@ func RateHandler(svc *proxy.Service) gin.HandlerFunc {
 		claims, err := svc.VerifyFeedbackToken(c.Query("t"))
 		if err != nil {
 			msg := "This feedback link is invalid."
-			if errors.Is(err, token.ErrExpiredToken) {
+			if errors.Is(err, feedback.ErrExpiredToken) {
 				msg = "This feedback link has expired."
 			}
 			status := http.StatusNotFound
-			if errors.Is(err, token.ErrExpiredToken) {
+			if errors.Is(err, feedback.ErrExpiredToken) {
 				status = http.StatusGone
 			}
 			c.Data(status, "text/html; charset=utf-8", ratePageError(msg))
 			return
 		}
 
-		err = svc.SubmitFeedback(c.Request.Context(), token.SubmitFeedbackParams{
+		err = svc.SubmitFeedback(c.Request.Context(), feedback.SubmitFeedbackParams{
 			InstallationID: claims.InstallationID,
 			ExternalID:     claims.ExternalID,
 			RequestID:      claims.RequestID,
@@ -145,7 +145,7 @@ func RateHandler(svc *proxy.Service) gin.HandlerFunc {
 	}
 }
 
-func toContextResponse(f token.FeedbackContext) contextResponse {
+func toContextResponse(f feedback.FeedbackContext) contextResponse {
 	resp := contextResponse{
 		RequestID:      f.RequestID,
 		ChosenModel:    f.ChosenModel,
@@ -173,7 +173,7 @@ func normalizeComment(comment *string) *string {
 }
 
 func writeTokenError(c *gin.Context, err error) {
-	if errors.Is(err, token.ErrExpiredToken) {
+	if errors.Is(err, feedback.ErrExpiredToken) {
 		c.AbortWithStatusJSON(http.StatusGone, gin.H{"error": "expired"})
 		return
 	}
