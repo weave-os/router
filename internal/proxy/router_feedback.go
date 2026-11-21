@@ -10,6 +10,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/conversation"
+	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -55,15 +56,15 @@ func (p routerFeedbackPorts) ServedModel(ctx context.Context, strategy router.St
 	return servedModel
 }
 
-func (p routerFeedbackPorts) UpsertRequestFeedback(ctx context.Context, feedback conversation.RequestFeedback) error {
-	return p.s.feedbackRepo.Upsert(ctx, UpsertFeedbackParams{
-		InstallationID: feedback.InstallationID,
-		ExternalID:     feedback.ExternalID,
-		RequestID:      feedback.RequestID,
-		Rating:         feedback.Rating,
-		Comment:        &feedback.Comment,
-		Source:         feedback.Source,
-		RouterUserID:   feedback.RouterUserID,
+func (p routerFeedbackPorts) UpsertRequestFeedback(ctx context.Context, request conversation.RequestFeedback) error {
+	return p.s.feedbackRepo.Upsert(ctx, feedback.UpsertFeedbackParams{
+		InstallationID: request.InstallationID,
+		ExternalID:     request.ExternalID,
+		RequestID:      request.RequestID,
+		Rating:         request.Rating,
+		Comment:        &request.Comment,
+		Source:         request.Source,
+		RouterUserID:   request.RouterUserID,
 	})
 }
 

@@ -42,7 +42,6 @@ func NewTelemetryRepo(tx sqlc.DBTX) *TelemetryRepo {
 
 var _ proxy.TelemetryRepository = (*TelemetryRepo)(nil)
 var _ proxy.PolicyShadowStore = (*TelemetryRepo)(nil)
-var _ proxy.InferenceAttemptStore = (*TelemetryRepo)(nil)
 
 func (r *TelemetryRepo) InsertPolicyShadowDecision(ctx context.Context, p proxy.PolicyShadowDecision) error {
 	id, err := uuid.Parse(p.InstallationID)
