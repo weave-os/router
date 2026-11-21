@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/continuity"
@@ -296,7 +297,7 @@ func TestForceModelHeader_OverridesHardPin(t *testing.T) {
 	key := DeriveSessionKey(env, "key-1")
 	headerReq, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	require.NoError(t, err)
-	headerReq.Header.Set(ForceModelHeader, "opus")
+	headerReq.Header.Set(requestcontext.ForceModelHeader, "opus")
 	_, _, forceErr := svc.applyForceModelHeader(context.Background(), headerReq, uuid.New(), key)
 	require.NoError(t, forceErr)
 

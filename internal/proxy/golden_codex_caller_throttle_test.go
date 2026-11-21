@@ -58,7 +58,7 @@ func goldenCallerCodexSeatsCtx(seats ...*auth.SubscriptionAccount) func(context.
 		ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, goldenLinkedCodexAccount)
 		ctx = flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyOwnSeatFirst: true}})
 		ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyLinkedFirst)
-		ctx = requestcontext.WithClientIdentity(ctx, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex, SessionID: "golden-codex-session"})
+		ctx = requestcontext.WithClientIdentity(ctx, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex, SessionID: "golden-codex-session"})
 		ctx = proxy.WithSubscriptionStateModels(ctx, []string{goldenCodexModel}, []string{goldenCodexModel})
 		ctx = proxy.WithManagedSubscriptionCandidates(ctx, seats)
 		return proxy.WithManagedSubscriptionUsage(ctx)
@@ -73,7 +73,7 @@ func goldenCreditsOffCtx(decorate func(context.Context) context.Context) func(co
 
 func goldenForcedCodexHeaders(suffix string) map[string]string {
 	headers := goldenCodexSessionHeadersFor(suffix)
-	headers[proxy.ForceModelHeader] = goldenCodexModel
+	headers[requestcontext.ForceModelHeader] = goldenCodexModel
 	return headers
 }
 

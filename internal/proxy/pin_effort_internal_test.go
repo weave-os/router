@@ -13,6 +13,7 @@ import (
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/routingpolicy"
@@ -67,7 +68,7 @@ func TestForceModelHeader_PersistsEffortOnPin(t *testing.T) {
 	env := forceCommandEnv(t)
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	require.NoError(t, err)
-	req.Header.Set(ForceModelHeader, "opus:high")
+	req.Header.Set(requestcontext.ForceModelHeader, "opus:high")
 
 	_, _, forceErr := svc.applyForceModelHeader(
 		context.Background(), req, uuid.New(), DeriveSessionKey(env, "key-1"))

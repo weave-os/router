@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
 	"weave-os/router/internal/websearch"
@@ -13,7 +14,7 @@ func (s *Service) autonomySystemAppendApplies(ctx context.Context, body []byte, 
 	if !s.ResolveCCAutonomySystemAppend(ctx) {
 		return false
 	}
-	if ClientIdentityFrom(ctx).ClientApp != ClientAppClaudeCode {
+	if ClientIdentityFrom(ctx).ClientApp != requestcontext.ClientAppClaudeCode {
 		return false
 	}
 	if tt != turntype.MainLoop && tt != turntype.ToolResult {

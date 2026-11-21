@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 )
 
@@ -82,7 +83,7 @@ func goldenOpenCodeProviderScenarios() []goldenScenario {
 		})
 	}
 	forceModelHeaders := func(model string) map[string]string {
-		return map[string]string{"User-Agent": goldenOpenCodeHeadersAgent, "X-OpenCode-Session": "ses_golden", proxy.ForceModelHeader: model}
+		return map[string]string{"User-Agent": goldenOpenCodeHeadersAgent, "X-OpenCode-Session": "ses_golden", requestcontext.ForceModelHeader: model}
 	}
 	return []goldenScenario{
 		claude("opencode_claude_opening", ingressResponses, goldenOpenCodeOpening, true),
@@ -135,7 +136,7 @@ func TestOpenCodeProviderReplay(t *testing.T) {
 			h := newGoldenHarness(t, sc)
 			for _, req := range sc.requests {
 				trace := h.serve(t, sc.ingress, req)
-				if model := req.headers[proxy.ForceModelHeader]; model != "" {
+				if model := req.headers[requestcontext.ForceModelHeader]; model != "" {
 					require.Len(t, trace.Attempts, 1)
 					require.Equal(t, model, trace.Attempts[0].Model)
 				}

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/turntype"
 )
 
@@ -52,30 +53,30 @@ func ParseContextSnapshot(encoded []byte) *ContextSnapshot {
 }
 
 func setContextEstimateHeaders(headers http.Header, estimate, reserve int) {
-	for _, name := range []string{HeaderRouterContextEstimate, HeaderRouterContextReserve, HeaderRouterContextEstimateKind, HeaderRouterContextVersion} {
+	for _, name := range []string{requestcontext.HeaderRouterContextEstimate, requestcontext.HeaderRouterContextReserve, requestcontext.HeaderRouterContextEstimateKind, requestcontext.HeaderRouterContextVersion} {
 		headers.Del(name)
 	}
 	if estimate <= 0 {
 		return
 	}
-	headers.Set(HeaderRouterContextEstimate, strconv.Itoa(estimate))
-	headers.Set(HeaderRouterContextEstimateKind, string(ContextEstimateApproximate))
-	headers.Set(HeaderRouterContextVersion, strconv.Itoa(ContextSnapshotVersion))
+	headers.Set(requestcontext.HeaderRouterContextEstimate, strconv.Itoa(estimate))
+	headers.Set(requestcontext.HeaderRouterContextEstimateKind, string(ContextEstimateApproximate))
+	headers.Set(requestcontext.HeaderRouterContextVersion, strconv.Itoa(ContextSnapshotVersion))
 	if reserve > 0 {
-		headers.Set(HeaderRouterContextReserve, strconv.Itoa(reserve))
+		headers.Set(requestcontext.HeaderRouterContextReserve, strconv.Itoa(reserve))
 	}
 }
 
 func contextSnapshotJSON(headers http.Header, requestID, requestedModel string, requestedAt, recordedAt time.Time) []byte {
-	return contextSnapshotJSONForDecision(headers, requestID, requestedModel, headers.Get(HeaderRouterModel), headers.Get(HeaderRouterProvider), requestedAt, recordedAt)
+	return contextSnapshotJSONForDecision(headers, requestID, requestedModel, headers.Get(requestcontext.HeaderRouterModel), headers.Get(requestcontext.HeaderRouterProvider), requestedAt, recordedAt)
 }
 
 func contextSnapshotJSONForDecision(headers http.Header, requestID, requestedModel, servedModel, servedProvider string, requestedAt, recordedAt time.Time) []byte {
-	estimate, _ := strconv.Atoi(headers.Get(HeaderRouterContextEstimate))
-	reserve, _ := strconv.Atoi(headers.Get(HeaderRouterContextReserve))
+	estimate, _ := strconv.Atoi(headers.Get(requestcontext.HeaderRouterContextEstimate))
+	reserve, _ := strconv.Atoi(headers.Get(requestcontext.HeaderRouterContextReserve))
 	window := contextWindowForRequest(servedModel, servedProvider)
 	snapshot := ContextSnapshot{
-		Version: ContextSnapshotVersion, EstimateKind: ContextEstimateKind(headers.Get(HeaderRouterContextEstimateKind)),
+		Version: ContextSnapshotVersion, EstimateKind: ContextEstimateKind(headers.Get(requestcontext.HeaderRouterContextEstimateKind)),
 		EstimateTokens: estimate, ContextWindow: window, OutputReserveTokens: reserve,
 		RequestedModel: requestedModel, ServedModel: servedModel, RequestID: requestID, RequestedAt: requestedAt.UTC(), RecordedAt: recordedAt.UTC(),
 	}
