@@ -8,6 +8,8 @@ import (
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
 )
@@ -127,4 +129,33 @@ func (s *Service) withRateLimitTurn(ctx context.Context) (context.Context, *disp
 		return ctx, nil
 	}
 	return dispatch.WithThrottleLedger(ctx)
+}
+
+func applyDemotionCooldowns(ctx context.Context, s *Service, req *router.Request, res *turnLoopResult, demoted []string, cooldowns map[string]time.Time) (context.Context, []string) {
+	now := s.clock.Now()
+	cooling := activeDemotionCooldowns(cooldowns, now)
+	if len(cooling) > 0 {
+		res.SessionCooldownModels = readmittableCooldowns(cooling, demoted, req.ImageCount)
+		demoted = candidates.MergeSessionStrikes(demoted, cooldownsByExpiry(cooling))
+	}
+	expired := expiredDemotionCooldowns(cooldowns, now)
+	probed := false
+	for _, model := range cooldownsByExpiry(expired) {
+		if slices.Contains(demoted, model) || modelExcludedForRecoveryProbe(*req, model) {
+			continue
+		}
+		if !probed {
+			if release, acquired := s.acquireRecoveryProbe(ctx, res.SessionKey, model); acquired {
+				res.CooldownProbeReleases = append(res.CooldownProbeReleases, release)
+				res.CooldownProbes = map[string]time.Time{model: expired[model]}
+				probed = true
+				continue
+			}
+		}
+		demoted = candidates.MergeSessionStrikes(demoted, []string{model})
+		res.CooldownProbeDeniedModels = append(res.CooldownProbeDeniedModels, model)
+		req.Candidates.ExcludedModels = candidates.ExcludingModel(req.Candidates.ExcludedModels, model)
+		ctx = context.WithValue(ctx, SessionCooldownProbeDeniedModelsContextKey{}, res.CooldownProbeDeniedModels)
+	}
+	return ctx, demoted
 }

@@ -12,12 +12,8 @@ import (
 
 const globalAutomaticExclusionTTL = time.Minute
 
-type GlobalAutomaticExclusionStore interface {
-	ListGlobalAutomaticRoutingExclusions(ctx context.Context) (map[string]string, error)
-}
-
 type globalAutomaticExclusionCache struct {
-	store GlobalAutomaticExclusionStore
+	store candidates.GlobalAutomaticExclusionStore
 
 	mu          sync.Mutex
 	byModel     map[string]string
@@ -26,7 +22,7 @@ type globalAutomaticExclusionCache struct {
 	refreshing  bool
 }
 
-func newGlobalAutomaticExclusionCache(store GlobalAutomaticExclusionStore) *globalAutomaticExclusionCache {
+func newGlobalAutomaticExclusionCache(store candidates.GlobalAutomaticExclusionStore) *globalAutomaticExclusionCache {
 	return &globalAutomaticExclusionCache{store: store}
 }
 
