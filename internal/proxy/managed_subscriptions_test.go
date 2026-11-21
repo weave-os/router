@@ -16,6 +16,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
@@ -123,7 +124,7 @@ func TestDispatchWithFallbackUsesOnlyMatchingManagedProviderFamily(t *testing.T)
 		initialDecision: router.Decision{Model: "gpt-5.6-sol", Provider: providers.ProviderOpenAI},
 		purpose:         inference.PurposeAnthropicMessages,
 		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderOpenAI}},
-		attempt: func(ctx context.Context, decision router.Decision, client providers.Client) error {
+		attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
 			require.Equal(t, "token-codex", string(CredentialsFromContext(ctx).APIKey))
 			buffer.Seal()
 			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, request)
@@ -445,7 +446,7 @@ func TestDispatchWithFallbackRotatesManagedAccountBeforeCommit(t *testing.T) {
 		initialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
 		purpose:         inference.PurposeAnthropicMessages,
 		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
-		attempt: func(ctx context.Context, decision router.Decision, client providers.Client) error {
+		attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
 			tokens = append(tokens, string(CredentialsFromContext(ctx).APIKey))
 			buffer.Seal()
 			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, request)
@@ -501,7 +502,7 @@ func TestDispatchWithFallbackDoesNotMarkFailedManagedAttemptServed(t *testing.T)
 		initialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
 		purpose:         inference.PurposeAnthropicMessages,
 		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
-		attempt: func(ctx context.Context, decision router.Decision, client providers.Client) error {
+		attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
 			return client.Proxy(ctx, decision, providers.PreparedRequest{}, httptest.NewRecorder(), httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil))
 		},
 	})
@@ -530,7 +531,7 @@ func TestDispatchWithFallbackRefusesPaidRecoveryAfterManagedModelDenial(t *testi
 			initialDecision: router.Decision{Model: parityAnthropicModel, Provider: providers.ProviderAnthropic},
 			purpose:         inference.PurposeAnthropicMessages,
 			bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
-			attempt: func(ctx context.Context, decision router.Decision, client providers.Client) error {
+			attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
 				buffer.Seal()
 				return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil))
 			},
@@ -567,7 +568,7 @@ func TestDispatchWithFallbackRotatesManagedModelDenialToEligibleAccount(t *testi
 		initialDecision: router.Decision{Model: parityAnthropicModel, Provider: providers.ProviderAnthropic},
 		purpose:         inference.PurposeAnthropicMessages,
 		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
-		attempt: func(ctx context.Context, decision router.Decision, upstream providers.Client) error {
+		attempt: func(ctx context.Context, decision router.Decision, upstream dispatch.Upstream) error {
 			buffer.Seal()
 			return upstream.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil))
 		},
@@ -596,7 +597,7 @@ func TestDispatchWithFallbackKeepsManagedModelDenialModelSpecific(t *testing.T) 
 		initialDecision: router.Decision{Model: parityAnthropicModel, Provider: providers.ProviderAnthropic},
 		purpose:         inference.PurposeAnthropicMessages,
 		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
-		attempt: func(ctx context.Context, decision router.Decision, upstream providers.Client) error {
+		attempt: func(ctx context.Context, decision router.Decision, upstream dispatch.Upstream) error {
 			buffer.Seal()
 			return upstream.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil))
 		},
@@ -637,7 +638,7 @@ func TestDispatchWithFallbackSlowInferenceDoesNotConsumeLeaseBudget(t *testing.T
 		initialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
 		purpose:         inference.PurposeAnthropicMessages,
 		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
-		attempt: func(ctx context.Context, decision router.Decision, client providers.Client) error {
+		attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
 			return client.Proxy(ctx, decision, providers.PreparedRequest{}, httptest.NewRecorder(), httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil))
 		},
 	})
@@ -666,7 +667,7 @@ func TestDispatchWithFallbackDisablesRejectedManagedAccountBeforeRotation(t *tes
 		initialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
 		purpose:         inference.PurposeAnthropicMessages,
 		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
-		attempt: func(ctx context.Context, decision router.Decision, client providers.Client) error {
+		attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
 			buffer.Seal()
 			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, request)
 		},
@@ -696,7 +697,7 @@ func TestDispatchWithFallbackStrikesRejectedManagedAccountInsteadOfDisabling(t *
 		initialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
 		purpose:         inference.PurposeAnthropicMessages,
 		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
-		attempt: func(ctx context.Context, decision router.Decision, client providers.Client) error {
+		attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
 			buffer.Seal()
 			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, request)
 		},
@@ -726,7 +727,7 @@ func TestDispatchWithFallbackDoesNotReplayCommittedManagedStream(t *testing.T) {
 		initialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
 		purpose:         inference.PurposeAnthropicMessages,
 		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
-		attempt: func(ctx context.Context, decision router.Decision, client providers.Client) error {
+		attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
 			buffer.Seal()
 			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, request)
 		},
@@ -756,7 +757,7 @@ func TestDispatchWithFallbackNeverUsesPaidBindingAfterManagedExhaustion(t *testi
 			{Provider: providers.ProviderAnthropic},
 			{Provider: "paid"},
 		},
-		attempt: func(ctx context.Context, decision router.Decision, client providers.Client) error {
+		attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
 			buffer.Seal()
 			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil))
 		},
@@ -787,7 +788,7 @@ func TestDispatchWithFallbackRotatesManagedTransientErrorOnSameBinding(t *testin
 		initialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
 		purpose:         inference.PurposeAnthropicMessages,
 		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
-		attempt: func(ctx context.Context, decision router.Decision, client providers.Client) error {
+		attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
 			buffer.Seal()
 			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, request)
 		},

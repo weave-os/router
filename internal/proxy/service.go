@@ -1984,7 +1984,7 @@ func (s *Service) anthropicNativeAttempt(
 	setExtractor func(*telemetry.UsageExtractor),
 	setStreamCost func(router.Decision, bool, func() bool),
 ) dispatchAttempt {
-	return func(actx context.Context, d router.Decision, p providers.Client) error {
+	return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 		requestCacheTTL1h := func() bool { return translate.AnthropicRequestCacheTTL1h(prep.Body) }
 		setStreamCost(d, false, requestCacheTTL1h)
 		attemptSink, noticeErr := preludeState.prepare(actx, sink, preludeBuf, translate.FormatAnthropic, env.Stream(), reconnectNoticeForAttempt(actx, r.Header, notice))
@@ -2730,7 +2730,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			crossFormat = false
 			logUpstreamBody(log, routeRes.SessionKey, target, feats, prep.Body)
 			tiered := anthropicTierAttemptFor(targetOpts, prep, targetNotice)
-			return func(actx context.Context, d router.Decision, p providers.Client) error {
+			return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 				attemptOpts, err := tiered.dispatch(actx, d, p, recordFastServed)
 				if err == nil || committed(preludeBuf) || !providers.IsUpstreamOutputConfigFormatRejection(err) {
 					return err
@@ -2754,7 +2754,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			}, nil
 		case providers.FamilyOpenAICompat:
 			crossFormat = true
-			dispatchOpenAICompat := func(actx context.Context, d router.Decision, p providers.Client, useResponses, stripPromptCacheKey bool) (func(error) error, error) {
+			dispatchOpenAICompat := func(actx context.Context, d router.Decision, p dispatch.Upstream, useResponses, stripPromptCacheKey bool) (func(error) error, error) {
 				attemptOpts := targetOpts
 				attemptOpts.TargetProvider = d.Provider
 				attemptOpts.StripPromptCacheKey = stripPromptCacheKey
@@ -2834,7 +2834,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				}
 				return finalize, rawErr
 			}
-			return func(actx context.Context, d router.Decision, p providers.Client) error {
+			return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 				gatewayKey := gatewayResponsesKey(actx, d.Provider)
 				useResponses := translate.UseOpenAIResponsesAPI(translate.ResponsesRoute{
 					Provider:       d.Provider,
@@ -2881,7 +2881,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			}
 			crossFormat = true
 			logUpstreamBody(log, routeRes.SessionKey, target, feats, prep.Body)
-			dispatchGemini := func(actx context.Context, d router.Decision, p providers.Client, pr providers.PreparedRequest) (func(error) error, error) {
+			dispatchGemini := func(actx context.Context, d router.Decision, p dispatch.Upstream, pr providers.PreparedRequest) (func(error) error, error) {
 				fastServed = false
 				setStreamCost(d, true, nil)
 				respSummary = translate.ResponseSummary{}
@@ -2921,7 +2921,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				}
 				return finalize, rawErr
 			}
-			return func(actx context.Context, d router.Decision, p providers.Client) error {
+			return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 				retry := geminiToolModeAttempt{log: log, buffer: preludeBuf, env: env, headers: r.Header, opts: targetOpts}
 				return retry.dispatch(prep, func(prepared providers.PreparedRequest) (func(error) error, error) {
 					reqStats = prepared.Stats
@@ -4793,7 +4793,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 		switch providers.FamilyFor(target.Provider) {
 		case providers.FamilyOpenAICompat:
-			dispatchOpenAI := func(actx context.Context, d router.Decision, p providers.Client, surface openAISurface, stripPromptCacheKey bool) error {
+			dispatchOpenAI := func(actx context.Context, d router.Decision, p dispatch.Upstream, surface openAISurface, stripPromptCacheKey bool) error {
 				resetResponsesAttempt(w)
 				var prep providers.PreparedRequest
 				switch surface {
@@ -4976,7 +4976,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 				return err
 			}
-			return func(actx context.Context, d router.Decision, p providers.Client) error {
+			return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 				surface := responseSwitch.surface(d.Provider, servedOnCodexSubscription(actx))
 				gatewayKey := gatewayResponsesKey(actx, d.Provider)
 				stripPCK := s.gatewayCaps.RejectsPromptCacheKey(gatewayKey)
@@ -5019,7 +5019,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				log.Error("Failed to translate OpenAI request to Gemini format", "err", emitErr)
 				return nil, fmt.Errorf("translate openai request to gemini: %w", emitErr)
 			}
-			dispatchGemini := func(actx context.Context, d router.Decision, p providers.Client, pr providers.PreparedRequest) (func(error) error, error) {
+			dispatchGemini := func(actx context.Context, d router.Decision, p dispatch.Upstream, pr providers.PreparedRequest) (func(error) error, error) {
 				resetResponsesAttempt(w)
 				var usage translate.UsageSink
 				if s.usageRequired() {
@@ -5046,7 +5046,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				}
 				return finalize, rawErr
 			}
-			return func(actx context.Context, d router.Decision, p providers.Client) error {
+			return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 				retry := geminiToolModeAttempt{log: log, buffer: preludeBuf, env: env, headers: r.Header, opts: targetOpts}
 				return retry.dispatch(prep, func(prepared providers.PreparedRequest) (func(error) error, error) {
 					return dispatchGemini(actx, d, p, prepared)
@@ -5059,7 +5059,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				log.Error("Failed to translate OpenAI request to Anthropic format", "err", emitErr)
 				return nil, fmt.Errorf("translate openai request: %w", emitErr)
 			}
-			dispatchAnthropic := func(actx context.Context, d router.Decision, p providers.Client, attemptPrep providers.PreparedRequest, fast bool) (func(error) error, error) {
+			dispatchAnthropic := func(actx context.Context, d router.Decision, p dispatch.Upstream, attemptPrep providers.PreparedRequest, fast bool) (func(error) error, error) {
 				resetResponsesAttempt(w)
 				fastServed = fast
 				var usage translate.UsageSink
@@ -5092,7 +5092,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				}
 				return finalize, rawErr
 			}
-			return func(actx context.Context, d router.Decision, p providers.Client) error {
+			return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 				attemptOpts := targetOpts
 				attemptOpts.TargetProvider = d.Provider
 				attemptOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)

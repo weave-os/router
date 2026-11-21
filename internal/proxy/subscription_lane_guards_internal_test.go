@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
@@ -112,7 +113,7 @@ func heldCodexOnlyService(t *testing.T) (*fakeClient, func() router.Decision) {
 			initialDecision:                 router.Decision{Model: stateCodexModel, Provider: providers.ProviderOpenAI},
 			purpose:                         inference.PurposeAnthropicMessages,
 			buildAlternative: func(router.Decision) (dispatchAttempt, error) {
-				return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
+				return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
 					buffer.Seal()
 					return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/messages", nil))
 				}, nil
@@ -156,7 +157,7 @@ func TestMemberPickNoSubscriptionServesSkipsTheIncludedLane(t *testing.T) {
 		initialDecision:                 router.Decision{Model: statePaidModel, Provider: providers.ProviderOpenRouter},
 		purpose:                         inference.PurposeAnthropicMessages,
 		buildAlternative: func(router.Decision) (dispatchAttempt, error) {
-			return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
+			return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
 				buffer.Seal()
 				return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/messages", nil))
 			}, nil

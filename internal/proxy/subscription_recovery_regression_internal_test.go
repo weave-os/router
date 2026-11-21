@@ -9,11 +9,13 @@ import (
 	"time"
 	"weave-os/router/internal/billing"
 
-	"github.com/stretchr/testify/require"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestSubscriptionRecoverySlowFailureUsesSecondSeat(t *testing.T) {
@@ -31,7 +33,7 @@ func TestSubscriptionRecoverySlowFailureUsesSecondSeat(t *testing.T) {
 		in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 		in.initialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
 		var seats []string
-		in.attempt = func(ctx context.Context, decision router.Decision, client providers.Client) error {
+		in.attempt = func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
 			creds := CredentialsFromContext(ctx)
 			if creds != nil && creds.OAuth {
 				seats = append(seats, creds.SubscriptionAccountID)

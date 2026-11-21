@@ -27,7 +27,7 @@ type preludeBuffer = dispatch.PreludeBuffer
 
 func newPreludeBuffer(w http.ResponseWriter) *preludeBuffer { return dispatch.NewPreludeBuffer(w) }
 
-type dispatchAttempt func(ctx context.Context, decision router.Decision, p providers.Client) error
+type dispatchAttempt func(ctx context.Context, decision router.Decision, p dispatch.Upstream) error
 
 type failoverInputs struct {
 	w                               http.ResponseWriter

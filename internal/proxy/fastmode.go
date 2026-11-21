@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -49,7 +50,7 @@ func (a *anthropicTierAttempt) forBinding(actx context.Context, d router.Decisio
 	return attemptOpts, native, fast, nil
 }
 
-func (a *anthropicTierAttempt) dispatch(actx context.Context, d router.Decision, p providers.Client, recordFast func(bool)) (translate.EmitOptions, error) {
+func (a *anthropicTierAttempt) dispatch(actx context.Context, d router.Decision, p dispatch.Upstream, recordFast func(bool)) (translate.EmitOptions, error) {
 	attemptOpts, native, fast, err := a.forBinding(actx, d)
 	recordFast(fast)
 	if err != nil {
@@ -95,7 +96,7 @@ func retryAnthropicStandardSpeed(log *slog.Logger, buffer *preludeBuffer, target
 }
 
 func (a *anthropicTierAttempt) attempt(recordFast func(bool)) dispatchAttempt {
-	return func(actx context.Context, d router.Decision, p providers.Client) error {
+	return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 		_, err := a.dispatch(actx, d, p, recordFast)
 		return err
 	}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/translate"
@@ -116,7 +117,7 @@ func (s *responseProtocolSwitch) wrapBuilder(build modelAttemptBuilder) modelAtt
 		if err != nil {
 			return nil, err
 		}
-		return func(ctx context.Context, binding router.Decision, client providers.Client) error {
+		return func(ctx context.Context, binding router.Decision, client dispatch.Upstream) error {
 			if err := s.selectTarget(binding); err != nil {
 				return err
 			}

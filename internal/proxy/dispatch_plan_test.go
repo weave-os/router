@@ -28,7 +28,7 @@ func plannedInputs(ctx context.Context, rec *httptest.ResponseRecorder, buf *pre
 		buf:             buf,
 		initialDecision: router.Decision{Model: plannedTestModel, Provider: bindings[0].Provider},
 		bindings:        bindings,
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{Body: body}, buf, r)
 		},

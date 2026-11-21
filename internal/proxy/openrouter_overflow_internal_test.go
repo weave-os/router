@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
@@ -43,7 +44,7 @@ func overflowContext(exhausted bool) context.Context {
 }
 
 func (d *overflowDispatch) attempt() dispatchAttempt {
-	return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
+	return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
 		d.served = append(d.served, decision)
 		return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, httptest.NewRecorder(), httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/messages", nil))
 	}

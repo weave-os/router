@@ -14,6 +14,7 @@ import (
 	"github.com/tidwall/gjson"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/providers/openaicompat"
@@ -187,7 +188,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 				purpose:                         inference.PurposeAnthropicMessages,
 				origin:                          origin,
 				buildAlternative: func(target router.Decision) (dispatchAttempt, error) {
-					return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
+					return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
 						servedModels = append(servedModels, decision.Model)
 						subscriptionFunding = append(subscriptionFunding, servedOnSubscription(attemptCtx))
 						buffer.Seal()
@@ -258,7 +259,7 @@ func TestSubscriptionStateRateLimitedIncludedLaneKeepsUpstreamStatus(t *testing.
 		initialDecision:                 router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
 		purpose:                         inference.PurposeAnthropicMessages,
 		buildAlternative: func(router.Decision) (dispatchAttempt, error) {
-			return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
+			return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
 				buffer.Seal()
 				return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/messages", nil))
 			}, nil
@@ -425,7 +426,7 @@ func TestSubscriptionStateModelsPaidFallbackSkipsUnavailableProvider(t *testing.
 		initialDecision: router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
 		purpose:         inference.PurposeAnthropicMessages,
 		buildAlternative: func(target router.Decision) (dispatchAttempt, error) {
-			return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
+			return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
 				servedModels = append(servedModels, decision.Model)
 				buffer.Seal()
 				return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/messages", nil))
@@ -464,7 +465,7 @@ func TestSubscriptionStateFailedTargetReachesRecoveryCallback(t *testing.T) {
 		initialDecision:                 router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
 		purpose:                         inference.PurposeAnthropicMessages,
 		buildAlternative: func(router.Decision) (dispatchAttempt, error) {
-			return func(_ context.Context, attemptedTarget router.Decision, _ providers.Client) error {
+			return func(_ context.Context, attemptedTarget router.Decision, _ dispatch.Upstream) error {
 				attemptedModel = attemptedTarget.Model
 				return &providers.UpstreamStatusError{Status: http.StatusBadRequest}
 			}, nil
@@ -550,7 +551,7 @@ func TestSubscriptionStateModelsStrictDirectSubscription(t *testing.T) {
 		initialDecision: router.Decision{Model: stateCodexModel, Provider: providers.ProviderOpenAI},
 		purpose:         inference.PurposeAnthropicMessages,
 		buildAlternative: func(target router.Decision) (dispatchAttempt, error) {
-			return func(attemptCtx context.Context, decision router.Decision, upstream providers.Client) error {
+			return func(attemptCtx context.Context, decision router.Decision, upstream dispatch.Upstream) error {
 				require.True(t, servedOnSubscription(attemptCtx))
 				require.Equal(t, conditionalModelsSubscriptionToken, string(CredentialsFromContext(attemptCtx).APIKey))
 				buffer.Seal()
@@ -886,7 +887,7 @@ func TestSubscriptionStateModelsSkipSpentSeatPoolsBeforeDispatch(t *testing.T) {
 		initialDecision:                 router.Decision{Model: stateCodexModel, Provider: providers.ProviderOpenAI},
 		purpose:                         inference.PurposeAnthropicMessages,
 		buildAlternative: func(router.Decision) (dispatchAttempt, error) {
-			return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
+			return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
 				attempted = append(attempted, decision.Model)
 				buffer.Seal()
 				return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/messages", nil))

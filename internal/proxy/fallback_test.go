@@ -116,7 +116,7 @@ func TestDispatchWithFallback_PrimarySucceedsNoRetry(t *testing.T) {
 			{Provider: "fireworks"},
 			{Provider: "openrouter"},
 		},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			// No Prelude phase in these tests, so Seal happens right before Proxy.
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
@@ -139,7 +139,7 @@ func TestDispatchWithFallback_RejectsMissingPurposeBeforeAnyAttempt(t *testing.T
 		w:               rec,
 		initialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
 		bindings:        []catalog.ProviderBinding{{Provider: "fireworks"}},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, rec, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil))
 		},
 	})
@@ -178,7 +178,7 @@ func TestDispatchWithFallback_RetriesOnRetryableBufferedError(t *testing.T) {
 			{Provider: "fireworks"},
 			{Provider: "openrouter"},
 		},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			// No Prelude phase in these tests, so Seal happens right before Proxy.
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
@@ -229,7 +229,7 @@ func TestDispatchWithFallback_SchemaRejectionDoesNotFailoverCrossBinding(t *test
 			{Provider: "fireworks"},
 			{Provider: "openrouter"},
 		},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
@@ -268,7 +268,7 @@ func TestDispatchWithFallback_RetriesOnTransportError(t *testing.T) {
 			{Provider: "fireworks"},
 			{Provider: "openrouter"},
 		},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			// No Prelude phase in these tests, so Seal happens right before Proxy.
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
@@ -309,7 +309,7 @@ func TestDispatchWithFallback_RetriesOnResponseHeaderTimeout(t *testing.T) {
 			{Provider: providers.ProviderMakora},
 			{Provider: providers.ProviderOpenRouter},
 		},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
@@ -354,7 +354,7 @@ func TestDispatchWithFallback_RetriesOnUpstreamIdleTimeout(t *testing.T) {
 			{Provider: providers.ProviderOpenAI},
 			{Provider: providers.ProviderOpenRouter},
 		},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
@@ -393,7 +393,7 @@ func TestDispatchWithFallback_NoRetryOnNonRetryableStatus(t *testing.T) {
 			{Provider: "fireworks"},
 			{Provider: "openrouter"},
 		},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			// No Prelude phase in these tests, so Seal happens right before Proxy.
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
@@ -439,7 +439,7 @@ func TestDispatchWithFallback_ModelNotFoundFailsOverToNextBinding(t *testing.T) 
 			{Provider: "bedrock"},
 			{Provider: "openrouter"},
 		},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
@@ -472,7 +472,7 @@ func TestDispatchWithFallback_ModelNotFoundSingleBindingFlushes(t *testing.T) {
 		initialDecision: router.Decision{Model: "qwen/qwen3-next-80b-a3b-instruct"},
 		purpose:         inference.PurposeAnthropicMessages,
 		bindings:        []catalog.ProviderBinding{{Provider: "bedrock"}},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
@@ -517,7 +517,7 @@ func TestDispatchWithFallback_BillingBlockedFailsOverToNextBinding(t *testing.T)
 			{Provider: "makora"},
 			{Provider: "together"},
 		},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
@@ -551,7 +551,7 @@ func TestDispatchWithFallback_BillingBlockedSingleBindingFlushes(t *testing.T) {
 		initialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
 		purpose:         inference.PurposeAnthropicMessages,
 		bindings:        []catalog.ProviderBinding{{Provider: "makora"}},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
@@ -594,7 +594,7 @@ func TestDispatchWithFallback_NoRetryAfterBytesFlushed(t *testing.T) {
 			{Provider: "fireworks"},
 			{Provider: "openrouter"},
 		},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			// No Prelude phase in these tests, so Seal happens right before Proxy.
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
@@ -634,7 +634,7 @@ func TestDispatchWithFallback_BothFailFinalBodyFlushed(t *testing.T) {
 			{Provider: "fireworks"},
 			{Provider: "openrouter"},
 		},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			// No Prelude phase in these tests, so Seal happens right before Proxy.
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
@@ -679,7 +679,7 @@ func TestDispatchWithFallback_SingleBindingExhaustsRetries(t *testing.T) {
 		initialDecision: router.Decision{Model: "claude-opus-4-7"},
 		purpose:         inference.PurposeAnthropicMessages,
 		bindings:        []catalog.ProviderBinding{{Provider: "anthropic"}},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
@@ -739,7 +739,7 @@ func TestDispatchWithFallback_SlowAttemptsStopBeforeRetryCount(t *testing.T) {
 		initialDecision: router.Decision{Model: "claude-opus-4-7"},
 		purpose:         inference.PurposeAnthropicMessages,
 		bindings:        []catalog.ProviderBinding{{Provider: "anthropic"}},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
@@ -775,7 +775,7 @@ func TestDispatchWithFallback_SingleBindingRetrySucceeds(t *testing.T) {
 		initialDecision: router.Decision{Model: "claude-opus-4-7"},
 		purpose:         inference.PurposeAnthropicMessages,
 		bindings:        []catalog.ProviderBinding{{Provider: "anthropic"}},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
@@ -809,7 +809,7 @@ func TestDispatchWithFallback_SingleBindingNonRetryableNoRetry(t *testing.T) {
 		initialDecision: router.Decision{Model: "claude-opus-4-7"},
 		purpose:         inference.PurposeAnthropicMessages,
 		bindings:        []catalog.ProviderBinding{{Provider: "anthropic"}},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
@@ -845,7 +845,7 @@ func TestDispatchWithFallback_SingleBindingBackoffAbortsOnCancel(t *testing.T) {
 		initialDecision: router.Decision{Model: "claude-opus-4-7"},
 		purpose:         inference.PurposeAnthropicMessages,
 		bindings:        []catalog.ProviderBinding{{Provider: "anthropic"}},
-		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+		attempt: func(ctx context.Context, d router.Decision, p dispatch.Upstream) error {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},

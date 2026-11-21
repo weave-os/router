@@ -10,6 +10,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -87,7 +88,7 @@ func dispatchManagedThirdPartyTurnWithReason(t *testing.T, svc *Service, ctx con
 		initialDecision: router.Decision{Model: parityAnthropicModel, Provider: providers.ProviderAnthropic, Reason: reason},
 		purpose:         inference.PurposeAnthropicMessages,
 		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
-		attempt: func(ctx context.Context, decision router.Decision, client providers.Client) error {
+		attempt: func(ctx context.Context, decision router.Decision, client dispatch.Upstream) error {
 			buffer.Seal()
 			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil))
 		},
@@ -224,7 +225,7 @@ func TestRotationBudgetPaidRescueRejectsForcedThirdPartyRefusal(t *testing.T) {
 	in := plannedInputs(t.Context(), rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
 	in.initialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: parityAnthropicModel, Reason: translate.ReasonUserForceModel}
 	var apiCalls int
-	in.attempt = func(attemptCtx context.Context, _ router.Decision, _ providers.Client) error {
+	in.attempt = func(attemptCtx context.Context, _ router.Decision, _ dispatch.Upstream) error {
 		if creds := CredentialsFromContext(attemptCtx); creds == nil || !creds.OAuth {
 			apiCalls++
 		}
@@ -353,7 +354,7 @@ func TestForcedThirdPartyRefusalPaysThroughSubscriptionStateModelsOnlyWhenKeyCon
 				purpose:                         inference.PurposeAnthropicMessages,
 				origin:                          policy.OverrideSourceRequest,
 				buildAlternative: func(router.Decision) (dispatchAttempt, error) {
-					return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
+					return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
 						buffer.Seal()
 						return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/messages", nil))
 					}, nil
