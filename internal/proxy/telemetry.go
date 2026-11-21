@@ -140,7 +140,7 @@ func applyPlannerTelemetry(p *turnrecord.InsertTelemetryParams, res turnLoopResu
 	}
 }
 
-func applyEffortTelemetry(p *turnrecord.InsertTelemetryParams, e effortResolution) {
+func applyEffortTelemetry(p *turnrecord.InsertTelemetryParams, e dispatch.EffortResolution) {
 	if p == nil || e.Source == "" {
 		return
 	}

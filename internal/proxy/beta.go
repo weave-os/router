@@ -193,7 +193,7 @@ func (s *Service) handleBetaCommand(
 		"session beta routing toggled",
 		"strategy", strategy,
 		"enabled", nowEnabled,
-		"session_key_prefix", shortSessionKey(sessionKey),
+		"session_key_prefix", conversation.ShortSessionKey(sessionKey),
 	)
 	return writeBetaCommandResponse(w, env, message, inputTokens)
 }

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"slices"
 	"strconv"
 	"time"
 
@@ -16,6 +15,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/routingpolicy/overrides"
@@ -35,21 +35,14 @@ const (
 )
 
 func (s *Service) usageBypassDecision(ctx context.Context, headers http.Header, req router.Request, sessionDemotedModels []string, turnType turntype.TurnType) (router.Decision, bool) {
-	if subscriptionStateModelsEnabled(ctx) || slices.Contains(sessionDemotedModels, req.RequestedModel) {
-		return router.Decision{}, false
-	}
-	if !catalog.PermittedBy(req.ProductEligibility, req.RequestedModel) {
+	if subscriptionStateModelsEnabled(ctx) || !candidates.RequestedModelServable(req, sessionDemotedModels) {
 		return router.Decision{}, false
 	}
 	provider, reason, engaged := s.subscriptionPassthroughEngaged(ctx, headers, req, turnType)
 	if !engaged {
 		return router.Decision{}, false
 	}
-	return router.Decision{
-		Provider: provider,
-		Model:    req.RequestedModel,
-		Reason:   reason,
-	}, true
+	return candidates.RequestedModelDecision(req, provider, reason), true
 }
 
 func (s *Service) subscriptionPassthroughEngaged(ctx context.Context, headers http.Header, req router.Request, turnType turntype.TurnType) (provider, reason string, engaged bool) {
