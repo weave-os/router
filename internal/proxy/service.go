@@ -77,7 +77,7 @@ type Service struct {
 	scopedSearchRequirement      bool
 	searchRequirementDecayTurns  int
 	searchUse                    *searchUseTracker
-	emitter                      telemetry.Emitter
+	turnTelemetry                turnTelemetry
 	translationMetrics           telemetry.TranslationMetrics
 	pinStore                     sessionpin.Store
 	escalation                   *floor.Helper
@@ -96,8 +96,6 @@ type Service struct {
 	hardPinResolver              HardPinResolver
 	subAgentProvider             string
 	subAgentModel                string
-	telemetry                    turnrecord.TelemetryRepository
-	turnClock                    telemetry.SessionTurnClock
 	captureMode                  ContentCaptureMode
 	captureMaxBytes              int
 	redactor                     Redactor
@@ -983,7 +981,7 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 	s := &Service{
 		clients:                      dispatch.NewClients(providerMap),
 		translationCompatibilityMode: TranslationCompatibilityShadow,
-		emitter:                      emitter,
+		turnTelemetry:                turnTelemetry{emitter: emitter, repo: telemetryRepo},
 		ingress:                      ingress.New(0),
 		pinStore:                     pinStore,
 		lifecycle:                    conversation.NewLifecycle(),
@@ -995,7 +993,6 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		hardPinExplore:               hardPinExplore,
 		hardPinProvider:              hardPinProvider,
 		hardPinModel:                 hardPinModel,
-		telemetry:                    telemetryRepo,
 		continuityConfig:             continuity.DefaultConfig(),
 		hmmServing:                   hmmServing{hmmConfig: continuity.DefaultAuthoritativeConfig()},
 		rescueConfig: dispatch.RescueConfig{
@@ -1484,7 +1481,7 @@ func (s *Service) ExcludedProvidersOverride() []string {
 }
 
 func (s *Service) usageRequired() bool {
-	return s.pinStore != nil || s.emitter != nil || s.telemetry != nil || s.billing != nil
+	return s.pinStore != nil || s.turnTelemetry.emitter != nil || s.turnTelemetry.repo != nil || s.billing != nil
 }
 
 func gatewayResponsesKey(ctx context.Context, provider string) string {
@@ -1522,17 +1519,10 @@ func (s *Service) rememberGatewayLacksModel(ctx context.Context, provider, model
 }
 
 func (s *Service) newTelemetryRecorder() telemetry.Recorder {
-	if s.emitter == nil {
+	if s.turnTelemetry.emitter == nil {
 		return nil
 	}
-	return s.emitter.NewRecorder()
-}
-
-func (s *Service) newUsageExtractor(inner http.ResponseWriter, provider string) (*telemetry.UsageExtractor, http.ResponseWriter) {
-	if s.emitter == nil {
-		return newFallbackUsageExtractor(inner, provider)
-	}
-	return s.emitter.NewUsageExtractor(inner, provider)
+	return s.turnTelemetry.emitter.NewRecorder()
 }
 
 func (s *Service) WithTranslationMetrics(metrics telemetry.TranslationMetrics) *Service {
@@ -1582,10 +1572,10 @@ func (s *Service) WithPassthroughEligibleProviders(set map[string]struct{}) *Ser
 }
 
 func (s *Service) MetricsSummary(ctx context.Context, installationID string, from, to time.Time) (turnrecord.TelemetrySummary, error) {
-	if s.telemetry == nil {
+	if s.turnTelemetry.repo == nil {
 		return turnrecord.TelemetrySummary{}, nil
 	}
-	return s.telemetry.GetTelemetrySummary(ctx, installationID, from, to)
+	return s.turnTelemetry.repo.GetTelemetrySummary(ctx, installationID, from, to)
 }
 
 var (
@@ -1597,101 +1587,101 @@ func (s *Service) SessionCost(ctx context.Context, installationID, sessionID str
 	if sessionID == "" || len(sessionID) > MaxClientIdentifierLen {
 		return turnrecord.SessionCost{}, ErrInvalidSessionID
 	}
-	if s.telemetry == nil {
+	if s.turnTelemetry.repo == nil {
 		return turnrecord.SessionCost{}, ErrSessionCostUnavailable
 	}
-	return s.telemetry.GetSessionCost(ctx, installationID, sessionID)
+	return s.turnTelemetry.repo.GetSessionCost(ctx, installationID, sessionID)
 }
 
 func (s *Service) MetricsTimeseries(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]turnrecord.TelemetryBucket, error) {
-	if s.telemetry == nil {
+	if s.turnTelemetry.repo == nil {
 		return nil, nil
 	}
-	return s.telemetry.GetTelemetryTimeseries(ctx, installationID, from, to, granularity)
+	return s.turnTelemetry.repo.GetTelemetryTimeseries(ctx, installationID, from, to, granularity)
 }
 
 func (s *Service) MetricsSummaryAll(ctx context.Context, from, to time.Time) (turnrecord.TelemetrySummary, error) {
-	if s.telemetry == nil {
+	if s.turnTelemetry.repo == nil {
 		return turnrecord.TelemetrySummary{}, nil
 	}
-	return s.telemetry.GetTelemetrySummaryAll(ctx, from, to)
+	return s.turnTelemetry.repo.GetTelemetrySummaryAll(ctx, from, to)
 }
 
 func (s *Service) MetricsTimeseriesAll(ctx context.Context, from, to time.Time, granularity string) ([]turnrecord.TelemetryBucket, error) {
-	if s.telemetry == nil {
+	if s.turnTelemetry.repo == nil {
 		return nil, nil
 	}
-	return s.telemetry.GetTelemetryTimeseriesAll(ctx, from, to, granularity)
+	return s.turnTelemetry.repo.GetTelemetryTimeseriesAll(ctx, from, to, granularity)
 }
 
 func (s *Service) MetricsDashboardFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]turnrecord.TelemetryDashboardFact, error) {
-	if s.telemetry == nil {
+	if s.turnTelemetry.repo == nil {
 		return nil, nil
 	}
-	return s.telemetry.GetTelemetryDashboardFacts(ctx, installationID, from, to, granularity)
+	return s.turnTelemetry.repo.GetTelemetryDashboardFacts(ctx, installationID, from, to, granularity)
 }
 
 func (s *Service) MetricsActiveUsers(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]turnrecord.TelemetryActiveUsers, error) {
-	if s.telemetry == nil {
+	if s.turnTelemetry.repo == nil {
 		return nil, nil
 	}
-	return s.telemetry.GetTelemetryDashboardActiveUsers(ctx, installationID, from, to, granularity)
+	return s.turnTelemetry.repo.GetTelemetryDashboardActiveUsers(ctx, installationID, from, to, granularity)
 }
 
 func (s *Service) MetricsPeople(ctx context.Context, installationID string) ([]turnrecord.TelemetryPerson, error) {
-	if s.telemetry == nil {
+	if s.turnTelemetry.repo == nil {
 		return nil, nil
 	}
-	return s.telemetry.GetTelemetryDashboardPeople(ctx, installationID)
+	return s.turnTelemetry.repo.GetTelemetryDashboardPeople(ctx, installationID)
 }
 
 func (s *Service) MetricsDrillDown(ctx context.Context, installationID string, from, to time.Time) ([]turnrecord.TelemetryDrillDownRow, error) {
-	if s.telemetry == nil {
+	if s.turnTelemetry.repo == nil {
 		return nil, nil
 	}
-	return s.telemetry.GetTelemetryDashboardDrillDown(ctx, installationID, from, to)
+	return s.turnTelemetry.repo.GetTelemetryDashboardDrillDown(ctx, installationID, from, to)
 }
 
 func (s *Service) MetricsIndividualFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]turnrecord.TelemetryIndividualFact, error) {
-	if s.telemetry == nil {
+	if s.turnTelemetry.repo == nil {
 		return nil, nil
 	}
-	return s.telemetry.GetTelemetryDashboardIndividualFacts(ctx, installationID, from, to, granularity)
+	return s.turnTelemetry.repo.GetTelemetryDashboardIndividualFacts(ctx, installationID, from, to, granularity)
 }
 
 func (s *Service) MetricsSubscriptionPool(ctx context.Context, installationID string, servedSince, readingsSince time.Time) ([]turnrecord.TelemetrySubscriptionSeat, error) {
-	if s.telemetry == nil {
+	if s.turnTelemetry.repo == nil {
 		return nil, nil
 	}
-	return s.telemetry.GetTelemetrySubscriptionPoolSeats(ctx, installationID, servedSince, readingsSince)
+	return s.turnTelemetry.repo.GetTelemetrySubscriptionPoolSeats(ctx, installationID, servedSince, readingsSince)
 }
 
 func (s *Service) MetricsModelBreakdown(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]turnrecord.TelemetryModelBucket, error) {
-	if s.telemetry == nil {
+	if s.turnTelemetry.repo == nil {
 		return nil, nil
 	}
-	return s.telemetry.GetTelemetryModelBreakdown(ctx, installationID, from, to, granularity)
+	return s.turnTelemetry.repo.GetTelemetryModelBreakdown(ctx, installationID, from, to, granularity)
 }
 
 func (s *Service) MetricsModelBreakdownAll(ctx context.Context, from, to time.Time, granularity string) ([]turnrecord.TelemetryModelBucket, error) {
-	if s.telemetry == nil {
+	if s.turnTelemetry.repo == nil {
 		return nil, nil
 	}
-	return s.telemetry.GetTelemetryModelBreakdownAll(ctx, from, to, granularity)
+	return s.turnTelemetry.repo.GetTelemetryModelBreakdownAll(ctx, from, to, granularity)
 }
 
 func (s *Service) MetricsRows(ctx context.Context, installationID string, from, to time.Time, limit int32) ([]turnrecord.TelemetryRow, error) {
-	if s.telemetry == nil {
+	if s.turnTelemetry.repo == nil {
 		return nil, nil
 	}
-	return s.telemetry.GetTelemetryRows(ctx, installationID, from, to, limit)
+	return s.turnTelemetry.repo.GetTelemetryRows(ctx, installationID, from, to, limit)
 }
 
 func (s *Service) MetricsRowsAll(ctx context.Context, from, to time.Time, limit int32) ([]turnrecord.TelemetryRow, error) {
-	if s.telemetry == nil {
+	if s.turnTelemetry.repo == nil {
 		return nil, nil
 	}
-	return s.telemetry.GetTelemetryRowsAll(ctx, from, to, limit)
+	return s.turnTelemetry.repo.GetTelemetryRowsAll(ctx, from, to, limit)
 }
 
 var ErrProviderNotConfigured = dispatch.ErrProviderNotConfigured
@@ -1971,7 +1961,7 @@ func (s *Service) anthropicNativeAttempt(
 		if noticeErr != nil {
 			return fmt.Errorf("emit Anthropic router notice: %w", noticeErr)
 		}
-		ex, proxyWriter := s.newUsageExtractor(attemptSink, d.Provider)
+		ex, proxyWriter := s.turnTelemetry.newUsageExtractor(attemptSink, d.Provider)
 		ex.SetRequestCacheTTL1h(requestCacheTTL1h)
 		setExtractor(ex)
 		var terminal *streamTerminalObserver
@@ -3664,13 +3654,13 @@ func (s *Service) fireTelemetry(ctx context.Context, p turnrecord.InsertTelemetr
 	if p.UpstreamStatusCode != http.StatusOK || !conversationContextTurn(turntype.TurnType(p.TurnType)) {
 		p.ContextSnapshot = nil
 	}
-	if s.telemetry == nil {
+	if s.turnTelemetry.repo == nil {
 		return
 	}
 	log := observability.Get().With("request_id", p.RequestID)
 	observability.SafeGoContext(ctx, log, 5*time.Second, "fireTelemetry", func(ctx context.Context) {
-		s.applyUserPromptGap(ctx, log, &p)
-		if err := s.telemetry.InsertRequestTelemetry(ctx, p); err != nil {
+		s.turnTelemetry.applyUserPromptGap(ctx, log, &p)
+		if err := s.turnTelemetry.repo.InsertRequestTelemetry(ctx, p); err != nil {
 			log.Warn("Telemetry insert failed", "err", err)
 		}
 		s.recordAgreementShadow(ctx, log, p)

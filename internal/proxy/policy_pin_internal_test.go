@@ -90,7 +90,7 @@ func TestClassifyDispatchError_PolicyPinUnavailableIs503WithTypedReason(t *testi
 
 func TestRecordPolicyPinRouteFailureWritesHonouredFalseRow(t *testing.T) {
 	sink := newBypassCaptureTelemetry()
-	svc := &Service{hmmServing: hmmPorts(), telemetry: sink}
+	svc := &Service{hmmServing: hmmPorts(), turnTelemetry: turnTelemetry{repo: sink}}
 	installationID := uuid.New()
 	ctx := context.WithValue(pinnedContext(true), InstallationIDContextKey{}, installationID.String())
 
@@ -114,7 +114,7 @@ func TestRecordPolicyPinRouteFailureWritesHonouredFalseRow(t *testing.T) {
 
 func TestRecordPolicyPinRouteFailureIsSilentWithoutAPin(t *testing.T) {
 	sink := newBypassCaptureTelemetry()
-	svc := &Service{hmmServing: hmmPorts(), telemetry: sink}
+	svc := &Service{hmmServing: hmmPorts(), turnTelemetry: turnTelemetry{repo: sink}}
 	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, uuid.New().String())
 
 	svc.recordPolicyPinRouteFailure(ctx, routeFailureRequest{RequestID: "req-plain", RequestStart: time.Now(), RequestedModel: "claude-sonnet-5", Strategy: router.StrategyFromContext(ctx)}, turntype.TurnType("interactive"), false, errors.New("routing failed"))
