@@ -53,6 +53,13 @@ func WithClientIdentity(ctx context.Context, id ClientIdentity) context.Context 
 		id.Eval = false
 		id.RolloutID = ""
 	}
+	if gw, ok := UpstreamGatewayFrom(ctx); ok {
+		id.Email = ""
+		id.AccountID = ""
+		id.DeviceID = ""
+		id.DisplayName = ""
+		id.SessionID = gw.SessionID
+	}
 	return context.WithValue(ctx, ClientIdentityContextKey{}, id)
 }
 
@@ -66,6 +73,9 @@ type identityBag struct {
 func ApplyIdentityHeader(ctx context.Context, upstream *http.Request) {
 	creds := CredentialsFromContext(ctx)
 	if creds == nil || !safeCredentialHeaderDestination(creds, creds.IdentityHeader) {
+		return
+	}
+	if _, gateway := UpstreamGatewayFrom(ctx); gateway {
 		return
 	}
 	value := IdentityHeaderValue(creds.IdentityHeaderFormat, ClientIdentityFrom(ctx))

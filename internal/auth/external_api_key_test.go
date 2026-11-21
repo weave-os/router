@@ -259,3 +259,10 @@ func TestNormalizeBaggageHeader(t *testing.T) {
 		require.ErrorIs(t, err, auth.ErrInvalidForwardedHeader)
 	})
 }
+
+func TestNormalizeModelAliasesRejectsRoutingModelTargets(t *testing.T) {
+	for _, alias := range []string{"weave-auto", " weave-hmm-beta "} {
+		_, err := auth.NormalizeModelAliases(map[string]string{"claude-haiku-4-5": alias}, nil)
+		require.ErrorIs(t, err, auth.ErrInvalidModelAlias, alias)
+	}
+}

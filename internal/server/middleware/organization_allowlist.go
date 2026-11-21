@@ -56,17 +56,24 @@ func (a organizationAllowlist) admit(installation *auth.Installation) error {
 	return errOrganizationNotAllowed
 }
 
-func verifyCredential(ctx context.Context, svc *auth.Service, token string, testPlan *policyregistry.TestPlanScope, allowed organizationAllowlist) (installation *auth.Installation, apiKey *auth.APIKey, externalKeys []*auth.ExternalAPIKey, clusterModelLists []auth.ClusterModelList, delegatedSession *auth.DelegatedSession, err error) {
+type verifiedCredential struct {
+	delegatedSession *auth.DelegatedSession
+	upstreamGateway  *auth.UpstreamGatewayPrincipal
+}
+
+func verifyCredential(ctx context.Context, svc *auth.Service, token string, testPlan *policyregistry.TestPlanScope, allowed organizationAllowlist) (installation *auth.Installation, apiKey *auth.APIKey, externalKeys []*auth.ExternalAPIKey, clusterModelLists []auth.ClusterModelList, verified verifiedCredential, err error) {
 	switch {
 	case auth.IsSessionToken(token):
-		installation, apiKey, externalKeys, clusterModelLists, delegatedSession, err = svc.VerifySessionToken(ctx, token, testPlan == nil)
+		installation, apiKey, externalKeys, clusterModelLists, verified.delegatedSession, err = svc.VerifySessionToken(ctx, token, testPlan == nil)
 	case testPlan != nil:
 		installation, apiKey, clusterModelLists, err = svc.VerifyPlatformAPIKey(ctx, token)
+	case auth.IsUpstreamGatewayToken(token):
+		installation, apiKey, externalKeys, clusterModelLists, verified.upstreamGateway, err = svc.VerifyUpstreamGatewayToken(ctx, token)
 	default:
 		installation, apiKey, externalKeys, clusterModelLists, err = svc.VerifyAPIKey(ctx, token)
 	}
 	if err == nil && testPlan == nil {
 		err = allowed.admit(installation)
 	}
-	return installation, apiKey, externalKeys, clusterModelLists, delegatedSession, err
+	return installation, apiKey, externalKeys, clusterModelLists, verified, err
 }

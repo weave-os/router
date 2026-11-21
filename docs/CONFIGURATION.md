@@ -11,6 +11,7 @@ This page is the exhaustive reference; the [README](../README.md) has the
   - [Key-pair auth](#key-pair-auth)
   - [Snowflake workload identity federation](#workload-identity-federation)
   - [Anthropic workload identity federation](#anthropic-workload-identity-federation)
+  - [Upstream gateway service mode](#upstream-gateway-service-mode)
 - [Postgres](#postgres)
 - [Server](#server)
 - [Upstream transport and stream watchdogs](#upstream-transport-and-stream-watchdogs)
@@ -548,6 +549,55 @@ fee, and no `byok_fee` row is written. A turn the organization cannot pay
 for (credits depleted or a spend cap reached) still serves on the customer's
 own key at a zero rate. With a rate above zero the organization cannot pay
 the fee, so that turn is refused with the usual 402 before the key is called.
+
+### Upstream gateway service mode
+
+An upstream AI gateway can call the router server-to-server as an inference
+provider for Claude Code on `/v1/messages`. The gateway authenticates with a
+short-lived OIDC ID token that it signs as its own issuer. The router routes
+`weave-auto` and calls back into the same gateway through the installation's
+existing provider keys (for example `auth_type=wif`). See
+[UPSTREAM_GATEWAY_SERVICE.md](UPSTREAM_GATEWAY_SERVICE.md).
+
+`ROUTER_UPSTREAM_GATEWAY_ISSUERS` holds a JSON array. Unset or empty disables
+the mode, and an invalid entry aborts boot:
+
+```json
+[{
+  "issuer_url": "https://issuer.gateway.example",
+  "audience": "router-inference",
+  "subjects": ["gateway-workload"],
+  "algorithms": ["RS256"],
+  "max_lifetime": "1h",
+  "session_issuer_kid": "<kid returned by POST /internal/v1/session-issuers>",
+  "session_headers": ["X-Gateway-Session-Id"]
+}]
+```
+
+| Field | Default | Effect |
+| ----- | ------- | ------ |
+| `issuer_url` | *(required)* | Exact `iss` claim. Must be `https`. Keys come from `<issuer_url>/.well-known/openid-configuration` → `jwks_uri`, cached for 10 minutes. |
+| `audience` | *(required)* | Required `aud` claim. |
+| `subjects` | *(required)* | Allowed `sub` claims. |
+| `algorithms` | `RS256`, `ES256` | Allowed asymmetric signing algorithms. `HS*` and `none` are rejected. |
+| `max_lifetime` | `1h` | Longest accepted `exp - iat`. |
+| `session_issuer_kid` | *(required)* | A registered session issuer. It binds the gateway to one installation, and that installation's routing policy, allowed models, provider keys and billing apply. Revoking the issuer disables the gateway. |
+| `session_headers` | *(none)* | Inbound headers to read the session ID from, in order. Falls back to `X-Claude-Code-Session-Id`. A request without one is served unpinned. |
+
+In this mode the router:
+
+- accepts the token only on `/v1/messages`, and removes it from the request
+  once it is verified, so it is never forwarded upstream;
+- sends no baggage or identity header and drops end-user identity from the
+  request context;
+- copies the provider key's `forwarded_client_headers` (for example
+  `traceparent` or a request ID) from the inbound request. An echoed
+  `traceparent` wins over the one the router's tracing would inject;
+- marks its inner call with `X-Weave-Router-Hop` and refuses an inbound
+  gateway request that carries it (`upstream_gateway_loop_detected`);
+- refuses to send any routing model (`weave-*`) to an upstream provider;
+- hides terminal surfaces (routing markers and feedback links), as
+  `hide_terminal_surfaces` does.
 
 ## Postgres
 

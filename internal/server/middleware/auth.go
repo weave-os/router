@@ -83,11 +83,19 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 			clientSessionID = testPlan.SessionID
 		}
 		authCtx, authSpan := startAuthSpan(parentCtx, clientSessionID)
-		installation, apiKey, externalKeys, clusterModelLists, delegatedSession, err := verifyCredential(authCtx, svc, extractToken(c), testPlan, allowedOrganizations)
+		installation, apiKey, externalKeys, clusterModelLists, verified, err := verifyCredential(authCtx, svc, extractToken(c), testPlan, allowedOrganizations)
 		if err != nil {
 			finishAuthSpan(authSpan, err)
 			handleAuthError(c, err)
 			return
+		}
+		if verified.upstreamGateway != nil {
+			if kind, refused := upstreamGatewayRefusal(c); refused {
+				finishAuthSpan(authSpan, nil)
+				abortRefusal(c, kind, nil)
+				return
+			}
+			stripInboundCredentials(c.Request.Header)
 		}
 		if testPlan != nil && (apiKey.CredentialSubjectID != testPlan.SubjectID || apiKey.InstallationID != installation.ID) {
 			abortRefusal(c, refusal.TestIdentityMismatch, nil)
@@ -105,7 +113,7 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 				return
 			}
 		}
-		ctx = auth.WithDelegatedSession(ctx, delegatedSession)
+		ctx = auth.WithDelegatedSession(ctx, verified.delegatedSession)
 		if apiKey != nil {
 			ctx = context.WithValue(ctx, requestcontext.APIKeyIDContextKey{}, apiKey.ID)
 			if apiKey.PaidFallbackOnSubscriptionRefusal {
@@ -219,6 +227,9 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 		}
 		if installation != nil && installation.ID != "" {
 			ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, installation.ID)
+		}
+		if verified.upstreamGateway != nil {
+			ctx = withUpstreamGatewayMode(ctx, verified.upstreamGateway, c.Request.Header)
 		}
 		finishAuthSpan(authSpan, nil)
 		ctx = restoreRequestParent(ctx, parentCtx)

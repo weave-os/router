@@ -36,6 +36,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/observability/apm"
 	"weave-os/router/internal/observability/otel"
+	"weave-os/router/internal/oidcjwks"
 	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/postgres"
@@ -515,6 +516,7 @@ func main() {
 		WithEntraTokenSource(buildEntraTokenSource(logger)).
 		WithFlagOverridesDisabled(flagOverridesDisabled).
 		WithSessionSpendCaps(billingSvc != nil)
+	configureUpstreamGatewayIssuers(authSvc, logger)
 	subscriptionPoolsEnabled := config.GetOr("ROUTER_SUBSCRIPTION_POOLS_ENABLED", "false") == "true"
 	subscriptionRuntime, subscriptionLogins := buildSubscriptionRuntime(subscriptionPoolsEnabled, authSvc, repo.SubscriptionAccounts, subscriptionQuotaProber(providerMap[providers.ProviderOpenAI]), logger)
 
@@ -1202,6 +1204,25 @@ func subscriptionCandidateSignal(snapshot usage.Snapshot, now time.Time) subscri
 		}
 	}
 	return signal
+}
+
+func configureUpstreamGatewayIssuers(authSvc *auth.Service, logger *slog.Logger) {
+	issuers, err := auth.ParseUpstreamGatewayIssuers(config.GetOr("ROUTER_UPSTREAM_GATEWAY_ISSUERS", ""))
+	if err != nil {
+		logger.Error("Refusing to boot with invalid upstream gateway issuer configuration", "err", err)
+		panic(err)
+	}
+	if len(issuers) == 0 {
+		return
+	}
+	jwksClient := &http.Client{
+		Timeout: 10 * time.Second,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	authSvc.WithUpstreamGatewayIssuers(issuers, oidcjwks.New(jwksClient, time.Now))
+	logger.Info("Upstream gateway service authentication enabled", "issuers", len(issuers))
 }
 
 func buildEntraTokenSource(logger *slog.Logger) auth.EntraTokenSource {

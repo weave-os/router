@@ -39,6 +39,8 @@ const (
 	ServingAttributionUnavailable
 	SubscriptionUnavailableForTurn
 	FlagOverridesMalformed
+	UpstreamGatewaySurfaceRejected
+	UpstreamGatewayLoopDetected
 	kindCount
 )
 
@@ -85,6 +87,8 @@ var contracts = [kindCount]Contract{
 	ServingAttributionUnavailable:  {Status: http.StatusServiceUnavailable, Code: "serving_attribution_unavailable", Message: "Request attribution is unavailable."},
 	SubscriptionUnavailableForTurn: {Status: http.StatusPaymentRequired, Code: "subscription_unavailable_for_turn", NoClientRetry: true, Message: "Your subscription can't serve this turn."},
 	FlagOverridesMalformed:         {Status: http.StatusBadRequest, Code: "flag_overrides_malformed", Message: "The flag overrides header is malformed."},
+	UpstreamGatewaySurfaceRejected: {Status: http.StatusForbidden, Code: "upstream_gateway_surface_rejected", Message: "This gateway credential is only valid for the Anthropic Messages API."},
+	UpstreamGatewayLoopDetected:    {Status: http.StatusForbidden, Code: "upstream_gateway_loop_detected", NoClientRetry: true, Message: "This request was already routed by this router; refusing to route it again."},
 }
 
 func (k Kind) Contract() Contract {

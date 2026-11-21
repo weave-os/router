@@ -32,6 +32,7 @@ Index of Markdown documentation in the `router/` repo.
 | [ROUTING_OBSERVATION_SMOKE.md](ROUTING_OBSERVATION_SMOKE.md) | Staging smoke test and historical routing observation report. |
 | [SUBSCRIPTION_ROUTING.md](SUBSCRIPTION_ROUTING.md) | Personal and shared subscription candidate admission, alternatives, native OAuth dispatch with quota checks, and API fallback. |
 | [DELEGATED_SESSION_TOKENS.md](DELEGATED_SESSION_TOKENS.md) | Experimental `rs_` session JWTs signed by a registered Ed25519 issuer: token claims, issuer registration and revocation. |
+| [UPSTREAM_GATEWAY_SERVICE.md](UPSTREAM_GATEWAY_SERVICE.md) | Server-to-server mode for an upstream AI gateway: OIDC/JWKS inbound auth, credential isolation, correlation headers and loop protection. |
 | [TURN_SIGNALS.md](TURN_SIGNALS.md) | Turn signals, stuck-session detectors, telemetry row NULL conventions, cross-tokenizer usage reporting and the feedback footer. |
 | [SESSION_COST.md](SESSION_COST.md) | `GET /v1/sessions/:session_id/cost`: `rk_`/`ra_` auth, installation scope, response fields, errors, rate limit. |
 | [POLICY_ROUTER_HARNESS.md](POLICY_ROUTER_HARNESS.md) | Contract for out-of-process policy sidecars. |

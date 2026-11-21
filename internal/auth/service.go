@@ -81,6 +81,9 @@ type Service struct {
 
 	entraTokens EntraTokenSource
 
+	upstreamGatewayIssuers []UpstreamGatewayIssuer
+	upstreamGatewayKeys    OIDCKeySet
+
 	flagOverridesDisabled bool
 
 	delegatedSpendCapsEnabled bool
