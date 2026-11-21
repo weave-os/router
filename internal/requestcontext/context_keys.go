@@ -2,7 +2,42 @@ package requestcontext
 
 import "context"
 
-type AgentShadowEvalContextKey struct{}
+type (
+	APIKeyIDContextKey                                   struct{}
+	APIKeyPaidFallbackOnSubscriptionRefusalContextKey    struct{}
+	AgentShadowEvalContextKey                            struct{}
+	AnthropicSubscriptionContextKey                      struct{}
+	ClusterModelListsContextKey                          struct{}
+	ExternalAPIKeysContextKey                            struct{}
+	ExternalIDContextKey                                 struct{}
+	InstallationAllowedModelsContextKey                  struct{}
+	InstallationCaptureModeContextKey                    struct{}
+	InstallationExcludedModelsContextKey                 struct{}
+	InstallationExcludedProvidersContextKey              struct{}
+	InstallationFastModeModelsContextKey                 struct{}
+	InstallationHideTerminalSurfacesContextKey           struct{}
+	InstallationIDContextKey                             struct{}
+	InstallationPickedModelCreditFallbackContextKey      struct{}
+	InstallationPreferredModelsContextKey                struct{}
+	InstallationRoutingKnobsContextKey                   struct{}
+	InstallationShowModelSelectionReasoningContextKey    struct{}
+	InstallationSubscriptionModelsWhenActiveContextKey   struct{}
+	InstallationSubscriptionModelsWhenInactiveContextKey struct{}
+	InstallationSubscriptionRoutingDisabledContextKey    struct{}
+	InstallationSubscriptionStateModelsEnabledContextKey struct{}
+	InstallationTrialCaptureContextKey                   struct{}
+	InstallationUsageBypassContextKey                    struct{}
+	ManagedSubscriptionEnrollmentUnavailableContextKey   struct{}
+	ManagedSubscriptionProvidersContextKey               struct{}
+	OpenAIAccountIDContextKey                            struct{}
+	OpenAISubscriptionContextKey                         struct{}
+	PolicyDebugEnabledContextKey                         struct{}
+	PolicyRolloutIDContextKey                            struct{}
+	PolicyRoutingIntentContextKey                        struct{}
+	PolicyShadowStrategyContextKey                       struct{}
+	PolicyTrainingAllowedContextKey                      struct{}
+	RequestAllowedModelsContextKey                       struct{}
+)
 
 type AgentShadowEvaluation struct {
 	Model     string
@@ -14,69 +49,3 @@ func AgentShadowEvalFromContext(ctx context.Context) (AgentShadowEvaluation, boo
 	value, ok := ctx.Value(AgentShadowEvalContextKey{}).(AgentShadowEvaluation)
 	return value, ok && value.Model != "" && value.RolloutID != "" && value.StateID != ""
 }
-
-type RequestAllowedModelsContextKey struct{}
-
-type ExternalAPIKeysContextKey struct{}
-
-type ManagedSubscriptionEnrollmentUnavailableContextKey struct{}
-
-type ManagedSubscriptionProvidersContextKey struct{}
-
-type APIKeyIDContextKey struct{}
-
-type AnthropicSubscriptionContextKey struct{}
-
-type ClusterModelListsContextKey struct{}
-
-type ExternalIDContextKey struct{}
-
-type InstallationAllowedModelsContextKey struct{}
-
-type InstallationExcludedModelsContextKey struct{}
-
-type InstallationExcludedProvidersContextKey struct{}
-
-type InstallationFastModeModelsContextKey struct{}
-
-type InstallationHideTerminalSurfacesContextKey struct{}
-
-type InstallationPickedModelCreditFallbackContextKey struct{}
-
-type InstallationPreferredModelsContextKey struct{}
-
-type InstallationRoutingKnobsContextKey struct{}
-
-type InstallationShowModelSelectionReasoningContextKey struct{}
-
-type InstallationSubscriptionModelsWhenActiveContextKey struct{}
-
-type InstallationSubscriptionModelsWhenInactiveContextKey struct{}
-
-type InstallationSubscriptionRoutingDisabledContextKey struct{}
-
-type InstallationSubscriptionStateModelsEnabledContextKey struct{}
-
-type InstallationTrialCaptureContextKey struct{}
-
-type InstallationUsageBypassContextKey struct{}
-
-type OpenAIAccountIDContextKey struct{}
-
-type OpenAISubscriptionContextKey struct{}
-
-type PolicyDebugEnabledContextKey struct{}
-
-type PolicyRolloutIDContextKey struct{}
-
-type PolicyRoutingIntentContextKey struct{}
-
-type PolicyShadowStrategyContextKey struct{}
-
-type PolicyTrainingAllowedContextKey struct{}
-
-type APIKeyPaidFallbackOnSubscriptionRefusalContextKey struct{}
-
-type InstallationIDContextKey struct{}
-
-type InstallationCaptureModeContextKey struct{}
