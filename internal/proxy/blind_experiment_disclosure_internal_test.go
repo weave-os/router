@@ -6,10 +6,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/router"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -41,10 +41,10 @@ func TestLoopBreaksDoNotNameModelForBlindExperimentSubjects(t *testing.T) {
 		require.NoError(t, err)
 		for name, run := range map[string]func(context.Context, http.ResponseWriter) error{
 			"no_progress": func(ctx context.Context, w http.ResponseWriter) error {
-				return (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).handleNoProgressBreak(ctx, w, env, 3, sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-served-model", providers.ProviderOpenAI, 1)
+				return loopBreakForTest(&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}, sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-served-model", providers.ProviderOpenAI).noProgress(ctx, w, env, 3, 1)
 			},
 			"text_repetition": func(ctx context.Context, w http.ResponseWriter) error {
-				return (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).handleTextRepetitionBreak(ctx, w, env, 3, "synthetic", sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-served-model", providers.ProviderOpenAI, 1)
+				return loopBreakForTest(&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}, sessionTarget{strategy: router.StrategyFromContext(ctx), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, "maximum", "synthetic-served-model", providers.ProviderOpenAI).textRepetition(ctx, w, env, 3, "synthetic", 1)
 			},
 		} {
 			rec := httptest.NewRecorder()
