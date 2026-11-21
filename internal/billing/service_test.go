@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"weave-os/router/internal/subscriptionlane"
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
@@ -697,31 +698,29 @@ func TestDebitForInference_ByokFeeCrossingSignalsAutopay(t *testing.T) {
 		"a BYOK fee that crosses the autopay threshold must signal a recharge")
 }
 
-func TestDebitForInference_UnfundedTurnChargesNoByokFee(t *testing.T) {
-	// A turn the organization cannot pay for runs on the customer's own key;
-	// the fee must not deepen a depleted balance or push spend past a cap.
-	for reason, wantFee := range map[billing.SubscriptionOnlyReason]int64{
-		billing.SubscriptionOnlyCreditsDepleted: 0,
-		billing.SubscriptionOnlySpendCapReached: 0,
-		billing.SubscriptionOnlyLinkedFirst:     -5_000_000,
+func TestTripSubscriptionLane_ByokFeeUnpayableOnlyWhenAFeeIsCharged(t *testing.T) {
+	for _, tc := range []struct {
+		on     subscriptionlane.Event
+		reason billing.SubscriptionOnlyReason
+	}{
+		{subscriptionlane.CreditsDepletedCovered, billing.SubscriptionOnlyCreditsDepleted},
+		{subscriptionlane.KeySpendCapCovered, billing.SubscriptionOnlySpendCapReached},
 	} {
-		t.Run(string(reason), func(t *testing.T) {
-			repo := &fakeRepo{balanceRowExists: true, balanceMicros: 1_000_000_000}
-			svc := billing.NewService(repo).WithByokFeeRate(0.05)
-			_, err := svc.DebitForInference(billing.WithSubscriptionOnly(context.Background(), reason), billing.DebitInferenceParams{
-				OrganizationID:  "org_byok",
-				RouterRequestID: "req_unfunded",
-				Model:           "m",
-				Provider:        providers.ProviderAnthropic,
-				InputTokens:     100_000_000,
-				Pricing:         catalog.Pricing{InputUSDPer1M: 1.00},
-				ByokServed:      true,
-			})
-			require.NoError(t, err)
-			require.Len(t, repo.ledgerCalls, 1)
-			assert.Equal(t, int64(0), repo.ledgerCalls[0].DeltaUsdMicros)
-			assert.Equal(t, int64(100_000_000), repo.ledgerCalls[0].NotionalCostMicros, "the notional trail is kept")
-			assert.Equal(t, wantFee, repo.ledgerCalls[0].FeeUsdMicros)
+		t.Run(string(tc.reason), func(t *testing.T) {
+			free, _ := billing.NewService(&fakeRepo{}).TripSubscriptionLane(context.Background(), tc.on)
+			got, ok := billing.SubscriptionOnlyReasonFromContext(free)
+			require.True(t, ok)
+			assert.Equal(t, tc.reason, got)
+			assert.False(t, billing.ByokFeeUnpayable(free), "with no fee the customer's key still serves the turn")
+
+			charged, _ := billing.NewService(&fakeRepo{}).WithByokFeeRate(0.05).TripSubscriptionLane(context.Background(), tc.on)
+			assert.True(t, billing.ByokFeeUnpayable(charged), "an unfunded organization cannot pay a BYOK fee")
 		})
 	}
+	overridden := context.WithValue(context.Background(), billing.HasOverrideContextKey, true)
+	overriddenCtx, _ := billing.NewService(&fakeRepo{}).WithByokFeeRate(0.05).TripSubscriptionLane(overridden, subscriptionlane.KeySpendCapCovered)
+	assert.False(t, billing.ByokFeeUnpayable(overriddenCtx), "a billing override waives the fee, so the key still serves the turn")
+	linkedFirst, _ := billing.NewService(&fakeRepo{}).WithByokFeeRate(0.05).TripSubscriptionLane(context.Background(), subscriptionlane.LinkedPlanPreferred)
+	assert.False(t, billing.ByokFeeUnpayable(linkedFirst), "a linked-first preference leaves the organization funded")
+	assert.False(t, billing.ByokFeeUnpayable(context.Background()), "a funded turn pays its fee as usual")
 }
