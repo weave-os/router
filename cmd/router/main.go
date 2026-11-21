@@ -1169,7 +1169,7 @@ func main() {
 	)
 
 	analyticsSvc := analytics.NewService(repo.Analytics, time.Now)
-	defaultStrategy, defaultStrategyErr := server.DefaultStrategyFromEnv()
+	defaultStrategy, defaultStrategyErr := defaultStrategyFromEnv()
 	if defaultStrategyErr != nil {
 		logger.Error("ROUTER_DEFAULT_STRATEGY is invalid; refusing to boot", "err", defaultStrategyErr)
 		panic(defaultStrategyErr)
@@ -1203,7 +1203,7 @@ func main() {
 	waitForKeepWarm := startSubscriptionKeepWarm(processCtx, subscriptionRuntime, logger)
 	egressProbe.prepare(processCtx, logger, providerMap, envKeyedProviders, initializedOrigins)
 	logger.Info("Router startup initialization complete")
-	serverFeatures := withHMMAdminPorts(server.Features{
+	serverFeatures := withEnvServerConfig(withHMMAdminPorts(server.Features{
 		SeatUsage:                seatUsage,
 		SubscriptionLogins:       subscriptionLogins,
 		SubscriptionRefresh:      subscriptionRuntime,
@@ -1214,7 +1214,7 @@ func main() {
 		SubscriberAllowance:      subscriberAllowanceSvc,
 		SubscriptionPoolsEnabled: subscriptionPoolsEnabled,
 		PolicyStatus:             policyStatus,
-	}, servingAdmission, routingDistribution)
+	}, servingAdmission, routingDistribution), defaultStrategy)
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture
 	}
