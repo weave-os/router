@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/telemetry"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -28,7 +29,7 @@ import (
 type captureTelemetry struct {
 	mu           sync.Mutex
 	rows         []proxy.InsertTelemetryParams
-	shadowRows   []proxy.PolicyShadowDecision
+	shadowRows   []telemetry.PolicyShadowDecision
 	notify       chan struct{}
 	shadowNotify chan struct{}
 	// seqResult and seqErr configure GetTelemetryBySessionSequence; seqCalls
@@ -56,7 +57,7 @@ func (c *captureTelemetry) InsertRequestTelemetry(_ context.Context, p proxy.Ins
 	return nil
 }
 
-func (c *captureTelemetry) InsertPolicyShadowDecision(_ context.Context, event proxy.PolicyShadowDecision) error {
+func (c *captureTelemetry) InsertPolicyShadowDecision(_ context.Context, event telemetry.PolicyShadowDecision) error {
 	c.mu.Lock()
 	c.shadowRows = append(c.shadowRows, event)
 	c.mu.Unlock()
@@ -125,7 +126,7 @@ func (c *captureTelemetry) firstRow(t *testing.T) proxy.InsertTelemetryParams {
 	return c.rows[0]
 }
 
-func (c *captureTelemetry) firstShadowRow(t *testing.T) proxy.PolicyShadowDecision {
+func (c *captureTelemetry) firstShadowRow(t *testing.T) telemetry.PolicyShadowDecision {
 	t.Helper()
 	select {
 	case <-c.shadowNotify:

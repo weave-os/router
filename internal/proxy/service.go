@@ -257,7 +257,6 @@ const routingMarkerPrefix = "✦ **Weave Router** → "
 const maxSidecarDisplayMarkerRunes = 512
 const policyOutcomeReportTimeout = 2 * time.Second
 const policyFeedbackReportTimeout = 2 * time.Second
-const policyShadowDecisionTimeout = 3 * time.Second
 const policyOutcomeResponseMaxBytes = 256 * 1024
 
 type policyOutcomeResponse struct {
