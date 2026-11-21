@@ -26,12 +26,14 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/config"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/server"
 	"weave-os/router/smoke/hmmstub"
 )
 
 func main() {
+	config.ConfigureLogging()
 	if err := run(); err != nil {
 		slog.Error("Legacy runtime compatibility failed", "err", err)
 		os.Exit(1)

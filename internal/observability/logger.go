@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -88,20 +89,59 @@ func FromContext(ctx context.Context) *slog.Logger {
 
 var initOnce sync.Once
 
-func initLogger() {
-	slog.SetDefault(buildLogger(newHandler(resolveLevel())))
+type ColorMode int
+
+const (
+	ColorAuto ColorMode = iota
+	ColorOn
+	ColorOff
+)
+
+type Config struct {
+	Level        slog.Level
+	ServiceName  string
+	Format       string
+	Color        ColorMode
+	GCPProjectID string
 }
 
-func buildLogger(h slog.Handler) *slog.Logger {
-	logger := slog.New(h)
-	if name := serviceName(); name != "" {
-		logger = logger.With("name", name)
+var (
+	activeConfig    atomic.Pointer[Config]
+	loggerInstalled atomic.Bool
+)
+
+func Configure(cfg Config) {
+	activeConfig.Store(&cfg)
+	if loggerInstalled.Load() {
+		installLogger(cfg)
 	}
-	return logger
 }
 
-func resolveLevel() slog.Level {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("LOG_LEVEL"))) {
+func currentConfig() Config {
+	if cfg := activeConfig.Load(); cfg != nil {
+		return *cfg
+	}
+	return Config{}
+}
+
+func initLogger() {
+	installLogger(currentConfig())
+	loggerInstalled.Store(true)
+}
+
+func installLogger(cfg Config) {
+	slog.SetDefault(buildLogger(newHandler(cfg), cfg.ServiceName))
+}
+
+func buildLogger(h slog.Handler, name string) *slog.Logger {
+	if name == "" {
+		name = defaultServiceName
+	}
+	return slog.New(h).With("name", name)
+}
+
+func ParseLevel(raw string) slog.Level {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "debug":
 		return slog.LevelDebug
 	case "warn", "warning":
@@ -112,9 +152,9 @@ func resolveLevel() slog.Level {
 	return slog.LevelInfo
 }
 
-func serviceName() string {
-	for _, key := range []string{"NAME", "OTEL_SERVICE_NAME"} {
-		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+func ResolveServiceName(candidates ...string) string {
+	for _, v := range candidates {
+		if v = strings.TrimSpace(v); v != "" {
 			return v
 		}
 	}
@@ -123,8 +163,9 @@ func serviceName() string {
 
 const defaultServiceName = "router"
 
-func newHandler(level slog.Level) slog.Handler {
-	switch logFormat() {
+func newHandler(cfg Config) slog.Handler {
+	level := cfg.Level
+	switch cfg.Format {
 	case "json":
 		return slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 			Level:       level,
@@ -135,7 +176,7 @@ func newHandler(level slog.Level) slog.Handler {
 	case "tint":
 		return tint.NewHandler(os.Stderr, &tint.Options{Level: level, TimeFormat: time.Kitchen})
 	}
-	if useColor() {
+	if useColor(cfg.Color) {
 		return tint.NewHandler(os.Stderr, &tint.Options{Level: level, TimeFormat: time.Kitchen})
 	}
 	if isTerminal() {
@@ -147,8 +188,8 @@ func newHandler(level slog.Level) slog.Handler {
 	})
 }
 
-func logFormat() string {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("LOG_FORMAT"))) {
+func ParseFormat(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "json":
 		return "json"
 	case "text":
@@ -159,14 +200,24 @@ func logFormat() string {
 	return ""
 }
 
-func useColor() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("LOG_COLOR"))) {
+func ParseColor(logColor string, noColorSet bool) ColorMode {
+	switch strings.ToLower(strings.TrimSpace(logColor)) {
 	case "1", "true", "yes", "on":
-		return true
+		return ColorOn
 	case "0", "false", "no", "off":
-		return false
+		return ColorOff
 	}
-	if _, ok := os.LookupEnv("NO_COLOR"); ok {
+	if noColorSet {
+		return ColorOff
+	}
+	return ColorAuto
+}
+
+func useColor(mode ColorMode) bool {
+	switch mode {
+	case ColorOn:
+		return true
+	case ColorOff:
 		return false
 	}
 	return isTerminal()

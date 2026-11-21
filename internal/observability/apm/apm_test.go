@@ -12,16 +12,13 @@ import (
 )
 
 // Init is guarded by a sync.Once, so only one of these tests can ever
-// observe the "never initialized" no-op path in a given process. We rely on
-// WV_APM_OTLP_ENDPOINT being unset in the test environment and run the
+// observe the "never initialized" no-op path in a given process. We run the
 // no-op-path assertions first in this file; go test executes tests within a
 // file in source order, and package-level state is process-wide.
 
 func TestInit_NoEndpointIsNoOp(t *testing.T) {
-	t.Setenv("WV_APM_OTLP_ENDPOINT", "")
-
 	assert.NotPanics(t, func() {
-		apm.Init()
+		apm.Init(apm.Config{})
 	}, "Init must not panic when WV_APM_OTLP_ENDPOINT is unset")
 	assert.Contains(t, otel.GetTextMapPropagator().Fields(), "traceparent", "trace context must propagate even with export disabled")
 }

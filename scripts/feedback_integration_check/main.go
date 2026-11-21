@@ -11,6 +11,7 @@ import (
 	"time"
 
 	feedbackapi "weave-os/router/internal/api/feedback"
+	"weave-os/router/internal/config"
 	token "weave-os/router/internal/feedback"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/proxy"
@@ -22,6 +23,7 @@ import (
 )
 
 func main() {
+	config.ConfigureLogging()
 	dsn := os.Getenv("ROUTER_TEST_DATABASE_URL")
 	if dsn == "" {
 		fmt.Println("ROUTER_TEST_DATABASE_URL not set; skipping live-DB feedback check (see file header for usage)")

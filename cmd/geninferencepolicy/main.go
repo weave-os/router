@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"weave-os/router/internal/config"
 	"weave-os/router/internal/router/policy"
 )
 
@@ -15,6 +16,7 @@ const (
 )
 
 func main() {
+	config.ConfigureLogging()
 	check := flag.Bool("check", false, "fail when generated projections are stale")
 	flag.Parse()
 

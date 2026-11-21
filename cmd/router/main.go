@@ -75,13 +75,14 @@ import (
 )
 
 func main() {
+	config.ConfigureLogging()
 	logger := observability.Get()
 	egressProbe, err := newStartupEgressProbe(config.GetOr("ROUTER_STARTUP_EGRESS_ORIGINS", ""))
 	if err != nil {
 		logger.Error("Invalid startup egress configuration; refusing to boot", "err", err)
 		panic(err)
 	}
-	apm.Init()
+	apm.Init(apmConfigFromEnv())
 	if err := router.ValidateCatalogReasoningCapabilities(); err != nil {
 		logger.Error("Refusing to boot with invalid model reasoning capabilities", "err", err)
 		panic(err)

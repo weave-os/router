@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/config"
 	"weave-os/router/internal/postgres"
 
 	"github.com/google/uuid"
@@ -18,6 +19,7 @@ import (
 const concurrentRotations = 5
 
 func main() {
+	config.ConfigureLogging()
 	dsn := os.Getenv("ROUTER_TEST_DATABASE_URL")
 	if dsn == "" {
 		fmt.Println("ROUTER_TEST_DATABASE_URL not set; skipping live-DB rotate-key race check (see file header for usage)")

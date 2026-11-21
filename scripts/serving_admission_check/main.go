@@ -20,6 +20,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/config"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/postgres"
@@ -48,6 +49,7 @@ var fixtureTables = []struct {
 }
 
 func main() {
+	config.ConfigureLogging()
 	if err := run(); err != nil {
 		slog.Error("Serving admission integration failed", "err", err)
 		os.Exit(1)

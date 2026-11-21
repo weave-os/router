@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/config"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/escalationdashboard"
@@ -23,6 +24,7 @@ import (
 )
 
 func main() {
+	config.ConfigureLogging()
 	dsn := os.Getenv("ROUTER_TEST_DATABASE_URL")
 	if dsn == "" {
 		slog.Info("ROUTER_TEST_DATABASE_URL unset; skipping escalation database check")

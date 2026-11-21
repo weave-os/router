@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/config"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/providers"
 
@@ -21,6 +22,7 @@ import (
 const n = 2
 
 func main() {
+	config.ConfigureLogging()
 	dsn := os.Getenv("ROUTER_TEST_DATABASE_URL")
 	if dsn == "" {
 		fmt.Println("ROUTER_TEST_DATABASE_URL not set; skipping live-DB upsert-external race check (see file header for usage)")

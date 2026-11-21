@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/config"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/postgres/poolconfig"
@@ -27,6 +28,7 @@ import (
 const maximumObservedWait = 3 * time.Second
 
 func main() {
+	config.ConfigureLogging()
 	dsn := os.Getenv("ROUTER_TEST_DATABASE_URL")
 	if dsn == "" {
 		slog.Error("ROUTER_TEST_DATABASE_URL must name a local disposable migrated database")

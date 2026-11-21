@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"weave-os/router/internal/config"
 	"weave-os/router/internal/observability/otel"
 )
 
@@ -28,6 +29,7 @@ const piPricingPath = "install/pi-router/src/pricing.generated.ts"
 const benchPricingPath = "bench/weave_bench/prices.generated.json"
 
 func main() {
+	config.ConfigureLogging()
 	table := otel.AllPricing()
 	block := buildBlock(table)
 	for _, path := range scriptPaths {

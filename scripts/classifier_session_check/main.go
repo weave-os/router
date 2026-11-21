@@ -18,12 +18,14 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/config"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
 )
 
 func main() {
+	config.ConfigureLogging()
 	dsn := os.Getenv("ROUTER_TEST_DATABASE_URL")
 	if dsn == "" {
 		slog.Error("ROUTER_TEST_DATABASE_URL must name a disposable migrated database")
