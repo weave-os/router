@@ -12,13 +12,6 @@ type turnTelemetry struct {
 	turnClock SessionTurnClock
 }
 
-func (t turnTelemetry) newRecorder() telemetry.Recorder {
-	if t.emitter == nil {
-		return nil
-	}
-	return t.emitter.NewRecorder()
-}
-
 func (t turnTelemetry) newUsageExtractor(inner http.ResponseWriter, provider string) (*telemetry.UsageExtractor, http.ResponseWriter) {
 	if t.emitter == nil {
 		return newFallbackUsageExtractor(inner, provider)

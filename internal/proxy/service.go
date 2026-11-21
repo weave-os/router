@@ -1538,7 +1538,10 @@ func (s *Service) rememberGatewayLacksModel(ctx context.Context, provider, model
 }
 
 func (s *Service) newTelemetryRecorder() telemetry.Recorder {
-	return s.turnTelemetry.newRecorder()
+	if s.turnTelemetry.emitter == nil {
+		return nil
+	}
+	return s.turnTelemetry.emitter.NewRecorder()
 }
 
 func (s *Service) WithTranslationMetrics(metrics telemetry.TranslationMetrics) *Service {
