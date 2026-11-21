@@ -19,6 +19,7 @@ type RequestFacts struct {
 	AnthropicSubscription string
 	OpenAISubscription    string
 	OpenAIAccountID       string
+	ByokFeeUnpayable      bool
 }
 
 func (f RequestFacts) RouterKeyed() bool {

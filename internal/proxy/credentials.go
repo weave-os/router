@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"strings"
 
-	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 )
@@ -51,13 +51,7 @@ func ApplyIdentityHeader(ctx context.Context, upstream *http.Request) {
 }
 
 func byokFirst(ctx context.Context, provider string) bool {
-	keyFirst := false
-	for _, key := range credentials.ExternalKeysFromContext(ctx) {
-		if key.Provider == provider && (len(key.Plaintext) > 0 || key.CredentialError != nil) {
-			keyFirst = key.FundingPriority == auth.FundingPriorityKeyFirst
-		}
-	}
-	return keyFirst && !billing.ByokFeeUnpayable(ctx)
+	return credentials.KeyFirst(credentials.ExternalKeysFromContext(ctx), provider) && !billing.ByokFeeUnpayable(ctx)
 }
 
 func anthropicBYOKFirst(ctx context.Context) bool {
@@ -78,4 +72,27 @@ func codexSubscriptionCreds(token, accountID string) *Credentials {
 
 func clearCredentials(ctx context.Context) context.Context {
 	return context.WithValue(ctx, CredentialsContextKey{}, (*Credentials)(nil))
+}
+
+func resolveAndInjectCredentials(ctx context.Context, provider, model string, headers http.Header) context.Context {
+	subDisabled := subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx)
+	resolution := credentials.Resolve(requestFactsFrom(ctx, headers), provider, credentials.Suppression{
+		Claude: claudeSubscriptionSuppressed(ctx) || subDisabled || claudeModelSuppressed(ctx, model),
+		Codex:  codexSubscriptionSuppressed(ctx) || codexModelSuppressed(ctx, model) || codexChatEndpoint(ctx) || subDisabled || !codexSubscriptionCanAttemptModel(model),
+	})
+	if resolution.Credentials == nil {
+		if resolution.Clear {
+			return clearCredentials(ctx)
+		}
+		return ctx
+	}
+	if resolution.InboundSubscription {
+		log := observability.FromContext(ctx)
+		if provider == providers.ProviderAnthropic {
+			log.Info("Resolved Claude subscription credential", "credential_source", resolution.Credentials.Source)
+		} else {
+			log.Debug("Resolved Codex subscription credential for OpenAI turn", "credential_source", resolution.Credentials.Source)
+		}
+	}
+	return context.WithValue(ctx, CredentialsContextKey{}, resolution.Credentials)
 }
