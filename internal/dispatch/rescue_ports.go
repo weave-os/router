@@ -36,5 +36,11 @@ type RescueRouting interface {
 	EarlyStopRedoTarget(ctx context.Context, served router.Decision, est, sigSavings, outputReserve int) (router.Decision, bool)
 	ResolveCyberRefusalRetry(ctx context.Context) bool
 	IsHardPinnedTurn(ctx context.Context, strategy router.Strategy, tt turntype.TurnType) bool
-	CyberRefusalRetryTarget(ctx context.Context, failed router.Decision, strategy router.Strategy, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, role string, est, sigSavings, outputReserve int) (router.Decision, bool)
+	CyberRefusalRetryTarget(ctx context.Context, failed router.Decision, target RescueSessionTarget, role string, est, sigSavings, outputReserve int) (router.Decision, bool)
+}
+
+type RescueSessionTarget struct {
+	Strategy       router.Strategy
+	InstallationID uuid.UUID
+	SessionKey     [sessionpin.SessionKeyLen]byte
 }

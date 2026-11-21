@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -57,7 +58,7 @@ func (o *chatRescue) armCyberRetry(ctx context.Context, strategy router.Strategy
 		!o.routing.IsHardPinnedTurn(ctx, strategy, routeRes.TurnType) &&
 		!billing.SubscriptionOnlyFromContext(ctx)
 	if cyberRetryEligible {
-		target, found := o.routing.CyberRefusalRetryTarget(ctx, o.decision, strategy, routeRes.InstallationID, routeRes.SessionKey, stickyStateRole(routeRes),
+		target, found := o.routing.CyberRefusalRetryTarget(ctx, o.decision, dispatch.RescueSessionTarget{Strategy: strategy, InstallationID: routeRes.InstallationID, SessionKey: routeRes.SessionKey}, stickyStateRole(routeRes),
 			o.overflowEstimate, o.env.SignatureTokenSavings(), o.outputReserve)
 		o.cyberRetryViable = found && (o.routing.ShouldFailover(ctx) || o.routing.GatewaySiblingAllowed(ctx, target)) &&
 			(!subscriptionStateModelsEnabled(ctx) || !paidFallbackForbiddenForModel(ctx, target.Model))
