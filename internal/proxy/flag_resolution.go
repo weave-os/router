@@ -15,7 +15,7 @@ func (s *Service) ResolveTurnSignalCaptureEnabled(ctx context.Context) bool {
 }
 
 func (s *Service) ResolveTextRepetitionBreakEnabled(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyTextRepetitionBreak, s.textRepetitionBreakEnabled)
+	return flags.BoolOr(ctx, flags.KeyTextRepetitionBreak, s.lifecycle.TextRepetitionBreak())
 }
 
 func (s *Service) ResolvePlannerEnabled(ctx context.Context) bool {
