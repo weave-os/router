@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
@@ -16,7 +15,7 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-const subscriptionThirdPartyDenialTTL = subscriptionModelDenialTTL
+const subscriptionThirdPartyDenialTTL = credentials.SubscriptionModelDenialTTL
 
 var ErrSubscriptionClientAppRefused = errors.New("claude subscription refused third-party client")
 
@@ -89,16 +88,4 @@ func knownThirdPartyClientApp(clientApp string) bool {
 		return true
 	}
 	return false
-}
-
-func thirdPartyDenialModel(clientApp string) string {
-	return "\x00client-app:" + clientApp
-}
-
-func (a *subscriptionModelAccess) denyManagedClientApp(account, provider, clientApp string, until time.Time) {
-	a.denyManaged("account:"+account, account, provider, thirdPartyDenialModel(clientApp), until)
-}
-
-func (a *subscriptionModelAccess) managedClientAppDenied(account, provider, clientApp string, now time.Time) bool {
-	return a.managedDenied("account:"+account, account, provider, thirdPartyDenialModel(clientApp), now)
 }

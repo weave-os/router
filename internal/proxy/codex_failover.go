@@ -172,7 +172,7 @@ func (s *Service) recordCodexPlanSpent(ctx context.Context, codexTok string, res
 		"resets_at", resetAt)
 }
 
-func (s *Service) codexExtraCreditsAllowed() bool { return s.codexExtraCredits }
+func (s *Service) codexExtraCreditsAllowed() bool { return s.credentials.CodexExtraCredits }
 
 func codexSubscriptionRotates(credentialCtx context.Context, err error) bool {
 	if !servedOnCodexSubscription(credentialCtx) {
