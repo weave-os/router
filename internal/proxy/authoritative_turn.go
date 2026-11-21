@@ -56,17 +56,11 @@ func serveAuthoritativeTurn(ctx context.Context, s *Service, res *turnLoopResult
 			return *res, nil
 		}
 
-		rerouteReq := req
-		rerouted, rerouteErr := s.routeFor(ctx, strategy, rerouteReq)
+		rerouted, rerouteErr := s.routeFor(ctx, strategy, req)
 		if rerouteErr != nil {
 			return *res, rerouteErr
 		}
-		reroutedPin := sessionpin.Pin{Model: rerouted.Model, Provider: rerouted.Provider}
-		available := s.availableModels == nil
-		if s.availableModels != nil {
-			_, available = s.availableModels[rerouted.Model]
-		}
-		if !available || !candidates.PinEligible(reroutedPin, rerouteReq) {
+		if !routingpolicy.ExcludedRerouteServable(rerouted, req, s.availableModels) {
 			return *res, fmt.Errorf("authoritative policy returned excluded model %q after reroute: %w", rerouted.Model, router.ErrNoEligibleProvider)
 		}
 		res.Fresh = rerouted
