@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -47,7 +48,7 @@ func TestProxyMessages_UpstreamOverflowIsLeftForNativeRendering(t *testing.T) {
 	require.Error(t, err)
 	cls, ok := proxy.ClassifyDispatchError(err)
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorContextWindowExceeded, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorContextWindowExceeded, cls.Kind)
 	assert.Len(t, upstream.proxyBodies, 1, "an overflow is not retried against the same window")
 	assert.Zero(t, rec.Body.Len(), "the upstream's OpenAI-shaped body must not reach an Anthropic client")
 }
@@ -96,7 +97,7 @@ func proxyResponsesOverflow(t *testing.T, stream bool) *httptest.ResponseRecorde
 	require.Error(t, err)
 	cls, ok := proxy.ClassifyDispatchError(err)
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorContextWindowExceeded, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorContextWindowExceeded, cls.Kind)
 	return rec
 }
 
@@ -169,7 +170,7 @@ func TestCrossFormatResponsesOverflowClassifiesAsContextWindowExceeded(t *testin
 			},
 		},
 	}
-	for name, ingress := range ingresses {
+	for name, surface := range ingresses {
 		for _, stream := range []bool{true, false} {
 			t.Run(fmt.Sprintf("%s/stream=%t", name, stream), func(t *testing.T) {
 				upstream := &responsesOverflowClient{}
@@ -179,13 +180,13 @@ func TestCrossFormatResponsesOverflowClassifiesAsContextWindowExceeded(t *testin
 					nil, newFakePinStore(), false, providers.ProviderOpenAI, "gpt-5-mini", nil), hmm.ServingPorts())
 
 				rec := httptest.NewRecorder()
-				body := []byte(fmt.Sprintf(ingress.body, stream))
-				err := ingress.proxy(svc)(authedCtx(overflowInstallationID), body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, ingress.path, nil))
+				body := []byte(fmt.Sprintf(surface.body, stream))
+				err := surface.proxy(svc)(authedCtx(overflowInstallationID), body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, surface.path, nil))
 
 				require.Error(t, err)
 				cls, ok := proxy.ClassifyDispatchError(err)
 				require.True(t, ok)
-				assert.Equal(t, proxy.DispatchErrorContextWindowExceeded, cls.Kind)
+				assert.Equal(t, ingress.DispatchErrorContextWindowExceeded, cls.Kind)
 				require.Equal(t, []providers.Endpoint{providers.EndpointResponses}, upstream.endpoints,
 					"served on the Responses API, and an overflow is not retried against the same window")
 				assert.NotContains(t, rec.Body.String(), "upstream Responses request failed")
@@ -254,7 +255,7 @@ func TestHMMTotalOverflowReachesUpstreamOnEveryIngress(t *testing.T) {
 			require.Error(t, err)
 			cls, ok := proxy.ClassifyDispatchError(err)
 			require.True(t, ok)
-			assert.Equal(t, proxy.DispatchErrorContextWindowExceeded, cls.Kind, "got %v", err)
+			assert.Equal(t, ingress.DispatchErrorContextWindowExceeded, cls.Kind, "got %v", err)
 			require.Len(t, upstream.proxyBodies, 1, "the widest model is dispatched so the provider decides")
 		})
 	}
@@ -277,7 +278,7 @@ func TestTotalOverflowIgnoresWiderUnservableModel(t *testing.T) {
 	require.Error(t, err)
 	cls, ok := proxy.ClassifyDispatchError(err)
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorContextWindowExceeded, cls.Kind, "got %v", err)
+	assert.Equal(t, ingress.DispatchErrorContextWindowExceeded, cls.Kind, "got %v", err)
 	require.Len(t, upstream.proxyBodies, 1, "the widest servable model is dispatched so the provider decides")
 }
 
@@ -295,6 +296,6 @@ func TestHMMPolicyEmptiedPoolStaysNoRoutableModels(t *testing.T) {
 	require.Error(t, err)
 	cls, ok := proxy.ClassifyDispatchError(err)
 	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorNoRoutableModels, cls.Kind, "got %v", err)
+	assert.Equal(t, ingress.DispatchErrorNoRoutableModels, cls.Kind, "got %v", err)
 	assert.Empty(t, upstream.proxyBodies)
 }

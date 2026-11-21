@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/observability/otel"
@@ -132,7 +133,7 @@ func TestTelemetryPort_CommandFeedbackRecordsAndFlushes(t *testing.T) {
 	assert.Equal(t, "claude-haiku-4-5", attrs["feedback.served_model"])
 	assert.Equal(t, "claude-sonnet-4-6", attrs["requested.model"])
 	assert.Equal(t, "got stuck on Haiku for too long", attrs["feedback.text"])
-	assert.Equal(t, proxy.RouterFeedbackSourceUser, attrs["feedback.source"])
+	assert.Equal(t, conversation.RouterFeedbackSourceUser, attrs["feedback.source"])
 	assert.Contains(t, attrs, "client.app")
 }
 

@@ -137,7 +137,7 @@ func TestRescueBasisForTurnKeepsHeldPrimaryIdentity(t *testing.T) {
 	}
 	turn := turnLoopResult{StickyHit: true, Fresh: router.Decision{Model: "claude-opus-5-5", Metadata: fresh}}
 
-	basis := rescueBasisForTurn(primary, turn)
+	basis := rescueBasisForTurn(primary, rescueTurnOf(turn))
 
 	assert.Equal(t, primary.Model, basis.Model)
 	assert.Equal(t, primary.Provider, basis.Provider)
@@ -146,9 +146,9 @@ func TestRescueBasisForTurnKeepsHeldPrimaryIdentity(t *testing.T) {
 	assert.NotSame(t, fresh, basis.Metadata)
 	assert.Equal(t, []string{"claude-opus-5-5"}, basis.Metadata.RescueModels, "the held pin must retain eligible rescue models")
 	assert.Equal(t, []string{"claude-opus-5-5"}, fresh.RescueModels, "fresh policy metadata must remain unchanged")
-	assert.Nil(t, rescueBasisForTurn(primary, turnLoopResult{Fresh: turn.Fresh}).Metadata)
+	assert.Nil(t, rescueBasisForTurn(primary, rescueTurnOf(turnLoopResult{Fresh: turn.Fresh})).Metadata)
 	turn.HardPinned = true
-	assert.Nil(t, rescueBasisForTurn(primary, turn).Metadata)
+	assert.Nil(t, rescueBasisForTurn(primary, rescueTurnOf(turn)).Metadata)
 }
 
 func TestRescueBasisForHeldPinPreservesTierAndPolicyOrder(t *testing.T) {
@@ -166,7 +166,7 @@ func TestRescueBasisForHeldPinPreservesTierAndPolicyOrder(t *testing.T) {
 		Fresh:     router.Decision{Model: "claude-sonnet-5", Metadata: freshMetadata},
 	}
 
-	basis := rescueBasisForTurn(primary, turn)
+	basis := rescueBasisForTurn(primary, rescueTurnOf(turn))
 	service := siblingService(providers.ProviderAnthropic, providers.ProviderOpenAI)
 	decisions := service.siblingFailoverDecisions(context.Background(), basis, 1_000, 0, 0)
 

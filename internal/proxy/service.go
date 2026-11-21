@@ -115,7 +115,6 @@ type Service struct {
 	bandSwap                       *bandswap.Classifier
 
 	turnSignalCaptureEnabled     bool
-	feedbackStore                feedback.RouterFeedbackStore
 	summarizer                   handover.Summarizer
 	webSearch                    websearch.Executor
 	compactionHandoverSummarizer handover.Summarizer
@@ -1248,11 +1247,6 @@ func (s *Service) WithTurnSignalCapture(enabled bool) *Service {
 	return s
 }
 
-func (s *Service) WithRouterFeedbackStore(store feedback.RouterFeedbackStore) *Service {
-	s.feedbackStore = store
-	return s
-}
-
 func (s *Service) WithContentCapture(mode ContentCaptureMode, maxBytes int, redactor Redactor) *Service {
 	s.captureMode = mode
 	if maxBytes > 0 {
@@ -2155,7 +2149,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if !agentShadowMode {
 		if cmd, hasCmd := env.ExtractRouterFeedbackCommand(); hasCmd {
 			log.Info("ProxyMessages router-feedback command")
-			if err := s.handleRouterFeedbackCommand(ctx, w, env, cmd, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, feats.Tokens, !cmd.FromToolResult); err != nil {
+			if err := (routerFeedbackCommand{w: w, env: env, cmd: cmd, target: sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, inputTokens: feats.Tokens, synthetic: !cmd.FromToolResult}).handle(ctx, s); err != nil {
 				return err
 			}
 			if !cmd.FromToolResult {
@@ -2626,11 +2620,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	rescue := &messagesRescue{
 		rescueChain: &rescueChain{
-			rescuePorts: rescuePortsFor(s), strategyPorts: s.strategyPorts, seats: seatAdmissionOf(s), clock: s.clock, usageObserver: s.usageObserver,
+			rescuePorts: rescuePortsFor(s), markers: rescueMarkers{s.strategyPorts, r.Header, routeRes, s.usageObserver}, seats: seatAdmissionOf(s), clock: s.clock, usageObserver: s.usageObserver,
 			r:                r,
 			log:              log,
 			env:              env,
-			routeRes:         routeRes,
+			routeRes:         rescueTurnOf(routeRes),
 			req:              &req,
 			opts:             opts,
 			contentSink:      contentSink,
@@ -3472,57 +3466,6 @@ func (s *Service) excludeCodexOAuthOnlyModels(
 	return excluded
 }
 
-func resolveAndInjectCredentials(ctx context.Context, provider, model string, headers http.Header) context.Context {
-	byok := credentials.BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx))
-	if byok[provider] != nil && byok[provider].FundingPriority == auth.FundingPriorityKeyFirst && !billing.ByokFeeUnpayable(ctx) {
-		return context.WithValue(ctx, CredentialsContextKey{}, byok[provider])
-	}
-	routerKeyed := installationIDFromContext(ctx) != (uuid.UUID{})
-	subDisabled := subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx)
-	suppressClaudeSub := claudeSubscriptionSuppressed(ctx) || subDisabled || claudeModelSuppressed(ctx, model)
-	suppressCodexSub := codexSubscriptionSuppressed(ctx) || codexModelSuppressed(ctx, model) || codexChatEndpoint(ctx) || subDisabled || !codexSubscriptionCanAttemptModel(model)
-	if provider == providers.ProviderAnthropic && !suppressClaudeSub {
-		if sub := subscriptionCredsFromToken(anthropicSubscriptionFromContext(ctx)); sub != nil {
-			return context.WithValue(ctx, CredentialsContextKey{}, sub)
-		}
-		if inbound := ExtractClientCredentials(provider, headers); inbound != nil && inbound.OAuth {
-			observability.FromContext(ctx).Info("Resolved Claude subscription credential",
-				"credential_source", inbound.Source)
-			return context.WithValue(ctx, CredentialsContextKey{}, inbound)
-		}
-	}
-	if provider == providers.ProviderOpenAI && !suppressCodexSub {
-		if sub := codexSubscriptionFromContext(ctx); sub != nil {
-			return context.WithValue(ctx, CredentialsContextKey{}, sub)
-		}
-		if inbound := ExtractClientCredentials(provider, headers); inbound != nil && inbound.OAuth {
-			observability.FromContext(ctx).Debug("Resolved Codex subscription credential for OpenAI turn", "credential_source", inbound.Source)
-			return context.WithValue(ctx, CredentialsContextKey{}, inbound)
-		}
-	}
-	var creds *Credentials
-	if byok != nil {
-		creds = byok[provider]
-	}
-	if creds == nil && !routerKeyed {
-		client := ExtractClientCredentials(provider, headers)
-		if client != nil && client.OAuth &&
-			((provider == providers.ProviderAnthropic && suppressClaudeSub) ||
-				(provider == providers.ProviderOpenAI && suppressCodexSub)) {
-			client = nil
-		}
-		creds = client
-	}
-	if creds != nil {
-		return context.WithValue(ctx, CredentialsContextKey{}, creds)
-	}
-	if (suppressClaudeSub && provider == providers.ProviderAnthropic) ||
-		(suppressCodexSub && provider == providers.ProviderOpenAI) {
-		return clearCredentials(ctx)
-	}
-	return ctx
-}
-
 func addTimingAttrs(ctx context.Context, b *telemetry.AttrBuilder) {
 	applyServingSpanAttrs(ctx, b)
 	t := timing.TimingFrom(ctx)
@@ -3840,7 +3783,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		log.Info("ProxyOpenAIChatCompletion router-feedback command")
 		skillFeedback := codexSkillTurnFrom(ctx) == translate.CodexSkillTurnFeedback
 		synthetic := !cmd.FromToolResult || skillFeedback
-		if err := s.handleRouterFeedbackCommand(ctx, w, env, cmd, sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, feats.Tokens, synthetic); err != nil {
+		if err := (routerFeedbackCommand{w: w, env: env, cmd: cmd, target: sessionTarget{strategy: strategy, installationID: facts.InstallationID, sessionKey: sessionKey}, inputTokens: feats.Tokens, synthetic: synthetic}).handle(ctx, s); err != nil {
 			return err
 		}
 		if synthetic {
@@ -4278,11 +4221,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	rescue := &chatRescue{
 		rescueChain: &rescueChain{
-			rescuePorts: rescuePortsFor(s), strategyPorts: s.strategyPorts, seats: seatAdmissionOf(s), clock: s.clock,
+			rescuePorts: rescuePortsFor(s), markers: rescueMarkers{s.strategyPorts, r.Header, routeRes, s.usageObserver}, seats: seatAdmissionOf(s), clock: s.clock,
 			r:                r,
 			log:              log,
 			env:              env,
-			routeRes:         routeRes,
+			routeRes:         rescueTurnOf(routeRes),
 			req:              &routeRequest,
 			opts:             opts,
 			contentSink:      contentSink,

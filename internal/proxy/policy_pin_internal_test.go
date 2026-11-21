@@ -14,6 +14,7 @@ import (
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -84,7 +85,7 @@ func TestClassifyDispatchError_PolicyPinUnavailableIs503WithTypedReason(t *testi
 	cls, ok := ClassifyDispatchError(errors.Join(errors.New("hmm: arm selection"), router.ErrPolicyPinUnavailable))
 
 	require.True(t, ok)
-	assert.Equal(t, DispatchErrorPolicyPinUnavailable, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorPolicyPinUnavailable, cls.Kind)
 	assert.Equal(t, http.StatusServiceUnavailable, cls.Status)
 	assert.Contains(t, cls.Message, router.PolicyPinUnavailableReason)
 }

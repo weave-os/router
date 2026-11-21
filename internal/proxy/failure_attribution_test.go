@@ -163,7 +163,7 @@ func TestDispatchPlanned_ExhaustionNamesOwnerInTerminalMessage(t *testing.T) {
 			assert.Equal(t, tc.message, TerminalErrorMessage(err))
 			cls, ok := ClassifyDispatchError(err)
 			require.True(t, ok)
-			assert.Equal(t, DispatchErrorUpstreamStatus, cls.Kind)
+			assert.Equal(t, ingress.DispatchErrorUpstreamStatus, cls.Kind)
 			assert.Equal(t, 503, cls.Status)
 			assert.Equal(t, tc.message, cls.Message)
 		})

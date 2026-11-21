@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/telemetry/turnrecord"
@@ -22,10 +23,10 @@ import (
 )
 
 // declaredConstsOfType lists the package-level constant names declared with
-// typeName in this package, so a newly added value cannot skip the mapping.
-func declaredConstsOfType(t *testing.T, typeName string) []string {
+// typeName in dir, so a newly added value cannot skip the mapping.
+func declaredConstsOfType(t *testing.T, dir, typeName string) []string {
 	t.Helper()
-	files, err := filepath.Glob("*.go")
+	files, err := filepath.Glob(filepath.Join(dir, "*.go"))
 	require.NoError(t, err)
 	fset := token.NewFileSet()
 	var names []string
@@ -59,21 +60,21 @@ func declaredConstsOfType(t *testing.T, typeName string) []string {
 }
 
 func TestDispatchErrorKindOwner_EveryKindLabeled(t *testing.T) {
-	names := declaredConstsOfType(t, "DispatchErrorKind")
+	names := declaredConstsOfType(t, "../ingress", "DispatchErrorKind")
 	// iota-declared: index i in declaration order is the kind's value.
 	for i, name := range names {
 		if name == "_" {
 			continue
 		}
-		kind := DispatchErrorKind(i)
+		kind := ingress.DispatchErrorKind(i)
 		switch kind {
-		case DispatchErrorNone, DispatchErrorUpstreamStatus:
+		case ingress.DispatchErrorNone, ingress.DispatchErrorUpstreamStatus:
 			continue
 		default:
 		}
 		assert.NotEqual(t, turnrecord.FailureOwnerUnknown, dispatchErrorKindOwner(kind), "%s has no failure owner", name)
 	}
-	assert.Equal(t, turnrecord.FailureOwnerUnknown, dispatchErrorKindOwner(DispatchErrorKind(len(names))))
+	assert.Equal(t, turnrecord.FailureOwnerUnknown, dispatchErrorKindOwner(ingress.DispatchErrorKind(len(names))))
 }
 
 func TestStreamFailureOwner_EveryClassLabeled(t *testing.T) {
@@ -85,7 +86,7 @@ func TestStreamFailureOwner_EveryClassLabeled(t *testing.T) {
 		"streamFailureUpstreamTimeout": streamFailureUpstreamTimeout, "streamFailureClientCanceled": streamFailureClientCanceled,
 		"streamFailureDeadline": streamFailureDeadline, "streamFailureOther": streamFailureOther,
 	}
-	for _, name := range declaredConstsOfType(t, "streamFailureClass") {
+	for _, name := range declaredConstsOfType(t, ".", "streamFailureClass") {
 		class, ok := classes[name]
 		require.True(t, ok, "%s is not covered by this test; add it and give it an owner", name)
 		owner := streamFailureOwner(class)

@@ -1,10 +1,13 @@
 package proxy
 
-import "weave-os/router/internal/refusal"
+import (
+	"weave-os/router/internal/ingress"
+	"weave-os/router/internal/refusal"
+)
 
-func refusalClass(kind DispatchErrorKind, reason refusal.Kind, message, logLevel, logMessage string) DispatchErrorClass {
+func refusalClass(kind ingress.DispatchErrorKind, reason refusal.Kind, message, logLevel, logMessage string) ingress.DispatchErrorClass {
 	contract := reason.Contract()
-	return DispatchErrorClass{
+	return ingress.DispatchErrorClass{
 		Kind:          kind,
 		Status:        contract.Status,
 		Message:       message,

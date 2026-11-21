@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
@@ -184,7 +185,7 @@ func TestIneligibleModelIsAClassifiedClientError(t *testing.T) {
 	cls, matched := ClassifyDispatchError(fmt.Errorf("strategy %q: %w", "cluster", eligibility.ErrModelIneligible))
 
 	require.True(t, matched)
-	assert.Equal(t, DispatchErrorProductIneligible, cls.Kind)
+	assert.Equal(t, ingress.DispatchErrorProductIneligible, cls.Kind)
 	assert.Equal(t, http.StatusForbidden, cls.Status)
 	assert.True(t, cls.Kind.IsClientError())
 }
