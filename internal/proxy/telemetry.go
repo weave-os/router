@@ -476,7 +476,7 @@ func applyPlannerTelemetry(p *InsertTelemetryParams, res turnLoopResult) {
 	}
 }
 
-func applyEffortTelemetry(p *InsertTelemetryParams, e effortResolution) {
+func applyEffortTelemetry(p *InsertTelemetryParams, e dispatch.EffortResolution) {
 	if p == nil || e.Source == "" {
 		return
 	}

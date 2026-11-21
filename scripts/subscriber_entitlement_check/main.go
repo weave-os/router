@@ -13,12 +13,14 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"weave-os/router/cmd/logconfig"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/sqlc"
 	"weave-os/router/internal/subscriptions/entitlement"
 )
 
 func main() {
+	logconfig.Configure()
 	if err := run(); err != nil {
 		slog.Error("Subscriber entitlement integration failed", "err", err)
 		os.Exit(1)
