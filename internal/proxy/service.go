@@ -4998,8 +4998,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					stripPCK = true
 					log.Warn("Gateway rejected prompt_cache_key; retrying without the affinity hint",
 						"model", d.Model,
-						"decision_provider", d.Provider,
-						"request_id", facts.RequestID)
+						"decision_provider", d.Provider)
 					if preludeBuf != nil {
 						preludeBuf.Discard()
 					}
@@ -5016,8 +5015,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				s.gatewayCaps.RememberLacksResponses(responsesEndpointKey)
 				log.Warn("OpenAI endpoint rejected the Responses API; retrying on chat/completions",
 					"model", d.Model,
-					"decision_provider", d.Provider,
-					"request_id", facts.RequestID)
+					"decision_provider", d.Provider)
 				if preludeBuf != nil {
 					preludeBuf.Discard()
 				}
