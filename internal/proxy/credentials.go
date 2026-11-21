@@ -82,23 +82,23 @@ func clearCredentials(ctx context.Context) context.Context {
 
 func resolveAndInjectCredentials(ctx context.Context, provider, model string, headers http.Header) context.Context {
 	subDisabled := subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx)
-	res := credentials.Resolve(requestFactsFrom(ctx, headers), provider, credentials.Suppression{
+	resolution := credentials.Resolve(requestFactsFrom(ctx, headers), provider, credentials.Suppression{
 		Claude: claudeSubscriptionSuppressed(ctx) || subDisabled || claudeModelSuppressed(ctx, model),
 		Codex:  codexSubscriptionSuppressed(ctx) || codexModelSuppressed(ctx, model) || codexChatEndpoint(ctx) || subDisabled || !codexSubscriptionCanAttemptModel(model),
 	})
-	if res.Credentials == nil {
-		if res.Clear {
+	if resolution.Credentials == nil {
+		if resolution.Clear {
 			return clearCredentials(ctx)
 		}
 		return ctx
 	}
-	if res.InboundSubscription {
+	if resolution.InboundSubscription {
 		log := observability.FromContext(ctx)
 		if provider == providers.ProviderAnthropic {
-			log.Info("Resolved Claude subscription credential", "credential_source", res.Credentials.Source)
+			log.Info("Resolved Claude subscription credential", "credential_source", resolution.Credentials.Source)
 		} else {
-			log.Debug("Resolved Codex subscription credential for OpenAI turn", "credential_source", res.Credentials.Source)
+			log.Debug("Resolved Codex subscription credential for OpenAI turn", "credential_source", resolution.Credentials.Source)
 		}
 	}
-	return context.WithValue(ctx, CredentialsContextKey{}, res.Credentials)
+	return context.WithValue(ctx, CredentialsContextKey{}, resolution.Credentials)
 }
