@@ -56,11 +56,6 @@ func TestEnvironmentIsReadOnlyByEntrypointsAndConfig(t *testing.T) {
 	measured := measureEnvReads(t, root, loadTypedPackages(t, root, "./..."))
 	violations := compareEnvReads(measured, envReadAllowlist)
 	assert.Empty(t, violations, "environment read outside cmd/, package main and internal/config: %s", envOwnershipFix)
-	for _, file := range sortedStrings(slices.Collect(mapKeys(envReadAllowlist))) {
-		if measured[file] < envReadAllowlist[file] {
-			t.Logf("%s now has %d environment reads (allowlist %d); lower or delete its envReadAllowlist entry", file, measured[file], envReadAllowlist[file])
-		}
-	}
 }
 
 func TestEnvReadDetectionCoversIndirectReadersAndAliases(t *testing.T) {
@@ -70,11 +65,13 @@ func TestEnvReadDetectionCoversIndirectReadersAndAliases(t *testing.T) {
 		"flag import, aliased os.Getenv and os.LookupEnv, internal/config.GetOr and http.ProxyFromEnvironment count; a method named Get on a local value does not")
 }
 
-func TestEnvReadAllowlistRejectsNewFilesAndGrowth(t *testing.T) {
+func TestEnvReadAllowlistRejectsNewFilesGrowthAndStaleEntries(t *testing.T) {
 	allowlist := map[string]int{"internal/a/a.go": 2}
-	assert.Empty(t, compareEnvReads(map[string]int{"internal/a/a.go": 1}, allowlist))
+	assert.Empty(t, compareEnvReads(map[string]int{"internal/a/a.go": 2}, allowlist))
+	assert.Equal(t, []string{"internal/a/a.go: 1 environment reads: lower its envReadAllowlist entry from 2 to 1, the allowlist only goes down"}, compareEnvReads(map[string]int{"internal/a/a.go": 1}, allowlist))
+	assert.Equal(t, []string{"internal/a/a.go: no environment reads left: delete its envReadAllowlist entry"}, compareEnvReads(map[string]int{}, allowlist))
 	assert.Equal(t, []string{"internal/a/a.go: 3 environment reads (allowlist 2)"}, compareEnvReads(map[string]int{"internal/a/a.go": 3}, allowlist))
-	assert.Equal(t, []string{"internal/b/b.go: 1 environment reads (allowlist 0)"}, compareEnvReads(map[string]int{"internal/b/b.go": 1}, allowlist))
+	assert.Equal(t, []string{"internal/b/b.go: 1 environment reads (allowlist 0)"}, compareEnvReads(map[string]int{"internal/a/a.go": 2, "internal/b/b.go": 1}, allowlist))
 }
 
 func TestEnvOwnershipScopeExemptsEntrypointsAndConfig(t *testing.T) {
@@ -104,10 +101,10 @@ func measureEnvReads(t *testing.T, root string, loaded []*packages.Package) map[
 			continue
 		}
 		for _, file := range pkg.Syntax {
-			name, err := filepath.Rel(root, pkg.Fset.Position(file.Pos()).Filename)
+			relPath, err := filepath.Rel(root, pkg.Fset.Position(file.Pos()).Filename)
 			require.NoError(t, err)
 			if count := countEnvReads(pkg.TypesInfo, file); count > 0 {
-				measured[filepath.ToSlash(name)] += count
+				measured[filepath.ToSlash(relPath)] += count
 			}
 		}
 	}
@@ -147,9 +144,15 @@ func isEnvReadObject(object types.Object) bool {
 
 func compareEnvReads(measured, allowlist map[string]int) []string {
 	var violations []string
-	for _, file := range sortedStrings(slices.Collect(mapKeys(measured))) {
-		if measured[file] > allowlist[file] {
-			violations = append(violations, fmt.Sprintf("%s: %d environment reads (allowlist %d)", file, measured[file], allowlist[file]))
+	for _, file := range sortedStrings(append(slices.Collect(mapKeys(measured)), slices.Collect(mapKeys(allowlist))...)) {
+		have, budget := measured[file], allowlist[file]
+		switch {
+		case have > budget:
+			violations = append(violations, fmt.Sprintf("%s: %d environment reads (allowlist %d)", file, have, budget))
+		case have == 0:
+			violations = append(violations, fmt.Sprintf("%s: no environment reads left: delete its envReadAllowlist entry", file))
+		case have < budget:
+			violations = append(violations, fmt.Sprintf("%s: %d environment reads: lower its envReadAllowlist entry from %d to %d, the allowlist only goes down", file, have, budget, have))
 		}
 	}
 	return violations
