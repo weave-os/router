@@ -24,27 +24,6 @@ import (
 
 const routerFeedbackCommandSpanName = "router.feedback.command"
 
-type RouterFeedbackStore interface {
-	InsertRouterFeedback(ctx context.Context, p RouterFeedbackEvent) error
-}
-
-type RouterFeedbackEvent struct {
-	InstallationID string
-	SessionKey     []byte
-	Role           string
-	RouterUserID   string
-	ClientApp      string
-	SessionID      string
-	RequestedModel string
-	ServedModel    string
-	Rating         string
-	SuggestedLabel string
-	Feedback       string
-	Source         string
-	RequestID      string
-	RouteID        string
-}
-
 const (
 	RouterFeedbackSourceUser = "user"
 	RouterFeedbackSourceAuto = "auto"
@@ -122,7 +101,7 @@ func (s *Service) handleRouterFeedbackCommand(
 	externalID, _ := ctx.Value(ExternalIDContextKey{}).(string)
 
 	if s.feedbackStore != nil && target.installationID != uuid.Nil {
-		event := RouterFeedbackEvent{
+		event := feedback.RouterFeedbackEvent{
 			InstallationID: target.installationID.String(),
 			SessionKey:     target.sessionKey[:],
 			Role:           role,

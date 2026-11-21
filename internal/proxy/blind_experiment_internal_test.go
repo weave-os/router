@@ -9,6 +9,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm"
@@ -182,7 +183,7 @@ func TestCallerModelPassthroughServesWeaveAutoOnTheClientDefault(t *testing.T) {
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	enabled := map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenAI: {}}
-	for clientApp, want := range map[string]string{ClientAppClaudeCode: "claude-opus-5-5", ClientAppCodex: "gpt-6.1-sol"} {
+	for clientApp, want := range map[string]string{requestcontext.ClientAppClaudeCode: "claude-opus-5-5", requestcontext.ClientAppCodex: "gpt-6.1-sol"} {
 		ctx := context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough),
 			ClientIdentityContextKey{}, ClientIdentity{ClientApp: clientApp})
 
@@ -501,8 +502,8 @@ func TestBlindPassthroughUnknownModelServesClientBaseline(t *testing.T) {
 		provider  string
 		want      string
 	}{
-		{name: "claude code retired id", client: ClientAppClaudeCode, requested: "claude-retired-9", provider: providers.ProviderAnthropic, want: "claude-opus-5-5"},
-		{name: "codex retired id", client: ClientAppCodex, requested: "gpt-retired-1", provider: providers.ProviderOpenAI, want: "gpt-6.1-sol"},
+		{name: "claude code retired id", client: requestcontext.ClientAppClaudeCode, requested: "claude-retired-9", provider: providers.ProviderAnthropic, want: "claude-opus-5-5"},
+		{name: "codex retired id", client: requestcontext.ClientAppCodex, requested: "gpt-retired-1", provider: providers.ProviderOpenAI, want: "gpt-6.1-sol"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			service := withHMMPorts(NewService(nil, nil, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
@@ -531,7 +532,7 @@ func TestBlindPassthroughUnknownModelBaselineHonoursExclusions(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			service := withHMMPorts(NewService(nil, nil, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
-			ctx := context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppClaudeCode})
+			ctx := context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppClaudeCode})
 			req := tc.req
 			req.RequestedModel = "claude-retired-9"
 			req.EnabledProviders = map[string]struct{}{providers.ProviderAnthropic: {}}
@@ -584,7 +585,7 @@ func TestBlindExperimentTelemetryNamesWhatDecidedTheModel(t *testing.T) {
 			if tc.cohort {
 				state.CohortExperimentID, state.CohortGroupID, state.ScheduledArm = uuid.NewString(), 1, tc.arm
 			}
-			client := ClientAppClaudeCode
+			client := requestcontext.ClientAppClaudeCode
 			if tc.client != "" {
 				client = tc.client
 			}

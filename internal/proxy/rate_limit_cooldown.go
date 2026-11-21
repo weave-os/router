@@ -14,7 +14,7 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 )
 
-const DefaultRateLimitCooldownSeconds = 45
+const DefaultRateLimitCooldownSeconds = dispatch.DefaultRateLimitCooldownSeconds
 
 func mergeDemotionCooldowns(a, b map[string]time.Time) map[string]time.Time {
 	if len(a) == 0 {

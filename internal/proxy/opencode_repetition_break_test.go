@@ -9,6 +9,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
@@ -36,7 +37,7 @@ func TestService_ProxyOpenAIResponses_BreaksRepeatedOpenCodeAnswers(t *testing.T
 	}`)
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(string(body)))
 	response := httptest.NewRecorder()
-	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
+	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppOpencode})
 
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, response, request))
 	assert.Empty(t, provider.proxyBodies)

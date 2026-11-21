@@ -48,6 +48,30 @@ func TestSubscriptionPlansRetryUnknownIdentityAfterNegativeTTL(t *testing.T) {
 	require.Equal(t, 2, calls)
 }
 
+func TestSubscriptionPlansKeepLastKnownPlanThroughFailedLookup(t *testing.T) {
+	now := time.Unix(1_790_000_000, 0)
+	results := []struct {
+		plan providers.SubscriptionPlan
+		err  error
+	}{
+		{providers.SubscriptionPlanEnterprise, nil},
+		{providers.SubscriptionPlanUnknown, errors.New("synthetic profile timeout")},
+		{providers.SubscriptionPlanMax, nil},
+	}
+	calls := 0
+	plans := subscriptions.NewPlanResolver(planReaderFunc(func(context.Context, []byte) (providers.SubscriptionPlan, error) {
+		result := results[calls]
+		calls++
+		return result.plan, result.err
+	}), func() time.Time { return now })
+	require.Equal(t, providers.SubscriptionPlanEnterprise, plans.Resolve(context.Background(), []byte("synthetic-token")))
+	now = now.Add(6 * time.Minute)
+	require.Equal(t, providers.SubscriptionPlanEnterprise, plans.Resolve(context.Background(), []byte("synthetic-token")), "a failed lookup keeps the last known plan")
+	now = now.Add(16 * time.Second)
+	require.Equal(t, providers.SubscriptionPlanMax, plans.Resolve(context.Background(), []byte("synthetic-token")), "the failed lookup is retried after the negative TTL")
+	require.Equal(t, 3, calls)
+}
+
 func TestCanceledProfileLookupDoesNotPoisonOtherRequests(t *testing.T) {
 	plans := subscriptions.NewPlanResolver(planReaderFunc(func(ctx context.Context, token []byte) (providers.SubscriptionPlan, error) {
 		return providers.SubscriptionPlanMax, nil

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 
@@ -68,7 +69,7 @@ func TestCodexResponsesTitleGenerationScoresWithoutMarker(t *testing.T) {
 	}`)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 	require.Len(t, provider.endpoints, 1)
@@ -100,7 +101,7 @@ func TestCodexResponsesTitlePromptScoresWithoutMarker(t *testing.T) {
 	}`)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 	require.Len(t, provider.endpoints, 1)
@@ -132,7 +133,7 @@ func TestCodexResponsesTitlePromptAfterHarnessContextScores(t *testing.T) {
 	}`)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 	require.Len(t, provider.endpoints, 1)
@@ -172,7 +173,7 @@ func TestCodexDesktopThreadTitleScoresWithoutMarker(t *testing.T) {
 	}`)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 	require.Len(t, provider.endpoints, 1)
@@ -202,7 +203,7 @@ func TestCodexResponsesTitlePromptWithAssistantHistoryUsesScorer(t *testing.T) {
 	}`)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil)
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 	require.Len(t, provider.endpoints, 1)

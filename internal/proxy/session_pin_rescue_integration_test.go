@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/providers/openaicompat"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 
@@ -96,8 +97,8 @@ func TestProxyMessages_CrossModelRescueKeepsNextTurnOnPinnedBinding(t *testing.T
 		}).WithRetrySleep(noRetrySleep).WithRescuedFailureArmDemotion(false)
 
 	first := runRescueTurn(t, svc, []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"start this session"}]}`))
-	require.Equal(t, providers.ProviderFireworks, first.Header().Get(proxy.HeaderRouterProvider))
-	require.Equal(t, "deepseek/deepseek-v4-pro", first.Header().Get(proxy.HeaderRouterModel))
+	require.Equal(t, providers.ProviderFireworks, first.Header().Get(requestcontext.HeaderRouterProvider))
+	require.Equal(t, "deepseek/deepseek-v4-pro", first.Header().Get(requestcontext.HeaderRouterModel))
 	store.mu.Lock()
 	require.NotEmpty(t, store.usages, "the rescued turn must write usage to its pin")
 	assert.Equal(t, providers.ProviderFireworks, store.usages[len(store.usages)-1].ServedProvider)
@@ -112,8 +113,8 @@ func TestProxyMessages_CrossModelRescueKeepsNextTurnOnPinnedBinding(t *testing.T
 	assert.Equal(t, []string{"deepseek/deepseek-v4-pro"}, gotFireworks,
 		"the rescuer must not receive the pinned model on turn 2; dispatches were Anthropic %v, Fireworks %v",
 		gotAnthropic, gotFireworks)
-	assert.Equal(t, providers.ProviderAnthropic, second.Header().Get(proxy.HeaderRouterProvider))
-	assert.Equal(t, "claude-opus-4-8", second.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, providers.ProviderAnthropic, second.Header().Get(requestcontext.HeaderRouterProvider))
+	assert.Equal(t, "claude-opus-4-8", second.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 func runRescueTurn(t *testing.T, svc *proxy.Service, body []byte) *httptest.ResponseRecorder {
@@ -124,7 +125,7 @@ func runRescueTurn(t *testing.T, svc *proxy.Service, body []byte) *httptest.Resp
 	ctx := context.WithValue(
 		authedCtx("11111111-1111-1111-1111-111111111111"),
 		proxy.ClientIdentityContextKey{},
-		proxy.ClientIdentity{SessionID: rescuedSessionID},
+		requestcontext.ClientIdentity{SessionID: rescuedSessionID},
 	)
 	require.NoError(t, svc.ProxyMessages(ctx, body, recorder, req))
 	return recorder

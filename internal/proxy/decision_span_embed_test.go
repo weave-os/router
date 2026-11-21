@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 
@@ -257,7 +258,7 @@ func TestDecisionSpan_RolloutIDFromClientIdentity(t *testing.T) {
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{
-		ClientApp: ClientAppCodex,
+		ClientApp: requestcontext.ClientAppCodex,
 		Eval:      true,
 		RolloutID: "rollout-example-001",
 	})
@@ -271,7 +272,7 @@ func TestDecisionSpan_RolloutIDFromClientIdentity(t *testing.T) {
 	spans := collector.byName["router.decision"]
 	require.Len(t, spans, 1)
 	assert.Equal(t, "rollout-example-001", spanStr(t, spans[0], "rollout_id"))
-	assert.Equal(t, EvalClientAppPrefix+ClientAppCodex, spanStr(t, spans[0], "client.app"))
+	assert.Equal(t, requestcontext.EvalClientAppPrefix+requestcontext.ClientAppCodex, spanStr(t, spans[0], "client.app"))
 }
 
 func TestDecisionAndUpstreamSpansCarryCallerRoutingState(t *testing.T) {

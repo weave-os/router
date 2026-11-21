@@ -7,7 +7,6 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -33,7 +32,7 @@ func applyRoutingModel(c *gin.Context, body []byte, available StrategyAvailabili
 		}
 		return true
 	}
-	if c.GetHeader(proxy.ForceModelHeader) != "" {
+	if c.GetHeader(requestcontext.ForceModelHeader) != "" {
 		observability.FromGin(c).Debug("Routing model conflicts with direct model pin", "model", model)
 		c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "routing_model_conflicts_with_force_model"})
 		return false

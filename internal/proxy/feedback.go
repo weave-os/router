@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"weave-os/router/internal/feedback"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/telemetry"
 
@@ -106,9 +107,9 @@ func (s *Service) setFeedbackLinkHeader(ctx context.Context, w http.ResponseWrit
 }
 
 var terminalFeedbackClients = map[string]struct{}{
-	ClientAppClaudeCode: {},
-	ClientAppCodex:      {},
-	ClientAppOpencode:   {},
+	requestcontext.ClientAppClaudeCode: {},
+	requestcontext.ClientAppCodex:      {},
+	requestcontext.ClientAppOpencode:   {},
 }
 
 const feedbackFooterText = "\n\n_Weave Router feedback:_ `/rf +` good experience · `/rf -` poor experience · note optional, e.g. `/rf - too slow`"
@@ -131,7 +132,7 @@ func (s *Service) feedbackFooter(ctx context.Context, clientApp string, tt turnt
 	if echoedInConversation || isHeadlessClientUserAgent(ClientIdentityFrom(ctx).UserAgent) {
 		return ""
 	}
-	if clientApp == ClientAppCodex {
+	if clientApp == requestcontext.ClientAppCodex {
 		return feedbackFooterTextCodex
 	}
 	return feedbackFooterText

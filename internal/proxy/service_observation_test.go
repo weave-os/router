@@ -13,9 +13,11 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/telemetry"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -27,7 +29,7 @@ import (
 type captureTelemetry struct {
 	mu           sync.Mutex
 	rows         []proxy.InsertTelemetryParams
-	shadowRows   []proxy.PolicyShadowDecision
+	shadowRows   []telemetry.PolicyShadowDecision
 	notify       chan struct{}
 	shadowNotify chan struct{}
 	// seqResult and seqErr configure GetTelemetryBySessionSequence; seqCalls
@@ -55,7 +57,7 @@ func (c *captureTelemetry) InsertRequestTelemetry(_ context.Context, p proxy.Ins
 	return nil
 }
 
-func (c *captureTelemetry) InsertPolicyShadowDecision(_ context.Context, event proxy.PolicyShadowDecision) error {
+func (c *captureTelemetry) InsertPolicyShadowDecision(_ context.Context, event telemetry.PolicyShadowDecision) error {
 	c.mu.Lock()
 	c.shadowRows = append(c.shadowRows, event)
 	c.mu.Unlock()
@@ -124,7 +126,7 @@ func (c *captureTelemetry) firstRow(t *testing.T) proxy.InsertTelemetryParams {
 	return c.rows[0]
 }
 
-func (c *captureTelemetry) firstShadowRow(t *testing.T) proxy.PolicyShadowDecision {
+func (c *captureTelemetry) firstShadowRow(t *testing.T) telemetry.PolicyShadowDecision {
 	t.Helper()
 	select {
 	case <-c.shadowNotify:
@@ -560,7 +562,7 @@ func TestProxyMessages_PersistsRolloutID(t *testing.T) {
 		telem), hmm.ServingPorts())
 
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
-	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{RolloutID: "client-rollout"})
+	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{RolloutID: "client-rollout"})
 	ctx = context.WithValue(ctx, proxy.PolicyRolloutIDContextKey{}, rolloutID)
 	rec := httptest.NewRecorder()
 	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hello"}]}`)
@@ -588,7 +590,7 @@ func TestProxyMessages_PersistedPolicyRolloutIDOverridesClientIdentity(t *testin
 		telem), hmm.ServingPorts())
 
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
-	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{RolloutID: "header-rollout"})
+	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, requestcontext.ClientIdentity{RolloutID: "header-rollout"})
 	ctx = context.WithValue(ctx, proxy.PolicyRolloutIDContextKey{}, rolloutID)
 	rec := httptest.NewRecorder()
 	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hello"}]}`)
@@ -632,9 +634,9 @@ func TestProxyMessages_PersistsSessionKeyAndRole(t *testing.T) {
 // TestNormalizeRolloutID covers the bound: oversized ids are rejected (not
 // truncated) so a stored id always joins back to a real rollout.
 func TestNormalizeRolloutID(t *testing.T) {
-	assert.Equal(t, "run/cond/0/iid", proxy.NormalizeRolloutID("  run/cond/0/iid "))
-	assert.Empty(t, proxy.NormalizeRolloutID(strings.Repeat("x", 257)))
-	assert.Equal(t, strings.Repeat("x", 256), proxy.NormalizeRolloutID(strings.Repeat("x", 256)))
+	assert.Equal(t, "run/cond/0/iid", requestcontext.NormalizeRolloutID("  run/cond/0/iid "))
+	assert.Empty(t, requestcontext.NormalizeRolloutID(strings.Repeat("x", 257)))
+	assert.Equal(t, strings.Repeat("x", 256), requestcontext.NormalizeRolloutID(strings.Repeat("x", 256)))
 }
 
 // TestProxyMessages_NativeAnthropicResponseSignals asserts the Anthropic-native
