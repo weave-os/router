@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openaicompat"
 	"weave-os/router/internal/proxy"
@@ -62,7 +63,7 @@ func TestUpstreamSpan_FirstOutputMs_ExceedsTTFTOnReasoningStall(t *testing.T) {
 
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: "fireworks", Model: "deepseek/deepseek-v4-pro"}},
-		map[string]providers.Client{"fireworks": openaicompat.NewClient("test-fw-key", upstream.URL)},
+		dispatch.NewClients(map[string]providers.Client{"fireworks": openaicompat.NewClient("test-fw-key", upstream.URL)}),
 		emitter, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{"fireworks": {}})
 

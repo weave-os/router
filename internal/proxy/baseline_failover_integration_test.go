@@ -10,6 +10,7 @@ import (
 	"sync"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/providers/openaicompat"
@@ -83,11 +84,11 @@ func TestProxyMessages_OSSOutageFailsOverToBaselineAnthropic(t *testing.T) {
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 
 		&fakeRouter{decision: router.Decision{Provider: "fireworks", Model: "deepseek/deepseek-v4-pro"}},
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			"fireworks":  openaicompat.NewClient("test-fw-key", fireworks.URL),
 			"openrouter": openaicompat.NewClient("test-or-key", openrouter.URL),
 			"anthropic":  anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
-		},
+		}),
 		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", tel), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{
 			"fireworks":  {},
@@ -179,11 +180,11 @@ func TestProxyMessages_AuthoritativePolicyNeverChangesModelOnFailover(t *testing
 	}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		nil,
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderFireworks:  openaicompat.NewClient("test-fw-key", fireworks.URL),
 			providers.ProviderOpenRouter: openaicompat.NewClient("test-or-key", openrouter.URL),
 			providers.ProviderAnthropic:  anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
-		},
+		}),
 		nil,
 		newFakePinStore(),
 		false,
@@ -279,11 +280,11 @@ func TestProxyMessages_OSSOutageNoBaselineWhenRequestedModelIsOSS(t *testing.T) 
 
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: "fireworks", Model: "deepseek/deepseek-v4-pro"}},
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			"fireworks":  openaicompat.NewClient("k", fireworks.URL),
 			"openrouter": openaicompat.NewClient("k", openrouter.URL),
 			"anthropic":  anthropic.NewClient("k", anthropicUpstream.URL),
-		},
+		}),
 		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{
 			"fireworks": {}, "openrouter": {}, "anthropic": {},
@@ -321,11 +322,11 @@ func TestProxyMessages_OSSOutageNoBaselineWhenAnthropicExcluded(t *testing.T) {
 
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: "fireworks", Model: "deepseek/deepseek-v4-pro"}},
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			"fireworks":  openaicompat.NewClient("k", fireworks.URL),
 			"openrouter": openaicompat.NewClient("k", openrouter.URL),
 			"anthropic":  anthropic.NewClient("k", anthropicUpstream.URL),
-		},
+		}),
 		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{
 			"fireworks": {}, "openrouter": {}, "anthropic": {},
@@ -360,11 +361,11 @@ func TestProxyMessages_FailedBaselineReportsAnthropicProvider(t *testing.T) {
 	tel := newCaptureTelemetry()
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: "fireworks", Model: "deepseek/deepseek-v4-pro"}},
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			"fireworks":  openaicompat.NewClient("k", fireworks.URL),
 			"openrouter": openaicompat.NewClient("k", openrouter.URL),
 			"anthropic":  anthropic.NewClient("k", anthropicUpstream.URL),
-		},
+		}),
 		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", tel), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{
 			"fireworks": {}, "openrouter": {}, "anthropic": {},
@@ -435,11 +436,11 @@ func TestProxyMessages_AuthoritativePolicyFailsOverOnCapabilityRejection(t *test
 	}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		nil,
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderFireworks:  openaicompat.NewClient("test-fw-key", fireworks.URL),
 			providers.ProviderOpenRouter: openaicompat.NewClient("test-or-key", openrouter.URL),
 			providers.ProviderAnthropic:  anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
-		},
+		}),
 		nil, newFakePinStore(), false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", newCaptureTelemetry()), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{

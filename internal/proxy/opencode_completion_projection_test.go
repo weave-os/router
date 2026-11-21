@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -52,7 +53,7 @@ func TestOpenCodeBackgroundCompletionUsesAgentRoutingContext(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			selected := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: catalog.ModelGPT6Luna, Reason: "scored"}}
 			upstream := &fakeProvider{proxyResponse: responsesTextUpstream}
-			svc := proxy.WithStrategyPorts(proxy.NewService(selected, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, nil, false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, nil), hmm.ServingPorts()).
+			svc := proxy.WithStrategyPorts(proxy.NewService(selected, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: upstream}), nil, nil, false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, nil), hmm.ServingPorts()).
 				WithOpenAIResponsesBroad(true).
 				WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: selected, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}})
 			input := []map[string]any{{"type": "message", "role": "user", "content": "Investigate and fix the failing test"}}
@@ -118,7 +119,7 @@ func TestOpenCodeRoutePreviewUsesHeaderIdentityForCompletion(t *testing.T) {
 		{"role":"user","content":"<task id=\"ses_123abc\" state=\"completed\">\n<task_result>\nChild inspection complete\n</task_result>\n</task>"}
 	]}`
 	previewer := &fakePreviewRouter{previewResult: policy.PreviewResult{SchemaVersion: policy.SchemaVersionV1}}
-	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
+	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: previewer})
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMM)
 	headers := http.Header{"X-App": []string{proxy.ClientAppOpencode}}

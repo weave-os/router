@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/handover"
@@ -54,7 +55,7 @@ func TestRunCompactionHandover_SummarizerNeverCrossesTenantCredentialBoundary(t 
 			env, err := translate.ParseAnthropic([]byte(sampleConversation))
 			require.NoError(t, err)
 			sz := &credentialRecordingSummarizer{}
-			svc := withHMMPorts(NewService(nil, nil, nil, nil, false, "", "", nil)).WithCompactionHandoverSummarizer(sz)
+			svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, "", "", nil)).WithCompactionHandoverSummarizer(sz)
 
 			out := svc.runCompactionHandover(tc.ctx, env, http.Header{}, "compat-model", router.Request{})
 

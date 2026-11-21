@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -85,7 +86,7 @@ func TestService_ProxyOpenAIResponses_NativeTurnRecordsTerminalFinishReason(t *t
 				&fakeRouter{decision: router.Decision{
 					Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol", Reason: "test",
 				}},
-				map[string]providers.Client{providers.ProviderOpenAI: provider},
+				dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: provider}),
 				nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry), hmm.ServingPorts())
 
 			body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"reasoning","id":"rs_0","encrypted_content":"opaque"},{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}]}`)
@@ -116,7 +117,7 @@ func TestService_ProxyOpenAIResponses_NativeFailedTerminalRecordsNoFinishReason(
 		&fakeRouter{decision: router.Decision{
 			Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol", Reason: "test",
 		}},
-		map[string]providers.Client{providers.ProviderOpenAI: provider},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: provider}),
 		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry), hmm.ServingPorts())
 
 	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"reasoning","id":"rs_0","encrypted_content":"opaque"},{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}]}`)
@@ -138,7 +139,7 @@ func TestService_ProxyOpenAIResponses_NativeClientCancelAfterCompletedIsSuccess(
 		&fakeRouter{decision: router.Decision{
 			Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol", Reason: "test",
 		}},
-		map[string]providers.Client{providers.ProviderOpenAI: provider},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: provider}),
 		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry), hmm.ServingPorts())
 
 	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}]}`)

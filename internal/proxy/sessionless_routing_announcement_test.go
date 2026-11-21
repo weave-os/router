@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/proxy"
@@ -53,7 +54,7 @@ func sessionlessMessagesService(t *testing.T, pins *fakePinStore) (*proxy.Servic
 	t.Cleanup(upstream.Close)
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: earlyStopLowModel, Reason: "test"}},
-		map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", upstream.URL)},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", upstream.URL)}),
 		nil, pins, false, providers.ProviderAnthropic, earlyStopLowModel, newCaptureTelemetry()), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).WithRetrySleep(noRetrySleep)
 	return svc, &upstreamBodies
@@ -117,7 +118,7 @@ func TestSessionlessRoutingAnnouncementResponses(t *testing.T) {
 					"data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
 			}}
 			svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenRouter, Model: model, Reason: "test"}},
-				map[string]providers.Client{providers.ProviderOpenRouter: provider},
+				dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenRouter: provider}),
 				nil, newFakePinStore(), false, providers.ProviderOpenRouter, model, nil), hmm.ServingPorts())
 
 			ctx := requestcontext.WithClientIdentity(authedCtx("11111111-1111-1111-1111-111111111111"), proxy.ClientIdentity{ClientApp: sessionlessClientApp})

@@ -3,6 +3,7 @@ package proxy
 import (
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -46,7 +47,7 @@ func TestSearchUseTracker_SessionsAreIndependent(t *testing.T) {
 }
 
 func scopeService(enabled bool) *Service {
-	return &Service{hmmServing: hmmPorts(),
+	return &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(),
 		scopedSearchRequirement:     enabled,
 		searchRequirementDecayTurns: DefaultSearchRequirementDecayTurns,
 		searchUse:                   newSearchUseTracker(),

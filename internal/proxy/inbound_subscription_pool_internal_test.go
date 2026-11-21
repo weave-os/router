@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/router"
@@ -40,10 +41,10 @@ func TestInboundClaudeOAuthStillRotatesManagedPool(t *testing.T) {
 				{AccountID: "synthetic-healthy-seat", AccessToken: "synthetic-healthy-seat"},
 			}}
 			client := anthropic.NewClient("synthetic-paid-key", upstream.URL)
-			service := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}}, map[string]providers.Client{providers.ProviderAnthropic: client}, nil, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String(), nil)).
+			service := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}}, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: client}), nil, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String(), nil)).
 				WithManagedSubscriptions(leaser).
 				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
-			service.retrySleep = noopSleep
+			service.engine.SetRetrySleep(noopSleep)
 			ctx := enterpriseOnlyContext(managedSubscriptionTestContext())
 			ctx = context.WithValue(ctx, InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 			ctx = context.WithValue(ctx, InstallationSubscriptionStateModelsEnabledContextKey{}, stateModels)

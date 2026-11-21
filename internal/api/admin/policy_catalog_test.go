@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/api/admin"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
@@ -27,7 +28,7 @@ func (policyCatalogRouter) Route(context.Context, router.Request) (router.Decisi
 func TestPolicyCatalogHandlerReportsDefaultAndCapabilities(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	service := proxy.WithStrategyPorts(proxy.NewService(
-		nil, nil, nil, nil, false, "", "", nil), hmm.ServingPorts()).
+		nil, dispatch.NewClients(nil), nil, nil, false, "", "", nil), hmm.ServingPorts()).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: router.StrategyHMM,
 			Router:   policyCatalogRouter{},

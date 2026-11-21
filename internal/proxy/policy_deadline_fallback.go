@@ -31,7 +31,7 @@ func servePolicyDeadlineFallback(ctx context.Context, s *Service, res *turnLoopR
 		sessionPins.Refresh(ctx, res.InstallationID, res.SessionKey, *pin, res.PinRole, refreshed)
 		return true
 	}
-	if decision, ok := candidates.PolicyDeadlineDefault(s.policyDeadlineDefaultModel, req, s.clients.Names()); ok {
+	if decision, ok := candidates.PolicyDeadlineDefault(s.policyDeadlineDefaultModel, req, s.engine.Clients().Names()); ok {
 		res.Decision = decision
 		res.PinTier = policyDeadlineFallbackReason
 		res.PolicyFallback = true

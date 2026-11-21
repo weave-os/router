@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -89,7 +90,7 @@ func TestProxyMessages_CCTaskToolsCrossVendor_OrgOverrideReachesUpstream(t *test
 			provider := ccTaskToolProvider()
 			svc := proxy.WithStrategyPorts(proxy.NewService(
 				&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "test"}},
-				map[string]providers.Client{providers.ProviderOpenAI: provider},
+				dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: provider}),
 				nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 			ctx := context.Background()

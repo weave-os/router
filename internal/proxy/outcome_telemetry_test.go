@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/proxy/usage"
@@ -22,7 +23,7 @@ func TestGeminiTelemetryRecordsSuccessfulOutcomeCoverage(t *testing.T) {
 	telem := newCaptureTelemetry()
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-2.5-pro"}},
-		map[string]providers.Client{providers.ProviderGoogle: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderGoogle: &fakeProvider{}}),
 		nil, nil, false, providers.ProviderGoogle, "gemini-2.5-flash", telem), hmm.ServingPorts())
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", nil)
@@ -43,7 +44,7 @@ func TestBypassTelemetryRecordsOutcomeAndIncomingTools(t *testing.T) {
 				provider.proxyErr = &providers.UpstreamErrorResponse{Status: http.StatusBadRequest, Body: []byte(`{"error":{"message":"bad request"}}`)}
 			}
 			observer := usage.NewObserver([]byte("salt"), time.Minute, time.Now)
-			svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, nil, false, providers.ProviderAnthropic, bypassRequestedMdl, telem), hmm.ServingPorts()).WithUsageObserver(observer)
+			svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: provider}), nil, nil, false, providers.ProviderAnthropic, bypassRequestedMdl, telem), hmm.ServingPorts()).WithUsageObserver(observer)
 			ctx := context.WithValue(bypassCtx(0.8), proxy.InstallationIDContextKey{}, "55555555-5555-5555-5555-555555555555")
 			body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"check"},{"role":"assistant","content":[{"type":"tool_use","id":"call-1","name":"Bash","input":{}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"call-1","is_error":true,"content":"failed"}]}]}`)
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))

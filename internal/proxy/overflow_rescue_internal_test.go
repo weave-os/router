@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -51,10 +52,10 @@ func gatewayOverflowFixture(anthropicErr, openAIErr error) (*Service, context.Co
 		Provider: providers.ProviderAnthropicGateway,
 		Model:    gatewayCompactionOpusModel,
 		Reason:   "test",
-	}}, map[string]providers.Client{
+	}}, dispatch.NewClients(map[string]providers.Client{
 		providers.ProviderAnthropicGateway: anthropicGateway,
 		providers.ProviderOpenAIGateway:    openAIGateway,
-	}, nil, &rolePinStore{}, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil)).
+	}), nil, &rolePinStore{}, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil)).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil })
 	return routed, ctx, anthropicGateway, openAIGateway
 }

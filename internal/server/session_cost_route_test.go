@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router/hmm"
@@ -110,7 +111,7 @@ func TestSessionCostRouteAcceptsReadKeysWithoutServingAdmission(t *testing.T) {
 	authSvc := auth.NewService(nil, repo, nil, nil, auth.NoOpAPIKeyCache{}, nil, time.Now).
 		WithCredentialSubjectLookup(readSubjectRepo{"subject-disabled": {ID: "subject-disabled", ProjectionComplete: true, AccessEnabled: false, EnrollmentGeneration: 1}})
 	telemetry := &costTelemetry{}
-	proxySvc := proxy.WithStrategyPorts(proxy.NewService(nil, nil, nil, nil, false, "", "", telemetry), hmm.ServingPorts())
+	proxySvc := proxy.WithStrategyPorts(proxy.NewService(nil, dispatch.NewClients(nil), nil, nil, false, "", "", telemetry), hmm.ServingPorts())
 	engine := gin.New()
 	engine.UseRawPath = true
 	engine.UnescapePathValues = true

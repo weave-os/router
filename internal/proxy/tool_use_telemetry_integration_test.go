@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -84,7 +85,7 @@ func TestProxyMessages_NativeToolUseStopPersistsLastToolDetail(t *testing.T) {
 			telem := newCaptureTelemetry()
 			svc := proxy.WithStrategyPorts(proxy.NewService(
 				&fakeRouter{decision: decision},
-				map[string]providers.Client{providers.ProviderAnthropic: provider},
+				dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: provider}),
 				nil, nil, false,
 				providers.ProviderAnthropic, "claude-opus-4-7", telem), hmm.ServingPorts())
 
@@ -131,7 +132,7 @@ func TestProxyMessages_TranslatedToolUseStopPersistsLastToolDetail(t *testing.T)
 	telem := newCaptureTelemetry()
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna"}},
-		map[string]providers.Client{providers.ProviderOpenAI: provider},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: provider}),
 		nil, nil, false,
 		providers.ProviderAnthropic, "claude-opus-4-7", telem), hmm.ServingPorts())
 

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -41,7 +42,7 @@ func TestGeminiToolModeRecoveryAcrossOpenAIFormats(t *testing.T) {
 				},
 			}}
 			svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: model}},
-				map[string]providers.Client{providers.ProviderGoogle: client}, nil, nil, false, providers.ProviderGoogle, model, nil), hmm.ServingPorts()).
+				dispatch.NewClients(map[string]providers.Client{providers.ProviderGoogle: client}), nil, nil, false, providers.ProviderGoogle, model, nil), hmm.ServingPorts()).
 				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderGoogle: {}})
 			rec := httptest.NewRecorder()
 			body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"synthetic task"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object","properties":{"path":{"type":"string"}}}}}]}`

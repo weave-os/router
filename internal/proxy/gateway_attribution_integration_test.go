@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/proxy"
@@ -27,7 +28,7 @@ func TestProxyMessages_GatewayExhaustionAttributesCortexBody(t *testing.T) {
 
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropicGateway, Model: "claude-haiku-4-5"}},
-		map[string]providers.Client{providers.ProviderAnthropicGateway: anthropic.NewClient("test-key", upstream.URL)},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropicGateway: anthropic.NewClient("test-key", upstream.URL)}),
 		nil, nil, false, providers.ProviderAnthropicGateway, "claude-haiku-4-5", newCaptureTelemetry()), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropicGateway: {}}).
 		WithRetrySleep(noRetrySleep)

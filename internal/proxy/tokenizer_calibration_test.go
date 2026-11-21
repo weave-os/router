@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -74,7 +75,7 @@ func serveLunaTurnBody(t *testing.T, store sessionpin.Store, billedPrompt int, b
 	t.Helper()
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-6-luna", Reason: "test"}},
-		map[string]providers.Client{providers.ProviderOpenAI: lunaProvider(billedPrompt)},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: lunaProvider(billedPrompt)}),
 		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 	rec := httptest.NewRecorder()

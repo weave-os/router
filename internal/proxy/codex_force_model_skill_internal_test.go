@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 )
 
@@ -20,7 +21,7 @@ import (
 func TestCodexForceModelSkillToolResultIsAnsweredByRouter(t *testing.T) {
 	store := &recordingPinStore{}
 	upstream := &codexTitleProvider{}
-	svc := withHMMPorts(NewService(&codexTitleRouter{}, map[string]providers.Client{providers.ProviderOpenAI: upstream},
+	svc := withHMMPorts(NewService(&codexTitleRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: upstream}),
 		nil, store, false, providers.ProviderOpenAI, "gpt-6.1-sol", nil))
 
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})

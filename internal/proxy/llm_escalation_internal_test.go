@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/router/llmescalation"
 )
@@ -113,7 +114,7 @@ func (j *blockingEscalationJudge) Judge(_ context.Context, request llmescalation
 func TestLLMEscalationConfigurationGatesActiveRollout(t *testing.T) {
 	configuration := &escalationConfigurationStub{selection: llmescalation.Selection{InstallationID: "installation", Epoch: 2}}
 	invalidations := 0
-	service := (&Service{hmmServing: hmmPorts()}).
+	service := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).
 		WithLLMEscalation(&llmEscalationStoreStub{}, &blockingEscalationJudge{}).
 		WithEscalationConfiguration(configuration, func(string) { invalidations++ }, false)
 
@@ -130,7 +131,7 @@ func TestLLMEscalationConfigurationGatesActiveRollout(t *testing.T) {
 
 func TestQwenEscalationSelectionRequiresDeployedJudge(t *testing.T) {
 	configuration := &escalationConfigurationStub{selection: llmescalation.Selection{InstallationID: "installation", Epoch: 2}}
-	service := (&Service{hmmServing: hmmPorts()}).
+	service := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).
 		WithLLMEscalation(&llmEscalationStoreStub{}, &blockingEscalationJudge{}).
 		WithEscalationConfiguration(configuration, nil, true)
 	update := llmescalation.SelectionUpdate{Active: flags.EscalationClassifierLLM, Cadence: 3, Epoch: 2}
@@ -149,7 +150,7 @@ func TestQwenEscalationSelectionRequiresDeployedJudge(t *testing.T) {
 
 func TestSwitchyardEscalationReadinessReflectsDisabledRollout(t *testing.T) {
 	configuration := &escalationConfigurationStub{selection: llmescalation.Selection{InstallationID: "installation", Active: flags.EscalationClassifierSwitchyard}}
-	service := (&Service{hmmServing: hmmPorts()}).
+	service := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).
 		WithLLMEscalation(&llmEscalationStoreStub{}, &blockingEscalationJudge{}).
 		WithEscalationConfiguration(configuration, nil, false)
 	selection, err := service.EscalationSelection(context.Background(), "installation")
@@ -164,7 +165,7 @@ var _ llmescalation.Judge = (*blockingEscalationJudge)(nil)
 
 func TestQwenEscalationSelectionDoesNotRequireSwitchyardActiveRollout(t *testing.T) {
 	configuration := &escalationConfigurationStub{selection: llmescalation.Selection{InstallationID: "installation", Epoch: 2}}
-	service := (&Service{hmmServing: hmmPorts()}).
+	service := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).
 		WithLLMEscalation(&llmEscalationStoreStub{}, nil).
 		WithQwenEscalation(&blockingEscalationJudge{}).
 		WithEscalationConfiguration(configuration, nil, false)

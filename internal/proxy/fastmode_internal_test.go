@@ -33,11 +33,11 @@ func fastModeCtx(models ...string) context.Context {
 
 func newFastModeService(decision router.Decision, upstream providers.Client) *Service {
 	telemetry := newBypassCaptureTelemetry()
-	svc := withHMMPorts(NewService(staticRouter{decision: decision}, map[string]providers.Client{
+	svc := withHMMPorts(NewService(staticRouter{decision: decision}, dispatch.NewClients(map[string]providers.Client{
 		providers.ProviderAnthropic:  upstream,
 		providers.ProviderOpenAI:     upstream,
 		providers.ProviderOpenRouter: upstream,
-	}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", telemetry))
+	}), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", telemetry))
 
 	return svc
 }

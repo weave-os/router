@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -37,7 +38,7 @@ func TestAutomaticUtilitySelectionDoesNotUseDeploymentShortcut(t *testing.T) {
 						Metadata: &router.RoutingMetadata{PolicyPinHonoured: true},
 					}}
 					pins := newStubPinStore()
-					service := withHMMPorts(NewService(scorer, nil, nil, pins, false,
+					service := withHMMPorts(NewService(scorer, dispatch.NewClients(nil), nil, pins, false,
 						providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
 
 					envelope, err := translate.ParseAnthropic([]byte(fixture.body))
@@ -111,7 +112,7 @@ func TestAutomaticProbeWithoutConcreteTargetScoresWithoutPinning(t *testing.T) {
 				Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeSonnet46.String(),
 			}}
 			pins := newStubPinStore()
-			service := withHMMPorts(NewService(scorer, nil, nil, pins, false,
+			service := withHMMPorts(NewService(scorer, dispatch.NewClients(nil), nil, pins, false,
 				providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
 
 			body := strings.Replace(blindExperimentUtilityTurnBodies()[0].body, catalog.ModelIDClaudeOpus48.String(), requestedModel, 1)
@@ -144,7 +145,7 @@ func TestDefaultProbeDroppedForceDoesNotAttachConversationState(t *testing.T) {
 				Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeSonnet46.String(),
 			}}
 			pins := newStubPinStore()
-			service := withHMMPorts(NewService(scorer, nil, nil, pins, false,
+			service := withHMMPorts(NewService(scorer, dispatch.NewClients(nil), nil, pins, false,
 				providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
 
 			body := strings.Replace(blindExperimentUtilityTurnBodies()[0].body, catalog.ModelIDClaudeOpus48.String(), requestedModel, 1)

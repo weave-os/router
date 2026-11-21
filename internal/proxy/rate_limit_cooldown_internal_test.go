@@ -388,7 +388,7 @@ func TestRescueDecisions_ReadmissionKeepsGlobalExclusionOnCoolingArm(t *testing.
 
 // The gateway BYOK walk readmits cooling arms the same way.
 func TestGatewayRescueDecisions_ExhaustedPoolReadmitsCoolingArms(t *testing.T) {
-	s := &Service{hmmServing: hmmPorts()}
+	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}
 	ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: providers.ProviderOpenAIGateway, Plaintext: []byte("pat"), ModelAliases: map[string]string{"grok-4.6": "grok-4.6"}},
 		{Provider: providers.ProviderAnthropicGateway, Plaintext: []byte("pat"), ModelAliases: map[string]string{"claude-opus-5": "claude-opus-5"}},
@@ -441,7 +441,7 @@ func cooldownTurnLoopService(store sessionpin.Store, transient bool) (*Service, 
 		Model:    freshTurnModel,
 		Reason:   "cluster:v0.2",
 	}}
-	svc := withHMMPorts(NewService(scorer, nil, nil, store, false,
+	svc := withHMMPorts(NewService(scorer, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithTransientRateLimit(transient, 45)
 	svc.clock = func() time.Time { return rateLimitTestNow }

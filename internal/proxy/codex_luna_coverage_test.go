@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -31,9 +32,9 @@ func TestBoostCodexLunaSubscriptionCoverage(t *testing.T) {
 				Model:    codexLunaCoverageModel,
 			}}
 			upstream := &fakeProvider{proxyResponse: codexResponsesStream}
-			service := proxy.WithStrategyPorts(proxy.NewService(selection, map[string]providers.Client{
+			service := proxy.WithStrategyPorts(proxy.NewService(selection, dispatch.NewClients(map[string]providers.Client{
 				providers.ProviderOpenAI: upstream,
-			}, nil, nil, false, providers.ProviderOpenAI, codexLunaCoverageModel, nil), hmm.ServingPorts()).
+			}), nil, nil, false, providers.ProviderOpenAI, codexLunaCoverageModel, nil), hmm.ServingPorts()).
 				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 
 			body := `{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"Refactor the auth middleware and add tests."}],"max_tokens":4096,"stream":true,"tools":[{"type":"function","function":{"name":"edit_file","parameters":{"type":"object"}}}]}`

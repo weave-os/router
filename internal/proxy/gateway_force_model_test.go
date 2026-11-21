@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -65,7 +66,7 @@ func TestService_GatewayForcedPinOutsideAllowlistServes(t *testing.T) {
 		Provider: providers.ProviderAnthropicGateway, Model: "claude-opus-5-5", Reason: "cluster:v0.2",
 	}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(fr,
-		map[string]providers.Client{providers.ProviderAnthropicGateway: anthropicOKProvider()},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropicGateway: anthropicOKProvider()}),
 		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 	ctx := gatewayAllowlistCtx([]string{"claude-opus-5-5"}, "claude-opus-5", "claude-opus-5-5")
@@ -85,7 +86,7 @@ func TestService_GatewayForceCommandOutsideAllowlistApplies(t *testing.T) {
 		Provider: providers.ProviderAnthropicGateway, Model: "claude-opus-5-5", Reason: "cluster:v0.2",
 	}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(fr,
-		map[string]providers.Client{providers.ProviderAnthropicGateway: anthropicOKProvider()},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropicGateway: anthropicOKProvider()}),
 		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 	ctx := gatewayAllowlistCtx([]string{"claude-opus-5-5"}, "claude-opus-5", "claude-opus-5-5")
@@ -109,7 +110,7 @@ func TestService_GatewayForceCommandUnaliasedModelStillRejected(t *testing.T) {
 		Provider: providers.ProviderAnthropicGateway, Model: "claude-opus-5-5", Reason: "cluster:v0.2",
 	}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(fr,
-		map[string]providers.Client{providers.ProviderAnthropicGateway: anthropicOKProvider()},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropicGateway: anthropicOKProvider()}),
 		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 	ctx := gatewayAllowlistCtx([]string{"claude-opus-5-5"}, "claude-opus-5", "claude-opus-5-5")

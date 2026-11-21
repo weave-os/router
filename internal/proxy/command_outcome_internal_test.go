@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/router"
 
 	"github.com/google/uuid"
@@ -38,7 +39,7 @@ func TestCommandOutcomesAcrossSurfaces(t *testing.T) {
 		for _, streaming := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%v/stream=%t", surface, streaming), func(t *testing.T) {
 				store := newForceModelMapStore()
-				svc := withHMMPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+				svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 					WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 				app := ClientAppClaudeCode
 				if surface != translate.FormatAnthropic {
@@ -144,7 +145,7 @@ func (*failedCommandStore) Upsert(context.Context, sessionpin.Pin) error {
 
 func TestCommandOutcomeRequiresPersistence(t *testing.T) {
 	store := &failedCommandStore{newForceModelMapStore()}
-	svc := withHMMPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 	env := forceCommandEnv(t)
 	for _, command := range []translate.ForceModelResult{{Model: "opus"}, {Clear: true}} {
@@ -157,7 +158,7 @@ func TestCommandOutcomeRequiresPersistence(t *testing.T) {
 }
 
 func TestLoopStopsPreserveHistoricalForcePin(t *testing.T) {
-	svc := withHMMPorts(NewService(nil, nil, nil, newForceModelMapStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, newForceModelMapStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 	env := forceCommandEnv(t)
 	for _, repetition := range []bool{false, true} {
 		rec := httptest.NewRecorder()
@@ -180,7 +181,7 @@ func (*commandWriteFailure) Write([]byte) (int, error) { return 0, errors.New("s
 
 func TestAcknowledgmentWriteFailureDoesNotUndoPin(t *testing.T) {
 	store := newForceModelMapStore()
-	svc := withHMMPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 	key := [sessionpin.SessionKeyLen]byte{2}
 	err := svc.handleForceModelCommand(context.Background(), &commandWriteFailure{httptest.NewRecorder()}, forceCommandEnv(t), translate.ForceModelResult{Model: "opus"}, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{1}}, key, 1)
@@ -193,7 +194,7 @@ func TestAcknowledgmentWriteFailureDoesNotUndoPin(t *testing.T) {
 
 func TestHeaderPersistenceFailureRetainsSameActionForce(t *testing.T) {
 	store := &failedCommandStore{newForceModelMapStore()}
-	svc := withHMMPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	request.Header.Set(ForceModelHeader, "opus:high")

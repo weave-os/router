@@ -23,7 +23,7 @@ import (
 // later turns have no header or command to recover it from.
 func TestForceModelCommand_PersistsEffortOnPin(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	env := forceCommandEnv(t)
@@ -43,7 +43,7 @@ func TestForceModelCommand_PersistsEffortOnPin(t *testing.T) {
 // req.ForceModel, so the returned spec must keep the suffix.
 func TestApplyForceModelCommand_ReturnsEffortQualifiedSpec(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	env := forceCommandEnv(t)
@@ -61,7 +61,7 @@ func TestApplyForceModelCommand_ReturnsEffortQualifiedSpec(t *testing.T) {
 
 func TestForceModelHeader_PersistsEffortOnPin(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	env := forceCommandEnv(t)
@@ -88,7 +88,7 @@ func TestRunTurnLoop_ForcedPinRehydratesEffort(t *testing.T) {
 		PinnedUntil: time.Now().Add(time.Hour),
 	}}
 	fr := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
-	svc := withHMMPorts(NewService(fr, nil, nil, store, false,
+	svc := withHMMPorts(NewService(fr, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	env, err := translate.ParseAnthropic([]byte(`{
@@ -117,7 +117,7 @@ func TestRunTurnLoop_ForcedPinRehydratesEffort(t *testing.T) {
 func TestRunTurnLoop_RequestForceModelCarriesEffort(t *testing.T) {
 	store := &forcedPinStore{}
 	fr := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
-	svc := withHMMPorts(NewService(fr, nil, nil, store, false,
+	svc := withHMMPorts(NewService(fr, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	env, err := translate.ParseAnthropic([]byte(`{
@@ -143,7 +143,7 @@ func TestRunTurnLoop_RequestForceModelCarriesEffort(t *testing.T) {
 // effort — so the refresh must carry the stored level forward.
 func TestRefreshPin_CarriesEffortForward(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	existing := sessionpin.Pin{
@@ -184,7 +184,7 @@ func TestOrderBandPair_AnchoredHalfKeepsEffort(t *testing.T) {
 
 // An explicit per-request knob still outranks whatever the pin carries.
 func TestResolveEffort_KnobWinsOverDecision(t *testing.T) {
-	svc := withHMMPorts(NewService(nil, nil, nil, nil, false,
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	decision := router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Effort: "xhigh"}

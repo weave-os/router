@@ -159,7 +159,7 @@ func newGoldenHarness(t *testing.T, sc goldenScenario) *goldenHarness {
 	require.NoError(t, err)
 
 	rt := &goldenRouter{decisions: sc.decisions, err: sc.routeErr, noCandidateErr: sc.noCandidateErr, rec: h.rec}
-	svc := proxy.WithStrategyPorts(proxy.NewService(rt, providerMap, nil, h.pins, false,
+	svc := proxy.WithStrategyPorts(proxy.NewService(rt, dispatch.NewClients(providerMap), nil, h.pins, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", h.telemetry), hmm.ServingPorts()).
 		WithClock(h.clock.Now).
 		WithDeploymentKeyedProviders(available).

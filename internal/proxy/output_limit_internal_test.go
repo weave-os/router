@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
@@ -30,7 +31,7 @@ const (
 )
 
 func TestNormalizeHMMStayPin_HighOutputIsNotExhaustion(t *testing.T) {
-	svc := withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, nil, false,
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: nil}), nil, nil, false,
 		providers.ProviderAnthropic, outputLimitFirstModel, nil))
 
 	pin := sessionpin.Pin{Provider: providers.ProviderAnthropic, LastServedModel: outputLimitFirstModel,
@@ -55,7 +56,7 @@ func TestPostCommandContinuation_UsesTerminalEvidence(t *testing.T) {
 				pin.LastOutputLimitAt = pin.LastTurnEndedAt
 			}
 			store.pins[forceModelMapKey(key, pin.Role)] = pin
-			svc := withHMMPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, outputLimitFirstModel, nil))
+			svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false, providers.ProviderAnthropic, outputLimitFirstModel, nil))
 			ctx := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
 			svc.grantPostCommandContinuation(ctx, router.StrategyFromContext(ctx), uuid.New(), key, pin.Role)
 			got, found := svc.consumePostCommandContinuation(ctx, router.StrategyFromContext(ctx), key, pin.Role)
@@ -71,7 +72,7 @@ func TestPostCommandContinuation_UsesTerminalEvidence(t *testing.T) {
 
 func TestRefreshPin_PreservesOutputLimitEvidence(t *testing.T) {
 	store := newStubPinStore()
-	svc := withHMMPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, outputLimitFirstModel, nil))
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false, providers.ProviderAnthropic, outputLimitFirstModel, nil))
 	ended := time.Now().Add(-time.Second)
 	pin := sessionpin.Pin{Provider: providers.ProviderAnthropic, Model: outputLimitSecondModel, LastServedModel: outputLimitFirstModel,
 		LastTurnEndedAt: ended, LastOutputLimitAt: ended, LastOutputTokens: 128}
@@ -141,7 +142,7 @@ func TestProxyMessages_OutputLimitEightActionSequence(t *testing.T) {
 					if trueCap && action == 3 {
 						upstream.stopReason, upstream.output = "max_tokens", 128
 					}
-					svc := withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, store, false,
+					svc := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: upstream}), nil, store, false,
 						providers.ProviderAnthropic, outputLimitFirstModel, nil)).
 						EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).
 						WithNativeAnthropicResponseSignals(false).

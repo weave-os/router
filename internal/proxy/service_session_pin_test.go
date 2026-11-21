@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -229,7 +230,7 @@ func assertOnlyHMMHistoryUpserts(t *testing.T, store *fakePinStore) {
 func newPinSvc(fr *fakeRouter, store *fakePinStore) *proxy.Service {
 	return proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		nil,
 		store,
 		false,
@@ -242,7 +243,7 @@ func newPinSvc(fr *fakeRouter, store *fakePinStore) *proxy.Service {
 func newPinSvcWithTelemetry(fr *fakeRouter, store *fakePinStore, telemetry proxy.TelemetryRepository) *proxy.Service {
 	return proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		nil,
 		store,
 		false,
@@ -361,10 +362,10 @@ func TestService_NativeSearchResultHistoryFiltersPolicyCandidatesInGo(t *testing
 	}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderAnthropic: &fakeProvider{},
 			providers.ProviderOpenAI:    &fakeProvider{},
-		},
+		}),
 		nil,
 		nil,
 		false,
@@ -610,7 +611,7 @@ func TestService_HardPin_TitleGen_AppliesExcludedModels(t *testing.T) {
 		providers.ProviderGoogle:    &fakeProvider{proxyResponse: okResp},
 	}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
-		fr, providerMap, nil, store, false,
+		fr, dispatch.NewClients(providerMap), nil, store, false,
 		providers.ProviderGoogle, excludedModel,
 		nil), hmm.ServingPorts()).
 		WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver)
@@ -653,7 +654,7 @@ func TestService_HardPin_ExploreRoutesToHaikuWhenFlagOn(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		nil,
 		store,
 		true,
@@ -687,7 +688,7 @@ func TestService_HardPin_HMMExploreBypassesBootHardPin(t *testing.T) {
 	}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		nil,
 		store,
 		true,
@@ -766,10 +767,10 @@ func TestService_HardPin_SubAgentOverrideRoutesIndependentlyOfHardPin(t *testing
 	}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderAnthropic:  &fakeProvider{},
 			providers.ProviderOpenRouter: &fakeProvider{proxyResponse: openRouterResp},
-		},
+		}),
 		nil,
 		store,
 		false,
@@ -797,10 +798,10 @@ func TestService_HardPin_SubAgentOverrideLeavesMainLoopUnaffected(t *testing.T) 
 	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderAnthropic:  &fakeProvider{},
 			providers.ProviderOpenRouter: &fakeProvider{},
-		},
+		}),
 		nil,
 		store,
 		false,
@@ -825,7 +826,7 @@ func TestService_HardPin_NoSubAgentOverrideUsesSharedHardPin(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		nil,
 		store,
 		true,
@@ -853,7 +854,7 @@ func TestService_HardPin_PartialSubAgentOverrideFallsThroughToScorer(t *testing.
 	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		nil,
 		store,
 		false,
@@ -888,10 +889,10 @@ func TestService_HardPin_SubAgentOverrideAppliesUnderHMMStrategy(t *testing.T) {
 	}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderAnthropic:  &fakeProvider{},
 			providers.ProviderOpenRouter: &fakeProvider{proxyResponse: openRouterResp},
-		},
+		}),
 		nil,
 		store,
 		false,
@@ -922,7 +923,7 @@ func TestService_HMMStrategy_SubAgentTurnIsClassifiedWithoutOverride(t *testing.
 	}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		nil,
 		store,
 		false,
@@ -949,7 +950,7 @@ func TestService_HardPin_SubAgentOverrideIneligibleProviderErrors(t *testing.T) 
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		nil,
 		store,
 		false,
@@ -980,10 +981,10 @@ const openAIPinTestBody = `{
 func newOpenAIPinSvc(fr *fakeRouter, store *fakePinStore) *proxy.Service {
 	return proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderAnthropic: &fakeProvider{},
 			providers.ProviderOpenAI:    &fakeProvider{},
-		},
+		}),
 		nil, store,
 		false, providers.ProviderAnthropic, "claude-haiku-4-5",
 		nil), hmm.ServingPorts())
@@ -1155,10 +1156,10 @@ func TestService_SessionPin_OpenAIResponses_OpenCodeForceModelCommandFromToolOut
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, `{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
 	}}
-	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, dispatch.NewClients(map[string]providers.Client{
 		providers.ProviderAnthropic: &fakeProvider{},
 		providers.ProviderOpenAI:    openAIProvider,
-	}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
+	}), nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 	ctx := context.WithValue(authedCtx(uuid.New().String()), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
 	rec := httptest.NewRecorder()
@@ -1270,10 +1271,10 @@ func TestService_SessionPin_OpenAI_ToolResultShortCircuit(t *testing.T) {
 func newOpenAIHardPinSvc(fr *fakeRouter, store *fakePinStore, hardPinExplore bool) *proxy.Service {
 	return proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderAnthropic: &fakeProvider{},
 			providers.ProviderOpenAI:    &fakeProvider{},
-		},
+		}),
 		nil, store,
 		hardPinExplore,
 		providers.ProviderOpenAI,
@@ -1332,7 +1333,7 @@ func TestService_HardPin_BypassesTierCeiling(t *testing.T) {
 	// Hard-pin is opus; inbound model is haiku — hard pin wins regardless.
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		nil,
 		store,
 		false,
@@ -1497,10 +1498,10 @@ func TestService_ClaudeOAuthDoesNotRestrictForcedOpenAIPinWithoutSubscriptionOnl
 	}
 	fr := &fakeRouter{err: errors.New("forced pin must bypass the scorer")}
 	openAI := ccTaskToolProvider()
-	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, dispatch.NewClients(map[string]providers.Client{
 		providers.ProviderAnthropic: &fakeProvider{},
 		providers.ProviderOpenAI:    openAI,
-	}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
+	}), nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{
 			providers.ProviderAnthropic: {},
 			providers.ProviderOpenAI:    {},
@@ -1600,7 +1601,7 @@ func TestService_HardPin_TitleGen_GatewayExclusive_ResolvesAlias(t *testing.T) {
 		}},
 	}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
-		fr, providerMap, nil, store, false,
+		fr, dispatch.NewClients(providerMap), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		nil), hmm.ServingPorts()).
 		WithByokOnly(true).WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver)
@@ -1626,7 +1627,7 @@ func TestService_HardPin_TitleGen_GatewayExclusive_NoAliasReportsConfigError(t *
 
 	providerMap := map[string]providers.Client{providers.ProviderOpenAIGateway: &fakeProvider{}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
-		fr, providerMap, nil, store, false,
+		fr, dispatch.NewClients(providerMap), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		nil), hmm.ServingPorts()).
 		WithByokOnly(true).WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver)
@@ -1687,7 +1688,7 @@ func TestService_SessionPin_ForcedPinDropped_SurfacesInMarker(t *testing.T) {
 	}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{providers.ProviderOpenAI: openAI},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: openAI}),
 		nil, store,
 		false, providers.ProviderOpenAI, "gpt-4o-mini",
 		nil), hmm.ServingPorts())

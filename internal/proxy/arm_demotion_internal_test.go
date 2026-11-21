@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/candidates"
@@ -92,7 +93,7 @@ func (s *demotionStubPinStore) SweepExpired(context.Context) error { return nil 
 func newDemotionTestService(store sessionpin.Store, flagOn bool) *Service {
 	return withHMMPorts(NewService(
 		nil,
-		nil,
+		dispatch.NewClients(nil),
 		nil,
 		store,
 		false,
@@ -127,7 +128,7 @@ func TestMaybeDemoteArmAfterUnrescuedStall(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &demotionStubPinStore{}
-			svc := withHMMPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+			svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 				WithRescuedFailureArmDemotion(tc.flagOn)
 			ctx := context.Background()
 			if tc.cancelled {
@@ -481,7 +482,7 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_PersistsWithoutExistingRow(t 
 func newRescuedDemotionTestService(store sessionpin.Store, flagOn bool) *Service {
 	return withHMMPorts(NewService(
 		nil,
-		nil,
+		dispatch.NewClients(nil),
 		nil,
 		store,
 		false,
@@ -592,7 +593,7 @@ func TestUnrescuedResponseHeaderTimeoutExcludesPrimaryOnNextTurn(t *testing.T) {
 		Model:    freshTurnModel,
 		Reason:   "response-header-timeout-next-turn",
 	}}
-	nextTurnService := withHMMPorts(NewService(nil, nil, nil, &rolePinStore{byRole: store.rows}, false,
+	nextTurnService := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, &rolePinStore{byRole: store.rows}, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: strategy,

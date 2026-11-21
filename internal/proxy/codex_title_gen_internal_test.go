@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -50,7 +51,7 @@ func TestCodexResponsesTitleGenerationScoresWithoutMarker(t *testing.T) {
 	provider := &codexTitleProvider{}
 	svc := withHMMPorts(NewService(
 		routerSpy,
-		map[string]providers.Client{providers.ProviderOpenAI: provider},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: provider}),
 		nil, nil, false,
 		providers.ProviderOpenAI, "gpt-5.6-luna", nil))
 
@@ -82,7 +83,7 @@ func TestCodexResponsesTitlePromptScoresWithoutMarker(t *testing.T) {
 	provider := &codexTitleProvider{}
 	svc := withHMMPorts(NewService(
 		routerSpy,
-		map[string]providers.Client{providers.ProviderOpenAI: provider},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: provider}),
 		nil, nil, false,
 		providers.ProviderOpenAI, "gpt-5.6-luna", nil))
 
@@ -114,7 +115,7 @@ func TestCodexResponsesTitlePromptAfterHarnessContextScores(t *testing.T) {
 	provider := &codexTitleProvider{}
 	svc := withHMMPorts(NewService(
 		routerSpy,
-		map[string]providers.Client{providers.ProviderOpenAI: provider},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: provider}),
 		nil, nil, false,
 		providers.ProviderOpenAI, "gpt-5.6-luna", nil))
 
@@ -146,7 +147,7 @@ func TestCodexDesktopThreadTitleScoresWithoutMarker(t *testing.T) {
 	provider := &codexTitleProvider{}
 	svc := withHMMPorts(NewService(
 		routerSpy,
-		map[string]providers.Client{providers.ProviderOpenAI: provider},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: provider}),
 		nil, nil, false,
 		providers.ProviderOpenAI, "gpt-5.6-luna", nil))
 
@@ -186,7 +187,7 @@ func TestCodexResponsesTitlePromptWithAssistantHistoryUsesScorer(t *testing.T) {
 	provider := &codexTitleProvider{}
 	svc := withHMMPorts(NewService(
 		routerSpy,
-		map[string]providers.Client{providers.ProviderOpenAI: provider},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: provider}),
 		nil, nil, false,
 		providers.ProviderOpenAI, "gpt-5.6-luna", nil))
 
@@ -214,7 +215,7 @@ func TestResponsesTitlePromptWithoutCodexIdentityUsesScorer(t *testing.T) {
 	provider := &codexTitleProvider{}
 	svc := withHMMPorts(NewService(
 		routerSpy,
-		map[string]providers.Client{providers.ProviderOpenAI: provider},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: provider}),
 		nil, nil, false,
 		providers.ProviderOpenAI, "gpt-5.6-luna", nil))
 

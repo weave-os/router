@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/providers/openai"
@@ -113,10 +114,10 @@ func cyberRefusalService(
 			Reason:   decisionReason,
 			Metadata: &router.RoutingMetadata{CandidateModels: []string{"gpt-5.6-sol"}},
 		}},
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderOpenAI:    openai.NewClient("test-openai-key", openAIURL),
 			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", anthropicURL),
-		},
+		}),
 		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", telemetry), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{
 			providers.ProviderOpenAI:    {},
