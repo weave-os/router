@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
@@ -42,8 +43,8 @@ func overflowContext(exhausted bool) context.Context {
 	return flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionExhaustedOpenRouterOnly: true, flags.KeyClaudeEnterpriseOnly: false}})
 }
 
-func (d *overflowDispatch) attempt() dispatchAttempt {
-	return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
+func (d *overflowDispatch) attempt() dispatch.UpstreamAttempt {
+	return func(attemptCtx context.Context, decision router.Decision, client dispatch.Upstream) error {
 		d.served = append(d.served, decision)
 		return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, httptest.NewRecorder(), httptest.NewRequestWithContext(attemptCtx, http.MethodPost, "/v1/messages", nil))
 	}
@@ -51,16 +52,16 @@ func (d *overflowDispatch) attempt() dispatchAttempt {
 
 func (d *overflowDispatch) run(ctx context.Context, laneRequest bool) error {
 	rec := httptest.NewRecorder()
-	in := failoverInputs{
-		w: rec, buf: newPreludeBuffer(rec),
-		initialDecision:  router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
-		bindings:         []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
-		attempt:          d.attempt(),
-		purpose:          inference.PurposeAnthropicMessages,
-		buildAlternative: func(router.Decision) (dispatchAttempt, error) { return d.attempt(), nil },
+	in := dispatch.FailoverInputs{
+		Writer: rec, Prelude: newPreludeBuffer(rec),
+		InitialDecision:  router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
+		Bindings:         []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
+		Attempt:          d.attempt(),
+		Purpose:          inference.PurposeAnthropicMessages,
+		BuildAlternative: func(router.Decision) (dispatch.UpstreamAttempt, error) { return d.attempt(), nil },
 	}
 	if laneRequest {
-		in.subscriptionStateRequest = &router.Request{
+		in.SubscriptionStateRequest = &router.Request{
 			Candidates: router.Candidates{
 				AllowedModels: allowedModelsForRequest(ctx),
 			},
