@@ -12,6 +12,17 @@ import (
 	"weave-os/router/internal/server/middleware"
 )
 
+func init() {
+	middleware.Configure(middlewareConfigFromEnv())
+}
+
+func withEnvServerConfig(features server.Features, defaultStrategy router.Strategy) server.Features {
+	features.DefaultStrategy = defaultStrategy
+	features.InternalServiceToken = internalServiceTokenFromEnv()
+	features.Admin = adminConfigFromEnv()
+	return features
+}
+
 func defaultStrategyFromEnv() (router.Strategy, error) {
 	return server.ParseDefaultStrategy(os.Getenv("ROUTER_DEFAULT_STRATEGY"))
 }

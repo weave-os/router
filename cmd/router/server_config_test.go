@@ -42,7 +42,7 @@ func TestInternalServiceTokenFromEnvTrims(t *testing.T) {
 	t.Setenv("ROUTER_INTERNAL_SERVICE_TOKEN", "  synthetic-token \n")
 	assert.Equal(t, "synthetic-token", internalServiceTokenFromEnv())
 	t.Setenv("ROUTER_INTERNAL_SERVICE_TOKEN", "   ")
-	assert.Equal(t, "", internalServiceTokenFromEnv())
+	assert.Empty(t, internalServiceTokenFromEnv())
 }
 
 func TestDefaultStrategyFromEnv(t *testing.T) {
