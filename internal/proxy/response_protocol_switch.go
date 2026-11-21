@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/translate"
@@ -18,7 +19,7 @@ const (
 	surfaceResponsesTranslated
 )
 
-type modelAttemptBuilder func(router.Decision, translate.EmitOptions, string, context.Context) (dispatchAttempt, error)
+type modelAttemptBuilder func(router.Decision, translate.EmitOptions, string, context.Context) (dispatch.UpstreamAttempt, error)
 
 type responseProtocolSwitch struct {
 	notices             *requestNoticeStream
@@ -108,7 +109,7 @@ func (s responseProtocolSwitch) selectTarget(target router.Decision) error {
 }
 
 func (s *responseProtocolSwitch) wrapBuilder(build modelAttemptBuilder) modelAttemptBuilder {
-	return func(target router.Decision, opts translate.EmitOptions, marker string, fundingCtx context.Context) (dispatchAttempt, error) {
+	return func(target router.Decision, opts translate.EmitOptions, marker string, fundingCtx context.Context) (dispatch.UpstreamAttempt, error) {
 		if err := s.selectTarget(target); err != nil {
 			return nil, err
 		}
@@ -116,7 +117,7 @@ func (s *responseProtocolSwitch) wrapBuilder(build modelAttemptBuilder) modelAtt
 		if err != nil {
 			return nil, err
 		}
-		return func(ctx context.Context, binding router.Decision, client providers.Client) error {
+		return func(ctx context.Context, binding router.Decision, client dispatch.Upstream) error {
 			if err := s.selectTarget(binding); err != nil {
 				return err
 			}
