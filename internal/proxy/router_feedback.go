@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/conversation"
@@ -79,22 +78,22 @@ func (p routerFeedbackPorts) Owns(strategy router.Strategy) bool {
 
 func newRouterFeedback(s *Service) conversation.RouterFeedback {
 	ports := routerFeedbackPorts{s: s}
-	feedback := conversation.RouterFeedback{
+	recorder := conversation.RouterFeedback{
 		Store:         s.lifecycle.RouterFeedbackStore(),
 		Reporters:     ports,
-		Now:           func() time.Time { return s.clock.Now() },
+		Now:           s.clock.Now,
 		ReportTimeout: policyFeedbackReportTimeout,
 	}
 	if s.telemetry != nil {
-		feedback.Turns = ports
+		recorder.Turns = ports
 	}
 	if s.pinStore != nil {
-		feedback.ServedModels = ports
+		recorder.ServedModels = ports
 	}
 	if s.feedbackRepo != nil {
-		feedback.Requests = ports
+		recorder.Requests = ports
 	}
-	return feedback
+	return recorder
 }
 
 type routerFeedbackCommand struct {
