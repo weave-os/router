@@ -64,7 +64,7 @@ type TelemetryEmitter interface {
 }
 
 type Service struct {
-	externalKeyUsage    ExternalKeyUsageRecorder
+	externalKeyUsage    credentials.ExternalKeyUsageRecorder
 	recoveryProbeMu     sync.Mutex
 	recoveryProbeLeases map[string]localRecoveryProbeLease
 	nextRecoveryProbeID uint64
