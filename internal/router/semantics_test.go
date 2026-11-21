@@ -25,7 +25,7 @@ func TestStrategyContextDefaultsToHMMEmbedding(t *testing.T) {
 	ctx := context.Background()
 	assert.Equal(t, router.StrategyHMMEmbedding, router.StrategyFromContext(ctx))
 	assert.Equal(t, ctx, router.WithStrategy(ctx, ""), "an empty strategy leaves ctx unchanged")
-	assert.Equal(t, router.StrategyRetiredRL, router.StrategyFromContext(router.WithStrategy(ctx, router.StrategyRetiredRL)))
+	assert.Equal(t, router.Strategy("rl"), router.StrategyFromContext(router.WithStrategy(ctx, router.Strategy("rl"))))
 }
 
 func TestRoutingModelVariantsFallBackToPrimary(t *testing.T) {

@@ -19,7 +19,6 @@ type StrategyAvailability func(router.Strategy) bool
 func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability StrategyAvailability, available ...router.Strategy) gin.HandlerFunc {
 	if len(available) == 0 {
 		available = []router.Strategy{
-			router.StrategyRetiredRL,
 			router.StrategyHMM,
 			router.StrategyHMMEmbedding,
 		}

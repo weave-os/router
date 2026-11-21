@@ -91,8 +91,7 @@ dependency-free.
 - `Strategy` zero value means the deployment default; `StrategyFromContext`
   returns `StrategyHMMEmbedding` when nothing (or "") was stashed, and
   `WithStrategy` with "" leaves ctx unchanged.
-- `StrategyHMM` is opt-in only, never a silent default. `StrategyRetiredRL` keeps the
-  retired built-in RL wire name `"rl"`: reserved and fail-closed, never served.
+- `StrategyHMM` is opt-in only, never a silent default.
   `StrategyHMMBeta`/`StrategyHMMQwen` are explicit session overrides
   (`IsBetaStrategy`). `StrategyLLMClassifier` requires the release-bound thread
   handshake ([LLM classifier context](../../docs/LLM_CLASSIFIER_CONTEXT.md)).
