@@ -281,14 +281,58 @@ func TestLoadExceptionsRejectsEntriesWithoutReason(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestRunComparesWorkingTreeWithMergeBase(t *testing.T) {
+var repoLocatingGitEnv = []string{"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_PREFIX"}
+
+func newTempGitRepo(t *testing.T) (string, func(args ...string)) {
+	t.Helper()
+	for _, name := range repoLocatingGitEnv {
+		t.Setenv(name, "")
+		require.NoError(t, os.Unsetenv(name))
+	}
 	root := t.TempDir()
 	git := func(args ...string) {
+		t.Helper()
 		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-c", "user.name=test", "-c", "user.email=test@invalid"}, args...)...)
 		cmd.Dir = root
 		out, err := cmd.CombinedOutput()
 		require.NoError(t, err, string(out))
 	}
+	return root, git
+}
+
+func TestTempGitRepoIgnoresInheritedHookGitEnvironment(t *testing.T) {
+	sentinel := t.TempDir()
+	initSentinel := exec.CommandContext(t.Context(), "git", "init", "-q", "-b", "main", sentinel)
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "GIT_") {
+			initSentinel.Env = append(initSentinel.Env, kv)
+		}
+	}
+	out, err := initSentinel.CombinedOutput()
+	require.NoError(t, err, string(out))
+	configBefore, err := os.ReadFile(filepath.Join(sentinel, ".git", "config"))
+	require.NoError(t, err)
+	t.Setenv("GIT_DIR", filepath.Join(sentinel, ".git"))
+	t.Setenv("GIT_WORK_TREE", sentinel)
+	t.Setenv("GIT_INDEX_FILE", filepath.Join(sentinel, ".git", "index"))
+
+	root, git := newTempGitRepo(t)
+	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a\n"), 0o600))
+	git("init", "-q", "-b", "main")
+	git("add", ".")
+	git("commit", "-q", "-m", "base")
+	_, err = run(t.Context(), repo{root: root}, "main")
+	require.NoError(t, err)
+
+	configAfter, err := os.ReadFile(filepath.Join(sentinel, ".git", "config"))
+	require.NoError(t, err)
+	assert.Equal(t, string(configBefore), string(configAfter))
+	assert.NoFileExists(t, filepath.Join(sentinel, ".git", "index"))
+	assert.FileExists(t, filepath.Join(root, ".git", "index"))
+}
+
+func TestRunComparesWorkingTreeWithMergeBase(t *testing.T) {
+	root, git := newTempGitRepo(t)
 	write := func(path, content string) {
 		full := filepath.Join(root, path)
 		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o750))
@@ -338,13 +382,7 @@ func TestCompareCommentsFlagsNewAndReplacedCommentsButNotMoves(t *testing.T) {
 }
 
 func TestRunFlagsGrowingCommentBanBudgets(t *testing.T) {
-	root := t.TempDir()
-	git := func(args ...string) {
-		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-c", "user.name=test", "-c", "user.email=test@invalid"}, args...)...)
-		cmd.Dir = root
-		out, err := cmd.CombinedOutput()
-		require.NoError(t, err, string(out))
-	}
+	root, git := newTempGitRepo(t)
 	writeAllowlist := func(packages string) {
 		full := filepath.Join(root, "internal/architecture/comment_ban_allowlist.json")
 		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o750))
