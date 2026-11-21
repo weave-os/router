@@ -43,7 +43,7 @@ func serveForceModelPin(ctx context.Context, req *router.Request, res *turnLoopR
 func serveUserForcedPin(ctx context.Context, req *router.Request, res *turnLoopResult, pin sessionpin.Pin, sessionPins routingpolicy.SessionPins) (served bool, tierFloor catalog.Tier) {
 	verdict := candidates.JudgeUserForcedPin(pin, *req)
 	if verdict.Serve {
-		decision := pinDecision(pin)
+		decision := pin.Decision()
 		res.PinTier = pin.Reason
 		res.Decision = decision
 		res.UserForced = decision.UserForcedModel()
