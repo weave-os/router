@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
@@ -15,7 +16,9 @@ import (
 
 type footerFakeStore struct{}
 
-func (footerFakeStore) InsertRouterFeedback(context.Context, RouterFeedbackEvent) error { return nil }
+func (footerFakeStore) InsertRouterFeedback(context.Context, feedback.RouterFeedbackEvent) error {
+	return nil
+}
 
 func TestFeedbackFooter_ClientGating(t *testing.T) {
 	withStore := (&Service{hmmServing: hmmPorts()}).WithRouterFeedbackStore(footerFakeStore{})
