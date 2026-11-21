@@ -28,10 +28,10 @@ import (
 
 type fakeFeedbackStore struct {
 	mu     sync.Mutex
-	events []proxy.RouterFeedbackEvent
+	events []feedback.RouterFeedbackEvent
 }
 
-func (f *fakeFeedbackStore) InsertRouterFeedback(ctx context.Context, p proxy.RouterFeedbackEvent) error {
+func (f *fakeFeedbackStore) InsertRouterFeedback(ctx context.Context, p feedback.RouterFeedbackEvent) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.events = append(f.events, p)

@@ -138,7 +138,7 @@ type Service struct {
 	bandSwap                       *bandswap.Classifier
 
 	turnSignalCaptureEnabled     bool
-	feedbackStore                RouterFeedbackStore
+	feedbackStore                feedback.RouterFeedbackStore
 	summarizer                   handover.Summarizer
 	webSearch                    websearch.Executor
 	compactionHandoverSummarizer handover.Summarizer
@@ -1280,7 +1280,7 @@ func (s *Service) WithTurnSignalCapture(enabled bool) *Service {
 	return s
 }
 
-func (s *Service) WithRouterFeedbackStore(store RouterFeedbackStore) *Service {
+func (s *Service) WithRouterFeedbackStore(store feedback.RouterFeedbackStore) *Service {
 	s.feedbackStore = store
 	return s
 }
