@@ -7,13 +7,13 @@ import (
 )
 
 func CallerFrom(ctx context.Context) auth.Caller {
-	id := ClientIdentityFrom(ctx)
+	identity := ClientIdentityFrom(ctx)
 	_, internalTest := InternalTestIdentityFrom(ctx)
 	caller := auth.Caller{
-		Email:        id.Email,
-		AccountID:    id.AccountID,
-		DisplayName:  id.DisplayName,
-		SessionID:    id.SessionID,
+		Email:        identity.Email,
+		AccountID:    identity.AccountID,
+		DisplayName:  identity.DisplayName,
+		SessionID:    identity.SessionID,
 		InternalTest: internalTest,
 	}
 	if serving, managed := ServingIdentityFromContext(ctx); managed {
