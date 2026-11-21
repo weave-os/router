@@ -27,8 +27,7 @@ func applySubscriberTelemetry(ctx context.Context, telemetry *InsertTelemetryPar
 	applySubscriptionWinnerTelemetry(ctx, telemetry)
 	plan, hasPlan := entitlement.ProductScopeFromContext(ctx)
 	coverage, hasCoverage := entitlement.CoverageFromContext(ctx)
-	_, hasPrepaidAuthorization := billing.PrepaidAuthorizationFromContext(ctx)
-	if !hasPlan && !hasCoverage && !hasPrepaidAuthorization && !billing.HasOverrideFromContext(ctx) {
+	if !hasPlan && !hasCoverage && !billing.HasOverrideFromContext(ctx) {
 		return
 	}
 	if hasPlan {
@@ -61,13 +60,11 @@ func applySubscriberTelemetry(ctx context.Context, telemetry *InsertTelemetryPar
 
 type subscriberSettlementState struct {
 	includedFailed bool
-	prepaidFailed  bool
 }
 
 func captureSubscriberSettlementState(ctx context.Context) subscriberSettlementState {
 	return subscriberSettlementState{
 		includedFailed: entitlement.SettlementFailed(ctx),
-		prepaidFailed:  billing.PrepaidSettlementFailed(ctx),
 	}
 }
 
@@ -85,9 +82,6 @@ func applySubscriberSettlementTelemetry(state subscriberSettlementState, telemet
 	case entitlement.CapacitySourceIncludedRouter:
 		failed := state.includedFailed
 		telemetry.SettlementFailed = &failed
-	case entitlement.CapacitySourcePrepaid:
-		failed := state.prepaidFailed
-		telemetry.SettlementFailed = &failed
 	case entitlement.CapacitySourceLinkedClaude, entitlement.CapacitySourceLinkedCodex, entitlement.CapacitySourceBillingOverride:
 	}
 }
@@ -103,9 +97,6 @@ func telemetryCapacitySource(ctx context.Context, credentialSource string) entit
 		return entitlement.CapacitySourceLinkedCodex
 	case credSourceBYOK:
 		return ""
-	}
-	if _, ok := billing.PrepaidAuthorizationFromContext(ctx); ok {
-		return entitlement.CapacitySourcePrepaid
 	}
 	if _, ok := entitlement.CoverageFromContext(ctx); ok {
 		return entitlement.CapacitySourceIncludedRouter

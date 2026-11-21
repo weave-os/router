@@ -1094,7 +1094,7 @@ func TestService_SetInstallationFlagOverrides(t *testing.T) {
 	svc := auth.NewService(installRepo, &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}}, nil, nil, auth.NoOpAPIKeyCache{}, nil, frozenClock())
 
 	t.Run("persists a registered override", func(t *testing.T) {
-		set := flags.Overrides{Bools: map[flags.Key]bool{flags.KeyStruggleShadowEnabled: false}}
+		set := flags.Overrides{Bools: map[flags.Key]bool{flags.KeyTurnSignalCapture: false}}
 		require.NoError(t, svc.SetInstallationFlagOverrides(context.Background(), "ext-1", "inst-1", set))
 		assert.Equal(t, set, installRepo.flagOverridesByID["inst-1"])
 	})

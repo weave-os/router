@@ -31,6 +31,7 @@ func claudeSubscriptionFacts(ctx context.Context) credentials.ClaudeSubscription
 	return credentials.ClaudeSubscriptionFacts{
 		EnterpriseOnly:       claudeEnterpriseOnly(ctx),
 		PickedModelOnOwnPlan: pickedModelOnOwnPlan(ctx),
+		OwnOverageBeforePool: ownOverageBeforePool(ctx),
 		EnterpriseSubscriptionOnly: subscriptionOnly && reason != billing.SubscriptionOnlyLinkedFirst &&
 			claudeSubscriptionPlan(ctx) == providers.SubscriptionPlanEnterprise,
 	}

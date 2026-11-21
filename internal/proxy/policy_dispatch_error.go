@@ -3,15 +3,13 @@ package proxy
 import (
 	"errors"
 	"net/http"
+
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/decisionmodel"
-	"weave-os/router/internal/router/hmm"
-	"weave-os/router/internal/router/rl"
 )
 
 func classifyPolicyDispatchError(err error) (DispatchErrorClass, bool) {
 	switch {
-	case errors.Is(err, rl.ErrPolicyUnavailable):
+	case errors.Is(err, router.ErrRLPolicyUnavailable):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorRLPolicyUnavailable,
 			Status:     http.StatusServiceUnavailable,
@@ -20,7 +18,7 @@ func classifyPolicyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "error",
 			LogMessage: "RL routing unavailable",
 		}, true
-	case errors.Is(err, decisionmodel.ErrUnavailable):
+	case errors.Is(err, router.ErrDecisionModelUnavailable):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorDecisionModelUnavailable,
 			Status:     http.StatusServiceUnavailable,
@@ -29,7 +27,7 @@ func classifyPolicyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "error",
 			LogMessage: "decision model routing unavailable",
 		}, true
-	case errors.Is(err, hmm.ErrHMMUnavailable):
+	case errors.Is(err, router.ErrHMMUnavailable):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorHMMUnavailable,
 			Status:     http.StatusServiceUnavailable,

@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/router/hmm/policycompiler"
-	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/rosterdata"
 )
 
 var standardTaxonomy = []string{"low", "medium", "high", "maximum"}

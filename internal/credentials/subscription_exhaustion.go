@@ -10,11 +10,12 @@ type SubscriptionUsage interface {
 type ClaudeSubscriptionFacts struct {
 	EnterpriseOnly             bool
 	PickedModelOnOwnPlan       bool
+	OwnOverageBeforePool       bool
 	EnterpriseSubscriptionOnly bool
 }
 
 func ClaudeSnapshotUnservable(f ClaudeSubscriptionFacts, snap usage.Snapshot) bool {
-	if f.EnterpriseOnly || f.PickedModelOnOwnPlan || f.EnterpriseSubscriptionOnly {
+	if f.EnterpriseOnly || f.PickedModelOnOwnPlan || f.OwnOverageBeforePool && snap.OverageInUse || f.EnterpriseSubscriptionOnly {
 		return false
 	}
 	return snap.BillableOrExhausted()

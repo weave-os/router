@@ -1,6 +1,6 @@
 # @weave-os/router
 
-One command, anywhere, to point Claude Code, Codex, opencode, or pi at the Weave Router.
+One command to set up Weave Router for Claude Code, Codex, OpenCode, pi, or GitHub Copilot.
 
 The package was renamed from `@workweave/router`. The old package remains
 published as a compatibility alias and continues to receive the same releases;
@@ -17,6 +17,8 @@ npx @weave-os/router login codex            # enroll ChatGPT Pro/Plus device flo
 npx @weave-os/router status                 # connectivity, native configs, account health
 npx @weave-os/router --opencode            # install for opencode
 npx @weave-os/router --pi                  # install for pi + Loom UI
+npx @weave-os/router --copilot            # install for GitHub Copilot CLI
+npx @weave-os/router --copilot --vscode   # add Weave Router to VS Code Copilot Chat
 npx @weave-os/router --scope project       # per-repo install; key-bearing config stays out of git
 npx @weave-os/router --local               # self-hosted via docker-compose (localhost:8080)
 npx @weave-os/router --base-url https://router.acme.internal
@@ -24,6 +26,12 @@ npx @weave-os/router --email you@example.com # set identity without prompting
 npx @weave-os/router --claude --return-url https://app.example.com/onboarding # continue after a verified install
 npx @weave-os/router --non-interactive     # reads $WEAVE_ROUTER_KEY, no prompts (defaults to claude)
 ```
+
+In local VS Code Copilot Chat, open **Chat: Manage Language Models** after setup.
+On the **Weave Router** group, choose **Update API Key**, enter your Router key,
+then select **Weave Router** in the chat model picker. VS Code stores the key.
+See the [VS Code setup guide](https://github.com/weave-os/router/blob/main/install/README.md#github-copilot-chat-in-vs-code-using-npm)
+for custom profiles and self-hosted Routers.
 
 For Claude Code the installed statusline and `/force-model`, `/router-*` slash
 commands also refresh themselves in the background about once a week (never
@@ -58,7 +66,7 @@ Codex installs `$router-status`, `$router-off`, `$router-on`, and
 to the normal provider; Codex does not support third-party `/disable-routing`
 slash commands. The shell equivalent is `npx @weave-os/router disable-routing`.
 Cursor has no config file we own — toggle its base URL override in **Settings →
-Models** instead, with a custom model named `weave-auto`.
+Models** instead, with a custom model named `Weave Auto`.
 
 Pick which models the router is allowed to route to:
 

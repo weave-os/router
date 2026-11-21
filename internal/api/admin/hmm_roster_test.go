@@ -9,6 +9,7 @@ import (
 
 	"weave-os/router/internal/api/admin"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 
 	"github.com/gin-gonic/gin"
@@ -20,7 +21,7 @@ type fakeRosterSource struct {
 	snapshot policy.RosterSnapshot
 }
 
-func (f fakeRosterSource) ClusterRoster(context.Context) (policy.RosterSnapshot, error) {
+func (f fakeRosterSource) ClusterRoster(context.Context, router.Strategy) (policy.RosterSnapshot, error) {
 	return f.snapshot, nil
 }
 
@@ -38,7 +39,7 @@ func TestHMMRosterHandler_PreservesRosterArmsAndCatalogModels(t *testing.T) {
 				},
 			},
 		},
-	}}))
+	}}, hmm.CatalogIDForRoster))
 
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/router/hmm-roster", nil))
@@ -68,7 +69,7 @@ func TestHMMRosterHandler_SelectsBetaPolicy(t *testing.T) {
 	engine.GET("/v1/router/hmm-roster", admin.HMMRosterHandler(map[router.Strategy]policy.RosterSource{
 		router.StrategyHMM:     fakeRosterSource{snapshot: policy.RosterSnapshot{Lane: "stable", Clusters: map[string][]string{"high": {"openai/gpt-5.6-sol"}}}},
 		router.StrategyHMMBeta: fakeRosterSource{snapshot: policy.RosterSnapshot{Lane: "beta", Clusters: map[string][]string{"high": {"x-ai/grok-4.6"}}}},
-	}))
+	}, hmm.CatalogIDForRoster))
 
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/router/hmm-roster?strategy=hmm_beta", nil))
@@ -87,7 +88,7 @@ func TestHMMRosterHandler_RejectsUnsupportedStrategy(t *testing.T) {
 	engine := gin.New()
 	engine.GET("/v1/router/hmm-roster", admin.HMMRosterHandler(map[router.Strategy]policy.RosterSource{
 		router.StrategyHMM: fakeRosterSource{},
-	}))
+	}, hmm.CatalogIDForRoster))
 
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/router/hmm-roster?strategy=cluster", nil))

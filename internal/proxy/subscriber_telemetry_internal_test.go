@@ -50,7 +50,6 @@ func TestApplySubscriberTelemetryIncludedUsage(t *testing.T) {
 }
 
 func TestApplySubscriberTelemetryCapacitySources(t *testing.T) {
-	prepaid := billing.PrepaidAuthorization{CapacitySource: entitlement.CapacitySourcePrepaid}
 	tests := []struct {
 		name             string
 		ctx              context.Context
@@ -68,11 +67,6 @@ func TestApplySubscriberTelemetryCapacitySources(t *testing.T) {
 			ctx:              entitlement.WithProductScope(context.Background(), entitlement.PlanBoost),
 			credentialSource: credSourceCodexSubscription,
 			want:             entitlement.CapacitySourceLinkedCodex,
-		},
-		{
-			name: "prepaid",
-			ctx:  billing.WithPrepaidAuthorization(context.Background(), prepaid),
-			want: entitlement.CapacitySourcePrepaid,
 		},
 		{
 			name: "organization-paid subscriber",
@@ -130,13 +124,6 @@ func TestApplySubscriberSettlementTelemetry(t *testing.T) {
 	applySubscriberSettlementTelemetry(captureSubscriberSettlementState(includedContext), &included)
 	require.NotNil(t, included.SettlementFailed)
 	assert.True(t, *included.SettlementFailed)
-
-	prepaidContext := billing.WithPrepaidAuthorization(context.Background(), billing.PrepaidAuthorization{})
-	billing.MarkPrepaidSettlementFailed(prepaidContext)
-	prepaid := InsertTelemetryParams{CapacitySource: string(entitlement.CapacitySourcePrepaid)}
-	applySubscriberSettlementTelemetry(captureSubscriberSettlementState(prepaidContext), &prepaid)
-	require.NotNil(t, prepaid.SettlementFailed)
-	assert.True(t, *prepaid.SettlementFailed)
 
 	linked := InsertTelemetryParams{CapacitySource: string(entitlement.CapacitySourceLinkedClaude)}
 	applySubscriberSettlementTelemetry(subscriberSettlementState{}, &linked)

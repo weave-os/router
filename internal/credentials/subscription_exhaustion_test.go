@@ -46,6 +46,10 @@ func TestClaudeSnapshotUnservable(t *testing.T) {
 			assert.False(t, credentials.ClaudeSnapshotUnservable(facts, overage))
 		})
 	}
+
+	ownOverageFirst := credentials.ClaudeSubscriptionFacts{OwnOverageBeforePool: true}
+	assert.False(t, credentials.ClaudeSnapshotUnservable(ownOverageFirst, overage), "own overage serves before the pool")
+	assert.True(t, credentials.ClaudeSnapshotUnservable(ownOverageFirst, spentSnapshot()), "a spent seat without overage stays unservable")
 }
 
 func TestClaudeSubscriptionObservedExhausted(t *testing.T) {

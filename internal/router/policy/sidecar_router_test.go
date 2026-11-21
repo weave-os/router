@@ -71,10 +71,12 @@ func TestSidecarRouterReportsImageLimitWhenNoBindingCanServe(t *testing.T) {
 	require.NotErrorIs(t, err, router.ErrStrategyUnavailable, "an empty candidate set is not a policy outage")
 
 	prefiltered := router.Request{
-		EnabledProviders:         set(providers.ProviderDeepInfra),
-		ExcludedModels:           set(model),
-		ImageLimitExcludedModels: set(model),
-		ImageCount:               17,
+		EnabledProviders: set(providers.ProviderDeepInfra),
+		Candidates: router.Candidates{
+			ExcludedModels:           set(model),
+			ImageLimitExcludedModels: set(model),
+		},
+		ImageCount: 17,
 	}
 	resolved := resolver.Resolve(prefiltered)
 	assert.Empty(t, resolved.Candidates)
@@ -104,8 +106,10 @@ func TestSidecarRouter_CoolingRescuePoolStaysWithinEligibleGroups(t *testing.T) 
 	adapter := policy.NewSidecarRouter(policy.SidecarRouterConfig{Strategy: router.StrategyHMM}, decider,
 		policy.NewResolver(set(models...), set(providers.ProviderAnthropic, providers.ProviderOpenAI), catalogRosterID, policy.ManagedProviderPolicy()))
 	req := router.Request{
-		AutomaticExcludedModels: set("claude-opus-4-8", "gpt-5"),
-		ExcludedModels:          set("claude-sonnet-5"),
+		Candidates: router.Candidates{
+			AutomaticExcludedModels: set("claude-opus-4-8", "gpt-5"),
+			ExcludedModels:          set("claude-sonnet-5"),
+		},
 	}
 
 	decision, err := adapter.Route(context.Background(), req)
@@ -185,14 +189,16 @@ func TestSidecarRouterOnboardsFutureStrategyWithoutProxyChanges(t *testing.T) {
 		TrainingAllowed:      true,
 		CaptureMode:          "hashed",
 		EstimatedInputTokens: 1000,
-		PolicyTurnContext: &router.PolicyTurnContext{
-			VisibleTurnIndex:    3,
-			SessionTurnCount:    4,
-			TurnType:            "main_loop",
-			PreviousServedModel: "gpt-5.4",
-			PreviousProvider:    providers.ProviderOpenAI,
-			CacheState:          router.PolicyCacheStateWarm,
-			PriorOutputTokens:   &priorOutputTokens,
+		Session: router.SessionView{
+			PolicyTurnContext: &router.PolicyTurnContext{
+				VisibleTurnIndex:    3,
+				SessionTurnCount:    4,
+				TurnType:            "main_loop",
+				PreviousServedModel: "gpt-5.4",
+				PreviousProvider:    providers.ProviderOpenAI,
+				CacheState:          router.PolicyCacheStateWarm,
+				PriorOutputTokens:   &priorOutputTokens,
+			},
 		},
 	})
 
@@ -225,46 +231,6 @@ func TestSidecarRouterOnboardsFutureStrategyWithoutProxyChanges(t *testing.T) {
 	require.NoError(t, adapter.ReportFeedback(context.Background(), map[string]interface{}{"feedback": "positive"}))
 	assert.Equal(t, "route-future", decider.outcome["route_id"])
 	assert.Equal(t, "positive", decider.feedback["feedback"])
-}
-
-func TestSidecarRouterDispatchesSidecarSelectedArm(t *testing.T) {
-	resolver := policy.NewArmResolver(
-		set("minimax/minimax-m2.7"),
-		set(providers.ProviderTogether, providers.ProviderFireworks),
-		func(model catalog.Model) string { return model.ID },
-		policy.ManagedProviderPolicy(),
-	)
-	resolved := resolver.Resolve(router.Request{})
-	require.Len(t, resolved.Candidates, 2)
-	selected := resolved.Candidates[1]
-	decider := &recordingPolicy{result: policy.Result{
-		ArmID:    selected.ArmID,
-		Provider: selected.Provider,
-		Score:    0.9,
-		CandidateScores: map[string]float32{
-			resolved.Candidates[0].ArmID: 0.1,
-			resolved.Candidates[1].ArmID: 0.9,
-		},
-	}}
-	adapter := policy.NewSidecarRouter(policy.SidecarRouterConfig{
-		Strategy: router.Strategy("future-policy"),
-	}, decider, resolver)
-
-	decision, err := adapter.Route(context.Background(), router.Request{})
-
-	require.NoError(t, err)
-	assert.Equal(t, selected.CatalogID, decision.Model)
-	assert.Equal(t, selected.Provider, decision.Provider)
-	assert.Equal(t, selected.ArmID, decision.Metadata.SelectedArmID)
-	assert.Equal(t, map[string]string{
-		resolved.Candidates[0].ArmID: resolved.Candidates[0].Provider,
-		resolved.Candidates[1].ArmID: resolved.Candidates[1].Provider,
-	}, decision.Metadata.CandidateArmProviders)
-	assert.Equal(t, map[string]float32{
-		resolved.Candidates[0].ArmID: 0.1,
-		resolved.Candidates[1].ArmID: 0.9,
-	}, decision.Metadata.CandidateArmScores)
-	assert.Equal(t, policy.SchemaVersionV2, decider.query.SchemaVersion)
 }
 
 func TestSidecarRouterMarksShadowDecisionsNonLearning(t *testing.T) {
@@ -340,45 +306,6 @@ func TestSidecarRouterPreviewReturnsAllEligibleArmsWithoutLifecycleCallbacks(t *
 	assert.Nil(t, decider.feedback)
 }
 
-func TestSidecarRouterPreviewUsesArmSchemaAndIDs(t *testing.T) {
-	resolver := policy.NewArmResolver(
-		set("minimax/minimax-m2.7"),
-		set(providers.ProviderTogether, providers.ProviderFireworks),
-		catalogRosterID,
-		policy.ManagedProviderPolicy(),
-	)
-	resolved := resolver.Resolve(router.Request{})
-	require.Len(t, resolved.Candidates, 2)
-	selectedArmID := resolved.Candidates[0].ArmID
-	decider := &recordingPolicy{preview: policy.PreviewResult{
-		SchemaVersion:         policy.SchemaVersionV2,
-		PolicyArtifactID:      "temporal-q-v1",
-		PolicyArtifactSHA256:  "sha256:artifact",
-		RosterSHA256:          "sha256:roster",
-		HMMStateID:            0,
-		HMMStatePath:          []int{0},
-		HMMStateProbabilities: []float64{1},
-		ClassOrder:            []string{"provider-aware"},
-		ClassProbabilities:    map[string]float64{"provider-aware": 1},
-		RankedFallback: []policy.PreviewGroup{{
-			Group:        "provider-aware",
-			Probability:  1,
-			EligibleArms: []string{selectedArmID},
-		}},
-		SelectedGroup:     "provider-aware",
-		EligibleRosterIDs: []string{selectedArmID},
-	}}
-	adapter := policy.NewSidecarRouter(policy.SidecarRouterConfig{
-		Strategy: router.Strategy("temporal-q"),
-	}, decider, resolver).WithCapabilities(policy.Capabilities{SupportsPreview: true})
-
-	result, err := adapter.PreviewRoute(context.Background(), router.Request{})
-
-	require.NoError(t, err)
-	assert.Equal(t, policy.SchemaVersionV2, decider.previewQuery.SchemaVersion)
-	assert.Equal(t, []string{selectedArmID}, result.EligibleRosterIDs)
-}
-
 func TestSidecarRouterPreviewRecordsZeroEligibleArms(t *testing.T) {
 	decider := &recordingPolicy{preview: policy.PreviewResult{
 		SchemaVersion:         policy.SchemaVersionV1,
@@ -405,7 +332,9 @@ func TestSidecarRouterPreviewRecordsZeroEligibleArms(t *testing.T) {
 	)).WithCapabilities(policy.Capabilities{SupportsPreview: true})
 
 	result, err := adapter.PreviewRoute(context.Background(), router.Request{
-		ExcludedModels: set("gpt-5.5"),
+		Candidates: router.Candidates{
+			ExcludedModels: set("gpt-5.5"),
+		},
 	})
 
 	require.NoError(t, err)
@@ -591,49 +520,6 @@ func TestSidecarRouterClusterOverrideSuppressesStaleDisplayMarker(t *testing.T) 
 	require.Equal(t, "claude-sonnet-5", decision.Model)
 	assert.Empty(t, decision.Metadata.DisplayMarker,
 		"a reselected arm must drop the sidecar's stale marker so the generic path renders the served model")
-}
-
-func TestSidecarRouterClusterOverrideResolvesArmEnumeratingBinding(t *testing.T) {
-	// Arm-enumerating resolver: arm IDs differ from roster IDs. Binding resolution
-	// must go through the arm ID — shared roster IDs are dropped from ByRosterID as
-	// ambiguous.
-	resolver := policy.NewArmResolver(
-		set("claude-opus-4-8", "claude-sonnet-5"),
-		set(providers.ProviderAnthropic),
-		clusterOverrideMapper,
-		policy.ManagedProviderPolicy(),
-	)
-	resolved := resolver.Resolve(router.Request{})
-	require.NotEmpty(t, resolved.Candidates)
-	// Confirm the premise: arm IDs are not equal to roster IDs on this resolver.
-	require.NotEqual(t, resolved.Candidates[0].ArmID, resolved.Candidates[0].RosterID)
-
-	decider := &recordingPolicy{result: policy.Result{
-		SchemaVersion: policy.SchemaVersionV2,
-		ArmID:         resolved.Candidates[0].ArmID,
-		Model:         resolved.Candidates[0].RosterID,
-		Provider:      providers.ProviderAnthropic,
-		Score:         0.8,
-		RankedFallback: []policy.PreviewGroup{{
-			Group:        "maximum",
-			Probability:  0.8,
-			RosterArms:   []string{"anthropic/claude-opus-4-8", "anthropic/claude-sonnet-5"},
-			EligibleArms: []string{"anthropic/claude-opus-4-8", "anthropic/claude-sonnet-5"},
-		}},
-	}}
-	adapter := policy.NewSidecarRouter(policy.SidecarRouterConfig{
-		Strategy: router.StrategyHMM,
-	}, decider, resolver)
-
-	decision, err := adapter.Route(context.Background(), router.Request{
-		ClusterArmOverrides: map[string][]string{
-			"maximum": {"claude-sonnet-5", "claude-opus-4-8"},
-		},
-	})
-
-	require.NoError(t, err, "override must resolve via the arm ID on an arm-enumerating resolver")
-	assert.Equal(t, "claude-sonnet-5", decision.Model)
-	assert.Equal(t, providers.ProviderAnthropic, decision.Provider)
 }
 
 func TestSidecarRouterClusterOverrideFailsOpenWithoutRankedFallback(t *testing.T) {

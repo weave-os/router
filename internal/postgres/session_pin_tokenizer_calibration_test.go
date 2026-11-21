@@ -7,6 +7,7 @@ import (
 
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm/pinstate"
 	"weave-os/router/internal/router/sessionpin"
 
 	"github.com/google/uuid"
@@ -28,7 +29,7 @@ func TestSessionPinRepo_TokenizerCalibrationRoundTrip(t *testing.T) {
 		_, _ = pool.Exec(context.Background(), "DELETE FROM router.model_router_installations WHERE id = $1", installationID)
 	})
 
-	repo := postgres.NewSessionPinRepo(pool)
+	repo := postgres.NewSessionPinRepo(pool, pinstate.Accessor{})
 	var key [sessionpin.SessionKeyLen]byte
 	copy(key[:], uuid.New().String())
 	pin := sessionpin.Pin{

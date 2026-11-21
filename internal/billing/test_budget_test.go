@@ -2,12 +2,13 @@ package billing_test
 
 import (
 	"context"
-	"github.com/stretchr/testify/require"
 	"testing"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions/entitlement"
+
+	"github.com/stretchr/testify/require"
 )
 
 type testBudgetBook struct {
@@ -38,7 +39,6 @@ func TestInternalTestDebitNeverSettlesSubscriberAllowanceOrCustomerPrepaid(t *te
 	require.Equal(t, billing.OwnerKindInternalTest, book.debits[0].Owner.Kind)
 	require.Equal(t, "test-subject", book.debits[0].Owner.TestSubjectID)
 	require.Empty(t, book.debits[0].Owner.OrganizationID)
-	require.Empty(t, book.debits[0].Owner.SubscriberID)
 	require.Empty(t, organization.ledgerCalls)
 	for _, override := range []billing.DebitInferenceParams{{HasOverride: true}, {SubscriptionServed: true}, {ByokServed: true}} {
 		_, err = service.DebitForInference(ctx, override)

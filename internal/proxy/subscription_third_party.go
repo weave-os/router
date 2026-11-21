@@ -30,19 +30,20 @@ type clientAppRefusalPaidFallbackKey struct{}
 
 func withClientAppRefusalPaidFallback(ctx context.Context, decision router.Decision) context.Context {
 	consented, _ := ctx.Value(APIKeyPaidFallbackOnSubscriptionRefusalContextKey{}).(bool)
-	if !consented || !strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel) {
+	forcedConsent := consented && strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel)
+	if !forcedConsent && weaveCreditsDenied(ctx) {
 		return ctx
 	}
-	return context.WithValue(ctx, clientAppRefusalPaidFallbackKey{}, true)
+	return context.WithValue(ctx, clientAppRefusalPaidFallbackKey{}, forcedConsent)
 }
 
 func clientAppRefusalPaidFallback(ctx context.Context) bool {
-	allowed, _ := ctx.Value(clientAppRefusalPaidFallbackKey{}).(bool)
+	_, allowed := ctx.Value(clientAppRefusalPaidFallbackKey{}).(bool)
 	return allowed
 }
 
 func claudePoolRefusesClientApp(ctx context.Context) bool {
-	if !clientAppRefusalPaidFallback(ctx) {
+	if spendsPool, _ := ctx.Value(clientAppRefusalPaidFallbackKey{}).(bool); !spendsPool {
 		return false
 	}
 	usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
@@ -57,16 +58,35 @@ func forcedClaudeClientAppRefused(ctx context.Context, decision router.Decision,
 	return usage != nil && usage.ClientAppRefused && strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel)
 }
 
-func anthropicSubscriptionThirdPartyRefused(err error) bool {
+func anthropicInvalidRequestMessage(err error) string {
 	var upstream *providers.UpstreamErrorResponse
 	if !errors.As(err, &upstream) || upstream.Status != http.StatusBadRequest {
-		return false
+		return ""
 	}
 	if gjson.GetBytes(upstream.Body, "error.type").String() != "invalid_request_error" {
-		return false
+		return ""
 	}
-	message := strings.ToLower(gjson.GetBytes(upstream.Body, "error.message").String())
+	return strings.ToLower(gjson.GetBytes(upstream.Body, "error.message").String())
+}
+
+func anthropicSubscriptionThirdPartyRefused(err error) bool {
+	message := anthropicInvalidRequestMessage(err)
 	return strings.Contains(message, "third-party apps") && strings.Contains(message, "extra usage")
+}
+
+func anthropicClientAppRefused(ctx context.Context, err error) bool {
+	if anthropicSubscriptionThirdPartyRefused(err) {
+		return true
+	}
+	return knownThirdPartyClientApp(ClientIdentityFrom(ctx).ClientApp) && strings.Contains(anthropicInvalidRequestMessage(err), "extra usage")
+}
+
+func knownThirdPartyClientApp(clientApp string) bool {
+	switch clientApp {
+	case ClientAppCodex, ClientAppCursor, ClientAppGeminiCLI, ClientAppOpencode:
+		return true
+	}
+	return false
 }
 
 func thirdPartyDenialModel(clientApp string) string {

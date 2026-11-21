@@ -29,7 +29,7 @@ func TestBundledPythonAcceptsGoClassificationEvidence(t *testing.T) {
 			messages[i] = router.ConversationMessage{Role: "assistant", Text: strings.Repeat("context", 500)}
 		}
 		messages[position] = router.ConversationMessage{Role: "user", Text: "Inspect the synthetic regression"}
-		body, err := marshalRouteRequest(policy.Query{Strategy: router.StrategyHMM, SchemaVersion: policy.SchemaVersionV3, ConversationMessages: messages})
+		body, err := marshalRouteRequest(policy.Query{Strategy: router.StrategyHMM, SchemaVersion: policy.SchemaVersionV4, ConversationMessages: messages})
 		require.NoError(t, err)
 		requests = append(requests, body)
 	}

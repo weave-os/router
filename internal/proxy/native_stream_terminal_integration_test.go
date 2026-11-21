@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -62,11 +63,11 @@ func scriptedStream(attempts ...[]string) *fakeProvider {
 }
 
 func nativeSurfaceService(provider *fakeProvider, providerName, model string) *proxy.Service {
-	return proxy.NewService(
+	return proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providerName, Model: model, Reason: "test"}},
 		map[string]providers.Client{providerName: provider},
-		nil, nil, false, providerName, model, nil,
-	).WithOpenAIResponsesBroad(providerName == providers.ProviderOpenAI).
+		nil, nil, false, providerName, model, nil), hmm.ServingPorts()).
+		WithOpenAIResponsesBroad(providerName == providers.ProviderOpenAI).
 		WithRetrySleep(noRetrySleep)
 }
 

@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/routingpolicy/overrides"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/telemetry"
@@ -74,10 +75,6 @@ func (s *Service) usageBypassEngaged(ctx context.Context, headers http.Header, r
 	if provider == providers.ProviderAnthropic && s.subscriptionModels.denied([]byte(token), req.RequestedModel, s.clock.Now()) {
 		return "", false
 	}
-	threshold := defaultUsageBypassThreshold
-	if cfg.Threshold != nil {
-		threshold = min(1, max(0, *cfg.Threshold))
-	}
 	snap, observed := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(token)))
 	if !observed {
 		return provider, true
@@ -89,46 +86,12 @@ func (s *Service) usageBypassEngaged(ctx context.Context, headers http.Header, r
 	if billing.SubscriptionOnlyFromContext(ctx) {
 		return provider, true
 	}
-	util := max(snap.Primary.UsedPercent, snap.Secondary.UsedPercent)
-	return provider, util < threshold
+	return provider, overrides.UsageBelowThreshold(cfg.Threshold, max(snap.Primary.UsedPercent, snap.Secondary.UsedPercent))
 }
 
 func subscriptionCoveredTarget(ctx context.Context, headers http.Header, req router.Request) (provider, token string, covered bool) {
-	model := req.RequestedModel
-	m, found := catalog.ByID(model)
-	if !found {
-		return "", "", false
-	}
-	provider = m.PrimaryProvider()
-	codexTok, anthroTok := presentSubscriptionTokens(ctx, headers)
-	switch provider {
-	case providers.ProviderAnthropic:
-		token = anthroTok
-	case providers.ProviderOpenAI:
-		if !codexSubscriptionCoversModel(model) {
-			return "", "", false
-		}
-		token = codexTok
-	default:
-		return "", "", false
-	}
-	if req.EnabledProviders != nil {
-		if _, enabled := req.EnabledProviders[provider]; !enabled {
-			return "", "", false
-		}
-	}
-	if _, excluded := req.SafetyExcludedModels[model]; excluded {
-		return "", "", false
-	}
-	if req.AllowedModels != nil {
-		if _, allowed := req.AllowedModels[model]; !allowed {
-			return "", "", false
-		}
-	}
-	if token == "" {
-		return "", "", false
-	}
-	return provider, token, true
+	codexToken, anthropicToken := presentSubscriptionTokens(ctx, headers)
+	return overrides.SubscriptionCoveredTarget(req, codexToken, anthropicToken)
 }
 
 func (s *Service) anthropicFallbackKeyAvailable(ctx context.Context) bool {
@@ -303,10 +266,7 @@ func (s *Service) bypassToAnthropic(
 		return claudeEnterpriseRefusal(ctx)
 	}
 
-	outputReserve := contextWindowOutputReserve
-	if feats.MaxTokens > outputReserve {
-		outputReserve = feats.MaxTokens
-	}
+	outputReserve := max(contextWindowOutputReserve, feats.MaxTokens)
 	opts := translate.EmitOptions{
 		TargetModel:              decision.Model,
 		TargetProvider:           decision.Provider,
@@ -362,7 +322,9 @@ func (s *Service) bypassToAnthropic(
 	ctx, inferenceSpan := startInferenceSpan(ctx, decision, clientSessionIDForRequest(ctx, env))
 	passiveRefusal := newPassiveRefusalObserver(respW)
 	toolNames := translate.NewAnthropicToolNameWriter(passiveRefusal, prep.ResponseToolNames)
-	proxyErr := p.Proxy(ctx, decision, prep, toolNames, r)
+	decision, proxyErr := proxyClassifierWithRefusalRescue(ctx, func(d router.Decision, prep providers.PreparedRequest, out http.ResponseWriter) error {
+		return p.Proxy(ctx, d, prep, out, r)
+	}, decision, prep, newClassifierRefusalRescue(ctx, newClassifierRescuePolicy(ctx, s), turnType, decision, env, r.Header, opts), toolNames)
 	proxyErr = finalizeAfterProxy(proxyErr, toolNames.Finalize)
 	if proxyErr == nil && terminal != nil {
 		proxyErr = terminal.streamErr()
@@ -370,7 +332,7 @@ func (s *Service) bypassToAnthropic(
 	finishInferenceSpan(inferenceSpan, decision, decision.Provider, 0, proxyErr)
 	ctx = restoreParentSpan(ctx, inferenceParentCtx)
 	var upstreamErr *providers.UpstreamErrorResponse
-	s.recordSubscriptionModelRejection(ctx, decision.Provider, decision.Model, proxyErr)
+	recordSubscriptionModelOutcome(s, ctx, decision.Provider, decision.Model, proxyErr)
 	if proxyErr != nil {
 		preludeBuf.Discard()
 	}
@@ -398,6 +360,7 @@ func (s *Service) bypassToAnthropic(
 	outputCost := catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, decision.Provider), out, pricing, usageMods)
 
 	clientID := ClientIdentityFrom(ctx)
+	stopReason := passiveRefusal.stopReason(extractor)
 	outcomeErr := proxyErr
 	if upstreamErr != nil {
 		outcomeErr = upstreamErr
@@ -408,10 +371,11 @@ func (s *Service) bypassToAnthropic(
 		String("router_user_id", auth.UserIDFrom(ctx)).
 		String("client.app", clientID.TelemetryClientApp()).
 		String("client.session_id", clientID.SessionID).
-		String("requested.model", decision.Model).
+		String("requested.model", feats.Model).
 		String("decision.model", decision.Model).
 		String("decision.provider", decision.Provider).
 		String("decision.reason", decision.Reason).
+		String("upstream.stop_reason", stopReason).Bool("upstream.refusal", passiveRefusal.scan.refused).String("upstream.refusal_category", passiveRefusal.scan.category).
 		Bool("cost.subscription_served", proxyErr == nil && upstreamErr == nil && s.costNeutralSubscriptionServed(ctx)).
 		Int64("usage.input_tokens", int64(in)).
 		Int64("usage.output_tokens", int64(out)).
@@ -435,13 +399,8 @@ func (s *Service) bypassToAnthropic(
 
 	if installationID := installationIDFromContext(ctx); installationID != uuid.Nil {
 		userPrompt := env.EndsWithUserPrompt()
-		outcomeErr := proxyErr
-		if upstreamErr != nil {
-			outcomeErr = upstreamErr
-		}
 		credentialKeyPrefix, credentialKeySuffix, credSource := s.credentialKeyParts(ctx)
 		s.markServedExternalKeyUsed(ctx, outcomeErr)
-		stopReason := passiveRefusal.stopReason(extractor)
 		sessionKey := deriveSessionKeyForRequest(ctx, env, apiKeyIDFromContext(ctx))
 		telemetryParams := InsertTelemetryParams{
 			InstallationID:         installationID.String(),
@@ -494,7 +453,7 @@ func (s *Service) bypassToAnthropic(
 		applyBlindExperimentTelemetry(ctx, &telemetryParams, &turnLoopResult{Decision: decision, UsageBypass: true})
 		applyPolicyPinTelemetry(ctx, &telemetryParams, nil)
 		applySubscriberTelemetry(ctx, &telemetryParams)
-		applyAgreementShadowTelemetry(ctx, &telemetryParams, turnLoopResult{UsageBypass: true})
+		applyAgreementShadowTelemetry(s.strategyPorts, ctx, &telemetryParams, turnLoopResult{UsageBypass: true})
 		s.fireTelemetry(ctx, telemetryParams)
 	}
 
@@ -507,6 +466,7 @@ func (s *Service) bypassToAnthropic(
 		"proxy_ms", s.clock.Now().Sub(proxyStart).Milliseconds(),
 		"total_ms", s.clock.Now().Sub(requestStart).Milliseconds(),
 		"proxy_err", proxyErr,
+		"resp_stop_reason", stopReason, "resp_refusal", passiveRefusal.scan.refused, "resp_refusal_category", passiveRefusal.scan.category,
 		"credential_source", servedCredentialSource,
 		"subscription_tier", servedSubscriptionTier,
 	)

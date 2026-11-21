@@ -10,6 +10,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 )
 
@@ -19,6 +20,16 @@ const (
 	ProviderClaude Provider = "claude"
 	ProviderCodex  Provider = "codex"
 )
+
+var upstreamPools = map[string]Provider{
+	providers.ProviderAnthropic: ProviderClaude,
+	providers.ProviderOpenAI:    ProviderCodex,
+}
+
+func PoolForUpstream(upstream string) (Provider, bool) {
+	pool, ok := upstreamPools[upstream]
+	return pool, ok
+}
 
 type Account struct {
 	ID                   string

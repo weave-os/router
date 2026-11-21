@@ -256,6 +256,11 @@ jobs:
           ROUTER_TEST_DATABASE_URL: postgres://router:router@localhost:5432/router?sslmode=disable&search_path=router
         run: go test -count=1 ./scripts/subscription_verification_check
 
+      - name: Check own-seat usage persistence on ephemeral Postgres
+        env:
+          ROUTER_TEST_DATABASE_URL: postgres://router:router@localhost:5432/router?sslmode=disable&search_path=router
+        run: go test -count=1 ./scripts/seat_usage_check
+
   # These checks exercise the compatibility boundary against a disposable
   # database. Run them beside the static/database checks so their two worker
   # builds do not extend that job's tail.
@@ -448,7 +453,7 @@ jobs:
         shell: pwsh
         run: |
           npm install --prefix install/npm --ignore-scripts --package-lock=false --no-audit --no-fund
-          node --test install/npm/windows.test.js
+          node --test install/npm/windows.test.js install/npm/vscode.test.js
 
       - name: Check the npm package ships the native installer
         shell: pwsh

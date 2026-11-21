@@ -195,7 +195,7 @@ func TestGenericOpenAIAliasesUseCodexSubscription(t *testing.T) {
 		t.Run(alias, func(t *testing.T) {
 			model, provider, known := resolveForceModel(alias)
 			require.True(t, known)
-			assert.Equal(t, "gpt-6.1-sol", model)
+			assert.Equal(t, "gpt-6.2-sol", model)
 			assert.Equal(t, providers.ProviderOpenAI, provider)
 
 			ctx := context.WithValue(context.Background(), OpenAISubscriptionContextKey{}, codexTestJWT)

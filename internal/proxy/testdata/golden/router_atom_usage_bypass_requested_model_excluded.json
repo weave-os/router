@@ -1,0 +1,113 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages",
+      "stream": false,
+      "routing_decisions": [],
+      "dispatch_attempts": [
+        {
+          "provider": "anthropic",
+          "wire_model": "claude-sonnet-4-5",
+          "credential_source": "subscription",
+          "outbound_body": {
+            "max_tokens": 4096,
+            "messages": [
+              {
+                "content": [
+                  {
+                    "cache_control": {
+                      "type": "ephemeral"
+                    },
+                    "text": "Say hi",
+                    "type": "text"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "model": "claude-sonnet-4-5",
+            "stream": false
+          },
+          "outcome": "ok"
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Router-Cache-Creation-Tokens": "0",
+          "X-Router-Cache-Read-Tokens": "0",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "27",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "200000",
+          "X-Router-Cost-Input-Usd": "0.000036",
+          "X-Router-Cost-Output-Usd": "0.000105",
+          "X-Router-Cost-Usd": "0.000141",
+          "X-Router-Decision": "usage_bypass",
+          "X-Router-Model": "claude-sonnet-4-5",
+          "X-Router-Provider": "anthropic"
+        },
+        "body": {
+          "content": [
+            {
+              "text": "ok",
+              "type": "text"
+            }
+          ],
+          "id": "\u003cid\u003e",
+          "model": "claude-haiku-4-5",
+          "role": "assistant",
+          "stop_reason": "end_turn",
+          "type": "message",
+          "usage": {
+            "input_tokens": 12,
+            "output_tokens": 7
+          }
+        }
+      },
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.000036,
+          "ActualOutputCostUSD": 0.000105,
+          "CaptureMode": "off",
+          "ContextSnapshot": {
+            "context_window": 200000,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 27,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "requested_model": "claude-sonnet-4-5",
+            "served_model": "claude-sonnet-4-5",
+            "version": 1
+          },
+          "CredentialKeyPrefix": "sk-ant-o",
+          "CredentialKeySuffix": "atom",
+          "CredentialSource": "subscription",
+          "DecisionModel": "claude-sonnet-4-5",
+          "DecisionProvider": "anthropic",
+          "DecisionReason": "usage_bypass",
+          "EstimatedInputTokens": 1,
+          "FinalModelFamily": "claude-sonnet",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "claude-sonnet",
+          "LatestToolCallCounts": {},
+          "OutputTokens": 7,
+          "RequestedInputCostUSD": 0.000036,
+          "RequestedModel": "claude-sonnet-4-5",
+          "RequestedOutputCostUSD": 0.000105,
+          "SpanType": "router.upstream",
+          "StopReason": "end_turn",
+          "TurnType": "main_loop",
+          "UpstreamFinishReason": "end_turn",
+          "UpstreamStatusCode": 200,
+          "UserPrompt": true
+        }
+      ]
+    }
+  ],
+  "scenario": "router_atom_usage_bypass_requested_model_excluded"
+}

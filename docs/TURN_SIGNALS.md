@@ -25,8 +25,7 @@ the way they are.
 - `credential_key_prefix`/`credential_key_suffix` are the only safe display
   parts of the serving credential. Equal values across distinct router users
   reveal one subscription paying for many seats.
-- `session_key` plus `role` join a telemetry row to `session_pins` and the
-  shadow event tables offline.
+- `session_key` plus `role` join a telemetry row to `session_pins` offline.
 - The per-turn spiral signal snapshot (`Spiral*` columns) is captured only
   when the installation allows training use **and** content capture is
   `hashed` or `full`; an unknown capture mode parses as `off`, so both gates
@@ -36,16 +35,15 @@ the way they are.
   writes a row (`requested=true`, `honoured=false`) so replay analysis sees it.
   Unauthorized pins and other routing failures write no row.
 - Durable side writes (turn strikes, inference attempts, router feedback,
-  tokenizer calibration, loop-escalation pins and shadow events) use `context.WithoutCancel`: the request context is often
+  tokenizer calibration) use `context.WithoutCancel`: the request context is often
   already cancelled once the stream ends.
 
 ## Stuck-session detectors
 
-Text repetition, cyclic loop and spiral signals are pure functions of the
+Text repetition and spiral signals are pure functions of the
 request envelope, which carries the full history on every turn. The others need
 earlier turns: no-progress keeps a per-replica ring of recent fingerprints per
-session, compaction detection compares against the last counts it cached, and
-struggle reads the session pin's turn count and age. Replay tests for those
+session, compaction detection compares against the last counts it cached. Replay tests for those
 must drive a sequence of requests. A zero session key never gets a pin row
 written: such a row would be shared by every zero-keyed session.
 
@@ -53,9 +51,7 @@ written: such a row would be shared by every zero-keyed session.
 |---|---|---|
 | No-progress | The same `(model, provider, tool-progress marker, prompt prefix)` fingerprint repeating inside a short window | Breaks the turn and expires the pin |
 | Text repetition | The assistant narrating the same substantive line again while issuing fresh tool calls | Breaks the turn and expires the pin (`ROUTER_TEXT_REPETITION_BREAK_ENABLED`) |
-| Cyclic loop | A wide re-read cycle: many calls, a low distinct-signature ratio and no edit in the window | Pins the session to the escalation model (`ROUTER_LOOP_ESCALATION_ENABLED`) |
-| Spiral (shadow) | Error streaks, same-file edit thrash, fuzzy repetition, monologue, A/B ping-pong, steps since last good edit | Logs one durable event per signal class |
-| Struggle (shadow) | Long, varied grinds that never repeat literally, at an early and a late operating point | Logs one durable event per operating point |
+| Spiral signals | Error streaks, same-file edit thrash, fuzzy repetition, monologue, A/B ping-pong, steps since last good edit | Recorded on the telemetry row only (`ROUTER_TURN_SIGNAL_CAPTURE_ENABLED`) |
 
 - **No-progress fingerprint.** The tool-progress marker (assistant tool-call
   count plus the last call's signature) is the primary stuck signal. Message
@@ -67,21 +63,12 @@ written: such a row would be shared by every zero-keyed session.
   trimming). Both are gated by `compactionMinHistoryMessages`: fresh
   sub-agents and the Explore sub-agent's flat window would otherwise look like
   drops, and a false fire hands an in-flight sub-agent a lossy summary.
-- **Cyclic loop escalation** is idempotent via the existing pin plus a durable
-  once-per-session budget. The kill switch, the deterministic log-only
-  holdout (bucketed from the session key so it is stable across replicas), an
-  explicit `/force-model` pin, or the looping model already being the target
-  still record the event with the action taken but withhold the rescue. The
-  holdout applies only when an event store is wired; without one a looping
-  session still escalates.
-- **Spiral and struggle** are log-only so their operating points can be chosen
-  from live fire rate, precision and lead time joined against outcomes. Events
-  record every signal value regardless of which reason fired so thresholds can
-  be re-tuned offline. A per-replica cache keeps the durable budget query to
-  about once an hour; cross-replica duplicates are de-duplicated offline by
-  `(session_key, reason)`. Struggle records only the highest operating point
-  crossed, so each stage maps to a distinct row.
-- No-progress and loop recovery never clear an explicit `/force-model` pin.
+- No-progress recovery never clears an explicit `/force-model` pin.
+- The retired escalation tables (`loop_escalation_events`,
+  `spiral_shadow_events`, `struggle_shadow_events`,
+  `struggle_escalation_events`) are archived: kept for posterity, written by
+  nothing, and queried by no SQLC query
+  (`TestArchivedEscalationTablesHaveNoQueries`).
 
 ## Cross-tokenizer usage reporting
 
@@ -112,3 +99,10 @@ storage is wired, and never for headless user agents. It never embeds a link.
 Codex gets its own wording. The footer text must stay matched by the ingress
 pattern that strips echoed footers from the next request's history;
 `TestFeedbackFooter_TextIsRecognisedOnIngress` pins that pairing.
+
+## Archived escalation tables
+
+`loop_escalation_events`, `spiral_shadow_events`, `struggle_shadow_events` and
+`struggle_escalation_events` belong to the retired loop, struggle and spiral
+escalation. They are archived, kept only for posterity; the router never
+writes to them and queries none of them.

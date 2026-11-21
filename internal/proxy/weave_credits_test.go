@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,7 +36,7 @@ func TestProxyMessages_WeaveCreditsDenied(t *testing.T) {
 			repo := &capturingBillingRepo{}
 			fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6"}}
 			p := &fakeProvider{proxyResponse: bypassStreamResponse}
-			svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+			svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 				WithBillingService(billing.NewService(repo))
 
 			ctx := context.WithValue(context.Background(), proxy.ExternalIDContextKey{}, "org-credits")

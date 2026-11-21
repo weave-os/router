@@ -49,10 +49,16 @@ type UpsertUserByCredentialSubjectParams struct {
 	DisplayName         *string
 }
 
+type UpsertUserByUnidentifiedKeyParams struct {
+	InstallationID string
+	SharedKeyID    string
+}
+
 type UserRepository interface {
 	UpsertByEmail(ctx context.Context, params UpsertUserParams) (*User, error)
 	UpsertByAccountUUID(ctx context.Context, params UpsertUserByAccountUUIDParams) (*User, error)
 	UpsertByCredentialSubject(ctx context.Context, params UpsertUserByCredentialSubjectParams) (*User, error)
+	UpsertByUnidentifiedKey(ctx context.Context, params UpsertUserByUnidentifiedKeyParams) (*User, error)
 	Get(ctx context.Context, id string) (*User, error)
 	ListForInstallation(ctx context.Context, installationID string) ([]*User, error)
 }

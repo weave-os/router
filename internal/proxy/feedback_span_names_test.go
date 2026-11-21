@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 
 	"github.com/google/uuid"
@@ -96,7 +97,7 @@ func TestFeedbackSpans_UseDistinctNamesAndSchemas(t *testing.T) {
 	// --- Pipeline A: signed feedback-link submission ---
 	repo := &fakeFeedbackRepoForSpanTest{}
 	signer := feedbacktoken.NewSigner("secret", time.Hour)
-	linkSvc := proxy.NewService(nil, nil, emitter, nil, false, "", "", nil).
+	linkSvc := proxy.WithStrategyPorts(proxy.NewService(nil, nil, emitter, nil, false, "", "", nil), hmm.ServingPorts()).
 		WithFeedback(repo, signer, "https://router.example.com")
 
 	err := linkSvc.SubmitFeedback(context.Background(), proxy.SubmitFeedbackParams{
@@ -114,7 +115,7 @@ func TestFeedbackSpans_UseDistinctNamesAndSchemas(t *testing.T) {
 	store.pin = sessionpin.Pin{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", LastServedModel: "claude-haiku-4-5"}
 	feedbackStore := &fakeFeedbackStore{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
-	cmdSvc := proxy.NewService(
+	cmdSvc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
 		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
 		emitter,
@@ -122,8 +123,8 @@ func TestFeedbackSpans_UseDistinctNamesAndSchemas(t *testing.T) {
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
-		nil,
-	).WithRouterFeedbackStore(feedbackStore)
+		nil), hmm.ServingPorts()).
+		WithRouterFeedbackStore(feedbackStore)
 
 	const body = `{
 		"model":"claude-sonnet-4-6",
