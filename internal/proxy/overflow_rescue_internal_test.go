@@ -13,6 +13,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
@@ -90,19 +91,19 @@ func TestGatewayOverflowEverywhereOnOrdinaryTurnStillAsksToCompact(t *testing.T)
 		Status: http.StatusBadRequest,
 		Body:   []byte(`{"error":{"message":"Your input exceeds the context window of this model.","type":"invalid_request_error","code":"context_length_exceeded"}}`),
 	}
-	for name, ingress := range gatewayOverflowIngresses {
+	for name, surface := range gatewayOverflowIngresses {
 		t.Run(name, func(t *testing.T) {
 			svc, ctx, _, openAIGateway := gatewayOverflowFixture(cortexPromptTooLong(), lunaOverflow)
-			body := []byte(ingress.body)
+			body := []byte(surface.body)
 			rec := httptest.NewRecorder()
 
-			err := ingress.proxy(svc)(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/x", bytes.NewReader(body)))
+			err := surface.proxy(svc)(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/x", bytes.NewReader(body)))
 
 			require.Error(t, err)
 			assert.Equal(t, []string{catalog.ModelGPT6Luna}, openAIGateway.models)
 			class, ok := ClassifyDispatchError(err)
 			require.True(t, ok)
-			assert.Equal(t, DispatchErrorContextWindowExceeded, class.Kind)
+			assert.Equal(t, ingress.DispatchErrorContextWindowExceeded, class.Kind)
 		})
 	}
 }

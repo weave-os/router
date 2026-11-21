@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -164,7 +165,7 @@ func TestHMMCommandOnlyEscalationRespectsSessionFloor(t *testing.T) {
 	require.NotErrorIs(t, err, hmm.ErrHMMUnavailable)
 	classified, matched := ClassifyDispatchError(err)
 	require.True(t, matched)
-	assert.Equal(t, DispatchErrorNoEligibleArm, classified.Kind)
+	assert.Equal(t, ingress.DispatchErrorNoEligibleArm, classified.Kind)
 	assert.Equal(t, http.StatusBadRequest, classified.Status)
 
 	req.Candidates.ExcludedModels = nil
@@ -211,7 +212,7 @@ func TestHMMCommandOnlyTurnHonorsForcedClusterAndKeyList(t *testing.T) {
 	require.NotErrorIs(t, err, policy.ErrForcedClusterUnservable)
 	classified, matched = ClassifyDispatchError(err)
 	require.True(t, matched)
-	assert.Equal(t, DispatchErrorNoEligibleArm, classified.Kind)
+	assert.Equal(t, ingress.DispatchErrorNoEligibleArm, classified.Kind)
 	assert.Equal(t, http.StatusBadRequest, classified.Status)
 }
 

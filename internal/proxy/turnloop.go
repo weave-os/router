@@ -263,7 +263,7 @@ func (r turnLoopResult) dispatchOrigin(decision router.Decision) policy.Override
 	if r.Origin != "" && decision.Model == r.Decision.Model && decision.Provider == r.Decision.Provider {
 		return r.Origin
 	}
-	return routedOrigin(decision, r.HardPinned, r.StickyHit)
+	return dispatch.RoutedOrigin(decision, r.HardPinned, r.StickyHit)
 }
 
 func (r turnLoopResult) rescueOrigin() policy.OverrideSource {
