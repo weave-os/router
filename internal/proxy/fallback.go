@@ -12,6 +12,7 @@ import (
 	"github.com/tidwall/sjson"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -105,7 +106,7 @@ func (s *Service) shouldFailover(ctx context.Context) bool {
 	if CredentialsFromContext(ctx) != nil {
 		return false
 	}
-	if len(externalKeysFromContext(ctx)) > 0 {
+	if len(credentials.ExternalKeysFromContext(ctx)) > 0 {
 		return false
 	}
 	return true
@@ -268,7 +269,7 @@ func subscriptionAPIOnly(ctx context.Context) bool {
 func (s *Service) dispatchSubscriptionAlternatives(ctx context.Context, in dispatch.FailoverInputs) (int, error) {
 	ctx, budget := withSubscriptionAdmissionBudget(ctx)
 	selected := in.InitialDecision
-	if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil {
+	if usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil {
 		usage.IntendedModel = selected.Model
 	}
 	targets := append([]router.Decision{selected}, in.Alternatives...)

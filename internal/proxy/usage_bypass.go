@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -67,7 +68,7 @@ func (s *Service) usageBypassEngaged(ctx context.Context, headers http.Header, r
 	if !covered || !s.supportsSubscriptionTransport(provider) {
 		return "", false
 	}
-	if provider == providers.ProviderAnthropic && s.subscriptionModels.denied([]byte(token), req.RequestedModel, s.clock.Now()) {
+	if provider == providers.ProviderAnthropic && s.credentials.SubscriptionModels.Denied([]byte(token), req.RequestedModel, s.clock.Now()) {
 		return "", false
 	}
 	snap, observed := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(token)))
@@ -90,7 +91,7 @@ func subscriptionCoveredTarget(ctx context.Context, headers http.Header, req rou
 }
 
 func (s *Service) anthropicFallbackKeyAvailable(ctx context.Context) bool {
-	if byok := BuildCredentialsMap(externalKeysFromContext(ctx)); byok != nil {
+	if byok := credentials.BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx)); byok != nil {
 		if _, ok := byok[providers.ProviderAnthropic]; ok {
 			return true
 		}

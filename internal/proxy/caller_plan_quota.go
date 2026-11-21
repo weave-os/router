@@ -5,11 +5,12 @@ import (
 	"net/http"
 	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/subscriptions"
 )
 
 func (s *Service) recordDirectSubscriptionQuota(ctx context.Context, provider, model string, creds *Credentials, attemptErr error) {
-	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil && (anthropicOAuthCredentialRejected(attemptErr) || codexOAuthCredentialRejected(attemptErr)) {
+	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil && (anthropicOAuthCredentialRejected(attemptErr) || codexOAuthCredentialRejected(attemptErr)) {
 		state.CallerCredentialRejected = true
 	}
 	pool, compatible := managedSubscriptionProviderFromUpstream(provider, model)
@@ -23,7 +24,7 @@ func (s *Service) recordDirectSubscriptionQuota(ctx context.Context, provider, m
 		}
 		return
 	}
-	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
+	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
 		if state.QuotaExhaustedProviders == nil {
 			state.QuotaExhaustedProviders = make(map[subscriptions.Provider]time.Time)
 		}
@@ -32,7 +33,7 @@ func (s *Service) recordDirectSubscriptionQuota(ctx context.Context, provider, m
 }
 
 func recordCallerPlanThrottle(ctx context.Context, pool subscriptions.Provider, until time.Time) {
-	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
+	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
 		if state.ThrottledProviders == nil {
 			state.ThrottledProviders = make(map[subscriptions.Provider]time.Time)
 		}
@@ -41,6 +42,6 @@ func recordCallerPlanThrottle(ctx context.Context, pool subscriptions.Provider, 
 }
 
 func callerPlanThrottled(ctx context.Context, pool subscriptions.Provider, now time.Time) bool {
-	state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	return state != nil && state.ThrottledProviders[pool].After(now)
 }
