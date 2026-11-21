@@ -28,9 +28,9 @@ const (
 	rescueSkipContextWindow     rescueSkipReason = "context_window"
 )
 
-func rescueBasisForTurn(decision router.Decision, turn turnLoopResult) router.Decision {
-	if decision.Metadata == nil && turn.StickyHit && !turn.HardPinned && turn.Fresh.Metadata != nil {
-		metadata := *turn.Fresh.Metadata
+func rescueBasisForTurn(decision router.Decision, turn dispatch.RescueTurn) router.Decision {
+	if decision.Metadata == nil && turn.StickyHit && !turn.HardPinned && turn.FreshMetadata != nil {
+		metadata := *turn.FreshMetadata
 		heldTier := catalog.TierFor(decision.Model)
 		metadata.RescueModels = retainRescueModelsAtOrAboveTier(metadata.RescueModels, heldTier)
 		metadata.CandidateModels = retainRescueModelsAtOrAboveTier(metadata.CandidateModels, heldTier)

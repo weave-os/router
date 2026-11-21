@@ -118,7 +118,7 @@ func (m *messagesRescue) dispatchPrimary(ctx context.Context) {
 		m.winnerIdx, m.proxyErr = -1, m.attemptBuildErr
 	} else {
 		m.dispatchPrimaryAttempt(ctx, m.baselineViable || m.subscriptionRetryEligible || m.rescueArmed, func(target router.Decision) {
-			if !m.agentShadowMode && !routeRes.AuthoritativePerTurn && target.Provider != providers.ProviderAnthropic && !routeRes.HardPinned && !routeRes.Handover.Invoked && routeRes.PrefixTrimmed {
+			if !m.agentShadowMode && !routeRes.AuthoritativePerTurn && target.Provider != providers.ProviderAnthropic && !routeRes.HardPinned && !routeRes.HandoverInvoked && routeRes.PrefixTrimmed {
 				log.Info("Context trimming detected on selected exhausted-state route; rewriting context with handover summary", "decision_model", target.Model)
 				m.compactionHandoverOutcome = s.runCompactionHandover(ctx, env, r.Header, target.Model, *m.req)
 			}
@@ -186,8 +186,8 @@ func (m *messagesRescue) redoIfStoppedEarly(ctx context.Context) {
 						Attempt:                redoAttempt,
 						FlushErr:               m.flushErrAsAnthropic,
 						DeferFlushOnExhaustion: true,
-						Purpose:                routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
-						Origin:                 routeRes.rescueOrigin(),
+						Purpose:                routeRes.DispatchPurpose(inference.PurposeAnthropicMessages),
+						Origin:                 routeRes.RescueOrigin(),
 					})
 				},
 				Served: &dispatch.EarlyStopServed{

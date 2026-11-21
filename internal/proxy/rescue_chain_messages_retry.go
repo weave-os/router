@@ -76,8 +76,8 @@ func (m *messagesRescue) dispatchBaseline(ctx context.Context) context.Context {
 			Bindings:        baselineBindings,
 			Attempt:         baselineAttempt,
 			FlushErr:        m.flushErrAsAnthropic,
-			Purpose:         routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
-			Origin:          routeRes.rescueOrigin(),
+			Purpose:         routeRes.DispatchPurpose(inference.PurposeAnthropicMessages),
+			Origin:          routeRes.RescueOrigin(),
 		})
 		m.subscriptionPoolFailure = isSubscriptionPoolError(m.proxyErr)
 		m.decision = baselineDecision
@@ -143,8 +143,8 @@ func (m *messagesRescue) subscriptionRetry(ctx context.Context) {
 				Attempt:                subAttempt,
 				FlushErr:               m.flushErrAsAnthropic,
 				DeferFlushOnExhaustion: m.rescueArmed,
-				Purpose:                routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
-				Origin:                 routeRes.dispatchOrigin(m.decision),
+				Purpose:                routeRes.DispatchPurpose(inference.PurposeAnthropicMessages),
+				Origin:                 routeRes.DispatchOrigin(m.decision),
 			})
 			m.subscriptionPoolFailure = isSubscriptionPoolError(m.proxyErr)
 			m.bindings = subBindings

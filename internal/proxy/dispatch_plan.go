@@ -71,15 +71,7 @@ func (s *Service) inferenceExecutor() (*dispatch.Executor, error) {
 }
 
 func routedOrigin(decision router.Decision, hardPinned, stickyHit bool) policy.OverrideSource {
-	switch {
-	case decision.UserForcedModel():
-		return policy.OverrideSourceRequest
-	case hardPinned:
-		return policy.OverrideSourceDeployment
-	case stickyHit:
-		return policy.OverrideSourceSession
-	}
-	return ""
+	return dispatch.RoutedOrigin(decision, hardPinned, stickyHit)
 }
 
 type dispatchAbort struct{ err error }

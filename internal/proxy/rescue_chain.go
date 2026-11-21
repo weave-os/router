@@ -20,7 +20,7 @@ type rescueServices interface {
 	dispatchWithFallback(ctx context.Context, in dispatch.FailoverInputs) (winnerIdx int, err error)
 	resolveEffort(ctx context.Context, decision router.Decision, caps router.ModelSpec, escalate bool) dispatch.EffortResolution
 	runCompactionHandover(ctx context.Context, env *translate.RequestEnvelope, reqHeaders http.Header, decisionModel string, scope router.Request) dispatch.HandoverOutcome
-	earlyStopRedoMode(ctx context.Context, routeRes turnLoopResult, decision router.Decision, streaming, agentShadow bool) flags.EarlyStopRedoMode
+	earlyStopRedoMode(ctx context.Context, routeRes dispatch.RescueTurn, decision router.Decision, streaming, agentShadow bool) flags.EarlyStopRedoMode
 	redoEarlyStop(ctx context.Context, redo dispatch.EarlyStopRedo) (redone bool, err error)
 }
 
@@ -33,7 +33,7 @@ type rescueChain struct {
 	r                *http.Request
 	log              *slog.Logger
 	env              *translate.RequestEnvelope
-	routeRes         turnLoopResult
+	routeRes         dispatch.RescueTurn
 	req              *router.Request
 	opts             translate.EmitOptions
 	contentSink      http.ResponseWriter
@@ -157,8 +157,8 @@ func (c *rescueChain) dispatchPrimaryAttempt(ctx context.Context, deferFlush boo
 		Attempt:                c.attempt,
 		FlushErr:               c.flushErr,
 		DeferFlushOnExhaustion: deferFlush,
-		Purpose:                routeRes.dispatchPurpose(c.surface),
-		Origin:                 routeRes.dispatchOrigin(c.decision),
+		Purpose:                routeRes.DispatchPurpose(c.surface),
+		Origin:                 routeRes.DispatchOrigin(c.decision),
 	})
 	c.subscriptionPoolFailure = isSubscriptionPoolError(c.proxyErr)
 }
@@ -253,8 +253,8 @@ func (c *rescueChain) dispatchSibling(ctx context.Context, siblingDecision route
 		Attempt:                siblingAttempt,
 		FlushErr:               c.flushErr,
 		DeferFlushOnExhaustion: true,
-		Purpose:                routeRes.dispatchPurpose(c.surface),
-		Origin:                 routeRes.rescueOrigin(),
+		Purpose:                routeRes.DispatchPurpose(c.surface),
+		Origin:                 routeRes.RescueOrigin(),
 	})
 	c.subscriptionPoolFailure = isSubscriptionPoolError(c.proxyErr)
 	c.decision = siblingDecision
@@ -279,4 +279,28 @@ func (c *rescueChain) translationEligibleRequest() *router.Request {
 	req := *c.req
 	req.EnabledProviders = c.routeRes.TranslationEnabledProviders
 	return &req
+}
+
+func rescueTurnOf(res turnLoopResult) dispatch.RescueTurn {
+	return dispatch.RescueTurn{
+		Decision:                    res.Decision,
+		Purpose:                     res.Purpose,
+		Origin:                      res.Origin,
+		SessionKey:                  res.SessionKey,
+		InstallationID:              res.InstallationID,
+		TurnType:                    res.TurnType,
+		StickyHit:                   res.StickyHit,
+		HardPinned:                  res.HardPinned,
+		AuthoritativePerTurn:        res.AuthoritativePerTurn,
+		CallerModelPassthrough:      res.CallerModelPassthrough,
+		UsageBypass:                 res.UsageBypass,
+		StickyRole:                  stickyStateRole(res),
+		FreshMetadata:               res.Fresh.Metadata,
+		PriorServedModel:            res.PriorServedModel,
+		SessionEverSwitched:         res.SessionEverSwitched,
+		HandoverInvoked:             res.Handover.Invoked,
+		PrefixTrimmed:               res.PrefixTrimmed,
+		EscalateEffort:              res.EscalateEffort,
+		TranslationEnabledProviders: res.TranslationEnabledProviders,
+	}
 }
