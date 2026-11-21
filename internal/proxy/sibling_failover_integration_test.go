@@ -10,12 +10,14 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/providers/openaicompat"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/translate"
@@ -122,8 +124,8 @@ func TestProxyMessages_OverloadedModelDegradesToSameClusterCandidate(t *testing.
 	assert.Contains(t, respBody, "event: message_start", "client sees the candidate's stream")
 	assert.Contains(t, respBody, "event: message_stop")
 	assert.NotContains(t, respBody, "overloaded_error", "the upstream overload must not reach the client")
-	assert.Equal(t, providers.ProviderFireworks, rec.Header().Get(proxy.HeaderRouterProvider))
-	assert.Equal(t, "deepseek/deepseek-v4-pro", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, providers.ProviderFireworks, rec.Header().Get(requestcontext.HeaderRouterProvider))
+	assert.Equal(t, "deepseek/deepseek-v4-pro", rec.Header().Get(requestcontext.HeaderRouterModel))
 
 	require.NotEmpty(t, store.usages, "the served candidate must be recorded on the pin")
 	assert.Equal(t, "deepseek/deepseek-v4-pro", store.usages[len(store.usages)-1].ServedModel)
@@ -209,7 +211,7 @@ func (f *rankedRescueFixture) assertHandedOffToDeepseek(t *testing.T, rec *httpt
 	assert.Contains(t, respBody, terminalFrame)
 	assert.NotContains(t, respBody, "overloaded_error")
 	assert.NotContains(t, respBody, "unsupported parameter", "the rejected rescuer's error never reaches the client")
-	assert.Equal(t, "deepseek/deepseek-v4-pro", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "deepseek/deepseek-v4-pro", rec.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 // TestProxyMessages_FailedRescuerHandsOffToNextRankedCandidate: the ranked
@@ -288,7 +290,7 @@ func TestProxyMessages_OverloadAfterCommitKeepsServingModel(t *testing.T) {
 	defer mu.Unlock()
 	assert.Zero(t, fireworksCount, "no model switch once the response is committed")
 	assert.Contains(t, rec.Body.String(), "partial", "the committed stream is preserved")
-	assert.Equal(t, "claude-opus-4-8", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "claude-opus-4-8", rec.Header().Get(requestcontext.HeaderRouterModel))
 }
 
 // TestProxyMessages_ForceModelOverloadDoesNotDegrade: an explicit /force-model
@@ -440,7 +442,7 @@ func TestProxyMessages_SubscriptionOverloadSurfacesOnceAfterRetry(t *testing.T) 
 
 	ctx := context.WithValue(
 		authedCtx("11111111-1111-1111-1111-111111111111"),
-		proxy.AnthropicSubscriptionContextKey{},
+		credentials.AnthropicSubscriptionContextKey{},
 		"sk-ant-oat01-subscription-token",
 	)
 	rec := httptest.NewRecorder()

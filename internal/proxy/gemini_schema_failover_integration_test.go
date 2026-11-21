@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/providers/google"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 
@@ -93,6 +94,6 @@ func TestProxyMessages_GeminiBuildIncompatibilityFailsOverToBaselineAnthropic(t 
 	assert.Contains(t, respBody, "event: message_start", "client sees the Anthropic stream start")
 	assert.Contains(t, respBody, "event: message_stop", "client sees the Anthropic stream end")
 	assert.Contains(t, respBody, "hi", "client sees the canned completion text")
-	assert.Equal(t, providers.ProviderAnthropic, rec.Header().Get(proxy.HeaderRouterProvider), "served provider header reflects the baseline failover")
-	assert.Equal(t, "claude-opus-4-8", rec.Header().Get(proxy.HeaderRouterModel), "x-router-model reflects the baseline model that served")
+	assert.Equal(t, providers.ProviderAnthropic, rec.Header().Get(requestcontext.HeaderRouterProvider), "served provider header reflects the baseline failover")
+	assert.Equal(t, "claude-opus-4-8", rec.Header().Get(requestcontext.HeaderRouterModel), "x-router-model reflects the baseline model that served")
 }

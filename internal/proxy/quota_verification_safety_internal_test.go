@@ -15,8 +15,10 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
 )
@@ -87,7 +89,7 @@ func TestQuotaVerificationFailureNeverBuysPaidCapacity(t *testing.T) {
 							AccountID: "synthetic-seat", AccessToken: "synthetic-token", ProviderAccount: "synthetic-chatgpt-account",
 						}}})
 					}
-					ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+					ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 					ctx = WithManagedSubscriptionUsage(outOfRosterBillingCtx(ctx))
 					if funding.reason != "" {
 						ctx = billing.WithSubscriptionOnly(ctx, funding.reason)
@@ -98,7 +100,7 @@ func TestQuotaVerificationFailureNeverBuysPaidCapacity(t *testing.T) {
 					require.Zero(t, paidCalls.Load(), "uncertainty must not buy inference")
 					require.Empty(t, repo.snapshot(), "uncertainty must not debit customer credit")
 					require.Error(t, err)
-					state := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{}))
+					state := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
 					require.Empty(t, state.UnavailableProviders)
 					require.Empty(t, state.QuotaExhaustedAccounts)
 					require.Empty(t, state.QuotaExhaustedProviders)
@@ -186,7 +188,7 @@ func TestQuotaVerificationRotationAndRealOverloadFunding(t *testing.T) {
 				svc := outOfRosterFundingService(client, translate.ReasonUserForceModel, repo).WithManagedSubscriptions(leaser)
 				ctx := WithManagedSubscriptionCandidates(managedSubscriptionContext(auth.SubscriptionProviderCodex), accounts)
 				ctx = context.WithValue(ctx, InstallationIDContextKey{}, "33333333-3333-3333-3333-333333333333")
-				ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+				ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 				ctx = outOfRosterBillingCtx(ctx)
 				if reason != "" {
 					ctx = billing.WithSubscriptionOnly(ctx, reason)
@@ -213,7 +215,7 @@ func TestQuotaVerificationRotationAndRealOverloadFunding(t *testing.T) {
 					require.Zero(t, paidCalls.Load())
 					require.Empty(t, repo.snapshot())
 				}
-				state := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{}))
+				state := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
 				_, capacityMarked := state.UnavailableProviders[subscriptions.ProviderCodex]
 				require.Equal(t, scenario.capacityOverload, capacityMarked)
 				require.False(t, svc.subscriptionPoolUnavailable(ctx, providers.ProviderAnthropic, overloadRescuerModel), "capacity evidence cannot cross pools")

@@ -14,7 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -46,7 +48,7 @@ func (c *heldPinGatewayClient) Proxy(_ context.Context, decision router.Decision
 
 func TestHeldAutomaticPinCannotRescueOutsideHeldGatewayAliases(t *testing.T) {
 	svc, ctx, upstream := heldPinRescueFixture()
-	ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		gatewayKey(providers.ProviderOpenAIGateway, "https://gateway.example.com/v1", heldPinLunaModel),
 	})
 	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"continue"}]}`)
@@ -146,7 +148,7 @@ func TestHeldAutomaticGatewayPinRescuesToClaudeBeforeCommit(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.Equal(t, heldPinClaudeModel, rec.Header().Get(HeaderRouterModel))
+			assert.Equal(t, heldPinClaudeModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 			assert.Contains(t, rec.Body.String(), "recovered")
 			require.NotEmpty(t, upstream.models)
 			assert.Equal(t, heldPinClaudeModel, upstream.models[len(upstream.models)-1])

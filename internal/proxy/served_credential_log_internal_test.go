@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/requestcontext"
 )
 
@@ -22,7 +23,7 @@ func TestServedCredentialLogValues(t *testing.T) {
 	assert.Equal(t, credSourceBYOK, source)
 	assert.Empty(t, tier)
 
-	pooled := context.WithValue(context.Background(), ManagedSubscriptionUsageContextKey{}, &ManagedSubscriptionUsage{
+	pooled := context.WithValue(context.Background(), credentials.ManagedSubscriptionUsageContextKey{}, &ManagedSubscriptionUsage{
 		Served:                true,
 		Finished:              true,
 		CredentialSource:      credSourceCodexSubscription,

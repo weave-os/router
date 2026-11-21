@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -101,7 +102,7 @@ func (s *Service) afterSubscriptionRotationBudget(ctx context.Context, decision 
 }
 
 func recordWinningCredentials(ctx, credentialCtx context.Context) {
-	if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil {
+	if usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil {
 		usage.WinningCredentials = requestcontext.CredentialsFromContext(credentialCtx)
 		usage.Finished = true
 	}

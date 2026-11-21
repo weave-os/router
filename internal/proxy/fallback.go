@@ -12,6 +12,7 @@ import (
 	"github.com/tidwall/sjson"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -49,7 +50,7 @@ func (s *Service) shouldFailover(ctx context.Context) bool {
 	if CredentialsFromContext(ctx) != nil {
 		return false
 	}
-	if len(externalKeysFromContext(ctx)) > 0 {
+	if len(credentials.ExternalKeysFromContext(ctx)) > 0 {
 		return false
 	}
 	return true

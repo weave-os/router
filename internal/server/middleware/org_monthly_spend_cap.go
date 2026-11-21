@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/subscriptionlane"
@@ -9,7 +10,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func WithOrgMonthlySpendCap(svc *billing.Service) gin.HandlerFunc {
+func WithOrgMonthlySpendCap(svc *billing.Service, funding credentials.CustomerFunding) gin.HandlerFunc {
+	requireCustomerFunding(funding)
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 		if _, ok := billing.InternalTestOwnerFrom(c.Request.Context()); ok {
@@ -39,7 +41,7 @@ func WithOrgMonthlySpendCap(svc *billing.Service) gin.HandlerFunc {
 			return
 		}
 
-		subscriptionExempt := proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath())
+		subscriptionExempt := funding(c.Request.Context(), c.Request.Header, c.FullPath(), svc.ByokFeeOwed(c.Request.Context()))
 
 		result, err := svc.CheckOrgMonthlySpend(c.Request.Context(), orgID)
 		if err != nil {
@@ -49,7 +51,7 @@ func WithOrgMonthlySpendCap(svc *billing.Service) gin.HandlerFunc {
 		}
 
 		if result.LimitReached() {
-			kind, refused := tripSubscriptionLane(c, subscriptionlane.OrgMonthlySpendCapGate, subscriptionExempt)
+			kind, refused := tripSubscriptionLane(c, svc, subscriptionlane.OrgMonthlySpendCapGate, subscriptionExempt)
 			if !refused {
 				log.Info("Org monthly cap reached but subscription covers the route: serving subscription-only",
 					"organization_id", orgID,

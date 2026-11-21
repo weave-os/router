@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/stretchr/testify/require"
 
@@ -210,11 +211,11 @@ func TestCallerPlanRateLimitRefusalIsClientOwned(t *testing.T) {
 	refusal := svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, inference.Target{}, "caller-codex-token", "", clientAppRefusalFunding{})
 	requireThrottledRefusal(t, refusal)
 	turnErr := fmt.Errorf("%w: %w", dispatch.ErrAuthorizationDenied, refusal)
-	require.Equal(t, FailureOwnerClient, turnFailureOwnerFor(ctx, turnErr, TurnErrorOther))
+	require.Equal(t, turnrecord.FailureOwnerClient, turnFailureOwnerFor(ctx, turnErr, turnrecord.TurnErrorOther))
 
 	pooled := throttleTestContext(activeCodexAccount("seat-1"))
 	recordManagedThrottle(pooled, "seat-1", now.Add(time.Minute))
 	managedRefusal := svc.authorizeSubscriptionAPI(pooled, subscriptions.ProviderCodex, inference.Target{}, "", "", clientAppRefusalFunding{})
 	requireThrottledRefusal(t, managedRefusal)
-	require.Equal(t, FailureOwnerProvider, turnFailureOwnerFor(pooled, fmt.Errorf("%w: %w", dispatch.ErrAuthorizationDenied, managedRefusal), TurnErrorOther), "a managed pool throttled by the provider is the provider's rate limit")
+	require.Equal(t, turnrecord.FailureOwnerProvider, turnFailureOwnerFor(pooled, fmt.Errorf("%w: %w", dispatch.ErrAuthorizationDenied, managedRefusal), turnrecord.TurnErrorOther), "a managed pool throttled by the provider is the provider's rate limit")
 }

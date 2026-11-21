@@ -70,11 +70,11 @@ func (o *chatRescue) armCyberRetry(ctx context.Context, strategy router.Strategy
 func (o *chatRescue) armSubscriptionRetries(ctx context.Context) {
 	o.codexRetryViable = o.decision.Provider == providers.ProviderOpenAI &&
 		servedOnCodexSubscription(ctx) &&
-		!paidFallbackForbiddenForModel(ctx, o.decision.Model) &&
+		!paidFallbackForbiddenForModelOnProvider(ctx, o.decision.Provider, o.decision.Model) &&
 		o.credentials.OpenAIFallbackKeyAvailable(ctx)
 	o.claudeRetryViable = o.decision.Provider == providers.ProviderAnthropic &&
 		servedOnSubscription(ctx) &&
-		!paidFallbackForbiddenForModel(ctx, o.decision.Model) &&
+		!paidFallbackForbiddenForModelOnProvider(ctx, o.decision.Provider, o.decision.Model) &&
 		o.credentials.AnthropicFallbackKeyAvailable(ctx)
 }
 
@@ -119,7 +119,7 @@ func (o *chatRescue) codexRetry(ctx context.Context) {
 	log := o.log
 	routeRes := o.routeRes
 	preludeBuf := o.preludeBuf
-	if o.codexRetryViable && !paidFallbackForbiddenForModel(ctx, o.decision.Model) && o.proxyErr != nil && !preludeBuf.Committed() &&
+	if o.codexRetryViable && !paidFallbackForbiddenForModelOnProvider(ctx, o.decision.Provider, o.decision.Model) && o.proxyErr != nil && !preludeBuf.Committed() &&
 		(providers.IsRetryable(o.proxyErr) || codexOAuthCredentialRejected(o.proxyErr) || codexSubscriptionModelRejected(o.proxyErr)) {
 		o.credentials.RecordCodexQuotaExhaustion(ctx, r.Header, o.proxyErr)
 		subCtx := subscriptionStatePaidRescueContext(withSuppressedCodexSubscription(ctx), o.decision.Model)
@@ -176,7 +176,7 @@ func (o *chatRescue) claudeRetry(ctx context.Context) {
 	log := o.log
 	routeRes := o.routeRes
 	preludeBuf := o.preludeBuf
-	if o.claudeRetryViable && !paidFallbackForbiddenForModel(ctx, o.decision.Model) && o.proxyErr != nil && !preludeBuf.Committed() && (anthropicSubscriptionModelRejected(o.proxyErr) || anthropicSubscriptionThirdPartyRefused(o.proxyErr)) {
+	if o.claudeRetryViable && !paidFallbackForbiddenForModelOnProvider(ctx, o.decision.Provider, o.decision.Model) && o.proxyErr != nil && !preludeBuf.Committed() && (anthropicSubscriptionModelRejected(o.proxyErr) || anthropicSubscriptionThirdPartyRefused(o.proxyErr) || paidCapacityUnfunded(ctx) && (providers.IsRetryable(o.proxyErr) || anthropicOAuthCredentialRejected(o.proxyErr))) {
 		subCtx := subscriptionStatePaidRescueContext(withSuppressedClaudeSubscription(ctx), o.decision.Model)
 		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderAnthropic, o.decision.Model, o.r.Header)
 		subOpts := o.opts

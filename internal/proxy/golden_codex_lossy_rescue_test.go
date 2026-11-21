@@ -37,7 +37,7 @@ func withLongThrottledCodexSeatsAndClaudeSeat(svc *proxy.Service, h *goldenHarne
 func goldenCodexPlanSpentClaudeSeatAvailableCtx(ctx context.Context) context.Context {
 	models := []string{goldenCodexModel, goldenAnthropicModel}
 	ctx = goldenCodexCtx(ctx)
-	ctx = requestcontext.WithClientIdentity(ctx, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex, SessionID: "golden-codex-session"})
+	ctx = requestcontext.WithClientIdentity(ctx, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex, SessionID: "golden-codex-session"})
 	ctx = proxy.WithSubscriptionStateModels(ctx, models, models)
 	cooldown := goldenCodexSeatLongCooldown
 	ctx = proxy.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{

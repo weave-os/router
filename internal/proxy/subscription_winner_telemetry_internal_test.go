@@ -5,7 +5,9 @@ import (
 	"testing"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,13 +15,13 @@ import (
 
 func TestSubscriptionWinnerTelemetryPreservesOwnerAndAlternative(t *testing.T) {
 	ctx := WithManagedSubscriptionUsage(context.Background())
-	winner := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{}))
+	winner := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
 	winner.Served = true
 	winner.SubscriptionAccountID = "00000000-0000-0000-0000-000000000101"
 	winner.SubscriptionOwnerID = "00000000-0000-0000-0000-000000000102"
 	winner.SubscriptionTier = auth.SubscriptionTierShared
 	winner.IntendedModel = "claude-sonnet-4-6"
-	telemetryRow := InsertTelemetryParams{RequestedModel: "auto", DecisionModel: "gpt-5.4"}
+	telemetryRow := turnrecord.InsertTelemetryParams{RequestedModel: "auto", DecisionModel: "gpt-5.4"}
 	applySubscriberTelemetry(ctx, &telemetryRow)
 	assert.Equal(t, "claude-sonnet", telemetryRow.IntendedModelFamily)
 	assert.Equal(t, "gpt", telemetryRow.FinalModelFamily)
@@ -42,7 +44,7 @@ func TestSubscriptionWinnerTelemetryPreservesOwnerAndAlternative(t *testing.T) {
 
 func TestFailedAPIFallbackReplacesInboundSubscriptionAttribution(t *testing.T) {
 	ctx := WithManagedSubscriptionUsage(context.Background())
-	usage := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{}))
+	usage := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
 	usage.SubscriptionAttempted = true
 	ctx = context.WithValue(ctx, CredentialsContextKey{}, &Credentials{
 		APIKey: []byte("oauth-sentinel"),
@@ -62,7 +64,7 @@ func TestFailedAPIFallbackReplacesInboundSubscriptionAttribution(t *testing.T) {
 	require.Equal(t, []byte("api-sentinel"), winner.APIKey)
 	require.False(t, winner.OAuth)
 	assert.False(t, (&Service{hmmServing: hmmPorts()}).costNeutralSubscriptionServed(ctx))
-	telemetry := InsertTelemetryParams{RequestedModel: "claude-sonnet-5", DecisionModel: "claude-sonnet-5"}
+	telemetry := turnrecord.InsertTelemetryParams{RequestedModel: "claude-sonnet-5", DecisionModel: "claude-sonnet-5"}
 	applySubscriberTelemetry(ctx, &telemetry)
 	assert.Empty(t, telemetry.SubscriptionAccountID)
 	assert.Empty(t, telemetry.SubscriptionOwnerID)
@@ -72,13 +74,13 @@ func TestFailedAPIFallbackReplacesInboundSubscriptionAttribution(t *testing.T) {
 func TestSubscriptionWinnerTelemetryDoesNotAttributeUnservedOrPaidCapacity(t *testing.T) {
 	for _, served := range []bool{false, true} {
 		ctx := WithManagedSubscriptionUsage(context.Background())
-		winner := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{}))
+		winner := mustAs[*ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}))
 		winner.Served = served
 		winner.OverageInUse = served
 		winner.SubscriptionAccountID = "00000000-0000-0000-0000-000000000101"
 		winner.SubscriptionOwnerID = "00000000-0000-0000-0000-000000000102"
 		winner.SubscriptionTier = auth.SubscriptionTierShared
-		telemetry := InsertTelemetryParams{RequestedModel: "unknown", DecisionModel: "unknown"}
+		telemetry := turnrecord.InsertTelemetryParams{RequestedModel: "unknown", DecisionModel: "unknown"}
 		applySubscriberTelemetry(ctx, &telemetry)
 		assert.Empty(t, telemetry.SubscriptionAccountID)
 		assert.Empty(t, telemetry.SubscriptionOwnerID)

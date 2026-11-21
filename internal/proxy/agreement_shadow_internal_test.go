@@ -26,15 +26,16 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/switchpolicy"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 )
 
 const agreementSol = "gpt-6.1-sol"
 
-func agreementFixture() (InsertTelemetryParams, turnLoopResult) {
+func agreementFixture() (turnrecord.InsertTelemetryParams, turnLoopResult) {
 	luna := catalog.ModelGPT6Luna
 	solArm := "openai/" + agreementSol
-	return InsertTelemetryParams{InstallationID: uuid.NewString(), RequestID: "synthetic-request", Timestamp: time.Date(2026, 1, 1, 0, 0, 1, 0, time.UTC),
+	return turnrecord.InsertTelemetryParams{InstallationID: uuid.NewString(), RequestID: "synthetic-request", Timestamp: time.Date(2026, 1, 1, 0, 0, 1, 0, time.UTC),
 			SessionKey: []byte("synthetic-thread"), Role: sessionpin.DefaultRole, TurnType: string(turntype.ToolResult), UpstreamStatusCode: http.StatusOK,
 			DecisionModel: luna, DecisionProvider: providers.ProviderOpenAI}, turnLoopResult{
 			AuthoritativePerTurn: true, PinModel: luna, PinProvider: providers.ProviderOpenAI, PinPolicyGroup: string(escalation.Low),
@@ -74,8 +75,8 @@ func TestAgreementShadowOptInAndInternalAdmission(t *testing.T) {
 			p, res := agreementFixture()
 			before := res
 			applyAgreementShadowTelemetry(hmm.ServingPorts(), test.ctx, &p, res)
-			if (p.agreementShadow != nil) != test.want {
-				t.Fatalf("unexpected admission: %+v", p.agreementShadow)
+			if (p.AgreementShadow != nil) != test.want {
+				t.Fatalf("unexpected admission: %+v", p.AgreementShadow)
 			}
 			if !reflect.DeepEqual(before, res) {
 				t.Fatal("observation changed the live routing result")
@@ -93,16 +94,16 @@ func TestAgreementShadowUsesRawEligibleProposalAndResolvedBinding(t *testing.T) 
 	md.SelectionTrace.SelectedArm = "openai/" + catalog.ModelGPT6Luna
 	md.SelectionTrace.EffectiveOrders[string(escalation.High)] = []string{"openai/gpt-6-astra:high", "openai/" + agreementSol + ":high"}
 	applyAgreementShadowTelemetry(hmm.ServingPorts(), agreementContext(policyregistry.TargetInternal, true), &p, res)
-	if p.agreementShadow == nil || p.agreementShadow.Observation.Gap != switchpolicy.ShadowGapNone || p.agreementShadow.Observation.Proposal.Target.Model != agreementSol {
-		t.Fatalf("serving sliding decision contaminated the raw proposal: %+v", p.agreementShadow)
+	if p.AgreementShadow == nil || p.AgreementShadow.Observation.Gap != switchpolicy.ShadowGapNone || p.AgreementShadow.Observation.Proposal.Target.Model != agreementSol {
+		t.Fatalf("serving sliding decision contaminated the raw proposal: %+v", p.AgreementShadow)
 	}
-	if string(p.agreementShadow.Key.SessionKey) == string(p.SessionKey) {
+	if string(p.AgreementShadow.Key.SessionKey) == string(p.SessionKey) {
 		t.Fatal("shadow must use the admission-scoped state namespace")
 	}
 	md.CandidateProviders[agreementSol] = providers.ProviderOpenAIGateway
 	p, _ = agreementFixture()
 	applyAgreementShadowTelemetry(hmm.ServingPorts(), agreementContext(policyregistry.TargetInternal, true), &p, res)
-	if p.agreementShadow.Observation.Proposal.Target.Provider != providers.ProviderOpenAIGateway {
+	if p.AgreementShadow.Observation.Proposal.Target.Provider != providers.ProviderOpenAIGateway {
 		t.Fatal("shadow guessed the native provider instead of using the resolved gateway binding")
 	}
 }
@@ -112,15 +113,15 @@ func TestAgreementShadowResumptionUsesNewEpochNamespace(t *testing.T) {
 	ctx := agreementContext(policyregistry.TargetInternal, true)
 	applyAgreementShadowTelemetry(hmm.ServingPorts(), ctx, &first, res)
 	disabled := first
-	disabled.agreementShadow = nil
+	disabled.AgreementShadow = nil
 	applyAgreementShadowTelemetry(hmm.ServingPorts(), flags.WithOverrides(ctx, flags.Overrides{Ints: map[flags.Key]int{flags.KeyAgreementShadowEpoch: 0}}), &disabled, res)
-	if disabled.agreementShadow != nil {
+	if disabled.AgreementShadow != nil {
 		t.Fatal("disabled interval still created an observation")
 	}
 	resumed := first
-	resumed.agreementShadow = nil
+	resumed.AgreementShadow = nil
 	applyAgreementShadowTelemetry(hmm.ServingPorts(), flags.WithOverrides(ctx, flags.Overrides{Ints: map[flags.Key]int{flags.KeyAgreementShadowEpoch: 2}}), &resumed, res)
-	if resumed.agreementShadow == nil || resumed.agreementShadow.Epoch != 2 || reflect.DeepEqual(first.agreementShadow.Key.SessionKey, resumed.agreementShadow.Key.SessionKey) {
+	if resumed.AgreementShadow == nil || resumed.AgreementShadow.Epoch != 2 || reflect.DeepEqual(first.AgreementShadow.Key.SessionKey, resumed.AgreementShadow.Key.SessionKey) {
 		t.Fatal("new activation reused old votes or a late callback namespace")
 	}
 }
@@ -145,8 +146,8 @@ func TestAgreementShadowUnsupportedAndMissingInputsBreakSegments(t *testing.T) {
 			p, res := agreementFixture()
 			test.alter(&res)
 			applyAgreementShadowTelemetry(hmm.ServingPorts(), agreementContext(policyregistry.TargetInternal, true), &p, res)
-			if p.agreementShadow == nil || p.agreementShadow.Observation.Gap != test.gap {
-				t.Fatalf("boundary was silently scored: %+v", p.agreementShadow)
+			if p.AgreementShadow == nil || p.AgreementShadow.Observation.Gap != test.gap {
+				t.Fatalf("boundary was silently scored: %+v", p.AgreementShadow)
 			}
 		})
 	}
@@ -189,7 +190,7 @@ func (r *agreementTelemetry) CompareAndSwapAgreementShadow(_ context.Context, _ 
 
 func TestAgreementShadowRecordsOnlyAfterBaselineTelemetryAndHandlesFailures(t *testing.T) {
 	store := &agreementTelemetry{auxTelemetryRepo: &auxTelemetryRepo{}, notify: make(chan struct{}, 1)}
-	svc := &Service{hmmServing: hmmPorts(), telemetry: store}
+	svc := &Service{hmmServing: hmmPorts(), turnTelemetry: turnTelemetry{repo: store}}
 	p, res := agreementFixture()
 	applyAgreementShadowTelemetry(hmm.ServingPorts(), agreementContext(policyregistry.TargetInternal, true), &p, res)
 	svc.fireTelemetry(t.Context(), p)
@@ -210,8 +211,8 @@ func TestAgreementShadowRecordsOnlyAfterBaselineTelemetryAndHandlesFailures(t *t
 	p.RequestID = "failed-request"
 	p.Timestamp = p.Timestamp.Add(time.Second)
 	p.UpstreamStatusCode = http.StatusBadGateway
-	p.agreementShadow.Observation.RequestID = p.RequestID
-	p.agreementShadow.Observation.StartedAt = p.Timestamp
+	p.AgreementShadow.Observation.RequestID = p.RequestID
+	p.AgreementShadow.Observation.StartedAt = p.Timestamp
 	svc.recordAgreementShadow(context.Background(), slog.New(slog.NewTextHandler(io.Discard, nil)), p)
 	store.shadowMu.Lock()
 	defer store.shadowMu.Unlock()
@@ -222,7 +223,7 @@ func TestAgreementShadowRecordsOnlyAfterBaselineTelemetryAndHandlesFailures(t *t
 
 func TestAgreementShadowStoreErrorDoesNotLoseBaselineTelemetry(t *testing.T) {
 	store := &agreementTelemetry{auxTelemetryRepo: &auxTelemetryRepo{}, fail: true}
-	svc := &Service{hmmServing: hmmPorts(), telemetry: store}
+	svc := &Service{hmmServing: hmmPorts(), turnTelemetry: turnTelemetry{repo: store}}
 	p, res := agreementFixture()
 	applyAgreementShadowTelemetry(hmm.ServingPorts(), agreementContext(policyregistry.TargetInternal, true), &p, res)
 	svc.fireTelemetry(t.Context(), p)

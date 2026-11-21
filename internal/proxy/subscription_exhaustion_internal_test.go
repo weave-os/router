@@ -36,7 +36,7 @@ func TestResolveAndInjectCredentials_SuppressedSubscriptionFallsThroughToBYOK(t 
 	// inbound subscription bearer must be skipped so resolution falls through to
 	// the BYOK Anthropic key — the turn then serves on that key, not the dead
 	// token, and bills at full cost (servedOnSubscription reads non-OAuth).
-	ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	ctx := context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-api-byok")},
 	})
 	ctx = withSuppressedClaudeSubscription(ctx)
@@ -56,7 +56,7 @@ func TestResolveAndInjectCredentials_SuppressedSubscriptionFallsThroughToDeploym
 	// No BYOK, subscription credential present, subscription suppressed:
 	// resolution resolves to NO credential, so the Anthropic provider client uses
 	// its own deployment key (the Weave key).
-	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, exhaustedSubToken)
+	ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, exhaustedSubToken)
 	ctx = withSuppressedClaudeSubscription(ctx)
 
 	out := resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", http.Header{})
@@ -97,8 +97,8 @@ func TestResolveAndInjectCredentials_ClaudeSuppressionLeavesCodexIntact(t *testi
 	// subscription, routed to an OpenAI model: the Claude-scoped suppression must
 	// NOT touch the Codex token — the OpenAI turn still bills the customer's Codex
 	// plan. (Regression: the flag previously suppressed both families.)
-	ctx := context.WithValue(context.Background(), OpenAISubscriptionContextKey{}, codexTestJWT)
-	ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, "acct-1")
+	ctx := context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, codexTestJWT)
+	ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "acct-1")
 	ctx = withSuppressedClaudeSubscription(ctx)
 
 	out := resolveAndInjectCredentials(ctx, providers.ProviderOpenAI, "gpt-5.6-sol", http.Header{})
@@ -112,7 +112,7 @@ func TestResolveAndInjectCredentials_UnsuppressedSubscriptionStillWins(t *testin
 	// Control: without suppression, the subscription token still wins (the steady
 	// state for a plan with headroom) — the suppression carve-out must not leak
 	// into the normal path.
-	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, exhaustedSubToken)
+	ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, exhaustedSubToken)
 
 	out := resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", http.Header{})
 	creds := CredentialsFromContext(out)
@@ -186,7 +186,7 @@ func TestAnthropicFallbackKeyAvailable(t *testing.T) {
 	})
 	t.Run("BYOK present", func(t *testing.T) {
 		s := &Service{hmmServing: hmmPorts()}
-		ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+		ctx := context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 			{Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-api-byok")},
 		})
 		assert.True(t, s.anthropicFallbackKeyAvailable(ctx))

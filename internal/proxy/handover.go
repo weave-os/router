@@ -340,8 +340,8 @@ func (s *Service) runCompactionHandover(ctx context.Context, env *translate.Requ
 	)
 	if summarizer != nil {
 		sumProvider = summarizer.Provider()
-		sumCreds = resolveSummarizerCreds(ctx, sumProvider, reqHeaders)
-		nonDepCreds := s.requestUsesNonDeploymentCreds(ctx, reqHeaders)
+		sumCreds = s.credentials.SummarizerCredentials(ctx, sumProvider, reqHeaders)
+		nonDepCreds := s.credentials.RequestUsesNonDeploymentCreds(ctx, reqHeaders)
 		canCallSummarizer = sumCreds != nil || !nonDepCreds
 	}
 

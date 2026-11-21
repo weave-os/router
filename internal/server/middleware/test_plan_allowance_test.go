@@ -3,17 +3,19 @@ package middleware
 import (
 	"context"
 	"encoding/json"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions/entitlement"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 )
 
 func TestVerifiedInternalTestSkipsAllSubscriberAllowanceAndProductReads(t *testing.T) {
@@ -26,7 +28,7 @@ func TestVerifiedInternalTestSkipsAllSubscriberAllowanceAndProductReads(t *testi
 		c.Request = c.Request.WithContext(entitlement.WithProductScope(ctx, entitlement.PlanMax))
 	})
 	// A nil service panics if either subscriber path is entered.
-	engine.Use(WithSubscriberAllowance(nil), WithSubscriberProductScope(nil))
+	engine.Use(WithSubscriberAllowance(nil, proxy.RequestPresentsCoveringSubscription), WithSubscriberProductScope(nil))
 	engine.POST("/v1/messages", func(c *gin.Context) {
 		require.Empty(t, SubscriptionOwnerFrom(c).SubscriberID)
 		plan, ok := entitlement.ProductScopeFromContext(c.Request.Context())

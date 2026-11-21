@@ -12,7 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm"
@@ -46,7 +48,7 @@ func TestTwoModelGatewayRecoveryReadmitsStruckSibling(t *testing.T) {
 	assert.Equal(t, 3, primary.calls)
 	assert.Equal(t, 1, sibling.calls)
 	require.NoError(t, err, "after both strikes a precommit primary failure must still try the permitted sibling")
-	assert.Equal(t, recoveryOpusModel, rec.Header().Get(HeaderRouterModel))
+	assert.Equal(t, recoveryOpusModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 	assert.Contains(t, rec.Body.String(), "message_stop")
 }
 
@@ -232,7 +234,7 @@ func TestRecoveryProbeSkipsModelWithoutEligibleProviderBinding(t *testing.T) {
 func twoModelGatewayContext() context.Context {
 	ctx := rescuedFailureCtx()
 	ctx = context.WithValue(ctx, InstallationAllowedModelsContextKey{}, []string{catalog.ModelGPT6Luna, recoveryOpusModel})
-	return context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	return context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: providers.ProviderOpenAIGateway, Plaintext: []byte("synthetic-key"), ModelAliases: map[string]string{catalog.ModelGPT6Luna: catalog.ModelGPT6Luna}},
 		{Provider: providers.ProviderAnthropicGateway, Plaintext: []byte("synthetic-key"), ModelAliases: map[string]string{recoveryOpusModel: recoveryOpusModel}},
 	})
@@ -279,7 +281,7 @@ func TestTwoModelGatewayRecoveryRetriesThenRecordsWithdrawal(t *testing.T) {
 			assert.Equal(t, 3, primary.calls)
 			assert.Equal(t, 1, sibling.calls)
 			assert.Len(t, retryWaits, 2)
-			assert.Equal(t, recoveryOpusModel, rec.Header().Get(HeaderRouterModel))
+			assert.Equal(t, recoveryOpusModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 			assert.Contains(t, rec.Body.String(), "message_stop")
 			if scenario.cooldown {
 				assert.Empty(t, store.demotions)

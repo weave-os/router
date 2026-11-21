@@ -11,7 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -45,7 +47,7 @@ func forcedOpusGatewayCompactionFixture(anthropicFail error) (*Service, context.
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil })
 	ctx := rescuedFailureCtx()
 	ctx = context.WithValue(ctx, InstallationAllowedModelsContextKey{}, []string{catalog.ModelGPT6Luna, gatewayCompactionOpusModel})
-	ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		gatewayKey(providers.ProviderAnthropicGateway, "https://gateway.example.com/anthropic", gatewayCompactionOpusModel, policy.PrecompactionDefaultModel),
 		gatewayKey(providers.ProviderOpenAIGateway, "https://gateway.example.com/openai", catalog.ModelGPT6Luna),
 	})
@@ -67,7 +69,7 @@ func TestCompactionOverflowingEverywhereLetsClaudeCodeTrimAndRetry(t *testing.T)
 	for name, fixture := range cases {
 		t.Run(name, func(t *testing.T) {
 			svc, ctx := fixture()
-			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppClaudeCode})
+			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppClaudeCode})
 
 			_, err := proxyGatewayCompaction(t, svc, ctx)
 
@@ -95,7 +97,7 @@ func TestCompactionOverflowingEverywhereStaysTerminalWithoutTrimCounts(t *testin
 		clientApp     string
 		anthropicFail error
 	}{
-		"claude_code_without_counts": {clientApp: ClientAppClaudeCode, anthropicFail: countless},
+		"claude_code_without_counts": {clientApp: requestcontext.ClientAppClaudeCode, anthropicFail: countless},
 		"other_client_with_counts":   {clientApp: "opencode", anthropicFail: cortexPromptTooLong()},
 	}
 	for name, tc := range cases {

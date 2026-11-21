@@ -13,8 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm"
@@ -42,7 +44,7 @@ func gatewayKeyCtx(gateway string, aliased ...string) func(string) context.Conte
 		for _, model := range aliased {
 			key.ModelAliases[model] = "gw-" + model
 		}
-		return context.WithValue(authedCtx(installationID), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{key})
+		return context.WithValue(authedCtx(installationID), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{key})
 	}
 }
 
@@ -114,8 +116,8 @@ func TestService_UtilityHardPin_CatalogTargetPerInstallation(t *testing.T) {
 			require.NoError(t, svc.ProxyMessages(legacyExploreCtx(setup.ctx(uuid.New().String())), []byte(exploreBody), rec, httpReq))
 
 			assert.Equal(t, 0, fr.routeCalls, "utility hard pins bypass the scorer")
-			assert.Equal(t, setup.wantModel, rec.Header().Get(proxy.HeaderRouterModel))
-			assert.Equal(t, setup.wantVia, rec.Header().Get(proxy.HeaderRouterProvider))
+			assert.Equal(t, setup.wantModel, rec.Header().Get(requestcontext.HeaderRouterModel))
+			assert.Equal(t, setup.wantVia, rec.Header().Get(requestcontext.HeaderRouterProvider))
 		})
 	}
 }

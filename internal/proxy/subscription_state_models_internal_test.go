@@ -14,11 +14,13 @@ import (
 	"github.com/tidwall/gjson"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/providers/openaicompat"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
@@ -121,7 +123,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 			paid := &fakeClient{name: providers.ProviderOpenRouter, outcomes: []fakeOutcome{{writeBytes: []byte("cheap paid answer")}}}
 			svc := withHMMPorts(NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderAnthropic: claude, providers.ProviderOpenAI: codex, providers.ProviderOpenRouter: paid}, nil, nil, false, "", "", nil)).
 				WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: scenario.claude, subscriptions.ProviderCodex: scenario.codex}})
-			ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
+			ctx := context.WithValue(managedSubscriptionTestContext(), credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
 			activeModels := []string{stateClaudeModel, stateCodexModel}
 			if scenario.claudeOnlyActive {
 				activeModels = []string{stateClaudeModel}
@@ -207,7 +209,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 				if scenario.want == statePaidModel {
 					require.Equal(t, providers.ProviderOpenRouter, *failover.SubscriptionStateWinnerProvider)
 				}
-				require.Equal(t, scenario.want, rec.Header().Get(HeaderRouterModel))
+				require.Equal(t, scenario.want, rec.Header().Get(requestcontext.HeaderRouterModel))
 				require.Contains(t, rec.Body.String(), "answer")
 			}
 			for i, model := range servedModels {
@@ -246,7 +248,7 @@ func TestSubscriptionStateRateLimitedIncludedLaneKeepsUpstreamStatus(t *testing.
 	claude := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{{err: rateLimit}}}
 	svc := withHMMPorts(NewService(exhaustedPaidLaneRouter{}, map[string]providers.Client{providers.ProviderAnthropic: claude}, nil, nil, false, "", "", nil)).
 		WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: true}})
-	ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
+	ctx := context.WithValue(managedSubscriptionTestContext(), credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel})
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
 	ctx = withTurnFailures(ctx)
@@ -301,14 +303,14 @@ func TestSubscriptionStateModelsHTTPIngress(t *testing.T) {
 			{name: "cheap after both exhausted", want: statePaidModel},
 		} {
 			t.Run(surface+"/"+scenario.name, func(t *testing.T) {
-				var models, credentials []string
+				var models, authHeaders []string
 				upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					if serveSyntheticCodexQuota(w, r) {
 						return
 					}
 					body, _ := io.ReadAll(r.Body)
 					models = append(models, gjson.GetBytes(body, "model").String())
-					credentials = append(credentials, r.Header.Get("Authorization"))
+					authHeaders = append(authHeaders, r.Header.Get("Authorization"))
 					w.Header().Set("Content-Type", "text/event-stream")
 					switch {
 					case strings.Contains(r.URL.Path, "messages"):
@@ -330,7 +332,7 @@ func TestSubscriptionStateModelsHTTPIngress(t *testing.T) {
 				}, nil, nil, false, "", "", nil)).
 					WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: scenario.claude, subscriptions.ProviderCodex: scenario.codex}}).
 					WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter}))
-				ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
+				ctx := context.WithValue(managedSubscriptionTestContext(), credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
 				activeModels := scenario.active
 				if activeModels == nil {
 					activeModels = []string{stateClaudeModel, stateCodexModel}
@@ -353,12 +355,12 @@ func TestSubscriptionStateModelsHTTPIngress(t *testing.T) {
 					err = svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, req)
 				}
 				require.NoError(t, err)
-				require.Equal(t, scenario.want, rec.Header().Get(HeaderRouterModel))
+				require.Equal(t, scenario.want, rec.Header().Get(requestcontext.HeaderRouterModel))
 				require.Contains(t, rec.Body.String(), "synthetic answer")
 				require.Equal(t, []string{scenario.want}, models, "upstream must receive the selected state-set model")
-				require.NotContains(t, credentials, "Bearer expensive-paid-key")
+				require.NotContains(t, authHeaders, "Bearer expensive-paid-key")
 				if scenario.want == statePaidModel {
-					require.Equal(t, []string{"Bearer cheap-paid-key"}, credentials)
+					require.Equal(t, []string{"Bearer cheap-paid-key"}, authHeaders)
 				}
 			})
 		}
@@ -388,7 +390,7 @@ func TestSubscriptionStateModelsClassifierUsesPaidSet(t *testing.T) {
 	}, nil, nil, false, "", "", nil)).
 		WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{}}).
 		WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter}))
-	ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
+	ctx := context.WithValue(managedSubscriptionTestContext(), credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel, stateCodexModel})
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
 	body := `{"model":"` + stateClaudeModel + `","stream":true,"max_tokens":64,"thinking":{"type":"disabled"},"system":"You are a security monitor.","messages":[{"role":"user","content":"grade this action"}]}`
@@ -396,7 +398,7 @@ func TestSubscriptionStateModelsClassifierUsesPaidSet(t *testing.T) {
 
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, routePathMessages, strings.NewReader(body))))
 
-	require.Equal(t, statePaidModel, rec.Header().Get(HeaderRouterModel))
+	require.Equal(t, statePaidModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 	require.Equal(t, []string{statePaidModel}, models)
 }
 
@@ -406,7 +408,7 @@ func TestSubscriptionStateModelsPaidFallbackSkipsUnavailableProvider(t *testing.
 	svc := withHMMPorts(NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderAnthropic: claude, providers.ProviderOpenRouter: paid}, nil, nil, false, "", "", nil)).
 		WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{}})
 	svc.credentials.KeyedProviders = map[string]struct{}{providers.ProviderOpenRouter: {}}
-	ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
+	ctx := context.WithValue(managedSubscriptionTestContext(), credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
 	ctx = context.WithValue(ctx, InstallationExcludedProvidersContextKey{}, []string{providers.ProviderAnthropic})
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel, stateCodexModel})
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{stateClaudeModel, statePaidModel})
@@ -610,12 +612,12 @@ func TestSubscriptionStateModelsCodexNativeAttemptAfterCrossFamilyPick(t *testin
 	}, nil, nil, false, "", "", nil)).
 		WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderCodex: true}}).
 		WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter}))
-	ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
+	ctx := context.WithValue(managedSubscriptionTestContext(), credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel, stateCodexModel})
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
-	ctx = context.WithValue(ctx, OpenAISubscriptionContextKey{}, codexTestToken)
-	ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, codexTestAccountID)
-	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx = context.WithValue(ctx, credentials.OpenAISubscriptionContextKey{}, codexTestToken)
+	ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, codexTestAccountID)
+	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 
 	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic task"}]}],"tools":[{"type":"custom","name":"exec"}]}`
 	rec := httptest.NewRecorder()
@@ -635,7 +637,7 @@ func TestSubscriptionStateModelsRevokedCodexLoginFallsBackWithReconnectNotice(t 
 	for _, tc := range []struct {
 		held, stream bool
 		client       string
-	}{{false, true, ClientAppCodex}, {true, true, ClientAppCodex}, {false, false, ClientAppCodex}, {true, true, ClientAppClaudeCode}} {
+	}{{false, true, requestcontext.ClientAppCodex}, {true, true, requestcontext.ClientAppCodex}, {false, false, requestcontext.ClientAppCodex}, {true, true, requestcontext.ClientAppClaudeCode}} {
 		held := tc.held
 		t.Run(fmt.Sprintf("held=%v/stream=%v/%s", tc.held, tc.stream, tc.client), func(t *testing.T) {
 			paidCalls := 0
@@ -666,11 +668,11 @@ func TestSubscriptionStateModelsRevokedCodexLoginFallsBackWithReconnectNotice(t 
 				WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{}}).
 				WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderOpenAI, providers.ProviderOpenRouter})).
 				WithUsageObserver(observer)
-			ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderCodex: {}})
+			ctx := context.WithValue(managedSubscriptionTestContext(), credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderCodex: {}})
 			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel})
 			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
-			ctx = context.WithValue(ctx, OpenAISubscriptionContextKey{}, codexTestToken)
-			ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, codexTestAccountID)
+			ctx = context.WithValue(ctx, credentials.OpenAISubscriptionContextKey{}, codexTestToken)
+			ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, codexTestAccountID)
 			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: tc.client})
 
 			body := fmt.Sprintf(`{"model":"auto","stream":%v,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic task"}]}]}`, tc.stream)
@@ -679,7 +681,7 @@ func TestSubscriptionStateModelsRevokedCodexLoginFallsBackWithReconnectNotice(t 
 
 			require.NoError(t, err)
 			assert.Equal(t, 1, paidCalls, "the exhausted model set serves a turn the revoked login cannot")
-			if tc.client == ClientAppCodex && tc.stream {
+			if tc.client == requestcontext.ClientAppCodex && tc.stream {
 				assert.Contains(t, rec.Body.String(), "reconnect=codex", "the stream names the recovery")
 			}
 		})
@@ -722,12 +724,12 @@ func TestSubscriptionStateModelsCodexCustomToolAfterCrossFamilyPick(t *testing.T
 	}, nil, nil, false, "", "", nil)).
 		WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderCodex: true}}).
 		WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter}))
-	ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
+	ctx := context.WithValue(managedSubscriptionTestContext(), credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel, stateCodexModel})
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
-	ctx = context.WithValue(ctx, OpenAISubscriptionContextKey{}, codexTestToken)
-	ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, codexTestAccountID)
-	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx = context.WithValue(ctx, credentials.OpenAISubscriptionContextKey{}, codexTestToken)
+	ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, codexTestAccountID)
+	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 
 	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"list files"}]}],"tools":[{"type":"custom","name":"exec","description":"run a script"}]}`
 	rec := httptest.NewRecorder()
@@ -805,15 +807,15 @@ func TestSubscriptionStateModelsResponsesClientGrid(t *testing.T) {
 					}, nil, nil, false, "", "", nil)).
 						WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: scenario.claude, subscriptions.ProviderCodex: scenario.codex}}).
 						WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter}))
-					ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
+					ctx := context.WithValue(managedSubscriptionTestContext(), credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
 					ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel, stateCodexModel})
 					ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
 					if client != "generic client" {
-						ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+						ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 					}
 					if client == "Codex app on its own plan" {
-						ctx = context.WithValue(ctx, OpenAISubscriptionContextKey{}, codexTestToken)
-						ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, codexTestAccountID)
+						ctx = context.WithValue(ctx, credentials.OpenAISubscriptionContextKey{}, codexTestToken)
+						ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, codexTestAccountID)
 					}
 
 					body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic task"}]}]` + toolsJSON + `}`
@@ -836,7 +838,7 @@ func assertResponsesClientGridOutcome(t *testing.T, cell string, err error, mode
 	}
 	require.NoError(t, err)
 	require.Len(t, models, 1, "one attempt serves the turn")
-	require.Equal(t, models[0], rec.Header().Get(HeaderRouterModel))
+	require.Equal(t, models[0], rec.Header().Get(requestcontext.HeaderRouterModel))
 	out := rec.Body.String()
 	assert.Contains(t, out, "synthetic answer")
 	assert.Contains(t, out, `"type":"response.completed"`)

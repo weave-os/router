@@ -2,27 +2,15 @@ package proxy
 
 import (
 	"context"
-	"sync"
 	"time"
 
-	lru "github.com/hashicorp/golang-lru/v2"
-
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
 )
 
 const subscriptionSessionHold = 5 * time.Minute
-
-type subscriptionSessionHolds struct {
-	once    sync.Once
-	entries *lru.Cache[string, time.Time]
-}
-
-func (h *subscriptionSessionHolds) cache() *lru.Cache[string, time.Time] {
-	h.once.Do(func() { h.entries, _ = lru.New[string, time.Time](8192) })
-	return h.entries
-}
 
 func sessionHoldOwner(ctx context.Context) string {
 	session := ClientIdentityFrom(ctx).SessionID
@@ -39,13 +27,13 @@ func (s *Service) holdSessionOffSubscriptionPool(ctx context.Context, provider, 
 	if owner == "" || !compatible || !s.subscriptionPoolUnavailable(ctx, provider, model) {
 		return
 	}
-	s.sessionHolds.cache().Add(owner+"\x00"+string(pool), s.clock.Now().Add(subscriptionSessionHold))
+	s.credentials.SessionHolds.Hold(owner, pool, s.clock.Now().Add(subscriptionSessionHold))
 	observability.FromContext(ctx).Info("Session held off subscription pool after capacity failure", "pool", pool, "hold", subscriptionSessionHold)
 }
 
-func (h *subscriptionSessionHolds) withUnservedHoldsReleased(ctx context.Context, enabledProviders map[string]struct{}) context.Context {
+func withUnservedHoldsReleased(ctx context.Context, holds *credentials.SubscriptionSessionHolds, enabledProviders map[string]struct{}) context.Context {
 	owner := sessionHoldOwner(ctx)
-	state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	if owner == "" || state == nil {
 		return ctx
 	}
@@ -54,7 +42,7 @@ func (h *subscriptionSessionHolds) withUnservedHoldsReleased(ctx context.Context
 			observability.FromContext(ctx).Info("Session hold kept; the turn could not use another included subscription pool", "pool", pool)
 			continue
 		}
-		if h.cache().Remove(owner + "\x00" + string(pool)) {
+		if holds.Release(owner, pool) {
 			observability.FromContext(ctx).Info("Session hold released; no included subscription pool served the turn", "pool", pool)
 		}
 	}
@@ -68,8 +56,7 @@ func (s *Service) withoutHeldSubscriptionModels(ctx context.Context, models []st
 	}
 	now := s.clock.Now()
 	held := func(pool subscriptions.Provider) bool {
-		until, ok := s.sessionHolds.cache().Get(owner + "\x00" + string(pool))
-		return ok && now.Before(until)
+		return s.credentials.SessionHolds.Held(owner, pool, now)
 	}
 	kept := make([]string, 0, len(models))
 	for _, model := range models {

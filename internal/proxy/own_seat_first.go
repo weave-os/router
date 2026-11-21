@@ -4,11 +4,12 @@ import (
 	"context"
 	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/proxy/usage"
 )
 
-func callerLoginServesFirst(ctx context.Context, model string, observer *usage.Observer, models *subscriptionModelAccess, now time.Time) bool {
+func callerLoginServesFirst(ctx context.Context, model string, observer *usage.Observer, models *credentials.SubscriptionModelAccess, now time.Time) bool {
 	current := CredentialsFromContext(ctx)
 	if current == nil || !current.OAuth {
 		return false
@@ -17,7 +18,7 @@ func callerLoginServesFirst(ctx context.Context, model string, observer *usage.O
 		return true
 	}
 	token := ownSeatFirstToken(ctx, current, observer)
-	return token != "" && !models.denied([]byte(token), model, now)
+	return token != "" && !models.Denied([]byte(token), model, now)
 }
 
 func ownSeatFirstToken(ctx context.Context, current *Credentials, observer *usage.Observer) string {
@@ -40,5 +41,9 @@ func ownSeatFirstToken(ctx context.Context, current *Credentials, observer *usag
 }
 
 func ownOverageServesFirst(ctx context.Context, snapshot usage.Snapshot) bool {
-	return snapshot.OverageInUse && flags.BoolOr(ctx, flags.KeyOwnSeatFirst, false) && flags.BoolOr(ctx, flags.KeyOwnOverageBeforePool, false)
+	return snapshot.OverageInUse && ownOverageBeforePool(ctx)
+}
+
+func ownOverageBeforePool(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyOwnSeatFirst, false) && flags.BoolOr(ctx, flags.KeyOwnOverageBeforePool, false)
 }

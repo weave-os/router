@@ -9,6 +9,7 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/gin-gonic/gin"
 )
@@ -204,16 +205,16 @@ func validDashboardSeries(metric dashboardMetricType, group dashboardMetricGroup
 	return false
 }
 
-func factsInGroup(facts []proxy.TelemetryDashboardFact, group dashboardMetricGroup, label string) []proxy.TelemetryDashboardFact {
+func factsInGroup(facts []turnrecord.TelemetryDashboardFact, group dashboardMetricGroup, label string) []turnrecord.TelemetryDashboardFact {
 	if label == "" {
 		return facts
 	}
-	return slices.DeleteFunc(facts, func(fact proxy.TelemetryDashboardFact) bool {
+	return slices.DeleteFunc(facts, func(fact turnrecord.TelemetryDashboardFact) bool {
 		return *factGroup(fact, group) != label
 	})
 }
 
-func reportSummary(facts []proxy.TelemetryDashboardFact) dashboardReportSummaryResponse {
+func reportSummary(facts []turnrecord.TelemetryDashboardFact) dashboardReportSummaryResponse {
 	summary := dashboardReportSummaryResponse{ComparisonModel: policy.SavingsComparisonModelLabel}
 	var last time.Time
 	for _, fact := range facts {
@@ -232,14 +233,14 @@ func reportSummary(facts []proxy.TelemetryDashboardFact) dashboardReportSummaryR
 	return summary
 }
 
-func billedCost(fact proxy.TelemetryDashboardFact) float64 {
+func billedCost(fact turnrecord.TelemetryDashboardFact) float64 {
 	if fact.SubscriptionServed {
 		return 0
 	}
 	return fact.ActualCostUSD
 }
 
-func comparisonCost(fact proxy.TelemetryDashboardFact) float64 {
+func comparisonCost(fact turnrecord.TelemetryDashboardFact) float64 {
 	if fact.SubscriptionServed {
 		return 0
 	}
@@ -252,14 +253,14 @@ func comparisonCost(fact proxy.TelemetryDashboardFact) float64 {
 	return fact.ActualCostUSD
 }
 
-func listPriceCost(fact proxy.TelemetryDashboardFact) float64 {
+func listPriceCost(fact turnrecord.TelemetryDashboardFact) float64 {
 	if cost, ok := catalogCost(fact.DecisionModel, fact); ok {
 		return cost
 	}
 	return fact.ActualCostUSD
 }
 
-func catalogCost(modelID string, fact proxy.TelemetryDashboardFact) (float64, bool) {
+func catalogCost(modelID string, fact turnrecord.TelemetryDashboardFact) (float64, bool) {
 	model, ok := catalog.ByID(modelID)
 	if !ok || len(model.Providers) == 0 {
 		return 0, false
@@ -274,7 +275,7 @@ func catalogCost(modelID string, fact proxy.TelemetryDashboardFact) (float64, bo
 	return inputCost + catalog.EffectiveOutputCost(prompt, int(fact.OutputTokens), price, catalog.UsageModifiers{}), true
 }
 
-func factGroup(fact proxy.TelemetryDashboardFact, group dashboardMetricGroup) *string {
+func factGroup(fact turnrecord.TelemetryDashboardFact, group dashboardMetricGroup) *string {
 	var label string
 	switch group {
 	case dashboardGroupModel:
@@ -297,7 +298,7 @@ func factGroup(fact proxy.TelemetryDashboardFact, group dashboardMetricGroup) *s
 	return &label
 }
 
-func factValue(fact proxy.TelemetryDashboardFact, metric dashboardMetricType) float64 {
+func factValue(fact turnrecord.TelemetryDashboardFact, metric dashboardMetricType) float64 {
 	switch metric {
 	case dashboardMetricModelUsage:
 		return float64(fact.RequestCount)
@@ -308,7 +309,7 @@ func factValue(fact proxy.TelemetryDashboardFact, metric dashboardMetricType) fl
 	}
 }
 
-func factPoints(facts []proxy.TelemetryDashboardFact, metric dashboardMetricType, group dashboardMetricGroup, collapseBuckets bool) []dashboardPoint {
+func factPoints(facts []turnrecord.TelemetryDashboardFact, metric dashboardMetricType, group dashboardMetricGroup, collapseBuckets bool) []dashboardPoint {
 	accumulator := newPointAccumulator(collapseBuckets)
 	for _, fact := range facts {
 		if metric == dashboardMetricCost && group == dashboardGroupCostType {
@@ -322,7 +323,7 @@ func factPoints(facts []proxy.TelemetryDashboardFact, metric dashboardMetricType
 	return accumulator.points()
 }
 
-func activeUserPoints(users []proxy.TelemetryActiveUsers, group dashboardMetricGroup, collapseBuckets bool) []dashboardPoint {
+func activeUserPoints(users []turnrecord.TelemetryActiveUsers, group dashboardMetricGroup, collapseBuckets bool) []dashboardPoint {
 	accumulator := newPointAccumulator(collapseBuckets)
 	for _, row := range users {
 		var label *string

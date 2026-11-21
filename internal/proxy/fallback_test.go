@@ -18,6 +18,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/translate"
@@ -190,7 +191,7 @@ func TestDispatchWithFallback_RetriesOnRetryableBufferedError(t *testing.T) {
 	assert.Equal(t, 1, primary.calls)
 	assert.Equal(t, 1, fallback.calls)
 	assert.Equal(t, "rescued", rec.Body.String(), "client sees only the fallback's successful bytes")
-	assert.Equal(t, "fireworks", rec.Header().Get(HeaderRouterFallbackFrom))
+	assert.Equal(t, "fireworks", rec.Header().Get(requestcontext.HeaderRouterFallbackFrom))
 }
 
 // TestDispatchWithFallback_SchemaRejectionDoesNotFailoverCrossBinding pins the
@@ -320,7 +321,7 @@ func TestDispatchWithFallback_RetriesOnResponseHeaderTimeout(t *testing.T) {
 	assert.Equal(t, 1, primary.calls)
 	assert.Equal(t, 1, fallback.calls)
 	assert.Equal(t, "rescued", rec.Body.String())
-	assert.Equal(t, providers.ProviderMakora, rec.Header().Get(HeaderRouterFallbackFrom))
+	assert.Equal(t, providers.ProviderMakora, rec.Header().Get(requestcontext.HeaderRouterFallbackFrom))
 }
 
 // Covers the mid-stream stall watchdog (prod incident 2026-06-09: streams
@@ -365,7 +366,7 @@ func TestDispatchWithFallback_RetriesOnUpstreamIdleTimeout(t *testing.T) {
 	assert.Equal(t, 1, primary.calls)
 	assert.Equal(t, 1, fallback.calls)
 	assert.Equal(t, "rescued", rec.Body.String())
-	assert.Equal(t, providers.ProviderOpenAI, rec.Header().Get(HeaderRouterFallbackFrom))
+	assert.Equal(t, providers.ProviderOpenAI, rec.Header().Get(requestcontext.HeaderRouterFallbackFrom))
 }
 
 func TestDispatchWithFallback_NoRetryOnNonRetryableStatus(t *testing.T) {
@@ -882,7 +883,7 @@ func TestShouldFailover(t *testing.T) {
 		// resolveAndInject re-resolves credentials and would prefer a BYOK key for
 		// the fallback binding, spending the customer's account without intent.
 		s := &Service{hmmServing: hmmPorts()}
-		ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{},
+		ctx := context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{},
 			[]*auth.ExternalAPIKey{
 				{Provider: providers.ProviderMakora, Plaintext: []byte("mk-byok")},
 			})
@@ -1081,7 +1082,7 @@ func TestPreludeBuffer_DiscardResetsBufferAndHeaders(t *testing.T) {
 	// Attempt 1: Prelude writes + status + body.
 	buf.Header().Set("Content-Type", "text/event-stream")
 	buf.Header().Del("Content-Length")
-	buf.Header().Set(HeaderRouterFallbackFrom, "fireworks")
+	buf.Header().Set(requestcontext.HeaderRouterFallbackFrom, "fireworks")
 	buf.WriteHeader(http.StatusOK)
 	_, _ = buf.Write([]byte("attempt-1-prelude"))
 
@@ -1093,7 +1094,7 @@ func TestPreludeBuffer_DiscardResetsBufferAndHeaders(t *testing.T) {
 		"Content-Type restored to construction-time snapshot")
 	assert.Equal(t, "0", rec.Header().Get("Content-Length"),
 		"Content-Length deleted by Prelude restored")
-	assert.Empty(t, rec.Header().Get(HeaderRouterFallbackFrom),
+	assert.Empty(t, rec.Header().Get(requestcontext.HeaderRouterFallbackFrom),
 		"Prelude-added headers removed")
 
 	// Attempt 2: Prelude + success.

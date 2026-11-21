@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
@@ -56,7 +57,7 @@ type leasedAccount struct {
 }
 
 func managedSubscriptionUsageOf(ctx context.Context) *ManagedSubscriptionUsage {
-	usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	return usage
 }
 
@@ -127,12 +128,12 @@ func (l *accountLoop) serveAccount(ctx, attemptCtx context.Context, account int)
 
 func (l *accountLoop) writeAttemptHeaders() {
 	decision, header := l.decision, l.in.Writer.Header()
-	header.Set(HeaderRouterProvider, decision.Provider)
-	header.Set(HeaderRouterModel, decision.Model)
-	header.Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
+	header.Set(requestcontext.HeaderRouterProvider, decision.Provider)
+	header.Set(requestcontext.HeaderRouterModel, decision.Model)
+	header.Set(requestcontext.HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
 	if l.attempt.Index > 0 {
-		header.Set(HeaderRouterFallbackFrom, l.in.Bindings[0].Provider)
-		header.Set(HeaderRouterFallbackAttempt, attemptIdxLabel(l.attempt.Index))
+		header.Set(requestcontext.HeaderRouterFallbackFrom, l.in.Bindings[0].Provider)
+		header.Set(requestcontext.HeaderRouterFallbackAttempt, attemptIdxLabel(l.attempt.Index))
 	}
 }
 

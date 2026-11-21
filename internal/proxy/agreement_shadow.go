@@ -23,22 +23,17 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/switchpolicy"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/telemetry/turnrecord"
 
 	"github.com/google/uuid"
 )
-
-type agreementShadowInput struct {
-	Key         switchpolicy.ShadowKey
-	Observation switchpolicy.ShadowObservation
-	Epoch       int
-}
 
 func agreementShadowEnabled(ctx context.Context) bool {
 	identity, managed := requestcontext.ServingIdentityFromContext(ctx)
 	return managed && policyregistry.ServingTarget(identity.Target) == policyregistry.TargetInternal && identity.StateNamespace != "" && identity.ReleaseID != "" && identity.BindingID != "" && flags.IntOr(ctx, flags.KeyAgreementShadowEpoch, 0) > 0
 }
 
-func applyAgreementShadowTelemetry(ports continuity.StrategyPorts, ctx context.Context, p *InsertTelemetryParams, res turnLoopResult) {
+func applyAgreementShadowTelemetry(ports continuity.StrategyPorts, ctx context.Context, p *turnrecord.InsertTelemetryParams, res turnLoopResult) {
 	if !agreementShadowEnabled(ctx) {
 		return
 	}
@@ -52,12 +47,12 @@ func applyAgreementShadowTelemetry(ports continuity.StrategyPorts, ctx context.C
 	epoch := flags.IntOr(ctx, flags.KeyAgreementShadowEpoch, 0)
 	stateKey := append([]byte(nil), requestcontext.ServingStateKey(ctx, p.SessionKey)...)
 	stateKey = binary.BigEndian.AppendUint64(stateKey, uint64(epoch))
-	shadow := &agreementShadowInput{
+	shadow := &turnrecord.AgreementShadowInput{
 		Epoch:       epoch,
 		Key:         switchpolicy.ShadowKey{InstallationID: p.InstallationID, SessionKey: stateKey, Role: role},
 		Observation: switchpolicy.ShadowObservation{RequestID: p.RequestID, StartedAt: p.Timestamp, Gap: switchpolicy.ShadowGapUnsupported},
 	}
-	p.agreementShadow = shadow
+	p.AgreementShadow = shadow
 	if !res.AuthoritativePerTurn || !isHMMDecision(ports, res.Fresh) || res.HardPinned || res.ForcedPinDropped || res.PolicyFallback || res.CallerModelPassthrough || res.UsageBypass || floor.RoutingApplied(res.Fresh) {
 		return
 	}
@@ -117,16 +112,16 @@ func applyAgreementShadowTelemetry(ports continuity.StrategyPorts, ctx context.C
 	shadow.Observation.Gap = switchpolicy.ShadowGapMissing
 }
 
-func (s *Service) recordAgreementShadow(ctx context.Context, log *slog.Logger, p InsertTelemetryParams) {
-	if p.agreementShadow == nil {
+func (s *Service) recordAgreementShadow(ctx context.Context, log *slog.Logger, p turnrecord.InsertTelemetryParams) {
+	if p.AgreementShadow == nil {
 		return
 	}
-	store, ok := s.telemetry.(switchpolicy.ShadowStore)
+	store, ok := s.turnTelemetry.repo.(switchpolicy.ShadowStore)
 	if !ok {
 		log.Warn("Agreement shadow store is unavailable", "installation_id", p.InstallationID)
 		return
 	}
-	shadow := *p.agreementShadow
+	shadow := *p.AgreementShadow
 	if agreementShadowTransportFailed(p) {
 		shadow.Observation.Gap = switchpolicy.ShadowGapFailure
 	}
@@ -158,12 +153,12 @@ func (s *Service) recordAgreementShadow(ctx context.Context, log *slog.Logger, p
 	}
 }
 
-func agreementShadowTransportFailed(p InsertTelemetryParams) bool {
+func agreementShadowTransportFailed(p turnrecord.InsertTelemetryParams) bool {
 	if p.UpstreamStatusCode != http.StatusOK || (p.FailoverAttempted != nil && *p.FailoverAttempted) || (p.FailoverUsed != nil && *p.FailoverUsed) {
 		return true
 	}
 	switch p.ErrorClass {
-	case "", TurnErrorMaxTokens, TurnErrorRefusal, TurnErrorInvalidToolArgs:
+	case "", turnrecord.TurnErrorMaxTokens, turnrecord.TurnErrorRefusal, turnrecord.TurnErrorInvalidToolArgs:
 		return false
 	default:
 		return true
@@ -179,7 +174,7 @@ func (s *Service) recordAgreementShadowCommandBoundary(ctx context.Context, inst
 	startedAt := s.clock.Now()
 	log := observability.FromContext(ctx).With("command_outcome_id", commandID)
 	for _, role := range forceModelClearRoles() {
-		p := InsertTelemetryParams{InstallationID: installationID.String(), RequestID: commandID, Timestamp: startedAt,
+		p := turnrecord.InsertTelemetryParams{InstallationID: installationID.String(), RequestID: commandID, Timestamp: startedAt,
 			SessionKey: threadKey[:], Role: role, TurnType: string(turntype.MainLoop), UpstreamStatusCode: http.StatusOK}
 		applyAgreementShadowTelemetry(s.strategyPorts, ctx, &p, turnLoopResult{})
 		s.recordAgreementShadow(boundaryCtx, log, p)

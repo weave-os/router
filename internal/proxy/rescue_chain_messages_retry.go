@@ -97,7 +97,7 @@ func (m *messagesRescue) subscriptionRetry(ctx context.Context) {
 	opts := m.opts
 	preludeBuf := m.preludeBuf
 	feats := m.feats
-	if m.subscriptionRetryEligible && !paidFallbackForbiddenForModel(ctx, m.decision.Model) && !m.baselineAttempted && m.proxyErr != nil &&
+	if m.subscriptionRetryEligible && !paidFallbackForbiddenForModelOnProvider(ctx, m.decision.Provider, m.decision.Model) && !m.baselineAttempted && m.proxyErr != nil &&
 		!preludeBuf.Committed() &&
 		(providers.IsRetryable(m.proxyErr) || anthropicOAuthCredentialRejected(m.proxyErr) || anthropicSubscriptionModelRejected(m.proxyErr) || anthropicSubscriptionThirdPartyRefused(m.proxyErr)) {
 		m.subscriptionRetryRan = true

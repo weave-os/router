@@ -8,8 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func tripSubscriptionLane(c *gin.Context, gate subscriptionlane.Gate, subscriptionCovers bool) (refusal.Kind, bool) {
-	ctx, lane := billing.StepSubscriptionLane(c.Request.Context(), gate.Tripped(subscriptionCovers))
+func tripSubscriptionLane(c *gin.Context, svc *billing.Service, gate subscriptionlane.Gate, subscriptionCovers bool) (refusal.Kind, bool) {
+	ctx, lane := svc.TripSubscriptionLane(c.Request.Context(), gate.Tripped(subscriptionCovers))
 	kind, refused := lane.Refusal()
 	if !refused {
 		c.Request = c.Request.WithContext(ctx)
