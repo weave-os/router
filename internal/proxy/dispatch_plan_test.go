@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
@@ -252,7 +253,7 @@ func TestDispatchPlanned_LeaseFailureIsTerminal(t *testing.T) {
 	}).WithManagedSubscriptions(&scriptedSubscriptionLeaser{})
 	slept := 0
 	s.retrySleep = func(context.Context, time.Duration) error { slept++; return nil }
-	ctx := context.WithValue(context.Background(), ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+	ctx := context.WithValue(context.Background(), credentials.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)

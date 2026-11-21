@@ -13,6 +13,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
@@ -193,13 +194,13 @@ func byokKey(provider, secret string, priority auth.FundingPriority) *auth.Exter
 
 func withBYOK(keys ...*auth.ExternalAPIKey) func(context.Context) context.Context {
 	return func(ctx context.Context) context.Context {
-		return context.WithValue(ctx, proxy.ExternalAPIKeysContextKey{}, keys)
+		return context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, keys)
 	}
 }
 
 func goldenCodexCredentialCtx(ctx context.Context) context.Context {
-	ctx = context.WithValue(ctx, proxy.OpenAISubscriptionContextKey{}, goldenCodexToken)
-	return context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, goldenCodexAccount)
+	ctx = context.WithValue(ctx, credentials.OpenAISubscriptionContextKey{}, goldenCodexToken)
+	return context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, goldenCodexAccount)
 }
 
 func goldenUnkeyedCtx(ctx context.Context) context.Context {

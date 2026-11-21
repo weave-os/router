@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/subscriptions"
 )
@@ -35,8 +36,8 @@ type ManagedSubscriptionUsage struct {
 }
 
 func WithManagedSubscriptionUsage(ctx context.Context) context.Context {
-	if existing, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); existing != nil {
+	if existing, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); existing != nil {
 		return ctx
 	}
-	return context.WithValue(ctx, ManagedSubscriptionUsageContextKey{}, &ManagedSubscriptionUsage{})
+	return context.WithValue(ctx, credentials.ManagedSubscriptionUsageContextKey{}, &ManagedSubscriptionUsage{})
 }

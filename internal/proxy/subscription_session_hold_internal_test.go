@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -30,7 +31,7 @@ func TestSubscriptionStatePoolOverloadHoldsSessionOffModel(t *testing.T) {
 	svc.clock = func() time.Time { return now }
 
 	serve := func() router.Decision {
-		ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
+		ctx := context.WithValue(managedSubscriptionTestContext(), credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
 		ctx = context.WithValue(ctx, InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 		ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{SessionID: "codex-session"})
 		ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel, stateClaudeModel})

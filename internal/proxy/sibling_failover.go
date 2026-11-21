@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -303,7 +304,7 @@ func (s *Service) gatewayRescueDecisions(ctx context.Context, failed router.Deci
 }
 
 func (s *Service) subscriptionSiblingAllowed(ctx context.Context) bool {
-	if s.credentials.BYOKOnly || len(externalKeysFromContext(ctx)) > 0 {
+	if s.credentials.BYOKOnly || len(credentials.ExternalKeysFromContext(ctx)) > 0 {
 		return false
 	}
 	creds := CredentialsFromContext(ctx)

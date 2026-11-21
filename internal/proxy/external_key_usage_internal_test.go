@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 )
 
@@ -44,7 +45,7 @@ func TestMarkServedExternalKeyUsed(t *testing.T) {
 				ctx = context.WithValue(ctx, CredentialsContextKey{}, tc.creds)
 			}
 			if tc.managed != nil {
-				ctx = context.WithValue(ctx, ManagedSubscriptionUsageContextKey{}, tc.managed)
+				ctx = context.WithValue(ctx, credentials.ManagedSubscriptionUsageContextKey{}, tc.managed)
 			}
 
 			svc.markServedExternalKeyUsed(ctx, tc.servedErr)

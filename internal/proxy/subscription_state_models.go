@@ -9,6 +9,7 @@ import (
 	"slices"
 	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -122,7 +123,7 @@ func readmitSessionStrikes(ctx context.Context, request *router.Request) bool {
 }
 
 func beginSubscriptionStateLane(ctx context.Context, initial router.Decision) context.Context {
-	if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && usage.IntendedModel == "" {
+	if usage, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && usage.IntendedModel == "" {
 		usage.IntendedModel = initial.Model
 	}
 	return withClientAppRefusalPaidFallback(ctx, initial)

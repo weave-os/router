@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -48,7 +49,7 @@ func TestExpiredAdmissionBudgetDoesNotAuthorizeAPI(t *testing.T) {
 	require.Zero(t, apiCalls)
 	require.Empty(t, rec.Body.String())
 	require.Empty(t, leaser.cooldownIDs, "budget expiry alone never cools down an account")
-	require.False(t, mustAs[*ManagedSubscriptionUsage](t, ctx.Value(ManagedSubscriptionUsageContextKey{})).Served)
+	require.False(t, mustAs[*ManagedSubscriptionUsage](t, ctx.Value(credentials.ManagedSubscriptionUsageContextKey{})).Served)
 }
 
 func TestExpiredRotationBudgetRendersCleanErrorWithoutAPI(t *testing.T) {

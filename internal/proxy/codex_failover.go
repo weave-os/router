@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
@@ -34,7 +35,7 @@ func codexExhaustionWindow(resetAt time.Time, now time.Time) usage.Window {
 }
 
 func (s *Service) openaiFallbackKeyAvailable(ctx context.Context) bool {
-	if byok := BuildCredentialsMap(externalKeysFromContext(ctx)); byok != nil {
+	if byok := BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx)); byok != nil {
 		if _, ok := byok[providers.ProviderOpenAI]; ok {
 			return true
 		}

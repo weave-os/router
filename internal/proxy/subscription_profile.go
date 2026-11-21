@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/subscriptions"
 )
@@ -51,7 +52,7 @@ func claudeSubscriptionPlan(ctx context.Context) providers.SubscriptionPlan {
 	if creds := CredentialsFromContext(ctx); creds != nil && creds.OAuth && creds.Source == credSourceSubscription && creds.SubscriptionPlan != "" {
 		return creds.SubscriptionPlan
 	}
-	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil && state.ClaudeSubscriptionPlan != "" {
+	if state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil && state.ClaudeSubscriptionPlan != "" {
 		return state.ClaudeSubscriptionPlan
 	}
 	plan, _ := ctx.Value(claudeSubscriptionPlanKey{}).(providers.SubscriptionPlan)

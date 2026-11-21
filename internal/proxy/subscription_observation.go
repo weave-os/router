@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -166,7 +167,7 @@ func (s *Service) selectableSubscriptionProviders(ctx context.Context, headers h
 	if codexToken != "" && !codexSubscriptionSuppressed(ctx) && !codexLoginSpent(ctx, s.usageObserver, codexToken, s.codexExtraCreditsAllowed()) {
 		available[providers.ProviderOpenAI] = struct{}{}
 	}
-	for provider, creds := range BuildCredentialsMap(externalKeysFromContext(ctx)) {
+	for provider, creds := range BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx)) {
 		if len(creds.APIKey) > 0 && (provider == providers.ProviderAnthropic || provider == providers.ProviderOpenAI) {
 			available[provider] = struct{}{}
 		}

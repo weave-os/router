@@ -180,11 +180,6 @@ func apiKeyIDFromContext(ctx context.Context) string {
 
 type ExternalIDContextKey struct{}
 
-type AnthropicSubscriptionContextKey struct{}
-
-type OpenAISubscriptionContextKey struct{}
-type OpenAIAccountIDContextKey struct{}
-
 type codexResponsesBodyContextKey struct{}
 
 type nativeResponsesBodyContextKey struct{}
@@ -869,7 +864,7 @@ func anthropicSubscriptionFromContext(ctx context.Context) string {
 	if anthropicBYOKFirst(ctx) {
 		return ""
 	}
-	v, _ := ctx.Value(AnthropicSubscriptionContextKey{}).(string)
+	v, _ := ctx.Value(credentials.AnthropicSubscriptionContextKey{}).(string)
 	return v
 }
 
@@ -959,7 +954,7 @@ func byokServedForProvider(ctx context.Context, provider string) bool {
 	if provider == "" {
 		return false
 	}
-	for _, key := range externalKeysFromContext(ctx) {
+	for _, key := range credentials.ExternalKeysFromContext(ctx) {
 		if key.Provider == provider && len(key.Plaintext) > 0 {
 			return true
 		}
@@ -971,12 +966,12 @@ func openaiSubscriptionFromContext(ctx context.Context) string {
 	if byokFirst(ctx, providers.ProviderOpenAI) {
 		return ""
 	}
-	v, _ := ctx.Value(OpenAISubscriptionContextKey{}).(string)
+	v, _ := ctx.Value(credentials.OpenAISubscriptionContextKey{}).(string)
 	return v
 }
 
 func openaiAccountIDFromContext(ctx context.Context) string {
-	v, _ := ctx.Value(OpenAIAccountIDContextKey{}).(string)
+	v, _ := ctx.Value(credentials.OpenAIAccountIDContextKey{}).(string)
 	return v
 }
 
@@ -3854,17 +3849,8 @@ func pinAge(p sessionpin.Pin, now time.Time) int64 {
 	return int64(d.Seconds())
 }
 
-func externalKeysFromContext(ctx context.Context) []*auth.ExternalAPIKey {
-	v := ctx.Value(ExternalAPIKeysContextKey{})
-	if v == nil {
-		return nil
-	}
-	keys, _ := v.([]*auth.ExternalAPIKey)
-	return keys
-}
-
 func (s *Service) requestUsesNonDeploymentCreds(ctx context.Context, headers http.Header) bool {
-	return s.credentials.UsesNonDeploymentCreds(externalKeysFromContext(ctx), headers)
+	return s.credentials.UsesNonDeploymentCreds(credentials.ExternalKeysFromContext(ctx), headers)
 }
 
 func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvider string, headers http.Header) map[string]struct{} {
@@ -3881,7 +3867,7 @@ func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvide
 		Registered:                    s.clients.NameSet(),
 		SurfaceProvider:               surfaceProvider,
 		Headers:                       headers,
-		ExternalKeys:                  externalKeysFromContext(ctx),
+		ExternalKeys:                  credentials.ExternalKeysFromContext(ctx),
 		RouterKeyAuthed:               installationIDFromContext(ctx) != (uuid.UUID{}),
 		SubscriptionLanes:             subscriptionLanes,
 		InstallationExcludedProviders: installationExcludedProvidersFromContext(ctx),
@@ -3947,7 +3933,7 @@ func (s *Service) excludeCodexOAuthOnlyModels(
 }
 
 func resolveAndInjectCredentials(ctx context.Context, provider, model string, headers http.Header) context.Context {
-	byok := BuildCredentialsMap(externalKeysFromContext(ctx))
+	byok := BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx))
 	if byok[provider] != nil && byok[provider].FundingPriority == auth.FundingPriorityKeyFirst {
 		return context.WithValue(ctx, CredentialsContextKey{}, byok[provider])
 	}

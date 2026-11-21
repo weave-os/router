@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/catalog"
 
@@ -13,7 +14,7 @@ import (
 )
 
 func ctxWithKeys(keys ...*auth.ExternalAPIKey) context.Context {
-	return context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, keys)
+	return context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{}, keys)
 }
 
 func gatewayKey(provider, baseURL string, models ...string) *auth.ExternalAPIKey {

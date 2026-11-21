@@ -7,6 +7,7 @@ import (
 
 	lru "github.com/hashicorp/golang-lru/v2"
 
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
@@ -45,7 +46,7 @@ func (s *Service) holdSessionOffSubscriptionPool(ctx context.Context, provider, 
 
 func (h *subscriptionSessionHolds) withUnservedHoldsReleased(ctx context.Context, enabledProviders map[string]struct{}) context.Context {
 	owner := sessionHoldOwner(ctx)
-	state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	state, _ := ctx.Value(credentials.ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	if owner == "" || state == nil {
 		return ctx
 	}
