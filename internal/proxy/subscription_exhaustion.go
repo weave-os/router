@@ -8,7 +8,6 @@ import (
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
-	"weave-os/router/internal/subscriptions"
 )
 
 func (s *Service) claudeSubscriptionExhausted(ctx context.Context, headers http.Header) bool {
@@ -36,6 +35,6 @@ func claudeSubscriptionFacts(ctx context.Context) credentials.ClaudeSubscription
 		EnterpriseSubscriptionOnly: subscriptionOnly && reason != billing.SubscriptionOnlyLinkedFirst &&
 			claudeSubscriptionPlan(ctx) == providers.SubscriptionPlanEnterprise,
 		NoPaidFallback: weaveCreditsDenied(ctx) && usableBYOK(ctx, providers.ProviderAnthropic) == nil &&
-			!managedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude),
+			!linkedClaudeSeatConnected(ctx),
 	}
 }
