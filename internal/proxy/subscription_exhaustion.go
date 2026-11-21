@@ -34,5 +34,7 @@ func claudeSubscriptionFacts(ctx context.Context) credentials.ClaudeSubscription
 		OwnOverageBeforePool: ownOverageBeforePool(ctx),
 		EnterpriseSubscriptionOnly: subscriptionOnly && reason != billing.SubscriptionOnlyLinkedFirst &&
 			claudeSubscriptionPlan(ctx) == providers.SubscriptionPlanEnterprise,
+		NoPaidFallback: weaveCreditsDenied(ctx) && usableBYOK(ctx, providers.ProviderAnthropic) == nil &&
+			!linkedClaudeSeatConnected(ctx),
 	}
 }
