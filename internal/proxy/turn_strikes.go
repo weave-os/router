@@ -8,6 +8,7 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 )
@@ -77,4 +78,17 @@ func (s *Service) clearTurnStrikes(ctx context.Context, sessionKey [sessionpin.S
 			observability.FromContext(ctx).Error("agent-turn strike clear failed", "err", err, "role", role)
 		}
 	}
+}
+
+func sessionDemotedModels(ctx context.Context, s *Service, env *translate.RequestEnvelope, res *turnLoopResult, pin, hmmHistory sessionpin.Pin) []string {
+	demoted := candidates.MergeSessionStrikes(pin.DemotedModels, hmmHistory.DemotedModels)
+	turnStrikes := candidates.MergeSessionStrikes(pin.TurnStrikes, hmmHistory.TurnStrikes)
+	if len(turnStrikes) == 0 {
+		return demoted
+	}
+	if routingEndsWithUserPrompt(ctx, env) {
+		s.clearTurnStrikes(ctx, res.SessionKey, res.PinRole)
+		return demoted
+	}
+	return candidates.MergeSessionStrikes(demoted, turnStrikes)
 }

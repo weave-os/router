@@ -34,7 +34,7 @@ func sessionModeArm(t *testing.T, headers http.Header) auth.BlindExperimentState
 	identity := proxy.ClientIdentityFromHeaders(headers)
 	identity.Email = "alice@example.com"
 	ctx := requestcontext.WithClientIdentity(context.Background(), identity)
-	ctx = proxy.ResolveUserFromContext(ctx, svc, &auth.Installation{ID: "inst-1"}, &auth.APIKey{ID: "key-1"})
+	ctx = auth.ResolveUserFromContext(ctx, svc, &auth.Installation{ID: "inst-1"}, &auth.APIKey{ID: "key-1"}, requestcontext.CallerFrom(ctx))
 	state, active := auth.BlindExperimentFrom(ctx)
 	require.True(t, active)
 	return state
