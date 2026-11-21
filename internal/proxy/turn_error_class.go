@@ -3,6 +3,7 @@ package proxy
 import (
 	"errors"
 	"net/http"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/telemetry/turnrecord"
 )
 
@@ -70,15 +71,15 @@ func fundingRefusalTurnClass(err error) (turnrecord.TurnErrorClass, bool) {
 		return "", false
 	}
 	switch cls.Kind {
-	case DispatchErrorSubscriptionPoolThrottled:
+	case ingress.DispatchErrorSubscriptionPoolThrottled:
 		return turnrecord.TurnErrorRateLimited, true
-	case DispatchErrorSubscriptionPoolExhausted:
+	case ingress.DispatchErrorSubscriptionPoolExhausted:
 		if errors.Is(err, errLinkedSeatsThrottled) {
 			return turnrecord.TurnErrorRateLimited, true
 		}
 		return turnrecord.TurnErrorFundingRefused, true
-	case DispatchErrorCreditsExhausted, DispatchErrorSpendCapReached, DispatchErrorUserSpendLimitReached,
-		DispatchErrorWeaveCreditsDisabled, DispatchErrorSubscriptionUnavailableForTurn, DispatchErrorClaudeEnterpriseOnly:
+	case ingress.DispatchErrorCreditsExhausted, ingress.DispatchErrorSpendCapReached, ingress.DispatchErrorUserSpendLimitReached,
+		ingress.DispatchErrorWeaveCreditsDisabled, ingress.DispatchErrorSubscriptionUnavailableForTurn, ingress.DispatchErrorClaudeEnterpriseOnly:
 		return turnrecord.TurnErrorFundingRefused, true
 	default:
 		return "", false

@@ -66,7 +66,7 @@ func lowerTierCandidates(target string, candidates []string) []string {
 	return lower
 }
 
-func (s *Service) earlyStopRedoMode(ctx context.Context, routeRes turnLoopResult, decision router.Decision, streaming, agentShadow bool) flags.EarlyStopRedoMode {
+func (s *Service) earlyStopRedoMode(ctx context.Context, routeRes dispatch.RescueTurn, decision router.Decision, streaming, agentShadow bool) flags.EarlyStopRedoMode {
 	mode := s.ResolveEarlyStopRedo(ctx)
 	if mode == flags.EarlyStopRedoOff || !streaming || agentShadow ||
 		ClientIdentityFrom(ctx).ClientApp != requestcontext.ClientAppClaudeCode ||

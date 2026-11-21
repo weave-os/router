@@ -145,7 +145,7 @@ func TestDispatchWithFallback_RejectsMissingPurposeBeforeAnyAttempt(t *testing.T
 		},
 	})
 
-	require.ErrorIs(t, err, errDispatchWithoutPurpose)
+	require.ErrorIs(t, err, dispatch.ErrDispatchWithoutPurpose)
 	assert.Equal(t, -1, winnerIdx)
 	assert.Equal(t, 0, primary.calls, "an unauthorized walk must never reach a provider")
 	assert.Empty(t, rec.Body.String())
