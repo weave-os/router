@@ -31,14 +31,14 @@ func TestMaxServingForcesProfileStrategyAndIgnoresCustomerHeaders(t *testing.T) 
 			c.Set("router_installation", &auth.Installation{
 				ID:                           "installation",
 				PolicyHeaderOverridesEnabled: true,
-				RoutingStrategy:              router.StrategyRL,
+				RoutingStrategy:              router.Strategy("rl"),
 			})
 			ctx := requestcontext.WithServingIdentity(c.Request.Context(), requestcontext.ServingIdentity{Plan: string(plan)})
 			c.Request = c.Request.WithContext(ctx)
 			c.Next()
 		})
 		engine.Use(
-			middleware.WithRouterStrategyDefault(router.Strategy("cluster"), allRegisteredLive, router.StrategyHMM, router.StrategyRL),
+			middleware.WithRouterStrategyDefault(router.Strategy("cluster"), allRegisteredLive, router.StrategyHMM, router.Strategy("rl")),
 			middleware.WithAllowedModelsOverride(planOwnedAllowedModelsGate{}),
 			middleware.WithRoutingKnobsOverride(),
 			middleware.WithForceEffortOverride(),
@@ -72,7 +72,7 @@ func TestBoostServingUsesInstallationStrategyAndAuthorizedOverride(t *testing.T)
 		header string
 		want   router.Strategy
 	}{
-		{name: "installation default", want: router.StrategyRL},
+		{name: "installation default", want: router.Strategy("rl")},
 		{name: "authorized override", header: string(router.StrategyHMM), want: router.StrategyHMM},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -80,13 +80,13 @@ func TestBoostServingUsesInstallationStrategyAndAuthorizedOverride(t *testing.T)
 			engine.Use(func(c *gin.Context) {
 				c.Set("router_installation", &auth.Installation{
 					ID: "installation", PolicyHeaderOverridesEnabled: true,
-					RoutingStrategy: router.StrategyRL,
+					RoutingStrategy: router.Strategy("rl"),
 				})
 				ctx := requestcontext.WithServingIdentity(c.Request.Context(), requestcontext.ServingIdentity{Plan: string(entitlement.PlanBoost)})
 				c.Request = c.Request.WithContext(ctx)
 				c.Next()
 			})
-			engine.Use(middleware.WithRouterStrategyDefault(router.Strategy("cluster"), allRegisteredLive, router.StrategyHMM, router.StrategyRL))
+			engine.Use(middleware.WithRouterStrategyDefault(router.Strategy("cluster"), allRegisteredLive, router.StrategyHMM, router.Strategy("rl")))
 			var strategy router.Strategy
 			engine.GET("/probe", func(c *gin.Context) {
 				strategy = router.StrategyFromContext(c.Request.Context())

@@ -3,6 +3,7 @@ package proxy
 import (
 	"log/slog"
 
+	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate/toolcheck"
 )
@@ -17,7 +18,7 @@ func logToolCallIssues(log *slog.Logger, issues []toolcheck.Issue, model, provid
 			"repair_actions", iss.Actions,
 			"model", model,
 			"provider", provider,
-			"session_key_prefix", shortSessionKey(sessionKey),
+			"session_key_prefix", conversation.ShortSessionKey(sessionKey),
 		)
 	}
 }
