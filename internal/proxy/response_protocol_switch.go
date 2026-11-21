@@ -132,22 +132,3 @@ func resetResponsesAttempt(w http.ResponseWriter) {
 		rw.ResetAttempt()
 	}
 }
-
-func responsesDispatchBodies(body []byte, terminalResponses bool) (nativeBody, conversionBody []byte, err error) {
-	nativeBody, err = translate.StripRouterReasoningFromResponsesInput(body)
-	if err != nil {
-		return nil, nil, err
-	}
-	if !terminalResponses {
-		return nativeBody, body, nil
-	}
-	nativeBody, err = stripResponsesTerminalArtifacts(nativeBody)
-	if err != nil {
-		return nil, nil, err
-	}
-	conversionBody, err = stripResponsesVisualArtifacts(body)
-	if err != nil {
-		return nil, nil, err
-	}
-	return nativeBody, conversionBody, nil
-}
