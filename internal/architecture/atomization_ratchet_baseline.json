@@ -10,7 +10,7 @@
       "internal/api/anthropic": 2,
       "internal/policyregistry": 5,
       "internal/proxy": 15,
-      "internal/server": 3,
+      "internal/server": 2,
       "internal/server/middleware": 9,
       "internal/subscriptions/entitlement": 1,
       "internal/translate": 2
