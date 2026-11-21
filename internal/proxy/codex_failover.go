@@ -63,7 +63,7 @@ func (s *Service) codexSubscriptionExhausted(ctx context.Context, headers http.H
 		return false
 	}
 	snap, ok := s.usageObserver.Snapshot(key)
-	return ok && snap.BillableOrExhausted()
+	return ok && snap.BillableOrExhausted() && !ownOverageServesFirst(ctx, snap)
 }
 
 func codexSubscriptionModelRejected(err error) bool {
@@ -144,6 +144,7 @@ func (s *Service) recordCodexQuotaExhaustion(ctx context.Context, headers http.H
 }
 
 func (s *Service) recordCodexCredentialUnusable(ctx context.Context, creds *Credentials, err error) {
+	recordCallerCodexFailureOnLinkedSeat(ctx, creds, err, s.clock.Now())
 	if s.usageObserver == nil || creds == nil || !creds.OAuth {
 		return
 	}

@@ -9,6 +9,9 @@ import (
 )
 
 func (s *Service) recordDirectSubscriptionQuota(ctx context.Context, provider, model string, creds *Credentials, attemptErr error) {
+	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil && (anthropicOAuthCredentialRejected(attemptErr) || codexOAuthCredentialRejected(attemptErr)) {
+		state.CallerCredentialRejected = true
+	}
 	pool, compatible := managedSubscriptionProviderFromUpstream(provider, model)
 	if !compatible {
 		return

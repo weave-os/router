@@ -59,23 +59,6 @@ func ResolveAdmissionBinding(ctx context.Context, store ServingStore, admission 
 	return binding.lane(), nil
 }
 
-func ValidateWorkerAdmission(ctx context.Context, store ServingStore, identity WorkerIdentity, assertion ServingAssertion, installationID, apiKeyID string) (LaneBinding, error) {
-	if err := identity.Validate(); err != nil {
-		return LaneBinding{}, err
-	}
-	if assertion.Scope.InstallationID != installationID || assertion.APIKeyID != apiKeyID || assertion.Admission.Target != identity.Target {
-		return LaneBinding{}, errors.New("serving assertion does not match authenticated credential or worker target")
-	}
-	binding, err := ResolveAdmissionBinding(ctx, store, assertion.Admission)
-	if err != nil {
-		return LaneBinding{}, err
-	}
-	if err := identity.ValidateBinding(assertion.Admission.Target, binding); err != nil {
-		return LaneBinding{}, err
-	}
-	return binding, nil
-}
-
 func ValidateWorkerSelection(ctx context.Context, store ServingStore, cache *ServingRuntimeCache, identity WorkerIdentity, request WorkerValidationRequest) (WorkerAttestation, error) {
 	if request.Target != identity.Target {
 		return WorkerAttestation{}, errors.New("validation target differs from worker identity")

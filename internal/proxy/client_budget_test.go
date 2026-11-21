@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 
 	"github.com/stretchr/testify/assert"
@@ -29,7 +30,7 @@ func TestClientBudgetServingAndPreviewUseOriginalVariantEachTurn(t *testing.T) {
 	provider := &fakeProvider{}
 	serving := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: budgetIngressModel}}
 	preview := &fakePreviewRouter{}
-	svc := proxy.NewService(serving, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, nil, false, providers.ProviderAnthropic, budgetIngressModel, nil).
+	svc := proxy.WithStrategyPorts(proxy.NewService(serving, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, nil, false, providers.ProviderAnthropic, budgetIngressModel, nil), hmm.ServingPorts()).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: preview})
 	ctx := requestcontext.WithClientIdentity(context.Background(), proxy.ClientIdentity{SessionID: "session-a", ClientApp: proxy.ClientAppClaudeCode, UserAgent: budgetIngressUserAgent})
 

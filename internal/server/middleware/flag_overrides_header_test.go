@@ -59,12 +59,12 @@ func flagHeaderInstallation(headersEnabled bool) *auth.Installation {
 
 func TestFlagOverridesHeader_AuthorizedHeaderLayersOverStoredOverrides(t *testing.T) {
 	probe := runFlagOverridesHeader(t, flagHeaderInstallation(true), false,
-		`{"planner_enabled":false,"escalation_active_classifier":"none","loop_escalation_holdout_pct":40}`)
+		`{"planner_enabled":false,"escalation_active_classifier":"none","task_arm_experiment_treatment_pct":40}`)
 
 	require.Equal(t, http.StatusOK, probe.status)
 	assert.Equal(t, map[flags.Key]bool{flags.KeyPlannerEnabled: false, flags.KeySiblingFailover: true}, probe.overrides.Bools)
 	assert.Equal(t, map[flags.Key]string{flags.KeyEscalationActiveClassifier: "none"}, probe.overrides.Strings)
-	assert.Equal(t, map[flags.Key]int{flags.KeyLoopEscalationHoldoutPct: 40}, probe.overrides.Ints)
+	assert.Equal(t, map[flags.Key]int{flags.KeyTaskArmExperimentTreatmentPct: 40}, probe.overrides.Ints)
 }
 
 func TestFlagOverridesHeader_IgnoredWithoutAuthorization(t *testing.T) {
@@ -97,7 +97,7 @@ func TestFlagOverridesHeader_AuthorizedInvalidHeaderIsRejected(t *testing.T) {
 		"not json":              `planner_enabled=false`,
 		"unknown flag":          `{"no_such_flag":true}`,
 		"wrong kind":            `{"planner_enabled":"off"}`,
-		"out of range":          `{"loop_escalation_holdout_pct":101}`,
+		"out of range":          `{"task_arm_experiment_treatment_pct":101}`,
 		"shadow without active": `{"escalation_shadow_classifier":"xgb"}`,
 	} {
 		t.Run(name, func(t *testing.T) {

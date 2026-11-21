@@ -390,6 +390,7 @@ export const ROUTER_MODEL_DISPLAY_NAMES = {
   "google/gemini-3.5-flash": "Gemini 3.5 Flash",
   "google/gemini-3.7-flash": "Gemini 3.7 Flash",
   "google/gemini-3.8-flash": "Gemini 3.8 Flash",
+  "google/gemini-4-neon": "Gemini 4 Neon",
   "inclusionai/ling-3.0-flash": "Ling 3.0 Flash",
   "minimax/minimax-m2.7": "MiniMax M2.7",
   "minimax/minimax-m3": "MiniMax M3",

@@ -14,11 +14,14 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 const (
@@ -93,7 +96,7 @@ func reviewerService(p *reviewerProvider, store *fakePinStore) *proxy.Service {
 	if store == nil {
 		store = newFakePinStore()
 	}
-	return proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, store, false, providers.ProviderAnthropic, reviewerDefaultModel, nil)
+	return proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, store, false, providers.ProviderAnthropic, reviewerDefaultModel, nil), hmm.ServingPorts())
 }
 
 // Claude Code's auto-mode reviewer picks its own model (Sonnet 5 by default)
@@ -186,4 +189,90 @@ func TestAutoModeReviewer_SubscriptionErrorReturnedUntouched(t *testing.T) {
 	assert.JSONEq(t, reviewerModelNotFound(reviewerDefaultModel).body, rec.Body.String())
 	assert.Equal(t, []string{reviewerDefaultModel}, p.models)
 	assert.Equal(t, []bool{true}, p.oauth)
+}
+
+// Models with a safety classifier (Sonnet 5.5) can answer the reviewer with a
+// `refusal` and no verdict, which Claude Code turns into a block. The router
+// asks Anthropic to re-serve such a turn on its fallback model, the same
+// opt-in every other first-party turn carries; the rest of the request stays
+// byte-identical.
+func TestAutoModeReviewer_KeepsServerSideRefusalFallback(t *testing.T) {
+	const refusingModel = "claude-sonnet-5-5"
+	body := strings.Replace(autoModeReviewerBody(), reviewerDefaultModel, refusingModel, 1)
+	for name, tc := range map[string]struct {
+		ctx       func() context.Context
+		deployKey bool
+	}{
+		"subscription": {ctx: classifierSubscriptionCtx},
+		"api_billed":   {ctx: func() context.Context { return authedCtx("inst-reviewer") }, deployKey: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := &reviewerProvider{}
+			svc := reviewerService(p, nil)
+			if tc.deployKey {
+				svc = svc.WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
+			}
+			rec, req := reviewerRequest(t.Context())
+
+			require.NoError(t, svc.ProxyMessages(tc.ctx(), []byte(body), rec, req))
+
+			require.Len(t, p.bodies, 1)
+			assert.Equal(t, []string{refusingModel}, p.models)
+			assert.Equal(t, `"default"`, gjson.GetBytes(p.bodies[0], "fallbacks").Raw)
+			withoutFallbacks, err := sjson.DeleteBytes(p.bodies[0], "fallbacks")
+			require.NoError(t, err)
+			want, err := sjson.SetRaw(body, "thinking", `{"type":"between_tools"}`)
+			require.NoError(t, err)
+			assert.Equal(t, want, string(withoutFallbacks))
+			assert.Equal(t, reviewerClientBeta+",server-side-fallback-2026-07-01", p.betas[0])
+		})
+	}
+}
+
+func TestAutoModeReviewer_ServerSideRefusalFallbackDisabledForwardsUntouched(t *testing.T) {
+	body := strings.Replace(autoModeReviewerBody(), reviewerDefaultModel, "claude-sonnet-5-5", 1)
+	body = strings.Replace(body, `"thinking":{"type":"disabled"}`, `"thinking":{"type":"between_tools"}`, 1)
+	p := &reviewerProvider{}
+	svc := reviewerService(p, nil).WithAnthropicServerSideFallback(false)
+	rec, req := reviewerRequest(t.Context())
+
+	require.NoError(t, svc.ProxyMessages(classifierSubscriptionCtx(), []byte(body), rec, req))
+
+	require.Len(t, p.bodies, 1)
+	assert.Equal(t, body, string(p.bodies[0]))
+	assert.Equal(t, reviewerClientBeta, p.betas[0])
+}
+
+// Older Claude Code clients send the reviewer `thinking: disabled` on every
+// model. Models without that switch (Sonnet 5.5) reject it with a 400, which
+// Claude Code reports as "auto mode cannot determine the safety". The router
+// sends the model's own off switch instead and leaves the rest of the body as is.
+func TestAutoModeReviewer_DisabledThinkingSentAsTheModelsOffSwitch(t *testing.T) {
+	const model = "claude-sonnet-5-5"
+	body := strings.Replace(autoModeReviewerBody(), reviewerDefaultModel, model, 1)
+	want, err := sjson.SetRaw(body, "thinking", `{"type":"between_tools"}`)
+	require.NoError(t, err)
+	for name, tc := range map[string]struct {
+		ctx       func() context.Context
+		deployKey bool
+	}{
+		"subscription": {ctx: classifierSubscriptionCtx},
+		"api_billed":   {ctx: func() context.Context { return authedCtx("inst-reviewer") }, deployKey: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := &reviewerProvider{}
+			svc := reviewerService(p, nil).WithAnthropicServerSideFallback(false)
+			if tc.deployKey {
+				svc = svc.WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
+			}
+			rec, req := reviewerRequest(t.Context())
+
+			require.NoError(t, svc.ProxyMessages(tc.ctx(), []byte(body), rec, req))
+
+			require.Len(t, p.bodies, 1)
+			assert.Equal(t, []string{model}, p.models)
+			assert.Equal(t, want, string(p.bodies[0]))
+			assert.Equal(t, reviewerClientBeta, p.betas[0])
+		})
+	}
 }

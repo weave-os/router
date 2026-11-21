@@ -51,7 +51,7 @@ func TestRecordTokenizerObservation_OnlyConversationTurnsCalibrate(t *testing.T)
 	} {
 		t.Run(string(tt.turnType), func(t *testing.T) {
 			store := &calibrationRecordingPinStore{}
-			svc := &Service{pinStore: store}
+			svc := &Service{hmmServing: hmmPorts(), pinStore: store}
 			svc.recordTokenizerObservation(context.Background(), turnLoopResult{TurnType: tt.turnType}, "default", providers.ProviderOpenAI, 500_000, 0, 0)
 			assert.Equal(t, tt.want, store.writes)
 		})

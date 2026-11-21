@@ -3,6 +3,7 @@ package routingpolicy
 import (
 	"errors"
 
+	"weave-os/router/internal/router/candidates"
 	"weave-os/router/internal/router/policy"
 )
 
@@ -35,7 +36,7 @@ func (p *Policy) WithExcludedModelsOverride(models []string) *Policy {
 	if p != nil {
 		*out = *p
 	}
-	out.excludedModelsOverride = ModelSet(models)
+	out.excludedModelsOverride = candidates.ModelSet(models)
 	return out
 }
 

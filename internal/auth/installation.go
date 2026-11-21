@@ -16,6 +16,7 @@ type Installation struct {
 	UpdatedAt                        time.Time
 	DeletedAt                        *time.Time
 	CreatedBy                        *string
+	PoolSubjectID                    string
 	ExcludedModels                   []string
 	AllowedModels                    []string
 	SubscriptionStateModelsEnabled   bool

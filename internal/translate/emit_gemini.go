@@ -249,7 +249,7 @@ func writeGeminiFromOpenAI(jw *jsonWriter, body []byte, opts EmitOptions) error 
 	msgs.ForEach(func(_, msg gjson.Result) bool {
 		role := msg.Get("role").String()
 		switch role {
-		case "system":
+		case "system", "developer":
 			return true
 		case "user":
 			parts := openAIUserPartsGJSON(msg.Get("content"))
@@ -685,7 +685,7 @@ func geminiFunctionResponsePart(name, result string) string {
 }
 
 func usesGemini3Contract(model string) bool {
-	return strings.HasPrefix(model, "gemini-3") || model == router.ModelGemini4Argon
+	return strings.HasPrefix(model, "gemini-3") || model == router.ModelGemini4Argon || model == router.ModelGemini4Neon
 }
 
 func geminiToolMode(downgradeValidated bool) string {
@@ -1104,46 +1104,6 @@ func geminiThinkingConfigRaw(intent ReasoningIntent, model string) (string, erro
 		return "", fmt.Errorf("%w: unsupported Gemini reasoning intent", ErrReasoningIncompatible)
 	}
 	return thinkingConfigRaw(intent.Level, model), nil
-}
-
-func thinkingConfigRaw(effort, model string) string {
-	if usesGemini3Contract(model) {
-		var level string
-		switch effort {
-		case "low", "medium", "high":
-			level = effort
-		case "max", "xhigh":
-			level = "high"
-		default:
-			return ""
-		}
-		fw := newJSONWriter()
-		fw.Obj()
-		fw.Key("thinkingLevel")
-		fw.Str(level)
-		fw.EndObj()
-		return string(fw.Bytes())
-	}
-
-	var budget int64
-	switch effort {
-	case "none":
-		budget = 0
-	case "low":
-		budget = 1024
-	case "medium":
-		budget = 8192
-	case "high", "max", "xhigh":
-		budget = 24576
-	default:
-		return ""
-	}
-	fw := newJSONWriter()
-	fw.Obj()
-	fw.Key("thinkingBudget")
-	fw.Int(budget)
-	fw.EndObj()
-	return string(fw.Bytes())
 }
 
 var geminiSchemaAllowedKeys = map[string]struct{}{

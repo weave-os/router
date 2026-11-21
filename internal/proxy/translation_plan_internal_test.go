@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"testing"
+
 	"weave-os/router/internal/dispatch"
 
 	"weave-os/router/internal/providers"
@@ -31,7 +32,7 @@ func (*translationMetricsRecorder) RecordTranslationTransform(context.Context, s
 }
 
 func compatibilityService(mode TranslationCompatibilityMode) *Service {
-	return &Service{
+	return &Service{hmmServing: hmmPorts(),
 		clients: dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderAnthropic: nil,
 			providers.ProviderOpenAI:    nil,
@@ -214,7 +215,7 @@ func TestTranslationPlan_NativeSearchAlwaysFiltersToSourceProvider(t *testing.T)
 }
 
 func TestApplyTranslationPlan_CompatibleButUnavailable(t *testing.T) {
-	svc := &Service{
+	svc := &Service{hmmServing: hmmPorts(),
 		clients:                      dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: nil}),
 		translationCompatibilityMode: TranslationCompatibilityShadow,
 	}

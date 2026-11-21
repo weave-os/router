@@ -15,13 +15,12 @@ import (
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/armid"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/escalation"
-	"weave-os/router/internal/router/hmm/armid"
-	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/hmm/selection"
 	"weave-os/router/internal/router/policy"
-	"weave-os/router/internal/server"
+	"weave-os/router/internal/router/rosterdata"
 )
 
 type atomicClassifierConfig struct {
@@ -33,12 +32,12 @@ type atomicClassifierConfig struct {
 	InstallationIDs       []uuid.UUID `json:"installation_ids"`
 }
 
-func configureAtomicClassifier(service *proxy.Service, pool *pgxpool.Pool, providers map[string]struct{}, deploymentMode server.DeploymentMode) error {
+func configureAtomicClassifier(service *proxy.Service, pool *pgxpool.Pool, providers map[string]struct{}) error {
 	path := os.Getenv("ROUTER_LLM_CLASSIFIER_CONFIG")
 	if path == "" {
 		return nil
 	}
-	if managedServingEnabled(deploymentMode) {
+	if servingTargetConfigured() {
 		return errors.New("llm classifier requires managed Modal release integration before enabling managed serving")
 	}
 	payload, err := os.ReadFile(path)

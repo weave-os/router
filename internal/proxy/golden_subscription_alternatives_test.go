@@ -5,7 +5,10 @@ import (
 	"net/http"
 	"slices"
 	"sync"
+	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
@@ -127,5 +130,38 @@ func goldenSubscriptionAlternativeScenarios() []goldenScenario {
 				goldenResponsesOK("on deployment key")}},
 			requests:  []goldenRequest{goldenCodexPoolRequest(goldenAutoChatBody, "seat-a")},
 			configure: withGoldenCodexPool("seat-a")},
+		goldenForcedModelSeatDeniedScenario(),
 	}
+}
+
+// goldenForcedModelSeatDeniedScenario pins a forced model the only enrolled
+// seat cannot serve: the seat's model denial is not included quota, so the
+// turn is served on the deployment key instead of refused.
+func goldenForcedModelSeatDeniedScenario() goldenScenario {
+	req := goldenCodexPoolRequest(goldenAutoChatBody, "seat-a")
+	req.headers = map[string]string{proxy.ForceModelHeader: goldenCodexModel}
+	return goldenScenario{name: ingressOpenAI + "_stream_forced_model_seat_model_denied_served_on_deployment_key", ingress: ingressOpenAI,
+		decisions: []router.Decision{{Provider: providers.ProviderOpenAI, Model: goldenCodexModel, Reason: "golden_route"}},
+		upstreams: map[string][]goldenStep{providers.ProviderOpenAI: {
+			goldenUpstreamError(http.StatusNotFound, goldenSeatModelDeniedBody),
+			goldenResponsesOK("on deployment key")}},
+		requests:  []goldenRequest{req},
+		configure: withGoldenCodexPool("seat-a")}
+}
+
+// TestForcedModelSeatModelDeniedIsServed states the invariant the scenario
+// pins: a seat that cannot serve the forced model leaves the turn to Weave
+// credits rather than a subscription-pool refusal.
+func TestForcedModelSeatModelDeniedIsServed(t *testing.T) {
+	t.Parallel()
+	sc := goldenForcedModelSeatDeniedScenario()
+	h := newGoldenHarness(t, sc)
+	served := h.serve(t, sc.ingress, sc.requests[0])
+	require.Equal(t, http.StatusOK, served.Response.Status, "response: %+v", served.Response.Body)
+	require.Len(t, served.Attempts, 2)
+	require.Equal(t, "codex_subscription", served.Attempts[0].Credential)
+	last := served.Attempts[1]
+	require.Equal(t, goldenCodexModel, last.Model, "the forced model is kept")
+	require.Empty(t, last.Credential, "the deployment key funds the turn")
+	require.Equal(t, "ok", last.Outcome)
 }

@@ -133,36 +133,9 @@ func TestRouterStrategyOverride_UsesDeploymentDefaultWithoutInstallationOverride
 	assert.Equal(t, router.StrategyHMM, observed)
 }
 
-func TestRouterStrategyOverride_PersistedClusterFollowsDeploymentDefault(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	engine := gin.New()
-	engine.Use(func(c *gin.Context) {
-		c.Set("router_installation", &auth.Installation{
-			ID: "inst-cluster-holdout", RoutingStrategy: router.Strategy("cluster"),
-		})
-		c.Next()
-	})
-	engine.Use(middleware.WithRouterStrategyDefault(
-		router.StrategyHMM,
-		nil,
-		router.StrategyHMM,
-	))
-	var observed router.Strategy
-	engine.GET("/probe", func(c *gin.Context) {
-		observed = router.StrategyFromContext(c.Request.Context())
-		c.Status(http.StatusOK)
-	})
-
-	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)
-	engine.ServeHTTP(httptest.NewRecorder(), request)
-
-	assert.Equal(t, router.StrategyHMM, observed)
-}
-
 func TestNormalizeRouterStrategyDefault(t *testing.T) {
 	assert.Equal(t, router.StrategyHMM, middleware.NormalizeRouterStrategyDefault(router.StrategyHMM, router.StrategyHMM))
 	assert.Empty(t, middleware.NormalizeRouterStrategyDefault(router.Strategy("typo"), router.StrategyHMM))
-	assert.Empty(t, middleware.NormalizeRouterStrategyDefault(router.Strategy("cluster"), router.StrategyHMM))
 	assert.Empty(t,
 		middleware.NormalizeRouterStrategyDefault(router.StrategyHMMBeta, router.StrategyHMMBeta),
 		"beta cannot be activated by a deployment default")
@@ -355,7 +328,6 @@ func TestRouterStrategyOverride_NonManagedUnavailableStrategyFailsClosed(t *test
 	}{
 		{name: "persisted", persisted: router.StrategyRL, defaultStrategy: router.StrategyHMMEmbedding},
 		{name: "default", persisted: "", defaultStrategy: router.StrategyHMM},
-		{name: "persisted cluster with unregistered default", persisted: router.Strategy("cluster"), defaultStrategy: router.StrategyHMM},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			installation := &auth.Installation{ID: "inst-self-hosted", RoutingStrategy: tc.persisted}

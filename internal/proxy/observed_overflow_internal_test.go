@@ -37,17 +37,17 @@ func TestExcludeObservedOverflowModelsDropsModelsPastTheThreadsUsage(t *testing.
 			Observe(sessionpin.TokenizerFamilyOpenAI, 700_000, estimate, time.Now()),
 	}
 	req := observedOverflowRequest()
-	req.OverflowAdmittedModels = map[string]struct{}{gatewayCompactionOpusModel: {}}
-	req.ExcludedModels = map[string]struct{}{"caller-excluded": {}}
+	req.Candidates.OverflowAdmittedModels = map[string]struct{}{gatewayCompactionOpusModel: {}}
+	req.Candidates.ExcludedModels = map[string]struct{}{"caller-excluded": {}}
 
 	got, _ := svc.excludeObservedOverflowModels(ctx, req, res, contextWindowOutputReserve)
 
-	assert.Contains(t, got.ExcludedModels, gatewayCompactionOpusModel)
-	assert.Contains(t, got.ContextWindowExcludedModels, gatewayCompactionOpusModel)
-	assert.NotContains(t, got.OverflowAdmittedModels, gatewayCompactionOpusModel)
-	assert.NotContains(t, got.ExcludedModels, catalog.ModelGPT6Luna, "700k still fits Luna")
-	assert.Contains(t, got.SafetyExcludedModels, gatewayCompactionOpusModel, "subscription bypass honors it too")
-	assert.Equal(t, map[string]struct{}{"caller-excluded": {}}, req.ExcludedModels, "the caller's exclusion set is not mutated")
+	assert.Contains(t, got.Candidates.ExcludedModels, gatewayCompactionOpusModel)
+	assert.Contains(t, got.Candidates.ContextWindowExcludedModels, gatewayCompactionOpusModel)
+	assert.NotContains(t, got.Candidates.OverflowAdmittedModels, gatewayCompactionOpusModel)
+	assert.NotContains(t, got.Candidates.ExcludedModels, catalog.ModelGPT6Luna, "700k still fits Luna")
+	assert.Contains(t, got.Candidates.SafetyExcludedModels, gatewayCompactionOpusModel, "subscription bypass honors it too")
+	assert.Equal(t, map[string]struct{}{"caller-excluded": {}}, req.Candidates.ExcludedModels, "the caller's exclusion set is not mutated")
 }
 
 // After compaction the body shrinks, so the same thread fits again.
@@ -61,7 +61,7 @@ func TestExcludeObservedOverflowModelsReadmitsACompactedThread(t *testing.T) {
 
 	got, _ := svc.excludeObservedOverflowModels(ctx, observedOverflowRequest(), res, contextWindowOutputReserve)
 
-	assert.Empty(t, got.ExcludedModels)
+	assert.Empty(t, got.Candidates.ExcludedModels)
 }
 
 // A context overflow names its own cause in the badge instead of

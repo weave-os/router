@@ -12,7 +12,7 @@ import (
 
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/rosterdata"
 )
 
 type fakeLoader struct {

@@ -18,9 +18,10 @@ import (
 // captureUserRepo is the minimal auth.UserRepository for these tests; only
 // the Upsert methods are exercised.
 type captureUserRepo struct {
-	emailUpserts   []auth.UpsertUserParams
-	accountUpserts []auth.UpsertUserByAccountUUIDParams
-	subjectUpserts []auth.UpsertUserByCredentialSubjectParams
+	emailUpserts        []auth.UpsertUserParams
+	accountUpserts      []auth.UpsertUserByAccountUUIDParams
+	subjectUpserts      []auth.UpsertUserByCredentialSubjectParams
+	unidentifiedUpserts []auth.UpsertUserByUnidentifiedKeyParams
 }
 
 type assignedRoutingPolicyRepo struct{ assignmentReads int }
@@ -45,6 +46,11 @@ func (r *captureUserRepo) UpsertByAccountUUID(ctx context.Context, p auth.Upsert
 func (r *captureUserRepo) UpsertByCredentialSubject(ctx context.Context, p auth.UpsertUserByCredentialSubjectParams) (*auth.User, error) {
 	r.subjectUpserts = append(r.subjectUpserts, p)
 	return &auth.User{ID: "user-from-key-owner"}, nil
+}
+
+func (r *captureUserRepo) UpsertByUnidentifiedKey(ctx context.Context, p auth.UpsertUserByUnidentifiedKeyParams) (*auth.User, error) {
+	r.unidentifiedUpserts = append(r.unidentifiedUpserts, p)
+	return &auth.User{ID: "user-from-unidentified-key"}, nil
 }
 func (r *captureUserRepo) Get(ctx context.Context, id string) (*auth.User, error) {
 	return nil, errors.New("not used")
@@ -380,6 +386,22 @@ func TestResolveUserFromContext_NoClientIdentityAttributesToPersonalKeyOwner(t *
 	assert.Equal(t, "user-from-key-owner", auth.UserIDFrom(ctx))
 }
 
+func TestResolveUserFromContext_NoClientIdentityOnSharedKeyAttributesToPerKeyUser(t *testing.T) {
+	repo := &captureUserRepo{}
+	svc := newTestAuthSvc(repo)
+	inst := &auth.Installation{ID: "inst-1"}
+	key := &auth.APIKey{ID: "61f77e74-0000-4000-8000-0000000000aa", InstallationID: "inst-1"}
+
+	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{})
+	ctx = proxy.ResolveUserFromContext(ctx, svc, inst, key)
+
+	assert.Empty(t, repo.subjectUpserts)
+	require.Len(t, repo.unidentifiedUpserts, 1)
+	assert.Equal(t, "inst-1", repo.unidentifiedUpserts[0].InstallationID)
+	assert.Equal(t, "61f77e74-0000-4000-8000-0000000000aa", repo.unidentifiedUpserts[0].SharedKeyID)
+	assert.Equal(t, "user-from-unidentified-key", auth.UserIDFrom(ctx))
+}
+
 func TestResolveUserFromContext_ClientIdentityBeatsPersonalKeyOwner(t *testing.T) {
 	repo := &captureUserRepo{}
 	svc := newTestAuthSvc(repo)
@@ -392,19 +414,4 @@ func TestResolveUserFromContext_ClientIdentityBeatsPersonalKeyOwner(t *testing.T
 	require.Len(t, repo.emailUpserts, 1)
 	assert.Empty(t, repo.subjectUpserts)
 	assert.Equal(t, "user-from-email", auth.UserIDFrom(ctx))
-}
-
-func TestResolveUserFromContext_SharedKeyWithoutClientIdentityStaysUnattributed(t *testing.T) {
-	repo := &captureUserRepo{}
-	svc := newTestAuthSvc(repo)
-	inst := &auth.Installation{ID: "inst-1"}
-	key := &auth.APIKey{ID: "key-1", InstallationID: "inst-1"}
-
-	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{})
-	ctx = proxy.ResolveUserFromContext(ctx, svc, inst, key)
-
-	assert.Empty(t, repo.emailUpserts)
-	assert.Empty(t, repo.accountUpserts)
-	assert.Empty(t, repo.subjectUpserts)
-	assert.Empty(t, auth.UserIDFrom(ctx))
 }

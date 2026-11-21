@@ -23,29 +23,46 @@ func IsHMMStrategy(strategy Strategy) bool {
 	return strategy == StrategyHMM || strategy == StrategyHMMEmbedding || IsBetaStrategy(strategy)
 }
 
-const retiredClusterStrategy Strategy = "cluster"
-
-func IsRetiredStrategy(strategy Strategy) bool {
-	return strategy == retiredClusterStrategy
-}
-
 func IsBetaStrategy(strategy Strategy) bool {
 	return strategy == StrategyHMMBeta || strategy == StrategyHMMQwen
 }
 
-type strategyContextKey struct{}
+type StrategySelection struct {
+	Strategy     Strategy
+	RoutingModel RoutingModel
+}
+
+func (s StrategySelection) Effective() Strategy {
+	if s.Strategy == "" {
+		return StrategyHMMEmbedding
+	}
+	return s.Strategy
+}
+
+func (s StrategySelection) RoutingModelSelected() bool {
+	return s.RoutingModel != ""
+}
+
+type strategySelectionContextKey struct{}
+
+func WithStrategySelection(ctx context.Context, selection StrategySelection) context.Context {
+	return context.WithValue(ctx, strategySelectionContextKey{}, selection)
+}
+
+func StrategySelectionFromContext(ctx context.Context) StrategySelection {
+	selection, _ := ctx.Value(strategySelectionContextKey{}).(StrategySelection)
+	return selection
+}
 
 func WithStrategy(ctx context.Context, s Strategy) context.Context {
 	if s == "" {
 		return ctx
 	}
-	return context.WithValue(ctx, strategyContextKey{}, s)
+	selection := StrategySelectionFromContext(ctx)
+	selection.Strategy = s
+	return WithStrategySelection(ctx, selection)
 }
 
 func StrategyFromContext(ctx context.Context) Strategy {
-	s, ok := ctx.Value(strategyContextKey{}).(Strategy)
-	if !ok || s == "" {
-		return StrategyHMMEmbedding
-	}
-	return s
+	return StrategySelectionFromContext(ctx).Effective()
 }

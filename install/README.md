@@ -16,6 +16,7 @@ npx @weave-os/router --claude                     # Claude Code, user scope
 npx @weave-os/router --codex                      # Codex, user scope
 npx @weave-os/router --opencode                   # opencode, user scope
 npx @weave-os/router --copilot                    # GitHub Copilot CLI: adds weave/auto to /model
+npx @weave-os/router --copilot --vscode           # VS Code Copilot Chat: adds Weave Router to the picker
 npx @weave-os/router --claude-desktop             # Claude Desktop (Code tab and Cowork), through a local proxy
 npx @weave-os/router --claude --return-url https://app.example.com/onboarding # continue after a verified install
 
@@ -86,7 +87,8 @@ the target flag:
 No Codex install forces a strategy header; every install keeps the target
 router's configured default, so a deployment-default change reaches clients
 that were installed earlier. This also matters for self-hosted routers,
-including the bundled local stack, which may not run the optional HMM sidecar.
+including the bundled local-dev stack, which serves a stub classifier unless
+started with `make up-hmm`.
 A deployment that wants a specific policy can add `X-Weave-Router-Strategy`
 explicitly to its managed Codex config.
 
@@ -323,6 +325,35 @@ npx @weave-os/router off --copilot                # restore the previous default
 npx @weave-os/router --uninstall --copilot        # remove provider, model, skills
 ```
 
+### GitHub Copilot Chat in VS Code using npm
+
+Run `npx @weave-os/router --copilot --vscode` on the machine running VS Code.
+The command adds one model named **Weave Router** using VS Code's built-in Custom
+Endpoint provider and enables the experimental BYOK setting for the Copilot
+harness. Use a current VS Code release in a local workspace. If your organization
+manages Copilot, it must allow **Bring Your Own Language Model Key in VS Code**.
+
+Use the Router URL supplied with your key. For a custom endpoint, add
+`--base-url https://router.example.com` to the setup command or set
+`WEAVE_ROUTER_URL` as the default for new setups. Use `--local` for
+`http://localhost:8080`.
+
+1. From the Command Palette, open **Chat: Manage Language Models**. Open the gear
+   menu for the **Weave Router** group and select **Update API Key**.
+2. Enter your personal Router key. Get a hosted key at
+   [Weave Router setup](https://app.weaveos.com/start) or ask your Router admin.
+3. Select **Weave Router** in a new Copilot chat. Reload the window if the model
+   does not appear. Use the provider's gear menu to rotate the key or remove the
+   group and its saved key.
+
+The installer uses the default VS Code profile. For a named profile, Insiders, or
+a custom data directory, pass `--profile-dir <path>` with the directory containing
+that profile's `chatLanguageModels.json` and `settings.json`. Open
+**Chat: Open Language Models (JSON)** in VS Code to find that directory.
+If Copilot reports a serving fleet admission error, confirm the endpoint for your
+key and update the model URL there. Keep the `/v1/messages` path and the key
+reference managed by VS Code.
+
 ### GitHub Copilot SDK (custom provider)
 
 Apps built on the Copilot SDK (`@github/copilot-sdk` for Node, `github-copilot-sdk`
@@ -398,8 +429,6 @@ Limitations:
   that change settings are handled by the installed clients and do nothing in an
   SDK app; to bypass the router, create the session without it.
 
-||||||| 5249e152
-
 ### Claude Desktop (`--claude-desktop`)
 
 Covers Claude Desktop's **Code** tab and **Cowork**. Desktop sets
@@ -443,7 +472,10 @@ npx @weave-os/router --uninstall --claude-desktop # remove the proxy, trust and 
 Without `--base-url`, the proxy uses the router endpoint and key from your
 Claude Code install (`~/.claude/settings.json`, or the copy `--claude off`
 parked) when there is one, so it lands on the same fleet as the CLI. Re-runs
-keep the endpoint the proxy already uses.
+keep the endpoint the proxy already uses. With `--base-url`, the Claude Code key
+is reused only when that install points at the same endpoint; a key is never
+sent to a different router, so a mismatch asks for a key and names the endpoint
+your Claude Code install uses.
 
 | Path | Contents |
 | ---- | -------- |
@@ -766,7 +798,7 @@ What each `off` does (and `on` reverses byte-for-byte):
 - **Copilot CLI** — puts back the default model parked during install;
   `weave/auto` stays selectable in `/model`. Next `copilot` run.
 
-**Cursor** has no config file we own — its key, base URL, and `weave-auto`
+**Cursor** has no config file we own — its key, base URL, and `Weave Auto`
 custom model live in Cursor's own settings UI. To toggle it, open **Settings →
 Models → Override OpenAI Base URL** and turn the override (`<base-url>/v1`) on
 or off there. Cursor calls that URL from its own servers, so it must be

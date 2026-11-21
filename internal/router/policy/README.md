@@ -13,8 +13,6 @@ eligibility, arm selection, pins and fallbacks stay in Go (see
 | Constant | Contract |
 | --- | --- |
 | `SchemaVersionV1` | First stable policy-sidecar wire contract. |
-| `SchemaVersionV2` | Requests carry configuration-level arm identities; arm-aware selection is required when a roster is ambiguous. |
-| `SchemaVersionV3` | Classifier-only: the sidecar classifies and returns a ranked fallback, the router selects the arm. |
 | `SchemaVersionV4` | Classification facts only: candidate identities, roster data, group clamps and selection fields are forbidden. |
 | `SchemaVersionV5` | Release-addressed classifier service; every result must name the admitted release, target selection, variant, taxonomy and variant artifact or it fails closed. |
 
