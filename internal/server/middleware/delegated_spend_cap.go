@@ -3,6 +3,7 @@ package middleware
 import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/subscriptionlane"
@@ -17,7 +18,8 @@ const (
 	DelegatedSpendScopeTask    DelegatedSpendScope = "task"
 )
 
-func WithDelegatedSpendCap(svc *billing.Service) gin.HandlerFunc {
+func WithDelegatedSpendCap(svc *billing.Service, funding credentials.CustomerFunding) gin.HandlerFunc {
+	requireCustomerFunding(funding)
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
 		session := auth.DelegatedSessionFrom(ctx)
@@ -42,7 +44,7 @@ func WithDelegatedSpendCap(svc *billing.Service) gin.HandlerFunc {
 			return
 		}
 		kind, refused := tripSubscriptionLane(c, svc, subscriptionlane.DelegatedSpendCapGate,
-			proxy.RequestHasCustomerFunding(ctx, c.Request.Header, c.FullPath(), svc.ByokFeeOwed(ctx)))
+			funding(ctx, c.Request.Header, c.FullPath(), svc.ByokFeeOwed(ctx)))
 		if !refused {
 			log.Info("Delegated spend cap reached but subscription covers the route: serving subscription-only", "scope", scope)
 			c.Next()

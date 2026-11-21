@@ -4,81 +4,33 @@ import (
 	"context"
 
 	"weave-os/router/internal/conversation"
-	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/routingpolicy"
-
-	"github.com/google/uuid"
 )
 
-func (s *Service) grantPostCommandContinuation(
-	ctx context.Context, strategy router.Strategy,
-	installationID uuid.UUID,
-	sessionKey [sessionpin.SessionKeyLen]byte,
-	role string,
-) {
-	sessionPins := routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy)
-	if s.pinStore == nil || installationID == uuid.Nil {
-		return
-	}
-	pin, found := sessionPins.Load(ctx, sessionKey, role)
-	if !found || pin.Model == "" || pin.Provider == "" || isUserForcedReason(pin.Reason) {
-		return
-	}
-	if maxedModel := maxedOutServedModel(pin); maxedModel != "" {
-		observability.FromContext(ctx).Info(
-			"skipping one-shot post-command continuation for maxed-out pin",
-			"pin_model", pin.Model,
-			"maxed_model", maxedModel,
-			"last_output_tokens", pin.LastOutputTokens,
-			"role", role,
-		)
-		return
-	}
-	pin.Role = conversation.CommandContinuationRole(role)
-	pin.InstallationID = installationID
-	pin.Strategy = strategy
-	pin.TurnCount = 1
-	pin.PinnedUntil = pinExpiry(pin.Reason, s.clock.Now())
-	sessionPins.Upsert(ctx, pin)
-	observability.FromContext(ctx).Info("stored one-shot post-command continuation", "model", pin.Model, "provider", pin.Provider, "role", role)
+type continuationPins struct {
+	store       sessionpin.Store
+	sessionPins routingpolicy.SessionPins
 }
 
-func (s *Service) consumePostCommandContinuation(
-	ctx context.Context, strategy router.Strategy,
-	sessionKey [sessionpin.SessionKeyLen]byte,
-	role string,
-) (sessionpin.Pin, bool) {
-	if s.pinStore == nil {
-		return sessionpin.Pin{}, false
-	}
-	pin, found, err := s.pinStore.Consume(ctx, sessionKey, conversation.CommandContinuationRole(role), strategy)
-	if err != nil {
-		observability.FromContext(ctx).Error("post-command continuation consume failed", "err", err)
-		return sessionpin.Pin{}, false
-	}
-	if found && !pinMatchesEffectiveStrategy(strategy, pin) {
-		return sessionpin.Pin{}, false
-	}
-	return pin, found
+func (p continuationPins) Load(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (sessionpin.Pin, bool) {
+	return p.sessionPins.Load(ctx, sessionKey, role)
 }
 
-func (s *Service) invalidatePostCommandContinuation(
-	ctx context.Context, strategy router.Strategy,
-	sessionKey [sessionpin.SessionKeyLen]byte,
-	role string,
-) error {
-	if s.pinStore == nil {
-		return nil
+func (p continuationPins) Upsert(ctx context.Context, pin sessionpin.Pin) {
+	p.sessionPins.Upsert(ctx, pin)
+}
+
+func (p continuationPins) Consume(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, strategy router.Strategy) (sessionpin.Pin, bool, error) {
+	return p.store.Consume(ctx, sessionKey, role, strategy)
+}
+
+func postCommandContinuation(s *Service, strategy router.Strategy) conversation.PostCommandContinuation {
+	continuation := conversation.PostCommandContinuation{Strategy: strategy}
+	if s.pinStore != nil {
+		continuation.Now = s.clock.Now
+		continuation.Pins = continuationPins{store: s.pinStore, sessionPins: routingpolicy.NewSessionPins(s.pinStore, s.clock.Now, strategy)}
 	}
-	_, _, err := s.pinStore.Consume(context.WithoutCancel(ctx), sessionKey, conversation.CommandContinuationRole(role), strategy)
-	if err != nil {
-		observability.FromContext(ctx).Error(
-			"post-command continuation invalidation failed",
-			"err", err,
-			"role", role,
-		)
-	}
-	return err
+	return continuation
 }

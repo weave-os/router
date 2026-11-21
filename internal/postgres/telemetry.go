@@ -282,32 +282,6 @@ func inferenceUsageKnown(summary *inference.OperationSummary) *bool {
 	return &known
 }
 
-var _ proxy.RouterFeedbackStore = (*TelemetryRepo)(nil)
-
-func (r *TelemetryRepo) InsertRouterFeedback(ctx context.Context, p proxy.RouterFeedbackEvent) error {
-	id, err := uuid.Parse(p.InstallationID)
-	if err != nil {
-		return err
-	}
-	q := dbbudget.Queries(r.tx)
-	return q.InsertRouterFeedback(ctx, sqlc.InsertRouterFeedbackParams{
-		InstallationID: id,
-		SessionKey:     p.SessionKey,
-		Role:           p.Role,
-		RouterUserID:   uuidOrNil(p.RouterUserID),
-		ClientApp:      stringPtrOrNil(p.ClientApp),
-		SessionID:      stringPtrOrNil(p.SessionID),
-		RequestedModel: p.RequestedModel,
-		ServedModel:    p.ServedModel,
-		Rating:         stringPtrOrNil(p.Rating),
-		SuggestedLabel: stringPtrOrNil(p.SuggestedLabel),
-		Feedback:       p.Feedback,
-		Source:         p.Source,
-		RequestID:      stringPtrOrNil(p.RequestID),
-		RouteID:        stringPtrOrNil(p.RouteID),
-	})
-}
-
 func (r *TelemetryRepo) GetTelemetrySummary(ctx context.Context, installationID string, from, to time.Time) (proxy.TelemetrySummary, error) {
 	id, err := uuid.Parse(installationID)
 	if err != nil {
