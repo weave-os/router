@@ -17,8 +17,7 @@ func (r *TelemetryRepo) InsertRouterFeedback(ctx context.Context, p feedback.Rou
 	if err != nil {
 		return err
 	}
-	q := dbbudget.Queries(r.tx)
-	return q.InsertRouterFeedback(ctx, sqlc.InsertRouterFeedbackParams{
+	return dbbudget.Queries(r.tx).InsertRouterFeedback(ctx, sqlc.InsertRouterFeedbackParams{
 		InstallationID: id,
 		SessionKey:     p.SessionKey,
 		Role:           p.Role,
