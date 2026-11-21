@@ -22,8 +22,6 @@ func openCodeCaller(id ClientIdentity) turntype.OpenCodeCaller {
 	return turntype.OpenCodeCaller{IsClient: isClient, IsSubagent: isClient && id.OpenCodeSubagent}
 }
 
-const EvalClientAppPrefix = requestcontext.EvalClientAppPrefix
-
 func ResolveUserFromContext(ctx context.Context, authSvc *auth.Service, installation *auth.Installation, apiKey *auth.APIKey) context.Context {
 	return withBlindExperimentSession(resolveUserFromContext(ctx, authSvc, installation, apiKey), authSvc, installation, apiKey)
 }

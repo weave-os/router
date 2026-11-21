@@ -13,9 +13,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const (
-	ReasonAgentShadowEval = "agent_shadow_eval_force"
-)
+const ReasonAgentShadowEval = "agent_shadow_eval_force"
 
 type AgentShadowEvaluation struct {
 	Model     string

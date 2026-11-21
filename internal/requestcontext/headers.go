@@ -18,20 +18,14 @@ const (
 	HeaderRouterCacheCreationTokens = "x-router-cache-creation-tokens"
 )
 
-const ForceModelHeader = "x-weave-force-model"
-
-const AllowedModelsHeader = "x-weave-allowed-models"
-
-const ClassifierThreadHeader = "X-Weave-Classifier-Thread"
-
-const ClassifierThreadUnavailableToken = "weave-classifier-unavailable"
-
-const AgentShadowModelHeader = "x-weave-agent-shadow-model"
-
-const AgentShadowRolloutHeader = "x-weave-agent-shadow-rollout-id"
-
-const AgentShadowStateHeader = "x-weave-agent-shadow-state-id"
-
-const CodexNativeModelPinHeader = "X-Weave-Codex-Native-Model-Pin"
-
-const RolloutIDHeader = "X-Weave-Rollout-Id"
+const (
+	ForceModelHeader                 = "x-weave-force-model"
+	AllowedModelsHeader              = "x-weave-allowed-models"
+	ClassifierThreadHeader           = "X-Weave-Classifier-Thread"
+	ClassifierThreadUnavailableToken = "weave-classifier-unavailable"
+	AgentShadowModelHeader           = "x-weave-agent-shadow-model"
+	AgentShadowRolloutHeader         = "x-weave-agent-shadow-rollout-id"
+	AgentShadowStateHeader           = "x-weave-agent-shadow-state-id"
+	CodexNativeModelPinHeader        = "X-Weave-Codex-Native-Model-Pin"
+	RolloutIDHeader                  = "X-Weave-Rollout-Id"
+)
