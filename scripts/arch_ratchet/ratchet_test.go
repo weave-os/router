@@ -421,3 +421,22 @@ func withLocal(ctx any) any {
 	require.NoError(t, err)
 	assert.Equal(t, 2, surface.contextKeys)
 }
+
+func TestMeasureFileMeasuresNestedFuncLiterals(t *testing.T) {
+	src := "package x\n\nfunc F() {\n\touter := func() {\n\t\tinner := func() {\n" + statements(120) + "\t\t}\n\t\tinner()\n\t}\n\touter()\n}\n"
+	metrics, _, err := measureFile("internal/x/nested.go", []byte(src))
+	require.NoError(t, err)
+	require.Len(t, metrics.funcs, 3)
+	assert.Regexp(t, `^internal/x\.F\.func[0-9a-f]+$`, metrics.funcs[1].key)
+	assert.Regexp(t, `^internal/x\.F\.func[0-9a-f]+$`, metrics.funcs[2].key)
+	assert.Equal(t, 122, metrics.funcs[2].values[metricLines])
+}
+
+func TestCompareFuncsCoversNestedLiteralsOfAClosureMovedToAFunction(t *testing.T) {
+	inner := "\t\tinner := func() {\n" + statements(120) + "\t\t}\n\t\tinner()\n"
+	base, _, err := measureFile("internal/x/move.go", []byte("package x\n\nfunc F() {\n\touter := func() {\n"+inner+"\t}\n\touter()\n}\n"))
+	require.NoError(t, err)
+	head, _, err := measureFile("internal/x/move.go", []byte("package x\n\nfunc F() {\n\tG()\n}\n\nfunc G() {\n"+inner+"}\n"))
+	require.NoError(t, err)
+	assert.Empty(t, compareFuncs(map[string]fileMetrics{"internal/x/move.go": base}, map[string]fileMetrics{"internal/x/move.go": head}, exceptionSet{}))
+}
