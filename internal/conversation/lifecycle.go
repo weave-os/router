@@ -1,9 +1,12 @@
 package conversation
 
+import "weave-os/router/internal/feedback"
+
 type Lifecycle struct {
 	noProgress          *NoProgressTracker
 	compaction          *CompactionTracker
 	textRepetitionBreak bool
+	routerFeedback      feedback.RouterFeedbackStore
 }
 
 func NewLifecycle() *Lifecycle {
@@ -30,4 +33,15 @@ func (l *Lifecycle) Compaction() *CompactionTracker {
 		return nil
 	}
 	return l.compaction
+}
+
+func (l *Lifecycle) RouterFeedbackStore() feedback.RouterFeedbackStore {
+	if l == nil {
+		return nil
+	}
+	return l.routerFeedback
+}
+
+func (l *Lifecycle) SetRouterFeedbackStore(store feedback.RouterFeedbackStore) {
+	l.routerFeedback = store
 }
