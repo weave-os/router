@@ -119,7 +119,7 @@ func RequestHasCustomerFunding(ctx context.Context, headers http.Header, routePa
 	if byokFeeOwed {
 		return false
 	}
-	for provider := range BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx)) {
+	for provider := range credentials.BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx)) {
 		if usableBYOK(ctx, provider) != nil {
 			return true
 		}
@@ -186,7 +186,7 @@ func (s *Service) selectableSubscriptionProviders(ctx context.Context, headers h
 	if codexToken != "" && !codexSubscriptionSuppressed(ctx) && !codexLoginSpent(ctx, s.usageObserver, codexToken, s.codexExtraCreditsAllowed()) {
 		available[providers.ProviderOpenAI] = struct{}{}
 	}
-	for provider, creds := range BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx)) {
+	for provider, creds := range credentials.BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx)) {
 		if len(creds.APIKey) > 0 && (provider == providers.ProviderAnthropic || provider == providers.ProviderOpenAI) {
 			available[provider] = struct{}{}
 		}

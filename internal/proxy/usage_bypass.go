@@ -89,7 +89,7 @@ func subscriptionCoveredTarget(ctx context.Context, headers http.Header, req rou
 }
 
 func (s *Service) anthropicFallbackKeyAvailable(ctx context.Context) bool {
-	if byok := BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx)); byok != nil {
+	if byok := credentials.BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx)); byok != nil {
 		if _, ok := byok[providers.ProviderAnthropic]; ok {
 			return true
 		}

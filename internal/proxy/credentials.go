@@ -64,10 +64,6 @@ func anthropicBYOKFirst(ctx context.Context) bool {
 	return byokFirst(ctx, providers.ProviderAnthropic)
 }
 
-func BuildCredentialsMap(keys []*auth.ExternalAPIKey) map[string]*Credentials {
-	return credentials.BuildCredentialsMap(keys)
-}
-
 func ExtractClientCredentials(provider string, headers http.Header) *Credentials {
 	return requestcontext.ExtractClientCredentials(provider, headers)
 }
