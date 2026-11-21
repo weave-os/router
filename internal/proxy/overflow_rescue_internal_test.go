@@ -149,7 +149,7 @@ func TestOverflowRescueDecisionsSkipRescuerPastItsWindow(t *testing.T) {
 func TestOverflowRescueDecisionsKeepReadmissionInsideTheRescuers(t *testing.T) {
 	const mini = "gpt-4.1-mini"
 	svc, ctx, _, _ := gatewayOverflowFixture(nil, nil)
-	ctx = context.WithValue(ctx, InstallationAllowedModelsContextKey{}, []string{catalog.ModelGPT6Luna, gatewayCompactionOpusModel, mini})
+	ctx = context.WithValue(ctx, requestcontext.InstallationAllowedModelsContextKey{}, []string{catalog.ModelGPT6Luna, gatewayCompactionOpusModel, mini})
 	ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		gatewayKey(providers.ProviderAnthropicGateway, "https://gateway.example.com/anthropic", gatewayCompactionOpusModel, policy.PrecompactionDefaultModel),
 		gatewayKey(providers.ProviderOpenAIGateway, "https://gateway.example.com/openai", catalog.ModelGPT6Luna, mini),

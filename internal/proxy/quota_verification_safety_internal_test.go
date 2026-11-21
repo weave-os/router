@@ -83,7 +83,7 @@ func TestQuotaVerificationFailureNeverBuysPaidCapacity(t *testing.T) {
 						ctx = WithManagedSubscriptionCandidates(managedSubscriptionContext(auth.SubscriptionProviderCodex), []*auth.SubscriptionAccount{{
 							ID: "synthetic-seat", Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive,
 						}})
-						ctx = context.WithValue(ctx, InstallationIDContextKey{}, "33333333-3333-3333-3333-333333333333")
+						ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "33333333-3333-3333-3333-333333333333")
 						request = httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", strings.NewReader(body))
 						svc.WithManagedSubscriptions(&scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{
 							AccountID: "synthetic-seat", AccessToken: "synthetic-token", ProviderAccount: "synthetic-chatgpt-account",
@@ -187,7 +187,7 @@ func TestQuotaVerificationRotationAndRealOverloadFunding(t *testing.T) {
 				}
 				svc := outOfRosterFundingService(client, translate.ReasonUserForceModel, repo).WithManagedSubscriptions(leaser)
 				ctx := WithManagedSubscriptionCandidates(managedSubscriptionContext(auth.SubscriptionProviderCodex), accounts)
-				ctx = context.WithValue(ctx, InstallationIDContextKey{}, "33333333-3333-3333-3333-333333333333")
+				ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "33333333-3333-3333-3333-333333333333")
 				ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 				ctx = outOfRosterBillingCtx(ctx)
 				if reason != "" {

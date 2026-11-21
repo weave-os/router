@@ -8,13 +8,12 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/gitcontext"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/telemetry/turnrecord"
 )
-
-type InstallationIDContextKey struct{}
 
 func applyClientGitContextTelemetry(ctx context.Context, params *turnrecord.InsertTelemetryParams, firstTurn bool, systemBlocks []string) {
 	if params == nil || !firstTurn || !trialCaptureEnabledFromContext(ctx) {
@@ -31,7 +30,7 @@ func applyClientGitContextTelemetry(ctx context.Context, params *turnrecord.Inse
 }
 
 func trialCaptureEnabledFromContext(ctx context.Context) bool {
-	enabled, _ := ctx.Value(InstallationTrialCaptureContextKey{}).(bool)
+	enabled, _ := ctx.Value(requestcontext.InstallationTrialCaptureContextKey{}).(bool)
 	return enabled
 }
 
@@ -182,7 +181,7 @@ func (s attemptSink) RecordAttempt(ctx context.Context, event inference.AttemptE
 	if s.store == nil {
 		return
 	}
-	installationID, _ := ctx.Value(InstallationIDContextKey{}).(string)
+	installationID, _ := ctx.Value(requestcontext.InstallationIDContextKey{}).(string)
 	if installationID == "" {
 		return
 	}

@@ -20,6 +20,7 @@ import (
 
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
@@ -63,7 +64,7 @@ func TestZdrLogField_BlanksOnlyWhenEffectiveOff(t *testing.T) {
 			assert.Equal(t, "secret", s.zdrLogField(context.Background(), "secret"))
 		}
 		// Installation off must blank the field even under a Full deployment.
-		ctx := context.WithValue(context.Background(), InstallationCaptureModeContextKey{}, CaptureOff)
+		ctx := context.WithValue(context.Background(), requestcontext.InstallationCaptureModeContextKey{}, CaptureOff)
 		assert.Empty(t, s.zdrLogField(ctx, "secret"),
 			"deployment %v with installation off must blank content-bearing log fields", deployment)
 	}
@@ -88,7 +89,7 @@ func TestEffectiveCaptureMode_OverrideOnlyTightens(t *testing.T) {
 		assert.Equal(t, deployment, s.effectiveCaptureMode(context.Background()),
 			"no installation override must leave the deployment mode untouched")
 		for _, override := range modes {
-			ctx := context.WithValue(context.Background(), InstallationCaptureModeContextKey{}, override)
+			ctx := context.WithValue(context.Background(), requestcontext.InstallationCaptureModeContextKey{}, override)
 			got := s.effectiveCaptureMode(ctx)
 			assert.LessOrEqual(t, int(got), int(deployment),
 				"override %v must never widen deployment %v", override, deployment)
@@ -100,7 +101,7 @@ func TestEffectiveCaptureMode_OverrideOnlyTightens(t *testing.T) {
 func TestMaybeCaptureResponse_InstallationOffSkipsCaptureUnderFullDeployment(t *testing.T) {
 	s := &Service{hmmServing: hmmPorts(), captureMode: CaptureFull, captureMaxBytes: 1024}
 	rec := httptest.NewRecorder()
-	ctx := context.WithValue(context.Background(), InstallationCaptureModeContextKey{}, CaptureOff)
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationCaptureModeContextKey{}, CaptureOff)
 
 	sink, cw := s.maybeCaptureResponse(ctx, rec)
 
@@ -246,7 +247,7 @@ func TestRecordCallLog_InstallationOffEmitsPermanentErrorResponse(t *testing.T) 
 	coll := newLogCollector(t)
 	s, em := newServiceWithEmitter(t, CaptureFull, nil, coll.server.URL)
 	buf := otel.NewBuffer(em)
-	ctx := context.WithValue(telemetry.WithRecorder(context.Background(), buf), InstallationCaptureModeContextKey{}, CaptureOff)
+	ctx := context.WithValue(telemetry.WithRecorder(context.Background(), buf), requestcontext.InstallationCaptureModeContextKey{}, CaptureOff)
 	base := telemetry.NewAttrBuilder(15).
 		String("request_id", "req-1").
 		String("external_id", "org-1").

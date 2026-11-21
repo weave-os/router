@@ -8,8 +8,8 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/refusal"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptionlane"
 
 	"github.com/gin-gonic/gin"
@@ -35,7 +35,7 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64, funding cred
 			c.Next()
 			return
 		}
-		if _, ok := proxy.AgentShadowEvalFromContext(c.Request.Context()); ok {
+		if _, ok := requestcontext.AgentShadowEvalFromContext(c.Request.Context()); ok {
 			c.Next()
 			return
 		}

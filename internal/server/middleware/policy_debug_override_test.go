@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/server/middleware"
 )
 
@@ -26,7 +26,7 @@ func runPolicyDebugOverride(t *testing.T, installation *auth.Installation, heade
 	engine.Use(middleware.WithPolicyDebugOverride())
 	var observed bool
 	engine.GET("/probe", func(c *gin.Context) {
-		observed, _ = c.Request.Context().Value(proxy.PolicyDebugEnabledContextKey{}).(bool)
+		observed, _ = c.Request.Context().Value(requestcontext.PolicyDebugEnabledContextKey{}).(bool)
 		c.Status(http.StatusOK)
 	})
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/probe", nil)

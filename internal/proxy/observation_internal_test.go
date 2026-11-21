@@ -113,9 +113,9 @@ func TestBuildObservationContext_CapturesHMMStrategy(t *testing.T) {
 		},
 	}
 
-	ctx := context.WithValue(context.Background(), PolicyTrainingAllowedContextKey{}, true)
-	ctx = context.WithValue(ctx, PolicyDebugEnabledContextKey{}, true)
-	ctx = context.WithValue(ctx, PolicyRolloutIDContextKey{}, "rollout-1")
+	ctx := context.WithValue(context.Background(), requestcontext.PolicyTrainingAllowedContextKey{}, true)
+	ctx = context.WithValue(ctx, requestcontext.PolicyDebugEnabledContextKey{}, true)
+	ctx = context.WithValue(ctx, requestcontext.PolicyRolloutIDContextKey{}, "rollout-1")
 	obs := buildObservationContext(hmm.ServingPorts(), ctx, router.StrategyFromContext(ctx), served, router.Decision{}, CaptureHashed)
 
 	assert.Equal(t, "hmm", obs.Strategy)

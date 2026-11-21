@@ -43,7 +43,7 @@ func runAllowedModelsMiddlewareWithDefault(t *testing.T, installation *auth.Inst
 	var observed proxy.RequestAllowedModels
 	var ok bool
 	engine.POST("/v1/messages", func(c *gin.Context) {
-		observed, ok = c.Request.Context().Value(proxy.RequestAllowedModelsContextKey{}).(proxy.RequestAllowedModels)
+		observed, ok = c.Request.Context().Value(requestcontext.RequestAllowedModelsContextKey{}).(proxy.RequestAllowedModels)
 		c.Status(http.StatusOK)
 	})
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)

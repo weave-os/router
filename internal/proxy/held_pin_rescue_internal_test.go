@@ -120,8 +120,8 @@ func heldPinRescueFixture() (*Service, context.Context, *heldPinGatewayClient) {
 	installationID := uuid.NewString()
 	ctx := ctxWithKeys(gatewayKey(providers.ProviderOpenAIGateway, "https://gateway.example.com/v1", heldPinLunaModel, heldPinClaudeModel))
 	ctx = router.WithStrategy(ctx, strategy)
-	ctx = context.WithValue(ctx, APIKeyIDContextKey{}, "key-1")
-	ctx = context.WithValue(ctx, InstallationIDContextKey{}, installationID)
+	ctx = context.WithValue(ctx, requestcontext.APIKeyIDContextKey{}, "key-1")
+	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, installationID)
 
 	return svc, ctx, upstream
 }

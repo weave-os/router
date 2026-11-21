@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/turntype"
@@ -98,7 +99,7 @@ func TestAnthropicBYOKDisablesSubscriptionBypass(t *testing.T) {
 		t.Run(map[bool]string{false: "direct", true: "inbound"}[inbound], func(t *testing.T) {
 			svc := newServiceWithProviders(t, nil).WithUsageObserver(usage.NewObserver([]byte("synthetic-salt"), time.Minute, time.Now))
 			ctx := context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("synthetic-byok")}})
-			ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
+			ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
 			headers := http.Header{}
 			if inbound {
 				headers.Set("Authorization", "Bearer "+oauthToken)
@@ -139,7 +140,7 @@ func TestAnthropicBYOKHTTPNeverProbesOAuth(t *testing.T) {
 				WithManagedSubscriptions(leaser)
 			ctx := context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("synthetic-byok")}})
 			ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "synthetic-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateUnknown}})
-			ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
+			ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
 			body := `{"model":"` + model + `","max_tokens":32,"messages":[{"role":"user","content":"synthetic task"}]}`
 			for _, token := range []string{"sk-ant-oat01-original", "sk-ant-oat01-refreshed"} {
 				svc.WithUsageObserver(usage.NewObserver([]byte("synthetic-salt"), time.Minute, time.Now))

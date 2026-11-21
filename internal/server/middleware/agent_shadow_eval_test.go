@@ -28,7 +28,7 @@ func runAgentShadowMiddleware(t *testing.T, installation *auth.Installation, hea
 	engine.Use(middleware.WithAgentShadowEvaluation())
 	var observed bool
 	engine.POST("/v1/messages", func(c *gin.Context) {
-		_, observed = proxy.AgentShadowEvalFromContext(c.Request.Context())
+		_, observed = requestcontext.AgentShadowEvalFromContext(c.Request.Context())
 		c.Status(http.StatusOK)
 	})
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)

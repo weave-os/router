@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/continuity"
 	"weave-os/router/internal/router/turntype"
 )
@@ -12,7 +13,7 @@ func modelSelectionMarkerForRequest(ports continuity.StrategyPorts, ctx context.
 	if res.TurnType == turntype.SubAgentDispatch {
 		return ""
 	}
-	show, _ := ctx.Value(InstallationShowModelSelectionReasoningContextKey{}).(bool)
+	show, _ := ctx.Value(requestcontext.InstallationShowModelSelectionReasoningContextKey{}).(bool)
 	if !show || marker == "" || servedModel == "" || res.SuggestionMode || res.HardPinned ||
 		isUnpinnedScoredTurn(res.TurnType) || baseModelOf(res.PriorServedModel) == servedModel {
 		return marker

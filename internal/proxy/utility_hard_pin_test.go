@@ -86,7 +86,7 @@ func TestService_UtilityHardPin_CatalogTargetPerInstallation(t *testing.T) {
 			name:    "excluded_default_model",
 			clients: []string{providers.ProviderAnthropic},
 			ctx: func(id string) context.Context {
-				return context.WithValue(authedCtx(id), proxy.InstallationExcludedModelsContextKey{}, []string{policy.UtilityHardPinDefaultModel})
+				return context.WithValue(authedCtx(id), requestcontext.InstallationExcludedModelsContextKey{}, []string{policy.UtilityHardPinDefaultModel})
 			},
 			wantModel: catalog.ModelIDClaudeHaiku55.String(),
 			wantVia:   providers.ProviderAnthropic,

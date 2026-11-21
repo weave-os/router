@@ -27,7 +27,7 @@ func (s *Service) withClassifierInput(ctx context.Context, body []byte, endpoint
 		return ctx, nil
 	}
 	_, captured := ctx.Value(classifierInputContextKey{}).(router.ClassifierContext)
-	if _, shadow := AgentShadowEvalFromContext(ctx); shadow {
+	if _, shadow := requestcontext.AgentShadowEvalFromContext(ctx); shadow {
 		return ctx, router.ErrClassifierThreadInvalid
 	}
 	if _, pinned := router.HonouredPolicyPin(ctx); pinned {

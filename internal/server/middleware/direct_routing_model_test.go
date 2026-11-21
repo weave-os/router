@@ -7,11 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDirectRoutingModelSelection(t *testing.T) {

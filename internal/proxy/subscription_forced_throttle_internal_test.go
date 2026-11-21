@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
@@ -29,8 +30,8 @@ func TestSubscriptionStateForcedModelThrottledPoolFundsCredits(t *testing.T) {
 	for _, seat := range seats {
 		require.True(t, svc.recordManagedSubscriptionFailure(ctx, providers.ProviderOpenAI, stateCodexModel, subscriptions.Lease{AccountID: seat.ID}, codexRateLimitedErr()))
 	}
-	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel})
-	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{stateCodexModel})
+	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel})
+	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{stateCodexModel})
 	ctx = withTurnFailures(ctx)
 	req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: modelSet([]string{providers.ProviderOpenAI})}
 	rec := httptest.NewRecorder()

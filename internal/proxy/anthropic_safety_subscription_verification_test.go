@@ -18,6 +18,7 @@ import (
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 )
 
@@ -78,7 +79,7 @@ func TestVerificationSuppressedInboundAnthropicOAuthNeverRelayed(t *testing.T) {
 	defer server.Close()
 	client := anthropic.NewClient("", server.URL)
 	svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Reason: "test"}}, map[string]providers.Client{providers.ProviderAnthropic: client}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-4-8", nil)).WithDeploymentKeyedProviders(map[string]struct{}{})
-	ctx := context.WithValue(WithManagedSubscriptionUsage(context.Background()), InstallationSubscriptionRoutingDisabledContextKey{}, true)
+	ctx := context.WithValue(WithManagedSubscriptionUsage(context.Background()), requestcontext.InstallationSubscriptionRoutingDisabledContextKey{}, true)
 	body := `{"model":"auto","max_tokens":100,"stream":true,"messages":[{"role":"user","content":"synthetic billing"}]}`
 	request := httptest.NewRequestWithContext(t.Context(), "POST", "/v1/messages", strings.NewReader(body))
 	request.Header.Set("Authorization", "Bearer sk-ant-oat01-synthetic-inbound-token")

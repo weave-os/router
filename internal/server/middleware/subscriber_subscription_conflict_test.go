@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions/entitlement"
 
@@ -89,7 +90,7 @@ func TestWithSubscriberAllowance_MaxExplicitSubscriptionOptOutUsesAllowance(t *t
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	request.Header.Set("Authorization", "Bearer sk-ant-oat-test")
 	ctx := context.WithValue(request.Context(), credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
-	ctx = context.WithValue(ctx, proxy.InstallationSubscriptionRoutingDisabledContextKey{}, true)
+	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionRoutingDisabledContextKey{}, true)
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, request.WithContext(ctx))
 

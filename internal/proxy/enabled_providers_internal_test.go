@@ -7,6 +7,7 @@ import (
 
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/requestcontext"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
@@ -74,7 +75,7 @@ func TestEnabledProvidersForRequest_ExcludedProvidersSubtracted(t *testing.T) {
 
 	t.Run("installation exclusion removes a deployment-keyed provider", func(t *testing.T) {
 		s := makeService()
-		ctx := context.WithValue(context.Background(), InstallationExcludedProvidersContextKey{}, []string{providers.ProviderOpenAI})
+		ctx := context.WithValue(context.Background(), requestcontext.InstallationExcludedProvidersContextKey{}, []string{providers.ProviderOpenAI})
 		got := s.enabledProvidersForRequest(ctx, providers.ProviderAnthropic, http.Header{})
 		assert.Contains(t, got, providers.ProviderAnthropic)
 		assert.NotContains(t, got, providers.ProviderOpenAI,
@@ -83,7 +84,7 @@ func TestEnabledProvidersForRequest_ExcludedProvidersSubtracted(t *testing.T) {
 
 	t.Run("env override replaces the installation list", func(t *testing.T) {
 		s := makeService().WithExcludedProvidersOverride([]string{providers.ProviderAnthropic})
-		ctx := context.WithValue(context.Background(), InstallationExcludedProvidersContextKey{}, []string{providers.ProviderOpenAI})
+		ctx := context.WithValue(context.Background(), requestcontext.InstallationExcludedProvidersContextKey{}, []string{providers.ProviderOpenAI})
 		got := s.enabledProvidersForRequest(ctx, providers.ProviderAnthropic, http.Header{})
 		assert.NotContains(t, got, providers.ProviderAnthropic,
 			"the deployment-wide override list must be enforced")
@@ -114,7 +115,7 @@ func TestEnabledProvidersForRequest_SubscriptionEnrollsAnthropic(t *testing.T) {
 		}
 	}
 	routerKeyed := func() context.Context {
-		return context.WithValue(context.Background(), InstallationIDContextKey{}, testInstallationID)
+		return context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, testInstallationID)
 	}
 
 	t.Run("subscription credential enrolls anthropic on a router-keyed byok-only request", func(t *testing.T) {
@@ -154,7 +155,7 @@ func TestEnabledProvidersForRequest_SubscriptionEnrollsAnthropic(t *testing.T) {
 
 	t.Run("an excluded Anthropic still trumps the subscription enrollment", func(t *testing.T) {
 		ctx := context.WithValue(routerKeyed(), credentials.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-subscription-token")
-		ctx = context.WithValue(ctx, InstallationExcludedProvidersContextKey{}, []string{providers.ProviderAnthropic})
+		ctx = context.WithValue(ctx, requestcontext.InstallationExcludedProvidersContextKey{}, []string{providers.ProviderAnthropic})
 		got := makeService().enabledProvidersForRequest(ctx, providers.ProviderAnthropic, http.Header{})
 		assert.NotContains(t, got, providers.ProviderAnthropic,
 			"a provider exclusion must subtract Anthropic even when a subscription token is present")
@@ -176,7 +177,7 @@ func TestEnabledProvidersForRequest_CodexSubscriptionEnrollsOpenAI(t *testing.T)
 		}
 	}
 	routerKeyed := func() context.Context {
-		return context.WithValue(context.Background(), InstallationIDContextKey{}, testInstallationID)
+		return context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, testInstallationID)
 	}
 
 	t.Run("Codex subscription enrolls openai only", func(t *testing.T) {
@@ -223,7 +224,7 @@ func TestEnabledProvidersForRequest_CodexSubscriptionEnrollsOpenAI(t *testing.T)
 	t.Run("an excluded OpenAI trumps the Codex enrollment", func(t *testing.T) {
 		ctx := context.WithValue(routerKeyed(), credentials.OpenAISubscriptionContextKey{}, codexJWT)
 		ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, "acct-123")
-		ctx = context.WithValue(ctx, InstallationExcludedProvidersContextKey{}, []string{providers.ProviderOpenAI})
+		ctx = context.WithValue(ctx, requestcontext.InstallationExcludedProvidersContextKey{}, []string{providers.ProviderOpenAI})
 		got := makeService().enabledProvidersForRequest(ctx, providers.ProviderOpenAI, http.Header{})
 		assert.NotContains(t, got, providers.ProviderOpenAI,
 			"a provider exclusion must subtract OpenAI even when a Codex subscription is present")
@@ -381,7 +382,7 @@ func TestEnabledProvidersForRequest_LinkedSubscriptions(t *testing.T) {
 		assert.Empty(t, s.enabledProvidersForRequest(paid, providers.ProviderAnthropic, http.Header{}))
 	})
 	t.Run("disabled subscriptions do not enroll linked accounts", func(t *testing.T) {
-		disabled := context.WithValue(ctx, InstallationSubscriptionRoutingDisabledContextKey{}, true)
+		disabled := context.WithValue(ctx, requestcontext.InstallationSubscriptionRoutingDisabledContextKey{}, true)
 		assert.Empty(t, s.enabledProvidersForRequest(disabled, providers.ProviderAnthropic, http.Header{}))
 	})
 	t.Run("unsupported subscription transports stay unavailable", func(t *testing.T) {
@@ -399,7 +400,7 @@ func TestEnabledProvidersForRequest_LinkedSubscriptions(t *testing.T) {
 		assert.NotContains(t, excluded, "gpt-6.1-sol")
 	})
 	t.Run("provider exclusion still wins", func(t *testing.T) {
-		excluded := context.WithValue(ctx, InstallationExcludedProvidersContextKey{}, []string{providers.ProviderOpenAI})
+		excluded := context.WithValue(ctx, requestcontext.InstallationExcludedProvidersContextKey{}, []string{providers.ProviderOpenAI})
 		assert.Equal(t, map[string]struct{}{providers.ProviderAnthropic: {}}, s.enabledProvidersForRequest(excluded, providers.ProviderAnthropic, http.Header{}))
 	})
 	t.Run("chat endpoint cannot serve linked Codex", func(t *testing.T) {

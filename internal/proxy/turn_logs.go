@@ -12,9 +12,11 @@ import (
 	"unicode/utf8"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 
+	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
 )
 
@@ -26,10 +28,8 @@ const (
 	CaptureFull
 )
 
-type InstallationCaptureModeContextKey struct{}
-
 func (s *Service) effectiveCaptureMode(ctx context.Context) ContentCaptureMode {
-	override, ok := ctx.Value(InstallationCaptureModeContextKey{}).(ContentCaptureMode)
+	override, ok := ctx.Value(requestcontext.InstallationCaptureModeContextKey{}).(ContentCaptureMode)
 	if !ok {
 		return s.captureMode
 	}
@@ -439,4 +439,16 @@ func safeUpstreamRequestID(headers http.Header) string {
 		}
 	}
 	return ""
+}
+
+func installationIDFromContext(ctx context.Context) uuid.UUID {
+	raw, _ := ctx.Value(requestcontext.InstallationIDContextKey{}).(string)
+	if raw == "" {
+		return uuid.Nil
+	}
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		return uuid.Nil
+	}
+	return id
 }

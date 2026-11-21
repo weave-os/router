@@ -37,8 +37,8 @@ func TestRoutingPolicyPassthroughServesGatewayAliasedRetiredModel(t *testing.T) 
 	authService := auth.NewService(nil, nil, nil, nil, nil, nil, time.Now).WithRoutingPolicies(routingPolicyStub{mode: auth.RoutingPolicyPassthrough}, nil)
 	ctx, err := authService.WithRoutingPolicy(context.Background(), installationID)
 	require.NoError(t, err)
-	ctx = context.WithValue(ctx, APIKeyIDContextKey{}, "key-1")
-	ctx = context.WithValue(ctx, InstallationIDContextKey{}, installationID)
+	ctx = context.WithValue(ctx, requestcontext.APIKeyIDContextKey{}, "key-1")
+	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, installationID)
 	ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{
 		InstallationID: installationID,
 		Provider:       providers.ProviderAnthropicGateway,
@@ -46,7 +46,7 @@ func TestRoutingPolicyPassthroughServesGatewayAliasedRetiredModel(t *testing.T) 
 		BaseURL:        "https://gateway.example.com",
 		ModelAliases:   map[string]string{retired: retired, "claude-opus-5-5": "claude-opus-5-5"},
 	}})
-	ctx = context.WithValue(ctx, InstallationAllowedModelsContextKey{}, []string{retired, "claude-opus-5-5"})
+	ctx = context.WithValue(ctx, requestcontext.InstallationAllowedModelsContextKey{}, []string{retired, "claude-opus-5-5"})
 
 	rec := httptest.NewRecorder()
 	body := `{"model":"` + retired + `","max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`

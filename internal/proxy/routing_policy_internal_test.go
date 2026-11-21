@@ -107,7 +107,7 @@ func TestRoutingPolicyPreservesExplicitForcedModel(t *testing.T) {
 				ctx, err = authService.WithRoutingAssignment(ctx, "installation", "user")
 				require.NoError(t, err)
 				if tc.excluded {
-					ctx = context.WithValue(ctx, InstallationExcludedModelsContextKey{}, []string{catalog.ModelIDClaudeHaiku45.String()})
+					ctx = context.WithValue(ctx, requestcontext.InstallationExcludedModelsContextKey{}, []string{catalog.ModelIDClaudeHaiku45.String()})
 				}
 				envelope, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}]}`))
 				require.NoError(t, err)
@@ -287,7 +287,7 @@ func TestPickedModelFundsOnCallersOwnPlan(t *testing.T) {
 		return auth.WithClientModelPassthrough(context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, exhaustedSubToken))
 	}
 	creditFallback := func(ctx context.Context) context.Context {
-		return context.WithValue(ctx, InstallationPickedModelCreditFallbackContextKey{}, true)
+		return context.WithValue(ctx, requestcontext.InstallationPickedModelCreditFallbackContextKey{}, true)
 	}
 	for _, tc := range []struct {
 		name       string
@@ -340,7 +340,7 @@ func TestPickedCodexModelMaySpendOwnCredits(t *testing.T) {
 
 func TestCodexPickFundsOnOwnPlan(t *testing.T) {
 	selected := withCodexSelectedModel(context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, "codex-jwt"), "gpt-6-astra", []byte(`{"reasoning":{"effort":"high"}}`))
-	creditFallback := context.WithValue(selected, InstallationPickedModelCreditFallbackContextKey{}, true)
+	creditFallback := context.WithValue(selected, requestcontext.InstallationPickedModelCreditFallbackContextKey{}, true)
 
 	served := withCodexPickFunding(selected, "gpt-6-astra", providers.ProviderOpenAI)
 	assert.True(t, pickedModelOnOwnPlan(served))

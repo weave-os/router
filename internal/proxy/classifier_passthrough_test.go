@@ -118,7 +118,7 @@ func TestClassifier_NoSubscription_ServesRequestedModel(t *testing.T) {
 func TestClassifier_RequestedModelNotAllowed_IsScored(t *testing.T) {
 	svc, fr, _, store := classifierPassthroughFixture(t, nil)
 	rec, req := classifierRequest(t.Context())
-	ctx := context.WithValue(authedCtx(uuid.New().String()), proxy.InstallationAllowedModelsContextKey{}, []string{classifierScorerPickMdl})
+	ctx := context.WithValue(authedCtx(uuid.New().String()), requestcontext.InstallationAllowedModelsContextKey{}, []string{classifierScorerPickMdl})
 
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(classifierBody), rec, req))
 

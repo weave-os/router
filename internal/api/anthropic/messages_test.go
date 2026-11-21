@@ -357,7 +357,7 @@ func TestMessagesHandler_AgentShadowDoesNotUpsertRouterUser(t *testing.T) {
 	engine := gin.New()
 	engine.Use(func(c *gin.Context) {
 		c.Set("router_installation", &auth.Installation{ID: uuid.NewString()})
-		ctx := context.WithValue(c.Request.Context(), proxy.AgentShadowEvalContextKey{}, proxy.AgentShadowEvaluation{
+		ctx := context.WithValue(c.Request.Context(), requestcontext.AgentShadowEvalContextKey{}, requestcontext.AgentShadowEvaluation{
 			Model: "claude-opus-4-8", RolloutID: "pilot-1", StateID: "state-1",
 		})
 		c.Request = c.Request.WithContext(ctx)
@@ -523,7 +523,7 @@ func TestRouteAnthropicRequest_ForwardsValidInstallationIDUUIDVerbatim(t *testin
 	var got router.Request
 	svc := newTestService(&fakeRouter{decision: decision, got: &got}, "", nil)
 
-	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID.String())
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, installID.String())
 	_, err := svc.RouteAnthropicRequest(ctx, []byte(validAnthropicBody), nil)
 	require.NoError(t, err)
 	assert.Equal(t, installID.String(), got.InstallationID,
@@ -537,7 +537,7 @@ func TestRouteAnthropicRequest_DropsMalformedInstallationIDInsteadOfForwardingRa
 
 	// "not-a-uuid" is the regression case: pre-fix leaked through verbatim,
 	// diverging tenant attribution from ProxyMessages (which drops invalid IDs).
-	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "not-a-uuid")
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, "not-a-uuid")
 	_, err := svc.RouteAnthropicRequest(ctx, []byte(validAnthropicBody), nil)
 	require.NoError(t, err)
 	assert.Empty(t, got.InstallationID,
@@ -550,7 +550,7 @@ func TestRouteAnthropicRequest_DropsEmptyInstallationIDInsteadOfForwardingRaw(t 
 	var got router.Request
 	svc := newTestService(&fakeRouter{decision: decision, got: &got}, "", nil)
 
-	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "")
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, "")
 	_, err := svc.RouteAnthropicRequest(ctx, []byte(validAnthropicBody), nil)
 	require.NoError(t, err)
 	assert.Empty(t, got.InstallationID,

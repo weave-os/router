@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/sessionpin"
@@ -133,8 +134,8 @@ func TestFeedbackSpans_UseDistinctNamesAndSchemas(t *testing.T) {
 			{"role":"user","content":"/router-feedback got stuck on Haiku for too long"}
 		]
 	}`
-	ctx := context.WithValue(context.Background(), proxy.APIKeyIDContextKey{}, "key-1")
-	ctx = context.WithValue(ctx, proxy.InstallationIDContextKey{}, uuid.New().String())
+	ctx := context.WithValue(context.Background(), requestcontext.APIKeyIDContextKey{}, "key-1")
+	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, uuid.New().String())
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, cmdSvc.ProxyMessages(ctx, []byte(body), rec, httpReq))

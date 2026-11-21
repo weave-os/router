@@ -133,8 +133,8 @@ func TestProxyMessages_OutputLimitEightActionSequence(t *testing.T) {
 				store := newForceModelMapStore()
 				routes := &outputLimitSequenceRouter{choices: []string{outputLimitFirstModel, outputLimitSecondModel}}
 				upstream := &outputLimitSequenceProvider{stopReason: "tool_use", output: 32000}
-				ctx := context.WithValue(context.Background(), APIKeyIDContextKey{}, "output-limit-key")
-				ctx = context.WithValue(ctx, InstallationIDContextKey{}, uuid.NewString())
+				ctx := context.WithValue(context.Background(), requestcontext.APIKeyIDContextKey{}, "output-limit-key")
+				ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, uuid.NewString())
 				ctx = router.WithStrategy(ctx, router.StrategyHMM)
 				messages := []any{map[string]any{"role": "user", "content": "Inspect the repository files"}}
 				for action := 0; action < 8; action++ {

@@ -69,7 +69,7 @@ func TestGatewayCompactionPastEverySummarizerWindowReachesCrossGatewayRescuer(t 
 	svc = svc.WithHardPinResolver(func(HardPinRequest) (string, string, bool) {
 		return providers.ProviderAnthropicGateway, gatewayCompactionOpusModel, true
 	})
-	ctx = context.WithValue(ctx, InstallationAllowedModelsContextKey{}, []string{sol, gatewayCompactionOpusModel})
+	ctx = context.WithValue(ctx, requestcontext.InstallationAllowedModelsContextKey{}, []string{sol, gatewayCompactionOpusModel})
 	ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		gatewayKey(providers.ProviderAnthropicGateway, "https://gateway.example.com/anthropic", gatewayCompactionOpusModel, policy.PrecompactionDefaultModel),
 		gatewayKey(providers.ProviderOpenAIGateway, "https://gateway.example.com/openai", sol),

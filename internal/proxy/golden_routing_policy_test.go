@@ -226,19 +226,19 @@ func routingPolicyCtx(decorators ...func(context.Context) context.Context) func(
 
 func routingPolicyExcludeModels(models ...string) func(context.Context) context.Context {
 	return func(ctx context.Context) context.Context {
-		return context.WithValue(ctx, proxy.InstallationExcludedModelsContextKey{}, models)
+		return context.WithValue(ctx, requestcontext.InstallationExcludedModelsContextKey{}, models)
 	}
 }
 
 func routingPolicyAllowModels(models ...string) func(context.Context) context.Context {
 	return func(ctx context.Context) context.Context {
-		return context.WithValue(ctx, proxy.InstallationAllowedModelsContextKey{}, models)
+		return context.WithValue(ctx, requestcontext.InstallationAllowedModelsContextKey{}, models)
 	}
 }
 
 func routingPolicyPreferModels(models ...string) func(context.Context) context.Context {
 	return func(ctx context.Context) context.Context {
-		return context.WithValue(ctx, proxy.InstallationPreferredModelsContextKey{}, models)
+		return context.WithValue(ctx, requestcontext.InstallationPreferredModelsContextKey{}, models)
 	}
 }
 

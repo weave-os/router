@@ -30,7 +30,7 @@ func withCodexPickFunding(ctx context.Context, servedModel, provider string) con
 }
 
 func fundOnOwnPlan(ctx context.Context, provider string) context.Context {
-	if creditFallback, _ := ctx.Value(InstallationPickedModelCreditFallbackContextKey{}).(bool); creditFallback {
+	if creditFallback, _ := ctx.Value(requestcontext.InstallationPickedModelCreditFallbackContextKey{}).(bool); creditFallback {
 		return ctx
 	}
 	if provider == providers.ProviderAnthropic && anthropicSubscriptionFromContext(ctx) == "" ||

@@ -136,7 +136,7 @@ func TestUsageBypassDecision_ClassifierLaneOutranksUsageBypass(t *testing.T) {
 	})
 	svc := &Service{hmmServing: hmmPorts(), clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}), usageObserver: obs}
 	ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, classifierTestSubToken)
-	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true, Threshold: &threshold})
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true, Threshold: &threshold})
 	req := router.Request{RequestedModel: model}
 
 	classifier, ok := svc.usageBypassDecision(ctx, http.Header{}, req, nil, turntype.Classifier)
@@ -150,7 +150,7 @@ func TestUsageBypassDecision_ClassifierLaneOutranksUsageBypass(t *testing.T) {
 	_, ok = svc.usageBypassDecision(ctx, http.Header{}, req, []string{model}, turntype.Classifier)
 	assert.False(t, ok, "a session strike on the requested model blocks the classifier lane too")
 
-	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{model})
+	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenActiveContextKey{}, []string{model})
 	_, ok = svc.usageBypassDecision(ctx, http.Header{}, req, nil, turntype.Classifier)
 	assert.False(t, ok, "subscription-state model sets disable classifier usage bypass")
 }
@@ -165,7 +165,7 @@ func TestRunTurnLoop_ClassifierPassthrough_NoSessionState(t *testing.T) {
 	svc := withHMMPorts(NewService(&betaTestRouter{}, map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyLLMClassifier, Router: &betaTestRouter{}})
 	ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, classifierTestSubToken)
-	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{"claude-sonnet-4-6"})
+	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenActiveContextKey{}, []string{"claude-sonnet-4-6"})
 	var zeroKey [sessionpin.SessionKeyLen]byte
 
 	res, err := svc.runTurnLoop(ctx, env, feats, testTurnRequest(ctx, "api-key", uuid.New()), "", http.Header{}, router.Request{RequestedModel: feats.Model})
@@ -210,7 +210,7 @@ func TestBypass_ClassifierPassthrough_TelemetryReason(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 	req.Header.Set("Authorization", "Bearer "+classifierTestSubToken)
-	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, uuid.New().String())
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, uuid.New().String())
 
 	err = svc.bypassToAnthropic(ctx, env, feats, false, time.Now(), "req-cls-1", "ext-1", turntype.Classifier, reasonClassifierPassthrough, req, rec)
 	require.NoError(t, err)

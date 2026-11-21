@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
@@ -162,7 +163,7 @@ func applyCallerRoutingAttrs(ctx context.Context, b *telemetry.AttrBuilder) {
 }
 
 func policyTrainingAllowedForRequest(ctx context.Context) bool {
-	trainingAllowed, _ := ctx.Value(PolicyTrainingAllowedContextKey{}).(bool)
+	trainingAllowed, _ := ctx.Value(requestcontext.PolicyTrainingAllowedContextKey{}).(bool)
 	return trainingAllowed && !callerModelPassthroughActive(ctx)
 }
 

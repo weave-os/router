@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/requestcontext"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
@@ -93,7 +94,7 @@ func parityAnthropicIngress() parityIngress {
 		subCtx: func() context.Context {
 			ctx := context.WithValue(context.Background(), credentials.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
 			// These parity cases exercise the explicitly enabled API fallback.
-			return withClaudeCreditFallback(context.WithValue(ctx, InstallationIDContextKey{}, parityInstallationID))
+			return withClaudeCreditFallback(context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, parityInstallationID))
 		},
 		servedOnSub:       servedOnSubscription,
 		fallbackAvailable: (*Service).anthropicFallbackKeyAvailable,
@@ -135,7 +136,7 @@ func parityCodexIngress() parityIngress {
 		subCtx: func() context.Context {
 			ctx := context.WithValue(context.Background(), credentials.OpenAISubscriptionContextKey{}, parityCodexToken)
 			ctx = context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, parityCodexAccountID)
-			return context.WithValue(ctx, InstallationIDContextKey{}, parityInstallationID)
+			return context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, parityInstallationID)
 		},
 		servedOnSub:       servedOnCodexSubscription,
 		fallbackAvailable: (*Service).openaiFallbackKeyAvailable,
@@ -258,7 +259,7 @@ func TestSubscriptionFailoverParity_SubscriptionShape(t *testing.T) {
 	})
 
 	t.Run("codex: OAuth without an account id is not Codex-served", func(t *testing.T) {
-		ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, parityInstallationID)
+		ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, parityInstallationID)
 		ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
 		ctx = resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, parityAnthropicModel, http.Header{})
 		assert.True(t, servedOnSubscription(ctx))
@@ -371,7 +372,7 @@ func TestSubscriptionFailoverParity_PreDispatchSuppression(t *testing.T) {
 // and vice versa.
 func TestSubscriptionFailoverParity_SuppressionIsProviderScoped(t *testing.T) {
 	bothSubs := func() context.Context {
-		ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, parityInstallationID)
+		ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, parityInstallationID)
 		ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
 		ctx = context.WithValue(ctx, credentials.OpenAISubscriptionContextKey{}, parityCodexToken)
 		return context.WithValue(ctx, credentials.OpenAIAccountIDContextKey{}, parityCodexAccountID)

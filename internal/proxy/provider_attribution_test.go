@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/telemetry/turnrecord"
 	"weave-os/router/internal/translate"
 )
@@ -171,7 +172,7 @@ func slowStartTraceOf(inbound []byte, attemptAt, firstAt time.Time, attempts ...
 func slowStartCtx(session, apiKeyID, userAgent string) context.Context {
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{SessionID: session, UserAgent: userAgent})
 	ctx = observability.WithClientSessionID(ctx, session)
-	return context.WithValue(ctx, APIKeyIDContextKey{}, apiKeyID)
+	return context.WithValue(ctx, requestcontext.APIKeyIDContextKey{}, apiKeyID)
 }
 
 func TestSlowStartNotice_ThresholdBaselineAndCooldown(t *testing.T) {

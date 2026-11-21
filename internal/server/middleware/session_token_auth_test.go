@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
@@ -49,7 +49,7 @@ func TestWithAuth_SessionTokenAuthenticatesAsIssuerWithDelegatedSession(t *testi
 	engine.Use(middleware.WithAuth(svc, false))
 	engine.GET("/probe", func(c *gin.Context) {
 		ctx := c.Request.Context()
-		assert.Equal(t, "issuer-1", ctx.Value(proxy.APIKeyIDContextKey{}), "spend and attribution stay on the issuer key")
+		assert.Equal(t, "issuer-1", ctx.Value(requestcontext.APIKeyIDContextKey{}), "spend and attribution stay on the issuer key")
 		session := auth.DelegatedSessionFrom(ctx)
 		require.NotNil(t, session)
 		assert.Equal(t, "session-7", session.SessionID)

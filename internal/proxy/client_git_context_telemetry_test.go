@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/telemetry/turnrecord"
@@ -32,7 +32,7 @@ const clientGitContextBody = `{
 }`
 
 func trialCtx(installationID string) context.Context {
-	return context.WithValue(authedCtx(installationID), proxy.InstallationTrialCaptureContextKey{}, true)
+	return context.WithValue(authedCtx(installationID), requestcontext.InstallationTrialCaptureContextKey{}, true)
 }
 
 func proxyClientGitContextTurn(t *testing.T, ctx context.Context, store *fakePinStore) turnrecord.InsertTelemetryParams {

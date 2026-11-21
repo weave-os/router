@@ -76,7 +76,7 @@ func gatewayCompactionFixture(anthropicErr error) (*Service, context.Context, *g
 		WithHardPinResolver(fastest).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil })
 	ctx := rescuedFailureCtx()
-	ctx = context.WithValue(ctx, InstallationAllowedModelsContextKey{}, []string{catalog.ModelGPT6Luna, gatewayCompactionOpusModel})
+	ctx = context.WithValue(ctx, requestcontext.InstallationAllowedModelsContextKey{}, []string{catalog.ModelGPT6Luna, gatewayCompactionOpusModel})
 	ctx = context.WithValue(ctx, credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		gatewayKey(providers.ProviderAnthropicGateway, "https://gateway.example.com/anthropic", gatewayCompactionOpusModel, policy.PrecompactionDefaultModel),
 		gatewayKey(providers.ProviderOpenAIGateway, "https://gateway.example.com/openai", catalog.ModelGPT6Luna),

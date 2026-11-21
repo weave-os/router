@@ -114,10 +114,10 @@ func TestService_PreviewAnthropicRouteBuildsServingCandidateContextWithoutDispat
 		})
 
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMM)
-	ctx = context.WithValue(ctx, proxy.ExternalIDContextKey{}, "org-1")
-	ctx = context.WithValue(ctx, proxy.InstallationIDContextKey{}, "1791da5d-d0db-494c-8574-859a4cb20d97")
-	ctx = context.WithValue(ctx, proxy.InstallationExcludedModelsContextKey{}, []string{"gpt-5.5-mini"})
-	ctx = context.WithValue(ctx, proxy.InstallationPreferredModelsContextKey{}, []string{"claude-opus-4-8"})
+	ctx = context.WithValue(ctx, requestcontext.ExternalIDContextKey{}, "org-1")
+	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "1791da5d-d0db-494c-8574-859a4cb20d97")
+	ctx = context.WithValue(ctx, requestcontext.InstallationExcludedModelsContextKey{}, []string{"gpt-5.5-mini"})
+	ctx = context.WithValue(ctx, requestcontext.InstallationPreferredModelsContextKey{}, []string{"claude-opus-4-8"})
 	body := []byte(`{"model":"claude-opus-4-8[1m]","messages":[{"role":"user","content":"inspect this repository"}],"max_tokens":4096,"tools":[{"name":"Read","description":"read a file","input_schema":{"type":"object"}}]}`)
 
 	result, err := svc.PreviewAnthropicRoute(ctx, body, http.Header{})
@@ -184,10 +184,10 @@ func TestService_AgentShadowEvaluationForcesEphemerallyWithoutServingRouter(t *t
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
 		WithAvailableModels(map[string]struct{}{"claude-opus-4-8": {}})
 
-	ctx := context.WithValue(context.Background(), proxy.AgentShadowEvalContextKey{}, proxy.AgentShadowEvaluation{
+	ctx := context.WithValue(context.Background(), requestcontext.AgentShadowEvalContextKey{}, requestcontext.AgentShadowEvaluation{
 		Model: "CLAUDE-OPUS-4-8", RolloutID: "pilot-1", StateID: "state-1",
 	})
-	ctx = context.WithValue(ctx, proxy.InstallationIDContextKey{}, "1791da5d-d0db-494c-8574-859a4cb20d97")
+	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "1791da5d-d0db-494c-8574-859a4cb20d97")
 	messages := make([]map[string]any, 0, 17)
 	for i := range 8 {
 		toolID := fmt.Sprintf("tool_%d", i)
@@ -258,7 +258,7 @@ func TestService_AgentShadowEvaluationNeverSubstitutesRequestedBaseline(t *testi
 			"gpt-5.5":         {},
 		})
 
-	ctx := context.WithValue(context.Background(), proxy.AgentShadowEvalContextKey{}, proxy.AgentShadowEvaluation{
+	ctx := context.WithValue(context.Background(), requestcontext.AgentShadowEvalContextKey{}, requestcontext.AgentShadowEvaluation{
 		Model: "gpt-5.5", RolloutID: "pilot-1", StateID: "state-1",
 	})
 	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"inspect this repository"}],"max_tokens":512}`)
@@ -282,10 +282,10 @@ func TestService_AgentShadowEvaluationNeverRetriesSubscriptionOnDeploymentKey(t 
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
 		WithAvailableModels(map[string]struct{}{"claude-opus-4-8": {}})
 
-	ctx := context.WithValue(context.Background(), proxy.AgentShadowEvalContextKey{}, proxy.AgentShadowEvaluation{
+	ctx := context.WithValue(context.Background(), requestcontext.AgentShadowEvalContextKey{}, requestcontext.AgentShadowEvaluation{
 		Model: "claude-opus-4-8", RolloutID: "pilot-1", StateID: "state-1",
 	})
-	ctx = context.WithValue(ctx, proxy.InstallationIDContextKey{}, "1791da5d-d0db-494c-8574-859a4cb20d97")
+	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "1791da5d-d0db-494c-8574-859a4cb20d97")
 	ctx = context.WithValue(ctx, credentials.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-subscription-token")
 	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"inspect this repository"}],"max_tokens":512}`)
 	rec := httptest.NewRecorder()
@@ -1159,7 +1159,7 @@ func TestService_ProxyMessages_NoPinStoreRunsScorerEveryTurn(t *testing.T) {
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		nil), hmm.ServingPorts())
 
-	ctx := context.WithValue(context.Background(), proxy.APIKeyIDContextKey{}, "key-1")
+	ctx := context.WithValue(context.Background(), requestcontext.APIKeyIDContextKey{}, "key-1")
 	for range 2 {
 		rec := httptest.NewRecorder()
 		httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -1512,7 +1512,7 @@ func TestService_ExcludedModelsThroughRequest(t *testing.T) {
 		fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5"}}
 		svc := proxy.WithStrategyPorts(proxy.NewService(fr, providerMap, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
-		ctx := context.WithValue(context.Background(), proxy.InstallationExcludedModelsContextKey{}, []string{"claude-opus-4-7", "gpt-5"})
+		ctx := context.WithValue(context.Background(), requestcontext.InstallationExcludedModelsContextKey{}, []string{"claude-opus-4-7", "gpt-5"})
 		rec := httptest.NewRecorder()
 		httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 		require.NoError(t, svc.ProxyMessages(ctx, body, rec, httpReq))
@@ -1528,7 +1528,7 @@ func TestService_ExcludedModelsThroughRequest(t *testing.T) {
 			WithExcludedModelsOverride([]string{"gpt-4o"})
 
 		// Installation list says one thing; override says another. Override wins.
-		ctx := context.WithValue(context.Background(), proxy.InstallationExcludedModelsContextKey{}, []string{"claude-opus-4-7"})
+		ctx := context.WithValue(context.Background(), requestcontext.InstallationExcludedModelsContextKey{}, []string{"claude-opus-4-7"})
 		rec := httptest.NewRecorder()
 		httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 		require.NoError(t, svc.ProxyMessages(ctx, body, rec, httpReq))

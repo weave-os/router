@@ -4,7 +4,6 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptionlane"
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -47,7 +46,7 @@ func WithSubscriberAllowance(svc *entitlement.Service, coverage credentials.Subs
 			}))
 		}
 
-		if _, shadow := proxy.AgentShadowEvalFromContext(c.Request.Context()); shadow {
+		if _, shadow := requestcontext.AgentShadowEvalFromContext(c.Request.Context()); shadow {
 			c.Next()
 			return
 		}

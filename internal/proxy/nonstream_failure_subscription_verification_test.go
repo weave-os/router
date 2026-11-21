@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
 
@@ -51,7 +52,7 @@ func TestVerificationNonstreamFailedJSONCannotWin(t *testing.T) {
 			client.SetCodexBaseURL(upstream.URL)
 			leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "first-account", OwnerID: "first-owner", Tier: auth.SubscriptionTierPersonal, AccessToken: "first-seat", ProviderAccount: "first-provider"}, {AccountID: "second-account", OwnerID: "second-owner", Tier: auth.SubscriptionTierShared, AccessToken: "second-seat"}}}
 			svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)).WithManagedSubscriptions(leaser).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
-			ctx := context.WithValue(billing.WithWeaveCreditsDenied(managedSubscriptionContext(auth.SubscriptionProviderCodex)), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+			ctx := context.WithValue(billing.WithWeaveCreditsDenied(managedSubscriptionContext(auth.SubscriptionProviderCodex)), requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 			rec := httptest.NewRecorder()
 			err := fixture.run(svc, ctx, []byte(fixture.body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, fixture.path, strings.NewReader(fixture.body)))
 			require.Error(t, err, "failed provider JSON must not become successful request")

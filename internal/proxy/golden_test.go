@@ -24,6 +24,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/breaker"
 	"weave-os/router/internal/router/catalog"
@@ -207,9 +208,9 @@ type goldenRequestTrace struct {
 func (h *goldenHarness) serve(t *testing.T, ingress string, req goldenRequest) goldenRequestTrace {
 	t.Helper()
 	h.clock.Advance(req.advance)
-	base := context.WithValue(context.Background(), proxy.APIKeyIDContextKey{}, "golden-key")
-	base = context.WithValue(base, proxy.InstallationIDContextKey{}, goldenInstallationID)
-	base = context.WithValue(base, proxy.ExternalIDContextKey{}, "golden-org")
+	base := context.WithValue(context.Background(), requestcontext.APIKeyIDContextKey{}, "golden-key")
+	base = context.WithValue(base, requestcontext.InstallationIDContextKey{}, goldenInstallationID)
+	base = context.WithValue(base, requestcontext.ExternalIDContextKey{}, "golden-org")
 	if h.rec.credentialLabels != nil {
 		base = h.rec.exposed.withLogger(base)
 	}
