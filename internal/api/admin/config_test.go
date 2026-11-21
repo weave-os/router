@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"weave-os/router/internal/api/admin"
@@ -29,7 +30,7 @@ func TestConfigHandler_EnvProviderKeys_IncludesEveryDeployedProvider(t *testing.
 	engine := gin.New()
 	engine.GET("/admin/v1/config", func(c *gin.Context) {
 		c.Set("router_installation", &auth.Installation{ID: "inst-1"})
-	}, admin.ConfigHandler)
+	}, admin.ConfigHandler(admin.Config{HasDeploymentProviderKey: func(p string) bool { return os.Getenv(providers.APIKeyEnvVar(p)) != "" }}))
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/admin/v1/config", nil)
 	rec := httptest.NewRecorder()

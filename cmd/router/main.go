@@ -1163,8 +1163,9 @@ func main() {
 		observability.AccessLog(),
 	)
 
+	middleware.Configure(middlewareConfigFromEnv())
 	analyticsSvc := analytics.NewService(repo.Analytics, time.Now)
-	defaultStrategy, defaultStrategyErr := server.DefaultStrategyFromEnv()
+	defaultStrategy, defaultStrategyErr := defaultStrategyFromEnv()
 	if defaultStrategyErr != nil {
 		logger.Error("ROUTER_DEFAULT_STRATEGY is invalid; refusing to boot", "err", defaultStrategyErr)
 		panic(defaultStrategyErr)
@@ -1209,6 +1210,9 @@ func main() {
 		SubscriberAllowance:      subscriberAllowanceSvc,
 		SubscriptionPoolsEnabled: subscriptionPoolsEnabled,
 		PolicyStatus:             policyStatus,
+		DefaultStrategy:          defaultStrategy,
+		InternalServiceToken:     internalServiceTokenFromEnv(),
+		Admin:                    adminConfigFromEnv(),
 	}, servingAdmission, routingDistribution)
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture

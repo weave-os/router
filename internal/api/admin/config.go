@@ -3,12 +3,24 @@ package admin
 import (
 	"net/http"
 
-	"weave-os/router/internal/config"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
 )
+
+type Config struct {
+	CookieInsecure           bool
+	StickyDecisionTTL        string
+	OtelEnabled              bool
+	HasDeploymentProviderKey func(provider string) bool
+}
+
+func (c Config) secureCookie() bool { return !c.CookieInsecure }
+
+func (c Config) deploymentProviderKey(provider string) bool {
+	return c.HasDeploymentProviderKey != nil && c.HasDeploymentProviderKey(provider)
+}
 
 type configResponse struct {
 	StickyDecisionTTL string   `json:"sticky_decision_ttl_ms"`
@@ -16,21 +28,23 @@ type configResponse struct {
 	EnvProviderKeys   []string `json:"env_provider_keys"`
 }
 
-func ConfigHandler(c *gin.Context) {
-	if middleware.AdminPrincipalFrom(c) == nil && middleware.InstallationFrom(c) == nil {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid_key"})
-		return
-	}
-	providerOrder := providers.AllProviders()
-	envKeyed := make([]string, 0, len(providerOrder))
-	for _, p := range providerOrder {
-		if config.GetOr(providers.APIKeyEnvVar(p), "") != "" {
-			envKeyed = append(envKeyed, p)
+func ConfigHandler(cfg Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if middleware.AdminPrincipalFrom(c) == nil && middleware.InstallationFrom(c) == nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid_key"})
+			return
 		}
+		providerOrder := providers.AllProviders()
+		envKeyed := make([]string, 0, len(providerOrder))
+		for _, p := range providerOrder {
+			if cfg.deploymentProviderKey(p) {
+				envKeyed = append(envKeyed, p)
+			}
+		}
+		c.JSON(http.StatusOK, configResponse{
+			StickyDecisionTTL: cfg.StickyDecisionTTL,
+			OtelEnabled:       cfg.OtelEnabled,
+			EnvProviderKeys:   envKeyed,
+		})
 	}
-	c.JSON(http.StatusOK, configResponse{
-		StickyDecisionTTL: config.GetOr("ROUTER_STICKY_DECISION_TTL_MS", "0"),
-		OtelEnabled:       config.GetOr("OTEL_EXPORTER_OTLP_ENDPOINT", "") != "",
-		EnvProviderKeys:   envKeyed,
-	})
 }
