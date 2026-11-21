@@ -26,9 +26,10 @@ type Formats struct {
 	}
 	Anthropic  Anthropic
 	OpenAIChat OpenAIChat
+	Responses  Responses
 	Keepalive  time.Duration
 }
 
 func New(keepalive time.Duration) Formats {
-	return Formats{Gemini: Gemini{}, Anthropic: Anthropic{}, OpenAIChat: OpenAIChat{}, Keepalive: keepalive}
+	return Formats{Gemini: Gemini{}, Anthropic: Anthropic{}, OpenAIChat: OpenAIChat{}, Responses: Responses{}, Keepalive: keepalive}
 }
