@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"weave-os/router/cmd/logconfig"
 	"weave-os/router/internal/analytics"
 	"weave-os/router/internal/anthropicfederation"
 	"weave-os/router/internal/api/admin"
@@ -74,6 +75,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+func init() {
+	logconfig.Configure()
+}
+
 func main() {
 	logger := observability.Get()
 	egressProbe, err := newStartupEgressProbe(config.GetOr("ROUTER_STARTUP_EGRESS_ORIGINS", ""))
@@ -81,7 +86,7 @@ func main() {
 		logger.Error("Invalid startup egress configuration; refusing to boot", "err", err)
 		panic(err)
 	}
-	apm.Init()
+	apm.Init(apmConfigFromEnv())
 	if err := router.ValidateCatalogReasoningCapabilities(); err != nil {
 		logger.Error("Refusing to boot with invalid model reasoning capabilities", "err", err)
 		panic(err)
@@ -93,7 +98,7 @@ func main() {
 		panic(err)
 	}
 	poolconfig.ConfigureTimeouts(cfg)
-	clientTLS, err := pgtls.Configure(cfg)
+	clientTLS, err := pgtls.Configure(cfg, postgresTLSConfigFromEnv())
 	if err != nil {
 		logger.Error("Failed to configure postgres client TLS", "err", err)
 		panic(err)
@@ -1164,7 +1169,7 @@ func main() {
 	)
 
 	analyticsSvc := analytics.NewService(repo.Analytics, time.Now)
-	defaultStrategy, defaultStrategyErr := server.DefaultStrategyFromEnv()
+	defaultStrategy, defaultStrategyErr := defaultStrategyFromEnv()
 	if defaultStrategyErr != nil {
 		logger.Error("ROUTER_DEFAULT_STRATEGY is invalid; refusing to boot", "err", defaultStrategyErr)
 		panic(defaultStrategyErr)
@@ -1198,7 +1203,7 @@ func main() {
 	waitForKeepWarm := startSubscriptionKeepWarm(processCtx, subscriptionRuntime, logger)
 	egressProbe.prepare(processCtx, logger, providerMap, envKeyedProviders, initializedOrigins)
 	logger.Info("Router startup initialization complete")
-	serverFeatures := withHMMAdminPorts(server.Features{
+	serverFeatures := withEnvServerConfig(withHMMAdminPorts(server.Features{
 		SeatUsage:                seatUsage,
 		SubscriptionLogins:       subscriptionLogins,
 		SubscriptionRefresh:      subscriptionRuntime,
@@ -1209,7 +1214,7 @@ func main() {
 		SubscriberAllowance:      subscriberAllowanceSvc,
 		SubscriptionPoolsEnabled: subscriptionPoolsEnabled,
 		PolicyStatus:             policyStatus,
-	}, servingAdmission, routingDistribution)
+	}, servingAdmission, routingDistribution), defaultStrategy)
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture
 	}
@@ -1304,20 +1309,6 @@ func subscriptionCandidateSignal(snapshot usage.Snapshot, now time.Time) subscri
 		}
 	}
 	return signal
-}
-
-func parseOtelHeaders(raw string) map[string]string {
-	if raw == "" {
-		return nil
-	}
-	out := make(map[string]string)
-	for _, pair := range strings.Split(raw, ",") {
-		k, v, ok := strings.Cut(strings.TrimSpace(pair), "=")
-		if ok && k != "" {
-			out[k] = v
-		}
-	}
-	return out
 }
 
 func buildEntraTokenSource(logger *slog.Logger) auth.EntraTokenSource {
