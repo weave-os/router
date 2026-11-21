@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
@@ -80,7 +81,7 @@ func TestPinExpiry_UserForcedNeverExpires(t *testing.T) {
 // can never silently drop the user's directive.
 func TestSetForceModelSessionPin_WritesNeverExpiresSentinel(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	var key [sessionpin.SessionKeyLen]byte
@@ -97,7 +98,7 @@ func TestSetForceModelSessionPin_WritesNeverExpiresSentinel(t *testing.T) {
 
 func TestSetForceModelSessionPin_IsStrategyIndependent(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMMBeta)

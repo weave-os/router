@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
@@ -17,7 +18,7 @@ import (
 // and the request context.
 func newFlagTestService() *proxy.Service {
 	return proxy.WithStrategyPorts(proxy.NewService(
-		nil, map[string]providers.Client{}, nil, nil,
+		nil, dispatch.NewClients(map[string]providers.Client{}), nil, nil,
 		false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 }

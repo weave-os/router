@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
@@ -38,10 +39,10 @@ func forcedOpusGatewayCompactionFixture(anthropicFail error) (*Service, context.
 		Reason:      translate.ReasonUserForceModel,
 		PinnedUntil: time.Now().Add(time.Hour),
 	}}
-	svc := withHMMPorts(NewService(nil, map[string]providers.Client{
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{
 		providers.ProviderAnthropicGateway: anthropicGateway,
 		providers.ProviderOpenAIGateway:    openAIGateway,
-	}, nil, store, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil)).
+	}), nil, store, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil)).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil })
 	ctx := rescuedFailureCtx()
 	ctx = context.WithValue(ctx, InstallationAllowedModelsContextKey{}, []string{catalog.ModelGPT6Luna, gatewayCompactionOpusModel})

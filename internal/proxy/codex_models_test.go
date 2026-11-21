@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
@@ -31,7 +32,7 @@ func TestCodexModelCatalog_UsesCallerOAuth(t *testing.T) {
 	defer upstream.Close()
 	client := openai.NewClient("deployment-key", "https://api.openai.com")
 	client.SetCodexBaseURL(upstream.URL)
-	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
+	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 	headers := make(http.Header)
 	headers.Set("Authorization", "Bearer subscription-token")
 	headers.Set("ChatGPT-Account-ID", "account-123")
@@ -60,7 +61,7 @@ func TestCodexModelCatalog_UsesCallerOAuth(t *testing.T) {
 
 func TestCodexModelCatalog_RequiresPairedOAuth(t *testing.T) {
 	client := openai.NewClient("deployment-key", "https://api.openai.com")
-	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
+	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 	headers := make(http.Header)
 	headers.Set("Authorization", "Bearer subscription-token")
 	_, err := svc.CodexModelCatalog(context.Background(), headers, "0.155.1")
@@ -74,7 +75,7 @@ func TestCodexSelectionCatalog_APIKeyLoginGetsBundledCatalog(t *testing.T) {
 	defer upstream.Close()
 	client := openai.NewClient("deployment-key", "https://api.openai.com")
 	client.SetCodexBaseURL(upstream.URL)
-	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
+	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 	headers := make(http.Header)
 	headers.Set("Authorization", "Bearer sk-test")
 
@@ -94,7 +95,7 @@ func TestCodexSelectionCatalog_ChatGPTLoginGetsAccountCatalog(t *testing.T) {
 	defer upstream.Close()
 	client := openai.NewClient("deployment-key", "https://api.openai.com")
 	client.SetCodexBaseURL(upstream.URL)
-	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
+	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 	headers := make(http.Header)
 	headers.Set("Authorization", "Bearer subscription-token")
 	headers.Set("ChatGPT-Account-ID", "account-123")

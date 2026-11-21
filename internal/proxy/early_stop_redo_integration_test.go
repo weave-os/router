@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
@@ -100,7 +101,7 @@ func newEarlyStopFixture(t *testing.T, mode flags.EarlyStopRedoMode) *earlyStopF
 	}
 	f.svc = proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: decision},
-		map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", f.upstream.URL)},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", f.upstream.URL)}),
 		nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", newCaptureTelemetry()), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
 		WithRetrySleep(noRetrySleep).

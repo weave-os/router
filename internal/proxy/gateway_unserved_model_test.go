@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -95,7 +96,7 @@ func TestService_HardPin_TitleGen_GatewayModelNotFound_ExcludedOnLaterTurns(t *t
 
 	gateway := &aliasGateway{unserved: unservedAlias}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
-		fr, map[string]providers.Client{providers.ProviderOpenAIGateway: gateway},
+		fr, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAIGateway: gateway}),
 		nil, store, false,
 		providers.ProviderAnthropic, servedAlias,
 		nil), hmm.ServingPorts()).
@@ -139,7 +140,7 @@ func TestService_HardPin_TitleGen_GatewayModelNotFound_KeepsServedAliasesRoutabl
 
 	gateway := &aliasGateway{unserved: unservedAlias}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
-		fr, map[string]providers.Client{providers.ProviderOpenAIGateway: gateway},
+		fr, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAIGateway: gateway}),
 		nil, store, false,
 		providers.ProviderAnthropic, servedAlias,
 		nil), hmm.ServingPorts()).
@@ -171,7 +172,7 @@ func TestService_HardPin_TitleGen_VendorModelNotFound_DoesNotExcludeModel(t *tes
 
 	vendor := &aliasGateway{unserved: servedAlias}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
-		fr, map[string]providers.Client{providers.ProviderAnthropic: vendor},
+		fr, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: vendor}),
 		nil, store, false,
 		providers.ProviderAnthropic, servedAlias,
 		nil), hmm.ServingPorts()).

@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 )
 
@@ -37,7 +38,7 @@ func TestMarkServedExternalKeyUsed(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := &recordedKeyUsage{}
-			svc := withHMMPorts(NewService(nil, map[string]providers.Client{}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+			svc := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{}), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 				WithExternalKeyUsageRecorder(recorder)
 			ctx := context.Background()
 			if tc.creds != nil {

@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -258,7 +259,7 @@ func TestACappedTreatmentTurnLeavesTheSessionPinAsControlWouldHaveLeftIt(t *test
 			Provider: providers.ProviderAnthropic, Model: "claude-opus-4-7", Reason: "cluster:v0.2", PolicyGroup: "high",
 			TurnCount: 3, PinnedUntil: time.Now().Add(time.Hour), LastTurnEndedAt: time.Now().Add(-time.Minute), LastOutputTokens: 9,
 		}
-		svc := withHMMPorts(NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+		svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 			EditHMMConfig(func(c *hmm.Config) { c.DowngradeHysteresisTurns = 0 }).
 			WithPolicyStrategy(policy.StrategySpec{
 				Strategy:     strategy,

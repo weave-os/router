@@ -50,7 +50,7 @@ func serviceWithDefaultRouter(r router.Router) *Service {
 
 func TestRouteWithoutStrategyContextUsesHMMEmbeddingDefault(t *testing.T) {
 	defaultRouter := &registryRouter{decision: router.Decision{Model: "deepseek/deepseek-v4-pro", Provider: providers.ProviderFireworks}}
-	svc := withHMMPorts(NewService(defaultRouter, nil, nil, nil, false, "", "", nil))
+	svc := withHMMPorts(NewService(defaultRouter, dispatch.NewClients(nil), nil, nil, false, "", "", nil))
 
 	decision, err := svc.Route(context.Background(), router.Request{})
 
@@ -62,7 +62,7 @@ func TestRouteWithoutStrategyContextUsesHMMEmbeddingDefault(t *testing.T) {
 
 func TestRetiredClusterStrategyIsNotRoutable(t *testing.T) {
 	defaultRouter := &registryRouter{}
-	svc := withHMMPorts(NewService(defaultRouter, nil, nil, nil, false, "", "", nil))
+	svc := withHMMPorts(NewService(defaultRouter, dispatch.NewClients(nil), nil, nil, false, "", "", nil))
 
 	_, err := svc.Route(router.WithStrategy(context.Background(), router.Strategy("cluster")), router.Request{})
 
@@ -72,7 +72,7 @@ func TestRetiredClusterStrategyIsNotRoutable(t *testing.T) {
 }
 
 func TestRouteWithoutDefaultRouterFailsClosed(t *testing.T) {
-	svc := withHMMPorts(NewService(nil, nil, nil, nil, false, "", "", nil))
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, "", "", nil))
 
 	_, err := svc.Route(context.Background(), router.Request{})
 

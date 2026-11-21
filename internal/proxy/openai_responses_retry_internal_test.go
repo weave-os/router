@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 
@@ -77,7 +78,7 @@ func TestProxyOpenAIChatCompletion_SameBindingRetryStaysOnResponses(t *testing.T
 	client := &responsesRetryClient{}
 	svc := withHMMPorts(NewService(
 		staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "test"}},
-		map[string]providers.Client{providers.ProviderOpenAI: client},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}),
 		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil))
 
 	svc.engine.SetRetrySleep(noopSleep)
@@ -121,10 +122,10 @@ func TestProxyMessages_SiblingFailoverOntoOpenAIUsesResponses(t *testing.T) {
 	}
 	svc := withHMMPorts(NewService(
 		staticRouter{decision: decision},
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderAnthropic: failing,
 			providers.ProviderOpenAI:    rescue,
-		},
+		}),
 		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(map[string]struct{}{
 			providers.ProviderAnthropic: {},
@@ -188,7 +189,7 @@ func TestProxyOpenAIResponses_RetriesNativeEmptyCompletion(t *testing.T) {
 	client := &emptyThenOKResponsesClient{}
 	svc := withHMMPorts(NewService(
 		staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "test"}},
-		map[string]providers.Client{providers.ProviderOpenAI: client},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}),
 		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil))
 
 	svc.engine.SetRetrySleep(noopSleep)
@@ -204,7 +205,7 @@ func TestProxyOpenAIResponses_RetriesNativeStreamingEmptyCompletion(t *testing.T
 	client := &emptyThenOKResponsesClient{streaming: true}
 	svc := withHMMPorts(NewService(
 		staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "test"}},
-		map[string]providers.Client{providers.ProviderOpenAI: client},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}),
 		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil))
 
 	svc.engine.SetRetrySleep(noopSleep)
@@ -220,7 +221,7 @@ func TestProxyOpenAIChatCompletion_RetriesNonStreamingEmptyCompletion(t *testing
 	client := &emptyThenOKResponsesClient{streaming: true}
 	svc := withHMMPorts(NewService(
 		staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "test"}},
-		map[string]providers.Client{providers.ProviderOpenAI: client},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}),
 		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil))
 
 	svc.engine.SetRetrySleep(noopSleep)
@@ -264,7 +265,7 @@ func TestProxyOpenAIResponses_RetriesTranslatedStreamingEmptyCompletion(t *testi
 	}}
 	svc := withHMMPorts(NewService(
 		staticRouter{decision: router.Decision{Provider: providers.ProviderXAI, Model: servedModel, Reason: "test"}},
-		map[string]providers.Client{providers.ProviderXAI: client},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderXAI: client}),
 		nil, nil, false, providers.ProviderXAI, servedModel, nil))
 
 	svc.engine.SetRetrySleep(noopSleep)

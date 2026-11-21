@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -25,7 +26,7 @@ func TestEscalationCommitFailurePreservesEligibilityAndTurnEvidence(t *testing.T
 		role: {Provider: providers.ProviderGoogle, Model: "gemini-3-pro-preview", Strategy: router.StrategyHMMEmbedding, PinnedUntil: time.Now().Add(time.Hour)},
 	}}
 	clients := map[string]providers.Client{providers.ProviderAnthropic: &stripFailureProvider{}, providers.ProviderGoogle: &stripFailureProvider{}}
-	svc := withHMMPorts(NewService(nil, clients, nil, pins, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(clients), nil, pins, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithEscalation(store, observer).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: escalationDispatchRouter{}, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1}})
 	svc.scopedSearchRequirement = true

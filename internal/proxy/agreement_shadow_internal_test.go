@@ -242,7 +242,7 @@ func (agreementFailureRouter) Route(context.Context, router.Request) (router.Dec
 func TestAgreementShadowRoutingRefusalBreaksHistoryWithoutDispatch(t *testing.T) {
 	store := &agreementTelemetry{auxTelemetryRepo: &auxTelemetryRepo{}, notify: make(chan struct{}, 1)}
 	pins := newStubPinStore()
-	svc := withHMMPorts(NewService(agreementFailureRouter{}, nil, nil, pins, false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, store)).
+	svc := withHMMPorts(NewService(agreementFailureRouter{}, dispatch.NewClients(nil), nil, pins, false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, store)).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: agreementFailureRouter{}, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}})
 	env, err := translate.ParseAnthropic([]byte(`{"model":"weave-auto","messages":[{"role":"user","content":"synthetic routing test"}]}`))
 	if err != nil {

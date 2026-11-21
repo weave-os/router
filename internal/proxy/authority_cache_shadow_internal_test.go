@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/continuity"
@@ -81,7 +82,7 @@ func runAuthorityShadowTurnWithPin(
 	store.getFound = true
 	store.getPin = pin
 	svc := withHMMPorts(NewService(
-		nil, nil, nil, store, false,
+		nil, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		EditHMMConfig(func(c *hmm.Config) { c.AuthorityCacheShadow = enabled }).
 		EditContinuityConfig(func(c *continuity.Config) {

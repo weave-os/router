@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -44,7 +45,7 @@ func (spy *blindExperimentRouterSpy) Route(context.Context, router.Request) (rou
 func TestCallerModelPassthroughSkipsAutomaticPinsAndScorer(t *testing.T) {
 	routerSpy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
 	pins := newStubPinStore()
-	service := withHMMPorts(NewService(routerSpy, nil, nil, pins, false,
+	service := withHMMPorts(NewService(routerSpy, dispatch.NewClients(nil), nil, pins, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	envelope, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}]}`))
@@ -82,7 +83,7 @@ func TestCallerModelPassthroughSkipsAutomaticPinsAndScorer(t *testing.T) {
 
 func TestCallerModelPassthroughLeavesAutomaticSessionHistoryUntouched(t *testing.T) {
 	pins := newStubPinStore()
-	service := withHMMPorts(NewService(nil, nil, nil, pins, false,
+	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, pins, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	envelope, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}]}`))
@@ -112,7 +113,7 @@ func TestCallerModelPassthroughLeavesAutomaticSessionHistoryUntouched(t *testing
 }
 
 func TestCallerModelPassthroughUsesGatewayAlias(t *testing.T) {
-	service := withHMMPorts(NewService(nil, nil, nil, nil, false,
+	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	decision, passthrough, err := service.blindExperimentPassthroughDecision(
@@ -141,7 +142,7 @@ func TestCallerModelPassthroughUsesGatewayAlias(t *testing.T) {
 }
 
 func TestCallerModelPassthroughRejectsUnknownModelWithoutBlamingProviderKeys(t *testing.T) {
-	service := withHMMPorts(NewService(nil, nil, nil, nil, false,
+	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	_, _, err := service.blindExperimentPassthroughDecision(
@@ -161,7 +162,7 @@ func TestCallerModelPassthroughRejectsUnknownModelWithoutBlamingProviderKeys(t *
 }
 
 func TestCallerModelPassthroughResolvesDatedAlias(t *testing.T) {
-	service := withHMMPorts(NewService(nil, nil, nil, nil, false,
+	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	decision, _, err := service.blindExperimentPassthroughDecision(
@@ -178,7 +179,7 @@ func TestCallerModelPassthroughResolvesDatedAlias(t *testing.T) {
 }
 
 func TestCallerModelPassthroughServesWeaveAutoOnTheClientDefault(t *testing.T) {
-	service := withHMMPorts(NewService(nil, nil, nil, nil, false,
+	service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	enabled := map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenAI: {}}
@@ -196,7 +197,7 @@ func TestCallerModelPassthroughServesWeaveAutoOnTheClientDefault(t *testing.T) {
 
 func TestCallerModelPassthroughHonorsExcludedModels(t *testing.T) {
 	routerSpy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
-	service := withHMMPorts(NewService(routerSpy, nil, nil, nil, false,
+	service := withHMMPorts(NewService(routerSpy, dispatch.NewClients(nil), nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	envelope, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}]}`))
@@ -241,7 +242,7 @@ func blindExperimentUtilityTurnBodies() []struct {
 func runBlindExperimentUtilityTurn(t *testing.T, ctx context.Context, body string) turnLoopResult {
 	t.Helper()
 	routerSpy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
-	service := withHMMPorts(NewService(routerSpy, nil, nil, newStubPinStore(), false,
+	service := withHMMPorts(NewService(routerSpy, dispatch.NewClients(nil), nil, newStubPinStore(), false,
 		providers.ProviderGoogle, experimentUtilityHardPinModel, nil)).
 		WithExplicitUtilityHardPin(true).
 		WithSubAgentOverride(providers.ProviderGoogle, experimentSubAgentOverrideModel)
@@ -339,7 +340,7 @@ const experimentSubAgentOverrideModel = "gemini-3-flash-preview"
 
 func TestBlindExperimentPassthroughYieldsUtilityTurnToForceModel(t *testing.T) {
 	routerSpy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
-	service := withHMMPorts(NewService(routerSpy, nil, nil, newStubPinStore(), false,
+	service := withHMMPorts(NewService(routerSpy, dispatch.NewClients(nil), nil, newStubPinStore(), false,
 		providers.ProviderGoogle, "gemini-3.1-flash-lite-preview", nil))
 
 	envelope, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-4-8","max_tokens":1,"messages":[{"role":"user","content":"quota"}]}`))
@@ -372,7 +373,7 @@ func TestBlindExperimentRouterOnUsesScorer(t *testing.T) {
 		Model:    "claude-haiku-4-5",
 		Reason:   "cluster:test",
 	}}
-	service := withHMMPorts(NewService(routerSpy, nil, nil, nil, false,
+	service := withHMMPorts(NewService(routerSpy, dispatch.NewClients(nil), nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	envelope, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}]}`))
@@ -505,7 +506,7 @@ func TestBlindPassthroughUnknownModelServesClientBaseline(t *testing.T) {
 		{name: "codex retired id", client: ClientAppCodex, requested: "gpt-retired-1", provider: providers.ProviderOpenAI, want: "gpt-6.1-sol"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			service := withHMMPorts(NewService(nil, nil, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+			service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 			ctx := context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough), ClientIdentityContextKey{}, ClientIdentity{ClientApp: tc.client})
 
 			decision, handled, err := service.blindExperimentPassthroughDecision(ctx, router.Request{
@@ -530,7 +531,7 @@ func TestBlindPassthroughUnknownModelBaselineHonoursExclusions(t *testing.T) {
 		{name: "safety excluded", req: router.Request{Candidates: router.Candidates{SafetyExcludedModels: map[string]struct{}{"claude-opus-5-5": {}}}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			service := withHMMPorts(NewService(nil, nil, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+			service := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 			ctx := context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppClaudeCode})
 			req := tc.req
 			req.RequestedModel = "claude-retired-9"

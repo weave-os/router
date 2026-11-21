@@ -625,7 +625,7 @@ func (p *parityUpstream) Passthrough(context.Context, providers.PreparedRequest,
 func (in parityIngress) parityService(upstream providers.Client) *Service {
 	svc := withHMMPorts(NewService(
 		staticRouter{decision: router.Decision{Provider: in.provider, Model: in.model, Reason: "test"}},
-		map[string]providers.Client{in.provider: upstream},
+		dispatch.NewClients(map[string]providers.Client{in.provider: upstream}),
 		nil, nil, false, in.provider, in.model, nil)).
 		WithDeploymentKeyedProviders(map[string]struct{}{in.provider: {}})
 	svc.engine.SetRetrySleep(noopSleep)
@@ -715,7 +715,7 @@ func TestSubscriptionFailoverParity_RescueDispatch(t *testing.T) {
 			}
 			svc := withHMMPorts(NewService(
 				staticRouter{decision: router.Decision{Provider: in.provider, Model: in.model, Reason: "test"}},
-				map[string]providers.Client{in.provider: upstream},
+				dispatch.NewClients(map[string]providers.Client{in.provider: upstream}),
 				nil, nil, false, in.provider, in.model, nil))
 
 			svc.engine.SetRetrySleep(noopSleep)

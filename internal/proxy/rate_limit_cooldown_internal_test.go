@@ -441,7 +441,7 @@ func cooldownTurnLoopService(store sessionpin.Store, transient bool) (*Service, 
 		Model:    freshTurnModel,
 		Reason:   "cluster:v0.2",
 	}}
-	svc := withHMMPorts(NewService(scorer, nil, nil, store, false,
+	svc := withHMMPorts(NewService(scorer, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithTransientRateLimit(transient, 45)
 	svc.clock = func() time.Time { return rateLimitTestNow }

@@ -119,10 +119,10 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 				Provider: providers.ProviderAnthropic, Model: gatewayCompactionOpusModel,
 				Reason: translate.ReasonUserForceModel, PinnedUntil: pinNeverExpires,
 			}}
-			svc := withHMMPorts(NewService(nil, map[string]providers.Client{
+			svc := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{
 				providers.ProviderAnthropic: anthropic.NewClient("synthetic-paid-key", upstream.URL),
 				providers.ProviderOpenAI:    planClient{&fakeClient{name: providers.ProviderOpenAI}},
-			}, nil, store, false, "", "", nil)).
+			}), nil, store, false, "", "", nil)).
 				WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: true}}).
 				WithAvailableModels(modelSet([]string{gatewayCompactionOpusModel, catalog.ModelGPT6Luna})).
 				WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI})).

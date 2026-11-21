@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/api/openai"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -56,7 +57,7 @@ func TestChatCompletionHandler_CrossFormatOverflowReturnsNativeError(t *testing.
 	for _, stream := range []bool{false, true} {
 		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
 			svc := proxy.WithStrategyPorts(proxy.NewService(
-				overflowRouter{}, map[string]providers.Client{providers.ProviderOpenAI: overflowProvider{}},
+				overflowRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: overflowProvider{}}),
 				nil, nil, false, providers.ProviderOpenAI, "gpt-5-mini", nil), hmm.ServingPorts())
 
 			engine := gin.New()

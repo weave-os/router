@@ -11,6 +11,7 @@ import (
 	"time"
 
 	feedbackapi "weave-os/router/internal/api/feedback"
+	"weave-os/router/internal/dispatch"
 	token "weave-os/router/internal/feedback"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/proxy"
@@ -79,7 +80,7 @@ func checkFeedbackLinkEndToEnd(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 
 	signer := token.NewSigner("e2e-secret", time.Hour)
-	svc := proxy.WithStrategyPorts(proxy.NewService(nil, nil, nil, nil, false, "", "", nil), hmm.ServingPorts()).
+	svc := proxy.WithStrategyPorts(proxy.NewService(nil, dispatch.NewClients(nil), nil, nil, false, "", "", nil), hmm.ServingPorts()).
 		WithFeedback(postgres.NewFeedbackRepo(pool), signer, "https://router.example.com")
 
 	engine := gin.New()
@@ -191,7 +192,7 @@ func checkFeedbackWithoutTelemetry(ctx context.Context, pool *pgxpool.Pool) erro
 	}
 
 	signer := token.NewSigner("nt-secret", time.Hour)
-	svc := proxy.WithStrategyPorts(proxy.NewService(nil, nil, nil, nil, false, "", "", nil), hmm.ServingPorts()).
+	svc := proxy.WithStrategyPorts(proxy.NewService(nil, dispatch.NewClients(nil), nil, nil, false, "", "", nil), hmm.ServingPorts()).
 		WithFeedback(postgres.NewFeedbackRepo(pool), signer, "https://router.example.com")
 	engine := gin.New()
 	engine.GET("/v1/feedback/link/:token", feedbackapi.GetContextHandler(svc))

@@ -63,18 +63,6 @@
       "removal_phase": "8"
     },
     {
-      "id": "provider_map|internal/proxy/service.go|NewService|providers.Client|1",
-      "kind": "provider_map",
-      "file": "internal/proxy/service.go",
-      "line": 1440,
-      "symbol": "NewService",
-      "detail": "map value type is providers.Client",
-      "owner": "@steventohme",
-      "rationale": "Proxy constructor still accepts the legacy provider map as the compatibility path for the Phase 8 direct dispatch sites in proxy; it goes when the executor becomes the only way to reach a provider client.",
-      "operation_class": "main_inference",
-      "removal_phase": "8"
-    },
-    {
       "id": "direct_provider_call|internal/proxy/service.go|Service.PassthroughToNamedProvider|weave-os/router/internal/providers.Passthrough|1",
       "kind": "direct_provider_call",
       "file": "internal/proxy/service.go",

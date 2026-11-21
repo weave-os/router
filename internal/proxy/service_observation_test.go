@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/proxy/usage"
@@ -170,7 +171,7 @@ func TestPolicyShadowComparisonSkipsDryRunAndCollectsServingRoute(t *testing.T) 
 	shadowStrategy := router.Strategy("future-policy")
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: scorerDecision},
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", telem), hmm.ServingPorts()).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: shadowStrategy, Router: shadowRouter})
@@ -232,7 +233,7 @@ func TestPolicyShadowComparisonCollectsUsageBypassRoute(t *testing.T) {
 	})
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: bypassScorerPickMdl}},
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		nil, nil, false,
 		providers.ProviderAnthropic, bypassScorerPickMdl, telem), hmm.ServingPorts()).
 		WithUsageObserver(observer).
@@ -275,7 +276,7 @@ func TestProxyMessages_RecordsRoutingObservation(t *testing.T) {
 	telem := newCaptureTelemetry()
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: decision},
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		nil,
 		nil,
 		false,
@@ -348,7 +349,7 @@ func TestProxyMessages_RecordsPolicyObservation(t *testing.T) {
 	telem := newCaptureTelemetry()
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: decision},
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		telem), hmm.ServingPorts()).
@@ -403,7 +404,7 @@ func TestProxyMessages_PersistsCacheTokens(t *testing.T) {
 	}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: decision},
-		map[string]providers.Client{providers.ProviderAnthropic: provider},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: provider}),
 		nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		telem), hmm.ServingPorts())
@@ -439,7 +440,7 @@ func TestProxyMessages_ChosenScoreZeroIsPersisted(t *testing.T) {
 	telem := newCaptureTelemetry()
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: decision},
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		telem), hmm.ServingPorts())
@@ -470,7 +471,7 @@ func TestProxyMessages_NoMetadataOmitsClusterFields(t *testing.T) {
 	telem := newCaptureTelemetry()
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: decision},
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		nil,
 		nil,
 		false,
@@ -525,7 +526,7 @@ func TestProxyMessages_PersistsTurnType(t *testing.T) {
 			telem := newCaptureTelemetry()
 			svc := proxy.WithStrategyPorts(proxy.NewService(
 				&fakeRouter{decision: decision},
-				map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+				dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 				nil, nil, false,
 				providers.ProviderAnthropic, "claude-haiku-4-5",
 				telem), hmm.ServingPorts())
@@ -554,7 +555,7 @@ func TestProxyMessages_PersistsRolloutID(t *testing.T) {
 	telem := newCaptureTelemetry()
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: decision},
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		telem), hmm.ServingPorts())
@@ -582,7 +583,7 @@ func TestProxyMessages_PersistedPolicyRolloutIDOverridesClientIdentity(t *testin
 	telem := newCaptureTelemetry()
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: decision},
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		telem), hmm.ServingPorts())
@@ -612,7 +613,7 @@ func TestProxyMessages_PersistsSessionKeyAndRole(t *testing.T) {
 	telem := newCaptureTelemetry()
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: decision},
-		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}),
 		nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		telem), hmm.ServingPorts())
@@ -690,7 +691,7 @@ func TestProxyMessages_NativeAnthropicResponseSignals(t *testing.T) {
 			telem := newCaptureTelemetry()
 			svc := proxy.WithStrategyPorts(proxy.NewService(
 				&fakeRouter{decision: decision},
-				map[string]providers.Client{providers.ProviderAnthropic: provider},
+				dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: provider}),
 				nil, nil, false,
 				providers.ProviderAnthropic, "claude-opus-4-7", telem), hmm.ServingPorts()).
 				WithNativeAnthropicResponseSignals(tt.enabled)
@@ -764,7 +765,7 @@ func TestProxyOpenAIChatCompletion_ResponseSignalTelemetry(t *testing.T) {
 			telem := newCaptureTelemetry()
 			svc := proxy.WithStrategyPorts(proxy.NewService(
 				&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna"}},
-				map[string]providers.Client{providers.ProviderOpenAI: provider},
+				dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: provider}),
 				nil, nil, false,
 				providers.ProviderOpenAI, "gpt-5.6-sol", telem), hmm.ServingPorts())
 
@@ -801,7 +802,7 @@ func TestProxyOpenAIChatCompletion_AnthropicTranslatedResponseSignals(t *testing
 	telem := newCaptureTelemetry()
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-5-5"}},
-		map[string]providers.Client{providers.ProviderAnthropic: provider},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: provider}),
 		nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-5-5", telem), hmm.ServingPorts())
 
@@ -877,7 +878,7 @@ func TestProxyOpenAIChatCompletion_NativeChatResponseSignals(t *testing.T) {
 			telem := newCaptureTelemetry()
 			svc := proxy.WithStrategyPorts(proxy.NewService(
 				&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-4.1"}},
-				map[string]providers.Client{providers.ProviderOpenAI: provider},
+				dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: provider}),
 				nil, nil, false,
 				providers.ProviderOpenAI, "gpt-4.1", telem), hmm.ServingPorts()).
 				WithNativeOpenAIResponseSignals(tt.enabled)
@@ -962,7 +963,7 @@ func TestProxyOpenAIResponses_NativeResponseSignals(t *testing.T) {
 			telem := newCaptureTelemetry()
 			svc := proxy.WithStrategyPorts(proxy.NewService(
 				&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna"}},
-				map[string]providers.Client{providers.ProviderOpenAI: provider},
+				dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: provider}),
 				nil, nil, false,
 				providers.ProviderOpenAI, "gpt-5.6-sol", telem), hmm.ServingPorts()).
 				WithNativeOpenAIResponseSignals(tt.enabled)

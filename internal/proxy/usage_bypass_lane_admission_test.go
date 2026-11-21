@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/proxy/usage"
@@ -29,7 +30,7 @@ func codexBypassFixture(t *testing.T, threshold float64, snapshot usage.Snapshot
 	}}
 	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
 	obs.Record(obs.Key([]byte(laneAdmissionCodexToken)), snapshot)
-	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderOpenAI: p}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-terra", nil), hmm.ServingPorts()).
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: p}), nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-terra", nil), hmm.ServingPorts()).
 		WithUsageObserver(obs)
 	ctx := context.WithValue(context.Background(), proxy.OpenAISubscriptionContextKey{}, laneAdmissionCodexToken)
 	ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, "account-1")

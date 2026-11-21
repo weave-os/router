@@ -604,7 +604,7 @@ func TestProxyEntrypointsInterceptBetaWithoutRoutingUpstream(t *testing.T) {
 			betaRouter := &betaTestRouter{}
 			store := &betaTestPreferenceStore{}
 			pins := &betaCleanupPinStore{}
-			svc := withHMMPorts(NewService(stableRouter, nil, nil, pins, false, "", "", nil)).
+			svc := withHMMPorts(NewService(stableRouter, dispatch.NewClients(nil), nil, pins, false, "", "", nil)).
 				WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMBeta, Router: betaRouter}).
 				WithSessionStrategyStore(store)
 			ctx := context.WithValue(context.Background(), APIKeyIDContextKey{}, "beta-test-key")
@@ -638,7 +638,7 @@ func TestBetaToggleSelectsBetaThenRestoresStableRouter(t *testing.T) {
 	stableRouter := &betaTestRouter{}
 	betaRouter := &betaTestRouter{}
 	store := &betaTestPreferenceStore{}
-	svc := withHMMPorts(NewService(stableRouter, nil, nil, nil, false, "", "", nil)).
+	svc := withHMMPorts(NewService(stableRouter, dispatch.NewClients(nil), nil, nil, false, "", "", nil)).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMBeta, Router: betaRouter}).
 		WithSessionStrategyStore(store)
 	installationID := uuid.New()
@@ -707,10 +707,10 @@ func TestProxyEntrypointsStripHistoricalBetaArtifactsBeforeRouting(t *testing.T)
 			}}
 			svc := withHMMPorts(NewService(
 				routing,
-				map[string]providers.Client{
+				dispatch.NewClients(map[string]providers.Client{
 					providers.ProviderAnthropic: embedTestProvider{},
 					providers.ProviderOpenAI:    embedTestProvider{},
-				},
+				}),
 				nil, nil, false,
 				providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
@@ -763,7 +763,7 @@ func TestHistoricalBetaArtifactsStripStaleThinkingSignatures(t *testing.T) {
 			provider := &betaCaptureProvider{}
 			svc := withHMMPorts(NewService(
 				routing,
-				map[string]providers.Client{providers.ProviderAnthropic: provider},
+				dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: provider}),
 				nil, nil, false,
 				providers.ProviderAnthropic, "claude-opus-4-7", nil))
 
@@ -815,10 +815,10 @@ func TestBetaPreferenceSurvivesFirstMessageRewriteWithinClientSession(t *testing
 			betaRouter := &betaTestRouter{decision: decision}
 			svc := withHMMPorts(NewService(
 				stableRouter,
-				map[string]providers.Client{
+				dispatch.NewClients(map[string]providers.Client{
 					providers.ProviderAnthropic: embedTestProvider{},
 					providers.ProviderOpenAI:    embedTestProvider{},
-				},
+				}),
 				nil, nil, false,
 				providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 				WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMBeta, Router: betaRouter}).

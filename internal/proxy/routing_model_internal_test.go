@@ -87,7 +87,7 @@ func TestRoutingModelDispatchesConcreteModelAcrossClientProtocols(t *testing.T) 
 				defaultRouter := &betaTestRouter{}
 				hmmRouter := &betaTestRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: completionModel}}
 				provider := &routingModelCaptureProvider{}
-				svc := withHMMPorts(NewService(defaultRouter, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, nil, false, providers.ProviderAnthropic, completionModel, nil)).
+				svc := withHMMPorts(NewService(defaultRouter, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: provider}), nil, nil, false, providers.ProviderAnthropic, completionModel, nil)).
 					WithPolicyStrategy(policy.StrategySpec{Strategy: choice.strategy, Router: hmmRouter})
 				ctx := router.WithStrategySelection(context.Background(), router.StrategySelection{Strategy: choice.strategy, RoutingModel: choice.model})
 				request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, tc.path, nil)

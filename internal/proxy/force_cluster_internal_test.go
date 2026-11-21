@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
@@ -77,7 +78,7 @@ func TestApplyForceClusterHeader_RejectsNonSidecarStrategy(t *testing.T) {
 func TestProxyMessages_ForceClusterOnNonSidecarStrategyRejects(t *testing.T) {
 	fr := &stripFailureRouter{}
 	fp := &stripFailureProvider{}
-	svc := withHMMPorts(NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: fp}, nil, nil, false,
+	svc := withHMMPorts(NewService(fr, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: fp}), nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	body := `{"model":"claude-opus-4-8","max_tokens":64,"messages":[{"role":"user","content":"hi"}]}`
@@ -113,7 +114,7 @@ func TestProxyMessages_ForceClusterReachesRouterRequest(t *testing.T) {
 		Reason:   "hmm_policy:force_cluster",
 	}}
 	fp := &stripFailureProvider{}
-	svc := withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: fp}, nil, nil, false,
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: fp}), nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: strategy, Router: fr})
 

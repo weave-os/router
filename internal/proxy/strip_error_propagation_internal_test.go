@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 
@@ -53,7 +54,7 @@ func TestProxyOpenAIChatCompletion_StripRoutingMarkerFailure_ReturnsError(t *tes
 
 	fr := &stripFailureRouter{}
 	fp := &stripFailureProvider{}
-	svc := withHMMPorts(NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: fp}, nil, nil, false,
+	svc := withHMMPorts(NewService(fr, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: fp}), nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	body := `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`
@@ -77,7 +78,7 @@ func TestProxyMessages_StripRoutingMarkerFailure_ReturnsError(t *testing.T) {
 
 	fr := &stripFailureRouter{}
 	fp := &stripFailureProvider{}
-	svc := withHMMPorts(NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: fp}, nil, nil, false,
+	svc := withHMMPorts(NewService(fr, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: fp}), nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	body := `{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}]}`

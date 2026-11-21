@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
@@ -34,7 +35,7 @@ func (s *stubGlobalExclusionStore) ListGlobalAutomaticRoutingExclusions(context.
 
 func TestGlobalAutomaticExclusions_ServesCachedSnapshotWithinTTL(t *testing.T) {
 	store := &stubGlobalExclusionStore{byModel: map[string]string{"claude-opus-5": "too expensive"}}
-	svc := withHMMPorts(NewService(nil, nil, nil, nil, false,
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithGlobalAutomaticExclusions(store)
 
@@ -50,7 +51,7 @@ func TestGlobalAutomaticExclusions_ServesCachedSnapshotWithinTTL(t *testing.T) {
 // be loaded reports nothing disabled and retries on the next turn.
 func TestGlobalAutomaticExclusions_ColdReadFailureFailsOpen(t *testing.T) {
 	store := &stubGlobalExclusionStore{err: errors.New("router database unreachable")}
-	svc := withHMMPorts(NewService(nil, nil, nil, nil, false,
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithGlobalAutomaticExclusions(store)
 
@@ -61,7 +62,7 @@ func TestGlobalAutomaticExclusions_ColdReadFailureFailsOpen(t *testing.T) {
 
 func TestGlobalAutomaticExclusions_RefreshFailureKeepsLastSnapshot(t *testing.T) {
 	store := &stubGlobalExclusionStore{byModel: map[string]string{"claude-opus-5": ""}}
-	svc := withHMMPorts(NewService(nil, nil, nil, nil, false,
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithGlobalAutomaticExclusions(store)
 
@@ -77,7 +78,7 @@ func TestGlobalAutomaticExclusions_RefreshFailureKeepsLastSnapshot(t *testing.T)
 // ExcludedModels would also reject explicit force-model pins.
 func TestWithPolicyRequestContext_CarriesAutomaticExclusionsSeparately(t *testing.T) {
 	store := &stubGlobalExclusionStore{byModel: map[string]string{"claude-opus-5": ""}}
-	svc := withHMMPorts(NewService(nil, nil, nil, nil, false,
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithGlobalAutomaticExclusions(store)
 
@@ -97,7 +98,7 @@ func TestTurnLoop_DropsAutomaticPinOnDisabledModel(t *testing.T) {
 		Reason:      "postgres",
 		PinnedUntil: time.Now().Add(time.Hour),
 	}, found: true}
-	svc := withHMMPorts(NewService(fakeRouter, nil, nil, store, false,
+	svc := withHMMPorts(NewService(fakeRouter, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic)).
 		WithGlobalAutomaticExclusions(&stubGlobalExclusionStore{
@@ -129,7 +130,7 @@ func TestTurnLoop_KeepsForcedPinOnDisabledModel(t *testing.T) {
 		Reason:      translate.ReasonUserForceModel,
 		PinnedUntil: pinNeverExpires,
 	}, found: true}
-	svc := withHMMPorts(NewService(fakeRouter, nil, nil, store, false,
+	svc := withHMMPorts(NewService(fakeRouter, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic)).
 		WithGlobalAutomaticExclusions(&stubGlobalExclusionStore{

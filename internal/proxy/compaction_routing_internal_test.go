@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/candidates"
@@ -48,7 +49,7 @@ func newCompactionRoutingFixture(t *testing.T, scored router.Decision) compactio
 	calls := &atomic.Int32{}
 	store := newForceModelMapStore()
 	svc := withHMMPorts(NewService(compactionScorer{decision: scored, calls: calls},
-		map[string]providers.Client{providers.ProviderOpenAI: nil, providers.ProviderAnthropic: nil},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: nil, providers.ProviderAnthropic: nil}),
 		nil, store, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil)).
 		WithHardPinResolver(func(req HardPinRequest) (string, string, bool) {
 			return policy.UtilityTarget(policy.UtilityTargetRequest{

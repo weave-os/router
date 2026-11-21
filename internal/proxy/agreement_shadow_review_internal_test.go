@@ -87,7 +87,7 @@ func TestAgreementShadowForceUnforceBeforeToolResultBreaksVotes(t *testing.T) {
 		Reason: "hmm_policy", PinnedUntil: time.Now().Add(time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
-	svc := withHMMPorts(NewService(nil, nil, nil, pins, false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, store)).
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, pins, false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, store)).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderOpenAI)).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: &authorityShadowTestRouter{decision: initial.Fresh}, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}})
 	applyAgreementShadowTelemetry(hmm.ServingPorts(), ctx, &p, initial)
@@ -134,7 +134,7 @@ func TestAgreementShadowRejectedAndFailedCommandsKeepHistory(t *testing.T) {
 			if failed {
 				pins = &failedCommandStore{newForceModelMapStore()}
 			}
-			svc := withHMMPorts(NewService(nil, nil, nil, pins, false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, store)).WithDeploymentKeyedProviders(keyed(providers.ProviderOpenAI))
+			svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, pins, false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, store)).WithDeploymentKeyedProviders(keyed(providers.ProviderOpenAI))
 			p, res := agreementFixture()
 			threadKey := [sessionpin.SessionKeyLen]byte{1}
 			p.SessionKey = threadKey[:]

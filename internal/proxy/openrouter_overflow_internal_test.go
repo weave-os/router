@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
@@ -28,7 +29,7 @@ func newOverflowDispatch(activeProviders map[subscriptions.Provider]bool) *overf
 		anthropic:  &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{{writeBytes: []byte("anthropic answer")}}},
 		openRouter: &fakeClient{name: providers.ProviderOpenRouter, outcomes: []fakeOutcome{{writeBytes: []byte("openrouter answer")}}},
 	}
-	d.svc = withHMMPorts(NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderAnthropic: d.anthropic, providers.ProviderOpenRouter: d.openRouter}, nil, nil, false, "", "", nil)).
+	d.svc = withHMMPorts(NewService(stateModelRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: d.anthropic, providers.ProviderOpenRouter: d.openRouter}), nil, nil, false, "", "", nil)).
 		WithManagedSubscriptions(&stateModelLeaser{activeProviders: activeProviders})
 	d.svc.credentials.KeyedProviders = map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenAI: {}, providers.ProviderOpenRouter: {}}
 	return d

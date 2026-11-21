@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/translate"
@@ -62,7 +63,7 @@ func TestProxyMessagesEmitsHighLevelFlowSpans(t *testing.T) {
 	providerImpl := &flowSpanProvider{}
 	svc := withHMMPorts(NewService(
 		routerImpl,
-		map[string]providers.Client{providers.ProviderAnthropic: providerImpl},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: providerImpl}),
 		nil,
 		nil,
 		false,
@@ -109,7 +110,7 @@ func TestProxyOpenAITranslationErrorMarksInferenceSpanFailed(t *testing.T) {
 	providerImpl := &flowSpanProvider{}
 	svc := withHMMPorts(NewService(
 		routerImpl,
-		map[string]providers.Client{providers.ProviderGoogle: providerImpl},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderGoogle: providerImpl}),
 		nil,
 		nil,
 		false,

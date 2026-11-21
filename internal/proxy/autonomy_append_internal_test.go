@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -23,7 +24,7 @@ const autonomyGateBody = `{
 }`
 
 func newAutonomyGateService() *Service {
-	return withHMMPorts(NewService(nil, map[string]providers.Client{}, nil, nil,
+	return withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{}), nil, nil,
 		false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 }

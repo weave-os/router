@@ -11,6 +11,7 @@ import (
 	"time"
 
 	feedbackapi "weave-os/router/internal/api/feedback"
+	"weave-os/router/internal/dispatch"
 	token "weave-os/router/internal/feedback"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router/hmm"
@@ -36,7 +37,7 @@ func (f *fakeFeedbackRepo) GetContext(_ context.Context, _, _ string) (proxy.Fee
 }
 
 func newService(repo proxy.FeedbackRepository, signer *token.Signer) *proxy.Service {
-	return proxy.WithStrategyPorts(proxy.NewService(nil, nil, nil, nil, false, "", "", nil), hmm.ServingPorts()).
+	return proxy.WithStrategyPorts(proxy.NewService(nil, dispatch.NewClients(nil), nil, nil, false, "", "", nil), hmm.ServingPorts()).
 		WithFeedback(repo, signer, "https://router.example.com")
 }
 

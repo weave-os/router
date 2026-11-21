@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 
@@ -50,7 +51,7 @@ func TestProxyOpenAIResponses_NativeStreamCompletionDoesNotReplayOutput(t *testi
 				client := &sparseResponsesClient{interrupt: interrupt}
 				svc := withHMMPorts(NewService(
 					staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "test"}},
-					map[string]providers.Client{providers.ProviderOpenAI: client},
+					dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}),
 					nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil))
 
 				svc.engine.SetRetrySleep(noopSleep)

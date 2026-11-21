@@ -15,6 +15,7 @@ import (
 	"github.com/tidwall/gjson"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -53,7 +54,7 @@ func TestProxyMessages_CodexSubscriptionExecutesNativeWebSearch(t *testing.T) {
 			store := newFakePinStore()
 			store.pin = sessionpin.Pin{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-6", Reason: translate.ReasonUserForceModel, PinnedUntil: time.Now().Add(time.Hour)}
 			store.hasPin = true
-			svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexSearchModel}}, map[string]providers.Client{providers.ProviderOpenAI: p, providers.ProviderAnthropic: &fakeProvider{proxyErr: errors.New("native Anthropic must not override an explicit Codex search")}}, nil, store, false, providers.ProviderOpenAI, codexSearchModel, nil), hmm.ServingPorts())
+			svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexSearchModel}}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: p, providers.ProviderAnthropic: &fakeProvider{proxyErr: errors.New("native Anthropic must not override an explicit Codex search")}}), nil, store, false, providers.ProviderOpenAI, codexSearchModel, nil), hmm.ServingPorts())
 			ctx := codexSearchContext()
 			ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppClaudeCode, SessionID: "parent-session"})
 			ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
@@ -92,7 +93,7 @@ func TestProxyMessages_CodexSearchNeverFallsBackToAPIKeys(t *testing.T) {
 	store := newFakePinStore()
 	store.hasPin = true
 	store.pin = sessionpin.Pin{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-6", Reason: translate.ReasonUserForceModel, PinnedUntil: time.Now().Add(time.Hour)}
-	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexSearchModel}}, map[string]providers.Client{providers.ProviderOpenAI: p}, nil, store, false, providers.ProviderOpenAI, codexSearchModel, nil), hmm.ServingPorts()).
+	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexSearchModel}}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: p}), nil, store, false, providers.ProviderOpenAI, codexSearchModel, nil), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 	ctx := context.WithValue(codexSearchContext(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppClaudeCode, SessionID: "parent-session"})
 	body := []byte(fmt.Sprintf(`{"model":"%s","max_tokens":1024,"system":"You are an assistant for performing a web search tool use","tools":[{"type":"web_search_20250305","name":"web_search"}],"messages":[{"role":"user","content":"Perform a web search for the query: a public query"}]}`, codexSearchModel))
@@ -119,7 +120,7 @@ func TestProxyMessages_CodexSearchNeverFallsBackToAPIKeys(t *testing.T) {
 
 func TestProxyMessages_CodexSearchPreservesTypedRateLimit(t *testing.T) {
 	p := &fakeProvider{proxyErr: &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Headers: http.Header{"Retry-After": []string{"17"}}, Body: []byte(`{"error":{"type":"rate_limit_error","message":"search capacity is busy"}}`)}}
-	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexSearchModel}}, map[string]providers.Client{providers.ProviderOpenAI: p}, nil, nil, false, providers.ProviderOpenAI, codexSearchModel, nil), hmm.ServingPorts())
+	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexSearchModel}}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: p}), nil, nil, false, providers.ProviderOpenAI, codexSearchModel, nil), hmm.ServingPorts())
 	body := []byte(fmt.Sprintf(`{"model":"%s","max_tokens":1024,"system":"You are an assistant for performing a web search tool use","tools":[{"type":"web_search_20250305","name":"web_search"}],"messages":[{"role":"user","content":"Perform a web search for the query: a public query"}]}`, codexSearchModel))
 	rec := httptest.NewRecorder()
 	err := svc.ProxyMessages(codexSearchContext(), body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))

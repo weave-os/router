@@ -989,9 +989,9 @@ func codexResponsesRequest(ctx context.Context, headers http.Header) bool {
 	return false
 }
 
-func NewService(r router.Router, providerMap map[string]providers.Client, emitter TelemetryEmitter, pinStore sessionpin.Store, hardPinExplore bool, hardPinProvider, hardPinModel string, telemetry TelemetryRepository) *Service {
+func NewService(r router.Router, clients *dispatch.Clients, emitter TelemetryEmitter, pinStore sessionpin.Store, hardPinExplore bool, hardPinProvider, hardPinModel string, telemetry TelemetryRepository) *Service {
 	s := &Service{
-		engine:                         dispatch.NewEngine(dispatch.NewClients(providerMap)),
+		engine:                         dispatch.NewEngine(clients),
 		translationCompatibilityMode:   TranslationCompatibilityShadow,
 		emitter:                        emitter,
 		ingress:                        ingress.New(0),
