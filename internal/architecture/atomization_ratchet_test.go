@@ -36,6 +36,7 @@ const (
 	ratchetServingStrategyImports = "serving_strategy_internal_imports"
 	ratchetHMMPinFields           = "hmm_pin_field_references"
 	ratchetProxyEscalation        = "proxy_escalation_internal_references"
+	ratchetServingStrategyNames   = "serving_strategy_constant_references"
 )
 
 var atomizationRatchetFixes = map[string]string{
@@ -45,6 +46,7 @@ var atomizationRatchetFixes = map[string]string{
 	ratchetStrategyAdapterImports: "strategy packages (internal/router/hmm, rl, decisionmodel, policy) must not import serving-layer adapters; declare a port in the strategy package and implement it in the serving layer",
 	ratchetServingStrategyImports: "serving-layer packages may reach a strategy only through router.Router, router.Request and router.Decision; wire the concrete strategy in cmd/router instead of importing its package",
 	ratchetProxyEscalation:        "internal/proxy must not drive escalation scoring, judging or state (escalation.Store/Observer, llmescalation.Judge, internal/escalationjudge); call the helper in internal/router/escalation/floor and pass it turn facts",
+	ratchetServingStrategyNames:   "serving-layer packages must not branch on named strategies (router.StrategyHMM*, StrategyLLMClassifier, ...); move the strategy-specific behavior into the strategy package or behind a router capability and pass the serving layer a strategy-neutral fact",
 	ratchetHMMPinFields:           "HMM-only session pin fields (sessionpin.Pin.PolicyGroup, ConsecutiveDowngradeVotes, ConsecutiveUpgradeVotes) are read and written only by the accessor in internal/router/hmm",
 }
 
@@ -100,6 +102,7 @@ func TestAtomizationRatchetsDetectSyntheticViolations(t *testing.T) {
 		}},
 		{fixture: "serving_strategy", want: atomizationCounts{
 			ratchetServingStrategyImports: {"internal/architecture/testdata/atomization/serving_strategy -> internal/router/decisionmodel": 1},
+			ratchetServingStrategyNames:   {"internal/architecture/testdata/atomization/serving_strategy": 1},
 		}},
 		{fixture: "proxy_escalation", want: atomizationCounts{
 			ratchetProxyEscalation: {"internal/architecture/testdata/atomization/proxy_escalation": 3},
@@ -218,6 +221,9 @@ func nodeViolations(info *types.Info, node ast.Node, scope atomizationScope) []s
 	var found []string
 	switch n := node.(type) {
 	case *ast.SelectorExpr:
+		if scope.serving && isRouterStrategyConstant(info, n) {
+			found = append(found, ratchetServingStrategyNames)
+		}
 		if scope.proxy && isHMMMetadataField(info, n) {
 			found = append(found, ratchetProxyHMMMetadata)
 		}
@@ -253,6 +259,11 @@ func isHMMMetadataField(info *types.Info, selector *ast.SelectorExpr) bool {
 	}
 	name := selector.Sel.Name
 	return slices.Contains(hmmOnlyMetadataFields, name) || slices.ContainsFunc(hmmOnlyMetadataPrefixes, func(prefix string) bool { return strings.HasPrefix(name, prefix) })
+}
+
+func isRouterStrategyConstant(info *types.Info, selector *ast.SelectorExpr) bool {
+	object, ok := info.Uses[selector.Sel].(*types.Const)
+	return ok && object.Pkg() != nil && object.Pkg().Path() == routerPackagePath && isNamedType(object.Type(), routerPackagePath, "Strategy")
 }
 
 func isHMMPinField(info *types.Info, selector *ast.SelectorExpr) bool {

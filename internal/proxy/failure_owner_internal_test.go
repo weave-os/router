@@ -61,6 +61,9 @@ func TestDispatchErrorKindOwner_EveryKindLabeled(t *testing.T) {
 	names := declaredConstsOfType(t, "DispatchErrorKind")
 	// iota-declared: index i in declaration order is the kind's value.
 	for i, name := range names {
+		if name == "_" {
+			continue
+		}
 		kind := DispatchErrorKind(i)
 		switch kind {
 		case DispatchErrorNone, DispatchErrorUpstreamStatus:
