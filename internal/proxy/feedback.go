@@ -119,7 +119,7 @@ func (s *Service) feedbackFooter(ctx context.Context, clientApp string, tt turnt
 	if hideTerminalSurfacesForRequest(ctx) {
 		return ""
 	}
-	if s.feedbackStore == nil {
+	if s.lifecycle.RouterFeedbackStore() == nil {
 		return ""
 	}
 	if _, ok := terminalFeedbackClients[clientApp]; !ok {

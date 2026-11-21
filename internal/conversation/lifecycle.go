@@ -4,6 +4,7 @@ type Lifecycle struct {
 	noProgress          *NoProgressTracker
 	compaction          *CompactionTracker
 	textRepetitionBreak bool
+	routerFeedback      RouterFeedbackStore
 }
 
 func NewLifecycle() *Lifecycle {
@@ -30,4 +31,15 @@ func (l *Lifecycle) Compaction() *CompactionTracker {
 		return nil
 	}
 	return l.compaction
+}
+
+func (l *Lifecycle) RouterFeedbackStore() RouterFeedbackStore {
+	if l == nil {
+		return nil
+	}
+	return l.routerFeedback
+}
+
+func (l *Lifecycle) SetRouterFeedbackStore(store RouterFeedbackStore) {
+	l.routerFeedback = store
 }
