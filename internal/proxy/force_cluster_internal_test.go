@@ -57,7 +57,7 @@ func TestApplyForceClusterHeader_ThreadsLabelOnHMMStrategy(t *testing.T) {
 // A non-HMM strategy has no named classifier group to constrain to —
 // refusing beats serving an unconstrained model.
 func TestApplyForceClusterHeader_RejectsNonSidecarStrategy(t *testing.T) {
-	ctx := router.WithStrategy(context.Background(), router.StrategyRL)
+	ctx := router.WithStrategy(context.Background(), router.Strategy("rl"))
 
 	label, err := applyForceClusterHeader(hmm.ServingPorts(), ctx, router.StrategyFromContext(ctx), forceClusterRequest(t, "maximum"))
 
@@ -83,7 +83,7 @@ func TestProxyMessages_ForceClusterOnNonSidecarStrategyRejects(t *testing.T) {
 	body := `{"model":"claude-opus-4-8","max_tokens":64,"messages":[{"role":"user","content":"hi"}]}`
 	rec := httptest.NewRecorder()
 
-	ctx := router.WithStrategy(context.Background(), router.StrategyRL)
+	ctx := router.WithStrategy(context.Background(), router.Strategy("rl"))
 	err := svc.ProxyMessages(ctx, []byte(body), rec, forceClusterRequest(t, "maximum"))
 
 	require.ErrorIs(t, err, ErrForcedClusterUnsupportedStrategy)
