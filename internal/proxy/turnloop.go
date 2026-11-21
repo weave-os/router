@@ -776,7 +776,7 @@ func (s *Service) runTurnLoop(
 	commandContinuation := sessionpin.Pin{}
 	commandContinuationFound := false
 	if res.TurnType == turntype.MainLoop {
-		commandContinuation, commandContinuationFound = s.consumePostCommandContinuation(ctx, strategy, res.SessionKey, res.PinRole)
+		commandContinuation, commandContinuationFound = postCommandContinuation(s, strategy).Consume(ctx, res.SessionKey, res.PinRole)
 	}
 	if pinFound && isUserForcedReason(pin.Reason) {
 		binding, refusal := s.forcedModelBinding(ctx, pin.Model, pin.Provider)
