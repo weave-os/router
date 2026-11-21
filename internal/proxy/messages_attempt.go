@@ -18,7 +18,7 @@ import (
 )
 
 type messagesAttemptDeps struct {
-	r                       *http.Request
+	request                 *http.Request
 	svc                     *Service
 	env                     *translate.RequestEnvelope
 	routeRes                *turnLoopResult
@@ -42,11 +42,11 @@ type messagesAttemptDeps struct {
 }
 
 func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatchAttempt, error) {
-	targetNotice := routerNoticeForRequest(withOwnClaudeRejectionNudge(ctx, deps.r.Header, deps.svc.usageObserver), deps.r.Header, subscriptions.ProviderClaude, target.Model, targetMarker)
+	targetNotice := routerNoticeForRequest(withOwnClaudeRejectionNudge(ctx, deps.request.Header, deps.svc.usageObserver), deps.request.Header, subscriptions.ProviderClaude, target.Model, targetMarker)
 	targetNotice = addRoutingFundingSource(fundingCtx, seatAdmissionOf(deps.svc), target.Provider, target.Model, targetNotice)
 	switch providers.FamilyFor(target.Provider) {
 	case providers.FamilyAnthropic:
-		prep, emitErr := prepareAnthropicForTurn(deps.env, deps.r.Header, targetOpts, deps.routeRes.TurnType)
+		prep, emitErr := prepareAnthropicForTurn(deps.env, deps.request.Header, targetOpts, deps.routeRes.TurnType)
 		if emitErr != nil {
 			deps.log.Error("Failed to emit Anthropic body", "err", emitErr)
 			return nil, fmt.Errorf("emit body: %w", emitErr)
@@ -61,7 +61,7 @@ func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target 
 			}
 			unstructuredOpts := attemptOpts
 			unstructuredOpts.StripOutputConfigFormat = true
-			unstructuredPrep, emitErr := deps.env.PrepareAnthropic(deps.r.Header, unstructuredOpts)
+			unstructuredPrep, emitErr := deps.env.PrepareAnthropic(deps.request.Header, unstructuredOpts)
 			if emitErr != nil {
 				deps.log.Error("Failed to re-emit Anthropic body without output_config.format", "err", emitErr)
 				return err
@@ -73,7 +73,7 @@ func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target 
 				deps.preludeBuf.Discard()
 			}
 			logUpstreamBody(deps.log, deps.routeRes.SessionKey, target, deps.feats, unstructuredPrep.Body)
-			return deps.svc.anthropicNativeAttempt(deps.env, deps.r, unstructuredPrep, deps.sink, deps.preludeBuf, deps.anthropicPrelude, deps.streamCut, targetNotice, deps.setExtractor, deps.setStreamCost)(actx, d, p)
+			return deps.svc.anthropicNativeAttempt(deps.env, deps.request, unstructuredPrep, deps.sink, deps.preludeBuf, deps.anthropicPrelude, deps.streamCut, targetNotice, deps.setExtractor, deps.setStreamCost)(actx, d, p)
 		}, nil
 	case providers.FamilyOpenAICompat:
 		*deps.crossFormat = true
@@ -89,9 +89,9 @@ func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target 
 			var prep providers.PreparedRequest
 			var emitErr error
 			if useResponses {
-				prep, emitErr = deps.env.PrepareOpenAIResponses(deps.r.Header, attemptOpts)
+				prep, emitErr = deps.env.PrepareOpenAIResponses(deps.request.Header, attemptOpts)
 			} else {
-				prep, emitErr = deps.env.PrepareOpenAI(deps.r.Header, attemptOpts)
+				prep, emitErr = deps.env.PrepareOpenAI(deps.request.Header, attemptOpts)
 			}
 			if emitErr != nil {
 				deps.log.Error("Failed to translate Anthropic request to OpenAI format", "err", emitErr, "decision_provider", d.Provider, "responses_api", useResponses)
@@ -105,7 +105,7 @@ func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target 
 				usage = *deps.extractor
 			}
 			var translator translate.ResponseTranslator
-			attemptSink, noticeErr := deps.anthropicPrelude.prepare(actx, deps.sink, deps.preludeBuf, translate.FormatAnthropic, deps.env.Stream(), reconnectNoticeForAttempt(actx, deps.r.Header, targetNotice))
+			attemptSink, noticeErr := deps.anthropicPrelude.prepare(actx, deps.sink, deps.preludeBuf, translate.FormatAnthropic, deps.env.Stream(), reconnectNoticeForAttempt(actx, deps.request.Header, targetNotice))
 			if noticeErr != nil {
 				return func(err error) error { return err }, noticeErr
 			}
@@ -145,7 +145,7 @@ func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target 
 				deps.preludeBuf.Seal()
 			}
 			toolNames := translate.NewOpenAIToolNameWriter(translator, prep.ResponseToolNames)
-			rawErr := p.Proxy(actx, d, prep, deps.streamCut.attach(toolNames), deps.r)
+			rawErr := p.Proxy(actx, d, prep, deps.streamCut.attach(toolNames), deps.request)
 			finalize := func(err error) error {
 				if err != nil && deps.env.Stream() && deps.preludeBuf.Committed() {
 					deps.streamCut.noteCut(err)
@@ -194,7 +194,7 @@ func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target 
 			return finalize(rawErr)
 		}, nil
 	case providers.FamilyGemini:
-		prep, emitErr := deps.env.PrepareGemini(deps.r.Header, targetOpts)
+		prep, emitErr := deps.env.PrepareGemini(deps.request.Header, targetOpts)
 		*deps.reqStats = prep.Stats
 		if emitErr != nil {
 			deps.log.Error("Failed to translate Anthropic request to Gemini format", "err", emitErr)
@@ -211,7 +211,7 @@ func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target 
 				*deps.extractor = telemetry.NewUsageExtractor(d.Provider)
 				usage = *deps.extractor
 			}
-			attemptSink, noticeErr := deps.anthropicPrelude.prepare(actx, deps.sink, deps.preludeBuf, translate.FormatAnthropic, deps.env.Stream(), reconnectNoticeForAttempt(actx, deps.r.Header, targetNotice))
+			attemptSink, noticeErr := deps.anthropicPrelude.prepare(actx, deps.sink, deps.preludeBuf, translate.FormatAnthropic, deps.env.Stream(), reconnectNoticeForAttempt(actx, deps.request.Header, targetNotice))
 			if noticeErr != nil {
 				return func(err error) error { return err }, noticeErr
 			}
@@ -229,7 +229,7 @@ func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target 
 			}
 			geminiTr := translate.NewGeminiToOpenAISSETranslator(anthropicTr, d.Model, usage)
 			anthropicTr.SetUsageSource(geminiTr.UsageFacts)
-			rawErr := p.Proxy(actx, d, pr, deps.streamCut.attach(geminiTr), deps.r)
+			rawErr := p.Proxy(actx, d, pr, deps.streamCut.attach(geminiTr), deps.request)
 			finalize := func(err error) error {
 				if err != nil && deps.env.Stream() && deps.preludeBuf.Committed() {
 					deps.streamCut.noteCut(err)
@@ -243,7 +243,7 @@ func buildMessagesAttempt(ctx context.Context, deps messagesAttemptDeps, target 
 			return finalize, rawErr
 		}
 		return func(actx context.Context, d router.Decision, p providers.Client) error {
-			retry := geminiToolModeAttempt{log: deps.log, buffer: deps.preludeBuf, env: deps.env, headers: deps.r.Header, opts: targetOpts}
+			retry := geminiToolModeAttempt{log: deps.log, buffer: deps.preludeBuf, env: deps.env, headers: deps.request.Header, opts: targetOpts}
 			return retry.dispatch(prep, func(prepared providers.PreparedRequest) (func(error) error, error) {
 				*deps.reqStats = prepared.Stats
 				logUpstreamBody(deps.log, deps.routeRes.SessionKey, d, deps.feats, prepared.Body)

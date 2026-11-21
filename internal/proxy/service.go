@@ -2729,7 +2729,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	recordFastServed := func(fast bool) { fastServed = fast }
 
 	attemptDeps := messagesAttemptDeps{
-		r:                       r,
+		request:                 r,
 		svc:                     s,
 		env:                     env,
 		routeRes:                &routeRes,
