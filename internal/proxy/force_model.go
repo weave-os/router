@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"time"
 
 	"weave-os/router/internal/conversation"
 	"weave-os/router/internal/observability"
@@ -437,7 +436,7 @@ func (f forceModelCommands) apply(
 	ack := newCommandAcknowledgment(translate.CommandForceModel)
 	out, err := conversation.ForceModelCommand{
 		Resolver: forceModelResolver(f),
-		Pins:     routingpolicy.NewForceModelPins(f.s.pinStore, func() time.Time { return f.s.clock.Now() }),
+		Pins:     routingpolicy.NewForceModelPins(f.s.pinStore, f.s.clock.Now),
 		Controls: forceModelControls{s: f.s, strategy: strategy},
 	}.Apply(ctx, conversation.ForceModelRequest{
 		Command:              cmd,

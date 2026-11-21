@@ -121,10 +121,10 @@ func (c ForceModelCommand) force(ctx context.Context, req ForceModelRequest) (Fo
 		return ForceModelOutcome{}, err
 	}
 	forcedThreadKey := ""
-	command := "force-model"
+	commandName := "force-model"
 	if cmd.ParentOnly {
 		forcedThreadKey = threadKeyHex(req.ThreadSessionKey)
-		command = "force-parent"
+		commandName = "force-parent"
 	}
 	if err := c.Pins.Set(ctx, req.ForceModelSessionKey, req.InstallationID, canonicalModel, binding, effortLevel, forcedThreadKey); err != nil {
 		log.Error("/force-model: session pin upsert failed", "err", err)
@@ -141,7 +141,7 @@ func (c ForceModelCommand) force(ctx context.Context, req ForceModelRequest) (Fo
 		ParentOnly:   cmd.ParentOnly,
 	}
 	c.Controls.RecordCommandBoundary(ctx, req.InstallationID, req.ThreadSessionKey, req.CommandID)
-	log.Debug("/"+command+": session pin set",
+	log.Debug("/"+commandName+": session pin set",
 		"forced_thread_key", forcedThreadKey,
 		"input_model", cmd.Model,
 		"canonical_model", canonicalModel,
