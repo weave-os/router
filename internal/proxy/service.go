@@ -69,7 +69,6 @@ type Service struct {
 	recoveryProbeLeases map[string]localRecoveryProbeLease
 	nextRecoveryProbeID uint64
 
-	subscriptionModels           subscriptionModelAccess
 	claudePlans                  *subscriptions.PlanResolver
 	sessionHolds                 subscriptionSessionHolds
 	strategies                   map[router.Strategy]registeredStrategy
@@ -121,7 +120,6 @@ type Service struct {
 	anthropicServerSideFallback bool
 
 	siblingFailover                bool
-	codexExtraCredits              bool
 	openAIResponsesBroad           bool
 	nativeAnthropicResponseSignals bool
 	nativeOpenAIResponseSignals    bool
@@ -1556,7 +1554,7 @@ func (s *Service) WithBillingService(b *billing.Service) *Service {
 }
 
 func (s *Service) WithCodexExtraCredits(enabled bool) *Service {
-	s.codexExtraCredits = enabled
+	s.credentials.CodexExtraCredits = enabled
 	return s
 }
 

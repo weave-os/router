@@ -137,10 +137,10 @@ func TestSubscriptionModelAccessLearnsServedModelsPerSubscription(t *testing.T) 
 			require.NoError(t, in.call(svc, billing.WithWeaveCreditsDenied(in.subCtx()), body, rec, req))
 
 			now := time.Now()
-			assert.Equal(t, []string{in.model}, svc.subscriptionModels.servedForCaller(in.resolved(billing.WithWeaveCreditsDenied(in.subCtx())), now))
+			assert.Equal(t, []string{in.model}, svc.credentials.SubscriptionModels.ServedForCaller(in.resolved(billing.WithWeaveCreditsDenied(in.subCtx())), now))
 			other := context.WithValue(billing.WithWeaveCreditsDenied(in.subCtx()), credentials.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-other")
-			assert.Empty(t, svc.subscriptionModels.servedForCaller(in.resolved(other), now), "served models are per subscription")
-			assert.Empty(t, svc.subscriptionModels.servedForCaller(in.resolved(billing.WithWeaveCreditsDenied(in.subCtx())), now.Add(subscriptionModelServedTTL+time.Minute)), "served models expire")
+			assert.Empty(t, svc.credentials.SubscriptionModels.ServedForCaller(in.resolved(other), now), "served models are per subscription")
+			assert.Empty(t, svc.credentials.SubscriptionModels.ServedForCaller(in.resolved(billing.WithWeaveCreditsDenied(in.subCtx())), now.Add(credentials.SubscriptionModelServedTTL+time.Minute)), "served models expire")
 		})
 	}
 }

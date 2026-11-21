@@ -252,7 +252,7 @@ func TestLeaseManagedCodexRefusesPaidFallbackAfterAllLinkedAccountsAreRejected(t
 	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
 	svc.credentials.KeyedProviders = map[string]struct{}{providers.ProviderOpenAI: {}}
 	ctx := billing.WithWeaveCreditsDenied(managedSubscriptionContext(auth.SubscriptionProviderCodex))
-	svc.subscriptionModels.denyManaged(
+	svc.credentials.SubscriptionModels.DenyManaged(
 		"account:opaque-codex", "opaque-codex", providers.ProviderOpenAI, "gpt-5.6-sol", time.Now().Add(time.Minute),
 	)
 
