@@ -95,7 +95,7 @@ func TestFireTelemetryRecoversFromPanic(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
 	defer slog.SetDefault(prev)
 
-	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), telemetry: panicTelemetryRepo{}}
+	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), turnTelemetry: turnTelemetry{repo: panicTelemetryRepo{}}}
 
 	assert.NotPanics(t, func() {
 		s.fireTelemetry(t.Context(), turnrecord.InsertTelemetryParams{RequestID: "req-1"})

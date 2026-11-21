@@ -161,10 +161,10 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 				nativeTerminal = ingress.NewResponsesTerminalObserver(attemptSink)
 				proxyWriter = nativeTerminal
 				if deps.svc.usageRequired() {
-					*deps.extractor, proxyWriter = deps.svc.newUsageExtractor(nativeTerminal, d.Provider)
+					*deps.extractor, proxyWriter = deps.svc.turnTelemetry.newUsageExtractor(nativeTerminal, d.Provider)
 				}
 			case deps.svc.usageRequired() || deps.isResponses:
-				*deps.extractor, proxyWriter = deps.svc.newUsageExtractor(attemptSink, d.Provider)
+				*deps.extractor, proxyWriter = deps.svc.turnTelemetry.newUsageExtractor(attemptSink, d.Provider)
 			}
 			if surface == surfaceChat && deps.isResponses {
 				deps.responsesWriter.SetUsageSource((*deps.extractor).UsageFacts)
