@@ -58,7 +58,7 @@ func (o *chatRescue) armCyberRetry(ctx context.Context, strategy router.Strategy
 		!o.routing.IsHardPinnedTurn(ctx, strategy, routeRes.TurnType) &&
 		!billing.SubscriptionOnlyFromContext(ctx)
 	if cyberRetryEligible {
-		target, found := o.routing.CyberRefusalRetryTarget(ctx, o.decision, dispatch.RescueSessionTarget{Strategy: strategy, InstallationID: routeRes.InstallationID, SessionKey: routeRes.SessionKey}, stickyStateRole(routeRes),
+		target, found := o.routing.CyberRefusalRetryTarget(ctx, o.decision, dispatch.RescueSessionTarget{Strategy: strategy, InstallationID: routeRes.InstallationID, SessionKey: routeRes.SessionKey}, routeRes.StickyRole,
 			o.overflowEstimate, o.env.SignatureTokenSavings(), o.outputReserve)
 		o.cyberRetryViable = found && (o.routing.ShouldFailover(ctx) || o.routing.GatewaySiblingAllowed(ctx, target)) &&
 			(!subscriptionStateModelsEnabled(ctx) || !paidFallbackForbiddenForModel(ctx, target.Model))
@@ -155,8 +155,8 @@ func (o *chatRescue) codexRetry(ctx context.Context) {
 				Attempt:                subAttempt,
 				FlushErr:               o.flushErrAsOpenAI,
 				DeferFlushOnExhaustion: o.cyberRetryViable || o.rescueArmed,
-				Purpose:                routeRes.dispatchPurpose(o.surface),
-				Origin:                 routeRes.dispatchOrigin(o.decision),
+				Purpose:                routeRes.DispatchPurpose(o.surface),
+				Origin:                 routeRes.DispatchOrigin(o.decision),
 			})
 			o.bindings = subBindings
 			o.codexFailoverUsed = o.proxyErr == nil
@@ -205,8 +205,8 @@ func (o *chatRescue) claudeRetry(ctx context.Context) {
 				Attempt:                subAttempt,
 				FlushErr:               o.flushErrAsOpenAI,
 				DeferFlushOnExhaustion: o.cyberRetryViable || o.rescueArmed,
-				Purpose:                routeRes.dispatchPurpose(o.surface),
-				Origin:                 routeRes.dispatchOrigin(o.decision),
+				Purpose:                routeRes.DispatchPurpose(o.surface),
+				Origin:                 routeRes.DispatchOrigin(o.decision),
 			})
 			o.bindings = subBindings
 			o.claudeFailoverUsed = o.proxyErr == nil
@@ -233,7 +233,7 @@ func (o *chatRescue) cyberRetry(ctx context.Context) {
 		retryCtx := resolveAndInjectCredentials(subscriptionStatePaidRescueContext(ctx, o.cyberRetryTarget.Model), o.cyberRetryTarget.Provider, o.cyberRetryTarget.Model, r.Header)
 		retryOpts.FastMode = fastModeForAttempt(retryCtx, o.cyberRetryTarget.Model, o.cyberRetryTarget.Provider)
 		retryBindings := o.routing.ResolveBindingsForDispatch(retryCtx, o.cyberRetryTarget)
-		retryMarker := withRescueDetail(suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(o.strategyPorts, ctx, routeRes, cyberRefusalRoutingMarkerFor(routeRes, o.cyberRetryTarget.Model), o.cyberRetryTarget.Model, markerReasonCyberRefusal)), lastFailureDetail(attemptTraceFromContext(ctx)))
+		retryMarker := o.markers.WithFailureDetail(ctx, o.markers.CyberRefusal(ctx, o.cyberRetryTarget.Model))
 		retryAttempt, retryBuildErr := o.buildAttempt(o.cyberRetryTarget, retryOpts, retryMarker, retryCtx)
 		switch {
 		case retryBuildErr != nil:
@@ -261,8 +261,8 @@ func (o *chatRescue) cyberRetry(ctx context.Context) {
 				Attempt:                retryAttempt,
 				FlushErr:               o.flushErrAsOpenAI,
 				DeferFlushOnExhaustion: o.rescueArmed,
-				Purpose:                routeRes.dispatchPurpose(o.surface),
-				Origin:                 routeRes.rescueOrigin(),
+				Purpose:                routeRes.DispatchPurpose(o.surface),
+				Origin:                 routeRes.RescueOrigin(),
 			})
 			o.subscriptionPoolFailure = isSubscriptionPoolError(o.proxyErr)
 			o.decision = o.cyberRetryTarget

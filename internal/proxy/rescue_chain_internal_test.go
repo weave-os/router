@@ -51,6 +51,7 @@ func newSiblingRescueChain(ctx context.Context, svc *fakeRescueServices, primary
 	primary := router.Decision{Model: "primary-model", Provider: providers.ProviderOpenAI}
 	c := &rescueChain{
 		rescuePorts: rescuePorts{svc: svc, credentials: svc, routing: svc},
+		markers:     rescueMarkers{},
 		r:           httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", nil),
 		log:         slog.New(slog.NewTextHandler(io.Discard, nil)),
 		preludeBuf:  newPreludeBuffer(httptest.NewRecorder()),

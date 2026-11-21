@@ -5,7 +5,6 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
 )
 
@@ -61,8 +60,8 @@ func (m *messagesRescue) dispatchBaseline(ctx context.Context) context.Context {
 		}
 		m.effortServed = baselineEffort
 		baselineBindings := m.routing.ResolveBindingsForDispatch(baselineCtx, baselineDecision)
-		baselineMarker := withRescueDetail(suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(m.strategyPorts, ctx, routeRes, baselineRoutingMarkerFor(routeRes, m.baselineModel), m.baselineModel, markerReasonBaseline)), lastFailureDetail(attemptTraceFromContext(ctx)))
-		baselineNotice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, baselineOpts.TargetModel, baselineMarker)
+		baselineMarker := m.markers.WithFailureDetail(ctx, m.markers.Baseline(ctx, m.baselineModel))
+		baselineNotice := m.markers.ClaudeNotice(ctx, baselineOpts.TargetModel, baselineMarker)
 		baselineNotice = addRoutingFundingSource(baselineCtx, m.seats, providers.ProviderAnthropic, baselineOpts.TargetModel, baselineNotice)
 		baselineAttempt := m.anthropicTierAttemptFor(baselineOpts, baselinePrep, baselineNotice).attempt(m.recordFastServed)
 		*m.fastServed = baselineOpts.FastMode
@@ -77,8 +76,8 @@ func (m *messagesRescue) dispatchBaseline(ctx context.Context) context.Context {
 			Bindings:        baselineBindings,
 			Attempt:         baselineAttempt,
 			FlushErr:        m.flushErrAsAnthropic,
-			Purpose:         routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
-			Origin:          routeRes.rescueOrigin(),
+			Purpose:         routeRes.DispatchPurpose(inference.PurposeAnthropicMessages),
+			Origin:          routeRes.RescueOrigin(),
 		})
 		m.subscriptionPoolFailure = isSubscriptionPoolError(m.proxyErr)
 		m.decision = baselineDecision
@@ -126,7 +125,7 @@ func (m *messagesRescue) subscriptionRetry(ctx context.Context) {
 				"model", m.decision.Model,
 				"err", m.proxyErr,
 				"upstream_status", upstreamStatus(m.proxyErr))
-			subNotice := routerNoticeForRequest(withOwnClaudeRejectionNudge(ctx, r.Header, m.usageObserver), r.Header, subscriptions.ProviderClaude, subOpts.TargetModel, m.marker)
+			subNotice := m.markers.ClaudeNotice(m.markers.WithOwnClaudeRejectionNudge(ctx), subOpts.TargetModel, m.marker)
 			subNotice = addRoutingFundingSource(subCtx, m.seats, providers.ProviderAnthropic, subOpts.TargetModel, subNotice)
 			subAttempt := m.anthropicTierAttemptFor(subOpts, subPrep, subNotice).attempt(m.recordFastServed)
 			*m.fastServed = subOpts.FastMode
@@ -144,8 +143,8 @@ func (m *messagesRescue) subscriptionRetry(ctx context.Context) {
 				Attempt:                subAttempt,
 				FlushErr:               m.flushErrAsAnthropic,
 				DeferFlushOnExhaustion: m.rescueArmed,
-				Purpose:                routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
-				Origin:                 routeRes.dispatchOrigin(m.decision),
+				Purpose:                routeRes.DispatchPurpose(inference.PurposeAnthropicMessages),
+				Origin:                 routeRes.DispatchOrigin(m.decision),
 			})
 			m.subscriptionPoolFailure = isSubscriptionPoolError(m.proxyErr)
 			m.bindings = subBindings
