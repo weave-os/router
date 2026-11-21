@@ -878,95 +878,22 @@ func (s *Service) runTurnLoop(
 
 	forcedTierFloor := catalog.TierUnknown
 	if forceModelFound {
-		_, excluded := req.Candidates.ExcludedModels[forceModelPin.Model]
-		_, providerEnabled := req.EnabledProviders[forceModelPin.Provider]
-		providerEligible := req.EnabledProviders == nil || providerEnabled
-		imageCapable := candidates.ForcedPinServesImages(forceModelPin, req)
-		if _, estimateOnly := req.Candidates.ContextWindowExcludedModels[forceModelPin.Model]; excluded && estimateOnly {
-			log.Info("Forced session pin dispatched past the context-window estimate; the provider decides",
-				"pin_model", forceModelPin.Model,
-				"pin_provider", forceModelPin.Provider,
-				"role", res.PinRole,
-			)
-			excluded = false
-		}
-		if _, imageLimitExcluded := req.Candidates.ImageLimitExcludedModels[forceModelPin.Model]; imageLimitExcluded {
-			log.Info("Forced session pin dispatched past the image-count cap; the provider decides",
-				"pin_model", forceModelPin.Model,
-				"pin_provider", forceModelPin.Provider,
-				"role", res.PinRole,
-			)
-			excluded = false
-		}
-		if !excluded && providerEligible && imageCapable {
-			res.PinModel = forceModelPin.Model
-			res.PinAgeSec = pinAge(forceModelPin, s.clock.Now())
-			res.EscalateEffort = !forceHistory.LastTurnEndedAt.IsZero() &&
-				(forceHistory.LastOutputTokens == 0 || forceHistory.ConsecutiveUpstreamErrors > 0)
-			res.serveForceModelPin(forceModelPin)
-			sessionPins.AnchorForceModelHistory(ctx, installationID, res.SessionKey, res.PinRole, forceModelPin)
+		served, tierFloor := serveForceModelPin(ctx, &req, &res, forceModelPin, forceHistory, sessionPins, s.clock.Now())
+		if served {
 			return res, nil
 		}
-		res.ForcedPinDropped = true
-		res.ForcedPinDropReason = candidates.ForcedPinIneligibilityReason(forceModelPin, req)
-		res.ForcedPinModel = forceModelPin.Model
-		log.Info("Forced session pin dropped for this turn",
-			"pin_model", forceModelPin.Model,
-			"pin_provider", forceModelPin.Provider,
-			"drop_reason", res.ForcedPinDropReason,
-			"enabled_providers", sortedEnabledKeys(req.EnabledProviders),
-			"role", res.PinRole,
-		)
-		if excluded || !imageCapable {
-			forcedTierFloor = catalog.TierFor(forceModelPin.Model)
-		}
-		if !imageCapable {
-			req.Candidates.ExcludedModels = candidates.ExcludingModel(req.Candidates.ExcludedModels, forceModelPin.Model)
-		}
+		forcedTierFloor = tierFloor
 		if !sessionForceControlFound || isUserForcedReason(pin.Reason) {
 			pinFound = false
 			pin = sessionpin.Pin{}
 		}
 	}
 	if pinFound && isUserForcedReason(pin.Reason) {
-		_, excluded := req.Candidates.ExcludedModels[pin.Model]
-		_, providerEnabled := req.EnabledProviders[pin.Provider]
-		providerEligible := req.EnabledProviders == nil || providerEnabled
-		imageCapable := candidates.PinServesImages(pin, req)
-		if !excluded && providerEligible && imageCapable {
-			decision := pinDecision(pin)
-			decision.Reason = pin.Reason
-			res.PinTier = pin.Reason
-			res.Decision = decision
-			res.UserForced = decision.UserForcedModel()
-			res.StickyHit = true
-			sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, pinDecision(pin))
+		served, tierFloor := serveUserForcedPin(ctx, &req, &res, pin, sessionPins)
+		if served {
 			return res, nil
 		}
-		dropReason := "excluded"
-		switch {
-		case !providerEligible:
-			dropReason = "provider_not_enabled"
-		case !imageCapable:
-			dropReason = "not_image_capable"
-		}
-		log.Info("Forced session pin dropped for this turn",
-			"pin_model", pin.Model,
-			"pin_provider", pin.Provider,
-			"pin_reason", pin.Reason,
-			"drop_reason", dropReason,
-			"enabled_providers", sortedEnabledKeys(req.EnabledProviders),
-			"role", res.PinRole,
-		)
-		res.ForcedPinDropped = true
-		res.ForcedPinDropReason = dropReason
-		res.ForcedPinModel = pin.Model
-		if excluded || !imageCapable {
-			forcedTierFloor = catalog.TierFor(pin.Model)
-		}
-		if !imageCapable {
-			req.Candidates.ExcludedModels = candidates.ExcludingModel(req.Candidates.ExcludedModels, pin.Model)
-		}
+		forcedTierFloor = tierFloor
 		pinFound = false
 		pin = sessionpin.Pin{}
 	}
