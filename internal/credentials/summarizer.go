@@ -11,10 +11,8 @@ func (b Brokerage) SummarizerCredentials(ctx context.Context, provider string, h
 	if provider == "" {
 		return nil
 	}
-	if byok := BuildCredentialsMap(ExternalKeysFromContext(ctx)); byok != nil {
-		if creds, ok := byok[provider]; ok {
-			return creds
-		}
+	if creds, ok := BuildCredentialsMap(ExternalKeysFromContext(ctx))[provider]; ok {
+		return creds
 	}
 	creds := requestcontext.ExtractClientCredentials(provider, headers)
 	if creds != nil && creds.OAuth {

@@ -8,9 +8,6 @@ import (
 )
 
 func BuildCredentialsMap(keys []*auth.ExternalAPIKey) map[string]*requestcontext.Credentials {
-	if len(keys) == 0 {
-		return nil
-	}
 	m := make(map[string]*requestcontext.Credentials, len(keys))
 	for _, key := range keys {
 		if len(key.Plaintext) == 0 && key.CredentialError == nil {
