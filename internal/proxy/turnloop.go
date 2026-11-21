@@ -1424,29 +1424,19 @@ func (s *Service) runTurnLoop(
 	}
 	res, routeErr = routeRemaining()
 	if escalationTurn != nil {
-		committed, err := s.escalationHelper().Finish(ctx, escalationTurn, res.Decision, decisionPolicyGroup(res.Decision), routeErr)
-		if err != nil {
-			log.Warn("Escalation state commit failed; routing without intervention", "err", err, "ordinal", escalationTurn.Ordinal())
-			if floor.RoutingApplied(res.Decision) {
-				req = baselineRequest
-				res = baselineTurn
-				res, routeErr = routeRemaining()
-			}
-		} else {
+		committed, rerunBaseline, err := s.escalationHelper().Settle(ctx, escalationTurn, res.Decision, decisionPolicyGroup(res.Decision), routeErr)
+		if rerunBaseline {
+			req, res = baselineRequest, baselineTurn
+			res, routeErr = routeRemaining()
+		} else if err == nil {
 			res.EscalationShadowMarked, res.EscalationScope, res.EscalationOrdinal = committed.ShadowMarked, committed.Scope, committed.Ordinal
 		}
 	}
 	res.escalation = escalationTurn
-	if escalationTurn.HasLLM() && routeErr == nil {
-		if err := s.escalationHelper().ApplyLLM(ctx, escalationTurn, res.Decision); err != nil {
-			log.Warn("LLM escalation application failed", "err", err)
-			if escalationTurn.LLMActive() && floor.RoutingApplied(res.Decision) {
-				req = baselineRequest
-				res = baselineTurn
-				res, routeErr = routeRemaining()
-				res.escalation = escalationTurn
-			}
-		}
+	if s.escalationHelper().SettleLLM(ctx, escalationTurn, res.Decision, routeErr) {
+		req, res = baselineRequest, baselineTurn
+		res, routeErr = routeRemaining()
+		res.escalation = escalationTurn
 	}
 	return res, routeErr
 }
