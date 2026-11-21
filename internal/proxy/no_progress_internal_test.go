@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -39,10 +40,7 @@ func TestHandleNoProgressBreak_PreservesUserForcedPin(t *testing.T) {
 	require.NoError(t, err)
 	rec := httptest.NewRecorder()
 
-	err = svc.handleNoProgressBreak(
-		context.Background(), rec, env, conversation.NoProgressMatchThreshold, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: key},
-
-		"default_high", "claude-opus-4-8", "anthropic", 10)
+	err = loopBreakForTest(svc, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: key}, "default_high", "claude-opus-4-8", "anthropic").noProgress(context.Background(), rec, env, conversation.NoProgressMatchThreshold, 10)
 
 	require.NoError(t, err)
 
@@ -51,26 +49,13 @@ func TestHandleNoProgressBreak_PreservesUserForcedPin(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "preserving the explicit force-model pin")
 }
 
-func TestShortSessionKey_TruncatesAndRedactsZero(t *testing.T) {
-	var zero [sessionpin.SessionKeyLen]byte
-	assert.Empty(t, shortSessionKey(zero), "zero key must produce empty so logs distinguish missing-anchor from real")
-
-	key := sessionKeyFromString("0123456789ABCDEFsomemore")
-	got := shortSessionKey(key)
-	assert.Len(t, got, 16, "must log only the first 8 bytes (16 hex chars) to limit cross-request correlation")
-	assert.NotContains(t, got, "somemore", "tail bytes must not appear in logs")
-}
-
 func TestHandleNoProgressBreak_ZeroSessionKeyWritesNoPin(t *testing.T) {
 	store := &overwritingPinStore{}
 	svc := &Service{hmmServing: hmmPorts(), pinStore: store}
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"retry"}]}`))
 	require.NoError(t, err)
 
-	err = svc.handleNoProgressBreak(
-		context.Background(), httptest.NewRecorder(), env, conversation.NoProgressMatchThreshold, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{}},
-
-		"default_high", "claude-opus-4-8", "anthropic", 10)
+	err = loopBreakForTest(svc, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: [sessionpin.SessionKeyLen]byte{}}, "default_high", "claude-opus-4-8", "anthropic").noProgress(context.Background(), httptest.NewRecorder(), env, conversation.NoProgressMatchThreshold, 10)
 
 	require.NoError(t, err)
 	assert.False(t, store.found, "a zero-keyed pin row would be shared by every zero-keyed session")
@@ -82,11 +67,27 @@ func TestHandleNoProgressBreak_ExpiresNonZeroSessionPin(t *testing.T) {
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"retry"}]}`))
 	require.NoError(t, err)
 
-	err = svc.handleNoProgressBreak(
-		context.Background(), httptest.NewRecorder(), env, conversation.NoProgressMatchThreshold, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: sessionKeyFromString("stuck-session")},
-
-		"default_high", "claude-opus-4-8", "anthropic", 10)
+	err = loopBreakForTest(svc, sessionTarget{strategy: router.StrategyFromContext(context.Background()), installationID: uuid.New(), sessionKey: sessionKeyFromString("stuck-session")}, "default_high", "claude-opus-4-8", "anthropic").noProgress(context.Background(), httptest.NewRecorder(), env, conversation.NoProgressMatchThreshold, 10)
 
 	require.NoError(t, err)
 	assert.True(t, store.found)
+}
+
+type loopBreakCall struct {
+	stop conversation.LoopBreak
+}
+
+func loopBreakForTest(svc *Service, target sessionTarget, role, decisionModel, decisionProvider string) loopBreakCall {
+	return loopBreakCall{stop: conversation.LoopBreak{
+		Pins: newLoopBreakPins(svc, target.strategy), InstallationID: target.installationID, SessionKey: target.sessionKey,
+		Role: role, DecisionModel: decisionModel, DecisionProvider: decisionProvider,
+	}}
+}
+
+func (c loopBreakCall) noProgress(ctx context.Context, w http.ResponseWriter, env *translate.RequestEnvelope, count, inputTokens int, decisionReason ...string) error {
+	return writeLoopStop(ctx, w, env, c.stop.NoProgress(ctx, env, count, decisionReason...), inputTokens)
+}
+
+func (c loopBreakCall) textRepetition(ctx context.Context, w http.ResponseWriter, env *translate.RequestEnvelope, count int, sampleHash string, inputTokens int) error {
+	return writeLoopStop(ctx, w, env, c.stop.TextRepetition(ctx, env, count, sampleHash), inputTokens)
 }

@@ -5,7 +5,6 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"os"
 	"slices"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -13,37 +12,44 @@ import (
 )
 
 const (
-	clientCertEnvVar   = "POSTGRES_CLIENT_CERT"
-	clientKeyEnvVar    = "POSTGRES_CLIENT_KEY"
-	serverCACertEnvVar = "POSTGRES_SERVER_CA_CERT"
-	serverNameEnvVar   = "POSTGRES_SERVER_NAME"
+	ClientCertEnvVar   = "POSTGRES_CLIENT_CERT"
+	ClientKeyEnvVar    = "POSTGRES_CLIENT_KEY"
+	ServerCACertEnvVar = "POSTGRES_SERVER_CA_CERT"
+	ServerNameEnvVar   = "POSTGRES_SERVER_NAME"
 )
 
-func Configure(poolConfig *pgxpool.Config) (bool, error) {
-	serverCACert := os.Getenv(serverCACertEnvVar)
-	clientCert := os.Getenv(clientCertEnvVar)
-	clientKey := os.Getenv(clientKeyEnvVar)
+type Config struct {
+	ServerCACert string
+	ClientCert   string
+	ClientKey    string
+	ServerName   string
+}
+
+func Configure(poolConfig *pgxpool.Config, cfg Config) (bool, error) {
+	serverCACert := cfg.ServerCACert
+	clientCert := cfg.ClientCert
+	clientKey := cfg.ClientKey
 	if serverCACert == "" && clientCert == "" && clientKey == "" {
 		return false, nil
 	}
 	if serverCACert == "" || clientCert == "" || clientKey == "" {
-		return false, fmt.Errorf("postgres client TLS needs %s, %s and %s together", serverCACertEnvVar, clientCertEnvVar, clientKeyEnvVar)
+		return false, fmt.Errorf("postgres client TLS needs %s, %s and %s together", ServerCACertEnvVar, ClientCertEnvVar, ClientKeyEnvVar)
 	}
 
 	roots := x509.NewCertPool()
 	if !roots.AppendCertsFromPEM([]byte(serverCACert)) {
-		return false, fmt.Errorf("%s contains no usable certificate", serverCACertEnvVar)
+		return false, fmt.Errorf("%s contains no usable certificate", ServerCACertEnvVar)
 	}
 	keyPair, err := tls.X509KeyPair([]byte(clientCert), []byte(clientKey))
 	if err != nil {
-		return false, fmt.Errorf("load %s/%s key pair: %w", clientCertEnvVar, clientKeyEnvVar, err)
+		return false, fmt.Errorf("load %s/%s key pair: %w", ClientCertEnvVar, ClientKeyEnvVar, err)
 	}
 
 	tlsConfig := &tls.Config{
 		RootCAs:            roots,
 		Certificates:       []tls.Certificate{keyPair},
 		InsecureSkipVerify: true, // codeql[go/disabled-certificate-check]
-		VerifyConnection:   verifyAgainst(roots, os.Getenv(serverNameEnvVar)),
+		VerifyConnection:   verifyAgainst(roots, cfg.ServerName),
 	}
 	poolConfig.ConnConfig.TLSConfig = tlsConfig
 
@@ -79,7 +85,7 @@ func verifyAgainst(roots *x509.CertPool, expectedServerName string) func(tls.Con
 		return fmt.Errorf(
 			"postgres server certificate identifies %q, not the %s %q",
 			serverCert.Subject.CommonName,
-			serverNameEnvVar,
+			ServerNameEnvVar,
 			expectedServerName,
 		)
 	}
