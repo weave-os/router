@@ -244,8 +244,6 @@ const (
 
 const policyDeadlineFallbackReason = "policy_deadline_last_known_good"
 
-const policyDeadlineDefaultReason = "policy_deadline_default_model"
-
 const unscorableHMMStickyReason = "hmm_no_user_boundary_sticky"
 
 func isPolicyDeadlineErr(err error) bool {
@@ -1255,7 +1253,7 @@ func (s *Service) runTurnLoop(
 						sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, refreshed)
 						return res, nil
 					}
-					if decision, ok := s.policyDeadlineDefaultDecision(req); ok {
+					if decision, ok := candidates.PolicyDeadlineDefault(s.policyDeadlineDefaultModel, req, s.clients.Names()); ok {
 						res.Decision = decision
 						res.PinTier = policyDeadlineFallbackReason
 						res.PolicyFallback = true
