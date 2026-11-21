@@ -146,7 +146,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		Started:        s.clock.Now(),
 		Failure:        routeFailureRequest{RequestID: facts.RequestID, RequestStart: requestStart, RequestedModel: feats.Model, Strategy: strategy},
 		FailureMessage: "Routing failed for Gemini request",
-		UserPrompt:     inboundUserPrompt,
+		IsUserPrompt:   inboundUserPrompt,
 	}, func(routeCtx context.Context) (turnLoopResult, error) {
 		return s.runTurnLoop(routeCtx, env, feats, turnRequest{Strategy: strategy, APIKeyID: facts.APIKeyID, InstallationID: facts.InstallationID}, subAgentHint, r.Header, routeRequest)
 	})

@@ -2396,7 +2396,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		Started:        routeStart,
 		Failure:        routeFailureRequest{RequestID: facts.RequestID, RequestStart: requestStart, RequestedModel: feats.Model, Strategy: strategy},
 		FailureMessage: "Routing failed",
-		UserPrompt:     inboundUserPrompt,
+		IsUserPrompt:   inboundUserPrompt,
 	}, func(routeCtx context.Context) (turnLoopResult, error) {
 		switch {
 		case handoffFromContext(ctx) != nil:
@@ -4478,7 +4478,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		Started:        s.clock.Now(),
 		Failure:        routeFailureRequest{RequestID: facts.RequestID, RequestStart: requestStart, RequestedModel: feats.Model, Strategy: strategy},
 		FailureMessage: "Routing failed for OpenAI request",
-		UserPrompt:     inboundUserPromptOpenAI,
+		IsUserPrompt:   inboundUserPromptOpenAI,
 	}, func(routeCtx context.Context) (turnLoopResult, error) {
 		return taskArm.route(routeCtx, s.runTurnLoop)(env, feats, turnRequest{Strategy: strategy, APIKeyID: facts.APIKeyID, InstallationID: facts.InstallationID}, subAgentHint, r.Header, routeRequest)
 	})
