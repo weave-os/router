@@ -64,35 +64,7 @@ func anthropicBYOKFirst(ctx context.Context) bool {
 }
 
 func BuildCredentialsMap(keys []*auth.ExternalAPIKey) map[string]*Credentials {
-	if len(keys) == 0 {
-		return nil
-	}
-	m := make(map[string]*Credentials, len(keys))
-	for _, key := range keys {
-		if len(key.Plaintext) == 0 && key.CredentialError == nil {
-			continue
-		}
-		m[key.Provider] = &Credentials{
-			APIKey:       key.Plaintext,
-			Source:       credSourceBYOK,
-			BaseURL:      key.BaseURL,
-			ModelAliases: key.ModelAliases,
-
-			IdentityHeader:         key.IdentityHeader,
-			IdentityHeaderFormat:   key.IdentityHeaderFormat,
-			ForwardedClientHeaders: append([]string(nil), key.ForwardedClientHeaders...),
-			BaggageHeader:          key.BaggageHeader,
-			AuthType:               key.AuthType,
-			FundingPriority:        key.FundingPriority,
-			CredentialError:        key.CredentialError,
-			PrincipalID:            strings.Join([]string{"external-key", key.ID, key.AuthAccount, key.AuthUser}, ":"),
-			ExternalKeyID:          key.ID,
-		}
-	}
-	if len(m) == 0 {
-		return nil
-	}
-	return m
+	return credentials.BuildCredentialsMap(keys)
 }
 
 func ExtractClientCredentials(provider string, headers http.Header) *Credentials {
@@ -109,20 +81,4 @@ func codexSubscriptionCreds(token, accountID string) *Credentials {
 
 func clearCredentials(ctx context.Context) context.Context {
 	return context.WithValue(ctx, CredentialsContextKey{}, (*Credentials)(nil))
-}
-
-func resolveSummarizerCreds(ctx context.Context, provider string, headers http.Header) *Credentials {
-	if provider == "" {
-		return nil
-	}
-	if byok := BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx)); byok != nil {
-		if creds, ok := byok[provider]; ok {
-			return creds
-		}
-	}
-	creds := ExtractClientCredentials(provider, headers)
-	if creds != nil && creds.OAuth {
-		return nil
-	}
-	return creds
 }

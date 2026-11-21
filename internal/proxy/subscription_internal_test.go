@@ -331,15 +331,6 @@ func TestClearCredentials(t *testing.T) {
 		"clearCredentials must make CredentialsFromContext report none so the synthetic call falls back to the deployment key")
 }
 
-func TestResolveSummarizerCreds_DropsSubscriptionToken(t *testing.T) {
-	// The synthetic summarizer body has no Claude Code identity block, which a
-	// subscription token requires — so it must never run on one.
-	headers := http.Header{"Authorization": []string{"Bearer sk-ant-oat01-subscription-token"}}
-	creds := resolveSummarizerCreds(context.Background(), providers.ProviderAnthropic, headers)
-	assert.Nil(t, creds,
-		"resolveSummarizerCreds must decline a subscription OAuth token so the synthetic summary call doesn't 401")
-}
-
 func TestServedOnSubscription(t *testing.T) {
 	t.Run("true for an OAuth credential", func(t *testing.T) {
 		ctx := context.WithValue(context.Background(), CredentialsContextKey{},
@@ -355,14 +346,4 @@ func TestServedOnSubscription(t *testing.T) {
 		assert.False(t, servedOnSubscription(context.Background()),
 			"a deployment-key turn is Weave-fronted and must bill at full cost")
 	})
-}
-
-func TestResolveSummarizerCreds_ReturnsBYOK(t *testing.T) {
-	ctx := context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
-		{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("sk-ant-api-byok")},
-	})
-	creds := resolveSummarizerCreds(ctx, providers.ProviderAnthropic, http.Header{})
-	require.NotNil(t, creds)
-	assert.Equal(t, []byte("sk-ant-api-byok"), creds.APIKey,
-		"a real BYOK key is a valid summarizer credential and must be used")
 }
