@@ -10,6 +10,7 @@ import (
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/proxy/usage"
@@ -44,7 +45,7 @@ func classifierPassthroughFixture(t *testing.T, obs *usage.Observer) (*proxy.Ser
 		_, _ = w.Write([]byte(`{"id":"msg_1","type":"message","role":"assistant","model":"` + classifierRequestedMdl + `","content":[{"type":"text","text":"<severity>0</severity>"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
 	}}
 	store := newFakePinStore()
-	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, store, false, providers.ProviderAnthropic, classifierRequestedMdl, nil), hmm.ServingPorts())
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: p}), nil, store, false, providers.ProviderAnthropic, classifierRequestedMdl, nil), hmm.ServingPorts())
 	if obs != nil {
 		svc = svc.WithUsageObserver(obs)
 	}
@@ -253,7 +254,7 @@ func TestClassifier_PassthroughRetryable_FallsBackToRoutedDispatch_NoPin(t *test
 	}}
 	upstream := &swapErrProvider{first: limit, second: nil, inner: inner}
 	store := newFakePinStore()
-	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, store, false, providers.ProviderAnthropic, classifierRequestedMdl, nil), hmm.ServingPorts())
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: upstream}), nil, store, false, providers.ProviderAnthropic, classifierRequestedMdl, nil), hmm.ServingPorts())
 	rec, req := classifierRequest(t.Context())
 
 	require.NoError(t, svc.ProxyMessages(classifierSubscriptionCtx(), []byte(classifierBody), rec, req))

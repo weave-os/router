@@ -19,6 +19,7 @@ import (
 	"strings"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -68,7 +69,7 @@ func runConformanceCase(t *testing.T, c conformanceCase) {
 
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: c.provider, Model: c.model}},
-		map[string]providers.Client{c.provider: c.newClient(srv.URL)},
+		dispatch.NewClients(map[string]providers.Client{c.provider: c.newClient(srv.URL)}),
 		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{c.provider: {}})
 

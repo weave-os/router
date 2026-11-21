@@ -118,13 +118,13 @@ func (s *Service) planTranslation(req router.Request) TranslationPlan {
 	}
 	if len(constraints) > 0 {
 		plan.TargetFamily = constraints[0].TargetFamily
-		candidates := candidateProviders(req.EnabledProviders, s.clients.NameSet())
+		candidates := candidateProviders(req.EnabledProviders, s.engine.Clients().NameSet())
 		for _, constraint := range constraints {
 			plan.Exclusions = append(plan.Exclusions, constraintExclusions(candidates, constraint, plan.Enforced)...)
 		}
 		if plan.Enforced {
 			plan.EnabledProviders = filterProvidersByConstraints(candidates, constraints)
-			plan.Unavailable = len(configuredProviders(plan.EnabledProviders, s.clients.NameSet())) == 0
+			plan.Unavailable = len(configuredProviders(plan.EnabledProviders, s.engine.Clients().NameSet())) == 0
 		}
 	}
 

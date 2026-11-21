@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/providers"
@@ -42,7 +43,7 @@ func unscorableHMMService(store sessionpin.Store, sidecarFailure error) *Service
 	policyRouter := hmm.NewForStrategy(router.StrategyHMMEmbedding, unavailableHMMDecider{sidecarFailure},
 		map[string]struct{}{providers.ProviderAnthropic: {}})
 	policyRouter.WithArmSelector(selection.Selector(roster))
-	return withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+	return withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: nil}), nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: policyRouter})
 }
 
@@ -88,7 +89,7 @@ func TestHMMCommandOnlyTurnUsesAdmittedRuntimeFallback(t *testing.T) {
 		router.StrategyHMMEmbedding: innerRouter,
 	}}
 	admittedRouter := policyregistry.NewAdmittedRouter(router.StrategyHMMEmbedding, snapshot)
-	service := withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+	service := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: nil}), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: admittedRouter})
 	ctx := policyregistry.WithServingSnapshot(
 		router.WithStrategy(context.Background(), router.StrategyHMMEmbedding),

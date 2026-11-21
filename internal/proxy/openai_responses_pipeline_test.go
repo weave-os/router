@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -44,7 +45,7 @@ const chatCacheableTurnBody = `{"model":"auto","stream":false,"max_tokens":4096,
 func openAIChatServiceWithDecision(provider providers.Client, decision router.Decision) *proxy.Service {
 	return proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: decision},
-		map[string]providers.Client{providers.ProviderOpenAI: provider},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: provider}),
 		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 
 }
@@ -99,10 +100,10 @@ func TestService_ProxyMessages_HandoverSwitchToOpenAIEmitsResponses(t *testing.T
 	summarizer := &fakeSummarizer{summary: "HANDOVER SUMMARY MARKER"}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderAnthropic: &fakeProvider{},
 			providers.ProviderOpenAI:    openAI,
-		},
+		}),
 		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithSummarizer(summarizer)
 
@@ -138,10 +139,10 @@ func TestService_ProxyOpenAIChatCompletion_HandoverUsesResponsesEndpoint(t *test
 	summarizer := &fakeSummarizer{summary: "HANDOVER SUMMARY MARKER"}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderAnthropic: &fakeProvider{},
 			providers.ProviderOpenAI:    openAI,
-		},
+		}),
 		nil, store, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts()).
 		WithSummarizer(summarizer)
 	body := `{"model":"auto","stream":true,"max_tokens":256,"messages":[{"role":"user","content":"` + strings.Repeat("aaaa ", 8000) + `"}],"tools":[{"type":"function","function":{"name":"noop","parameters":{"type":"object"}}}],"reasoning_effort":"medium"}`

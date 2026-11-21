@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
@@ -92,7 +93,7 @@ func TestClassifyDispatchError_PolicyPinUnavailableIs503WithTypedReason(t *testi
 
 func TestRecordPolicyPinRouteFailureWritesHonouredFalseRow(t *testing.T) {
 	sink := newBypassCaptureTelemetry()
-	svc := &Service{hmmServing: hmmPorts(), turnTelemetry: turnTelemetry{repo: sink}}
+	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), turnTelemetry: turnTelemetry{repo: sink}}
 	installationID := uuid.New()
 	ctx := context.WithValue(pinnedContext(true), requestcontext.InstallationIDContextKey{}, installationID.String())
 
@@ -116,7 +117,7 @@ func TestRecordPolicyPinRouteFailureWritesHonouredFalseRow(t *testing.T) {
 
 func TestRecordPolicyPinRouteFailureIsSilentWithoutAPin(t *testing.T) {
 	sink := newBypassCaptureTelemetry()
-	svc := &Service{hmmServing: hmmPorts(), turnTelemetry: turnTelemetry{repo: sink}}
+	svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), turnTelemetry: turnTelemetry{repo: sink}}
 	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, uuid.New().String())
 
 	svc.recordPolicyPinRouteFailure(ctx, routeFailureRequest{RequestID: "req-plain", RequestStart: time.Now(), RequestedModel: "claude-sonnet-5", Strategy: router.StrategyFromContext(ctx)}, turntype.TurnType("interactive"), false, errors.New("routing failed"))
@@ -141,7 +142,7 @@ func (r *countingPinnedRouter) Route(context.Context, router.Request) (router.De
 func pinnedTurnLoopService(t *testing.T, rt router.Router, store sessionpin.Store) *Service {
 	t.Helper()
 	clients := map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderOpenAI: nil}
-	return withHMMPorts(NewService(rt, clients, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
+	return withHMMPorts(NewService(rt, dispatch.NewClients(clients), nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 }
 
 func pinnedTurnLoopEnvelope(t *testing.T) (*translate.RequestEnvelope, translate.RoutingFeatures) {

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
@@ -51,7 +52,7 @@ func TestCodexCompactionPreservesUntypedResponsesStream(t *testing.T) {
 		{name: "forced model", forceModel: "gpt-5.6-sol"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			svc := withHMMPorts(NewService(untypedResponsesRouter{}, map[string]providers.Client{providers.ProviderOpenAI: untypedResponsesStreamProvider{}},
+			svc := withHMMPorts(NewService(untypedResponsesRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: untypedResponsesStreamProvider{}}),
 				nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-luna", nil))
 
 			body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[` +

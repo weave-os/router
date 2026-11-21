@@ -12,6 +12,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -43,7 +44,7 @@ func responsesStreamUpstream(w http.ResponseWriter) {
 func openAIChatService(provider providers.Client) *proxy.Service {
 	return proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "test"}},
-		map[string]providers.Client{providers.ProviderOpenAI: provider},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: provider}),
 		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 
 }
@@ -336,7 +337,7 @@ func TestService_ProxyOpenAIChatCompletion_GatewayKeepsChatCompletions(t *testin
 	}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAIGateway, Model: "gpt-5.6-luna", Reason: "test"}},
-		map[string]providers.Client{providers.ProviderOpenAIGateway: provider},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAIGateway: provider}),
 		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts())
 
 	body := `{"model":"auto","messages":[{"role":"user","content":"hi"}]}`

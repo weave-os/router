@@ -15,6 +15,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
@@ -105,9 +106,9 @@ func heldPinRescueFixture() (*Service, context.Context, *heldPinGatewayClient) {
 		},
 	}}
 	upstream := &heldPinGatewayClient{}
-	svc := withHMMPorts(NewService(nil, map[string]providers.Client{
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{
 		providers.ProviderOpenAIGateway: upstream,
-	}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+	}), nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: strategy,
 			Router:   policyRouter,

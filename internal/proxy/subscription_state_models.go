@@ -216,7 +216,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in dispat
 			!codexSubscriptionModelRejected(err) && !anthropicSubscriptionModelRejected(err) && !codexOAuthCredentialRejected(err) && !anthropicOAuthCredentialRejected(err) && !anthropicClientAppRefused(ctx, err) {
 			return winner, err
 		}
-		if !anotherSeatPoolCanServe(ctx, seatAdmissionOf(s), includedModels, target) && waitOutShortSeatThrottle(ctx, target.Provider, target.Model, err, s.clock.Now(), s.retrySleep, &throttleWaited) {
+		if !anotherSeatPoolCanServe(ctx, seatAdmissionOf(s), includedModels, target) && waitOutShortSeatThrottle(ctx, target.Provider, target.Model, err, s.clock.Now(), s.engine.RetrySleep(), &throttleWaited) {
 			continue
 		}
 		includedFailure = includedFailureAfter(includedFailure, err, ownCodexLoginRejected(ctx, in.SubscriptionStateHeaders, s.usageObserver))

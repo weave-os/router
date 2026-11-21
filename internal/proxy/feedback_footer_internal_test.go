@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/turntype"
@@ -21,7 +22,7 @@ func (footerFakeStore) InsertRouterFeedback(context.Context, feedback.RouterFeed
 }
 
 func TestFeedbackFooter_ClientGating(t *testing.T) {
-	withStore := (&Service{hmmServing: hmmPorts()}).WithRouterFeedbackStore(footerFakeStore{})
+	withStore := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).WithRouterFeedbackStore(footerFakeStore{})
 
 	t.Run("terminal agents get the link-free rating hint", func(t *testing.T) {
 		for _, app := range []string{requestcontext.ClientAppClaudeCode, requestcontext.ClientAppOpencode} {
@@ -43,7 +44,7 @@ func TestFeedbackFooter_ClientGating(t *testing.T) {
 	})
 
 	t.Run("no durable store suppresses the hint entirely", func(t *testing.T) {
-		assert.Empty(t, (&Service{hmmServing: hmmPorts()}).feedbackFooter(context.Background(), requestcontext.ClientAppClaudeCode, turntype.MainLoop, false), "advertising a command we cannot record is misleading")
+		assert.Empty(t, (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).feedbackFooter(context.Background(), requestcontext.ClientAppClaudeCode, turntype.MainLoop, false), "advertising a command we cannot record is misleading")
 	})
 
 	t.Run("hidden terminal surfaces suppress the hint even for a main-loop turn", func(t *testing.T) {
@@ -81,7 +82,7 @@ func TestFeedbackFooter_ClientGating(t *testing.T) {
 }
 
 func TestFeedbackFooter_TurnTypeGating(t *testing.T) {
-	withStore := (&Service{hmmServing: hmmPorts()}).WithRouterFeedbackStore(footerFakeStore{})
+	withStore := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).WithRouterFeedbackStore(footerFakeStore{})
 
 	t.Run("the user's own conversation turns get the hint", func(t *testing.T) {
 		for _, tt := range []turntype.TurnType{turntype.MainLoop, turntype.ToolResult} {

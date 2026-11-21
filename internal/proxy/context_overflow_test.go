@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
@@ -37,7 +38,7 @@ func TestProxyMessages_UpstreamOverflowIsLeftForNativeRendering(t *testing.T) {
 	upstream := overflowingProvider(`{"error":{"message":"Your input exceeds the context window of this model.","code":"context_length_exceeded"}}`)
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster"}},
-		map[string]providers.Client{providers.ProviderAnthropic: upstream},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: upstream}),
 		nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 	rec := httptest.NewRecorder()
@@ -60,7 +61,7 @@ func TestProxyMessages_ForcedModelDispatchesPastByteEstimate(t *testing.T) {
 	const forced = "claude-sonnet-4-5"
 	upstream := &fakeProvider{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-5", Reason: "cluster"}}
-	svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: upstream},
+	svc := proxy.WithStrategyPorts(proxy.NewService(fr, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: upstream}),
 		nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithAvailableModels(map[string]struct{}{forced: {}, "claude-opus-5": {}})
 
@@ -84,7 +85,7 @@ func proxyResponsesOverflow(t *testing.T, stream bool) *httptest.ResponseRecorde
 	upstream := overflowingProvider(`{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 1050000 tokens > 1000000 maximum"}}`)
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster"}},
-		map[string]providers.Client{providers.ProviderAnthropic: upstream},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: upstream}),
 		nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 	rec := httptest.NewRecorder()
@@ -175,7 +176,7 @@ func TestCrossFormatResponsesOverflowClassifiesAsContextWindowExceeded(t *testin
 				upstream := &responsesOverflowClient{}
 				svc := proxy.WithStrategyPorts(proxy.NewService(
 					&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5-mini", Reason: "cluster"}},
-					map[string]providers.Client{providers.ProviderOpenAI: upstream},
+					dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: upstream}),
 					nil, newFakePinStore(), false, providers.ProviderOpenAI, "gpt-5-mini", nil), hmm.ServingPorts())
 
 				rec := httptest.NewRecorder()
@@ -213,7 +214,7 @@ func hmmOverflowService(provider string, upstream providers.Client, models ...st
 	}
 	resolver := policy.NewResolver(available, map[string]struct{}{provider: {}}, func(m catalog.Model) string { return m.ID }, policy.ManagedProviderPolicy())
 	routing := policy.NewSidecarRouter(policy.SidecarRouterConfig{Strategy: router.StrategyHMM, Unavailable: hmm.ErrHMMUnavailable}, overflowPolicy{}, resolver)
-	return proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, map[string]providers.Client{provider: upstream},
+	return proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{}, dispatch.NewClients(map[string]providers.Client{provider: upstream}),
 		nil, newFakePinStore(), false, provider, models[0], nil), hmm.ServingPorts()).
 		WithAvailableModels(available).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: routing, Unavailable: hmm.ErrHMMUnavailable})

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -44,10 +45,10 @@ func newOpenCodeTurnSvc(fr *fakeRouter, store *fakePinStore) *proxy.Service {
 	}
 	return proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderAnthropic: &fakeProvider{proxyResponse: anthropicResp},
 			providers.ProviderOpenAI:    &fakeProvider{proxyResponse: responsesResp},
-		},
+		}),
 		nil, store, false,
 		providers.ProviderOpenAI, openCodeHardPinModel, nil), hmm.ServingPorts())
 

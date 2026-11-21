@@ -252,7 +252,7 @@ func (s *Service) bypassToAnthropic(
 	w.Header().Set(requestcontext.HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
 	setContextEstimateHeaders(w.Header(), env.ContextOverflowTokenEstimate(), max(contextWindowOutputReserve, feats.MaxTokens))
 
-	p, provErr := s.clients.Upstream(providers.ProviderAnthropic)
+	p, provErr := s.engine.Clients().Upstream(providers.ProviderAnthropic)
 	if provErr != nil {
 		return provErr
 	}

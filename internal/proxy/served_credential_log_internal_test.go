@@ -8,11 +8,12 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/requestcontext"
 )
 
 func TestServedCredentialLogValues(t *testing.T) {
-	service := &Service{hmmServing: hmmPorts()}
+	service := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}
 
 	source, tier := service.servedCredentialLogValues(context.Background())
 	assert.Empty(t, source, "deployment key")

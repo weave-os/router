@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
@@ -45,12 +46,12 @@ func (r *registryRouter) Route(_ context.Context, request router.Request) (route
 }
 
 func serviceWithDefaultRouter(r router.Router) *Service {
-	return (&Service{hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: r})
+	return (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: r})
 }
 
 func TestRouteWithoutStrategyContextUsesHMMEmbeddingDefault(t *testing.T) {
 	defaultRouter := &registryRouter{decision: router.Decision{Model: "deepseek/deepseek-v4-pro", Provider: providers.ProviderFireworks}}
-	svc := withHMMPorts(NewService(defaultRouter, nil, nil, nil, false, "", "", nil))
+	svc := withHMMPorts(NewService(defaultRouter, dispatch.NewClients(nil), nil, nil, false, "", "", nil))
 
 	decision, err := svc.Route(context.Background(), router.Request{})
 
@@ -62,7 +63,7 @@ func TestRouteWithoutStrategyContextUsesHMMEmbeddingDefault(t *testing.T) {
 
 func TestRetiredClusterStrategyIsNotRoutable(t *testing.T) {
 	defaultRouter := &registryRouter{}
-	svc := withHMMPorts(NewService(defaultRouter, nil, nil, nil, false, "", "", nil))
+	svc := withHMMPorts(NewService(defaultRouter, dispatch.NewClients(nil), nil, nil, false, "", "", nil))
 
 	_, err := svc.Route(router.WithStrategy(context.Background(), router.Strategy("cluster")), router.Request{})
 
@@ -72,7 +73,7 @@ func TestRetiredClusterStrategyIsNotRoutable(t *testing.T) {
 }
 
 func TestRouteWithoutDefaultRouterFailsClosed(t *testing.T) {
-	svc := withHMMPorts(NewService(nil, nil, nil, nil, false, "", "", nil))
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, nil, false, "", "", nil))
 
 	_, err := svc.Route(context.Background(), router.Request{})
 
@@ -135,7 +136,7 @@ func TestPolicyStrategyRegistryFailsClosedForUnknownStrategy(t *testing.T) {
 func TestPolicyCapabilitiesReadsRefreshedRouterCapabilities(t *testing.T) {
 	strategy := router.Strategy("future-policy")
 	policyRouter := &dynamicCapabilityRouter{}
-	svc := (&Service{hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{
+	svc := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{
 		Strategy:     strategy,
 		Router:       policyRouter,
 		Capabilities: policy.Capabilities{},
@@ -154,7 +155,7 @@ func TestPolicyCapabilitiesReadsRefreshedRouterCapabilities(t *testing.T) {
 func TestPolicyStrategyAvailableReadsDynamicReadiness(t *testing.T) {
 	strategy := router.Strategy("future-policy")
 	policyRouter := &availabilityRouter{}
-	svc := (&Service{hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{
+	svc := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).WithPolicyStrategy(policy.StrategySpec{
 		Strategy: strategy,
 		Router:   policyRouter,
 	})

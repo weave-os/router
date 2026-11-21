@@ -15,6 +15,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/providers/openai"
@@ -76,10 +77,10 @@ func (u *codexRescueUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 func newCodexRescueService(upstreamURL string) (*Service, context.Context) {
 	codexClient := openai.NewClient("synthetic-paid-key", upstreamURL)
 	codexClient.SetCodexBaseURL(upstreamURL)
-	svc := withHMMPorts(NewService(stateModelRouter{}, map[string]providers.Client{
+	svc := withHMMPorts(NewService(stateModelRouter{}, dispatch.NewClients(map[string]providers.Client{
 		providers.ProviderAnthropic: anthropic.NewClient("synthetic-paid-key", upstreamURL),
 		providers.ProviderOpenAI:    codexClient,
-	}, nil, nil, false, "", "", nil)).
+	}), nil, nil, false, "", "", nil)).
 		WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: true}})
 	ctx := context.WithValue(managedSubscriptionTestContext(), credentials.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
 	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel})

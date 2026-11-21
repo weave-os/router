@@ -405,7 +405,7 @@ func (s *Service) recordManagedSubscriptionSuccess(ctx context.Context, provider
 }
 
 func (s *Service) supportsSubscriptionTransport(provider string) bool {
-	client, err := s.clients.Client(provider)
+	client, err := s.engine.Clients().Client(provider)
 	if err != nil {
 		return false
 	}

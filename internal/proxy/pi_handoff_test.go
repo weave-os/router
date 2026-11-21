@@ -14,6 +14,7 @@ import (
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -31,7 +32,7 @@ func handoffTestService() (*Service, *betaTestRouter, *betaCaptureProvider, cont
 		Metadata: &router.RoutingMetadata{PolicyGroup: "high", AuthoritativePerTurnSelection: true},
 	}}
 	upstream := &betaCaptureProvider{}
-	svc := withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: upstream}), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithPiHandoffSecret(strings.Repeat("test-secret-", 4)).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: classifier, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}})
 	ctx := context.WithValue(context.Background(), requestcontext.APIKeyIDContextKey{}, "handoff-test-key")

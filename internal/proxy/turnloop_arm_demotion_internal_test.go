@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
@@ -81,7 +82,7 @@ func TestTurnLoopExcludesDemotedModelUnderAuthoritativePolicy(t *testing.T) {
 		Model:    freshTurnModel,
 		Reason:   "arm-demotion-authoritative-test_policy",
 	}}
-	svc := withHMMPorts(NewService(nil, nil, nil, store, false,
+	svc := withHMMPorts(NewService(nil, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: strategy,
@@ -111,7 +112,7 @@ func TestTurnLoopDropsDemotedPinOnScorerPath(t *testing.T) {
 		Model:    freshTurnModel,
 		Reason:   "cluster:v0.2",
 	}}
-	svc := withHMMPorts(NewService(scorer, nil, nil, store, false,
+	svc := withHMMPorts(NewService(scorer, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	res := runDemotionTurnLoop(t, svc, context.Background())
@@ -134,7 +135,7 @@ func TestTurnLoopHonoursDemotionRecordedOnHMMHistory(t *testing.T) {
 		Model:    freshTurnModel,
 		Reason:   "cluster:v0.2",
 	}}
-	svc := withHMMPorts(NewService(scorer, nil, nil, store, false,
+	svc := withHMMPorts(NewService(scorer, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	res := runDemotionTurnLoop(t, svc, context.Background())
@@ -155,7 +156,7 @@ func TestTurnLoopKeepsForcedModelDespiteDemotion(t *testing.T) {
 		Model:    freshTurnModel,
 		Reason:   "cluster:v0.2",
 	}}
-	svc := withHMMPorts(NewService(scorer, nil, nil, store, false,
+	svc := withHMMPorts(NewService(scorer, dispatch.NewClients(nil), nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil))
 
 	res := runDemotionTurnLoop(t, svc, context.Background())

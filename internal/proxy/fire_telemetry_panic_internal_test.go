@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/telemetry/turnrecord"
 
@@ -94,7 +95,7 @@ func TestFireTelemetryRecoversFromPanic(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
 	defer slog.SetDefault(prev)
 
-	s := &Service{hmmServing: hmmPorts(), turnTelemetry: turnTelemetry{repo: panicTelemetryRepo{}}}
+	s := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), turnTelemetry: turnTelemetry{repo: panicTelemetryRepo{}}}
 
 	assert.NotPanics(t, func() {
 		s.fireTelemetry(t.Context(), turnrecord.InsertTelemetryParams{RequestID: "req-1"})

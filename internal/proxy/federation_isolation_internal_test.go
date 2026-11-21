@@ -10,6 +10,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/requestcontext"
@@ -58,7 +59,7 @@ func TestUnavailableFederationIsIsolatedToItsProvider(t *testing.T) {
 func TestFederationOutageDoesNotBlockOpenAIInference(t *testing.T) {
 	upstream := &bypassFakeProvider{respBody: `{"id":"chatcmpl_1","object":"chat.completion","model":"gpt-5.6-luna","choices":[{"index":0,"message":{"role":"assistant","content":"served"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}`}
 	decision := router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "test"}
-	service := withHMMPorts(NewService(staticRouter{decision: decision}, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-4-8", nil))
+	service := withHMMPorts(NewService(staticRouter{decision: decision}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: upstream}), nil, nil, false, providers.ProviderAnthropic, "claude-opus-4-8", nil))
 	ctx := context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{ID: "federation-key", Provider: providers.ProviderAnthropic, AuthType: auth.AuthTypeAnthropicWIF, CredentialError: auth.ErrAnthropicFederationUnavailable},
 		{ID: "openai-key", Provider: providers.ProviderOpenAI, Plaintext: []byte("synthetic-openai-key")},
@@ -79,7 +80,7 @@ func TestFederationOutageFailsClosedOnAnthropicInference(t *testing.T) {
 	defer upstream.Close()
 	client := anthropic.NewClient("synthetic-platform-key", upstream.URL)
 	decision := router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Reason: "test"}
-	service := withHMMPorts(NewService(staticRouter{decision: decision}, map[string]providers.Client{providers.ProviderAnthropic: client}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-4-8", nil))
+	service := withHMMPorts(NewService(staticRouter{decision: decision}, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: client}), nil, nil, false, providers.ProviderAnthropic, "claude-opus-4-8", nil))
 	ctx := context.WithValue(context.Background(), credentials.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{ID: "federation-key", Provider: providers.ProviderAnthropic, AuthType: auth.AuthTypeAnthropicWIF, CredentialError: auth.ErrAnthropicFederationUnavailable}})
 	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 	body := []byte(`{"model":"claude-opus-4-8","max_tokens":100,"messages":[{"role":"user","content":"hello"}]}`)

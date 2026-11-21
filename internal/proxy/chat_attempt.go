@@ -248,11 +248,11 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 		return func(actx context.Context, d router.Decision, p dispatch.Upstream) error {
 			surface := deps.responseSwitch.surface(d.Provider, servedOnCodexSubscription(actx))
 			gatewayKey := gatewayResponsesKey(actx, d.Provider)
-			stripPromptCacheKey := deps.svc.gatewayCaps.RejectsPromptCacheKey(gatewayKey)
+			stripPromptCacheKey := deps.svc.engine.GatewayCaps().RejectsPromptCacheKey(gatewayKey)
 			err := dispatchOpenAI(actx, d, p, surface, stripPromptCacheKey)
 			if err != nil && !stripPromptCacheKey && gatewayKey != "" && !committed(deps.preludeBuf) &&
 				providers.IsUpstreamPromptCacheKeyRejection(err) {
-				deps.svc.gatewayCaps.RememberRejectsPromptCacheKey(gatewayKey)
+				deps.svc.engine.GatewayCaps().RememberRejectsPromptCacheKey(gatewayKey)
 				stripPromptCacheKey = true
 				deps.log.Warn("Gateway rejected prompt_cache_key; retrying without the affinity hint",
 					"model", d.Model,
@@ -270,7 +270,7 @@ func buildChatAttempt(ctx context.Context, deps chatAttemptDeps, target router.D
 			if deps.responseSwitch.fallbackToChat(surface) != nil {
 				return err
 			}
-			deps.svc.gatewayCaps.RememberLacksResponses(deps.responsesEndpointKey)
+			deps.svc.engine.GatewayCaps().RememberLacksResponses(deps.responsesEndpointKey)
 			deps.log.Warn("OpenAI endpoint rejected the Responses API; retrying on chat/completions",
 				"model", d.Model,
 				"decision_provider", d.Provider)

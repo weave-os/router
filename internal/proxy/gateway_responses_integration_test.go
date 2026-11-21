@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/providers/openaicompat"
@@ -59,9 +60,9 @@ func gatewayService(t *testing.T, baseURL string) *proxy.Service {
 	t.Helper()
 	return proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAIGateway, Model: "gpt-5.4-mini"}},
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderOpenAIGateway: openaicompat.NewGatewayClient("test-key", baseURL),
-		},
+		}),
 		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAIGateway: {}})
 }
@@ -181,9 +182,9 @@ func directOpenAIService(t *testing.T, baseURL string, broad bool) *proxy.Servic
 	t.Helper()
 	return proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.4-mini"}},
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderOpenAI: openai.NewClient("test-key", baseURL),
-		},
+		}),
 		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).
 		WithOpenAIResponsesBroad(broad)
@@ -249,9 +250,9 @@ func TestProxyMessages_DirectOpenAIStopSequencesStayOnChat(t *testing.T) {
 		`"messages":[{"role":"user","content":"finish the sentence"}]}`
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-4.1"}},
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderOpenAI: openai.NewClient("test-key", upstream.URL),
-		},
+		}),
 		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 

@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
@@ -58,10 +59,10 @@ func proxyPinnedCodexOverload(t *testing.T, pinFound bool) (*anthropicServingCli
 	}}
 	sibling := &anthropicServingClient{}
 	svc := withHMMPorts(NewService(nil,
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderOpenAI:    planClient{&codexInStreamOverloadClient{}},
 			providers.ProviderAnthropic: planClient{sibling},
-		},
+		}),
 		nil, store, false, providers.ProviderOpenAI, pinnedOverloadModel, nil)).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}, providers.ProviderAnthropic: {}}).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil }).

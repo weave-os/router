@@ -28,7 +28,7 @@ func attributionService(t *testing.T, sink *recordingAttemptSink, clients map[st
 	t.Helper()
 	executor, err := dispatch.NewExecutor(dispatch.NewClients(clients), dispatch.WithAttemptSink(sink))
 	require.NoError(t, err)
-	return (&Service{hmmServing: hmmPorts()}).WithInferenceExecutor(executor)
+	return (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).WithInferenceExecutor(executor)
 }
 
 func TestDispatchPlanned_TranslatedRejectionIsRouterOwned(t *testing.T) {
@@ -108,7 +108,7 @@ func TestDispatchPlanned_FailoverRecordsOwnerPerAttemptAndBadgeDetail(t *testing
 	fallback := &fakeClient{name: providers.ProviderOpenRouter, outcomes: []fakeOutcome{{writeBytes: []byte("ok")}}}
 	sink := &recordingAttemptSink{}
 	s := attributionService(t, sink, map[string]providers.Client{providers.ProviderFireworks: primary, providers.ProviderOpenRouter: fallback})
-	s.retrySleep = func(context.Context, time.Duration) error { return nil }
+	s.engine.SetRetrySleep(func(context.Context, time.Duration) error { return nil })
 
 	ctx := withAttemptTrace(context.Background(), []byte(`{"model":"claude","messages":[]}`), http.Header{})
 	rec := httptest.NewRecorder()
@@ -151,7 +151,7 @@ func TestDispatchPlanned_ExhaustionNamesOwnerInTerminalMessage(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := attributionService(t, &recordingAttemptSink{}, map[string]providers.Client{providers.ProviderFireworks: newClient()})
-			s.retrySleep = func(context.Context, time.Duration) error { return nil }
+			s.engine.SetRetrySleep(func(context.Context, time.Duration) error { return nil })
 			ctx := withAttemptTrace(context.Background(), body, tc.header)
 			rec := httptest.NewRecorder()
 			buf := newPreludeBuffer(rec)

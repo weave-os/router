@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 )
@@ -47,7 +48,7 @@ func TestClassifierCodexToolErrorsRequireIdentifiedResponsesIngress(t *testing.T
 					ctx := router.WithStrategy(context.Background(), router.StrategyLLMClassifier)
 					ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: fixture.client})
 					body := strings.NewReplacer("TOOL", tool, "OUTPUT", failure, "ERROR", verdict.field).Replace(fixture.body)
-					captured, err := (&Service{hmmServing: hmmPorts()}).withClassifierInput(ctx, []byte(body), fixture.endpoint)
+					captured, err := (&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}).withClassifierInput(ctx, []byte(body), fixture.endpoint)
 					require.NoError(t, err)
 					input := mustAs[router.ClassifierContext](t, captured.Value(classifierInputContextKey{}))
 					wantFailure := fixture.inferFailure

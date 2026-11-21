@@ -14,6 +14,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
@@ -89,7 +90,7 @@ func TestVerificationSQLUnsignedEmailCannotClaimPersonalServing(t *testing.T) {
 	defer providerServer.Close()
 	client := &verificationIncludedClient{openai.NewClient("synthetic-api-key", providerServer.URL)}
 	client.SetCodexBaseURL(providerServer.URL)
-	svc := proxy.WithStrategyPorts(proxy.NewService(verificationBillingRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts()).WithManagedSubscriptions(runtime).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
+	svc := proxy.WithStrategyPorts(proxy.NewService(verificationBillingRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil), hmm.ServingPorts()).WithManagedSubscriptions(runtime).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 	var winners []any
 	var resolvedOwners []auth.SubscriptionOwner
 	var proxyErrors []error

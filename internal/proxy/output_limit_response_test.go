@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -63,7 +64,7 @@ func TestProxyOutputLimitAcrossResponsePaths(t *testing.T) {
 						_, _ = w.Write([]byte(response))
 					}}
 					svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: router.Decision{Provider: path.provider, Model: path.model, Reason: "fresh"}},
-						map[string]providers.Client{path.provider: provider}, nil, store, false, path.provider, path.model, nil), hmm.ServingPorts()).
+						dispatch.NewClients(map[string]providers.Client{path.provider: provider}), nil, store, false, path.provider, path.model, nil), hmm.ServingPorts()).
 						WithOpenAIResponsesBroad(path.wire == "responses").
 						WithNativeAnthropicResponseSignals(false).
 						WithNativeOpenAIResponseSignals(false)
@@ -110,7 +111,7 @@ func TestProxyGeminiTelemetryClassifiesOutputCap(t *testing.T) {
 			}}
 			telem := newCaptureTelemetry()
 			svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: capGeminiModel, Reason: "fresh"}},
-				map[string]providers.Client{providers.ProviderGoogle: provider}, nil, newFakePinStore(), false,
+				dispatch.NewClients(map[string]providers.Client{providers.ProviderGoogle: provider}), nil, newFakePinStore(), false,
 				providers.ProviderGoogle, capGeminiModel, telem), hmm.ServingPorts())
 
 			body := []byte(`{"contents":[{"role":"user","parts":[{"text":"Inspect the repository files"}]}],"generationConfig":{"maxOutputTokens":64000}}`)

@@ -177,7 +177,7 @@ func TestCyberRefusalRetryTarget_NeverLandsOnRefusingVendor(t *testing.T) {
 		},
 	}
 	svc := withHMMPorts(NewService(nil,
-		map[string]providers.Client{providers.ProviderOpenAI: openai.NewClient("test-openai-key", "http://127.0.0.1:1")},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: openai.NewClient("test-openai-key", "http://127.0.0.1:1")}),
 		nil, store, false, providers.ProviderOpenAI, "gpt-5.5", nil)).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).
 		WithCyberRefusalFallbackModel("gpt-5.5")

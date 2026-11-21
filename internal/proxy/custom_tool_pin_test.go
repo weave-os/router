@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -36,7 +37,7 @@ func TestService_SessionPin_CustomToolTurnKeepsUnsupportedPinExcluded(t *testing
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: fresh, Reason: "cluster:v0.57"}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{providers.ProviderOpenAI: &fakeProvider{}, providers.ProviderDeepInfra: &fakeProvider{}},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: &fakeProvider{}, providers.ProviderDeepInfra: &fakeProvider{}}),
 		nil,
 		store,
 		false,

@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -44,10 +45,10 @@ func TestService_HistoricalDirective_KeepsSessionPin(t *testing.T) {
 				w.WriteHeader(http.StatusOK)
 				_, _ = w.Write([]byte(`{"id":"resp_1","object":"response","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}]}`))
 			}}
-			svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{
+			svc := proxy.WithStrategyPorts(proxy.NewService(fr, dispatch.NewClients(map[string]providers.Client{
 				providers.ProviderAnthropic: &fakeProvider{},
 				providers.ProviderOpenAI:    openAI,
-			}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
+			}), nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 
 			identity := requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex, SessionID: tc.sessionID}
 			ctx := context.WithValue(authedCtx(uuid.New().String()), proxy.ClientIdentityContextKey{}, identity)

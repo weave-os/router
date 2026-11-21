@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -141,7 +142,7 @@ func newPinSvcCapturing(fr *fakeRouter, store *fakePinStore) (*proxy.Service, *f
 	p := &fakeProvider{}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{providers.ProviderAnthropic: p},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: p}),
 		nil,
 		store,
 		false,
@@ -566,10 +567,10 @@ func TestTurnLoop_ToolResultPinOnExcludedProviderFallsThroughToScorer(t *testing
 	}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderAnthropic: &fakeProvider{},
 			providers.ProviderOpenAI:    &fakeProvider{},
-		},
+		}),
 		nil,
 		store,
 		false,
@@ -837,7 +838,7 @@ func TestTurnLoop_UsageWritebackPersistsCacheStats(t *testing.T) {
 	// Pin storage and telemetry both require upstream usage capture.
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		fr,
-		map[string]providers.Client{providers.ProviderAnthropic: provider},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: provider}),
 		nil,
 		store,
 		false,

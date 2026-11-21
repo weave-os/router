@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/proxy"
@@ -29,7 +30,7 @@ func TestProxyMessages_SpentOwnClaudePlanNudgesToConnectASeat(t *testing.T) {
 	t.Cleanup(upstream.Close)
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: earlyStopLowModel, Reason: "test"}},
-		map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", upstream.URL)},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", upstream.URL)}),
 		nil, newFakePinStore(), false, providers.ProviderAnthropic, earlyStopLowModel, newCaptureTelemetry()), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).WithRetrySleep(noRetrySleep).WithUsageObserver(exhaustedObserver())
 	body := `{"model":"claude-opus-4-7","max_tokens":4096,"stream":true,"messages":[{"role":"user","content":"hello"}]}`

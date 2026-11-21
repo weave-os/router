@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/providers/google"
@@ -64,10 +65,10 @@ func TestProxyMessages_GeminiCorruptedThoughtSignatureFailsOverToBaselineAnthrop
 	tel := newCaptureTelemetry()
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-3-pro-preview"}},
-		map[string]providers.Client{
+		dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderGoogle:    google.NewNativeClient("test-google-key", googleUpstream.URL),
 			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
-		},
+		}),
 		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", tel), hmm.ServingPorts()).
 		WithDeploymentKeyedProviders(map[string]struct{}{
 			providers.ProviderGoogle:    {},

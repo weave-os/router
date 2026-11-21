@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -43,7 +44,7 @@ func (nonListerClient) Passthrough(context.Context, providers.PreparedRequest, h
 }
 
 func upstreamModelsService(providerMap map[string]providers.Client) *proxy.Service {
-	return proxy.WithStrategyPorts(proxy.NewService(nil, providerMap, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
+	return proxy.WithStrategyPorts(proxy.NewService(nil, dispatch.NewClients(providerMap), nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts())
 }
 
 func TestListUpstreamModels_PassesCredentialsToLister(t *testing.T) {

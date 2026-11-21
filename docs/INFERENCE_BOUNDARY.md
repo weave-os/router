@@ -41,7 +41,7 @@ No production `providers.Client.Proxy`/`Passthrough` call site remains outside `
 
 Executor attempts do not hold a provider client: `dispatchPlanned` hands each attempt closure a `dispatch.Upstream` wrapping the client the executor selected and guarded for the planned target, and the closure sends through it.
 
-`proxy.Service`, `NewService`, and the two provider-filter helpers in `internal/proxy/translation_plan.go` are the only non-composition-root owners of `map[string]providers.Client`. Phase 5 moves that ownership to `internal/dispatch`.
+Only `cmd/router` builds `map[string]providers.Client`. `NewService` takes the resulting `*dispatch.Clients`, and `proxy.Service` reaches clients, the executor and plan resolution through `dispatch.Engine`.
 
 ## Approved Upstream Adapters
 

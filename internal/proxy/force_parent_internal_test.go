@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -33,7 +34,7 @@ func TestForceParentRoutesChildrenAndSupportsScopeTransitions(t *testing.T) {
 	require.Equal(t, controlKey, deriveForceModelSessionKeyForRequest(ctx, child, apiKeyID, childKey))
 	store := newForceModelMapStore()
 	scorer := &tierProbeRouter{available: map[string]struct{}{catalog.ModelIDClaudeHaiku45.String(): {}}}
-	svc := withHMMPorts(NewService(scorer, nil, nil, store, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
+	svc := withHMMPorts(NewService(scorer, dispatch.NewClients(nil), nil, store, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
 	apply := func(command translate.ForceModelResult) string {
 		t.Helper()
 		_, ack, err := (forceModelCommands{svc}).apply(ctx, router.StrategyFromContext(ctx), command, installationID, parentKey, controlKey)
@@ -93,7 +94,7 @@ func TestForceParentDoesNotOverrideChildCompaction(t *testing.T) {
 	require.NoError(t, err)
 	store := newForceModelMapStore()
 	scored := router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeSonnet46.String()}
-	svc := withHMMPorts(NewService(fixedRouter{decision: scored}, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, store, false, providers.ProviderAnthropic, catalog.ModelIDClaudeSonnet46.String(), nil))
+	svc := withHMMPorts(NewService(fixedRouter{decision: scored}, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: nil}), nil, store, false, providers.ProviderAnthropic, catalog.ModelIDClaudeSonnet46.String(), nil))
 	parentKey := deriveSessionKeyForRequest(ctx, parent, apiKeyID)
 	require.Equal(t, parentKey, deriveSessionKeyForRequest(ctx, compaction, apiKeyID))
 	features := compaction.RoutingFeatures()

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/requestcontext"
 
 	"weave-os/router/internal/auth"
@@ -189,7 +190,7 @@ func (in parityIngress) resolved(ctx context.Context) context.Context {
 // deploymentKeyedService builds a Service with the ingress' provider wired to a
 // deployment key — the paid fallback a rescue spends.
 func (in parityIngress) deploymentKeyedService() *Service {
-	return &Service{hmmServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{in.provider: {}}}}
+	return &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{in.provider: {}}}}
 }
 
 // parityObserver seeds a usage observer that already read the token's plan spent.
@@ -220,12 +221,12 @@ func TestSubscriptionFailoverParity_Eligibility(t *testing.T) {
 			})
 
 			t.Run("no fallback key: not eligible", func(t *testing.T) {
-				assert.False(t, in.fallbackAvailable(&Service{hmmServing: hmmPorts()}, in.subCtx()),
+				assert.False(t, in.fallbackAvailable(&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}, in.subCtx()),
 					"with no BYOK and no deployment key there is nothing to fail over to")
 			})
 
 			t.Run("BYOK key is a fallback", func(t *testing.T) {
-				assert.True(t, in.fallbackAvailable(&Service{hmmServing: hmmPorts()}, in.byokCtx(in.subCtx())),
+				assert.True(t, in.fallbackAvailable(&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}, in.byokCtx(in.subCtx())),
 					"a per-request BYOK key can serve the turn the subscription cannot")
 			})
 
@@ -236,7 +237,7 @@ func TestSubscriptionFailoverParity_Eligibility(t *testing.T) {
 
 			t.Run("another provider's key is not a fallback", func(t *testing.T) {
 				other := providers.ProviderOpenRouter
-				svc := &Service{hmmServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{other: {}}}}
+				svc := &Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{other: {}}}}
 				assert.False(t, in.fallbackAvailable(svc, in.subCtx()),
 					"the fallback probe is provider-scoped; a key for another provider cannot serve this turn")
 			})
@@ -325,7 +326,7 @@ func TestSubscriptionFailoverParity_PreDispatchSuppression(t *testing.T) {
 			})
 
 			t.Run("no fallback key: still suppress", func(t *testing.T) {
-				assert.True(t, in.exhausted(withObserver(&Service{hmmServing: hmmPorts()}), in.subCtx(), http.Header{}),
+				assert.True(t, in.exhausted(withObserver(&Service{engine: dispatch.NewEngine(nil), hmmServing: hmmPorts()}), in.subCtx(), http.Header{}),
 					"known spent capacity is unavailable even without API credentials")
 			})
 
@@ -625,10 +626,10 @@ func (p *parityUpstream) Passthrough(context.Context, providers.PreparedRequest,
 func (in parityIngress) parityService(upstream providers.Client) *Service {
 	svc := withHMMPorts(NewService(
 		staticRouter{decision: router.Decision{Provider: in.provider, Model: in.model, Reason: "test"}},
-		map[string]providers.Client{in.provider: upstream},
+		dispatch.NewClients(map[string]providers.Client{in.provider: upstream}),
 		nil, nil, false, in.provider, in.model, nil)).
 		WithDeploymentKeyedProviders(map[string]struct{}{in.provider: {}})
-	svc.retrySleep = noopSleep
+	svc.engine.SetRetrySleep(noopSleep)
 	return svc
 }
 
@@ -715,10 +716,10 @@ func TestSubscriptionFailoverParity_RescueDispatch(t *testing.T) {
 			}
 			svc := withHMMPorts(NewService(
 				staticRouter{decision: router.Decision{Provider: in.provider, Model: in.model, Reason: "test"}},
-				map[string]providers.Client{in.provider: upstream},
+				dispatch.NewClients(map[string]providers.Client{in.provider: upstream}),
 				nil, nil, false, in.provider, in.model, nil))
 
-			svc.retrySleep = noopSleep
+			svc.engine.SetRetrySleep(noopSleep)
 			rec, req, body := in.request(t, false)
 
 			require.Error(t, in.call(svc, in.subCtx(), body, rec, req))

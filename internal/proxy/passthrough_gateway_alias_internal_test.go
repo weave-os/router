@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
@@ -30,7 +31,7 @@ func TestRoutingPolicyPassthroughServesGatewayAliasedRetiredModel(t *testing.T) 
 		writeBytes: []byte(`{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":1}}`),
 	}}}
 	spy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
-	svc := withHMMPorts(NewService(spy, map[string]providers.Client{providers.ProviderAnthropicGateway: gateway},
+	svc := withHMMPorts(NewService(spy, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropicGateway: gateway}),
 		nil, newStubPinStore(), false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil))
 
 	installationID := uuid.New().String()

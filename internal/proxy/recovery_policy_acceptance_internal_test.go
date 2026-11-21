@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
@@ -153,7 +154,7 @@ func TestRecoveryAcceptanceCooldownExpiryAdmitsOneConcurrentProbe(t *testing.T) 
 		hmmHistoryRole(roleForTier(catalog.TierFor(catalog.ModelGPT6Luna))): {Strategy: router.StrategyHMMEmbedding, DemotionCooldowns: map[string]time.Time{catalog.ModelGPT6Luna: rateLimitTestNow}},
 	}}, reads: make(chan recoveryBucketRead, 128)}
 	sibling := &recoveryAlternativeClient{}
-	svc := withHMMPorts(NewService(scorer, map[string]providers.Client{providers.ProviderOpenAIGateway: provider, providers.ProviderAnthropicGateway: sibling},
+	svc := withHMMPorts(NewService(scorer, dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAIGateway: provider, providers.ProviderAnthropicGateway: sibling}),
 		nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil)).
 		WithTransientRateLimit(true, 45)
 	now := rateLimitTestNow.Add(-time.Nanosecond)

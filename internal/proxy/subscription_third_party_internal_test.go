@@ -106,7 +106,7 @@ func TestDispatchWithFallbackPaysCreditsForManagedThirdPartyRefusal(t *testing.T
 	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: upstream}).
 		WithManagedSubscriptions(leaser).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
-	svc.retrySleep = noopSleep
+	svc.engine.SetRetrySleep(noopSleep)
 
 	for range 2 {
 		recorder, err := dispatchManagedThirdPartyTurn(t, svc, admittedThirdPartyRefusalContext(false))
@@ -129,7 +129,7 @@ func TestDispatchWithFallbackKeepsManagedThirdPartyRefusalClientSpecific(t *test
 	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: upstream}).
 		WithManagedSubscriptions(leaser).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
-	svc.retrySleep = noopSleep
+	svc.engine.SetRetrySleep(noopSleep)
 
 	_, err := dispatchManagedThirdPartyTurn(t, svc, clientAppContext(billing.WithWeaveCreditsDenied(managedSubscriptionTestContext()), requestcontext.ClientAppOpencode))
 	require.Error(t, err)
@@ -153,7 +153,7 @@ func TestDispatchWithFallbackSurfacesManagedThirdPartyRefusalWithoutFallbackKey(
 	upstream := &parityUpstream{subErr: thirdPartyRefusalError(), okBody: "served"}
 	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: upstream}).
 		WithManagedSubscriptions(leaser)
-	svc.retrySleep = noopSleep
+	svc.engine.SetRetrySleep(noopSleep)
 
 	_, err := dispatchManagedThirdPartyTurn(t, svc, clientAppContext(managedSubscriptionTestContext(), requestcontext.ClientAppOpencode))
 
@@ -200,7 +200,7 @@ func TestDispatchWithFallbackRejectsPaidFallbackForForcedThirdPartyRefusal(t *te
 	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: upstream}).
 		WithManagedSubscriptions(leaser).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
-	svc.retrySleep = noopSleep
+	svc.engine.SetRetrySleep(noopSleep)
 
 	for range 2 {
 		_, err := dispatchManagedThirdPartyTurnWithReason(t, svc, clientAppContext(billing.WithWeaveCreditsDenied(managedSubscriptionTestContext()), requestcontext.ClientAppOpencode), translate.ReasonUserForceModel)
@@ -265,7 +265,7 @@ func newThirdPartyRefusalService(t *testing.T) (*Service, *parityUpstream) {
 	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: upstream}).
 		WithManagedSubscriptions(leaser).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
-	svc.retrySleep = noopSleep
+	svc.engine.SetRetrySleep(noopSleep)
 	return svc, upstream
 }
 
@@ -330,10 +330,10 @@ func TestForcedThirdPartyRefusalPaysThroughSubscriptionStateModelsOnlyWhenKeyCon
 	for _, consented := range []bool{false, true} {
 		t.Run(map[bool]string{false: "without consent", true: "with consent"}[consented], func(t *testing.T) {
 			upstream := &parityUpstream{subErr: thirdPartyRefusalError(), okBody: "served"}
-			svc := withHMMPorts(NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, nil, false, "", "", nil)).
+			svc := withHMMPorts(NewService(stateModelRouter{}, dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: upstream}), nil, nil, false, "", "", nil)).
 				WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: true}}).
 				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
-			svc.retrySleep = noopSleep
+			svc.engine.SetRetrySleep(noopSleep)
 			ctx := WithManagedSubscriptionCandidates(managedSubscriptionTestContext(), []*auth.SubscriptionAccount{{
 				ID: "synthetic-claude", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive,
 			}})
@@ -391,7 +391,7 @@ func newSharedPoolRefusalService(t *testing.T, leases ...subscriptions.Lease) (*
 	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: upstream}).
 		WithManagedSubscriptions(leaser).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
-	svc.retrySleep = noopSleep
+	svc.engine.SetRetrySleep(noopSleep)
 	return svc, upstream, leaser
 }
 

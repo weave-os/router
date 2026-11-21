@@ -14,6 +14,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/credentials"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
@@ -69,10 +70,10 @@ func gatewayCompactionFixture(anthropicErr error) (*Service, context.Context, *g
 			CandidateProviders: map[string]string{catalog.ModelGPT6Luna: providers.ProviderOpenAIGateway},
 		},
 	}
-	svc := withHMMPorts(NewService(fixedRouter{decision: scored}, map[string]providers.Client{
+	svc := withHMMPorts(NewService(fixedRouter{decision: scored}, dispatch.NewClients(map[string]providers.Client{
 		providers.ProviderAnthropicGateway: anthropicGateway,
 		providers.ProviderOpenAIGateway:    openAIGateway,
-	}, nil, &rolePinStore{}, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil)).
+	}), nil, &rolePinStore{}, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil)).
 		WithHardPinResolver(fastest).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil })
 	ctx := rescuedFailureCtx()

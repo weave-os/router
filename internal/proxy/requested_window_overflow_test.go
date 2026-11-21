@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
@@ -28,7 +29,7 @@ func proxyRequestedWindowOverflow(t *testing.T, prompt string, stream bool, upst
 	upstream := &fakeProvider{proxyErr: upstreamErr}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: catalog.ModelGPT6Luna, Reason: "cluster"}},
-		map[string]providers.Client{providers.ProviderOpenAI: upstream},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: upstream}),
 		nil, newFakePinStore(), false, providers.ProviderAnthropic, requestedWindowModel, nil), hmm.ServingPorts()).
 		WithAvailableModels(map[string]struct{}{catalog.ModelGPT6Luna: {}, requestedWindowModel: {}})
 	streamField := "false"
@@ -90,7 +91,7 @@ func TestProxyMessages_CompactionTurnPastRequestedWindowIsNotOverflow(t *testing
 	}
 	svc := proxy.WithStrategyPorts(proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: catalog.ModelGPT6Luna, Reason: "cluster"}},
-		map[string]providers.Client{providers.ProviderOpenAI: upstream},
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: upstream}),
 		nil, newFakePinStore(), false, providers.ProviderAnthropic, requestedWindowModel, nil), hmm.ServingPorts()).
 		WithAvailableModels(map[string]struct{}{catalog.ModelGPT6Luna: {}, requestedWindowModel: {}}).
 		WithHardPinResolver(utilityPin)
