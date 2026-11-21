@@ -92,11 +92,11 @@ func codexImageBYOK(ctx context.Context) *Credentials {
 
 func (c CodexImages) forwardOnLinkedSubscription(ctx context.Context, forwarder codexImageForwarder, operation string, body []byte, headers http.Header, w http.ResponseWriter) (bool, error) {
 	svc := c.svc
-	if svc.managedSubscriptions == nil || !managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) {
+	if svc.credentials.ManagedSubscriptions == nil || !managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) {
 		return false, nil
 	}
 	owner := subscriptionOwnerFromContext(ctx)
-	lease, present, err := svc.managedSubscriptions.Lease(ctx, owner, subscriptions.ProviderCodex, ClientIdentityFrom(ctx).SessionID)
+	lease, present, err := svc.credentials.ManagedSubscriptions.Lease(ctx, owner, subscriptions.ProviderCodex, ClientIdentityFrom(ctx).SessionID)
 	if err != nil && !errors.Is(err, subscriptions.ErrNoAvailableAccount) {
 		return true, errors.Join(ErrSubscriptionPoolUnavailable, err)
 	}
@@ -129,7 +129,7 @@ func (c CodexImages) forwardOnLinkedSubscription(ctx context.Context, forwarder 
 
 func recordCodexImageLeaseOutcome(ctx context.Context, svc *Service, owner auth.SubscriptionOwner, lease subscriptions.Lease, attemptErr error) {
 	if attemptErr == nil {
-		activateManagedSubscription(ctx, svc.managedSubscriptions, owner, subscriptions.ProviderCodex, lease)
+		activateManagedSubscription(ctx, svc.credentials.ManagedSubscriptions, owner, subscriptions.ProviderCodex, lease)
 		return
 	}
 	var relayed *providers.UpstreamStatusError

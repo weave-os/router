@@ -413,7 +413,7 @@ func TestForcedThirdPartyRefusalConsentSpendsWholeClaudePool(t *testing.T) {
 		svc, upstream, _ := newSharedPoolRefusalService(t, ownSeat)
 		_, err := dispatchManagedThirdPartyTurnWithReason(t, svc, sharedPoolRefusalContext(true), translate.ReasonUserForceModel)
 		require.NoError(t, err)
-		svc.managedSubscriptions = &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{ownSeat}}
+		svc.credentials.ManagedSubscriptions = &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{ownSeat}}
 
 		recorder, err := dispatchManagedThirdPartyTurnWithReason(t, svc, sharedPoolRefusalContext(true), translate.ReasonUserForceModel)
 
