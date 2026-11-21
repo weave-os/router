@@ -49,7 +49,7 @@ func withRejectedCodexLoginPools(svc *proxy.Service, h *goldenHarness) *proxy.Se
 
 func goldenRejectedCodexLoginCtx(ctx context.Context) context.Context {
 	ctx = goldenCodexCtx(ctx)
-	ctx = requestcontext.WithClientIdentity(ctx, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex, SessionID: "golden-codex-session"})
+	ctx = requestcontext.WithClientIdentity(ctx, requestcontext.ClientIdentity{ClientApp: requestcontext.ClientAppCodex, SessionID: "golden-codex-session"})
 	ctx = proxy.WithSubscriptionStateModels(ctx, []string{goldenCodexModel, goldenAnthropicModel, goldenCodexAlternativeModel}, []string{goldenCodexModel, goldenAnthropicModel, goldenCodexAlternativeModel})
 	ctx = proxy.WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{
 		{ID: "claude-seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive},

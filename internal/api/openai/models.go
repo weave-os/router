@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/gin-gonic/gin"
 )
@@ -16,12 +16,12 @@ type codexModelsResponse struct {
 
 func ModelsHandler(fallback gin.HandlerFunc, codexCatalog func(context.Context, http.Header, string) ([]byte, error)) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		id := proxy.ClientIdentityFromHeaders(c.Request.Header)
-		if id.ClientApp != proxy.ClientAppCodex {
+		id := requestcontext.ClientIdentityFromHeaders(c.Request.Header)
+		if id.ClientApp != requestcontext.ClientAppCodex {
 			fallback(c)
 			return
 		}
-		if c.GetHeader(proxy.CodexNativeModelPinHeader) != "1" {
+		if c.GetHeader(requestcontext.CodexNativeModelPinHeader) != "1" {
 			c.JSON(http.StatusOK, codexModelsResponse{Models: []struct{}{}})
 			return
 		}

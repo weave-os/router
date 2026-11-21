@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 )
 
 const codexLoginRejectedMessage = "Your ChatGPT (Codex) login was rejected. Sign in to Codex again or reconnect your Codex seat: " +
@@ -34,7 +35,7 @@ func isOwnLoginRejection(err error) bool {
 }
 
 func ownCodexLoginRejected(ctx context.Context, headers http.Header, observer *usage.Observer) bool {
-	if ClientIdentityFrom(ctx).ClientApp != ClientAppCodex {
+	if ClientIdentityFrom(ctx).ClientApp != requestcontext.ClientAppCodex {
 		return false
 	}
 	token, _ := presentSubscriptionTokens(ctx, headers)

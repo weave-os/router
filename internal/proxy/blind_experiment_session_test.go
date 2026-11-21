@@ -31,7 +31,7 @@ func (sessionModeExperimentRepo) InstallationExperimentEnabled(context.Context, 
 func sessionModeArm(t *testing.T, headers http.Header) auth.BlindExperimentState {
 	t.Helper()
 	svc := auth.NewService(nil, nil, nil, &captureUserRepo{}, nil, auth.NoOpUserCache{}, time.Now).WithBlindExperiments(sessionModeExperimentRepo{routerOnPercentage: 50}, nil)
-	identity := proxy.ClientIdentityFromHeaders(headers)
+	identity := requestcontext.ClientIdentityFromHeaders(headers)
 	identity.Email = "alice@example.com"
 	ctx := requestcontext.WithClientIdentity(context.Background(), identity)
 	ctx = proxy.ResolveUserFromContext(ctx, svc, &auth.Installation{ID: "inst-1"}, &auth.APIKey{ID: "key-1"})

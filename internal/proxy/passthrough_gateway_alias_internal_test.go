@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
 
 	"github.com/google/uuid"
@@ -51,7 +52,7 @@ func TestRoutingPolicyPassthroughServesGatewayAliasedRetiredModel(t *testing.T) 
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))))
 
 	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	assert.Equal(t, retired, rec.Header().Get(HeaderRouterModel))
+	assert.Equal(t, retired, rec.Header().Get(requestcontext.HeaderRouterModel))
 	assert.Equal(t, 1, gateway.calls)
 	assert.Zero(t, spy.routeCalls)
 }

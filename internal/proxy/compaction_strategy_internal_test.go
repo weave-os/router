@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
@@ -29,7 +30,7 @@ func TestCodexCompactionAfterAutoReview(t *testing.T) {
 		providers.ProviderAnthropic, policy.UtilityHardPinDefaultModel, nil)).
 		WithAvailableModels(map[string]struct{}{compactionStrategyModel: {}}).
 		WithHardPinResolver(CatalogUtilityHardPin)
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex, SessionID: "compaction-strategy-test"})
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex, SessionID: "compaction-strategy-test"})
 	ctx = router.WithStrategy(ctx, router.StrategyHMM)
 	env, err := translate.ParseOpenAI([]byte(`{"model":"weave-hmm-20261019-0001v1","messages":[{"role":"user","content":"You are performing a CONTEXT CHECKPOINT COMPACTION. Summarize the work."}]}`))
 	require.NoError(t, err)
@@ -102,7 +103,7 @@ func TestCodexCompactionDispatchAcrossStrategies(t *testing.T) {
 		nil, store, false, providers.ProviderAnthropic, policy.UtilityHardPinDefaultModel, nil)).
 		WithHardPinResolver(func(HardPinRequest) (string, string, bool) { return "", "", false })
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMM)
-	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex})
 	body := []byte(`{"model":"weave-hmm-20261019-0001v1","stream":true,"input":[
 		{"type":"message","role":"user","content":[{"type":"input_text","text":"Review the patch."}]},
 		{"type":"agent_message","author":"child","recipient":"parent","content":[{"type":"encrypted_content","encrypted_content":"synthetic-opaque-content"}]},
@@ -111,7 +112,7 @@ func TestCodexCompactionDispatchAcrossStrategies(t *testing.T) {
 	err := svc.ProxyOpenAIResponses(ctx, body, rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/responses", nil))
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, compactionStrategyModel, rec.Header().Get(HeaderRouterModel))
+	assert.Equal(t, compactionStrategyModel, rec.Header().Get(requestcontext.HeaderRouterModel))
 	assert.Contains(t, rec.Body.String(), `"delta":"handoff"`)
 	assert.Contains(t, rec.Body.String(), "event: response.completed")
 }

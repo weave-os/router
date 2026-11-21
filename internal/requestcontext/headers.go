@@ -1,4 +1,4 @@
-package proxy
+package requestcontext
 
 const (
 	HeaderRouterDecision            = "x-router-decision"
@@ -17,3 +17,21 @@ const (
 	HeaderRouterCacheReadTokens     = "x-router-cache-read-tokens"
 	HeaderRouterCacheCreationTokens = "x-router-cache-creation-tokens"
 )
+
+const ForceModelHeader = "x-weave-force-model"
+
+const AllowedModelsHeader = "x-weave-allowed-models"
+
+const ClassifierThreadHeader = "X-Weave-Classifier-Thread"
+
+const ClassifierThreadUnavailableToken = "weave-classifier-unavailable"
+
+const AgentShadowModelHeader = "x-weave-agent-shadow-model"
+
+const AgentShadowRolloutHeader = "x-weave-agent-shadow-rollout-id"
+
+const AgentShadowStateHeader = "x-weave-agent-shadow-state-id"
+
+const CodexNativeModelPinHeader = "X-Weave-Codex-Native-Model-Pin"
+
+const RolloutIDHeader = "X-Weave-Rollout-Id"

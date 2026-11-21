@@ -23,6 +23,7 @@ import (
 	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/taskdomain"
@@ -99,17 +100,17 @@ type Features struct {
 func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, hmmModels admin.HMMRosterSource, mode DeploymentMode, billingSvc *billing.Service, readinessChecker admin.HealthChecker, hmmRosterSources map[router.Strategy]policy.RosterSource, analyticsSvc *analytics.Service, features Features) {
 	engine.Use(func(c *gin.Context) {
 		c.Header("Access-Control-Expose-Headers", strings.Join([]string{
-			proxy.HeaderRouterDecision,
-			proxy.HeaderRouterProvider,
-			proxy.HeaderRouterModel,
-			proxy.HeaderRouterContextWindow,
-			proxy.HeaderRouterFallbackFrom,
-			proxy.HeaderRouterFallbackAttempt,
-			proxy.HeaderRouterCostUSD,
-			proxy.HeaderRouterCostInputUSD,
-			proxy.HeaderRouterCostOutputUSD,
-			proxy.HeaderRouterCacheReadTokens,
-			proxy.HeaderRouterCacheCreationTokens,
+			requestcontext.HeaderRouterDecision,
+			requestcontext.HeaderRouterProvider,
+			requestcontext.HeaderRouterModel,
+			requestcontext.HeaderRouterContextWindow,
+			requestcontext.HeaderRouterFallbackFrom,
+			requestcontext.HeaderRouterFallbackAttempt,
+			requestcontext.HeaderRouterCostUSD,
+			requestcontext.HeaderRouterCostInputUSD,
+			requestcontext.HeaderRouterCostOutputUSD,
+			requestcontext.HeaderRouterCacheReadTokens,
+			requestcontext.HeaderRouterCacheCreationTokens,
 		}, ", "))
 		c.Next()
 	})

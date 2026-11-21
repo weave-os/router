@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
@@ -56,7 +57,7 @@ func TestReportPolicyOutcome_UsesFreshMetadataForStickyServedDecision(t *testing
 	ctx := context.WithValue(context.Background(), PolicyTrainingAllowedContextKey{}, true)
 	ctx = context.WithValue(ctx, ExternalIDContextKey{}, "org-1")
 	ctx = context.WithValue(ctx, InstallationIDContextKey{}, "installation-1")
-	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex, RolloutID: "rollout-1"})
+	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: requestcontext.ClientAppCodex, RolloutID: "rollout-1"})
 	const (
 		inputTokens  = 90
 		outputTokens = 10
@@ -85,7 +86,7 @@ func TestReportPolicyOutcome_UsesFreshMetadataForStickyServedDecision(t *testing
 		assert.Equal(t, "hmm-prod", payload["policy_artifact_id"])
 		assert.Equal(t, "org-1", payload["organization_id"])
 		assert.Equal(t, "installation-1", payload["installation_id"])
-		assert.Equal(t, ClientAppCodex, payload["client_app"])
+		assert.Equal(t, requestcontext.ClientAppCodex, payload["client_app"])
 		assert.Equal(t, "rollout-1", payload["rollout_id"])
 		assert.Equal(t, true, payload["training_allowed"])
 		assert.Equal(t, true, payload["sticky_hit"])

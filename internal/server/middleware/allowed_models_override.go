@@ -23,7 +23,7 @@ func WithAllowedModelsOverride(gate AllowedModelsHeaderGate) gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		raw := strings.TrimSpace(c.GetHeader(proxy.AllowedModelsHeader))
+		raw := strings.TrimSpace(c.GetHeader(requestcontext.AllowedModelsHeader))
 		if raw == "" {
 			c.Next()
 			return

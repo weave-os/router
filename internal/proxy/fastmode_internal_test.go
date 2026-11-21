@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/telemetry"
@@ -112,7 +113,7 @@ func TestProxyMessages_FastModeAnthropicDispatchesFastAndBillsFastRate(t *testin
 	fast, ok := catalog.FastPriceFor(providers.ProviderAnthropic, fastOpusModel)
 	require.True(t, ok)
 	want := routerResponseCostFromPricing(fast, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0, catalog.UsageModifiers{})
-	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD))
+	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(requestcontext.HeaderRouterCostUSD))
 }
 
 func TestProxyMessages_FastModeOffLeavesRequestAndListPrice(t *testing.T) {
@@ -134,7 +135,7 @@ func TestProxyMessages_FastModeOffLeavesRequestAndListPrice(t *testing.T) {
 	base, ok := catalog.PriceFor(providers.ProviderAnthropic, fastOpusModel)
 	require.True(t, ok)
 	want := routerResponseCostFromPricing(base, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0, catalog.UsageModifiers{})
-	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD))
+	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(requestcontext.HeaderRouterCostUSD))
 }
 
 // A client that sends speed:"fast" itself is billed at the fast rate even when
@@ -150,7 +151,7 @@ func TestProxyMessages_ReportedFastSpeedBillsFastRateWithoutOptIn(t *testing.T) 
 	require.NoError(t, svc.ProxyMessages(fastModeCtx(fastLunaModel), body, rec, req))
 
 	// $10/$50 fast: (1200 + 1000x1.25 + 4000x2) input + 340 output, x1.1 US.
-	assert.Equal(t, "0.13365", rec.Header().Get(HeaderRouterCostUSD))
+	assert.Equal(t, "0.13365", rec.Header().Get(requestcontext.HeaderRouterCostUSD))
 }
 
 // An upstream that omits usage.cache_creation is priced from the TTL the
@@ -165,7 +166,7 @@ func TestProxyMessages_UnreportedCacheSplitUsesRequestTTL(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(fastModeCtx(fastLunaModel), body, rec, req))
 
 	// $5/$25: (1200 + 5000x2) input + 340 output.
-	assert.Equal(t, "0.0645", rec.Header().Get(HeaderRouterCostUSD))
+	assert.Equal(t, "0.0645", rec.Header().Get(requestcontext.HeaderRouterCostUSD))
 }
 
 // A request that declares the 5-minute TTL keeps unsplit cache writes at the
@@ -180,7 +181,7 @@ func TestProxyMessages_UnreportedCacheSplitWithFiveMinuteRequestStaysFiveMinute(
 	require.NoError(t, svc.ProxyMessages(fastModeCtx(fastLunaModel), body, rec, req))
 
 	// $5/$25: (1200 + 5000x1.25) input + 340 output.
-	assert.Equal(t, "0.04575", rec.Header().Get(HeaderRouterCostUSD))
+	assert.Equal(t, "0.04575", rec.Header().Get(requestcontext.HeaderRouterCostUSD))
 }
 
 // fastQuotaFakeProvider refuses every fast-tier body with Anthropic's
@@ -227,7 +228,7 @@ func TestProxyMessages_FastModeQuotaRejectionRetriesAtStandardSpeedAndBillsListP
 	base, ok := catalog.PriceFor(providers.ProviderAnthropic, fastOpusModel)
 	require.True(t, ok)
 	want := routerResponseCostFromPricing(base, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0, catalog.UsageModifiers{})
-	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD), "a turn served at standard speed bills at list price")
+	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(requestcontext.HeaderRouterCostUSD), "a turn served at standard speed bills at list price")
 }
 
 func TestOpenAIFormats_FastModeQuotaRejectionRetriesAtStandardSpeed(t *testing.T) {

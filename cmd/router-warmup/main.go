@@ -16,7 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 )
@@ -72,7 +72,7 @@ func executeWarmup(ctx context.Context, client *http.Client, origin, credential 
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set(auth.RouterKeyHeader, credential)
 		request.Header.Set("Session-Id", sessionID)
-		request.Header.Set(proxy.ForceModelHeader, prompt.Model)
+		request.Header.Set(requestcontext.ForceModelHeader, prompt.Model)
 		response, err := client.Do(request)
 		if err == nil {
 			_, err = io.Copy(io.Discard, io.LimitReader(response.Body, 1<<20))
