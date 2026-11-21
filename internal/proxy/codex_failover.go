@@ -35,7 +35,7 @@ func codexExhaustionWindow(resetAt time.Time, now time.Time) usage.Window {
 }
 
 func (s *Service) openaiFallbackKeyAvailable(ctx context.Context) bool {
-	if byok := BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx)); byok != nil {
+	if byok := credentials.BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx)); byok != nil {
 		if _, ok := byok[providers.ProviderOpenAI]; ok {
 			return true
 		}
@@ -172,7 +172,7 @@ func (s *Service) recordCodexPlanSpent(ctx context.Context, codexTok string, res
 		"resets_at", resetAt)
 }
 
-func (s *Service) codexExtraCreditsAllowed() bool { return s.codexExtraCredits }
+func (s *Service) codexExtraCreditsAllowed() bool { return s.credentials.CodexExtraCredits }
 
 func codexSubscriptionRotates(credentialCtx context.Context, err error) bool {
 	if !servedOnCodexSubscription(credentialCtx) {

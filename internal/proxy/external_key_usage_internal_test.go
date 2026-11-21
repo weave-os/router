@@ -19,7 +19,7 @@ func (r *recordedKeyUsage) MarkExternalAPIKeyUsed(_ context.Context, id string) 
 }
 
 func TestMarkServedExternalKeyUsed(t *testing.T) {
-	storedKey := BuildCredentialsMap([]*auth.ExternalAPIKey{{
+	storedKey := credentials.BuildCredentialsMap([]*auth.ExternalAPIKey{{
 		ID: "key-1", Provider: providers.ProviderOpenAI, Plaintext: []byte("sk-test"),
 	}})[providers.ProviderOpenAI]
 	cases := []struct {

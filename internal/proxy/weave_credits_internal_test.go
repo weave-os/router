@@ -32,7 +32,7 @@ func TestWeaveCreditsFunding_FailedKeyIsNotAFundingSource(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, map[string]struct{}{providers.ProviderAnthropic: {}}, got)
-	assert.False(t, customerFunded(BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx))[providers.ProviderOpenAI]))
+	assert.False(t, customerFunded(credentials.BuildCredentialsMap(credentials.ExternalKeysFromContext(ctx))[providers.ProviderOpenAI]))
 }
 
 func TestWeaveCreditsFunding_AllowedLeavesProvidersAlone(t *testing.T) {
