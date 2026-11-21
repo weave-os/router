@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/bandswap"
 	"weave-os/router/internal/router/continuity"
@@ -224,25 +225,25 @@ func routingPolicyCtx(decorators ...func(context.Context) context.Context) func(
 
 func routingPolicyExcludeModels(models ...string) func(context.Context) context.Context {
 	return func(ctx context.Context) context.Context {
-		return context.WithValue(ctx, proxy.InstallationExcludedModelsContextKey{}, models)
+		return context.WithValue(ctx, requestcontext.InstallationExcludedModelsContextKey{}, models)
 	}
 }
 
 func routingPolicyAllowModels(models ...string) func(context.Context) context.Context {
 	return func(ctx context.Context) context.Context {
-		return context.WithValue(ctx, proxy.InstallationAllowedModelsContextKey{}, models)
+		return context.WithValue(ctx, requestcontext.InstallationAllowedModelsContextKey{}, models)
 	}
 }
 
 func routingPolicyPreferModels(models ...string) func(context.Context) context.Context {
 	return func(ctx context.Context) context.Context {
-		return context.WithValue(ctx, proxy.InstallationPreferredModelsContextKey{}, models)
+		return context.WithValue(ctx, requestcontext.InstallationPreferredModelsContextKey{}, models)
 	}
 }
 
 func routingPolicyExternalKeys(keys ...*auth.ExternalAPIKey) func(context.Context) context.Context {
 	return func(ctx context.Context) context.Context {
-		return context.WithValue(ctx, proxy.ExternalAPIKeysContextKey{}, keys)
+		return context.WithValue(ctx, requestcontext.ExternalAPIKeysContextKey{}, keys)
 	}
 }
 

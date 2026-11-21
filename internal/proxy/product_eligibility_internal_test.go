@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/eligibility"
@@ -150,8 +151,8 @@ func TestUsageBypassDisengagesForAnIneligibleModel(t *testing.T) {
 	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
 	obs.Record(obs.Key([]byte(token)), usage.Snapshot{Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300}})
 	svc := &Service{hmmServing: hmmPorts(), usageObserver: obs}
-	ctx := context.WithValue(maxScopedContext(), AnthropicSubscriptionContextKey{}, token)
-	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true, Threshold: &threshold})
+	ctx := context.WithValue(maxScopedContext(), requestcontext.AnthropicSubscriptionContextKey{}, token)
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true, Threshold: &threshold})
 
 	_, engaged := svc.usageBypassDecision(ctx, http.Header{}, router.Request{
 		RequestedModel:     "claude-sonnet-4-6",
@@ -170,7 +171,7 @@ func TestAgentShadowEvaluationRefusesAnIneligibleModel(t *testing.T) {
 	_, err := svc.runAgentShadowEvaluationRoute(
 		maxScopedContext(), env, translate.RoutingFeatures{Model: "claude-opus-4-8"}, uuid.Nil,
 		router.Request{ProductEligibility: eligibility.MaxOpenSourceOnly},
-		AgentShadowEvaluation{Model: "claude-opus-4-8", RolloutID: "rollout-1", StateID: "state-1"},
+		requestcontext.AgentShadowEvaluation{Model: "claude-opus-4-8", RolloutID: "rollout-1", StateID: "state-1"},
 	)
 
 	require.ErrorIs(t, err, eligibility.ErrModelIneligible)

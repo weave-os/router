@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
@@ -249,7 +250,7 @@ func admittedClientRefusalContext(paidFallbackConsented bool, clientApp string) 
 		ID: "opaque-a", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive,
 	}})
 	if paidFallbackConsented {
-		ctx = context.WithValue(ctx, APIKeyPaidFallbackOnSubscriptionRefusalContextKey{}, true)
+		ctx = context.WithValue(ctx, requestcontext.APIKeyPaidFallbackOnSubscriptionRefusalContextKey{}, true)
 	}
 	return clientAppContext(ctx, clientApp)
 }
@@ -337,11 +338,11 @@ func TestForcedThirdPartyRefusalPaysThroughSubscriptionStateModelsOnlyWhenKeyCon
 				ID: "synthetic-claude", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive,
 			}})
 			if consented {
-				ctx = context.WithValue(ctx, APIKeyPaidFallbackOnSubscriptionRefusalContextKey{}, true)
+				ctx = context.WithValue(ctx, requestcontext.APIKeyPaidFallbackOnSubscriptionRefusalContextKey{}, true)
 			}
 			ctx = clientAppContext(ctx, ClientAppOpencode)
-			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel})
-			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{stateClaudeModel})
+			ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel})
+			ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{stateClaudeModel})
 			ctx = withTurnFailures(ctx)
 			req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: modelSet([]string{providers.ProviderAnthropic}), ForceModel: stateClaudeModel}
 			recorder := httptest.NewRecorder()
@@ -378,7 +379,7 @@ func sharedPoolRefusalContext(paidFallbackConsented bool) context.Context {
 		{ID: "opaque-shared", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive},
 	})
 	if paidFallbackConsented {
-		ctx = context.WithValue(ctx, APIKeyPaidFallbackOnSubscriptionRefusalContextKey{}, true)
+		ctx = context.WithValue(ctx, requestcontext.APIKeyPaidFallbackOnSubscriptionRefusalContextKey{}, true)
 	}
 	return clientAppContext(ctx, ClientAppOpencode)
 }

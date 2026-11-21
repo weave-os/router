@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
@@ -84,7 +85,7 @@ func outOfRosterFundingService(client providers.Client, reason string, repo bill
 }
 
 func outOfRosterBillingCtx(ctx context.Context) context.Context {
-	return context.WithValue(ctx, ExternalIDContextKey{}, "org-synthetic")
+	return context.WithValue(ctx, requestcontext.ExternalIDContextKey{}, "org-synthetic")
 }
 
 // TestCodexOutOfRosterModel_SubscriptionFirstFunding: a selected OpenAI model
@@ -142,7 +143,7 @@ func TestCodexOutOfRosterModel_SubscriptionFirstFunding(t *testing.T) {
 				ctx = withWeaveCreditsDeniedWhen(ctx, tc.creditsDenied)
 				if tc.enrollmentUnavailable {
 					svc = svc.WithManagedSubscriptions(&scriptedSubscriptionLeaser{})
-					ctx = context.WithValue(ctx, ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+					ctx = context.WithValue(ctx, requestcontext.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 				}
 				body := `{"model":"codex-auto-review","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic"}]}]}`
 				rec := httptest.NewRecorder()
@@ -209,10 +210,10 @@ func TestCodexOutOfRosterModel_ManagedPoolFundsBeforeAPICredential(t *testing.T)
 
 			body := `{"model":"codex-auto-review","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic"}]}]}`
 			ctx := managedSubscriptionContext(auth.SubscriptionProviderCodex)
-			ctx = context.WithValue(ctx, InstallationIDContextKey{}, "33333333-3333-3333-3333-333333333333")
+			ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "33333333-3333-3333-3333-333333333333")
 			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
 			if tc.poolUnavailable {
-				ctx = context.WithValue(ctx, ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+				ctx = context.WithValue(ctx, requestcontext.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 			}
 			ctx = outOfRosterBillingCtx(ctx)
 			ctx = withWeaveCreditsDeniedWhen(ctx, tc.creditsDenied)

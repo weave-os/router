@@ -99,9 +99,9 @@ func TestUsageBypassDecision_CodexSubscriptionPreservesRequestedModel(t *testing
 		Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300},
 	})
 	svc := &Service{hmmServing: hmmPorts(), clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: obs}
-	ctx := context.WithValue(context.Background(), OpenAISubscriptionContextKey{}, codexToken)
-	ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, "account-1")
-	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{
+	ctx := context.WithValue(context.Background(), requestcontext.OpenAISubscriptionContextKey{}, codexToken)
+	ctx = context.WithValue(ctx, requestcontext.OpenAIAccountIDContextKey{}, "account-1")
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{
 		Enabled:   true,
 		Threshold: &threshold,
 	})
@@ -136,8 +136,8 @@ func TestUsageBypassDecision_SessionDemotionBlocks_GlobalAutomaticExclusionDoesN
 		Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300},
 	})
 	svc := &Service{hmmServing: hmmPorts(), clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: obs}
-	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, token)
-	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{
+	ctx := context.WithValue(context.Background(), requestcontext.AnthropicSubscriptionContextKey{}, token)
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{
 		Enabled:   true,
 		Threshold: &threshold,
 	})
@@ -189,8 +189,8 @@ func TestUsageBypassEngaged_SafetyExclusionBlocks_PolicyExclusionDoesNot(t *test
 		return obs
 	}
 	baseCtx := func() context.Context {
-		ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, token)
-		return context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{
+		ctx := context.WithValue(context.Background(), requestcontext.AnthropicSubscriptionContextKey{}, token)
+		return context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{
 			Enabled:   true,
 			Threshold: &threshold,
 		})
@@ -251,8 +251,8 @@ func TestUsageBypass_PreservesSwitchHistory(t *testing.T) {
 	}
 	svc := withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithUsageObserver(obs)
-	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, token)
-	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{
+	ctx := context.WithValue(context.Background(), requestcontext.AnthropicSubscriptionContextKey{}, token)
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{
 		Enabled:   true,
 		Threshold: &threshold,
 	})
@@ -300,8 +300,8 @@ func TestUsageBypass_EngagesUnderAuthoritativePolicy(t *testing.T) {
 				AuthoritativePerTurnSelection: true,
 			},
 		})
-	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, token)
-	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{
+	ctx := context.WithValue(context.Background(), requestcontext.AnthropicSubscriptionContextKey{}, token)
+	ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{
 		Enabled:   true,
 		Threshold: &threshold,
 	})
@@ -470,8 +470,8 @@ func TestBypass_LocalPrepError_PropagatesToClient(t *testing.T) {
 // non-empty installation id so resolveAndInjectCredentials takes the
 // router-keyed subscription-first branch.
 func subscriptionCtx() context.Context {
-	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-test-subscription-token")
-	return context.WithValue(ctx, InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+	ctx := context.WithValue(context.Background(), requestcontext.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-test-subscription-token")
+	return context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 }
 
 // TestSubscriptionFailover_EligibilityAndSuppression covers the three
@@ -707,7 +707,7 @@ func TestBypass_PersistsTelemetryRowWithUnifiedHeaders(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer sk-ant-oat01-live")
 
 	installationID := uuid.New()
-	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, installationID.String())
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, installationID.String())
 	ctx = requestcontext.WithServingIdentity(ctx, requestcontext.ServingIdentity{
 		Target: string(policyregistry.TargetInternal), ReleaseID: "managed-release", BindingID: "managed-binding",
 	})
@@ -794,7 +794,7 @@ func TestBypass_TelemetryRowClassifiesOutputCap(t *testing.T) {
 	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
-	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, uuid.New().String())
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, uuid.New().String())
 
 	err := svc.bypassToAnthropic(ctx, env, feats, false, time.Now(), "req-tel-3", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
 	require.NoError(t, err)

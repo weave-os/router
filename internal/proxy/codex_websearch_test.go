@@ -27,9 +27,9 @@ import (
 const codexSearchModel = "gpt-6-luna"
 
 func codexSearchContext() context.Context {
-	ctx := context.WithValue(context.Background(), proxy.OpenAISubscriptionContextKey{}, "synthetic-codex-bearer")
-	ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, "synthetic-codex-account")
-	return context.WithValue(ctx, proxy.InstallationIDContextKey{}, "3f4c1c2e-2b4d-4c3a-9f6d-0d1a2b3c4d5e")
+	ctx := context.WithValue(context.Background(), requestcontext.OpenAISubscriptionContextKey{}, "synthetic-codex-bearer")
+	ctx = context.WithValue(ctx, requestcontext.OpenAIAccountIDContextKey{}, "synthetic-codex-account")
+	return context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "3f4c1c2e-2b4d-4c3a-9f6d-0d1a2b3c4d5e")
 }
 
 func TestProxyMessages_CodexSubscriptionExecutesNativeWebSearch(t *testing.T) {

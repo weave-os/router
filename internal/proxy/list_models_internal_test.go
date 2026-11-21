@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
@@ -26,7 +27,7 @@ func TestForceableModels_MarksModelsTheForceCheckRefuses(t *testing.T) {
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 	ctx := context.WithValue(context.Background(),
-		InstallationAllowedModelsContextKey{}, []string{"claude-opus-4-8"})
+		requestcontext.InstallationAllowedModelsContextKey{}, []string{"claude-opus-4-8"})
 
 	models := forceableByID(svc.forceableModels(ctx))
 

@@ -52,7 +52,7 @@ func (s *Service) parsePiSession(ctx context.Context, body []byte) (context.Cont
 	_, err := jwt.ParseWithClaims(encoded.String(), claims, func(_ *jwt.Token) (any, error) {
 		return s.piHandoffSecret, nil
 	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithIssuer(piSessionIssuer))
-	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
+	apiKeyID, _ := ctx.Value(requestcontext.APIKeyIDContextKey{}).(string)
 	if err != nil || apiKeyID == "" || claims.APIKeyID != apiKeyID ||
 		claims.InstallationID != installationIDFromContext(ctx) || claims.SessionID == "" ||
 		claims.SessionKey == ([sessionpin.SessionKeyLen]byte{}) {
@@ -63,7 +63,7 @@ func (s *Service) parsePiSession(ctx context.Context, body []byte) (context.Cont
 }
 
 func (s *Service) mintPiSession(ctx context.Context, env *translate.RequestEnvelope, sessionKey [sessionpin.SessionKeyLen]byte) (string, error) {
-	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
+	apiKeyID, _ := ctx.Value(requestcontext.APIKeyIDContextKey{}).(string)
 	identity, _ := requestcontext.ServingIdentityFromContext(ctx)
 	claims := piSessionClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Issuer: piSessionIssuer},

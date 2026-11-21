@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -101,7 +102,7 @@ func TestSubscriptionModelAccessScopeAndExpiry(t *testing.T) {
 	assert.Nil(t, CredentialsFromContext(resolved))
 	assert.Nil(t, CredentialsFromContext(resolveAndInjectCredentials(resolved, in.provider, in.model, nil)))
 	assert.True(t, servedOnSubscription(svc.resolveCredentials(resolved, in.provider, accessOtherModel, nil)))
-	assert.True(t, servedOnSubscription(svc.resolveCredentials(context.WithValue(billing.WithWeaveCreditsDenied(in.subCtx()), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-other"), in.provider, in.model, nil)))
+	assert.True(t, servedOnSubscription(svc.resolveCredentials(context.WithValue(billing.WithWeaveCreditsDenied(in.subCtx()), requestcontext.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-other"), in.provider, in.model, nil)))
 	assert.False(t, servedOnSubscription(svc.resolveCredentials(billing.WithSubscriptionOnly(billing.WithWeaveCreditsDenied(in.subCtx()), billing.SubscriptionOnlyCreditsDepleted), in.provider, in.model, nil)), "known denied OAuth must never be replayed")
 	linkedFirstContext := billing.WithSubscriptionOnly(billing.WithWeaveCreditsDenied(in.subCtx()), billing.SubscriptionOnlyLinkedFirst)
 	assert.False(t, servedOnSubscription(svc.resolveCredentials(linkedFirstContext, in.provider, in.model, nil)), "a denied linked subscription must not be replayed")
@@ -137,7 +138,7 @@ func TestSubscriptionModelAccessLearnsServedModelsPerSubscription(t *testing.T) 
 
 			now := time.Now()
 			assert.Equal(t, []string{in.model}, svc.subscriptionModels.servedForCaller(in.resolved(billing.WithWeaveCreditsDenied(in.subCtx())), now))
-			other := context.WithValue(billing.WithWeaveCreditsDenied(in.subCtx()), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-other")
+			other := context.WithValue(billing.WithWeaveCreditsDenied(in.subCtx()), requestcontext.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-other")
 			assert.Empty(t, svc.subscriptionModels.servedForCaller(in.resolved(other), now), "served models are per subscription")
 			assert.Empty(t, svc.subscriptionModels.servedForCaller(in.resolved(billing.WithWeaveCreditsDenied(in.subCtx())), now.Add(subscriptionModelServedTTL+time.Minute)), "served models expire")
 		})

@@ -6,6 +6,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptionlane"
 
 	"github.com/stretchr/testify/assert"
@@ -18,7 +19,7 @@ type planBindingFacts struct {
 func (f planBindingFacts) context() context.Context {
 	ctx := routerKeyedCtx()
 	if f.includedLane {
-		ctx = context.WithValue(ctx, InstallationSubscriptionStateModelsEnabledContextKey{}, true)
+		ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionStateModelsEnabledContextKey{}, true)
 	}
 	if f.apiOnly {
 		ctx = context.WithValue(ctx, subscriptionAPIOnlyKey{}, true)
@@ -28,7 +29,7 @@ func (f planBindingFacts) context() context.Context {
 	}
 	if f.capRefused {
 		ctx = context.WithValue(ctx, ManagedSubscriptionUsageContextKey{}, &ManagedSubscriptionUsage{ClaudeEnterpriseCapRefused: true})
-		ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+		ctx = context.WithValue(ctx, requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 			{Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-customer"), FundingPriority: auth.FundingPriorityPlanFirst},
 		})
 	}

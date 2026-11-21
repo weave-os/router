@@ -15,6 +15,7 @@ import (
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/armid"
 	"weave-os/router/internal/router/candidates"
@@ -115,7 +116,7 @@ func (s *Service) parseHandoff(ctx context.Context, body []byte) (context.Contex
 	_, err = jwt.ParseWithClaims(encoded.String(), claims, func(_ *jwt.Token) (any, error) {
 		return s.piHandoffSecret, nil
 	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithExpirationRequired(), jwt.WithIssuer("weave-pi-handoff-v1"), jwt.WithTimeFunc(s.clock.Now))
-	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
+	apiKeyID, _ := ctx.Value(requestcontext.APIKeyIDContextKey{}).(string)
 	if err != nil || apiKeyID == "" || claims.APIKeyID != apiKeyID ||
 		claims.Route.InstallationID != installationIDFromContext(ctx) ||
 		(claims.Purpose != handoffContinuation && claims.Purpose != handoffSummary) {
@@ -136,7 +137,7 @@ func (s *Service) finishHandoffPreparation(ctx context.Context, strategy router.
 	if route.UsageBypass || route.HardPinned || isUserForcedReason(route.Decision.Reason) {
 		return writePreparedHandoff(w, preparedHandoff{Bypass: true})
 	}
-	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
+	apiKeyID, _ := ctx.Value(requestcontext.APIKeyIDContextKey{}).(string)
 	claims := handoffClaims{
 		Purpose: handoffContinuation, APIKeyID: apiKeyID, SessionID: req.ClientSessionID,
 		RequestedModel: req.RequestedModel, Tools: req.ToolConfigurationSHA256,
@@ -193,7 +194,7 @@ func (s *Service) resumeHandoff(ctx context.Context, strategy router.Strategy, e
 		claims.RequestedModel != req.RequestedModel {
 		return turnLoopResult{}, ErrHandoffInvalid
 	}
-	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
+	apiKeyID, _ := ctx.Value(requestcontext.APIKeyIDContextKey{}).(string)
 	forceKey := deriveForceModelSessionKeyForRequest(ctx, env, apiKeyID, claims.Route.SessionKey)
 	_, forced, _ := routingpolicy.NewForceModelPins(s.pinStore, s.clock.Now).Load(ctx, forceKey, sessionKeyHex(claims.Route.SessionKey), isSubagent)
 	if req.ForceModel != "" || forced {
@@ -236,7 +237,7 @@ func validateHandoffEnvelope(ctx context.Context, env *translate.RequestEnvelope
 }
 
 func (s *Service) canPrepareHandoff(ctx context.Context, env *translate.RequestEnvelope, feats translate.RoutingFeatures, headers http.Header, body []byte) bool {
-	_, shadow := AgentShadowEvalFromContext(ctx)
+	_, shadow := requestcontext.AgentShadowEvalFromContext(ctx)
 	_, betaCommand := env.ExtractBetaCommand()
 	_, forceCommand := env.ExtractForceModelCommand()
 	_, feedbackCommand := env.ExtractRouterFeedbackCommand()

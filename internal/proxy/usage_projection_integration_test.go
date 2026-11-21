@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/telemetry"
@@ -50,7 +51,7 @@ func TestGeminiUsageAcrossClientSurfaces(t *testing.T) {
 					require.NoError(t, err)
 				}}
 				svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: router.ModelGemini4Argon}}, map[string]providers.Client{providers.ProviderGoogle: provider}, usageProjectionEmitter{}, nil, false, providers.ProviderGoogle, router.ModelGemini4Argon, telemetry), hmm.ServingPorts())
-				ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "55555555-5555-5555-5555-555555555555")
+				ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, "55555555-5555-5555-5555-555555555555")
 				rec := httptest.NewRecorder()
 				req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", nil)
 				req.Header.Set(routingMarkerHeader, "off")
@@ -128,7 +129,7 @@ func TestUsageProjection_XAIStreamCostIncludesReasoningOnce(t *testing.T) {
 	}}
 	telemetry := newCaptureTelemetry()
 	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderXAI, Model: model}}, map[string]providers.Client{providers.ProviderXAI: provider}, nil, nil, false, providers.ProviderXAI, model, telemetry), hmm.ServingPorts())
-	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "55555555-5555-5555-5555-555555555555")
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, "55555555-5555-5555-5555-555555555555")
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	req.Header.Set(routingMarkerHeader, "off")
@@ -155,7 +156,7 @@ func TestUsageProjection_NoticesAndFeedbackContributeNoProviderUsage(t *testing.
 		require.NoError(t, err)
 	}}
 	svc := proxy.WithStrategyPorts(proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: router.ModelGemini4Argon}}, map[string]providers.Client{providers.ProviderGoogle: provider}, nil, nil, false, providers.ProviderGoogle, router.ModelGemini4Argon, telemetry), hmm.ServingPorts()).WithRouterFeedbackStore(&fakeFeedbackStore{})
-	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "55555555-5555-5555-5555-555555555555")
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationIDContextKey{}, "55555555-5555-5555-5555-555555555555")
 	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppClaudeCode})
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil)
 	rec := httptest.NewRecorder()

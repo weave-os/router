@@ -10,7 +10,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
@@ -43,7 +43,7 @@ func TestPiHandoffAtOrgMonthlySpendCap(t *testing.T) {
 			})
 			ctx := t.Context()
 			if tc.enrolled != "" {
-				ctx = context.WithValue(ctx, proxy.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{tc.enrolled: {}})
+				ctx = context.WithValue(ctx, requestcontext.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{tc.enrolled: {}})
 			}
 			w := httptest.NewRecorder()
 			engine.ServeHTTP(w, httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/route/handoff", nil))
@@ -239,7 +239,7 @@ func TestOrgMonthlySpendCap_KeyOnlyCallerAtCap(t *testing.T) {
 			var reason billing.SubscriptionOnlyReason
 			engine.GET("/v1/messages", func(c *gin.Context) {
 				withInstallation(c, "org-keys")
-				c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), proxy.ExternalAPIKeysContextKey{}, keys))
+				c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), requestcontext.ExternalAPIKeysContextKey{}, keys))
 				middleware.WithOrgMonthlySpendCap(svc)(c)
 				if c.IsAborted() {
 					return

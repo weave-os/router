@@ -45,7 +45,7 @@ func WithAllowedModelsOverride(gate AllowedModelsHeaderGate) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "allowed_models_header_invalid", "message": err.Error()})
 			return
 		}
-		c.Request = c.Request.WithContext(context.WithValue(ctx, proxy.RequestAllowedModelsContextKey{}, subset))
+		c.Request = c.Request.WithContext(context.WithValue(ctx, requestcontext.RequestAllowedModelsContextKey{}, subset))
 		c.Next()
 	}
 }

@@ -11,12 +11,11 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/gitcontext"
 	"weave-os/router/internal/telemetry"
 )
-
-type InstallationIDContextKey struct{}
 
 type TelemetryRepository interface {
 	InsertRequestTelemetry(ctx context.Context, p InsertTelemetryParams) error
@@ -258,7 +257,7 @@ func applyClientGitContextTelemetry(ctx context.Context, params *InsertTelemetry
 }
 
 func trialCaptureEnabledFromContext(ctx context.Context) bool {
-	enabled, _ := ctx.Value(InstallationTrialCaptureContextKey{}).(bool)
+	enabled, _ := ctx.Value(requestcontext.InstallationTrialCaptureContextKey{}).(bool)
 	return enabled
 }
 
@@ -526,7 +525,7 @@ func (s attemptSink) RecordAttempt(ctx context.Context, event inference.AttemptE
 	if s.store == nil {
 		return
 	}
-	installationID, _ := ctx.Value(InstallationIDContextKey{}).(string)
+	installationID, _ := ctx.Value(requestcontext.InstallationIDContextKey{}).(string)
 	if installationID == "" {
 		return
 	}

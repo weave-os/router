@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 
@@ -39,13 +40,13 @@ func TestProxyMessages_WeaveCreditsDenied(t *testing.T) {
 			svc := proxy.WithStrategyPorts(proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil), hmm.ServingPorts()).
 				WithBillingService(billing.NewService(repo))
 
-			ctx := context.WithValue(context.Background(), proxy.ExternalIDContextKey{}, "org-credits")
+			ctx := context.WithValue(context.Background(), requestcontext.ExternalIDContextKey{}, "org-credits")
 			ctx = billing.WithOrganizationPrepaid(ctx)
 			if tc.denied {
 				ctx = billing.WithWeaveCreditsDenied(ctx)
 			}
 			if tc.keys != nil {
-				ctx = context.WithValue(ctx, proxy.ExternalAPIKeysContextKey{}, tc.keys)
+				ctx = context.WithValue(ctx, requestcontext.ExternalAPIKeysContextKey{}, tc.keys)
 			}
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", strings.NewReader(""))
 			body := []byte(`{"model":"claude-sonnet-4-6","stream":true,"messages":[{"role":"user","content":"hi"}]}`)

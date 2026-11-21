@@ -6,6 +6,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
 
 	"github.com/stretchr/testify/assert"
@@ -13,7 +14,7 @@ import (
 )
 
 func ctxWithKeys(keys ...*auth.ExternalAPIKey) context.Context {
-	return context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, keys)
+	return context.WithValue(context.Background(), requestcontext.ExternalAPIKeysContextKey{}, keys)
 }
 
 func gatewayKey(provider, baseURL string, models ...string) *auth.ExternalAPIKey {

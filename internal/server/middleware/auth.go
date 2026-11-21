@@ -106,9 +106,9 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 		}
 		ctx = auth.WithDelegatedSession(ctx, delegatedSession)
 		if apiKey != nil {
-			ctx = context.WithValue(ctx, proxy.APIKeyIDContextKey{}, apiKey.ID)
+			ctx = context.WithValue(ctx, requestcontext.APIKeyIDContextKey{}, apiKey.ID)
 			if apiKey.PaidFallbackOnSubscriptionRefusal {
-				ctx = context.WithValue(ctx, proxy.APIKeyPaidFallbackOnSubscriptionRefusalContextKey{}, true)
+				ctx = context.WithValue(ctx, requestcontext.APIKeyPaidFallbackOnSubscriptionRefusalContextKey{}, true)
 			}
 			ctx = proxy.WithManagedSubscriptionUsage(ctx)
 			owner := subscriptionOwnerForRequest(c, apiKey)
@@ -118,7 +118,7 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 				accounts, listErr := svc.ListSubscriptionCandidates(ctx, owner)
 				if listErr != nil {
 					observability.FromContext(ctx).Error("Failed to load subscription account enrollment", "err", listErr)
-					ctx = context.WithValue(ctx, proxy.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+					ctx = context.WithValue(ctx, requestcontext.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 				} else {
 					ctx = proxy.WithManagedSubscriptionCandidates(ctx, accounts)
 				}
@@ -126,78 +126,78 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 		}
 		if installation != nil {
 			if installation.ExternalID != "" {
-				ctx = context.WithValue(ctx, proxy.ExternalIDContextKey{}, installation.ExternalID)
+				ctx = context.WithValue(ctx, requestcontext.ExternalIDContextKey{}, installation.ExternalID)
 			}
 			if installation.ID != "" {
-				ctx = context.WithValue(ctx, proxy.InstallationIDContextKey{}, installation.ID)
+				ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, installation.ID)
 			}
 			if len(installation.ExcludedModels) > 0 {
-				ctx = context.WithValue(ctx, proxy.InstallationExcludedModelsContextKey{}, installation.ExcludedModels)
+				ctx = context.WithValue(ctx, requestcontext.InstallationExcludedModelsContextKey{}, installation.ExcludedModels)
 			}
 			if len(installation.AllowedModels) > 0 {
-				ctx = context.WithValue(ctx, proxy.InstallationAllowedModelsContextKey{}, installation.AllowedModels)
+				ctx = context.WithValue(ctx, requestcontext.InstallationAllowedModelsContextKey{}, installation.AllowedModels)
 			}
 			if installation.SubscriptionStateModelsEnabled {
-				ctx = context.WithValue(ctx, proxy.InstallationSubscriptionStateModelsEnabledContextKey{}, true)
+				ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionStateModelsEnabledContextKey{}, true)
 			}
 			if len(installation.ModelsWhenSubscriptionActive) > 0 {
-				ctx = context.WithValue(ctx, proxy.InstallationSubscriptionModelsWhenActiveContextKey{}, installation.ModelsWhenSubscriptionActive)
+				ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenActiveContextKey{}, installation.ModelsWhenSubscriptionActive)
 			}
 			if len(installation.ModelsWhenSubscriptionInactive) > 0 {
-				ctx = context.WithValue(ctx, proxy.InstallationSubscriptionModelsWhenInactiveContextKey{}, installation.ModelsWhenSubscriptionInactive)
+				ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, installation.ModelsWhenSubscriptionInactive)
 			}
 			if len(installation.ExcludedProviders) > 0 {
-				ctx = context.WithValue(ctx, proxy.InstallationExcludedProvidersContextKey{}, installation.ExcludedProviders)
+				ctx = context.WithValue(ctx, requestcontext.InstallationExcludedProvidersContextKey{}, installation.ExcludedProviders)
 			}
 			if len(installation.PreferredModels) > 0 {
-				ctx = context.WithValue(ctx, proxy.InstallationPreferredModelsContextKey{}, installation.PreferredModels)
+				ctx = context.WithValue(ctx, requestcontext.InstallationPreferredModelsContextKey{}, installation.PreferredModels)
 			}
 			if len(installation.FastModeModels) > 0 {
-				ctx = context.WithValue(ctx, proxy.InstallationFastModeModelsContextKey{}, installation.FastModeModels)
+				ctx = context.WithValue(ctx, requestcontext.InstallationFastModeModelsContextKey{}, installation.FastModeModels)
 			}
 			if installation.RoutingQualityWeight != nil {
-				ctx = context.WithValue(ctx, proxy.InstallationRoutingKnobsContextKey{}, &router.Overrides{
+				ctx = context.WithValue(ctx, requestcontext.InstallationRoutingKnobsContextKey{}, &router.Overrides{
 					QualityBias: installation.RoutingQualityWeight,
 				})
 			}
 			if installation.UsageBypassEnabled {
-				ctx = context.WithValue(ctx, proxy.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{
+				ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{
 					Enabled:   true,
 					Threshold: installation.UsageBypassThreshold,
 				})
 			}
 			if installation.SubscriptionRoutingDisabled {
-				ctx = context.WithValue(ctx, proxy.InstallationSubscriptionRoutingDisabledContextKey{}, true)
+				ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionRoutingDisabledContextKey{}, true)
 			}
 			if installation.PickedModelCreditFallbackEnabled {
-				ctx = context.WithValue(ctx, proxy.InstallationPickedModelCreditFallbackContextKey{}, true)
+				ctx = context.WithValue(ctx, requestcontext.InstallationPickedModelCreditFallbackContextKey{}, true)
 			}
 			if installation.HideTerminalSurfaces {
-				ctx = context.WithValue(ctx, proxy.InstallationHideTerminalSurfacesContextKey{}, true)
+				ctx = context.WithValue(ctx, requestcontext.InstallationHideTerminalSurfacesContextKey{}, true)
 			}
 			if installation.ShowModelSelectionReasoning {
-				ctx = context.WithValue(ctx, proxy.InstallationShowModelSelectionReasoningContextKey{}, true)
+				ctx = context.WithValue(ctx, requestcontext.InstallationShowModelSelectionReasoningContextKey{}, true)
 			}
 			if installation.TrialCaptureEnabled {
-				ctx = context.WithValue(ctx, proxy.InstallationTrialCaptureContextKey{}, true)
+				ctx = context.WithValue(ctx, requestcontext.InstallationTrialCaptureContextKey{}, true)
 			}
 			if installation.RoutingRolloutID != "" {
-				ctx = context.WithValue(ctx, proxy.PolicyRolloutIDContextKey{}, installation.RoutingRolloutID)
+				ctx = context.WithValue(ctx, requestcontext.PolicyRolloutIDContextKey{}, installation.RoutingRolloutID)
 			}
 			if installation.PolicyShadowStrategy != "" {
-				ctx = context.WithValue(ctx, proxy.PolicyShadowStrategyContextKey{}, installation.PolicyShadowStrategy)
+				ctx = context.WithValue(ctx, requestcontext.PolicyShadowStrategyContextKey{}, installation.PolicyShadowStrategy)
 			}
 			if installation.PolicyDebugEnabled {
-				ctx = context.WithValue(ctx, proxy.PolicyDebugEnabledContextKey{}, true)
+				ctx = context.WithValue(ctx, requestcontext.PolicyDebugEnabledContextKey{}, true)
 			}
 			if installation.PolicyRoutingIntent != "" {
-				ctx = context.WithValue(ctx, proxy.PolicyRoutingIntentContextKey{}, installation.PolicyRoutingIntent)
+				ctx = context.WithValue(ctx, requestcontext.PolicyRoutingIntentContextKey{}, installation.PolicyRoutingIntent)
 			}
 			if installation.AITrainingAllowed {
-				ctx = context.WithValue(ctx, proxy.PolicyTrainingAllowedContextKey{}, true)
+				ctx = context.WithValue(ctx, requestcontext.PolicyTrainingAllowedContextKey{}, true)
 			}
 			if installation.ContentCaptureMode != nil {
-				ctx = context.WithValue(ctx, proxy.InstallationCaptureModeContextKey{},
+				ctx = context.WithValue(ctx, requestcontext.InstallationCaptureModeContextKey{},
 					proxy.ParseCaptureMode(*installation.ContentCaptureMode))
 			}
 			if !svc.FlagOverridesDisabled() {
@@ -206,7 +206,7 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 		}
 		byokAllowed := testPlan == nil && (!byokRequiresOptIn || (installation != nil && installation.ByokEnabled))
 		if externalKeys != nil && byokAllowed {
-			ctx = context.WithValue(ctx, proxy.ExternalAPIKeysContextKey{}, externalKeys)
+			ctx = context.WithValue(ctx, requestcontext.ExternalAPIKeysContextKey{}, externalKeys)
 			ctx = proxy.WithForwardedHeaderSnapshot(ctx, externalKeys, c.Request.Header)
 		}
 		if len(clusterModelLists) > 0 {
@@ -218,11 +218,11 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 				overrides[list.ClusterLabel] = list.Models
 			}
 			if len(overrides) > 0 {
-				ctx = context.WithValue(ctx, proxy.ClusterModelListsContextKey{}, overrides)
+				ctx = context.WithValue(ctx, requestcontext.ClusterModelListsContextKey{}, overrides)
 			}
 		}
 		if installation != nil && installation.ID != "" {
-			ctx = context.WithValue(ctx, proxy.InstallationIDContextKey{}, installation.ID)
+			ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, installation.ID)
 		}
 		finishAuthSpan(authSpan, nil)
 		ctx = restoreRequestParent(ctx, parentCtx)

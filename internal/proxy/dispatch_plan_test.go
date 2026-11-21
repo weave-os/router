@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
@@ -252,7 +253,7 @@ func TestDispatchPlanned_LeaseFailureIsTerminal(t *testing.T) {
 	}).WithManagedSubscriptions(&scriptedSubscriptionLeaser{})
 	slept := 0
 	s.retrySleep = func(context.Context, time.Duration) error { slept++; return nil }
-	ctx := context.WithValue(context.Background(), ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+	ctx := context.WithValue(context.Background(), requestcontext.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)

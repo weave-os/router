@@ -8,15 +8,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/subscriptions"
+
+	"github.com/stretchr/testify/require"
 )
 
 func enterpriseOnlyContext(ctx context.Context) context.Context {
@@ -35,15 +37,15 @@ func withClaudeCreditFallback(ctx context.Context) context.Context {
 }
 
 func TestClaudeOAuthAndOrgFlagDoNotEstablishEnterpriseIdentity(t *testing.T) {
-	ctx := context.WithValue(routerKeyedCtx(), AnthropicSubscriptionContextKey{}, parityAnthropicToken)
+	ctx := context.WithValue(routerKeyedCtx(), requestcontext.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
 	ctx = flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyClaudeEnterpriseOnly: true}})
 	require.False(t, claudeEnterpriseOnly(ctx), "OAuth and an org-wide billing flag do not identify a provider subscription as Enterprise")
 }
 
 func TestClaudeEnterpriseOnlyRequiresVerifiedEnterprisePlan(t *testing.T) {
-	ctx := context.WithValue(routerKeyedCtx(), AnthropicSubscriptionContextKey{}, parityAnthropicToken)
+	ctx := context.WithValue(routerKeyedCtx(), requestcontext.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
 	require.False(t, claudeEnterpriseOnly(ctx))
-	managed := context.WithValue(routerKeyedCtx(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
+	managed := context.WithValue(routerKeyedCtx(), requestcontext.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
 	require.False(t, claudeEnterpriseOnly(managed))
 	require.True(t, claudeEnterpriseOnly(enterpriseOnlyContext(managed)))
 	require.False(t, claudeEnterpriseOnly(routerKeyedCtx()), "API-only accounts have no Claude subscription to fund requests")
@@ -61,7 +63,7 @@ func TestClaudeEnterpriseOnlyRequiresVerifiedEnterprisePlan(t *testing.T) {
 }
 
 func TestClaudeEnterpriseOnlyClassifiersKeepOverage(t *testing.T) {
-	ctx := enterpriseOnlyContext(context.WithValue(routerKeyedCtx(), AnthropicSubscriptionContextKey{}, classifierTestSubToken))
+	ctx := enterpriseOnlyContext(context.WithValue(routerKeyedCtx(), requestcontext.AnthropicSubscriptionContextKey{}, classifierTestSubToken))
 	service := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: &parityUpstream{}}).WithUsageObserver(observerWithSnapshot(classifierTestSubToken, usage.Snapshot{OverageInUse: true}))
 	_, engaged := service.classifierPassthroughEngaged(ctx, http.Header{}, router.Request{RequestedModel: catalog.ModelIDClaudeSonnet46.String()}, turntype.Classifier)
 	require.True(t, engaged)
@@ -130,7 +132,7 @@ func TestVerifiedClaudeEnterpriseMovesFromIncludedUsageToOverage(t *testing.T) {
 	service.usageObserver.Record(service.usageObserver.Key([]byte(ingress.token)), usage.Snapshot{
 		Primary: usage.Window{UsedPercent: 0.5, WindowMinutes: 300},
 	})
-	ctx := enterpriseOnlyContext(context.WithValue(routerKeyedCtx(), AnthropicSubscriptionContextKey{}, ingress.token))
+	ctx := enterpriseOnlyContext(context.WithValue(routerKeyedCtx(), requestcontext.AnthropicSubscriptionContextKey{}, ingress.token))
 	for range 2 {
 		recorder, request, body := ingress.request(t, false)
 		require.NoError(t, ingress.call(service, ctx, body, recorder, request))
@@ -221,7 +223,7 @@ func TestClaudeEnterpriseOnlyBypassRefusalDoesNotReroute(t *testing.T) {
 	}
 	service := ingress.quotaService(upstream)
 	threshold := 0.9
-	ctx := context.WithValue(enterpriseOnlyContext(ingress.subCtx()), InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true, Threshold: &threshold})
+	ctx := context.WithValue(enterpriseOnlyContext(ingress.subCtx()), requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true, Threshold: &threshold})
 	recorder, request, body := ingress.request(t, false)
 	require.NoError(t, ingress.call(service, ctx, body, recorder, request))
 	require.Equal(t, http.StatusTooManyRequests, recorder.Code)

@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/require"
 )
@@ -41,8 +42,8 @@ func paidFallbackLanes() []paidFallbackFacts {
 
 func paidFallbackBindings() []paidFallbackFacts {
 	withIncludedStateModels := func(ctx context.Context) context.Context {
-		ctx = context.WithValue(ctx, InstallationSubscriptionStateModelsEnabledContextKey{}, true)
-		return context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
+		ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionStateModelsEnabledContextKey{}, true)
+		return context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
 	}
 	withEnterpriseSeat := func(ctx context.Context) context.Context {
 		return context.WithValue(enterpriseOnlyContext(ctx), claudeEnterpriseTurnKey{}, true)
@@ -79,7 +80,7 @@ func paidFallbackBindings() []paidFallbackFacts {
 func paidFallbackCustomerKeys() []paidFallbackFacts {
 	withAnthropicCustomerKey := func(priority auth.FundingPriority) func(context.Context) context.Context {
 		return func(ctx context.Context) context.Context {
-			return context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+			return context.WithValue(ctx, requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 				{Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-customer"), FundingPriority: priority},
 			})
 		}

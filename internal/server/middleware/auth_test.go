@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/server/middleware"
 
@@ -231,12 +232,12 @@ func TestWithAuthPrefersRouterKeyHeader(t *testing.T) {
 		assert.Equal(t, installation, middleware.InstallationFrom(c))
 		assert.Equal(t, apiKey, middleware.APIKeyFrom(c))
 		ctx := c.Request.Context()
-		assert.Equal(t, "rollout-1", ctx.Value(proxy.PolicyRolloutIDContextKey{}))
-		assert.Equal(t, router.Strategy("future-policy"), ctx.Value(proxy.PolicyShadowStrategyContextKey{}))
-		assert.Equal(t, true, ctx.Value(proxy.PolicyDebugEnabledContextKey{}))
-		assert.Equal(t, "high", ctx.Value(proxy.PolicyRoutingIntentContextKey{}))
-		assert.Equal(t, true, ctx.Value(proxy.PolicyTrainingAllowedContextKey{}))
-		assert.Equal(t, true, ctx.Value(proxy.InstallationShowModelSelectionReasoningContextKey{}))
+		assert.Equal(t, "rollout-1", ctx.Value(requestcontext.PolicyRolloutIDContextKey{}))
+		assert.Equal(t, router.Strategy("future-policy"), ctx.Value(requestcontext.PolicyShadowStrategyContextKey{}))
+		assert.Equal(t, true, ctx.Value(requestcontext.PolicyDebugEnabledContextKey{}))
+		assert.Equal(t, "high", ctx.Value(requestcontext.PolicyRoutingIntentContextKey{}))
+		assert.Equal(t, true, ctx.Value(requestcontext.PolicyTrainingAllowedContextKey{}))
+		assert.Equal(t, true, ctx.Value(requestcontext.InstallationShowModelSelectionReasoningContextKey{}))
 		c.Status(http.StatusOK)
 	})
 
@@ -263,7 +264,7 @@ func TestWithAuthLeavesControlPlaneAvailableWhenSubscriptionEnrollmentLookupFail
 	engine := gin.New()
 	engine.Use(middleware.WithAuth(svc, false))
 	engine.GET("/validate", func(c *gin.Context) {
-		unavailable, _ := c.Request.Context().Value(proxy.ManagedSubscriptionEnrollmentUnavailableContextKey{}).(bool)
+		unavailable, _ := c.Request.Context().Value(requestcontext.ManagedSubscriptionEnrollmentUnavailableContextKey{}).(bool)
 		require.True(t, unavailable)
 		c.Status(http.StatusOK)
 	})
@@ -293,7 +294,7 @@ func TestWithAuthPropagatesContentCaptureOverride(t *testing.T) {
 	engine.GET("/probe", func(c *gin.Context) {
 		// Without this the proxy only ever sees the deployment-wide mode, and
 		// an installation that asked for no retention still gets captured.
-		assert.Equal(t, proxy.CaptureOff, c.Request.Context().Value(proxy.InstallationCaptureModeContextKey{}))
+		assert.Equal(t, proxy.CaptureOff, c.Request.Context().Value(requestcontext.InstallationCaptureModeContextKey{}))
 		c.Status(http.StatusOK)
 	})
 
@@ -319,7 +320,7 @@ func TestWithAuthOmitsContentCaptureOverrideWhenUnset(t *testing.T) {
 	engine := gin.New()
 	engine.Use(middleware.WithAuth(svc, false))
 	engine.GET("/probe", func(c *gin.Context) {
-		assert.Nil(t, c.Request.Context().Value(proxy.InstallationCaptureModeContextKey{}),
+		assert.Nil(t, c.Request.Context().Value(requestcontext.InstallationCaptureModeContextKey{}),
 			"no stored override must leave the deployment mode in charge, not pin it to off")
 		c.Status(http.StatusOK)
 	})
@@ -348,7 +349,7 @@ func TestWithAuthCarriesPaidFallbackOnSubscriptionRefusalOptIn(t *testing.T) {
 			engine := gin.New()
 			engine.Use(middleware.WithAuth(svc, false))
 			engine.GET("/probe", func(c *gin.Context) {
-				consented, _ := c.Request.Context().Value(proxy.APIKeyPaidFallbackOnSubscriptionRefusalContextKey{}).(bool)
+				consented, _ := c.Request.Context().Value(requestcontext.APIKeyPaidFallbackOnSubscriptionRefusalContextKey{}).(bool)
 				assert.Equal(t, optedIn, consented)
 				c.Status(http.StatusOK)
 			})
@@ -382,7 +383,7 @@ func TestWithAuthManagedModeDropsBYOKWhenNotOptedIn(t *testing.T) {
 	engine := gin.New()
 	engine.Use(middleware.WithAuth(svc, true))
 	engine.GET("/probe", func(c *gin.Context) {
-		assert.Nil(t, c.Request.Context().Value(proxy.ExternalAPIKeysContextKey{}),
+		assert.Nil(t, c.Request.Context().Value(requestcontext.ExternalAPIKeysContextKey{}),
 			"managed mode must drop BYOK rows for an installation that hasn't opted in; a leftover row in the table must not reach the proxy ctx")
 		c.Status(http.StatusOK)
 	})
@@ -415,7 +416,7 @@ func TestWithAuthManagedModeKeepsBYOKWhenOptedIn(t *testing.T) {
 	engine := gin.New()
 	engine.Use(middleware.WithAuth(svc, true))
 	engine.GET("/probe", func(c *gin.Context) {
-		v, ok := c.Request.Context().Value(proxy.ExternalAPIKeysContextKey{}).([]*auth.ExternalAPIKey)
+		v, ok := c.Request.Context().Value(requestcontext.ExternalAPIKeysContextKey{}).([]*auth.ExternalAPIKey)
 		require.True(t, ok, "managed mode must propagate BYOK rows once the installation opts in")
 		require.Len(t, v, 1)
 		assert.Equal(t, "makora", v[0].Provider)
@@ -450,7 +451,7 @@ func TestWithAuthSelfHostedKeepsBYOKInContext(t *testing.T) {
 	engine := gin.New()
 	engine.Use(middleware.WithAuth(svc, false))
 	engine.GET("/probe", func(c *gin.Context) {
-		v, ok := c.Request.Context().Value(proxy.ExternalAPIKeysContextKey{}).([]*auth.ExternalAPIKey)
+		v, ok := c.Request.Context().Value(requestcontext.ExternalAPIKeysContextKey{}).([]*auth.ExternalAPIKey)
 		require.True(t, ok, "self-hosted mode must propagate BYOK rows to the proxy ctx")
 		require.Len(t, v, 1)
 		assert.Equal(t, "anthropic", v[0].Provider)

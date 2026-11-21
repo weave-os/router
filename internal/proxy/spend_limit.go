@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptionlane"
 	"weave-os/router/internal/subscriptions/entitlement"
 )
@@ -26,7 +27,7 @@ func (s *Service) checkUserMonthlySpendLimit(ctx context.Context, headers http.H
 	if userID == "" {
 		return ctx, nil
 	}
-	orgID, _ := ctx.Value(ExternalIDContextKey{}).(string)
+	orgID, _ := ctx.Value(requestcontext.ExternalIDContextKey{}).(string)
 	if orgID == "" {
 		return ctx, nil
 	}

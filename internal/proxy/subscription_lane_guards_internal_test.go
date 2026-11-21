@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
@@ -64,7 +65,7 @@ func TestEnterpriseCapRescueNeedsAUsableAnthropicKey(t *testing.T) {
 	refused := context.WithValue(context.Background(), ManagedSubscriptionUsageContextKey{}, &ManagedSubscriptionUsage{ClaudeEnterpriseCapRefused: true})
 
 	assert.False(t, claudeEnterpriseCapRescue(refused), "with no customer key the cap has nothing to rescue onto")
-	keyed := context.WithValue(refused, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	keyed := context.WithValue(refused, requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: providers.ProviderAnthropic, Plaintext: []byte("synthetic-byok"), FundingPriority: auth.FundingPriorityPlanFirst},
 	})
 	assert.True(t, claudeEnterpriseCapRescue(keyed))
@@ -89,11 +90,11 @@ func heldCodexOnlyService(t *testing.T) (*fakeClient, func() router.Decision) {
 		WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderCodex: true}})
 	svc.clock = time.Now
 	turnCtx := func() context.Context {
-		ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderCodex: {}})
-		ctx = context.WithValue(ctx, InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+		ctx := context.WithValue(managedSubscriptionTestContext(), requestcontext.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderCodex: {}})
+		ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 		ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{SessionID: "codex-session"})
-		ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel})
-		ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
+		ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel})
+		ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
 		return withTurnFailures(ctx)
 	}
 	held := turnCtx()
@@ -143,9 +144,9 @@ func TestMemberPickNoSubscriptionServesSkipsTheIncludedLane(t *testing.T) {
 		WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderOpenRouter}))
 	ctx := flags.WithOverrides(managedSubscriptionTestContext(), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyPlanUserClusterLists: true}})
 	ctx = context.WithValue(ctx, auth.UserClusterModelListsContextKey{}, map[string][]string{"member-cluster": {statePaidModel}})
-	ctx = context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderCodex: {}})
-	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel})
-	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
+	ctx = context.WithValue(ctx, requestcontext.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderCodex: {}})
+	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel})
+	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
 	ctx = withTurnFailures(ctx)
 	req := router.Request{Candidates: router.Candidates{AllowedModels: allowedModelsForRequest(ctx)}, EnabledProviders: modelSet([]string{providers.ProviderOpenAI, providers.ProviderOpenRouter})}
 	rec := httptest.NewRecorder()
@@ -181,8 +182,8 @@ func TestCoveringSubscriptionMustMatchTheRouteFamily(t *testing.T) {
 }
 
 func TestPlanForbiddenPaidFallbackKeepsTheCustomerKeyOut(t *testing.T) {
-	ctx := context.WithValue(context.Background(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
-	ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderOpenRouter, Plaintext: []byte("synthetic-byok")}})
+	ctx := context.WithValue(context.Background(), requestcontext.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
+	ctx = context.WithValue(ctx, requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderOpenRouter, Plaintext: []byte("synthetic-byok")}})
 	enabled := map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenRouter: {}}
 
 	assert.Equal(t, enabled, restrictToFundedProviders(ctx, http.Header{}, enabled))
@@ -202,7 +203,7 @@ func TestClearedCredentialsOverrideTheWinningSubscription(t *testing.T) {
 func TestKeyFirstPreferenceIgnoresAnEmptyKeyRow(t *testing.T) {
 	keyFirst := &auth.ExternalAPIKey{Provider: providers.ProviderOpenAI, Plaintext: []byte("synthetic-byok"), FundingPriority: auth.FundingPriorityKeyFirst}
 	emptyPlanFirst := &auth.ExternalAPIKey{Provider: providers.ProviderOpenAI, FundingPriority: auth.FundingPriorityPlanFirst}
-	ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{keyFirst, emptyPlanFirst})
+	ctx := context.WithValue(context.Background(), requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{keyFirst, emptyPlanFirst})
 
 	assert.True(t, byokFirst(ctx, providers.ProviderOpenAI), "a row with no key material is not the key that serves")
 }

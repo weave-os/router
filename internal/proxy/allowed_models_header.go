@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
@@ -15,8 +16,6 @@ import (
 const AllowedModelsHeader = "x-weave-allowed-models"
 
 const AllowlistOverrideReasonPrefix = "allowlist_override:"
-
-type RequestAllowedModelsContextKey struct{}
 
 type RequestAllowedModels struct {
 	Requested []string
@@ -74,7 +73,7 @@ func ParseAllowedModelsHeader(raw string, installationAllowed []string) (Request
 }
 
 func requestAllowedModelsFromContext(ctx context.Context) (RequestAllowedModels, bool) {
-	v, ok := ctx.Value(RequestAllowedModelsContextKey{}).(RequestAllowedModels)
+	v, ok := ctx.Value(requestcontext.RequestAllowedModelsContextKey{}).(RequestAllowedModels)
 	return v, ok && len(v.Effective) > 0
 }
 

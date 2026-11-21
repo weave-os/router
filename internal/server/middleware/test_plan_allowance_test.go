@@ -3,9 +3,6 @@ package middleware
 import (
 	"context"
 	"encoding/json"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,6 +11,10 @@ import (
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions/entitlement"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 )
 
 func TestVerifiedInternalTestSkipsAllSubscriberAllowanceAndProductReads(t *testing.T) {

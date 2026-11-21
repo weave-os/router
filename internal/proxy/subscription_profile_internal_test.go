@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
@@ -64,7 +65,7 @@ func TestProfileFailureCannotIdentifyEnterpriseOrAuthorizePaidFallback(t *testin
 	service := newServiceWithProviders(t, nil).WithClaudeSubscriptionPlanReader(subscriptionPlanReaderFunc(func(context.Context, []byte) (providers.SubscriptionPlan, error) {
 		return providers.SubscriptionPlanUnknown, errors.New("synthetic profile unavailable")
 	}))
-	ctx := context.WithValue(routerKeyedCtx(), AnthropicSubscriptionContextKey{}, parityAnthropicToken)
+	ctx := context.WithValue(routerKeyedCtx(), requestcontext.AnthropicSubscriptionContextKey{}, parityAnthropicToken)
 	ctx = service.withSubscriptionFundingAuthorization(ctx, nil)
 	require.False(t, claudeEnterpriseOnly(ctx))
 	require.ErrorIs(t, service.subscriptionAPIAuthorization(ctx, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String()), ErrSubscriptionPoolUnavailable)

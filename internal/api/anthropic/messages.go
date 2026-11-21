@@ -51,7 +51,7 @@ func MessagesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc 
 		)
 
 		ctx := stashClientIdentity(c.Request.Context(), c.Request.Header, body)
-		if _, agentShadow := proxy.AgentShadowEvalFromContext(ctx); !agentShadow {
+		if _, agentShadow := requestcontext.AgentShadowEvalFromContext(ctx); !agentShadow {
 			ctx = auth.ResolveUserFromContext(ctx, authSvc, middleware.InstallationFrom(c), middleware.APIKeyFrom(c), requestcontext.CallerFrom(ctx))
 			ctx, err = auth.ResolveRoutingAssignment(ctx, authSvc, middleware.InstallationFrom(c), requestcontext.CallerFrom(ctx))
 			if err != nil {

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
 
@@ -57,7 +58,7 @@ func runClassifierBypassWithContext(t *testing.T, parent context.Context, body, 
 	req.Header.Set("Authorization", "Bearer "+classifierTestSubToken)
 	req.Header.Set("anthropic-version", "2023-06-01")
 	req.Header.Set("anthropic-beta", classifierClientBeta)
-	ctx := context.WithValue(parent, InstallationIDContextKey{}, uuid.New().String())
+	ctx := context.WithValue(parent, requestcontext.InstallationIDContextKey{}, uuid.New().String())
 
 	require.NoError(t, svc.bypassToAnthropic(ctx, env, env.RoutingFeatures(), false, time.Now(), "req-cls-s2", "ext-cls-s2", turntype.Classifier, reasonClassifierPassthrough, req, rec))
 	return upstream, sink

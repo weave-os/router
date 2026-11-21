@@ -14,6 +14,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/armid"
 	"weave-os/router/internal/router/catalog"
@@ -170,9 +171,9 @@ func TestClassifierDispatchUsesConfiguredSubscriptionState(t *testing.T) {
 	svc := withHMMPorts(NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, nil, false, "", "", nil))
 	require.NoError(t, svc.WithClassifierSessions(fixtureService.classifierSessions.config, store, fixtureService.classifierSessions.classifier))
 	ctx := classifierAdmit(t, svc, principal)
-	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{model})
-	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{})
-	ctx = context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
+	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenActiveContextKey{}, []string{model})
+	ctx = context.WithValue(ctx, requestcontext.InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{})
+	ctx = context.WithValue(ctx, requestcontext.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
 	modelRecord, found := catalog.ByID(model)
 	require.True(t, found)
 	arm := armid.ForModel(modelRecord)
@@ -250,7 +251,7 @@ func TestClassifierInputRejectsControlBypasses(t *testing.T) {
 		require.Error(t, err, command)
 	}
 	for _, override := range []context.Context{
-		context.WithValue(ctx, AgentShadowEvalContextKey{}, AgentShadowEvaluation{Model: catalog.ModelIDGPT55.String(), RolloutID: "fixture", StateID: "fixture"}),
+		context.WithValue(ctx, requestcontext.AgentShadowEvalContextKey{}, requestcontext.AgentShadowEvaluation{Model: catalog.ModelIDGPT55.String(), RolloutID: "fixture", StateID: "fixture"}),
 		router.WithPolicyPinRequest(ctx, router.PolicyPinRequest{Authorized: true, Pin: router.PolicyPin{ArtifactSHA256: strings.Repeat("a", 64), RosterSHA256: strings.Repeat("b", 64)}}),
 	} {
 		_, err := svc.withClassifierInput(override, []byte(`{"messages":[{"role":"user","content":"first"}]}`), router.EndpointAnthropicMessages)

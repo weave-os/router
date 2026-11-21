@@ -4,6 +4,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptionlane"
 
 	"github.com/gin-gonic/gin"
@@ -12,7 +13,7 @@ import (
 func WithAPIKeySpendCap(svc *billing.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
-		if _, ok := proxy.AgentShadowEvalFromContext(c.Request.Context()); ok {
+		if _, ok := requestcontext.AgentShadowEvalFromContext(c.Request.Context()); ok {
 			c.Next()
 			return
 		}

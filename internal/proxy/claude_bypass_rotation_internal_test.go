@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
 )
@@ -61,10 +62,10 @@ func TestFundingBypassPartialStreamRecoversOnLinkedSubscription(t *testing.T) {
 				pool := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "spent", AccessToken: "sk-ant-oat01-linked-spent"}, {AccountID: "healthy", AccessToken: "sk-ant-oat01-linked-healthy"}}}
 				svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("synthetic-paid-key", upstream.URL)}, nil, nil, false, providers.ProviderAnthropic, model, nil)).
 					WithManagedSubscriptions(pool).WithUsageObserver(usage.NewObserver([]byte("salt"), time.Minute, time.Now)).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
-				ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderClaude), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-direct-partial")
+				ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderClaude), requestcontext.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-direct-partial")
 				ctx = billing.WithSubscriptionOnly(ctx, reason)
 				if !classifier {
-					ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
+					ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
 				}
 				body := `{"model":"` + model + `","stream":true,"max_tokens":` + strconv.Itoa(maxTokens) + `,"messages":[{"role":"user","content":"hello"}]}`
 				rec := httptest.NewRecorder()
@@ -125,10 +126,10 @@ func TestClaudeBypassDepletedCreditsRotatesLinkedAccounts(t *testing.T) {
 				}
 				svc := withHMMPorts(NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("synthetic-paid-key", upstream.URL)}, nil, nil, false, providers.ProviderAnthropic, model, nil)).
 					WithManagedSubscriptions(pool).WithUsageObserver(usage.NewObserver([]byte("salt"), time.Minute, time.Now)).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
-				ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderClaude), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-direct-spent")
+				ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderClaude), requestcontext.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-direct-spent")
 				ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
 				if !classifier {
-					ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
+					ctx = context.WithValue(ctx, requestcontext.InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
 				}
 				body := `{"model":"` + model + `","max_tokens":` + strconv.Itoa(maxTokens) + `,"messages":[{"role":"user","content":"hello"}]}`
 				rec := httptest.NewRecorder()

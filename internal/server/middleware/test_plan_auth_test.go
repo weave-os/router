@@ -9,14 +9,14 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/server/middleware"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"weave-os/router/internal/auth"
-	"weave-os/router/internal/policyregistry"
-	"weave-os/router/internal/proxy"
-	"weave-os/router/internal/requestcontext"
-	"weave-os/router/internal/server/middleware"
 )
 
 type forbiddenTestSecrets struct{ fakeExternalAPIKeyRepository }
@@ -87,7 +87,7 @@ func TestDirectTestAuthSkipsEmailSubscriptionsAndProviderSecrets(t *testing.T) {
 			engine.POST("/v1/messages", middleware.WithAuth(service, true, &middleware.ServingAdmissionConfig{Decisions: &policyregistry.AdmissionDecisionCache{}, Identity: policyregistry.WorkerIdentity{Target: policyregistry.TargetStable}, TestPlans: testGrantAdmitter{scope: scope}, TestBudgetEnabled: scenario != "disabled budget"}), func(c *gin.Context) {
 				require.Empty(t, middleware.SubscriptionOwnerFrom(c).SubscriberID)
 				require.False(t, auth.RoutingPassthroughFrom(c.Request.Context()), "signed test launches force Router plan routing")
-				require.Nil(t, c.Request.Context().Value(proxy.ExternalAPIKeysContextKey{}))
+				require.Nil(t, c.Request.Context().Value(requestcontext.ExternalAPIKeysContextKey{}))
 				identity := requestcontext.ClientIdentity{Email: "customer@example.com", AccountID: "spoofed", SessionID: "old-session"}
 				ctx := requestcontext.WithClientIdentity(c.Request.Context(), identity)
 				require.Equal(t, subject, requestcontext.ClientIdentityFrom(ctx).AccountID)

@@ -12,6 +12,7 @@ import (
 
 	"weave-os/router/internal/credentials"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -281,7 +282,7 @@ func TestSubscriptionSiblingAllowed(t *testing.T) {
 	t.Run("BYOK keys on the request keep the generic rule", func(t *testing.T) {
 		s := &Service{hmmServing: hmmPorts()}
 		ctx := context.WithValue(context.Background(), CredentialsContextKey{}, oauth)
-		ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderMakora, Plaintext: []byte("mk")}})
+		ctx = context.WithValue(ctx, requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderMakora, Plaintext: []byte("mk")}})
 		assert.False(t, s.subscriptionSiblingAllowed(ctx))
 	})
 	t.Run("BYOK-only deployment never rescues", func(t *testing.T) {

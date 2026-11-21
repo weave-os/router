@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
@@ -22,7 +23,7 @@ func TestUnavailableFederationIsIsolatedToItsProvider(t *testing.T) {
 		{ID: "federation-key", Provider: providers.ProviderAnthropic, AuthType: auth.AuthTypeAnthropicWIF, CredentialError: auth.ErrAnthropicFederationUnavailable},
 		{ID: "openai-key", Provider: providers.ProviderOpenAI, Plaintext: []byte("synthetic-openai-key")},
 	}
-	ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, keys)
+	ctx := context.WithValue(context.Background(), requestcontext.ExternalAPIKeysContextKey{}, keys)
 	model := "claude-opus-5-5"
 	resolvedAnthropic := resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, model, nil)
 	anthropicCredential := CredentialsFromContext(resolvedAnthropic)
@@ -57,11 +58,11 @@ func TestFederationOutageDoesNotBlockOpenAIInference(t *testing.T) {
 	upstream := &bypassFakeProvider{respBody: `{"id":"chatcmpl_1","object":"chat.completion","model":"gpt-5.6-luna","choices":[{"index":0,"message":{"role":"assistant","content":"served"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}`}
 	decision := router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "test"}
 	service := withHMMPorts(NewService(staticRouter{decision: decision}, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-4-8", nil))
-	ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	ctx := context.WithValue(context.Background(), requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{ID: "federation-key", Provider: providers.ProviderAnthropic, AuthType: auth.AuthTypeAnthropicWIF, CredentialError: auth.ErrAnthropicFederationUnavailable},
 		{ID: "openai-key", Provider: providers.ProviderOpenAI, Plaintext: []byte("synthetic-openai-key")},
 	})
-	ctx = context.WithValue(ctx, InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 	body := []byte(`{"model":"claude-opus-4-8","max_tokens":100,"messages":[{"role":"user","content":"hello"}]}`)
 	recorder := httptest.NewRecorder()
 	err := service.ProxyMessages(ctx, body, recorder, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
@@ -78,8 +79,8 @@ func TestFederationOutageFailsClosedOnAnthropicInference(t *testing.T) {
 	client := anthropic.NewClient("synthetic-platform-key", upstream.URL)
 	decision := router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Reason: "test"}
 	service := withHMMPorts(NewService(staticRouter{decision: decision}, map[string]providers.Client{providers.ProviderAnthropic: client}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-4-8", nil))
-	ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{ID: "federation-key", Provider: providers.ProviderAnthropic, AuthType: auth.AuthTypeAnthropicWIF, CredentialError: auth.ErrAnthropicFederationUnavailable}})
-	ctx = context.WithValue(ctx, InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+	ctx := context.WithValue(context.Background(), requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{ID: "federation-key", Provider: providers.ProviderAnthropic, AuthType: auth.AuthTypeAnthropicWIF, CredentialError: auth.ErrAnthropicFederationUnavailable}})
+	ctx = context.WithValue(ctx, requestcontext.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 	body := []byte(`{"model":"claude-opus-4-8","max_tokens":100,"messages":[{"role":"user","content":"hello"}]}`)
 	err := service.ProxyMessages(ctx, body, httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/messages", nil))
 	require.ErrorIs(t, err, auth.ErrAnthropicFederationUnavailable)

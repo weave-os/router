@@ -18,6 +18,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/translate"
@@ -882,7 +883,7 @@ func TestShouldFailover(t *testing.T) {
 		// resolveAndInject re-resolves credentials and would prefer a BYOK key for
 		// the fallback binding, spending the customer's account without intent.
 		s := &Service{hmmServing: hmmPorts()}
-		ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{},
+		ctx := context.WithValue(context.Background(), requestcontext.ExternalAPIKeysContextKey{},
 			[]*auth.ExternalAPIKey{
 				{Provider: providers.ProviderMakora, Plaintext: []byte("mk-byok")},
 			})
@@ -934,7 +935,7 @@ func TestResolveBindingsForDispatch(t *testing.T) {
 	})
 	t.Run("excluded provider cannot be resurrected as a fallback binding", func(t *testing.T) {
 		s := &Service{hmmServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{"fireworks": {}, "openrouter": {}}}}
-		ctx := context.WithValue(context.Background(), InstallationExcludedProvidersContextKey{}, []string{"openrouter"})
+		ctx := context.WithValue(context.Background(), requestcontext.InstallationExcludedProvidersContextKey{}, []string{"openrouter"})
 		bs := s.resolveBindingsForDispatch(ctx, router.Decision{Model: "deepseek/deepseek-v4-pro", Provider: "fireworks"})
 		require.Len(t, bs, 1, "openrouter fallback binding must be filtered out by the provider exclusion")
 		assert.Equal(t, "fireworks", bs[0].Provider)
@@ -943,14 +944,14 @@ func TestResolveBindingsForDispatch(t *testing.T) {
 		// If exclusion filters out every binding, the walk must be empty so
 		// dispatch 502s instead of serving a forbidden provider.
 		s := &Service{hmmServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{"fireworks": {}, "openrouter": {}}}}
-		ctx := context.WithValue(context.Background(), InstallationExcludedProvidersContextKey{}, []string{"fireworks", "openrouter"})
+		ctx := context.WithValue(context.Background(), requestcontext.InstallationExcludedProvidersContextKey{}, []string{"fireworks", "openrouter"})
 		bs := s.resolveBindingsForDispatch(ctx, router.Decision{Model: "deepseek/deepseek-v4-pro", Provider: "fireworks"})
 		assert.Empty(t, bs, "no eligible binding may remain when the primary itself is excluded")
 	})
 	t.Run("catalog-miss model keeps legacy single-attempt primary", func(t *testing.T) {
 		// Catalog-miss model keeps the legacy [primary] walk when primary isn't excluded.
 		s := &Service{hmmServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{"anthropic": {}}}}
-		ctx := context.WithValue(context.Background(), InstallationExcludedProvidersContextKey{}, []string{"openrouter"})
+		ctx := context.WithValue(context.Background(), requestcontext.InstallationExcludedProvidersContextKey{}, []string{"openrouter"})
 		bs := s.resolveBindingsForDispatch(ctx, router.Decision{Model: "not-in-catalog", Provider: "anthropic"})
 		require.Len(t, bs, 1)
 		assert.Equal(t, "anthropic", bs[0].Provider)
@@ -959,7 +960,7 @@ func TestResolveBindingsForDispatch(t *testing.T) {
 		// Defense in depth: routing already filters excluded providers, so this
 		// would be an upstream bug — dispatch must not re-prepend the excluded primary.
 		s := &Service{hmmServing: hmmPorts(), credentials: credentials.Brokerage{KeyedProviders: map[string]struct{}{"fireworks": {}, "openrouter": {}}}}
-		ctx := context.WithValue(context.Background(), InstallationExcludedProvidersContextKey{}, []string{"fireworks"})
+		ctx := context.WithValue(context.Background(), requestcontext.InstallationExcludedProvidersContextKey{}, []string{"fireworks"})
 		bs := s.resolveBindingsForDispatch(ctx, router.Decision{Model: "deepseek/deepseek-v4-pro", Provider: "fireworks"})
 		require.NotEmpty(t, bs)
 		for _, b := range bs {
@@ -1171,7 +1172,7 @@ func TestResolveBindingsForDispatch_LinkedSubscriptionWithoutAPIKey(t *testing.T
 		assert.Empty(t, svc.credentials.KeyedProviders, "linked request must not change deployment credentials")
 	})
 	t.Run("provider exclusions still refuse the binding", func(t *testing.T) {
-		excluded := context.WithValue(ctx, InstallationExcludedProvidersContextKey{}, []string{providers.ProviderOpenAI})
+		excluded := context.WithValue(ctx, requestcontext.InstallationExcludedProvidersContextKey{}, []string{providers.ProviderOpenAI})
 		assert.Empty(t, svc.resolveBindingsForDispatch(excluded, decision))
 	})
 	t.Run("API-only request cannot use linked binding", func(t *testing.T) {

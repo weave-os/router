@@ -8,9 +8,9 @@ import (
 )
 
 func requestFactsFrom(ctx context.Context, headers http.Header) requestcontext.RequestFacts {
-	externalID, _ := ctx.Value(ExternalIDContextKey{}).(string)
-	anthropicSubscription, _ := ctx.Value(AnthropicSubscriptionContextKey{}).(string)
-	openAISubscription, _ := ctx.Value(OpenAISubscriptionContextKey{}).(string)
+	externalID, _ := ctx.Value(requestcontext.ExternalIDContextKey{}).(string)
+	anthropicSubscription, _ := ctx.Value(requestcontext.AnthropicSubscriptionContextKey{}).(string)
+	openAISubscription, _ := ctx.Value(requestcontext.OpenAISubscriptionContextKey{}).(string)
 	return requestcontext.RequestFacts{
 		RequestID:             requestIDFor(ctx),
 		APIKeyID:              apiKeyIDFromContext(ctx),

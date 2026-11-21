@@ -13,6 +13,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
@@ -66,8 +67,8 @@ func TestGatewayCompactionPastEverySummarizerWindowReachesCrossGatewayRescuer(t 
 	svc = svc.WithHardPinResolver(func(HardPinRequest) (string, string, bool) {
 		return providers.ProviderAnthropicGateway, gatewayCompactionOpusModel, true
 	})
-	ctx = context.WithValue(ctx, InstallationAllowedModelsContextKey{}, []string{sol, gatewayCompactionOpusModel})
-	ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	ctx = context.WithValue(ctx, requestcontext.InstallationAllowedModelsContextKey{}, []string{sol, gatewayCompactionOpusModel})
+	ctx = context.WithValue(ctx, requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		gatewayKey(providers.ProviderAnthropicGateway, "https://gateway.example.com/anthropic", gatewayCompactionOpusModel, policy.PrecompactionDefaultModel),
 		gatewayKey(providers.ProviderOpenAIGateway, "https://gateway.example.com/openai", sol),
 	})
@@ -186,7 +187,7 @@ func TestStreamingCompactionOverflowingEverywhereNeverAsksToCompact(t *testing.T
 // the same provider type keeps the catalog window.
 func TestGatewayContextWindowAppliesMeasuredWindowOnlyToCortex(t *testing.T) {
 	windowOn := func(baseURL string) int {
-		ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+		ctx := context.WithValue(context.Background(), requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 			gatewayKey(providers.ProviderOpenAIGateway, baseURL, catalog.ModelGPT6Luna),
 		})
 		return gatewayContextWindow(cortexGatewayProvidersForRequest(ctx), catalog.ModelGPT6Luna, providers.ProviderOpenAIGateway)

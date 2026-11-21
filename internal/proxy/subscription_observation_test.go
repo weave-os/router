@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions/entitlement"
 )
 
@@ -55,7 +56,7 @@ func TestPresentSubscriptionTokens_InboundBearerHarnesses(t *testing.T) {
 func TestPresentSubscriptionTokens_DisabledReportsNone(t *testing.T) {
 	h := http.Header{}
 	h.Set("Authorization", "Bearer sk-ant-oat01-live-token")
-	ctx := context.WithValue(context.Background(), InstallationSubscriptionRoutingDisabledContextKey{}, true)
+	ctx := context.WithValue(context.Background(), requestcontext.InstallationSubscriptionRoutingDisabledContextKey{}, true)
 
 	codex, anthro := presentSubscriptionTokens(ctx, h)
 	assert.Empty(t, anthro, "toggle off must report no Claude sub so billing paths gate prepaid")
@@ -93,6 +94,6 @@ func TestPresentSubscriptionTokens_MaxProductScopeReportsNone(t *testing.T) {
 	assert.Empty(t, codex)
 	assert.False(t, RequestPresentsCoveringSubscription(ctx, h, routePathMessages))
 
-	enrolled := context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
+	enrolled := context.WithValue(ctx, requestcontext.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
 	assert.False(t, RequestPresentsCoveringSubscription(enrolled, http.Header{}, routePathMessages))
 }

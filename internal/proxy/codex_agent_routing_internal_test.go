@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/escalation"
@@ -126,8 +127,8 @@ func TestCodexAgentRoutingIsolation(t *testing.T) {
 	installationID := uuid.New()
 	rootCtx, root := codexRoutingEnvelope(t, "/root", true)
 	childCtx, child := codexRoutingEnvelope(t, "/root/reviewer", true)
-	rootCtx = context.WithValue(context.WithValue(rootCtx, InstallationIDContextKey{}, installationID.String()), APIKeyIDContextKey{}, "synthetic-api-key")
-	childCtx = context.WithValue(context.WithValue(childCtx, InstallationIDContextKey{}, installationID.String()), APIKeyIDContextKey{}, "synthetic-api-key")
+	rootCtx = context.WithValue(context.WithValue(rootCtx, requestcontext.InstallationIDContextKey{}, installationID.String()), requestcontext.APIKeyIDContextKey{}, "synthetic-api-key")
+	childCtx = context.WithValue(context.WithValue(childCtx, requestcontext.InstallationIDContextKey{}, installationID.String()), requestcontext.APIKeyIDContextKey{}, "synthetic-api-key")
 
 	turns := []struct {
 		child      bool

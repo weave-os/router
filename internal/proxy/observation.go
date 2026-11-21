@@ -63,13 +63,13 @@ type observationContext struct {
 }
 
 func buildObservationContext(ports continuity.StrategyPorts, ctx context.Context, strategy router.Strategy, decision, fresh router.Decision, captureMode ContentCaptureMode) observationContext {
-	debugEnabled, _ := ctx.Value(PolicyDebugEnabledContextKey{}).(bool)
+	debugEnabled, _ := ctx.Value(requestcontext.PolicyDebugEnabledContextKey{}).(bool)
 	obs := observationContext{
 		TrainingAllowed: policyTrainingAllowedForRequest(ctx),
 		CaptureMode:     captureMode.String(),
 		RolloutID:       ClientIdentityFrom(ctx).RolloutID,
 	}
-	if rolloutID, ok := ctx.Value(PolicyRolloutIDContextKey{}).(string); ok && rolloutID != "" {
+	if rolloutID, ok := ctx.Value(requestcontext.PolicyRolloutIDContextKey{}).(string); ok && rolloutID != "" {
 		obs.RolloutID = rolloutID
 	}
 	if decision.Metadata != nil || fresh.Model != "" {

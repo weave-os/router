@@ -47,7 +47,7 @@ func WithManagedSubscriptionCandidates(ctx context.Context, accounts []*auth.Sub
 		enrolled[account.Provider] = struct{}{}
 	}
 	ctx = context.WithValue(ctx, managedSubscriptionCandidatesKey{}, candidates)
-	return context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, enrolled)
+	return context.WithValue(ctx, requestcontext.ManagedSubscriptionProvidersContextKey{}, enrolled)
 }
 
 func subscriptionPoolForModel(target inference.Target) (subscriptions.Provider, bool) {
@@ -399,7 +399,7 @@ func missingQuotaSnapshotRefusal(ctx context.Context, pool subscriptions.Provide
 	if snapshotPresent || !billing.WeaveCreditsDeniedFromContext(ctx) {
 		return nil
 	}
-	enrolled, _ := ctx.Value(ManagedSubscriptionProvidersContextKey{}).(map[auth.SubscriptionProvider]struct{})
+	enrolled, _ := ctx.Value(requestcontext.ManagedSubscriptionProvidersContextKey{}).(map[auth.SubscriptionProvider]struct{})
 	if _, present := enrolled[auth.SubscriptionProvider(pool)]; present {
 		return subscriptionPoolUnavailableBecause(ctx, "enrolled pool has no quota snapshot")
 	}

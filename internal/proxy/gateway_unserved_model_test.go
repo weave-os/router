@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 
@@ -66,7 +67,7 @@ func ctxWithGatewayAliases(installationID string, models ...string) context.Cont
 		BaseURL:        "https://cortex.example.com/api/v2/cortex",
 		ModelAliases:   aliases,
 	}
-	return context.WithValue(authedCtx(installationID), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{key})
+	return context.WithValue(authedCtx(installationID), requestcontext.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{key})
 }
 
 // Prod 2026-08-28: a gateway key aliased a model the endpoint does not serve;

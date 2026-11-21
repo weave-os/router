@@ -11,7 +11,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions/entitlement"
 
@@ -370,15 +370,15 @@ func runMiddlewarePrep(t *testing.T, repo billing.Repo, routePath string, prep f
 
 // stashAnthropicSub plants a Claude OAuth value on the request context.
 func stashAnthropicSub(c *gin.Context, value string) {
-	ctx := context.WithValue(c.Request.Context(), proxy.AnthropicSubscriptionContextKey{}, value)
+	ctx := context.WithValue(c.Request.Context(), requestcontext.AnthropicSubscriptionContextKey{}, value)
 	c.Request = c.Request.WithContext(ctx)
 }
 
 // stashCodexSub plants a dedicated Codex subscription (JWT + account id) on the
 // request context the way WithAuth does. Both are required for a usable Codex sub.
 func stashCodexSub(c *gin.Context, token, accountID string) {
-	ctx := context.WithValue(c.Request.Context(), proxy.OpenAISubscriptionContextKey{}, token)
-	ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, accountID)
+	ctx := context.WithValue(c.Request.Context(), requestcontext.OpenAISubscriptionContextKey{}, token)
+	ctx = context.WithValue(ctx, requestcontext.OpenAIAccountIDContextKey{}, accountID)
 	c.Request = c.Request.WithContext(ctx)
 }
 
@@ -645,7 +645,7 @@ func runBalanceWithKeys(t *testing.T, feeRate float64, keys []*auth.ExternalAPIK
 	reached := false
 	engine.GET("/v1/messages", func(c *gin.Context) {
 		withInstallation(c, "org_keys")
-		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), proxy.ExternalAPIKeysContextKey{}, keys))
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), requestcontext.ExternalAPIKeysContextKey{}, keys))
 		middleware.WithBalanceCheck(billing.NewService(&stubBillingRepo{balance: 0}).WithByokFeeRate(feeRate), 0)(c)
 		if c.IsAborted() {
 			return
