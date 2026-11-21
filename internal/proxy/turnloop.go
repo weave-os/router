@@ -501,7 +501,7 @@ func (s *Service) runTurnLoop(
 		forceModelFound = true
 	}
 	if !forceModelFound {
-		forceModelPin, forceModelFound, forceModelCleared = s.loadForceModelSessionPin(ctx, forceModelSessionKey, threadSessionKey, turntype.IsSubAgent(env, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx))))
+		forceModelPin, forceModelFound, forceModelCleared = routingpolicy.NewForceModelPins(s.pinStore, s.clock.Now).Load(ctx, forceModelSessionKey, sessionKeyHex(threadSessionKey), turntype.IsSubAgent(env, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx))))
 	}
 	if forcePinBindsNonClassifierTurn(forceModelFound, res.TurnType) {
 		binding, refusal := s.forcedModelBinding(ctx, forceModelPin.Model, forceModelPin.Provider)
@@ -971,142 +971,11 @@ func (s *Service) runTurnLoop(
 		pin = sessionpin.Pin{}
 	}
 
-	if pinFound && !isUserForcedReason(pin.Reason) && automaticallyDisabled(req, pin.Model) {
-		reason, _ := s.globalAutomaticExclusionReason(ctx, pin.Model)
-		log.Info("Session pin model is disabled for automatic routing; falling through to scorer",
-			"pin_model", pin.Model,
-			"pin_provider", pin.Provider,
-			"pin_reason", pin.Reason,
-			"disable_reason", reason,
-			"role", res.PinRole,
-		)
-		pinFound = false
-		pin = sessionpin.Pin{}
-	}
-
-	if maxedModel := maxedOutServedModel(pin); pinFound && maxedModel != "" {
-		log.Info("Session pin maxed out on previous turn; excluding for this turn",
-			"pin_model", pin.Model,
-			"pin_provider", pin.Provider,
-			"maxed_model", maxedModel,
-			"last_output_tokens", pin.LastOutputTokens,
-		)
-		excluded := make(map[string]struct{}, len(req.Candidates.ExcludedModels)+1)
-		for k := range req.Candidates.ExcludedModels {
-			excluded[k] = struct{}{}
-		}
-		excluded[maxedModel] = struct{}{}
-		req.Candidates.ExcludedModels = excluded
-		req.Candidates.SafetyExcludedModels = addToSet(req.Candidates.SafetyExcludedModels, maxedModel)
-		pinFound = false
-		pin = sessionpin.Pin{}
-	}
-	if maxedModel := maxedOutServedModel(hmmHistory); maxedModel != "" {
-		log.Info("HMM history maxed out on previous turn; excluding for this turn",
-			"history_provider", hmmHistory.Provider,
-			"maxed_model", maxedModel,
-			"last_output_tokens", hmmHistory.LastOutputTokens,
-		)
-		excluded := make(map[string]struct{}, len(req.Candidates.ExcludedModels)+1)
-		for k := range req.Candidates.ExcludedModels {
-			excluded[k] = struct{}{}
-		}
-		excluded[maxedModel] = struct{}{}
-		req.Candidates.ExcludedModels = excluded
-		req.Candidates.SafetyExcludedModels = addToSet(req.Candidates.SafetyExcludedModels, maxedModel)
-		if pinFound && baseModelOf(pin.Model) == maxedModel {
-			pinFound = false
-			pin = sessionpin.Pin{}
-		}
-	}
-
-	if pinFound && advisorRejectsModel(env, pin.Model) {
-		log.Info("Session pin dropped: the request's advisor tool cannot advise the pinned model",
-			"pin_model", pin.Model,
-			"advisor_model", env.AdvisorToolModel(),
-		)
-		pinFound = false
-		pin = sessionpin.Pin{}
-	}
-
-	if pinFound {
-		if _, overCapacity := req.Candidates.ExcludedModels[pin.Model]; overCapacity {
-			outputReserveForPin := contextWindowOutputReserve
-			if feats.MaxTokens > outputReserveForPin {
-				outputReserveForPin = feats.MaxTokens
-			}
-			pinTokenEstimate := env.ContextOverflowTokenEstimate()
-			if modelStripsAnthropicSignatures(pin.Model) {
-				pinTokenEstimate -= env.SignatureTokenSavings()
-			}
-			if projected, ok := res.TokenizerCalibration.ProjectedPrompt(tokenizerFamilyFor(pin.Provider), res.ContextEstimate); ok && projected > pinTokenEstimate {
-				pinTokenEstimate = projected
-			}
-			needed := pinTokenEstimate + outputReserveForPin
-			modelCW := gatewayContextWindow(cortexGatewayProvidersForRequest(ctx), pin.Model, pin.Provider)
-			if needed > modelCW {
-				log.Info("Session pin excluded by context-window pre-filter; falling through to scorer",
-					"pin_model", pin.Model,
-					"pin_provider", pin.Provider,
-					"token_estimate", pinTokenEstimate,
-					"needed", needed,
-					"model_context_window", modelCW,
-				)
-				pinFound = false
-				pin = sessionpin.Pin{}
-			} else {
-				policyExcluded := s.excludedModelsForRequest(ctx)
-				_, policyExcludes := policyExcluded[pin.Model]
-				if !policyExcludes && !compatibilityExcludesModel(req, pin.Model) {
-					if len(req.Candidates.ExcludedModels) > 0 {
-						pruned := make(map[string]struct{}, len(req.Candidates.ExcludedModels)-1)
-						for k := range req.Candidates.ExcludedModels {
-							if k != pin.Model {
-								pruned[k] = struct{}{}
-							}
-						}
-						req.Candidates.ExcludedModels = pruned
-					}
-					delete(req.Candidates.SafetyExcludedModels, pin.Model)
-				}
-				log.Info("Session pin preserved despite context-window pre-filter exclusion",
-					"pin_model", pin.Model,
-					"token_estimate", pinTokenEstimate,
-					"needed", needed,
-					"model_context_window", modelCW,
-				)
-			}
-		}
-	}
-
-	if pinFound && !modelInRequestSubset(ctx, pin.Model) {
-		log.Info("Session pin outside request allowed-models subset; falling through to scorer",
-			"pin_model", pin.Model,
-			"pin_provider", pin.Provider,
-		)
-		pinFound = false
-	}
-
-	if pinFound && req.EnabledProviders != nil {
-		if _, ok := req.EnabledProviders[pin.Provider]; !ok {
-			log.Info("Session pin provider not in enabled set; falling through to scorer",
-				"pin_model", pin.Model,
-				"pin_provider", pin.Provider,
-			)
-			pinFound = false
-			pin = sessionpin.Pin{}
-		}
-	}
-
-	if pinFound && req.HasImages && (!catalog.AcceptsImages(pin.Model) ||
-		req.ImageCount > 0 && !catalog.AcceptsImageCount(pin.Model, req.ImageCount, req.EnabledProviders)) {
-		log.Info("Session pin is text-only for image-bearing turn; falling through to scorer",
-			"pin_model", pin.Model,
-			"pin_provider", pin.Provider,
-		)
-		pinFound = false
-		pin = sessionpin.Pin{}
-	}
+	reusable := turnPin{pin: pin, found: pinFound}
+	dropPinRuledOutLastTurn(ctx, s, env, &req, &res, &reusable, hmmHistory)
+	screenPinContextWindow(ctx, s, env, feats, &res, &req, &reusable)
+	screenPinForRequest(ctx, req, &reusable)
+	pin, pinFound = reusable.pin, reusable.found
 	if !pinFound {
 		clearPinEvidence(&res)
 	}
