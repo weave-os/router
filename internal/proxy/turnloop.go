@@ -1036,44 +1036,20 @@ func (s *Service) runTurnLoop(
 		}
 
 		if !pinFound && pin.Model != "" && !prefixBroken {
-			pinTier := catalog.TierFor(pin.Model)
-			freshTier := catalog.TierFor(fresh.Model)
-			if pinTier != catalog.TierUnknown && freshTier != catalog.TierUnknown && freshTier <= pinTier {
-				if _, excluded := req.Candidates.ExcludedModels[pin.Model]; !excluded && !automaticallyDisabled(req, pin.Model) {
-					if _, available := s.availableModels[pin.Model]; available {
-						_, providerOK := req.EnabledProviders[pin.Provider]
-						if req.EnabledProviders == nil || providerOK {
-							if maxedOutServedModel(pin) != "" {
-								log.Info("Expired session pin maxed out on previous turn; skipping re-anchor",
-									"pin_model", pin.Model,
-									"pin_provider", pin.Provider,
-									"last_output_tokens", pin.LastOutputTokens,
-								)
-							} else if req.HasImages && (!catalog.AcceptsImages(pin.Model) ||
-								req.ImageCount > 0 && !catalog.AcceptsImageCount(pin.Model, req.ImageCount, req.EnabledProviders)) {
-								log.Info("Expired session pin is text-only for image-bearing turn; skipping re-anchor",
-									"pin_model", pin.Model,
-									"pin_provider", pin.Provider,
-								)
-							} else {
-								priorDecision := pinDecision(pin)
-								res.Decision = priorDecision
-								res.StickyHit = true
-								res.PinTier = "postgres_reanchor"
-								sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, priorDecision)
-								log.Info("router re-anchored expired session pin",
-									"prior_model", pin.Model,
-									"prior_provider", pin.Provider,
-									"fresh_model", fresh.Model,
-									"fresh_provider", fresh.Provider,
-									"prior_tier", pinTier.String(),
-									"fresh_tier", freshTier.String(),
-								)
-								return res, nil
-							}
-						}
-					}
-				}
+			switch continuity.JudgeReanchor(pin, fresh, req, s.availableModels) {
+			case continuity.ReanchorNone:
+			case continuity.ReanchorSkipMaxedOut:
+				log.Info("Expired session pin maxed out on previous turn; skipping re-anchor", "pin_model", pin.Model, "pin_provider", pin.Provider, "last_output_tokens", pin.LastOutputTokens)
+			case continuity.ReanchorSkipTextOnly:
+				log.Info("Expired session pin is text-only for image-bearing turn; skipping re-anchor", "pin_model", pin.Model, "pin_provider", pin.Provider)
+			case continuity.ReanchorServe:
+				priorDecision := pinDecision(pin)
+				res.Decision = priorDecision
+				res.StickyHit = true
+				res.PinTier = "postgres_reanchor"
+				sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, priorDecision)
+				log.Info("router re-anchored expired session pin", "prior_model", pin.Model, "prior_provider", pin.Provider, "fresh_model", fresh.Model, "fresh_provider", fresh.Provider, "prior_tier", catalog.TierFor(pin.Model).String(), "fresh_tier", catalog.TierFor(fresh.Model).String())
+				return res, nil
 			}
 		}
 
@@ -1094,23 +1070,21 @@ func (s *Service) runTurnLoop(
 		}, plannerConfigFor(ctx, s.continuityConfig.Planner))
 		res.PlannerDecision = decision
 
-		if decision.Outcome == planner.OutcomeStay && pinFound {
+		outcome := continuity.Settle(decision, pinFound, prefixBroken)
+		if outcome.Stay {
 			anchor := pinDecision(pin)
 			served := s.bandSwapServed(ctx, res.TurnType, pin, fresh, req.HasImages, req.ImageCount, req.EnabledProviders, req.Candidates.ExcludedModels)
 			res.Decision = served
 			res.StickyHit = true
-			res.PinTier = "postgres_stay_" + decision.Reason
+			res.PinTier = outcome.PinTier
 			sessionPins.Refresh(ctx, installationID, res.SessionKey, pin, res.PinRole, anchor)
 			return res, nil
 		}
 
-		if pinFound && prefixBroken {
-			log.Info("Handover summarizer skipped: client history trim already bounded this switch turn",
-				"pin_model", pin.Model,
-				"fresh_model", fresh.Model,
-			)
+		if outcome.Handover == continuity.HandoverSkippedTrimmedHistory {
+			log.Info("Handover summarizer skipped: client history trim already bounded this switch turn", "pin_model", pin.Model, "fresh_model", fresh.Model)
 		}
-		if pinFound && !prefixBroken {
+		if outcome.Handover == continuity.HandoverSummarize {
 			var (
 				sumProvider       string
 				sumCreds          *Credentials
@@ -1159,8 +1133,8 @@ func (s *Service) runTurnLoop(
 		}
 
 		res.Decision = fresh
-		if pinFound {
-			res.PinTier = "switch_" + decision.Reason
+		if outcome.PinTier != "" {
+			res.PinTier = outcome.PinTier
 		}
 		sessionPins.WriteNew(ctx, installationID, res.SessionKey, res.PinRole, fresh)
 		return res, nil
