@@ -125,8 +125,7 @@ type Service struct {
 	nativeAnthropicResponseSignals bool
 	nativeOpenAIResponseSignals    bool
 	allowedModelsHeader            bool
-	committedStreamArmDemotion     bool
-	rescuedFailureArmDemotion      bool
+	armDemotion                    dispatch.ArmDemotionPolicy
 	throttling                     dispatch.Throttling
 	ingress                        ingress.Formats
 	cyberRefusalFallbackModel      string
@@ -1074,12 +1073,12 @@ func (s *Service) WithOpenAIResponsesBroad(enabled bool) *Service {
 }
 
 func (s *Service) WithCommittedStreamArmDemotion(enabled bool) *Service {
-	s.committedStreamArmDemotion = enabled
+	s.armDemotion.CommittedStream = enabled
 	return s
 }
 
 func (s *Service) WithRescuedFailureArmDemotion(enabled bool) *Service {
-	s.rescuedFailureArmDemotion = enabled
+	s.armDemotion.RescuedFailure = enabled
 	return s
 }
 
@@ -4054,20 +4053,7 @@ func logBillingDebitFailure(ctx context.Context, p billing.DebitInferenceParams,
 	)
 }
 
-func upstreamStatus(err error) int {
-	if err == nil {
-		return http.StatusOK
-	}
-	var statusErr *providers.UpstreamStatusError
-	if errors.As(err, &statusErr) {
-		return statusErr.Status
-	}
-	var bufferedErr *providers.UpstreamErrorResponse
-	if errors.As(err, &bufferedErr) {
-		return bufferedErr.Status
-	}
-	return 0
-}
+func upstreamStatus(err error) int { return dispatch.UpstreamStatus(err) }
 
 func finalizeAfterProxy(proxyErr error, fn func() error) error {
 	var statusErr *providers.UpstreamStatusError
