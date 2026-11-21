@@ -145,14 +145,14 @@ func isEnvReadObject(object types.Object) bool {
 func compareEnvReads(measured, allowlist map[string]int) []string {
 	var violations []string
 	for _, file := range sortedStrings(append(slices.Collect(mapKeys(measured)), slices.Collect(mapKeys(allowlist))...)) {
-		have, budget := measured[file], allowlist[file]
+		measuredCount, budget := measured[file], allowlist[file]
 		switch {
-		case have > budget:
-			violations = append(violations, fmt.Sprintf("%s: %d environment reads (allowlist %d)", file, have, budget))
-		case have == 0:
+		case measuredCount > budget:
+			violations = append(violations, fmt.Sprintf("%s: %d environment reads (allowlist %d)", file, measuredCount, budget))
+		case measuredCount == 0:
 			violations = append(violations, fmt.Sprintf("%s: no environment reads left: delete its envReadAllowlist entry", file))
-		case have < budget:
-			violations = append(violations, fmt.Sprintf("%s: %d environment reads: lower its envReadAllowlist entry from %d to %d, the allowlist only goes down", file, have, budget, have))
+		case measuredCount < budget:
+			violations = append(violations, fmt.Sprintf("%s: %d environment reads: lower its envReadAllowlist entry from %d to %d, the allowlist only goes down", file, measuredCount, budget, measuredCount))
 		}
 	}
 	return violations
